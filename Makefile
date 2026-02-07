@@ -1,6 +1,11 @@
 ROOT := $(shell pwd)
 
-.PHONY: build install uninstall
+.PHONY: setup build install uninstall
+
+setup:
+	pnpm install
+	pnpm build
+	./scripts/install-local.sh
 
 build:
 	pnpm build

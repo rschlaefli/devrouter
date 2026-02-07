@@ -12,6 +12,7 @@ import {
 type UpsertHostRouteInput = {
   name: string;
   host: string;
+  protocol?: "http";
   repoPath: string;
   port: number;
   mode: "run" | "attach";
@@ -125,6 +126,7 @@ export function upsertHostRoute(input: UpsertHostRouteInput): HostRouteState {
     id,
     name: input.name,
     host: input.host,
+    protocol: input.protocol ?? "http",
     repoPath: input.repoPath,
     port: input.port,
     mode: input.mode,
@@ -190,6 +192,7 @@ export function listHostRoutes(tlsEnabled: boolean): Route[] {
   return routes.map((route) => ({
     id: route.id,
     source: "host",
+    protocol: "http",
     serviceName: route.name,
     projectName: path.basename(route.repoPath),
     hosts: [route.host],

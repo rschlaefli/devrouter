@@ -1,13 +1,5 @@
-import { listHostRouteState } from "../core/host-routes";
-import { printHostRouteState, printJSON } from "../core/output";
-
-export async function runHostLsCommand(json: boolean): Promise<void> {
-  const routes = listHostRouteState();
-
-  if (json) {
-    printJSON(routes);
-    return;
-  }
-
-  printHostRouteState(routes);
+export async function runHostLsCommand(): Promise<void> {
+  throw new Error(
+    "Legacy command 'dev host ls' is no longer supported. Use 'dev app ls [--repo <path>] [--json]'."
+  );
 }

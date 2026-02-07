@@ -1,205 +1,108 @@
 # devrouter
 
-Local-first routing for multiple Docker Compose projects on macOS, without port juggling.
+Local-first routing for macOS development with one shared Traefik router.
 
-## Why this exists
+## What it solves
 
-When multiple projects run locally, they often clash on host ports (`3000`, `8080`, `5432`, etc.).
-This project introduces one shared local router on `80/443` and routes apps by hostname:
+Run multiple repos concurrently without manual port juggling:
 
-- `app-a.localhost`
-- `app-b.localhost`
+- HTTP apps by hostname: `web.localhost`, `api.localhost`
+- PostgreSQL DBs by hostname on shared `:5432` via TLS/SNI: `db.localhost`
 
-No random host ports per app are required.
+Traefik owns:
 
-## Current MVP (implemented)
+- `:80` (HTTP)
+- `:443` (HTTPS)
+- `:5432` (Postgres TCP routing)
 
-This repository now contains a TypeScript CLI (`dev`) with a deliberately small, explainable scope:
+## Unified repo config
 
-- `dev up` / `dev down`
+Each repo now uses one file:
+
+- `.devrouter.yml`
+
+This is the only supported per-repo config for app routing/runtime definitions.
+
+## Core commands
+
+- `dev up`
+- `dev down`
 - `dev status [--json]`
 - `dev ls [--json]`
 - `dev open <name>`
-- `dev add --service <svc> --port <internalPort> ...`
 - `dev tls install`
-- `dev host run --name <route>`
-- `dev host attach --name <route>`
-- `dev host ls [--json]`
-- `dev host rm --name <route>`
+- `dev repo init [--repo <path>]`
+- `dev app add ...`
+- `dev app ls [--repo <path>] [--json]`
+- `dev app run <name> [--repo <path>] [--yes]`
+- `dev app rm <name> [--repo <path>]`
 
-Core behavior:
+Legacy commands (`dev add`, `dev host ...`) are hard-cutovered and return migration guidance.
 
-- Manages shared Traefik stack under `~/.config/devrouter`
-- Ensures shared Docker network `devnet` exists (bridge + attachable)
-- Uses Docker labels as source of truth (no central registry file)
-- Supports mkcert TLS for `localhost` and `*.localhost`
-- Enables HTTP -> HTTPS redirect once TLS is installed
-- Generates per-repo `docker-compose.devrouter.yml` via `dev add`
-- Supports host-run app routing via per-repo `devrouter.host.yml`
+## `.devrouter.yml` example
 
-## Architecture (minimal modules)
+```yaml
+version: 1
+project:
+  name: my-repo
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: host
+    hostRun:
+      command: pnpm dev
+      cwd: .
+      strategy:
+        type: auto
+        denyPorts: [80, 443, 5432]
+        allowPortRange: "1024-65535"
+    dependencies:
+      - app: db
 
-Code is intentionally modular but small:
-
-- `src/cli.ts`: command registration and top-level UX
-- `src/commands/*`: thin handlers only
-- `src/core/router.ts`: router filesystem + Traefik templates + compose lifecycle
-- `src/core/docker.ts`: Docker context/client/network/container helpers
-- `src/core/routes.ts`: Traefik host-rule parsing + duplicate hostname detection
-- `src/core/add-app.ts`: generate/update repo override file
-- `src/core/tls.ts`: mkcert bootstrap + TLS activation
-- `src/core/host-config.ts`: load/validate `devrouter.host.yml`
-- `src/core/host-routes.ts`: persist generated host routes + Traefik host-routes file
-- `src/core/host-process.ts`: run/attach process monitoring + dynamic port detection
-- `src/core/output.ts`: human table + JSON output
-- `src/types.ts`: shared types
-
-## Getting Started
-
-For prerequisites, install, localhost domain notes (`/etc/hosts`), first boot, and TLS setup:
-
-- [`GETTING_STARTED.md`](./GETTING_STARTED.md)
-
-Repository onboarding (adapting any app repo to devrouter):
-
-- [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
-
-## Command reference
-
-### `dev up`
-
-- Ensures `devnet`
-- Ensures router files in `~/.config/devrouter`
-- Checks host port conflicts on `80/443`
-- Starts Traefik stack with `docker compose -f ~/.config/devrouter/compose.yml up -d`
-
-### `dev down`
-
-- Stops shared router stack only
-
-### `dev status [--json]`
-
-Shows:
-
-- active Docker context
-- router container state
-- port bindings (`80`, `443`, `8080`)
-- `devnet` existence
-- TLS config/cert state
-
-### `dev ls [--json]`
-
-Lists discovered routes from containers that:
-
-- are connected to `devnet`
-- have `traefik.enable=true`
-- define router rules like `Host(\`name.localhost\`)`
-
-Warns on duplicate hostnames.
-
-### `dev open <name>`
-
-Opens a route by service name, container name, or hostname (must resolve uniquely).
-
-### `dev add --service ... --port ...`
-
-Creates/updates `docker-compose.devrouter.yml` in the current repo:
-
-- joins service to `devnet`
-- adds Traefik labels
-- sets load balancer target internal port
-
-### `dev tls install`
-
-- ensures `mkcert` (via Homebrew if needed)
-- runs `mkcert -install`
-- generates certs into `~/.config/devrouter/certs`
-- updates Traefik dynamic TLS config + redirect
-
-### `dev host run --name <route> [--repo <path>]`
-
-- reads route config from `<repo>/devrouter.host.yml`
-- starts the configured command
-- detects active listening port (excluding `80/443`)
-- maps stable host to `host.docker.internal:<detected-port>`
-
-### `dev host attach --name <route> [--repo <path>]`
-
-- attaches route syncing to an already running host process from config
-
-### `dev host ls [--json]`
-
-- lists host-route state currently managed by devrouter
-
-### `dev host rm --name <route> [--repo <path>]`
-
-- removes a generated host route entry from devrouter state
-
-## Files managed under `~/.config/devrouter`
-
-- `compose.yml`
-- `traefik/traefik.yml`
-- `traefik/dynamic/base.yml`
-- `traefik/dynamic/host-routes.yml`
-- `host-routes-state.json`
-- `certs/localhost.pem`
-- `certs/localhost-key.pem`
-- `README.md` (state-local notes)
-
-## Label contract for app services
-
-`dev add` writes this model:
-
-- `traefik.enable=true`
-- `traefik.docker.network=devnet`
-- `traefik.http.routers.<router>.rule=Host(\`<name>.localhost\`)`
-- `traefik.http.services.<router>.loadbalancer.server.port=<internalPort>`
-
-## Troubleshooting
-
-### `dev up` fails due ports 80/443
-
-Find blockers:
-
-```bash
-lsof -nP -iTCP:80 -sTCP:LISTEN
-lsof -nP -iTCP:443 -sTCP:LISTEN
+  - name: db
+    host: db.localhost
+    protocol: tcp
+    tcpProtocol: postgres
+    runtime: docker
+    docker:
+      service: db
+      internalPort: 5432
+      composeFiles:
+        - docker-compose.yml
 ```
 
-Stop conflicting process/container and retry `dev up`.
+Notes:
 
-### No routes in `dev ls`
+- TCP mode currently supports PostgreSQL first (`tcpProtocol: postgres`).
+- Multi-DB hostname routing on shared `:5432` requires TLS/SNI.
+- Plaintext Postgres is not supported for multiplexed hostname routing.
 
-Check that service:
+## Runtime behavior
 
-- is on `devnet`
-- has `traefik.enable=true`
-- has valid `Host(...)` rule label
+`dev app run <name>`:
 
-### HTTPS not showing in `dev ls`
+- reads `.devrouter.yml`
+- prompts to start declared dependencies (or use `--yes`)
+- starts only declared docker dependency services
+- starts host app command for host runtime apps
+- generates docker overlay in `~/.config/devrouter/cache/...` for docker runtime apps
 
-Run:
+## Router state
 
-```bash
-dev tls install
-dev status
-```
+Global managed artifacts remain under:
 
-Ensure cert files exist in `~/.config/devrouter/certs`.
+- `~/.config/devrouter/compose.yml`
+- `~/.config/devrouter/traefik/traefik.yml`
+- `~/.config/devrouter/traefik/dynamic/base.yml`
+- `~/.config/devrouter/traefik/dynamic/host-routes.yml`
+- `~/.config/devrouter/host-routes-state.json`
+- `~/.config/devrouter/cache/...`
+- `~/.config/devrouter/certs/*`
 
-## Current validation summary
+## Docs
 
-Validated during implementation:
-
-- build and typecheck pass
-- `dev status`, `dev ls`, `dev add`, `dev tls install` work
-- duplicate hostname warning works
-- route discovery works with labeled temporary test containers
-
-Known environmental blocker observed on this machine:
-
-- existing process was already binding `80/443`, preventing `dev up` from taking ownership until those ports are freed
-
-## Future work
-
-See `PLAN.md` for roadmap items (`db` helpers, optional DNS command, packaging/publishing, tests/CI).
+- Setup and bootstrapping: [`GETTING_STARTED.md`](./GETTING_STARTED.md)
+- Onboarding repositories and AI prompt: [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
+- Agent contributor guide: [`AGENTS.md`](./AGENTS.md)
+- Roadmap: [`PLAN.md`](./PLAN.md)

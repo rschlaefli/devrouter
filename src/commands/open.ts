@@ -16,6 +16,14 @@ export async function runOpenCommand(name: string): Promise<void> {
     throw new Error(`Route '${name}' has no URL.`);
   }
 
+  if (route.protocol !== "http") {
+    process.stdout.write(`Route '${route.serviceName}' is ${route.protocol}: ${url}\n`);
+    process.stdout.write(
+      "Use a TLS-enabled Postgres client (for example: psql \"host=<host> port=5432 sslmode=require ...\").\n"
+    );
+    return;
+  }
+
   const result = spawnSync("open", [url], { encoding: "utf-8" });
   if (result.status !== 0) {
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();

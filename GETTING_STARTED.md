@@ -1,16 +1,16 @@
 # GETTING_STARTED.md
 
-Setup and first-run guide for `devrouter`.
+Setup and first-run guide for `devrouter` using the unified `.devrouter.yml` model.
 
 ## 1) Prerequisites
 
 - macOS
-- Docker CLI + running daemon (active Docker context is used; OrbStack works)
+- Docker daemon + CLI
 - Node `>=22`
 - pnpm
-- Homebrew (recommended; needed if `mkcert` must be installed automatically)
+- Homebrew (recommended for automatic mkcert install)
 
-Check quickly:
+Quick checks:
 
 ```bash
 docker --version
@@ -19,7 +19,7 @@ node -v
 pnpm -v
 ```
 
-## 2) Install the CLI from this repo
+## 2) Install CLI locally
 
 From `/Volumes/MOBILE/Git/devrouter`:
 
@@ -29,11 +29,9 @@ pnpm build
 make install
 ```
 
-This installs a wrapper at:
+This installs `~/bin/dev`.
 
-- `~/bin/dev`
-
-If `~/bin` is not in `PATH`, add:
+If needed:
 
 ```bash
 export PATH="$HOME/bin:$PATH"
@@ -45,138 +43,144 @@ Verify:
 dev --help
 ```
 
-## 3) `localhost` domain behavior and `/etc/hosts`
+## 3) Localhost resolution notes
 
-Important:
+- Modern browsers resolve `*.localhost` to loopback.
+- `/etc/hosts` does not support wildcard records.
+- This tool does not mutate system DNS files in MVP.
 
-- Modern browsers generally resolve `*.localhost` to loopback automatically.
-- `/etc/hosts` does **not** support wildcard entries like `*.localhost`.
-
-So by default:
-
-- no `/etc/hosts` change is required
-- no system DNS/resolver files are modified by this MVP
-
-If your environment does not resolve `*.localhost` correctly, temporary fallback is adding explicit hostnames (not wildcards) in `/etc/hosts`, for example:
+Fallback for specific hostnames only:
 
 ```text
 127.0.0.1 app.localhost
-127.0.0.1 api.localhost
+127.0.0.1 db.localhost
 ```
 
-This is only a workaround for specific hostnames. A broader DNS setup command is planned for a later version.
-
-## 4) Bootstrap shared router
+## 4) Start shared router
 
 ```bash
 dev up
 dev status
 ```
 
-What this does:
+Expected bound ports:
 
-- ensures Docker network `devnet` exists
-- ensures router files exist under `~/.config/devrouter`
-- starts Traefik on host ports `80` and `443`
+- `80`
+- `443`
+- `5432`
 
-If `dev up` fails due port conflicts:
+If startup fails due conflicts:
 
 ```bash
 lsof -nP -iTCP:80 -sTCP:LISTEN
 lsof -nP -iTCP:443 -sTCP:LISTEN
+lsof -nP -iTCP:5432 -sTCP:LISTEN
 ```
 
-Stop conflicting services/containers and re-run `dev up`.
+## 5) Initialize a repository
 
-## 5) Add an app to routing
-
-In your app repository:
+In the target repo:
 
 ```bash
-dev add --service app --port 3000 --host app.localhost
-docker compose -f docker-compose.yml -f docker-compose.devrouter.yml up
+dev repo init
 ```
 
-Then open:
+This creates:
 
-- `http://app.localhost`
+- `.devrouter.yml`
 
-## 6) Host-run app mode (app outside Docker)
+## 6) Add apps to `.devrouter.yml`
 
-Use this when the app runs directly on your Mac (for example `pnpm dev`) while DB/services stay in Docker.
-
-Create `<repo>/devrouter.host.yml`:
-
-```yaml
-version: 1
-routes:
-  - name: app
-    host: app.localhost
-    mode: host
-    command: pnpm dev
-    cwd: .
-    strategy:
-      type: auto
-      denyPorts: [80, 443]
-      allowPortRange: "1024-65535"
-```
-
-Then run:
+HTTP host-run app:
 
 ```bash
-dev host run --name app
+dev app add \
+  --name web \
+  --host web.localhost \
+  --protocol http \
+  --runtime host \
+  --command "pnpm dev" \
+  --cwd .
 ```
 
-This keeps the stable hostname (`app.localhost`) while the underlying app port may change.
+PostgreSQL docker app:
 
-## 7) Enable TLS (optional but recommended)
+```bash
+dev app add \
+  --name db \
+  --host db.localhost \
+  --protocol tcp \
+  --runtime docker \
+  --tcp-protocol postgres \
+  --service db \
+  --port 5432 \
+  --compose-file docker-compose.yml
+```
+
+Optional dependency link:
+
+```bash
+dev app add \
+  --name web \
+  --host web.localhost \
+  --protocol http \
+  --runtime host \
+  --command "pnpm dev" \
+  --cwd . \
+  --depends-on db
+```
+
+## 7) Run apps
+
+```bash
+dev app run web
+```
+
+If dependencies are declared, CLI prompts whether to start them.
+
+For automation/non-interactive usage:
+
+```bash
+dev app run web --yes
+```
+
+## 8) Enable TLS (recommended)
 
 ```bash
 dev tls install
 dev status
 ```
 
-This will:
+Then:
 
-- install `mkcert` via Homebrew if missing
-- run `mkcert -install`
-- generate certs in `~/.config/devrouter/certs`
-- configure Traefik TLS + HTTP -> HTTPS redirect
+- HTTP routes resolve as `https://...`
+- PostgreSQL routing is available on `:5432` via TLS/SNI hostnames
 
-After this, routes are reported as `https://...` by `dev ls`.
+## 9) Inspect routes
 
-## 8) Core commands you will use daily
+```bash
+dev ls
+```
 
-- `dev up`
-- `dev down`
-- `dev status [--json]`
-- `dev ls [--json]`
-- `dev open <name>`
-- `dev add --service <svc> --port <internalPort> ...`
-- `dev tls install`
-- `dev host run --name <route>`
-- `dev host attach --name <route>`
-- `dev host ls [--json]`
-- `dev host rm --name <route>`
+You will see both:
 
-## 9) Managed files
+- HTTP endpoints (`https://web.localhost`)
+- TCP/Postgres endpoints (`postgres://db.localhost:5432 (tls required)`)
 
-Global router state:
+For TCP routes, `dev open <name>` prints connection guidance instead of launching browser.
 
-- `~/.config/devrouter/compose.yml`
-- `~/.config/devrouter/traefik/traefik.yml`
-- `~/.config/devrouter/traefik/dynamic/base.yml`
-- `~/.config/devrouter/traefik/dynamic/host-routes.yml`
-- `~/.config/devrouter/host-routes-state.json`
-- `~/.config/devrouter/certs/*`
+## 10) Legacy cutover
 
-Per app repo:
+Legacy repo files are no longer used for new flows:
 
-- `docker-compose.devrouter.yml` (generated by `dev add`)
-- `devrouter.host.yml` (for host-run app routing)
+- `devrouter.host.yml`
+- `docker-compose.devrouter.yml`
 
-## 10) Onboard another repository
+Legacy commands are deprecated with migration guidance:
 
-For step-by-step repository adaptation and a reusable AI agent prompt:
+- `dev add`
+- `dev host ...`
+
+## 11) Onboard another repository
 
 - [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)

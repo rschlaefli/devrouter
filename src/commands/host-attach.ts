@@ -1,8 +1,5 @@
-import { attachHostRoute } from "../core/host-process";
-
-export async function runHostAttachCommand(options: {
-  name: string;
-  repo?: string;
-}): Promise<void> {
-  await attachHostRoute(options.name, options.repo);
+export async function runHostAttachCommand(): Promise<void> {
+  throw new Error(
+    "Legacy command 'dev host attach' is no longer supported. Use 'dev app run <name> [--repo <path>]'."
+  );
 }

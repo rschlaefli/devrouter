@@ -30,6 +30,7 @@ export async function runStatusCommand(json: boolean): Promise<void> {
     boundPorts: {
       web80: hasPortBinding(container?.Ports, 80, 80),
       web443: hasPortBinding(container?.Ports, 443, 443),
+      postgres5432: hasPortBinding(container?.Ports, 5432, 5432),
       dashboard8080: hasPortBinding(container?.Ports, 8080, 8080)
     },
     tlsConfigured: isTLSConfigured(),

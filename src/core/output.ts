@@ -1,4 +1,4 @@
-import { HostRouteState, Route, RouterStatus } from "../types";
+import { DevrouterApp, HostRouteState, Route, RouterStatus } from "../types";
 import { formatAge } from "../util/timeago";
 import { renderTable } from "../util/table";
 
@@ -13,6 +13,7 @@ export function printStatus(status: RouterStatus): void {
     ["Router container", status.routerContainerName],
     ["Port 80 bound", status.boundPorts.web80 ? "yes" : "no"],
     ["Port 443 bound", status.boundPorts.web443 ? "yes" : "no"],
+    ["Port 5432 bound", status.boundPorts.postgres5432 ? "yes" : "no"],
     ["Dashboard 8080 bound", status.boundPorts.dashboard8080 ? "yes" : "no"],
     ["devnet exists", status.networkExists ? "yes" : "no"],
     ["TLS configured", status.tlsConfigured ? "yes" : "no"],
@@ -35,13 +36,14 @@ export function printRoutes(routes: Route[], duplicateHosts: string[]): void {
     .map((route) => [
       route.serviceName,
       route.projectName,
+      route.protocol,
       route.urls.join(","),
       route.health === "unknown" ? route.status : `${route.status}/${route.health}`,
       formatAge(route.createdAt)
     ]);
 
   process.stdout.write(
-    `${renderTable(["NAME", "PROJECT", "URLS", "STATUS", "AGE"], rows)}\n`
+    `${renderTable(["NAME", "PROJECT", "PROTOCOL", "ENDPOINTS", "STATUS", "AGE"], rows)}\n`
   );
 
   if (duplicateHosts.length > 0) {
@@ -73,6 +75,7 @@ export function printHostRouteState(routes: HostRouteState[]): void {
     .map((route) => [
       route.name,
       route.repoPath,
+      route.protocol ?? "http",
       route.host,
       String(route.port),
       route.mode,
@@ -82,6 +85,43 @@ export function printHostRouteState(routes: HostRouteState[]): void {
     ]);
 
   process.stdout.write(
-    `${renderTable(["NAME", "REPO", "HOST", "PORT", "MODE", "PID", "STATUS", "UPDATED"], rows)}\n`
+    `${renderTable(["NAME", "REPO", "PROTOCOL", "HOST", "PORT", "MODE", "PID", "STATUS", "UPDATED"], rows)}\n`
+  );
+}
+
+export function printConfigApps(repoPath: string, apps: DevrouterApp[]): void {
+  if (apps.length === 0) {
+    process.stdout.write(`No apps configured in ${repoPath}.\n`);
+    return;
+  }
+
+  const rows = apps
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((app) => {
+      if (app.runtime === "host") {
+        return [
+          app.name,
+          app.protocol,
+          app.runtime,
+          app.host,
+          app.hostRun.command,
+          app.dependencies.map((dependency) => dependency.app).join(",")
+        ];
+      }
+
+      const protocol = app.protocol === "tcp" ? `tcp/${app.tcpProtocol}` : app.protocol;
+      return [
+        app.name,
+        protocol,
+        app.runtime,
+        app.host,
+        `${app.docker.service}:${app.docker.internalPort}`,
+        app.dependencies.map((dependency) => dependency.app).join(",")
+      ];
+    });
+
+  process.stdout.write(
+    `${renderTable(["NAME", "PROTOCOL", "RUNTIME", "HOST", "TARGET", "DEPS"], rows)}\n`
   );
 }

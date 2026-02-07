@@ -1,8 +1,5 @@
-import { resolveRepoPath } from "../core/host-config";
-import { removeHostRouteByName } from "../core/host-routes";
-
-export async function runHostRmCommand(options: { name: string; repo?: string }): Promise<void> {
-  const repoPath = options.repo ? resolveRepoPath(options.repo) : undefined;
-  const removed = removeHostRouteByName(options.name, repoPath);
-  process.stdout.write(`Removed host route '${removed.name}' (${removed.host}).\n`);
+export async function runHostRmCommand(): Promise<void> {
+  throw new Error(
+    "Legacy command 'dev host rm' is no longer supported. Use 'dev app rm <name> [--repo <path>]'."
+  );
 }

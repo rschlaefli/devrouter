@@ -5,12 +5,14 @@ import { spawnSync } from "node:child_process";
 
 export const DEVNET_NAME = "devnet";
 export const ROUTER_CONTAINER_NAME = "devrouter-traefik";
+export const ROUTER_POSTGRES_PORT = 5432;
 
 export const DEVROUTER_HOME = path.join(os.homedir(), ".config", "devrouter");
 export const TRAEFIK_DIR = path.join(DEVROUTER_HOME, "traefik");
 export const TRAEFIK_DYNAMIC_DIR = path.join(TRAEFIK_DIR, "dynamic");
 export const CERTS_DIR = path.join(DEVROUTER_HOME, "certs");
 export const BIN_DIR = path.join(DEVROUTER_HOME, "bin");
+export const CACHE_DIR = path.join(DEVROUTER_HOME, "cache");
 
 export const COMPOSE_FILE = path.join(DEVROUTER_HOME, "compose.yml");
 export const TRAEFIK_STATIC_FILE = path.join(TRAEFIK_DIR, "traefik.yml");
@@ -32,6 +34,7 @@ function renderComposeYml(): string {
     ports:
       - "80:80"
       - "443:443"
+      - "5432:5432"
       - "127.0.0.1:8080:8080"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
@@ -57,6 +60,8 @@ entryPoints:
     address: ":80"
   websecure:
     address: ":443"
+  postgres:
+    address: ":5432"
   traefik:
     address: ":8080"
 
@@ -134,19 +139,20 @@ This folder is managed by the devrouter CLI.
 - dev down
 - dev status
 - dev ls
-- dev add --service <svc> --port <internal-port>
+- dev repo init
+- dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
+- dev app run <name>
+- dev app ls
+- dev app rm <name>
 - dev tls install
-- dev host run --name <route>
-- dev host attach --name <route>
-- dev host ls
-- dev host rm --name <route>
 
 ## Troubleshooting
 
-If dev up fails with port conflicts on 80/443, run:
+If dev up fails with port conflicts on 80/443/5432, run:
 
 - lsof -nP -iTCP:80 -sTCP:LISTEN
 - lsof -nP -iTCP:443 -sTCP:LISTEN
+- lsof -nP -iTCP:5432 -sTCP:LISTEN
 `;
 }
 
@@ -156,6 +162,7 @@ export function ensureRouterFiles(): void {
   fs.mkdirSync(TRAEFIK_DYNAMIC_DIR, { recursive: true });
   fs.mkdirSync(CERTS_DIR, { recursive: true });
   fs.mkdirSync(BIN_DIR, { recursive: true });
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
 
   fs.writeFileSync(COMPOSE_FILE, renderComposeYml(), "utf-8");
   fs.writeFileSync(TRAEFIK_STATIC_FILE, renderTraefikStaticYml(), "utf-8");

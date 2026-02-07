@@ -1,5 +1,5 @@
-import { runHostRoute } from "../core/host-process";
-
-export async function runHostRunCommand(options: { name: string; repo?: string }): Promise<void> {
-  await runHostRoute(options.name, options.repo);
+export async function runHostRunCommand(): Promise<void> {
+  throw new Error(
+    "Legacy command 'dev host run' is no longer supported. Use 'dev app run <name> [--repo <path>]'."
+  );
 }

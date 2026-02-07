@@ -1,13 +1,5 @@
-import path from "node:path";
-import { addOrUpdateAppConfig } from "../core/add-app";
-import { AddOptions } from "../types";
-
-export async function runAddCommand(options: AddOptions): Promise<void> {
-  const result = addOrUpdateAppConfig(options);
-  const fileName = path.basename(result.filePath);
-
-  process.stdout.write(`Wrote ${result.filePath}\n`);
-  process.stdout.write(`Host: ${result.host}\n`);
-  process.stdout.write("Run your app with:\n");
-  process.stdout.write(`docker compose -f docker-compose.yml -f ${fileName} up\n`);
+export async function runLegacyAddCommand(): Promise<void> {
+  throw new Error(
+    "Legacy command 'dev add' is no longer supported. Use:\n1) dev repo init [--repo <path>]\n2) dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>"
+  );
 }

@@ -1,7 +1,8 @@
 import type { ContainerInfo } from "dockerode";
 import type { Route } from "../types";
 
-const ROUTER_RULE_KEY = /^traefik\.http\.routers\.([^.]+)\.rule$/;
+const HTTP_ROUTER_RULE_KEY = /^traefik\.http\.routers\.([^.]+)\.rule$/;
+const TCP_ROUTER_RULE_KEY = /^traefik\.tcp\.routers\.([^.]+)\.rule$/;
 
 function normalizeContainerName(name: string | undefined): string {
   if (!name) {
@@ -11,8 +12,13 @@ function normalizeContainerName(name: string | undefined): string {
 }
 
 export function parseHostsFromRule(rule: string): string[] {
+  return parseHostsFromMatcher(rule, "Host");
+}
+
+function parseHostsFromMatcher(rule: string, matcherName: "Host" | "HostSNI"): string[] {
   const hosts: string[] = [];
-  const hostBlocks = rule.matchAll(/Host\(([^)]+)\)/g);
+  const matcherRegex = new RegExp(`${matcherName}\\(([^)]+)\\)`, "g");
+  const hostBlocks = rule.matchAll(matcherRegex);
 
   for (const block of hostBlocks) {
     const inner = block[1];
@@ -37,6 +43,7 @@ function buildRoute(
   container: ContainerInfo,
   routerId: string,
   hosts: string[],
+  protocol: Route["protocol"],
   tlsEnabled: boolean
 ): Route {
   const labels = container.Labels ?? {};
@@ -56,12 +63,16 @@ function buildRoute(
   return {
     id: routerId,
     source: "docker",
+    protocol,
     containerId: container.Id,
     containerName,
     serviceName,
     projectName,
     hosts,
-    urls: hosts.map((host) => `${tlsEnabled ? "https" : "http"}://${host}`),
+    urls:
+      protocol === "http"
+        ? hosts.map((host) => `${tlsEnabled ? "https" : "http"}://${host}`)
+        : hosts.map((host) => `postgres://${host}:5432 (tls required)`),
     status,
     health,
     createdAt: container.Created
@@ -86,18 +97,32 @@ export function discoverRoutes(
     }
 
     for (const [key, value] of Object.entries(labels)) {
-      const match = key.match(ROUTER_RULE_KEY);
-      if (!match || !value) {
+      if (!value) {
         continue;
       }
 
-      const routerId = match[1];
-      const hosts = parseHostsFromRule(value);
+      const httpMatch = key.match(HTTP_ROUTER_RULE_KEY);
+      if (httpMatch) {
+        const routerId = httpMatch[1];
+        const hosts = parseHostsFromMatcher(value, "Host");
+        if (hosts.length > 0) {
+          routes.push(buildRoute(container, routerId, hosts, "http", tlsEnabled));
+        }
+        continue;
+      }
+
+      const tcpMatch = key.match(TCP_ROUTER_RULE_KEY);
+      if (!tcpMatch) {
+        continue;
+      }
+
+      const routerId = tcpMatch[1];
+      const hosts = parseHostsFromMatcher(value, "HostSNI").filter((host) => host !== "*");
       if (hosts.length === 0) {
         continue;
       }
 
-      routes.push(buildRoute(container, routerId, hosts, tlsEnabled));
+      routes.push(buildRoute(container, routerId, hosts, "tcp/postgres", tlsEnabled));
     }
   }
 
