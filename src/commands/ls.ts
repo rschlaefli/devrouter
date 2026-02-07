@@ -1,12 +1,17 @@
 import { listContainers } from "../core/docker";
+import { listHostRoutes } from "../core/host-routes";
 import { printJSON, printRoutes } from "../core/output";
-import { discoverRoutes } from "../core/routes";
+import { discoverRoutes, findDuplicateHosts } from "../core/routes";
 import { DEVNET_NAME, isTLSEnabled } from "../core/router";
 
 export async function runLsCommand(json: boolean): Promise<void> {
   const containers = await listContainers(true);
   const tlsEnabled = isTLSEnabled();
-  const result = discoverRoutes(containers, tlsEnabled, DEVNET_NAME);
+  const docker = discoverRoutes(containers, tlsEnabled, DEVNET_NAME);
+  const host = listHostRoutes(tlsEnabled);
+  const routes = [...docker.routes, ...host];
+  const duplicateHosts = findDuplicateHosts(routes);
+  const result = { routes, duplicateHosts };
 
   if (json) {
     printJSON(result);

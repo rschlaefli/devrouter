@@ -1,4 +1,4 @@
-import { Route, RouterStatus } from "../types";
+import { HostRouteState, Route, RouterStatus } from "../types";
 import { formatAge } from "../util/timeago";
 import { renderTable } from "../util/table";
 
@@ -31,7 +31,7 @@ export function printRoutes(routes: Route[], duplicateHosts: string[]): void {
 
   const rows = routes
     .slice()
-    .sort((a, b) => a.serviceName.localeCompare(b.serviceName))
+    .sort((a, b) => a.serviceName.localeCompare(b.serviceName) || a.source.localeCompare(b.source))
     .map((route) => [
       route.serviceName,
       route.projectName,
@@ -47,4 +47,41 @@ export function printRoutes(routes: Route[], duplicateHosts: string[]): void {
   if (duplicateHosts.length > 0) {
     process.stdout.write(`\nWarning: duplicate hostnames detected: ${duplicateHosts.join(", ")}\n`);
   }
+}
+
+export function printHostRouteState(routes: HostRouteState[]): void {
+  if (routes.length === 0) {
+    process.stdout.write("No host routes found.\n");
+    return;
+  }
+
+  const isRunning = (pid: number | undefined): boolean => {
+    if (!pid || pid <= 0) {
+      return false;
+    }
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const rows = routes
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name) || a.repoPath.localeCompare(b.repoPath))
+    .map((route) => [
+      route.name,
+      route.repoPath,
+      route.host,
+      String(route.port),
+      route.mode,
+      route.pid ? String(route.pid) : "-",
+      isRunning(route.pid) ? "running" : "stopped",
+      route.updatedAt
+    ]);
+
+  process.stdout.write(
+    `${renderTable(["NAME", "REPO", "HOST", "PORT", "MODE", "PID", "STATUS", "UPDATED"], rows)}\n`
+  );
 }

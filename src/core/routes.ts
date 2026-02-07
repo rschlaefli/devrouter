@@ -1,5 +1,5 @@
 import type { ContainerInfo } from "dockerode";
-import { Route } from "../types";
+import type { Route } from "../types";
 
 const ROUTER_RULE_KEY = /^traefik\.http\.routers\.([^.]+)\.rule$/;
 
@@ -55,6 +55,7 @@ function buildRoute(
 
   return {
     id: routerId,
+    source: "docker",
     containerId: container.Id,
     containerName,
     serviceName,
@@ -100,6 +101,10 @@ export function discoverRoutes(
     }
   }
 
+  return { routes, duplicateHosts: findDuplicateHosts(routes) };
+}
+
+export function findDuplicateHosts(routes: Route[]): string[] {
   const hostCount = new Map<string, number>();
   for (const route of routes) {
     for (const host of route.hosts) {
@@ -107,12 +112,10 @@ export function discoverRoutes(
     }
   }
 
-  const duplicateHosts = Array.from(hostCount.entries())
+  return Array.from(hostCount.entries())
     .filter(([, count]) => count > 1)
     .map(([host]) => host)
     .sort();
-
-  return { routes, duplicateHosts };
 }
 
 export function resolveRouteByName(routes: Route[], name: string): Route {
@@ -122,7 +125,7 @@ export function resolveRouteByName(routes: Route[], name: string): Route {
     if (route.serviceName === target) {
       return true;
     }
-    if (route.containerName === target) {
+    if (route.containerName && route.containerName === target) {
       return true;
     }
     if (route.hosts.includes(target)) {

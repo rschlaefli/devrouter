@@ -7,9 +7,10 @@ Roadmap for `devrouter` beyond the current MVP.
 MVP is intentionally small and delivered:
 
 - shared Traefik router management
-- route discovery and listing
+- route discovery and listing (docker + host routes)
 - app onboarding via compose override generation
 - optional local TLS with mkcert
+- host-run app support via `devrouter.host.yml` and `dev host *` commands
 
 Next steps focus on reliability, onboarding, and operational polish.
 
@@ -20,7 +21,7 @@ Next steps focus on reliability, onboarding, and operational polish.
 3. Avoid configuration sprawl.
 4. Make local setup predictable on macOS.
 
-## Milestone 1: MVP hardening
+## Milestone 1: Host mode hardening
 
 Status: next priority
 
@@ -30,11 +31,18 @@ Topics:
    - host rule parsing (`src/core/routes.ts`)
    - compose override generation (`src/core/add-app.ts`)
    - TLS state detection (`src/core/router.ts`)
-2. Add command integration smoke tests (non-destructive).
-3. Improve `dev up` diagnostics:
-   - deduplicate duplicate IPv4/IPv6 listener lines
-   - identify common conflict causes (OrbStack proxy, other reverse proxies)
+   - host config validation (`src/core/host-config.ts`)
+   - host route rendering/state (`src/core/host-routes.ts`)
+2. Add non-destructive integration smoke tests for:
+   - `dev host run`
+   - `dev host attach`
+   - `dev host rm`
+   - route merge behavior in `dev ls`
+3. Improve host process matching diagnostics:
+   - clearer ambiguity errors for `attach`
+   - better timeout messaging when no port is detected
 4. Validate behavior on both OrbStack and Docker Desktop contexts.
+5. Verify route cleanup behavior on process exit/signals.
 
 ## Milestone 2: Additional commands (v1.1)
 
@@ -45,6 +53,7 @@ Topics:
 1. `dev db <name>` (best-effort DB access guidance without port publishing).
 2. `dev dns install` (explicit opt-in only, with sudo prompts and clear rollback steps).
 3. `dev doctor` for environment checks (Node version, docker context, port conflicts, mkcert state).
+4. Optional `dev host add` helper to scaffold `devrouter.host.yml` entries.
 
 ## Milestone 3: Packaging and distribution
 
@@ -65,13 +74,16 @@ Status: planned
 
 Topics:
 
-1. Add short copy-paste examples for common frameworks (Node, Python, Go).
-2. Provide `docker-compose.devrouter.yml` templates per service shape.
+1. Add copy-paste examples for both onboarding modes:
+   - container mode
+   - host-run mode
+2. Keep reusable AI agent prompt mode-aware with placeholders.
 3. Add troubleshooting matrix:
    - port conflicts
    - route not discovered
    - TLS trust issues
    - hostname resolution edge cases
+   - host process matching/attach issues
 
 ## Milestone 5: CI and quality gates
 
@@ -86,12 +98,23 @@ Topics:
 2. Optional lint/format tooling if it improves consistency without adding overhead.
 3. Release checklist for stable changes.
 
+## Milestone 6: Config evolution
+
+Status: planned
+
+Topics:
+
+1. Evaluate migration from `devrouter.host.yml` to unified `devrouter.yml`.
+2. Keep backward compatibility with automatic fallback reading.
+3. Provide migration helper docs/script if schema is unified.
+
 ## Deferred/optional ideas
 
 1. Optional Traefik dashboard helper (`dev dashboard`).
 2. Structured event logging for debugging.
 3. `dev ls --watch` mode.
 4. Optional team presets for naming conventions.
+5. Host route health probes for richer status output.
 
 ## Explicit non-goals (for now)
 

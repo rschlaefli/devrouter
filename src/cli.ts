@@ -105,4 +105,45 @@ tlsCommand
     await runTLSInstallCommand();
   }));
 
+const hostCommand = program.command("host").description("Manage host-run app routes");
+
+hostCommand
+  .command("run")
+  .description("Run configured host app command and keep route synced")
+  .requiredOption("--name <name>", "Route name from devrouter.host.yml")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .action(withErrorHandling(async (options: { name: string; repo?: string }) => {
+    const { runHostRunCommand } = await import("./commands/host-run");
+    await runHostRunCommand(options);
+  }));
+
+hostCommand
+  .command("attach")
+  .description("Attach route sync to an already running host app process")
+  .requiredOption("--name <name>", "Route name from devrouter.host.yml")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .action(withErrorHandling(async (options: { name: string; repo?: string }) => {
+    const { runHostAttachCommand } = await import("./commands/host-attach");
+    await runHostAttachCommand(options);
+  }));
+
+hostCommand
+  .command("ls")
+  .description("List host-run routes managed by devrouter")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { json?: boolean }) => {
+    const { runHostLsCommand } = await import("./commands/host-ls");
+    await runHostLsCommand(Boolean(options.json));
+  }));
+
+hostCommand
+  .command("rm")
+  .description("Remove a host-run route from devrouter state")
+  .requiredOption("--name <name>", "Route name from devrouter.host.yml")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .action(withErrorHandling(async (options: { name: string; repo?: string }) => {
+    const { runHostRmCommand } = await import("./commands/host-rm");
+    await runHostRmCommand(options);
+  }));
+
 program.parseAsync(process.argv);

@@ -7,6 +7,7 @@ Guidance for agentic coders working in this repository.
 For prerequisites, local install flow, localhost domain details, and first-run commands, use:
 
 - [`GETTING_STARTED.md`](./GETTING_STARTED.md)
+- [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
 
 ## Mission
 
@@ -29,6 +30,10 @@ Current supported commands:
 - `dev open <name>`
 - `dev add --service ... --port ...`
 - `dev tls install`
+- `dev host run --name <route> [--repo <path>]`
+- `dev host attach --name <route> [--repo <path>]`
+- `dev host ls [--json]`
+- `dev host rm --name <route> [--repo <path>]`
 
 Out of scope for MVP (defer unless explicitly requested):
 
@@ -54,6 +59,9 @@ Out of scope for MVP (defer unless explicitly requested):
 - `src/core/routes.ts`: label parsing + route discovery
 - `src/core/add-app.ts`: compose override file generation
 - `src/core/tls.ts`: mkcert + TLS activation
+- `src/core/host-config.ts`: parse/validate `devrouter.host.yml`
+- `src/core/host-routes.ts`: host-route state + Traefik host route rendering
+- `src/core/host-process.ts`: run/attach process monitoring + port detection
 - `src/core/output.ts`: table/JSON output formatting
 - `src/types.ts`: shared model types
 
@@ -62,8 +70,9 @@ Out of scope for MVP (defer unless explicitly requested):
 1. Router artifacts must remain under `~/.config/devrouter`.
 2. App repos remain independent; no central registry file.
 3. `dev add` should continue generating `docker-compose.devrouter.yml`.
-4. `dev up` must fail clearly when `80/443` are occupied.
-5. Keep `.localhost` as default hostname strategy.
+4. Host mode config file is `<repo>/devrouter.host.yml` (no central registry).
+5. `dev up` must fail clearly when `80/443` are occupied.
+6. Keep `.localhost` as default hostname strategy.
 
 ## Implementation conventions
 
@@ -93,9 +102,10 @@ Out of scope for MVP (defer unless explicitly requested):
 At minimum, a healthy change should preserve:
 
 1. `dev status` works
-2. `dev ls` route discovery works
+2. `dev ls` discovers both docker and host-managed routes
 3. `dev add` produces valid compose override
-4. `dev tls install` updates certs/config correctly
+4. `dev host run` updates route target when app port changes
+5. `dev tls install` updates certs/config correctly without clobbering host routes
 
 ## Roadmap pointer
 

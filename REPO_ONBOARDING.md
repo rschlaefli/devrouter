@@ -15,6 +15,11 @@ Scope constraints:
 - no central service registry
 - no random host-port selection for app access
 
+Two supported onboarding modes:
+
+- container mode (`dev add` + compose override)
+- host-run mode (`devrouter.host.yml` + `dev host ...`)
+
 ## 2) Before You Start
 
 Complete global setup first:
@@ -32,11 +37,19 @@ Assumptions for this guide:
 
 For each app repo, choose:
 
+- `mode`: `container` or `host`
+- `hostname`: `<name>.localhost`
+
+Container mode inputs:
 - `service`: Compose service name to expose
 - `internal port`: container port the app listens on
-- `hostname`: `<name>.localhost`
 - `router id` (optional): Traefik router/service key override
 - compose file layout: base compose file plus override (usually `docker-compose.yml` + `docker-compose.devrouter.yml`)
+
+Host mode inputs:
+- `route name` in `devrouter.host.yml`
+- `command` to run dev server (for example `pnpm dev`)
+- `cwd` for that command (repo root or subfolder)
 
 ## 4) Fast Path (Recommended)
 
@@ -49,7 +62,39 @@ docker compose -f docker-compose.yml -f docker-compose.devrouter.yml up
 
 `dev add` creates or updates `docker-compose.devrouter.yml`, which is the repo-local overlay used to connect your app to `devrouter`.
 
-## 5) What `dev add` Changes
+## 4.1) Host-Run Fast Path (App runs on Mac, not in Docker)
+
+Create `<repo>/devrouter.host.yml`:
+
+```yaml
+version: 1
+routes:
+  - name: app
+    host: app.localhost
+    mode: host
+    command: pnpm dev
+    cwd: .
+    strategy:
+      type: auto
+      denyPorts: [80, 443]
+      allowPortRange: "1024-65535"
+```
+
+Then run one of:
+
+```bash
+dev host run --name app
+```
+
+or, if already running manually:
+
+```bash
+dev host attach --name app
+```
+
+The app can stay on a dynamic local port; `devrouter` keeps `app.localhost` mapped to the current port via Traefik.
+
+## 5) What `dev add` Changes (Container Mode)
 
 Expected overlay behavior:
 
@@ -76,12 +121,22 @@ networks:
     external: true
 ```
 
+## 5.1) What Host Mode Changes
+
+`dev host run` and `dev host attach` do not change your repo compose files.
+
+They update global devrouter state under `~/.config/devrouter`:
+
+- `traefik/dynamic/host-routes.yml`: generated host routes for Traefik
+- `host-routes-state.json`: tracked route metadata (repo, name, host, port, mode, pid)
+
 ## 6) Validation Checklist
 
 - `dev ls` shows the service URL.
 - `curl http://<host>.localhost` succeeds (or `https://...` after TLS setup).
 - the app service does not require published host ports for browser access.
 - no duplicate hostnames exist across running services.
+- for host-run mode, `dev host ls` shows active route state.
 
 ## 7) TLS Path
 
@@ -129,32 +184,56 @@ You are adapting an existing repository to use our local devrouter setup.
 
 Inputs:
 - REPO_PATH=<REPO_PATH>
-- SERVICE_NAME=<SERVICE_NAME>
-- INTERNAL_PORT=<INTERNAL_PORT>
+- MODE=<container|host>
+- SERVICE_NAME=<SERVICE_NAME>                  # required for MODE=container
+- INTERNAL_PORT=<INTERNAL_PORT>                # required for MODE=container
+- ROUTE_NAME=<ROUTE_NAME>                      # required for MODE=host
+- HOST_COMMAND=<HOST_COMMAND>                  # required for MODE=host (example: pnpm dev)
+- HOST_CWD=<HOST_CWD_RELATIVE_TO_REPO>         # required for MODE=host (example: . or apps/web)
 - HOSTNAME_LOCALHOST=<HOSTNAME_LOCALHOST>
-- BASE_COMPOSE_FILE=<BASE_COMPOSE_FILE>
+- BASE_COMPOSE_FILE=<BASE_COMPOSE_FILE>        # required for MODE=container
 
 Goals:
-1) Inspect existing compose files first (do not assume structure).
-2) Generate or update docker-compose.devrouter.yml in REPO_PATH.
-3) Do not mutate unrelated services.
-4) Ensure the target service joins external network devnet.
-5) Ensure required labels exist:
+1) Inspect existing files first (compose and/or current dev scripts); do not assume structure.
+2) Keep changes minimal, idempotent, and scoped to onboarding only.
+3) Do not mutate unrelated services/files.
+4) Always use *.localhost hostnames and avoid introducing published app host ports.
+5) If ambiguity exists, stop and ask targeted questions.
+
+If MODE=container:
+1) Generate or update docker-compose.devrouter.yml in REPO_PATH.
+2) Ensure target service joins external network devnet.
+3) Ensure required labels exist:
    - traefik.enable=true
    - traefik.docker.network=devnet
    - traefik.http.routers.<router>.rule=Host(`<HOSTNAME_LOCALHOST>`)
    - traefik.http.services.<service>.loadbalancer.server.port=<INTERNAL_PORT>
-6) Keep changes minimal and idempotent.
-7) If repo ambiguity exists, stop and ask targeted questions.
+
+If MODE=host:
+1) Generate or update REPO_PATH/devrouter.host.yml.
+2) Add/merge route entry:
+   - name: <ROUTE_NAME>
+   - host: <HOSTNAME_LOCALHOST>
+   - mode: host
+   - command: <HOST_COMMAND>
+   - cwd: <HOST_CWD_RELATIVE_TO_REPO>
+   - strategy.type: auto
+   - strategy.denyPorts: [80, 443]
+   - strategy.allowPortRange: "1024-65535"
+3) Do not edit docker-compose files unless explicitly requested.
 
 Validation commands to run and report:
-- docker compose -f <BASE_COMPOSE_FILE> -f docker-compose.devrouter.yml config
-- docker compose -f <BASE_COMPOSE_FILE> -f docker-compose.devrouter.yml up -d
-- dev ls
-- curl -I http://<HOSTNAME_LOCALHOST>
+- if MODE=container:
+  - docker compose -f <BASE_COMPOSE_FILE> -f docker-compose.devrouter.yml config
+  - docker compose -f <BASE_COMPOSE_FILE> -f docker-compose.devrouter.yml up -d
+- if MODE=host:
+  - dev host run --name <ROUTE_NAME> --repo <REPO_PATH>
+- for both modes:
+  - dev ls
+  - curl -I http://<HOSTNAME_LOCALHOST>
 
 Output format:
-1) Summary of detected compose structure.
+1) Summary of detected project structure and selected onboarding mode.
 2) Exact files changed.
 3) Concise diff summary.
 4) Validation command outputs (or key excerpts).
@@ -167,3 +246,7 @@ Output format:
 - app is reachable via stable `.localhost` hostname.
 - `dev ls` lists the app route correctly.
 - onboarding steps are reproducible by another engineer without tribal knowledge.
+
+Future migration note:
+- `devrouter.host.yml` is the current host-mode config.
+- a unified `devrouter.yml` may be introduced later; this is planned to be backward-compatible.

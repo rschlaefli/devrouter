@@ -1,7 +1,8 @@
 export type Route = {
   id: string;
-  containerId: string;
-  containerName: string;
+  source: "docker" | "host";
+  containerId?: string;
+  containerName?: string;
   serviceName: string;
   projectName: string;
   hosts: string[];
@@ -47,4 +48,37 @@ export type PortListener = {
   pid: string;
   user: string;
   address: string;
+};
+
+export type HostRouteStrategy = {
+  type: "auto";
+  denyPorts: number[];
+  allowPortRange: string;
+};
+
+export type HostRouteDefinition = {
+  name: string;
+  host: string;
+  mode: "host";
+  command: string;
+  cwd: string;
+  strategy: HostRouteStrategy;
+};
+
+export type HostConfig = {
+  version: 1;
+  routes: HostRouteDefinition[];
+};
+
+export type HostRouteState = {
+  id: string;
+  name: string;
+  host: string;
+  repoPath: string;
+  port: number;
+  mode: "run" | "attach";
+  pid?: number;
+  command?: string;
+  createdAt: string;
+  updatedAt: string;
 };

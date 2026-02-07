@@ -22,6 +22,10 @@ This repository now contains a TypeScript CLI (`dev`) with a deliberately small,
 - `dev open <name>`
 - `dev add --service <svc> --port <internalPort> ...`
 - `dev tls install`
+- `dev host run --name <route>`
+- `dev host attach --name <route>`
+- `dev host ls [--json]`
+- `dev host rm --name <route>`
 
 Core behavior:
 
@@ -31,6 +35,7 @@ Core behavior:
 - Supports mkcert TLS for `localhost` and `*.localhost`
 - Enables HTTP -> HTTPS redirect once TLS is installed
 - Generates per-repo `docker-compose.devrouter.yml` via `dev add`
+- Supports host-run app routing via per-repo `devrouter.host.yml`
 
 ## Architecture (minimal modules)
 
@@ -43,6 +48,9 @@ Code is intentionally modular but small:
 - `src/core/routes.ts`: Traefik host-rule parsing + duplicate hostname detection
 - `src/core/add-app.ts`: generate/update repo override file
 - `src/core/tls.ts`: mkcert bootstrap + TLS activation
+- `src/core/host-config.ts`: load/validate `devrouter.host.yml`
+- `src/core/host-routes.ts`: persist generated host routes + Traefik host-routes file
+- `src/core/host-process.ts`: run/attach process monitoring + dynamic port detection
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
 
@@ -108,11 +116,32 @@ Creates/updates `docker-compose.devrouter.yml` in the current repo:
 - generates certs into `~/.config/devrouter/certs`
 - updates Traefik dynamic TLS config + redirect
 
+### `dev host run --name <route> [--repo <path>]`
+
+- reads route config from `<repo>/devrouter.host.yml`
+- starts the configured command
+- detects active listening port (excluding `80/443`)
+- maps stable host to `host.docker.internal:<detected-port>`
+
+### `dev host attach --name <route> [--repo <path>]`
+
+- attaches route syncing to an already running host process from config
+
+### `dev host ls [--json]`
+
+- lists host-route state currently managed by devrouter
+
+### `dev host rm --name <route> [--repo <path>]`
+
+- removes a generated host route entry from devrouter state
+
 ## Files managed under `~/.config/devrouter`
 
 - `compose.yml`
 - `traefik/traefik.yml`
-- `traefik/dynamic.yml`
+- `traefik/dynamic/base.yml`
+- `traefik/dynamic/host-routes.yml`
+- `host-routes-state.json`
 - `certs/localhost.pem`
 - `certs/localhost-key.pem`
 - `README.md` (state-local notes)
