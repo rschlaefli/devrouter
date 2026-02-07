@@ -1,0 +1,32 @@
+{
+  "name": "devrouter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local dev routing CLI with shared Traefik on macOS",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "dev": "dist/dev.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "install:local": "./scripts/install-local.sh",
+    "uninstall:local": "./scripts/uninstall-local.sh"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "dockerode": "^4.0.9",
+    "yaml": "^2.5.1"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.35",
+    "@types/node": "^22.10.1",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
