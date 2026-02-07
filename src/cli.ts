@@ -1,12 +1,5 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { runAddCommand } from "./commands/add";
-import { runDownCommand } from "./commands/down";
-import { runLsCommand } from "./commands/ls";
-import { runOpenCommand } from "./commands/open";
-import { runStatusCommand } from "./commands/status";
-import { runTLSInstallCommand } from "./commands/tls";
-import { runUpCommand } from "./commands/up";
 
 function withErrorHandling<TArgs extends unknown[]>(
   action: (...args: TArgs) => Promise<void>
@@ -33,18 +26,25 @@ program
 program
   .command("up")
   .description("Ensure devnet and start shared Traefik router")
-  .action(withErrorHandling(() => runUpCommand()));
+  .action(withErrorHandling(async () => {
+    const { runUpCommand } = await import("./commands/up");
+    await runUpCommand();
+  }));
 
 program
   .command("down")
   .description("Stop shared Traefik router")
-  .action(withErrorHandling(() => runDownCommand()));
+  .action(withErrorHandling(async () => {
+    const { runDownCommand } = await import("./commands/down");
+    await runDownCommand();
+  }));
 
 program
   .command("status")
   .description("Show router status")
   .option("--json", "Output JSON")
   .action(withErrorHandling(async (options: { json?: boolean }) => {
+    const { runStatusCommand } = await import("./commands/status");
     await runStatusCommand(Boolean(options.json));
   }));
 
@@ -54,6 +54,7 @@ program
   .description("List discovered routed services")
   .option("--json", "Output JSON")
   .action(withErrorHandling(async (options: { json?: boolean }) => {
+    const { runLsCommand } = await import("./commands/ls");
     await runLsCommand(Boolean(options.json));
   }));
 
@@ -62,6 +63,7 @@ program
   .description("Open a routed service by name/host")
   .argument("<name>", "service name or host")
   .action(withErrorHandling(async (name: string) => {
+    const { runOpenCommand } = await import("./commands/open");
     await runOpenCommand(name);
   }));
 
@@ -82,6 +84,7 @@ program
     file?: string;
     force?: boolean;
   }) => {
+    const { runAddCommand } = await import("./commands/add");
     await runAddCommand({
       service: options.service,
       port: options.port,
@@ -97,6 +100,9 @@ const tlsCommand = program.command("tls").description("TLS helpers");
 tlsCommand
   .command("install")
   .description("Install mkcert certs and enable HTTPS redirect")
-  .action(withErrorHandling(() => runTLSInstallCommand()));
+  .action(withErrorHandling(async () => {
+    const { runTLSInstallCommand } = await import("./commands/tls");
+    await runTLSInstallCommand();
+  }));
 
 program.parseAsync(process.argv);

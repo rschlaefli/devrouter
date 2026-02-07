@@ -1,5 +1,31 @@
 import { spawnSync } from "node:child_process";
-import Dockerode, { ContainerInfo } from "dockerode";
+import type { ContainerInfo } from "dockerode";
+
+type DockerClient = {
+  listContainers(options: { all: boolean }): Promise<ContainerInfo[]>;
+  getNetwork(name: string): { inspect(): Promise<unknown> };
+  createNetwork(options: { Name: string; Driver: string; Attachable: boolean }): Promise<unknown>;
+};
+
+type DockerodeConstructor = new (options: {
+  socketPath?: string;
+  host?: string;
+  port?: number;
+  protocol?: "http" | "https";
+}) => DockerClient;
+
+let dockerodeConstructorPromise: Promise<DockerodeConstructor> | null = null;
+
+async function getDockerodeConstructor(): Promise<DockerodeConstructor> {
+  if (!dockerodeConstructorPromise) {
+    dockerodeConstructorPromise = import("dockerode").then((module) => {
+      const maybeDefault = module as unknown as { default?: DockerodeConstructor };
+      return maybeDefault.default ?? (module as unknown as DockerodeConstructor);
+    });
+  }
+
+  return dockerodeConstructorPromise;
+}
 
 function runDockerContextCommand(args: string[]): string {
   const result = spawnSync("docker", ["context", ...args], {
@@ -39,18 +65,19 @@ function getDockerHostFromContext(context: string): string {
   return "unix:///var/run/docker.sock";
 }
 
-function createDockerClient(): Dockerode {
+async function createDockerClient(): Promise<DockerClient> {
+  const DockerodeClass = await getDockerodeConstructor();
   const context = getCurrentDockerContext();
   const host = getDockerHostFromContext(context);
 
   if (host.startsWith("unix://")) {
-    return new Dockerode({ socketPath: host.replace("unix://", "") });
+    return new DockerodeClass({ socketPath: host.replace("unix://", "") });
   }
 
   if (host.startsWith("tcp://") || host.startsWith("http://") || host.startsWith("https://")) {
     const normalized = host.startsWith("tcp://") ? host.replace("tcp://", "http://") : host;
     const url = new URL(normalized);
-    return new Dockerode({
+    return new DockerodeClass({
       host: url.hostname,
       port: Number(url.port || 2375),
       protocol: url.protocol.replace(":", "") as "http" | "https"
@@ -61,7 +88,7 @@ function createDockerClient(): Dockerode {
 }
 
 export async function listContainers(all = true): Promise<ContainerInfo[]> {
-  const docker = createDockerClient();
+  const docker = await createDockerClient();
   return docker.listContainers({ all });
 }
 
@@ -76,7 +103,7 @@ export async function isContainerRunning(name: string): Promise<boolean> {
 }
 
 export async function ensureNetwork(name: string): Promise<void> {
-  const docker = createDockerClient();
+  const docker = await createDockerClient();
 
   try {
     await docker.getNetwork(name).inspect();
@@ -93,7 +120,7 @@ export async function ensureNetwork(name: string): Promise<void> {
 }
 
 export async function networkExists(name: string): Promise<boolean> {
-  const docker = createDockerClient();
+  const docker = await createDockerClient();
   try {
     await docker.getNetwork(name).inspect();
     return true;

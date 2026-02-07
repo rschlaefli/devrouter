@@ -1,4 +1,4 @@
-import { ContainerInfo } from "dockerode";
+import type { ContainerInfo } from "dockerode";
 import { Route } from "../types";
 
 const ROUTER_RULE_KEY = /^traefik\.http\.routers\.([^.]+)\.rule$/;
