@@ -157,6 +157,23 @@ dev app add \
   --depends-on db
 ```
 
+## Host app runtime behavior
+
+**PORT injection**: `dev app run` automatically injects a `PORT` environment variable
+with a random free port when starting host apps. Frameworks that read `PORT` (Next.js,
+Vite, Remix, Fastify, etc.) will bind to this port instead of their default, avoiding
+conflicts when running multiple apps.
+
+**Port detection timeout**: By default, devrouter waits up to 120 seconds for a host app
+to start listening on a TCP port. For slow-starting dev servers, configure a custom
+timeout per app in `.devrouter.yml`:
+
+```yaml
+hostRun:
+  command: pnpm dev
+  portTimeout: 180  # seconds
+```
+
 ## 8) Golden path: host app + Docker Postgres
 
 ```bash

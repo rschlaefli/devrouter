@@ -113,6 +113,7 @@ export type DevrouterHostRunConfig = {
   command: string;
   cwd: string;
   strategy: DevrouterHostStrategy;
+  portTimeout?: number;
 };
 
 export type DevrouterDockerConfig = {

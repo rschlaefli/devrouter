@@ -175,12 +175,17 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     }
 
     const hostRun = ensureObject(objectValue.hostRun, `${pathLabel}.hostRun`);
-    ensureAllowedKeys(hostRun, ["command", "cwd", "strategy"], `${pathLabel}.hostRun`);
+    ensureAllowedKeys(hostRun, ["command", "cwd", "strategy", "portTimeout"], `${pathLabel}.hostRun`);
 
     const command = toStringOrThrow(hostRun.command, `${pathLabel}.hostRun.command`);
     if (command.length > MAX_COMMAND_LENGTH) {
       throw new Error(`${pathLabel}.hostRun.command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters.`);
     }
+
+    const portTimeout =
+      hostRun.portTimeout === undefined
+        ? undefined
+        : toIntegerOrThrow(hostRun.portTimeout, `${pathLabel}.hostRun.portTimeout`);
 
     return {
       name,
@@ -194,7 +199,8 @@ function parseApp(value: unknown, index: number): DevrouterApp {
           hostRun.cwd === undefined
             ? "."
             : toStringOrThrow(hostRun.cwd, `${pathLabel}.hostRun.cwd`),
-        strategy: parseHostStrategy(hostRun.strategy, `${pathLabel}.hostRun.strategy`)
+        strategy: parseHostStrategy(hostRun.strategy, `${pathLabel}.hostRun.strategy`),
+        ...(portTimeout !== undefined ? { portTimeout } : {})
       }
     };
   }

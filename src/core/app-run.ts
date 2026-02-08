@@ -1,3 +1,4 @@
+import net from "node:net";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { spawn, spawnSync } from "node:child_process";
@@ -11,7 +12,7 @@ import { DEVNET_NAME, ensureRouterFiles } from "./router";
 import { assertPathWithinRepo } from "./paths";
 
 const POLL_INTERVAL_MS = 1000;
-const INITIAL_PORT_TIMEOUT_MS = 30_000;
+const DEFAULT_PORT_TIMEOUT_MS = 120_000;
 const PROCESS_TERMINATION_GRACE_MS = 3_000;
 
 type RunAppOptions = {
@@ -193,23 +194,41 @@ function selectAllowedPort(ports: number[], app: DevrouterHostHttpApp): number |
   return ports.find((port) => port >= range.min && port <= range.max && !denyPorts.has(port));
 }
 
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      if (!addr || typeof addr === "string") {
+        server.close(() => reject(new Error("Failed to obtain free port.")));
+        return;
+      }
+      const port = addr.port;
+      server.close(() => resolve(port));
+    });
+    server.on("error", reject);
+  });
+}
+
 async function runHostApp(repoPath: string, app: DevrouterHostHttpApp): Promise<void> {
   const routeId = buildHostRouteId(repoPath, app.name);
   const commandCwd = assertPathWithinRepo(app.hostRun.cwd, repoPath, "hostRun.cwd");
+  const freePort = await findFreePort();
   // shell:true is intentional — .devrouter.yml is a user-controlled local config file
   // with the same trust model as npm scripts or docker-compose commands. The user who
   // edits the config already has local shell access.
   const child = spawn(app.hostRun.command, {
     cwd: commandCwd,
     stdio: "inherit",
-    shell: true
+    shell: true,
+    env: { ...process.env, PORT: String(freePort) }
   });
 
   if (!child.pid) {
     throw new Error(`Failed to start command '${app.hostRun.command}'.`);
   }
 
-  process.stdout.write(`Started '${app.hostRun.command}' for '${app.name}' in ${commandCwd}\n`);
+  process.stdout.write(`Started '${app.hostRun.command}' for '${app.name}' in ${commandCwd} (PORT=${freePort})\n`);
 
   const childExit = new Promise<{ code: number | null }>((resolve) => {
     child.once("exit", (code) => resolve({ code }));
@@ -255,12 +274,17 @@ async function runHostApp(repoPath: string, app: DevrouterHostHttpApp): Promise<
           command: app.hostRun.command
         });
         process.stdout.write(`Route ${app.host} -> http://host.docker.internal:${selectedPort}\n`);
-      } else if (!currentPort && Date.now() - startedAt > INITIAL_PORT_TIMEOUT_MS) {
-        throw new Error(
-          `No listening TCP port detected for '${app.name}' after ${Math.floor(
-            INITIAL_PORT_TIMEOUT_MS / 1000
-          )}s.`
-        );
+      } else if (!currentPort) {
+        const timeoutMs = app.hostRun.portTimeout
+          ? app.hostRun.portTimeout * 1000
+          : DEFAULT_PORT_TIMEOUT_MS;
+        if (Date.now() - startedAt > timeoutMs) {
+          throw new Error(
+            `No listening TCP port detected for '${app.name}' after ${Math.floor(
+              timeoutMs / 1000
+            )}s.`
+          );
+        }
       }
 
       await sleep(POLL_INTERVAL_MS);

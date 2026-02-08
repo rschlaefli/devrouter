@@ -52,7 +52,11 @@ Host runtime (`http` only):
 
 - `command`
 - `cwd`
+- `portTimeout` (optional, seconds, default 120)
 - optional dependencies
+
+Note: `dev app run` injects `PORT=<free-port>` into the host app environment.
+Frameworks reading `PORT` (Next.js, Vite, Remix, etc.) bind to this port automatically.
 
 Docker runtime:
 
