@@ -37,8 +37,6 @@ This is the only supported per-repo config for app routing/runtime definitions.
 - `dev app run <name> [--repo <path>] [--yes]`
 - `dev app rm <name> [--repo <path>]`
 
-Legacy commands (`dev add`, `dev host ...`) are hard-cutovered and return migration guidance.
-
 ## `.devrouter.yml` example
 
 ```yaml
@@ -136,7 +134,6 @@ See details:
 - Host-runtime dependencies are not auto-started; only Docker dependencies are auto-started.
 - TCP routing currently supports PostgreSQL only (`tcpProtocol: postgres`).
 - Shared `:5432` hostname multiplexing requires TLS/SNI (`sslmode=require` or stronger).
-- Legacy repo files/commands are hard-cutovered (`devrouter.host.yml`, `docker-compose.devrouter.yml`, `dev add`, `dev host ...`).
 
 ## Router state
 

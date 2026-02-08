@@ -198,18 +198,6 @@ You will see both:
 
 For TCP routes, `dev open <name>` prints connection guidance instead of launching browser.
 
-## 11) Legacy cutover
-
-Legacy repo files are no longer used for new flows:
-
-- `devrouter.host.yml`
-- `docker-compose.devrouter.yml`
-
-Legacy commands are deprecated with migration guidance:
-
-- `dev add`
-- `dev host ...`
-
-## 12) Onboard another repository
+## 11) Onboard another repository
 
 - [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)

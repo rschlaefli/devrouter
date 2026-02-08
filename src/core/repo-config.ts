@@ -11,7 +11,6 @@ import {
 } from "../types";
 
 const CONFIG_FILE_NAME = ".devrouter.yml";
-const LEGACY_CONFIG_FILES = ["devrouter.host.yml", "docker-compose.devrouter.yml"];
 
 const DEFAULT_HOST_STRATEGY = {
   type: "auto" as const,
@@ -275,13 +274,6 @@ export function getRepoConfigPath(repoPath?: string): string {
   return path.join(resolveRepoPath(repoPath), CONFIG_FILE_NAME);
 }
 
-export function hasLegacyConfigFiles(repoPath?: string): string[] {
-  const resolvedRepoPath = resolveRepoPath(repoPath);
-  return LEGACY_CONFIG_FILES.filter((fileName) =>
-    fs.existsSync(path.join(resolvedRepoPath, fileName))
-  );
-}
-
 export function loadRepoConfig(repoPath?: string): DevrouterConfig {
   const resolvedRepoPath = resolveRepoPath(repoPath);
   const configPath = getRepoConfigPath(resolvedRepoPath);
@@ -294,27 +286,6 @@ export function loadRepoConfig(repoPath?: string): DevrouterConfig {
   const raw = fs.readFileSync(configPath, "utf-8");
   const parsed = YAML.parse(raw) as DevrouterConfigWithUnknown | null;
   return parseConfig(parsed ?? {}, configPath);
-}
-
-export function loadRepoConfigWithCutover(repoPath?: string): DevrouterConfig {
-  const resolvedRepoPath = resolveRepoPath(repoPath);
-  const configPath = getRepoConfigPath(resolvedRepoPath);
-  if (!fs.existsSync(configPath)) {
-    const legacy = hasLegacyConfigFiles(resolvedRepoPath);
-    if (legacy.length > 0) {
-      throw new Error(
-        `Legacy repo config detected (${legacy.join(
-          ", "
-        )}) in ${resolvedRepoPath}. Hard cutover is active. Create ${CONFIG_FILE_NAME} via 'dev repo init --repo ${resolvedRepoPath}' and migrate apps with 'dev app add'.`
-      );
-    }
-
-    throw new Error(
-      `Missing ${CONFIG_FILE_NAME} in ${resolvedRepoPath}. Run 'dev repo init --repo ${resolvedRepoPath}' first.`
-    );
-  }
-
-  return loadRepoConfig(resolvedRepoPath);
 }
 
 export function saveRepoConfig(repoPath: string, config: DevrouterConfig): void {
@@ -417,7 +388,7 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
 
 export function upsertRepoApp(repoPath: string, options: AppAddOptions): { configPath: string; app: DevrouterApp } {
   const resolvedRepoPath = resolveRepoPath(repoPath);
-  const config = loadRepoConfigWithCutover(resolvedRepoPath);
+  const config = loadRepoConfig(resolvedRepoPath);
   const app = buildAppFromOptions(options);
   const apps = config.apps.filter((existing) => existing.name !== app.name);
   apps.push(app);
@@ -437,7 +408,7 @@ export function upsertRepoApp(repoPath: string, options: AppAddOptions): { confi
 
 export function removeRepoApp(repoPath: string, name: string): { configPath: string; removed: boolean } {
   const resolvedRepoPath = resolveRepoPath(repoPath);
-  const config = loadRepoConfigWithCutover(resolvedRepoPath);
+  const config = loadRepoConfig(resolvedRepoPath);
   const apps = config.apps.filter((app) => app.name !== name);
   const removed = apps.length !== config.apps.length;
   if (!removed) {
@@ -459,7 +430,7 @@ export function removeRepoApp(repoPath: string, name: string): { configPath: str
 }
 
 export function resolveAppByName(repoPath: string, name: string): { config: DevrouterConfig; app: DevrouterApp } {
-  const config = loadRepoConfigWithCutover(repoPath);
+  const config = loadRepoConfig(repoPath);
   const app = config.apps.find((entry) => entry.name === name);
   if (!app) {
     const available = config.apps.map((entry) => entry.name).join(", ");

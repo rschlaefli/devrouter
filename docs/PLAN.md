@@ -1,6 +1,6 @@
 # PLAN.md
 
-Roadmap and execution status for `devrouter` after the unified `.devrouter.yml` cutover.
+Roadmap and execution status for `devrouter` with unified `.devrouter.yml` and stable CLI surface.
 
 ## Progress log
 
@@ -9,7 +9,7 @@ Completed milestones from recent commits:
 - `d0ea24a`: Initial MVP CLI and documentation baseline.
 - `482483a`: Startup latency improvements (`dev --help` fast path via lazy loading).
 - `ee08403`: Host-run app support and host route state handling.
-- `5be481d`: Unified `.devrouter.yml`, `repo/app` commands, TCP/Postgres routing on shared `:5432`, hard cutover from legacy command flow.
+- `5be481d`: Unified `.devrouter.yml`, `repo/app` commands, and TCP/Postgres routing on shared `:5432`.
 - `unreleased`: Added full in-repo demo workspace (`demo/`) with host app + docker app + postgres + reusable smoke script (`pnpm demo:smoke`).
 
 ## Current baseline
@@ -21,7 +21,6 @@ Delivered and active:
 - HTTP routing for host-run and Docker-run apps
 - TCP/Postgres Docker routing on `:5432` with TLS/SNI
 - Shared router ownership of `80/443/5432`
-- Legacy command/file cutover with migration guidance
 - Bundled demo repo (`demo/.devrouter.yml`) for onboarding rehearsal and smoke validation
 
 ## Onboarding readiness sprint
@@ -61,7 +60,7 @@ Acceptance criteria:
 
 Acceptance criteria:
 
-- Add migration helper for legacy repo files to `.devrouter.yml`.
+- Add repo bootstrap helper from discovered compose/service metadata to `.devrouter.yml`.
 - Add `dev app doctor` diagnostics for common misconfigurations.
 - Publish clear install/distribution strategy (local install, global package path, release process).
 
@@ -77,12 +76,11 @@ Acceptance criteria:
 
 - Postgres multiplexing on one shared `:5432` depends on TLS/SNI-capable clients.
 - Host-process detection relies on local `ps`/`lsof`; behavior may differ across environments.
-- Hard cutover without auto-migration can slow onboarding for legacy repos.
 
 ## Decision log
 
 - `.devrouter.yml` is the single source of truth for per-repo routing config.
-- Hard cutover retained for legacy commands/files (`dev add`, `dev host ...`, `devrouter.host.yml`, `docker-compose.devrouter.yml`).
+- Stable CLI surface includes only `up/down/status/ls/open/tls`, `repo init`, and `app add/ls/run/rm`.
 - TLS remains mandatory for multiplexed Postgres hostname routing on shared `:5432`.
 - `80/443/5432` stay reserved for Traefik.
 

@@ -156,15 +156,6 @@ appCommand
     await runAppRmCommand({ name, repo: options.repo });
   }));
 
-program
-  .command("add")
-  .description("Legacy alias (deprecated)")
-  .allowUnknownOption(true)
-  .action(withErrorHandling(async () => {
-    const { runLegacyAddCommand } = await import("./commands/add");
-    await runLegacyAddCommand();
-  }));
-
 const tlsCommand = program.command("tls").description("TLS helpers");
 
 tlsCommand
@@ -173,44 +164,6 @@ tlsCommand
   .action(withErrorHandling(async () => {
     const { runTLSInstallCommand } = await import("./commands/tls");
     await runTLSInstallCommand();
-  }));
-
-const hostCommand = program.command("host").description("Legacy host commands (deprecated)");
-
-hostCommand
-  .command("run")
-  .description("Legacy command (deprecated)")
-  .allowUnknownOption(true)
-  .action(withErrorHandling(async () => {
-    const { runHostRunCommand } = await import("./commands/host-run");
-    await runHostRunCommand();
-  }));
-
-hostCommand
-  .command("attach")
-  .description("Legacy command (deprecated)")
-  .allowUnknownOption(true)
-  .action(withErrorHandling(async () => {
-    const { runHostAttachCommand } = await import("./commands/host-attach");
-    await runHostAttachCommand();
-  }));
-
-hostCommand
-  .command("ls")
-  .description("Legacy command (deprecated)")
-  .allowUnknownOption(true)
-  .action(withErrorHandling(async () => {
-    const { runHostLsCommand } = await import("./commands/host-ls");
-    await runHostLsCommand();
-  }));
-
-hostCommand
-  .command("rm")
-  .description("Legacy command (deprecated)")
-  .allowUnknownOption(true)
-  .action(withErrorHandling(async () => {
-    const { runHostRmCommand } = await import("./commands/host-rm");
-    await runHostRmCommand();
   }));
 
 program.parseAsync(process.argv);

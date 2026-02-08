@@ -38,11 +38,6 @@ Supported routing:
 - `dev repo init`
 - `dev app add`, `dev app ls`, `dev app run`, `dev app rm`
 
-Legacy cutover commands intentionally fail with migration guidance:
-
-- `dev add`
-- `dev host ...`
-
 ## Repository map
 
 - `src/cli.ts`: command registration (lazy-loaded handlers)

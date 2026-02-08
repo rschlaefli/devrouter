@@ -182,11 +182,6 @@ Missing route in `dev ls`:
 - verify `dev app run <name>` was executed
 - verify docker service started if runtime is docker
 
-Legacy cutover errors:
-
-- `dev add` and `dev host ...` are deprecated
-- migrate to `dev repo init` + `dev app add` + `dev app run`
-
 ## 9) AI agent prompt (single copy-paste)
 
 ```text
@@ -201,7 +196,6 @@ How devrouter works (must respect):
 - Shared Traefik router owns host ports 80 (HTTP), 443 (HTTPS), and 5432 (Postgres TCP).
 - Per-repo source of truth is REPO_PATH/.devrouter.yml only.
 - Global generated/runtime artifacts are managed under ~/.config/devrouter (do not edit these manually).
-- Legacy files/commands are cut over (devrouter.host.yml, docker-compose.devrouter.yml, dev add, dev host ...).
 
 Inputs:
 - REPO_PATH=<REPO_PATH>
@@ -232,7 +226,6 @@ Validation rules to enforce:
 - runtime=host supports protocol=http only
 - protocol=tcp requires runtime=docker and tcpProtocol=postgres
 - unknown keys are not allowed (strict schema)
-- do not introduce deprecated/legacy config files
 
 Runtime behavior to account for:
 - Docker dependencies can be auto-started by dev app run.
