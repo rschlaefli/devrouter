@@ -44,6 +44,8 @@ function renderComposeYml(): string {
       - "443:443"
       - "5432:5432"
       - "127.0.0.1:8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "${TRAEFIK_STATIC_FILE}:/etc/traefik/traefik.yml:ro"
@@ -149,6 +151,7 @@ This folder is managed by the devrouter CLI.
 - dev status
 - dev doctor
 - dev ls
+- dev logs [-f] [--tail N]
 - dev repo init
 - dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
 - dev app run <name>

@@ -90,6 +90,16 @@ program
     await runOpenCommand(name);
   }));
 
+program
+  .command("logs")
+  .description("Show Traefik router logs (useful for diagnosing routing issues)")
+  .option("-f, --follow", "Follow log output")
+  .option("--tail <lines>", "Number of lines to show from end of logs", "100")
+  .action(withErrorHandling(async (options: { follow?: boolean; tail?: string }) => {
+    const { runLogsCommand } = await import("./commands/logs");
+    await runLogsCommand(options);
+  }));
+
 const repoCommand = program.command("repo").description("Create and manage `.devrouter.yml` in repositories");
 
 repoCommand

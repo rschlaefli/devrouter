@@ -221,7 +221,7 @@ async function runHostApp(repoPath: string, app: DevrouterHostHttpApp): Promise<
     cwd: commandCwd,
     stdio: "inherit",
     shell: true,
-    env: { ...process.env, PORT: String(freePort) }
+    env: { ...process.env, PORT: String(freePort), HOSTNAME: "0.0.0.0", HOST: "0.0.0.0" }
   });
 
   if (!child.pid) {
@@ -273,7 +273,7 @@ async function runHostApp(repoPath: string, app: DevrouterHostHttpApp): Promise<
           pid: child.pid,
           command: app.hostRun.command
         });
-        process.stdout.write(`Route ${app.host} -> http://host.docker.internal:${selectedPort}\n`);
+        process.stdout.write(`Route ${app.host} -> localhost:${selectedPort}\n`);
       } else if (!currentPort) {
         const timeoutMs = app.hostRun.portTimeout
           ? app.hostRun.portTimeout * 1000

@@ -164,6 +164,9 @@ with a random free port when starting host apps. Frameworks that read `PORT` (Ne
 Vite, Remix, Fastify, etc.) will bind to this port instead of their default, avoiding
 conflicts when running multiple apps.
 
+**Bind address injection**: devrouter also sets `HOSTNAME=0.0.0.0` and `HOST=0.0.0.0` so
+host apps bind to all interfaces, ensuring Traefik (running inside Docker) can reach them.
+
 **Port detection timeout**: By default, devrouter waits up to 120 seconds for a host app
 to start listening on a TCP port. For slow-starting dev servers, configure a custom
 timeout per app in `.devrouter.yml`:
@@ -232,7 +235,16 @@ You will see both:
 
 For TCP routes, `dev open <name>` prints connection guidance instead of launching browser.
 
-## 12) Validate setup quality (recommended)
+## 12) View router logs (troubleshooting)
+
+```bash
+dev logs --tail 50
+dev logs -f
+```
+
+Use `dev logs` to inspect Traefik access logs and diagnose routing issues (e.g. 502 bad gateway).
+
+## 13) Validate setup quality (recommended)
 
 Run diagnostics against global state + repository config:
 
@@ -246,6 +258,6 @@ For AI/tooling integration:
 dev doctor --repo /absolute/path/to/repo --json
 ```
 
-## 13) Onboard another repository
+## 14) Onboard another repository
 
 - [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)

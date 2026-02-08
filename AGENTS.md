@@ -35,7 +35,7 @@ Supported routing:
 ## Supported command surface
 
 - `dev init`
-- `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev tls install`
+- `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
 - `dev repo init`
 - `dev app add`, `dev app ls`, `dev app run`, `dev app rm`
 
@@ -53,6 +53,7 @@ Supported routing:
 - `src/core/host-routes.ts`: host process route state + dynamic file rendering
 - `src/core/paths.ts`: path traversal guard (`assertPathWithinRepo`) for repo-scoped file references
 - `src/core/tls.ts`: mkcert integration and TLS enablement
+- `src/commands/logs.ts`: `dev logs` command handler (Traefik log access)
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
 - `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
