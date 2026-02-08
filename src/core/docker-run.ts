@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import YAML from "yaml";
 import { DevrouterApp, DevrouterDockerHttpApp, DevrouterDockerPostgresApp } from "../types";
 import { CACHE_DIR } from "./router";
+import { assertPathWithinRepo } from "./paths";
 
 function sanitizeRouterId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
@@ -110,9 +111,7 @@ export function runDockerComposeUp(
 ): void {
   const fileArgs: string[] = [];
   for (const composeFile of composeFiles) {
-    const resolved = path.isAbsolute(composeFile)
-      ? composeFile
-      : path.join(repoPath, composeFile);
+    const resolved = assertPathWithinRepo(composeFile, repoPath, "composeFiles");
     fileArgs.push("-f", resolved);
   }
 

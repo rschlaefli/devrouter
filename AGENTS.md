@@ -51,6 +51,7 @@ Supported routing:
 - `src/core/routes.ts`: discover HTTP + TCP routes from labels
 - `src/core/router.ts`: shared Traefik stack/files under `~/.config/devrouter`
 - `src/core/host-routes.ts`: host process route state + dynamic file rendering
+- `src/core/paths.ts`: path traversal guard (`assertPathWithinRepo`) for repo-scoped file references
 - `src/core/tls.ts`: mkcert integration and TLS enablement
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
@@ -65,6 +66,13 @@ Supported routing:
 4. Keep `.localhost` as hostname convention.
 5. Keep Traefik ownership of `80/443/5432`.
 6. Postgres TCP hostname multiplexing remains TLS-required.
+
+## Security constraints
+
+1. `.devrouter.yml` paths (`composeFiles`, `hostRun.cwd`) must not escape repo root — enforced by `assertPathWithinRepo` in `src/core/paths.ts`.
+2. Hostnames must match `VALID_HOSTNAME_RE` (lowercase alphanumeric + hyphens + `.localhost` suffix). No underscores.
+3. Dependency graphs are validated for cycles at resolution time (`resolveAppDependencies`).
+4. `shell:true` in host-run spawn is intentional (same trust model as npm scripts / docker-compose). Command length capped at 4096 chars.
 
 ## Validation checklist
 

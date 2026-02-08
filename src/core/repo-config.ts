@@ -12,6 +12,10 @@ import {
 
 const CONFIG_FILE_NAME = ".devrouter.yml";
 
+const VALID_HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.localhost$/;
+
+const MAX_COMMAND_LENGTH = 4096;
+
 const DEFAULT_HOST_STRATEGY = {
   type: "auto" as const,
   denyPorts: [80, 443, 5432],
@@ -157,6 +161,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
   if (!host.endsWith(".localhost")) {
     throw new Error(`${pathLabel}.host must end with .localhost.`);
   }
+  if (!VALID_HOSTNAME_RE.test(host)) {
+    throw new Error(`${pathLabel}.host contains invalid characters. Only lowercase alphanumerics and hyphens are allowed.`);
+  }
 
   const protocol = toStringOrThrow(objectValue.protocol, `${pathLabel}.protocol`);
   const runtime = toStringOrThrow(objectValue.runtime, `${pathLabel}.runtime`);
@@ -170,6 +177,11 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     const hostRun = ensureObject(objectValue.hostRun, `${pathLabel}.hostRun`);
     ensureAllowedKeys(hostRun, ["command", "cwd", "strategy"], `${pathLabel}.hostRun`);
 
+    const command = toStringOrThrow(hostRun.command, `${pathLabel}.hostRun.command`);
+    if (command.length > MAX_COMMAND_LENGTH) {
+      throw new Error(`${pathLabel}.hostRun.command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters.`);
+    }
+
     return {
       name,
       host,
@@ -177,7 +189,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
       runtime: "host",
       dependencies,
       hostRun: {
-        command: toStringOrThrow(hostRun.command, `${pathLabel}.hostRun.command`),
+        command,
         cwd:
           hostRun.cwd === undefined
             ? "."
@@ -319,6 +331,9 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
   if (!host.endsWith(".localhost")) {
     throw new Error("--host must end with .localhost");
   }
+  if (!VALID_HOSTNAME_RE.test(host)) {
+    throw new Error("--host contains invalid characters. Only lowercase alphanumerics and hyphens are allowed.");
+  }
 
   const dependencies = options.dependsOn.map((app) => ({ app }));
   if (options.runtime === "host") {
@@ -443,25 +458,31 @@ export function resolveAppByName(repoPath: string, name: string): { config: Devr
 export function resolveAppDependencies(config: DevrouterConfig, app: DevrouterApp): DevrouterApp[] {
   const results: DevrouterApp[] = [];
   const seen = new Set<string>();
+  const visiting = new Set<string>([app.name]);
   const byName = new Map(config.apps.map((entry) => [entry.name, entry]));
 
-  const visit = (name: string): void => {
+  const visit = (name: string, chain: string[]): void => {
+    if (visiting.has(name)) {
+      throw new Error(`Dependency cycle detected: ${[...chain, name].join(" -> ")}`);
+    }
     if (seen.has(name)) {
       return;
     }
-    seen.add(name);
+    visiting.add(name);
     const dependency = byName.get(name);
     if (!dependency) {
       throw new Error(`Dependency '${name}' referenced by '${app.name}' does not exist in config.`);
     }
     results.push(dependency);
     for (const nested of dependency.dependencies) {
-      visit(nested.app);
+      visit(nested.app, [...chain, name]);
     }
+    visiting.delete(name);
+    seen.add(name);
   };
 
   for (const dependency of app.dependencies) {
-    visit(dependency.app);
+    visit(dependency.app, [app.name]);
   }
 
   return results;

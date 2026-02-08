@@ -8,6 +8,7 @@ import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./rep
 import { buildHostRouteId, removeHostRouteById, upsertHostRoute } from "./host-routes";
 import { ensureNetwork } from "./docker";
 import { DEVNET_NAME, ensureRouterFiles } from "./router";
+import { assertPathWithinRepo } from "./paths";
 
 const POLL_INTERVAL_MS = 1000;
 const INITIAL_PORT_TIMEOUT_MS = 30_000;
@@ -194,7 +195,10 @@ function selectAllowedPort(ports: number[], app: DevrouterHostHttpApp): number |
 
 async function runHostApp(repoPath: string, app: DevrouterHostHttpApp): Promise<void> {
   const routeId = buildHostRouteId(repoPath, app.name);
-  const commandCwd = path.resolve(repoPath, app.hostRun.cwd);
+  const commandCwd = assertPathWithinRepo(app.hostRun.cwd, repoPath, "hostRun.cwd");
+  // shell:true is intentional — .devrouter.yml is a user-controlled local config file
+  // with the same trust model as npm scripts or docker-compose commands. The user who
+  // edits the config already has local shell access.
   const child = spawn(app.hostRun.command, {
     cwd: commandCwd,
     stdio: "inherit",

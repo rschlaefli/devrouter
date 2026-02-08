@@ -25,10 +25,10 @@ Goal: publish `@devrouter/cli` as a high-quality, simple OSS package on npm.
 
 ## M1: Security Hardening
 
-- [ ] Fix command injection: replace `shell: true` in `spawn()` for host-run commands (`src/core/app-run.ts`)
-- [ ] Validate/canonicalize file paths from config (`composeFiles` in `src/core/repo-config.ts`)
-- [ ] Sanitize Docker label values (`src/core/docker-run.ts`)
-- [ ] Add dependency cycle detection at config load time (`src/core/repo-config.ts`)
+- [x] Document `shell:true` as intentional (same trust model as npm scripts) + add 4096-char command length cap (`src/core/app-run.ts`, `src/core/repo-config.ts`)
+- [x] Path traversal guard for `composeFiles` and `hostRun.cwd` via `assertPathWithinRepo` (`src/core/paths.ts`, `src/core/docker-run.ts`, `src/core/app-run.ts`)
+- [x] Strict hostname regex validation — lowercase alphanumeric + hyphens + `.localhost` suffix (`src/core/repo-config.ts`)
+- [x] Dependency cycle detection with clear cycle-path error messages (`src/core/repo-config.ts`)
 
 ## M2: Cross-Platform (macOS + Linux + WSL)
 

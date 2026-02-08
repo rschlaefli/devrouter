@@ -13,6 +13,7 @@ Completed milestones from recent commits:
 - `unreleased`: Added AI-native `dev init` command that prints the canonical onboarding prompt and stable command intents.
 - `unreleased`: Added `dev doctor` (`dev verify`) diagnostics and richer `dev status` readiness insights.
 - `unreleased`: Added full in-repo demo workspace (`demo/`) with host app + docker app + postgres + reusable smoke script (`pnpm demo:smoke`).
+- `unreleased`: M1 security hardening — path traversal guard, hostname regex validation, dependency cycle detection, shell:true trust model documented + command length cap.
 
 ## Current baseline
 
