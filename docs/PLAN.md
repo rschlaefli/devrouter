@@ -10,6 +10,8 @@ Completed milestones from recent commits:
 - `482483a`: Startup latency improvements (`dev --help` fast path via lazy loading).
 - `ee08403`: Host-run app support and host route state handling.
 - `5be481d`: Unified `.devrouter.yml`, `repo/app` commands, and TCP/Postgres routing on shared `:5432`.
+- `unreleased`: Added AI-native `dev init` command that prints the canonical onboarding prompt and stable command intents.
+- `unreleased`: Added `dev doctor` (`dev verify`) diagnostics and richer `dev status` readiness insights.
 - `unreleased`: Added full in-repo demo workspace (`demo/`) with host app + docker app + postgres + reusable smoke script (`pnpm demo:smoke`).
 
 ## Current baseline

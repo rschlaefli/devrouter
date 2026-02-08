@@ -1,0 +1,331 @@
+import fs from "node:fs";
+import path from "node:path";
+import { listContainers } from "./docker";
+import { listHostRouteState, listHostRoutes } from "./host-routes";
+import { loadRepoConfig, resolveRepoPath } from "./repo-config";
+import { getRouterFileLayout, isTLSEnabled } from "./router";
+import { collectRouterStatus } from "./status";
+import { discoverRoutes, findDuplicateHosts } from "./routes";
+import { DiagnosticCheck, DoctorReport } from "../types";
+
+type DoctorOptions = {
+  repo?: string;
+};
+
+function isPidRunning(pid: number | undefined): boolean {
+  if (!pid || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function addCheck(
+  checks: DiagnosticCheck[],
+  check: DiagnosticCheck
+): void {
+  checks.push(check);
+}
+
+function collectSummary(checks: DiagnosticCheck[]): DoctorReport["summary"] {
+  return checks.reduce(
+    (acc, check) => {
+      acc[check.level] += 1;
+      return acc;
+    },
+    { ok: 0, warn: 0, error: 0 }
+  );
+}
+
+function collectNextSteps(checks: DiagnosticCheck[], statusNextSteps: string[]): string[] {
+  const steps = new Set<string>();
+  for (const check of checks) {
+    if (check.level === "ok") {
+      continue;
+    }
+    if (check.suggestion) {
+      steps.add(check.suggestion);
+    }
+  }
+
+  for (const step of statusNextSteps) {
+    steps.add(step);
+  }
+
+  return Array.from(steps.values());
+}
+
+export async function buildDoctorReport(options: DoctorOptions = {}): Promise<DoctorReport> {
+  const checks: DiagnosticCheck[] = [];
+  const fileLayout = getRouterFileLayout();
+  const resolvedRepoPath = resolveRepoPath(options.repo);
+  const explicitRepo = typeof options.repo === "string" && options.repo.trim().length > 0;
+
+  if (fileLayout.missing.length === 0) {
+    addCheck(checks, {
+      id: "global.router-files",
+      level: "ok",
+      summary: "Global router files are present."
+    });
+  } else {
+    addCheck(checks, {
+      id: "global.router-files",
+      level: "warn",
+      summary: `Missing ${fileLayout.missing.length} global router file(s).`,
+      details: fileLayout.missing.join(", "),
+      suggestion: "Run: dev up"
+    });
+  }
+
+  let statusNextSteps: string[] = [];
+  try {
+    const status = await collectRouterStatus(options.repo);
+    statusNextSteps = status.insights.nextSteps;
+
+    addCheck(checks, {
+      id: "global.docker-context",
+      level: "ok",
+      summary: `Docker context: ${status.dockerContext}`
+    });
+
+    addCheck(checks, {
+      id: "global.router-running",
+      level: status.routerRunning ? "ok" : "warn",
+      summary: status.routerRunning
+        ? "Router container is running."
+        : "Router container is not running.",
+      suggestion: status.routerRunning ? undefined : "Run: dev up"
+    });
+
+    if (status.routerRunning) {
+      const missingPorts: string[] = [];
+      if (!status.boundPorts.web80) {
+        missingPorts.push("80");
+      }
+      if (!status.boundPorts.web443) {
+        missingPorts.push("443");
+      }
+      if (!status.boundPorts.postgres5432) {
+        missingPorts.push("5432");
+      }
+
+      addCheck(checks, {
+        id: "global.port-bindings",
+        level: missingPorts.length === 0 ? "ok" : "error",
+        summary: missingPorts.length === 0
+          ? "Router has required port bindings (80/443/5432)."
+          : `Router is running but missing bound port(s): ${missingPorts.join(", ")}.`,
+        suggestion: missingPorts.length === 0 ? undefined : "Restart router: dev down && dev up"
+      });
+    }
+
+    addCheck(checks, {
+      id: "global.devnet",
+      level: status.networkExists ? "ok" : "error",
+      summary: status.networkExists ? "Shared network devnet exists." : "Shared network devnet is missing.",
+      suggestion: status.networkExists ? undefined : "Run: dev up"
+    });
+
+    if (status.tlsEnabled) {
+      addCheck(checks, {
+        id: "global.tls",
+        level: "ok",
+        summary: "TLS is enabled (certs + Traefik TLS config)."
+      });
+    } else if (status.certPresent || status.tlsConfigured) {
+      addCheck(checks, {
+        id: "global.tls",
+        level: "warn",
+        summary: "TLS is partially configured.",
+        details: `certPresent=${status.certPresent}, tlsConfigured=${status.tlsConfigured}`,
+        suggestion: "Run: dev tls install"
+      });
+    } else {
+      addCheck(checks, {
+        id: "global.tls",
+        level: "warn",
+        summary: "TLS is not enabled.",
+        suggestion: "Run: dev tls install"
+      });
+    }
+
+    const repo = status.repo;
+    if (!repo) {
+      addCheck(checks, {
+        id: "repo.config",
+        level: "warn",
+        summary: "No .devrouter.yml found in current directory.",
+        suggestion: `Run: dev repo init --repo ${resolvedRepoPath}`
+      });
+    } else if (!repo.exists) {
+      addCheck(checks, {
+        id: "repo.config",
+        level: explicitRepo ? "error" : "warn",
+        summary: `Missing .devrouter.yml in ${repo.path}.`,
+        suggestion: `Run: dev repo init --repo ${repo.path}`
+      });
+    } else if (!repo.valid) {
+      addCheck(checks, {
+        id: "repo.config",
+        level: "error",
+        summary: ".devrouter.yml exists but is invalid.",
+        details: repo.error,
+        suggestion: "Fix config errors and re-run: dev doctor --repo <path>"
+      });
+    } else {
+      addCheck(checks, {
+        id: "repo.config",
+        level: "ok",
+        summary: `.devrouter.yml is valid (${repo.appCount} app(s)).`
+      });
+
+      if (repo.appCount === 0) {
+        addCheck(checks, {
+          id: "repo.apps",
+          level: "warn",
+          summary: "No apps are configured in .devrouter.yml.",
+          suggestion: "Run: dev app add --name <name> --host <name>.localhost --protocol http --runtime host"
+        });
+      }
+
+      const config = loadRepoConfig(repo.path);
+      const appNames = new Set(config.apps.map((app) => app.name));
+      const missingDependencies = config.apps.flatMap((app) =>
+        app.dependencies
+          .filter((dependency) => !appNames.has(dependency.app))
+          .map((dependency) => `${app.name}->${dependency.app}`)
+      );
+      addCheck(checks, {
+        id: "repo.dependencies",
+        level: missingDependencies.length === 0 ? "ok" : "error",
+        summary: missingDependencies.length === 0
+          ? "All app dependencies resolve to configured app names."
+          : `Missing dependency target(s): ${missingDependencies.join(", ")}.`,
+        suggestion: missingDependencies.length === 0 ? undefined : "Fix dependencies in .devrouter.yml"
+      });
+
+      const missingComposeFiles = config.apps
+        .filter((app) => app.runtime === "docker")
+        .flatMap((app) => app.docker.composeFiles.map((filePath) => ({
+          app: app.name,
+          filePath,
+          absolutePath: path.resolve(repo.path, filePath)
+        })))
+        .filter((entry) => !fs.existsSync(entry.absolutePath));
+
+      addCheck(checks, {
+        id: "repo.compose-files",
+        level: missingComposeFiles.length === 0 ? "ok" : "error",
+        summary: missingComposeFiles.length === 0
+          ? "All referenced docker compose files exist."
+          : `${missingComposeFiles.length} compose file reference(s) are missing.`,
+        details:
+          missingComposeFiles.length > 0
+            ? missingComposeFiles
+                .map((entry) => `${entry.app}: ${entry.filePath}`)
+                .join(", ")
+            : undefined,
+        suggestion: missingComposeFiles.length === 0 ? undefined : "Fix docker.composeFiles paths in .devrouter.yml"
+      });
+
+      const missingHostCwds = config.apps
+        .filter((app) => app.runtime === "host")
+        .map((app) => ({
+          app: app.name,
+          cwd: app.hostRun.cwd,
+          absolutePath: path.resolve(repo.path, app.hostRun.cwd)
+        }))
+        .filter((entry) => !fs.existsSync(entry.absolutePath));
+
+      addCheck(checks, {
+        id: "repo.host-cwd",
+        level: missingHostCwds.length === 0 ? "ok" : "error",
+        summary: missingHostCwds.length === 0
+          ? "All host runtime cwd paths exist."
+          : `${missingHostCwds.length} host runtime cwd path(s) are missing.`,
+        details:
+          missingHostCwds.length > 0
+            ? missingHostCwds
+                .map((entry) => `${entry.app}: ${entry.cwd}`)
+                .join(", ")
+            : undefined,
+        suggestion: missingHostCwds.length === 0 ? undefined : "Fix hostRun.cwd paths in .devrouter.yml"
+      });
+
+      if (repo.tcpAppCount > 0 && !status.tlsEnabled) {
+        addCheck(checks, {
+          id: "repo.tcp-tls",
+          level: "error",
+          summary: `Repo defines ${repo.tcpAppCount} tcp/postgres app(s), but TLS is not enabled.`,
+          suggestion: "Run: dev tls install"
+        });
+      } else if (repo.tcpAppCount > 0) {
+        addCheck(checks, {
+          id: "repo.tcp-tls",
+          level: "ok",
+          summary: `TLS is ready for ${repo.tcpAppCount} tcp/postgres app(s).`
+        });
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    addCheck(checks, {
+      id: "global.status",
+      level: "error",
+      summary: "Failed to collect router status diagnostics.",
+      details: message
+    });
+  }
+
+  try {
+    const tlsEnabled = isTLSEnabled();
+    const containers = await listContainers(true);
+    const dockerRoutes = discoverRoutes(containers, tlsEnabled, "devnet").routes;
+    const hostRoutes = listHostRoutes(tlsEnabled);
+    const duplicates = findDuplicateHosts([...dockerRoutes, ...hostRoutes]);
+    addCheck(checks, {
+      id: "routes.duplicates",
+      level: duplicates.length === 0 ? "ok" : "error",
+      summary: duplicates.length === 0
+        ? "No duplicate hostnames detected across active routes."
+        : `Duplicate hostname(s): ${duplicates.join(", ")}.`,
+      suggestion: duplicates.length === 0 ? undefined : "Rename hosts in .devrouter.yml so each hostname is unique"
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    addCheck(checks, {
+      id: "routes.duplicates",
+      level: "warn",
+      summary: "Could not evaluate duplicate hostnames.",
+      details: message
+    });
+  }
+
+  const staleHostRoutes = listHostRouteState().filter((route) =>
+    route.pid ? !isPidRunning(route.pid) : true
+  );
+  addCheck(checks, {
+    id: "routes.host-state",
+    level: staleHostRoutes.length === 0 ? "ok" : "warn",
+    summary: staleHostRoutes.length === 0
+      ? "Host route state contains only running process entries."
+      : `${staleHostRoutes.length} host route entr${staleHostRoutes.length === 1 ? "y is" : "ies are"} stale (process not running).`,
+    suggestion: staleHostRoutes.length === 0 ? undefined : "Re-run the affected host app(s): dev app run <name> --repo <path>"
+  });
+
+  const summary = collectSummary(checks);
+  const nextSteps = collectNextSteps(checks, statusNextSteps);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    repoPath: resolvedRepoPath,
+    summary,
+    checks,
+    nextSteps
+  };
+}

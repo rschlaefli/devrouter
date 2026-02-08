@@ -140,6 +140,7 @@ No repo-local compose overlay file is required anymore.
 
 - `dev app ls` shows expected entries.
 - `dev ls` shows both HTTP and/or TCP endpoints.
+- `dev doctor --repo <path>` reports no blocking errors.
 - HTTP app reachable at `https://<host>.localhost` (after `dev tls install`).
 - Postgres route visible as `postgres://<host>.localhost:5432 (tls required)`.
 - No duplicate hostnames.
@@ -183,6 +184,14 @@ Missing route in `dev ls`:
 - verify docker service started if runtime is docker
 
 ## 9) AI agent prompt (single copy-paste)
+
+Generate the current canonical prompt with:
+
+```bash
+dev init --repo /absolute/path/to/repo
+```
+
+Or copy this static template:
 
 ```text
 You are adapting an existing repository to devrouter using the unified .devrouter.yml model.
@@ -243,6 +252,7 @@ Required workflow:
 Validation commands to run/report:
 - dev app ls --repo <REPO_PATH>
 - For each entry (when safe): dev app run <name> --repo <REPO_PATH> --yes
+- dev doctor --repo <REPO_PATH> --json
 - dev ls
 - For HTTP entries: curl -I http://<host>
 - For TCP postgres entries: provide connection hint (example: psql "... sslmode=require")
@@ -260,6 +270,21 @@ Output format (strict):
    - dev ls exposes expected endpoints
    - HTTP routes reachable
    - TCP Postgres route configured with TLS requirement noted
+
+Command intent reference:
+- dev init: Print the AI onboarding prompt template for a repository.
+- dev up: Start shared Traefik and ensure the shared devnet network.
+- dev down: Stop the shared Traefik router stack.
+- dev status: Show router/container/network/TLS health and bound ports.
+- dev doctor: Run deep diagnostics across global router state and repo config.
+- dev ls: List active HTTP and TCP routes resolved by devrouter.
+- dev open <name>: Open HTTP routes or print connection hints for TCP routes.
+- dev tls install: Install mkcert certs and enable TLS/HTTPS for local routing.
+- dev repo init: Create `.devrouter.yml` in a target repository.
+- dev app add: Add or update one app entry in `.devrouter.yml`.
+- dev app ls: List app entries from `.devrouter.yml`.
+- dev app run: Run one configured app and reconcile its route at runtime.
+- dev app rm: Remove one app entry from `.devrouter.yml`.
 ```
 
 ## 10) Definition of done

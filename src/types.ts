@@ -27,6 +27,46 @@ export type RouterStatus = {
   certPresent: boolean;
   tlsConfigured: boolean;
   networkExists: boolean;
+  repo?: RepoStatus;
+  insights: RouterInsights;
+};
+
+export type RepoStatus = {
+  path: string;
+  configPath: string;
+  exists: boolean;
+  valid: boolean;
+  appCount: number;
+  tcpAppCount: number;
+  error?: string;
+};
+
+export type RouterInsights = {
+  httpRoutingReady: boolean;
+  tcpRoutingReady: boolean;
+  nextSteps: string[];
+};
+
+export type DiagnosticLevel = "ok" | "warn" | "error";
+
+export type DiagnosticCheck = {
+  id: string;
+  level: DiagnosticLevel;
+  summary: string;
+  details?: string;
+  suggestion?: string;
+};
+
+export type DoctorReport = {
+  generatedAt: string;
+  repoPath?: string;
+  summary: {
+    ok: number;
+    warn: number;
+    error: number;
+  };
+  checks: DiagnosticCheck[];
+  nextSteps: string[];
 };
 
 export type PortListener = {

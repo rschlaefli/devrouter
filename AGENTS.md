@@ -34,13 +34,17 @@ Supported routing:
 
 ## Supported command surface
 
-- `dev up`, `dev down`, `dev status`, `dev ls`, `dev open`, `dev tls install`
+- `dev init`
+- `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev tls install`
 - `dev repo init`
 - `dev app add`, `dev app ls`, `dev app run`, `dev app rm`
 
 ## Repository map
 
 - `src/cli.ts`: command registration (lazy-loaded handlers)
+- `src/core/ai-prompt.ts`: canonical AI onboarding prompt template + command intents
+- `src/core/doctor.ts`: diagnostic report engine for global + repo checks
+- `src/core/status.ts`: status collection + readiness insights
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation
 - `src/core/app-run.ts`: runtime orchestration + dependency prompt logic
 - `src/core/docker-run.ts`: cached compose overlay generation + compose up
@@ -66,5 +70,6 @@ Supported routing:
 
 1. `pnpm typecheck`
 2. `pnpm build`
-3. `pnpm demo:smoke` for full route showcase/regression smoke
-4. Update docs for any behavior/surface changes
+3. `dev doctor --repo ./demo`
+4. `pnpm demo:smoke` for full route showcase/regression smoke
+5. Update docs for any behavior/surface changes

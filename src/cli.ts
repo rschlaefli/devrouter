@@ -18,14 +18,25 @@ function withErrorHandling<TArgs extends unknown[]>(
 const program = new Command();
 program
   .name("dev")
-  .description("Local dev router CLI")
+  .description("Local dev router CLI for stable .localhost routing across repositories")
   .version("0.1.0")
   .showSuggestionAfterError(true)
   .showHelpAfterError();
 
 program
+  .command("init")
+  .description("Print an AI onboarding prompt template for adapting a repository to devrouter")
+  .option("--repo <path>", "Repository path to embed in the prompt (defaults to current directory)")
+  .option("--entries-json <json>", "Optional JSON array of app entries to embed in the prompt")
+  .option("--json", "Output prompt and command intents as JSON")
+  .action(withErrorHandling(async (options: { repo?: string; entriesJson?: string; json?: boolean }) => {
+    const { runInitCommand } = await import("./commands/init");
+    await runInitCommand(options);
+  }));
+
+program
   .command("up")
-  .description("Ensure devnet and start shared Traefik router")
+  .description("Ensure devnet and start shared Traefik (reserves 80/443/5432)")
   .action(withErrorHandling(async () => {
     const { runUpCommand } = await import("./commands/up");
     await runUpCommand();
@@ -33,7 +44,7 @@ program
 
 program
   .command("down")
-  .description("Stop shared Traefik router")
+  .description("Stop the shared Traefik router stack")
   .action(withErrorHandling(async () => {
     const { runDownCommand } = await import("./commands/down");
     await runDownCommand();
@@ -41,17 +52,29 @@ program
 
 program
   .command("status")
-  .description("Show router status")
+  .description("Show router/container/network/TLS status and bound ports")
   .option("--json", "Output JSON")
-  .action(withErrorHandling(async (options: { json?: boolean }) => {
+  .option("--repo <path>", "Repository path for repo-specific readiness insights")
+  .action(withErrorHandling(async (options: { json?: boolean; repo?: string }) => {
     const { runStatusCommand } = await import("./commands/status");
-    await runStatusCommand(Boolean(options.json));
+    await runStatusCommand(options);
+  }));
+
+program
+  .command("doctor")
+  .alias("verify")
+  .description("Run global + repo diagnostics with actionable fixes for humans and AI agents")
+  .option("--repo <path>", "Repository path to validate (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
+    const { runDoctorCommand } = await import("./commands/doctor");
+    await runDoctorCommand(options);
   }));
 
 program
   .command("ls")
   .alias("list")
-  .description("List discovered routed services")
+  .description("List active HTTP and TCP routes from Docker labels and host runtime state")
   .option("--json", "Output JSON")
   .action(withErrorHandling(async (options: { json?: boolean }) => {
     const { runLsCommand } = await import("./commands/ls");
@@ -60,29 +83,29 @@ program
 
 program
   .command("open")
-  .description("Open a routed service by name/host")
+  .description("Open HTTP routes in browser or show TCP connection hints by name/host")
   .argument("<name>", "service name or host")
   .action(withErrorHandling(async (name: string) => {
     const { runOpenCommand } = await import("./commands/open");
     await runOpenCommand(name);
   }));
 
-const repoCommand = program.command("repo").description("Manage per-repository .devrouter.yml config");
+const repoCommand = program.command("repo").description("Create and manage `.devrouter.yml` in repositories");
 
 repoCommand
   .command("init")
-  .description("Initialize .devrouter.yml in a repository")
+  .description("Initialize `.devrouter.yml` in a repository")
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .action(withErrorHandling(async (options: { repo?: string }) => {
     const { runRepoInitCommand } = await import("./commands/repo-init");
     await runRepoInitCommand(options);
   }));
 
-const appCommand = program.command("app").description("Manage configured apps in .devrouter.yml");
+const appCommand = program.command("app").description("Manage app entries and runtime actions from `.devrouter.yml`");
 
 appCommand
   .command("add")
-  .description("Add or update an app definition in .devrouter.yml")
+  .description("Add or update one app definition in `.devrouter.yml`")
   .requiredOption("--name <name>", "App name")
   .requiredOption("--host <host>", "Hostname ending with .localhost")
   .requiredOption("--protocol <protocol>", "http or tcp")
@@ -125,7 +148,7 @@ appCommand
 
 appCommand
   .command("ls")
-  .description("List apps from .devrouter.yml")
+  .description("List app definitions from `.devrouter.yml`")
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option("--json", "Output JSON")
   .action(withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
@@ -135,7 +158,7 @@ appCommand
 
 appCommand
   .command("run")
-  .description("Run an app by name from .devrouter.yml")
+  .description("Run one configured app and reconcile its active route")
   .argument("<name>", "Configured app name")
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option("--yes", "Auto-start dependencies without prompt")
@@ -147,7 +170,7 @@ appCommand
 
 appCommand
   .command("rm")
-  .description("Remove an app from .devrouter.yml")
+  .description("Remove one app definition from `.devrouter.yml`")
   .argument("<name>", "Configured app name")
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .action(withErrorHandling(async (name: string, _options: unknown, command: Command) => {
@@ -156,11 +179,11 @@ appCommand
     await runAppRmCommand({ name, repo: options.repo });
   }));
 
-const tlsCommand = program.command("tls").description("TLS helpers");
+const tlsCommand = program.command("tls").description("TLS helpers for HTTPS and Postgres SNI routing");
 
 tlsCommand
   .command("install")
-  .description("Install mkcert certs and enable HTTPS redirect")
+  .description("Install mkcert certs and enable HTTPS + TLS redirect behavior")
   .action(withErrorHandling(async () => {
     const { runTLSInstallCommand } = await import("./commands/tls");
     await runTLSInstallCommand();

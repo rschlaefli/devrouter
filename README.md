@@ -25,9 +25,11 @@ This is the only supported per-repo config for app routing/runtime definitions.
 
 ## Core commands
 
+- `dev init [--repo <path>] [--entries-json <json>] [--json]`
 - `dev up`
 - `dev down`
-- `dev status [--json]`
+- `dev status [--repo <path>] [--json]`
+- `dev doctor|verify [--repo <path>] [--json]`
 - `dev ls [--json]`
 - `dev open <name>`
 - `dev tls install`
@@ -36,6 +38,42 @@ This is the only supported per-repo config for app routing/runtime definitions.
 - `dev app ls [--repo <path>] [--json]`
 - `dev app run <name> [--repo <path>] [--yes]`
 - `dev app rm <name> [--repo <path>]`
+
+## AI-native onboarding prompt
+
+Generate a ready-to-copy onboarding prompt for an AI agent:
+
+```bash
+dev init --repo /absolute/path/to/repo
+```
+
+Optional: embed target app entries as JSON:
+
+```bash
+dev init --repo /absolute/path/to/repo --entries-json '[{"name":"web","host":"web.localhost","protocol":"http","runtime":"host"}]'
+```
+
+JSON mode for machine consumption:
+
+```bash
+dev init --repo /absolute/path/to/repo --json
+```
+
+## Health diagnostics
+
+Run deep checks for global router state and repo configuration:
+
+```bash
+dev doctor --repo /absolute/path/to/repo
+```
+
+Machine-friendly output:
+
+```bash
+dev doctor --repo /absolute/path/to/repo --json
+```
+
+`dev status` now includes readiness hints and next-step commands.
 
 ## `.devrouter.yml` example
 

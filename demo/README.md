@@ -17,8 +17,10 @@ This folder is a complete demo repository for `devrouter`:
 From `/Volumes/MOBILE/Git/devrouter`:
 
 ```bash
+dev init --repo ./demo
 dev up
 dev tls install
+dev doctor --repo ./demo
 dev app run web-docker --repo ./demo --yes
 dev app run web-host --repo ./demo --yes
 ```

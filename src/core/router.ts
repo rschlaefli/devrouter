@@ -25,6 +25,14 @@ const LEGACY_TRAEFIK_DYNAMIC_FILE = path.join(TRAEFIK_DIR, "dynamic.yml");
 export const CERT_FILE = path.join(CERTS_DIR, "localhost.pem");
 export const CERT_KEY_FILE = path.join(CERTS_DIR, "localhost-key.pem");
 
+const ROUTER_REQUIRED_FILES = [
+  COMPOSE_FILE,
+  TRAEFIK_STATIC_FILE,
+  TRAEFIK_DYNAMIC_BASE_FILE,
+  TRAEFIK_HOST_ROUTES_FILE,
+  HOST_ROUTES_STATE_FILE
+] as const;
+
 function renderComposeYml(): string {
   return `services:
   traefik:
@@ -135,9 +143,11 @@ This folder is managed by the devrouter CLI.
 
 ## Commands
 
+- dev init
 - dev up
 - dev down
 - dev status
+- dev doctor
 - dev ls
 - dev repo init
 - dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
@@ -206,6 +216,12 @@ export function areTLSCertsPresent(): boolean {
 
 export function isTLSEnabled(): boolean {
   return areTLSCertsPresent() && isTLSConfigured();
+}
+
+export function getRouterFileLayout(): { required: string[]; missing: string[] } {
+  const required = [...ROUTER_REQUIRED_FILES];
+  const missing = required.filter((filePath) => !fs.existsSync(filePath));
+  return { required, missing };
 }
 
 export function runDockerCompose(args: string[]): void {

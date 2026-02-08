@@ -71,6 +71,7 @@ Fallback for specific hostnames only:
 ```bash
 dev up
 dev status
+dev doctor
 ```
 
 Expected bound ports:
@@ -99,7 +100,23 @@ This creates:
 
 - `.devrouter.yml`
 
-## 6) Add apps to `.devrouter.yml`
+## 6) Generate onboarding prompt for an AI agent (optional)
+
+From the target repository:
+
+```bash
+dev init
+```
+
+Or from elsewhere:
+
+```bash
+dev init --repo /absolute/path/to/repo
+```
+
+This prints the canonical onboarding prompt with the repository path injected.
+
+## 7) Add apps to `.devrouter.yml`
 
 HTTP host-run app:
 
@@ -140,7 +157,7 @@ dev app add \
   --depends-on db
 ```
 
-## 7) Golden path: host app + Docker Postgres
+## 8) Golden path: host app + Docker Postgres
 
 ```bash
 dev tls install
@@ -159,7 +176,7 @@ For non-interactive runs:
 dev app run web --yes
 ```
 
-## 8) Run apps
+## 9) Run apps
 
 ```bash
 dev app run web
@@ -173,7 +190,7 @@ For automation/non-interactive usage:
 dev app run web --yes
 ```
 
-## 9) Enable TLS (required for TCP/Postgres, recommended for HTTP)
+## 10) Enable TLS (required for TCP/Postgres, recommended for HTTP)
 
 ```bash
 dev tls install
@@ -185,7 +202,7 @@ Then:
 - HTTP routes resolve as `https://...`
 - PostgreSQL routing is available on `:5432` via TLS/SNI hostnames
 
-## 10) Inspect routes
+## 11) Inspect routes
 
 ```bash
 dev ls
@@ -198,6 +215,20 @@ You will see both:
 
 For TCP routes, `dev open <name>` prints connection guidance instead of launching browser.
 
-## 11) Onboard another repository
+## 12) Validate setup quality (recommended)
+
+Run diagnostics against global state + repository config:
+
+```bash
+dev doctor --repo /absolute/path/to/repo
+```
+
+For AI/tooling integration:
+
+```bash
+dev doctor --repo /absolute/path/to/repo --json
+```
+
+## 13) Onboard another repository
 
 - [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)

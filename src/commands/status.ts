@@ -1,45 +1,10 @@
-import { findContainerByName, getCurrentDockerContext, networkExists } from "../core/docker";
 import { printJSON, printStatus } from "../core/output";
-import {
-  DEVNET_NAME,
-  ROUTER_CONTAINER_NAME,
-  areTLSCertsPresent,
-  isTLSConfigured,
-  isTLSEnabled
-} from "../core/router";
-import { RouterStatus } from "../types";
+import { collectRouterStatus } from "../core/status";
 
-function hasPortBinding(
-  ports: Array<{ PrivatePort?: number; PublicPort?: number }> | undefined,
-  privatePort: number,
-  publicPort: number
-): boolean {
-  if (!ports) {
-    return false;
-  }
+export async function runStatusCommand(options: { json?: boolean; repo?: string }): Promise<void> {
+  const status = await collectRouterStatus(options.repo);
 
-  return ports.some((port) => port.PrivatePort === privatePort && port.PublicPort === publicPort);
-}
-
-export async function runStatusCommand(json: boolean): Promise<void> {
-  const container = await findContainerByName(ROUTER_CONTAINER_NAME);
-  const status: RouterStatus = {
-    dockerContext: getCurrentDockerContext(),
-    routerRunning: container?.State === "running",
-    routerContainerName: ROUTER_CONTAINER_NAME,
-    boundPorts: {
-      web80: hasPortBinding(container?.Ports, 80, 80),
-      web443: hasPortBinding(container?.Ports, 443, 443),
-      postgres5432: hasPortBinding(container?.Ports, 5432, 5432),
-      dashboard8080: hasPortBinding(container?.Ports, 8080, 8080)
-    },
-    tlsConfigured: isTLSConfigured(),
-    certPresent: areTLSCertsPresent(),
-    tlsEnabled: isTLSEnabled(),
-    networkExists: await networkExists(DEVNET_NAME)
-  };
-
-  if (json) {
+  if (options.json) {
     printJSON(status);
     return;
   }
