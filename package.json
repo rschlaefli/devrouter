@@ -1,8 +1,15 @@
 {
-  "name": "devrouter",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@devrouter/cli",
+  "version": "0.0.1",
   "description": "Local dev routing CLI with shared Traefik on macOS",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rschlaefli/devrouter.git"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "commonjs",
   "engines": {
     "node": ">=22"
