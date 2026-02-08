@@ -85,8 +85,58 @@ Notes:
 - reads `.devrouter.yml`
 - prompts to start declared dependencies (or use `--yes`)
 - starts only declared docker dependency services
+- fails fast if host-runtime dependencies are configured (start those manually)
 - starts host app command for host runtime apps
 - generates docker overlay in `~/.config/devrouter/cache/...` for docker runtime apps
+
+## First onboarding quick path
+
+In a repo that has a host app and a Docker Postgres service:
+
+```bash
+dev repo init
+dev app add --name web --host web.localhost --protocol http --runtime host --command "pnpm dev" --cwd .
+dev app add --name db --host db.localhost --protocol tcp --runtime docker --tcp-protocol postgres --service db --port 5432 --compose-file docker-compose.yml
+dev app add --name web --host web.localhost --protocol http --runtime host --command "pnpm dev" --cwd . --depends-on db
+dev tls install
+dev app run web --yes
+dev ls
+```
+
+Expected endpoints:
+
+- `https://web.localhost`
+- `postgres://db.localhost:5432 (tls required)`
+
+## Demo workspace (in this repo)
+
+A complete sample repository is included at:
+
+- [`./demo`](./demo)
+
+It contains:
+
+- one app running on host (`web-host`)
+- the same app running in Docker (`web-docker`)
+- Postgres in Docker (`db`)
+- ready-to-use `.devrouter.yml`
+
+Run the end-to-end smoke demo:
+
+```bash
+pnpm demo:smoke
+```
+
+See details:
+
+- [`./demo/README.md`](./demo/README.md)
+
+## Known limitations (v1)
+
+- Host-runtime dependencies are not auto-started; only Docker dependencies are auto-started.
+- TCP routing currently supports PostgreSQL only (`tcpProtocol: postgres`).
+- Shared `:5432` hostname multiplexing requires TLS/SNI (`sslmode=require` or stronger).
+- Legacy repo files/commands are hard-cutovered (`devrouter.host.yml`, `docker-compose.devrouter.yml`, `dev add`, `dev host ...`).
 
 ## Router state
 
@@ -105,4 +155,5 @@ Global managed artifacts remain under:
 - Setup and bootstrapping: [`GETTING_STARTED.md`](./GETTING_STARTED.md)
 - Onboarding repositories and AI prompt: [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
 - Agent contributor guide: [`AGENTS.md`](./AGENTS.md)
+- Demo workspace: [`./demo/README.md`](./demo/README.md)
 - Roadmap: [`PLAN.md`](./PLAN.md)

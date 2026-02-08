@@ -32,6 +32,13 @@ Assumptions:
 - `dev up` is already working
 - macOS local environment
 
+Reference implementation:
+
+- [`./demo/README.md`](./demo/README.md) shows a complete setup with:
+  - host app route
+  - docker app route
+  - postgres tcp route
+
 ## 3) Required per-repo decisions
 
 For each app entry decide:
@@ -110,6 +117,11 @@ Use `--yes` for non-interactive runs:
 dev app run web --yes
 ```
 
+Current dependency behavior:
+
+- Docker dependencies can be auto-started.
+- Host-runtime dependencies are not auto-started in v1 and must be started manually.
+
 ## 5) What changes
 
 Repo file:
@@ -143,6 +155,16 @@ dev tls install
 ```
 
 Client connections should use TLS (for example `sslmode=require`).
+
+Concrete examples:
+
+```bash
+psql "host=db.localhost port=5432 dbname=app user=app sslmode=require"
+```
+
+```bash
+psql "postgresql://app_user:app_pass@db.localhost:5432/app?sslmode=require"
+```
 
 ## 8) Troubleshooting
 

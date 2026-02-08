@@ -11,6 +11,7 @@ import { DEVNET_NAME, ensureRouterFiles } from "./router";
 
 const POLL_INTERVAL_MS = 1000;
 const INITIAL_PORT_TIMEOUT_MS = 30_000;
+const PROCESS_TERMINATION_GRACE_MS = 3_000;
 
 type RunAppOptions = {
   name: string;
@@ -30,6 +31,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function toError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  return new Error(String(error));
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -101,6 +110,26 @@ function killProcessTree(rootPid: number, signal: NodeJS.Signals): void {
     } catch {
       // Best-effort cleanup.
     }
+  }
+}
+
+async function terminateProcessTree(rootPid: number): Promise<void> {
+  if (!isProcessRunning(rootPid)) {
+    return;
+  }
+
+  killProcessTree(rootPid, "SIGTERM");
+  const deadline = Date.now() + PROCESS_TERMINATION_GRACE_MS;
+
+  while (Date.now() < deadline) {
+    if (!isProcessRunning(rootPid)) {
+      return;
+    }
+    await sleep(100);
+  }
+
+  if (isProcessRunning(rootPid)) {
+    killProcessTree(rootPid, "SIGKILL");
   }
 }
 
@@ -183,6 +212,7 @@ async function runHostApp(repoPath: string, app: DevrouterHostHttpApp): Promise<
   });
 
   let stopRequested = false;
+  let fatalError: Error | null = null;
   let currentPort: number | undefined;
   const startedAt = Date.now();
 
@@ -231,17 +261,25 @@ async function runHostApp(repoPath: string, app: DevrouterHostHttpApp): Promise<
 
       await sleep(POLL_INTERVAL_MS);
     }
+  } catch (error) {
+    fatalError = toError(error);
+    stopRequested = true;
+    await terminateProcessTree(child.pid);
   } finally {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
 
     const processStillRunning = isProcessRunning(child.pid);
-    if (stopRequested || !processStillRunning) {
+    if (stopRequested || fatalError || !processStillRunning) {
       removeHostRouteById(routeId);
     }
   }
 
   const exit = await childExit;
+  if (fatalError) {
+    throw fatalError;
+  }
+
   if (exit.code !== null && exit.code !== 0) {
     throw new Error(`Host command for '${app.name}' exited with code ${exit.code}.`);
   }
@@ -298,6 +336,15 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
   const repoPath = resolveRepoPath(options.repoPath);
   const { config, app } = resolveAppByName(repoPath, options.name);
   const dependencies = resolveAppDependencies(config, app);
+  const unsupportedDependencies = dependencies.filter((entry) => entry.runtime !== "docker");
+  if (unsupportedDependencies.length > 0) {
+    throw new Error(
+      `App '${app.name}' has host-runtime dependencies (${dependencyNames(
+        unsupportedDependencies
+      ).join(", ")}). v1 only auto-starts docker dependencies. Start host dependencies manually before running this app.`
+    );
+  }
+
   const startDependencies = await shouldStartDependencies(
     app.name,
     dependencies,

@@ -8,6 +8,7 @@ import {
   startRouterStack
 } from "./router";
 import { isContainerRunning, findContainerByName } from "./docker";
+import { refreshHostRoutesDynamicFile } from "./host-routes";
 
 function runOrThrow(command: string, args: string[]): void {
   const result = spawnSync(command, args, {
@@ -53,6 +54,7 @@ export async function installTLS(): Promise<{ alreadyEnabled: boolean }> {
   ]);
 
   setTLSEnabled(true);
+  refreshHostRoutesDynamicFile();
 
   const routerContainer = await findContainerByName("devrouter-traefik");
   if (routerContainer && (await isContainerRunning("devrouter-traefik"))) {

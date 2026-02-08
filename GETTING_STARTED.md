@@ -43,6 +43,16 @@ Verify:
 dev --help
 ```
 
+Optional: run bundled smoke demo (host app + docker app + postgres):
+
+```bash
+pnpm demo:smoke
+```
+
+Demo assets live in:
+
+- [`./demo/README.md`](./demo/README.md)
+
 ## 3) Localhost resolution notes
 
 - Modern browsers resolve `*.localhost` to loopback.
@@ -130,7 +140,26 @@ dev app add \
   --depends-on db
 ```
 
-## 7) Run apps
+## 7) Golden path: host app + Docker Postgres
+
+```bash
+dev tls install
+dev app run web
+```
+
+Why this order:
+
+- Postgres hostname routing on shared `:5432` requires TLS/SNI.
+- `dev app run web` starts declared Docker dependencies when confirmed/allowed.
+- Host dependencies are not auto-started in v1 and must be started manually.
+
+For non-interactive runs:
+
+```bash
+dev app run web --yes
+```
+
+## 8) Run apps
 
 ```bash
 dev app run web
@@ -144,7 +173,7 @@ For automation/non-interactive usage:
 dev app run web --yes
 ```
 
-## 8) Enable TLS (recommended)
+## 9) Enable TLS (required for TCP/Postgres, recommended for HTTP)
 
 ```bash
 dev tls install
@@ -156,7 +185,7 @@ Then:
 - HTTP routes resolve as `https://...`
 - PostgreSQL routing is available on `:5432` via TLS/SNI hostnames
 
-## 9) Inspect routes
+## 10) Inspect routes
 
 ```bash
 dev ls
@@ -169,7 +198,7 @@ You will see both:
 
 For TCP routes, `dev open <name>` prints connection guidance instead of launching browser.
 
-## 10) Legacy cutover
+## 11) Legacy cutover
 
 Legacy repo files are no longer used for new flows:
 
@@ -181,6 +210,6 @@ Legacy commands are deprecated with migration guidance:
 - `dev add`
 - `dev host ...`
 
-## 11) Onboard another repository
+## 12) Onboard another repository
 
 - [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)

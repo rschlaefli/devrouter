@@ -1,0 +1,43 @@
+version: 1
+project:
+  name: devrouter-demo
+apps:
+  - name: db
+    host: demo-db.localhost
+    protocol: tcp
+    tcpProtocol: postgres
+    runtime: docker
+    docker:
+      service: db
+      internalPort: 5432
+      composeFiles:
+        - docker-compose.yml
+
+  - name: web-docker
+    host: demo-docker.localhost
+    protocol: http
+    runtime: docker
+    dependencies:
+      - app: db
+    docker:
+      service: app
+      internalPort: 3000
+      composeFiles:
+        - docker-compose.yml
+
+  - name: web-host
+    host: demo-host.localhost
+    protocol: http
+    runtime: host
+    dependencies:
+      - app: db
+    hostRun:
+      command: PORT=3100 APP_INSTANCE=host DATABASE_URL=postgres://app:app@demo-db.localhost:5432/app node app/server.js
+      cwd: .
+      strategy:
+        type: auto
+        denyPorts:
+          - 80
+          - 443
+          - 5432
+        allowPortRange: 1024-65535

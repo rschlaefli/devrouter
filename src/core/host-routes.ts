@@ -7,6 +7,7 @@ import {
   HOST_ROUTES_STATE_FILE,
   TRAEFIK_DYNAMIC_DIR,
   TRAEFIK_HOST_ROUTES_FILE,
+  isTLSEnabled
 } from "./router";
 
 type UpsertHostRouteInput = {
@@ -41,18 +42,22 @@ function sanitizeKey(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
-function writeHostRoutesDynamicFile(routes: HostRouteState[]): void {
+function writeHostRoutesDynamicFile(routes: HostRouteState[], tlsEnabled: boolean): void {
   const routers: Record<string, unknown> = {};
   const services: Record<string, unknown> = {};
 
   for (const route of routes) {
     const key = `host-${sanitizeKey(route.id)}`;
-    routers[key] = {
+    const router: Record<string, unknown> = {
       rule: `Host(\`${route.host}\`)`,
-      entryPoints: ["web", "websecure"],
-      service: key,
-      tls: true
+      entryPoints: tlsEnabled ? ["web", "websecure"] : ["web"],
+      service: key
     };
+    if (tlsEnabled) {
+      router.tls = true;
+    }
+
+    routers[key] = router;
 
     services[key] = {
       loadBalancer: {
@@ -91,7 +96,12 @@ export function ensureHostRouteStorage(): void {
 function writeState(routes: HostRouteState[]): void {
   ensureHostRouteStorage();
   fs.writeFileSync(HOST_ROUTES_STATE_FILE, `${JSON.stringify(routes, null, 2)}\n`, "utf-8");
-  writeHostRoutesDynamicFile(routes);
+  writeHostRoutesDynamicFile(routes, isTLSEnabled());
+}
+
+export function refreshHostRoutesDynamicFile(): void {
+  const routes = listHostRouteState();
+  writeHostRoutesDynamicFile(routes, isTLSEnabled());
 }
 
 export function listHostRouteState(): HostRouteState[] {

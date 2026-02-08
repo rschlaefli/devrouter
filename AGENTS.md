@@ -6,6 +6,7 @@ Guidance for agentic coders working in this repository.
 
 - [`GETTING_STARTED.md`](./GETTING_STARTED.md)
 - [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
+- [`demo/README.md`](./demo/README.md)
 
 ## Current product model
 
@@ -42,6 +43,8 @@ Legacy cutover commands intentionally fail with migration guidance:
 - `src/core/tls.ts`: mkcert integration and TLS enablement
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
+- `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
+- `scripts/smoke-demo.sh`: end-to-end demo smoke script
 
 ## Non-negotiable constraints
 
@@ -56,5 +59,5 @@ Legacy cutover commands intentionally fail with migration guidance:
 
 1. `pnpm typecheck`
 2. `pnpm build`
-3. Smoke-test changed command paths
+3. `pnpm demo:smoke` for full route showcase/regression smoke
 4. Update docs for any behavior/surface changes
