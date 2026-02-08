@@ -51,7 +51,7 @@ pnpm demo:smoke
 
 Demo assets live in:
 
-- [`./demo/README.md`](./demo/README.md)
+- [`../demo/README.md`](../demo/README.md)
 
 ## 3) Localhost resolution notes
 

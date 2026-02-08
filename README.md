@@ -152,8 +152,8 @@ Global managed artifacts remain under:
 
 ## Docs
 
-- Setup and bootstrapping: [`GETTING_STARTED.md`](./GETTING_STARTED.md)
-- Onboarding repositories and AI prompt: [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
+- Setup and bootstrapping: [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
+- Onboarding repositories and AI prompt: [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
 - Agent contributor guide: [`AGENTS.md`](./AGENTS.md)
 - Demo workspace: [`./demo/README.md`](./demo/README.md)
-- Roadmap: [`PLAN.md`](./PLAN.md)
+- Roadmap: [`docs/PLAN.md`](./docs/PLAN.md)

@@ -4,9 +4,21 @@ Guidance for agentic coders working in this repository.
 
 ## Setup docs
 
-- [`GETTING_STARTED.md`](./GETTING_STARTED.md)
-- [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
+- [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
+- [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
 - [`demo/README.md`](./demo/README.md)
+- [`docs/PLAN.md`](./docs/PLAN.md)
+
+## Documentation sync requirement
+
+Keep these docs up to date with any behavior, command, schema, or onboarding workflow changes:
+
+1. `README.md`
+2. `AGENTS.md`
+3. `docs/GETTING_STARTED.md`
+4. `docs/REPO_ONBOARDING.md`
+5. `docs/PLAN.md`
+6. `demo/README.md`
 
 ## Current product model
 

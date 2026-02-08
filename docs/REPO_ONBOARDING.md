@@ -34,7 +34,7 @@ Assumptions:
 
 Reference implementation:
 
-- [`./demo/README.md`](./demo/README.md) shows a complete setup with:
+- [`../demo/README.md`](../demo/README.md) shows a complete setup with:
   - host app route
   - docker app route
   - postgres tcp route
@@ -190,14 +190,25 @@ Legacy cutover errors:
 ## 9) AI agent prompt (single copy-paste)
 
 ```text
-You are adapting an existing repository to use unified devrouter config (.devrouter.yml).
+You are adapting an existing repository to devrouter using the unified .devrouter.yml model.
+
+Objective:
+- Configure stable local hostnames (*.localhost) for app/database access through the shared devrouter.
+- Avoid manual/random host ports for app access.
+- Keep repo changes minimal, explicit, and reproducible.
+
+How devrouter works (must respect):
+- Shared Traefik router owns host ports 80 (HTTP), 443 (HTTPS), and 5432 (Postgres TCP).
+- Per-repo source of truth is REPO_PATH/.devrouter.yml only.
+- Global generated/runtime artifacts are managed under ~/.config/devrouter (do not edit these manually).
+- Legacy files/commands are cut over (devrouter.host.yml, docker-compose.devrouter.yml, dev add, dev host ...).
 
 Inputs:
 - REPO_PATH=<REPO_PATH>
 - ENTRIES_JSON=<JSON_ARRAY_OF_APP_ENTRIES>
 
 Entry schema (each object):
-- name: string
+- name: string (unique in repo)
 - host: <name>.localhost
 - protocol: "http" | "tcp"
 - runtime: "host" | "docker"
@@ -216,27 +227,46 @@ Entry schema (each object):
 - if protocol=tcp:
   - tcpProtocol: "postgres"
 
-Requirements:
-1) Inspect repository structure first (compose files, package scripts, app folders).
-2) Create/update REPO_PATH/.devrouter.yml only.
-3) Keep changes minimal and idempotent.
-4) Do not modify unrelated services/files.
-5) For protocol=tcp, enforce tcpProtocol=postgres and runtime=docker.
-6) If ambiguous inputs are discovered, stop and ask targeted questions.
+Validation rules to enforce:
+- host must end with .localhost
+- runtime=host supports protocol=http only
+- protocol=tcp requires runtime=docker and tcpProtocol=postgres
+- unknown keys are not allowed (strict schema)
+- do not introduce deprecated/legacy config files
+
+Runtime behavior to account for:
+- Docker dependencies can be auto-started by dev app run.
+- Host-runtime dependencies are NOT auto-started in v1 (must be started manually).
+- Postgres multiplexing on shared :5432 requires TLS/SNI.
+- For TCP/Postgres, expect clients to use sslmode=require (or stricter).
+
+Required workflow:
+1) Inspect repository structure first (compose files, scripts, app folders, existing dev docs).
+2) Create/update only REPO_PATH/.devrouter.yml.
+3) Keep edits minimal and idempotent.
+4) Do not modify unrelated files/services.
+5) If required info is missing or ambiguous, stop and ask targeted questions.
 
 Validation commands to run/report:
 - dev app ls --repo <REPO_PATH>
-- for each entry:
-  - dev app run <name> --repo <REPO_PATH> --yes (when safe for local run)
+- For each entry (when safe): dev app run <name> --repo <REPO_PATH> --yes
 - dev ls
-- for HTTP entries: curl -I http://<host>
+- For HTTP entries: curl -I http://<host>
+- For TCP postgres entries: provide connection hint (example: psql "... sslmode=require")
 
-Output format:
-1) Summary of detected project structure.
-2) Exact file changes.
-3) Concise diff summary.
-4) Validation command outputs (key excerpts).
-5) Follow-up actions required.
+Output format (strict):
+1) Repository structure summary relevant to routing.
+2) Proposed app mapping (name/host/protocol/runtime/deps) with assumptions.
+3) Exact file changes made to .devrouter.yml.
+4) Concise diff summary.
+5) Validation commands run + key outputs.
+6) Unresolved questions/risks (if any).
+7) Definition-of-done checklist status:
+   - .devrouter.yml exists and validates
+   - dev app ls matches expected entries
+   - dev ls exposes expected endpoints
+   - HTTP routes reachable
+   - TCP Postgres route configured with TLS requirement noted
 ```
 
 ## 10) Definition of done
