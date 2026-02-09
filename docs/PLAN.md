@@ -14,6 +14,8 @@ Completed milestones from recent commits:
 - `unreleased`: Added `dev doctor` (`dev verify`) diagnostics and richer `dev status` readiness insights.
 - `unreleased`: Added full in-repo demo workspace (`demo/`) with host app + docker app + postgres + reusable smoke script (`pnpm demo:smoke`).
 - `unreleased`: M1 security hardening — path traversal guard, hostname regex validation, dependency cycle detection, shell:true trust model documented + command length cap.
+- `unreleased`: TCP port injection for host app deps — `DATABASE_URL`, `SHADOW_DATABASE_URL`, `_HOST`/`_PORT` env vars auto-injected. `queryMappedPort()` + `publishTcpPorts` overlay in `docker-run.ts`.
+- `unreleased`: `dev app exec <name> -- <command>` — one-shot commands with resolved dep env vars. Refactored `startAppDependencies()` helper shared by `run` and `exec`.
 
 ## Current baseline
 
@@ -25,6 +27,8 @@ Delivered and active:
 - TCP/Postgres Docker routing on `:5432` with TLS/SNI
 - Shared router ownership of `80/443/5432`
 - Bundled demo repo (`demo/.devrouter.yml`) for onboarding rehearsal and smoke validation
+- TCP port injection for host app TCP deps (`DATABASE_URL`, `SHADOW_DATABASE_URL`, `_HOST`/`_PORT`)
+- `dev app exec` for one-shot commands with resolved dep env
 
 ## Onboarding readiness sprint
 
@@ -83,9 +87,21 @@ Acceptance criteria:
 ## Decision log
 
 - `.devrouter.yml` is the single source of truth for per-repo routing config.
-- Stable CLI surface includes only `up/down/status/ls/open/tls`, `repo init`, and `app add/ls/run/rm`.
+- Stable CLI surface includes `up/down/status/ls/open/tls`, `repo init`, and `app add/ls/run/exec/rm`.
+- `dev app exec` auto-stops deps after command exit.
+- `startAppDependencies()` is the shared dep-lifecycle helper used by both `run` and `exec`.
 - TLS remains mandatory for multiplexed Postgres hostname routing on shared `:5432`.
 - `80/443/5432` stay reserved for Traefik.
+
+## Future extensions
+
+Potential additions building on the current `exec` + dep env infrastructure:
+
+- `--keep-deps` flag for `dev app exec` — skip stopping deps after command exit (useful for running multiple commands in sequence)
+- `--env-file <path>` for `dev app exec` — dump resolved env to a file instead of running a command
+- `dev app env <name>` — print resolved dep env vars to stdout without running a command
+- `preStart` hooks in `.devrouter.yml` — `hostRun.hooks.preStart: string[]`, sequential shell commands that run after env resolution but before the app/command starts; integration point for secret managers (Infisical, Doppler)
+- Configurable DATABASE_URL template — allow overriding fixed `prisma:prisma` credentials per app
 
 ## Non-goals (for now)
 
