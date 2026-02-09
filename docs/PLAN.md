@@ -51,16 +51,16 @@ Workstream checklist:
 - [x] CI updated: `pnpm test` runs in GitHub Actions before build
 - [x] 35 tests passing
 
-## Milestone 2: More unit tests for pure modules (next)
+## Milestone 2: Unit tests for routes.ts (DONE)
 
 Target: `routes.ts` — pure functions, high value, zero infrastructure needed.
 
-- [ ] `parseHostsFromRule` — extract hostnames from Traefik rules
-- [ ] `findDuplicateHosts` — detect hostname collisions
-- [ ] `resolveRouteByName` — name-based route lookup
-- [ ] `discoverRoutes` — full route discovery with mock ContainerInfo
+- [x] `parseHostsFromRule` — extract hostnames from Traefik rules (9 tests)
+- [x] `findDuplicateHosts` — detect hostname collisions (4 tests)
+- [x] `resolveRouteByName` — name-based route lookup (9 tests)
+- [x] `discoverRoutes` — full route discovery with mock ContainerInfo (14 tests)
 
-Acceptance criteria: all exported pure functions in `routes.ts` covered with edge cases.
+Acceptance criteria: all exported pure functions in `routes.ts` covered with edge cases. 36 new tests, 71 total.
 
 ## Milestone 3: Integration test foundation
 

@@ -64,6 +64,7 @@ Supported routing:
 - `.factory/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
 - `src/core/__tests__/paths.test.ts`: unit tests for path traversal guard
 - `src/core/__tests__/repo-config.test.ts`: unit tests for `.devrouter.yml` schema validation
+- `src/core/__tests__/routes.test.ts`: unit tests for route discovery and resolution
 - `vitest.config.ts`: Vitest configuration
 
 ## Non-negotiable constraints

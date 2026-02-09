@@ -54,10 +54,10 @@ function buildRoute(
   const status = container.State ?? "unknown";
   const statusText = container.Status ?? "";
   let health = "unknown";
-  if (statusText.includes("healthy")) {
-    health = "healthy";
-  } else if (statusText.includes("unhealthy")) {
+  if (statusText.includes("unhealthy")) {
     health = "unhealthy";
+  } else if (statusText.includes("healthy")) {
+    health = "healthy";
   }
 
   return {
