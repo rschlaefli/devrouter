@@ -24,7 +24,8 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   { command: "dev app ls", purpose: "List app entries from `.devrouter.yml`." },
   { command: "dev app run", purpose: "Run one configured app and reconcile its route at runtime." },
   { command: "dev app exec", purpose: "Run a one-shot command with resolved dependency env vars (e.g. prisma migrate, seed)." },
-  { command: "dev app rm", purpose: "Remove one app entry from `.devrouter.yml`." }
+  { command: "dev app rm", purpose: "Remove one app entry from `.devrouter.yml`." },
+  { command: "dev repo agents", purpose: "Write/update devrouter section in the repo's AGENTS.md." }
 ];
 
 function normalizeEntriesJson(input?: string): string {

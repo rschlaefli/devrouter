@@ -21,20 +21,18 @@ pnpm -v
 
 ## 2) Install CLI locally
 
-From `/Volumes/MOBILE/Git/devrouter`:
+From the repo root:
 
 ```bash
-pnpm install
-pnpm build
-make install
+pnpm bootstrap
 ```
 
-This installs `~/bin/dev`.
+This runs `pnpm install`, builds, and installs `~/.local/bin/dev`.
 
 If needed:
 
 ```bash
-export PATH="$HOME/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Verify:
@@ -58,7 +56,7 @@ Demo assets live in:
 After pulling new changes:
 
 ```bash
-pnpm build && make install
+pnpm install:local
 ```
 
 If router infrastructure changed (Traefik config, network setup):
@@ -179,6 +177,19 @@ dev repo init
 This creates:
 
 - `.devrouter.yml`
+
+To write a devrouter section into the repo's `AGENTS.md` and install the devrouter skill:
+
+```bash
+dev repo agents
+```
+
+This creates:
+
+- `AGENTS.md` section referencing devrouter (idempotent — skips if present)
+- `.factory/skills/devrouter/SKILL.md` (always overwritten with latest content)
+
+The skill file contains full config schema, docker requirements, env injection behavior, and command reference. `dev init` also writes both artifacts automatically.
 
 ## 6) Generate onboarding prompt for an AI agent (optional)
 

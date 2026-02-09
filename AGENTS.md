@@ -36,13 +36,15 @@ Supported routing:
 
 - `dev init`
 - `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
-- `dev repo init`
+- `dev repo init`, `dev repo agents`
 - `dev app add`, `dev app ls`, `dev app run`, `dev app exec`, `dev app rm`
 
 ## Repository map
 
 - `src/cli.ts`: command registration (lazy-loaded handlers)
 - `src/core/ai-prompt.ts`: canonical AI onboarding prompt template + command intents
+- `src/core/agents-md.ts`: idempotent AGENTS.md section writer + skill file distributor for repo discoverability
+- `src/commands/repo-agents.ts`: `dev repo agents` command handler
 - `src/core/doctor.ts`: diagnostic report engine for global + repo checks
 - `src/core/status.ts`: status collection + readiness insights
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation
@@ -59,6 +61,7 @@ Supported routing:
 - `src/types.ts`: shared types
 - `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
 - `scripts/smoke-demo.sh`: end-to-end demo smoke script
+- `.factory/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
 
 ## Non-negotiable constraints
 

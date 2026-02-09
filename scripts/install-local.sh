@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BIN_DIR="$HOME/bin"
+BIN_DIR="$HOME/.local/bin"
 TARGET="$BIN_DIR/dev"
 
 mkdir -p "$BIN_DIR"
@@ -30,5 +30,7 @@ case ":$PATH:" in
     echo ""
     echo "Add $BIN_DIR to your PATH if needed:"
     echo "  export PATH=\"$BIN_DIR:\$PATH\""
+    echo ""
+    echo "Then run 'hash -r' or open a new terminal."
     ;;
 esac

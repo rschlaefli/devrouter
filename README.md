@@ -34,10 +34,13 @@ This is the only supported per-repo config for app routing/runtime definitions.
 - `dev open <name>`
 - `dev tls install`
 - `dev repo init [--repo <path>]`
+- `dev repo agents [--repo <path>]`
 - `dev app add ...`
 - `dev app ls [--repo <path>] [--json]`
 - `dev app run <name> [--repo <path>] [--yes]`
+- `dev app exec <name> [--repo <path>] [--yes] -- <command>`
 - `dev app rm <name> [--repo <path>]`
+- `dev logs [-f]`
 
 ## AI-native onboarding prompt
 
@@ -170,6 +173,12 @@ pnpm demo:smoke
 See details:
 
 - [`./demo/README.md`](./demo/README.md)
+
+## AI agent discoverability
+
+`dev repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.factory/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
+
+`dev init` also runs this automatically.
 
 ## Known limitations (v1)
 

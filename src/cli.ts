@@ -114,6 +114,15 @@ repoCommand
     await runRepoInitCommand(options);
   }));
 
+repoCommand
+  .command("agents")
+  .description("Write/update devrouter section in the repo's AGENTS.md")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .action(withErrorHandling(async (options: { repo?: string }) => {
+    const { runRepoAgentsCommand } = await import("./commands/repo-agents");
+    await runRepoAgentsCommand(options);
+  }));
+
 const appCommand = program.command("app").description("Manage app entries and runtime actions from `.devrouter.yml`");
 
 appCommand

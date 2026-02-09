@@ -16,6 +16,7 @@ Completed milestones from recent commits:
 - `unreleased`: M1 security hardening — path traversal guard, hostname regex validation, dependency cycle detection, shell:true trust model documented + command length cap.
 - `unreleased`: TCP port injection for host app deps — `DATABASE_URL`, `SHADOW_DATABASE_URL`, `_HOST`/`_PORT` env vars auto-injected. `queryMappedPort()` + `publishTcpPorts` overlay in `docker-run.ts`.
 - `unreleased`: `dev app exec <name> -- <command>` — one-shot commands with resolved dep env vars. Refactored `startAppDependencies()` helper shared by `run` and `exec`.
+- `unreleased`: AI agent discoverability — `dev repo agents` writes AGENTS.md section + `.factory/skills/devrouter/SKILL.md`. Skill content embedded in CLI bundle. `dev init` also runs this automatically.
 
 ## Current baseline
 
@@ -90,6 +91,7 @@ Acceptance criteria:
 - Stable CLI surface includes `up/down/status/ls/open/tls`, `repo init`, and `app add/ls/run/exec/rm`.
 - `dev app exec` auto-stops deps after command exit.
 - `startAppDependencies()` is the shared dep-lifecycle helper used by both `run` and `exec`.
+- Skill content for agent discoverability is embedded in the CLI bundle (not fetched at runtime) so distributed version always matches installed CLI.
 - TLS remains mandatory for multiplexed Postgres hostname routing on shared `:5432`.
 - `80/443/5432` stay reserved for Traefik.
 

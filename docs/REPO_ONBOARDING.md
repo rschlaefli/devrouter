@@ -202,7 +202,24 @@ Missing route in `dev ls`:
 - verify `dev app run <name>` was executed
 - verify docker service started if runtime is docker
 
-## 9) AI agent prompt (single copy-paste)
+## 9) AI agent discoverability
+
+Write a devrouter section into the repo's `AGENTS.md` and install a skill file:
+
+```bash
+dev repo agents
+```
+
+This creates/updates:
+
+- `AGENTS.md` -- short devrouter section pointing to the skill file
+- `.factory/skills/devrouter/SKILL.md` -- full reference (config schema, docker requirements, env injection, commands)
+
+The skill content is embedded in the CLI bundle, so `dev repo agents` always writes the version matching the installed CLI.
+
+`dev init` also runs this automatically.
+
+## 10) AI agent prompt (single copy-paste)
 
 Use this as the only onboarding prompt for agents:
 
@@ -216,7 +233,7 @@ For tool/automation pipelines:
 dev init --repo /absolute/path/to/repo --json
 ```
 
-## 10) Definition of done
+## 11) Definition of done
 
 - `.devrouter.yml` exists and validates.
 - `dev app ls` and `dev ls` are correct.
