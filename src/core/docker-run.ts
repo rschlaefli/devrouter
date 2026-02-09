@@ -33,7 +33,8 @@ function ensureComposeFiles(dockerApps: Array<DevrouterDockerHttpApp | Devrouter
 }
 
 function buildOverlayDocument(
-  dockerApps: Array<DevrouterDockerHttpApp | DevrouterDockerPostgresApp>
+  dockerApps: Array<DevrouterDockerHttpApp | DevrouterDockerPostgresApp>,
+  publishTcpPorts = false
 ): Record<string, unknown> {
   const services: Record<string, Record<string, unknown>> = {};
 
@@ -60,10 +61,16 @@ function buildOverlayDocument(
       );
     }
 
-    services[app.docker.service] = {
+    const serviceEntry: Record<string, unknown> = {
       networks: ["devnet"],
       labels
     };
+
+    if (publishTcpPorts && app.protocol === "tcp") {
+      serviceEntry.ports = [`0:${app.docker.internalPort}`];
+    }
+
+    services[app.docker.service] = serviceEntry;
   }
 
   return {
@@ -79,7 +86,8 @@ function buildOverlayDocument(
 export function prepareDockerOverlay(
   repoPath: string,
   appName: string,
-  apps: DevrouterApp[]
+  apps: DevrouterApp[],
+  publishTcpPorts = false
 ): {
   overlayPath: string;
   composeFiles: string[];
@@ -93,7 +101,7 @@ export function prepareDockerOverlay(
   const cachePath = path.join(CACHE_DIR, repoHash(repoPath), sanitizeRouterId(appName));
   fs.mkdirSync(cachePath, { recursive: true });
   const overlayPath = path.join(cachePath, "compose.devrouter.yml");
-  const overlayDocument = buildOverlayDocument(dockerApps);
+  const overlayDocument = buildOverlayDocument(dockerApps, publishTcpPorts);
   fs.writeFileSync(overlayPath, YAML.stringify(overlayDocument, { lineWidth: 0 }), "utf-8");
 
   return {
@@ -169,4 +177,36 @@ export function runDockerComposeLogs(
     stdio: "inherit",
     cwd: repoPath
   });
+}
+
+export function queryMappedPort(
+  repoPath: string,
+  composeFiles: string[],
+  overlayPath: string,
+  service: string,
+  internalPort: number
+): number | undefined {
+  const fileArgs: string[] = [];
+  for (const composeFile of composeFiles) {
+    const resolved = assertPathWithinRepo(composeFile, repoPath, "composeFiles");
+    fileArgs.push("-f", resolved);
+  }
+
+  const args = ["compose", ...fileArgs, "-f", overlayPath, "port", service, String(internalPort)];
+  const result = spawnSync("docker", args, {
+    encoding: "utf-8",
+    cwd: repoPath
+  });
+
+  if (result.status !== 0 || !result.stdout) {
+    return undefined;
+  }
+
+  const match = result.stdout.trim().match(/:(\d+)$/);
+  if (!match) {
+    return undefined;
+  }
+
+  const port = Number(match[1]);
+  return Number.isInteger(port) && port > 0 ? port : undefined;
 }

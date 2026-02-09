@@ -182,6 +182,24 @@ appCommand
   }));
 
 appCommand
+  .command("exec")
+  .description("Run a one-shot command with resolved dependency env vars (e.g. prisma migrate)")
+  .argument("<name>", "Configured app name")
+  .argument("<command...>", "Command to execute (use -- to separate)")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--yes", "Auto-start dependencies without prompt")
+  .action(withErrorHandling(async (name: string, commandParts: string[], _options: unknown, command: Command) => {
+    const options = command.opts<{ repo?: string; yes?: boolean }>();
+    const { runAppExecCommand } = await import("./commands/app-exec");
+    await runAppExecCommand({
+      name,
+      repo: options.repo,
+      yes: Boolean(options.yes),
+      command: commandParts.join(" ")
+    });
+  }));
+
+appCommand
   .command("rm")
   .description("Remove one app definition from `.devrouter.yml`")
   .argument("<name>", "Configured app name")

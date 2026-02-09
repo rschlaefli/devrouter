@@ -125,6 +125,7 @@ Notes:
 - waits for Docker dependencies to become healthy (`--wait`) before proceeding
 - automatically stops Docker dependencies when the host app exits
 - prints recent dependency logs (last 20 lines) after deps start
+- for TCP deps of host apps: publishes a random host port and injects `<NAME>_HOST`/`<NAME>_PORT` env vars into the host process; for postgres deps also injects `DATABASE_URL` and `SHADOW_DATABASE_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
 - starts host app command for host runtime apps
 - generates docker overlay in `~/.config/devrouter/cache/...` for docker runtime apps
 

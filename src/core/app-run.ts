@@ -3,8 +3,8 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { stdin as input, stdout as output } from "node:process";
-import { DevrouterApp, DevrouterHostHttpApp } from "../types";
-import { prepareDockerOverlay, runDockerComposeUp, runDockerComposeStop, runDockerComposeLogs } from "./docker-run";
+import { DevrouterApp, DevrouterDockerPostgresApp, DevrouterHostHttpApp } from "../types";
+import { prepareDockerOverlay, runDockerComposeUp, runDockerComposeStop, runDockerComposeLogs, queryMappedPort } from "./docker-run";
 import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
 import { buildHostRouteId, removeHostRouteById, upsertHostRoute } from "./host-routes";
 import { ensureNetwork } from "./docker";
@@ -27,6 +27,27 @@ type RunAppResult = {
   mode: "host" | "docker";
   startedServices: string[];
   dependencyApps: string[];
+};
+
+type ExecAppOptions = {
+  name: string;
+  repoPath?: string;
+  yes?: boolean;
+  command: string;
+};
+
+type ExecAppResult = {
+  exitCode: number;
+};
+
+type StartedDeps = {
+  repoPath: string;
+  app: DevrouterApp;
+  depEnv: Record<string, string>;
+  overlay?: ReturnType<typeof prepareDockerOverlay>;
+  startedServices: string[];
+  dependencyApps: string[];
+  stopDeps: () => void;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -210,7 +231,11 @@ function findFreePort(): Promise<number> {
   });
 }
 
-async function runHostApp(repoPath: string, app: DevrouterHostHttpApp): Promise<void> {
+async function runHostApp(
+  repoPath: string,
+  app: DevrouterHostHttpApp,
+  extraEnv: Record<string, string> = {}
+): Promise<void> {
   const routeId = buildHostRouteId(repoPath, app.name);
   const commandCwd = assertPathWithinRepo(app.hostRun.cwd, repoPath, "hostRun.cwd");
   const freePort = await findFreePort();
@@ -221,7 +246,7 @@ async function runHostApp(repoPath: string, app: DevrouterHostHttpApp): Promise<
     cwd: commandCwd,
     stdio: "inherit",
     shell: true,
-    env: { ...process.env, PORT: String(freePort), HOSTNAME: "0.0.0.0", HOST: "0.0.0.0" }
+    env: { ...process.env, PORT: String(freePort), HOSTNAME: "0.0.0.0", HOST: "0.0.0.0", ...extraEnv }
   });
 
   if (!child.pid) {
@@ -357,7 +382,7 @@ async function shouldStartDependencies(
   }
 }
 
-export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppResult> {
+async function startAppDependencies(options: RunAppOptions): Promise<StartedDeps> {
   ensureRouterFiles();
   await ensureNetwork(DEVNET_NAME);
 
@@ -389,23 +414,49 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
   const startedServices: string[] = [];
   let overlay: ReturnType<typeof prepareDockerOverlay> | undefined;
 
+  const hasTcpDeps = app.runtime === "host" && selectedDockerApps.some(
+    (entry) => entry.protocol === "tcp"
+  );
+
   if (selectedDockerApps.length > 0) {
-    overlay = prepareDockerOverlay(repoPath, app.name, selectedDockerApps);
+    overlay = prepareDockerOverlay(repoPath, app.name, selectedDockerApps, hasTcpDeps);
     const services = selectedDockerApps.map((entry) => entry.docker.service);
     runDockerComposeUp(repoPath, overlay.composeFiles, overlay.overlayPath, services);
     startedServices.push(...services);
     runDockerComposeLogs(repoPath, overlay.composeFiles, overlay.overlayPath, services);
   }
 
-  try {
-    if (app.runtime === "host") {
-      await runHostApp(repoPath, app);
-    } else if (app.protocol === "tcp") {
-      process.stdout.write(
-        `TCP route ready: postgres://${app.host}:5432 (tls required, e.g. sslmode=require)\n`
+  const depEnv: Record<string, string> = {};
+  if (hasTcpDeps && overlay) {
+    const tcpDeps = selectedDockerApps.filter(
+      (entry): entry is DevrouterDockerPostgresApp => entry.protocol === "tcp"
+    );
+    for (const dep of tcpDeps) {
+      const mappedPort = queryMappedPort(
+        repoPath,
+        overlay.composeFiles,
+        overlay.overlayPath,
+        dep.docker.service,
+        dep.docker.internalPort
       );
+      if (mappedPort !== undefined) {
+        const envPrefix = dep.name.toUpperCase().replace(/-/g, "_");
+        depEnv[`${envPrefix}_HOST`] = "localhost";
+        depEnv[`${envPrefix}_PORT`] = String(mappedPort);
+        if (dep.tcpProtocol === "postgres") {
+          depEnv["DATABASE_URL"] = `postgres://prisma:prisma@localhost:${mappedPort}/prisma`;
+          depEnv["SHADOW_DATABASE_URL"] = `postgres://prisma:prisma@localhost:${mappedPort}/shadow`;
+        }
+        process.stdout.write(`Dependency ${dep.name} available at localhost:${mappedPort}\n`);
+        if (dep.tcpProtocol === "postgres") {
+          process.stdout.write(`  DATABASE_URL=postgres://prisma:prisma@localhost:${mappedPort}/prisma\n`);
+          process.stdout.write(`  SHADOW_DATABASE_URL=postgres://prisma:prisma@localhost:${mappedPort}/shadow\n`);
+        }
+      }
     }
-  } finally {
+  }
+
+  const stopDeps = () => {
     if (startedServices.length > 0 && overlay) {
       process.stdout.write(`Stopping dependencies (${startedServices.join(", ")})...\n`);
       try {
@@ -415,13 +466,64 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
         process.stderr.write(`Warning: failed to stop dependencies: ${msg}\n`);
       }
     }
-  }
+  };
 
   return {
     repoPath,
-    appName: app.name,
-    mode: app.runtime,
+    app,
+    depEnv,
+    overlay,
     startedServices,
-    dependencyApps: startDependencies ? dependencyNames(dependencies) : []
+    dependencyApps: startDependencies ? dependencyNames(dependencies) : [],
+    stopDeps
   };
+}
+
+export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppResult> {
+  const deps = await startAppDependencies(options);
+
+  try {
+    if (deps.app.runtime === "host") {
+      await runHostApp(deps.repoPath, deps.app, deps.depEnv);
+    } else if (deps.app.protocol === "tcp") {
+      process.stdout.write(
+        `TCP route ready: postgres://${deps.app.host}:5432 (tls required, e.g. sslmode=require)\n`
+      );
+    }
+  } finally {
+    deps.stopDeps();
+  }
+
+  return {
+    repoPath: deps.repoPath,
+    appName: deps.app.name,
+    mode: deps.app.runtime,
+    startedServices: deps.startedServices,
+    dependencyApps: deps.dependencyApps
+  };
+}
+
+export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppResult> {
+  const deps = await startAppDependencies({
+    name: options.name,
+    repoPath: options.repoPath,
+    yes: options.yes
+  });
+
+  try {
+    const child = spawn(options.command, {
+      cwd: deps.repoPath,
+      stdio: "inherit",
+      shell: true,
+      env: { ...process.env, ...deps.depEnv }
+    });
+
+    const exitCode = await new Promise<number>((resolve) => {
+      child.once("exit", (code) => resolve(code ?? 1));
+    });
+
+    return { exitCode };
+  } finally {
+    deps.stopDeps();
+  }
 }

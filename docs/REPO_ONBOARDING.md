@@ -128,10 +128,18 @@ Use `--yes` for non-interactive runs:
 dev app run web --yes
 ```
 
+Run one-shot commands (migrations, seeds) with resolved dep env vars:
+
+```bash
+dev app exec web --yes -- npx prisma migrate dev
+dev app exec web --yes -- npx prisma db seed
+```
+
 Current dependency behavior:
 
 - Docker dependencies can be auto-started.
 - Host-runtime dependencies are not auto-started in v1 and must be started manually.
+- `dev app exec` starts deps, runs a single command with resolved env, then stops deps.
 
 ## 5) What changes
 

@@ -101,6 +101,38 @@ Services **should not** publish host ports at all. devrouter handles external ro
 - Docker dependencies are automatically stopped when the host app exits (Ctrl+C or error)
 - Recent dependency logs (last 20 lines) are printed after dependencies start
 
+### TCP dependency port injection
+
+When a host app depends on a TCP/Postgres Docker service, `dev app run` automatically:
+
+1. Publishes the service's internal port on a random host port
+2. Queries the mapped port after startup
+3. Injects `<UPPER_NAME>_HOST=localhost` and `<UPPER_NAME>_PORT=<port>` env vars into the host app process
+4. For postgres deps, also injects `DATABASE_URL` and `SHADOW_DATABASE_URL` with fixed credentials
+
+For example, a dependency named `db` produces:
+
+- `DB_HOST=localhost`
+- `DB_PORT=54321`
+- `DATABASE_URL=postgres://prisma:prisma@localhost:54321/prisma`
+- `SHADOW_DATABASE_URL=postgres://prisma:prisma@localhost:54321/shadow`
+
+Prisma projects work out of the box. Other frameworks can use `DATABASE_URL` directly or override it.
+
+### Running one-shot commands with dependency env vars
+
+`dev app exec` starts dependencies, resolves env vars, runs a single command, then stops dependencies. Use it for migrations, seeding, or any CLI tool that needs the resolved env:
+
+```bash
+dev app exec web --yes -- npx prisma migrate dev
+dev app exec web --yes -- npx prisma db seed
+dev app exec web --yes -- echo $DATABASE_URL
+```
+
+The command receives the same env vars as `dev app run` (DATABASE_URL, SHADOW_DATABASE_URL, _HOST, _PORT).
+
+The TLS/SNI route on `:5432` remains available for tools that support `sslnegotiation=direct` (psql 17+, pgAdmin).
+
 ## 3) Localhost resolution notes
 
 - Modern browsers resolve `*.localhost` to loopback.
@@ -257,6 +289,15 @@ For automation/non-interactive usage:
 ```bash
 dev app run web --yes
 ```
+
+## 9b) Run one-shot commands (migrations, seeds, etc.)
+
+```bash
+dev app exec web --yes -- npx prisma migrate dev
+dev app exec web --yes -- npx prisma db seed
+```
+
+This starts dependencies, injects resolved env vars, runs the command, and stops dependencies on exit.
 
 ## 10) Enable TLS (required for TCP/Postgres, recommended for HTTP)
 
