@@ -115,7 +115,7 @@ export function runDockerComposeUp(
     fileArgs.push("-f", resolved);
   }
 
-  const args = ["compose", ...fileArgs, "-f", overlayPath, "up", "-d", ...services];
+  const args = ["compose", ...fileArgs, "-f", overlayPath, "up", "-d", "--wait", ...services];
   const result = spawnSync("docker", args, {
     encoding: "utf-8",
     cwd: repoPath
@@ -125,4 +125,48 @@ export function runDockerComposeUp(
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
     throw new Error(`docker compose up failed: ${details || "unknown error"}`);
   }
+}
+
+export function runDockerComposeStop(
+  repoPath: string,
+  composeFiles: string[],
+  overlayPath: string,
+  services: string[]
+): void {
+  const fileArgs: string[] = [];
+  for (const composeFile of composeFiles) {
+    const resolved = assertPathWithinRepo(composeFile, repoPath, "composeFiles");
+    fileArgs.push("-f", resolved);
+  }
+
+  const args = ["compose", ...fileArgs, "-f", overlayPath, "stop", ...services];
+  const result = spawnSync("docker", args, {
+    encoding: "utf-8",
+    cwd: repoPath
+  });
+
+  if (result.status !== 0) {
+    const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+    process.stderr.write(`Warning: docker compose stop failed: ${details || "unknown error"}\n`);
+  }
+}
+
+export function runDockerComposeLogs(
+  repoPath: string,
+  composeFiles: string[],
+  overlayPath: string,
+  services: string[],
+  tail: number = 20
+): void {
+  const fileArgs: string[] = [];
+  for (const composeFile of composeFiles) {
+    const resolved = assertPathWithinRepo(composeFile, repoPath, "composeFiles");
+    fileArgs.push("-f", resolved);
+  }
+
+  const args = ["compose", ...fileArgs, "-f", overlayPath, "logs", "--tail", String(tail), ...services];
+  spawnSync("docker", args, {
+    stdio: "inherit",
+    cwd: repoPath
+  });
 }

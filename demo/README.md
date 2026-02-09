@@ -6,6 +6,8 @@ This folder is a complete demo repository for `devrouter`:
 - `web-docker`: same app running inside Docker
 - `db`: PostgreSQL in Docker routed over shared `:5432`
 
+The `docker-compose.yml` here serves as a reference for devrouter compose conventions: services include healthchecks (required for `--wait`) and do not publish host ports (devrouter handles routing via Traefik).
+
 ## Files
 
 - `.devrouter.yml`: complete repo routing config

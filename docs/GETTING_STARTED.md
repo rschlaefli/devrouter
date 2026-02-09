@@ -53,6 +53,54 @@ Demo assets live in:
 
 - [`../demo/README.md`](../demo/README.md)
 
+## Upgrading
+
+After pulling new changes:
+
+```bash
+pnpm build && make install
+```
+
+If router infrastructure changed (Traefik config, network setup):
+
+```bash
+dev down && dev up
+```
+
+Verify:
+
+```bash
+dev --version
+```
+
+## Docker compose requirements for devrouter
+
+### Healthcheck required
+
+Every Docker service used as a dependency **must** define a `healthcheck`. devrouter uses `docker compose up --wait`, which blocks until services report healthy. Without a healthcheck, the wait returns immediately and the dependent app may start before the service is ready.
+
+Example for Postgres:
+
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U app -d app"]
+  interval: 5s
+  timeout: 3s
+  retries: 20
+```
+
+### No published host ports
+
+Services **must not** publish host ports (`ports:` mapping) for ports owned by devrouter (80, 443, 5432). Traefik owns these; conflicts cause bind failures.
+
+Services **should not** publish host ports at all. devrouter handles external routing via Traefik labels. Publishing ports creates conflicts when running multiple repos. Use devrouter hostnames (e.g. `demo-db.localhost:5432`) instead of `localhost:<mapped-port>`.
+
+### Dependency lifecycle
+
+- `dev app run` waits for Docker dependencies to become healthy before starting the host app
+- Docker dependencies are automatically stopped when the host app exits (Ctrl+C or error)
+- Recent dependency logs (last 20 lines) are printed after dependencies start
+
 ## 3) Localhost resolution notes
 
 - Modern browsers resolve `*.localhost` to loopback.

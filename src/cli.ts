@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 
+declare const __VERSION__: string;
+const CLI_VERSION: string = typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev";
+
 function withErrorHandling<TArgs extends unknown[]>(
   action: (...args: TArgs) => Promise<void>
 ): (...args: TArgs) => Promise<void> {
@@ -19,7 +22,7 @@ const program = new Command();
 program
   .name("dev")
   .description("Local dev router CLI for stable .localhost routing across repositories")
-  .version("0.1.0")
+  .version(CLI_VERSION)
   .showSuggestionAfterError(true)
   .showHelpAfterError();
 

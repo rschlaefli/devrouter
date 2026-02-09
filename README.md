@@ -122,6 +122,9 @@ Notes:
 - prompts to start declared dependencies (or use `--yes`)
 - starts only declared docker dependency services
 - fails fast if host-runtime dependencies are configured (start those manually)
+- waits for Docker dependencies to become healthy (`--wait`) before proceeding
+- automatically stops Docker dependencies when the host app exits
+- prints recent dependency logs (last 20 lines) after deps start
 - starts host app command for host runtime apps
 - generates docker overlay in `~/.config/devrouter/cache/...` for docker runtime apps
 

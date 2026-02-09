@@ -4,7 +4,7 @@ import { createInterface } from "node:readline/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { stdin as input, stdout as output } from "node:process";
 import { DevrouterApp, DevrouterHostHttpApp } from "../types";
-import { prepareDockerOverlay, runDockerComposeUp } from "./docker-run";
+import { prepareDockerOverlay, runDockerComposeUp, runDockerComposeStop, runDockerComposeLogs } from "./docker-run";
 import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
 import { buildHostRouteId, removeHostRouteById, upsertHostRoute } from "./host-routes";
 import { ensureNetwork } from "./docker";
@@ -387,19 +387,34 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
   );
 
   const startedServices: string[] = [];
+  let overlay: ReturnType<typeof prepareDockerOverlay> | undefined;
+
   if (selectedDockerApps.length > 0) {
-    const overlay = prepareDockerOverlay(repoPath, app.name, selectedDockerApps);
+    overlay = prepareDockerOverlay(repoPath, app.name, selectedDockerApps);
     const services = selectedDockerApps.map((entry) => entry.docker.service);
     runDockerComposeUp(repoPath, overlay.composeFiles, overlay.overlayPath, services);
     startedServices.push(...services);
+    runDockerComposeLogs(repoPath, overlay.composeFiles, overlay.overlayPath, services);
   }
 
-  if (app.runtime === "host") {
-    await runHostApp(repoPath, app);
-  } else if (app.protocol === "tcp") {
-    process.stdout.write(
-      `TCP route ready: postgres://${app.host}:5432 (tls required, e.g. sslmode=require)\n`
-    );
+  try {
+    if (app.runtime === "host") {
+      await runHostApp(repoPath, app);
+    } else if (app.protocol === "tcp") {
+      process.stdout.write(
+        `TCP route ready: postgres://${app.host}:5432 (tls required, e.g. sslmode=require)\n`
+      );
+    }
+  } finally {
+    if (startedServices.length > 0 && overlay) {
+      process.stdout.write(`Stopping dependencies (${startedServices.join(", ")})...\n`);
+      try {
+        runDockerComposeStop(repoPath, overlay.composeFiles, overlay.overlayPath, startedServices);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Warning: failed to stop dependencies: ${msg}\n`);
+      }
+    }
   }
 
   return {
