@@ -62,6 +62,9 @@ Supported routing:
 - `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
 - `scripts/smoke-demo.sh`: end-to-end demo smoke script
 - `.factory/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
+- `src/core/__tests__/paths.test.ts`: unit tests for path traversal guard
+- `src/core/__tests__/repo-config.test.ts`: unit tests for `.devrouter.yml` schema validation
+- `vitest.config.ts`: Vitest configuration
 
 ## Non-negotiable constraints
 
@@ -88,8 +91,9 @@ Supported routing:
 
 ## Validation checklist
 
-1. `pnpm typecheck`
-2. `pnpm build`
-3. `dev doctor --repo ./demo`
-4. `pnpm demo:smoke` for full route showcase/regression smoke
-5. Update docs for any behavior/surface changes
+1. `pnpm test`
+2. `pnpm typecheck`
+3. `pnpm build`
+4. `dev doctor --repo ./demo`
+5. `pnpm demo:smoke` for full route showcase/regression smoke
+6. Update docs for any behavior/surface changes
