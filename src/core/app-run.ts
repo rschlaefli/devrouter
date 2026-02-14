@@ -33,7 +33,9 @@ type ExecAppOptions = {
   name: string;
   repoPath?: string;
   yes?: boolean;
-  command: string;
+  shell?: boolean;
+  envMap?: string[];
+  command: string[];
 };
 
 type ExecAppResult = {
@@ -50,6 +52,13 @@ type StartedDeps = {
   stopDeps: () => void;
 };
 
+type EnvMapEntry = {
+  target: string;
+  source: string;
+};
+
+const VALID_ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -62,6 +71,60 @@ function toError(error: unknown): Error {
   }
 
   return new Error(String(error));
+}
+
+function normalizeProcessEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") {
+      normalized[key] = value;
+    }
+  }
+  return normalized;
+}
+
+export function parseEnvMapEntries(mappings: string[] = []): EnvMapEntry[] {
+  return mappings.map((mapping) => {
+    const separator = mapping.indexOf("=");
+    if (separator <= 0 || separator === mapping.length - 1) {
+      throw new Error(
+        `Invalid --env-map value '${mapping}'. Expected TARGET=SOURCE with environment variable names.`
+      );
+    }
+
+    const target = mapping.slice(0, separator).trim();
+    const source = mapping.slice(separator + 1).trim();
+    if (!VALID_ENV_NAME_RE.test(target) || !VALID_ENV_NAME_RE.test(source)) {
+      throw new Error(
+        `Invalid --env-map value '${mapping}'. TARGET and SOURCE must match ${VALID_ENV_NAME_RE.toString()}.`
+      );
+    }
+
+    return { target, source };
+  });
+}
+
+export function buildExecEnvironment(
+  depEnv: Record<string, string>,
+  envMap: string[] = [],
+  processEnv: NodeJS.ProcessEnv = process.env
+): Record<string, string> {
+  const mergedEnv: Record<string, string> = {
+    ...normalizeProcessEnv(processEnv),
+    ...depEnv
+  };
+
+  for (const mapping of parseEnvMapEntries(envMap)) {
+    const sourceValue = mergedEnv[mapping.source];
+    if (sourceValue === undefined) {
+      throw new Error(
+        `--env-map '${mapping.target}=${mapping.source}' references missing source variable '${mapping.source}'.`
+      );
+    }
+    mergedEnv[mapping.target] = sourceValue;
+  }
+
+  return mergedEnv;
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -511,14 +574,41 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
   });
 
   try {
-    const child = spawn(options.command, {
-      cwd: deps.repoPath,
-      stdio: "inherit",
-      shell: true,
-      env: { ...process.env, ...deps.depEnv }
-    });
+    if (options.command.length === 0) {
+      throw new Error("No command provided to dev app exec. Use `dev app exec <name> -- <command>`.");
+    }
 
-    const exitCode = await new Promise<number>((resolve) => {
+    if (options.shell && options.command.length !== 1) {
+      throw new Error(
+        "--shell requires exactly one command string after `--` (example: dev app exec web --shell -- \"echo $DATABASE_URL\")."
+      );
+    }
+
+    const env = buildExecEnvironment(deps.depEnv, options.envMap);
+    let child: ReturnType<typeof spawn>;
+
+    if (options.shell) {
+      child = spawn(options.command[0], {
+        cwd: deps.repoPath,
+        stdio: "inherit",
+        shell: true,
+        env
+      });
+    } else {
+      const [command, ...args] = options.command;
+      child = spawn(command, args, {
+        cwd: deps.repoPath,
+        stdio: "inherit",
+        shell: false,
+        env
+      });
+    }
+
+    const renderedCommand = options.command.join(" ");
+    const exitCode = await new Promise<number>((resolve, reject) => {
+      child.once("error", (error) => {
+        reject(new Error(`Failed to start command '${renderedCommand}': ${toError(error).message}`));
+      });
       child.once("exit", (code) => resolve(code ?? 1));
     });
 

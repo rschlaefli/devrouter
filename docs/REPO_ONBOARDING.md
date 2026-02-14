@@ -138,6 +138,8 @@ Run one-shot commands (migrations, seeds) with resolved dep env vars:
 ```bash
 dev app exec web --yes -- npx prisma migrate dev
 dev app exec web --yes -- npx prisma db seed
+dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
+dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
 ```
 
 Current dependency behavior:
@@ -145,6 +147,21 @@ Current dependency behavior:
 - Docker dependencies can be auto-started.
 - Host-runtime dependencies are not auto-started in v1 and must be started manually.
 - `dev app exec` starts deps, runs a single command with resolved env, then stops deps.
+- Default exec mode is argv-safe (`shell: false`) to avoid nested quoting issues.
+- Use `--shell` only when shell expansion is required; it accepts exactly one command string after `--`.
+- Use repeatable `--env-map TARGET=SOURCE` to alias env vars for non-Prisma frameworks (for example `DATABASE_URI=DATABASE_URL`).
+
+Secret manager interop (Infisical/Doppler):
+
+- devrouter injected vars for postgres deps: `DB_HOST`, `DB_PORT`, `DATABASE_URL`, `SHADOW_DATABASE_URL`.
+- If your secret manager also provides DB vars, do not assume precedence.
+- Probe effective env before migration/seed:
+
+```bash
+dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
+```
+
+Compatibility note: older versions flattened `dev app exec` commands into a shell string; prefer argv-safe form on `v0.0.7+`.
 
 ## 5) What changes
 

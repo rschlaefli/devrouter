@@ -38,7 +38,7 @@ This is the only supported per-repo config for app routing/runtime definitions.
 - `dev app add ...`
 - `dev app ls [--repo <path>] [--json]`
 - `dev app run <name> [--repo <path>] [--yes]`
-- `dev app exec <name> [--repo <path>] [--yes] -- <command>`
+- `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env-map TARGET=SOURCE] -- <command>`
 - `dev app rm <name> [--repo <path>]`
 - `dev logs [-f]`
 
@@ -137,8 +137,18 @@ Notes:
 - automatically stops Docker dependencies when the host app exits
 - prints recent dependency logs (last 20 lines) after deps start
 - for TCP deps of host apps: publishes a random host port and injects `<NAME>_HOST`/`<NAME>_PORT` env vars into the host process; for postgres deps also injects `DATABASE_URL` and `SHADOW_DATABASE_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
+- for one-shot commands, `dev app exec` preserves argv semantics by default (`shell: false`) to avoid nested quoting issues
+- `dev app exec --shell` is explicit and requires one command string after `--`
+- `dev app exec --env-map TARGET=SOURCE` (repeatable) maps aliases after dependency env resolution (for example `DATABASE_URI=DATABASE_URL`)
 - starts host app command for host runtime apps
 - generates docker overlay in `~/.config/devrouter/cache/...` for docker runtime apps
+
+Secret manager interop (Infisical/Doppler):
+
+- dependency env injection from devrouter includes `<NAME>_HOST`, `<NAME>_PORT`, `DATABASE_URL`, and `SHADOW_DATABASE_URL`
+- do not assume secret-manager precedence when DB vars overlap; validate effective env before migrate/seed
+- non-Prisma mapping example: `dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
+- env probe example: `dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
 
 `dev ls` output includes both configured app identity (`APP`) and runtime service identity (`SERVICE`).
 

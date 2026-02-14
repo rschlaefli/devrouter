@@ -205,14 +205,22 @@ appCommand
   .argument("<command...>", "Command to execute (use -- to separate)")
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option("--yes", "Auto-start dependencies without prompt")
+  .option("--shell", "Run command through system shell (requires a single command string after --)")
+  .option("--env-map <mapping>", "Map env vars as TARGET=SOURCE (repeatable)", (value, prev: string[] | undefined) => {
+    const next = prev ?? [];
+    next.push(value);
+    return next;
+  })
   .action(withErrorHandling(async (name: string, commandParts: string[], _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string; yes?: boolean }>();
+    const options = command.opts<{ repo?: string; yes?: boolean; shell?: boolean; envMap?: string[] }>();
     const { runAppExecCommand } = await import("./commands/app-exec");
     await runAppExecCommand({
       name,
       repo: options.repo,
       yes: Boolean(options.yes),
-      command: commandParts.join(" ")
+      shell: Boolean(options.shell),
+      envMap: options.envMap,
+      command: commandParts
     });
   }));
 

@@ -23,6 +23,7 @@ dev init --repo ./demo
 dev up
 dev tls install
 dev doctor --repo ./demo
+dev app exec web-host --repo ./demo --yes -- printenv DATABASE_URL SHADOW_DATABASE_URL DB_HOST DB_PORT
 dev app run web-docker --repo ./demo --yes
 dev app run web-host --repo ./demo --yes
 ```
@@ -33,6 +34,12 @@ With Docker running normally, `dev doctor --repo ./demo` should not report `repo
 
 ```bash
 dev init --repo ./demo --write-agents --write-skill
+```
+
+For non-Prisma tooling in host commands, map aliases with argv-safe exec:
+
+```bash
+dev app exec web-host --repo ./demo --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI
 ```
 
 Then open:

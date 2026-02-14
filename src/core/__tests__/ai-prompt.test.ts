@@ -42,4 +42,12 @@ describe("buildOnboardingPrompt", () => {
       "If any tcp/postgres app is configured, run `dev up` and `dev tls install` before runtime validation."
     );
   });
+
+  it("includes secret-manager interop guidance with env mapping and probes", () => {
+    const prompt = buildOnboardingPrompt({ repo: tmpDir });
+    expect(prompt).toContain("Secret Manager Interop (Infisical/Doppler):");
+    expect(prompt).toContain("dev app exec <name> --repo <REPO_PATH> --yes --env-map DATABASE_URI=DATABASE_URL -- <command>");
+    expect(prompt).toContain("printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL");
+    expect(prompt).toContain("Do not assume secret-manager precedence");
+  });
 });

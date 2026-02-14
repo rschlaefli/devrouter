@@ -94,6 +94,8 @@ When a host app depends on a TCP/Postgres Docker service, \`dev app run\` and \`
 
 Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST=0.0.0.0\`.
 
+\`dev app exec --env-map TARGET=SOURCE\` applies deterministic alias mapping after dependency env injection (for example \`DATABASE_URI=DATABASE_URL\`).
+
 ## Commands
 
 - \`dev init [--write-agents] [--write-skill]\`: print AI onboarding prompt (non-mutating by default)
@@ -109,7 +111,7 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - \`dev app add\`: add/update app entry in \`.devrouter.yml\`
 - \`dev app ls\`: list app entries
 - \`dev app run <name>\`: run app with dependency lifecycle
-- \`dev app exec <name> -- <cmd>\`: one-shot command with resolved dep env
+- \`dev app exec <name> [--shell] [--env-map TARGET=SOURCE] -- <cmd>\`: one-shot command with resolved dep env
 - \`dev app rm <name>\`: remove app entry
 
 ## Validation workflow
@@ -128,7 +130,9 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - \`dev app run\` auto-starts Docker dependencies, waits for health, stops them on exit.
 - Host-runtime dependencies are NOT auto-started (v1).
 - Postgres on shared \`:5432\` requires TLS/SNI (\`dev tls install\`). Standard app clients should use the injected random port instead.
-- \`dev app exec\` follows the same dep lifecycle for one-shot commands.
+- \`dev app exec\` follows the same dep lifecycle for one-shot commands and preserves argv semantics by default (\`shell: false\`).
+- \`dev app exec --shell\` is explicit and requires exactly one command string after \`--\`.
+- Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (\`printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT\`) before migrate/seed.
 `;
 
 function buildSection(): string {

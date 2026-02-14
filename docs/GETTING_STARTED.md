@@ -106,10 +106,42 @@ Prisma projects work out of the box. Other frameworks can use `DATABASE_URL` dir
 ```bash
 dev app exec web --yes -- npx prisma migrate dev
 dev app exec web --yes -- npx prisma db seed
-dev app exec web --yes -- echo $DATABASE_URL
+dev app exec web --yes -- printenv DATABASE_URL SHADOW_DATABASE_URL DB_HOST DB_PORT
 ```
 
 The command receives the same env vars as `dev app run` (DATABASE_URL, SHADOW_DATABASE_URL, _HOST, _PORT).
+By default, exec preserves argv semantics (`shell: false`) so nested commands like `infisical run -- ...` stay stable without wrapper recursion.
+
+Use `--shell` only when shell expansion is required, and pass exactly one command string after `--`:
+
+```bash
+dev app exec web --yes --shell -- "echo $DATABASE_URL"
+```
+
+Map aliases for non-Prisma apps with repeatable `--env-map TARGET=SOURCE`:
+
+```bash
+dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- pnpm payload migrate
+```
+
+### Secret manager interop (Infisical/Doppler)
+
+- devrouter injects `DB_HOST`, `DB_PORT`, `DATABASE_URL`, and `SHADOW_DATABASE_URL` when a host app depends on postgres.
+- If your secret manager also defines DB variables, do not assume precedence. Validate effective env before migration/seed.
+- Deterministic mapping for Payload/non-Prisma apps: `--env-map DATABASE_URI=DATABASE_URL`.
+- Recommended probe:
+
+```bash
+dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
+```
+
+- Recommended one-shot migrate:
+
+```bash
+dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
+```
+
+Compatibility note: older versions flattened `dev app exec` commands into a shell string; use the argv-safe form above on `v0.0.7+`.
 
 The TLS/SNI route on `:5432` remains available for tools that support `sslnegotiation=direct` (psql 17+, pgAdmin).
 
@@ -294,6 +326,8 @@ dev app run web --yes
 ```bash
 dev app exec web --yes -- npx prisma migrate dev
 dev app exec web --yes -- npx prisma db seed
+dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
+dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
 ```
 
 This starts dependencies, injects resolved env vars, runs the command, and stops dependencies on exit.

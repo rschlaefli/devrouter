@@ -2,6 +2,48 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.7] - 2026-02-14
+
+### Changed
+
+- `dev app exec` now preserves argv semantics by default (`shell: false`) instead of flattening command parts into one shell string.
+- `dev app exec` now supports explicit shell parsing via `--shell` and requires exactly one command string after `--`.
+- `dev init` onboarding prompt now includes a dedicated Secret Manager Interop section (Infisical/Doppler), deterministic `DATABASE_URI <- DATABASE_URL` mapping guidance, and explicit env-probe checks before migrate/seed.
+- Product docs now document current preferred one-shot forms for secret-manager-wrapped commands and include a brief compatibility note for pre-`0.0.7` parsing behavior.
+
+### Added
+
+- `dev app exec --env-map TARGET=SOURCE` (repeatable) to copy env values after dependency env resolution and before process spawn.
+- Unit tests for argv-safe exec behavior, `--shell` guardrails, env-map behavior, spawn error handling, and secret-manager coexistence flow.
+
+### Agent Adaptation Prompt
+
+```text
+You are upgrading a repository that uses devrouter to version 0.0.7.
+
+Task:
+1) Replace wrapper-recursion or brittle quoted `dev app exec` invocations with argv-safe form:
+   - `dev app exec <app> --yes -- <command ...>`
+2) For commands that require shell expansion, switch to explicit shell mode:
+   - `dev app exec <app> --yes --shell -- "<single shell command string>"`
+3) For non-Prisma apps expecting `DATABASE_URI`, add deterministic env aliasing:
+   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- <command ...>`
+4) If using secret managers (Infisical/Doppler), verify effective DB env before migrate/seed:
+   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
+5) Update onboarding/docs/scripts in your repo to prefer the new primary forms and keep wrapper scripts as fallback only.
+
+Validation:
+- run one migration/seed command through the updated `dev app exec` flow
+- run the env probe command and confirm expected values
+- run `dev doctor --repo <repo>`
+
+Report:
+- commands/scripts updated
+- env-map usage introduced (if any)
+- probe output summary
+- unresolved risks/ambiguities
+```
+
 ## [0.0.6] - 2026-02-14
 
 ### Changed

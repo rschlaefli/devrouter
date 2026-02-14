@@ -14,6 +14,7 @@ Completed milestones from recent commits:
 - `6fb9569` (v0.0.4): Agent discoverability — `dev repo agents` writes AGENTS.md section + distributes `.factory/skills/devrouter/SKILL.md`. Skill content embedded in CLI bundle.
 - `97c3325` (v0.0.5): Vitest setup + 35 unit tests for `paths.ts` and `repo-config.ts`. CI updated with `pnpm test` gate.
 - `0.0.6` (2026-02-14): onboarding UX consistency pass — `dev init` non-mutating by default with explicit write flags, prompt/schema alignment (`version: 1` skeleton + workflow clarifications), route app identity + `dev open` app-name fallback, doctor postgres-credential advisory, non-destructive Docker disk-space guidance, changelog-first adaptation policy, and demo alignment with postgres defaults.
+- `0.0.7` (2026-02-14): argv-safe `dev app exec` (`shell: false` default), explicit `--shell` mode, repeatable `--env-map TARGET=SOURCE`, secret-manager interop onboarding in `dev init`, and new exec-focused unit tests.
 
 ## Current baseline
 
@@ -27,6 +28,8 @@ Delivered and active:
 - Bundled demo repo (`demo/.devrouter.yml`) for onboarding rehearsal and smoke validation
 - TCP port injection for host app TCP deps (`DATABASE_URL`, `SHADOW_DATABASE_URL`, `_HOST`/`_PORT`)
 - `dev app exec` for one-shot commands with resolved dep env
+- `dev app exec` argv-safe command execution by default with explicit `--shell` opt-in
+- `dev app exec --env-map TARGET=SOURCE` for deterministic env alias mapping
 - Agent discoverability: `dev repo agents` + skill distribution for AI coding assistants
 - `dev init` prompt generation is side-effect free by default (`--write-agents` / `--write-skill` opt-in writes)
 - Route identity carries app + service names; `dev open` resolves app names directly
@@ -109,6 +112,7 @@ Acceptance criteria:
 - `.devrouter.yml` is the single source of truth for per-repo routing config.
 - Stable CLI surface includes `up/down/status/ls/open/tls`, `repo init/agents`, and `app add/ls/run/exec/rm`.
 - `dev app exec` auto-stops deps after command exit.
+- `dev app exec` preserves argv semantics by default and only uses shell parsing when `--shell` is explicitly requested.
 - `startAppDependencies()` is the shared dep-lifecycle helper used by both `run` and `exec`.
 - Skill content for agent discoverability is embedded in the CLI bundle (not fetched at runtime) so distributed version always matches installed CLI.
 - Agent discoverability writes to both AGENTS.md (idempotent section) and `.factory/skills/` (file copy) — covers human and AI discovery paths.

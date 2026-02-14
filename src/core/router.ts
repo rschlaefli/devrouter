@@ -158,7 +158,7 @@ This folder is managed by the devrouter CLI.
 - dev repo agents
 - dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
 - dev app run <name>
-- dev app exec <name> -- <command>
+- dev app exec <name> [--shell] [--env-map TARGET=SOURCE] -- <command>
 - dev app ls
 - dev app rm <name>
 - dev tls install
