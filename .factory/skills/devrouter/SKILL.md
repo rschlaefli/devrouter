@@ -87,6 +87,33 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 
 `dev app exec --env-map TARGET=SOURCE` applies deterministic alias mapping after dependency env injection (for example `DATABASE_URI=DATABASE_URL`).
 
+## Secret manager interop (Infisical/Doppler)
+
+- Prefer argv-safe command forms. Do not wrap `infisical run` or `doppler run` in `sh -lc` unless shell expansion is strictly required.
+- Canonical Infisical migrate command:
+`dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
+- Canonical Infisical seed command:
+`dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload seed`
+- Canonical env probe command (run before migrate/seed):
+`dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
+- Canonical Doppler migrate command:
+`dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- doppler run -- pnpm payload migrate`
+- Precedence best practice: avoid defining local `DATABASE_URL` / `DATABASE_URI` in Infisical/Doppler when you expect devrouter local DB injection.
+- Precedence best practice: store remote/prod URLs under non-conflicting names (for example `PROD_DATABASE_URL`) and map intentionally in app config/scripts.
+- Precedence best practice: if secret manager must define `DATABASE_URL`, run the env probe and verify values before any migration/seed.
+- `dev app run` does not currently expose `--env-map`; if an app only accepts `DATABASE_URI`, prefer app-level fallback (`DATABASE_URI` then `DATABASE_URL`) or a small repo-local wrapper script.
+- Use `dev app exec --shell -- "<single command string>"` only when shell expansion is required.
+- `--env-map` fails fast when SOURCE is missing so migrations do not run with partial mapping.
+
+## Upgrade handling (required)
+
+- Always read `CHANGELOG.md` independently before applying devrouter changes to a repository.
+- Treat the latest release section's **Agent Adaptation Prompt** as the canonical upgrade checklist.
+- Do not assume user-provided instructions include all required adaptation steps.
+- Verify CLI version with `dev --version`, then align commands/workflows/docs to that version.
+- After upgrading the CLI in a dependent repo, refresh discoverability artifacts with `dev repo agents` (or `dev init --write-agents --write-skill`).
+- Re-run validation after upgrade: `dev doctor --repo .`, `dev app ls --repo .`, one representative `dev app exec` flow, and `dev ls`.
+
 ## Commands
 
 - `dev init [--write-agents] [--write-skill]`: print AI onboarding prompt (non-mutating by default)
