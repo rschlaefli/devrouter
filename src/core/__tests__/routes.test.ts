@@ -36,13 +36,17 @@ function makeContainer(
 }
 
 function makeRoute(overrides: Partial<Route> = {}): Route {
+  const serviceName =
+    typeof overrides.serviceName === "string" ? overrides.serviceName : "web";
+
   return {
     id: "r1",
     source: "docker",
     protocol: "http",
+    appName: overrides.appName ?? serviceName,
     containerId: "abc123",
     containerName: "test-container",
-    serviceName: "web",
+    serviceName,
     projectName: "proj",
     hosts: ["web.localhost"],
     urls: ["https://web.localhost"],
@@ -167,6 +171,24 @@ describe("resolveRouteByName", () => {
     expect(resolveRouteByName(routes, "web").id).toBe("web");
   });
 
+  it("matches by app name", () => {
+    const withDistinctAppName = [
+      makeRoute({
+        id: "db-route",
+        appName: "db",
+        serviceName: "postgres",
+        containerName: "proj-postgres-1",
+        hosts: ["db.elearning.klicker.localhost"],
+      }),
+    ];
+
+    expect(resolveRouteByName(withDistinctAppName, "db").id).toBe("db-route");
+    expect(resolveRouteByName(withDistinctAppName, "postgres").id).toBe("db-route");
+    expect(resolveRouteByName(withDistinctAppName, "db.elearning.klicker.localhost").id).toBe(
+      "db-route"
+    );
+  });
+
   it("matches by container name", () => {
     expect(resolveRouteByName(routes, "proj-api-1").id).toBe("api");
   });
@@ -197,6 +219,7 @@ describe("resolveRouteByName", () => {
     const ambiguous = [
       makeRoute({
         id: "r1",
+        appName: "app",
         serviceName: "app",
         hosts: ["app.localhost"],
       }),
@@ -287,6 +310,7 @@ describe("discoverRoutes", () => {
     expect(routes[0]).toMatchObject({
       id: "web",
       protocol: "http",
+      appName: "web",
       serviceName: "web",
       projectName: "myproj",
       hosts: ["web.localhost"],
@@ -310,6 +334,7 @@ describe("discoverRoutes", () => {
     expect(routes[0]).toMatchObject({
       id: "db",
       protocol: "tcp/postgres",
+      appName: "db",
       hosts: ["db.localhost"],
     });
     expect(routes[0].urls[0]).toContain("postgres://");

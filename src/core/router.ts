@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { withDockerFailureGuidance } from "./docker-error-guidance";
 
 export const DEVNET_NAME = "devnet";
 export const ROUTER_CONTAINER_NAME = "devrouter-traefik";
@@ -145,16 +146,19 @@ This folder is managed by the devrouter CLI.
 
 ## Commands
 
-- dev init
+- dev init [--write-agents] [--write-skill]
 - dev up
 - dev down
 - dev status
 - dev doctor
 - dev ls
+- dev open <name>
 - dev logs [-f] [--tail N]
 - dev repo init
+- dev repo agents
 - dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
 - dev app run <name>
+- dev app exec <name> -- <command>
 - dev app ls
 - dev app rm <name>
 - dev tls install
@@ -234,7 +238,7 @@ export function runDockerCompose(args: string[]): void {
 
   if (result.status !== 0) {
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`docker compose failed: ${details || "unknown error"}`);
+    throw new Error(`docker compose failed: ${withDockerFailureGuidance(details || "unknown error")}`);
   }
 }
 

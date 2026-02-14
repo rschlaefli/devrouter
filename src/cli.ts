@@ -32,7 +32,15 @@ program
   .option("--repo <path>", "Repository path to embed in the prompt (defaults to current directory)")
   .option("--entries-json <json>", "Optional JSON array of app entries to embed in the prompt")
   .option("--json", "Output prompt and command intents as JSON")
-  .action(withErrorHandling(async (options: { repo?: string; entriesJson?: string; json?: boolean }) => {
+  .option("--write-agents", "Write/update devrouter section in AGENTS.md")
+  .option("--write-skill", "Write .factory/skills/devrouter/SKILL.md")
+  .action(withErrorHandling(async (options: {
+    repo?: string;
+    entriesJson?: string;
+    json?: boolean;
+    writeAgents?: boolean;
+    writeSkill?: boolean;
+  }) => {
     const { runInitCommand } = await import("./commands/init");
     await runInitCommand(options);
   }));
@@ -86,8 +94,8 @@ program
 
 program
   .command("open")
-  .description("Open HTTP routes in browser or show TCP connection hints by name/host")
-  .argument("<name>", "service name or host")
+  .description("Open HTTP routes in browser or show TCP connection hints by app/service/host name")
+  .argument("<name>", "app name, service name, or host")
   .action(withErrorHandling(async (name: string) => {
     const { runOpenCommand } = await import("./commands/open");
     await runOpenCommand(name);

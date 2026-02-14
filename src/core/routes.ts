@@ -49,6 +49,7 @@ function buildRoute(
   const labels = container.Labels ?? {};
   const containerName = normalizeContainerName(container.Names?.[0]);
   const serviceName = labels["com.docker.compose.service"] ?? containerName;
+  const appName = labels["devrouter.app.name"] ?? routerId;
   const projectName = labels["com.docker.compose.project"] ?? "-";
 
   const status = container.State ?? "unknown";
@@ -64,6 +65,7 @@ function buildRoute(
     id: routerId,
     source: "docker",
     protocol,
+    appName,
     containerId: container.Id,
     containerName,
     serviceName,
@@ -147,6 +149,9 @@ export function resolveRouteByName(routes: Route[], name: string): Route {
   const target = name.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
   const matches = routes.filter((route) => {
+    if (route.appName === target) {
+      return true;
+    }
     if (route.serviceName === target) {
       return true;
     }
@@ -164,7 +169,9 @@ export function resolveRouteByName(routes: Route[], name: string): Route {
   }
 
   if (matches.length > 1) {
-    const names = matches.map((route) => `${route.serviceName} (${route.hosts.join(",")})`).join("; ");
+    const names = matches
+      .map((route) => `${route.appName}/${route.serviceName} (${route.hosts.join(",")})`)
+      .join("; ");
     throw new Error(`Route name '${name}' is ambiguous: ${names}`);
   }
 

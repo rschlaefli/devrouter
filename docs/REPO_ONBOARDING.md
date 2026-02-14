@@ -25,6 +25,7 @@ Scope:
 Complete global setup first:
 
 - [`GETTING_STARTED.md`](./GETTING_STARTED.md)
+- Release/adaptation history: [`../CHANGELOG.md`](../CHANGELOG.md)
 
 Assumptions:
 
@@ -57,6 +58,8 @@ Host runtime (`http` only):
 
 Note: `dev app run` injects `PORT=<free-port>` into the host app environment.
 Frameworks reading `PORT` (Next.js, Vite, Remix, etc.) bind to this port automatically.
+Prefer an existing repo dev script (`pnpm dev`, `npm run dev`, etc.) instead of handcrafted command chains.
+For Next.js apps behind proxied/custom `.localhost` dev hosts, align dev-origin host settings in `next.config.*` for your installed Next.js version (option names changed across releases).
 
 Docker runtime:
 
@@ -119,6 +122,8 @@ dev app add \
   --cwd . \
   --depends-on db
 
+dev up
+dev tls install
 dev app run web
 ```
 
@@ -158,7 +163,7 @@ No repo-local compose overlay file is required anymore.
 ## 6) Validation checklist
 
 - `dev app ls` shows expected entries.
-- `dev ls` shows both HTTP and/or TCP endpoints.
+- `dev ls` shows both HTTP and/or TCP endpoints, including app and service identity columns.
 - `dev doctor --repo <path>` reports no blocking errors.
 - HTTP app reachable at `https://<host>.localhost` (after `dev tls install`).
 - Postgres route visible as `postgres://<host>.localhost:5432 (tls required)`.
@@ -175,6 +180,7 @@ dev tls install
 ```
 
 Client connections should use TLS (for example `sslmode=require`).
+For validation and quick connection hints, use `dev open <name>` (`<name>` resolves app name first, then service/container/host).
 
 Concrete examples:
 
@@ -202,6 +208,16 @@ Missing route in `dev ls`:
 - verify `dev app run <name>` was executed
 - verify docker service started if runtime is docker
 
+Docker errors with `no space left on device`:
+
+- free Docker disk space using your preferred method
+- retry the failed command (`dev up`, `dev app run`, or `dev app exec`)
+
+Postgres auth or database mismatch after credential changes:
+
+- existing persistent volumes may still contain old credentials/default DB state
+- reconcile credentials/data or recreate volumes when safe (for example `docker compose down -v`)
+
 ## 9) AI agent discoverability
 
 Write a devrouter section into the repo's `AGENTS.md` and install a skill file:
@@ -217,8 +233,6 @@ This creates/updates:
 
 The skill content is embedded in the CLI bundle, so `dev repo agents` always writes the version matching the installed CLI.
 
-`dev init` also runs this automatically.
-
 ## 10) AI agent prompt (single copy-paste)
 
 Use this as the only onboarding prompt for agents:
@@ -231,6 +245,12 @@ For tool/automation pipelines:
 
 ```bash
 dev init --repo /absolute/path/to/repo --json
+```
+
+Optional explicit artifact writes:
+
+```bash
+dev init --repo /absolute/path/to/repo --write-agents --write-skill
 ```
 
 ## 11) Definition of done

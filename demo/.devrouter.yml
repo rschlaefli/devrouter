@@ -32,7 +32,7 @@ apps:
     dependencies:
       - app: db
     hostRun:
-      command: APP_INSTANCE=host DATABASE_URL=postgres://app:app@demo-db.localhost:5432/app node app/server.js
+      command: APP_INSTANCE=host node app/server.js
       cwd: .
       portTimeout: 120
       strategy:

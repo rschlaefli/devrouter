@@ -25,13 +25,13 @@ This is the only supported per-repo config for app routing/runtime definitions.
 
 ## Core commands
 
-- `dev init [--repo <path>] [--entries-json <json>] [--json]`
+- `dev init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill]`
 - `dev up`
 - `dev down`
 - `dev status [--repo <path>] [--json]`
 - `dev doctor|verify [--repo <path>] [--json]`
 - `dev ls [--json]`
-- `dev open <name>`
+- `dev open <name>` (matches app name, then service/container/host)
 - `dev tls install`
 - `dev repo init [--repo <path>]`
 - `dev repo agents [--repo <path>]`
@@ -50,6 +50,8 @@ Generate a ready-to-copy onboarding prompt for an AI agent:
 dev init --repo /absolute/path/to/repo
 ```
 
+By default, this command is non-mutating (it prints prompt text only).
+
 Optional: embed target app entries as JSON:
 
 ```bash
@@ -60,6 +62,12 @@ JSON mode for machine consumption:
 
 ```bash
 dev init --repo /absolute/path/to/repo --json
+```
+
+Optional repo artifact writes are explicit:
+
+```bash
+dev init --repo /absolute/path/to/repo --write-agents --write-skill
 ```
 
 ## Health diagnostics
@@ -132,6 +140,8 @@ Notes:
 - starts host app command for host runtime apps
 - generates docker overlay in `~/.config/devrouter/cache/...` for docker runtime apps
 
+`dev ls` output includes both configured app identity (`APP`) and runtime service identity (`SERVICE`).
+
 ## First onboarding quick path
 
 In a repo that has a host app and a Docker Postgres service:
@@ -178,8 +188,6 @@ See details:
 
 `dev repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.factory/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
 
-`dev init` also runs this automatically.
-
 ## Known limitations (v1)
 
 - Host-runtime dependencies are not auto-started; only Docker dependencies are auto-started.
@@ -205,3 +213,4 @@ Global managed artifacts remain under:
 - Agent contributor guide: [`AGENTS.md`](./AGENTS.md)
 - Demo workspace: [`./demo/README.md`](./demo/README.md)
 - Roadmap: [`docs/PLAN.md`](./docs/PLAN.md)
+- Release and adaptation history: [`CHANGELOG.md`](./CHANGELOG.md)

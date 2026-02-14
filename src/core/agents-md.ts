@@ -27,6 +27,9 @@ Local dev routing via a shared Traefik reverse proxy. Provides stable \`*.localh
 ## \`.devrouter.yml\` entry schema
 
 \`\`\`yaml
+version: 1
+project:
+  name: <string>            # optional
 apps:
   - name: <string>          # unique within repo
     host: <name>.localhost
@@ -67,6 +70,7 @@ Validation rules:
 - **Healthcheck required**: every dependency service must define a \`healthcheck\`. \`docker compose up --wait\` blocks until healthy; without one, wait returns immediately.
 - **No published ports**: services must not publish host ports for devrouter-owned ports (80, 443, 5432). Avoid publishing ports at all -- devrouter handles routing via Traefik.
 - **Postgres credentials**: use \`POSTGRES_USER=prisma\`, \`POSTGRES_PASSWORD=prisma\`, \`POSTGRES_DB=prisma\` and create a \`shadow\` database. devrouter injects \`DATABASE_URL\` / \`SHADOW_DATABASE_URL\` with these fixed credentials.
+- **Persistent volume warning**: if postgres defaults changed on an existing volume, reconcile credentials/data or recreate volumes when safe (for example \`docker compose down -v\`).
 
 Example healthcheck:
 \`\`\`yaml
@@ -92,11 +96,12 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 
 ## Commands
 
+- \`dev init [--write-agents] [--write-skill]\`: print AI onboarding prompt (non-mutating by default)
 - \`dev up\` / \`dev down\`: start/stop shared Traefik router
 - \`dev status\`: router/container/network/TLS health
 - \`dev doctor [--repo .]\`: deep diagnostics (global + repo)
 - \`dev ls\`: list active HTTP + TCP routes
-- \`dev open <name>\`: open HTTP route or print TCP connection hint
+- \`dev open <name>\`: open HTTP route or print TCP connection hint (matches app name, then service/container/host identities)
 - \`dev logs [-f]\`: Traefik access logs
 - \`dev tls install\`: install mkcert certs, enable HTTPS + TCP/SNI
 - \`dev repo init\`: create \`.devrouter.yml\`
@@ -109,11 +114,14 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 
 ## Validation workflow
 
-1. \`dev doctor --repo .\` -- check global + repo health
-2. \`dev app ls\` -- verify entries match expectations
-3. \`dev ls\` -- confirm routes are exposed
-4. \`curl -I http://<host>.localhost\` -- HTTP reachability
-5. For TCP/Postgres: use \`dev open <name>\` for connection hint
+1. \`dev up\` -- ensure shared router is running
+2. For TCP/Postgres repos: \`dev tls install\`
+3. \`dev doctor --repo .\` -- check global + repo health
+4. \`dev app ls --repo .\` -- verify entries match expectations
+5. \`dev app run <host-app> --repo . --yes\` -- start target app with deps
+6. \`dev ls\` -- confirm routes are exposed
+7. \`curl -I https://<host>.localhost\` -- HTTP reachability
+8. For TCP/Postgres: use \`dev open <name>\` for connection hint
 
 ## Runtime behavior notes
 
@@ -134,7 +142,12 @@ function buildSection(): string {
     "Full reference (config schema, docker requirements, env injection, commands):",
     `\`${SKILL_REL_PATH}\``,
     "",
-    "Quick validation: `dev doctor --repo .`",
+    "Quick validation sequence:",
+    "- `dev up`",
+    "- `dev tls install` (required when repo defines tcp/postgres apps)",
+    "- `dev app ls --repo .`",
+    "- `dev app run <host-app> --repo . --yes`",
+    "- `dev ls`",
   ].join("\n");
 }
 

@@ -1,16 +1,156 @@
 import fs from "node:fs";
 import path from "node:path";
+import YAML from "yaml";
 import { listContainers } from "./docker";
 import { listHostRouteState, listHostRoutes } from "./host-routes";
 import { loadRepoConfig, resolveRepoPath } from "./repo-config";
 import { getRouterFileLayout, isTLSEnabled } from "./router";
 import { collectRouterStatus } from "./status";
 import { discoverRoutes, findDuplicateHosts } from "./routes";
-import { DiagnosticCheck, DoctorReport } from "../types";
+import { assertPathWithinRepo } from "./paths";
+import { DevrouterConfig, DevrouterDockerPostgresApp, DiagnosticCheck, DoctorReport } from "../types";
 
 type DoctorOptions = {
   repo?: string;
 };
+
+const POSTGRES_DEFAULTS = {
+  POSTGRES_USER: "prisma",
+  POSTGRES_PASSWORD: "prisma",
+  POSTGRES_DB: "prisma"
+} as const;
+
+type PostgresCredentialMismatch = {
+  appName: string;
+  serviceName: string;
+  composeFiles: string[];
+  key: keyof typeof POSTGRES_DEFAULTS;
+  actualValue: string;
+  expectedValue: string;
+};
+
+type PostgresCredentialInspection = {
+  mismatches: PostgresCredentialMismatch[];
+  parseErrors: string[];
+};
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseComposeEnvironment(value: unknown): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (typeof entry !== "string") {
+        continue;
+      }
+      const separator = entry.indexOf("=");
+      if (separator <= 0) {
+        continue;
+      }
+      const key = entry.slice(0, separator).trim();
+      const val = entry.slice(separator + 1).trim();
+      if (key.length > 0) {
+        env[key] = val;
+      }
+    }
+    return env;
+  }
+
+  const objectValue = asRecord(value);
+  if (!objectValue) {
+    return env;
+  }
+
+  for (const [key, raw] of Object.entries(objectValue)) {
+    if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
+      env[key] = String(raw).trim();
+    }
+  }
+
+  return env;
+}
+
+function isExplicitLiteralValue(value: string): boolean {
+  return !value.includes("${") && !value.includes("$(");
+}
+
+function inspectPostgresCredentials(repoPath: string, config: DevrouterConfig): PostgresCredentialInspection {
+  const postgresApps = config.apps.filter(
+    (app): app is DevrouterDockerPostgresApp =>
+      app.runtime === "docker" && app.protocol === "tcp" && app.tcpProtocol === "postgres"
+  );
+
+  const mismatches: PostgresCredentialMismatch[] = [];
+  const parseErrors: string[] = [];
+  const postgresKeys = Object.keys(POSTGRES_DEFAULTS) as Array<keyof typeof POSTGRES_DEFAULTS>;
+
+  for (const app of postgresApps) {
+    let serviceFound = false;
+    const mergedEnv: Record<string, string> = {};
+
+    for (const composeFile of app.docker.composeFiles) {
+      let absolutePath: string;
+      try {
+        absolutePath = assertPathWithinRepo(composeFile, repoPath, "composeFiles");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        parseErrors.push(`${app.name}: ${composeFile} (${message})`);
+        continue;
+      }
+
+      if (!fs.existsSync(absolutePath)) {
+        continue;
+      }
+
+      try {
+        const raw = fs.readFileSync(absolutePath, "utf-8");
+        const parsed = YAML.parse(raw) as unknown;
+        const root = asRecord(parsed);
+        const services = asRecord(root?.services);
+        const service = asRecord(services?.[app.docker.service]);
+        if (!service) {
+          continue;
+        }
+        serviceFound = true;
+        Object.assign(mergedEnv, parseComposeEnvironment(service.environment));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        parseErrors.push(`${app.name}: ${composeFile} (${message})`);
+      }
+    }
+
+    if (!serviceFound) {
+      continue;
+    }
+
+    for (const key of postgresKeys) {
+      const actualValue = mergedEnv[key];
+      if (actualValue === undefined || !isExplicitLiteralValue(actualValue)) {
+        continue;
+      }
+
+      const expectedValue = POSTGRES_DEFAULTS[key];
+      if (actualValue !== expectedValue) {
+        mismatches.push({
+          appName: app.name,
+          serviceName: app.docker.service,
+          composeFiles: app.docker.composeFiles,
+          key,
+          actualValue,
+          expectedValue
+        });
+      }
+    }
+  }
+
+  return { mismatches, parseErrors };
+}
 
 function isPidRunning(pid: number | undefined): boolean {
   if (!pid || pid <= 0) {
@@ -232,6 +372,41 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
             : undefined,
         suggestion: missingComposeFiles.length === 0 ? undefined : "Fix docker.composeFiles paths in .devrouter.yml"
       });
+
+      const tcpPostgresAppCount = config.apps.filter((app) => app.protocol === "tcp").length;
+      if (tcpPostgresAppCount > 0) {
+        const inspection = inspectPostgresCredentials(repo.path, config);
+        if (inspection.mismatches.length > 0) {
+          const details = inspection.mismatches
+            .map((mismatch) =>
+              `${mismatch.appName}/${mismatch.serviceName} ${mismatch.key}=${mismatch.actualValue} (expected ${mismatch.expectedValue})`
+            )
+            .join(", ");
+          addCheck(checks, {
+            id: "repo.postgres-credentials",
+            level: "warn",
+            summary: `Detected ${inspection.mismatches.length} postgres credential setting(s) that differ from devrouter defaults.`,
+            details,
+            suggestion:
+              "Align POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB with prisma defaults or override injected DATABASE_URL values. " +
+              "If a persistent volume was initialized with older credentials, reconcile data or recreate volumes when safe (for example: docker compose down -v)."
+          });
+        } else if (inspection.parseErrors.length > 0) {
+          addCheck(checks, {
+            id: "repo.postgres-credentials",
+            level: "warn",
+            summary: "Could not fully inspect postgres credentials in compose files.",
+            details: inspection.parseErrors.join(", "),
+            suggestion: "Verify postgres service environment values match devrouter defaults (prisma/prisma/prisma)."
+          });
+        } else {
+          addCheck(checks, {
+            id: "repo.postgres-credentials",
+            level: "ok",
+            summary: "Postgres compose credentials match devrouter defaults or are not explicitly set."
+          });
+        }
+      }
 
       const missingHostCwds = config.apps
         .filter((app) => app.runtime === "host")

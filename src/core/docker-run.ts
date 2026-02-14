@@ -6,6 +6,7 @@ import YAML from "yaml";
 import { DevrouterApp, DevrouterDockerHttpApp, DevrouterDockerPostgresApp } from "../types";
 import { CACHE_DIR } from "./router";
 import { assertPathWithinRepo } from "./paths";
+import { withDockerFailureGuidance } from "./docker-error-guidance";
 
 function sanitizeRouterId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
@@ -42,7 +43,8 @@ function buildOverlayDocument(
     const routerId = sanitizeRouterId(app.docker.router ?? app.name);
     const labels: Record<string, string> = {
       "traefik.enable": "true",
-      "traefik.docker.network": "devnet"
+      "traefik.docker.network": "devnet",
+      "devrouter.app.name": app.name
     };
 
     if (app.protocol === "http") {
@@ -131,7 +133,7 @@ export function runDockerComposeUp(
 
   if (result.status !== 0) {
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`docker compose up failed: ${details || "unknown error"}`);
+    throw new Error(`docker compose up failed: ${withDockerFailureGuidance(details || "unknown error")}`);
   }
 }
 

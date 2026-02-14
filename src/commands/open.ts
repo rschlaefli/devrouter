@@ -1,15 +1,43 @@
 import { spawnSync } from "node:child_process";
 import { listContainers } from "../core/docker";
 import { listHostRoutes } from "../core/host-routes";
+import { getRepoConfigPath, loadRepoConfig, resolveRepoPath } from "../core/repo-config";
 import { discoverRoutes, resolveRouteByName } from "../core/routes";
 import { DEVNET_NAME, isTLSEnabled } from "../core/router";
+import type { Route } from "../types";
+
+function resolveByConfiguredAppName(routes: Route[], name: string): Route | undefined {
+  const repoPath = resolveRepoPath();
+
+  let config;
+  try {
+    config = loadRepoConfig(repoPath);
+  } catch {
+    return undefined;
+  }
+
+  const app = config.apps.find((entry) => entry.name === name);
+  if (!app) {
+    return undefined;
+  }
+
+  try {
+    return resolveRouteByName(routes, app.host);
+  } catch {
+    throw new Error(
+      `App '${name}' is configured in ${getRepoConfigPath(repoPath)} but no active route was found. ` +
+        `Start it with 'dev app run ${name} --repo ${repoPath} --yes' and re-run 'dev ls'.`
+    );
+  }
+}
 
 export async function runOpenCommand(name: string): Promise<void> {
   const containers = await listContainers(true);
   const tlsEnabled = isTLSEnabled();
   const { routes: dockerRoutes } = discoverRoutes(containers, tlsEnabled, DEVNET_NAME);
   const hostRoutes = listHostRoutes(tlsEnabled);
-  const route = resolveRouteByName([...dockerRoutes, ...hostRoutes], name);
+  const routes = [...dockerRoutes, ...hostRoutes];
+  const route = resolveByConfiguredAppName(routes, name) ?? resolveRouteByName(routes, name);
 
   const url = route.urls[0];
   if (!url) {

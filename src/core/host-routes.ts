@@ -203,6 +203,7 @@ export function listHostRoutes(tlsEnabled: boolean): Route[] {
     id: route.id,
     source: "host",
     protocol: "http",
+    appName: route.name,
     serviceName: route.name,
     projectName: path.basename(route.repoPath),
     hosts: [route.host],

@@ -11,8 +11,9 @@ Completed milestones from recent commits:
 - `ee08403`: Host-run app support and host route state handling.
 - `5be481d`: Unified `.devrouter.yml`, `repo/app` commands, and TCP/Postgres routing on shared `:5432`.
 - `6e81c99` (v0.0.3): Doctor/status diagnostics, demo workspace, M1 security hardening, dep lifecycle (health wait, auto-stop), TCP port injection for host app deps, `dev app exec` with shared `startAppDependencies()`.
-- `6fb9569` (v0.0.4): Agent discoverability — `dev repo agents` writes AGENTS.md section + distributes `.factory/skills/devrouter/SKILL.md`. Skill content embedded in CLI bundle. `dev init` runs this automatically.
+- `6fb9569` (v0.0.4): Agent discoverability — `dev repo agents` writes AGENTS.md section + distributes `.factory/skills/devrouter/SKILL.md`. Skill content embedded in CLI bundle.
 - `97c3325` (v0.0.5): Vitest setup + 35 unit tests for `paths.ts` and `repo-config.ts`. CI updated with `pnpm test` gate.
+- `0.0.6` (2026-02-14): onboarding UX consistency pass — `dev init` non-mutating by default with explicit write flags, prompt/schema alignment (`version: 1` skeleton + workflow clarifications), route app identity + `dev open` app-name fallback, doctor postgres-credential advisory, non-destructive Docker disk-space guidance, changelog-first adaptation policy, and demo alignment with postgres defaults.
 
 ## Current baseline
 
@@ -27,6 +28,8 @@ Delivered and active:
 - TCP port injection for host app TCP deps (`DATABASE_URL`, `SHADOW_DATABASE_URL`, `_HOST`/`_PORT`)
 - `dev app exec` for one-shot commands with resolved dep env
 - Agent discoverability: `dev repo agents` + skill distribution for AI coding assistants
+- `dev init` prompt generation is side-effect free by default (`--write-agents` / `--write-skill` opt-in writes)
+- Route identity carries app + service names; `dev open` resolves app names directly
 
 ## Onboarding readiness sprint
 
@@ -109,6 +112,7 @@ Acceptance criteria:
 - `startAppDependencies()` is the shared dep-lifecycle helper used by both `run` and `exec`.
 - Skill content for agent discoverability is embedded in the CLI bundle (not fetched at runtime) so distributed version always matches installed CLI.
 - Agent discoverability writes to both AGENTS.md (idempotent section) and `.factory/skills/` (file copy) — covers human and AI discovery paths.
+- `dev init` no longer writes AGENTS/skill by default; writes are explicit via flags.
 - TLS remains mandatory for multiplexed Postgres hostname routing on shared `:5432`.
 - `80/443/5432` stay reserved for Traefik.
 

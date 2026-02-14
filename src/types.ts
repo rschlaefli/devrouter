@@ -2,6 +2,7 @@ export type Route = {
   id: string;
   source: "docker" | "host";
   protocol: "http" | "tcp/postgres";
+  appName: string;
   containerId?: string;
   containerName?: string;
   serviceName: string;

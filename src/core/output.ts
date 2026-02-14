@@ -51,8 +51,15 @@ export function printRoutes(routes: Route[], duplicateHosts: string[]): void {
 
   const rows = routes
     .slice()
-    .sort((a, b) => a.serviceName.localeCompare(b.serviceName) || a.source.localeCompare(b.source))
+    .sort((a, b) => {
+      const appNameOrder = a.appName.localeCompare(b.appName);
+      if (appNameOrder !== 0) {
+        return appNameOrder;
+      }
+      return a.serviceName.localeCompare(b.serviceName) || a.source.localeCompare(b.source);
+    })
     .map((route) => [
+      route.appName,
       route.serviceName,
       route.projectName,
       route.protocol,
@@ -62,7 +69,7 @@ export function printRoutes(routes: Route[], duplicateHosts: string[]): void {
     ]);
 
   process.stdout.write(
-    `${renderTable(["NAME", "PROJECT", "PROTOCOL", "ENDPOINTS", "STATUS", "AGE"], rows)}\n`
+    `${renderTable(["APP", "SERVICE", "PROJECT", "PROTOCOL", "ENDPOINTS", "STATUS", "AGE"], rows)}\n`
   );
 
   if (duplicateHosts.length > 0) {

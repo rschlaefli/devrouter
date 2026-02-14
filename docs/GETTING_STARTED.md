@@ -51,25 +51,7 @@ Demo assets live in:
 
 - [`../demo/README.md`](../demo/README.md)
 
-## Upgrading
-
-After pulling new changes:
-
-```bash
-pnpm install:local
-```
-
-If router infrastructure changed (Traefik config, network setup):
-
-```bash
-dev down && dev up
-```
-
-Verify:
-
-```bash
-dev --version
-```
+Release and adaptation notes live in [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ## Docker compose requirements for devrouter
 
@@ -189,7 +171,7 @@ This creates:
 - `AGENTS.md` section referencing devrouter (idempotent — skips if present)
 - `.factory/skills/devrouter/SKILL.md` (always overwritten with latest content)
 
-The skill file contains full config schema, docker requirements, env injection behavior, and command reference. `dev init` also writes both artifacts automatically.
+The skill file contains full config schema, docker requirements, env injection behavior, and command reference.
 
 ## 6) Generate onboarding prompt for an AI agent (optional)
 
@@ -206,6 +188,12 @@ dev init --repo /absolute/path/to/repo
 ```
 
 This prints the canonical onboarding prompt with the repository path injected.
+
+`dev init` is non-mutating by default. To also write artifacts in one command, pass explicit flags:
+
+```bash
+dev init --repo /absolute/path/to/repo --write-agents --write-skill
+```
 
 ## 7) Add apps to `.devrouter.yml`
 
@@ -333,7 +321,10 @@ You will see both:
 - HTTP endpoints (`https://web.localhost`)
 - TCP/Postgres endpoints (`postgres://db.localhost:5432 (tls required)`)
 
+Table columns also include both configured app name (`APP`) and runtime service identity (`SERVICE`).
+
 For TCP routes, `dev open <name>` prints connection guidance instead of launching browser.
+`<name>` resolves by app name first, then service/container/host identities.
 
 ## 12) View router logs (troubleshooting)
 
@@ -343,6 +334,10 @@ dev logs -f
 ```
 
 Use `dev logs` to inspect Traefik access logs and diagnose routing issues (e.g. 502 bad gateway).
+
+If `dev up` or dependency startup fails with `no space left on device`, free Docker disk space using your preferred method and retry the command.
+
+For Next.js host-run apps using proxied/custom `.localhost` development hosts, verify the dev-origin host setting in `next.config.*` for your installed Next.js version (the exact option name changed across releases).
 
 ## 13) Validate setup quality (recommended)
 

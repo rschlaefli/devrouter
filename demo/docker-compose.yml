@@ -2,11 +2,11 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-      POSTGRES_DB: app
+      POSTGRES_USER: prisma
+      POSTGRES_PASSWORD: prisma
+      POSTGRES_DB: prisma
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      test: ["CMD-SHELL", "pg_isready -U prisma -d prisma"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -20,7 +20,7 @@ services:
     environment:
       PORT: 3000
       APP_INSTANCE: docker
-      DATABASE_URL: postgres://app:app@db:5432/app
+      DATABASE_URL: postgres://prisma:prisma@db:5432/prisma
     depends_on:
       db:
         condition: service_healthy

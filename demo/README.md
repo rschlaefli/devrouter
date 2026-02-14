@@ -16,7 +16,7 @@ The `docker-compose.yml` here serves as a reference for devrouter compose conven
 
 ## Quick run
 
-From `/Volumes/MOBILE/Git/devrouter`:
+From `/Volumes/HOME/Git/personal/devrouter`:
 
 ```bash
 dev init --repo ./demo
@@ -25,6 +25,14 @@ dev tls install
 dev doctor --repo ./demo
 dev app run web-docker --repo ./demo --yes
 dev app run web-host --repo ./demo --yes
+```
+
+With Docker running normally, `dev doctor --repo ./demo` should not report `repo.postgres-credentials` mismatch warnings.
+
+`dev init` prints the onboarding prompt only. To also write AGENTS/skill artifacts, run:
+
+```bash
+dev init --repo ./demo --write-agents --write-skill
 ```
 
 Then open:
@@ -41,6 +49,7 @@ dev ls
 Expected DB endpoint:
 
 - `postgres://demo-db.localhost:5432 (tls required)`
+- `dev open demo-db` (or `dev open demo-db.localhost`) prints TCP connection guidance
 
 ## Cleanup
 
