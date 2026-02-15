@@ -8,6 +8,7 @@ import { getRouterFileLayout, isTLSEnabled } from "./router";
 import { collectRouterStatus } from "./status";
 import { discoverRoutes, findDuplicateHosts } from "./routes";
 import { assertPathWithinRepo } from "./paths";
+import { getTLSHostCoverage } from "./tls";
 import { DevrouterConfig, DevrouterDockerPostgresApp, DiagnosticCheck, DoctorReport } from "../types";
 
 type DoctorOptions = {
@@ -556,6 +557,43 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
           level: "ok",
           summary: `TLS is ready for ${repo.tcpAppCount} tcp/postgres app(s).`
         });
+      }
+
+      if (status.tlsEnabled) {
+        try {
+          const configuredHosts = config.apps.map((entry) => entry.host.toLowerCase());
+          const coverage = getTLSHostCoverage(configuredHosts);
+          const configuredHostSet = new Set(configuredHosts);
+          const uncoveredConfiguredHosts = coverage.uncoveredHosts.filter((host) =>
+            configuredHostSet.has(host)
+          );
+
+          addCheck(checks, {
+            id: "repo.tls-host-coverage",
+            level: uncoveredConfiguredHosts.length === 0 ? "ok" : "warn",
+            summary:
+              uncoveredConfiguredHosts.length === 0
+                ? "TLS cert covers all configured .localhost hosts."
+                : `TLS cert does not cover ${uncoveredConfiguredHosts.length} configured host(s).`,
+            details:
+              uncoveredConfiguredHosts.length === 0
+                ? undefined
+                : `Uncovered: ${uncoveredConfiguredHosts.join(", ")}`,
+            suggestion:
+              uncoveredConfiguredHosts.length === 0
+                ? undefined
+                : `Run: dev app run <name> --repo ${repo.path} --yes (auto-refresh), or run: dev tls install`
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          addCheck(checks, {
+            id: "repo.tls-host-coverage",
+            level: "warn",
+            summary: "Could not evaluate TLS host coverage.",
+            details: message,
+            suggestion: "Run: dev tls install"
+          });
+        }
       }
     }
   } catch (error) {

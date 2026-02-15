@@ -45,7 +45,7 @@ Reference implementation:
 For each app entry decide:
 
 - `name`
-- `host` (`*.localhost`)
+- `host` (`*.localhost`, including multi-segment forms like `elearning.klicker.localhost`)
 - `protocol` (`http` or `tcp`)
 - `runtime` (`host` or `docker`)
 
@@ -149,6 +149,7 @@ Current dependency behavior:
 - `dev app exec` starts deps as needed and runs a single command with resolved env.
 - `dev app exec` stops only deps started by that exec call; already-running deps stay running.
 - If `dev app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid non-owned teardown.
+- With TLS enabled, `dev app run` / `dev app exec` auto-refresh cert SAN coverage for configured repo hosts before startup.
 - Default exec mode is argv-safe (`shell: false`) to avoid nested quoting issues.
 - Use `--shell` only when shell expansion is required; it accepts exactly one command string after `--`.
 - Use repeatable `--env-map TARGET=SOURCE` to alias env vars for non-Prisma frameworks (for example `DATABASE_URI=DATABASE_URL`).
@@ -167,6 +168,7 @@ dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_
 ```
 
 - `dev doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
+- With TLS enabled, `dev doctor --repo <path>` warns on cert SAN mismatches for configured hosts (`repo.tls-host-coverage`).
 
 Compatibility note: older versions flattened `dev app exec` commands into a shell string; prefer argv-safe form on `v0.0.7+`.
 
@@ -189,6 +191,7 @@ No repo-local compose overlay file is required anymore.
 - `dev app ls` shows expected entries.
 - `dev ls` shows both HTTP and/or TCP endpoints, including app and service identity columns.
 - `dev doctor --repo <path>` reports no blocking errors.
+- `dev doctor --repo <path>` does not warn on `repo.tls-host-coverage`.
 - HTTP app reachable at `https://<host>.localhost` (after `dev tls install`).
 - Postgres route visible as `postgres://<host>.localhost:5432 (tls required)`.
 - No duplicate hostnames.
@@ -196,6 +199,9 @@ No repo-local compose overlay file is required anymore.
 ## 7) TLS requirements for Postgres TCP
 
 Postgres hostname multiplexing on one shared `:5432` requires TLS/SNI.
+`*.localhost` covers single-label hosts (for example `web.localhost`), while multi-segment hosts
+(for example `elearning.klicker.localhost`) require exact SAN entries. devrouter auto-refreshes
+those SANs on `dev app run` / `dev app exec` when TLS is enabled.
 
 Run:
 
@@ -231,6 +237,11 @@ Missing route in `dev ls`:
 - verify app exists in `.devrouter.yml`
 - verify `dev app run <name>` was executed
 - verify docker service started if runtime is docker
+
+Browser shows `TRAEFIK DEFAULT CERT` for a `.localhost` host:
+
+- run `dev app run <name> --repo <path> --yes` to trigger SAN auto-refresh
+- or run `dev tls install` to refresh certificates manually
 
 Docker errors with `no space left on device`:
 

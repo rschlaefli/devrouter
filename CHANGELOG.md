@@ -2,6 +2,53 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.12] - 2026-02-15
+
+### Changed
+
+- TLS certificate refresh now preserves previously issued DNS SAN entries while always retaining default SANs (`localhost`, `*.localhost`).
+- `dev app run` and `dev app exec` now auto-refresh TLS cert SAN coverage for configured repo hosts when TLS is already enabled.
+- Runtime commands now fail fast with actionable guidance if automatic TLS cert refresh fails (`Run: dev tls install`).
+
+### Added
+
+- New `dev doctor` repo diagnostic check: `repo.tls-host-coverage`.
+  - Scope: valid repo config with TLS enabled.
+  - Warns when configured `.localhost` hosts are not covered by current TLS cert SANs.
+  - Suggests remediation via runtime auto-refresh (`dev app run <name> --repo <repo> --yes`) or manual refresh (`dev tls install`).
+- New TLS unit tests for SAN parsing, wildcard coverage semantics, uncovered-host detection, and SAN-preservation merge behavior.
+
+### Agent Adaptation Prompt
+
+```text
+You are upgrading a repository that uses devrouter to version 0.0.12.
+
+Task:
+1) Keep `.localhost` hostnames as configured; multi-segment hostnames (for example `elearning.klicker.localhost`) remain supported.
+2) Ensure runtime workflows use normal run/exec entrypoints so TLS host coverage can auto-refresh:
+   - `dev app run <app> --repo <repo> --yes`
+   - `dev app exec <app> --repo <repo> --yes -- <command ...>`
+3) Validate TLS coverage diagnostics:
+   - run `dev doctor --repo <repo>`
+   - inspect `repo.tls-host-coverage`
+4) If `repo.tls-host-coverage` warns, remediate by either:
+   - running app startup via `dev app run <app> --repo <repo> --yes` (auto-refresh), or
+   - running `dev tls install` (manual refresh).
+5) Re-run diagnostics after remediation:
+   - `dev doctor --repo <repo>`
+
+Validation:
+- `dev doctor --repo <repo>` has no blocking errors
+- `repo.tls-host-coverage` is clear for configured hosts
+- representative HTTPS route no longer presents Traefik default cert fallback
+
+Report:
+- hostnames reviewed/kept
+- whether auto-refresh or manual refresh was used
+- doctor summary for `repo.tls-host-coverage`
+- unresolved TLS or certificate-trust risks
+```
+
 ## [0.0.11] - 2026-02-15
 
 ### Changed

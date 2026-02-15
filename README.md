@@ -94,6 +94,7 @@ dev doctor --repo /absolute/path/to/repo --json
 
 `dev status` now includes readiness hints and next-step commands.
 For host apps that depend on postgres, `dev doctor` also checks host command wrapper precedence and warns with `repo.host-command-env-precedence` when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
+When TLS is enabled, `dev doctor` also checks TLS host coverage and warns with `repo.tls-host-coverage` if configured `.localhost` hosts are not covered by the current cert SANs.
 
 ## `.devrouter.yml` example
 
@@ -133,6 +134,7 @@ Notes:
 - TCP mode currently supports PostgreSQL first (`tcpProtocol: postgres`).
 - Multi-DB hostname routing on shared `:5432` requires TLS/SNI.
 - Plaintext Postgres is not supported for multiplexed hostname routing.
+- Multi-segment `.localhost` hosts are supported (for example `elearning.klicker.localhost`).
 
 ## Runtime behavior
 
@@ -148,6 +150,7 @@ Notes:
 - for TCP deps of host apps: publishes a random host port and injects `<NAME>_HOST`/`<NAME>_PORT` env vars into the host process; for postgres deps also injects `DATABASE_URL` and `SHADOW_DATABASE_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
 - for one-shot commands, `dev app exec` starts declared docker deps as needed and only stops deps it started in that invocation (already-running deps stay running)
 - if `dev app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid stopping non-owned services
+- when TLS is enabled, `dev app run` / `dev app exec` auto-refresh cert SAN coverage for configured repo hosts before startup (fails fast with `Run: dev tls install` guidance if refresh fails)
 - for one-shot commands, `dev app exec` preserves argv semantics by default (`shell: false`) to avoid nested quoting issues
 - `dev app exec --shell` is explicit and requires one command string after `--`
 - `dev app exec --env-map TARGET=SOURCE` (repeatable) maps aliases after dependency env resolution (for example `DATABASE_URI=DATABASE_URL`)

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoctorReport } from "../doctor";
 import type { RouterStatus } from "../../types";
 import { collectRouterStatus } from "../status";
+import { getTLSHostCoverage } from "../tls";
 
 vi.mock("../status", () => ({
   collectRouterStatus: vi.fn(),
@@ -24,6 +25,14 @@ vi.mock("../host-routes", () => ({
   listHostRoutes: vi.fn(() => []),
 }));
 
+vi.mock("../tls", () => ({
+  getTLSHostCoverage: vi.fn(() => ({
+    requiredHosts: [],
+    certificateHosts: [],
+    uncoveredHosts: [],
+  })),
+}));
+
 vi.mock("../routes", async () => {
   const actual = await vi.importActual("../routes");
   return {
@@ -39,11 +48,12 @@ function singleQuoteYaml(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function writeRepoFiles(options: { composeEnv: string; hostCommand?: string }): void {
+function writeRepoFiles(options: { composeEnv: string; hostCommand?: string; hostName?: string }): void {
+  const hostName = options.hostName ?? "web.localhost";
   const hostAppBlock = options.hostCommand
     ? `
   - name: web
-    host: web.localhost
+    host: ${hostName}
     protocol: http
     runtime: host
     dependencies:
@@ -148,10 +158,39 @@ describe("buildDoctorReport", () => {
 
     const report = await buildDoctorReport({ repo: tmpDir });
     const credentialCheck = report.checks.find((check) => check.id === "repo.postgres-credentials");
+    const tlsCoverageCheck = report.checks.find((check) => check.id === "repo.tls-host-coverage");
 
     expect(credentialCheck?.level).toBe("warn");
     expect(credentialCheck?.summary).toContain("differ from devrouter defaults");
     expect(credentialCheck?.suggestion).toContain("docker compose down -v");
+    expect(tlsCoverageCheck?.level).toBe("ok");
+  });
+
+  it("warns when TLS cert does not cover configured hosts", async () => {
+    writeRepoFiles({
+      composeEnv: "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+      hostCommand: "pnpm dev",
+      hostName: "elearning.klicker.localhost",
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue({
+      ...makeStatus(tmpDir, true),
+      repo: {
+        ...makeStatus(tmpDir, true).repo!,
+        appCount: 2,
+      },
+    });
+    vi.mocked(getTLSHostCoverage).mockReturnValue({
+      requiredHosts: ["localhost", "*.localhost", "elearning.klicker.localhost"],
+      certificateHosts: ["localhost", "*.localhost"],
+      uncoveredHosts: ["elearning.klicker.localhost"],
+    });
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const tlsCoverageCheck = report.checks.find((check) => check.id === "repo.tls-host-coverage");
+
+    expect(tlsCoverageCheck?.level).toBe("warn");
+    expect(tlsCoverageCheck?.details).toContain("elearning.klicker.localhost");
+    expect(tlsCoverageCheck?.suggestion).toContain("dev app run <name>");
   });
 
   it("warns when host command assigns DB vars before wrapper boundary", async () => {

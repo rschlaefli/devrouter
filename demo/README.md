@@ -32,6 +32,7 @@ dev app run web-host --repo ./demo --yes
 
 With Docker running normally, `dev doctor --repo ./demo` should not report `repo.postgres-credentials` mismatch warnings.
 It should also not report `repo.host-command-env-precedence` warnings for wrapper precedence.
+It should not report `repo.tls-host-coverage` warnings for configured demo hosts.
 
 `dev init` prints the onboarding prompt only. To also write AGENTS/skill artifacts, run:
 
@@ -81,6 +82,9 @@ Expected DB endpoint:
 
 - `postgres://demo-db.localhost:5432 (tls required)`
 - `dev open demo-db` (or `dev open demo-db.localhost`) prints TCP connection guidance
+
+If you change a host to a multi-segment `.localhost` value, `dev app run` / `dev app exec`
+auto-refresh cert SAN coverage when TLS is enabled.
 
 ## Cleanup
 

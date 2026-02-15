@@ -145,6 +145,7 @@ dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --pr
 ```
 
 - `dev doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
+- With TLS enabled, `dev doctor --repo <path>` also warns on cert SAN mismatches for configured hosts (`repo.tls-host-coverage`).
 
 Compatibility note: older versions flattened `dev app exec` commands into a shell string; use the argv-safe form above on `v0.0.7+`.
 
@@ -155,6 +156,7 @@ The TLS/SNI route on `:5432` remains available for tools that support `sslnegoti
 - Modern browsers resolve `*.localhost` to loopback.
 - `/etc/hosts` does not support wildcard records.
 - This tool does not mutate system DNS files in MVP.
+- Multi-segment `.localhost` hosts are supported (for example `elearning.klicker.localhost`), and cert SANs are refreshed on `dev app run` / `dev app exec` when TLS is enabled.
 
 Fallback for specific hostnames only:
 
@@ -342,6 +344,7 @@ Why this order:
 
 - Postgres hostname routing on shared `:5432` requires TLS/SNI.
 - `dev app run web` starts declared Docker dependencies when confirmed/allowed.
+- If configured hosts are not covered by the current cert SANs, `dev app run` auto-refreshes cert coverage before startup.
 - Host dependencies are not auto-started in v1 and must be started manually.
 
 For non-interactive runs:
@@ -386,6 +389,7 @@ Then:
 
 - HTTP routes resolve as `https://...`
 - PostgreSQL routing is available on `:5432` via TLS/SNI hostnames
+- Future `dev app run` / `dev app exec` calls auto-expand cert SAN coverage for configured repo hosts when needed.
 
 ## 11) Inspect routes
 
@@ -411,6 +415,8 @@ dev logs -f
 ```
 
 Use `dev logs` to inspect Traefik access logs and diagnose routing issues (e.g. 502 bad gateway).
+
+If a browser shows `TRAEFIK DEFAULT CERT` for a multi-segment `.localhost` host, run `dev app run <name> --yes` (auto-refresh) or `dev tls install`.
 
 If `dev up` or dependency startup fails with `no space left on device`, free Docker disk space using your preferred method and retry the command.
 

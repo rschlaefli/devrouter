@@ -74,7 +74,7 @@ Supported routing:
 - `src/core/router.ts`: shared Traefik stack/files under `~/.config/devrouter`
 - `src/core/host-routes.ts`: host process route state + dynamic file rendering
 - `src/core/paths.ts`: path traversal guard (`assertPathWithinRepo`) for repo-scoped file references
-- `src/core/tls.ts`: mkcert integration and TLS enablement
+- `src/core/tls.ts`: mkcert integration, SAN coverage checks, and TLS enablement/refresh
 - `src/commands/logs.ts`: `dev logs` command handler (Traefik log access)
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
@@ -89,9 +89,10 @@ Supported routing:
 - `src/core/__tests__/ai-prompt.test.ts`: unit tests for onboarding prompt/schema consistency
 - `src/core/__tests__/agents-md.test.ts`: unit tests for AGENTS/skill file writers (including Linear workflow support)
 - `src/core/__tests__/linear-onboarding.test.ts`: unit tests for guided Linear metadata collection + placeholder fallback
-- `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence)
+- `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
 - `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, env-map behavior, and exec dependency ownership teardown
+- `src/core/__tests__/tls.test.ts`: unit tests for TLS SAN parsing, wildcard coverage, and host preservation logic
 - `src/commands/__tests__/init.test.ts`: unit tests for `dev init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `dev open` app-name fallback behavior
 - `src/commands/__tests__/repo-agents.test.ts`: unit tests for `dev repo agents` optional `--with-linear` behavior
@@ -121,6 +122,7 @@ Supported routing:
 - **Env injection**: TCP deps get `<UPPER_NAME>_HOST`/`_PORT`. Postgres deps additionally get `DATABASE_URL` and `SHADOW_DATABASE_URL` with fixed `prisma:prisma` credentials. `dev app exec --env-map TARGET=SOURCE` applies alias copies after this injection.
 - **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.
 - **Secret-manager precedence diagnostics**: `dev doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
+- **TLS host coverage**: `startAppDependencies()` in `app-run.ts` calls TLS coverage refresh for all configured repo hosts when TLS is enabled. `dev doctor` emits `repo.tls-host-coverage` when configured hosts are not covered by current cert SANs.
 
 ## Validation checklist
 

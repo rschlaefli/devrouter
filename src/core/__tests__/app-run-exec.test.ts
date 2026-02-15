@@ -16,6 +16,7 @@ const {
   runDockerComposeLogsMock,
   queryRunningComposeServicesMock,
   queryMappedPortMock,
+  ensureTLSHostsCoveredMock
 } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
   spawnSyncMock: vi.fn(),
@@ -30,6 +31,7 @@ const {
   runDockerComposeLogsMock: vi.fn(),
   queryRunningComposeServicesMock: vi.fn(),
   queryMappedPortMock: vi.fn(),
+  ensureTLSHostsCoveredMock: vi.fn(),
 }));
 
 vi.mock("node:child_process", () => ({
@@ -69,6 +71,10 @@ vi.mock("../host-routes", () => ({
 
 vi.mock("../paths", () => ({
   assertPathWithinRepo: vi.fn((value: string) => value),
+}));
+
+vi.mock("../tls", () => ({
+  ensureTLSHostsCovered: ensureTLSHostsCoveredMock,
 }));
 
 import { buildExecEnvironment, execWithAppEnv, parseEnvMapEntries } from "../app-run";
@@ -143,6 +149,7 @@ beforeEach(() => {
   runDockerComposeLogsMock.mockReset();
   queryRunningComposeServicesMock.mockReset();
   queryMappedPortMock.mockReset();
+  ensureTLSHostsCoveredMock.mockReset();
 
   resolveRepoPathMock.mockReturnValue("/repo");
   resolveAppByNameMock.mockReturnValue({
@@ -161,6 +168,11 @@ beforeEach(() => {
     runningServices: new Set<string>(),
   });
   queryMappedPortMock.mockReturnValue(55432);
+  ensureTLSHostsCoveredMock.mockResolvedValue({
+    refreshed: false,
+    uncoveredHosts: [],
+    certificateHosts: [],
+  });
 
   spawnMock.mockImplementation(() => makeChild());
   spawnSyncMock.mockReturnValue({ status: 0, stdout: "", stderr: "" });
@@ -220,6 +232,22 @@ describe("execWithAppEnv", () => {
         stdio: "inherit",
       })
     );
+    expect(ensureTLSHostsCoveredMock).toHaveBeenCalledWith(["web.localhost"]);
+  });
+
+  it("refreshes TLS coverage against all configured repo hosts before exec", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP]),
+      app: HOST_APP,
+    });
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      command: ["pnpm", "payload", "migrate"],
+    });
+
+    expect(ensureTLSHostsCoveredMock).toHaveBeenCalledWith(["web.localhost", "db.localhost"]);
   });
 
   it("requires exactly one command string in explicit shell mode", async () => {
@@ -429,5 +457,21 @@ describe("execWithAppEnv", () => {
         command: ["does-not-exist"],
       })
     ).rejects.toThrow("Failed to start command 'does-not-exist'");
+  });
+
+  it("fails before spawning when TLS coverage refresh fails", async () => {
+    ensureTLSHostsCoveredMock.mockRejectedValueOnce(
+      new Error("TLS cert does not currently cover host(s): elearning.klicker.localhost")
+    );
+
+    await expect(
+      execWithAppEnv({
+        name: "web",
+        repoPath: "/repo",
+        command: ["pnpm", "payload", "migrate"],
+      })
+    ).rejects.toThrow("TLS cert does not currently cover host(s): elearning.klicker.localhost");
+
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 });

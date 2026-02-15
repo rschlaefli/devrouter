@@ -17,6 +17,7 @@ import { buildHostRouteId, removeHostRouteById, upsertHostRoute } from "./host-r
 import { ensureNetwork } from "./docker";
 import { DEVNET_NAME, ensureRouterFiles } from "./router";
 import { assertPathWithinRepo } from "./paths";
+import { ensureTLSHostsCovered } from "./tls";
 
 const POLL_INTERVAL_MS = 1000;
 const DEFAULT_PORT_TIMEOUT_MS = 120_000;
@@ -464,6 +465,13 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
 
   const repoPath = resolveRepoPath(options.repoPath);
   const { config, app } = resolveAppByName(repoPath, options.name);
+  const tlsCoverage = await ensureTLSHostsCovered(config.apps.map((entry) => entry.host));
+  if (tlsCoverage.refreshed) {
+    process.stdout.write(
+      `Refreshed TLS cert host coverage for: ${tlsCoverage.uncoveredHosts.join(", ")}\n`
+    );
+  }
+
   const dependencies = resolveAppDependencies(config, app);
   const unsupportedDependencies = dependencies.filter((entry) => entry.runtime !== "docker");
   if (unsupportedDependencies.length > 0) {

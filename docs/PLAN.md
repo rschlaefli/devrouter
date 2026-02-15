@@ -19,6 +19,7 @@ Completed milestones from recent commits:
 - `0.0.9` (2026-02-15): simplified Linear bootstrap to guided workspace/team/project mapping with managed AGENTS metadata block, non-interactive placeholder fallback, and prompt/skill simplification to avoid hardcoded Linear assumptions.
 - `0.0.10` (2026-02-15): secret-manager precedence hardening docs, onboarding prompt/skill updates for safe host-run wrapper ordering, and new `dev doctor` heuristic warning (`repo.host-command-env-precedence`) for risky pre-wrapper DB assignments.
 - `0.0.11` (2026-02-15): exec dependency ownership teardown — `dev app exec` now stops only dependencies started by that invocation and leaves already-running services up.
+- `0.0.12` (2026-02-15): TLS host-coverage hardening — SAN preservation on refresh, run/exec auto-refresh for configured hosts, and new doctor warning `repo.tls-host-coverage`.
 
 ## Current baseline
 
@@ -35,6 +36,8 @@ Delivered and active:
 - `dev app exec` argv-safe command execution by default with explicit `--shell` opt-in
 - `dev app exec --env-map TARGET=SOURCE` for deterministic env alias mapping
 - `dev doctor` heuristic for host command wrapper precedence (`repo.host-command-env-precedence`) on host apps with postgres dependencies
+- `dev doctor` TLS SAN coverage warning for configured hosts (`repo.tls-host-coverage`) when TLS is enabled
+- `dev app run` / `dev app exec` auto-refresh TLS cert SAN coverage for configured repo hosts when needed
 - Agent discoverability: `dev repo agents` + skill distribution for AI coding assistants
 - Optional Linear milestone workflow bootstrap (`dev init --with-linear` / `dev repo agents --with-linear`) with repo-local templates
 - Managed AGENTS Linear mapping block (`workspace/team/project`) with guided capture on AGENTS write flows
@@ -127,6 +130,7 @@ Acceptance criteria:
 - Stable CLI surface includes `up/down/status/ls/open/tls`, `repo init/agents`, and `app add/ls/run/exec/rm`.
 - `dev app exec` uses ownership-aware teardown: stop deps it started, leave already-running deps up.
 - If exec dependency ownership detection is unavailable, teardown is non-destructive (deps remain running).
+- TLS cert coverage is host-aware: defaults include `localhost` + `*.localhost`, configured hosts are auto-added on run/exec when TLS is enabled.
 - `dev app exec` preserves argv semantics by default and only uses shell parsing when `--shell` is explicitly requested.
 - `startAppDependencies()` is the shared dep-lifecycle helper used by both `run` and `exec`.
 - Skill content for agent discoverability is embedded in the CLI bundle (not fetched at runtime) so distributed version always matches installed CLI.
