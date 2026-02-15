@@ -105,6 +105,8 @@ describe('agents-md linear workflow support', () => {
     expect(content).not.toContain('<!-- devrouter-linear-workflow -->')
 
     const skillContent = fs.readFileSync(skill.path, 'utf-8')
+    expect(skillContent).toContain('kind: app | dependency')
+    expect(skillContent).toContain('kind=dependency')
     expect(skillContent).toContain(
       'https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md'
     )

@@ -3,7 +3,12 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { stdin as input, stdout as output } from "node:process";
-import { DevrouterApp, DevrouterDockerPostgresApp, DevrouterHostHttpApp } from "../types";
+import {
+  DevrouterApp,
+  DevrouterDockerDependencyApp,
+  DevrouterDockerPostgresApp,
+  DevrouterHostHttpApp
+} from "../types";
 import {
   prepareDockerOverlay,
   runDockerComposeUp,
@@ -427,6 +432,10 @@ function dependencyNames(apps: DevrouterApp[]): string[] {
   return apps.map((entry) => entry.name).sort();
 }
 
+function isDependencyOnlyApp(app: DevrouterApp): app is DevrouterDockerDependencyApp {
+  return app.kind === "dependency";
+}
+
 async function shouldStartDependencies(
   appName: string,
   dependencies: DevrouterApp[],
@@ -465,11 +474,23 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
 
   const repoPath = resolveRepoPath(options.repoPath);
   const { config, app } = resolveAppByName(repoPath, options.name);
-  const tlsCoverage = await ensureTLSHostsCovered(config.apps.map((entry) => entry.host));
-  if (tlsCoverage.refreshed) {
-    process.stdout.write(
-      `Refreshed TLS cert host coverage for: ${tlsCoverage.uncoveredHosts.join(", ")}\n`
+  if (isDependencyOnlyApp(app)) {
+    throw new Error(
+      `App '${app.name}' is kind=dependency and cannot be run directly. ` +
+      "Reference it from another app via dependencies and run that app instead."
     );
+  }
+
+  const routedHosts = config.apps
+    .filter((entry): entry is Exclude<DevrouterApp, DevrouterDockerDependencyApp> => !isDependencyOnlyApp(entry))
+    .map((entry) => entry.host);
+  if (routedHosts.length > 0) {
+    const tlsCoverage = await ensureTLSHostsCovered(routedHosts);
+    if (tlsCoverage.refreshed) {
+      process.stdout.write(
+        `Refreshed TLS cert host coverage for: ${tlsCoverage.uncoveredHosts.join(", ")}\n`
+      );
+    }
   }
 
   const dependencies = resolveAppDependencies(config, app);
@@ -500,7 +521,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   let overlay: ReturnType<typeof prepareDockerOverlay> | undefined;
 
   const hasTcpDeps = app.runtime === "host" && selectedDockerApps.some(
-    (entry) => entry.protocol === "tcp"
+    (entry) => entry.kind !== "dependency" && entry.protocol === "tcp"
   );
 
   if (selectedDockerApps.length > 0) {
@@ -541,7 +562,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   const depEnv: Record<string, string> = {};
   if (hasTcpDeps && overlay) {
     const tcpDeps = selectedDockerApps.filter(
-      (entry): entry is DevrouterDockerPostgresApp => entry.protocol === "tcp"
+      (entry): entry is DevrouterDockerPostgresApp => entry.kind !== "dependency" && entry.protocol === "tcp"
     );
     for (const dep of tcpDeps) {
       const mappedPort = queryMappedPort(
@@ -597,7 +618,7 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
   try {
     if (deps.app.runtime === "host") {
       await runHostApp(deps.repoPath, deps.app, deps.depEnv);
-    } else if (deps.app.protocol === "tcp") {
+    } else if (deps.app.kind !== "dependency" && deps.app.protocol === "tcp") {
       process.stdout.write(
         `TCP route ready: postgres://${deps.app.host}:5432 (tls required, e.g. sslmode=require)\n`
       );

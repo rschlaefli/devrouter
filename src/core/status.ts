@@ -51,7 +51,9 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
 
   try {
     const config = loadRepoConfig(resolvedRepoPath);
-    const tcpAppCount = config.apps.filter((app) => app.protocol === "tcp").length;
+    const tcpAppCount = config.apps.filter(
+      (app) => app.kind !== "dependency" && app.protocol === "tcp"
+    ).length;
     return {
       path: resolvedRepoPath,
       configPath,

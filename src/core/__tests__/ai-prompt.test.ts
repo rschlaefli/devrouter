@@ -49,6 +49,13 @@ describe('buildOnboardingPrompt', () => {
     )
   })
 
+  it('documents dependency-only app kind semantics', () => {
+    const prompt = buildOnboardingPrompt({ repo: tmpDir })
+    expect(prompt).toContain('kind: "app" | "dependency"')
+    expect(prompt).toContain('kind=dependency requires runtime=docker')
+    expect(prompt).toContain('kind=dependency entries are dependency-only')
+  })
+
   it('includes secret-manager interop guidance with env mapping and probes', () => {
     const prompt = buildOnboardingPrompt({ repo: tmpDir })
     expect(prompt).toContain('Secret Manager Interop (Infisical/Doppler):')

@@ -124,38 +124,58 @@ export type DevrouterDockerConfig = {
   router?: string;
 };
 
-type DevrouterAppBase = {
-  name: string;
-  host: string;
-  dependencies: DevrouterAppDependency[];
+export type DevrouterDockerDependencyConfig = {
+  service: string;
+  composeFiles: string[];
 };
 
-export type DevrouterHostHttpApp = DevrouterAppBase & {
+type DevrouterAppBase = {
+  name: string;
+  dependencies: DevrouterAppDependency[];
+  kind?: "app";
+};
+
+type DevrouterRoutedAppBase = DevrouterAppBase & {
+  host: string;
+};
+
+export type DevrouterHostHttpApp = DevrouterRoutedAppBase & {
   protocol: "http";
   runtime: "host";
   hostRun: DevrouterHostRunConfig;
 };
 
-export type DevrouterDockerHttpApp = DevrouterAppBase & {
+export type DevrouterDockerHttpApp = DevrouterRoutedAppBase & {
   protocol: "http";
   runtime: "docker";
   docker: DevrouterDockerConfig;
 };
 
-export type DevrouterDockerPostgresApp = DevrouterAppBase & {
+export type DevrouterDockerPostgresApp = DevrouterRoutedAppBase & {
   protocol: "tcp";
   tcpProtocol: "postgres";
   runtime: "docker";
   docker: DevrouterDockerConfig;
 };
 
-export type DevrouterApp = DevrouterHostHttpApp | DevrouterDockerHttpApp | DevrouterDockerPostgresApp;
+export type DevrouterDockerDependencyApp = {
+  kind: "dependency";
+  name: string;
+  runtime: "docker";
+  dependencies: DevrouterAppDependency[];
+  docker: DevrouterDockerDependencyConfig;
+};
+
+export type DevrouterRoutedApp = DevrouterHostHttpApp | DevrouterDockerHttpApp | DevrouterDockerPostgresApp;
+export type DevrouterDockerRoutedApp = DevrouterDockerHttpApp | DevrouterDockerPostgresApp;
+export type DevrouterApp = DevrouterRoutedApp | DevrouterDockerDependencyApp;
 
 export type AppAddOptions = {
   name: string;
-  host: string;
-  protocol: "http" | "tcp";
-  runtime: "host" | "docker";
+  kind?: "app" | "dependency";
+  host?: string;
+  protocol?: "http" | "tcp";
+  runtime?: "host" | "docker";
   service?: string;
   port?: number;
   composeFiles: string[];

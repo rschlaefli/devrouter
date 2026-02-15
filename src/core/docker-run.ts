@@ -3,7 +3,11 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import YAML from "yaml";
-import { DevrouterApp, DevrouterDockerHttpApp, DevrouterDockerPostgresApp } from "../types";
+import {
+  DevrouterApp,
+  DevrouterDockerDependencyApp,
+  DevrouterDockerRoutedApp
+} from "../types";
 import { CACHE_DIR } from "./router";
 import { assertPathWithinRepo } from "./paths";
 import { withDockerFailureGuidance } from "./docker-error-guidance";
@@ -26,11 +30,15 @@ function repoHash(repoPath: string): string {
   return createHash("sha1").update(path.resolve(repoPath)).digest("hex").slice(0, 12);
 }
 
-function asDockerApp(app: DevrouterApp): app is DevrouterDockerHttpApp | DevrouterDockerPostgresApp {
+function asDockerApp(app: DevrouterApp): app is DevrouterDockerRoutedApp | DevrouterDockerDependencyApp {
   return app.runtime === "docker";
 }
 
-function ensureComposeFiles(dockerApps: Array<DevrouterDockerHttpApp | DevrouterDockerPostgresApp>): string[] {
+function asRoutedDockerApp(app: DevrouterApp): app is DevrouterDockerRoutedApp {
+  return app.runtime === "docker" && app.kind !== "dependency";
+}
+
+function ensureComposeFiles(dockerApps: Array<DevrouterDockerRoutedApp | DevrouterDockerDependencyApp>): string[] {
   const files: string[] = [];
   for (const app of dockerApps) {
     for (const file of app.docker.composeFiles) {
@@ -44,12 +52,13 @@ function ensureComposeFiles(dockerApps: Array<DevrouterDockerHttpApp | Devrouter
 }
 
 function buildOverlayDocument(
-  dockerApps: Array<DevrouterDockerHttpApp | DevrouterDockerPostgresApp>,
+  dockerApps: Array<DevrouterDockerRoutedApp | DevrouterDockerDependencyApp>,
   publishTcpPorts = false
 ): Record<string, unknown> {
   const services: Record<string, Record<string, unknown>> = {};
+  const routedDockerApps = dockerApps.filter(asRoutedDockerApp);
 
-  for (const app of dockerApps) {
+  for (const app of routedDockerApps) {
     const routerId = sanitizeRouterId(app.docker.router ?? app.name);
     const labels: Record<string, string> = {
       "traefik.enable": "true",
@@ -85,6 +94,18 @@ function buildOverlayDocument(
     services[app.docker.service] = serviceEntry;
   }
 
+  for (const app of dockerApps) {
+    if (app.kind === "dependency") {
+      if (!services[app.docker.service]) {
+        services[app.docker.service] = {};
+      }
+    }
+  }
+
+  if (routedDockerApps.length === 0) {
+    return { services };
+  }
+
   return {
     services,
     networks: {
@@ -103,7 +124,7 @@ export function prepareDockerOverlay(
 ): {
   overlayPath: string;
   composeFiles: string[];
-  dockerApps: Array<DevrouterDockerHttpApp | DevrouterDockerPostgresApp>;
+  dockerApps: Array<DevrouterDockerRoutedApp | DevrouterDockerDependencyApp>;
 } {
   const dockerApps = apps.filter(asDockerApp);
   if (dockerApps.length === 0) {

@@ -1,6 +1,12 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DevrouterApp, DevrouterConfig, DevrouterDockerPostgresApp, DevrouterHostHttpApp } from "../../types";
+import type {
+  DevrouterApp,
+  DevrouterConfig,
+  DevrouterDockerDependencyApp,
+  DevrouterDockerPostgresApp,
+  DevrouterHostHttpApp
+} from "../../types";
 
 const {
   spawnMock,
@@ -77,7 +83,7 @@ vi.mock("../tls", () => ({
   ensureTLSHostsCovered: ensureTLSHostsCoveredMock,
 }));
 
-import { buildExecEnvironment, execWithAppEnv, parseEnvMapEntries } from "../app-run";
+import { buildExecEnvironment, execWithAppEnv, parseEnvMapEntries, runConfiguredApp } from "../app-run";
 
 const HOST_APP: DevrouterHostHttpApp = {
   name: "web",
@@ -108,6 +114,17 @@ const POSTGRES_DEP: DevrouterDockerPostgresApp = {
     internalPort: 5432,
     composeFiles: ["docker-compose.yml"],
   },
+};
+
+const REDIS_DEP: DevrouterDockerDependencyApp = {
+  kind: "dependency",
+  name: "redis",
+  runtime: "docker",
+  dependencies: [],
+  docker: {
+    service: "redis",
+    composeFiles: ["docker-compose.yml"]
+  }
 };
 
 function makeConfig(apps: DevrouterApp[]): DevrouterConfig {
@@ -308,6 +325,66 @@ describe("execWithAppEnv", () => {
     expect(spawnOptions.env.DATABASE_URI).toBe("postgres://prisma:prisma@localhost:55432/prisma");
   });
 
+  it("rejects direct exec on dependency-only app targets", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, REDIS_DEP]),
+      app: REDIS_DEP
+    });
+
+    await expect(
+      execWithAppEnv({
+        name: "redis",
+        repoPath: "/repo",
+        command: ["redis-cli", "PING"]
+      })
+    ).rejects.toThrow("is kind=dependency and cannot be run directly");
+  });
+
+  it("starts dependency-only services for host exec without injecting DB env", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, REDIS_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: REDIS_DEP.name }]
+      }
+    });
+    resolveAppDependenciesMock.mockReturnValue([REDIS_DEP]);
+    prepareDockerOverlayMock.mockReturnValue({
+      overlayPath: "/overlay.yml",
+      composeFiles: ["docker-compose.yml"],
+      dockerApps: [REDIS_DEP]
+    });
+    queryRunningComposeServicesMock.mockReturnValue({
+      status: "known",
+      runningServices: new Set<string>()
+    });
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      command: ["pnpm", "run", "cache:seed"]
+    });
+
+    expect(runDockerComposeUpMock).toHaveBeenCalledWith(
+      "/repo",
+      ["docker-compose.yml"],
+      "/overlay.yml",
+      ["redis"]
+    );
+    const spawnOptions = spawnMock.mock.calls[0]?.[2] as { env: Record<string, string> };
+    expect(spawnOptions.env.REDIS_HOST).toBeUndefined();
+    expect(spawnOptions.env.REDIS_PORT).toBeUndefined();
+    expect(spawnOptions.env.DATABASE_URL).toBeUndefined();
+    expect(spawnOptions.env.SHADOW_DATABASE_URL).toBeUndefined();
+    expect(runDockerComposeStopMock).toHaveBeenCalledWith(
+      "/repo",
+      ["docker-compose.yml"],
+      "/overlay.yml",
+      ["redis"]
+    );
+  });
+
   it("does not stop dependencies already running before exec", async () => {
     resolveAppByNameMock.mockReturnValue({
       config: makeConfig([HOST_APP, POSTGRES_DEP]),
@@ -473,5 +550,22 @@ describe("execWithAppEnv", () => {
     ).rejects.toThrow("TLS cert does not currently cover host(s): elearning.klicker.localhost");
 
     expect(spawnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("runConfiguredApp", () => {
+  it("rejects direct run on dependency-only app targets", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, REDIS_DEP]),
+      app: REDIS_DEP
+    });
+
+    await expect(
+      runConfiguredApp({
+        name: "redis",
+        repoPath: "/repo",
+        yes: true
+      })
+    ).rejects.toThrow("is kind=dependency and cannot be run directly");
   });
 });

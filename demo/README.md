@@ -6,6 +6,8 @@ This folder is a complete demo repository for `devrouter`:
 - `web-docker`: same app running inside Docker
 - `db`: PostgreSQL in Docker routed over shared `:5432`
 
+The demo keeps routing-focused entries only; dependency-only `kind: dependency` services (for example Redis) are supported by devrouter but not required for this baseline demo.
+
 The `docker-compose.yml` here serves as a reference for devrouter compose conventions: services include healthchecks (required for `--wait`) and do not publish host ports (devrouter handles routing via Traefik).
 
 ## Files
@@ -82,6 +84,11 @@ Expected DB endpoint:
 
 - `postgres://demo-db.localhost:5432 (tls required)`
 - `dev open demo-db` (or `dev open demo-db.localhost`) prints TCP connection guidance
+
+Dependency-only note:
+
+- `kind: dependency` entries appear in `dev app ls` but do not produce route endpoints in `dev ls`.
+- direct `dev app run|exec|open <dependency-name>` is rejected with guidance to run a routed parent app.
 
 If you change a host to a multi-segment `.localhost` value, `dev app run` / `dev app exec`
 auto-refresh cert SAN coverage when TLS is enabled.

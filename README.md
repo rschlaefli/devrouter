@@ -35,7 +35,7 @@ This is the only supported per-repo config for app routing/runtime definitions.
 - `dev tls install`
 - `dev repo init [--repo <path>]`
 - `dev repo agents [--repo <path>] [--with-linear]`
-- `dev app add ...`
+- `dev app add ...` (`--kind app|dependency`, default `app`)
 - `dev app ls [--repo <path>] [--json]`
 - `dev app run <name> [--repo <path>] [--yes]`
 - `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env-map TARGET=SOURCE] -- <command>`
@@ -116,6 +116,7 @@ apps:
         allowPortRange: "1024-65535"
     dependencies:
       - app: db
+      - app: redis
 
   - name: db
     host: db.localhost
@@ -127,10 +128,19 @@ apps:
       internalPort: 5432
       composeFiles:
         - docker-compose.yml
+
+  - name: redis
+    kind: dependency
+    runtime: docker
+    docker:
+      service: redis
+      composeFiles:
+        - docker-compose.yml
 ```
 
 Notes:
 
+- `kind` defaults to routed app behavior. Use `kind: dependency` for non-routed Docker dependencies.
 - TCP mode currently supports PostgreSQL first (`tcpProtocol: postgres`).
 - Multi-DB hostname routing on shared `:5432` requires TLS/SNI.
 - Plaintext Postgres is not supported for multiplexed hostname routing.
@@ -147,6 +157,8 @@ Notes:
 - waits for Docker dependencies to become healthy (`--wait`) before proceeding
 - automatically stops Docker dependencies when the host app exits
 - prints recent dependency logs (last 20 lines) after deps start
+- `kind=dependency` apps are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`
+- `kind=dependency` services start as declared in compose (no Traefik labels, no random published ports, no injected env vars)
 - for TCP deps of host apps: publishes a random host port and injects `<NAME>_HOST`/`<NAME>_PORT` env vars into the host process; for postgres deps also injects `DATABASE_URL` and `SHADOW_DATABASE_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
 - for one-shot commands, `dev app exec` starts declared docker deps as needed and only stops deps it started in that invocation (already-running deps stay running)
 - if `dev app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid stopping non-owned services
@@ -177,7 +189,8 @@ In a repo that has a host app and a Docker Postgres service:
 dev repo init
 dev app add --name web --host web.localhost --protocol http --runtime host --command "pnpm dev" --cwd .
 dev app add --name db --host db.localhost --protocol tcp --runtime docker --tcp-protocol postgres --service db --port 5432 --compose-file docker-compose.yml
-dev app add --name web --host web.localhost --protocol http --runtime host --command "pnpm dev" --cwd . --depends-on db
+dev app add --name redis --kind dependency --service redis --compose-file docker-compose.yml
+dev app add --name web --host web.localhost --protocol http --runtime host --command "pnpm dev" --cwd . --depends-on db --depends-on redis
 dev tls install
 dev app run web --yes
 dev ls
@@ -251,6 +264,7 @@ Required Linear execution hygiene:
 ## Known limitations (v1)
 
 - Host-runtime dependencies are not auto-started; only Docker dependencies are auto-started.
+- `kind=dependency` apps are not direct run/exec/open targets (must be started via a routed app dependency graph).
 - TCP routing currently supports PostgreSQL only (`tcpProtocol: postgres`).
 - Shared `:5432` hostname multiplexing requires TLS/SNI (`sslmode=require` or stronger).
 

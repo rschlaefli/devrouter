@@ -13,6 +13,7 @@ Supported route types:
 - HTTP host-run apps
 - HTTP docker apps
 - TCP PostgreSQL docker apps (TLS/SNI on shared `:5432`)
+- Dependency-only docker services (`kind: dependency`, non-routed)
 
 Scope:
 
@@ -45,9 +46,10 @@ Reference implementation:
 For each app entry decide:
 
 - `name`
-- `host` (`*.localhost`, including multi-segment forms like `elearning.klicker.localhost`)
-- `protocol` (`http` or `tcp`)
-- `runtime` (`host` or `docker`)
+- `kind` (`app` or `dependency`, default `app`)
+- if `kind=app`: `host` (`*.localhost`, including multi-segment forms like `elearning.klicker.localhost`)
+- if `kind=app`: `protocol` (`http` or `tcp`)
+- `runtime` (`host` or `docker`; for `kind=dependency` must be `docker`)
 
 Host runtime (`http` only):
 
@@ -64,10 +66,11 @@ For Next.js apps behind proxied/custom `.localhost` dev hosts, align dev-origin 
 Docker runtime:
 
 - `service`
-- `internalPort`
 - `composeFiles`
 - optional dependencies
-- for TCP, `tcpProtocol=postgres`
+- for routed docker apps: `internalPort`
+- for routed TCP apps: `tcpProtocol=postgres`
+- for `kind=dependency`: no routed fields (`host`, `protocol`, `tcpProtocol`, `hostRun`, `docker.internalPort`, `docker.router`)
 
 Docker compose file guidance:
 
@@ -110,6 +113,16 @@ dev app add \
   --compose-file docker-compose.yml
 ```
 
+Add dependency-only Redis service:
+
+```bash
+dev app add \
+  --name redis \
+  --kind dependency \
+  --service redis \
+  --compose-file docker-compose.yml
+```
+
 Link dependency and run:
 
 ```bash
@@ -120,7 +133,8 @@ dev app add \
   --runtime host \
   --command "pnpm dev" \
   --cwd . \
-  --depends-on db
+  --depends-on db \
+  --depends-on redis
 
 dev up
 dev tls install
@@ -146,6 +160,8 @@ Current dependency behavior:
 
 - Docker dependencies can be auto-started.
 - Host-runtime dependencies are not auto-started in v1 and must be started manually.
+- `kind=dependency` apps are dependency-only and cannot be direct `dev app run`, `dev app exec`, or `dev open` targets.
+- `kind=dependency` services start as defined in compose (no Traefik label wiring, no injected env vars, no random published ports).
 - `dev app exec` starts deps as needed and runs a single command with resolved env.
 - `dev app exec` stops only deps started by that exec call; already-running deps stay running.
 - If `dev app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid non-owned teardown.
@@ -190,6 +206,7 @@ No repo-local compose overlay file is required anymore.
 
 - `dev app ls` shows expected entries.
 - `dev ls` shows both HTTP and/or TCP endpoints, including app and service identity columns.
+- `kind=dependency` entries appear in `dev app ls` but do not create active endpoints in `dev ls`.
 - `dev doctor --repo <path>` reports no blocking errors.
 - `dev doctor --repo <path>` does not warn on `repo.tls-host-coverage`.
 - HTTP app reachable at `https://<host>.localhost` (after `dev tls install`).

@@ -5,6 +5,7 @@ import {
   AppAddOptions,
   DevrouterApp,
   DevrouterConfig,
+  DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
   DevrouterDockerPostgresApp,
   DevrouterHostHttpApp
@@ -147,27 +148,80 @@ function parseDockerConfig(
   };
 }
 
+function parseDependencyDockerConfig(
+  value: unknown,
+  pathLabel: string
+): DevrouterDockerDependencyApp["docker"] {
+  const objectValue = ensureObject(value, pathLabel);
+  ensureAllowedKeys(objectValue, ["service", "composeFiles"], pathLabel);
+
+  const composeFiles = toStringArray(objectValue.composeFiles, `${pathLabel}.composeFiles`);
+  return {
+    service: toStringOrThrow(objectValue.service, `${pathLabel}.service`),
+    composeFiles: composeFiles.length > 0 ? composeFiles : ["docker-compose.yml"]
+  };
+}
+
+function parseHostOrThrow(value: unknown, pathLabel: string): string {
+  const host = toStringOrThrow(value, pathLabel).toLowerCase();
+  if (!host.endsWith(".localhost")) {
+    throw new Error(`${pathLabel} must end with .localhost.`);
+  }
+  if (!VALID_HOSTNAME_RE.test(host)) {
+    throw new Error(`${pathLabel} contains invalid characters. Only lowercase alphanumerics and hyphens are allowed.`);
+  }
+  return host;
+}
+
 function parseApp(value: unknown, index: number): DevrouterApp {
   const pathLabel = `apps[${index}]`;
   const objectValue = ensureObject(value, pathLabel);
   ensureAllowedKeys(
     objectValue,
-    ["name", "host", "protocol", "runtime", "hostRun", "docker", "tcpProtocol", "dependencies"],
+    ["name", "kind", "host", "protocol", "runtime", "hostRun", "docker", "tcpProtocol", "dependencies"],
     pathLabel
   );
 
   const name = toStringOrThrow(objectValue.name, `${pathLabel}.name`);
-  const host = toStringOrThrow(objectValue.host, `${pathLabel}.host`).toLowerCase();
-  if (!host.endsWith(".localhost")) {
-    throw new Error(`${pathLabel}.host must end with .localhost.`);
-  }
-  if (!VALID_HOSTNAME_RE.test(host)) {
-    throw new Error(`${pathLabel}.host contains invalid characters. Only lowercase alphanumerics and hyphens are allowed.`);
+  const kind = objectValue.kind === undefined
+    ? "app"
+    : toStringOrThrow(objectValue.kind, `${pathLabel}.kind`);
+  if (kind !== "app" && kind !== "dependency") {
+    throw new Error(`${pathLabel}.kind must be 'app' or 'dependency'.`);
   }
 
+  const dependencies = parseDependencies(objectValue.dependencies, `${pathLabel}.dependencies`);
+  if (kind === "dependency") {
+    if (objectValue.host !== undefined) {
+      throw new Error(`${pathLabel}.host is not supported when kind=dependency.`);
+    }
+    if (objectValue.protocol !== undefined) {
+      throw new Error(`${pathLabel}.protocol is not supported when kind=dependency.`);
+    }
+    if (objectValue.tcpProtocol !== undefined) {
+      throw new Error(`${pathLabel}.tcpProtocol is not supported when kind=dependency.`);
+    }
+    if (objectValue.hostRun !== undefined) {
+      throw new Error(`${pathLabel}.hostRun is not supported when kind=dependency.`);
+    }
+
+    const runtime = toStringOrThrow(objectValue.runtime, `${pathLabel}.runtime`);
+    if (runtime !== "docker") {
+      throw new Error(`${pathLabel}.runtime must be 'docker' when kind=dependency.`);
+    }
+
+    return {
+      kind: "dependency",
+      name,
+      runtime: "docker",
+      dependencies,
+      docker: parseDependencyDockerConfig(objectValue.docker, `${pathLabel}.docker`)
+    };
+  }
+
+  const host = parseHostOrThrow(objectValue.host, `${pathLabel}.host`);
   const protocol = toStringOrThrow(objectValue.protocol, `${pathLabel}.protocol`);
   const runtime = toStringOrThrow(objectValue.runtime, `${pathLabel}.runtime`);
-  const dependencies = parseDependencies(objectValue.dependencies, `${pathLabel}.dependencies`);
 
   if (runtime === "host") {
     if (protocol !== "http") {
@@ -333,6 +387,56 @@ export function initRepoConfig(repoPath?: string): { repoPath: string; configPat
 }
 
 function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
+  const kind = options.kind ?? "app";
+  if (kind !== "app" && kind !== "dependency") {
+    throw new Error("--kind must be app or dependency");
+  }
+  const dependencies = options.dependsOn.map((app) => ({ app }));
+
+  if (kind === "dependency") {
+    if (options.runtime !== undefined && options.runtime !== "docker") {
+      throw new Error("--runtime must be docker when --kind dependency");
+    }
+    if (options.host !== undefined) {
+      throw new Error("--host is not supported when --kind dependency");
+    }
+    if (options.protocol !== undefined) {
+      throw new Error("--protocol is not supported when --kind dependency");
+    }
+    if (options.tcpProtocol !== undefined) {
+      throw new Error("--tcp-protocol is not supported when --kind dependency");
+    }
+    if (options.command !== undefined) {
+      throw new Error("--command is not supported when --kind dependency");
+    }
+    if (options.cwd !== undefined) {
+      throw new Error("--cwd is not supported when --kind dependency");
+    }
+    if (options.port !== undefined) {
+      throw new Error("--port is not supported when --kind dependency");
+    }
+    if (options.router !== undefined) {
+      throw new Error("--router is not supported when --kind dependency");
+    }
+    if (!options.service) {
+      throw new Error("--service is required when --kind dependency");
+    }
+
+    return {
+      kind: "dependency",
+      name: options.name,
+      runtime: "docker",
+      dependencies,
+      docker: {
+        service: options.service,
+        composeFiles: options.composeFiles.length > 0 ? options.composeFiles : ["docker-compose.yml"]
+      }
+    };
+  }
+
+  if (!options.host) {
+    throw new Error("--host is required when --kind app");
+  }
   const host = options.host.toLowerCase();
   if (!host.endsWith(".localhost")) {
     throw new Error("--host must end with .localhost");
@@ -341,7 +445,13 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
     throw new Error("--host contains invalid characters. Only lowercase alphanumerics and hyphens are allowed.");
   }
 
-  const dependencies = options.dependsOn.map((app) => ({ app }));
+  if (!options.runtime) {
+    throw new Error("--runtime is required when --kind app");
+  }
+  if (!options.protocol) {
+    throw new Error("--protocol is required when --kind app");
+  }
+
   if (options.runtime === "host") {
     if (options.protocol !== "http") {
       throw new Error("--runtime host currently supports only --protocol http");

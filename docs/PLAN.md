@@ -20,6 +20,7 @@ Completed milestones from recent commits:
 - `0.0.10` (2026-02-15): secret-manager precedence hardening docs, onboarding prompt/skill updates for safe host-run wrapper ordering, and new `dev doctor` heuristic warning (`repo.host-command-env-precedence`) for risky pre-wrapper DB assignments.
 - `0.0.11` (2026-02-15): exec dependency ownership teardown — `dev app exec` now stops only dependencies started by that invocation and leaves already-running services up.
 - `0.0.12` (2026-02-15): TLS host-coverage hardening — SAN preservation on refresh, run/exec auto-refresh for configured hosts, and new doctor warning `repo.tls-host-coverage`.
+- `0.0.13` (2026-02-15): dependency-only docker app kind (`kind: dependency`) for non-routed services (for example Redis), direct run/exec/open guardrails, and schema/CLI/docs/test updates.
 
 ## Current baseline
 
@@ -29,6 +30,7 @@ Delivered and active:
 - Command groups: `dev repo ...` and `dev app ...`
 - HTTP routing for host-run and Docker-run apps
 - TCP/Postgres Docker routing on `:5432` with TLS/SNI
+- Dependency-only docker services via `kind: dependency` (non-routed, dependency lifecycle only)
 - Shared router ownership of `80/443/5432`
 - Bundled demo repo (`demo/.devrouter.yml`) for onboarding rehearsal and smoke validation
 - TCP port injection for host app TCP deps (`DATABASE_URL`, `SHADOW_DATABASE_URL`, `_HOST`/`_PORT`)
@@ -98,7 +100,7 @@ Acceptance criteria: FS-dependent modules tested with real temp dirs, no Docker 
 Acceptance criteria:
 
 - Add MySQL TCP routing support with explicit TLS/SNI requirements.
-- Evaluate and decide on Redis TCP support (implemented or rejected with rationale).
+- Evaluate Redis TCP routing support (separate from `kind: dependency`, which is now supported for non-routed dependency startup).
 - Define host runtime TCP strategy (supported scope or explicit non-support).
 - Add `dev db` helper for connection snippets.
 
@@ -128,6 +130,7 @@ Acceptance criteria:
 
 - `.devrouter.yml` is the single source of truth for per-repo routing config.
 - Stable CLI surface includes `up/down/status/ls/open/tls`, `repo init/agents`, and `app add/ls/run/exec/rm`.
+- `kind=dependency` is a docker-only non-routed app variant for dependency startup/teardown without Traefik route wiring.
 - `dev app exec` uses ownership-aware teardown: stop deps it started, leave already-running deps up.
 - If exec dependency ownership detection is unavailable, teardown is non-destructive (deps remain running).
 - TLS cert coverage is host-aware: defaults include `localhost` + `*.localhost`, configured hosts are auto-added on run/exec when TLS is enabled.

@@ -80,6 +80,8 @@ Services **should not** publish host ports at all. devrouter handles external ro
 - `dev app run` waits for Docker dependencies to become healthy before starting the host app
 - Docker dependencies are automatically stopped when the host app exits (Ctrl+C or error)
 - Recent dependency logs (last 20 lines) are printed after dependencies start
+- `kind=dependency` entries are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`
+- `kind=dependency` services are started as declared in compose (no Traefik labels, no random port publishing, no injected env vars)
 
 ### TCP dependency port injection
 
@@ -300,6 +302,16 @@ dev app add \
   --compose-file docker-compose.yml
 ```
 
+Dependency-only docker service (Redis example):
+
+```bash
+dev app add \
+  --name redis \
+  --kind dependency \
+  --service redis \
+  --compose-file docker-compose.yml
+```
+
 Optional dependency link:
 
 ```bash
@@ -310,7 +322,8 @@ dev app add \
   --runtime host \
   --command "pnpm dev" \
   --cwd . \
-  --depends-on db
+  --depends-on db \
+  --depends-on redis
 ```
 
 ## Host app runtime behavior
@@ -377,6 +390,7 @@ dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_
 ```
 
 This starts dependencies as needed, injects resolved env vars, and runs the command. It stops only dependencies started by that `exec` call; already-running services stay running.
+If `<name>` is configured with `kind=dependency`, exec is rejected with guidance to run a routed parent app instead.
 
 ## 10) Enable TLS (required for TCP/Postgres, recommended for HTTP)
 
@@ -406,6 +420,7 @@ Table columns also include both configured app name (`APP`) and runtime service 
 
 For TCP routes, `dev open <name>` prints connection guidance instead of launching browser.
 `<name>` resolves by app name first, then service/container/host identities.
+For `kind=dependency` app names, `dev open` returns a no-route guidance message.
 
 ## 12) View router logs (troubleshooting)
 

@@ -9,7 +9,14 @@ import { collectRouterStatus } from "./status";
 import { discoverRoutes, findDuplicateHosts } from "./routes";
 import { assertPathWithinRepo } from "./paths";
 import { getTLSHostCoverage } from "./tls";
-import { DevrouterConfig, DevrouterDockerPostgresApp, DiagnosticCheck, DoctorReport } from "../types";
+import {
+  DevrouterApp,
+  DevrouterConfig,
+  DevrouterDockerDependencyApp,
+  DevrouterDockerPostgresApp,
+  DiagnosticCheck,
+  DoctorReport
+} from "../types";
 
 type DoctorOptions = {
   repo?: string;
@@ -94,7 +101,10 @@ function isExplicitLiteralValue(value: string): boolean {
 function inspectPostgresCredentials(repoPath: string, config: DevrouterConfig): PostgresCredentialInspection {
   const postgresApps = config.apps.filter(
     (app): app is DevrouterDockerPostgresApp =>
-      app.runtime === "docker" && app.protocol === "tcp" && app.tcpProtocol === "postgres"
+      app.runtime === "docker" &&
+      app.kind !== "dependency" &&
+      app.protocol === "tcp" &&
+      app.tcpProtocol === "postgres"
   );
 
   const mismatches: PostgresCredentialMismatch[] = [];
@@ -198,7 +208,7 @@ function inspectHostCommandPrecedence(config: DevrouterConfig): HostCommandPrece
       return false;
     }
 
-    if (app.runtime === "docker" && app.protocol === "tcp" && app.tcpProtocol === "postgres") {
+    if (app.runtime === "docker" && app.kind !== "dependency" && app.protocol === "tcp" && app.tcpProtocol === "postgres") {
       memo.set(appName, true);
       return true;
     }
@@ -463,7 +473,9 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         suggestion: missingComposeFiles.length === 0 ? undefined : "Fix docker.composeFiles paths in .devrouter.yml"
       });
 
-      const tcpPostgresAppCount = config.apps.filter((app) => app.protocol === "tcp").length;
+      const tcpPostgresAppCount = config.apps.filter(
+        (app) => app.kind !== "dependency" && app.protocol === "tcp"
+      ).length;
       if (tcpPostgresAppCount > 0) {
         const inspection = inspectPostgresCredentials(repo.path, config);
         if (inspection.mismatches.length > 0) {
@@ -561,7 +573,9 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
 
       if (status.tlsEnabled) {
         try {
-          const configuredHosts = config.apps.map((entry) => entry.host.toLowerCase());
+          const configuredHosts = config.apps
+            .filter((entry): entry is Exclude<DevrouterApp, DevrouterDockerDependencyApp> => entry.kind !== "dependency")
+            .map((entry) => entry.host.toLowerCase());
           const coverage = getTLSHostCoverage(configuredHosts);
           const configuredHostSet = new Set(configuredHosts);
           const uncoveredConfiguredHosts = coverage.uncoveredHosts.filter((host) =>

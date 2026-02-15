@@ -1,6 +1,6 @@
 ---
 name: devrouter
-description: Work with devrouter for local dev routing (HTTP + TCP/Postgres on shared ports)
+description: Work with devrouter for local dev routing (HTTP + TCP/Postgres + dependency-only Docker services)
 user-invocable: false
 ---
 
@@ -23,13 +23,16 @@ project:
   name: <string> # optional
 apps:
   - name: <string> # unique within repo
-    host: <name>.localhost
-    protocol: http | tcp
-    runtime: host | docker
+    kind: app | dependency # optional, default: app
     dependencies: # optional
       - app: <other-name>
 
-    # if runtime=host (protocol must be http):
+    # if kind=app:
+    host: <name>.localhost
+    protocol: http | tcp
+    runtime: host | docker
+
+    # if kind=app and runtime=host (protocol must be http):
     hostRun:
       command: <string>
       cwd: <string> # relative to repo root, must not escape it
@@ -39,22 +42,29 @@ apps:
         denyPorts: [80, 443, 5432]
         allowPortRange: '1024-65535'
 
-    # if runtime=docker:
+    # if kind=app and runtime=docker:
     docker:
       service: <string>
       internalPort: <number>
       composeFiles: [<string>] # relative to repo root
       router: <string> # optional
 
-    # if protocol=tcp:
+    # if kind=app and protocol=tcp:
     tcpProtocol: postgres # required; runtime must be docker
+
+    # if kind=dependency:
+    runtime: docker
+    docker:
+      service: <string>
+      composeFiles: [<string>] # relative to repo root
 ```
 
 Validation rules:
 
-- `host` must end with `.localhost`
-- `runtime=host` supports `protocol=http` only
-- `protocol=tcp` requires `runtime=docker` and `tcpProtocol=postgres`
+- `kind=app`: `host` must end with `.localhost`
+- `kind=app`: `runtime=host` supports `protocol=http` only
+- `kind=app`: `protocol=tcp` requires `runtime=docker` and `tcpProtocol=postgres`
+- `kind=dependency`: must use `runtime=docker` and does not allow routed fields (`host`/`protocol`/`tcpProtocol`/`hostRun`/`docker.internalPort`/`docker.router`)
 - Unknown keys rejected (strict schema)
 
 ## Docker compose requirements
@@ -161,6 +171,8 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 
 - `dev app run` auto-starts Docker dependencies, waits for health, stops them on exit.
 - Host-runtime dependencies are NOT auto-started (v1).
+- `kind=dependency` entries do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`.
+- `kind=dependency` services start as declared in compose (no Traefik label wiring, no random port publishing, no injected env vars).
 - Postgres on shared `:5432` requires TLS/SNI (`dev tls install`). Standard app clients should use the injected random port instead.
 - `dev app exec` follows the same dep lifecycle for one-shot commands and preserves argv semantics by default (`shell: false`).
 - `dev app exec --shell` is explicit and requires exactly one command string after `--`.

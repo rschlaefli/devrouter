@@ -140,9 +140,10 @@ appCommand
   .command("add")
   .description("Add or update one app definition in `.devrouter.yml`")
   .requiredOption("--name <name>", "App name")
-  .requiredOption("--host <host>", "Hostname ending with .localhost")
-  .requiredOption("--protocol <protocol>", "http or tcp")
-  .requiredOption("--runtime <runtime>", "host or docker")
+  .option("--kind <kind>", "app or dependency", "app")
+  .option("--host <host>", "Hostname ending with .localhost (required for --kind app)")
+  .option("--protocol <protocol>", "http or tcp (required for --kind app)")
+  .option("--runtime <runtime>", "host or docker (required for --kind app, optional for --kind dependency)")
   .option("--service <service>", "Docker service name (runtime=docker)")
   .option("--port <port>", "Internal port (runtime=docker)", (value) => Number(value))
   .option("--compose-file <file>", "Compose file path (repeatable)", (value, prev: string[] | undefined) => {
@@ -162,9 +163,10 @@ appCommand
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .action(withErrorHandling(async (options: {
     name: string;
-    host: string;
-    protocol: "http" | "tcp";
-    runtime: "host" | "docker";
+    kind?: "app" | "dependency";
+    host?: string;
+    protocol?: "http" | "tcp";
+    runtime?: "host" | "docker";
     service?: string;
     port?: number;
     composeFile?: string[];

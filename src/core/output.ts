@@ -125,6 +125,17 @@ export function printConfigApps(repoPath: string, apps: DevrouterApp[]): void {
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((app) => {
+      if (app.kind === "dependency") {
+        return [
+          app.name,
+          "dependency",
+          app.runtime,
+          "-",
+          app.docker.service,
+          app.dependencies.map((dependency) => dependency.app).join(",")
+        ];
+      }
+
       if (app.runtime === "host") {
         return [
           app.name,

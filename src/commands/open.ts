@@ -21,6 +21,13 @@ function resolveByConfiguredAppName(routes: Route[], name: string): Route | unde
     return undefined;
   }
 
+  if (app.kind === "dependency") {
+    throw new Error(
+      `App '${name}' in ${getRepoConfigPath(repoPath)} is kind=dependency and does not create a route. ` +
+        "Start a routed app that depends on it, then open that routed app name."
+    );
+  }
+
   try {
     return resolveRouteByName(routes, app.host);
   } catch {

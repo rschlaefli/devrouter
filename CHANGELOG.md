@@ -2,6 +2,63 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.13] - 2026-02-15
+
+### Changed
+
+- Added first-class dependency-only Docker app entries via `kind: dependency` in `.devrouter.yml`.
+  - These entries are Docker-only and non-routed.
+  - They are started/stopped through dependency lifecycle flows only.
+- `dev app run`, `dev app exec`, and `dev open` now reject direct targets configured with `kind: dependency` and provide guidance to use a routed parent app.
+- Docker overlay generation now keeps `kind: dependency` services as compose-as-is (no Traefik labels, no random port publishing, no injected dependency env vars).
+- CLI `dev app add` now supports `--kind app|dependency` (default `app`) and validates mode-specific flags.
+
+### Added
+
+- New `.devrouter.yml` app variant:
+  - `kind: dependency`
+  - `runtime: docker`
+  - `docker.service`, `docker.composeFiles`
+- New schema/behavior tests:
+  - dependency-kind config acceptance/rejection coverage in `repo-config.test.ts`
+  - dependency-only exec lifecycle + direct-target guardrails in `app-run-exec.test.ts`
+  - dependency-only `dev open` guidance coverage in `open.test.ts`
+  - onboarding/skill text coverage for dependency-kind schema in `ai-prompt.test.ts` and `agents-md.test.ts`
+
+### Agent Adaptation Prompt
+
+```text
+You are upgrading a repository that uses devrouter to version 0.0.13.
+
+Task:
+1) Refresh discoverability artifacts with the installed CLI version:
+   - `dev repo agents --repo <repo>`
+2) Identify non-routed Docker dependency workarounds currently modeled as routed apps (for example Redis configured as `protocol=http` + dummy `.localhost` host only to enable dependency startup).
+3) Convert those entries to first-class dependency apps:
+   - set `kind: dependency`
+   - keep `runtime: docker`
+   - keep `docker.service` and `docker.composeFiles`
+   - remove routed-only fields: `host`, `protocol`, `tcpProtocol`, `hostRun`, `docker.internalPort`, `docker.router`
+4) Keep dependency references in dependent apps via `dependencies: [{ app: "<name>" }]`.
+5) Update scripts/docs that previously attempted direct execution of dependency-only entries:
+   - `dev app run <dependency-name>` is intentionally rejected
+   - `dev app exec <dependency-name> -- <cmd>` is intentionally rejected
+   - `dev open <dependency-name>` reports no route exists by design
+
+Validation:
+- run `dev app ls --repo <repo>` and confirm dependency entries show as dependency/docker without route host requirements
+- run routed parent app startup: `dev app run <parent-app> --repo <repo> --yes`
+- run one-shot command on routed parent: `dev app exec <parent-app> --repo <repo> --yes -- <command ...>`
+- run `dev ls` and confirm dependency-only entries do not produce endpoints
+- run `dev doctor --repo <repo>`
+
+Report:
+- entries migrated from workaround style to `kind: dependency`
+- dependency graph and startup behavior validated
+- direct-target script/doc updates completed
+- unresolved risks/ambiguities
+```
+
 ## [0.0.12] - 2026-02-15
 
 ### Changed

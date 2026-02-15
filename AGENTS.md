@@ -48,13 +48,14 @@ Supported routing:
 - HTTP host-run apps
 - HTTP docker apps
 - TCP PostgreSQL docker apps on shared `:5432` (TLS/SNI)
+- Dependency-only docker services (`kind: dependency`, non-routed)
 
 ## Supported command surface
 
 - `dev init` (`--write-agents` / `--write-skill` optional; `--with-linear` optional; non-mutating by default)
 - `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
 - `dev repo init`, `dev repo agents` (`--with-linear` optional)
-- `dev app add`, `dev app ls`, `dev app run`, `dev app exec` (`--shell`, `--env-map TARGET=SOURCE`), `dev app rm`
+- `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run`, `dev app exec` (`--shell`, `--env-map TARGET=SOURCE`), `dev app rm`
 
 ## Repository map
 
@@ -68,7 +69,7 @@ Supported routing:
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation
 - `src/core/app-run.ts`: runtime orchestration, `startAppDependencies()` helper, `runConfiguredApp()`, `execWithAppEnv()`
-- `src/core/docker-run.ts`: cached compose overlay generation, compose up, `queryMappedPort()`, `queryRunningComposeServices()`
+- `src/core/docker-run.ts`: cached compose overlay generation, compose up, `queryMappedPort()`, `queryRunningComposeServices()` (routed apps get Traefik labels; `kind=dependency` services are left as-is)
 - `src/commands/app-exec.ts`: `dev app exec` command handler
 - `src/core/routes.ts`: discover HTTP + TCP routes from labels
 - `src/core/router.ts`: shared Traefik stack/files under `~/.config/devrouter`
@@ -119,6 +120,7 @@ Supported routing:
 - **Command pattern**: thin `src/commands/*.ts` handler imports a core function from `src/core/*.ts`. Keep handlers minimal.
 - **Dep lifecycle**: `startAppDependencies()` in `app-run.ts` is the reusable helper for starting deps, resolving env vars, and returning a `stopDeps()` cleanup. `dev app run` keeps the original stop-selected-deps policy; `dev app exec` uses ownership-aware teardown (stop only deps started by that exec call) and falls back to non-destructive cleanup if ownership detection is unavailable. Any new command needing resolved dep env should call this.
 - **Port mapping**: `queryMappedPort()` in `docker-run.ts` calls `docker compose port` to discover random host ports. `prepareDockerOverlay()` accepts `publishTcpPorts` to auto-publish `0:<internalPort>` for TCP deps.
+- **Dependency-only apps**: `kind=dependency` entries are Docker-only and do not expose routes; they can be auto-started/stopped only through dependency graphs (not direct `run`/`exec`/`open` targets).
 - **Env injection**: TCP deps get `<UPPER_NAME>_HOST`/`_PORT`. Postgres deps additionally get `DATABASE_URL` and `SHADOW_DATABASE_URL` with fixed `prisma:prisma` credentials. `dev app exec --env-map TARGET=SOURCE` applies alias copies after this injection.
 - **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.
 - **Secret-manager precedence diagnostics**: `dev doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.

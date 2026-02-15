@@ -65,6 +65,18 @@ apps:
       internalPort: 5432
 `;
 
+const VALID_DOCKER_DEPENDENCY = `
+version: 1
+apps:
+  - name: redis
+    kind: dependency
+    runtime: docker
+    docker:
+      service: redis
+      composeFiles:
+        - docker-compose.yml
+`;
+
 beforeEach(() => {
   tmpDir = makeTmpDir();
 });
@@ -132,7 +144,11 @@ describe("hostname validation", () => {
     const yaml = VALID_MINIMAL.replace("web.localhost", "my-app.localhost");
     writeConfig(tmpDir, yaml);
     const config = loadRepoConfig(tmpDir);
-    expect(config.apps[0].host).toBe("my-app.localhost");
+    const app = config.apps[0];
+    if (app.kind === "dependency") {
+      throw new Error("Expected routed app");
+    }
+    expect(app.host).toBe("my-app.localhost");
   });
 
   it("accepts multi-segment host", () => {
@@ -142,7 +158,11 @@ describe("hostname validation", () => {
     );
     writeConfig(tmpDir, yaml);
     const config = loadRepoConfig(tmpDir);
-    expect(config.apps[0].host).toBe("api.v2.my-app.localhost");
+    const app = config.apps[0];
+    if (app.kind === "dependency") {
+      throw new Error("Expected routed app");
+    }
+    expect(app.host).toBe("api.v2.my-app.localhost");
   });
 });
 
@@ -152,8 +172,12 @@ describe("protocol/runtime combinations", () => {
   it("accepts host + http", () => {
     writeConfig(tmpDir, VALID_HOST_APP);
     const config = loadRepoConfig(tmpDir);
-    expect(config.apps[0].runtime).toBe("host");
-    expect(config.apps[0].protocol).toBe("http");
+    const app = config.apps[0];
+    if (app.kind === "dependency") {
+      throw new Error("Expected routed app");
+    }
+    expect(app.runtime).toBe("host");
+    expect(app.protocol).toBe("http");
   });
 
   it("rejects host + tcp", () => {
@@ -192,6 +216,49 @@ apps:
     expect(() => loadRepoConfig(tmpDir)).toThrow(
       "tcpProtocol must be 'postgres'"
     );
+  });
+
+  it("accepts dependency kind app", () => {
+    writeConfig(tmpDir, VALID_DOCKER_DEPENDENCY);
+    const config = loadRepoConfig(tmpDir);
+    const app = config.apps[0];
+    expect(app.kind).toBe("dependency");
+    if (app.kind !== "dependency") {
+      throw new Error("Expected dependency app");
+    }
+    expect(app.runtime).toBe("docker");
+    expect(app.docker.service).toBe("redis");
+    expect(app.docker.composeFiles).toEqual(["docker-compose.yml"]);
+  });
+
+  it("rejects dependency kind with host/protocol fields", () => {
+    const yaml = `
+version: 1
+apps:
+  - name: redis
+    kind: dependency
+    host: redis.localhost
+    protocol: http
+    runtime: docker
+    docker:
+      service: redis
+`;
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("host is not supported when kind=dependency");
+  });
+
+  it("rejects dependency kind with non-docker runtime", () => {
+    const yaml = `
+version: 1
+apps:
+  - name: redis
+    kind: dependency
+    runtime: host
+    docker:
+      service: redis
+`;
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("runtime must be 'docker' when kind=dependency");
   });
 });
 
@@ -294,7 +361,13 @@ describe("upsertRepoApp / removeRepoApp", () => {
     upsertRepoApp(tmpDir, { ...baseOptions, port: 4000 });
     const config = loadRepoConfig(tmpDir);
     expect(config.apps).toHaveLength(1);
-    const app = config.apps[0] as Extract<DevrouterApp, { runtime: "docker" }>;
+    const app = config.apps[0];
+    if (app.kind === "dependency") {
+      throw new Error("Expected routed app");
+    }
+    if (app.runtime !== "docker") {
+      throw new Error("Expected docker app");
+    }
     expect(app.docker.internalPort).toBe(4000);
   });
 

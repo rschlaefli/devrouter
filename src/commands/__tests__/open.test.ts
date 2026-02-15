@@ -118,4 +118,30 @@ describe("runOpenCommand", () => {
       "Start it with 'dev app run db --repo /repo --yes' and re-run 'dev ls'"
     );
   });
+
+  it("throws clear guidance for dependency-only apps without routes", async () => {
+    vi.mocked(discoverRoutes).mockReturnValue({
+      routes: [makeTcpRoute()],
+      duplicateHosts: [],
+    });
+    vi.mocked(loadRepoConfig).mockReturnValue({
+      version: 1,
+      apps: [
+        {
+          kind: "dependency",
+          name: "redis",
+          runtime: "docker",
+          dependencies: [],
+          docker: {
+            service: "redis",
+            composeFiles: ["docker-compose.yml"],
+          },
+        },
+      ],
+    });
+
+    await expect(runOpenCommand("redis")).rejects.toThrow(
+      "is kind=dependency and does not create a route"
+    );
+  });
 });
