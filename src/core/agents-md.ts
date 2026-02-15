@@ -186,7 +186,9 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - \`dev app run\` auto-starts Docker dependencies, waits for health, stops them on exit.
 - Host-runtime dependencies are NOT auto-started (v1).
 - Postgres on shared \`:5432\` requires TLS/SNI (\`dev tls install\`). Standard app clients should use the injected random port instead.
-- \`dev app exec\` follows the same dep lifecycle for one-shot commands and preserves argv semantics by default (\`shell: false\`).
+- \`dev app exec\` starts deps as needed for one-shot commands and preserves argv semantics by default (\`shell: false\`).
+- \`dev app exec\` stops only deps started by that exec call; already-running deps stay running.
+- If exec cannot determine pre-existing running services, it leaves selected deps running to avoid non-owned teardown.
 - \`dev app exec --shell\` is explicit and requires exactly one command string after \`--\`.
 - Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (\`printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT\`) before migrate/seed.
 `

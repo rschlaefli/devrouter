@@ -68,7 +68,7 @@ Supported routing:
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation
 - `src/core/app-run.ts`: runtime orchestration, `startAppDependencies()` helper, `runConfiguredApp()`, `execWithAppEnv()`
-- `src/core/docker-run.ts`: cached compose overlay generation, compose up, `queryMappedPort()`
+- `src/core/docker-run.ts`: cached compose overlay generation, compose up, `queryMappedPort()`, `queryRunningComposeServices()`
 - `src/commands/app-exec.ts`: `dev app exec` command handler
 - `src/core/routes.ts`: discover HTTP + TCP routes from labels
 - `src/core/router.ts`: shared Traefik stack/files under `~/.config/devrouter`
@@ -91,7 +91,7 @@ Supported routing:
 - `src/core/__tests__/linear-onboarding.test.ts`: unit tests for guided Linear metadata collection + placeholder fallback
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
-- `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, and env-map behavior
+- `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, env-map behavior, and exec dependency ownership teardown
 - `src/commands/__tests__/init.test.ts`: unit tests for `dev init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `dev open` app-name fallback behavior
 - `src/commands/__tests__/repo-agents.test.ts`: unit tests for `dev repo agents` optional `--with-linear` behavior
@@ -116,7 +116,7 @@ Supported routing:
 ## Architecture patterns
 
 - **Command pattern**: thin `src/commands/*.ts` handler imports a core function from `src/core/*.ts`. Keep handlers minimal.
-- **Dep lifecycle**: `startAppDependencies()` in `app-run.ts` is the reusable helper for starting deps, resolving env vars, and returning a `stopDeps()` cleanup. Any new command needing resolved dep env should call this.
+- **Dep lifecycle**: `startAppDependencies()` in `app-run.ts` is the reusable helper for starting deps, resolving env vars, and returning a `stopDeps()` cleanup. `dev app run` keeps the original stop-selected-deps policy; `dev app exec` uses ownership-aware teardown (stop only deps started by that exec call) and falls back to non-destructive cleanup if ownership detection is unavailable. Any new command needing resolved dep env should call this.
 - **Port mapping**: `queryMappedPort()` in `docker-run.ts` calls `docker compose port` to discover random host ports. `prepareDockerOverlay()` accepts `publishTcpPorts` to auto-publish `0:<internalPort>` for TCP deps.
 - **Env injection**: TCP deps get `<UPPER_NAME>_HOST`/`_PORT`. Postgres deps additionally get `DATABASE_URL` and `SHADOW_DATABASE_URL` with fixed `prisma:prisma` credentials. `dev app exec --env-map TARGET=SOURCE` applies alias copies after this injection.
 - **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.

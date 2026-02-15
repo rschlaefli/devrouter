@@ -28,6 +28,8 @@ dev app run web-docker --repo ./demo --yes
 dev app run web-host --repo ./demo --yes
 ```
 
+`dev app exec` now tears down only dependencies it started in that command. If `db` is already running (for example while `web-host` is up), an exec seed/migrate command leaves `db` running.
+
 With Docker running normally, `dev doctor --repo ./demo` should not report `repo.postgres-credentials` mismatch warnings.
 It should also not report `repo.host-command-env-precedence` warnings for wrapper precedence.
 

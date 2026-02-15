@@ -18,6 +18,7 @@ Completed milestones from recent commits:
 - `0.0.8` (2026-02-15): optional Linear workflow bootstrap via `--with-linear` on `dev init` / `dev repo agents`, distributed `linear-workflow` skill + reference templates, idempotent AGENTS Linear section, prompt updates, and new unit tests for writers and command wiring.
 - `0.0.9` (2026-02-15): simplified Linear bootstrap to guided workspace/team/project mapping with managed AGENTS metadata block, non-interactive placeholder fallback, and prompt/skill simplification to avoid hardcoded Linear assumptions.
 - `0.0.10` (2026-02-15): secret-manager precedence hardening docs, onboarding prompt/skill updates for safe host-run wrapper ordering, and new `dev doctor` heuristic warning (`repo.host-command-env-precedence`) for risky pre-wrapper DB assignments.
+- `0.0.11` (2026-02-15): exec dependency ownership teardown — `dev app exec` now stops only dependencies started by that invocation and leaves already-running services up.
 
 ## Current baseline
 
@@ -124,7 +125,8 @@ Acceptance criteria:
 
 - `.devrouter.yml` is the single source of truth for per-repo routing config.
 - Stable CLI surface includes `up/down/status/ls/open/tls`, `repo init/agents`, and `app add/ls/run/exec/rm`.
-- `dev app exec` auto-stops deps after command exit.
+- `dev app exec` uses ownership-aware teardown: stop deps it started, leave already-running deps up.
+- If exec dependency ownership detection is unavailable, teardown is non-destructive (deps remain running).
 - `dev app exec` preserves argv semantics by default and only uses shell parsing when `--shell` is explicitly requested.
 - `startAppDependencies()` is the shared dep-lifecycle helper used by both `run` and `exec`.
 - Skill content for agent discoverability is embedded in the CLI bundle (not fetched at runtime) so distributed version always matches installed CLI.
@@ -137,7 +139,7 @@ Acceptance criteria:
 
 Potential additions building on the current `exec` + dep env infrastructure:
 
-- `--keep-deps` flag for `dev app exec` — skip stopping deps after command exit (useful for running multiple commands in sequence)
+- `--keep-deps` flag for `dev app exec` — skip stopping deps started by that invocation (useful for running multiple commands in sequence)
 - `--env-file <path>` for `dev app exec` — dump resolved env to a file instead of running a command
 - `preStart` hooks in `.devrouter.yml` — `hostRun.hooks.preStart: string[]`, sequential shell commands that run after env resolution but before the app/command starts; integration point for secret managers (Infisical, Doppler)
 - Configurable DATABASE_URL template — allow overriding fixed `prisma:prisma` credentials per app

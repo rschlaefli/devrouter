@@ -14,6 +14,7 @@ const {
   runDockerComposeUpMock,
   runDockerComposeStopMock,
   runDockerComposeLogsMock,
+  queryRunningComposeServicesMock,
   queryMappedPortMock,
 } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
@@ -27,6 +28,7 @@ const {
   runDockerComposeUpMock: vi.fn(),
   runDockerComposeStopMock: vi.fn(),
   runDockerComposeLogsMock: vi.fn(),
+  queryRunningComposeServicesMock: vi.fn(),
   queryMappedPortMock: vi.fn(),
 }));
 
@@ -55,6 +57,7 @@ vi.mock("../docker-run", () => ({
   runDockerComposeUp: runDockerComposeUpMock,
   runDockerComposeStop: runDockerComposeStopMock,
   runDockerComposeLogs: runDockerComposeLogsMock,
+  queryRunningComposeServices: queryRunningComposeServicesMock,
   queryMappedPort: queryMappedPortMock,
 }));
 
@@ -138,6 +141,7 @@ beforeEach(() => {
   runDockerComposeUpMock.mockReset();
   runDockerComposeStopMock.mockReset();
   runDockerComposeLogsMock.mockReset();
+  queryRunningComposeServicesMock.mockReset();
   queryMappedPortMock.mockReset();
 
   resolveRepoPathMock.mockReturnValue("/repo");
@@ -151,6 +155,10 @@ beforeEach(() => {
     overlayPath: "/overlay.yml",
     composeFiles: ["docker-compose.yml"],
     dockerApps: [POSTGRES_DEP],
+  });
+  queryRunningComposeServicesMock.mockReturnValue({
+    status: "known",
+    runningServices: new Set<string>(),
   });
   queryMappedPortMock.mockReturnValue(55432);
 
@@ -270,6 +278,132 @@ describe("execWithAppEnv", () => {
     expect(spawnOptions.env.DB_PORT).toBe("55432");
     expect(spawnOptions.env.DATABASE_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
     expect(spawnOptions.env.DATABASE_URI).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+  });
+
+  it("does not stop dependencies already running before exec", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+    queryRunningComposeServicesMock.mockReturnValue({
+      status: "known",
+      runningServices: new Set(["db"]),
+    });
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      command: ["pnpm", "payload", "seed"],
+    });
+
+    expect(runDockerComposeStopMock).not.toHaveBeenCalled();
+  });
+
+  it("stops dependencies started by exec when they were not running before", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+    queryRunningComposeServicesMock.mockReturnValue({
+      status: "known",
+      runningServices: new Set<string>(),
+    });
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      command: ["pnpm", "payload", "seed"],
+    });
+
+    expect(runDockerComposeStopMock).toHaveBeenCalledWith(
+      "/repo",
+      ["docker-compose.yml"],
+      "/overlay.yml",
+      ["db"]
+    );
+  });
+
+  it("stops only newly started dependencies when some were already running", async () => {
+    const ANALYTICS_DB_DEP: DevrouterDockerPostgresApp = {
+      ...POSTGRES_DEP,
+      name: "analytics-db",
+      host: "analytics-db.localhost",
+      docker: {
+        ...POSTGRES_DEP.docker,
+        service: "analytics-db",
+      },
+    };
+
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP, ANALYTICS_DB_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }, { app: ANALYTICS_DB_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP, ANALYTICS_DB_DEP]);
+    prepareDockerOverlayMock.mockReturnValue({
+      overlayPath: "/overlay.yml",
+      composeFiles: ["docker-compose.yml"],
+      dockerApps: [POSTGRES_DEP, ANALYTICS_DB_DEP],
+    });
+    queryRunningComposeServicesMock.mockReturnValue({
+      status: "known",
+      runningServices: new Set(["db"]),
+    });
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      command: ["pnpm", "payload", "seed"],
+    });
+
+    expect(runDockerComposeStopMock).toHaveBeenCalledWith(
+      "/repo",
+      ["docker-compose.yml"],
+      "/overlay.yml",
+      ["analytics-db"]
+    );
+  });
+
+  it("keeps dependencies running when ownership detection is unknown", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+    queryRunningComposeServicesMock.mockReturnValue({
+      status: "unknown",
+      reason: "docker compose ps failed",
+    });
+
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      command: ["pnpm", "payload", "seed"],
+    });
+
+    expect(runDockerComposeStopMock).not.toHaveBeenCalled();
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unable to determine which dependencies were already running before 'dev app exec'")
+    );
+    stderrSpy.mockRestore();
   });
 
   it("fails fast on missing env-map source before spawning", async () => {

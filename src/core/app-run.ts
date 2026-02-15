@@ -4,7 +4,14 @@ import { createInterface } from "node:readline/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { stdin as input, stdout as output } from "node:process";
 import { DevrouterApp, DevrouterDockerPostgresApp, DevrouterHostHttpApp } from "../types";
-import { prepareDockerOverlay, runDockerComposeUp, runDockerComposeStop, runDockerComposeLogs, queryMappedPort } from "./docker-run";
+import {
+  prepareDockerOverlay,
+  runDockerComposeUp,
+  runDockerComposeStop,
+  runDockerComposeLogs,
+  queryMappedPort,
+  queryRunningComposeServices
+} from "./docker-run";
 import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
 import { buildHostRouteId, removeHostRouteById, upsertHostRoute } from "./host-routes";
 import { ensureNetwork } from "./docker";
@@ -19,6 +26,12 @@ type RunAppOptions = {
   name: string;
   repoPath?: string;
   yes?: boolean;
+};
+
+type DependencyStopPolicy = "always-stop-selected" | "stop-only-newly-started";
+
+type StartAppDependenciesOptions = RunAppOptions & {
+  stopPolicy?: DependencyStopPolicy;
 };
 
 type RunAppResult = {
@@ -445,7 +458,7 @@ async function shouldStartDependencies(
   }
 }
 
-async function startAppDependencies(options: RunAppOptions): Promise<StartedDeps> {
+async function startAppDependencies(options: StartAppDependenciesOptions): Promise<StartedDeps> {
   ensureRouterFiles();
   await ensureNetwork(DEVNET_NAME);
 
@@ -473,6 +486,7 @@ async function startAppDependencies(options: RunAppOptions): Promise<StartedDeps
   const selectedDockerApps = selectedApps.filter(
     (entry): entry is Exclude<DevrouterApp, DevrouterHostHttpApp> => entry.runtime === "docker"
   );
+  const stopPolicy = options.stopPolicy ?? "always-stop-selected";
 
   const startedServices: string[] = [];
   let overlay: ReturnType<typeof prepareDockerOverlay> | undefined;
@@ -484,8 +498,35 @@ async function startAppDependencies(options: RunAppOptions): Promise<StartedDeps
   if (selectedDockerApps.length > 0) {
     overlay = prepareDockerOverlay(repoPath, app.name, selectedDockerApps, hasTcpDeps);
     const services = selectedDockerApps.map((entry) => entry.docker.service);
+    let runningServicesBefore: Set<string> | null = null;
+    let ownershipKnown = true;
+    if (stopPolicy === "stop-only-newly-started") {
+      const preRunServices = queryRunningComposeServices(
+        repoPath,
+        overlay.composeFiles,
+        overlay.overlayPath,
+        services
+      );
+      if (preRunServices.status === "known") {
+        runningServicesBefore = preRunServices.runningServices;
+      } else {
+        ownershipKnown = false;
+        process.stderr.write(
+          "Warning: unable to determine which dependencies were already running before 'dev app exec'; " +
+            "leaving dependencies running after command exit to avoid stopping non-owned services. " +
+            `Details: ${preRunServices.reason}\n`
+        );
+      }
+    }
+
     runDockerComposeUp(repoPath, overlay.composeFiles, overlay.overlayPath, services);
-    startedServices.push(...services);
+    if (stopPolicy === "stop-only-newly-started") {
+      if (ownershipKnown && runningServicesBefore) {
+        startedServices.push(...services.filter((service) => !runningServicesBefore.has(service)));
+      }
+    } else {
+      startedServices.push(...services);
+    }
     runDockerComposeLogs(repoPath, overlay.composeFiles, overlay.overlayPath, services);
   }
 
@@ -570,7 +611,8 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
   const deps = await startAppDependencies({
     name: options.name,
     repoPath: options.repoPath,
-    yes: options.yes
+    yes: options.yes,
+    stopPolicy: "stop-only-newly-started"
   });
 
   try {

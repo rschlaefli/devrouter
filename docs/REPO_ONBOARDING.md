@@ -146,7 +146,9 @@ Current dependency behavior:
 
 - Docker dependencies can be auto-started.
 - Host-runtime dependencies are not auto-started in v1 and must be started manually.
-- `dev app exec` starts deps, runs a single command with resolved env, then stops deps.
+- `dev app exec` starts deps as needed and runs a single command with resolved env.
+- `dev app exec` stops only deps started by that exec call; already-running deps stay running.
+- If `dev app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid non-owned teardown.
 - Default exec mode is argv-safe (`shell: false`) to avoid nested quoting issues.
 - Use `--shell` only when shell expansion is required; it accepts exactly one command string after `--`.
 - Use repeatable `--env-map TARGET=SOURCE` to alias env vars for non-Prisma frameworks (for example `DATABASE_URI=DATABASE_URL`).

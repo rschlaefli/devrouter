@@ -2,6 +2,56 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.11] - 2026-02-15
+
+### Changed
+
+- `dev app exec` teardown is now ownership-aware.
+  - Before starting dependencies, devrouter checks which selected dependency services are already running.
+  - After command exit, devrouter stops only services started by that `dev app exec` invocation.
+  - Services already running before `dev app exec` are left running.
+- If ownership detection cannot be determined (`docker compose ps` failure), `dev app exec` uses non-destructive cleanup and leaves selected dependencies running.
+
+### Added
+
+- New compose introspection helper: `queryRunningComposeServices()` in `src/core/docker-run.ts`.
+- New exec lifecycle tests for dependency ownership behavior:
+  - already-running dependency is not stopped
+  - newly started dependency is stopped
+  - mixed running/new services stop only the newly started subset
+  - ownership-unknown preflight leaves deps running and emits a warning
+
+### Agent Adaptation Prompt
+
+```text
+You are upgrading a repository that uses devrouter to version 0.0.11.
+
+Task:
+1) Refresh discoverability artifacts with the installed CLI version:
+   - `dev repo agents --repo <repo>`
+2) Review automation/scripts that expect `dev app exec` to always stop dependencies.
+   - Update assumptions: exec now stops only deps it started; already-running deps stay up.
+3) For workflows that chain app startup + seed/migrate:
+   - keep using `dev app run <app> --repo <repo> --yes`
+   - run one-shot commands with `dev app exec <app> --repo <repo> --yes -- <command ...>`
+   - confirm DB/service remains running when it was already up before exec.
+4) Keep deterministic alias mapping for non-Prisma apps:
+   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- <command ...>`
+5) Keep env probe before migrate/seed when secret managers are involved:
+   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
+
+Validation:
+- start app/deps: `dev app run <host-app> --repo <repo> --yes`
+- run one-shot command: `dev app exec <host-app> --repo <repo> --yes -- <seed-or-migrate-command ...>`
+- verify dependency service state is unchanged when it was already running before exec
+- run `dev doctor --repo <repo>`
+
+Report:
+- scripts/workflows reviewed for old teardown assumptions
+- command(s) validated and resulting dependency lifecycle behavior
+- unresolved risks/ambiguities
+```
+
 ## [0.0.10] - 2026-02-15
 
 ### Changed

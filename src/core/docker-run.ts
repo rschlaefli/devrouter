@@ -8,6 +8,16 @@ import { CACHE_DIR } from "./router";
 import { assertPathWithinRepo } from "./paths";
 import { withDockerFailureGuidance } from "./docker-error-guidance";
 
+export type RunningComposeServicesResult =
+  | {
+      status: "known";
+      runningServices: Set<string>;
+    }
+  | {
+      status: "unknown";
+      reason: string;
+    };
+
 function sanitizeRouterId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
@@ -135,6 +145,54 @@ export function runDockerComposeUp(
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
     throw new Error(`docker compose up failed: ${withDockerFailureGuidance(details || "unknown error")}`);
   }
+}
+
+export function queryRunningComposeServices(
+  repoPath: string,
+  composeFiles: string[],
+  overlayPath: string,
+  services: string[]
+): RunningComposeServicesResult {
+  const fileArgs: string[] = [];
+  for (const composeFile of composeFiles) {
+    const resolved = assertPathWithinRepo(composeFile, repoPath, "composeFiles");
+    fileArgs.push("-f", resolved);
+  }
+
+  const args = [
+    "compose",
+    ...fileArgs,
+    "-f",
+    overlayPath,
+    "ps",
+    "--status",
+    "running",
+    "--services",
+    ...services
+  ];
+  const result = spawnSync("docker", args, {
+    encoding: "utf-8",
+    cwd: repoPath
+  });
+
+  if (result.status !== 0) {
+    const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+    return {
+      status: "unknown",
+      reason: details || "docker compose ps returned non-zero status"
+    };
+  }
+
+  const runningServices = new Set(
+    result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+  );
+  return {
+    status: "known",
+    runningServices
+  };
 }
 
 export function runDockerComposeStop(

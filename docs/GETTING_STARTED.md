@@ -101,7 +101,7 @@ Prisma projects work out of the box. Other frameworks can use `DATABASE_URL` dir
 
 ### Running one-shot commands with dependency env vars
 
-`dev app exec` starts dependencies, resolves env vars, runs a single command, then stops dependencies. Use it for migrations, seeding, or any CLI tool that needs the resolved env:
+`dev app exec` starts dependencies as needed, resolves env vars, and runs a single command. It stops only dependencies started by that `exec` invocation; dependencies already running before `exec` stay running. Use it for migrations, seeding, or any CLI tool that needs the resolved env:
 
 ```bash
 dev app exec web --yes -- npx prisma migrate dev
@@ -111,6 +111,7 @@ dev app exec web --yes -- printenv DATABASE_URL SHADOW_DATABASE_URL DB_HOST DB_P
 
 The command receives the same env vars as `dev app run` (DATABASE_URL, SHADOW_DATABASE_URL, _HOST, _PORT).
 By default, exec preserves argv semantics (`shell: false`) so nested commands like `infisical run -- ...` stay stable without wrapper recursion.
+If exec cannot determine which services were already running before startup, it leaves selected deps running to avoid stopping non-owned services.
 
 Use `--shell` only when shell expansion is required, and pass exactly one command string after `--`:
 
@@ -372,7 +373,7 @@ dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --pr
 dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
 ```
 
-This starts dependencies, injects resolved env vars, runs the command, and stops dependencies on exit.
+This starts dependencies as needed, injects resolved env vars, and runs the command. It stops only dependencies started by that `exec` call; already-running services stay running.
 
 ## 10) Enable TLS (required for TCP/Postgres, recommended for HTTP)
 

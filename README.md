@@ -146,6 +146,8 @@ Notes:
 - automatically stops Docker dependencies when the host app exits
 - prints recent dependency logs (last 20 lines) after deps start
 - for TCP deps of host apps: publishes a random host port and injects `<NAME>_HOST`/`<NAME>_PORT` env vars into the host process; for postgres deps also injects `DATABASE_URL` and `SHADOW_DATABASE_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
+- for one-shot commands, `dev app exec` starts declared docker deps as needed and only stops deps it started in that invocation (already-running deps stay running)
+- if `dev app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid stopping non-owned services
 - for one-shot commands, `dev app exec` preserves argv semantics by default (`shell: false`) to avoid nested quoting issues
 - `dev app exec --shell` is explicit and requires one command string after `--`
 - `dev app exec --env-map TARGET=SOURCE` (repeatable) maps aliases after dependency env resolution (for example `DATABASE_URI=DATABASE_URL`)

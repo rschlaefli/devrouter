@@ -182,7 +182,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- If the repo's Postgres docker-compose service uses different credentials than the injected defaults (`prisma:prisma`), flag this to the user and recommend aligning the compose env vars or overriding the injected URLs.",
     '- Postgres multiplexing on shared :5432 requires TLS/SNI (useful for psql 17+, pgAdmin, not standard app clients).',
     '- For TCP/Postgres, standard app frameworks should use the injected port env vars; only direct-TLS-capable tools should use sslmode=require on :5432.',
-    '- `dev app exec <name> -- <command>` starts dependencies, resolves env vars, runs a one-shot command with the resolved env, then stops dependencies. Exec preserves argv semantics by default (`shell: false`) and supports explicit shell mode via `--shell` when needed.',
+    '- `dev app exec <name> -- <command>` starts dependencies as needed, resolves env vars, and runs a one-shot command with the resolved env. Exec stops only dependencies started by that invocation (already-running dependencies stay running). If ownership detection fails, exec leaves selected dependencies running to avoid non-owned teardown. Exec preserves argv semantics by default (`shell: false`) and supports explicit shell mode via `--shell` when needed.',
     '- `--env-map TARGET=SOURCE` (repeatable) copies env var values after dependency env resolution. Example: `--env-map DATABASE_URI=DATABASE_URL` for frameworks that expect `DATABASE_URI`.',
     '',
     'Secret Manager Interop (Infisical/Doppler):',
