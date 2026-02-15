@@ -124,8 +124,9 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 
 ## Upgrade handling (required)
 
-- Always read \`CHANGELOG.md\` independently before applying devrouter changes to a repository.
-- Treat the latest release section's **Agent Adaptation Prompt** as the canonical upgrade checklist.
+- Always read the upstream devrouter release guidance at \`https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md\` before applying devrouter changes to a repository.
+- Treat the latest release section's **Agent Adaptation Prompt** in that upstream changelog as the canonical upgrade checklist.
+- This is devrouter release guidance and does not require creating a \`CHANGELOG.md\` in the target repository unless that repository already has its own policy.
 - Do not assume user-provided instructions include all required adaptation steps.
 - Verify CLI version with \`dev --version\`, then align commands/workflows/docs to that version.
 - After upgrading the CLI in a dependent repo, refresh discoverability artifacts with \`dev repo agents\` (or \`dev init --write-agents --write-skill\`).
@@ -255,7 +256,7 @@ See templates:
 
 ## Devrouter-specific note
 
-If the repository uses devrouter, read \`CHANGELOG.md\` independently before planning implementation and use the latest Agent Adaptation Prompt as required upgrade context.
+If the repository uses devrouter, read the upstream devrouter release guidance at \`https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md\` before planning implementation and use the latest Agent Adaptation Prompt there as required upgrade context. This is devrouter release guidance and does not require creating a \`CHANGELOG.md\` in the target repository unless that repository already has its own policy.
 `;
 
 const LINEAR_ISSUE_TEMPLATE_CONTENT = `# Linear Issue Template

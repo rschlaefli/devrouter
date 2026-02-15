@@ -204,7 +204,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
           "- Keep latest plan/progress in Linear comments so sessions/agents can continue without local context loss.",
           "- Use these required issue sections: Problem, Goal, Scope (in/out), Technical approach, Acceptance criteria, Validation plan, Dependencies/blockers, Rollout risks.",
           "- Optional bootstrap commands for repo artifacts: `dev init --repo <REPO_PATH> --with-linear --write-agents --write-skill` or `dev repo agents --repo <REPO_PATH> --with-linear`.",
-          "- If the repository uses devrouter, read CHANGELOG.md independently and apply the latest Agent Adaptation Prompt before major changes."
+          "- If the repository uses devrouter, read the upstream devrouter release guidance at https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md and apply the latest Agent Adaptation Prompt before major changes.",
+          "- This is devrouter release guidance and does not require creating CHANGELOG.md in the target repository unless that repository already has its own policy."
         ]
       : []),
     "",

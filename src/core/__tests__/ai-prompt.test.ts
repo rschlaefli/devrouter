@@ -58,5 +58,9 @@ describe("buildOnboardingPrompt", () => {
     const withLinear = buildOnboardingPrompt({ repo: tmpDir, withLinear: true });
     expect(withLinear).toContain("Linear milestone workflow (enabled via --with-linear):");
     expect(withLinear).toContain("create one parent tracker issue in Linear");
+    expect(withLinear).toContain("https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md");
+    expect(withLinear).toContain(
+      "does not require creating CHANGELOG.md in the target repository unless that repository already has its own policy"
+    );
   });
 });

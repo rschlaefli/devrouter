@@ -51,6 +51,10 @@ describe("agents-md linear workflow support", () => {
     const skillContent = fs.readFileSync(skillPath, "utf-8");
     expect(skillContent).toContain("# linear-workflow");
     expect(skillContent).toContain("Large milestones must be planned and tracked in Linear");
+    expect(skillContent).toContain("https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md");
+    expect(skillContent).toContain(
+      "does not require creating a `CHANGELOG.md` in the target repository unless that repository already has its own policy"
+    );
   });
 
   it("keeps existing devrouter section and skill behavior unchanged", () => {
@@ -64,5 +68,11 @@ describe("agents-md linear workflow support", () => {
     const content = fs.readFileSync(agents.path, "utf-8");
     expect(content).toContain("<!-- devrouter -->");
     expect(content).not.toContain("<!-- devrouter-linear-workflow -->");
+
+    const skillContent = fs.readFileSync(skill.path, "utf-8");
+    expect(skillContent).toContain("https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md");
+    expect(skillContent).toContain(
+      "does not require creating a `CHANGELOG.md` in the target repository unless that repository already has its own policy"
+    );
   });
 });

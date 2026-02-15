@@ -75,4 +75,4 @@ See templates:
 
 ## Devrouter-specific note
 
-If the repository uses devrouter, read `CHANGELOG.md` independently before planning implementation and use the latest Agent Adaptation Prompt as required upgrade context.
+If the repository uses devrouter, read the upstream devrouter release guidance at `https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md` before planning implementation and use the latest Agent Adaptation Prompt there as required upgrade context. This is devrouter release guidance and does not require creating a `CHANGELOG.md` in the target repository unless that repository already has its own policy.
