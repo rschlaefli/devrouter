@@ -1,8 +1,8 @@
 import { getRepoConfigPath, initRepoConfig, resolveRepoPath } from "../core/repo-config";
 
-export async function runRepoInitCommand(options: { repo?: string }): Promise<void> {
+export async function runRepoInitCommand(options: { repo?: string; installedVersion?: string }): Promise<void> {
   const repoPath = resolveRepoPath(options.repo);
-  const result = initRepoConfig(repoPath);
+  const result = initRepoConfig(repoPath, { devrouterVersion: options.installedVersion });
   if (!result.created) {
     process.stdout.write(`Already exists: ${getRepoConfigPath(repoPath)}\n`);
     return;

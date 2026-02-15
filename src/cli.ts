@@ -49,9 +49,9 @@ program
 
 program
   .command("upgrade")
-  .description("Show upgrade targets from devrouter.yaml or print a target version adaptation prompt")
+  .description("Show upgrade targets from .devrouter.yml devrouter.version or print a target prompt")
   .argument("[version]", "Target devrouter version")
-  .option("--repo <path>", "Repository path containing devrouter.yaml (defaults to current directory)")
+  .option("--repo <path>", "Repository path containing .devrouter.yml (defaults to current directory)")
   .action(withErrorHandling(async (targetVersion: string | undefined, _options: unknown, command: Command) => {
     const options = command.opts<{ repo?: string }>();
     const { runUpgradeCommand } = await import("./commands/upgrade");
@@ -132,7 +132,7 @@ repoCommand
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .action(withErrorHandling(async (options: { repo?: string }) => {
     const { runRepoInitCommand } = await import("./commands/repo-init");
-    await runRepoInitCommand(options);
+    await runRepoInitCommand({ ...options, installedVersion: CLI_VERSION });
   }));
 
 repoCommand

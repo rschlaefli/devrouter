@@ -106,6 +106,7 @@ describe('agents-md linear workflow support', () => {
 
     const skillContent = fs.readFileSync(skill.path, 'utf-8')
     expect(skillContent).toContain('kind: app | dependency')
+    expect(skillContent).toContain('devrouter:')
     expect(skillContent).toContain('kind=dependency')
     expect(skillContent).toContain(
       'dev upgrade <version>'

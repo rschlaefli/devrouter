@@ -25,7 +25,7 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   {
     command: 'dev upgrade [version]',
     purpose:
-      'Show upgrade targets from devrouter.yaml and print Agent Adaptation Prompt for a target version.',
+      'Show upgrade targets from .devrouter.yml devrouter.version and print target adaptation prompt.',
   },
   {
     command: 'dev up',
@@ -133,6 +133,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '',
     'Top-level .devrouter.yml schema:',
     '- version: 1 (required)',
+    '- devrouter.version: semantic version string (recommended; required for `dev -V`/`dev upgrade`)',
     '- project.name: string (optional)',
     '- apps: array (required)',
     '',
@@ -270,8 +271,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
           '- Post progress comments at meaningful checkpoints during implementation (not only at the end).',
           '- Before ending a session, post a final recap comment with completed work, remaining work, risks, and next step, then re-check status/comment freshness.',
           '- Optional bootstrap commands for repo artifacts: `dev init --repo <REPO_PATH> --with-linear --write-agents --write-skill` or `dev repo agents --repo <REPO_PATH> --with-linear`.',
-          '- If the repository uses devrouter, keep `devrouter.yaml` with the applied local version and run `dev -V` to verify installed/local versions plus the next target.',
-          '- Resolve adaptation prompts with `dev upgrade` (list targets) and `dev upgrade <version>` (target prompt). Fallback release guidance: https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md.',
+          '- If the repository uses devrouter, keep `.devrouter.yml` metadata `devrouter.version` updated and run `dev -V` to verify installed/local versions plus the next target.',
+          '- Resolve adaptation prompts with `dev upgrade` (list targets) and `dev upgrade <version>` (target prompt), sourced from `upgrade-prompts/<version>.md` in the devrouter release.',
         ]
       : []),
     '',

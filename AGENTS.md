@@ -21,12 +21,13 @@ Keep these docs up to date with any behavior, command, schema, or onboarding wor
 5. `docs/PLAN.md`
 6. `demo/README.md`
 7. `CHANGELOG.md`
+8. `upgrade-prompts/*.md`
 
 ## Documentation policy
 
 1. Product docs (`README.md`, `docs/*`, `demo/README.md`) must describe the current state only.
-2. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md`.
-3. Each release section in `CHANGELOG.md` must include exactly one copy-pastable "Agent adaptation prompt" that consolidates all required cross-repo changes.
+2. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
+3. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
 
 ## Linear execution hygiene
 
@@ -45,7 +46,7 @@ When work is tracked in Linear, this is required:
 
 Upgrade metadata for agent workflows is stored per repo in:
 
-- `devrouter.yaml` (local applied devrouter version for `dev -V` / `dev upgrade`)
+- `.devrouter.yml` (`devrouter.version` for `dev -V` / `dev upgrade`)
 
 Supported routing:
 
@@ -67,7 +68,7 @@ Supported routing:
 
 - `src/cli.ts`: command registration (lazy-loaded handlers)
 - `src/core/ai-prompt.ts`: canonical AI onboarding prompt template + command intents
-- `src/core/upgrade.ts`: devrouter version metadata + changelog prompt parsing for upgrade flows
+- `src/core/upgrade.ts`: repo version metadata + `upgrade-prompts/*.md` resolution for upgrade flows
 - `src/core/agents-md.ts`: idempotent AGENTS.md section writer + skill file distributor for repo discoverability
 - `src/core/linear-onboarding.ts`: guided Linear workspace/team/project metadata collector for AGENTS bootstrap
 - `src/commands/repo-agents.ts`: `dev repo agents` command handler
@@ -90,6 +91,8 @@ Supported routing:
 - `src/types.ts`: shared types
 - `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
 - `scripts/smoke-demo.sh`: end-to-end demo smoke script
+- `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
+- `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `dev upgrade`
 - `.factory/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
 - `.factory/skills/linear-workflow/SKILL.md`: optional Linear workflow skill (written with `--with-linear`)
 - `.factory/skills/linear-workflow/references/*`: optional issue/milestone/progress templates for Linear workflow
@@ -105,9 +108,10 @@ Supported routing:
 - `src/core/__tests__/tls.test.ts`: unit tests for TLS SAN parsing, wildcard coverage, and host preservation logic
 - `src/commands/__tests__/init.test.ts`: unit tests for `dev init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `dev open` app-name fallback behavior
+- `src/commands/__tests__/repo-init.test.ts`: unit tests for `dev repo init` metadata initialization behavior
 - `src/commands/__tests__/repo-agents.test.ts`: unit tests for `dev repo agents` optional `--with-linear` behavior
 - `src/commands/__tests__/upgrade.test.ts`: unit tests for `dev upgrade` and `dev -V`
-- `src/core/__tests__/upgrade.test.ts`: unit tests for version metadata + changelog parsing
+- `src/core/__tests__/upgrade.test.ts`: unit tests for version metadata + prompt-file parsing
 - `vitest.config.ts`: Vitest configuration
 
 ## Non-negotiable constraints
@@ -139,9 +143,10 @@ Supported routing:
 
 ## Validation checklist
 
-1. `pnpm test`
-2. `pnpm typecheck`
-3. `pnpm build`
-4. `dev doctor --repo ./demo`
-5. `pnpm demo:smoke` for full route showcase/regression smoke
-6. Update docs for any behavior/surface changes
+1. `pnpm check:docs-policy`
+2. `pnpm test`
+3. `pnpm typecheck`
+4. `pnpm build`
+5. `dev doctor --repo ./demo`
+6. `pnpm demo:smoke` for full route showcase/regression smoke
+7. Update docs for any behavior/surface changes

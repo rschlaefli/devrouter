@@ -5,41 +5,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runUpgradeCommand } from "../upgrade";
 import { runVersionCommand } from "../version";
 
-const CHANGELOG_FIXTURE = `
-## [0.0.12] - 2026-02-15
-
-### Agent Adaptation Prompt
-
-\`\`\`text
-Prompt for 0.0.12
-\`\`\`
-
-## [0.0.11] - 2026-02-15
-
-### Agent Adaptation Prompt
-
-\`\`\`text
-Prompt for 0.0.11
-\`\`\`
-
-## [0.0.10] - 2026-02-15
-
-### Agent Adaptation Prompt
-
-\`\`\`text
-Prompt for 0.0.10
-\`\`\`
-`;
-
 let tmpDir: string;
-let changelogPath: string;
+let promptsDir: string;
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+function writeRepoConfig(version: string): void {
+  fs.writeFileSync(
+    path.join(tmpDir, ".devrouter.yml"),
+    `version: 1
+devrouter:
+  version: ${version}
+apps: []
+`,
+    "utf-8"
+  );
+}
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-upgrade-command-test-"));
-  changelogPath = path.join(tmpDir, "CHANGELOG.md");
-  fs.writeFileSync(changelogPath, CHANGELOG_FIXTURE, "utf-8");
-  fs.writeFileSync(path.join(tmpDir, "devrouter.yaml"), "version: 0.0.10\n", "utf-8");
+  promptsDir = path.join(tmpDir, "upgrade-prompts");
+  fs.mkdirSync(promptsDir, { recursive: true });
+  fs.writeFileSync(path.join(promptsDir, "0.0.10.md"), "Prompt for 0.0.10\n", "utf-8");
+  fs.writeFileSync(path.join(promptsDir, "0.0.11.md"), "Prompt for 0.0.11\n", "utf-8");
+  fs.writeFileSync(path.join(promptsDir, "0.0.12.md"), "Prompt for 0.0.12\n", "utf-8");
+  writeRepoConfig("0.0.10");
   stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 });
 
@@ -54,7 +43,7 @@ function stdout(): string {
 
 describe("runUpgradeCommand", () => {
   it("lists available upgrade targets and highlights the next one", async () => {
-    await runUpgradeCommand({ repo: tmpDir }, { changelogPath });
+    await runUpgradeCommand({ repo: tmpDir }, { promptsDir });
 
     const output = stdout();
     expect(output).toContain("Current version: 0.0.10");
@@ -63,7 +52,7 @@ describe("runUpgradeCommand", () => {
   });
 
   it("prints target adaptation prompt and further version", async () => {
-    await runUpgradeCommand({ repo: tmpDir, targetVersion: "0.0.11" }, { changelogPath });
+    await runUpgradeCommand({ repo: tmpDir, targetVersion: "0.0.11" }, { promptsDir });
 
     const output = stdout();
     expect(output).toContain("Target version: 0.0.11");
@@ -73,8 +62,32 @@ describe("runUpgradeCommand", () => {
 
   it("rejects target versions that are not newer", async () => {
     await expect(
-      runUpgradeCommand({ repo: tmpDir, targetVersion: "0.0.10" }, { changelogPath })
+      runUpgradeCommand({ repo: tmpDir, targetVersion: "0.0.10" }, { promptsDir })
     ).rejects.toThrow("is not newer than current version");
+  });
+
+  it("shows no targets when local version is newer than available prompt files", async () => {
+    writeRepoConfig("0.10.0");
+
+    await runUpgradeCommand({ repo: tmpDir }, { promptsDir });
+
+    const output = stdout();
+    expect(output).toContain("Current version: 0.10.0");
+    expect(output).toContain("No newer upgrade targets are available.");
+  });
+
+  it("fails with remediation when devrouter.version is missing", async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, ".devrouter.yml"),
+      `version: 1
+apps: []
+`,
+      "utf-8"
+    );
+
+    await expect(runUpgradeCommand({ repo: tmpDir }, { promptsDir })).rejects.toThrow(
+      "is missing devrouter.version"
+    );
   });
 });
 
@@ -82,7 +95,7 @@ describe("runVersionCommand", () => {
   it("shows installed and local versions plus next upgrade target", async () => {
     await runVersionCommand(
       { repo: tmpDir, installedVersion: "0.0.13" },
-      { changelogPath }
+      { promptsDir }
     );
 
     const output = stdout();
@@ -92,17 +105,20 @@ describe("runVersionCommand", () => {
     expect(output).toContain("Run: dev upgrade 0.0.11");
   });
 
-  it("keeps working when local version file is missing", async () => {
-    fs.rmSync(path.join(tmpDir, "devrouter.yaml"), { force: true });
-
-    await runVersionCommand(
-      { repo: tmpDir, installedVersion: "0.0.13" },
-      { changelogPath }
+  it("fails fast when local devrouter.version is unavailable", async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, ".devrouter.yml"),
+      `version: 1
+apps: []
+`,
+      "utf-8"
     );
 
-    const output = stdout();
-    expect(output).toContain("Installed CLI version: 0.0.13");
-    expect(output).toContain("Local repo version: unavailable");
-    expect(output).toContain("Next upgrade target: unavailable");
+    await expect(
+      runVersionCommand(
+        { repo: tmpDir, installedVersion: "0.0.13" },
+        { promptsDir }
+      )
+    ).rejects.toThrow("missing devrouter.version");
   });
 });

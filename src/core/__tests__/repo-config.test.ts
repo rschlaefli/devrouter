@@ -123,6 +123,31 @@ describe("loadRepoConfig", () => {
     const config = loadRepoConfig(tmpDir);
     expect(config.project?.name).toBe("my-project");
   });
+
+  it("loads config with devrouter.version metadata", () => {
+    writeConfig(
+      tmpDir,
+      "version: 1\ndevrouter:\n  version: 0.0.14\napps: []"
+    );
+    const config = loadRepoConfig(tmpDir);
+    expect(config.devrouter?.version).toBe("0.0.14");
+  });
+
+  it("rejects invalid devrouter.version values", () => {
+    writeConfig(
+      tmpDir,
+      "version: 1\ndevrouter:\n  version: latest\napps: []"
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow("devrouter.version must be a semantic version");
+  });
+
+  it("rejects unknown keys under devrouter", () => {
+    writeConfig(
+      tmpDir,
+      "version: 1\ndevrouter:\n  channel: stable\napps: []"
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow("devrouter.channel is not supported");
+  });
 });
 
 // ---- hostname validation ----
@@ -400,5 +425,13 @@ describe("initRepoConfig", () => {
     expect(result.created).toBe(false);
     // original content preserved
     expect(readConfig(tmpDir)).toContain("web");
+  });
+
+  it("writes devrouter.version when provided", () => {
+    const result = initRepoConfig(tmpDir, { devrouterVersion: "0.0.14" });
+    expect(result.created).toBe(true);
+
+    const config = loadRepoConfig(tmpDir);
+    expect(config.devrouter?.version).toBe("0.0.14");
   });
 });

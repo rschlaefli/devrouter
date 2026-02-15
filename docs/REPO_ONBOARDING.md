@@ -10,7 +10,7 @@ Onboard any repo using one config file:
 
 Track the applied devrouter release for agent upgrades with:
 
-- `devrouter.yaml` (`version: <semver>`, used by `dev -V` / `dev upgrade`)
+- `.devrouter.yml` metadata (`devrouter.version`, used by `dev -V` / `dev upgrade`)
 
 Supported route types:
 
@@ -30,7 +30,7 @@ Scope:
 Complete global setup first:
 
 - [`GETTING_STARTED.md`](./GETTING_STARTED.md)
-- Release/adaptation history: [`../CHANGELOG.md`](../CHANGELOG.md)
+- Release/adaptation history: [`../CHANGELOG.md`](../CHANGELOG.md) and [`../upgrade-prompts/`](../upgrade-prompts/)
 
 Assumptions:
 
@@ -91,11 +91,14 @@ Initialize:
 dev repo init
 ```
 
-Set upgrade metadata for this repo:
+`dev repo init` writes `.devrouter.yml` with schema `version: 1` and initializes upgrade metadata at `devrouter.version` to the installed CLI version.
+If you need to align metadata manually, use:
 
 ```yaml
-# devrouter.yaml
-version: <semver>
+version: 1
+devrouter:
+  version: <semver>
+apps: []
 ```
 
 Add host app:
@@ -197,8 +200,6 @@ dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_
 - `dev doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
 - With TLS enabled, `dev doctor --repo <path>` warns on cert SAN mismatches for configured hosts (`repo.tls-host-coverage`).
 
-Compatibility note: older versions flattened `dev app exec` commands into a shell string; prefer argv-safe form on `v0.0.7+`.
-
 ## 5) What changes
 
 Repo file:
@@ -218,6 +219,7 @@ No repo-local compose overlay file is required anymore.
 - `dev -V` shows installed CLI version, local repo version, and next upgrade target.
 - `dev upgrade` lists upgrade targets and marks the next one.
 - `dev upgrade <version>` prints that target adaptation prompt and reports further versions.
+- `dev upgrade` reads versioned prompt files from `upgrade-prompts/<version>.md`.
 - `dev app ls` shows expected entries.
 - `dev ls` shows both HTTP and/or TCP endpoints, including app and service identity columns.
 - `kind=dependency` entries appear in `dev app ls` but do not create active endpoints in `dev ls`.

@@ -14,6 +14,7 @@ import {
 const CONFIG_FILE_NAME = ".devrouter.yml";
 
 const VALID_HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.localhost$/;
+const DEVROUTER_VERSION_RE = /^\d+\.\d+\.\d+$/;
 
 const MAX_COMMAND_LENGTH = 4096;
 
@@ -296,11 +297,26 @@ function parseApp(value: unknown, index: number): DevrouterApp {
 
 function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
   const root = ensureObject(raw, configPath);
-  ensureAllowedKeys(root, ["version", "project", "apps"], configPath);
+  ensureAllowedKeys(root, ["version", "devrouter", "project", "apps"], configPath);
 
   const version = toIntegerOrThrow(root.version, `${configPath}.version`);
   if (version !== 1) {
     throw new Error(`${configPath}.version must be 1.`);
+  }
+
+  let devrouter: DevrouterConfig["devrouter"] | undefined;
+  if (root.devrouter !== undefined) {
+    const metadata = ensureObject(root.devrouter, `${configPath}.devrouter`);
+    ensureAllowedKeys(metadata, ["version"], `${configPath}.devrouter`);
+    if (metadata.version !== undefined) {
+      const devrouterVersion = toStringOrThrow(metadata.version, `${configPath}.devrouter.version`);
+      if (!DEVROUTER_VERSION_RE.test(devrouterVersion)) {
+        throw new Error(`${configPath}.devrouter.version must be a semantic version like 0.0.14.`);
+      }
+      devrouter = { version: devrouterVersion };
+    } else {
+      devrouter = {};
+    }
   }
 
   if (root.project !== undefined) {
@@ -326,6 +342,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
 
   return {
     version: 1,
+    ...(devrouter ? { devrouter } : {}),
     project:
       root.project && typeof root.project === "object"
         ? { name: (root.project as { name?: string }).name }
@@ -367,15 +384,29 @@ export function saveRepoConfig(repoPath: string, config: DevrouterConfig): void 
   fs.writeFileSync(configPath, renderConfig(validated), "utf-8");
 }
 
-export function initRepoConfig(repoPath?: string): { repoPath: string; configPath: string; created: boolean } {
+export function initRepoConfig(
+  repoPath?: string,
+  options: { devrouterVersion?: string } = {}
+): { repoPath: string; configPath: string; created: boolean } {
   const resolvedRepoPath = resolveRepoPath(repoPath);
   const configPath = getRepoConfigPath(resolvedRepoPath);
   if (fs.existsSync(configPath)) {
     return { repoPath: resolvedRepoPath, configPath, created: false };
   }
 
+  if (options.devrouterVersion !== undefined && !DEVROUTER_VERSION_RE.test(options.devrouterVersion)) {
+    throw new Error(`Invalid devrouter version '${options.devrouterVersion}'. Expected semantic version like 0.0.14.`);
+  }
+
   const initialConfig: DevrouterConfig = {
     version: 1,
+    ...(options.devrouterVersion
+      ? {
+          devrouter: {
+            version: options.devrouterVersion
+          }
+        }
+      : {}),
     project: {
       name: path.basename(resolvedRepoPath)
     },

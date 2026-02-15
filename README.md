@@ -46,16 +46,13 @@ This is the only supported per-repo config for app routing/runtime definitions.
 
 ## Upgrade metadata and prompts
 
-`dev upgrade` and `dev -V` read local upgrade metadata from `devrouter.yaml` in the target repo.
-Use one of these supported forms:
+`dev upgrade` and `dev -V` read local upgrade metadata from `.devrouter.yml` in the target repo (`devrouter.version`):
 
 ```yaml
-version: <semver>
-```
-
-```yaml
+version: 1
 devrouter:
   version: <semver>
+apps: []
 ```
 
 Quick checks:
@@ -63,6 +60,8 @@ Quick checks:
 - `dev -V` shows installed CLI version, local repo version, and next available upgrade target.
 - `dev upgrade` lists all upgrade targets newer than the local repo version and marks the next one.
 - `dev upgrade <version>` prints that target release's Agent Adaptation Prompt and then shows if a further version is available.
+- Upgrade prompts are sourced from `upgrade-prompts/<version>.md`.
+- `dev repo init` initializes `devrouter.version` to the installed CLI version.
 
 ## AI-native onboarding prompt
 
@@ -122,6 +121,8 @@ When TLS is enabled, `dev doctor` also checks TLS host coverage and warns with `
 
 ```yaml
 version: 1
+devrouter:
+  version: 0.0.14
 project:
   name: my-repo
 apps:
@@ -309,4 +310,4 @@ Global managed artifacts remain under:
 - Agent contributor guide: [`AGENTS.md`](./AGENTS.md)
 - Demo workspace: [`./demo/README.md`](./demo/README.md)
 - Roadmap: [`docs/PLAN.md`](./docs/PLAN.md)
-- Release and adaptation history: [`CHANGELOG.md`](./CHANGELOG.md)
+- Release and adaptation history: [`CHANGELOG.md`](./CHANGELOG.md) and [`upgrade-prompts/`](./upgrade-prompts/)

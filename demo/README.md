@@ -13,7 +13,7 @@ The `docker-compose.yml` here serves as a reference for devrouter compose conven
 ## Files
 
 - `.devrouter.yml`: complete repo routing config
-- `devrouter.yaml`: local applied devrouter version metadata for `dev -V` / `dev upgrade`
+- `.devrouter.yml` `devrouter.version`: local applied devrouter release metadata for `dev -V` / `dev upgrade`
 - `docker-compose.yml`: Docker services (`app`, `db`)
 - `app/server.js`: simple HTTP app used by host and Docker runtimes
 
@@ -35,7 +35,8 @@ dev app run web-host --repo ./demo --yes
 
 `dev app exec` now tears down only dependencies it started in that command. If `db` is already running (for example while `web-host` is up), an exec seed/migrate command leaves `db` running.
 
-With Docker running normally, `dev doctor --repo ./demo` should not report `repo.postgres-credentials` mismatch warnings.
+Runtime verification is Docker-permitting. If Docker is unavailable or socket access is restricted, treat runtime failures as environment-blocked.
+When Docker is available, `dev doctor --repo ./demo` should not report `repo.postgres-credentials` mismatch warnings.
 It should also not report `repo.host-command-env-precedence` warnings for wrapper precedence.
 It should not report `repo.tls-host-coverage` warnings for configured demo hosts.
 

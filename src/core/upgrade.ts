@@ -1,22 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
-import YAML from "yaml";
-import { resolveRepoPath } from "./repo-config";
+import { getRepoConfigPath, loadRepoConfig, resolveRepoPath } from "./repo-config";
 
 const SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)$/;
 
-export const DEVROUTER_METADATA_FILE = "devrouter.yaml";
-export const CHANGELOG_URL = "https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md";
+export const UPGRADE_PROMPTS_DIR = "upgrade-prompts";
 
 export type UpgradeRelease = {
   version: string;
   prompt: string;
+  promptPath: string;
 };
 
 export type UpgradeCatalog = {
   repoPath: string;
-  metadataPath: string;
-  changelogPath: string;
+  configPath: string;
+  promptsPath: string;
   currentVersion: string;
   releases: UpgradeRelease[];
 };
@@ -31,7 +30,7 @@ function parseSemver(version: string): ParsedSemver {
   const normalized = version.trim();
   const match = normalized.match(SEMVER_RE);
   if (!match) {
-    throw new Error(`Invalid version '${version}'. Expected semantic version like 0.0.13.`);
+    throw new Error(`Invalid version '${version}'. Expected semantic version like 0.0.14.`);
   }
 
   return {
@@ -58,90 +57,69 @@ export function compareVersions(a: string, b: string): number {
   return left.patch - right.patch;
 }
 
-function resolveVersionValue(value: unknown): string | undefined {
-  if (typeof value === "number" || typeof value === "string") {
-    return normalizeVersion(String(value));
-  }
-
-  return undefined;
-}
-
-export function extractCurrentVersionFromMetadata(content: string, metadataPath: string): string {
-  const parsed = YAML.parse(content) as unknown;
-
-  const directVersion = resolveVersionValue(parsed);
-  if (directVersion) {
-    return directVersion;
-  }
-
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(
-      `${metadataPath} must define a devrouter version as semver (for example 0.0.13). ` +
-        "Supported keys: version, devrouter.version, devrouterVersion."
-    );
-  }
-
-  const root = parsed as Record<string, unknown>;
-  const topLevelVersion = resolveVersionValue(root.version);
-  if (topLevelVersion) {
-    return topLevelVersion;
-  }
-
-  const aliasedVersion = resolveVersionValue(root.devrouterVersion);
-  if (aliasedVersion) {
-    return aliasedVersion;
-  }
-
-  if (root.devrouter && typeof root.devrouter === "object" && !Array.isArray(root.devrouter)) {
-    const nestedVersion = resolveVersionValue((root.devrouter as Record<string, unknown>).version);
-    if (nestedVersion) {
-      return nestedVersion;
-    }
-  }
-
-  throw new Error(
-    `${metadataPath} must define a devrouter version as semver (for example 0.0.13). ` +
-      "Supported keys: version, devrouter.version, devrouterVersion."
+function formatMissingVersionError(configPath: string): string {
+  return (
+    `${configPath} is missing devrouter.version.\n` +
+    "Add release metadata to .devrouter.yml, for example:\n\n" +
+    "version: 1\n" +
+    "devrouter:\n" +
+    "  version: 0.0.14\n" +
+    "apps: []\n"
   );
 }
 
-export function parseChangelogReleases(changelog: string): UpgradeRelease[] {
-  const headingRe = /^## \[(\d+\.\d+\.\d+)\] - [^\n]*$/gm;
-  const headings: Array<{ version: string; start: number; end: number }> = [];
-  let headingMatch: RegExpExecArray | null;
-  while ((headingMatch = headingRe.exec(changelog)) !== null) {
-    headings.push({
-      version: normalizeVersion(headingMatch[1]),
-      start: headingMatch.index,
-      end: headingRe.lastIndex
-    });
+export function extractCurrentVersionFromRepoConfig(repoPath?: string): {
+  configPath: string;
+  version: string;
+} {
+  const resolvedRepoPath = resolveRepoPath(repoPath);
+  const configPath = getRepoConfigPath(resolvedRepoPath);
+  const config = loadRepoConfig(resolvedRepoPath);
+  const version = config.devrouter?.version;
+  if (!version) {
+    throw new Error(formatMissingVersionError(configPath));
+  }
+
+  return {
+    configPath,
+    version: normalizeVersion(version)
+  };
+}
+
+export function readPromptDirectory(promptDirPath: string): UpgradeRelease[] {
+  if (!fs.existsSync(promptDirPath)) {
+    throw new Error(`Missing ${UPGRADE_PROMPTS_DIR} directory at ${promptDirPath}.`);
   }
 
   const releases: UpgradeRelease[] = [];
-  for (let index = 0; index < headings.length; index += 1) {
-    const heading = headings[index];
-    const nextHeading = headings[index + 1];
-    const sectionEnd = nextHeading ? nextHeading.start : changelog.length;
-    const sectionBody = changelog.slice(heading.end, sectionEnd);
-    const promptMatch = sectionBody.match(
-      /### Agent Adaptation Prompt\s*[\r\n]+```text[\r\n]([\s\S]*?)```/m
-    );
-    if (!promptMatch) {
+  const files = fs.readdirSync(promptDirPath, { withFileTypes: true });
+  for (const file of files) {
+    if (!file.isFile() || !file.name.endsWith(".md")) {
       continue;
     }
 
-    releases.push({
-      version: heading.version,
-      prompt: promptMatch[1].trim()
-    });
+    const basename = file.name.slice(0, -3);
+    if (!SEMVER_RE.test(basename)) {
+      continue;
+    }
+
+    const version = normalizeVersion(basename);
+    const promptPath = path.join(promptDirPath, file.name);
+    const prompt = fs.readFileSync(promptPath, "utf-8").trim();
+    releases.push({ version, prompt, promptPath });
   }
 
-  const unique = new Map<string, UpgradeRelease>();
+  const deduped = new Map<string, UpgradeRelease>();
   for (const release of releases) {
-    unique.set(release.version, release);
+    deduped.set(release.version, release);
   }
 
-  return Array.from(unique.values()).sort((a, b) => compareVersions(a.version, b.version));
+  const ordered = Array.from(deduped.values()).sort((a, b) => compareVersions(a.version, b.version));
+  if (ordered.length === 0) {
+    throw new Error(`No semantic-version prompt files were found in ${promptDirPath}.`);
+  }
+
+  return ordered;
 }
 
 export function listAvailableUpgradeTargets(
@@ -154,14 +132,17 @@ export function listAvailableUpgradeTargets(
     .sort((a, b) => compareVersions(a.version, b.version));
 }
 
-export function resolveBundledChangelogPath(): string {
+export function resolvePromptDirectory(explicitPath?: string): string {
+  if (explicitPath) {
+    return path.resolve(explicitPath);
+  }
+
   const entryFile = process.argv[1] ? path.resolve(process.argv[1]) : __filename;
   const entryDir = path.dirname(entryFile);
   const candidates = [
-    path.resolve(entryDir, "..", "CHANGELOG.md"),
-    path.resolve(__dirname, "..", "CHANGELOG.md"),
-    path.resolve(__dirname, "..", "..", "CHANGELOG.md"),
-    path.resolve(process.cwd(), "CHANGELOG.md")
+    path.resolve(entryDir, "..", UPGRADE_PROMPTS_DIR),
+    path.resolve(__dirname, "..", "..", UPGRADE_PROMPTS_DIR),
+    path.resolve(process.cwd(), UPGRADE_PROMPTS_DIR)
   ];
   const existing = candidates.find((candidate) => fs.existsSync(candidate));
   return existing ?? candidates[0];
@@ -169,36 +150,18 @@ export function resolveBundledChangelogPath(): string {
 
 export function loadUpgradeCatalog(options: {
   repo?: string;
-  metadataFile?: string;
-  changelogPath?: string;
+  promptsDir?: string;
 } = {}): UpgradeCatalog {
   const repoPath = resolveRepoPath(options.repo);
-  const metadataPath = path.join(repoPath, options.metadataFile ?? DEVROUTER_METADATA_FILE);
-  if (!fs.existsSync(metadataPath)) {
-    throw new Error(`Missing ${options.metadataFile ?? DEVROUTER_METADATA_FILE} in ${repoPath}.`);
-  }
-
-  const currentVersion = extractCurrentVersionFromMetadata(
-    fs.readFileSync(metadataPath, "utf-8"),
-    metadataPath
-  );
-  const changelogPath = options.changelogPath ?? resolveBundledChangelogPath();
-  if (!fs.existsSync(changelogPath)) {
-    throw new Error(`Missing CHANGELOG.md at ${changelogPath}. Use release guidance at ${CHANGELOG_URL}.`);
-  }
-
-  const releases = parseChangelogReleases(fs.readFileSync(changelogPath, "utf-8"));
-  if (releases.length === 0) {
-    throw new Error(
-      `No 'Agent Adaptation Prompt' entries were found in ${changelogPath}. Use ${CHANGELOG_URL}.`
-    );
-  }
+  const current = extractCurrentVersionFromRepoConfig(repoPath);
+  const promptsPath = resolvePromptDirectory(options.promptsDir);
+  const releases = readPromptDirectory(promptsPath);
 
   return {
     repoPath,
-    metadataPath,
-    changelogPath,
-    currentVersion,
+    configPath: current.configPath,
+    promptsPath,
+    currentVersion: current.version,
     releases
   };
 }

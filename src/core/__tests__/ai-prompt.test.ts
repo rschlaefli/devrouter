@@ -18,6 +18,7 @@ afterEach(() => {
 describe('buildOnboardingPrompt', () => {
   it('contains a canonical config skeleton that validates against parser', () => {
     const prompt = buildOnboardingPrompt({ repo: tmpDir })
+    expect(prompt).toContain('devrouter.version: semantic version string')
     const skeletonMatch = prompt.match(
       /Canonical valid skeleton:\n```yaml\n([\s\S]*?)\n```/
     )
@@ -105,6 +106,9 @@ describe('buildOnboardingPrompt', () => {
     )
     expect(withLinear).toContain(
       'dev -V'
+    )
+    expect(withLinear).toContain(
+      'upgrade-prompts/<version>.md'
     )
   })
 })

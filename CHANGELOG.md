@@ -8,52 +8,24 @@ All notable changes to this project are documented in this file.
 
 - `dev -V` now prints:
   - installed CLI version
-  - local repository version from `devrouter.yaml`
+  - local repository version from `.devrouter.yml` (`devrouter.version`)
   - next available upgrade target (if any)
 - Upgrade guidance in distributed devrouter skills/AGENTS content now points agents to `dev upgrade` instead of manual changelog scanning first.
 
 ### Added
 
 - New command: `dev upgrade [version] [--repo <path>]`.
-  - `dev upgrade` lists available upgrade targets newer than the local `devrouter.yaml` version and marks the next one.
+  - `dev upgrade` lists available upgrade targets newer than the local `.devrouter.yml` `devrouter.version` and marks the next one.
   - `dev upgrade <version>` prints the target release's Agent Adaptation Prompt and then reports if a further version is available.
 - New core upgrade parser/runtime:
-  - reads local version metadata from `devrouter.yaml`
-  - parses release prompts from bundled `CHANGELOG.md`
+  - reads local version metadata from `.devrouter.yml` (`devrouter.version`)
+  - loads release prompts from `upgrade-prompts/<version>.md`
   - resolves semver-ordered target chains for agent-friendly incremental upgrades.
-- Package distribution now includes `CHANGELOG.md` so release prompts are available to installed CLI flows.
+- Package distribution now includes `upgrade-prompts/` so release prompts are available to installed CLI flows.
 
 ### Agent Adaptation Prompt
 
-```text
-You are upgrading a repository that uses devrouter to version 0.0.14.
-
-Task:
-1) Ensure the repository has `devrouter.yaml` with the currently applied devrouter version:
-   - preferred shape: `version: <semver>`
-   - accepted alternative: `devrouter.version: <semver>`
-2) Verify version state with:
-   - `dev -V --repo <repo>`
-3) Resolve upgrade path with:
-   - `dev upgrade --repo <repo>`
-4) Apply the next required release prompt (incremental upgrade):
-   - `dev upgrade <target-version> --repo <repo>`
-5) If further versions are reported after that target, continue incrementally by repeating step 4 until reaching the desired version.
-6) After finishing upgrade edits, refresh discoverability artifacts:
-   - `dev repo agents --repo <repo>`
-
-Validation:
-- `dev -V --repo <repo>` shows installed CLI version, local repo version, and next target (or none)
-- `dev upgrade --repo <repo>` lists upgrade targets in ascending order and marks the next version
-- `dev upgrade <target-version> --repo <repo>` prints the expected Agent Adaptation Prompt for that version
-- `dev doctor --repo <repo>`
-
-Report:
-- `devrouter.yaml` version before/after
-- target versions applied in order
-- remaining available versions (if any)
-- unresolved risks/ambiguities
-```
+Agent adaptation prompt: ./upgrade-prompts/0.0.14.md
 
 ## [0.0.13] - 2026-02-15
 
@@ -80,37 +52,7 @@ Report:
 
 ### Agent Adaptation Prompt
 
-```text
-You are upgrading a repository that uses devrouter to version 0.0.13.
-
-Task:
-1) Refresh discoverability artifacts with the installed CLI version:
-   - `dev repo agents --repo <repo>`
-2) Identify non-routed Docker dependency workarounds currently modeled as routed apps (for example Redis configured as `protocol=http` + dummy `.localhost` host only to enable dependency startup).
-3) Convert those entries to first-class dependency apps:
-   - set `kind: dependency`
-   - keep `runtime: docker`
-   - keep `docker.service` and `docker.composeFiles`
-   - remove routed-only fields: `host`, `protocol`, `tcpProtocol`, `hostRun`, `docker.internalPort`, `docker.router`
-4) Keep dependency references in dependent apps via `dependencies: [{ app: "<name>" }]`.
-5) Update scripts/docs that previously attempted direct execution of dependency-only entries:
-   - `dev app run <dependency-name>` is intentionally rejected
-   - `dev app exec <dependency-name> -- <cmd>` is intentionally rejected
-   - `dev open <dependency-name>` reports no route exists by design
-
-Validation:
-- run `dev app ls --repo <repo>` and confirm dependency entries show as dependency/docker without route host requirements
-- run routed parent app startup: `dev app run <parent-app> --repo <repo> --yes`
-- run one-shot command on routed parent: `dev app exec <parent-app> --repo <repo> --yes -- <command ...>`
-- run `dev ls` and confirm dependency-only entries do not produce endpoints
-- run `dev doctor --repo <repo>`
-
-Report:
-- entries migrated from workaround style to `kind: dependency`
-- dependency graph and startup behavior validated
-- direct-target script/doc updates completed
-- unresolved risks/ambiguities
-```
+Agent adaptation prompt: ./upgrade-prompts/0.0.13.md
 
 ## [0.0.12] - 2026-02-15
 
@@ -130,34 +72,7 @@ Report:
 
 ### Agent Adaptation Prompt
 
-```text
-You are upgrading a repository that uses devrouter to version 0.0.12.
-
-Task:
-1) Keep `.localhost` hostnames as configured; multi-segment hostnames (for example `elearning.klicker.localhost`) remain supported.
-2) Ensure runtime workflows use normal run/exec entrypoints so TLS host coverage can auto-refresh:
-   - `dev app run <app> --repo <repo> --yes`
-   - `dev app exec <app> --repo <repo> --yes -- <command ...>`
-3) Validate TLS coverage diagnostics:
-   - run `dev doctor --repo <repo>`
-   - inspect `repo.tls-host-coverage`
-4) If `repo.tls-host-coverage` warns, remediate by either:
-   - running app startup via `dev app run <app> --repo <repo> --yes` (auto-refresh), or
-   - running `dev tls install` (manual refresh).
-5) Re-run diagnostics after remediation:
-   - `dev doctor --repo <repo>`
-
-Validation:
-- `dev doctor --repo <repo>` has no blocking errors
-- `repo.tls-host-coverage` is clear for configured hosts
-- representative HTTPS route no longer presents Traefik default cert fallback
-
-Report:
-- hostnames reviewed/kept
-- whether auto-refresh or manual refresh was used
-- doctor summary for `repo.tls-host-coverage`
-- unresolved TLS or certificate-trust risks
-```
+Agent adaptation prompt: ./upgrade-prompts/0.0.12.md
 
 ## [0.0.11] - 2026-02-15
 
@@ -180,34 +95,7 @@ Report:
 
 ### Agent Adaptation Prompt
 
-```text
-You are upgrading a repository that uses devrouter to version 0.0.11.
-
-Task:
-1) Refresh discoverability artifacts with the installed CLI version:
-   - `dev repo agents --repo <repo>`
-2) Review automation/scripts that expect `dev app exec` to always stop dependencies.
-   - Update assumptions: exec now stops only deps it started; already-running deps stay up.
-3) For workflows that chain app startup + seed/migrate:
-   - keep using `dev app run <app> --repo <repo> --yes`
-   - run one-shot commands with `dev app exec <app> --repo <repo> --yes -- <command ...>`
-   - confirm DB/service remains running when it was already up before exec.
-4) Keep deterministic alias mapping for non-Prisma apps:
-   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- <command ...>`
-5) Keep env probe before migrate/seed when secret managers are involved:
-   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
-
-Validation:
-- start app/deps: `dev app run <host-app> --repo <repo> --yes`
-- run one-shot command: `dev app exec <host-app> --repo <repo> --yes -- <seed-or-migrate-command ...>`
-- verify dependency service state is unchanged when it was already running before exec
-- run `dev doctor --repo <repo>`
-
-Report:
-- scripts/workflows reviewed for old teardown assumptions
-- command(s) validated and resulting dependency lifecycle behavior
-- unresolved risks/ambiguities
-```
+Agent adaptation prompt: ./upgrade-prompts/0.0.11.md
 
 ## [0.0.10] - 2026-02-15
 
@@ -227,35 +115,7 @@ Report:
 
 ### Agent Adaptation Prompt
 
-```text
-You are upgrading a repository that uses devrouter to version 0.0.10.
-
-Task:
-1) Refresh discoverability artifacts with the installed CLI version:
-   - `dev repo agents --repo <repo>`
-2) Audit host-run commands that wrap app startup with secret managers (Infisical/Doppler or any wrapper using `run --`):
-   - detect forms like `DATABASE_URI=... <wrapper> run -- ...`
-   - migrate to post-wrapper env override when DB vars must be forced:
-     - `<wrapper> run -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} <app command ...>`
-3) For one-shot commands, keep deterministic alias mapping:
-   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- <command ...>`
-4) Run env probe before migrate/seed to confirm effective values:
-   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
-5) Run diagnostics and resolve new wrapper-precedence warnings:
-   - `dev doctor --repo <repo>`
-   - address `repo.host-command-env-precedence` warnings by moving DB assignments after `run --`.
-
-Validation:
-- run representative host app startup (`dev app run <host-app> --repo <repo> --yes`)
-- run env probe command and confirm `DATABASE_URI` aligns with injected `DATABASE_URL` for local postgres flow
-- run `dev doctor --repo <repo>` and confirm no blocking errors
-
-Report:
-- host-run commands updated
-- env probe output summary
-- doctor check summary (including whether `repo.host-command-env-precedence` is clean)
-- unresolved risks/ambiguities
-```
+Agent adaptation prompt: ./upgrade-prompts/0.0.10.md
 
 ## [0.0.9] - 2026-02-15
 
@@ -285,38 +145,7 @@ Report:
 
 ### Agent Adaptation Prompt
 
-```text
-You are upgrading a repository that uses devrouter to version 0.0.9.
-
-Task:
-1) Refresh discoverability artifacts with the installed CLI version:
-   - `dev repo agents --repo <repo>`
-2) If Linear workflow is enabled in this repository, re-run with guided metadata capture:
-   - `dev repo agents --repo <repo> --with-linear`
-3) Confirm AGENTS.md contains one managed Linear metadata block between:
-   - `<!-- devrouter-linear-workflow-config:start -->`
-   - `<!-- devrouter-linear-workflow-config:end -->`
-4) Ensure required mapping fields are set (no placeholders left):
-   - `linear.workspace.name`
-   - `linear.team.name`
-   - `linear.project.name`
-5) If placeholders exist from non-interactive runs, re-run the command in an interactive TTY and provide workspace/team/project values.
-6) For Linear-tracked implementation, enforce execution hygiene:
-   - set issue status at session start and each phase transition
-   - post progress comments at meaningful checkpoints during implementation
-   - post an end-of-session recap comment and re-check status/comment freshness before stopping
-
-Validation:
-- run `dev init --repo <repo> --with-linear` and confirm guided Linear questions appear
-- run `dev repo agents --repo <repo> --with-linear` and confirm AGENTS metadata block is populated
-- run `dev doctor --repo <repo>`
-
-Report:
-- final workspace/team/project mapping stored in AGENTS
-- whether placeholders were replaced
-- any unresolved mapping ambiguity
-- confirmation that Linear status/comment cadence was followed during execution and at session end
-```
+Agent adaptation prompt: ./upgrade-prompts/0.0.9.md
 
 ## [0.0.8] - 2026-02-15
 
@@ -342,34 +171,7 @@ Report:
 
 ### Agent Adaptation Prompt
 
-```text
-You are upgrading a repository that uses devrouter to version 0.0.8.
-
-Task:
-1) Refresh discoverability artifacts with the installed CLI version:
-   - `dev repo agents --repo <repo>`
-2) If your team wants Linear-backed milestone workflow assets, bootstrap them explicitly:
-   - `dev repo agents --repo <repo> --with-linear`
-   - or `dev init --repo <repo> --with-linear --write-agents --write-skill`
-3) Ensure AGENTS.md now references both skills when Linear workflow is enabled:
-   - `.factory/skills/devrouter/SKILL.md`
-   - `.factory/skills/linear-workflow/SKILL.md`
-4) Adopt the linear-workflow templates for new milestone tracking:
-   - `references/LINEAR_ISSUE_TEMPLATE.md`
-   - `references/MILESTONE_PLAN_TEMPLATE.md`
-   - `references/PROGRESS_UPDATE_TEMPLATE.md`
-5) Use devrouter release guidance from `https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md` (latest Agent Adaptation Prompt); this does not require adding `CHANGELOG.md` to the target repository unless that repository already has its own policy.
-
-Validation:
-- run `dev init --repo <repo> --with-linear` and confirm the prompt includes "Linear milestone workflow"
-- run `dev repo agents --repo <repo> --with-linear` and confirm Linear skill/template files exist
-- run `dev doctor --repo <repo>`
-
-Report:
-- whether Linear workflow bootstrap was enabled
-- artifacts created/updated
-- any repo-specific deviations from the template policy
-```
+Agent adaptation prompt: ./upgrade-prompts/0.0.8.md
 
 ## [0.0.7] - 2026-02-14
 
@@ -387,31 +189,7 @@ Report:
 
 ### Agent Adaptation Prompt
 
-```text
-You are upgrading a repository that uses devrouter to version 0.0.7.
-
-Task:
-1) Replace wrapper-recursion or brittle quoted `dev app exec` invocations with argv-safe form:
-   - `dev app exec <app> --yes -- <command ...>`
-2) For commands that require shell expansion, switch to explicit shell mode:
-   - `dev app exec <app> --yes --shell -- "<single shell command string>"`
-3) For non-Prisma apps expecting `DATABASE_URI`, add deterministic env aliasing:
-   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- <command ...>`
-4) If using secret managers (Infisical/Doppler), verify effective DB env before migrate/seed:
-   - `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
-5) Update onboarding/docs/scripts in your repo to prefer the new primary forms and keep wrapper scripts as fallback only.
-
-Validation:
-- run one migration/seed command through the updated `dev app exec` flow
-- run the env probe command and confirm expected values
-- run `dev doctor --repo <repo>`
-
-Report:
-- commands/scripts updated
-- env-map usage introduced (if any)
-- probe output summary
-- unresolved risks/ambiguities
-```
+Agent adaptation prompt: ./upgrade-prompts/0.0.7.md
 
 ## [0.0.6] - 2026-02-14
 
@@ -436,37 +214,4 @@ Report:
 
 ### Agent Adaptation Prompt
 
-```text
-You are upgrading a repository that uses devrouter to version 0.0.6.
-
-Task:
-1) Update any workflows/scripts that relied on `dev init` side effects:
-   - use `dev init --write-agents --write-skill`, or
-   - run `dev repo agents` after `dev init`.
-2) Audit `dev open <name>` usage:
-   - confirm names remain unambiguous with app-first resolution,
-   - switch to explicit hosts if needed (for example `dev open api.localhost`).
-3) Migrate any `dev ls` table parsing to `dev ls --json` and consume:
-   - `routes[].appName`
-   - `routes[].serviceName`
-   - `routes[].hosts`
-4) Run `dev doctor --repo <repo>` and handle `repo.postgres-credentials` advisories:
-   - align to `POSTGRES_USER/PASSWORD/DB=prisma` where using injected DB URLs, or
-   - keep custom credentials with explicit app/runtime URL management.
-5) If your repo was copied from older demo patterns:
-   - remove hardcoded host-side `DATABASE_URL` overrides,
-   - align compose Postgres defaults to `prisma/prisma/prisma` when using injected env.
-
-Validation:
-- run `dev ls`
-- run updated `dev open` commands
-- run repo automation that consumes routes
-- run `dev doctor --repo <repo>`
-- run app startup with deps (`dev app run <host-app> --yes`)
-
-Report:
-- files/scripts changed
-- command changes made
-- doctor output summary
-- unresolved risks/ambiguities
-```
+Agent adaptation prompt: ./upgrade-prompts/0.0.6.md

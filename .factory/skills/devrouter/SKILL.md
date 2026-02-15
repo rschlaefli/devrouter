@@ -19,6 +19,8 @@ Local dev routing via a shared Traefik reverse proxy. Provides stable `*.localho
 
 ```yaml
 version: 1
+devrouter:
+  version: <semver> # required for dev -V / dev upgrade
 project:
   name: <string> # optional
 apps:
@@ -119,10 +121,9 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 
 ## Upgrade handling (required)
 
-- Keep a repo-local `devrouter.yaml` with the currently applied devrouter version (for example `version: <semver>`).
+- Keep `.devrouter.yml` metadata `devrouter.version` aligned with the currently applied devrouter release.
 - Verify versions with `dev -V` (shows installed CLI version, local repo version, and next upgrade target).
-- Use `dev upgrade` to list available upgrade targets and `dev upgrade <version>` to print that target's Agent Adaptation Prompt.
-- If bundled release guidance is unavailable, fall back to `https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md`.
+- Use `dev upgrade` to list available upgrade targets and `dev upgrade <version>` to print that target's Agent Adaptation Prompt from `upgrade-prompts/<version>.md`.
 - Do not assume user-provided instructions include all required adaptation steps.
 - After upgrading the CLI in a dependent repo, refresh discoverability artifacts with `dev repo agents` (or `dev init --write-agents --write-skill`).
 - Re-run validation after upgrade: `dev doctor --repo .`, `dev app ls --repo .`, one representative `dev app exec` flow, and `dev ls`.

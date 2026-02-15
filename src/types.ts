@@ -94,6 +94,9 @@ export type HostRouteState = {
 
 export type DevrouterConfig = {
   version: 1;
+  devrouter?: {
+    version?: string;
+  };
   project?: {
     name?: string;
   };

@@ -12,8 +12,7 @@ type UpgradeCommandOptions = {
 };
 
 type UpgradeCommandDeps = {
-  metadataFile?: string;
-  changelogPath?: string;
+  promptsDir?: string;
 };
 
 function printUpgradeTargets(currentVersion: string, availableTargets: UpgradeRelease[]): void {
@@ -39,14 +38,13 @@ export async function runUpgradeCommand(
 ): Promise<void> {
   const catalog = loadUpgradeCatalog({
     repo: options.repo,
-    metadataFile: deps.metadataFile,
-    changelogPath: deps.changelogPath
+    promptsDir: deps.promptsDir
   });
 
   const availableTargets = listAvailableUpgradeTargets(catalog.currentVersion, catalog.releases);
   if (!options.targetVersion) {
-    process.stdout.write(`Local version file: ${catalog.metadataPath}\n`);
-    process.stdout.write(`Release source: ${catalog.changelogPath}\n`);
+    process.stdout.write(`Local config: ${catalog.configPath}\n`);
+    process.stdout.write(`Prompt source: ${catalog.promptsPath}\n`);
     printUpgradeTargets(catalog.currentVersion, availableTargets);
     return;
   }
@@ -61,7 +59,7 @@ export async function runUpgradeCommand(
   const release = catalog.releases.find((entry) => entry.version === selectedTarget);
   if (!release) {
     throw new Error(
-      `Version ${selectedTarget} was not found in ${catalog.changelogPath}.`
+      `Version ${selectedTarget} was not found in ${catalog.promptsPath}.`
     );
   }
 

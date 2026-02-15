@@ -1,4 +1,6 @@
 version: 1
+devrouter:
+  version: 0.0.14
 project:
   name: devrouter-demo
 apps:

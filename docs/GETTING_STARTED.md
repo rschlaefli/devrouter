@@ -41,10 +41,10 @@ Verify:
 dev --help
 ```
 
-Version and upgrade quick check:
+Version and upgrade quick check (against the bundled demo repo metadata):
 
 ```bash
-dev -V
+dev -V --repo ./demo
 ```
 
 Optional: run bundled smoke demo (host app + docker app + postgres):
@@ -57,7 +57,7 @@ Demo assets live in:
 
 - [`../demo/README.md`](../demo/README.md)
 
-Release and adaptation notes live in [`../CHANGELOG.md`](../CHANGELOG.md).
+Release and adaptation notes live in [`../CHANGELOG.md`](../CHANGELOG.md), with prompt files in [`../upgrade-prompts/`](../upgrade-prompts/).
 
 ## Docker compose requirements for devrouter
 
@@ -155,8 +155,6 @@ dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --pr
 - `dev doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
 - With TLS enabled, `dev doctor --repo <path>` also warns on cert SAN mismatches for configured hosts (`repo.tls-host-coverage`).
 
-Compatibility note: older versions flattened `dev app exec` commands into a shell string; use the argv-safe form above on `v0.0.7+`.
-
 The TLS/SNI route on `:5432` remains available for tools that support `sslnegotiation=direct` (psql 17+, pgAdmin).
 
 ## 3) Localhost resolution notes
@@ -206,11 +204,15 @@ dev repo init
 This creates:
 
 - `.devrouter.yml`
+- includes `devrouter.version` initialized to the installed CLI version.
 
-For upgrade-aware agent workflows, also keep a repo-local `devrouter.yaml` with the applied devrouter version:
+For upgrade-aware agent workflows, keep `.devrouter.yml` metadata (`devrouter.version`) aligned with the applied devrouter release:
 
 ```yaml
-version: <semver>
+version: 1
+devrouter:
+  version: <semver>
+apps: []
 ```
 
 Then:
@@ -218,6 +220,7 @@ Then:
 - `dev -V` shows installed CLI version, local repo version, and next upgrade target.
 - `dev upgrade` lists available upgrade targets and marks the next one.
 - `dev upgrade <version>` prints that target version's Agent Adaptation Prompt and indicates if a newer target is still available.
+- `dev upgrade` reads prompt files from `upgrade-prompts/<version>.md`.
 
 To write a devrouter section into the repo's `AGENTS.md` and install the devrouter skill:
 
