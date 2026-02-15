@@ -218,6 +218,11 @@ This additionally creates:
 - `.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
 - `.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
 - `AGENTS.md` linear-workflow section (idempotent)
+- `AGENTS.md` managed Linear mapping block (`workspace/team/project`) between:
+  - `<!-- devrouter-linear-workflow-config:start -->`
+  - `<!-- devrouter-linear-workflow-config:end -->`
+
+If running without an interactive TTY, devrouter writes placeholder mapping values and prints a warning.
 
 ## 6) Generate onboarding prompt for an AI agent (optional)
 
@@ -246,6 +251,12 @@ To include optional Linear workflow guidance/artifacts:
 ```bash
 dev init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
 ```
+
+With `--with-linear` + AGENTS writes, devrouter asks:
+
+- Linear workspace name
+- Linear team name (optional team key)
+- Linear project name (optional project id)
 
 ## 7) Add apps to `.devrouter.yml`
 

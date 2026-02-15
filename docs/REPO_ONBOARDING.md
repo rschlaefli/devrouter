@@ -250,7 +250,7 @@ This creates/updates:
 
 The skill content is embedded in the CLI bundle, so `dev repo agents` always writes the version matching the installed CLI.
 
-Optional Linear milestone/task-management bootstrap:
+Optional Linear workflow bootstrap:
 
 ```bash
 dev repo agents --with-linear
@@ -263,6 +263,11 @@ This additionally creates:
 - `.factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
 - `.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
 - `.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
+- `AGENTS.md` managed Linear mapping block (`workspace/team/project`) between:
+  - `<!-- devrouter-linear-workflow-config:start -->`
+  - `<!-- devrouter-linear-workflow-config:end -->`
+
+Interactive runs prompt for workspace/team/project values. Non-interactive runs write placeholders and warn.
 
 ## 10) AI agent prompt (single copy-paste)
 
@@ -289,6 +294,12 @@ Optional Linear workflow guidance + artifacts:
 ```bash
 dev init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
 ```
+
+With `--with-linear` + AGENTS writes, devrouter asks for:
+
+- workspace name
+- team name (optional team key)
+- project name (optional project id)
 
 ## 11) Definition of done
 

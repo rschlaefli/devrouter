@@ -120,7 +120,11 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 - To add Linear task-management workflow assets to a repo, run:
   - `dev init --with-linear --write-agents --write-skill`, or
   - `dev repo agents --with-linear`
-- This writes `.factory/skills/linear-workflow/SKILL.md` and reference templates, plus an idempotent AGENTS section for milestone planning in Linear.
+- This writes `.factory/skills/linear-workflow/SKILL.md` and reference templates, plus an idempotent AGENTS section.
+- On AGENTS write flows, devrouter asks for minimal Linear mapping (workspace/team/project) and stores it in a managed AGENTS block:
+  - `<!-- devrouter-linear-workflow-config:start -->`
+  - `<!-- devrouter-linear-workflow-config:end -->`
+- In non-interactive mode, placeholder values are written and should be replaced in the next interactive session.
 
 ## Commands
 

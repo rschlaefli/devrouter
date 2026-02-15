@@ -76,6 +76,8 @@ Optional: also bootstrap Linear workflow skill/templates and AGENTS section:
 dev init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
 ```
 
+When `--with-linear` is combined with AGENTS writes, devrouter captures minimal Linear mapping (workspace, team, project). In non-interactive mode it writes placeholders and prints a warning so values can be filled in later.
+
 ## Health diagnostics
 
 Run deep checks for global router state and repo configuration:
@@ -204,7 +206,7 @@ See details:
 
 `dev repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.factory/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
 
-If you also want milestone planning/task management assets for Linear-driven workflows, run:
+If you also want Linear workflow assets and repository mapping metadata, run:
 
 ```bash
 dev repo agents --with-linear
@@ -218,6 +220,17 @@ This additionally installs:
 - `.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
 
 and appends an idempotent `linear-workflow` section to `AGENTS.md`.
+
+With `--with-linear`, AGENTS also stores a managed config block:
+
+- `<!-- devrouter-linear-workflow-config:start -->`
+- `<!-- devrouter-linear-workflow-config:end -->`
+
+The block captures:
+
+- `workspace.name`
+- `team.name` (optional `team.key`)
+- `project.name` (optional `project.id`)
 
 ## Known limitations (v1)
 

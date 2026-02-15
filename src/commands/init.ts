@@ -5,6 +5,7 @@ import {
   ensureLinearWorkflowSkillFiles,
   ensureSkillFile
 } from "../core/agents-md";
+import { collectLinearWorkflowMetadata, type LinearWorkflowMetadata } from "../core/linear-onboarding";
 import { printJSON } from "../core/output";
 import { resolveRepoPath } from "../core/repo-config";
 
@@ -17,7 +18,14 @@ type InitCommandOptions = {
   withLinear?: boolean;
 };
 
-export async function runInitCommand(options: InitCommandOptions): Promise<void> {
+type InitCommandDeps = {
+  collectLinearMetadata?: () => Promise<LinearWorkflowMetadata>;
+};
+
+export async function runInitCommand(
+  options: InitCommandOptions,
+  deps: InitCommandDeps = {}
+): Promise<void> {
   if (options.json && (options.writeAgents || options.writeSkill)) {
     throw new Error("--json cannot be combined with --write-agents or --write-skill.");
   }
@@ -65,7 +73,14 @@ export async function runInitCommand(options: InitCommandOptions): Promise<void>
     }
 
     if (options.withLinear) {
-      const linearAgents = ensureLinearWorkflowAgentsSection(repoPath);
+      const linearMetadata = await (deps.collectLinearMetadata ?? collectLinearWorkflowMetadata)();
+      if (linearMetadata.captureMode === "placeholder") {
+        process.stdout.write(
+          "Warning: non-interactive mode detected; wrote placeholder Linear mapping values. Re-run in a TTY to capture workspace/team/project.\n"
+        );
+      }
+
+      const linearAgents = ensureLinearWorkflowAgentsSection(repoPath, linearMetadata);
       if (linearAgents.written) {
         process.stdout.write(`Wrote Linear workflow section to ${linearAgents.path}\n`);
       } else {

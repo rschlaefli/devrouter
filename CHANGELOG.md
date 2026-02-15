@@ -2,6 +2,61 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.9] - 2026-02-15
+
+### Changed
+
+- `dev init --with-linear --write-agents` now collects minimal Linear mapping basics (workspace, team, project) and stores them in a managed AGENTS metadata block.
+- `dev repo agents --with-linear` now uses the same guided metadata capture behavior when writing AGENTS artifacts.
+- `dev init --with-linear` (without write flags) remains non-mutating and now includes explicit guided Linear mapping questions in the generated onboarding prompt.
+- Linear workflow skill guidance is simplified to resolve repository-specific mapping from AGENTS metadata first, not hardcoded assumptions.
+
+### Added
+
+- Managed Linear metadata block in `AGENTS.md`:
+  - `<!-- devrouter-linear-workflow-config:start -->`
+  - `<!-- devrouter-linear-workflow-config:end -->`
+- Stored fields:
+  - `linear.workspace.name` (required)
+  - `linear.team.name` (required)
+  - `linear.team.key` (optional)
+  - `linear.project.name` (required)
+  - `linear.project.id` (optional)
+  - `linear.updated_at`
+  - `linear.capture_mode` (`interactive` or `placeholder`)
+- Non-interactive fallback for AGENTS write flows: placeholders are written and a warning is printed.
+- Unit tests for guided metadata capture, placeholder fallback, managed block replacement, and prompt updates.
+
+### Agent Adaptation Prompt
+
+```text
+You are upgrading a repository that uses devrouter to version 0.0.9.
+
+Task:
+1) Refresh discoverability artifacts with the installed CLI version:
+   - `dev repo agents --repo <repo>`
+2) If Linear workflow is enabled in this repository, re-run with guided metadata capture:
+   - `dev repo agents --repo <repo> --with-linear`
+3) Confirm AGENTS.md contains one managed Linear metadata block between:
+   - `<!-- devrouter-linear-workflow-config:start -->`
+   - `<!-- devrouter-linear-workflow-config:end -->`
+4) Ensure required mapping fields are set (no placeholders left):
+   - `linear.workspace.name`
+   - `linear.team.name`
+   - `linear.project.name`
+5) If placeholders exist from non-interactive runs, re-run the command in an interactive TTY and provide workspace/team/project values.
+
+Validation:
+- run `dev init --repo <repo> --with-linear` and confirm guided Linear questions appear
+- run `dev repo agents --repo <repo> --with-linear` and confirm AGENTS metadata block is populated
+- run `dev doctor --repo <repo>`
+
+Report:
+- final workspace/team/project mapping stored in AGENTS
+- whether placeholders were replaced
+- any unresolved mapping ambiguity
+```
+
 ## [0.0.8] - 2026-02-15
 
 ### Changed

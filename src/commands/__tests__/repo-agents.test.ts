@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runRepoAgentsCommand } from "../repo-agents";
+import type { LinearWorkflowMetadata } from "../../core/linear-onboarding";
 
 let tmpDir: string;
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
@@ -50,5 +51,31 @@ describe("runRepoAgentsCommand", () => {
     const agents = fs.readFileSync(path.join(tmpDir, "AGENTS.md"), "utf-8");
     expect(agents).toContain("<!-- devrouter -->");
     expect(agents).toContain("<!-- devrouter-linear-workflow -->");
+    expect(agents).toContain("<!-- devrouter-linear-workflow-config:start -->");
+    expect(agents).toContain("<REQUIRED: workspace.name>");
+    expect(agents).toContain("capture_mode: \"placeholder\"");
+
+    const output = (stdoutSpy.mock.calls as unknown[][]).map((call) => String(call[0])).join("");
+    expect(output).toContain("non-interactive mode detected");
+  });
+
+  it("writes interactive mapping values when collector is provided", async () => {
+    const metadata: LinearWorkflowMetadata = {
+      workspace: { name: "Acme Workspace" },
+      team: { name: "Platform", key: "PLAT" },
+      project: { name: "Devrouter" },
+      updatedAt: "2026-02-16T12:00:00.000Z",
+      captureMode: "interactive"
+    };
+
+    await runRepoAgentsCommand(
+      { repo: tmpDir, withLinear: true },
+      { collectLinearMetadata: async () => metadata }
+    );
+
+    const agents = fs.readFileSync(path.join(tmpDir, "AGENTS.md"), "utf-8");
+    expect(agents).toContain("Acme Workspace");
+    expect(agents).toContain("PLAT");
+    expect(agents).toContain("capture_mode: \"interactive\"");
   });
 });

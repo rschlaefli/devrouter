@@ -16,6 +16,7 @@ Completed milestones from recent commits:
 - `0.0.6` (2026-02-14): onboarding UX consistency pass — `dev init` non-mutating by default with explicit write flags, prompt/schema alignment (`version: 1` skeleton + workflow clarifications), route app identity + `dev open` app-name fallback, doctor postgres-credential advisory, non-destructive Docker disk-space guidance, changelog-first adaptation policy, and demo alignment with postgres defaults.
 - `0.0.7` (2026-02-14): argv-safe `dev app exec` (`shell: false` default), explicit `--shell` mode, repeatable `--env-map TARGET=SOURCE`, secret-manager interop onboarding in `dev init`, and new exec-focused unit tests.
 - `0.0.8` (2026-02-15): optional Linear workflow bootstrap via `--with-linear` on `dev init` / `dev repo agents`, distributed `linear-workflow` skill + reference templates, idempotent AGENTS Linear section, prompt updates, and new unit tests for writers and command wiring.
+- `0.0.9` (2026-02-15): simplified Linear bootstrap to guided workspace/team/project mapping with managed AGENTS metadata block, non-interactive placeholder fallback, and prompt/skill simplification to avoid hardcoded Linear assumptions.
 
 ## Current baseline
 
@@ -33,6 +34,7 @@ Delivered and active:
 - `dev app exec --env-map TARGET=SOURCE` for deterministic env alias mapping
 - Agent discoverability: `dev repo agents` + skill distribution for AI coding assistants
 - Optional Linear milestone workflow bootstrap (`dev init --with-linear` / `dev repo agents --with-linear`) with repo-local templates
+- Managed AGENTS Linear mapping block (`workspace/team/project`) with guided capture on AGENTS write flows
 - `dev init` prompt generation is side-effect free by default (`--write-agents` / `--write-skill` opt-in writes)
 - Route identity carries app + service names; `dev open` resolves app names directly
 

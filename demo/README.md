@@ -42,6 +42,8 @@ To also bootstrap optional Linear workflow planning assets:
 dev init --repo ./demo --with-linear --write-agents --write-skill
 ```
 
+This captures minimal Linear mapping values (workspace/team/project) into a managed AGENTS block. In non-interactive mode placeholders are written and should be replaced later.
+
 For non-Prisma tooling in host commands, map aliases with argv-safe exec:
 
 ```bash

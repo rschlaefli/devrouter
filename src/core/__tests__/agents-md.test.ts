@@ -8,6 +8,7 @@ import {
   ensureLinearWorkflowSkillFiles,
   ensureSkillFile
 } from "../agents-md";
+import type { LinearWorkflowMetadata } from "../linear-onboarding";
 
 let tmpDir: string;
 
@@ -20,15 +21,34 @@ afterEach(() => {
 });
 
 describe("agents-md linear workflow support", () => {
-  it("writes linear workflow AGENTS section idempotently", () => {
-    const first = ensureLinearWorkflowAgentsSection(tmpDir);
+  it("writes and replaces managed linear workflow config block without duplicates", () => {
+    const initial: LinearWorkflowMetadata = {
+      workspace: { name: "Workspace A" },
+      team: { name: "Platform", key: "PLAT" },
+      project: { name: "Devrouter", id: "proj-1" },
+      updatedAt: "2026-02-16T00:00:00.000Z",
+      captureMode: "interactive"
+    };
+    const updated: LinearWorkflowMetadata = {
+      workspace: { name: "Workspace B" },
+      team: { name: "Core" },
+      project: { name: "Router V2" },
+      updatedAt: "2026-02-16T01:00:00.000Z",
+      captureMode: "placeholder"
+    };
+
+    const first = ensureLinearWorkflowAgentsSection(tmpDir, initial);
     expect(first.written).toBe(true);
 
-    const second = ensureLinearWorkflowAgentsSection(tmpDir);
-    expect(second.written).toBe(false);
+    const second = ensureLinearWorkflowAgentsSection(tmpDir, updated);
+    expect(second.written).toBe(true);
 
     const content = fs.readFileSync(path.join(tmpDir, "AGENTS.md"), "utf-8");
     expect(content).toContain("<!-- devrouter-linear-workflow -->");
+    expect(content).toContain("<!-- devrouter-linear-workflow-config:start -->");
+    expect(content).toContain("Workspace B");
+    expect(content).not.toContain("Workspace A");
+    expect(content.match(/devrouter-linear-workflow-config:start/g)?.length ?? 0).toBe(1);
   });
 
   it("writes all linear workflow skill artifacts", () => {
@@ -50,11 +70,8 @@ describe("agents-md linear workflow support", () => {
 
     const skillContent = fs.readFileSync(skillPath, "utf-8");
     expect(skillContent).toContain("# linear-workflow");
-    expect(skillContent).toContain("Large milestones must be planned and tracked in Linear");
-    expect(skillContent).toContain("https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md");
-    expect(skillContent).toContain(
-      "does not require creating a `CHANGELOG.md` in the target repository unless that repository already has its own policy"
-    );
+    expect(skillContent).toContain("workspace/team/project");
+    expect(skillContent).toContain("Do not hardcode workspace/team/project assumptions.");
   });
 
   it("keeps existing devrouter section and skill behavior unchanged", () => {

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInitCommand } from "../init";
+import type { LinearWorkflowMetadata } from "../../core/linear-onboarding";
 
 const AGENTS_PATH = "AGENTS.md";
 const DEVROUTER_SKILL_PATH = path.join(".factory", "skills", "devrouter", "SKILL.md");
@@ -79,6 +80,9 @@ describe("runInitCommand", () => {
     expect(fileExists(tmpDir, AGENTS_PATH)).toBe(false);
     expect(fileExists(tmpDir, DEVROUTER_SKILL_PATH)).toBe(false);
     expect(fileExists(tmpDir, LINEAR_SKILL_PATH)).toBe(false);
+
+    const output = (stdoutSpy.mock.calls as unknown[][]).map((call) => String(call[0])).join("");
+    expect(output).toContain("Which Linear workspace does this repository belong to?");
   });
 
   it("writes linear workflow skill artifacts with --with-linear --write-skill", async () => {
@@ -90,7 +94,7 @@ describe("runInitCommand", () => {
     expect(fileExists(tmpDir, AGENTS_PATH)).toBe(false);
   });
 
-  it("writes both AGENTS sections with --with-linear --write-agents", async () => {
+  it("writes placeholders for linear mapping in non-interactive mode", async () => {
     await runInitCommand({ repo: tmpDir, withLinear: true, writeAgents: true });
 
     const agentsPath = path.join(tmpDir, AGENTS_PATH);
@@ -100,6 +104,32 @@ describe("runInitCommand", () => {
     const content = fs.readFileSync(agentsPath, "utf-8");
     expect(content).toContain("<!-- devrouter -->");
     expect(content).toContain("<!-- devrouter-linear-workflow -->");
+    expect(content).toContain("<!-- devrouter-linear-workflow-config:start -->");
+    expect(content).toContain("<REQUIRED: workspace.name>");
+    expect(content).toContain("capture_mode: \"placeholder\"");
+
+    const output = (stdoutSpy.mock.calls as unknown[][]).map((call) => String(call[0])).join("");
+    expect(output).toContain("non-interactive mode detected");
+  });
+
+  it("writes interactive linear mapping values when collector is provided", async () => {
+    const metadata: LinearWorkflowMetadata = {
+      workspace: { name: "Acme Workspace" },
+      team: { name: "Platform", key: "PLAT" },
+      project: { name: "Devrouter", id: "0b1c6ef6-9e97-4a75-ac79-18fea4b21af8" },
+      updatedAt: "2026-02-16T12:00:00.000Z",
+      captureMode: "interactive"
+    };
+
+    await runInitCommand(
+      { repo: tmpDir, withLinear: true, writeAgents: true },
+      { collectLinearMetadata: async () => metadata }
+    );
+
+    const content = fs.readFileSync(path.join(tmpDir, AGENTS_PATH), "utf-8");
+    expect(content).toContain("Acme Workspace");
+    expect(content).toContain("PLAT");
+    expect(content).toContain("capture_mode: \"interactive\"");
   });
 
   it("rejects json mode with write flags", async () => {
