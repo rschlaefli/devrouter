@@ -93,6 +93,7 @@ dev doctor --repo /absolute/path/to/repo --json
 ```
 
 `dev status` now includes readiness hints and next-step commands.
+For host apps that depend on postgres, `dev doctor` also checks host command wrapper precedence and warns with `repo.host-command-env-precedence` when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 
 ## `.devrouter.yml` example
 
@@ -155,8 +156,11 @@ Secret manager interop (Infisical/Doppler):
 
 - dependency env injection from devrouter includes `<NAME>_HOST`, `<NAME>_PORT`, `DATABASE_URL`, and `SHADOW_DATABASE_URL`
 - do not assume secret-manager precedence when DB vars overlap; validate effective env before migrate/seed
+- avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values
+- safe host-run override pattern when wrapper also defines `DATABASE_URI`: `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev`
 - non-Prisma mapping example: `dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
 - env probe example: `dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
+- run `dev doctor --repo <path>` to surface risky wrapper precedence (`repo.host-command-env-precedence`) before migrations or app startup
 
 `dev ls` output includes both configured app identity (`APP`) and runtime service identity (`SERVICE`).
 

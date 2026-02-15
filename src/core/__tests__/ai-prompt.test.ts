@@ -49,6 +49,9 @@ describe("buildOnboardingPrompt", () => {
     expect(prompt).toContain("dev app exec <name> --repo <REPO_PATH> --yes --env-map DATABASE_URI=DATABASE_URL -- <command>");
     expect(prompt).toContain("printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL");
     expect(prompt).toContain("Do not assume secret-manager precedence");
+    expect(prompt).toContain("Avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`");
+    expect(prompt).toContain("env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL}");
+    expect(prompt).toContain("warns on risky pre-wrapper DB assignments before `run --`");
   });
 
   it("includes Linear workflow section only when withLinear is enabled", () => {

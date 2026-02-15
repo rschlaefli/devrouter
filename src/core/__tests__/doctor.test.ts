@@ -35,11 +35,30 @@ vi.mock("../routes", async () => {
 
 let tmpDir: string;
 
-function writeRepoFiles(options: { composeEnv: string }): void {
+function singleQuoteYaml(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function writeRepoFiles(options: { composeEnv: string; hostCommand?: string }): void {
+  const hostAppBlock = options.hostCommand
+    ? `
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: host
+    dependencies:
+      - app: db
+    hostRun:
+      command: ${singleQuoteYaml(options.hostCommand)}
+      cwd: .
+`
+    : "";
+
   fs.writeFileSync(
     path.join(tmpDir, ".devrouter.yml"),
     `version: 1
 apps:
+${hostAppBlock}
   - name: db
     host: db.localhost
     protocol: tcp
@@ -133,5 +152,49 @@ describe("buildDoctorReport", () => {
     expect(credentialCheck?.level).toBe("warn");
     expect(credentialCheck?.summary).toContain("differ from devrouter defaults");
     expect(credentialCheck?.suggestion).toContain("docker compose down -v");
+  });
+
+  it("warns when host command assigns DB vars before wrapper boundary", async () => {
+    writeRepoFiles({
+      composeEnv: "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+      hostCommand:
+        "DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} infisical run --env=dev -- pnpm dev",
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue({
+      ...makeStatus(tmpDir, true),
+      repo: {
+        ...makeStatus(tmpDir, true).repo!,
+        appCount: 2,
+      },
+    });
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const precedenceCheck = report.checks.find((check) => check.id === "repo.host-command-env-precedence");
+
+    expect(precedenceCheck?.level).toBe("warn");
+    expect(precedenceCheck?.details).toContain("web");
+    expect(precedenceCheck?.details).toContain("DATABASE_URI");
+    expect(precedenceCheck?.suggestion).toContain("env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL}");
+  });
+
+  it("reports ok when DB var assignment happens after wrapper boundary", async () => {
+    writeRepoFiles({
+      composeEnv: "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+      hostCommand:
+        "infisical run --env=dev -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev",
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue({
+      ...makeStatus(tmpDir, true),
+      repo: {
+        ...makeStatus(tmpDir, true).repo!,
+        appCount: 2,
+      },
+    });
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const precedenceCheck = report.checks.find((check) => check.id === "repo.host-command-env-precedence");
+
+    expect(precedenceCheck?.level).toBe("ok");
+    expect(precedenceCheck?.summary).toContain("No risky pre-wrapper DB env assignments");
   });
 });

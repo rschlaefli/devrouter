@@ -121,7 +121,11 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - Precedence best practice: avoid defining local \`DATABASE_URL\` / \`DATABASE_URI\` in Infisical/Doppler when you expect devrouter local DB injection.
 - Precedence best practice: store remote/prod URLs under non-conflicting names (for example \`PROD_DATABASE_URL\`) and map intentionally in app config/scripts.
 - Precedence best practice: if secret manager must define \`DATABASE_URL\`, run the env probe and verify values before any migration/seed.
+- Avoid pre-wrapper DB assignments such as \`DATABASE_URI=... <wrapper> run -- ...\`; wrapper-managed env may override those values.
+- Safe host-run override pattern when wrapper also defines \`DATABASE_URI\`:
+\`infisical run --projectId <id> --env=<env> -- env DATABASE_URI=\${DATABASE_URL:?missing DATABASE_URL} pnpm dev\`
 - \`dev app run\` does not currently expose \`--env-map\`; if an app only accepts \`DATABASE_URI\`, prefer app-level fallback (\`DATABASE_URI\` then \`DATABASE_URL\`) or a small repo-local wrapper script.
+- \`dev doctor --repo .\` warns on risky pre-wrapper DB assignments before \`run --\` for host apps that depend on postgres.
 - Use \`dev app exec --shell -- "<single command string>"\` only when shell expansion is required.
 - \`--env-map\` fails fast when SOURCE is missing so migrations do not run with partial mapping.
 

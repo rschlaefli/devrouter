@@ -29,6 +29,7 @@ dev app run web-host --repo ./demo --yes
 ```
 
 With Docker running normally, `dev doctor --repo ./demo` should not report `repo.postgres-credentials` mismatch warnings.
+It should also not report `repo.host-command-env-precedence` warnings for wrapper precedence.
 
 `dev init` prints the onboarding prompt only. To also write AGENTS/skill artifacts, run:
 
@@ -55,6 +56,12 @@ For non-Prisma tooling in host commands, map aliases with argv-safe exec:
 
 ```bash
 dev app exec web-host --repo ./demo --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI
+```
+
+If a wrapper command (Infisical/Doppler) must set `DATABASE_URI`, do it after `run --`:
+
+```bash
+infisical run --env=dev -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev
 ```
 
 Then open:

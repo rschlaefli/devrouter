@@ -128,6 +128,8 @@ dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- pnpm payload migra
 
 - devrouter injects `DB_HOST`, `DB_PORT`, `DATABASE_URL`, and `SHADOW_DATABASE_URL` when a host app depends on postgres.
 - If your secret manager also defines DB variables, do not assume precedence. Validate effective env before migration/seed.
+- Avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values.
+- Safe host-run override pattern when wrapper also defines `DATABASE_URI`: `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev`.
 - Deterministic mapping for Payload/non-Prisma apps: `--env-map DATABASE_URI=DATABASE_URL`.
 - Recommended probe:
 
@@ -140,6 +142,8 @@ dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_
 ```bash
 dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
 ```
+
+- `dev doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
 
 Compatibility note: older versions flattened `dev app exec` commands into a shell string; use the argv-safe form above on `v0.0.7+`.
 

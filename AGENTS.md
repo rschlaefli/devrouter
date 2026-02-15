@@ -89,7 +89,7 @@ Supported routing:
 - `src/core/__tests__/ai-prompt.test.ts`: unit tests for onboarding prompt/schema consistency
 - `src/core/__tests__/agents-md.test.ts`: unit tests for AGENTS/skill file writers (including Linear workflow support)
 - `src/core/__tests__/linear-onboarding.test.ts`: unit tests for guided Linear metadata collection + placeholder fallback
-- `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS + Postgres credential checks)
+- `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
 - `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, and env-map behavior
 - `src/commands/__tests__/init.test.ts`: unit tests for `dev init` side-effect contract
@@ -120,6 +120,7 @@ Supported routing:
 - **Port mapping**: `queryMappedPort()` in `docker-run.ts` calls `docker compose port` to discover random host ports. `prepareDockerOverlay()` accepts `publishTcpPorts` to auto-publish `0:<internalPort>` for TCP deps.
 - **Env injection**: TCP deps get `<UPPER_NAME>_HOST`/`_PORT`. Postgres deps additionally get `DATABASE_URL` and `SHADOW_DATABASE_URL` with fixed `prisma:prisma` credentials. `dev app exec --env-map TARGET=SOURCE` applies alias copies after this injection.
 - **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.
+- **Secret-manager precedence diagnostics**: `dev doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 
 ## Validation checklist
 

@@ -155,11 +155,16 @@ Secret manager interop (Infisical/Doppler):
 
 - devrouter injected vars for postgres deps: `DB_HOST`, `DB_PORT`, `DATABASE_URL`, `SHADOW_DATABASE_URL`.
 - If your secret manager also provides DB vars, do not assume precedence.
+- Avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values.
+- Safe host-run override pattern when wrapper also defines `DATABASE_URI`:
+  `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev`
 - Probe effective env before migration/seed:
 
 ```bash
 dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
 ```
+
+- `dev doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
 
 Compatibility note: older versions flattened `dev app exec` commands into a shell string; prefer argv-safe form on `v0.0.7+`.
 

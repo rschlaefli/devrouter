@@ -34,6 +34,16 @@ type PostgresCredentialInspection = {
   parseErrors: string[];
 };
 
+type HostCommandPrecedenceRisk = {
+  appName: string;
+  variables: string[];
+};
+
+type HostCommandPrecedenceInspection = {
+  inspectedCount: number;
+  riskyApps: HostCommandPrecedenceRisk[];
+};
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -150,6 +160,85 @@ function inspectPostgresCredentials(repoPath: string, config: DevrouterConfig): 
   }
 
   return { mismatches, parseErrors };
+}
+
+function findDbAssignmentsBeforeWrapperBoundary(command: string): string[] {
+  const boundary = command.search(/\brun\s+--/);
+  if (boundary < 0) {
+    return [];
+  }
+
+  const beforeBoundary = command.slice(0, boundary);
+  const matches = Array.from(beforeBoundary.matchAll(/\b(DATABASE_URI|DATABASE_URL)\s*=/g)).map(
+    (match) => match[1]
+  );
+
+  return Array.from(new Set(matches.values()));
+}
+
+function inspectHostCommandPrecedence(config: DevrouterConfig): HostCommandPrecedenceInspection {
+  const byName = new Map(config.apps.map((entry) => [entry.name, entry]));
+  const memo = new Map<string, boolean>();
+  const visiting = new Set<string>();
+
+  const dependsOnPostgres = (appName: string): boolean => {
+    const cached = memo.get(appName);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    if (visiting.has(appName)) {
+      return false;
+    }
+
+    const app = byName.get(appName);
+    if (!app) {
+      memo.set(appName, false);
+      return false;
+    }
+
+    if (app.runtime === "docker" && app.protocol === "tcp" && app.tcpProtocol === "postgres") {
+      memo.set(appName, true);
+      return true;
+    }
+
+    visiting.add(appName);
+    let result = false;
+    for (const dependency of app.dependencies) {
+      if (dependsOnPostgres(dependency.app)) {
+        result = true;
+        break;
+      }
+    }
+    visiting.delete(appName);
+    memo.set(appName, result);
+    return result;
+  };
+
+  const riskyApps: HostCommandPrecedenceRisk[] = [];
+  let inspectedCount = 0;
+
+  for (const app of config.apps) {
+    if (app.runtime !== "host" || app.protocol !== "http") {
+      continue;
+    }
+
+    const hasPostgresDependency = app.dependencies.some((dependency) => dependsOnPostgres(dependency.app));
+    if (!hasPostgresDependency) {
+      continue;
+    }
+
+    inspectedCount += 1;
+    const riskyVariables = findDbAssignmentsBeforeWrapperBoundary(app.hostRun.command);
+    if (riskyVariables.length > 0) {
+      riskyApps.push({
+        appName: app.name,
+        variables: riskyVariables
+      });
+    }
+  }
+
+  return { inspectedCount, riskyApps };
 }
 
 function isPidRunning(pid: number | undefined): boolean {
@@ -431,6 +520,28 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
             : undefined,
         suggestion: missingHostCwds.length === 0 ? undefined : "Fix hostRun.cwd paths in .devrouter.yml"
       });
+
+      const hostCommandInspection = inspectHostCommandPrecedence(config);
+      if (hostCommandInspection.inspectedCount > 0) {
+        const riskyCount = hostCommandInspection.riskyApps.length;
+        addCheck(checks, {
+          id: "repo.host-command-env-precedence",
+          level: riskyCount > 0 ? "warn" : "ok",
+          summary: riskyCount > 0
+            ? `Detected ${riskyCount} host app command(s) with DB env assignment before a 'run --' wrapper boundary.`
+            : "No risky pre-wrapper DB env assignments detected in host app commands with postgres dependencies.",
+          details:
+            riskyCount > 0
+              ? hostCommandInspection.riskyApps
+                  .map((risk) => `${risk.appName}: ${risk.variables.join(", ")}`)
+                  .join(", ")
+              : undefined,
+          suggestion:
+            riskyCount > 0
+              ? "Move DB assignment after wrapper boundary (example: infisical run --env=dev -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev). Then verify effective values with: dev app exec <app> --yes -- infisical run --env=<env> -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL"
+              : undefined
+        });
+      }
 
       if (repo.tcpAppCount > 0 && !status.tlsEnabled) {
         addCheck(checks, {
