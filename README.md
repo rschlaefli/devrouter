@@ -26,6 +26,8 @@ This is the only supported per-repo config for app routing/runtime definitions.
 ## Core commands
 
 - `dev init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill] [--with-linear]`
+- `dev -V [--repo <path>]` (installed CLI version, local repo version, next upgrade target)
+- `dev upgrade [version] [--repo <path>]`
 - `dev up`
 - `dev down`
 - `dev status [--repo <path>] [--json]`
@@ -41,6 +43,26 @@ This is the only supported per-repo config for app routing/runtime definitions.
 - `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env-map TARGET=SOURCE] -- <command>`
 - `dev app rm <name> [--repo <path>]`
 - `dev logs [-f]`
+
+## Upgrade metadata and prompts
+
+`dev upgrade` and `dev -V` read local upgrade metadata from `devrouter.yaml` in the target repo.
+Use one of these supported forms:
+
+```yaml
+version: <semver>
+```
+
+```yaml
+devrouter:
+  version: <semver>
+```
+
+Quick checks:
+
+- `dev -V` shows installed CLI version, local repo version, and next available upgrade target.
+- `dev upgrade` lists all upgrade targets newer than the local repo version and marks the next one.
+- `dev upgrade <version>` prints that target release's Agent Adaptation Prompt and then shows if a further version is available.
 
 ## AI-native onboarding prompt
 

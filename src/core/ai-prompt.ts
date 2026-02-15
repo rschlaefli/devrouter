@@ -18,6 +18,16 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       'Print the AI onboarding prompt template for a repository (non-mutating by default).',
   },
   {
+    command: 'dev -V',
+    purpose:
+      'Show installed CLI version, local repo version, and next upgrade target.',
+  },
+  {
+    command: 'dev upgrade [version]',
+    purpose:
+      'Show upgrade targets from devrouter.yaml and print Agent Adaptation Prompt for a target version.',
+  },
+  {
     command: 'dev up',
     purpose: 'Start shared Traefik and ensure the shared devnet network.',
   },
@@ -260,8 +270,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
           '- Post progress comments at meaningful checkpoints during implementation (not only at the end).',
           '- Before ending a session, post a final recap comment with completed work, remaining work, risks, and next step, then re-check status/comment freshness.',
           '- Optional bootstrap commands for repo artifacts: `dev init --repo <REPO_PATH> --with-linear --write-agents --write-skill` or `dev repo agents --repo <REPO_PATH> --with-linear`.',
-          '- If the repository uses devrouter, read the upstream devrouter release guidance at https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md and apply the latest Agent Adaptation Prompt before major changes.',
-          '- This is devrouter release guidance and does not require creating CHANGELOG.md in the target repository unless that repository already has its own policy.',
+          '- If the repository uses devrouter, keep `devrouter.yaml` with the applied local version and run `dev -V` to verify installed/local versions plus the next target.',
+          '- Resolve adaptation prompts with `dev upgrade` (list targets) and `dev upgrade <version>` (target prompt). Fallback release guidance: https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md.',
         ]
       : []),
     '',

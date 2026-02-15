@@ -43,6 +43,10 @@ When work is tracked in Linear, this is required:
 
 - `.devrouter.yml`
 
+Upgrade metadata for agent workflows is stored per repo in:
+
+- `devrouter.yaml` (local applied devrouter version for `dev -V` / `dev upgrade`)
+
 Supported routing:
 
 - HTTP host-run apps
@@ -53,6 +57,8 @@ Supported routing:
 ## Supported command surface
 
 - `dev init` (`--write-agents` / `--write-skill` optional; `--with-linear` optional; non-mutating by default)
+- `dev -V` (`--repo <path>` optional; shows installed CLI version, local repo version, next upgrade target)
+- `dev upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
 - `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
 - `dev repo init`, `dev repo agents` (`--with-linear` optional)
 - `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run`, `dev app exec` (`--shell`, `--env-map TARGET=SOURCE`), `dev app rm`
@@ -61,9 +67,12 @@ Supported routing:
 
 - `src/cli.ts`: command registration (lazy-loaded handlers)
 - `src/core/ai-prompt.ts`: canonical AI onboarding prompt template + command intents
+- `src/core/upgrade.ts`: devrouter version metadata + changelog prompt parsing for upgrade flows
 - `src/core/agents-md.ts`: idempotent AGENTS.md section writer + skill file distributor for repo discoverability
 - `src/core/linear-onboarding.ts`: guided Linear workspace/team/project metadata collector for AGENTS bootstrap
 - `src/commands/repo-agents.ts`: `dev repo agents` command handler
+- `src/commands/upgrade.ts`: `dev upgrade` command handler
+- `src/commands/version.ts`: `dev -V` version summary command handler
 - `src/core/doctor.ts`: diagnostic report engine for global + repo checks
 - `src/core/status.ts`: status collection + readiness insights
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
@@ -97,6 +106,8 @@ Supported routing:
 - `src/commands/__tests__/init.test.ts`: unit tests for `dev init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `dev open` app-name fallback behavior
 - `src/commands/__tests__/repo-agents.test.ts`: unit tests for `dev repo agents` optional `--with-linear` behavior
+- `src/commands/__tests__/upgrade.test.ts`: unit tests for `dev upgrade` and `dev -V`
+- `src/core/__tests__/upgrade.test.ts`: unit tests for version metadata + changelog parsing
 - `vitest.config.ts`: Vitest configuration
 
 ## Non-negotiable constraints

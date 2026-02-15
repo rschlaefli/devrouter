@@ -143,11 +143,11 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 
 ## Upgrade handling (required)
 
-- Always read the upstream devrouter release guidance at \`https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md\` before applying devrouter changes to a repository.
-- Treat the latest release section's **Agent Adaptation Prompt** in that upstream changelog as the canonical upgrade checklist.
-- This is devrouter release guidance and does not require creating a \`CHANGELOG.md\` in the target repository unless that repository already has its own policy.
+- Keep a repo-local \`devrouter.yaml\` with the currently applied devrouter version (for example \`version: <semver>\`).
+- Verify versions with \`dev -V\` (shows installed CLI version, local repo version, and next upgrade target).
+- Use \`dev upgrade\` to list available upgrade targets and \`dev upgrade <version>\` to print that target's Agent Adaptation Prompt.
+- If bundled release guidance is unavailable, fall back to \`https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md\`.
 - Do not assume user-provided instructions include all required adaptation steps.
-- Verify CLI version with \`dev --version\`, then align commands/workflows/docs to that version.
 - After upgrading the CLI in a dependent repo, refresh discoverability artifacts with \`dev repo agents\` (or \`dev init --write-agents --write-skill\`).
 - Re-run validation after upgrade: \`dev doctor --repo .\`, \`dev app ls --repo .\`, one representative \`dev app exec\` flow, and \`dev ls\`.
 
@@ -165,6 +165,8 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 ## Commands
 
 - \`dev init [--write-agents] [--write-skill] [--with-linear]\`: print AI onboarding prompt (non-mutating by default)
+- \`dev -V [--repo .]\`: show installed CLI version, local repo version, and next upgrade target
+- \`dev upgrade [version] [--repo .]\`: list upgrade targets or print target Agent Adaptation Prompt
 - \`dev up\` / \`dev down\`: start/stop shared Traefik router
 - \`dev status\`: router/container/network/TLS health
 - \`dev doctor [--repo .]\`: deep diagnostics (global + repo)
@@ -255,7 +257,7 @@ When working on Linear-tracked issues, this is required:
 
 ## Devrouter-specific note
 
-If the repository uses devrouter, read the upstream devrouter release guidance at \`https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md\` before major changes and apply the latest Agent Adaptation Prompt there.
+If the repository uses devrouter, use \`dev upgrade\` to resolve the required Agent Adaptation Prompt for the target version before major changes (fallback: \`https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md\`).
 `
 
 const LINEAR_ISSUE_TEMPLATE_CONTENT = `# Linear Issue Template

@@ -8,6 +8,10 @@ Onboard any repo using one config file:
 
 - `.devrouter.yml`
 
+Track the applied devrouter release for agent upgrades with:
+
+- `devrouter.yaml` (`version: <semver>`, used by `dev -V` / `dev upgrade`)
+
 Supported route types:
 
 - HTTP host-run apps
@@ -85,6 +89,13 @@ Initialize:
 
 ```bash
 dev repo init
+```
+
+Set upgrade metadata for this repo:
+
+```yaml
+# devrouter.yaml
+version: <semver>
 ```
 
 Add host app:
@@ -204,6 +215,9 @@ No repo-local compose overlay file is required anymore.
 
 ## 6) Validation checklist
 
+- `dev -V` shows installed CLI version, local repo version, and next upgrade target.
+- `dev upgrade` lists upgrade targets and marks the next one.
+- `dev upgrade <version>` prints that target adaptation prompt and reports further versions.
 - `dev app ls` shows expected entries.
 - `dev ls` shows both HTTP and/or TCP endpoints, including app and service identity columns.
 - `kind=dependency` entries appear in `dev app ls` but do not create active endpoints in `dev ls`.

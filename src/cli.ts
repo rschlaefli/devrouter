@@ -3,6 +3,7 @@ import { Command } from "commander";
 
 declare const __VERSION__: string;
 const CLI_VERSION: string = typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev";
+const VERSION_FLAGS = new Set(["-V", "--version"]);
 
 function withErrorHandling<TArgs extends unknown[]>(
   action: (...args: TArgs) => Promise<void>
@@ -22,7 +23,6 @@ const program = new Command();
 program
   .name("dev")
   .description("Local dev router CLI for stable .localhost routing across repositories")
-  .version(CLI_VERSION)
   .showSuggestionAfterError(true)
   .showHelpAfterError();
 
@@ -45,6 +45,17 @@ program
   }) => {
     const { runInitCommand } = await import("./commands/init");
     await runInitCommand(options);
+  }));
+
+program
+  .command("upgrade")
+  .description("Show upgrade targets from devrouter.yaml or print a target version adaptation prompt")
+  .argument("[version]", "Target devrouter version")
+  .option("--repo <path>", "Repository path containing devrouter.yaml (defaults to current directory)")
+  .action(withErrorHandling(async (targetVersion: string | undefined, _options: unknown, command: Command) => {
+    const options = command.opts<{ repo?: string }>();
+    const { runUpgradeCommand } = await import("./commands/upgrade");
+    await runUpgradeCommand({ targetVersion, repo: options.repo });
   }));
 
 program
@@ -250,4 +261,58 @@ tlsCommand
     await runTLSInstallCommand();
   }));
 
-program.parseAsync(process.argv);
+function parseVersionRequest(argv: string[]): { repo?: string } | null {
+  let requested = false;
+  let repo: string | undefined;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (VERSION_FLAGS.has(token)) {
+      requested = true;
+      continue;
+    }
+
+    if (token === "--repo") {
+      const nextToken = argv[index + 1];
+      if (!nextToken) {
+        throw new Error("--repo requires a value when used with -V/--version.");
+      }
+      repo = nextToken;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--repo=")) {
+      const value = token.slice("--repo=".length).trim();
+      if (value.length === 0) {
+        throw new Error("--repo requires a value when used with -V/--version.");
+      }
+      repo = value;
+      continue;
+    }
+
+    return null;
+  }
+
+  return requested ? { repo } : null;
+}
+
+async function runCli(): Promise<void> {
+  const versionRequest = parseVersionRequest(process.argv.slice(2));
+  if (versionRequest) {
+    const { runVersionCommand } = await import("./commands/version");
+    await runVersionCommand({
+      repo: versionRequest.repo,
+      installedVersion: CLI_VERSION
+    });
+    return;
+  }
+
+  await program.parseAsync(process.argv);
+}
+
+runCli().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`Error: ${message}\n`);
+  process.exitCode = 1;
+});

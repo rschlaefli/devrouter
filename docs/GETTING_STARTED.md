@@ -41,6 +41,12 @@ Verify:
 dev --help
 ```
 
+Version and upgrade quick check:
+
+```bash
+dev -V
+```
+
 Optional: run bundled smoke demo (host app + docker app + postgres):
 
 ```bash
@@ -200,6 +206,18 @@ dev repo init
 This creates:
 
 - `.devrouter.yml`
+
+For upgrade-aware agent workflows, also keep a repo-local `devrouter.yaml` with the applied devrouter version:
+
+```yaml
+version: <semver>
+```
+
+Then:
+
+- `dev -V` shows installed CLI version, local repo version, and next upgrade target.
+- `dev upgrade` lists available upgrade targets and marks the next one.
+- `dev upgrade <version>` prints that target version's Agent Adaptation Prompt and indicates if a newer target is still available.
 
 To write a devrouter section into the repo's `AGENTS.md` and install the devrouter skill:
 

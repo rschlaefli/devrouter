@@ -108,10 +108,10 @@ describe('agents-md linear workflow support', () => {
     expect(skillContent).toContain('kind: app | dependency')
     expect(skillContent).toContain('kind=dependency')
     expect(skillContent).toContain(
-      'https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md'
+      'dev upgrade <version>'
     )
     expect(skillContent).toContain(
-      'does not require creating a `CHANGELOG.md` in the target repository unless that repository already has its own policy'
+      'dev -V'
     )
   })
 })

@@ -147,6 +147,8 @@ This folder is managed by the devrouter CLI.
 ## Commands
 
 - dev init [--write-agents] [--write-skill] [--with-linear]
+- dev -V [--repo <path>] (installed/local version + next upgrade)
+- dev upgrade [version] [--repo <path>]
 - dev up
 - dev down
 - dev status

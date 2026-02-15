@@ -21,13 +21,16 @@ Completed milestones from recent commits:
 - `0.0.11` (2026-02-15): exec dependency ownership teardown — `dev app exec` now stops only dependencies started by that invocation and leaves already-running services up.
 - `0.0.12` (2026-02-15): TLS host-coverage hardening — SAN preservation on refresh, run/exec auto-refresh for configured hosts, and new doctor warning `repo.tls-host-coverage`.
 - `0.0.13` (2026-02-15): dependency-only docker app kind (`kind: dependency`) for non-routed services (for example Redis), direct run/exec/open guardrails, and schema/CLI/docs/test updates.
+- `0.0.14` (2026-02-15): agent upgrade UX — new `dev upgrade` target/prompt flow from local `devrouter.yaml`, richer `dev -V` output (installed/local/next target), and bundled changelog shipping for offline prompt access.
 
 ## Current baseline
 
 Delivered and active:
 
 - Unified per-repo config: `.devrouter.yml`
+- Repo-local upgrade metadata: `devrouter.yaml`
 - Command groups: `dev repo ...` and `dev app ...`
+- Upgrade commands: `dev -V` (installed/local/next) and `dev upgrade [version]`
 - HTTP routing for host-run and Docker-run apps
 - TCP/Postgres Docker routing on `:5432` with TLS/SNI
 - Dependency-only docker services via `kind: dependency` (non-routed, dependency lifecycle only)
@@ -130,6 +133,7 @@ Acceptance criteria:
 
 - `.devrouter.yml` is the single source of truth for per-repo routing config.
 - Stable CLI surface includes `up/down/status/ls/open/tls`, `repo init/agents`, and `app add/ls/run/exec/rm`.
+- Version verification and upgrade guidance are first-class CLI flows via `dev -V` and `dev upgrade`.
 - `kind=dependency` is a docker-only non-routed app variant for dependency startup/teardown without Traefik route wiring.
 - `dev app exec` uses ownership-aware teardown: stop deps it started, leave already-running deps up.
 - If exec dependency ownership detection is unavailable, teardown is non-destructive (deps remain running).

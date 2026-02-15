@@ -13,6 +13,7 @@ The `docker-compose.yml` here serves as a reference for devrouter compose conven
 ## Files
 
 - `.devrouter.yml`: complete repo routing config
+- `devrouter.yaml`: local applied devrouter version metadata for `dev -V` / `dev upgrade`
 - `docker-compose.yml`: Docker services (`app`, `db`)
 - `app/server.js`: simple HTTP app used by host and Docker runtimes
 
@@ -22,6 +23,8 @@ From `/Volumes/HOME/Git/personal/devrouter`:
 
 ```bash
 dev init --repo ./demo
+dev -V --repo ./demo
+dev upgrade --repo ./demo
 dev up
 dev tls install
 dev doctor --repo ./demo

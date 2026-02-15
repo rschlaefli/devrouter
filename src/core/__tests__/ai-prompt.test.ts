@@ -101,10 +101,10 @@ describe('buildOnboardingPrompt', () => {
       'Before ending a session, post a final recap comment with completed work, remaining work, risks, and next step'
     )
     expect(withLinear).toContain(
-      'https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md'
+      'dev upgrade <version>'
     )
     expect(withLinear).toContain(
-      'does not require creating CHANGELOG.md in the target repository unless that repository already has its own policy'
+      'dev -V'
     )
   })
 })

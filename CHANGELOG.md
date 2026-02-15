@@ -2,6 +2,59 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.14] - 2026-02-15
+
+### Changed
+
+- `dev -V` now prints:
+  - installed CLI version
+  - local repository version from `devrouter.yaml`
+  - next available upgrade target (if any)
+- Upgrade guidance in distributed devrouter skills/AGENTS content now points agents to `dev upgrade` instead of manual changelog scanning first.
+
+### Added
+
+- New command: `dev upgrade [version] [--repo <path>]`.
+  - `dev upgrade` lists available upgrade targets newer than the local `devrouter.yaml` version and marks the next one.
+  - `dev upgrade <version>` prints the target release's Agent Adaptation Prompt and then reports if a further version is available.
+- New core upgrade parser/runtime:
+  - reads local version metadata from `devrouter.yaml`
+  - parses release prompts from bundled `CHANGELOG.md`
+  - resolves semver-ordered target chains for agent-friendly incremental upgrades.
+- Package distribution now includes `CHANGELOG.md` so release prompts are available to installed CLI flows.
+
+### Agent Adaptation Prompt
+
+```text
+You are upgrading a repository that uses devrouter to version 0.0.14.
+
+Task:
+1) Ensure the repository has `devrouter.yaml` with the currently applied devrouter version:
+   - preferred shape: `version: <semver>`
+   - accepted alternative: `devrouter.version: <semver>`
+2) Verify version state with:
+   - `dev -V --repo <repo>`
+3) Resolve upgrade path with:
+   - `dev upgrade --repo <repo>`
+4) Apply the next required release prompt (incremental upgrade):
+   - `dev upgrade <target-version> --repo <repo>`
+5) If further versions are reported after that target, continue incrementally by repeating step 4 until reaching the desired version.
+6) After finishing upgrade edits, refresh discoverability artifacts:
+   - `dev repo agents --repo <repo>`
+
+Validation:
+- `dev -V --repo <repo>` shows installed CLI version, local repo version, and next target (or none)
+- `dev upgrade --repo <repo>` lists upgrade targets in ascending order and marks the next version
+- `dev upgrade <target-version> --repo <repo>` prints the expected Agent Adaptation Prompt for that version
+- `dev doctor --repo <repo>`
+
+Report:
+- `devrouter.yaml` version before/after
+- target versions applied in order
+- remaining available versions (if any)
+- unresolved risks/ambiguities
+```
+
 ## [0.0.13] - 2026-02-15
 
 ### Changed
