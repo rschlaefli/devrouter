@@ -46,6 +46,8 @@ describe("agents-md linear workflow support", () => {
     const content = fs.readFileSync(path.join(tmpDir, "AGENTS.md"), "utf-8");
     expect(content).toContain("<!-- devrouter-linear-workflow -->");
     expect(content).toContain("<!-- devrouter-linear-workflow-config:start -->");
+    expect(content).toContain("Required Linear execution hygiene:");
+    expect(content).toContain("Set issue status at session start and update it at each phase transition.");
     expect(content).toContain("Workspace B");
     expect(content).not.toContain("Workspace A");
     expect(content.match(/devrouter-linear-workflow-config:start/g)?.length ?? 0).toBe(1);
@@ -72,6 +74,8 @@ describe("agents-md linear workflow support", () => {
     expect(skillContent).toContain("# linear-workflow");
     expect(skillContent).toContain("workspace/team/project");
     expect(skillContent).toContain("Do not hardcode workspace/team/project assumptions.");
+    expect(skillContent).toContain("Required execution hygiene");
+    expect(skillContent).toContain("Post progress comments at meaningful checkpoints during implementation.");
   });
 
   it("keeps existing devrouter section and skill behavior unchanged", () => {

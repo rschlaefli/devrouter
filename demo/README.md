@@ -44,6 +44,13 @@ dev init --repo ./demo --with-linear --write-agents --write-skill
 
 This captures minimal Linear mapping values (workspace/team/project) into a managed AGENTS block. In non-interactive mode placeholders are written and should be replaced later.
 
+Required Linear execution hygiene:
+
+1. Set issue status at session start and update it at each phase transition.
+2. Post progress comments at meaningful checkpoints during implementation.
+3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
+4. Re-check status and comment freshness toward/at session end before stopping.
+
 For non-Prisma tooling in host commands, map aliases with argv-safe exec:
 
 ```bash

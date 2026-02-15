@@ -28,6 +28,15 @@ Keep these docs up to date with any behavior, command, schema, or onboarding wor
 2. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md`.
 3. Each release section in `CHANGELOG.md` must include exactly one copy-pastable "Agent adaptation prompt" that consolidates all required cross-repo changes.
 
+## Linear execution hygiene
+
+When work is tracked in Linear, this is required:
+
+1. Set the issue status at session start and update it at each phase transition.
+2. Post progress comments at meaningful checkpoints during implementation.
+3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
+4. Re-check status and comment freshness toward/at session end before stopping.
+
 ## Current product model
 
 `devrouter` now uses one per-repo config file:

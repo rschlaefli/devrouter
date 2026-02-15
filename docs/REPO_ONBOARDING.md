@@ -269,6 +269,13 @@ This additionally creates:
 
 Interactive runs prompt for workspace/team/project values. Non-interactive runs write placeholders and warn.
 
+Required Linear execution hygiene:
+
+1. Set issue status at session start and update it at each phase transition.
+2. Post progress comments at meaningful checkpoints during implementation.
+3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
+4. Re-check status and comment freshness toward/at session end before stopping.
+
 ## 10) AI agent prompt (single copy-paste)
 
 Use this as the only onboarding prompt for agents:

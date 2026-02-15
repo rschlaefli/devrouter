@@ -206,6 +206,9 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
           "  - `<!-- devrouter-linear-workflow-config:start -->`",
           "  - `<!-- devrouter-linear-workflow-config:end -->`",
           "- If placeholders are present in that block, ask these questions again and update the mapping.",
+          "- While implementing Linear-tracked work, set issue status at session start and at each phase transition.",
+          "- Post progress comments at meaningful checkpoints during implementation (not only at the end).",
+          "- Before ending a session, post a final recap comment with completed work, remaining work, risks, and next step, then re-check status/comment freshness.",
           "- Optional bootstrap commands for repo artifacts: `dev init --repo <REPO_PATH> --with-linear --write-agents --write-skill` or `dev repo agents --repo <REPO_PATH> --with-linear`.",
           "- If the repository uses devrouter, read the upstream devrouter release guidance at https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md and apply the latest Agent Adaptation Prompt before major changes.",
           "- This is devrouter release guidance and does not require creating CHANGELOG.md in the target repository unless that repository already has its own policy."

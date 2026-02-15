@@ -224,6 +224,13 @@ This additionally creates:
 
 If running without an interactive TTY, devrouter writes placeholder mapping values and prints a warning.
 
+Required Linear execution hygiene:
+
+1. Set issue status at session start and update it at each phase transition.
+2. Post progress comments at meaningful checkpoints during implementation.
+3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
+4. Re-check status and comment freshness toward/at session end before stopping.
+
 ## 6) Generate onboarding prompt for an AI agent (optional)
 
 From the target repository:

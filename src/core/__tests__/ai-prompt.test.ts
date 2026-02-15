@@ -59,6 +59,15 @@ describe("buildOnboardingPrompt", () => {
     expect(withLinear).toContain("Linear milestone workflow (enabled via --with-linear):");
     expect(withLinear).toContain("Which Linear workspace does this repository belong to?");
     expect(withLinear).toContain("devrouter-linear-workflow-config:start");
+    expect(withLinear).toContain(
+      "set issue status at session start and at each phase transition"
+    );
+    expect(withLinear).toContain(
+      "Post progress comments at meaningful checkpoints during implementation"
+    );
+    expect(withLinear).toContain(
+      "Before ending a session, post a final recap comment with completed work, remaining work, risks, and next step"
+    );
     expect(withLinear).toContain("https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md");
     expect(withLinear).toContain(
       "does not require creating CHANGELOG.md in the target repository unless that repository already has its own policy"

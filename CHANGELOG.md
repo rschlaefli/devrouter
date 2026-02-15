@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 - `dev repo agents --with-linear` now uses the same guided metadata capture behavior when writing AGENTS artifacts.
 - `dev init --with-linear` (without write flags) remains non-mutating and now includes explicit guided Linear mapping questions in the generated onboarding prompt.
 - Linear workflow skill guidance is simplified to resolve repository-specific mapping from AGENTS metadata first, not hardcoded assumptions.
+- Linear workflow guidance now requires ongoing Linear issue hygiene: status transitions during work, checkpoint progress comments, and end-of-session recap/status verification.
 
 ### Added
 
@@ -45,6 +46,10 @@ Task:
    - `linear.team.name`
    - `linear.project.name`
 5) If placeholders exist from non-interactive runs, re-run the command in an interactive TTY and provide workspace/team/project values.
+6) For Linear-tracked implementation, enforce execution hygiene:
+   - set issue status at session start and each phase transition
+   - post progress comments at meaningful checkpoints during implementation
+   - post an end-of-session recap comment and re-check status/comment freshness before stopping
 
 Validation:
 - run `dev init --repo <repo> --with-linear` and confirm guided Linear questions appear
@@ -55,6 +60,7 @@ Report:
 - final workspace/team/project mapping stored in AGENTS
 - whether placeholders were replaced
 - any unresolved mapping ambiguity
+- confirmation that Linear status/comment cadence was followed during execution and at session end
 ```
 
 ## [0.0.8] - 2026-02-15

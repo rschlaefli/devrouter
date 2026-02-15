@@ -224,6 +224,15 @@ If non-interactive context prevents asking, keep placeholders and request values
 - Do not hardcode workspace/team/project assumptions.
 - Always resolve them from AGENTS metadata first.
 
+## Required execution hygiene
+
+When working on Linear-tracked issues, this is required:
+
+1. Set issue status at session start and update it at each phase transition.
+2. Post progress comments at meaningful checkpoints during implementation.
+3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
+4. Re-check status and comment freshness toward/at session end before stopping.
+
 ## Devrouter-specific note
 
 If the repository uses devrouter, read the upstream devrouter release guidance at \`https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md\` before major changes and apply the latest Agent Adaptation Prompt there.
@@ -327,6 +336,12 @@ function buildLinearWorkflowSection(): string {
     "Managed metadata block:",
     `- \`${LINEAR_WORKFLOW_CONFIG_START}\``,
     `- \`${LINEAR_WORKFLOW_CONFIG_END}\``,
+    "",
+    "Required Linear execution hygiene:",
+    "- Set issue status at session start and update it at each phase transition.",
+    "- Post progress comments at meaningful checkpoints during implementation.",
+    "- Before ending a session, post a final comment with completed work, remaining work, risks, and next step.",
+    "- Re-check status and comment freshness toward/at session end before stopping.",
     "",
     "Bootstrap commands:",
     "- `dev init --with-linear --write-agents --write-skill`",

@@ -38,6 +38,13 @@ Delivered and active:
 - `dev init` prompt generation is side-effect free by default (`--write-agents` / `--write-skill` opt-in writes)
 - Route identity carries app + service names; `dev open` resolves app names directly
 
+Linear execution hygiene (required when using Linear workflow):
+
+1. Set issue status at session start and update it at each phase transition.
+2. Post progress comments at meaningful checkpoints during implementation.
+3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
+4. Re-check status and comment freshness toward/at session end before stopping.
+
 ## Onboarding readiness sprint
 
 Goal: stabilize behavior and docs before broader repository onboarding.
