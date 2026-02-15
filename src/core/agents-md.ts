@@ -1,20 +1,22 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import type { LinearWorkflowMetadata } from "./linear-onboarding";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import type { LinearWorkflowMetadata } from './linear-onboarding'
 
-const DEVROUTER_SENTINEL = "<!-- devrouter -->";
-const LINEAR_WORKFLOW_SENTINEL = "<!-- devrouter-linear-workflow -->";
-const LINEAR_WORKFLOW_CONFIG_START = "<!-- devrouter-linear-workflow-config:start -->";
-const LINEAR_WORKFLOW_CONFIG_END = "<!-- devrouter-linear-workflow-config:end -->";
-const AGENTS_MD = "AGENTS.md";
-const DEVROUTER_SKILL_REL_PATH = ".factory/skills/devrouter/SKILL.md";
-const LINEAR_SKILL_REL_PATH = ".factory/skills/linear-workflow/SKILL.md";
+const DEVROUTER_SENTINEL = '<!-- devrouter -->'
+const LINEAR_WORKFLOW_SENTINEL = '<!-- devrouter-linear-workflow -->'
+const LINEAR_WORKFLOW_CONFIG_START =
+  '<!-- devrouter-linear-workflow-config:start -->'
+const LINEAR_WORKFLOW_CONFIG_END =
+  '<!-- devrouter-linear-workflow-config:end -->'
+const AGENTS_MD = 'AGENTS.md'
+const DEVROUTER_SKILL_REL_PATH = '.factory/skills/devrouter/SKILL.md'
+const LINEAR_SKILL_REL_PATH = '.factory/skills/linear-workflow/SKILL.md'
 const LINEAR_ISSUE_TEMPLATE_REL_PATH =
-  ".factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md";
+  '.factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md'
 const LINEAR_MILESTONE_TEMPLATE_REL_PATH =
-  ".factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md";
+  '.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md'
 const LINEAR_PROGRESS_TEMPLATE_REL_PATH =
-  ".factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md";
+  '.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md'
 
 // Embedded skill content — must be self-contained in the built CLI bundle.
 // Keep in sync with .factory/skills/devrouter/SKILL.md in the devrouter repo.
@@ -131,7 +133,7 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 
 ## Upgrade handling (required)
 
-- Always read the upstream devrouter release guidance at \`https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md\` before applying devrouter changes to a repository.
+- Always read the upstream devrouter release guidance at \`https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md\` before applying devrouter changes to a repository.
 - Treat the latest release section's **Agent Adaptation Prompt** in that upstream changelog as the canonical upgrade checklist.
 - This is devrouter release guidance and does not require creating a \`CHANGELOG.md\` in the target repository unless that repository already has its own policy.
 - Do not assume user-provided instructions include all required adaptation steps.
@@ -187,7 +189,7 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - \`dev app exec\` follows the same dep lifecycle for one-shot commands and preserves argv semantics by default (\`shell: false\`).
 - \`dev app exec --shell\` is explicit and requires exactly one command string after \`--\`.
 - Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (\`printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT\`) before migrate/seed.
-`;
+`
 
 // Embedded linear workflow assets — optional, written only with --with-linear.
 const LINEAR_WORKFLOW_SKILL_CONTENT = `---
@@ -239,8 +241,8 @@ When working on Linear-tracked issues, this is required:
 
 ## Devrouter-specific note
 
-If the repository uses devrouter, read the upstream devrouter release guidance at \`https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md\` before major changes and apply the latest Agent Adaptation Prompt there.
-`;
+If the repository uses devrouter, read the upstream devrouter release guidance at \`https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md\` before major changes and apply the latest Agent Adaptation Prompt there.
+`
 
 const LINEAR_ISSUE_TEMPLATE_CONTENT = `# Linear Issue Template
 
@@ -261,7 +263,7 @@ const LINEAR_ISSUE_TEMPLATE_CONTENT = `# Linear Issue Template
 ## Dependencies / Blockers
 
 ## Rollout Risks
-`;
+`
 
 const LINEAR_MILESTONE_TEMPLATE_CONTENT = `# Milestone Plan Template
 
@@ -284,7 +286,7 @@ const LINEAR_MILESTONE_TEMPLATE_CONTENT = `# Milestone Plan Template
 ## Risks and Mitigations
 
 ## Definition of Done
-`;
+`
 
 const LINEAR_PROGRESS_TEMPLATE_CONTENT = `# Progress Update Template
 
@@ -301,182 +303,228 @@ const LINEAR_PROGRESS_TEMPLATE_CONTENT = `# Progress Update Template
 
 ## Risks / Blockers
 - <item>
-`;
+`
 
 function buildDevrouterSection(): string {
   return [
     DEVROUTER_SENTINEL,
-    "## devrouter",
-    "",
-    "This repository uses [devrouter](https://github.com/rolandhordos/devrouter) for local dev routing.",
-    "All apps and dependencies are declared in `.devrouter.yml`.",
-    "",
-    "Full reference (config schema, docker requirements, env injection, commands):",
+    '## devrouter',
+    '',
+    'This repository uses [devrouter](https://github.com/rschlaefli/devrouter) for local dev routing.',
+    'All apps and dependencies are declared in `.devrouter.yml`.',
+    '',
+    'Full reference (config schema, docker requirements, env injection, commands):',
     `\`${DEVROUTER_SKILL_REL_PATH}\``,
-    "",
-    "Quick validation sequence:",
-    "- `dev up`",
-    "- `dev tls install` (required when repo defines tcp/postgres apps)",
-    "- `dev app ls --repo .`",
-    "- `dev app run <host-app> --repo . --yes`",
-    "- `dev ls`",
-  ].join("\n");
+    '',
+    'Quick validation sequence:',
+    '- `dev up`',
+    '- `dev tls install` (required when repo defines tcp/postgres apps)',
+    '- `dev app ls --repo .`',
+    '- `dev app run <host-app> --repo . --yes`',
+    '- `dev ls`',
+  ].join('\n')
 }
 
 function buildLinearWorkflowSection(): string {
   return [
     LINEAR_WORKFLOW_SENTINEL,
-    "## linear-workflow",
-    "",
-    "This repository can optionally use a Linear-centered workflow with a minimal workspace/team/project mapping.",
-    "Use the managed AGENTS metadata block as source of truth before creating/updating Linear issues.",
-    "",
-    "Skill and templates:",
+    '## linear-workflow',
+    '',
+    'This repository can optionally use a Linear-centered workflow with a minimal workspace/team/project mapping.',
+    'Use the managed AGENTS metadata block as source of truth before creating/updating Linear issues.',
+    '',
+    'Skill and templates:',
     `- \`${LINEAR_SKILL_REL_PATH}\``,
     `- \`${LINEAR_ISSUE_TEMPLATE_REL_PATH}\``,
     `- \`${LINEAR_MILESTONE_TEMPLATE_REL_PATH}\``,
     `- \`${LINEAR_PROGRESS_TEMPLATE_REL_PATH}\``,
-    "",
-    "Managed metadata block:",
+    '',
+    'Managed metadata block:',
     `- \`${LINEAR_WORKFLOW_CONFIG_START}\``,
     `- \`${LINEAR_WORKFLOW_CONFIG_END}\``,
-    "",
-    "Required Linear execution hygiene:",
-    "- Set issue status at session start and update it at each phase transition.",
-    "- Post progress comments at meaningful checkpoints during implementation.",
-    "- Before ending a session, post a final comment with completed work, remaining work, risks, and next step.",
-    "- Re-check status and comment freshness toward/at session end before stopping.",
-    "",
-    "Bootstrap commands:",
-    "- `dev init --with-linear --write-agents --write-skill`",
-    "- `dev repo agents --with-linear`",
-  ].join("\n");
+    '',
+    'Required Linear execution hygiene:',
+    '- Set issue status at session start and update it at each phase transition.',
+    '- Post progress comments at meaningful checkpoints during implementation.',
+    '- Before ending a session, post a final comment with completed work, remaining work, risks, and next step.',
+    '- Re-check status and comment freshness toward/at session end before stopping.',
+    '',
+    'Bootstrap commands:',
+    '- `dev init --with-linear --write-agents --write-skill`',
+    '- `dev repo agents --with-linear`',
+  ].join('\n')
 }
 
 function yamlQuote(value: string): string {
-  return JSON.stringify(value);
+  return JSON.stringify(value)
 }
 
 function renderLinearWorkflowConfig(metadata: LinearWorkflowMetadata): string {
   const lines = [
-    "linear:",
-    "  workspace:",
+    'linear:',
+    '  workspace:',
     `    name: ${yamlQuote(metadata.workspace.name)}`,
-    "  team:",
-    `    name: ${yamlQuote(metadata.team.name)}`
-  ];
+    '  team:',
+    `    name: ${yamlQuote(metadata.team.name)}`,
+  ]
 
   if (metadata.team.key) {
-    lines.push(`    key: ${yamlQuote(metadata.team.key)}`);
+    lines.push(`    key: ${yamlQuote(metadata.team.key)}`)
   }
 
-  lines.push("  project:");
-  lines.push(`    name: ${yamlQuote(metadata.project.name)}`);
+  lines.push('  project:')
+  lines.push(`    name: ${yamlQuote(metadata.project.name)}`)
 
   if (metadata.project.id) {
-    lines.push(`    id: ${yamlQuote(metadata.project.id)}`);
+    lines.push(`    id: ${yamlQuote(metadata.project.id)}`)
   }
 
-  lines.push(`  updated_at: ${yamlQuote(metadata.updatedAt)}`);
-  lines.push(`  capture_mode: ${yamlQuote(metadata.captureMode)}`);
-  return lines.join("\n");
+  lines.push(`  updated_at: ${yamlQuote(metadata.updatedAt)}`)
+  lines.push(`  capture_mode: ${yamlQuote(metadata.captureMode)}`)
+  return lines.join('\n')
 }
 
-function renderLinearWorkflowConfigBlock(metadata: LinearWorkflowMetadata): string {
+function renderLinearWorkflowConfigBlock(
+  metadata: LinearWorkflowMetadata
+): string {
   return [
     LINEAR_WORKFLOW_CONFIG_START,
-    "```yaml",
+    '```yaml',
     renderLinearWorkflowConfig(metadata),
-    "```",
-    LINEAR_WORKFLOW_CONFIG_END
-  ].join("\n");
+    '```',
+    LINEAR_WORKFLOW_CONFIG_END,
+  ].join('\n')
 }
 
 function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function upsertLinearWorkflowConfigBlock(content: string, metadata: LinearWorkflowMetadata): string {
-  const block = renderLinearWorkflowConfigBlock(metadata);
+function upsertLinearWorkflowConfigBlock(
+  content: string,
+  metadata: LinearWorkflowMetadata
+): string {
+  const block = renderLinearWorkflowConfigBlock(metadata)
   const pattern = new RegExp(
     `${escapeRegExp(LINEAR_WORKFLOW_CONFIG_START)}[\\s\\S]*?${escapeRegExp(LINEAR_WORKFLOW_CONFIG_END)}\\n?`,
-    "m"
-  );
+    'm'
+  )
 
   if (pattern.test(content)) {
-    return content.replace(pattern, `${block}\n`);
+    return content.replace(pattern, `${block}\n`)
   }
 
-  return `${content.trimEnd()}\n\n${block}\n`;
+  return `${content.trimEnd()}\n\n${block}\n`
 }
 
-function writeRepoFile(repoPath: string, relPath: string, content: string): string {
-  const absolutePath = join(repoPath, relPath);
-  mkdirSync(dirname(absolutePath), { recursive: true });
-  writeFileSync(absolutePath, content, "utf-8");
-  return absolutePath;
+function writeRepoFile(
+  repoPath: string,
+  relPath: string,
+  content: string
+): string {
+  const absolutePath = join(repoPath, relPath)
+  mkdirSync(dirname(absolutePath), { recursive: true })
+  writeFileSync(absolutePath, content, 'utf-8')
+  return absolutePath
 }
 
-export function ensureAgentsMdSection(repoPath: string): { path: string; written: boolean } {
-  const filePath = join(repoPath, AGENTS_MD);
+export function ensureAgentsMdSection(repoPath: string): {
+  path: string
+  written: boolean
+} {
+  const filePath = join(repoPath, AGENTS_MD)
 
   if (existsSync(filePath)) {
-    const content = readFileSync(filePath, "utf-8");
+    const content = readFileSync(filePath, 'utf-8')
     if (content.includes(DEVROUTER_SENTINEL)) {
-      return { path: filePath, written: false };
+      return { path: filePath, written: false }
     }
-    writeFileSync(filePath, content.trimEnd() + "\n\n" + buildDevrouterSection() + "\n", "utf-8");
-    return { path: filePath, written: true };
+    writeFileSync(
+      filePath,
+      content.trimEnd() + '\n\n' + buildDevrouterSection() + '\n',
+      'utf-8'
+    )
+    return { path: filePath, written: true }
   }
 
-  writeFileSync(filePath, "# AGENTS.md\n\n" + buildDevrouterSection() + "\n", "utf-8");
-  return { path: filePath, written: true };
+  writeFileSync(
+    filePath,
+    '# AGENTS.md\n\n' + buildDevrouterSection() + '\n',
+    'utf-8'
+  )
+  return { path: filePath, written: true }
 }
 
 export function ensureLinearWorkflowAgentsSection(
   repoPath: string,
   metadata: LinearWorkflowMetadata
 ): { path: string; written: boolean } {
-  const filePath = join(repoPath, AGENTS_MD);
+  const filePath = join(repoPath, AGENTS_MD)
 
   if (existsSync(filePath)) {
-    let content = readFileSync(filePath, "utf-8");
-    let changed = false;
+    let content = readFileSync(filePath, 'utf-8')
+    let changed = false
 
     if (!content.includes(LINEAR_WORKFLOW_SENTINEL)) {
-      content = content.trimEnd() + "\n\n" + buildLinearWorkflowSection() + "\n";
-      changed = true;
+      content = content.trimEnd() + '\n\n' + buildLinearWorkflowSection() + '\n'
+      changed = true
     }
 
-    const withConfig = upsertLinearWorkflowConfigBlock(content, metadata);
+    const withConfig = upsertLinearWorkflowConfigBlock(content, metadata)
     if (withConfig !== content) {
-      changed = true;
+      changed = true
     }
 
     if (changed) {
-      writeFileSync(filePath, withConfig, "utf-8");
+      writeFileSync(filePath, withConfig, 'utf-8')
     }
 
-    return { path: filePath, written: changed };
+    return { path: filePath, written: changed }
   }
 
-  const initialContent = "# AGENTS.md\n\n" + buildLinearWorkflowSection() + "\n";
-  const withConfig = upsertLinearWorkflowConfigBlock(initialContent, metadata);
-  writeFileSync(filePath, withConfig, "utf-8");
-  return { path: filePath, written: true };
+  const initialContent = '# AGENTS.md\n\n' + buildLinearWorkflowSection() + '\n'
+  const withConfig = upsertLinearWorkflowConfigBlock(initialContent, metadata)
+  writeFileSync(filePath, withConfig, 'utf-8')
+  return { path: filePath, written: true }
 }
 
-export function ensureSkillFile(repoPath: string): { path: string; written: boolean } {
-  const filePath = writeRepoFile(repoPath, DEVROUTER_SKILL_REL_PATH, DEVROUTER_SKILL_CONTENT);
-  return { path: filePath, written: true };
+export function ensureSkillFile(repoPath: string): {
+  path: string
+  written: boolean
+} {
+  const filePath = writeRepoFile(
+    repoPath,
+    DEVROUTER_SKILL_REL_PATH,
+    DEVROUTER_SKILL_CONTENT
+  )
+  return { path: filePath, written: true }
 }
 
-export function ensureLinearWorkflowSkillFiles(repoPath: string): { paths: string[]; written: true } {
+export function ensureLinearWorkflowSkillFiles(repoPath: string): {
+  paths: string[]
+  written: true
+} {
   const paths = [
-    writeRepoFile(repoPath, LINEAR_SKILL_REL_PATH, LINEAR_WORKFLOW_SKILL_CONTENT),
-    writeRepoFile(repoPath, LINEAR_ISSUE_TEMPLATE_REL_PATH, LINEAR_ISSUE_TEMPLATE_CONTENT),
-    writeRepoFile(repoPath, LINEAR_MILESTONE_TEMPLATE_REL_PATH, LINEAR_MILESTONE_TEMPLATE_CONTENT),
-    writeRepoFile(repoPath, LINEAR_PROGRESS_TEMPLATE_REL_PATH, LINEAR_PROGRESS_TEMPLATE_CONTENT)
-  ];
-  return { paths, written: true };
+    writeRepoFile(
+      repoPath,
+      LINEAR_SKILL_REL_PATH,
+      LINEAR_WORKFLOW_SKILL_CONTENT
+    ),
+    writeRepoFile(
+      repoPath,
+      LINEAR_ISSUE_TEMPLATE_REL_PATH,
+      LINEAR_ISSUE_TEMPLATE_CONTENT
+    ),
+    writeRepoFile(
+      repoPath,
+      LINEAR_MILESTONE_TEMPLATE_REL_PATH,
+      LINEAR_MILESTONE_TEMPLATE_CONTENT
+    ),
+    writeRepoFile(
+      repoPath,
+      LINEAR_PROGRESS_TEMPLATE_REL_PATH,
+      LINEAR_PROGRESS_TEMPLATE_CONTENT
+    ),
+  ]
+  return { paths, written: true }
 }

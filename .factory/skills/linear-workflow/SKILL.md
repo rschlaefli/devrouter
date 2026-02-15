@@ -47,4 +47,4 @@ When working on Linear-tracked issues, this is required:
 
 ## Devrouter-specific note
 
-If the repository uses devrouter, read the upstream devrouter release guidance at `https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md` before major changes and apply the latest Agent Adaptation Prompt there.
+If the repository uses devrouter, read the upstream devrouter release guidance at `https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md` before major changes and apply the latest Agent Adaptation Prompt there.

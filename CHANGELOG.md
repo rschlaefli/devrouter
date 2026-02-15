@@ -151,7 +151,7 @@ Task:
    - `references/LINEAR_ISSUE_TEMPLATE.md`
    - `references/MILESTONE_PLAN_TEMPLATE.md`
    - `references/PROGRESS_UPDATE_TEMPLATE.md`
-5) Use devrouter release guidance from `https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md` (latest Agent Adaptation Prompt); this does not require adding `CHANGELOG.md` to the target repository unless that repository already has its own policy.
+5) Use devrouter release guidance from `https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md` (latest Agent Adaptation Prompt); this does not require adding `CHANGELOG.md` to the target repository unless that repository already has its own policy.
 
 Validation:
 - run `dev init --repo <repo> --with-linear` and confirm the prompt includes "Linear milestone workflow"

@@ -20,37 +20,38 @@ Local dev routing via a shared Traefik reverse proxy. Provides stable `*.localho
 ```yaml
 version: 1
 project:
-  name: <string>            # optional
+  name: <string> # optional
 apps:
-  - name: <string>          # unique within repo
+  - name: <string> # unique within repo
     host: <name>.localhost
     protocol: http | tcp
     runtime: host | docker
-    dependencies:            # optional
+    dependencies: # optional
       - app: <other-name>
 
     # if runtime=host (protocol must be http):
     hostRun:
       command: <string>
-      cwd: <string>          # relative to repo root, must not escape it
-      portTimeout: 120       # seconds, optional
+      cwd: <string> # relative to repo root, must not escape it
+      portTimeout: 120 # seconds, optional
       strategy:
         type: auto
         denyPorts: [80, 443, 5432]
-        allowPortRange: "1024-65535"
+        allowPortRange: '1024-65535'
 
     # if runtime=docker:
     docker:
       service: <string>
       internalPort: <number>
-      composeFiles: [<string>]  # relative to repo root
-      router: <string>          # optional
+      composeFiles: [<string>] # relative to repo root
+      router: <string> # optional
 
     # if protocol=tcp:
-    tcpProtocol: postgres    # required; runtime must be docker
+    tcpProtocol: postgres # required; runtime must be docker
 ```
 
 Validation rules:
+
 - `host` must end with `.localhost`
 - `runtime=host` supports `protocol=http` only
 - `protocol=tcp` requires `runtime=docker` and `tcpProtocol=postgres`
@@ -64,9 +65,10 @@ Validation rules:
 - **Persistent volume warning**: if postgres defaults changed on an existing volume, reconcile credentials/data or recreate volumes when safe (for example `docker compose down -v`).
 
 Example healthcheck:
+
 ```yaml
 healthcheck:
-  test: ["CMD-SHELL", "pg_isready -U prisma -d prisma"]
+  test: ['CMD-SHELL', 'pg_isready -U prisma -d prisma']
   interval: 5s
   timeout: 3s
   retries: 20
@@ -76,11 +78,11 @@ healthcheck:
 
 When a host app depends on a TCP/Postgres Docker service, `dev app run` and `dev app exec` inject:
 
-| Variable | Value |
-|---|---|
-| `<UPPER_NAME>_HOST` | `localhost` |
-| `<UPPER_NAME>_PORT` | random mapped port |
-| `DATABASE_URL` | `postgres://prisma:prisma@localhost:<port>/prisma` (postgres deps only) |
+| Variable              | Value                                                                   |
+| --------------------- | ----------------------------------------------------------------------- |
+| `<UPPER_NAME>_HOST`   | `localhost`                                                             |
+| `<UPPER_NAME>_PORT`   | random mapped port                                                      |
+| `DATABASE_URL`        | `postgres://prisma:prisma@localhost:<port>/prisma` (postgres deps only) |
 | `SHADOW_DATABASE_URL` | `postgres://prisma:prisma@localhost:<port>/shadow` (postgres deps only) |
 
 Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.0.0`.
@@ -91,13 +93,13 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 
 - Prefer argv-safe command forms. Do not wrap `infisical run` or `doppler run` in `sh -lc` unless shell expansion is strictly required.
 - Canonical Infisical migrate command:
-`dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
+  `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
 - Canonical Infisical seed command:
-`dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload seed`
+  `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload seed`
 - Canonical env probe command (run before migrate/seed):
-`dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
+  `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
 - Canonical Doppler migrate command:
-`dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- doppler run -- pnpm payload migrate`
+  `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- doppler run -- pnpm payload migrate`
 - Precedence best practice: avoid defining local `DATABASE_URL` / `DATABASE_URI` in Infisical/Doppler when you expect devrouter local DB injection.
 - Precedence best practice: store remote/prod URLs under non-conflicting names (for example `PROD_DATABASE_URL`) and map intentionally in app config/scripts.
 - Precedence best practice: if secret manager must define `DATABASE_URL`, run the env probe and verify values before any migration/seed.
@@ -107,7 +109,7 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 
 ## Upgrade handling (required)
 
-- Always read the upstream devrouter release guidance at `https://github.com/rolandhordos/devrouter/blob/main/CHANGELOG.md` before applying devrouter changes to a repository.
+- Always read the upstream devrouter release guidance at `https://github.com/rschlaefli/devrouter/blob/main/CHANGELOG.md` before applying devrouter changes to a repository.
 - Treat the latest release section's **Agent Adaptation Prompt** in that upstream changelog as the canonical upgrade checklist.
 - This is devrouter release guidance and does not require creating a `CHANGELOG.md` in the target repository unless that repository already has its own policy.
 - Do not assume user-provided instructions include all required adaptation steps.
