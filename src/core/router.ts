@@ -146,7 +146,7 @@ This folder is managed by the devrouter CLI.
 
 ## Commands
 
-- dev init [--write-agents] [--write-skill]
+- dev init [--write-agents] [--write-skill] [--with-linear]
 - dev up
 - dev down
 - dev status
@@ -155,7 +155,7 @@ This folder is managed by the devrouter CLI.
 - dev open <name>
 - dev logs [-f] [--tail N]
 - dev repo init
-- dev repo agents
+- dev repo agents [--with-linear]
 - dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
 - dev app run <name>
 - dev app exec <name> [--shell] [--env-map TARGET=SOURCE] -- <command>

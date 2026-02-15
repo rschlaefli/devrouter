@@ -205,6 +205,20 @@ This creates:
 
 The skill file contains full config schema, docker requirements, env injection behavior, and command reference.
 
+To also install optional Linear workflow planning assets:
+
+```bash
+dev repo agents --with-linear
+```
+
+This additionally creates:
+
+- `.factory/skills/linear-workflow/SKILL.md`
+- `.factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
+- `.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
+- `.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
+- `AGENTS.md` linear-workflow section (idempotent)
+
 ## 6) Generate onboarding prompt for an AI agent (optional)
 
 From the target repository:
@@ -225,6 +239,12 @@ This prints the canonical onboarding prompt with the repository path injected.
 
 ```bash
 dev init --repo /absolute/path/to/repo --write-agents --write-skill
+```
+
+To include optional Linear workflow guidance/artifacts:
+
+```bash
+dev init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
 ```
 
 ## 7) Add apps to `.devrouter.yml`

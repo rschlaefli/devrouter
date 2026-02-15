@@ -15,6 +15,7 @@ Completed milestones from recent commits:
 - `97c3325` (v0.0.5): Vitest setup + 35 unit tests for `paths.ts` and `repo-config.ts`. CI updated with `pnpm test` gate.
 - `0.0.6` (2026-02-14): onboarding UX consistency pass — `dev init` non-mutating by default with explicit write flags, prompt/schema alignment (`version: 1` skeleton + workflow clarifications), route app identity + `dev open` app-name fallback, doctor postgres-credential advisory, non-destructive Docker disk-space guidance, changelog-first adaptation policy, and demo alignment with postgres defaults.
 - `0.0.7` (2026-02-14): argv-safe `dev app exec` (`shell: false` default), explicit `--shell` mode, repeatable `--env-map TARGET=SOURCE`, secret-manager interop onboarding in `dev init`, and new exec-focused unit tests.
+- `0.0.8` (2026-02-15): optional Linear workflow bootstrap via `--with-linear` on `dev init` / `dev repo agents`, distributed `linear-workflow` skill + reference templates, idempotent AGENTS Linear section, prompt updates, and new unit tests for writers and command wiring.
 
 ## Current baseline
 
@@ -31,6 +32,7 @@ Delivered and active:
 - `dev app exec` argv-safe command execution by default with explicit `--shell` opt-in
 - `dev app exec --env-map TARGET=SOURCE` for deterministic env alias mapping
 - Agent discoverability: `dev repo agents` + skill distribution for AI coding assistants
+- Optional Linear milestone workflow bootstrap (`dev init --with-linear` / `dev repo agents --with-linear`) with repo-local templates
 - `dev init` prompt generation is side-effect free by default (`--write-agents` / `--write-skill` opt-in writes)
 - Route identity carries app + service names; `dev open` resolves app names directly
 
@@ -68,9 +70,9 @@ Target: `routes.ts` — pure functions, high value, zero infrastructure needed.
 
 Acceptance criteria: all exported pure functions in `routes.ts` covered with edge cases. 36 new tests, 71 total.
 
-## Milestone 3: Integration test foundation
+## Milestone 3: Integration test foundation (IN PROGRESS)
 
-- [ ] `agents-md.ts` — AGENTS.md section writing + skill distribution (FS I/O, temp dirs)
+- [x] `agents-md.ts` — AGENTS.md section writing + skill distribution (FS I/O, temp dirs)
 - [ ] `host-routes.ts` — state persistence and file rendering (FS I/O, temp dirs)
 - [ ] `doctor.ts` — diagnostic checks with mocked Docker client (stretch)
 

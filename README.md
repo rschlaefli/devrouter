@@ -25,7 +25,7 @@ This is the only supported per-repo config for app routing/runtime definitions.
 
 ## Core commands
 
-- `dev init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill]`
+- `dev init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill] [--with-linear]`
 - `dev up`
 - `dev down`
 - `dev status [--repo <path>] [--json]`
@@ -34,7 +34,7 @@ This is the only supported per-repo config for app routing/runtime definitions.
 - `dev open <name>` (matches app name, then service/container/host)
 - `dev tls install`
 - `dev repo init [--repo <path>]`
-- `dev repo agents [--repo <path>]`
+- `dev repo agents [--repo <path>] [--with-linear]`
 - `dev app add ...`
 - `dev app ls [--repo <path>] [--json]`
 - `dev app run <name> [--repo <path>] [--yes]`
@@ -68,6 +68,12 @@ Optional repo artifact writes are explicit:
 
 ```bash
 dev init --repo /absolute/path/to/repo --write-agents --write-skill
+```
+
+Optional: also bootstrap Linear workflow skill/templates and AGENTS section:
+
+```bash
+dev init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
 ```
 
 ## Health diagnostics
@@ -197,6 +203,21 @@ See details:
 ## AI agent discoverability
 
 `dev repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.factory/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
+
+If you also want milestone planning/task management assets for Linear-driven workflows, run:
+
+```bash
+dev repo agents --with-linear
+```
+
+This additionally installs:
+
+- `.factory/skills/linear-workflow/SKILL.md`
+- `.factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
+- `.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
+- `.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
+
+and appends an idempotent `linear-workflow` section to `AGENTS.md`.
 
 ## Known limitations (v1)
 

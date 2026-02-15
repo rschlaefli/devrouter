@@ -1,13 +1,21 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-const SENTINEL = "<!-- devrouter -->";
+const DEVROUTER_SENTINEL = "<!-- devrouter -->";
+const LINEAR_WORKFLOW_SENTINEL = "<!-- devrouter-linear-workflow -->";
 const AGENTS_MD = "AGENTS.md";
-const SKILL_REL_PATH = ".factory/skills/devrouter/SKILL.md";
+const DEVROUTER_SKILL_REL_PATH = ".factory/skills/devrouter/SKILL.md";
+const LINEAR_SKILL_REL_PATH = ".factory/skills/linear-workflow/SKILL.md";
+const LINEAR_ISSUE_TEMPLATE_REL_PATH =
+  ".factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md";
+const LINEAR_MILESTONE_TEMPLATE_REL_PATH =
+  ".factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md";
+const LINEAR_PROGRESS_TEMPLATE_REL_PATH =
+  ".factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md";
 
 // Embedded skill content — must be self-contained in the built CLI bundle.
 // Keep in sync with .factory/skills/devrouter/SKILL.md in the devrouter repo.
-const SKILL_CONTENT = `---
+const DEVROUTER_SKILL_CONTENT = `---
 name: devrouter
 description: Work with devrouter for local dev routing (HTTP + TCP/Postgres on shared ports)
 user-invocable: false
@@ -123,9 +131,16 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - After upgrading the CLI in a dependent repo, refresh discoverability artifacts with \`dev repo agents\` (or \`dev init --write-agents --write-skill\`).
 - Re-run validation after upgrade: \`dev doctor --repo .\`, \`dev app ls --repo .\`, one representative \`dev app exec\` flow, and \`dev ls\`.
 
+## Optional Linear workflow bootstrap
+
+- To add Linear task-management workflow assets to a repo, run:
+  - \`dev init --with-linear --write-agents --write-skill\`, or
+  - \`dev repo agents --with-linear\`
+- This writes \`.factory/skills/linear-workflow/SKILL.md\` and reference templates, plus an idempotent AGENTS section for milestone planning in Linear.
+
 ## Commands
 
-- \`dev init [--write-agents] [--write-skill]\`: print AI onboarding prompt (non-mutating by default)
+- \`dev init [--write-agents] [--write-skill] [--with-linear]\`: print AI onboarding prompt (non-mutating by default)
 - \`dev up\` / \`dev down\`: start/stop shared Traefik router
 - \`dev status\`: router/container/network/TLS health
 - \`dev doctor [--repo .]\`: deep diagnostics (global + repo)
@@ -134,7 +149,7 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - \`dev logs [-f]\`: Traefik access logs
 - \`dev tls install\`: install mkcert certs, enable HTTPS + TCP/SNI
 - \`dev repo init\`: create \`.devrouter.yml\`
-- \`dev repo agents\`: write devrouter section in AGENTS.md + install this skill
+- \`dev repo agents [--with-linear]\`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
 - \`dev app add\`: add/update app entry in \`.devrouter.yml\`
 - \`dev app ls\`: list app entries
 - \`dev app run <name>\`: run app with dependency lifecycle
@@ -162,16 +177,158 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (\`printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT\`) before migrate/seed.
 `;
 
-function buildSection(): string {
+// Embedded linear workflow assets — optional, written only with --with-linear.
+const LINEAR_WORKFLOW_SKILL_CONTENT = `---
+name: linear-workflow
+description: Use Linear as the persistent system of record for milestone planning and cross-session execution
+user-invocable: false
+---
+
+# linear-workflow
+
+Use this skill when planning or executing large milestones that span multiple sessions, contributors, or agents.
+
+## Required policy
+
+- Large milestones must be planned and tracked in Linear before implementation.
+- Linear is the source of truth for plan status, scope changes, and progress.
+- Keep issue status/assignee/priority current while work is active.
+- Post progress comments after meaningful implementation checkpoints.
+
+## Issue structure (canonical)
+
+Every implementation issue should include:
+
+1. Problem
+2. Goal / expected outcome
+3. Scope (in / out)
+4. Technical approach
+5. Acceptance criteria
+6. Validation plan
+7. Dependencies / blockers
+8. Rollout risks
+
+See templates:
+- references/LINEAR_ISSUE_TEMPLATE.md
+- references/MILESTONE_PLAN_TEMPLATE.md
+- references/PROGRESS_UPDATE_TEMPLATE.md
+
+## Milestone workflow
+
+1. Create one tracker issue for the milestone.
+2. Create child issues for implementation slices.
+3. Link dependencies and blockers between issues.
+4. Order execution explicitly in tracker comments.
+5. Update tracker progress as child issues move.
+
+## Session cadence
+
+- Start of session:
+  - confirm active issue + current status
+  - confirm scope and acceptance criteria
+- During session:
+  - update status when moving phases
+  - add progress comments with what changed and what is next
+- End of session:
+  - leave handoff comment with remaining tasks/risks
+  - ensure next issue is clear and linked
+
+## Cross-agent continuity
+
+- Always link active work to a parent tracker issue.
+- Keep latest plan/progress in Linear comments (not only local notes).
+- If ownership changes, update assignee/delegate explicitly.
+
+## Prioritization guidance
+
+- Use Linear priority consistently across related issues.
+- Runtime reliability and user-facing regressions should be prioritized above polish.
+- Capture tradeoffs in issue body when deferring work.
+
+## Reference guidance (official)
+
+- Linear issue templates: https://linear.app/docs/issue-templates
+- Linear parent/sub-issues: https://linear.app/docs/parent-and-sub-issues
+- Linear issue relations: https://linear.app/docs/issue-relations
+- Linear priorities: https://linear.app/docs/priorities
+- GitHub issue forms syntax: https://docs.github.com/en/enterprise-server@3.17/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms
+
+## Devrouter-specific note
+
+If the repository uses devrouter, read \`CHANGELOG.md\` independently before planning implementation and use the latest Agent Adaptation Prompt as required upgrade context.
+`;
+
+const LINEAR_ISSUE_TEMPLATE_CONTENT = `# Linear Issue Template
+
+## Problem
+
+## Goal / Expected Outcome
+
+## Scope
+- In scope:
+- Out of scope:
+
+## Technical Approach
+
+## Acceptance Criteria
+
+## Validation Plan
+
+## Dependencies / Blockers
+
+## Rollout Risks
+`;
+
+const LINEAR_MILESTONE_TEMPLATE_CONTENT = `# Milestone Plan Template
+
+## Milestone Goal
+
+## Tracker Issue
+- Identifier:
+- Owner:
+
+## Child Issues
+- [ ] Issue 1:
+- [ ] Issue 2:
+- [ ] Issue 3:
+
+## Sequencing
+1.
+2.
+3.
+
+## Risks and Mitigations
+
+## Definition of Done
+`;
+
+const LINEAR_PROGRESS_TEMPLATE_CONTENT = `# Progress Update Template
+
+## Summary
+
+## Completed
+- <item>
+
+## In Progress
+- <item>
+
+## Next
+- <item>
+
+## Risks / Blockers
+- <item>
+`;
+
+function buildDevrouterSection(): string {
   return [
-    SENTINEL,
+    DEVROUTER_SENTINEL,
     "## devrouter",
     "",
     "This repository uses [devrouter](https://github.com/rolandhordos/devrouter) for local dev routing.",
     "All apps and dependencies are declared in `.devrouter.yml`.",
     "",
     "Full reference (config schema, docker requirements, env injection, commands):",
-    `\`${SKILL_REL_PATH}\``,
+    `\`${DEVROUTER_SKILL_REL_PATH}\``,
     "",
     "Quick validation sequence:",
     "- `dev up`",
@@ -182,26 +339,76 @@ function buildSection(): string {
   ].join("\n");
 }
 
+function buildLinearWorkflowSection(): string {
+  return [
+    LINEAR_WORKFLOW_SENTINEL,
+    "## linear-workflow",
+    "",
+    "This repository can optionally use a Linear-centered workflow for milestone task management across sessions and agents.",
+    "Use Linear as the system of record for large milestone planning and progress tracking.",
+    "",
+    "Skill and templates:",
+    `- \`${LINEAR_SKILL_REL_PATH}\``,
+    `- \`${LINEAR_ISSUE_TEMPLATE_REL_PATH}\``,
+    `- \`${LINEAR_MILESTONE_TEMPLATE_REL_PATH}\``,
+    `- \`${LINEAR_PROGRESS_TEMPLATE_REL_PATH}\``,
+    "",
+    "Bootstrap commands:",
+    "- `dev init --with-linear --write-agents --write-skill`",
+    "- `dev repo agents --with-linear`",
+  ].join("\n");
+}
+
+function writeRepoFile(repoPath: string, relPath: string, content: string): string {
+  const absolutePath = join(repoPath, relPath);
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, content, "utf-8");
+  return absolutePath;
+}
+
 export function ensureAgentsMdSection(repoPath: string): { path: string; written: boolean } {
   const filePath = join(repoPath, AGENTS_MD);
 
   if (existsSync(filePath)) {
     const content = readFileSync(filePath, "utf-8");
-    if (content.includes(SENTINEL)) {
+    if (content.includes(DEVROUTER_SENTINEL)) {
       return { path: filePath, written: false };
     }
-    writeFileSync(filePath, content.trimEnd() + "\n\n" + buildSection() + "\n", "utf-8");
+    writeFileSync(filePath, content.trimEnd() + "\n\n" + buildDevrouterSection() + "\n", "utf-8");
     return { path: filePath, written: true };
   }
 
-  writeFileSync(filePath, "# AGENTS.md\n\n" + buildSection() + "\n", "utf-8");
+  writeFileSync(filePath, "# AGENTS.md\n\n" + buildDevrouterSection() + "\n", "utf-8");
+  return { path: filePath, written: true };
+}
+
+export function ensureLinearWorkflowAgentsSection(repoPath: string): { path: string; written: boolean } {
+  const filePath = join(repoPath, AGENTS_MD);
+
+  if (existsSync(filePath)) {
+    const content = readFileSync(filePath, "utf-8");
+    if (content.includes(LINEAR_WORKFLOW_SENTINEL)) {
+      return { path: filePath, written: false };
+    }
+    writeFileSync(filePath, content.trimEnd() + "\n\n" + buildLinearWorkflowSection() + "\n", "utf-8");
+    return { path: filePath, written: true };
+  }
+
+  writeFileSync(filePath, "# AGENTS.md\n\n" + buildLinearWorkflowSection() + "\n", "utf-8");
   return { path: filePath, written: true };
 }
 
 export function ensureSkillFile(repoPath: string): { path: string; written: boolean } {
-  const filePath = join(repoPath, SKILL_REL_PATH);
-  const dir = join(repoPath, ".factory", "skills", "devrouter");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(filePath, SKILL_CONTENT, "utf-8");
+  const filePath = writeRepoFile(repoPath, DEVROUTER_SKILL_REL_PATH, DEVROUTER_SKILL_CONTENT);
   return { path: filePath, written: true };
+}
+
+export function ensureLinearWorkflowSkillFiles(repoPath: string): { paths: string[]; written: true } {
+  const paths = [
+    writeRepoFile(repoPath, LINEAR_SKILL_REL_PATH, LINEAR_WORKFLOW_SKILL_CONTENT),
+    writeRepoFile(repoPath, LINEAR_ISSUE_TEMPLATE_REL_PATH, LINEAR_ISSUE_TEMPLATE_CONTENT),
+    writeRepoFile(repoPath, LINEAR_MILESTONE_TEMPLATE_REL_PATH, LINEAR_MILESTONE_TEMPLATE_CONTENT),
+    writeRepoFile(repoPath, LINEAR_PROGRESS_TEMPLATE_REL_PATH, LINEAR_PROGRESS_TEMPLATE_CONTENT)
+  ];
+  return { paths, written: true };
 }

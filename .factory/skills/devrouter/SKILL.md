@@ -114,9 +114,16 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 - After upgrading the CLI in a dependent repo, refresh discoverability artifacts with `dev repo agents` (or `dev init --write-agents --write-skill`).
 - Re-run validation after upgrade: `dev doctor --repo .`, `dev app ls --repo .`, one representative `dev app exec` flow, and `dev ls`.
 
+## Optional Linear workflow bootstrap
+
+- To add Linear task-management workflow assets to a repo, run:
+  - `dev init --with-linear --write-agents --write-skill`, or
+  - `dev repo agents --with-linear`
+- This writes `.factory/skills/linear-workflow/SKILL.md` and reference templates, plus an idempotent AGENTS section for milestone planning in Linear.
+
 ## Commands
 
-- `dev init [--write-agents] [--write-skill]`: print AI onboarding prompt (non-mutating by default)
+- `dev init [--write-agents] [--write-skill] [--with-linear]`: print AI onboarding prompt (non-mutating by default)
 - `dev up` / `dev down`: start/stop shared Traefik router
 - `dev status`: router/container/network/TLS health
 - `dev doctor [--repo .]`: deep diagnostics (global + repo)
@@ -125,7 +132,7 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 - `dev logs [-f]`: Traefik access logs
 - `dev tls install`: install mkcert certs, enable HTTPS + TCP/SNI
 - `dev repo init`: create `.devrouter.yml`
-- `dev repo agents`: write devrouter section in AGENTS.md + install this skill
+- `dev repo agents [--with-linear]`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
 - `dev app add`: add/update app entry in `.devrouter.yml`
 - `dev app ls`: list app entries
 - `dev app run <name>`: run app with dependency lifecycle

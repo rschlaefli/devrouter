@@ -2,6 +2,59 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.8] - 2026-02-15
+
+### Changed
+
+- `dev init` now accepts `--with-linear` to include optional Linear milestone workflow guidance in the generated onboarding prompt.
+- `dev repo agents` now accepts `--with-linear` to install optional Linear workflow assets alongside the devrouter skill/AGENTS section.
+- Documentation now includes optional Linear bootstrap flows while keeping product docs current-state and adaptation details in this changelog.
+
+### Added
+
+- New distributed skill: `.factory/skills/linear-workflow/SKILL.md`.
+- New distributed reference templates:
+  - `.factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
+  - `.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
+  - `.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
+- New idempotent AGENTS section sentinel for Linear workflow policy: `<!-- devrouter-linear-workflow -->`.
+- Unit tests covering:
+  - `dev init --with-linear` non-mutating default and write behavior
+  - `dev repo agents --with-linear` artifact creation behavior
+  - `agents-md` linear section/file idempotency and path outputs
+  - `dev init` prompt Linear section toggling via `withLinear`
+
+### Agent Adaptation Prompt
+
+```text
+You are upgrading a repository that uses devrouter to version 0.0.8.
+
+Task:
+1) Refresh discoverability artifacts with the installed CLI version:
+   - `dev repo agents --repo <repo>`
+2) If your team wants Linear-backed milestone workflow assets, bootstrap them explicitly:
+   - `dev repo agents --repo <repo> --with-linear`
+   - or `dev init --repo <repo> --with-linear --write-agents --write-skill`
+3) Ensure AGENTS.md now references both skills when Linear workflow is enabled:
+   - `.factory/skills/devrouter/SKILL.md`
+   - `.factory/skills/linear-workflow/SKILL.md`
+4) Adopt the linear-workflow templates for new milestone tracking:
+   - `references/LINEAR_ISSUE_TEMPLATE.md`
+   - `references/MILESTONE_PLAN_TEMPLATE.md`
+   - `references/PROGRESS_UPDATE_TEMPLATE.md`
+5) Keep CHANGELOG.md as the source of upgrade instructions; product docs should stay current-state only.
+
+Validation:
+- run `dev init --repo <repo> --with-linear` and confirm the prompt includes "Linear milestone workflow"
+- run `dev repo agents --repo <repo> --with-linear` and confirm Linear skill/template files exist
+- run `dev doctor --repo <repo>`
+
+Report:
+- whether Linear workflow bootstrap was enabled
+- artifacts created/updated
+- any repo-specific deviations from the template policy
+```
+
 ## [0.0.7] - 2026-02-14
 
 ### Changed

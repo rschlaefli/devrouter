@@ -42,9 +42,9 @@ Supported routing:
 
 ## Supported command surface
 
-- `dev init` (`--write-agents` / `--write-skill` optional; non-mutating by default)
+- `dev init` (`--write-agents` / `--write-skill` optional; `--with-linear` optional; non-mutating by default)
 - `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
-- `dev repo init`, `dev repo agents`
+- `dev repo init`, `dev repo agents` (`--with-linear` optional)
 - `dev app add`, `dev app ls`, `dev app run`, `dev app exec` (`--shell`, `--env-map TARGET=SOURCE`), `dev app rm`
 
 ## Repository map
@@ -71,15 +71,19 @@ Supported routing:
 - `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
 - `scripts/smoke-demo.sh`: end-to-end demo smoke script
 - `.factory/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
+- `.factory/skills/linear-workflow/SKILL.md`: optional Linear workflow skill (written with `--with-linear`)
+- `.factory/skills/linear-workflow/references/*`: optional issue/milestone/progress templates for Linear workflow
 - `src/core/__tests__/paths.test.ts`: unit tests for path traversal guard
 - `src/core/__tests__/repo-config.test.ts`: unit tests for `.devrouter.yml` schema validation
 - `src/core/__tests__/routes.test.ts`: unit tests for route discovery and resolution
 - `src/core/__tests__/ai-prompt.test.ts`: unit tests for onboarding prompt/schema consistency
+- `src/core/__tests__/agents-md.test.ts`: unit tests for AGENTS/skill file writers (including Linear workflow support)
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS + Postgres credential checks)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
 - `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, and env-map behavior
 - `src/commands/__tests__/init.test.ts`: unit tests for `dev init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `dev open` app-name fallback behavior
+- `src/commands/__tests__/repo-agents.test.ts`: unit tests for `dev repo agents` optional `--with-linear` behavior
 - `vitest.config.ts`: Vitest configuration
 
 ## Non-negotiable constraints

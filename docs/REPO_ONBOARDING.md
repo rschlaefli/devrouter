@@ -250,6 +250,20 @@ This creates/updates:
 
 The skill content is embedded in the CLI bundle, so `dev repo agents` always writes the version matching the installed CLI.
 
+Optional Linear milestone/task-management bootstrap:
+
+```bash
+dev repo agents --with-linear
+```
+
+This additionally creates:
+
+- `AGENTS.md` linear-workflow section
+- `.factory/skills/linear-workflow/SKILL.md`
+- `.factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
+- `.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
+- `.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
+
 ## 10) AI agent prompt (single copy-paste)
 
 Use this as the only onboarding prompt for agents:
@@ -268,6 +282,12 @@ Optional explicit artifact writes:
 
 ```bash
 dev init --repo /absolute/path/to/repo --write-agents --write-skill
+```
+
+Optional Linear workflow guidance + artifacts:
+
+```bash
+dev init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
 ```
 
 ## 11) Definition of done

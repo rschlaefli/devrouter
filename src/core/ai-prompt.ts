@@ -3,6 +3,7 @@ import { resolveRepoPath } from "./repo-config";
 export type InitPromptOptions = {
   repo?: string;
   entriesJson?: string;
+  withLinear?: boolean;
 };
 
 export type CommandIntent = {
@@ -11,7 +12,10 @@ export type CommandIntent = {
 };
 
 export const COMMAND_INTENTS: CommandIntent[] = [
-  { command: "dev init", purpose: "Print the AI onboarding prompt template for a repository (non-mutating by default)." },
+  {
+    command: "dev init [--with-linear]",
+    purpose: "Print the AI onboarding prompt template for a repository (non-mutating by default)."
+  },
   { command: "dev up", purpose: "Start shared Traefik and ensure the shared devnet network." },
   { command: "dev down", purpose: "Stop the shared Traefik router stack." },
   { command: "dev status", purpose: "Show router/container/network/TLS health and bound ports." },
@@ -28,7 +32,10 @@ export const COMMAND_INTENTS: CommandIntent[] = [
     purpose: "Run a one-shot command with resolved dependency env vars and optional env alias mappings."
   },
   { command: "dev app rm", purpose: "Remove one app entry from `.devrouter.yml`." },
-  { command: "dev repo agents", purpose: "Write/update devrouter section in the repo's AGENTS.md." }
+  {
+    command: "dev repo agents [--with-linear]",
+    purpose: "Write/update devrouter section in the repo's AGENTS.md and optionally add Linear workflow assets."
+  }
 ];
 
 function normalizeEntriesJson(input?: string): string {
@@ -59,6 +66,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
   const repoPath = resolveRepoPath(options.repo);
   const entriesJson = normalizeEntriesJson(options.entriesJson);
   const projectName = repoPath.split(/[\\/]/).filter(Boolean).pop() ?? "repo";
+  const withLinear = Boolean(options.withLinear);
 
   return [
     "You are adapting an existing repository to devrouter using the unified .devrouter.yml model.",
@@ -186,6 +194,19 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "   - dev ls exposes expected endpoints",
     "   - HTTP routes reachable",
     "   - TCP Postgres route configured with TLS requirement noted",
+    ...(withLinear
+      ? [
+          "",
+          "Linear milestone workflow (enabled via --with-linear):",
+          "- For large milestones, create one parent tracker issue in Linear before implementation.",
+          "- Break work into child issues with explicit acceptance criteria, dependencies, and sequencing.",
+          "- Keep issue status/owner/priority current and post progress comments at each meaningful checkpoint.",
+          "- Keep latest plan/progress in Linear comments so sessions/agents can continue without local context loss.",
+          "- Use these required issue sections: Problem, Goal, Scope (in/out), Technical approach, Acceptance criteria, Validation plan, Dependencies/blockers, Rollout risks.",
+          "- Optional bootstrap commands for repo artifacts: `dev init --repo <REPO_PATH> --with-linear --write-agents --write-skill` or `dev repo agents --repo <REPO_PATH> --with-linear`.",
+          "- If the repository uses devrouter, read CHANGELOG.md independently and apply the latest Agent Adaptation Prompt before major changes."
+        ]
+      : []),
     "",
     renderCommandIntentSection()
   ].join("\n");

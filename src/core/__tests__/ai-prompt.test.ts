@@ -50,4 +50,13 @@ describe("buildOnboardingPrompt", () => {
     expect(prompt).toContain("printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL");
     expect(prompt).toContain("Do not assume secret-manager precedence");
   });
+
+  it("includes Linear workflow section only when withLinear is enabled", () => {
+    const withoutLinear = buildOnboardingPrompt({ repo: tmpDir });
+    expect(withoutLinear).not.toContain("Linear milestone workflow (enabled via --with-linear):");
+
+    const withLinear = buildOnboardingPrompt({ repo: tmpDir, withLinear: true });
+    expect(withLinear).toContain("Linear milestone workflow (enabled via --with-linear):");
+    expect(withLinear).toContain("create one parent tracker issue in Linear");
+  });
 });

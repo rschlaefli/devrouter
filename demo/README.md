@@ -36,6 +36,12 @@ With Docker running normally, `dev doctor --repo ./demo` should not report `repo
 dev init --repo ./demo --write-agents --write-skill
 ```
 
+To also bootstrap optional Linear workflow planning assets:
+
+```bash
+dev init --repo ./demo --with-linear --write-agents --write-skill
+```
+
 For non-Prisma tooling in host commands, map aliases with argv-safe exec:
 
 ```bash
