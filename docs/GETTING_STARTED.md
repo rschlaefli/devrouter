@@ -96,15 +96,17 @@ When a host app depends on a TCP/Postgres Docker service, `dev app run` automati
 1. Publishes the service's internal port on a random host port
 2. Queries the mapped port after startup
 3. Injects `<UPPER_NAME>_HOST=localhost` and `<UPPER_NAME>_PORT=<port>` env vars into the host app process
-4. For postgres deps, also injects `DATABASE_URL` and `SHADOW_DATABASE_URL` with fixed credentials
+4. For postgres deps, also injects `DATABASE_URL`, `DIRECT_URL`, and `SHADOW_DATABASE_URL` with fixed credentials
 
 For example, a dependency named `db` produces:
 
 - `DB_HOST=localhost`
 - `DB_PORT=54321`
 - `DATABASE_URL=postgres://prisma:prisma@localhost:54321/prisma`
+- `DIRECT_URL=postgres://prisma:prisma@localhost:54321/prisma`
 - `SHADOW_DATABASE_URL=postgres://prisma:prisma@localhost:54321/shadow`
 
+`DIRECT_URL` equals `DATABASE_URL` in dev (no pooler); Prisma uses it to bypass PgBouncer during migrations.
 Prisma projects work out of the box. Other frameworks can use `DATABASE_URL` directly or override it.
 
 ### Running one-shot commands with dependency env vars
@@ -117,7 +119,7 @@ dev app exec web --yes -- npx prisma db seed
 dev app exec web --yes -- printenv DATABASE_URL SHADOW_DATABASE_URL DB_HOST DB_PORT
 ```
 
-The command receives the same env vars as `dev app run` (DATABASE_URL, SHADOW_DATABASE_URL, _HOST, _PORT).
+The command receives the same env vars as `dev app run` (DATABASE_URL, DIRECT_URL, SHADOW_DATABASE_URL, _HOST, _PORT).
 By default, exec preserves argv semantics (`shell: false`) so nested commands like `infisical run -- ...` stay stable without wrapper recursion.
 If exec cannot determine which services were already running before startup, it leaves selected deps running to avoid stopping non-owned services.
 
@@ -135,7 +137,7 @@ dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- pnpm payload migra
 
 ### Secret manager interop (Infisical/Doppler)
 
-- devrouter injects `DB_HOST`, `DB_PORT`, `DATABASE_URL`, and `SHADOW_DATABASE_URL` when a host app depends on postgres.
+- devrouter injects `DB_HOST`, `DB_PORT`, `DATABASE_URL`, `DIRECT_URL`, and `SHADOW_DATABASE_URL` when a host app depends on postgres.
 - If your secret manager also defines DB variables, do not assume precedence. Validate effective env before migration/seed.
 - Avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values.
 - Safe host-run override pattern when wrapper also defines `DATABASE_URI`: `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev`.

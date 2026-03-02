@@ -578,11 +578,13 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
         depEnv[`${envPrefix}_PORT`] = String(mappedPort);
         if (dep.tcpProtocol === "postgres") {
           depEnv["DATABASE_URL"] = `postgres://prisma:prisma@localhost:${mappedPort}/prisma`;
+          depEnv["DIRECT_URL"] = depEnv["DATABASE_URL"];
           depEnv["SHADOW_DATABASE_URL"] = `postgres://prisma:prisma@localhost:${mappedPort}/shadow`;
         }
         process.stdout.write(`Dependency ${dep.name} available at localhost:${mappedPort}\n`);
         if (dep.tcpProtocol === "postgres") {
           process.stdout.write(`  DATABASE_URL=postgres://prisma:prisma@localhost:${mappedPort}/prisma\n`);
+          process.stdout.write(`  DIRECT_URL=postgres://prisma:prisma@localhost:${mappedPort}/prisma\n`);
           process.stdout.write(`  SHADOW_DATABASE_URL=postgres://prisma:prisma@localhost:${mappedPort}/shadow\n`);
         }
       }

@@ -322,6 +322,7 @@ describe("execWithAppEnv", () => {
     expect(spawnOptions.env.DB_HOST).toBe("localhost");
     expect(spawnOptions.env.DB_PORT).toBe("55432");
     expect(spawnOptions.env.DATABASE_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnOptions.env.DIRECT_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
     expect(spawnOptions.env.DATABASE_URI).toBe("postgres://prisma:prisma@localhost:55432/prisma");
   });
 

@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.15] - 2026-03-02
+
+### Added
+
+- Postgres dependency env injection now includes `DIRECT_URL` (equals `DATABASE_URL`). Enables Prisma + PgBouncer setups where `DIRECT_URL` bypasses the pooler for migrations.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.15.md
+
 ## [0.0.14] - 2026-02-15
 
 ### Changed

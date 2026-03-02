@@ -1,6 +1,6 @@
 version: 1
 devrouter:
-  version: 0.0.14
+  version: 0.0.15
 project:
   name: devrouter-demo
 apps:
