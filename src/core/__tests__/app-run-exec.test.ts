@@ -83,7 +83,7 @@ vi.mock("../tls", () => ({
   ensureTLSHostsCovered: ensureTLSHostsCoveredMock,
 }));
 
-import { buildExecEnvironment, execWithAppEnv, parseEnvMapEntries, runConfiguredApp } from "../app-run";
+import { buildExecEnvironment, execWithAppEnv, parseEnvMapEntries, runConfiguredApp, wrapWithSecretManager } from "../app-run";
 
 const HOST_APP: DevrouterHostHttpApp = {
   name: "web",
@@ -127,9 +127,13 @@ const REDIS_DEP: DevrouterDockerDependencyApp = {
   }
 };
 
-function makeConfig(apps: DevrouterApp[]): DevrouterConfig {
+function makeConfig(
+  apps: DevrouterApp[],
+  options?: { secretManager?: { command: string } }
+): DevrouterConfig {
   return {
     version: 1,
+    ...(options?.secretManager ? { secretManager: options.secretManager } : {}),
     apps,
   };
 }
@@ -228,6 +232,37 @@ describe("buildExecEnvironment", () => {
     expect(() =>
       buildExecEnvironment({}, ["DATABASE_URI=__DEVROUTER_TEST_MISSING__"], {})
     ).toThrow("references missing source variable");
+  });
+});
+
+describe("wrapWithSecretManager", () => {
+  it("wraps shell command with env re-injection", () => {
+    const result = wrapWithSecretManager(
+      "infisical run --env dev --",
+      { DB_HOST: "localhost", DB_PORT: "55432" },
+      "pnpm dev",
+      true
+    );
+    expect(result).toBe("infisical run --env dev -- env DB_HOST=localhost DB_PORT=55432 pnpm dev");
+  });
+
+  it("wraps non-shell command with env re-injection", () => {
+    const result = wrapWithSecretManager(
+      "infisical run --env dev --",
+      { DB_HOST: "localhost" },
+      ["pnpm", "prisma", "migrate"],
+      false
+    );
+    expect(result).toEqual([
+      "infisical", "run", "--env", "dev", "--",
+      "env", "DB_HOST=localhost",
+      "pnpm", "prisma", "migrate"
+    ]);
+  });
+
+  it("skips env prefix when reinject env is empty", () => {
+    expect(wrapWithSecretManager("sm run --", {}, "pnpm dev", true)).toBe("sm run -- pnpm dev");
+    expect(wrapWithSecretManager("sm run --", {}, ["pnpm", "dev"], false)).toEqual(["sm", "run", "--", "pnpm", "dev"]);
   });
 });
 
@@ -552,6 +587,102 @@ describe("execWithAppEnv", () => {
 
     expect(spawnMock).not.toHaveBeenCalled();
   });
+
+  it("wraps exec command with secret manager (shell: false)", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --env dev --" } }),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      command: ["pnpm", "prisma", "migrate"],
+    });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "infisical",
+      expect.arrayContaining([
+        "run", "--env", "dev", "--",
+        "env",
+      ]),
+      expect.objectContaining({ shell: false })
+    );
+    const spawnArgs = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(spawnArgs).toContain("DB_HOST=localhost");
+    expect(spawnArgs).toContain("DB_PORT=55432");
+    expect(spawnArgs.slice(-3)).toEqual(["pnpm", "prisma", "migrate"]);
+  });
+
+  it("wraps exec command with secret manager (shell: true)", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --" } }),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      shell: true,
+      command: ["pnpm prisma migrate"],
+    });
+
+    const spawnCommand = spawnMock.mock.calls[0]?.[0] as string;
+    expect(spawnCommand).toContain("infisical run --");
+    expect(spawnCommand).toContain("env DB_HOST=localhost");
+    expect(spawnCommand).toContain("pnpm prisma migrate");
+    expect(spawnMock).toHaveBeenCalledWith(
+      spawnCommand,
+      expect.objectContaining({ shell: true })
+    );
+  });
+
+  it("includes env-map targets in secret manager re-injection", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --" } }),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      envMap: ["DATABASE_URI=DATABASE_URL"],
+      command: ["pnpm", "payload", "migrate"],
+    });
+
+    const spawnArgs = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(spawnArgs).toContain("DATABASE_URI=postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnArgs).toContain("DATABASE_URL=postgres://prisma:prisma@localhost:55432/prisma");
+  });
+
+  it("does not wrap exec command without secret manager config", async () => {
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      command: ["pnpm", "test"],
+    });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "pnpm",
+      ["test"],
+      expect.objectContaining({ shell: false })
+    );
+  });
 });
 
 describe("runConfiguredApp", () => {
@@ -568,5 +699,34 @@ describe("runConfiguredApp", () => {
         yes: true
       })
     ).rejects.toThrow("is kind=dependency and cannot be run directly");
+  });
+
+  it("wraps host run command with secret manager", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --" } }),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await runConfiguredApp({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+    });
+    stdoutSpy.mockRestore();
+
+    const spawnCommand = spawnMock.mock.calls[0]?.[0] as string;
+    expect(spawnCommand).toContain("infisical run --");
+    expect(spawnCommand).toContain("env DB_HOST=localhost");
+    expect(spawnCommand).toContain("DB_PORT=55432");
+    expect(spawnCommand).toContain("pnpm dev");
+    expect(spawnMock).toHaveBeenCalledWith(
+      spawnCommand,
+      expect.objectContaining({ shell: true })
+    );
   });
 });

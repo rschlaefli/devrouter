@@ -297,7 +297,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
 
 function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
   const root = ensureObject(raw, configPath);
-  ensureAllowedKeys(root, ["version", "devrouter", "project", "apps"], configPath);
+  ensureAllowedKeys(root, ["version", "devrouter", "project", "secretManager", "apps"], configPath);
 
   const version = toIntegerOrThrow(root.version, `${configPath}.version`);
   if (version !== 1) {
@@ -327,6 +327,17 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
     }
   }
 
+  let secretManager: DevrouterConfig["secretManager"] | undefined;
+  if (root.secretManager !== undefined) {
+    const sm = ensureObject(root.secretManager, `${configPath}.secretManager`);
+    ensureAllowedKeys(sm, ["command"], `${configPath}.secretManager`);
+    const command = toStringOrThrow(sm.command, `${configPath}.secretManager.command`);
+    if (command.length > MAX_COMMAND_LENGTH) {
+      throw new Error(`${configPath}.secretManager.command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters.`);
+    }
+    secretManager = { command };
+  }
+
   if (!Array.isArray(root.apps)) {
     throw new Error(`${configPath}.apps must be an array.`);
   }
@@ -347,6 +358,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
       root.project && typeof root.project === "object"
         ? { name: (root.project as { name?: string }).name }
         : undefined,
+    ...(secretManager ? { secretManager } : {}),
     apps
   };
 }

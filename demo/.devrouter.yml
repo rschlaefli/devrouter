@@ -1,8 +1,14 @@
 version: 1
 devrouter:
-  version: 0.0.15
+  version: 0.0.16
 project:
   name: devrouter-demo
+
+# Optional: wrap dev commands with a secret manager so devrouter-injected
+# env vars (DATABASE_URL, DIRECT_URL, etc.) take precedence over SM values.
+# secretManager:
+#   command: infisical run --env dev --
+
 apps:
   - name: db
     host: demo-db.localhost

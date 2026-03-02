@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+## [0.0.16] - 2026-03-02
+
+### Added
+
+- Secret manager integration via optional `secretManager.command` in `.devrouter.yml`. When configured, `dev app run` and `dev app exec` wrap user commands with the SM command and re-apply devrouter-injected dependency env vars (`DATABASE_URL`, `DIRECT_URL`, `SHADOW_DATABASE_URL`, `*_HOST`, `*_PORT`) after the SM boundary via `env KEY=VAL` prefix. Env-map targets are also included in the re-injection set.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.16.md
+
 ## [0.0.15] - 2026-03-02
 
 ### Added

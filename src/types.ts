@@ -100,6 +100,9 @@ export type DevrouterConfig = {
   project?: {
     name?: string;
   };
+  secretManager?: {
+    command: string;
+  };
   apps: DevrouterApp[];
 };
 

@@ -65,6 +65,7 @@ type StartedDeps = {
   repoPath: string;
   app: DevrouterApp;
   depEnv: Record<string, string>;
+  secretManager?: { command: string };
   overlay?: ReturnType<typeof prepareDockerOverlay>;
   startedServices: string[];
   dependencyApps: string[];
@@ -77,6 +78,45 @@ type EnvMapEntry = {
 };
 
 const VALID_ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function wrapWithSecretManager(
+  smCommand: string,
+  reinjectEnv: Record<string, string>,
+  userCommand: string | string[],
+  shell: boolean
+): string | string[] {
+  const envPairs = Object.entries(reinjectEnv).map(([k, v]) => `${k}=${v}`);
+
+  if (shell) {
+    const userCmd = typeof userCommand === "string" ? userCommand : userCommand[0];
+    if (envPairs.length > 0) {
+      return `${smCommand} env ${envPairs.join(" ")} ${userCmd}`;
+    }
+    return `${smCommand} ${userCmd}`;
+  }
+
+  const smParts = smCommand.split(/\s+/).filter(Boolean);
+  const userParts = Array.isArray(userCommand) ? userCommand : [userCommand];
+  if (envPairs.length > 0) {
+    return [...smParts, "env", ...envPairs, ...userParts];
+  }
+  return [...smParts, ...userParts];
+}
+
+function buildReinjectEnv(
+  depEnv: Record<string, string>,
+  envMap: string[] = [],
+  resolvedEnv: Record<string, string>
+): Record<string, string> {
+  const result = { ...depEnv };
+  for (const { target, source } of parseEnvMapEntries(envMap)) {
+    const value = resolvedEnv[source];
+    if (value !== undefined) {
+      result[target] = value;
+    }
+  }
+  return result;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -316,15 +356,19 @@ function findFreePort(): Promise<number> {
 async function runHostApp(
   repoPath: string,
   app: DevrouterHostHttpApp,
-  extraEnv: Record<string, string> = {}
+  extraEnv: Record<string, string> = {},
+  secretManager?: { command: string }
 ): Promise<void> {
   const routeId = buildHostRouteId(repoPath, app.name);
   const commandCwd = assertPathWithinRepo(app.hostRun.cwd, repoPath, "hostRun.cwd");
   const freePort = await findFreePort();
+  const spawnCommand = secretManager
+    ? wrapWithSecretManager(secretManager.command, extraEnv, app.hostRun.command, true) as string
+    : app.hostRun.command;
   // shell:true is intentional — .devrouter.yml is a user-controlled local config file
   // with the same trust model as npm scripts or docker-compose commands. The user who
   // edits the config already has local shell access.
-  const child = spawn(app.hostRun.command, {
+  const child = spawn(spawnCommand, {
     cwd: commandCwd,
     stdio: "inherit",
     shell: true,
@@ -607,6 +651,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
     repoPath,
     app,
     depEnv,
+    secretManager: config.secretManager,
     overlay,
     startedServices,
     dependencyApps: startDependencies ? dependencyNames(dependencies) : [],
@@ -619,7 +664,7 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
 
   try {
     if (deps.app.runtime === "host") {
-      await runHostApp(deps.repoPath, deps.app, deps.depEnv);
+      await runHostApp(deps.repoPath, deps.app, deps.depEnv, deps.secretManager);
     } else if (deps.app.kind !== "dependency" && deps.app.protocol === "tcp") {
       process.stdout.write(
         `TCP route ready: postgres://${deps.app.host}:5432 (tls required, e.g. sslmode=require)\n`
@@ -660,7 +705,31 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
     const env = buildExecEnvironment(deps.depEnv, options.envMap);
     let child: ReturnType<typeof spawn>;
 
-    if (options.shell) {
+    if (deps.secretManager) {
+      const reinjectEnv = buildReinjectEnv(deps.depEnv, options.envMap, env);
+      if (options.shell) {
+        const wrapped = wrapWithSecretManager(
+          deps.secretManager.command, reinjectEnv, options.command[0], true
+        ) as string;
+        child = spawn(wrapped, {
+          cwd: deps.repoPath,
+          stdio: "inherit",
+          shell: true,
+          env
+        });
+      } else {
+        const wrapped = wrapWithSecretManager(
+          deps.secretManager.command, reinjectEnv, options.command, false
+        ) as string[];
+        const [cmd, ...wrappedArgs] = wrapped;
+        child = spawn(cmd, wrappedArgs, {
+          cwd: deps.repoPath,
+          stdio: "inherit",
+          shell: false,
+          env
+        });
+      }
+    } else if (options.shell) {
       child = spawn(options.command[0], {
         cwd: deps.repoPath,
         stdio: "inherit",

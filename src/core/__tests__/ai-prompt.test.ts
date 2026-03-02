@@ -59,7 +59,9 @@ describe('buildOnboardingPrompt', () => {
 
   it('includes secret-manager interop guidance with env mapping and probes', () => {
     const prompt = buildOnboardingPrompt({ repo: tmpDir })
-    expect(prompt).toContain('Secret Manager Interop (Infisical/Doppler):')
+    expect(prompt).toContain('Secret Manager Integration (config-based):')
+    expect(prompt).toContain('secretManager.command')
+    expect(prompt).toContain('Secret Manager Interop (manual fallback):')
     expect(prompt).toContain(
       'dev app exec <name> --repo <REPO_PATH> --yes --env-map DATABASE_URI=DATABASE_URL -- <command>'
     )

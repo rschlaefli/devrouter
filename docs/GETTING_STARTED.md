@@ -135,7 +135,26 @@ Map aliases for non-Prisma apps with repeatable `--env-map TARGET=SOURCE`:
 dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- pnpm payload migrate
 ```
 
-### Secret manager interop (Infisical/Doppler)
+### Secret manager integration (config-based)
+
+When a secret manager (Infisical, Doppler, etc.) wraps your dev commands, it can override devrouter-injected env vars (`DATABASE_URL`, `DIRECT_URL`, etc.) with empty or different values. Add `secretManager` to `.devrouter.yml` so devrouter automatically re-applies its injected vars after the SM boundary:
+
+```yaml
+secretManager:
+  command: infisical run --env dev --
+```
+
+When configured, `dev app run` and `dev app exec` wrap the user's command:
+
+```
+<secretManager.command> env DATABASE_URL=<val> DIRECT_URL=<val> ... <user-command>
+```
+
+The `env KEY=VAL` prefix is inserted between the SM boundary and the user command, re-applying all devrouter-injected dependency env vars so they take precedence over whatever the SM set. Env-map targets (`--env-map DATABASE_URI=DATABASE_URL`) are also included in the re-injection set.
+
+The SM command string must include the trailing `--` boundary (user responsibility).
+
+### Secret manager interop (manual)
 
 - devrouter injects `DB_HOST`, `DB_PORT`, `DATABASE_URL`, `DIRECT_URL`, and `SHADOW_DATABASE_URL` when a host app depends on postgres.
 - If your secret manager also defines DB variables, do not assume precedence. Validate effective env before migration/seed.

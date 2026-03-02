@@ -287,6 +287,44 @@ apps:
   });
 });
 
+// ---- secretManager validation ----
+
+describe("secretManager validation", () => {
+  it("accepts valid secretManager config", () => {
+    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env dev --\napps: []");
+    const config = loadRepoConfig(tmpDir);
+    expect(config.secretManager?.command).toBe("infisical run --env dev --");
+  });
+
+  it("omits secretManager when not configured", () => {
+    writeConfig(tmpDir, "version: 1\napps: []");
+    const config = loadRepoConfig(tmpDir);
+    expect(config.secretManager).toBeUndefined();
+  });
+
+  it("rejects empty secretManager command", () => {
+    writeConfig(tmpDir, 'version: 1\nsecretManager:\n  command: ""\napps: []');
+    expect(() => loadRepoConfig(tmpDir)).toThrow("must be a non-empty string");
+  });
+
+  it("rejects unknown keys under secretManager", () => {
+    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --\n  timeout: 30\napps: []");
+    expect(() => loadRepoConfig(tmpDir)).toThrow("timeout is not supported");
+  });
+
+  it("rejects secretManager.command exceeding max length", () => {
+    const longCommand = "x".repeat(4097);
+    writeConfig(tmpDir, `version: 1\nsecretManager:\n  command: "${longCommand}"\napps: []`);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("exceeds maximum length");
+  });
+
+  it("preserves secretManager through save/load roundtrip", () => {
+    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: doppler run --\napps:\n  - name: web\n    host: web.localhost\n    protocol: http\n    runtime: docker\n    docker:\n      service: web\n      internalPort: 3000\n");
+    const config = loadRepoConfig(tmpDir);
+    expect(config.secretManager?.command).toBe("doppler run --");
+  });
+});
+
 // ---- resolveAppDependencies ----
 
 describe("resolveAppDependencies", () => {
