@@ -4,7 +4,7 @@ import type {
   DevrouterApp,
   DevrouterConfig,
   DevrouterDockerDependencyApp,
-  DevrouterDockerPostgresApp,
+  DevrouterDockerTcpApp,
   DevrouterHostHttpApp
 } from "../../types";
 
@@ -57,7 +57,15 @@ vi.mock("../docker", () => ({
 
 vi.mock("../router", () => ({
   DEVNET_NAME: "devnet",
+  TCP_PROTOCOL_REGISTRY: {
+    postgres: { port: 5432, entrypoint: "postgres" },
+    redis: { port: 6379, entrypoint: "redis" },
+    mariadb: { port: 3306, entrypoint: "mariadb" },
+    mysql: { port: 3306, entrypoint: "mysql" },
+  },
   ensureRouterFiles: ensureRouterFilesMock,
+  activateTcpProtocol: vi.fn(() => false),
+  startRouterStack: vi.fn(),
 }));
 
 vi.mock("../docker-run", () => ({
@@ -102,7 +110,7 @@ const HOST_APP: DevrouterHostHttpApp = {
   },
 };
 
-const POSTGRES_DEP: DevrouterDockerPostgresApp = {
+const POSTGRES_DEP: DevrouterDockerTcpApp = {
   name: "db",
   host: "db.localhost",
   protocol: "tcp",
@@ -475,7 +483,7 @@ describe("execWithAppEnv", () => {
   });
 
   it("stops only newly started dependencies when some were already running", async () => {
-    const ANALYTICS_DB_DEP: DevrouterDockerPostgresApp = {
+    const ANALYTICS_DB_DEP: DevrouterDockerTcpApp = {
       ...POSTGRES_DEP,
       name: "analytics-db",
       host: "analytics-db.localhost",

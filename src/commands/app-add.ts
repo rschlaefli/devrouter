@@ -11,7 +11,7 @@ type CliAppAddOptions = {
   port?: number;
   composeFile?: string[];
   router?: string;
-  tcpProtocol?: "postgres";
+  tcpProtocol?: string;
   command?: string;
   cwd?: string;
   dependsOn?: string[];

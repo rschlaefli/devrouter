@@ -8,7 +8,7 @@ import {
   DevrouterDockerDependencyApp,
   DevrouterDockerRoutedApp
 } from "../types";
-import { CACHE_DIR } from "./router";
+import { CACHE_DIR, TCP_PROTOCOL_REGISTRY } from "./router";
 import { assertPathWithinRepo } from "./paths";
 import { withDockerFailureGuidance } from "./docker-error-guidance";
 
@@ -74,8 +74,10 @@ function buildOverlayDocument(
         app.docker.internalPort
       );
     } else {
+      const registryEntry = TCP_PROTOCOL_REGISTRY[app.tcpProtocol];
+      const entrypoint = registryEntry?.entrypoint ?? app.tcpProtocol;
       labels[`traefik.tcp.routers.${routerId}.rule`] = `HostSNI(\`${app.host}\`)`;
-      labels[`traefik.tcp.routers.${routerId}.entrypoints`] = "postgres";
+      labels[`traefik.tcp.routers.${routerId}.entrypoints`] = entrypoint;
       labels[`traefik.tcp.routers.${routerId}.tls`] = "true";
       labels[`traefik.tcp.services.${routerId}.loadbalancer.server.port`] = String(
         app.docker.internalPort

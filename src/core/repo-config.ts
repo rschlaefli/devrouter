@@ -7,9 +7,10 @@ import {
   DevrouterConfig,
   DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
-  DevrouterDockerPostgresApp,
+  DevrouterDockerTcpApp,
   DevrouterHostHttpApp
 } from "../types";
+import { TCP_PROTOCOL_REGISTRY } from "./router";
 
 const CONFIG_FILE_NAME = ".devrouter.yml";
 
@@ -276,15 +277,18 @@ function parseApp(value: unknown, index: number): DevrouterApp {
 
     if (protocol === "tcp") {
       const tcpProtocol = toStringOrThrow(objectValue.tcpProtocol, `${pathLabel}.tcpProtocol`);
-      if (tcpProtocol !== "postgres") {
-        throw new Error(`${pathLabel}.tcpProtocol must be 'postgres' for protocol=tcp.`);
+      const supportedProtocols = Object.keys(TCP_PROTOCOL_REGISTRY);
+      if (!supportedProtocols.includes(tcpProtocol)) {
+        throw new Error(
+          `${pathLabel}.tcpProtocol must be one of: ${supportedProtocols.join(", ")}.`
+        );
       }
 
       return {
         name,
         host,
         protocol: "tcp",
-        tcpProtocol: "postgres",
+        tcpProtocol,
         runtime: "docker",
         dependencies,
         docker
@@ -545,15 +549,16 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
   }
 
   const tcpProtocol = options.tcpProtocol ?? "postgres";
-  if (tcpProtocol !== "postgres") {
-    throw new Error("--tcp-protocol must be postgres for --protocol tcp");
+  const supportedProtocols = Object.keys(TCP_PROTOCOL_REGISTRY);
+  if (!supportedProtocols.includes(tcpProtocol)) {
+    throw new Error(`--tcp-protocol must be one of: ${supportedProtocols.join(", ")}`);
   }
 
   return {
     name: options.name,
     host,
     protocol: "tcp",
-    tcpProtocol: "postgres",
+    tcpProtocol,
     runtime: "docker",
     dependencies,
     docker

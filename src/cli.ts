@@ -163,7 +163,7 @@ appCommand
     return next;
   })
   .option("--router <id>", "Optional Traefik router ID")
-  .option("--tcp-protocol <protocol>", "tcp protocol (postgres)")
+  .option("--tcp-protocol <protocol>", "tcp protocol (postgres, redis, mariadb, mysql)")
   .option("--command <command>", "Host command (runtime=host)")
   .option("--cwd <path>", "Host command working directory (runtime=host)")
   .option("--depends-on <app>", "Dependency app name (repeatable)", (value, prev: string[] | undefined) => {
@@ -182,7 +182,7 @@ appCommand
     port?: number;
     composeFile?: string[];
     router?: string;
-    tcpProtocol?: "postgres";
+    tcpProtocol?: string;
     command?: string;
     cwd?: string;
     dependsOn?: string[];

@@ -1,7 +1,7 @@
 export type Route = {
   id: string;
   source: "docker" | "host";
-  protocol: "http" | "tcp/postgres";
+  protocol: "http" | `tcp/${string}`;
   appName: string;
   containerId?: string;
   containerName?: string;
@@ -21,8 +21,8 @@ export type RouterStatus = {
   boundPorts: {
     web80: boolean;
     web443: boolean;
-    postgres5432: boolean;
     dashboard8080: boolean;
+    tcp: Record<string, boolean>;
   };
   tlsEnabled: boolean;
   certPresent: boolean;
@@ -157,9 +157,9 @@ export type DevrouterDockerHttpApp = DevrouterRoutedAppBase & {
   docker: DevrouterDockerConfig;
 };
 
-export type DevrouterDockerPostgresApp = DevrouterRoutedAppBase & {
+export type DevrouterDockerTcpApp = DevrouterRoutedAppBase & {
   protocol: "tcp";
-  tcpProtocol: "postgres";
+  tcpProtocol: string;
   runtime: "docker";
   docker: DevrouterDockerConfig;
 };
@@ -172,8 +172,8 @@ export type DevrouterDockerDependencyApp = {
   docker: DevrouterDockerDependencyConfig;
 };
 
-export type DevrouterRoutedApp = DevrouterHostHttpApp | DevrouterDockerHttpApp | DevrouterDockerPostgresApp;
-export type DevrouterDockerRoutedApp = DevrouterDockerHttpApp | DevrouterDockerPostgresApp;
+export type DevrouterRoutedApp = DevrouterHostHttpApp | DevrouterDockerHttpApp | DevrouterDockerTcpApp;
+export type DevrouterDockerRoutedApp = DevrouterDockerHttpApp | DevrouterDockerTcpApp;
 export type DevrouterApp = DevrouterRoutedApp | DevrouterDockerDependencyApp;
 
 export type AppAddOptions = {
@@ -186,7 +186,7 @@ export type AppAddOptions = {
   port?: number;
   composeFiles: string[];
   router?: string;
-  tcpProtocol?: "postgres";
+  tcpProtocol?: string;
   command?: string;
   cwd?: string;
   dependsOn: string[];

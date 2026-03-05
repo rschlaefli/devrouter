@@ -14,6 +14,12 @@ vi.mock("../../core/host-routes", () => ({
 
 vi.mock("../../core/router", () => ({
   DEVNET_NAME: "devnet",
+  TCP_PROTOCOL_REGISTRY: {
+    postgres: { port: 5432, entrypoint: "postgres" },
+    redis: { port: 6379, entrypoint: "redis" },
+    mariadb: { port: 3306, entrypoint: "mariadb" },
+    mysql: { port: 3306, entrypoint: "mysql" },
+  },
   isTLSEnabled: vi.fn(() => true),
 }));
 

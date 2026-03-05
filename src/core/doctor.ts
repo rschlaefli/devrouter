@@ -13,7 +13,7 @@ import {
   DevrouterApp,
   DevrouterConfig,
   DevrouterDockerDependencyApp,
-  DevrouterDockerPostgresApp,
+  DevrouterDockerTcpApp,
   DiagnosticCheck,
   DoctorReport
 } from "../types";
@@ -100,7 +100,7 @@ function isExplicitLiteralValue(value: string): boolean {
 
 function inspectPostgresCredentials(repoPath: string, config: DevrouterConfig): PostgresCredentialInspection {
   const postgresApps = config.apps.filter(
-    (app): app is DevrouterDockerPostgresApp =>
+    (app): app is DevrouterDockerTcpApp =>
       app.runtime === "docker" &&
       app.kind !== "dependency" &&
       app.protocol === "tcp" &&
@@ -350,15 +350,20 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       if (!status.boundPorts.web443) {
         missingPorts.push("443");
       }
-      if (!status.boundPorts.postgres5432) {
-        missingPorts.push("5432");
+      for (const [protocol, bound] of Object.entries(status.boundPorts.tcp)) {
+        if (!bound) {
+          missingPorts.push(`${protocol}`);
+        }
       }
+
+      const activeTcpPorts = Object.keys(status.boundPorts.tcp);
+      const portSummary = ["80", "443", ...activeTcpPorts].join("/");
 
       addCheck(checks, {
         id: "global.port-bindings",
         level: missingPorts.length === 0 ? "ok" : "error",
         summary: missingPorts.length === 0
-          ? "Router has required port bindings (80/443/5432)."
+          ? `Router has required port bindings (${portSummary}).`
           : `Router is running but missing bound port(s): ${missingPorts.join(", ")}.`,
         suggestion: missingPorts.length === 0 ? undefined : "Restart router: dev down && dev up"
       });
@@ -473,10 +478,10 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         suggestion: missingComposeFiles.length === 0 ? undefined : "Fix docker.composeFiles paths in .devrouter.yml"
       });
 
-      const tcpPostgresAppCount = config.apps.filter(
-        (app) => app.kind !== "dependency" && app.protocol === "tcp"
+      const postgresAppCount = config.apps.filter(
+        (app) => app.kind !== "dependency" && app.protocol === "tcp" && app.tcpProtocol === "postgres"
       ).length;
-      if (tcpPostgresAppCount > 0) {
+      if (postgresAppCount > 0) {
         const inspection = inspectPostgresCredentials(repo.path, config);
         if (inspection.mismatches.length > 0) {
           const details = inspection.mismatches
@@ -560,14 +565,14 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         addCheck(checks, {
           id: "repo.tcp-tls",
           level: "error",
-          summary: `Repo defines ${repo.tcpAppCount} tcp/postgres app(s), but TLS is not enabled.`,
+          summary: `Repo defines ${repo.tcpAppCount} TCP app(s), but TLS is not enabled.`,
           suggestion: "Run: dev tls install"
         });
       } else if (repo.tcpAppCount > 0) {
         addCheck(checks, {
           id: "repo.tcp-tls",
           level: "ok",
-          summary: `TLS is ready for ${repo.tcpAppCount} tcp/postgres app(s).`
+          summary: `TLS is ready for ${repo.tcpAppCount} TCP app(s).`
         });
       }
 

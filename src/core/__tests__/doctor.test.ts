@@ -14,6 +14,12 @@ vi.mock("../status", () => ({
 vi.mock("../router", () => ({
   getRouterFileLayout: vi.fn(() => ({ required: [], missing: [] })),
   isTLSEnabled: vi.fn(() => false),
+  TCP_PROTOCOL_REGISTRY: {
+    postgres: { port: 5432, entrypoint: "postgres" },
+    redis: { port: 6379, entrypoint: "redis" },
+    mariadb: { port: 3306, entrypoint: "mariadb" },
+    mysql: { port: 3306, entrypoint: "mysql" },
+  },
 }));
 
 vi.mock("../docker", () => ({
@@ -103,8 +109,8 @@ function makeStatus(repoPath: string, tlsEnabled: boolean): RouterStatus {
     boundPorts: {
       web80: true,
       web443: true,
-      postgres5432: true,
       dashboard8080: true,
+      tcp: { postgres: true },
     },
     tlsEnabled,
     certPresent: tlsEnabled,

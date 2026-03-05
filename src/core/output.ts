@@ -13,8 +13,10 @@ export function printStatus(status: RouterStatus): void {
     ["Router container", status.routerContainerName],
     ["Port 80 bound", status.boundPorts.web80 ? "yes" : "no"],
     ["Port 443 bound", status.boundPorts.web443 ? "yes" : "no"],
-    ["Port 5432 bound", status.boundPorts.postgres5432 ? "yes" : "no"],
     ["Dashboard 8080 bound", status.boundPorts.dashboard8080 ? "yes" : "no"],
+    ...Object.entries(status.boundPorts.tcp).map(([protocol, bound]) => [
+      `TCP ${protocol} bound`, bound ? "yes" : "no"
+    ]),
     ["devnet exists", status.networkExists ? "yes" : "no"],
     ["TLS configured", status.tlsConfigured ? "yes" : "no"],
     ["TLS certs present", status.certPresent ? "yes" : "no"],

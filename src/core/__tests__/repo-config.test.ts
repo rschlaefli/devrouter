@@ -235,11 +235,27 @@ apps:
     expect(app.runtime).toBe("docker");
   });
 
-  it("rejects docker + tcp + non-postgres", () => {
-    const yaml = VALID_TCP_POSTGRES.replace("postgres", "mysql");
+  it("accepts docker + tcp + redis", () => {
+    const yaml = VALID_TCP_POSTGRES.replace("postgres", "redis");
+    writeConfig(tmpDir, yaml);
+    const config = loadRepoConfig(tmpDir);
+    const app = config.apps[0] as Extract<DevrouterApp, { protocol: "tcp" }>;
+    expect(app.tcpProtocol).toBe("redis");
+  });
+
+  it("accepts docker + tcp + mariadb", () => {
+    const yaml = VALID_TCP_POSTGRES.replace("postgres", "mariadb");
+    writeConfig(tmpDir, yaml);
+    const config = loadRepoConfig(tmpDir);
+    const app = config.apps[0] as Extract<DevrouterApp, { protocol: "tcp" }>;
+    expect(app.tcpProtocol).toBe("mariadb");
+  });
+
+  it("rejects docker + tcp + unsupported protocol", () => {
+    const yaml = VALID_TCP_POSTGRES.replace("postgres", "cassandra");
     writeConfig(tmpDir, yaml);
     expect(() => loadRepoConfig(tmpDir)).toThrow(
-      "tcpProtocol must be 'postgres'"
+      "tcpProtocol must be one of"
     );
   });
 

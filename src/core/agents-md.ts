@@ -74,7 +74,7 @@ apps:
       router: <string>          # optional
 
     # if kind=app and protocol=tcp:
-    tcpProtocol: postgres    # required; runtime must be docker
+    tcpProtocol: postgres    # required; one of: postgres, redis, mariadb, mysql
 
     # if kind=dependency:
     runtime: docker
@@ -86,7 +86,7 @@ apps:
 Validation rules:
 - \`kind=app\`: \`host\` must end with \`.localhost\`
 - \`kind=app\`: \`runtime=host\` supports \`protocol=http\` only
-- \`kind=app\`: \`protocol=tcp\` requires \`runtime=docker\` and \`tcpProtocol=postgres\`
+- \`kind=app\`: \`protocol=tcp\` requires \`runtime=docker\` and \`tcpProtocol\` (postgres, redis, mariadb, mysql)
 - \`kind=dependency\`: must use \`runtime=docker\` and does not allow routed fields (\`host\`/\`protocol\`/\`tcpProtocol\`/\`hostRun\`/\`docker.internalPort\`/\`docker.router\`)
 - Unknown keys rejected (strict schema)
 

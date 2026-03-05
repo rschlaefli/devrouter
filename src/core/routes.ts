@@ -1,8 +1,19 @@
 import type { ContainerInfo } from "dockerode";
 import type { Route } from "../types";
+import { TCP_PROTOCOL_REGISTRY } from "./router";
 
 const HTTP_ROUTER_RULE_KEY = /^traefik\.http\.routers\.([^.]+)\.rule$/;
 const TCP_ROUTER_RULE_KEY = /^traefik\.tcp\.routers\.([^.]+)\.rule$/;
+const TCP_ROUTER_ENTRYPOINTS_KEY = /^traefik\.tcp\.routers\.([^.]+)\.entrypoints$/;
+
+function resolveEntrypointToProtocol(entrypoint: string): string {
+  for (const [protocol, entry] of Object.entries(TCP_PROTOCOL_REGISTRY)) {
+    if (entry.entrypoint === entrypoint) {
+      return protocol;
+    }
+  }
+  return entrypoint;
+}
 
 function normalizeContainerName(name: string | undefined): string {
   if (!name) {
@@ -61,6 +72,16 @@ function buildRoute(
     health = "healthy";
   }
 
+  let urls: string[];
+  if (protocol === "http") {
+    urls = hosts.map((host) => `${tlsEnabled ? "https" : "http"}://${host}`);
+  } else {
+    const tcpProtocol = protocol.startsWith("tcp/") ? protocol.slice(4) : "tcp";
+    const registryEntry = TCP_PROTOCOL_REGISTRY[tcpProtocol];
+    const port = registryEntry?.port ?? "?";
+    urls = hosts.map((host) => `${tcpProtocol}://${host}:${port} (tls required)`);
+  }
+
   return {
     id: routerId,
     source: "docker",
@@ -71,10 +92,7 @@ function buildRoute(
     serviceName,
     projectName,
     hosts,
-    urls:
-      protocol === "http"
-        ? hosts.map((host) => `${tlsEnabled ? "https" : "http"}://${host}`)
-        : hosts.map((host) => `postgres://${host}:5432 (tls required)`),
+    urls,
     status,
     health,
     createdAt: container.Created
@@ -124,7 +142,9 @@ export function discoverRoutes(
         continue;
       }
 
-      routes.push(buildRoute(container, routerId, hosts, "tcp/postgres", tlsEnabled));
+      const entrypointsLabel = labels[`traefik.tcp.routers.${routerId}.entrypoints`];
+      const tcpProtocol = entrypointsLabel ? resolveEntrypointToProtocol(entrypointsLabel) : "tcp";
+      routes.push(buildRoute(container, routerId, hosts, `tcp/${tcpProtocol}`, tlsEnabled));
     }
   }
 

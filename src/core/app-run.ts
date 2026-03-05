@@ -6,7 +6,7 @@ import { stdin as input, stdout as output } from "node:process";
 import {
   DevrouterApp,
   DevrouterDockerDependencyApp,
-  DevrouterDockerPostgresApp,
+  DevrouterDockerTcpApp,
   DevrouterHostHttpApp
 } from "../types";
 import {
@@ -20,7 +20,7 @@ import {
 import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
 import { buildHostRouteId, removeHostRouteById, upsertHostRoute } from "./host-routes";
 import { ensureNetwork } from "./docker";
-import { DEVNET_NAME, ensureRouterFiles } from "./router";
+import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY, activateTcpProtocol, ensureRouterFiles, startRouterStack } from "./router";
 import { assertPathWithinRepo } from "./paths";
 import { ensureTLSHostsCovered } from "./tls";
 
@@ -606,8 +606,19 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   const depEnv: Record<string, string> = {};
   if (hasTcpDeps && overlay) {
     const tcpDeps = selectedDockerApps.filter(
-      (entry): entry is DevrouterDockerPostgresApp => entry.kind !== "dependency" && entry.protocol === "tcp"
+      (entry): entry is DevrouterDockerTcpApp => entry.kind !== "dependency" && entry.protocol === "tcp"
     );
+
+    let routerRestarted = false;
+    for (const dep of tcpDeps) {
+      const needsRestart = activateTcpProtocol(dep.tcpProtocol);
+      if (needsRestart && !routerRestarted) {
+        process.stdout.write(`Restarting router for new TCP entrypoint: ${dep.tcpProtocol}\n`);
+        startRouterStack();
+        routerRestarted = true;
+      }
+    }
+
     for (const dep of tcpDeps) {
       const mappedPort = queryMappedPort(
         repoPath,
@@ -666,8 +677,10 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
     if (deps.app.runtime === "host") {
       await runHostApp(deps.repoPath, deps.app, deps.depEnv, deps.secretManager);
     } else if (deps.app.kind !== "dependency" && deps.app.protocol === "tcp") {
+      const registryEntry = TCP_PROTOCOL_REGISTRY[deps.app.tcpProtocol];
+      const port = registryEntry?.port ?? "?";
       process.stdout.write(
-        `TCP route ready: postgres://${deps.app.host}:5432 (tls required, e.g. sslmode=require)\n`
+        `TCP route ready: ${deps.app.tcpProtocol}://${deps.app.host}:${port} (tls required)\n`
       );
     }
   } finally {

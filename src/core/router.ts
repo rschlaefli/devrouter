@@ -6,7 +6,18 @@ import { withDockerFailureGuidance } from "./docker-error-guidance";
 
 export const DEVNET_NAME = "devnet";
 export const ROUTER_CONTAINER_NAME = "devrouter-traefik";
-export const ROUTER_POSTGRES_PORT = 5432;
+
+export type TcpProtocolEntry = {
+  port: number;
+  entrypoint: string;
+};
+
+export const TCP_PROTOCOL_REGISTRY: Record<string, TcpProtocolEntry> = {
+  postgres: { port: 5432, entrypoint: "postgres" },
+  redis: { port: 6379, entrypoint: "redis" },
+  mariadb: { port: 3306, entrypoint: "mariadb" },
+  mysql: { port: 3306, entrypoint: "mysql" },
+};
 
 export const DEVROUTER_HOME = path.join(os.homedir(), ".config", "devrouter");
 export const TRAEFIK_DIR = path.join(DEVROUTER_HOME, "traefik");
@@ -20,6 +31,7 @@ export const TRAEFIK_STATIC_FILE = path.join(TRAEFIK_DIR, "traefik.yml");
 export const TRAEFIK_DYNAMIC_BASE_FILE = path.join(TRAEFIK_DYNAMIC_DIR, "base.yml");
 export const TRAEFIK_HOST_ROUTES_FILE = path.join(TRAEFIK_DYNAMIC_DIR, "host-routes.yml");
 export const HOST_ROUTES_STATE_FILE = path.join(DEVROUTER_HOME, "host-routes-state.json");
+export const ACTIVE_TCP_PROTOCOLS_FILE = path.join(DEVROUTER_HOME, "active-tcp-protocols.json");
 export const ROUTER_README_FILE = path.join(DEVROUTER_HOME, "README.md");
 const LEGACY_TRAEFIK_DYNAMIC_FILE = path.join(TRAEFIK_DIR, "dynamic.yml");
 
@@ -34,7 +46,9 @@ const ROUTER_REQUIRED_FILES = [
   HOST_ROUTES_STATE_FILE
 ] as const;
 
-function renderComposeYml(): string {
+function renderComposeYml(activeTcpPorts: TcpProtocolEntry[]): string {
+  const tcpPortLines = activeTcpPorts.map((entry) => `      - "${entry.port}:${entry.port}"`).join("\n");
+  const tcpSection = tcpPortLines.length > 0 ? `\n${tcpPortLines}` : "";
   return `services:
   traefik:
     image: traefik:v2.11
@@ -42,8 +56,7 @@ function renderComposeYml(): string {
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
-      - "5432:5432"
+      - "443:443"${tcpSection}
       - "127.0.0.1:8080:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -61,7 +74,11 @@ networks:
 `;
 }
 
-function renderTraefikStaticYml(): string {
+function renderTraefikStaticYml(activeTcpEntrypoints: TcpProtocolEntry[]): string {
+  const tcpEntrypointLines = activeTcpEntrypoints
+    .map((entry) => `  ${entry.entrypoint}:\n    address: ":${entry.port}"`)
+    .join("\n");
+  const tcpSection = tcpEntrypointLines.length > 0 ? `\n${tcpEntrypointLines}` : "";
   return `api:
   dashboard: true
   insecure: true
@@ -70,9 +87,7 @@ entryPoints:
   web:
     address: ":80"
   websecure:
-    address: ":443"
-  postgres:
-    address: ":5432"
+    address: ":443"${tcpSection}
   traefik:
     address: ":8080"
 
@@ -167,15 +182,68 @@ This folder is managed by the devrouter CLI.
 
 ## Troubleshooting
 
-If dev up fails with port conflicts on 80/443/5432, run:
+If dev up fails with port conflicts on 80/443 (or TCP protocol ports), run:
 
 - lsof -nP -iTCP:80 -sTCP:LISTEN
 - lsof -nP -iTCP:443 -sTCP:LISTEN
-- lsof -nP -iTCP:5432 -sTCP:LISTEN
 `;
 }
 
-export function ensureRouterFiles(): void {
+function resolveActiveTcpEntries(protocols: string[]): TcpProtocolEntry[] {
+  const seen = new Set<number>();
+  const entries: TcpProtocolEntry[] = [];
+  for (const protocol of protocols) {
+    const entry = TCP_PROTOCOL_REGISTRY[protocol];
+    if (entry && !seen.has(entry.port)) {
+      seen.add(entry.port);
+      entries.push(entry);
+    }
+  }
+  return entries;
+}
+
+export function getActiveTcpProtocols(): string[] {
+  if (!fs.existsSync(ACTIVE_TCP_PROTOCOLS_FILE)) {
+    return [];
+  }
+  try {
+    const raw = fs.readFileSync(ACTIVE_TCP_PROTOCOLS_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter((item): item is string => typeof item === "string" && item in TCP_PROTOCOL_REGISTRY);
+  } catch {
+    return [];
+  }
+}
+
+function saveActiveTcpProtocols(protocols: string[]): void {
+  fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
+  fs.writeFileSync(ACTIVE_TCP_PROTOCOLS_FILE, JSON.stringify(protocols, null, 2) + "\n", "utf-8");
+}
+
+export function activateTcpProtocol(protocol: string): boolean {
+  if (!(protocol in TCP_PROTOCOL_REGISTRY)) {
+    throw new Error(`Unknown TCP protocol '${protocol}'. Supported: ${Object.keys(TCP_PROTOCOL_REGISTRY).join(", ")}`);
+  }
+  const current = getActiveTcpProtocols();
+  if (current.includes(protocol)) {
+    return false;
+  }
+  const next = [...current, protocol];
+  saveActiveTcpProtocols(next);
+  ensureRouterFiles(next);
+  return true;
+}
+
+export function clearActiveTcpProtocols(): void {
+  if (fs.existsSync(ACTIVE_TCP_PROTOCOLS_FILE)) {
+    fs.unlinkSync(ACTIVE_TCP_PROTOCOLS_FILE);
+  }
+}
+
+export function ensureRouterFiles(activeTcpProtocols?: string[]): void {
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   fs.mkdirSync(TRAEFIK_DIR, { recursive: true });
   fs.mkdirSync(TRAEFIK_DYNAMIC_DIR, { recursive: true });
@@ -183,8 +251,11 @@ export function ensureRouterFiles(): void {
   fs.mkdirSync(BIN_DIR, { recursive: true });
   fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-  fs.writeFileSync(COMPOSE_FILE, renderComposeYml(), "utf-8");
-  fs.writeFileSync(TRAEFIK_STATIC_FILE, renderTraefikStaticYml(), "utf-8");
+  const protocols = activeTcpProtocols ?? getActiveTcpProtocols();
+  const tcpEntries = resolveActiveTcpEntries(protocols);
+
+  fs.writeFileSync(COMPOSE_FILE, renderComposeYml(tcpEntries), "utf-8");
+  fs.writeFileSync(TRAEFIK_STATIC_FILE, renderTraefikStaticYml(tcpEntries), "utf-8");
 
   if (!fs.existsSync(TRAEFIK_DYNAMIC_BASE_FILE)) {
     if (fs.existsSync(LEGACY_TRAEFIK_DYNAMIC_FILE)) {

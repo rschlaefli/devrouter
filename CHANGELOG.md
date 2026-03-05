@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.17] - 2026-03-05
+
+### Added
+
+- Generic TCP routing: `tcpProtocol` now supports `postgres`, `redis`, `mariadb`, and `mysql`. New protocols are validated against `TCP_PROTOCOL_REGISTRY`.
+- Dynamic TCP port binding: Traefik entrypoints and port mappings are only created when a TCP protocol is first used (`dev app run` / `dev app exec`). Ports are released on `dev down`.
+- Active TCP protocol state tracked in `~/.config/devrouter/active-tcp-protocols.json`.
+- Redis service added to demo (`demo/docker-compose.yml`, `demo/.devrouter.yml`).
+
+### Changed
+
+- `RouterStatus.boundPorts` now uses dynamic `tcp: Record<string, boolean>` instead of hardcoded `postgres5432`.
+- `DevrouterDockerPostgresApp` type renamed to `DevrouterDockerTcpApp` with `tcpProtocol: string`.
+- Route protocol display is now `tcp/<protocol>` (e.g., `tcp/redis`) instead of always `tcp/postgres`.
+- Postgres-specific env injection (`DATABASE_URL`, `DIRECT_URL`, `SHADOW_DATABASE_URL`) only applies when `tcpProtocol === "postgres"`. Generic `NAME_HOST`/`NAME_PORT` injected for all TCP protocols.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.17.md
+
 ## [0.0.16] - 2026-03-02
 
 ### Added

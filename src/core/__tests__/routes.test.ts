@@ -324,6 +324,7 @@ describe("discoverRoutes", () => {
       Labels: {
         "traefik.enable": "true",
         "traefik.tcp.routers.db.rule": "HostSNI(`db.localhost`)",
+        "traefik.tcp.routers.db.entrypoints": "postgres",
         "com.docker.compose.service": "db",
         "com.docker.compose.project": "myproj",
       },
@@ -338,6 +339,28 @@ describe("discoverRoutes", () => {
       hosts: ["db.localhost"],
     });
     expect(routes[0].urls[0]).toContain("postgres://");
+  });
+
+  it("parses TCP router labels with redis entrypoint", () => {
+    const container = makeContainer({
+      Labels: {
+        "traefik.enable": "true",
+        "traefik.tcp.routers.cache.rule": "HostSNI(`cache.localhost`)",
+        "traefik.tcp.routers.cache.entrypoints": "redis",
+        "com.docker.compose.service": "redis",
+        "com.docker.compose.project": "myproj",
+      },
+    });
+
+    const { routes } = discoverRoutes([container], true, NETWORK);
+    expect(routes).toHaveLength(1);
+    expect(routes[0]).toMatchObject({
+      id: "cache",
+      protocol: "tcp/redis",
+      appName: "cache",
+      hosts: ["cache.localhost"],
+    });
+    expect(routes[0].urls[0]).toContain("redis://");
   });
 
   it("filters HostSNI(*) wildcard from TCP routes", () => {

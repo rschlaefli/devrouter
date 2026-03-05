@@ -7,7 +7,9 @@ import {
 import {
   DEVNET_NAME,
   ROUTER_CONTAINER_NAME,
+  TCP_PROTOCOL_REGISTRY,
   areTLSCertsPresent,
+  getActiveTcpProtocols,
   getRouterFileLayout,
   isTLSConfigured,
   isTLSEnabled
@@ -106,16 +108,27 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
     dockerUnavailableMessage = dockerUnavailableMessage ?? message;
   }
 
+  const tcpBoundPorts: Record<string, boolean> = {};
+  for (const protocol of getActiveTcpProtocols()) {
+    const entry = TCP_PROTOCOL_REGISTRY[protocol];
+    if (entry) {
+      tcpBoundPorts[protocol] = hasPortBinding(container?.Ports, entry.port, entry.port);
+    }
+  }
+
   const boundPorts = {
     web80: hasPortBinding(container?.Ports, 80, 80),
     web443: hasPortBinding(container?.Ports, 443, 443),
-    postgres5432: hasPortBinding(container?.Ports, 5432, 5432),
-    dashboard8080: hasPortBinding(container?.Ports, 8080, 8080)
+    dashboard8080: hasPortBinding(container?.Ports, 8080, 8080),
+    tcp: tcpBoundPorts
   };
 
   const nextSteps: string[] = [];
   const httpRoutingReady = container?.State === "running" && boundPorts.web80;
-  const tcpRoutingReady = container?.State === "running" && boundPorts.postgres5432 && tlsEnabled;
+  const activeTcpProtocols = getActiveTcpProtocols();
+  const tcpRoutingReady = container?.State === "running" && tlsEnabled &&
+    activeTcpProtocols.length > 0 &&
+    activeTcpProtocols.every((p) => boundPorts.tcp[p]);
 
   if (!container || container.State !== "running") {
     nextSteps.push("Run: dev up");
@@ -126,7 +139,7 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
   }
 
   if (!tlsEnabled) {
-    nextSteps.push("Run: dev tls install (required for tcp/postgres, recommended for http)");
+    nextSteps.push("Run: dev tls install (required for TCP routing, recommended for HTTP)");
   }
 
   if (repo && !repo.exists) {

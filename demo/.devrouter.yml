@@ -1,6 +1,6 @@
 version: 1
 devrouter:
-  version: 0.0.16
+  version: 0.0.17
 project:
   name: devrouter-demo
 
@@ -10,6 +10,17 @@ project:
 #   command: infisical run --env dev --
 
 apps:
+  - name: cache
+    host: demo-cache.localhost
+    protocol: tcp
+    tcpProtocol: redis
+    runtime: docker
+    docker:
+      service: redis
+      internalPort: 6379
+      composeFiles:
+        - docker-compose.yml
+
   - name: db
     host: demo-db.localhost
     protocol: tcp
