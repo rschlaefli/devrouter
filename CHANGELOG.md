@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-03-06
+
+### Added
+
+- Concurrent run guard for `dev app run`: host apps with a live PID in `host-routes-state.json` are rejected with the existing URL, PID, and repo path. Stale entries (dead PID) are evicted silently.
+- Hostname conflict detection: starting a host app whose hostname is already claimed by a different live app throws `HostnameConflictError`.
+- `dev doctor` now includes `routes.stale-host-routes` check that evicts dead-PID entries from host route state.
+- New module `src/core/concurrency.ts` with `assertAppNotRunning()` and `evictStaleHostRoutes()`.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.18.md
+
 ## [0.0.17] - 2026-03-05
 
 ### Added

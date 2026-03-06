@@ -21,7 +21,7 @@ type UpsertHostRouteInput = {
   command?: string;
 };
 
-function isPidRunning(pid: number | undefined): boolean {
+export function isPidRunning(pid: number | undefined): boolean {
   if (!pid || pid <= 0) {
     return false;
   }

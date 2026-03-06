@@ -19,6 +19,7 @@ import {
 } from "./docker-run";
 import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
 import { buildHostRouteId, removeHostRouteById, upsertHostRoute } from "./host-routes";
+import { assertAppNotRunning } from "./concurrency";
 import { ensureNetwork } from "./docker";
 import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY, activateTcpProtocol, ensureRouterFiles, startRouterStack } from "./router";
 import { assertPathWithinRepo } from "./paths";
@@ -359,6 +360,8 @@ async function runHostApp(
   extraEnv: Record<string, string> = {},
   secretManager?: { command: string }
 ): Promise<void> {
+  assertAppNotRunning(repoPath, app);
+
   const routeId = buildHostRouteId(repoPath, app.name);
   const commandCwd = assertPathWithinRepo(app.hostRun.cwd, repoPath, "hostRun.cwd");
   const freePort = await findFreePort();

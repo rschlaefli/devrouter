@@ -83,6 +83,10 @@ vi.mock("../host-routes", () => ({
   upsertHostRoute: vi.fn(),
 }));
 
+vi.mock("../concurrency", () => ({
+  assertAppNotRunning: vi.fn(),
+}));
+
 vi.mock("../paths", () => ({
   assertPathWithinRepo: vi.fn((value: string) => value),
 }));
