@@ -1,6 +1,6 @@
 version: 1
 devrouter:
-  version: 0.0.18
+  version: 0.0.19
 project:
   name: devrouter-demo
 

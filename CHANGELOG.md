@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.19] - 2026-03-07
+
+### Fixed
+
+- Dependency env vars (`{PREFIX}_HOST`, `_PORT`, `_URL`, etc.) and `envMap` aliases are now correctly injected even when dependency containers are already running. Previously, skipping the "start dependencies?" prompt also skipped overlay generation and port probing, resulting in missing env vars.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.19.md
+
 ## [0.0.18] - 2026-03-07
 
 ### Added
