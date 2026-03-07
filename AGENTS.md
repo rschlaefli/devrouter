@@ -78,6 +78,7 @@ Supported routing:
 - `src/core/status.ts`: status collection + readiness insights
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation
+- `src/core/concurrency.ts`: concurrent run guard (`assertAppNotRunning`) + stale route eviction (`evictStaleHostRoutes`)
 - `src/core/app-run.ts`: runtime orchestration, `startAppDependencies()` helper, `runConfiguredApp()`, `execWithAppEnv()`
 - `src/core/docker-run.ts`: cached compose overlay generation, compose up, `queryMappedPort()`, `queryRunningComposeServices()` (routed apps get Traefik labels; `kind=dependency` services are left as-is)
 - `src/commands/app-exec.ts`: `dev app exec` command handler
@@ -102,6 +103,7 @@ Supported routing:
 - `src/core/__tests__/ai-prompt.test.ts`: unit tests for onboarding prompt/schema consistency
 - `src/core/__tests__/agents-md.test.ts`: unit tests for AGENTS/skill file writers (including Linear workflow support)
 - `src/core/__tests__/linear-onboarding.test.ts`: unit tests for guided Linear metadata collection + placeholder fallback
+- `src/core/__tests__/concurrency.test.ts`: unit tests for concurrent run guard and stale route eviction
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
 - `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, per-dep env vars, config-level envMap, exec dependency ownership teardown, and SM `{env}` template resolution

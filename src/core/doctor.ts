@@ -3,6 +3,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { listContainers } from "./docker";
 import { listHostRouteState, listHostRoutes } from "./host-routes";
+import { evictStaleHostRoutes } from "./concurrency";
 import { loadRepoConfig, resolveRepoPath } from "./repo-config";
 import { getRouterFileLayout, isTLSEnabled } from "./router";
 import { collectRouterStatus } from "./status";
@@ -659,6 +660,15 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       ? "Host route state contains only running process entries."
       : `${staleHostRoutes.length} host route entr${staleHostRoutes.length === 1 ? "y is" : "ies are"} stale (process not running).`,
     suggestion: staleHostRoutes.length === 0 ? undefined : "Re-run the affected host app(s): dev app run <name> --repo <path>"
+  });
+
+  const evictedCount = evictStaleHostRoutes();
+  addCheck(checks, {
+    id: "routes.stale-host-routes",
+    level: evictedCount === 0 ? "ok" : "warn",
+    summary: evictedCount === 0
+      ? "No stale host route entries to clean up."
+      : `Evicted ${evictedCount} stale host route entr${evictedCount === 1 ? "y" : "ies"} (dead PID).`
   });
 
   const summary = collectSummary(checks);

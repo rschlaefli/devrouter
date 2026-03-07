@@ -12,6 +12,10 @@ All notable changes to this project are documented in this file.
 - Per-dep deterministic env vars: TCP deps now get unique vars based on `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`: `{PREFIX}_HOST`, `{PREFIX}_PORT`, `{PREFIX}_URL` (protocol-specific), `{PREFIX}_SHADOW_URL` (postgres only). Multiple deps of the same protocol no longer collide.
 - Config-level `envMap` on dependency references in `.devrouter.yml`: alias per-dep vars to project-specific names (e.g. `DATABASE_URL: DB_URL`). Applied after dep var resolution, flows through SM re-injection automatically.
 - URL builders for redis (`redis://localhost:{PORT}`), mysql/mariadb (`mysql://root@localhost:{PORT}`).
+- Concurrent run guard for `dev app run`: host apps with a live PID in `host-routes-state.json` are rejected with the existing URL, PID, and repo path. Stale entries (dead PID) are evicted silently.
+- Hostname conflict detection: starting a host app whose hostname is already claimed by a different live app throws `HostnameConflictError`.
+- `dev doctor` now includes `routes.stale-host-routes` check that evicts dead-PID entries from host route state.
+- New module `src/core/concurrency.ts` with `assertAppNotRunning()` and `evictStaleHostRoutes()`.
 
 ### Breaking
 
