@@ -144,6 +144,16 @@ Supported routing:
 - **TLS host coverage**: `startAppDependencies()` in `app-run.ts` calls TLS coverage refresh for all configured repo hosts when TLS is enabled. `dev doctor` emits `repo.tls-host-coverage` when configured hosts are not covered by current cert SANs.
 - **SM env override**: `secretManager.command` supports `{env}` template placeholders resolved by `resolveSmCommand()` in `app-run.ts`. `defaultEnv` provides the config-level fallback; `--env` CLI flag overrides at runtime. Resolution happens at usage sites in `execWithAppEnv` and `runHostApp` before passing to `wrapWithSecretManager`.
 
+## Release checklist
+
+1. Commit all implementation changes (fix/feature commits first, separate from release commit).
+2. Bump `version` in `package.json` to `0.0.X`.
+3. Bump `devrouter.version` in `demo/.devrouter.yml` to `0.0.X`.
+4. Add `[0.0.X]` section in `CHANGELOG.md` between `[Unreleased]` and previous release. Include `### Agent Adaptation Prompt` referencing `./upgrade-prompts/0.0.X.md`.
+5. Create `upgrade-prompts/0.0.X.md` with: changes summary, task (bump version, schema migration if any, refresh artifacts), validation steps, report template.
+6. Run validation checklist (below).
+7. Commit all release artifacts in a single commit: `Release 0.0.X -- <summary>`.
+
 ## Validation checklist
 
 1. `pnpm check:docs-policy`
