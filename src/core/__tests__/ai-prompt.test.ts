@@ -57,27 +57,25 @@ describe('buildOnboardingPrompt', () => {
     expect(prompt).toContain('kind=dependency entries are dependency-only')
   })
 
-  it('includes secret-manager interop guidance with env mapping and probes', () => {
+  it('includes secret-manager interop guidance with envMap and probes', () => {
     const prompt = buildOnboardingPrompt({ repo: tmpDir })
     expect(prompt).toContain('Secret Manager Integration (config-based):')
     expect(prompt).toContain('secretManager.command')
+    expect(prompt).toContain('secretManager.defaultEnv')
+    expect(prompt).toContain('{env}')
     expect(prompt).toContain('Secret Manager Interop (manual fallback):')
+    expect(prompt).toContain('envMap: { DATABASE_URL: DB_URL }')
     expect(prompt).toContain(
-      'dev app exec <name> --repo <REPO_PATH> --yes --env-map DATABASE_URI=DATABASE_URL -- <command>'
-    )
-    expect(prompt).toContain(
-      'printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL'
+      'printenv DB_URL DB_HOST DB_PORT DB_SHADOW_URL'
     )
     expect(prompt).toContain('Do not assume secret-manager precedence')
     expect(prompt).toContain(
       'Avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`'
     )
     expect(prompt).toContain(
-      'env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL}'
-    )
-    expect(prompt).toContain(
       'warns on risky pre-wrapper DB assignments before `run --`'
     )
+    expect(prompt).not.toContain('--env-map')
   })
 
   it('includes Linear workflow section only when withLinear is enabled', () => {

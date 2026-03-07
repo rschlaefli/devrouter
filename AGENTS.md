@@ -151,8 +151,9 @@ Supported routing:
 3. Bump `devrouter.version` in `demo/.devrouter.yml` to `0.0.X`.
 4. Add `[0.0.X]` section in `CHANGELOG.md` between `[Unreleased]` and previous release. Include `### Agent Adaptation Prompt` referencing `./upgrade-prompts/0.0.X.md`.
 5. Create `upgrade-prompts/0.0.X.md` with: changes summary, task (bump version, schema migration if any, refresh artifacts), validation steps, report template.
-6. Run validation checklist (below).
-7. Commit all release artifacts in a single commit: `Release 0.0.X -- <summary>`.
+6. Update `.factory/skills/devrouter/SKILL.md` and `src/core/ai-prompt.ts` to reflect any schema, env injection, CLI flag, or config changes in this release. Run `ai-prompt.test.ts` to verify consistency.
+7. Run validation checklist (below).
+8. Commit all release artifacts in a single commit: `Release 0.0.X -- <summary>`.
 
 ## Validation checklist
 

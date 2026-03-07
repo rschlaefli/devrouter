@@ -28,6 +28,8 @@ apps:
     kind: app | dependency # optional, default: app
     dependencies: # optional
       - app: <other-name>
+        envMap: # optional; maps target env var name -> per-dep source var name
+          DATABASE_URL: <UPPER_DEP_NAME>_URL
 
     # if kind=app:
     host: <name>.localhost
@@ -73,7 +75,7 @@ Validation rules:
 
 - **Healthcheck required**: every dependency service must define a `healthcheck`. `docker compose up --wait` blocks until healthy; without one, wait returns immediately.
 - **No published ports**: services must not publish host ports for devrouter-owned ports (80, 443, 5432). Avoid publishing ports at all -- devrouter handles routing via Traefik.
-- **Postgres credentials**: use `POSTGRES_USER=prisma`, `POSTGRES_PASSWORD=prisma`, `POSTGRES_DB=prisma` and create a `shadow` database. devrouter injects `DATABASE_URL` / `SHADOW_DATABASE_URL` with these fixed credentials.
+- **Postgres credentials**: use `POSTGRES_USER=prisma`, `POSTGRES_PASSWORD=prisma`, `POSTGRES_DB=prisma` and create a `shadow` database. devrouter injects per-dep `{PREFIX}_URL` / `{PREFIX}_SHADOW_URL` with these credentials.
 - **Persistent volume warning**: if postgres defaults changed on an existing volume, reconcile credentials/data or recreate volumes when safe (for example `docker compose down -v`).
 
 Example healthcheck:
@@ -88,36 +90,51 @@ healthcheck:
 
 ## Env var injection
 
-When a host app depends on a TCP/Postgres Docker service, `dev app run` and `dev app exec` inject:
+When a host app depends on a TCP Docker service, `dev app run` and `dev app exec` inject per-dep deterministic vars (where `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`):
 
-| Variable              | Value                                                                   |
-| --------------------- | ----------------------------------------------------------------------- |
-| `<UPPER_NAME>_HOST`   | `localhost`                                                             |
-| `<UPPER_NAME>_PORT`   | random mapped port                                                      |
-| `DATABASE_URL`        | `postgres://prisma:prisma@localhost:<port>/prisma` (postgres deps only) |
-| `SHADOW_DATABASE_URL` | `postgres://prisma:prisma@localhost:<port>/shadow` (postgres deps only) |
+| Variable                | Value                                                       |
+| ----------------------- | ----------------------------------------------------------- |
+| `{PREFIX}_HOST`         | `localhost`                                                 |
+| `{PREFIX}_PORT`         | random mapped port                                          |
+| `{PREFIX}_URL`          | protocol-specific URL (postgres, redis, mysql/mariadb)      |
+| `{PREFIX}_SHADOW_URL`   | `postgres://prisma:prisma@localhost:<port>/shadow` (postgres only) |
 
 Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.0.0`.
 
-`dev app exec --env-map TARGET=SOURCE` applies deterministic alias mapping after dependency env injection (for example `DATABASE_URI=DATABASE_URL`).
+Config-level `envMap` on dependency references aliases per-dep vars to app-expected names (for example `DATABASE_URL: DB_URL` maps the per-dep `DB_URL` to `DATABASE_URL`).
 
 ## Secret manager interop (Infisical/Doppler)
 
+- Config-based SM integration: set `secretManager.command` in `.devrouter.yml` (include trailing `--`). devrouter wraps commands and re-injects dep env vars after the SM boundary.
+- `secretManager.defaultEnv`: optional fallback environment for `{env}` template in command string.
+- `{env}` template placeholder: `secretManager.command: "infisical run --env {env} --"` resolved at runtime. `--env <env>` CLI flag overrides `defaultEnv`.
+- Example config:
+  ```yaml
+  secretManager:
+    command: infisical run --env {env} --
+    defaultEnv: dev
+  ```
+- Use `envMap` on dependency references to alias per-dep vars to app-expected names:
+  ```yaml
+  dependencies:
+    - app: db
+      envMap:
+        DATABASE_URL: DB_URL
+        DIRECT_URL: DB_URL
+        SHADOW_DATABASE_URL: DB_SHADOW_URL
+  ```
 - Prefer argv-safe command forms. Do not wrap `infisical run` or `doppler run` in `sh -lc` unless shell expansion is strictly required.
 - Canonical Infisical migrate command:
-  `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
-- Canonical Infisical seed command:
-  `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload seed`
+  `dev app exec <app> --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
 - Canonical env probe command (run before migrate/seed):
-  `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
+  `dev app exec <app> --yes -- printenv DB_URL DB_HOST DB_PORT DB_SHADOW_URL`
 - Canonical Doppler migrate command:
-  `dev app exec <app> --yes --env-map DATABASE_URI=DATABASE_URL -- doppler run -- pnpm payload migrate`
-- Precedence best practice: avoid defining local `DATABASE_URL` / `DATABASE_URI` in Infisical/Doppler when you expect devrouter local DB injection.
-- Precedence best practice: store remote/prod URLs under non-conflicting names (for example `PROD_DATABASE_URL`) and map intentionally in app config/scripts.
-- Precedence best practice: if secret manager must define `DATABASE_URL`, run the env probe and verify values before any migration/seed.
-- `dev app run` does not currently expose `--env-map`; if an app only accepts `DATABASE_URI`, prefer app-level fallback (`DATABASE_URI` then `DATABASE_URL`) or a small repo-local wrapper script.
+  `dev app exec <app> --yes -- doppler run -- pnpm payload migrate`
+- Precedence best practice: avoid defining per-dep var names in Infisical/Doppler when you expect devrouter local DB injection.
+- Precedence best practice: store remote/prod URLs under non-conflicting names (for example `PROD_DATABASE_URL`) and map intentionally via `envMap`.
+- Precedence best practice: if secret manager must define DB vars, run the env probe and verify values before any migration/seed.
 - Use `dev app exec --shell -- "<single command string>"` only when shell expansion is required.
-- `--env-map` fails fast when SOURCE is missing so migrations do not run with partial mapping.
+- `envMap` fails fast when source var is missing so migrations do not run with partial mapping.
 
 ## Upgrade handling (required)
 
@@ -155,8 +172,8 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 - `dev repo agents [--with-linear]`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
 - `dev app add`: add/update app entry in `.devrouter.yml`
 - `dev app ls`: list app entries
-- `dev app run <name>`: run app with dependency lifecycle
-- `dev app exec <name> [--shell] [--env-map TARGET=SOURCE] -- <cmd>`: one-shot command with resolved dep env
+- `dev app run <name> [--env <env>]`: run app with dependency lifecycle (--env overrides SM defaultEnv)
+- `dev app exec <name> [--shell] [--env <env>] -- <cmd>`: one-shot command with resolved dep env
 - `dev app rm <name>`: remove app entry
 
 ## Validation workflow
@@ -179,4 +196,4 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 - Postgres on shared `:5432` requires TLS/SNI (`dev tls install`). Standard app clients should use the injected random port instead.
 - `dev app exec` follows the same dep lifecycle for one-shot commands and preserves argv semantics by default (`shell: false`).
 - `dev app exec --shell` is explicit and requires exactly one command string after `--`.
-- Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (`printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT`) before migrate/seed.
+- Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (`printenv DB_URL DB_HOST DB_PORT`) before migrate/seed.
