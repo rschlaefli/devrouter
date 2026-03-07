@@ -540,15 +540,10 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
     );
   }
 
-  const startDependencies = await shouldStartDependencies(
-    app.name,
-    dependencies,
-    Boolean(options.yes)
-  );
-
-  const selectedApps = uniqueApps(
-    startDependencies ? [app, ...dependencies] : [app]
-  );
+  // Always include all dependencies for overlay/env probing, regardless of
+  // whether we actually start them (compose up). This ensures env injection
+  // works even when containers are already running.
+  const selectedApps = uniqueApps([app, ...dependencies]);
   const selectedDockerApps = selectedApps.filter(
     (entry): entry is Exclude<DevrouterApp, DevrouterHostHttpApp> => entry.runtime === "docker"
   );
@@ -556,6 +551,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
 
   const startedServices: string[] = [];
   let overlay: ReturnType<typeof prepareDockerOverlay> | undefined;
+  let startDependencies = false;
 
   const hasTcpDeps = app.runtime === "host" && selectedDockerApps.some(
     (entry) => entry.kind !== "dependency" && entry.protocol === "tcp"
@@ -564,36 +560,59 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   if (selectedDockerApps.length > 0) {
     overlay = prepareDockerOverlay(repoPath, app.name, selectedDockerApps, hasTcpDeps);
     const services = selectedDockerApps.map((entry) => entry.docker.service);
+
+    // Check which dep services are already running before deciding whether to prompt
+    const depServices = dependencies
+      .filter((entry) => entry.runtime === "docker")
+      .map((entry) => entry.docker.service);
     let runningServicesBefore: Set<string> | null = null;
     let ownershipKnown = true;
-    if (stopPolicy === "stop-only-newly-started") {
-      const preRunServices = queryRunningComposeServices(
-        repoPath,
-        overlay.composeFiles,
-        overlay.overlayPath,
-        services
+    const preRunResult = depServices.length > 0
+      ? queryRunningComposeServices(repoPath, overlay.composeFiles, overlay.overlayPath, depServices)
+      : undefined;
+
+    const allDepsRunning = preRunResult?.status === "known"
+      && depServices.every((s) => preRunResult.runningServices.has(s));
+
+    if (allDepsRunning) {
+      // All deps already running — skip prompt and compose up
+      startDependencies = false;
+    } else if (dependencies.length > 0) {
+      startDependencies = await shouldStartDependencies(
+        app.name,
+        dependencies,
+        Boolean(options.yes)
       );
-      if (preRunServices.status === "known") {
-        runningServicesBefore = preRunServices.runningServices;
-      } else {
-        ownershipKnown = false;
-        process.stderr.write(
-          "Warning: unable to determine which dependencies were already running before 'dev app exec'; " +
-            "leaving dependencies running after command exit to avoid stopping non-owned services. " +
-            `Details: ${preRunServices.reason}\n`
-        );
-      }
+    } else {
+      startDependencies = false;
     }
 
-    runDockerComposeUp(repoPath, overlay.composeFiles, overlay.overlayPath, services);
-    if (stopPolicy === "stop-only-newly-started") {
-      if (ownershipKnown && runningServicesBefore) {
-        startedServices.push(...services.filter((service) => !runningServicesBefore.has(service)));
+    if (startDependencies) {
+      // Track ownership for stop policy
+      if (stopPolicy === "stop-only-newly-started") {
+        if (preRunResult?.status === "known") {
+          runningServicesBefore = preRunResult.runningServices;
+        } else if (preRunResult?.status === "unknown") {
+          ownershipKnown = false;
+          process.stderr.write(
+            "Warning: unable to determine which dependencies were already running before 'dev app exec'; " +
+              "leaving dependencies running after command exit to avoid stopping non-owned services. " +
+              `Details: ${preRunResult.reason}\n`
+          );
+        }
       }
-    } else {
-      startedServices.push(...services);
+
+      runDockerComposeUp(repoPath, overlay.composeFiles, overlay.overlayPath, services);
+      if (stopPolicy === "stop-only-newly-started") {
+        const beforeSet = runningServicesBefore;
+        if (ownershipKnown && beforeSet) {
+          startedServices.push(...services.filter((service) => !beforeSet.has(service)));
+        }
+      } else {
+        startedServices.push(...services);
+      }
+      runDockerComposeLogs(repoPath, overlay.composeFiles, overlay.overlayPath, services);
     }
-    runDockerComposeLogs(repoPath, overlay.composeFiles, overlay.overlayPath, services);
   }
 
   const depEnv: Record<string, string> = {};

@@ -827,6 +827,65 @@ describe("execWithAppEnv", () => {
       expect.objectContaining({ shell: false })
     );
   });
+
+  it("skips prompt and injects env when all deps already running", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+    queryRunningComposeServicesMock.mockReturnValue({
+      status: "known",
+      runningServices: new Set(["db"]),
+    });
+
+    // Do NOT pass yes — should not need it because deps are already running
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      command: ["printenv"],
+    });
+
+    // Prompt was never needed, compose up was skipped
+    expect(runDockerComposeUpMock).not.toHaveBeenCalled();
+    // Env vars still injected from running containers
+    const spawnOptions = spawnMock.mock.calls[0]?.[2] as { env: Record<string, string> };
+    expect(spawnOptions.env.DB_HOST).toBe("localhost");
+    expect(spawnOptions.env.DB_PORT).toBe("55432");
+    expect(spawnOptions.env.DB_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnOptions.env.DB_SHADOW_URL).toBe("postgres://prisma:prisma@localhost:55432/shadow");
+    // No services to stop since we didn't start any
+    expect(runDockerComposeStopMock).not.toHaveBeenCalled();
+  });
+
+  it("injects env with envMap when all deps already running", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name, envMap: { DATABASE_URL: "DB_URL" } }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+    queryRunningComposeServicesMock.mockReturnValue({
+      status: "known",
+      runningServices: new Set(["db"]),
+    });
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      command: ["pnpm", "prisma:migrate"],
+    });
+
+    expect(runDockerComposeUpMock).not.toHaveBeenCalled();
+    const spawnOptions = spawnMock.mock.calls[0]?.[2] as { env: Record<string, string> };
+    expect(spawnOptions.env.DB_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnOptions.env.DATABASE_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+  });
 });
 
 describe("runConfiguredApp", () => {
