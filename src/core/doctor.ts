@@ -556,7 +556,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
               : undefined,
           suggestion:
             riskyCount > 0
-              ? "Move DB assignment after wrapper boundary (example: infisical run --env=dev -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev). Then verify effective values with: dev app exec <app> --yes -- infisical run --env=<env> -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL"
+              ? "Move DB assignment after wrapper boundary (example: infisical run --env=dev -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev). Then verify effective values with: dev app exec <app> --yes -- infisical run --env=<env> -- printenv DB_URL DB_SHADOW_URL DB_HOST DB_PORT"
               : undefined
         });
       }

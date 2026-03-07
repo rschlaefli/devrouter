@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-03-07
+
+### Added
+
+- Secret manager environment override: `secretManager.command` now supports `{env}` template placeholder resolved at runtime. New optional `secretManager.defaultEnv` config field provides the fallback value; new `--env <env>` CLI flag on `dev app run` and `dev app exec` overrides it. Enables switching SM environments (dev/stg/prd) without separate scripts.
+- Per-dep deterministic env vars: TCP deps now get unique vars based on `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`: `{PREFIX}_HOST`, `{PREFIX}_PORT`, `{PREFIX}_URL` (protocol-specific), `{PREFIX}_SHADOW_URL` (postgres only). Multiple deps of the same protocol no longer collide.
+- Config-level `envMap` on dependency references in `.devrouter.yml`: alias per-dep vars to project-specific names (e.g. `DATABASE_URL: DB_URL`). Applied after dep var resolution, flows through SM re-injection automatically.
+- URL builders for redis (`redis://localhost:{PORT}`), mysql/mariadb (`mysql://root@localhost:{PORT}`).
+
+### Breaking
+
+- **Removed shared hardcoded env vars**: `DATABASE_URL`, `DIRECT_URL`, and `SHADOW_DATABASE_URL` are no longer auto-injected for postgres deps. Use per-dep vars (`DB_URL`, `DB_SHADOW_URL`) directly or add `envMap` entries to get legacy names.
+- **Removed `--env-map` CLI flag**: env var aliasing is now config-only via `envMap` on dependency references in `.devrouter.yml`.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.18.md
+
 ## [0.0.17] - 2026-03-05
 
 ### Added

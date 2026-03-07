@@ -62,7 +62,7 @@ Supported routing:
 - `dev upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
 - `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
 - `dev repo init`, `dev repo agents` (`--with-linear` optional)
-- `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run`, `dev app exec` (`--shell`, `--env-map TARGET=SOURCE`), `dev app rm`
+- `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run` (`--env`), `dev app exec` (`--shell`, `--env`), `dev app rm`
 
 ## Repository map
 
@@ -104,7 +104,7 @@ Supported routing:
 - `src/core/__tests__/linear-onboarding.test.ts`: unit tests for guided Linear metadata collection + placeholder fallback
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
-- `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, env-map behavior, and exec dependency ownership teardown
+- `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, per-dep env vars, config-level envMap, exec dependency ownership teardown, and SM `{env}` template resolution
 - `src/core/__tests__/tls.test.ts`: unit tests for TLS SAN parsing, wildcard coverage, and host preservation logic
 - `src/commands/__tests__/init.test.ts`: unit tests for `dev init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `dev open` app-name fallback behavior
@@ -136,10 +136,11 @@ Supported routing:
 - **Dep lifecycle**: `startAppDependencies()` in `app-run.ts` is the reusable helper for starting deps, resolving env vars, and returning a `stopDeps()` cleanup. `dev app run` keeps the original stop-selected-deps policy; `dev app exec` uses ownership-aware teardown (stop only deps started by that exec call) and falls back to non-destructive cleanup if ownership detection is unavailable. Any new command needing resolved dep env should call this.
 - **Port mapping**: `queryMappedPort()` in `docker-run.ts` calls `docker compose port` to discover random host ports. `prepareDockerOverlay()` accepts `publishTcpPorts` to auto-publish `0:<internalPort>` for TCP deps.
 - **Dependency-only apps**: `kind=dependency` entries are Docker-only and do not expose routes; they can be auto-started/stopped only through dependency graphs (not direct `run`/`exec`/`open` targets).
-- **Env injection**: TCP deps get `<UPPER_NAME>_HOST`/`_PORT`. Postgres deps additionally get `DATABASE_URL` and `SHADOW_DATABASE_URL` with fixed `prisma:prisma` credentials. `dev app exec --env-map TARGET=SOURCE` applies alias copies after this injection.
+- **Env injection**: TCP deps get per-dep deterministic vars: `{PREFIX}_HOST`/`_PORT`/`_URL`/`_SHADOW_URL` (where `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`). Protocol-specific URLs: postgres (`postgres://prisma:prisma@...`), redis (`redis://...`), mysql/mariadb (`mysql://root@...`). Config-level `envMap` on dependency references aliases these to project-specific names (e.g. `DATABASE_URL: DB_URL`). Aliases are applied in `startAppDependencies()` and become part of `depEnv` — they flow through SM re-injection and `buildExecEnvironment()` automatically.
 - **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.
 - **Secret-manager precedence diagnostics**: `dev doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 - **TLS host coverage**: `startAppDependencies()` in `app-run.ts` calls TLS coverage refresh for all configured repo hosts when TLS is enabled. `dev doctor` emits `repo.tls-host-coverage` when configured hosts are not covered by current cert SANs.
+- **SM env override**: `secretManager.command` supports `{env}` template placeholders resolved by `resolveSmCommand()` in `app-run.ts`. `defaultEnv` provides the config-level fallback; `--env` CLI flag overrides at runtime. Resolution happens at usage sites in `execWithAppEnv` and `runHostApp` before passing to `wrapWithSecretManager`.
 
 ## Validation checklist
 

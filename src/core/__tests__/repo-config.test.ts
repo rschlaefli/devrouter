@@ -272,6 +272,98 @@ apps:
     expect(app.docker.composeFiles).toEqual(["docker-compose.yml"]);
   });
 
+  it("accepts dependency reference with envMap", () => {
+    const yaml = `
+version: 1
+apps:
+  - name: db
+    host: db.localhost
+    protocol: tcp
+    tcpProtocol: postgres
+    runtime: docker
+    docker:
+      service: db
+      internalPort: 5432
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: docker
+    dependencies:
+      - app: db
+        envMap:
+          DATABASE_URL: DB_URL
+          SHADOW_DATABASE_URL: DB_SHADOW_URL
+    docker:
+      service: web
+      internalPort: 3000
+`;
+    writeConfig(tmpDir, yaml);
+    const config = loadRepoConfig(tmpDir);
+    expect(config.apps[1].dependencies[0].envMap).toEqual({
+      DATABASE_URL: "DB_URL",
+      SHADOW_DATABASE_URL: "DB_SHADOW_URL",
+    });
+  });
+
+  it("rejects envMap with invalid env var names", () => {
+    const yaml = `
+version: 1
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: docker
+    dependencies:
+      - app: db
+        envMap:
+          bad-name: DB_URL
+    docker:
+      service: web
+      internalPort: 3000
+`;
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("not a valid environment variable name");
+  });
+
+  it("rejects envMap with invalid source env var names", () => {
+    const yaml = `
+version: 1
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: docker
+    dependencies:
+      - app: db
+        envMap:
+          DATABASE_URL: bad-source
+    docker:
+      service: web
+      internalPort: 3000
+`;
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("not a valid environment variable name");
+  });
+
+  it("rejects unknown keys in dependency object", () => {
+    const yaml = `
+version: 1
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: docker
+    dependencies:
+      - app: db
+        unknown: true
+    docker:
+      service: web
+      internalPort: 3000
+`;
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("unknown is not supported");
+  });
+
   it("rejects dependency kind with host/protocol fields", () => {
     const yaml = `
 version: 1
@@ -332,6 +424,35 @@ describe("secretManager validation", () => {
     const longCommand = "x".repeat(4097);
     writeConfig(tmpDir, `version: 1\nsecretManager:\n  command: "${longCommand}"\napps: []`);
     expect(() => loadRepoConfig(tmpDir)).toThrow("exceeds maximum length");
+  });
+
+  it("accepts secretManager with defaultEnv", () => {
+    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env {env} --\n  defaultEnv: dev\napps: []");
+    const config = loadRepoConfig(tmpDir);
+    expect(config.secretManager?.command).toBe("infisical run --env {env} --");
+    expect(config.secretManager?.defaultEnv).toBe("dev");
+  });
+
+  it("requires defaultEnv when command contains {env}", () => {
+    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env {env} --\napps: []");
+    expect(() => loadRepoConfig(tmpDir)).toThrow("defaultEnv is required when command contains {env}");
+  });
+
+  it("allows defaultEnv to be omitted when no {env} placeholder", () => {
+    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env dev --\napps: []");
+    const config = loadRepoConfig(tmpDir);
+    expect(config.secretManager?.defaultEnv).toBeUndefined();
+  });
+
+  it("rejects defaultEnv exceeding 64 characters", () => {
+    const longEnv = "a".repeat(65);
+    writeConfig(tmpDir, `version: 1\nsecretManager:\n  command: infisical run --env {env} --\n  defaultEnv: ${longEnv}\napps: []`);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("exceeds maximum length of 64");
+  });
+
+  it("rejects defaultEnv with invalid characters", () => {
+    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env {env} --\n  defaultEnv: dev@prod\napps: []");
+    expect(() => loadRepoConfig(tmpDir)).toThrow("must be alphanumeric with hyphens");
   });
 
   it("preserves secretManager through save/load roundtrip", () => {

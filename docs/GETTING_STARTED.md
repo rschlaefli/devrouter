@@ -89,25 +89,43 @@ Services **should not** publish host ports at all. devrouter handles external ro
 - `kind=dependency` entries are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`
 - `kind=dependency` services are started as declared in compose (no Traefik labels, no random port publishing, no injected env vars)
 
-### TCP dependency port injection
+### TCP dependency env injection
 
-When a host app depends on a TCP/Postgres Docker service, `dev app run` automatically:
+When a host app depends on a TCP Docker service, `dev app run` automatically:
 
 1. Publishes the service's internal port on a random host port
 2. Queries the mapped port after startup
-3. Injects `<UPPER_NAME>_HOST=localhost` and `<UPPER_NAME>_PORT=<port>` env vars into the host app process
-4. For postgres deps, also injects `DATABASE_URL`, `DIRECT_URL`, and `SHADOW_DATABASE_URL` with fixed credentials
+3. Injects per-dep env vars based on `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`
 
-For example, a dependency named `db` produces:
+All TCP deps get `{PREFIX}_HOST` and `{PREFIX}_PORT`. Protocol-specific URL vars:
+
+| Protocol | `{PREFIX}_URL` | `{PREFIX}_SHADOW_URL` |
+|----------|----------------|----------------------|
+| postgres | `postgres://prisma:prisma@localhost:{PORT}/prisma` | `postgres://prisma:prisma@localhost:{PORT}/shadow` |
+| redis | `redis://localhost:{PORT}` | - |
+| mysql/mariadb | `mysql://root@localhost:{PORT}` | - |
+
+For example, a postgres dependency named `db` produces:
 
 - `DB_HOST=localhost`
 - `DB_PORT=54321`
-- `DATABASE_URL=postgres://prisma:prisma@localhost:54321/prisma`
-- `DIRECT_URL=postgres://prisma:prisma@localhost:54321/prisma`
-- `SHADOW_DATABASE_URL=postgres://prisma:prisma@localhost:54321/shadow`
+- `DB_URL=postgres://prisma:prisma@localhost:54321/prisma`
+- `DB_SHADOW_URL=postgres://prisma:prisma@localhost:54321/shadow`
 
-`DIRECT_URL` equals `DATABASE_URL` in dev (no pooler); Prisma uses it to bypass PgBouncer during migrations.
-Prisma projects work out of the box. Other frameworks can use `DATABASE_URL` directly or override it.
+Multiple TCP deps get unique vars without collision.
+
+To alias per-dep vars to project-specific names, use `envMap` on the dependency reference:
+
+```yaml
+dependencies:
+  - app: db
+    envMap:
+      DATABASE_URL: DB_URL
+      DIRECT_URL: DB_URL
+      SHADOW_DATABASE_URL: DB_SHADOW_URL
+```
+
+`envMap` entries are `TARGET: SOURCE` where SOURCE must exist in the resolved dep env. Aliases are applied before SM re-injection and flow through all downstream env resolution automatically.
 
 ### Running one-shot commands with dependency env vars
 
@@ -116,23 +134,17 @@ Prisma projects work out of the box. Other frameworks can use `DATABASE_URL` dir
 ```bash
 dev app exec web --yes -- npx prisma migrate dev
 dev app exec web --yes -- npx prisma db seed
-dev app exec web --yes -- printenv DATABASE_URL SHADOW_DATABASE_URL DB_HOST DB_PORT
+dev app exec web --yes -- printenv DB_URL DB_SHADOW_URL DB_HOST DB_PORT
 ```
 
-The command receives the same env vars as `dev app run` (DATABASE_URL, DIRECT_URL, SHADOW_DATABASE_URL, _HOST, _PORT).
+The command receives the same per-dep env vars as `dev app run` (`{PREFIX}_HOST`, `{PREFIX}_PORT`, `{PREFIX}_URL`, etc.) plus any `envMap` aliases defined in config.
 By default, exec preserves argv semantics (`shell: false`) so nested commands like `infisical run -- ...` stay stable without wrapper recursion.
 If exec cannot determine which services were already running before startup, it leaves selected deps running to avoid stopping non-owned services.
 
 Use `--shell` only when shell expansion is required, and pass exactly one command string after `--`:
 
 ```bash
-dev app exec web --yes --shell -- "echo $DATABASE_URL"
-```
-
-Map aliases for non-Prisma apps with repeatable `--env-map TARGET=SOURCE`:
-
-```bash
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- pnpm payload migrate
+dev app exec web --yes --shell -- "echo $DB_URL"
 ```
 
 ### Secret manager integration (config-based)
@@ -144,33 +156,41 @@ secretManager:
   command: infisical run --env dev --
 ```
 
+For multi-environment setups, use the `{env}` template placeholder with `defaultEnv`:
+
+```yaml
+secretManager:
+  command: infisical run --env {env} --
+  defaultEnv: dev
+```
+
+Override at runtime with `--env`:
+
+```bash
+dev app exec web --yes --env stg -- pnpm prisma migrate deploy
+dev app run web --env stg
+```
+
 When configured, `dev app run` and `dev app exec` wrap the user's command:
 
 ```
-<secretManager.command> env DATABASE_URL=<val> DIRECT_URL=<val> ... <user-command>
+<secretManager.command> env DB_URL=<val> DB_SHADOW_URL=<val> ... <user-command>
 ```
 
-The `env KEY=VAL` prefix is inserted between the SM boundary and the user command, re-applying all devrouter-injected dependency env vars so they take precedence over whatever the SM set. Env-map targets (`--env-map DATABASE_URI=DATABASE_URL`) are also included in the re-injection set.
+The `env KEY=VAL` prefix is inserted between the SM boundary and the user command, re-applying all devrouter-injected dependency env vars (including `envMap` aliases) so they take precedence over whatever the SM set.
 
 The SM command string must include the trailing `--` boundary (user responsibility).
 
 ### Secret manager interop (manual)
 
-- devrouter injects `DB_HOST`, `DB_PORT`, `DATABASE_URL`, `DIRECT_URL`, and `SHADOW_DATABASE_URL` when a host app depends on postgres.
+- devrouter injects per-dep vars (`{PREFIX}_HOST`, `{PREFIX}_PORT`, `{PREFIX}_URL`, `{PREFIX}_SHADOW_URL`) when a host app depends on TCP services.
+- Use `envMap` in `.devrouter.yml` to alias per-dep vars to project-specific names (e.g. `DATABASE_URL: DB_URL`).
 - If your secret manager also defines DB variables, do not assume precedence. Validate effective env before migration/seed.
 - Avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values.
-- Safe host-run override pattern when wrapper also defines `DATABASE_URI`: `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev`.
-- Deterministic mapping for Payload/non-Prisma apps: `--env-map DATABASE_URI=DATABASE_URL`.
 - Recommended probe:
 
 ```bash
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
-```
-
-- Recommended one-shot migrate:
-
-```bash
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
+dev app exec web --yes -- printenv DB_URL DB_SHADOW_URL DB_HOST DB_PORT
 ```
 
 - `dev doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
@@ -427,11 +447,10 @@ dev app run web --yes
 ```bash
 dev app exec web --yes -- npx prisma migrate dev
 dev app exec web --yes -- npx prisma db seed
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
+dev app exec web --yes -- printenv DB_URL DB_SHADOW_URL DB_HOST DB_PORT
 ```
 
-This starts dependencies as needed, injects resolved env vars, and runs the command. It stops only dependencies started by that `exec` call; already-running services stay running.
+This starts dependencies as needed, injects resolved per-dep env vars (plus any `envMap` aliases from config), and runs the command. It stops only dependencies started by that `exec` call; already-running services stay running.
 If `<name>` is configured with `kind=dependency`, exec is rejected with guidance to run a routed parent app instead.
 
 ## 10) Enable TLS (required for TCP/Postgres, recommended for HTTP)

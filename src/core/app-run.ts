@@ -32,6 +32,7 @@ type RunAppOptions = {
   name: string;
   repoPath?: string;
   yes?: boolean;
+  env?: string;
 };
 
 type DependencyStopPolicy = "always-stop-selected" | "stop-only-newly-started";
@@ -53,7 +54,7 @@ type ExecAppOptions = {
   repoPath?: string;
   yes?: boolean;
   shell?: boolean;
-  envMap?: string[];
+  env?: string;
   command: string[];
 };
 
@@ -65,19 +66,12 @@ type StartedDeps = {
   repoPath: string;
   app: DevrouterApp;
   depEnv: Record<string, string>;
-  secretManager?: { command: string };
+  secretManager?: { command: string; defaultEnv?: string };
   overlay?: ReturnType<typeof prepareDockerOverlay>;
   startedServices: string[];
   dependencyApps: string[];
   stopDeps: () => void;
 };
-
-type EnvMapEntry = {
-  target: string;
-  source: string;
-};
-
-const VALID_ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export function wrapWithSecretManager(
   smCommand: string,
@@ -103,19 +97,24 @@ export function wrapWithSecretManager(
   return [...smParts, ...userParts];
 }
 
-function buildReinjectEnv(
-  depEnv: Record<string, string>,
-  envMap: string[] = [],
-  resolvedEnv: Record<string, string>
-): Record<string, string> {
-  const result = { ...depEnv };
-  for (const { target, source } of parseEnvMapEntries(envMap)) {
-    const value = resolvedEnv[source];
-    if (value !== undefined) {
-      result[target] = value;
-    }
+export function resolveSmCommand(
+  command: string,
+  defaultEnv?: string,
+  overrideEnv?: string
+): string {
+  if (!command.includes("{env}")) {
+    return command;
   }
-  return result;
+
+  const env = overrideEnv ?? defaultEnv;
+  if (!env) {
+    throw new Error(
+      "secretManager.command contains {env} but no environment was resolved. " +
+      "Set secretManager.defaultEnv in .devrouter.yml or pass --env."
+    );
+  }
+
+  return command.replace(/\{env\}/g, env);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -142,48 +141,35 @@ function normalizeProcessEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   return normalized;
 }
 
-export function parseEnvMapEntries(mappings: string[] = []): EnvMapEntry[] {
-  return mappings.map((mapping) => {
-    const separator = mapping.indexOf("=");
-    if (separator <= 0 || separator === mapping.length - 1) {
-      throw new Error(
-        `Invalid --env-map value '${mapping}'. Expected TARGET=SOURCE with environment variable names.`
-      );
-    }
-
-    const target = mapping.slice(0, separator).trim();
-    const source = mapping.slice(separator + 1).trim();
-    if (!VALID_ENV_NAME_RE.test(target) || !VALID_ENV_NAME_RE.test(source)) {
-      throw new Error(
-        `Invalid --env-map value '${mapping}'. TARGET and SOURCE must match ${VALID_ENV_NAME_RE.toString()}.`
-      );
-    }
-
-    return { target, source };
-  });
-}
-
 export function buildExecEnvironment(
   depEnv: Record<string, string>,
-  envMap: string[] = [],
   processEnv: NodeJS.ProcessEnv = process.env
 ): Record<string, string> {
-  const mergedEnv: Record<string, string> = {
+  return {
     ...normalizeProcessEnv(processEnv),
     ...depEnv
   };
+}
 
-  for (const mapping of parseEnvMapEntries(envMap)) {
-    const sourceValue = mergedEnv[mapping.source];
-    if (sourceValue === undefined) {
-      throw new Error(
-        `--env-map '${mapping.target}=${mapping.source}' references missing source variable '${mapping.source}'.`
-      );
-    }
-    mergedEnv[mapping.target] = sourceValue;
+export function buildTcpDepUrl(tcpProtocol: string, port: number): string | undefined {
+  switch (tcpProtocol) {
+    case "postgres":
+      return `postgres://prisma:prisma@localhost:${port}/prisma`;
+    case "redis":
+      return `redis://localhost:${port}`;
+    case "mysql":
+    case "mariadb":
+      return `mysql://root@localhost:${port}`;
+    default:
+      return undefined;
   }
+}
 
-  return mergedEnv;
+export function buildTcpDepShadowUrl(tcpProtocol: string, port: number): string | undefined {
+  if (tcpProtocol === "postgres") {
+    return `postgres://prisma:prisma@localhost:${port}/shadow`;
+  }
+  return undefined;
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -357,13 +343,17 @@ async function runHostApp(
   repoPath: string,
   app: DevrouterHostHttpApp,
   extraEnv: Record<string, string> = {},
-  secretManager?: { command: string }
+  secretManager?: { command: string; defaultEnv?: string },
+  env?: string
 ): Promise<void> {
   const routeId = buildHostRouteId(repoPath, app.name);
   const commandCwd = assertPathWithinRepo(app.hostRun.cwd, repoPath, "hostRun.cwd");
   const freePort = await findFreePort();
   const spawnCommand = secretManager
-    ? wrapWithSecretManager(secretManager.command, extraEnv, app.hostRun.command, true) as string
+    ? wrapWithSecretManager(
+        resolveSmCommand(secretManager.command, secretManager.defaultEnv, env),
+        extraEnv, app.hostRun.command, true
+      ) as string
     : app.hostRun.command;
   // shell:true is intentional — .devrouter.yml is a user-controlled local config file
   // with the same trust model as npm scripts or docker-compose commands. The user who
@@ -631,17 +621,36 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
         const envPrefix = dep.name.toUpperCase().replace(/-/g, "_");
         depEnv[`${envPrefix}_HOST`] = "localhost";
         depEnv[`${envPrefix}_PORT`] = String(mappedPort);
-        if (dep.tcpProtocol === "postgres") {
-          depEnv["DATABASE_URL"] = `postgres://prisma:prisma@localhost:${mappedPort}/prisma`;
-          depEnv["DIRECT_URL"] = depEnv["DATABASE_URL"];
-          depEnv["SHADOW_DATABASE_URL"] = `postgres://prisma:prisma@localhost:${mappedPort}/shadow`;
+        const url = buildTcpDepUrl(dep.tcpProtocol, mappedPort);
+        if (url) {
+          depEnv[`${envPrefix}_URL`] = url;
+        }
+        const shadowUrl = buildTcpDepShadowUrl(dep.tcpProtocol, mappedPort);
+        if (shadowUrl) {
+          depEnv[`${envPrefix}_SHADOW_URL`] = shadowUrl;
         }
         process.stdout.write(`Dependency ${dep.name} available at localhost:${mappedPort}\n`);
-        if (dep.tcpProtocol === "postgres") {
-          process.stdout.write(`  DATABASE_URL=postgres://prisma:prisma@localhost:${mappedPort}/prisma\n`);
-          process.stdout.write(`  DIRECT_URL=postgres://prisma:prisma@localhost:${mappedPort}/prisma\n`);
-          process.stdout.write(`  SHADOW_DATABASE_URL=postgres://prisma:prisma@localhost:${mappedPort}/shadow\n`);
+        if (url) {
+          process.stdout.write(`  ${envPrefix}_URL=${url}\n`);
         }
+        if (shadowUrl) {
+          process.stdout.write(`  ${envPrefix}_SHADOW_URL=${shadowUrl}\n`);
+        }
+      }
+    }
+  }
+
+  // Apply config-level envMap from dependency references
+  for (const depRef of app.dependencies) {
+    if (depRef.envMap) {
+      for (const [target, source] of Object.entries(depRef.envMap)) {
+        if (!(source in depEnv)) {
+          throw new Error(
+            `envMap on dependency '${depRef.app}': source variable '${source}' not found in dependency env. ` +
+            `Available: ${Object.keys(depEnv).join(", ") || "(none)"}`
+          );
+        }
+        depEnv[target] = depEnv[source];
       }
     }
   }
@@ -675,7 +684,7 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
 
   try {
     if (deps.app.runtime === "host") {
-      await runHostApp(deps.repoPath, deps.app, deps.depEnv, deps.secretManager);
+      await runHostApp(deps.repoPath, deps.app, deps.depEnv, deps.secretManager, options.env);
     } else if (deps.app.kind !== "dependency" && deps.app.protocol === "tcp") {
       const registryEntry = TCP_PROTOCOL_REGISTRY[deps.app.tcpProtocol];
       const port = registryEntry?.port ?? "?";
@@ -715,14 +724,14 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
       );
     }
 
-    const env = buildExecEnvironment(deps.depEnv, options.envMap);
+    const env = buildExecEnvironment(deps.depEnv);
     let child: ReturnType<typeof spawn>;
 
     if (deps.secretManager) {
-      const reinjectEnv = buildReinjectEnv(deps.depEnv, options.envMap, env);
+      const resolvedSmCmd = resolveSmCommand(deps.secretManager.command, deps.secretManager.defaultEnv, options.env);
       if (options.shell) {
         const wrapped = wrapWithSecretManager(
-          deps.secretManager.command, reinjectEnv, options.command[0], true
+          resolvedSmCmd, deps.depEnv, options.command[0], true
         ) as string;
         child = spawn(wrapped, {
           cwd: deps.repoPath,
@@ -732,7 +741,7 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
         });
       } else {
         const wrapped = wrapWithSecretManager(
-          deps.secretManager.command, reinjectEnv, options.command, false
+          resolvedSmCmd, deps.depEnv, options.command, false
         ) as string[];
         const [cmd, ...wrappedArgs] = wrapped;
         child = spawn(cmd, wrappedArgs, {

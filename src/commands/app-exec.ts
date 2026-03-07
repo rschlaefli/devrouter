@@ -5,7 +5,7 @@ export async function runAppExecCommand(options: {
   repo?: string;
   yes?: boolean;
   shell?: boolean;
-  envMap?: string[];
+  env?: string;
   command: string[];
 }): Promise<void> {
   const result = await execWithAppEnv({
@@ -13,7 +13,7 @@ export async function runAppExecCommand(options: {
     repoPath: options.repo,
     yes: options.yes,
     shell: options.shell,
-    envMap: options.envMap,
+    env: options.env,
     command: options.command
   });
 

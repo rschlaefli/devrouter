@@ -208,10 +208,11 @@ appCommand
   .argument("<name>", "Configured app name")
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option("--yes", "Auto-start dependencies without prompt")
+  .option("--env <env>", "Override secretManager {env} placeholder")
   .action(withErrorHandling(async (name: string, _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string; yes?: boolean }>();
+    const options = command.opts<{ repo?: string; yes?: boolean; env?: string }>();
     const { runAppRunCommand } = await import("./commands/app-run");
-    await runAppRunCommand({ name, repo: options.repo, yes: Boolean(options.yes) });
+    await runAppRunCommand({ name, repo: options.repo, yes: Boolean(options.yes), env: options.env });
   }));
 
 appCommand
@@ -222,20 +223,16 @@ appCommand
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option("--yes", "Auto-start dependencies without prompt")
   .option("--shell", "Run command through system shell (requires a single command string after --)")
-  .option("--env-map <mapping>", "Map env vars as TARGET=SOURCE (repeatable)", (value, prev: string[] | undefined) => {
-    const next = prev ?? [];
-    next.push(value);
-    return next;
-  })
+  .option("--env <env>", "Override secretManager {env} placeholder")
   .action(withErrorHandling(async (name: string, commandParts: string[], _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string; yes?: boolean; shell?: boolean; envMap?: string[] }>();
+    const options = command.opts<{ repo?: string; yes?: boolean; shell?: boolean; env?: string }>();
     const { runAppExecCommand } = await import("./commands/app-exec");
     await runAppExecCommand({
       name,
       repo: options.repo,
       yes: Boolean(options.yes),
       shell: Boolean(options.shell),
-      envMap: options.envMap,
+      env: options.env,
       command: commandParts
     });
   }));

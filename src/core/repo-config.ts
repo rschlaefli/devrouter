@@ -16,6 +16,8 @@ const CONFIG_FILE_NAME = ".devrouter.yml";
 
 const VALID_HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.localhost$/;
 const DEVROUTER_VERSION_RE = /^\d+\.\d+\.\d+$/;
+const VALID_ENV_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/i;
+const VALID_ENV_VAR_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const MAX_COMMAND_LENGTH = 4096;
 
@@ -77,10 +79,29 @@ function toIntegerOrThrow(value: unknown, pathLabel: string): number {
   return numberValue;
 }
 
+function parseEnvMap(
+  value: unknown,
+  pathLabel: string
+): Record<string, string> {
+  const obj = ensureObject(value, pathLabel);
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (!VALID_ENV_VAR_RE.test(key)) {
+      throw new Error(`${pathLabel}.${key} is not a valid environment variable name.`);
+    }
+    const source = toStringOrThrow(val, `${pathLabel}.${key}`);
+    if (!VALID_ENV_VAR_RE.test(source)) {
+      throw new Error(`${pathLabel}.${key} value '${source}' is not a valid environment variable name.`);
+    }
+    result[key] = source;
+  }
+  return result;
+}
+
 function parseDependencies(
   value: unknown,
   pathLabel: string
-): Array<{ app: string }> {
+): Array<{ app: string; envMap?: Record<string, string> }> {
   if (value === undefined) {
     return [];
   }
@@ -91,8 +112,14 @@ function parseDependencies(
 
   return value.map((entry, index) => {
     const objectValue = ensureObject(entry, `${pathLabel}[${index}]`);
-    ensureAllowedKeys(objectValue, ["app"], `${pathLabel}[${index}]`);
-    return { app: toStringOrThrow(objectValue.app, `${pathLabel}[${index}].app`) };
+    ensureAllowedKeys(objectValue, ["app", "envMap"], `${pathLabel}[${index}]`);
+    const result: { app: string; envMap?: Record<string, string> } = {
+      app: toStringOrThrow(objectValue.app, `${pathLabel}[${index}].app`)
+    };
+    if (objectValue.envMap !== undefined) {
+      result.envMap = parseEnvMap(objectValue.envMap, `${pathLabel}[${index}].envMap`);
+    }
+    return result;
   });
 }
 
@@ -334,12 +361,28 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
   let secretManager: DevrouterConfig["secretManager"] | undefined;
   if (root.secretManager !== undefined) {
     const sm = ensureObject(root.secretManager, `${configPath}.secretManager`);
-    ensureAllowedKeys(sm, ["command"], `${configPath}.secretManager`);
+    ensureAllowedKeys(sm, ["command", "defaultEnv"], `${configPath}.secretManager`);
     const command = toStringOrThrow(sm.command, `${configPath}.secretManager.command`);
     if (command.length > MAX_COMMAND_LENGTH) {
       throw new Error(`${configPath}.secretManager.command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters.`);
     }
-    secretManager = { command };
+
+    let defaultEnv: string | undefined;
+    if (sm.defaultEnv !== undefined) {
+      defaultEnv = toStringOrThrow(sm.defaultEnv, `${configPath}.secretManager.defaultEnv`);
+      if (defaultEnv.length > 64) {
+        throw new Error(`${configPath}.secretManager.defaultEnv exceeds maximum length of 64 characters.`);
+      }
+      if (!VALID_ENV_NAME_RE.test(defaultEnv)) {
+        throw new Error(`${configPath}.secretManager.defaultEnv must be alphanumeric with hyphens.`);
+      }
+    }
+
+    if (command.includes("{env}") && !defaultEnv) {
+      throw new Error(`${configPath}.secretManager.defaultEnv is required when command contains {env}.`);
+    }
+
+    secretManager = { command, ...(defaultEnv ? { defaultEnv } : {}) };
   }
 
   if (!Array.isArray(root.apps)) {

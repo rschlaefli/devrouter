@@ -102,12 +102,14 @@ export type DevrouterConfig = {
   };
   secretManager?: {
     command: string;
+    defaultEnv?: string;
   };
   apps: DevrouterApp[];
 };
 
 export type DevrouterAppDependency = {
   app: string;
+  envMap?: Record<string, string>;
 };
 
 export type DevrouterHostStrategy = {

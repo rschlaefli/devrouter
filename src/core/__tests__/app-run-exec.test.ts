@@ -91,7 +91,7 @@ vi.mock("../tls", () => ({
   ensureTLSHostsCovered: ensureTLSHostsCoveredMock,
 }));
 
-import { buildExecEnvironment, execWithAppEnv, parseEnvMapEntries, runConfiguredApp, wrapWithSecretManager } from "../app-run";
+import { buildExecEnvironment, buildTcpDepUrl, buildTcpDepShadowUrl, execWithAppEnv, resolveSmCommand, runConfiguredApp, wrapWithSecretManager } from "../app-run";
 
 const HOST_APP: DevrouterHostHttpApp = {
   name: "web",
@@ -137,7 +137,7 @@ const REDIS_DEP: DevrouterDockerDependencyApp = {
 
 function makeConfig(
   apps: DevrouterApp[],
-  options?: { secretManager?: { command: string } }
+  options?: { secretManager?: { command: string; defaultEnv?: string } }
 ): DevrouterConfig {
   return {
     version: 1,
@@ -211,35 +211,47 @@ afterEach(() => {
   process.env = originalEnv;
 });
 
-describe("parseEnvMapEntries", () => {
-  it("parses TARGET=SOURCE mappings", () => {
-    expect(parseEnvMapEntries(["DATABASE_URI=DATABASE_URL"])).toEqual([
-      { target: "DATABASE_URI", source: "DATABASE_URL" },
-    ]);
-  });
+describe("buildExecEnvironment", () => {
+  it("merges dep env over process env", () => {
+    const env = buildExecEnvironment(
+      { DB_URL: "postgres://dep" },
+      { DB_URL: "postgres://process" }
+    );
 
-  it("rejects invalid mapping syntax", () => {
-    expect(() => parseEnvMapEntries(["DATABASE_URI"])).toThrow("Invalid --env-map value");
-    expect(() => parseEnvMapEntries(["BAD-NAME=DATABASE_URL"])).toThrow("Invalid --env-map value");
+    expect(env.DB_URL).toBe("postgres://dep");
   });
 });
 
-describe("buildExecEnvironment", () => {
-  it("applies dep env before env-map and lets last mapping win", () => {
-    const env = buildExecEnvironment(
-      { DATABASE_URL: "postgres://dep", ALT_URL: "postgres://alt" },
-      ["DATABASE_URI=DATABASE_URL", "DATABASE_URI=ALT_URL"],
-      { DATABASE_URL: "postgres://process" }
-    );
-
-    expect(env.DATABASE_URL).toBe("postgres://dep");
-    expect(env.DATABASE_URI).toBe("postgres://alt");
+describe("buildTcpDepUrl", () => {
+  it("builds postgres URL", () => {
+    expect(buildTcpDepUrl("postgres", 55432)).toBe("postgres://prisma:prisma@localhost:55432/prisma");
   });
 
-  it("fails fast when source variable is missing", () => {
-    expect(() =>
-      buildExecEnvironment({}, ["DATABASE_URI=__DEVROUTER_TEST_MISSING__"], {})
-    ).toThrow("references missing source variable");
+  it("builds redis URL", () => {
+    expect(buildTcpDepUrl("redis", 63791)).toBe("redis://localhost:63791");
+  });
+
+  it("builds mysql URL", () => {
+    expect(buildTcpDepUrl("mysql", 33061)).toBe("mysql://root@localhost:33061");
+  });
+
+  it("builds mariadb URL", () => {
+    expect(buildTcpDepUrl("mariadb", 33062)).toBe("mysql://root@localhost:33062");
+  });
+
+  it("returns undefined for unknown protocol", () => {
+    expect(buildTcpDepUrl("cassandra", 9042)).toBeUndefined();
+  });
+});
+
+describe("buildTcpDepShadowUrl", () => {
+  it("builds postgres shadow URL", () => {
+    expect(buildTcpDepShadowUrl("postgres", 55432)).toBe("postgres://prisma:prisma@localhost:55432/shadow");
+  });
+
+  it("returns undefined for non-postgres", () => {
+    expect(buildTcpDepShadowUrl("redis", 63791)).toBeUndefined();
+    expect(buildTcpDepShadowUrl("mysql", 33061)).toBeUndefined();
   });
 });
 
@@ -271,6 +283,30 @@ describe("wrapWithSecretManager", () => {
   it("skips env prefix when reinject env is empty", () => {
     expect(wrapWithSecretManager("sm run --", {}, "pnpm dev", true)).toBe("sm run -- pnpm dev");
     expect(wrapWithSecretManager("sm run --", {}, ["pnpm", "dev"], false)).toEqual(["sm", "run", "--", "pnpm", "dev"]);
+  });
+});
+
+describe("resolveSmCommand", () => {
+  it("replaces all {env} occurrences with defaultEnv", () => {
+    expect(resolveSmCommand("infisical run --env {env} --", "dev")).toBe("infisical run --env dev --");
+  });
+
+  it("replaces all {env} occurrences with overrideEnv", () => {
+    expect(resolveSmCommand("infisical run --env {env} --", "dev", "stg")).toBe("infisical run --env stg --");
+  });
+
+  it("returns command as-is when no {env} placeholder", () => {
+    expect(resolveSmCommand("infisical run --env dev --")).toBe("infisical run --env dev --");
+  });
+
+  it("throws when {env} present but no env resolved", () => {
+    expect(() => resolveSmCommand("cmd --env {env} --")).toThrow(
+      "secretManager.command contains {env} but no environment was resolved"
+    );
+  });
+
+  it("replaces multiple {env} occurrences", () => {
+    expect(resolveSmCommand("{env}-prefix --env {env} --", "dev")).toBe("dev-prefix --env dev --");
   });
 });
 
@@ -341,14 +377,12 @@ describe("execWithAppEnv", () => {
     );
   });
 
-  it("maps DATABASE_URL to DATABASE_URI after dep env resolution", async () => {
-    process.env.DATABASE_URL = "postgres://secret-manager-value";
-
+  it("injects per-dep vars and applies config-level envMap", async () => {
     resolveAppByNameMock.mockReturnValue({
       config: makeConfig([HOST_APP, POSTGRES_DEP]),
       app: {
         ...HOST_APP,
-        dependencies: [{ app: POSTGRES_DEP.name }],
+        dependencies: [{ app: POSTGRES_DEP.name, envMap: { DATABASE_URL: "DB_URL", DIRECT_URL: "DB_URL", SHADOW_DATABASE_URL: "DB_SHADOW_URL" } }],
       },
     });
     resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
@@ -357,16 +391,17 @@ describe("execWithAppEnv", () => {
       name: "web",
       repoPath: "/repo",
       yes: true,
-      envMap: ["DATABASE_URI=DATABASE_URL"],
       command: ["pnpm", "payload", "migrate"],
     });
 
     const spawnOptions = spawnMock.mock.calls[0]?.[2] as { env: Record<string, string> };
     expect(spawnOptions.env.DB_HOST).toBe("localhost");
     expect(spawnOptions.env.DB_PORT).toBe("55432");
+    expect(spawnOptions.env.DB_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnOptions.env.DB_SHADOW_URL).toBe("postgres://prisma:prisma@localhost:55432/shadow");
     expect(spawnOptions.env.DATABASE_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
     expect(spawnOptions.env.DIRECT_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
-    expect(spawnOptions.env.DATABASE_URI).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnOptions.env.SHADOW_DATABASE_URL).toBe("postgres://prisma:prisma@localhost:55432/shadow");
   });
 
   it("rejects direct exec on dependency-only app targets", async () => {
@@ -419,8 +454,7 @@ describe("execWithAppEnv", () => {
     const spawnOptions = spawnMock.mock.calls[0]?.[2] as { env: Record<string, string> };
     expect(spawnOptions.env.REDIS_HOST).toBeUndefined();
     expect(spawnOptions.env.REDIS_PORT).toBeUndefined();
-    expect(spawnOptions.env.DATABASE_URL).toBeUndefined();
-    expect(spawnOptions.env.SHADOW_DATABASE_URL).toBeUndefined();
+    expect(spawnOptions.env.REDIS_URL).toBeUndefined();
     expect(runDockerComposeStopMock).toHaveBeenCalledWith(
       "/repo",
       ["docker-compose.yml"],
@@ -555,19 +589,6 @@ describe("execWithAppEnv", () => {
     stderrSpy.mockRestore();
   });
 
-  it("fails fast on missing env-map source before spawning", async () => {
-    await expect(
-      execWithAppEnv({
-        name: "web",
-        repoPath: "/repo",
-        envMap: ["DATABASE_URI=__DEVROUTER_TEST_MISSING__"],
-        command: ["pnpm", "payload", "migrate"],
-      })
-    ).rejects.toThrow("references missing source variable");
-
-    expect(spawnMock).not.toHaveBeenCalled();
-  });
-
   it("surfaces spawn errors with command context", async () => {
     spawnMock.mockImplementationOnce(() => makeChild({ error: new Error("ENOENT") }));
 
@@ -624,6 +645,8 @@ describe("execWithAppEnv", () => {
     const spawnArgs = spawnMock.mock.calls[0]?.[1] as string[];
     expect(spawnArgs).toContain("DB_HOST=localhost");
     expect(spawnArgs).toContain("DB_PORT=55432");
+    expect(spawnArgs).toContain("DB_URL=postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnArgs).toContain("DB_SHADOW_URL=postgres://prisma:prisma@localhost:55432/shadow");
     expect(spawnArgs.slice(-3)).toEqual(["pnpm", "prisma", "migrate"]);
   });
 
@@ -655,9 +678,94 @@ describe("execWithAppEnv", () => {
     );
   });
 
-  it("includes env-map targets in secret manager re-injection", async () => {
+  it("includes config envMap targets in secret manager re-injection", async () => {
     resolveAppByNameMock.mockReturnValue({
       config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --" } }),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name, envMap: { DATABASE_URL: "DB_URL" } }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      command: ["pnpm", "payload", "migrate"],
+    });
+
+    const spawnArgs = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(spawnArgs).toContain("DATABASE_URL=postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnArgs).toContain("DB_URL=postgres://prisma:prisma@localhost:55432/prisma");
+  });
+
+  it("config envMap referencing missing source throws", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name, envMap: { DATABASE_URL: "NONEXISTENT_VAR" } }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+
+    await expect(
+      execWithAppEnv({
+        name: "web",
+        repoPath: "/repo",
+        yes: true,
+        command: ["pnpm", "test"],
+      })
+    ).rejects.toThrow("source variable 'NONEXISTENT_VAR' not found in dependency env");
+  });
+
+  it("multiple postgres deps get unique per-dep vars", async () => {
+    const ANALYTICS_DB_DEP: DevrouterDockerTcpApp = {
+      ...POSTGRES_DEP,
+      name: "analytics-db",
+      host: "analytics-db.localhost",
+      docker: { ...POSTGRES_DEP.docker, service: "analytics-db" },
+    };
+
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP, ANALYTICS_DB_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }, { app: ANALYTICS_DB_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP, ANALYTICS_DB_DEP]);
+    prepareDockerOverlayMock.mockReturnValue({
+      overlayPath: "/overlay.yml",
+      composeFiles: ["docker-compose.yml"],
+      dockerApps: [POSTGRES_DEP, ANALYTICS_DB_DEP],
+    });
+    queryMappedPortMock
+      .mockReturnValueOnce(55432)
+      .mockReturnValueOnce(55433);
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      command: ["printenv"],
+    });
+
+    const spawnOptions = spawnMock.mock.calls[0]?.[2] as { env: Record<string, string> };
+    expect(spawnOptions.env.DB_HOST).toBe("localhost");
+    expect(spawnOptions.env.DB_PORT).toBe("55432");
+    expect(spawnOptions.env.DB_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnOptions.env.DB_SHADOW_URL).toBe("postgres://prisma:prisma@localhost:55432/shadow");
+    expect(spawnOptions.env.ANALYTICS_DB_HOST).toBe("localhost");
+    expect(spawnOptions.env.ANALYTICS_DB_PORT).toBe("55433");
+    expect(spawnOptions.env.ANALYTICS_DB_URL).toBe("postgres://prisma:prisma@localhost:55433/prisma");
+    expect(spawnOptions.env.ANALYTICS_DB_SHADOW_URL).toBe("postgres://prisma:prisma@localhost:55433/shadow");
+  });
+
+  it("resolves {env} placeholder with --env override in exec", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" } }),
       app: {
         ...HOST_APP,
         dependencies: [{ app: POSTGRES_DEP.name }],
@@ -669,13 +777,37 @@ describe("execWithAppEnv", () => {
       name: "web",
       repoPath: "/repo",
       yes: true,
-      envMap: ["DATABASE_URI=DATABASE_URL"],
-      command: ["pnpm", "payload", "migrate"],
+      env: "stg",
+      command: ["pnpm", "prisma", "migrate"],
     });
 
     const spawnArgs = spawnMock.mock.calls[0]?.[1] as string[];
-    expect(spawnArgs).toContain("DATABASE_URI=postgres://prisma:prisma@localhost:55432/prisma");
-    expect(spawnArgs).toContain("DATABASE_URL=postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnArgs[0]).toBe("run");
+    expect(spawnArgs[1]).toBe("--env");
+    expect(spawnArgs[2]).toBe("stg");
+  });
+
+  it("resolves {env} placeholder with defaultEnv when no --env", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" } }),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+
+    await execWithAppEnv({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      command: ["pnpm", "prisma", "migrate"],
+    });
+
+    const spawnArgs = spawnMock.mock.calls[0]?.[1] as string[];
+    expect(spawnArgs[0]).toBe("run");
+    expect(spawnArgs[1]).toBe("--env");
+    expect(spawnArgs[2]).toBe("dev");
   });
 
   it("does not wrap exec command without secret manager config", async () => {
@@ -731,10 +863,59 @@ describe("runConfiguredApp", () => {
     expect(spawnCommand).toContain("infisical run --");
     expect(spawnCommand).toContain("env DB_HOST=localhost");
     expect(spawnCommand).toContain("DB_PORT=55432");
+    expect(spawnCommand).toContain("DB_URL=postgres://prisma:prisma@localhost:55432/prisma");
     expect(spawnCommand).toContain("pnpm dev");
     expect(spawnMock).toHaveBeenCalledWith(
       spawnCommand,
       expect.objectContaining({ shell: true })
     );
+  });
+
+  it("resolves {env} in host run SM command with --env override", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" } }),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await runConfiguredApp({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+      env: "stg",
+    });
+    stdoutSpy.mockRestore();
+
+    const spawnCommand = spawnMock.mock.calls[0]?.[0] as string;
+    expect(spawnCommand).toContain("infisical run --env stg --");
+    expect(spawnCommand).toContain("pnpm dev");
+  });
+
+  it("applies config-level envMap aliases in run path", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([HOST_APP, POSTGRES_DEP]),
+      app: {
+        ...HOST_APP,
+        dependencies: [{ app: POSTGRES_DEP.name, envMap: { DATABASE_URL: "DB_URL" } }],
+      },
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await runConfiguredApp({
+      name: "web",
+      repoPath: "/repo",
+      yes: true,
+    });
+    stdoutSpy.mockRestore();
+
+    // runHostApp uses spawn(command, { env }) — options at index 1
+    const spawnOptions = spawnMock.mock.calls[0]?.[1] as { env: Record<string, string> };
+    expect(spawnOptions.env.DB_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+    expect(spawnOptions.env.DATABASE_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
   });
 });

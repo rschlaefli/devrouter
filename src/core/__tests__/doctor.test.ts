@@ -219,7 +219,7 @@ describe("buildDoctorReport", () => {
     expect(precedenceCheck?.level).toBe("warn");
     expect(precedenceCheck?.details).toContain("web");
     expect(precedenceCheck?.details).toContain("DATABASE_URI");
-    expect(precedenceCheck?.suggestion).toContain("env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL}");
+    expect(precedenceCheck?.suggestion).toContain("env DATABASE_URI=${DB_URL:?missing DB_URL}");
   });
 
   it("reports ok when DB var assignment happens after wrapper boundary", async () => {

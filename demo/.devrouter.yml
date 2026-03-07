@@ -5,9 +5,14 @@ project:
   name: devrouter-demo
 
 # Optional: wrap dev commands with a secret manager so devrouter-injected
-# env vars (DATABASE_URL, DIRECT_URL, etc.) take precedence over SM values.
-# secretManager:
-#   command: infisical run --env dev --
+# env vars take precedence over SM values.
+# Static env:
+#   secretManager:
+#     command: infisical run --env dev --
+# Templated env (switchable via --env):
+#   secretManager:
+#     command: infisical run --env {env} --
+#     defaultEnv: dev
 
 apps:
   - name: cache
@@ -38,6 +43,10 @@ apps:
     runtime: docker
     dependencies:
       - app: db
+        envMap:
+          DATABASE_URL: DB_URL
+          DIRECT_URL: DB_URL
+          SHADOW_DATABASE_URL: DB_SHADOW_URL
     docker:
       service: app
       internalPort: 3000
@@ -50,6 +59,13 @@ apps:
     runtime: host
     dependencies:
       - app: db
+        envMap:
+          DATABASE_URL: DB_URL
+          DIRECT_URL: DB_URL
+          SHADOW_DATABASE_URL: DB_SHADOW_URL
+      - app: cache
+        envMap:
+          REDIS_URL: CACHE_URL
     hostRun:
       command: APP_INSTANCE=host node app/server.js
       cwd: .
