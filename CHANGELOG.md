@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.20] - 2026-06-13
+
+### Added
+
+- New app runtime `runtime: proxy`: registers a Traefik HTTP route to an already-running `upstream` (`host:port`) with no lifecycle, env injection, `hostRun`, compose ownership, or dependencies. Use it to put a stable `*.localhost` HTTPS host in front of a devcontainer or any externally-managed process, making devrouter compose-runner-agnostic.
+- `dev app add --runtime proxy --upstream <host:port>` for creating proxy apps. New `upstream` field in the `.devrouter.yml` app schema (proxy apps only).
+- Loopback upstreams (`localhost`/`127.0.0.1`/`0.0.0.0`) are rewritten to `host.docker.internal` so Traefik (in Docker) can reach a port published on the host.
+- Proxy routes are written once by `dev app run` and persist until `dev app rm` (no process is started, re-running is idempotent). They are never treated as stale by `dev doctor` / eviction since they have no backing PID.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.20.md
+
 ## [0.0.19] - 2026-03-07
 
 ### Fixed

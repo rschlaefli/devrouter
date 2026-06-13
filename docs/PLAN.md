@@ -11,6 +11,7 @@ Delivered and active:
 - Upgrade commands: `dev -V` and `dev upgrade [version]`
 - Upgrade prompts stored as versioned files: `upgrade-prompts/<version>.md`
 - HTTP routing for host-run and Docker-run apps
+- HTTP proxy routing (`runtime: proxy`) to an already-running upstream (e.g. devcontainer)
 - TCP/Postgres Docker routing on `:5432` with TLS/SNI
 - Dependency-only docker services via `kind: dependency` (non-routed, dependency lifecycle only)
 - Shared router ownership of `80/443/5432`

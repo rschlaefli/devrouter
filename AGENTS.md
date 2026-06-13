@@ -52,6 +52,7 @@ Supported routing:
 
 - HTTP host-run apps
 - HTTP docker apps
+- HTTP proxy apps (`runtime: proxy`) — route to an already-running `upstream` (`host:port`) with no lifecycle; for fronting a devcontainer / external process
 - TCP PostgreSQL docker apps on shared `:5432` (TLS/SNI)
 - Dependency-only docker services (`kind: dependency`, non-routed)
 
