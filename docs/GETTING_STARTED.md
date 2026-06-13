@@ -364,6 +364,21 @@ dev app add \
   --compose-file docker-compose.yml
 ```
 
+Proxy app (route to an already-running port, e.g. a devcontainer):
+
+```bash
+dev app add \
+  --name app \
+  --host app.localhost \
+  --protocol http \
+  --runtime proxy \
+  --upstream 127.0.0.1:3000
+```
+
+devrouter registers the route only — no process is started and there are no
+dependencies. Loopback upstreams are rewritten to `host.docker.internal` so
+Traefik (in Docker) reaches the host. The route persists until `dev app rm`.
+
 Dependency-only docker service (Redis example):
 
 ```bash

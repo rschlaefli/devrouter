@@ -159,11 +159,20 @@ apps:
       service: redis
       composeFiles:
         - docker-compose.yml
+
+  # Route to an already-running port (e.g. a devcontainer's published app).
+  # No lifecycle, env injection, or dependencies — devrouter only registers the route.
+  - name: app
+    host: app.localhost
+    protocol: http
+    runtime: proxy
+    upstream: 127.0.0.1:3000
 ```
 
 Notes:
 
 - `kind` defaults to routed app behavior. Use `kind: dependency` for non-routed Docker dependencies.
+- `runtime: proxy` registers an HTTP route to an externally-managed `upstream` (`host:port`) and does nothing else — use it to put a stable `*.localhost` HTTPS host in front of a devcontainer or any process you start yourself. Loopback upstreams (`localhost`/`127.0.0.1`/`0.0.0.0`) are rewritten to `host.docker.internal` so Traefik (in Docker) can reach the host. The route persists until `dev app rm`.
 - TCP mode currently supports PostgreSQL first (`tcpProtocol: postgres`).
 - Multi-DB hostname routing on shared `:5432` requires TLS/SNI.
 - Plaintext Postgres is not supported for multiplexed hostname routing.
@@ -176,6 +185,7 @@ Notes:
 - reads `.devrouter.yml`
 - prompts to start declared dependencies (or use `--yes`)
 - starts only declared docker dependency services
+- for `runtime: proxy` apps: registers the route to `upstream` and returns immediately (no process started, no dependencies); re-running is an idempotent upsert and the route persists until `dev app rm`
 - fails fast if host-runtime dependencies are configured (start those manually)
 - waits for Docker dependencies to become healthy (`--wait`) before proceeding
 - automatically stops Docker dependencies when the host app exits

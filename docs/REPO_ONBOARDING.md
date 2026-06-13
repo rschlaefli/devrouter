@@ -16,6 +16,7 @@ Supported route types:
 
 - HTTP host-run apps
 - HTTP docker apps
+- HTTP proxy apps (`runtime: proxy`, route to an already-running `upstream`)
 - TCP PostgreSQL docker apps (TLS/SNI on shared `:5432`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
 

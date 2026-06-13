@@ -34,7 +34,10 @@ apps:
     # if kind=app:
     host: <name>.localhost
     protocol: http | tcp
-    runtime: host | docker
+    runtime: host | docker | proxy
+
+    # if kind=app and runtime=proxy (protocol must be http):
+    upstream: 127.0.0.1:3000 # already-running port to route to; no lifecycle/deps
 
     # if kind=app and runtime=host (protocol must be http):
     hostRun:
@@ -67,6 +70,7 @@ Validation rules:
 
 - `kind=app`: `host` must end with `.localhost`
 - `kind=app`: `runtime=host` supports `protocol=http` only
+- `kind=app`: `runtime=proxy` supports `protocol=http` only, requires `upstream` (`host:port`), and forbids `hostRun`/`docker`/`dependencies` (it only registers a route to an externally-managed upstream)
 - `kind=app`: `protocol=tcp` requires `runtime=docker` and `tcpProtocol=postgres`
 - `kind=dependency`: must use `runtime=docker` and does not allow routed fields (`host`/`protocol`/`tcpProtocol`/`hostRun`/`docker.internalPort`/`docker.router`)
 - Unknown keys rejected (strict schema)
