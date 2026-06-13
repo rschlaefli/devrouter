@@ -77,6 +77,16 @@ apps:
         - docker-compose.yml
 `;
 
+const VALID_PROXY_APP = `
+version: 1
+apps:
+  - name: app
+    host: app.localhost
+    protocol: http
+    runtime: proxy
+    upstream: 127.0.0.1:3000
+`;
+
 beforeEach(() => {
   tmpDir = makeTmpDir();
 });
@@ -203,6 +213,58 @@ describe("protocol/runtime combinations", () => {
     }
     expect(app.runtime).toBe("host");
     expect(app.protocol).toBe("http");
+  });
+
+  it("accepts proxy + http + upstream", () => {
+    writeConfig(tmpDir, VALID_PROXY_APP);
+    const config = loadRepoConfig(tmpDir);
+    const app = config.apps[0] as Extract<DevrouterApp, { runtime: "proxy" }>;
+    expect(app.runtime).toBe("proxy");
+    expect(app.protocol).toBe("http");
+    expect(app.host).toBe("app.localhost");
+    expect(app.upstream).toBe("127.0.0.1:3000");
+  });
+
+  it("rejects proxy without upstream", () => {
+    const yaml = VALID_PROXY_APP.split("\n").filter((l) => !l.includes("upstream")).join("\n");
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("upstream");
+  });
+
+  it("rejects proxy with malformed upstream", () => {
+    const yaml = VALID_PROXY_APP.replace("127.0.0.1:3000", "not-a-valid-upstream");
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("host:port");
+  });
+
+  it("rejects proxy + tcp", () => {
+    const yaml = VALID_PROXY_APP.replace("protocol: http", "protocol: tcp");
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("proxy runtime supports only protocol=http");
+  });
+
+  it("rejects proxy with dependencies", () => {
+    const yaml = `
+version: 1
+apps:
+  - name: db
+    host: db.localhost
+    protocol: tcp
+    tcpProtocol: postgres
+    runtime: docker
+    docker:
+      service: db
+      internalPort: 5432
+  - name: app
+    host: app.localhost
+    protocol: http
+    runtime: proxy
+    upstream: 127.0.0.1:3000
+    dependencies:
+      - app: db
+`;
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("dependencies is not supported when runtime=proxy");
   });
 
   it("rejects host + tcp", () => {

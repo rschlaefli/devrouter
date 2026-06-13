@@ -16,10 +16,37 @@ type UpsertHostRouteInput = {
   protocol?: "http";
   repoPath: string;
   port: number;
-  mode: "run" | "attach";
+  mode: "run" | "attach" | "proxy";
+  upstreamHost?: string;
   pid?: number;
   command?: string;
 };
+
+// Loopback hostnames a user would write for a port on their own machine. Traefik
+// runs inside Docker, so these must be rewritten to host.docker.internal to reach
+// the host (e.g. a devcontainer publishing on 127.0.0.1:3000).
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0"]);
+const UPSTREAM_RE = /^([a-zA-Z0-9.-]+):(\d{1,5})$/;
+
+/**
+ * Parse a proxy `upstream` (`host:port`) into the port and the backend host
+ * Traefik should dial. Loopback hosts are rewritten to host.docker.internal;
+ * any other host passes through verbatim (e.g. a devnet container name).
+ * Throws on malformed input or out-of-range port.
+ */
+export function parseUpstream(upstream: string): { host: string; port: number; upstreamHost: string } {
+  const match = UPSTREAM_RE.exec(upstream.trim());
+  if (!match) {
+    throw new Error(`upstream must be in the form host:port (got '${upstream}').`);
+  }
+  const host = match[1];
+  const port = Number(match[2]);
+  if (port < 1 || port > 65535) {
+    throw new Error(`upstream port must be between 1 and 65535 (got ${port}).`);
+  }
+  const upstreamHost = LOOPBACK_HOSTS.has(host) ? "host.docker.internal" : host;
+  return { host, port, upstreamHost };
+}
 
 export function isPidRunning(pid: number | undefined): boolean {
   if (!pid || pid <= 0) {
@@ -61,7 +88,7 @@ function writeHostRoutesDynamicFile(routes: HostRouteState[], tlsEnabled: boolea
 
     services[key] = {
       loadBalancer: {
-        servers: [{ url: `http://host.docker.internal:${route.port}` }]
+        servers: [{ url: `http://${route.upstreamHost ?? "host.docker.internal"}:${route.port}` }]
       }
     };
   }
@@ -140,6 +167,7 @@ export function upsertHostRoute(input: UpsertHostRouteInput): HostRouteState {
     repoPath: input.repoPath,
     port: input.port,
     mode: input.mode,
+    upstreamHost: input.upstreamHost,
     pid: input.pid,
     command: input.command,
     createdAt: existing?.createdAt ?? now,
@@ -208,7 +236,9 @@ export function listHostRoutes(tlsEnabled: boolean): Route[] {
     projectName: path.basename(route.repoPath),
     hosts: [route.host],
     urls: [`${scheme}://${route.host}`],
-    status: isPidRunning(route.pid) ? "running" : "stopped",
+    // Proxy routes front an externally-managed upstream and have no pid; they are
+    // live as long as the route exists.
+    status: route.mode === "proxy" ? "running" : isPidRunning(route.pid) ? "running" : "stopped",
     health: "unknown",
     createdAt: Math.floor(new Date(route.createdAt).getTime() / 1000)
   }));

@@ -7,7 +7,8 @@ import {
   DevrouterApp,
   DevrouterDockerDependencyApp,
   DevrouterDockerTcpApp,
-  DevrouterHostHttpApp
+  DevrouterHostHttpApp,
+  DevrouterProxyHttpApp
 } from "../types";
 import {
   prepareDockerOverlay,
@@ -18,10 +19,17 @@ import {
   queryRunningComposeServices
 } from "./docker-run";
 import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
-import { buildHostRouteId, removeHostRouteById, upsertHostRoute } from "./host-routes";
-import { assertAppNotRunning } from "./concurrency";
+import {
+  buildHostRouteId,
+  isPidRunning,
+  listHostRouteState,
+  parseUpstream,
+  removeHostRouteById,
+  upsertHostRoute
+} from "./host-routes";
+import { assertAppNotRunning, HostnameConflictError } from "./concurrency";
 import { ensureNetwork } from "./docker";
-import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY, activateTcpProtocol, ensureRouterFiles, startRouterStack } from "./router";
+import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY, activateTcpProtocol, ensureRouterFiles, isTLSEnabled, startRouterStack } from "./router";
 import { assertPathWithinRepo } from "./paths";
 import { ensureTLSHostsCovered } from "./tls";
 
@@ -45,7 +53,7 @@ type StartAppDependenciesOptions = RunAppOptions & {
 type RunAppResult = {
   repoPath: string;
   appName: string;
-  mode: "host" | "docker";
+  mode: "host" | "docker" | "proxy";
   startedServices: string[];
   dependencyApps: string[];
 };
@@ -545,7 +553,8 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   // works even when containers are already running.
   const selectedApps = uniqueApps([app, ...dependencies]);
   const selectedDockerApps = selectedApps.filter(
-    (entry): entry is Exclude<DevrouterApp, DevrouterHostHttpApp> => entry.runtime === "docker"
+    (entry): entry is Exclude<DevrouterApp, DevrouterHostHttpApp | DevrouterProxyHttpApp> =>
+      entry.runtime === "docker"
   );
   const stopPolicy = options.stopPolicy ?? "always-stop-selected";
 
@@ -701,12 +710,44 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   };
 }
 
+/**
+ * Register a Traefik route for a proxy app pointing at its externally-managed
+ * upstream. No process is started and the route is not torn down on exit — it
+ * persists until `dev app rm`. Re-running the same app is an idempotent upsert;
+ * a different live app already claiming the host throws a conflict.
+ */
+function registerProxyRoute(repoPath: string, app: DevrouterProxyHttpApp): void {
+  const { port, upstreamHost } = parseUpstream(app.upstream);
+
+  const targetId = buildHostRouteId(repoPath, app.name);
+  for (const route of listHostRouteState()) {
+    const claimsHost = route.host === app.host && route.id !== targetId;
+    if (claimsHost && (route.mode === "proxy" || isPidRunning(route.pid))) {
+      throw new HostnameConflictError(app.host, route.name, route.repoPath, route.pid);
+    }
+  }
+
+  upsertHostRoute({
+    name: app.name,
+    host: app.host,
+    repoPath,
+    port,
+    upstreamHost,
+    mode: "proxy"
+  });
+
+  const scheme = isTLSEnabled() ? "https" : "http";
+  process.stdout.write(`Proxy route ready: ${scheme}://${app.host} -> ${app.upstream}\n`);
+}
+
 export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppResult> {
   const deps = await startAppDependencies(options);
 
   try {
     if (deps.app.runtime === "host") {
       await runHostApp(deps.repoPath, deps.app, deps.depEnv, deps.secretManager, options.env);
+    } else if (deps.app.runtime === "proxy") {
+      registerProxyRoute(deps.repoPath, deps.app);
     } else if (deps.app.kind !== "dependency" && deps.app.protocol === "tcp") {
       const registryEntry = TCP_PROTOCOL_REGISTRY[deps.app.tcpProtocol];
       const port = registryEntry?.port ?? "?";

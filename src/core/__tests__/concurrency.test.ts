@@ -183,4 +183,28 @@ describe("evictStaleHostRoutes", () => {
     expect(evictStaleHostRoutes()).toBe(1);
     expect(mockRemoveHostRouteById).toHaveBeenCalledWith("/b::api");
   });
+
+  it("never evicts proxy-mode routes (no pid)", () => {
+    mockListHostRouteState.mockReturnValue([
+      makeRoute({ id: "/a::app", mode: "proxy", pid: undefined, upstreamHost: "host.docker.internal" })
+    ]);
+    mockIsPidRunning.mockReturnValue(false);
+
+    expect(evictStaleHostRoutes()).toBe(0);
+    expect(mockRemoveHostRouteById).not.toHaveBeenCalled();
+  });
+
+  it("treats a live proxy route on the same host as a conflict, not a stale entry", () => {
+    mockListHostRouteState.mockReturnValue([
+      makeRoute({ id: "/other::app", name: "app", repoPath: "/other", mode: "proxy", pid: undefined })
+    ]);
+    mockIsPidRunning.mockReturnValue(false);
+
+    // A proxy route (no pid) claiming web.localhost must NOT be evicted as stale,
+    // and a different app claiming the same host is a real conflict.
+    expect(() => assertAppNotRunning("/repo", { name: "web", host: "web.localhost" })).toThrow(
+      HostnameConflictError
+    );
+    expect(mockRemoveHostRouteById).not.toHaveBeenCalled();
+  });
 });

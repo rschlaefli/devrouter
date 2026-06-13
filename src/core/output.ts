@@ -108,7 +108,7 @@ export function printHostRouteState(routes: HostRouteState[]): void {
       String(route.port),
       route.mode,
       route.pid ? String(route.pid) : "-",
-      isRunning(route.pid) ? "running" : "stopped",
+      route.mode === "proxy" ? "active" : isRunning(route.pid) ? "running" : "stopped",
       route.updatedAt
     ]);
 
@@ -145,6 +145,17 @@ export function printConfigApps(repoPath: string, apps: DevrouterApp[]): void {
           app.runtime,
           app.host,
           app.hostRun.command,
+          app.dependencies.map((dependency) => dependency.app).join(",")
+        ];
+      }
+
+      if (app.runtime === "proxy") {
+        return [
+          app.name,
+          app.protocol,
+          app.runtime,
+          app.host,
+          app.upstream,
           app.dependencies.map((dependency) => dependency.app).join(",")
         ];
       }
