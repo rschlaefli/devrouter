@@ -651,7 +651,8 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
   }
 
   const staleHostRoutes = listHostRouteState().filter((route) =>
-    route.pid ? !isPidRunning(route.pid) : true
+    // Proxy routes have no backing process; they are never "stale".
+    route.mode === "proxy" ? false : route.pid ? !isPidRunning(route.pid) : true
   );
   addCheck(checks, {
     id: "routes.host-state",

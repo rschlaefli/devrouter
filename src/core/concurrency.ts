@@ -48,6 +48,11 @@ function routeUrl(host: string): string {
 }
 
 function evictIfStale(route: HostRouteState): boolean {
+  // Proxy routes have no backing process (no pid); they front an externally
+  // managed upstream and stay live until `dev app rm`. Never evict them as stale.
+  if (route.mode === "proxy") {
+    return false;
+  }
   if (isPidRunning(route.pid)) {
     return false;
   }

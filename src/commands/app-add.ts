@@ -6,9 +6,10 @@ type CliAppAddOptions = {
   kind?: "app" | "dependency";
   host?: string;
   protocol?: "http" | "tcp";
-  runtime?: "host" | "docker";
+  runtime?: "host" | "docker" | "proxy";
   service?: string;
   port?: number;
+  upstream?: string;
   composeFile?: string[];
   router?: string;
   tcpProtocol?: string;
@@ -27,6 +28,7 @@ function normalizeOptions(options: CliAppAddOptions): AppAddOptions {
     runtime: options.runtime,
     service: options.service,
     port: options.port,
+    upstream: options.upstream,
     composeFiles: options.composeFile ?? [],
     router: options.router,
     tcpProtocol: options.tcpProtocol,
@@ -49,8 +51,9 @@ export async function runAppAddCommand(options: CliAppAddOptions): Promise<void>
     );
   } else {
     const protocol = result.app.protocol === "tcp" ? `tcp/${result.app.tcpProtocol}` : result.app.protocol;
+    const target = result.app.runtime === "proxy" ? `${result.app.host} -> ${result.app.upstream}` : result.app.host;
     process.stdout.write(
-      `App '${result.app.name}' (${protocol}/${result.app.runtime}) -> ${result.app.host}\n`
+      `App '${result.app.name}' (${protocol}/${result.app.runtime}) -> ${target}\n`
     );
     process.stdout.write(`Run: dev app run ${result.app.name} --repo ${repoPath}\n`);
   }

@@ -154,9 +154,10 @@ appCommand
   .option("--kind <kind>", "app or dependency", "app")
   .option("--host <host>", "Hostname ending with .localhost (required for --kind app)")
   .option("--protocol <protocol>", "http or tcp (required for --kind app)")
-  .option("--runtime <runtime>", "host or docker (required for --kind app, optional for --kind dependency)")
+  .option("--runtime <runtime>", "host, docker, or proxy (required for --kind app, optional for --kind dependency)")
   .option("--service <service>", "Docker service name (runtime=docker)")
   .option("--port <port>", "Internal port (runtime=docker)", (value) => Number(value))
+  .option("--upstream <host:port>", "Already-running upstream to route to (runtime=proxy)")
   .option("--compose-file <file>", "Compose file path (repeatable)", (value, prev: string[] | undefined) => {
     const next = prev ?? [];
     next.push(value);
@@ -177,9 +178,10 @@ appCommand
     kind?: "app" | "dependency";
     host?: string;
     protocol?: "http" | "tcp";
-    runtime?: "host" | "docker";
+    runtime?: "host" | "docker" | "proxy";
     service?: string;
     port?: number;
+    upstream?: string;
     composeFile?: string[];
     router?: string;
     tcpProtocol?: string;

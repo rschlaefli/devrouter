@@ -8,8 +8,10 @@ import {
   DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
   DevrouterDockerTcpApp,
-  DevrouterHostHttpApp
+  DevrouterHostHttpApp,
+  DevrouterProxyHttpApp
 } from "../types";
+import { parseUpstream } from "./host-routes";
 import { TCP_PROTOCOL_REGISTRY } from "./router";
 
 const CONFIG_FILE_NAME = ".devrouter.yml";
@@ -207,7 +209,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
   const objectValue = ensureObject(value, pathLabel);
   ensureAllowedKeys(
     objectValue,
-    ["name", "kind", "host", "protocol", "runtime", "hostRun", "docker", "tcpProtocol", "dependencies"],
+    ["name", "kind", "host", "protocol", "runtime", "hostRun", "docker", "tcpProtocol", "upstream", "dependencies"],
     pathLabel
   );
 
@@ -321,6 +323,37 @@ function parseApp(value: unknown, index: number): DevrouterApp {
         docker
       };
     }
+  }
+
+  if (runtime === "proxy") {
+    if (protocol !== "http") {
+      throw new Error(`${pathLabel}: proxy runtime supports only protocol=http.`);
+    }
+    if (objectValue.hostRun !== undefined) {
+      throw new Error(`${pathLabel}.hostRun is not supported when runtime=proxy.`);
+    }
+    if (objectValue.docker !== undefined) {
+      throw new Error(`${pathLabel}.docker is not supported when runtime=proxy.`);
+    }
+    if (dependencies.length > 0) {
+      throw new Error(`${pathLabel}.dependencies is not supported when runtime=proxy.`);
+    }
+
+    const upstream = toStringOrThrow(objectValue.upstream, `${pathLabel}.upstream`);
+    try {
+      parseUpstream(upstream);
+    } catch (err) {
+      throw new Error(`${pathLabel}.upstream: ${(err as Error).message}`);
+    }
+
+    return {
+      name,
+      host,
+      protocol: "http",
+      runtime: "proxy",
+      dependencies,
+      upstream
+    };
   }
 
   throw new Error(`${pathLabel} has unsupported protocol/runtime combination.`);
@@ -562,6 +595,37 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
         cwd: options.cwd ?? ".",
         strategy: { ...DEFAULT_HOST_STRATEGY }
       }
+    };
+  }
+
+  if (options.runtime === "proxy") {
+    if (options.protocol !== "http") {
+      throw new Error("--runtime proxy supports only --protocol http");
+    }
+    if (!options.upstream) {
+      throw new Error("--upstream is required when --runtime proxy");
+    }
+    if (options.service !== undefined) {
+      throw new Error("--service is not supported when --runtime proxy");
+    }
+    if (options.port !== undefined) {
+      throw new Error("--port is not supported when --runtime proxy");
+    }
+    if (options.command !== undefined) {
+      throw new Error("--command is not supported when --runtime proxy");
+    }
+    if (dependencies.length > 0) {
+      throw new Error("--depends-on is not supported when --runtime proxy");
+    }
+    parseUpstream(options.upstream);
+
+    return {
+      name: options.name,
+      host,
+      protocol: "http",
+      runtime: "proxy",
+      dependencies,
+      upstream: options.upstream
     };
   }
 

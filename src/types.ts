@@ -85,7 +85,10 @@ export type HostRouteState = {
   protocol?: "http";
   repoPath: string;
   port: number;
-  mode: "run" | "attach";
+  mode: "run" | "attach" | "proxy";
+  // Backend host Traefik dials for this route. Defaults to host.docker.internal
+  // (host-run apps). Proxy routes set it to the (loopback-rewritten) upstream host.
+  upstreamHost?: string;
   pid?: number;
   command?: string;
   createdAt: string;
@@ -166,6 +169,15 @@ export type DevrouterDockerTcpApp = DevrouterRoutedAppBase & {
   docker: DevrouterDockerConfig;
 };
 
+// Upstream-only HTTP route to an externally-managed port (e.g. a devcontainer's
+// published app). No lifecycle, env injection, hostRun, compose ownership, or
+// dependencies — devrouter only registers the Traefik route.
+export type DevrouterProxyHttpApp = DevrouterRoutedAppBase & {
+  protocol: "http";
+  runtime: "proxy";
+  upstream: string;
+};
+
 export type DevrouterDockerDependencyApp = {
   kind: "dependency";
   name: string;
@@ -174,7 +186,11 @@ export type DevrouterDockerDependencyApp = {
   docker: DevrouterDockerDependencyConfig;
 };
 
-export type DevrouterRoutedApp = DevrouterHostHttpApp | DevrouterDockerHttpApp | DevrouterDockerTcpApp;
+export type DevrouterRoutedApp =
+  | DevrouterHostHttpApp
+  | DevrouterDockerHttpApp
+  | DevrouterDockerTcpApp
+  | DevrouterProxyHttpApp;
 export type DevrouterDockerRoutedApp = DevrouterDockerHttpApp | DevrouterDockerTcpApp;
 export type DevrouterApp = DevrouterRoutedApp | DevrouterDockerDependencyApp;
 
@@ -183,9 +199,10 @@ export type AppAddOptions = {
   kind?: "app" | "dependency";
   host?: string;
   protocol?: "http" | "tcp";
-  runtime?: "host" | "docker";
+  runtime?: "host" | "docker" | "proxy";
   service?: string;
   port?: number;
+  upstream?: string;
   composeFiles: string[];
   router?: string;
   tcpProtocol?: string;
