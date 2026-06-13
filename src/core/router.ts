@@ -104,11 +104,14 @@ accessLog: {}
 `;
 }
 
-function renderTraefikBaseDynamicYml(tlsEnabled: boolean): string {
+export function renderTraefikBaseDynamicYml(tlsEnabled: boolean): string {
   if (!tlsEnabled) {
-    return `http: {}
-
-tls: {}
+    // Traefik v2.11 rejects empty standalone dynamic maps with "X cannot be a
+    // standalone element", which fails the whole file provider and makes every
+    // host/proxy route 404. With TLS off there is nothing to declare here, so
+    // emit a comment-only file (Traefik ignores empty dynamic files).
+    return `# devrouter: TLS disabled, no base dynamic config required.
+# Intentionally left empty (empty Traefik dynamic maps break the file provider).
 `;
   }
 

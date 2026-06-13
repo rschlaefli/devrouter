@@ -13,6 +13,10 @@ All notable changes to this project are documented in this file.
 - Loopback upstreams (`localhost`/`127.0.0.1`/`0.0.0.0`) are rewritten to `host.docker.internal` so Traefik (in Docker) can reach a port published on the host.
 - Proxy routes are written once by `dev app run` and persist until `dev app rm` (no process is started, re-running is idempotent). They are never treated as stale by `dev doctor` / eviction since they have no backing PID.
 
+### Fixed
+
+- HTTP-only (TLS-disabled) routing no longer 404s on Traefik v2.11. The generated `base.yml` previously emitted empty standalone maps (`http: {}` / `tls: {}`) which Traefik v2.11 rejects ("cannot be a standalone element"), failing the entire file provider so host/proxy routes never loaded. With TLS off, `base.yml` is now an empty (comment-only) file. The TLS-enabled path was unaffected.
+
 ### Agent Adaptation Prompt
 
 Agent adaptation prompt: ./upgrade-prompts/0.0.20.md
