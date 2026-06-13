@@ -29,3 +29,20 @@ describe("TCP_PROTOCOL_REGISTRY", () => {
     expect(TCP_PROTOCOL_REGISTRY.mysql).toEqual({ port: 3306, entrypoint: "mysql" });
   });
 });
+
+describe("renderTraefikBaseDynamicYml", () => {
+  it("emits no empty standalone maps when TLS is disabled (Traefik v2.11 rejects them)", async () => {
+    const { renderTraefikBaseDynamicYml } = await import("../router");
+    const out = renderTraefikBaseDynamicYml(false);
+    // Empty `http: {}` / `tls: {}` break the whole file provider on v2.11.
+    expect(out).not.toMatch(/http:\s*\{\}/);
+    expect(out).not.toMatch(/tls:\s*\{\}/);
+  });
+
+  it("emits the https redirect + cert config when TLS is enabled", async () => {
+    const { renderTraefikBaseDynamicYml } = await import("../router");
+    const out = renderTraefikBaseDynamicYml(true);
+    expect(out).toContain("redirectScheme");
+    expect(out).toContain("/certs/localhost.pem");
+  });
+});
