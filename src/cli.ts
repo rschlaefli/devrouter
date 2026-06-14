@@ -241,13 +241,17 @@ appCommand
 
 appCommand
   .command("rm")
-  .description("Remove one app definition from `.devrouter.yml`")
+  .description("Remove one app definition from `.devrouter.yml` (and free its route)")
   .argument("<name>", "Configured app name")
   .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option(
+    "--keep-config",
+    "Only free the live route/hostname; leave the `.devrouter.yml` app definition untouched"
+  )
   .action(withErrorHandling(async (name: string, _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string }>();
+    const options = command.opts<{ repo?: string; keepConfig?: boolean }>();
     const { runAppRmCommand } = await import("./commands/app-rm");
-    await runAppRmCommand({ name, repo: options.repo });
+    await runAppRmCommand({ name, repo: options.repo, keepConfig: Boolean(options.keepConfig) });
   }));
 
 const tlsCommand = program.command("tls").description("TLS helpers for HTTPS and Postgres SNI routing");

@@ -72,8 +72,9 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       'Run a one-shot command with resolved dependency env vars (env aliasing via config-level envMap).',
   },
   {
-    command: 'dev app rm',
-    purpose: 'Remove one app entry from `.devrouter.yml`.',
+    command: 'dev app rm [--keep-config]',
+    purpose:
+      'Remove one app entry from `.devrouter.yml` and free its route. `--keep-config` frees only the live route/hostname (e.g. to release one claimed by another repo) and leaves the config file untouched.',
   },
   {
     command: 'dev repo agents [--with-linear]',
