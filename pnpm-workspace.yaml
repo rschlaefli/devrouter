@@ -1,0 +1,12 @@
+# Not a monorepo — this file only carries pnpm settings (the canonical home for
+# onlyBuiltDependencies; the package.json "pnpm" field is deprecated).
+#
+# Allow the four transitive native deps to run their postinstall build scripts.
+# Without this, pnpm hard-errors (ERR_PNPM_IGNORED_BUILDS) on a --frozen-lockfile
+# install in CI. ssh2's native crypto binding is optional (pure-JS fallback),
+# the others are tooling (esbuild/tsup, protobufjs/dockerode).
+onlyBuiltDependencies:
+  - cpu-features
+  - esbuild
+  - protobufjs
+  - ssh2
