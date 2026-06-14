@@ -296,7 +296,7 @@ See details:
 
 ## AI agent discoverability
 
-`dev repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.factory/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
+`dev repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.agents/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
 
 If you also want Linear workflow assets and repository mapping metadata, run:
 
@@ -306,10 +306,10 @@ dev repo agents --with-linear
 
 This additionally installs:
 
-- `.factory/skills/linear-workflow/SKILL.md`
-- `.factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
-- `.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
-- `.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
+- `.agents/skills/linear-workflow/SKILL.md`
+- `.agents/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
+- `.agents/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
+- `.agents/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
 
 and appends an idempotent `linear-workflow` section to `AGENTS.md`.
 

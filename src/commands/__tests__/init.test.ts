@@ -6,10 +6,10 @@ import { runInitCommand } from "../init";
 import type { LinearWorkflowMetadata } from "../../core/linear-onboarding";
 
 const AGENTS_PATH = "AGENTS.md";
-const DEVROUTER_SKILL_PATH = path.join(".factory", "skills", "devrouter", "SKILL.md");
-const LINEAR_SKILL_PATH = path.join(".factory", "skills", "linear-workflow", "SKILL.md");
+const DEVROUTER_SKILL_PATH = path.join(".agents", "skills", "devrouter", "SKILL.md");
+const LINEAR_SKILL_PATH = path.join(".agents", "skills", "linear-workflow", "SKILL.md");
 const LINEAR_ISSUE_TEMPLATE_PATH = path.join(
-  ".factory",
+  ".agents",
   "skills",
   "linear-workflow",
   "references",

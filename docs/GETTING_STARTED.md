@@ -272,7 +272,7 @@ dev repo agents
 This creates:
 
 - `AGENTS.md` section referencing devrouter (idempotent — skips if present)
-- `.factory/skills/devrouter/SKILL.md` (always overwritten with latest content)
+- `.agents/skills/devrouter/SKILL.md` (always overwritten with latest content)
 
 The skill file contains full config schema, docker requirements, env injection behavior, and command reference.
 
@@ -284,10 +284,10 @@ dev repo agents --with-linear
 
 This additionally creates:
 
-- `.factory/skills/linear-workflow/SKILL.md`
-- `.factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
-- `.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
-- `.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
+- `.agents/skills/linear-workflow/SKILL.md`
+- `.agents/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
+- `.agents/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
+- `.agents/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
 - `AGENTS.md` linear-workflow section (idempotent)
 - `AGENTS.md` managed Linear mapping block (`workspace/team/project`) between:
   - `<!-- devrouter-linear-workflow-config:start -->`

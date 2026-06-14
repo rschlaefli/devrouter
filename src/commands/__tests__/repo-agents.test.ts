@@ -22,8 +22,8 @@ describe("runRepoAgentsCommand", () => {
   it("keeps default behavior unchanged without --with-linear", async () => {
     await runRepoAgentsCommand({ repo: tmpDir });
 
-    expect(fs.existsSync(path.join(tmpDir, ".factory", "skills", "devrouter", "SKILL.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, ".factory", "skills", "linear-workflow", "SKILL.md"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, ".agents", "skills", "devrouter", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".agents", "skills", "linear-workflow", "SKILL.md"))).toBe(false);
 
     const agents = fs.readFileSync(path.join(tmpDir, "AGENTS.md"), "utf-8");
     expect(agents).toContain("<!-- devrouter -->");
@@ -33,13 +33,13 @@ describe("runRepoAgentsCommand", () => {
   it("writes linear workflow artifacts and AGENTS section with --with-linear", async () => {
     await runRepoAgentsCommand({ repo: tmpDir, withLinear: true });
 
-    expect(fs.existsSync(path.join(tmpDir, ".factory", "skills", "devrouter", "SKILL.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, ".factory", "skills", "linear-workflow", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".agents", "skills", "devrouter", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".agents", "skills", "linear-workflow", "SKILL.md"))).toBe(true);
     expect(
       fs.existsSync(
         path.join(
           tmpDir,
-          ".factory",
+          ".agents",
           "skills",
           "linear-workflow",
           "references",
