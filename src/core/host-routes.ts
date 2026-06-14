@@ -5,6 +5,7 @@ import { HostRouteState, Route } from "../types";
 import {
   DEVROUTER_HOME,
   HOST_ROUTES_STATE_FILE,
+  TCP_PROTOCOL_REGISTRY,
   TRAEFIK_DYNAMIC_DIR,
   TRAEFIK_HOST_ROUTES_FILE,
   isTLSEnabled
@@ -13,7 +14,8 @@ import {
 type UpsertHostRouteInput = {
   name: string;
   host: string;
-  protocol?: "http";
+  protocol?: "http" | "tcp";
+  tcpProtocol?: string;
   repoPath: string;
   port: number;
   mode: "run" | "attach" | "proxy";
@@ -69,12 +71,66 @@ function sanitizeKey(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
-function writeHostRoutesDynamicFile(routes: HostRouteState[], tlsEnabled: boolean): void {
+/**
+ * Build the Traefik file-provider dynamic document for the given routes. HTTP
+ * routes become `http` Host() routers; TCP proxy routes become `tcp` HostSNI()
+ * routers on their shared protocol entrypoint (TLS mandatory — SNI is read from
+ * the TLS ClientHello — and Traefik terminates TLS, forwarding plaintext to the
+ * upstream address). The `tcp` section is omitted entirely when there are no TCP
+ * routes (an empty `tcp` map is a standalone element that breaks the provider).
+ */
+// Some TCP protocols require the TLS terminator to negotiate a specific ALPN
+// protocol. libpq 17+ direct-SSL (sslnegotiation=direct, the only Postgres mode
+// that sends an immediate TLS ClientHello with SNI) MANDATES that the server
+// select ALPN `postgresql`; without it Traefik replies "no application
+// protocol". Declared as a per-protocol TLSOption and referenced by the router.
+const TCP_TLS_ALPN_PROTOCOLS: Record<string, string[]> = {
+  postgres: ["postgresql"]
+};
+
+function tcpTlsOptionName(tcpProtocol: string): string {
+  return `devrouter-tcp-${tcpProtocol}`;
+}
+
+export function buildHostRoutesDocument(
+  routes: HostRouteState[],
+  tlsEnabled: boolean
+): Record<string, unknown> {
   const routers: Record<string, unknown> = {};
   const services: Record<string, unknown> = {};
+  const tcpRouters: Record<string, unknown> = {};
+  const tcpServices: Record<string, unknown> = {};
+  const tlsOptions: Record<string, unknown> = {};
 
   for (const route of routes) {
     const key = `host-${sanitizeKey(route.id)}`;
+
+    if (route.protocol === "tcp") {
+      const alpn = route.tcpProtocol ? TCP_TLS_ALPN_PROTOCOLS[route.tcpProtocol] : undefined;
+      let tls: Record<string, unknown> = {};
+      if (alpn && route.tcpProtocol) {
+        const optionName = tcpTlsOptionName(route.tcpProtocol);
+        tlsOptions[optionName] = { alpnProtocols: alpn };
+        // `@file` qualifies the provider so Traefik resolves the option declared
+        // in this same dynamic file.
+        tls = { options: `${optionName}@file` };
+      }
+      tcpRouters[key] = {
+        rule: `HostSNI(\`${route.host}\`)`,
+        entryPoints: [route.tcpProtocol && TCP_PROTOCOL_REGISTRY[route.tcpProtocol]?.entrypoint].filter(
+          Boolean
+        ),
+        service: key,
+        tls
+      };
+      tcpServices[key] = {
+        loadBalancer: {
+          servers: [{ address: `${route.upstreamHost ?? "host.docker.internal"}:${route.port}` }]
+        }
+      };
+      continue;
+    }
+
     const router: Record<string, unknown> = {
       rule: `Host(\`${route.host}\`)`,
       entryPoints: tlsEnabled ? ["web", "websecure"] : ["web"],
@@ -93,13 +149,26 @@ function writeHostRoutesDynamicFile(routes: HostRouteState[], tlsEnabled: boolea
     };
   }
 
-  const document = {
+  const document: Record<string, unknown> = {
     http: {
       routers,
       services
     }
   };
+  if (Object.keys(tcpRouters).length > 0) {
+    document.tcp = { routers: tcpRouters, services: tcpServices };
+  }
+  // TLS options live under the top-level `tls` key (Traefik merges this with the
+  // certificates declared in base.yml across file-provider files).
+  if (Object.keys(tlsOptions).length > 0) {
+    document.tls = { options: tlsOptions };
+  }
 
+  return document;
+}
+
+function writeHostRoutesDynamicFile(routes: HostRouteState[], tlsEnabled: boolean): void {
+  const document = buildHostRoutesDocument(routes, tlsEnabled);
   fs.writeFileSync(TRAEFIK_HOST_ROUTES_FILE, YAML.stringify(document, { lineWidth: 0 }), "utf-8");
 }
 
@@ -164,6 +233,7 @@ export function upsertHostRoute(input: UpsertHostRouteInput): HostRouteState {
     name: input.name,
     host: input.host,
     protocol: input.protocol ?? "http",
+    tcpProtocol: input.tcpProtocol,
     repoPath: input.repoPath,
     port: input.port,
     mode: input.mode,
@@ -227,19 +297,27 @@ export function listHostRoutes(tlsEnabled: boolean): Route[] {
   const routes = listHostRouteState();
   const scheme = tlsEnabled ? "https" : "http";
 
-  return routes.map((route) => ({
-    id: route.id,
-    source: "host",
-    protocol: "http",
-    appName: route.name,
-    serviceName: route.name,
-    projectName: path.basename(route.repoPath),
-    hosts: [route.host],
-    urls: [`${scheme}://${route.host}`],
-    // Proxy routes front an externally-managed upstream and have no pid; they are
-    // live as long as the route exists.
-    status: route.mode === "proxy" ? "running" : isPidRunning(route.pid) ? "running" : "stopped",
-    health: "unknown",
-    createdAt: Math.floor(new Date(route.createdAt).getTime() / 1000)
-  }));
+  return routes.map((route) => {
+    const isTcp = route.protocol === "tcp";
+    const tcpProtocol = route.tcpProtocol ?? "tcp";
+    return {
+      id: route.id,
+      source: "host",
+      protocol: isTcp ? (`tcp/${tcpProtocol}` as const) : "http",
+      appName: route.name,
+      serviceName: route.name,
+      projectName: path.basename(route.repoPath),
+      hosts: [route.host],
+      // TCP routes are reached via an SNI-aware client on the shared protocol
+      // port; surface a protocol-scheme URL rather than http(s)://.
+      urls: isTcp
+        ? [`${tcpProtocol}://${route.host}:${TCP_PROTOCOL_REGISTRY[tcpProtocol]?.port ?? route.port}`]
+        : [`${scheme}://${route.host}`],
+      // Proxy routes front an externally-managed upstream and have no pid; they are
+      // live as long as the route exists.
+      status: route.mode === "proxy" ? "running" : isPidRunning(route.pid) ? "running" : "stopped",
+      health: "unknown",
+      createdAt: Math.floor(new Date(route.createdAt).getTime() / 1000)
+    };
+  });
 }

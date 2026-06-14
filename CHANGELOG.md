@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.21] - 2026-06-14
+
+### Added
+
+- `runtime: proxy` now supports `protocol: tcp` (with `tcpProtocol`): registers a Traefik TCP route that SNI-routes `HostSNI(<host>)` on the shared protocol entrypoint (e.g. `:5432`) to the upstream — for fronting a database in an externally-managed container (e.g. a devcontainer's Postgres on `devnet`) with a stable `db.*.localhost`, no per-DB host port. Pairs with the existing HTTP proxy so N apps + their DBs route through devrouter with zero host-port collisions.
+- TCP proxy routes require TLS (`dev tls install`): SNI is read from the TLS ClientHello. Postgres clients must use direct-SSL negotiation (`sslmode=require sslnegotiation=direct`, libpq 17+) so an immediate ClientHello carries the SNI. devrouter emits a per-protocol Traefik `TLSOption` advertising ALPN `postgresql` (libpq direct-SSL mandates the server negotiate it), and `dev app run` auto-extends the mkcert cert to cover the new host.
+- `dev app add --runtime proxy --protocol tcp --tcp-protocol <postgres|redis|...> --upstream <host:port>` scaffolds a TCP proxy app.
+
 ## [0.0.20] - 2026-06-13
 
 ### Added

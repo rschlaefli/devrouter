@@ -243,10 +243,36 @@ describe("protocol/runtime combinations", () => {
     expect(() => loadRepoConfig(tmpDir)).toThrow("between 1 and 65535");
   });
 
-  it("rejects proxy + tcp", () => {
+  it("accepts proxy + tcp + tcpProtocol + upstream", () => {
+    const yaml = `
+version: 1
+apps:
+  - name: db
+    host: db.app.localhost
+    protocol: tcp
+    tcpProtocol: postgres
+    runtime: proxy
+    upstream: app-db:5432
+`;
+    writeConfig(tmpDir, yaml);
+    const config = loadRepoConfig(tmpDir);
+    const app = config.apps[0] as Extract<DevrouterApp, { runtime: "proxy"; protocol: "tcp" }>;
+    expect(app.runtime).toBe("proxy");
+    expect(app.protocol).toBe("tcp");
+    expect(app.tcpProtocol).toBe("postgres");
+    expect(app.upstream).toBe("app-db:5432");
+  });
+
+  it("rejects proxy + tcp without tcpProtocol", () => {
     const yaml = VALID_PROXY_APP.replace("protocol: http", "protocol: tcp");
     writeConfig(tmpDir, yaml);
-    expect(() => loadRepoConfig(tmpDir)).toThrow("proxy runtime supports only protocol=http");
+    expect(() => loadRepoConfig(tmpDir)).toThrow("tcpProtocol");
+  });
+
+  it("rejects proxy + tcp with unsupported tcpProtocol", () => {
+    const yaml = VALID_PROXY_APP.replace("protocol: http", "protocol: tcp\n    tcpProtocol: mongodb");
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("tcpProtocol must be one of");
   });
 
   it("rejects proxy with dependencies", () => {

@@ -36,8 +36,22 @@ apps:
     protocol: http | tcp
     runtime: host | docker | proxy
 
-    # if kind=app and runtime=proxy (protocol must be http):
+    # if kind=app and runtime=proxy (protocol http or tcp):
     upstream: 127.0.0.1:3000 # already-running port to route to; no lifecycle/deps
+    # Loopback (127.0.0.1/localhost) -> host.docker.internal (a published host
+    # port). A non-loopback name is passed verbatim and resolved over devnet —
+    # so a devcontainer container ON devnet (with a network alias) can be fronted
+    # by NAME with NO published host port: upstream: <alias>:3000. This is the
+    # collision-free way to run many apps at once (each its own *.localhost).
+    #
+    # proxy + tcp (front a DB in an externally-managed container, e.g. a
+    # devcontainer's Postgres on devnet) — no per-DB host port:
+    #   protocol: tcp
+    #   tcpProtocol: postgres        # selects shared entrypoint :5432
+    #   upstream: <db-alias>:5432    # devnet alias of the DB container
+    # Requires `dev tls install` (SNI is read from the TLS ClientHello). Connect
+    # with direct-SSL so the ClientHello carries SNI, e.g.:
+    #   psql "host=db.<app>.localhost port=5432 sslmode=require sslnegotiation=direct ..."
 
     # if kind=app and runtime=host (protocol must be http):
     hostRun:
@@ -57,7 +71,7 @@ apps:
       router: <string> # optional
 
     # if kind=app and protocol=tcp:
-    tcpProtocol: postgres # required; runtime must be docker
+    tcpProtocol: postgres # required; runtime must be docker OR proxy
 
     # if kind=dependency:
     runtime: docker
@@ -70,8 +84,8 @@ Validation rules:
 
 - `kind=app`: `host` must end with `.localhost`
 - `kind=app`: `runtime=host` supports `protocol=http` only
-- `kind=app`: `runtime=proxy` supports `protocol=http` only, requires `upstream` (`host:port`), and forbids `hostRun`/`docker`/`dependencies` (it only registers a route to an externally-managed upstream)
-- `kind=app`: `protocol=tcp` requires `runtime=docker` and `tcpProtocol=postgres`
+- `kind=app`: `runtime=proxy` supports `protocol=http` or `protocol=tcp`, requires `upstream` (`host:port`), and forbids `hostRun`/`docker`/`dependencies` (it only registers a route to an externally-managed upstream). `protocol=tcp` additionally requires `tcpProtocol` and TLS (`dev tls install`)
+- `kind=app`: `protocol=tcp` requires `runtime=docker` (devrouter-managed container) or `runtime=proxy` (externally-managed upstream), plus a supported `tcpProtocol` (postgres/redis/mariadb/mysql)
 - `kind=dependency`: must use `runtime=docker` and does not allow routed fields (`host`/`protocol`/`tcpProtocol`/`hostRun`/`docker.internalPort`/`docker.router`)
 - Unknown keys rejected (strict schema)
 
