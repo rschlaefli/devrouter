@@ -1,12 +1,12 @@
 # Gotchas — read before scaffolding
 
-Hard-won from onboarding a Next + Prisma + Postgres + Redis + Auth0 app. Ordered roughly by how much time each one costs when missed.
+Hard-won from onboarding several apps to the devnet pattern (Next/Prisma/Postgres/Redis/OIDC, Payload/Postgres, …). Ordered roughly by how much time each one costs when missed; a few near the end are tool/repo quirks rather than universal traps.
 
 1. **DevPod lifecycle hooks truncate `env_file` values at `=`.** A URL `...?schema=public` arrives in the hook as `...?schema`, so Prisma emits an empty `search_path` (Postgres `42601`, zero-length delimited identifier). **Fix:** re-source the canonical env file inside each hook — `set -a; . .devcontainer/devcontainer.env; set +a`. Shell assignment preserves inner `=`. Single biggest trap.
 
 2. **Fully detach the background dev server in `post-start`.** Redirect the *whole* command's fds, not just the inner process: `setsid bash -c '<dev cmd>' >/tmp/dev.log 2>&1 </dev/null &`. If the wrapper keeps DevPod's agent pipe open, `devpod up` hangs (~30 min) then fails.
 
-3. **OIDC issuer must be identical from app server and host browser.** Run the OIDC mock as a sidecar with `network_mode: service:app`, so `http://localhost:<oidc_port>/...` resolves the same whether the app server fetches token/jwks or the browser hits authorize. Avoids the classic docker OIDC issuer mismatch with zero `/etc/hosts` edits.
+3. **OIDC issuer must be identical from app server and host browser.** Run the OIDC mock as a sidecar with `network_mode: service:app` so it rides the app's netns. When everything is routed through devrouter (no host ports), the issuer is `https://oidc.<app>.localhost/default` and must resolve the same from the browser (authorize) AND the app server inside the container (discovery/token/jwks) — see #16 for the split-horizon wiring. Avoids the classic docker OIDC issuer mismatch.
 
 4. **mock-oauth2-server: match `grant_type`, not `scope`.** The auth-code token request carries no `scope`, so a `requestParam: scope` mapping never fires and the id_token lacks `sub` (NextAuth: `missing required JWT property sub`). Use `requestParam: grant_type, match: "*"` with constant claims (`sub`, `email`) for a stable one-click admin. Keep `interactiveLogin: false`.
 
@@ -22,13 +22,27 @@ Hard-won from onboarding a Next + Prisma + Postgres + Redis + Auth0 app. Ordered
 
 10. **`init: true`** on the app service (tini as PID 1) to reap the dev server's zombie children and forward signals.
 
-11. **Publish on `127.0.0.1` via compose `ports:`**, not (only) DevPod `forwardPorts`, so the host browser reaches app + aux ports without an active IDE/forward session on the local docker provider. (Remote providers still need `forwardPorts`.) Never publish ports devrouter owns (80/443/5432) or its dashboard port (`127.0.0.1:8080`) — pick a non-colliding host port for an OIDC/admin sidecar.
+11. **No published host ports — join `devnet` with stable aliases.** Instead of `ports: 127.0.0.1:<port>`, attach each routable service to the external `devnet` network with an alias (`networks: { devnet: { aliases: [<app>-app] } }` + top-level `networks: { devnet: { external: true } }`) and route to it by name (`upstream: <app>-app:<port>`). devrouter's Traefik is on `devnet` and resolves the alias over the network — no host port, so N devcontainers coexist with zero collisions. (Publishing a loopback port still works as a fallback proxy upstream, but every app then competes for that host port — the devnet alias is the collision-free path.)
 
 12. **Fresh-Postgres warmup** — even after `pg_isready` reports healthy, the first `prisma db push` on a brand-new volume can transiently fail (empty `search_path`). Retry the push several times; a warm DB succeeds first try.
 
 13. **Self-contained compose** — keep one `.devcontainer/docker-compose.yml`; do **not** extend the root compose. A single compose project directory avoids relative-path ambiguity for bind mounts and init scripts.
 
 14. **`devpod up --recreate` does NOT recreate a `network_mode: service:app` sidecar.** After changing a sidecar's port/config, an in-place `--recreate` leaves it on the old config in the shared netns (nothing listens on the new port). A fresh `devpod up` (no existing containers) is fine. To force it in place: `docker compose -p <project> -f .devcontainer/docker-compose.yml -f <devpod-override> up -d --force-recreate --no-deps <sidecar>` (get project + override file from `docker inspect <sidecar> --format '{{index .Config.Labels "com.docker.compose.project"}}'` and the `...project.config_files` label).
+
+15. **`dev up` BEFORE the container starts — `devnet` is `external: true`.** The compose declares `devnet` as external, so the network must already exist when the stack comes up; otherwise the create fails. Order: `dev up` (creates devnet + Traefik) → `dev tls install` → bring the devcontainer up → `dev app run <each app>`. The route targets a stable devnet *alias*, so it survives container restarts; you only re-run `dev app run` if the route state was cleared.
+
+16. **OIDC split-horizon: route it + trust the CA in-container.** With the issuer on `https://oidc.<app>.localhost`, the app server (inside the container) must (a) RESOLVE that host and (b) trust its TLS. Map it to the host gateway — `extra_hosts: ['oidc.<app>.localhost:host-gateway']` — so it reaches host Traefik on `:443`, and trust the mkcert CA: mount `$(mkcert -CAROOT)/rootCA.pem` read-only and set `NODE_EXTRA_CA_CERTS` to it. Do **NOT** use `NODE_TLS_REJECT_UNAUTHORIZED=0` (MITM hole). Verify server-side before the browser: `node -e "fetch(process.env.AUTH0_ISSUER+'/.well-known/openid-configuration').then(r=>console.log(r.status))"` → `200`.
+
+17. **Postgres over TCP/SNI needs direct-SSL + ALPN.** A `db.<app>.localhost` TCP route is demuxed by the SNI in the TLS ClientHello, but `sslmode=require` alone makes libpq do a plaintext `SSLRequest` preamble first → Traefik sees no ClientHello → SNI never read → **timeout**. Client must use `sslnegotiation=direct` (libpq 17+) to send an immediate ClientHello with SNI. libpq direct-SSL also mandates the server negotiate ALPN `postgresql`; devrouter 0.0.21 emits a `TLSOption { alpnProtocols: ["postgresql"] }` automatically. TCP routes require TLS (`dev tls install`). Redis over the same TCP/SNI pattern needs **no** special ALPN — `redis-cli --tls --sni redis.<app>.localhost` sends a ClientHello immediately, so only the SNI matters.
+
+18. **pnpm in no-TTY devpod hooks: `CI=true` + `verify-deps-before-run=false`.** devpod lifecycle hooks have no TTY. (a) If pnpm needs to purge a stale/partial `node_modules` volume it aborts: `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` → `CI=true` auto-confirms. (b) pnpm 11's `verify-deps-before-run` makes every `pnpm -F <script>` (prisma:*, dev) spawn an implicit install that hangs on the same prompt → `npm_config_verify_deps_before_run=false`. Export both at the top of post-create.sh AND post-start.sh. Fresh clones (empty volume) mostly dodge it; rebuilds/interrupted installs hit it hard.
+
+19. **Hostname conflict: another repo's route already claims `<app>.localhost`.** devrouter rejects `dev app run` with `HostnameConflictError` if the host is registered by another repo (e.g. an old worktree's `.devrouter.yml`). Free it with `dev app rm <name> --repo <other-repo>` — but note `dev app rm` **edits that repo's `.devrouter.yml`** (removes the app entry, not just the route). If that config is one you want to keep, back it up first (`cp`) and restore it after re-registering yours; the route stays freed.
+
+20. **A devpod project == the compose-content hash; old containers linger.** Changing `.devcontainer/docker-compose.yml` makes devpod compute a NEW project name, so a fresh `devpod up` may *start* (not recreate) old containers that never joined `devnet` → their alias is missing and routing EOFs. A stale container that predates the devnet edit must be recreated. The honest acceptance test is a clean `devpod delete <ws> && devpod up .` (named volumes persist, so the DB seed survives) — then every service is created on devnet from the committed compose with no manual `docker network connect`.
+
+21. **Tracking files hidden by `.git/info/exclude`.** A repo may keep `.devcontainer/`/`.devrouter.yml` untracked via a local exclude (`.git/info/exclude`, not the tracked `.gitignore`). `git check-ignore -v <path>` reveals the source. To commit them, `git add -f`; once tracked, the exclude is moot and does not affect clones/CI. Also confirm any `local/` screenshot dir you use is actually gitignored before writing artifacts there.
 
 ## Container-tolerant install vs frozen CI
 

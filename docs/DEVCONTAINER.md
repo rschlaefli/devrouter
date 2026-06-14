@@ -1,80 +1,146 @@
 # Fronting a devcontainer with devrouter
 
 The preferred way to use devrouter going forward. The **devcontainer owns the
-environment**; devrouter is a thin **routing layer** that gives it a stable,
-TLS-terminated `*.localhost` host on the shared `:443`.
+environment**; devrouter is a thin **routing layer** that gives it stable,
+TLS-terminated `*.localhost` hosts on the shared `:443` / `:5432` / `:6379` —
+with **no published host ports**, so many devcontainers run at once with zero
+collisions.
 
 Clean split of responsibilities:
 
 | Concern | Owner |
 | --- | --- |
 | Toolchain, databases, auth mocks, app process, install, seed | the devcontainer |
-| `*.localhost` hostname, HTTPS/TLS, shared `:443`, `:5432` SNI | devrouter |
+| `*.localhost` hostnames, HTTPS/TLS, shared `:443`, `:5432`/`:6379` SNI | devrouter |
 
 This works with any devcontainer-spec runner (DevPod, VS Code Dev Containers,
-`@devcontainers/cli`, Codespaces) — devrouter only needs a port to route to.
+`@devcontainers/cli`, Codespaces) — the container just needs to join `devnet`.
 
-## 1. Publish the app from the devcontainer
+> Requires devrouter ≥ 0.0.21 (TCP proxy routes). The end-to-end onboarding
+> playbook + reference templates + gotchas live in the
+> `devcontainer-onboarding` skill (`.agents/skills/devcontainer-onboarding/`).
 
-Have the devcontainer publish the dev server on a host loopback port (compose
-`ports:` or `forwardPorts`). For example, the app on `127.0.0.1:3000`.
+## How it works: `devnet`
 
-> Avoid publishing host ports devrouter owns — `80`, `443`, `5432`, and the
-> Traefik dashboard on `127.0.0.1:8080`. If your container also runs an auxiliary
-> service (an OIDC mock, an admin UI), publish it on a different host port so it
-> does not collide with the dashboard. `dev up` fails fast on a bound port.
+devrouter's Traefik runs in Docker on a shared external bridge network,
+`devnet`, with a file-provider config it hot-reloads. Any container that joins
+`devnet` with a stable network **alias** is reachable by Traefik over the
+network — **no host port**. devrouter demuxes by hostname: `Host()` for HTTP,
+`HostSNI()` (TLS SNI) for TCP. So N apps + their databases all share `:443` /
+`:5432` / `:6379`, separated by hostname.
 
-## 2. Declare a proxy route in `.devrouter.yml`
+## 1. Join the devcontainer services to `devnet`
+
+In `.devcontainer/docker-compose.yml`, attach each routable service to the
+external `devnet` network with a stable alias, and **drop all `ports:`
+publishes**:
+
+```yaml
+services:
+  app:
+    networks:
+      default: {}
+      devnet:
+        aliases: [myapp-app]
+  postgres:
+    networks:
+      default: {}
+      devnet:
+        aliases: [myapp-db]
+networks:
+  devnet:
+    external: true   # created by `dev up`; must pre-exist when the stack starts
+```
+
+An OIDC mock or other sidecar that uses `network_mode: service:app` rides the
+app's netns, so it is reachable on `devnet` as `myapp-app:<its-port>` — no
+separate alias needed.
+
+## 2. Declare proxy routes in `.devrouter.yml`
 
 ```yaml
 version: 1
 devrouter:
-  version: 0.0.20 # runtime: proxy requires >= 0.0.20
+  version: 0.0.21 # proxy + protocol: tcp requires >= 0.0.21
 project:
   name: myapp
 apps:
-  - name: app
+  - name: app                       # https://myapp.localhost
     host: myapp.localhost
     protocol: http
     runtime: proxy
-    upstream: 127.0.0.1:3000 # the port the devcontainer publishes
+    upstream: myapp-app:3000        # devnet alias : internal port
+  - name: db                        # db.myapp.localhost:5432
+    host: db.myapp.localhost
+    protocol: tcp
+    tcpProtocol: postgres
+    runtime: proxy
+    upstream: myapp-db:5432
 ```
 
-No `hostRun`, `docker`, `dependencies`, or `secretManager` — a proxy app only
-registers a route. Loopback upstreams (`localhost`/`127.0.0.1`/`0.0.0.0`) are
-rewritten to `host.docker.internal` so Traefik (running in Docker) can reach the
-port published on the host.
+A proxy app only registers a route — no `hostRun`, `docker`, `dependencies`, or
+`secretManager`. The `upstream` is a devnet alias (`name:port`) resolved by
+Traefik over the network. (A loopback upstream like `127.0.0.1:3000` still works
+and is rewritten to `host.docker.internal`, but then every app competes for that
+host port — the devnet alias is the collision-free path.)
 
 ## 3. Bring up routing
 
+Order matters — `devnet` is `external`, so it must exist before the container
+starts:
+
 ```bash
-dev up            # shared Traefik + devnet (one-time per machine)
+dev up            # shared Traefik + the devnet network (one-time per machine)
 dev tls install   # mkcert CA + certs for *.localhost (one-time; needs sudo once)
-dev app run app   # registers the route -> prints https://myapp.localhost
+# ... now bring the devcontainer up (devpod up .) ...
+for a in app db; do dev app run "$a"; done   # one per app name in .devrouter.yml
 ```
 
-`dev app run` for a proxy app writes the route and returns immediately — it starts
-no process. The container owns start/stop. Re-running is an idempotent
-re-register. The route persists until `dev app rm app`.
+`dev app run` for a proxy app writes the route and returns immediately — it
+starts no process. The container owns start/stop. The route targets a stable
+devnet alias, so it survives container restarts; re-running is an idempotent
+re-register. Routes persist until `dev app rm <name>`.
 
 Open `https://myapp.localhost`.
 
-## 4. Verify / tear down
+## 4. Connecting to a TCP route (Postgres / Redis)
+
+TCP routes are demuxed by the SNI in the TLS ClientHello, so the client must
+start TLS immediately:
 
 ```bash
-dev ls                 # the proxy route shows status "active"
-dev doctor --repo .    # proxy routes are never flagged as stale (they have no PID)
-dev app rm app         # remove the route
+# Postgres — direct-SSL (libpq 17+) so the ClientHello carries the SNI:
+psql "host=db.myapp.localhost port=5432 user=<user> password=<pass> \
+      dbname=<db> sslmode=require sslnegotiation=direct"
+
+# Redis — TLS + explicit SNI, trusting the mkcert CA:
+redis-cli -h redis.myapp.localhost -p 6379 --tls \
+  --sni redis.myapp.localhost --cacert "$(mkcert -CAROOT)/rootCA.pem" PING
+```
+
+Plain `sslmode=require` (without `sslnegotiation=direct`) times out: libpq does a
+plaintext `SSLRequest` preamble first, so Traefik never sees the SNI. devrouter
+advertises ALPN `postgresql` automatically (libpq direct-SSL mandates it).
+
+## 5. Verify / tear down
+
+```bash
+dev ls                 # proxy routes show status "active"
+dev doctor --repo .    # proxy routes are never flagged as stale (no PID)
+dev app rm app         # remove a route (NB: also edits .devrouter.yml)
 dev down               # stop the shared router
 ```
 
 ## Notes
 
-- The container can run with or without devrouter. Plain `http://localhost:3000`
-  keeps working; the `*.localhost` host is the opt-in prod-like front.
+- Nothing is published on the host — the `*.localhost` hosts are the only access
+  path, but that is what makes multiple devcontainers coexist collision-free.
 - App URLs that must match the routed host (auth callbacks, `NEXTAUTH_URL`, OIDC
-  issuers) need to point at `https://myapp.localhost` rather than `localhost:PORT`.
-  If your auth flow is pinned to `localhost`, keep using `localhost` for it and
-  treat the routed host as the shareable URL.
-- You can mix modes: a `runtime: proxy` app fronting the container alongside
-  `runtime: docker` TCP routes for databases devrouter still owns.
+  issuers) point at `https://myapp.localhost` / `https://oidc.myapp.localhost`.
+  For an OIDC issuer the app also fetches **server-side**, map the host to the
+  host gateway (`extra_hosts: ['oidc.myapp.localhost:host-gateway']`) and trust
+  the mkcert CA in-container (`NODE_EXTRA_CA_CERTS`) — never disable TLS
+  verification.
+- Migrating from the older host-port onboard (single `upstream: 127.0.0.1:<port>`
+  + published ports): see the `devcontainer-onboarding` skill's "Migrating an
+  existing host-port onboard to devnet" section.

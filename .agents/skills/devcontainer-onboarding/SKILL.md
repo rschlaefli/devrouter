@@ -1,14 +1,14 @@
 ---
 name: devcontainer-onboarding
-description: Onboard a repo to a self-contained devcontainer (app + Postgres + Redis + local OIDC mock) fronted by proxy-only devrouter routing. Use when adding a `.devcontainer/`, replacing manual local setup (Infisical/Auth0/host DBs) with a clone-and-run stack, or migrating a repo to the devcontainer-first approach. Targets Node/pnpm/Prisma/Next + Auth0/OIDC apps; the pattern generalizes.
+description: Onboard a repo to a self-contained devcontainer (app + Postgres + Redis + local OIDC mock) fronted by devrouter over the shared `devnet` network with zero published host ports, so many devcontainers run at once. Use when adding a `.devcontainer/`, replacing manual local setup (Infisical/Auth0/host DBs) with a clone-and-run stack, migrating a repo to the devcontainer-first approach, or moving an older host-port onboard to devnet. Targets Node/pnpm/Prisma/Next + Auth0/OIDC apps; the pattern generalizes. Requires devrouter >= 0.0.21.
 user-invocable: true
 ---
 
 # devcontainer onboarding
 
-Make a repo **clone-and-run**: `devpod up .` (or any devcontainer-spec tool — VS Code Dev Containers, `@devcontainers/cli`, Codespaces) brings up the full app with **zero manual steps and no external services**. devrouter is layered on top as a thin **routing-only** front (optional). Clean split: the **container owns the environment**, **devrouter owns the routing**.
+Make a repo **clone-and-run**: `devpod up .` (or any devcontainer-spec tool — VS Code Dev Containers, `@devcontainers/cli`, Codespaces) brings up the full app with **zero manual steps and no external services**. devrouter fronts it over the shared external `devnet` network with **no published host ports**, so many devcontainers (app + DB + OIDC each) run simultaneously with zero collisions and the DBs are reachable from host tooling via `db.<app>.localhost`. Clean split: the **container owns the environment**, **devrouter owns the routing**.
 
-The reference implementation this skill generalizes is `derivatives-game/.devcontainer/` (Next + Prisma + Postgres + Redis, Auth0 replaced by a local OIDC mock).
+The reference implementations this skill generalizes: `derivatives-game` (Next + Prisma + Postgres + Redis + OIDC mock), `careers`/jobeye (Next + Payload + Postgres), and the gbl-uzh `demo-game` (Next + Postgres + OIDC mock, no Redis).
 
 ## When NOT to use
 
@@ -30,12 +30,19 @@ The reference implementation this skill generalizes is `derivatives-game/.devcon
    - `post-create.sh` — install → generate client → push schema (retry through DB warmup) → seed.
    - `post-start.sh` — launch the dev server **fully detached**.
    - `README.md` — run instructions + the routing trade-off.
-3. **Wire self-contained auth** (if the app authenticates): run the OIDC mock (`navikt/mock-oauth2-server`) as a **sidecar** (`network_mode: service:app`) so the issuer URL is identical from the app server and the host browser. One-click auto-login with constant claims (stable `sub`). See [GOTCHAS.md](GOTCHAS.md) #1.
-4. **Add proxy-only `.devrouter.yml`** (`references/devrouter.yml`): a single `runtime: proxy` app → the container's published `127.0.0.1:<port>`. No `hostRun`/`docker`/`dependencies`/`secretManager` — the container owns those. Requires devrouter ≥ 0.0.20. (Full routing walkthrough: devrouter `docs/DEVCONTAINER.md`.)
-5. **Verify end-to-end** (mandatory before claiming done):
-   - `devpod up .` exits 0 on a clean checkout; app reachable on its published port; one-click login lands authenticated.
-   - Optional routing: `dev up && dev app run app` → curl the `*.localhost` host → 200.
-   - Confirm the committed `devcontainer.env` contains **no real secrets**.
+3. **Wire self-contained auth** (if the app authenticates): run the OIDC mock (`navikt/mock-oauth2-server`) as a **sidecar** (`network_mode: service:app`) and route it via devrouter at `https://oidc.<app>.localhost/default`. The browser (authorize) and the app server (discovery/token/jwks) use the SAME issuer host → consistent token `iss`. Server-side reachability needs `extra_hosts: ['oidc.<app>.localhost:host-gateway']` + trusting the mkcert CA (`NODE_EXTRA_CA_CERTS`) — **never** `NODE_TLS_REJECT_UNAUTHORIZED=0`. One-click auto-login with constant claims (stable `sub`). See [GOTCHAS.md](GOTCHAS.md) #3, #16.
+4. **Add `.devrouter.yml`** (`references/devrouter.yml`, copied to the repo root): `runtime: proxy` routes over `devnet` — `app` + `oidc` (http) and `db` + `redis` (tcp/SNI), each `upstream: <app>-<svc>:<port>`. Attach the services to `devnet` with those aliases in the compose; **no published host ports**. No `hostRun`/`docker`/`dependencies`/`secretManager` — the container owns those. Requires devrouter ≥ 0.0.21. (Full routing walkthrough: devrouter `docs/DEVCONTAINER.md`.)
+5. **Verify end-to-end** (mandatory before claiming done) — `dev up && dev tls install` first, then a clean `devpod up .` (exits 0), then `for a in app oidc db redis; do dev app run "$a"; done`, then the **curl matrix** (browser-independent, reliable):
+   ```bash
+   curl -sS -o /dev/null -w "app=%{http_code}\n"  https://<app>.localhost/
+   curl -sS -o /dev/null -w "oidc=%{http_code}\n" https://oidc.<app>.localhost/default/.well-known/openid-configuration
+   psql "host=db.<app>.localhost port=5432 user=<u> password=<p> dbname=<d> sslmode=require sslnegotiation=direct" -tAc "select 1"
+   # only if the app uses Redis:
+   redis-cli -h redis.<app>.localhost -p 6379 --tls --sni redis.<app>.localhost --cacert "$(mkcert -CAROOT)/rootCA.pem" PING
+   # server-side issuer reachability (inside the app container):
+   docker exec <app>-app-1 node -e "fetch(process.env.AUTH0_ISSUER+'/.well-known/openid-configuration').then(r=>console.log(r.status))"
+   ```
+   For the login itself, drive the browser if available; otherwise confirm the post-callback session (`fetch('/api/auth/session')` in-page → `{ email, role }`). Confirm the committed `devcontainer.env` contains **no real secrets**.
 
 ## Hard-won gotchas
 
@@ -45,4 +52,8 @@ The reference implementation this skill generalizes is `derivatives-game/.devcon
 
 - **Never commit real secrets.** `devcontainer.env` is dev-only by construction; real secrets stay in the existing secret manager for non-container workflows.
 - Keep the change minimal and stack-faithful — mirror the repo's existing DB creds / service versions; don't introduce new tools.
-- Publish app + aux ports on `127.0.0.1` via compose `ports:` (not only DevPod `forwardPorts`) so the host browser reaches them without an IDE session — but never publish ports devrouter owns (80/443/5432) or that collide with its dashboard (`127.0.0.1:8080`).
+- **No published host ports.** Attach routable services to the external `devnet` network with stable aliases and let devrouter route by name (GOTCHAS #11). That is what lets N devcontainers coexist and keeps `:80/:443/:5432/:6379` (and the dashboard `:8080`) collision-free.
+
+## Migrating an existing host-port onboard to devnet
+
+A repo onboarded with the pre-0.0.21 pattern publishes `127.0.0.1:<port>` and has a single `upstream: 127.0.0.1:<port>` route. To migrate (the gbl-uzh demo-game is the worked example): drop the compose `ports:`, attach `app`/`postgres`/`redis` to `devnet` with aliases, add the OIDC `extra_hosts` + mkcert CA mount, switch `.devrouter.yml` to the devnet upstreams + `oidc`/`db`(/`redis`) routes, point `devcontainer.env` auth URLs at the routed https hosts (+ `NODE_EXTRA_CA_CERTS`), and add the no-TTY pnpm exports (GOTCHAS #18). Validate with a clean `devpod delete && devpod up` (GOTCHAS #20). If the old route still claims the hostname, free it per GOTCHAS #19.

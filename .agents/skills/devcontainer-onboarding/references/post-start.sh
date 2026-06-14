@@ -10,6 +10,13 @@ set -a
 . /workspaces/{{APP}}/.devcontainer/devcontainer.env
 set +a
 
+# No-TTY pnpm hardening (see post-create.sh): keep `pnpm dev` from aborting on a
+# node_modules purge or hanging on an implicit verify-deps install. (GOTCHAS #18)
+export CI=true
+export npm_config_verify_deps_before_run=false
+
+# Double-start guard. Adapt the pattern to the repo's dev command — match what
+# actually shows in `ps` (e.g. "turbo run dev", "next dev", "pnpm -F <pkg> dev").
 if pgrep -f "turbo run dev" >/dev/null 2>&1; then
   echo "[post-start] Dev server already running."
   exit 0
@@ -23,7 +30,9 @@ setsid bash -c 'pnpm dev' >/tmp/dev.log 2>&1 </dev/null &
 disown 2>/dev/null || true
 
 cat <<'EOF'
-[post-start] App  -> http://localhost:{{APP_PORT}}  (first compile may take ~30s)
-[post-start] OIDC -> http://localhost:{{OIDC_PORT}}/default
-[post-start] Logs -> tail -f /tmp/dev.log
+[post-start] App    -> https://{{APP}}.localhost      (via devrouter; first compile ~30s)
+[post-start] OIDC   -> https://oidc.{{APP}}.localhost/default
+[post-start] Routes -> on the host, one per app in .devrouter.yml (drop oidc/redis if unused):
+[post-start]               for a in app oidc db redis; do dev app run "$a"; done
+[post-start] Logs   -> tail -f /tmp/dev.log
 EOF
