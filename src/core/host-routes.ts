@@ -26,7 +26,7 @@ type UpsertHostRouteInput = {
 // runs inside Docker, so these must be rewritten to host.docker.internal to reach
 // the host (e.g. a devcontainer publishing on 127.0.0.1:3000).
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0"]);
-const UPSTREAM_RE = /^([a-zA-Z0-9.-]+):(\d{1,5})$/;
+const UPSTREAM_RE = /^([a-zA-Z0-9._-]+):(\d{1,5})$/;
 
 /**
  * Parse a proxy `upstream` (`host:port`) into the port and the backend host

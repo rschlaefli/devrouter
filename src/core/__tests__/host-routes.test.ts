@@ -22,6 +22,14 @@ describe("parseUpstream", () => {
     expect(parseUpstream("host.docker.internal:3000").upstreamHost).toBe("host.docker.internal");
   });
 
+  it("accepts underscores in the host (docker compose service names)", () => {
+    expect(parseUpstream("my_service:3000")).toEqual({
+      host: "my_service",
+      port: 3000,
+      upstreamHost: "my_service"
+    });
+  });
+
   it("trims surrounding whitespace", () => {
     expect(parseUpstream("  127.0.0.1:3000  ").port).toBe(3000);
   });

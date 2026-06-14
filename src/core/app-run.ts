@@ -21,13 +21,11 @@ import {
 import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
 import {
   buildHostRouteId,
-  isPidRunning,
-  listHostRouteState,
   parseUpstream,
   removeHostRouteById,
   upsertHostRoute
 } from "./host-routes";
-import { assertAppNotRunning, HostnameConflictError } from "./concurrency";
+import { assertAppNotRunning } from "./concurrency";
 import { ensureNetwork } from "./docker";
 import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY, activateTcpProtocol, ensureRouterFiles, isTLSEnabled, startRouterStack } from "./router";
 import { assertPathWithinRepo } from "./paths";
@@ -719,13 +717,11 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
 function registerProxyRoute(repoPath: string, app: DevrouterProxyHttpApp): void {
   const { port, upstreamHost } = parseUpstream(app.upstream);
 
-  const targetId = buildHostRouteId(repoPath, app.name);
-  for (const route of listHostRouteState()) {
-    const claimsHost = route.host === app.host && route.id !== targetId;
-    if (claimsHost && (route.mode === "proxy" || isPidRunning(route.pid))) {
-      throw new HostnameConflictError(app.host, route.name, route.repoPath, route.pid);
-    }
-  }
+  // Re-running a proxy app is an idempotent re-register: drop our own prior route
+  // first so the shared guard doesn't treat it as "already running", then reuse
+  // assertAppNotRunning to evict stale routes and reject a live hostname conflict.
+  removeHostRouteById(buildHostRouteId(repoPath, app.name));
+  assertAppNotRunning(repoPath, { name: app.name, host: app.host });
 
   upsertHostRoute({
     name: app.name,

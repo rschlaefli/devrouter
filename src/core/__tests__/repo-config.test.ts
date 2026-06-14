@@ -237,6 +237,12 @@ describe("protocol/runtime combinations", () => {
     expect(() => loadRepoConfig(tmpDir)).toThrow("host:port");
   });
 
+  it("rejects proxy with out-of-range upstream port", () => {
+    const yaml = VALID_PROXY_APP.replace("127.0.0.1:3000", "127.0.0.1:70000");
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("between 1 and 65535");
+  });
+
   it("rejects proxy + tcp", () => {
     const yaml = VALID_PROXY_APP.replace("protocol: http", "protocol: tcp");
     writeConfig(tmpDir, yaml);
