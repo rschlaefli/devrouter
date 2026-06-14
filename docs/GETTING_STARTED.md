@@ -6,7 +6,7 @@ Setup and first-run guide for `devrouter` using the unified `.devrouter.yml` mod
 
 - macOS
 - Docker daemon + CLI
-- Node `>=22`
+- Node `>=24`
 - pnpm
 - Homebrew (recommended for automatic mkcert install)
 
