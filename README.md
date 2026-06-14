@@ -23,6 +23,43 @@ Each repo now uses one file:
 
 This is the only supported per-repo config for app routing/runtime definitions.
 
+## Two ways to use devrouter
+
+Both are configured the same way (`.devrouter.yml`) and can be mixed in one repo.
+
+### 1. Front a devcontainer / existing process — `runtime: proxy` (preferred)
+
+The recommended setup going forward. A **devcontainer** (DevPod, VS Code Dev
+Containers, `@devcontainers/cli`, Codespaces) owns the *environment* — toolchain,
+databases, auth mocks, the app process, seeding — and publishes the app on a local
+port. devrouter is a thin **routing layer**: it puts a stable `*.localhost` HTTPS
+host (shared `:443`, mkcert TLS) in front of that port and does nothing else.
+
+```yaml
+apps:
+  - name: app
+    host: myapp.localhost
+    protocol: http
+    runtime: proxy
+    upstream: 127.0.0.1:3000 # the port your devcontainer publishes
+```
+
+```bash
+dev up && dev tls install     # one-time
+dev app run app               # registers the route; the container owns start/stop
+```
+
+Why prefer it: the environment is reproducible and runs anywhere the devcontainer
+spec runs (including remote/cloud via DevPod), devrouter never duplicates the
+DB/lifecycle/env work, and the two layers can't fight. See
+[`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) for the end-to-end walkthrough.
+
+### 2. devrouter runs everything — `runtime: host` / `runtime: docker`
+
+The original mode: devrouter starts your app (`runtime: host`, via `hostRun`) and
+manages its Docker datastores/dependencies (`runtime: docker`), injecting DB env
+vars. Use it when you are not (yet) on a devcontainer. Fully supported.
+
 ## Core commands
 
 - `dev init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill] [--with-linear]`

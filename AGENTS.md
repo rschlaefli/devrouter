@@ -5,6 +5,7 @@ Guidance for agentic coders working in this repository.
 ## Setup docs
 
 - [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
+- [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) (preferred: front a devcontainer via `runtime: proxy`)
 - [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
 - [`demo/README.md`](./demo/README.md)
 - [`docs/PLAN.md`](./docs/PLAN.md)
