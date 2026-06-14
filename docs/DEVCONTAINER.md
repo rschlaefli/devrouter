@@ -110,8 +110,8 @@ start TLS immediately:
 
 ```bash
 # Postgres — direct-SSL (libpq 17+) so the ClientHello carries the SNI:
-psql "host=db.myapp.localhost port=5432 user=prisma password=prisma \
-      dbname=prisma sslmode=require sslnegotiation=direct"
+psql "host=db.myapp.localhost port=5432 user=<user> password=<pass> \
+      dbname=<db> sslmode=require sslnegotiation=direct"
 
 # Redis — TLS + explicit SNI, trusting the mkcert CA:
 redis-cli -h redis.myapp.localhost -p 6379 --tls \

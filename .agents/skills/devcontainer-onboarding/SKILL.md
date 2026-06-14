@@ -37,6 +37,7 @@ The reference implementations this skill generalizes: `derivatives-game` (Next +
    curl -sS -o /dev/null -w "app=%{http_code}\n"  https://<app>.localhost/
    curl -sS -o /dev/null -w "oidc=%{http_code}\n" https://oidc.<app>.localhost/default/.well-known/openid-configuration
    psql "host=db.<app>.localhost port=5432 user=<u> password=<p> dbname=<d> sslmode=require sslnegotiation=direct" -tAc "select 1"
+   # only if the app uses Redis:
    redis-cli -h redis.<app>.localhost -p 6379 --tls --sni redis.<app>.localhost --cacert "$(mkcert -CAROOT)/rootCA.pem" PING
    # server-side issuer reachability (inside the app container):
    docker exec <app>-app-1 node -e "fetch(process.env.AUTH0_ISSUER+'/.well-known/openid-configuration').then(r=>console.log(r.status))"

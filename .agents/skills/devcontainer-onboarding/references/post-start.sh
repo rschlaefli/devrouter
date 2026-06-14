@@ -32,6 +32,7 @@ disown 2>/dev/null || true
 cat <<'EOF'
 [post-start] App    -> https://{{APP}}.localhost      (via devrouter; first compile ~30s)
 [post-start] OIDC   -> https://oidc.{{APP}}.localhost/default
-[post-start] Routes -> on the host: for a in app oidc db redis; do dev app run "$a"; done
+[post-start] Routes -> on the host, one per app in .devrouter.yml (drop oidc/redis if unused):
+[post-start]               for a in app oidc db redis; do dev app run "$a"; done
 [post-start] Logs   -> tail -f /tmp/dev.log
 EOF

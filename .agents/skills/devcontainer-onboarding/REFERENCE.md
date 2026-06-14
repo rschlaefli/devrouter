@@ -16,7 +16,7 @@ gbl-uzh demo-game); keep the structure, adapt the stack-specific commands.
 | `{{APP_PORT}}` | dev server port *inside* the container (no longer published) | `3000` |
 | `{{OIDC_PORT}}` | OIDC mock port inside the app netns | `8090` |
 | `{{DB_USER}}` / `{{DB_PASS}}` / `{{DB_NAME}}` | dev DB creds (mirror the repo's existing compose) | `prisma` |
-| `{{ADMIN_EMAIL}}` | one-click dev admin email | `gbl-dev@df.uzh.ch` |
+| `{{ADMIN_EMAIL}}` | one-click dev admin email | `admin@example.com` |
 | `{{ADMIN_SUB}}` | stable OIDC `sub` | `dev-admin` |
 
 The devnet alias just needs to be unique across all routed devcontainers;

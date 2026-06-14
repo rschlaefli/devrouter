@@ -22,7 +22,7 @@ apps:
 
   # Local OIDC mock — shares the app container's netns, so it is reached on devnet
   # as `{{APP}}-app:{{OIDC_PORT}}`. Browser + app server both use this host as the
-  # NextAuth issuer (https://oidc.{{APP}}.localhost/default). Drop if no auth.
+  # OIDC issuer (https://oidc.{{APP}}.localhost/default). Drop if no auth.
   - name: oidc
     host: oidc.{{APP}}.localhost
     protocol: http

@@ -1,6 +1,6 @@
 # Gotchas — read before scaffolding
 
-Hard-won from onboarding a Next + Prisma + Postgres + Redis + Auth0 app. Ordered roughly by how much time each one costs when missed.
+Hard-won from onboarding several apps to the devnet pattern (Next/Prisma/Postgres/Redis/OIDC, Payload/Postgres, …). Ordered roughly by how much time each one costs when missed; a few near the end are tool/repo quirks rather than universal traps.
 
 1. **DevPod lifecycle hooks truncate `env_file` values at `=`.** A URL `...?schema=public` arrives in the hook as `...?schema`, so Prisma emits an empty `search_path` (Postgres `42601`, zero-length delimited identifier). **Fix:** re-source the canonical env file inside each hook — `set -a; . .devcontainer/devcontainer.env; set +a`. Shell assignment preserves inner `=`. Single biggest trap.
 
