@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `dev app rm --keep-config` frees only the live route/hostname and leaves the repo's `.devrouter.yml` app definition untouched. Use it to release a hostname claimed by another repo's route (e.g. an old worktree) without rewriting that repo's committed config. Without the flag, `dev app rm` still removes the app entry and the route as before.
+
 ## [0.0.21] - 2026-06-14
 
 ### Added
