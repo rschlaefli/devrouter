@@ -12,6 +12,10 @@ All notable changes to this project are documented in this file.
 - TCP proxy routes require TLS (`dev tls install`): SNI is read from the TLS ClientHello. Postgres clients must use direct-SSL negotiation (`sslmode=require sslnegotiation=direct`, libpq 17+) so an immediate ClientHello carries the SNI. devrouter emits a per-protocol Traefik `TLSOption` advertising ALPN `postgresql` (libpq direct-SSL mandates the server negotiate it), and `dev app run` auto-extends the mkcert cert to cover the new host.
 - `dev app add --runtime proxy --protocol tcp --tcp-protocol <postgres|redis|...> --upstream <host:port>` scaffolds a TCP proxy app.
 
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.21.md
+
 ## [0.0.20] - 2026-06-13
 
 ### Added
