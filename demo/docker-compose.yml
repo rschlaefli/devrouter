@@ -20,7 +20,7 @@ services:
       retries: 20
 
   app:
-    image: node:22-alpine
+    image: node:24-alpine
     working_dir: /workspace
     command: ["node", "app/server.js"]
     volumes:

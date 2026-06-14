@@ -12,9 +12,9 @@
     "upgrade-prompts"
   ],
   "type": "commonjs",
-  "packageManager": "pnpm@10.28.2",
+  "packageManager": "pnpm@11.6.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "bin": {
     "dev": "dist/dev.js"
@@ -46,7 +46,7 @@
     "vitest": "^4.0.18"
   },
   "volta": {
-    "node": "22.22.0",
-    "pnpm": "10.28.2"
+    "node": "24.16.0",
+    "pnpm": "11.6.0"
   }
 }
