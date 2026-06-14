@@ -11,10 +11,23 @@ set -a
 . /workspaces/{{APP}}/.devcontainer/devcontainer.env
 set +a
 
+# devpod lifecycle hooks run without a TTY. Two pnpm behaviours misbehave there:
+#   - CI=true auto-confirms purging a stale/partial node_modules volume (else
+#     pnpm aborts: ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY).
+#   - verify-deps-before-run=false stops every `pnpm -F ... <script>` (prisma:*,
+#     dev) from re-running an implicit install that would hang waiting on stdin.
+# post-create owns dependency installation, so this verification is redundant. (GOTCHAS #18)
+export CI=true
+export npm_config_verify_deps_before_run=false
+
 echo "[post-create] Installing dependencies (pnpm)..."
 # Dev container tolerates lockfile drift so a fresh clone always installs.
 # CI/Docker keep --frozen-lockfile for reproducibility.
 pnpm install --no-frozen-lockfile
+
+# If the app imports BUILT workspace packages (monorepos), build them so their
+# dist/ exists before the dev server / prisma run. Drop this for a single app.
+# e.g.: pnpm -F @scope/platform build && pnpm -F @scope/ui build
 
 echo "[post-create] Generating Prisma client..."
 pnpm -F {{PKG}} prisma:generate
