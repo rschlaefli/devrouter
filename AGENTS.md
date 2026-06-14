@@ -99,6 +99,7 @@ Supported routing:
 - `.factory/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
 - `.factory/skills/linear-workflow/SKILL.md`: optional Linear workflow skill (written with `--with-linear`)
 - `.factory/skills/linear-workflow/references/*`: optional issue/milestone/progress templates for Linear workflow
+- `.factory/skills/devcontainer-onboarding/SKILL.md`: skill for agents onboarding a repo to a self-contained devcontainer + proxy-only routing (`GOTCHAS.md`, `REFERENCE.md`, `references/*` templates)
 - `src/core/__tests__/paths.test.ts`: unit tests for path traversal guard
 - `src/core/__tests__/repo-config.test.ts`: unit tests for `.devrouter.yml` schema validation
 - `src/core/__tests__/routes.test.ts`: unit tests for route discovery and resolution

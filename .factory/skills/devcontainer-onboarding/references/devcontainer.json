@@ -1,0 +1,20 @@
+{
+  "name": "{{APP}}",
+  "dockerComposeFile": ["docker-compose.yml"],
+  "service": "app",
+  "workspaceFolder": "/workspaces/{{APP}}",
+  "overrideCommand": false,
+  "runServices": ["app", "postgres", "redis", "oidc"],
+  "_ports": "App ({{APP_PORT}}) and OIDC ({{OIDC_PORT}}) are published on 127.0.0.1 by docker-compose, so no forwardPorts is needed on the local docker provider. For a remote provider, add forwardPorts here.",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "Prisma.prisma"
+      ]
+    }
+  }
+}

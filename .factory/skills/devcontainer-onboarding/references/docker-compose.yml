@@ -1,0 +1,92 @@
+# Self-contained dev stack for the devcontainer.
+# Intentionally does NOT extend the root docker-compose.yml: a single compose
+# project directory (.devcontainer) avoids relative-path ambiguity for bind
+# mounts and init scripts. (GOTCHAS #13)
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: {{DB_USER}}
+      POSTGRES_PASSWORD: {{DB_PASS}}
+      POSTGRES_DB: {{DB_NAME}}
+    healthcheck: # required so `up --wait` / depends_on actually waits
+      test: ['CMD-SHELL', 'pg_isready -U {{DB_USER}} -d {{DB_NAME}}']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      # Optional: mount the repo's existing init SQL (shadow DB, readonly role, ...)
+      # - ../docker/init-shadow-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+
+  redis: # drop if the app doesn't use Redis
+    image: redis:7-alpine
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true # tini PID1 reaps the dev server's zombie children (GOTCHAS #10)
+    env_file:
+      - devcontainer.env
+    # Publish on loopback so the host browser reaches app + OIDC without a live
+    # DevPod/IDE forward session. Never publish 80/443/5432 (devrouter). (GOTCHAS #11)
+    ports:
+      - '127.0.0.1:{{APP_PORT}}:{{APP_PORT}}'
+      - '127.0.0.1:{{OIDC_PORT}}:{{OIDC_PORT}}'
+    volumes:
+      - ..:/workspaces/{{APP}}:cached
+      # Named volumes shadow host node_modules so Linux-native binaries
+      # (Prisma engines, esbuild, sharp) aren't clobbered. (GOTCHAS #6)
+      - node_modules_root:/workspaces/{{APP}}/node_modules
+      # Add one per workspace package, e.g.:
+      # - node_modules_app:/workspaces/{{APP}}/apps/<pkg>/node_modules
+    command: sleep infinity
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Local OIDC provider (Auth0 replacement). Shares the app container's network
+  # namespace so the issuer http://localhost:{{OIDC_PORT}}/default is identical
+  # from the app server (token/jwks) and the host browser (authorize). (GOTCHAS #3)
+  oidc: # drop if the app doesn't authenticate
+    image: ghcr.io/navikt/mock-oauth2-server:2.1.11
+    network_mode: service:app
+    depends_on:
+      - app
+    environment:
+      SERVER_PORT: '{{OIDC_PORT}}'
+      # interactiveLogin=false -> one-click auto-login. Match grant_type (NOT
+      # scope) or the id_token lacks `sub`. Constant `sub` = stable user. (GOTCHAS #4,#5)
+      JSON_CONFIG: >-
+        {
+          "interactiveLogin": false,
+          "tokenCallbacks": [
+            {
+              "issuerId": "default",
+              "requestMappings": [
+                {
+                  "requestParam": "grant_type",
+                  "match": "*",
+                  "claims": {
+                    "sub": "{{ADMIN_SUB}}",
+                    "email": "{{ADMIN_EMAIL}}",
+                    "name": "Dev Admin",
+                    "email_verified": true
+                  }
+                }
+              ]
+            }
+          ]
+        }
+
+volumes:
+  pgdata:
+  node_modules_root:

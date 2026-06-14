@@ -1,0 +1,15 @@
+# Copy to the REPO ROOT as `.devrouter.yml`. Optional — the devcontainer works
+# without it. Fronts the container's published port with a stable, TLS-terminated
+# *.localhost host on the shared :443. The container owns start/stop + env + DB;
+# this only registers a route. Full walkthrough: devrouter docs/DEVCONTAINER.md.
+version: 1
+devrouter:
+  version: 0.0.20 # runtime: proxy requires >= 0.0.20
+project:
+  name: {{APP}}
+apps:
+  - name: app
+    host: {{APP}}.localhost
+    protocol: http
+    runtime: proxy
+    upstream: 127.0.0.1:{{APP_PORT}} # the port the devcontainer publishes
