@@ -96,9 +96,10 @@ Supported routing:
 - `scripts/smoke-demo.sh`: end-to-end demo smoke script
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `dev upgrade`
-- `.factory/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
-- `.factory/skills/linear-workflow/SKILL.md`: optional Linear workflow skill (written with `--with-linear`)
-- `.factory/skills/linear-workflow/references/*`: optional issue/milestone/progress templates for Linear workflow
+- `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
+- `.agents/skills/linear-workflow/SKILL.md`: optional Linear workflow skill (written with `--with-linear`)
+- `.agents/skills/linear-workflow/references/*`: optional issue/milestone/progress templates for Linear workflow
+- `.agents/skills/devcontainer-onboarding/SKILL.md`: skill for agents onboarding a repo to a self-contained devcontainer + proxy-only routing (`GOTCHAS.md`, `REFERENCE.md`, `references/*` templates)
 - `src/core/__tests__/paths.test.ts`: unit tests for path traversal guard
 - `src/core/__tests__/repo-config.test.ts`: unit tests for `.devrouter.yml` schema validation
 - `src/core/__tests__/routes.test.ts`: unit tests for route discovery and resolution
@@ -153,7 +154,7 @@ Supported routing:
 3. Bump `devrouter.version` in `demo/.devrouter.yml` to `0.0.X`.
 4. Add `[0.0.X]` section in `CHANGELOG.md` between `[Unreleased]` and previous release. Include `### Agent Adaptation Prompt` referencing `./upgrade-prompts/0.0.X.md`.
 5. Create `upgrade-prompts/0.0.X.md` with: changes summary, task (bump version, schema migration if any, refresh artifacts), validation steps, report template.
-6. Update `.factory/skills/devrouter/SKILL.md` and `src/core/ai-prompt.ts` to reflect any schema, env injection, CLI flag, or config changes in this release. Run `ai-prompt.test.ts` to verify consistency.
+6. Update `.agents/skills/devrouter/SKILL.md` and `src/core/ai-prompt.ts` to reflect any schema, env injection, CLI flag, or config changes in this release. Run `ai-prompt.test.ts` to verify consistency.
 7. Run validation checklist (below).
 8. Commit all release artifacts in a single commit: `Release 0.0.X -- <summary>`.
 

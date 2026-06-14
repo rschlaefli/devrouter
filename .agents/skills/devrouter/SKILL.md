@@ -154,7 +154,7 @@ Config-level `envMap` on dependency references aliases per-dep vars to app-expec
 - To add Linear task-management workflow assets to a repo, run:
   - `dev init --with-linear --write-agents --write-skill`, or
   - `dev repo agents --with-linear`
-- This writes `.factory/skills/linear-workflow/SKILL.md` and reference templates, plus an idempotent AGENTS section.
+- This writes `.agents/skills/linear-workflow/SKILL.md` and reference templates, plus an idempotent AGENTS section.
 - On AGENTS write flows, devrouter asks for minimal Linear mapping (workspace/team/project) and stores it in a managed AGENTS block:
   - `<!-- devrouter-linear-workflow-config:start -->`
   - `<!-- devrouter-linear-workflow-config:end -->`

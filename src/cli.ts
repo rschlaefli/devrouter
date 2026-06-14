@@ -33,7 +33,7 @@ program
   .option("--entries-json <json>", "Optional JSON array of app entries to embed in the prompt")
   .option("--json", "Output prompt and command intents as JSON")
   .option("--write-agents", "Write/update devrouter section in AGENTS.md")
-  .option("--write-skill", "Write .factory/skills/devrouter/SKILL.md")
+  .option("--write-skill", "Write .agents/skills/devrouter/SKILL.md")
   .option("--with-linear", "Include optional Linear workflow guidance/artifacts when writing")
   .action(withErrorHandling(async (options: {
     repo?: string;

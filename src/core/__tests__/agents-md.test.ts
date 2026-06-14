@@ -64,14 +64,14 @@ describe('agents-md linear workflow support', () => {
 
     const skillPath = path.join(
       tmpDir,
-      '.factory',
+      '.agents',
       'skills',
       'linear-workflow',
       'SKILL.md'
     )
     const issueTemplatePath = path.join(
       tmpDir,
-      '.factory',
+      '.agents',
       'skills',
       'linear-workflow',
       'references',

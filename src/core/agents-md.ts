@@ -9,17 +9,17 @@ const LINEAR_WORKFLOW_CONFIG_START =
 const LINEAR_WORKFLOW_CONFIG_END =
   '<!-- devrouter-linear-workflow-config:end -->'
 const AGENTS_MD = 'AGENTS.md'
-const DEVROUTER_SKILL_REL_PATH = '.factory/skills/devrouter/SKILL.md'
-const LINEAR_SKILL_REL_PATH = '.factory/skills/linear-workflow/SKILL.md'
+const DEVROUTER_SKILL_REL_PATH = '.agents/skills/devrouter/SKILL.md'
+const LINEAR_SKILL_REL_PATH = '.agents/skills/linear-workflow/SKILL.md'
 const LINEAR_ISSUE_TEMPLATE_REL_PATH =
-  '.factory/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md'
+  '.agents/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md'
 const LINEAR_MILESTONE_TEMPLATE_REL_PATH =
-  '.factory/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md'
+  '.agents/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md'
 const LINEAR_PROGRESS_TEMPLATE_REL_PATH =
-  '.factory/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md'
+  '.agents/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md'
 
 // Embedded skill content — must be self-contained in the built CLI bundle.
-// Keep in sync with .factory/skills/devrouter/SKILL.md in the devrouter repo.
+// Keep in sync with .agents/skills/devrouter/SKILL.md in the devrouter repo.
 const DEVROUTER_SKILL_CONTENT = `---
 name: devrouter
 description: Work with devrouter for local dev routing (HTTP + TCP/Postgres + dependency-only Docker services)
@@ -157,7 +157,7 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - To add Linear task-management workflow assets to a repo, run:
   - \`dev init --with-linear --write-agents --write-skill\`, or
   - \`dev repo agents --with-linear\`
-- This writes \`.factory/skills/linear-workflow/SKILL.md\` and reference templates, plus an idempotent AGENTS section.
+- This writes \`.agents/skills/linear-workflow/SKILL.md\` and reference templates, plus an idempotent AGENTS section.
 - On AGENTS write flows, devrouter asks for minimal Linear mapping (workspace/team/project) and stores it in a managed AGENTS block:
   - \`<!-- devrouter-linear-workflow-config:start -->\`
   - \`<!-- devrouter-linear-workflow-config:end -->\`
