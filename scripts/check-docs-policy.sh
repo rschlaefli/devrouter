@@ -14,22 +14,22 @@ PRODUCT_DOCS=(
 
 violations="false"
 
-if rg -n -H -e 'Compatibility note:' -e 'older versions' -e 'v[0-9]+\.[0-9]+\.[0-9]+' "${PRODUCT_DOCS[@]}"; then
+if grep -n -H -E -e 'Compatibility note:' -e 'older versions' -e 'v[0-9]+\.[0-9]+\.[0-9]+' "${PRODUCT_DOCS[@]}"; then
   echo
   echo "Docs policy violation: product docs contain migration/version-history markers."
   echo "Keep those details in CHANGELOG.md and upgrade-prompts/*.md only."
   violations="true"
 fi
 
-if rg -n -H -e '^### Agent Adaptation Prompt$' -e '^Agent adaptation prompt:' "${PRODUCT_DOCS[@]}"; then
+if grep -n -H -E -e '^### Agent Adaptation Prompt$' -e '^Agent adaptation prompt:' "${PRODUCT_DOCS[@]}"; then
   echo
   echo "Docs policy violation: product docs contain adaptation prompt blocks/references."
   echo "Keep adaptation prompts in CHANGELOG.md and upgrade-prompts/*.md only."
   violations="true"
 fi
 
-release_count="$(rg -n '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | wc -l | tr -d ' ')"
-prompt_ref_count="$(rg -n '^Agent adaptation prompt: \./upgrade-prompts/[0-9]+\.[0-9]+\.[0-9]+\.md$' CHANGELOG.md | wc -l | tr -d ' ')"
+release_count="$(grep -n -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | wc -l | tr -d ' ')"
+prompt_ref_count="$(grep -n -E '^Agent adaptation prompt: \./upgrade-prompts/[0-9]+\.[0-9]+\.[0-9]+\.md$' CHANGELOG.md | wc -l | tr -d ' ')"
 
 if [ "$release_count" -ne "$prompt_ref_count" ]; then
   echo
