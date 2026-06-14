@@ -82,7 +82,10 @@ export type HostRouteState = {
   id: string;
   name: string;
   host: string;
-  protocol?: "http";
+  protocol?: "http" | "tcp";
+  // For protocol=tcp proxy routes: the TCP protocol key (postgres/redis/...) that
+  // selects the shared Traefik entrypoint. Undefined for http routes.
+  tcpProtocol?: string;
   repoPath: string;
   port: number;
   mode: "run" | "attach" | "proxy";
@@ -170,10 +173,22 @@ export type DevrouterDockerTcpApp = DevrouterRoutedAppBase & {
 };
 
 // Upstream-only HTTP route to an externally-managed port (e.g. a devcontainer's
-// published app). No lifecycle, env injection, hostRun, compose ownership, or
-// dependencies — devrouter only registers the Traefik route.
+// published app, or a container reachable on devnet by name). No lifecycle, env
+// injection, hostRun, compose ownership, or dependencies — devrouter only
+// registers the Traefik route.
 export type DevrouterProxyHttpApp = DevrouterRoutedAppBase & {
   protocol: "http";
+  runtime: "proxy";
+  upstream: string;
+};
+
+// Upstream-only TCP route (e.g. a devcontainer's Postgres/Redis reachable on
+// devnet by name). Traefik SNI-routes `HostSNI(host)` on the shared protocol
+// entrypoint to the upstream. Requires TLS (SNI is read from the TLS
+// ClientHello) — clients connect with TLS (e.g. Postgres sslmode=require).
+export type DevrouterProxyTcpApp = DevrouterRoutedAppBase & {
+  protocol: "tcp";
+  tcpProtocol: string;
   runtime: "proxy";
   upstream: string;
 };
@@ -186,11 +201,13 @@ export type DevrouterDockerDependencyApp = {
   docker: DevrouterDockerDependencyConfig;
 };
 
+export type DevrouterProxyApp = DevrouterProxyHttpApp | DevrouterProxyTcpApp;
 export type DevrouterRoutedApp =
   | DevrouterHostHttpApp
   | DevrouterDockerHttpApp
   | DevrouterDockerTcpApp
-  | DevrouterProxyHttpApp;
+  | DevrouterProxyHttpApp
+  | DevrouterProxyTcpApp;
 export type DevrouterDockerRoutedApp = DevrouterDockerHttpApp | DevrouterDockerTcpApp;
 export type DevrouterApp = DevrouterRoutedApp | DevrouterDockerDependencyApp;
 

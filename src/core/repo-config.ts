@@ -326,8 +326,8 @@ function parseApp(value: unknown, index: number): DevrouterApp {
   }
 
   if (runtime === "proxy") {
-    if (protocol !== "http") {
-      throw new Error(`${pathLabel}: proxy runtime supports only protocol=http.`);
+    if (protocol !== "http" && protocol !== "tcp") {
+      throw new Error(`${pathLabel}: proxy runtime supports protocol=http or protocol=tcp.`);
     }
     if (objectValue.hostRun !== undefined) {
       throw new Error(`${pathLabel}.hostRun is not supported when runtime=proxy.`);
@@ -344,6 +344,24 @@ function parseApp(value: unknown, index: number): DevrouterApp {
       parseUpstream(upstream);
     } catch (err) {
       throw new Error(`${pathLabel}.upstream: ${(err as Error).message}`);
+    }
+
+    if (protocol === "tcp") {
+      const tcpProtocol = toStringOrThrow(objectValue.tcpProtocol, `${pathLabel}.tcpProtocol`);
+      const supportedProtocols = Object.keys(TCP_PROTOCOL_REGISTRY);
+      if (!supportedProtocols.includes(tcpProtocol)) {
+        throw new Error(`${pathLabel}.tcpProtocol must be one of: ${supportedProtocols.join(", ")}.`);
+      }
+
+      return {
+        name,
+        host,
+        protocol: "tcp",
+        tcpProtocol,
+        runtime: "proxy",
+        dependencies,
+        upstream
+      };
     }
 
     return {
@@ -599,8 +617,8 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
   }
 
   if (options.runtime === "proxy") {
-    if (options.protocol !== "http") {
-      throw new Error("--runtime proxy supports only --protocol http");
+    if (options.protocol !== "http" && options.protocol !== "tcp") {
+      throw new Error("--runtime proxy supports --protocol http or --protocol tcp");
     }
     if (!options.upstream) {
       throw new Error("--upstream is required when --runtime proxy");
@@ -618,6 +636,26 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
       throw new Error("--depends-on is not supported when --runtime proxy");
     }
     parseUpstream(options.upstream);
+
+    if (options.protocol === "tcp") {
+      const tcpProtocol = options.tcpProtocol;
+      const supportedProtocols = Object.keys(TCP_PROTOCOL_REGISTRY);
+      if (!tcpProtocol || !supportedProtocols.includes(tcpProtocol)) {
+        throw new Error(
+          `--tcp-protocol must be one of: ${supportedProtocols.join(", ")} when --runtime proxy --protocol tcp`
+        );
+      }
+
+      return {
+        name: options.name,
+        host,
+        protocol: "tcp",
+        tcpProtocol,
+        runtime: "proxy",
+        dependencies,
+        upstream: options.upstream
+      };
+    }
 
     return {
       name: options.name,

@@ -185,6 +185,6 @@ documents the mode without needing an external port.
 P1 → P2 → P3 → P4 → P5 (core works end-to-end here) → P6/P7/P8 (surface) → P9 (docs/prompt) → tests alongside each → release.
 
 ## Out of scope (later)
-- TCP proxy upstreams (only HTTP for now).
+- ~~TCP proxy upstreams (only HTTP for now).~~ **Done in 0.0.21** — `runtime: proxy` + `protocol: tcp` SNI-routes a DB in an externally-managed container (e.g. devnet Postgres) via a file-provider TCP router; requires TLS + libpq direct-SSL + an ALPN `postgresql` TLSOption.
 - Auto-detecting the devcontainer's published port.
 - A `dev app route`-style command that registers a route without an app entry.

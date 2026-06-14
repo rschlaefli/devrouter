@@ -8,7 +8,7 @@ import {
   DevrouterDockerDependencyApp,
   DevrouterDockerTcpApp,
   DevrouterHostHttpApp,
-  DevrouterProxyHttpApp
+  DevrouterProxyApp
 } from "../types";
 import {
   prepareDockerOverlay,
@@ -551,7 +551,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   // works even when containers are already running.
   const selectedApps = uniqueApps([app, ...dependencies]);
   const selectedDockerApps = selectedApps.filter(
-    (entry): entry is Exclude<DevrouterApp, DevrouterHostHttpApp | DevrouterProxyHttpApp> =>
+    (entry): entry is Exclude<DevrouterApp, DevrouterHostHttpApp | DevrouterProxyApp> =>
       entry.runtime === "docker"
   );
   const stopPolicy = options.stopPolicy ?? "always-stop-selected";
@@ -714,8 +714,27 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
  * persists until `dev app rm`. Re-running the same app is an idempotent upsert;
  * a different live app already claiming the host throws a conflict.
  */
-function registerProxyRoute(repoPath: string, app: DevrouterProxyHttpApp): void {
+function registerProxyRoute(repoPath: string, app: DevrouterProxyApp): void {
   const { port, upstreamHost } = parseUpstream(app.upstream);
+
+  // TCP proxy routes are SNI-routed, and Traefik reads SNI only from a TLS
+  // ClientHello — so TLS must be installed or the route can never match.
+  if (app.protocol === "tcp" && !isTLSEnabled()) {
+    throw new Error(
+      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run \`dev tls install\` first.`
+    );
+  }
+
+  // A TCP proxy needs the shared protocol entrypoint (and its published host
+  // port) to exist on Traefik; activate it and restart the router if it was not
+  // already active.
+  if (app.protocol === "tcp") {
+    const needsRestart = activateTcpProtocol(app.tcpProtocol);
+    if (needsRestart) {
+      process.stdout.write(`Restarting router for new TCP entrypoint: ${app.tcpProtocol}\n`);
+      startRouterStack();
+    }
+  }
 
   // Re-running a proxy app is an idempotent re-register: drop our own prior route
   // first so the shared guard doesn't treat it as "already running", then reuse
@@ -726,11 +745,21 @@ function registerProxyRoute(repoPath: string, app: DevrouterProxyHttpApp): void 
   upsertHostRoute({
     name: app.name,
     host: app.host,
+    protocol: app.protocol,
+    tcpProtocol: app.protocol === "tcp" ? app.tcpProtocol : undefined,
     repoPath,
     port,
     upstreamHost,
     mode: "proxy"
   });
+
+  if (app.protocol === "tcp") {
+    const entryPort = TCP_PROTOCOL_REGISTRY[app.tcpProtocol]?.port ?? port;
+    process.stdout.write(
+      `TCP proxy route ready: ${app.tcpProtocol}://${app.host}:${entryPort} -> ${app.upstream} (tls required)\n`
+    );
+    return;
+  }
 
   const scheme = isTLSEnabled() ? "https" : "http";
   process.stdout.write(`Proxy route ready: ${scheme}://${app.host} -> ${app.upstream}\n`);
