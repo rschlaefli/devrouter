@@ -8,12 +8,22 @@ user-invocable: true
 
 Make a repo **clone-and-run**: `devpod up .` (or any devcontainer-spec tool — VS Code Dev Containers, `@devcontainers/cli`, Codespaces) brings up the full app with **zero manual steps and no external services**. devrouter fronts it over the shared external `devnet` network with **no published host ports**, so many devcontainers (app + DB + OIDC each) run simultaneously with zero collisions and the DBs are reachable from host tooling via `db.<app>.localhost`. Clean split: the **container owns the environment**, **devrouter owns the routing**.
 
-The reference implementations this skill generalizes: `derivatives-game` (Next + Prisma + Postgres + Redis + OIDC mock), `careers`/jobeye (Next + Payload + Postgres), and the gbl-uzh `demo-game` (Next + Postgres + OIDC mock, no Redis).
+The reference implementations this skill generalizes: `derivatives-game` (Next + Prisma + Postgres + Redis + OIDC mock), `careers`/jobeye (Next + Payload + Postgres), the gbl-uzh `demo-game` (Next + Postgres + OIDC mock, no Redis), and `klicker-uzh` (the **multi-app monorepo** case — one container runs `turbo dev` for 5 apps + Postgres + 3× Redis + MailHog + a Hatchet workflow engine; see the variant note below).
 
 ## When NOT to use
 
 - The repo already has a working `.devcontainer/` → adjust it, don't re-scaffold.
 - The app needs a real external service that can't be mocked/containerized locally → containerize what you can, document the rest; don't fake credentials for a live API.
+
+## Multi-app monorepo variant
+
+When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), keep the single-`app`-container shape and route each `*.<proj>.localhost` host to that one container's internal port — do not scaffold a container per app (GOTCHAS #23). Extra checks beyond the single-app flow:
+
+- **Shared session** across the apps: serve them all under `*.<proj>.localhost` so one auth cookie (domain `<proj>.localhost`) spans them; add the app's allowed-host override env (defaults usually only list prod hosts). SSR app→app calls stay intra-container via `http://localhost:<port>` (`*_URL_SSR`) — no cross-host TLS (#23).
+- **Turbo strict-env**: audit `turbo.json` `globalEnv`/`passThroughEnv` against every var you inject via `env_file` — undeclared vars are stripped from the task and the app silently uses its defaults (#25).
+- **Build-graph**: pre-build not just `packages/*` but any **app** whose dev script races (e.g. `rollup --watch` ∥ `nodemon`) so its `dist` exists before `turbo dev` (#26).
+- **Dynamic service tokens** (Hatchet etc.): mint via a sidecar against the **same external DB** the engine server uses, and `exit 1` in post-create if the (boot-required) token never appears (#24).
+- **Framework env**: client/SSR API URLs need the **full endpoint path** (`…/api/graphql`), and set `NODE_ENV=development` for dev-mode backend behavior (#27).
 
 ## Workflow
 
