@@ -56,10 +56,15 @@ if [ "$push_ok" != 1 ]; then
 fi
 
 echo "[post-create] Seeding reference data..."
+seed_ok=0
 for attempt in $(seq 1 5); do
-  if pnpm -F {{PKG}} prisma:seed; then break; fi
+  if pnpm -F {{PKG}} prisma:seed; then seed_ok=1; break; fi
   echo "[post-create] seed attempt ${attempt} failed; retrying in 5s..."
   sleep 5
 done
+if [ "$seed_ok" != 1 ]; then
+  echo "[post-create] ERROR: prisma seed never succeeded" >&2
+  exit 1
+fi
 
 echo "[post-create] Done."
