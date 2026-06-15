@@ -43,14 +43,20 @@ The devnet alias just needs to be unique across all routed devcontainers;
   secrets.
 - **`post-create.sh`** — no-TTY hardening (GOTCHAS #18) → install
   (`--no-frozen-lockfile`) → (optional, monorepos only) build the workspace deps
-  the app imports → generate client → push schema (retry through DB warmup) →
-  seed. Replace the Prisma/pnpm
-  commands with the repo's equivalents for a non-Prisma stack.
+  the app imports → (if the repo copies in a shared/platform schema separately)
+  `prisma:copy` **+ `prisma format`** → generate client → push schema (retry
+  through DB warmup) → seed. The copy+format step is required for platform-copy
+  repos or generate fails P1012 (GOTCHAS #22). Replace the Prisma/pnpm commands
+  with the repo's equivalents for a non-Prisma stack.
 - **`post-start.sh`** — no-TTY hardening → launch the dev server fully detached
   (GOTCHAS #2). Guard against double-start with `pgrep`.
 - **`devrouter.yml`** — proxy-only routing over devnet, copied to the **repo
   root** as `.devrouter.yml`. Routes `app` + `oidc` (http) and `db` + `redis`
   (tcp/SNI). Requires devrouter ≥ 0.0.21.
+- **`AGENTS-devcontainer.md`** — a snippet to **append** to the target repo's
+  agent-instructions file (`AGENTS.md` or `CLAUDE.md`), so future agents default
+  to the devcontainer path. Devcontainer usage stands alone; the devrouter
+  routing is a clearly-marked layer "when available" (SKILL.md step 5).
 
 ## Adapting to a non-Prisma / non-Next stack
 
