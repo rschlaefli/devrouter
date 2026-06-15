@@ -29,6 +29,15 @@ pnpm install --no-frozen-lockfile
 # dist/ exists before the dev server / prisma run. Drop this for a single app.
 # e.g.: pnpm -F @scope/platform build && pnpm -F @scope/ui build
 
+# If the repo assembles its Prisma schema by copying in a shared/platform schema
+# via a separate script (e.g. prisma/copy.ts) rather than inside `prisma:generate`,
+# run the copy here AND follow it with `prisma format`. The copy step usually does
+# NOT backfill every opposite relation field, so generate/push would otherwise
+# fail with P1012 "missing an opposite relation field"; `prisma format` adds them.
+# Mirror the repo's own `dev`/`prisma:setup` ordering (copy -> format -> generate).
+# (GOTCHAS #22) — drop this block if `prisma:generate` already copies the schema.
+# pnpm prisma:copy && pnpm prisma:format
+
 echo "[post-create] Generating Prisma client..."
 pnpm -F {{PKG}} prisma:generate
 
