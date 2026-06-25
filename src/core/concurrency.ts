@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { HostRouteState } from "../types";
 import { isTLSEnabled } from "./router";
 import {
@@ -103,4 +104,31 @@ export function evictStaleHostRoutes(): number {
     }
   }
   return evicted;
+}
+
+/**
+ * Reclaim proxy routes orphaned by a removed worktree — the lifecycle gap the
+ * workspace feature introduces. A workspace-tagged proxy route fronts a container
+ * reachable by a worktree-scoped alias; when the worktree directory is deleted
+ * WITHOUT `dev workspace down` (manual `git worktree remove`, aborted teardown),
+ * the route leaks with nothing left to restore it.
+ *
+ * Worktree existence is the only unambiguous orphan signal. Container/alias
+ * liveness is deliberately NOT used: a stopped-but-restartable devcontainer is
+ * indistinguishable from a gone-forever one at the alias level, so evicting on
+ * "alias absent" would falsely tear down stable proxy routes whose devpod is
+ * merely paused. We therefore reclaim ONLY when the backing worktree is provably
+ * gone, and never touch primary-checkout routes (no `workspace` token).
+ */
+export function evictOrphanedWorkspaceRoutes(): number {
+  const orphans = listHostRouteState().filter(
+    (route) =>
+      route.mode === "proxy" &&
+      route.workspace !== undefined &&
+      !fs.existsSync(route.repoPath)
+  );
+  for (const route of orphans) {
+    removeHostRouteById(route.id);
+  }
+  return orphans.length;
 }

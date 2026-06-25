@@ -155,15 +155,22 @@ nothing. Same-basename worktrees placed manually is the one unsupported edge (us
 
 Handlers thin; orchestration over existing core fns.
 
-### GC / liveness (gap 3, R6)
+### GC / liveness (gap 3, R6) — REVISED at S3 implementation
 
-Generalize the eviction path (`concurrency.ts`): today `evictIfStale` is PID-based and **skips proxy**, and the bulk
-`evictStaleHostRoutes` therefore never reclaims proxy routes. Add **upstream-alias liveness** for proxy — stale if no
-running container has that alias on `devnet` (dockerode network inspect). **Conservative: evict only on *positive*
-confirmation the alias is gone** (docker query failure, or container merely restarting/recreating per GOTCHA #14 →
-**keep**, no false teardown). Wire the proxy branch into BOTH `evictIfStale` (lazy, per-app) and the bulk
-`evictStaleHostRoutes` sweep (called by `dev doctor`). `dev workspace down` reclaims by `workspace` filter directly
-(doesn't depend on alias liveness).
+Original plan was **upstream-alias liveness**: a proxy route is stale if no running container has its alias on `devnet`
+(dockerode network inspect), evicting only on positive confirmation the alias is gone. **Abandoned during S3 real-verify**
+— it false-teardowns stable routes. A primary-checkout proxy route fronts a devcontainer that is routinely *stopped*
+(you don't run all N projects at once); a stopped-but-restartable devpod is **indistinguishable from gone-forever** at
+the alias level, so "alias absent on devnet" wrongly reclaims live, in-use routes. (Empirically proven: a stale build of
+the alias-GC reclaimed 16 of 19 real routes whose devcontainers were merely paused.)
+
+Revised signal — **worktree existence** (`evictOrphanedWorkspaceRoutes` in `concurrency.ts`): reclaim a proxy route iff
+it carries a `workspace` token AND its `repoPath` (the worktree dir) no longer exists. This is the only *unambiguous*
+orphan: the worktree was removed without `dev workspace down`, so nothing can legitimately restore the route. It needs no
+docker query, never touches primary-checkout routes (no `workspace` token → not even probed), and never confuses
+"paused" with "gone". Wired into the bulk `dev doctor` sweep only (not the per-app `evictIfStale` hot path — proxy
+re-registration is already idempotent, so no per-run reclaim is needed). `dev workspace down` still reclaims by
+`workspace` filter directly; GC is the safety net for worktrees removed out-of-band.
 
 ### Concurrent state writes (R7)
 
@@ -206,10 +213,17 @@ Traefik/`.localhost`/devnet ownership unchanged.
 - Tests: handler orchestration (mock git/devpod, assert `--name <ws>`), ls join, down-frees-by-ws,
   **down-with-worktree-already-gone still frees routes**.
 
-### S3 — GC
-- Proxy upstream-alias liveness in `evictStaleHostRoutes`; `doctor` reporting; reclaim path.
-- Tests: alias-present→keep, alias-gone→evict, docker-failure→keep.
-- **Verify (real):** tear down a workspace, routes reclaimed; `dev ls` clean.
+### S3 — GC (worktree-existence orphan reclaim — see revised GC section)
+- `evictOrphanedWorkspaceRoutes()` in `concurrency.ts`: reclaim proxy routes with a `workspace` token whose worktree dir
+  is gone. `doctor` reports `routes.orphaned-workspace-routes`. No docker dependency.
+- Tests: worktree-present→keep, worktree-gone→evict, primary-route (no ws)→never probed/evicted, host-run ws route→
+  ignored (PID liveness owns it).
+- **Verify (real):** isolated temp-HOME integration run — orphan (gone worktree) reclaimed, live-worktree + primary
+  routes preserved. PASS.
+- **Incident note:** during this slice a *stale* `dist/` bundle (old alias-GC, source edited but not rebuilt) was run via
+  `dev doctor` against real state and evicted 16 live routes. Lesson: never run a CLI smoke against real/shared state from
+  an unrebuilt bundle; destructive-capable verifies go against an isolated `$HOME`. User opted not to restore (routes are
+  cheap to re-register on next use).
 
 ### S4 — Skill + docs + release
 - devcontainer-onboarding: `references/docker-compose.yml` alias → `${WORKSPACE}-app`; `devcontainer.env` default
@@ -229,7 +243,7 @@ Traefik/`.localhost`/devnet ownership unchanged.
 - `workspace.test.ts` — resolution precedence, sanitize, worktree detection, `applyWorkspace` transforms, `${WORKSPACE}`
   default/active + collapse + revalidate, back-compat golden.
 - `docker-run` — `-p` determinism + presence in args.
-- `concurrency` — proxy alias-liveness eviction branches.
+- `concurrency` — `evictOrphanedWorkspaceRoutes` worktree-existence branches (keep/evict/primary-skip/host-run-skip).
 - `commands/__tests__/workspace.test.ts` — up/ls/down handlers (mock spawn).
 - Existing suites stay green (back-compat).
 

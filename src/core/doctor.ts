@@ -3,7 +3,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { listContainers } from "./docker";
 import { listHostRouteState, listHostRoutes } from "./host-routes";
-import { evictStaleHostRoutes } from "./concurrency";
+import { evictStaleHostRoutes, evictOrphanedWorkspaceRoutes } from "./concurrency";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { getRouterFileLayout, isTLSEnabled } from "./router";
 import { collectRouterStatus } from "./status";
@@ -670,6 +670,15 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     summary: evictedCount === 0
       ? "No stale host route entries to clean up."
       : `Evicted ${evictedCount} stale host route entr${evictedCount === 1 ? "y" : "ies"} (dead PID).`
+  });
+
+  const evictedOrphanCount = evictOrphanedWorkspaceRoutes();
+  addCheck(checks, {
+    id: "routes.orphaned-workspace-routes",
+    level: evictedOrphanCount === 0 ? "ok" : "warn",
+    summary: evictedOrphanCount === 0
+      ? "No orphaned workspace proxy routes to clean up."
+      : `Evicted ${evictedOrphanCount} orphaned workspace proxy route entr${evictedOrphanCount === 1 ? "y" : "ies"} (worktree removed without 'dev workspace down').`
   });
 
   const summary = collectSummary(checks);

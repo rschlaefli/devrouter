@@ -3,8 +3,10 @@ import {
   AppAlreadyRunningError,
   HostnameConflictError,
   assertAppNotRunning,
-  evictStaleHostRoutes
+  evictStaleHostRoutes,
+  evictOrphanedWorkspaceRoutes
 } from "../concurrency";
+import fs from "node:fs";
 import type { HostRouteState } from "../../types";
 
 const mockListHostRouteState = vi.fn<() => HostRouteState[]>(() => []);
@@ -22,6 +24,20 @@ vi.mock("../host-routes", () => ({
 vi.mock("../router", () => ({
   isTLSEnabled: () => mockIsTLSEnabled()
 }));
+
+function makeProxyRoute(overrides: Partial<HostRouteState> = {}): HostRouteState {
+  return makeRoute({
+    id: "/worktree/repo-feat-a::app",
+    name: "app",
+    host: "app.feat-a.localhost",
+    repoPath: "/worktree/repo-feat-a",
+    mode: "proxy",
+    pid: undefined,
+    upstreamHost: "feat-a-app",
+    workspace: "feat-a",
+    ...overrides
+  });
+}
 
 function makeRoute(overrides: Partial<HostRouteState> = {}): HostRouteState {
   return {
@@ -205,6 +221,57 @@ describe("evictStaleHostRoutes", () => {
     expect(() => assertAppNotRunning("/repo", { name: "web", host: "web.localhost" })).toThrow(
       HostnameConflictError
     );
+    expect(mockRemoveHostRouteById).not.toHaveBeenCalled();
+  });
+});
+
+describe("evictOrphanedWorkspaceRoutes", () => {
+  it("keeps a workspace proxy route while its worktree still exists", () => {
+    mockListHostRouteState.mockReturnValue([makeProxyRoute()]);
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+
+    expect(evictOrphanedWorkspaceRoutes()).toBe(0);
+    expect(mockRemoveHostRouteById).not.toHaveBeenCalled();
+  });
+
+  it("reclaims a workspace proxy route once its worktree is gone", () => {
+    mockListHostRouteState.mockReturnValue([makeProxyRoute()]);
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+
+    expect(evictOrphanedWorkspaceRoutes()).toBe(1);
+    expect(mockRemoveHostRouteById).toHaveBeenCalledWith("/worktree/repo-feat-a::app");
+  });
+
+  it("reclaims every orphaned workspace route under a removed worktree", () => {
+    mockListHostRouteState.mockReturnValue([
+      makeProxyRoute({ id: "/worktree/repo-feat-a::app", name: "app" }),
+      makeProxyRoute({ id: "/worktree/repo-feat-a::db", name: "db", upstreamHost: "feat-a-db" })
+    ]);
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+
+    expect(evictOrphanedWorkspaceRoutes()).toBe(2);
+  });
+
+  it("never reclaims primary-checkout proxy routes (no workspace token), even if absent", () => {
+    mockListHostRouteState.mockReturnValue([
+      makeProxyRoute({ workspace: undefined, repoPath: "/main/repo" })
+    ]);
+    const existsSpy = vi.spyOn(fs, "existsSync").mockReturnValue(false);
+
+    expect(evictOrphanedWorkspaceRoutes()).toBe(0);
+    // Stable primary routes must never be GC'd by worktree existence — a stopped
+    // devpod is not an orphan. We must not even probe the filesystem for them.
+    expect(existsSpy).not.toHaveBeenCalled();
+    expect(mockRemoveHostRouteById).not.toHaveBeenCalled();
+  });
+
+  it("ignores host-run workspace routes (PID liveness owns those)", () => {
+    mockListHostRouteState.mockReturnValue([
+      makeProxyRoute({ id: "/worktree/repo-feat-a::web", mode: "run", pid: 111 })
+    ]);
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+
+    expect(evictOrphanedWorkspaceRoutes()).toBe(0);
     expect(mockRemoveHostRouteById).not.toHaveBeenCalled();
   });
 });
