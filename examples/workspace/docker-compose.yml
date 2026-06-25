@@ -1,0 +1,24 @@
+# One tiny HTTP app, fronted by devrouter over the shared external `devnet`
+# network with NO published host ports. The devnet alias uses
+# `${WORKSPACE:-wsdemo}` so the primary checkout resolves to `wsdemo-app` and a
+# parallel worktree resolves to `<ws>-app` — matching the `${WORKSPACE}` upstream
+# in `.devrouter.yml`. `dev up` must run first so the external `devnet` exists.
+#
+# Run two instances with distinct identities by setting WORKSPACE in the shell:
+#   WORKSPACE=wsdemo  docker compose -p wsdemo  up -d   # alias wsdemo-app
+#   WORKSPACE=feat-a  docker compose -p wsfeata up -d   # alias feat-a-app
+services:
+  app:
+    image: node:20-alpine
+    environment:
+      WORKSPACE: ${WORKSPACE:-wsdemo}
+    command: ["node", "/app/server.js"]
+    volumes:
+      - ./server.js:/app/server.js:ro
+    networks:
+      devnet:
+        aliases: ["${WORKSPACE:-wsdemo}-app"]
+
+networks:
+  devnet:
+    external: true

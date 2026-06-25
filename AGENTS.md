@@ -98,6 +98,7 @@ Supported routing:
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
 - `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
+- `examples/workspace/`: runnable workspace-isolation showcase (`${WORKSPACE}` proxy upstream + `dev workspace up/ls/down` over two real git worktrees; `run.sh` brings up two namespaced hosts and prints the proof)
 - `scripts/smoke-demo.sh`: end-to-end demo smoke script
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `dev upgrade`
