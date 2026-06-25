@@ -41,7 +41,7 @@ When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), k
    - `post-start.sh` — launch the dev server **fully detached**.
    - `README.md` — run instructions + the routing trade-off.
 3. **Wire self-contained auth** (if the app authenticates): run the OIDC mock (`navikt/mock-oauth2-server`) as a **sidecar** (`network_mode: service:app`) and route it via devrouter at `https://oidc.<app>.localhost/default`. The browser (authorize) and the app server (discovery/token/jwks) use the SAME issuer host → consistent token `iss`. Server-side reachability needs `extra_hosts: ['oidc.<app>.localhost:host-gateway']` + trusting the mkcert CA (`NODE_EXTRA_CA_CERTS`) — **never** `NODE_TLS_REJECT_UNAUTHORIZED=0`. One-click auto-login with constant claims (stable `sub`). See [GOTCHAS.md](GOTCHAS.md) #3, #16.
-4. **Add `.devrouter.yml`** (`references/devrouter.yml`, copied to the repo root): `runtime: proxy` routes over `devnet` — `app` + `oidc` (http) and `db` + `redis` (tcp/SNI), each `upstream: <app>-<svc>:<port>`. Attach the services to `devnet` with those aliases in the compose; **no published host ports**. No `hostRun`/`docker`/`dependencies`/`secretManager` — the container owns those. Requires devrouter ≥ 0.0.21. (Full routing walkthrough: devrouter `docs/DEVCONTAINER.md`.)
+4. **Add `.devrouter.yml`** (`references/devrouter.yml`, copied to the repo root): `runtime: proxy` routes over `devnet` — `app` + `oidc` (http) and `db` + `redis` (tcp/SNI), each `upstream: ${WORKSPACE}-<svc>:<port>`. Attach the services to `devnet` with the matching `${WORKSPACE:-<app>}-<svc>` aliases in the compose; **no published host ports**. The `${WORKSPACE}` token keeps the route and the devnet alias on one identity: the primary checkout resolves it to the project name (unchanged), while a parallel worktree resolves it to `<ws>-*` (see "Parallel worktrees" below). No `hostRun`/`docker`/`dependencies`/`secretManager` — the container owns those. Requires devrouter ≥ 0.0.21 (the `${WORKSPACE}` upstream token requires ≥ 0.0.22). (Full routing walkthrough: devrouter `docs/DEVCONTAINER.md`.)
 5. **Document for agents** — append a short *Local development (devcontainer)* section to the repo's agent-instructions file (`AGENTS.md`, or `CLAUDE.md` if that's the file the repo already uses) from `references/AGENTS-devcontainer.md`. It tells future agents to use the devcontainer as the default local path (not the old host-port/Infisical/Auth0 setup): bring it up with `devpod up .`, run commands/tests/prisma **inside** the container, reach the app at the routed URLs, and log in one-click. Fold the devrouter prerequisites (`dev up && dev tls install`, then the `dev app run` routes) in as the routing layer **when devrouter is in use** — keep the devcontainer instructions usable on their own so the guidance degrades gracefully where devrouter isn't installed.
 6. **Verify end-to-end** (mandatory before claiming done) — `dev up && dev tls install` first, then a clean `devpod up .` (exits 0), then `for a in app oidc db redis; do dev app run "$a"; done`, then the **curl matrix** (browser-independent, reliable):
    ```bash
@@ -54,6 +54,15 @@ When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), k
    docker exec <app>-app-1 node -e "fetch(process.env.AUTH0_ISSUER+'/.well-known/openid-configuration').then(r=>console.log(r.status))"
    ```
    For the login itself, drive the browser if available; otherwise confirm the post-callback session (`fetch('/api/auth/session')` in-page → `{ email, role }`). Confirm the committed `devcontainer.env` contains **no real secrets**.
+
+## Parallel worktrees (workspace isolation)
+
+The templates are workspace-aware so several git worktrees of one repo run at once with no host/alias collisions (devrouter ≥ 0.0.22):
+
+- Compose aliases use `${WORKSPACE:-<app>}-*` and `.devrouter.yml` upstreams use `${WORKSPACE}-*`. The **primary checkout** leaves `WORKSPACE` unset → both resolve to `<app>-*` (identical to the old behavior); `devcontainer.env` carries `WORKSPACE=<app>` as the container-side default.
+- For a **parallel worktree**, `dev workspace up <branch>` creates the worktree, exports `WORKSPACE=<ws>` to the devpod/compose env (so the container's alias becomes `<ws>-app`), and registers the namespaced host `<app>.<ws>.localhost` → `<ws>-app`. `dev workspace ls` lists them; `dev workspace down <branch>` frees routes + stops the devpod + removes the worktree.
+- Without `dev workspace up` (e.g. a manual `devpod up`), set `WORKSPACE=<ws>` in the worktree's `.devcontainer/.env` or export it before bringing the stack up — the shell env is what drives the `${WORKSPACE}` compose substitution (same mechanism as the existing `${HOME}`/`${DEVROUTER_MKCERT_CAROOT}` mount).
+- `dev doctor` reclaims routes left behind by a worktree removed without `dev workspace down`.
 
 ## Hard-won gotchas
 

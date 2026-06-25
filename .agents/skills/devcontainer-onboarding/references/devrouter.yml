@@ -4,32 +4,39 @@
 # shared :443 / :5432 / :6379. Many projects coexist with zero collisions.
 # Full walkthrough: devrouter docs/DEVCONTAINER.md.
 #
+# Workspace isolation: upstreams use the `${WORKSPACE}` token so the devcontainer
+# alias and the devrouter route resolve to the same identity. The primary checkout
+# resolves `${WORKSPACE}` to the project name ({{APP}}), matching the compose
+# `${WORKSPACE:-{{APP}}}-*` alias default. A parallel git worktree (via `dev
+# workspace up <branch>`) resolves both sides to `<ws>-*` and namespaces the host
+# to `<app>.<ws>.localhost` — so several worktrees run at once with no collisions.
+#
 # Usage: `dev up` + `dev tls install` (creates devnet + the mkcert CA), THEN
 # bring the devcontainer up (devnet is external — must pre-exist), then
 # `for a in app oidc db redis; do dev app run "$a"; done`.
 version: 1
 devrouter:
-  version: 0.0.21 # proxy + protocol: tcp requires >= 0.0.21
+  version: 0.0.22 # proxy/tcp requires >= 0.0.21; ${WORKSPACE} upstream requires >= 0.0.22
 project:
   name: {{APP}}
 apps:
-  # App: https://{{APP}}.localhost -> the `{{APP}}-app` devnet alias.
+  # App: https://{{APP}}.localhost -> the `${WORKSPACE}-app` devnet alias.
   - name: app
     host: {{APP}}.localhost
     protocol: http
     runtime: proxy
-    upstream: {{APP}}-app:{{APP_PORT}}
+    upstream: ${WORKSPACE}-app:{{APP_PORT}}
 
   # Local OIDC mock — shares the app container's netns, so it is reached on devnet
-  # as `{{APP}}-app:{{OIDC_PORT}}`. Browser + app server both use this host as the
-  # OIDC issuer (https://oidc.{{APP}}.localhost/default). Drop if no auth.
+  # as `${WORKSPACE}-app:{{OIDC_PORT}}`. Browser + app server both use this host as
+  # the OIDC issuer (https://oidc.{{APP}}.localhost/default). Drop if no auth.
   - name: oidc
     host: oidc.{{APP}}.localhost
     protocol: http
     runtime: proxy
-    upstream: {{APP}}-app:{{OIDC_PORT}}
+    upstream: ${WORKSPACE}-app:{{OIDC_PORT}}
 
-  # Postgres: db.{{APP}}.localhost:5432 -> `{{APP}}-db` (SNI). Connect with
+  # Postgres: db.{{APP}}.localhost:5432 -> `${WORKSPACE}-db` (SNI). Connect with
   # direct-SSL so the ClientHello carries the SNI (libpq 17+): psql
   # "host=db.{{APP}}.localhost port=5432 user={{DB_USER}} password={{DB_PASS}}
   # dbname={{DB_NAME}} sslmode=require sslnegotiation=direct"  (GOTCHAS #17)
@@ -38,14 +45,14 @@ apps:
     protocol: tcp
     tcpProtocol: postgres
     runtime: proxy
-    upstream: {{APP}}-db:5432
+    upstream: ${WORKSPACE}-db:5432
 
-  # Redis: redis.{{APP}}.localhost:6379 -> `{{APP}}-redis` (SNI, TLS). Drop if no
-  # Redis. redis-cli -h redis.{{APP}}.localhost -p 6379 --tls
+  # Redis: redis.{{APP}}.localhost:6379 -> `${WORKSPACE}-redis` (SNI, TLS). Drop if
+  # no Redis. redis-cli -h redis.{{APP}}.localhost -p 6379 --tls
   #   --sni redis.{{APP}}.localhost --cacert "$(mkcert -CAROOT)/rootCA.pem" PING
   - name: redis
     host: redis.{{APP}}.localhost
     protocol: tcp
     tcpProtocol: redis
     runtime: proxy
-    upstream: {{APP}}-redis:6379
+    upstream: ${WORKSPACE}-redis:6379

@@ -7,8 +7,14 @@
 # published host ports, so many devcontainers run at once with zero collisions.
 # app/postgres/redis join devnet with stable aliases; devrouter's Traefik (also
 # on devnet) routes to them BY NAME. The OIDC mock shares the app's netns, so it
-# is reached on devnet as `{{APP}}-app:{{OIDC_PORT}}`. `dev up` must run before
-# this stack starts so `devnet` exists (external network). (GOTCHAS #11, #15)
+# is reached on devnet as `${WORKSPACE:-{{APP}}}-app:{{OIDC_PORT}}`. `dev up` must
+# run before this stack starts so `devnet` exists (external network). (GOTCHAS #11, #15)
+#
+# Workspace isolation: aliases use `${WORKSPACE:-{{APP}}}` so the primary checkout
+# resolves to `{{APP}}-*` (unchanged), while a parallel git worktree resolves to
+# `<ws>-*`. `dev workspace up <branch>` sets WORKSPACE=<ws> in the env devpod runs
+# compose with; otherwise set WORKSPACE in `.devcontainer/.env` or export it. The
+# `.devrouter.yml` proxy upstreams use the matching `${WORKSPACE}-app` token.
 services:
   postgres:
     image: postgres:15
@@ -25,7 +31,7 @@ services:
       default: {}
       # devrouter SNI-routes db.{{APP}}.localhost:5432 to this alias.
       devnet:
-        aliases: [{{APP}}-db]
+        aliases: ['${WORKSPACE:-{{APP}}}-db']
     volumes:
       # Optional: mount the repo's existing init SQL (shadow DB, readonly role, ...)
       # - ../docker/init-shadow-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -42,7 +48,7 @@ services:
       default: {}
       # devrouter SNI-routes redis.{{APP}}.localhost:6379 to this alias.
       devnet:
-        aliases: [{{APP}}-redis]
+        aliases: ['${WORKSPACE:-{{APP}}}-redis']
 
   app:
     build:
@@ -54,7 +60,7 @@ services:
     # No published ports: devrouter routes https://{{APP}}.localhost and
     # https://oidc.{{APP}}.localhost over devnet (so many projects coexist with
     # zero host-port collisions). The OIDC mock shares this container's netns, so
-    # devrouter reaches it as `{{APP}}-app:{{OIDC_PORT}}`.
+    # devrouter reaches it as `${WORKSPACE:-{{APP}}}-app:{{OIDC_PORT}}`.
     #
     # OIDC server-side reachability: the app validates the token issuer against
     # AUTH0_ISSUER=https://oidc.{{APP}}.localhost/default and fetches discovery/
@@ -68,7 +74,7 @@ services:
     networks:
       default: {}
       devnet:
-        aliases: [{{APP}}-app]
+        aliases: ['${WORKSPACE:-{{APP}}}-app']
     volumes:
       - ..:/workspaces/{{APP}}:cached
       # Named volumes shadow host node_modules so Linux-native binaries
@@ -90,7 +96,7 @@ services:
   # Local OIDC provider (Auth0 replacement). Shares the app container's network
   # namespace so the issuer is identical from the app server (token/jwks) and the
   # host browser (authorize). Routed by devrouter at
-  # https://oidc.{{APP}}.localhost/default (-> {{APP}}-app:{{OIDC_PORT}}). (GOTCHAS #3)
+  # https://oidc.{{APP}}.localhost/default (-> ${WORKSPACE:-{{APP}}}-app:{{OIDC_PORT}}). (GOTCHAS #3)
   oidc: # drop if the app doesn't authenticate
     image: ghcr.io/navikt/mock-oauth2-server:2.1.11
     network_mode: service:app

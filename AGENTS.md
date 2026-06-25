@@ -53,9 +53,10 @@ Supported routing:
 
 - HTTP host-run apps
 - HTTP docker apps
-- HTTP proxy apps (`runtime: proxy`) — route to an already-running `upstream` (`host:port`) with no lifecycle; for fronting a devcontainer / external process
+- HTTP proxy apps (`runtime: proxy`) — route to an already-running `upstream` (`host:port`) with no lifecycle; for fronting a devcontainer / external process. `upstream` may use the `${WORKSPACE}` token (substituted at runtime; rejected in `host`).
 - TCP PostgreSQL docker apps on shared `:5432` (TLS/SNI)
 - Dependency-only docker services (`kind: dependency`, non-routed)
+- Workspace isolation: parallel git worktrees of one repo via a resolved workspace token (`--workspace` > `DEVROUTER_WORKSPACE` > auto-from-worktree-branch > none). When active, hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`) and `${WORKSPACE}` upstreams substitute; the committed `.devrouter.yml` is never rewritten (runtime config is in-memory).
 
 ## Supported command surface
 
@@ -64,7 +65,8 @@ Supported routing:
 - `dev upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
 - `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
 - `dev repo init`, `dev repo agents` (`--with-linear` optional)
-- `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run` (`--env`), `dev app exec` (`--shell`, `--env`), `dev app rm`
+- `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run` (`--env`, `--workspace`), `dev app exec` (`--shell`, `--env`, `--workspace`), `dev app rm` (`--keep-config`)
+- `dev workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `dev workspace ls` (`--json`), `dev workspace down` (`<workspace|branch>`, `--keep-worktree`, `--keep-devpod`)
 
 ## Repository map
 
@@ -79,8 +81,11 @@ Supported routing:
 - `src/core/doctor.ts`: diagnostic report engine for global + repo checks
 - `src/core/status.ts`: status collection + readiness insights
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
-- `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation
-- `src/core/concurrency.ts`: concurrent run guard (`assertAppNotRunning`) + stale route eviction (`evictStaleHostRoutes`)
+- `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation; workspace runtime config (`loadRuntimeConfig()`, `applyWorkspace()`, `namespaceHost()`, `${WORKSPACE}` upstream substitution)
+- `src/core/workspace.ts`: workspace token resolution (`resolveWorkspace()`, `wsFromBranch()`, linked-worktree detection)
+- `src/core/workspace-lifecycle.ts`: `dev workspace up/ls/down` engine (git worktree + best-effort devpod glue + namespaced route registration)
+- `src/commands/workspace.ts`: `dev workspace` command handlers
+- `src/core/concurrency.ts`: concurrent run guard (`assertAppNotRunning`) + stale route eviction (`evictStaleHostRoutes` for dead PIDs; `evictOrphanedWorkspaceRoutes` for removed-worktree proxy routes)
 - `src/core/app-run.ts`: runtime orchestration, `startAppDependencies()` helper, `runConfiguredApp()`, `execWithAppEnv()`
 - `src/core/docker-run.ts`: cached compose overlay generation, compose up, `queryMappedPort()`, `queryRunningComposeServices()` (routed apps get Traefik labels; `kind=dependency` services are left as-is)
 - `src/commands/app-exec.ts`: `dev app exec` command handler
@@ -106,7 +111,9 @@ Supported routing:
 - `src/core/__tests__/ai-prompt.test.ts`: unit tests for onboarding prompt/schema consistency
 - `src/core/__tests__/agents-md.test.ts`: unit tests for AGENTS/skill file writers (including Linear workflow support)
 - `src/core/__tests__/linear-onboarding.test.ts`: unit tests for guided Linear metadata collection + placeholder fallback
-- `src/core/__tests__/concurrency.test.ts`: unit tests for concurrent run guard and stale route eviction
+- `src/core/__tests__/concurrency.test.ts`: unit tests for concurrent run guard, dead-PID eviction, and orphaned-worktree proxy route reclaim
+- `src/core/__tests__/workspace.test.ts`: unit tests for workspace token resolution + worktree detection
+- `src/core/__tests__/workspace-lifecycle.test.ts`: unit tests for `dev workspace up/ls/down` orchestration (devpod `--name`/`WORKSPACE` env, route reclaim by tag)
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
 - `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, per-dep env vars, config-level envMap, exec dependency ownership teardown, and SM `{env}` template resolution
@@ -131,9 +138,10 @@ Supported routing:
 ## Security constraints
 
 1. `.devrouter.yml` paths (`composeFiles`, `hostRun.cwd`) must not escape repo root — enforced by `assertPathWithinRepo` in `src/core/paths.ts`.
-2. Hostnames must match `VALID_HOSTNAME_RE` (lowercase alphanumeric + hyphens + `.localhost` suffix). No underscores.
+2. Hostnames must match `VALID_HOSTNAME_RE` (lowercase alphanumeric + hyphens + `.localhost` suffix). No underscores. Namespaced hosts (`web.<ws>.localhost`) are produced by inserting the sanitized token label; `${WORKSPACE}` is rejected in `host` (only allowed in `upstream`).
 3. Dependency graphs are validated for cycles at resolution time (`resolveAppDependencies`).
 4. `shell:true` in host-run spawn is intentional (same trust model as npm scripts / docker-compose). Command length capped at 4096 chars.
+5. Workspace tokens are sanitized via `wsFromBranch()` (lowercase, non-alphanumeric → `-`, capped at 32 chars) before use in hostnames/aliases. `dev workspace` spawns git/devpod argv-safe (no shell-string interpolation of branch/token).
 
 ## Architecture patterns
 
@@ -142,6 +150,9 @@ Supported routing:
 - **Port mapping**: `queryMappedPort()` in `docker-run.ts` calls `docker compose port` to discover random host ports. `prepareDockerOverlay()` accepts `publishTcpPorts` to auto-publish `0:<internalPort>` for TCP deps.
 - **Dependency-only apps**: `kind=dependency` entries are Docker-only and do not expose routes; they can be auto-started/stopped only through dependency graphs (not direct `run`/`exec`/`open` targets).
 - **Env injection**: TCP deps get per-dep deterministic vars: `{PREFIX}_HOST`/`_PORT`/`_URL`/`_SHADOW_URL` (where `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`). Protocol-specific URLs: postgres (`postgres://prisma:prisma@...`), redis (`redis://...`), mysql/mariadb (`mysql://root@...`). Config-level `envMap` on dependency references aliases these to project-specific names (e.g. `DATABASE_URL: DB_URL`). Aliases are applied in `startAppDependencies()` and become part of `depEnv` — they flow through SM re-injection and `buildExecEnvironment()` automatically.
+- **Workspace runtime config**: `loadRuntimeConfig(repoPath, workspaceOverride?)` resolves the workspace token (`resolveWorkspace`) and returns `applyWorkspace(config, ws)` — a deep-cloned, in-memory config with namespaced hosts, `${WORKSPACE}` upstreams substituted (re-validated), and per-workspace docker `router` keys. The committed `.devrouter.yml` is never rewritten. All read paths (`status`, `doctor`, `open`, `app-run`) load through this; the resolved workspace threads down to `upsertHostRoute` as `HostRouteState.workspace` so teardown/GC can filter by tag without re-reading config.
+- **Workspace lifecycle glue**: `dev workspace up` exports `WORKSPACE=<ws>` into the `devpod up` env (drives the compose `${WORKSPACE:-<project>}` alias, same mechanism as the existing `${HOME}` mount substitution) and registers namespaced routes; `dev workspace down` frees routes by state-file `workspace` tag (no config load, survives a deleted worktree). devpod calls are best-effort, gated on `hasDevpod()`.
+- **Orphaned-route GC**: `evictOrphanedWorkspaceRoutes()` (run by `dev doctor`) reclaims proxy routes with a `workspace` tag whose `repoPath` worktree dir no longer exists. Uses worktree existence — never container/alias liveness — so stable primary-checkout routes whose devcontainer is merely stopped are never torn down.
 - **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.
 - **Secret-manager precedence diagnostics**: `dev doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 - **TLS host coverage**: `startAppDependencies()` in `app-run.ts` calls TLS coverage refresh for all configured repo hosts when TLS is enabled. `dev doctor` emits `repo.tls-host-coverage` when configured hosts are not covered by current cert SANs.

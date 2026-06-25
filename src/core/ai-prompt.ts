@@ -81,6 +81,21 @@ export const COMMAND_INTENTS: CommandIntent[] = [
     purpose:
       "Write/update devrouter section in the repo's AGENTS.md and optionally add Linear workflow assets.",
   },
+  {
+    command: 'dev workspace up <branch> [--path <dir>] [--no-devpod] [--open]',
+    purpose:
+      'Create a git worktree for <branch>, bring up its devpod (`devpod up --name <ws>`), and register workspace-namespaced routes.',
+  },
+  {
+    command: 'dev workspace ls [--json]',
+    purpose:
+      'List git worktrees with their resolved workspace token and active route count.',
+  },
+  {
+    command: 'dev workspace down <workspace|branch> [--keep-worktree] [--keep-devpod]',
+    purpose:
+      "Free a workspace's routes, stop its devpod, and remove its worktree (routes are freed by state-file workspace tag, no config load).",
+  },
 ]
 
 function normalizeEntriesJson(input?: string): string {
@@ -169,6 +184,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '  - optional docker.router: string',
     '- if kind=app and runtime=proxy:',
     '  - upstream: "host:port" (an already-running port, e.g. a devcontainer published on 127.0.0.1:3000, or a container reachable by name on a shared Docker network such as `derivatives-db:5432`)',
+    '  - upstream may use the `${WORKSPACE}` placeholder (e.g. `${WORKSPACE}-app:3000`) to target a per-workspace devcontainer alias; it is substituted with the resolved workspace token at runtime and re-validated. Do NOT put `${WORKSPACE}` in `host` (rejected) — the host is auto-namespaced.',
     '  - protocol=http registers an HTTP route; protocol=tcp registers a TLS-SNI TCP route and additionally requires tcpProtocol',
     '  - do not set hostRun/docker/dependencies (proxy only registers a route to the upstream)',
     '  - loopback hosts (localhost/127.0.0.1/0.0.0.0) are rewritten to host.docker.internal for Traefik',
@@ -215,6 +231,14 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '- For TCP/Postgres, standard app frameworks should use the injected port env vars; only direct-TLS-capable tools should use sslmode=require on :5432.',
     '- `dev app exec <name> -- <command>` starts dependencies as needed, resolves env vars, and runs a one-shot command with the resolved env. Exec stops only dependencies started by that invocation (already-running dependencies stay running). If ownership detection fails, exec leaves selected dependencies running to avoid non-owned teardown. Exec preserves argv semantics by default (`shell: false`) and supports explicit shell mode via `--shell` when needed.',
     '- `envMap` on dependency references (config-level) aliases per-dep vars after dependency env resolution. `envMap` fails fast when source var is missing.',
+    '',
+    'Workspace isolation (parallel git worktrees / agents):',
+    '- A "workspace token" lets several worktrees of one repo run in parallel without host/route collisions. It is a single identity spanning three layers: the devpod workspace name (`devpod up --name <ws>`), the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` upstreams + the devcontainer compose network alias.',
+    '- Token resolution precedence: `--workspace <slug>` flag > `DEVROUTER_WORKSPACE` env var > auto-derived from a linked git worktree branch (sanitized: lowercase, non-alphanumeric → `-`, capped at 32 chars) > none. The primary checkout resolves to no token and routes exactly as before (fully back-compatible).',
+    '- When a workspace is active: hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`), `${WORKSPACE}` in `upstream` is substituted with the token, and the docker `router` key is suffixed per workspace. The runtime config is computed in memory only — the committed `.devrouter.yml` is never rewritten.',
+    '- TLS: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.',
+    '- Lifecycle: `dev workspace up <branch>` (create worktree + devpod + routes), `dev workspace ls` (list worktrees/tokens/route counts), `dev workspace down <workspace|branch>` (free routes + stop devpod + remove worktree). `dev doctor` reclaims orphaned workspace proxy routes whose worktree dir was removed without `dev workspace down`.',
+    '- devcontainer integration: the devcontainer compose service exposes a devnet alias `${WORKSPACE}-app` (default `WORKSPACE=<project>` in `devcontainer.env`), and the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. Spinning up workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.',
     '',
     'Secret Manager Integration (config-based):',
     '- Optional top-level `secretManager.command` in `.devrouter.yml` wraps `dev app run` and `dev app exec` commands with the SM command and re-applies devrouter-injected dep env vars after the SM boundary via `env KEY=VAL` prefix.',

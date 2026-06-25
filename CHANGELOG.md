@@ -4,8 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.22] - 2026-06-25
+
 ### Added
 
+- **Workspace isolation** for parallel git worktrees / agents. A single "workspace token" now spans three layers with one identity: the devpod workspace name (`devpod up --name <ws>`), the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` upstreams + the devcontainer compose network alias. Several worktrees of one repo can run at once without host/route collisions. Token resolution precedence: `--workspace <slug>` flag > `DEVROUTER_WORKSPACE` env var > auto-derived from a linked git worktree branch (sanitized) > none. The primary checkout resolves to no token and routes exactly as before — fully back-compatible.
+- When a workspace is active, hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`), `${WORKSPACE}` in an app `upstream` is substituted with the token and re-validated, and the docker `router` key is suffixed per workspace. The runtime config is computed in memory only — the committed `.devrouter.yml` is never rewritten. `${WORKSPACE}` is upstream-only (rejected in `host`). Namespaced hosts get explicit mkcert cert SANs auto-extended when TLS is enabled.
+- `dev workspace up <branch> [--path <dir>] [--no-devpod] [--open]`, `dev workspace ls [--json]`, and `dev workspace down <workspace|branch> [--keep-worktree] [--keep-devpod]` manage the worktree+devpod+route lifecycle. `dev app run` / `dev app exec` gain `--workspace <slug>`.
 - `dev app rm --keep-config` frees only the live route/hostname and leaves the repo's `.devrouter.yml` app definition untouched. Use it to release a hostname claimed by another repo's route (e.g. an old worktree) without rewriting that repo's committed config. Without the flag, `dev app rm` still removes the app entry and the route as before.
 
 ### Fixed
@@ -16,6 +21,12 @@ All notable changes to this project are documented in this file.
 
 - `devcontainer-onboarding` skill: onboarding now adds a *Local development (devcontainer)* section to the target repo's agent-instructions file (`AGENTS.md`/`CLAUDE.md`) from the new `references/AGENTS-devcontainer.md`, so future agents default to the devcontainer path; devrouter routing is folded in as a "when available" layer. Added GOTCHAS #22 (platform-schema-copy repos must run `prisma format` between copy and generate, or `prisma generate`/`db push` fails P1012) with the matching `references/post-create.sh` step.
 - `devcontainer-onboarding` skill: added a **multi-app monorepo** variant (one container runs `turbo dev` for N apps; devrouter routes N `*.<proj>.localhost` hosts → that container's N internal ports) with a dedicated SKILL.md section, plus GOTCHAS #23–#27 from onboarding `klicker-uzh`: #23 multi-app single-container routing + shared cookie domain + intra-container SSR; #24 dynamic per-instance service tokens (Hatchet) must mint against the same external DB the engine server uses (all-in-one images point the admin CLI at an unreachable internal DB) and are boot-required (init at module load); #25 audit Turbo `globalEnv`/`passThroughEnv` for every injected var (strict env mode silently strips undeclared ones); #26 pre-build apps whose dev script races (`rollup --watch` ∥ `nodemon`), not just packages; #27 framework env wiring — client/SSR URLs need the full endpoint path and `NODE_ENV=development` gates dev backend behavior; plus an OS note that the mkcert CA mount fallback is macOS-only (set `DEVROUTER_MKCERT_CAROOT` on Linux).
+- `devcontainer-onboarding` skill: devcontainer compose templates now publish a `${WORKSPACE}-app` devnet alias (default `WORKSPACE=<project>` in `devcontainer.env`) and the `.devrouter.yml` proxy app uses `upstream: ${WORKSPACE}-app:<port>`, so onboarding lands on the workspace-isolated routing path by default. GOTCHA #19 (hostname-steal between worktrees) is reframed around `dev workspace` since namespaced hosts no longer collide.
+- `dev doctor` reclaims orphaned workspace proxy routes whose worktree directory was removed without `dev workspace down` (check `routes.orphaned-workspace-routes`). It uses worktree existence as the orphan signal — never container/alias liveness — so stable primary-checkout routes whose devcontainer is merely stopped are never torn down.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.22.md
 
 ## [0.0.21] - 2026-06-14
 

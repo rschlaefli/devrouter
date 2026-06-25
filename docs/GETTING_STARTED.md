@@ -379,6 +379,10 @@ devrouter registers the route only — no process is started and there are no
 dependencies. Loopback upstreams are rewritten to `host.docker.internal` so
 Traefik (in Docker) reaches the host. The route persists until `dev app rm`.
 
+For parallel worktree setups, use `${WORKSPACE}` in the upstream instead of a
+fixed address (e.g. `--upstream '${WORKSPACE}-app:3000'`). See section 15 for the
+full workspace workflow.
+
 Dependency-only docker service (Redis example):
 
 ```bash
@@ -530,3 +534,59 @@ dev doctor --repo /absolute/path/to/repo --json
 ## 14) Onboard another repository
 
 - [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
+
+## 15) Workspace isolation (parallel worktrees)
+
+A **workspace token** lets multiple git worktrees of the same repo run concurrently without host or route collisions.
+
+**Token resolution precedence** (highest to lowest):
+
+1. `--workspace <slug>` CLI flag on `dev app run` / `dev app exec`
+2. `DEVROUTER_WORKSPACE` environment variable
+3. Auto-derived from the worktree's linked branch name (sanitized: lowercase, non-alphanumeric → `-`, capped at 32 chars)
+4. None — the primary checkout carries no token and routes exactly as before (back-compatible)
+
+**Effect of an active token:**
+
+- Hosts are auto-namespaced in memory: `web.localhost` → `web.<ws>.localhost`
+- `${WORKSPACE}` in a proxy app's `upstream` field is substituted with the token at runtime
+- The committed `.devrouter.yml` is never modified
+- TLS cert SANs are auto-extended for namespaced hosts when TLS is enabled
+
+**Lifecycle commands:**
+
+```bash
+# Create a git worktree for a branch, bring up its devpod, register workspace routes
+dev workspace up feat/my-feature
+
+# Optional: specify a custom worktree path or skip devpod
+dev workspace up feat/my-feature --path ../my-repo-feat --no-devpod
+
+# List git worktrees with workspace tokens and active route counts
+dev workspace ls
+
+# Tear down: free routes, stop devpod, remove worktree
+dev workspace down feat/my-feature
+
+# Keep the worktree or devpod when tearing down
+dev workspace down feat/my-feature --keep-worktree
+dev workspace down feat/my-feature --keep-devpod
+```
+
+**devcontainer / proxy integration:**
+
+A workspace-aware proxy app upstream uses the `${WORKSPACE}` placeholder so devrouter substitutes the active token at runtime:
+
+```yaml
+- name: app
+  host: app.localhost
+  protocol: http
+  runtime: proxy
+  upstream: ${WORKSPACE}-app:3000
+```
+
+With workspace `feat-a` active: host becomes `app.feat-a.localhost`, upstream resolves to `feat-a-app:3000`.
+
+The devcontainer compose service should expose a network alias `${WORKSPACE}-app` (where `WORKSPACE` defaults to the project name in `devcontainer.env`).
+
+**GC:** `dev doctor` check `routes.orphaned-workspace-routes` reclaims proxy routes whose worktree directory was deleted without `dev workspace down`. Primary-checkout routes are never touched.

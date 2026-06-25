@@ -1,6 +1,6 @@
 {
   "name": "@devrouter/cli",
-  "version": "0.0.21",
+  "version": "0.0.22",
   "description": "Local dev routing CLI with shared Traefik on macOS",
   "license": "MIT",
   "repository": {
