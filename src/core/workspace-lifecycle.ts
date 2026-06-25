@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { runConfiguredApp } from "./app-run";
 import { listHostRouteState, removeHostRouteById } from "./host-routes";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
-import { wsFromBranch } from "./workspace";
+import { isLinkedWorktree, wsFromBranch } from "./workspace";
 
 // `dev workspace` ties a git worktree, an optional devpod/devcontainer, and the
 // per-workspace routes together so an agent can spin up (and tear down) a fully
@@ -78,9 +78,11 @@ export async function workspaceUp(
         encoding: "utf-8"
       });
       if (addNew.status !== 0) {
-        throw new Error(
-          `git worktree add failed: ${(add.stderr || "") + (addNew.stderr || "") || "unknown error"}`
-        );
+        const detail = [add.stderr, addNew.stderr]
+          .map((s) => s?.trim())
+          .filter(Boolean)
+          .join("; ");
+        throw new Error(`git worktree add failed: ${detail || "unknown error"}`);
       }
     }
     process.stdout.write(`Created worktree ${worktreePath} (workspace '${ws}')\n`);
@@ -132,12 +134,14 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
   const worktrees = listGitWorktrees(mainRepo);
   const routes = listHostRouteState();
 
-  return worktrees.map((wt, index) => {
-    // The primary checkout (first entry) has no workspace; linked worktrees derive
-    // their token from the branch. Attribute routes by worktree path (not by tag),
+  return worktrees.map((wt) => {
+    // The primary checkout has no workspace; a linked worktree derives its token
+    // from the branch. Use the canonical isLinkedWorktree() rather than assuming
+    // git lists the primary first. Attribute routes by worktree path (not by tag),
     // so counts stay correct under detached HEAD and never absorb another repo's
     // untagged routes.
-    const workspace = index === 0 ? undefined : wt.branch ? wsFromBranch(wt.branch) : undefined;
+    const workspace =
+      isLinkedWorktree(wt.path) && wt.branch ? wsFromBranch(wt.branch) : undefined;
     const here = path.resolve(wt.path);
     const wsRoutes = routes.filter((route) => path.resolve(route.repoPath) === here);
     return {

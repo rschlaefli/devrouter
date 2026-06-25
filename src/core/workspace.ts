@@ -82,14 +82,10 @@ function currentBranch(repoPath: string): string | undefined {
  * workspace" (escape hatch).
  */
 export function resolveWorkspace(repoPath: string, override?: string): string | undefined {
-  if (override !== undefined) {
-    const trimmed = override.trim();
-    return trimmed.length > 0 ? wsFromBranch(trimmed) : undefined;
-  }
-
-  const env = process.env.DEVROUTER_WORKSPACE;
-  if (env !== undefined) {
-    const trimmed = env.trim();
+  // An explicit empty string forces "no workspace"; a non-empty one is sanitized.
+  const explicit = override ?? process.env.DEVROUTER_WORKSPACE;
+  if (explicit !== undefined) {
+    const trimmed = explicit.trim();
     return trimmed.length > 0 ? wsFromBranch(trimmed) : undefined;
   }
 

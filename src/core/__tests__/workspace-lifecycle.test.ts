@@ -16,6 +16,12 @@ vi.mock("../repo-config", () => ({
   loadRuntimeConfig: vi.fn(() => ({ config: { version: 1, apps: [] }, workspace: undefined })),
   resolveRepoPath: vi.fn((p?: string) => p ?? "/main/repo")
 }));
+// Keep the real wsFromBranch; only stub the on-disk worktree probe (test paths
+// are synthetic). Everything except the primary checkout is a linked worktree.
+vi.mock("../workspace", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../workspace")>();
+  return { ...actual, isLinkedWorktree: vi.fn((p: string) => p !== "/main/repo") };
+});
 
 const PORCELAIN = `worktree /main/repo
 HEAD abc

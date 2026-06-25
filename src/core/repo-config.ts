@@ -877,7 +877,7 @@ export function applyWorkspace(
     }
 
     if ("upstream" in app && app.upstream.includes(WORKSPACE_PLACEHOLDER)) {
-      const resolved = app.upstream.split(WORKSPACE_PLACEHOLDER).join(substitutionToken);
+      const resolved = app.upstream.replaceAll(WORKSPACE_PLACEHOLDER, substitutionToken);
       try {
         parseUpstream(resolved);
       } catch (err) {
