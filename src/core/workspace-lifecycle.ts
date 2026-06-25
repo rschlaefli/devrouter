@@ -86,10 +86,17 @@ export async function workspaceUp(
     process.stdout.write(`Created worktree ${worktreePath} (workspace '${ws}')\n`);
   }
 
-  // 2. Bring up the devcontainer via devpod, naming the workspace with the token so
-  //    its devnet alias (${WORKSPACE}-*) matches what devrouter resolves. Best-effort.
+  // 2. Bring up the devcontainer via devpod. `--name <ws>` names the devpod
+  //    workspace; `WORKSPACE=<ws>` in the environment is what actually drives the
+  //    compose `${WORKSPACE:-<project>}` alias substitution (devpod's `docker
+  //    compose` child inherits this env), so the container's devnet alias becomes
+  //    `<ws>-app` — matching the `${WORKSPACE}` upstream devrouter resolves for
+  //    this worktree. Best-effort; gated on devpod being installed.
   if (!opts.noDevpod && hasDevpod()) {
-    const dp = spawnSync("devpod", ["up", worktreePath, "--name", ws], { stdio: "inherit" });
+    const dp = spawnSync("devpod", ["up", worktreePath, "--name", ws], {
+      stdio: "inherit",
+      env: { ...process.env, WORKSPACE: ws }
+    });
     if (dp.status !== 0) {
       process.stderr.write(`Warning: 'devpod up' failed; continuing with route registration.\n`);
     }

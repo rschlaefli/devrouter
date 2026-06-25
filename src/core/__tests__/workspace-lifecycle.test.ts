@@ -113,10 +113,10 @@ describe("workspaceLs", () => {
 describe("workspaceUp", () => {
   it("names the devpod workspace with the resolved token (R5) and registers routes", async () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(false);
-    const calls: Array<{ cmd: string; args: string[] }> = [];
-    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+    const calls: Array<{ cmd: string; args: string[]; env?: NodeJS.ProcessEnv }> = [];
+    vi.mocked(spawnSync).mockImplementation((cmd, args, opts) => {
       const a = (args as string[]) ?? [];
-      calls.push({ cmd: cmd as string, args: a });
+      calls.push({ cmd: cmd as string, args: a, env: (opts as { env?: NodeJS.ProcessEnv })?.env });
       return { status: 0, stdout: "" } as never; // git add ok, devpod version+up ok
     });
     vi.mocked(loadRuntimeConfig).mockReturnValue({
@@ -140,6 +140,8 @@ describe("workspaceUp", () => {
 
     const devpodUp = calls.find((c) => c.cmd === "devpod" && c.args[0] === "up");
     expect(devpodUp?.args).toEqual(["up", "/main/repo-feat-a", "--name", "feat-a"]);
+    // WORKSPACE in the env is what drives the compose ${WORKSPACE} alias substitution.
+    expect(devpodUp?.env?.WORKSPACE).toBe("feat-a");
     expect(runConfiguredApp).toHaveBeenCalledWith(
       expect.objectContaining({ name: "app", repoPath: "/main/repo-feat-a", yes: true })
     );
