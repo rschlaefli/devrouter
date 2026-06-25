@@ -40,6 +40,7 @@ type RunAppOptions = {
   repoPath?: string;
   yes?: boolean;
   env?: string;
+  workspace?: string;
 };
 
 type DependencyStopPolicy = "always-stop-selected" | "stop-only-newly-started";
@@ -62,6 +63,7 @@ type ExecAppOptions = {
   yes?: boolean;
   shell?: boolean;
   env?: string;
+  workspace?: string;
   command: string[];
 };
 
@@ -72,6 +74,7 @@ type ExecAppResult = {
 type StartedDeps = {
   repoPath: string;
   app: DevrouterApp;
+  workspace: string | undefined;
   depEnv: Record<string, string>;
   secretManager?: { command: string; defaultEnv?: string };
   overlay?: ReturnType<typeof prepareDockerOverlay>;
@@ -351,7 +354,8 @@ async function runHostApp(
   app: DevrouterHostHttpApp,
   extraEnv: Record<string, string> = {},
   secretManager?: { command: string; defaultEnv?: string },
-  env?: string
+  env?: string,
+  workspace?: string
 ): Promise<void> {
   assertAppNotRunning(repoPath, app);
 
@@ -421,7 +425,8 @@ async function runHostApp(
           port: selectedPort,
           mode: "run",
           pid: child.pid,
-          command: app.hostRun.command
+          command: app.hostRun.command,
+          workspace
         });
         process.stdout.write(`Route https://${app.host} -> localhost:${selectedPort}\n`);
       } else if (!currentPort) {
@@ -516,7 +521,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   await ensureNetwork(DEVNET_NAME);
 
   const repoPath = resolveRepoPath(options.repoPath);
-  const { config, app } = resolveAppByName(repoPath, options.name);
+  const { config, app, workspace } = resolveAppByName(repoPath, options.name, options.workspace);
   if (isDependencyOnlyApp(app)) {
     throw new Error(
       `App '${app.name}' is kind=dependency and cannot be run directly. ` +
@@ -699,6 +704,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   return {
     repoPath,
     app,
+    workspace,
     depEnv,
     secretManager: config.secretManager,
     overlay,
@@ -714,7 +720,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
  * persists until `dev app rm`. Re-running the same app is an idempotent upsert;
  * a different live app already claiming the host throws a conflict.
  */
-function registerProxyRoute(repoPath: string, app: DevrouterProxyApp): void {
+function registerProxyRoute(repoPath: string, app: DevrouterProxyApp, workspace?: string): void {
   const { port, upstreamHost } = parseUpstream(app.upstream);
 
   // TCP proxy routes are SNI-routed, and Traefik reads SNI only from a TLS
@@ -750,7 +756,8 @@ function registerProxyRoute(repoPath: string, app: DevrouterProxyApp): void {
     repoPath,
     port,
     upstreamHost,
-    mode: "proxy"
+    mode: "proxy",
+    workspace
   });
 
   if (app.protocol === "tcp") {
@@ -770,9 +777,9 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
 
   try {
     if (deps.app.runtime === "host") {
-      await runHostApp(deps.repoPath, deps.app, deps.depEnv, deps.secretManager, options.env);
+      await runHostApp(deps.repoPath, deps.app, deps.depEnv, deps.secretManager, options.env, deps.workspace);
     } else if (deps.app.runtime === "proxy") {
-      registerProxyRoute(deps.repoPath, deps.app);
+      registerProxyRoute(deps.repoPath, deps.app, deps.workspace);
     } else if (deps.app.kind !== "dependency" && deps.app.protocol === "tcp") {
       const registryEntry = TCP_PROTOCOL_REGISTRY[deps.app.tcpProtocol];
       const port = registryEntry?.port ?? "?";
@@ -798,6 +805,7 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
     name: options.name,
     repoPath: options.repoPath,
     yes: options.yes,
+    workspace: options.workspace,
     stopPolicy: "stop-only-newly-started"
   });
 

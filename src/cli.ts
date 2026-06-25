@@ -211,10 +211,17 @@ appCommand
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option("--yes", "Auto-start dependencies without prompt")
   .option("--env <env>", "Override secretManager {env} placeholder")
+  .option("--workspace <slug>", "Override the per-workspace token (default: auto from git worktree)")
   .action(withErrorHandling(async (name: string, _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string; yes?: boolean; env?: string }>();
+    const options = command.opts<{ repo?: string; yes?: boolean; env?: string; workspace?: string }>();
     const { runAppRunCommand } = await import("./commands/app-run");
-    await runAppRunCommand({ name, repo: options.repo, yes: Boolean(options.yes), env: options.env });
+    await runAppRunCommand({
+      name,
+      repo: options.repo,
+      yes: Boolean(options.yes),
+      env: options.env,
+      workspace: options.workspace
+    });
   }));
 
 appCommand
@@ -226,8 +233,9 @@ appCommand
   .option("--yes", "Auto-start dependencies without prompt")
   .option("--shell", "Run command through system shell (requires a single command string after --)")
   .option("--env <env>", "Override secretManager {env} placeholder")
+  .option("--workspace <slug>", "Override the per-workspace token (default: auto from git worktree)")
   .action(withErrorHandling(async (name: string, commandParts: string[], _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string; yes?: boolean; shell?: boolean; env?: string }>();
+    const options = command.opts<{ repo?: string; yes?: boolean; shell?: boolean; env?: string; workspace?: string }>();
     const { runAppExecCommand } = await import("./commands/app-exec");
     await runAppExecCommand({
       name,
@@ -235,6 +243,7 @@ appCommand
       yes: Boolean(options.yes),
       shell: Boolean(options.shell),
       env: options.env,
+      workspace: options.workspace,
       command: commandParts
     });
   }));
@@ -262,6 +271,54 @@ tlsCommand
   .action(withErrorHandling(async () => {
     const { runTLSInstallCommand } = await import("./commands/tls");
     await runTLSInstallCommand();
+  }));
+
+const workspaceCommand = program
+  .command("workspace")
+  .description("Spin up / list / tear down isolated worktree+devcontainer workspaces");
+
+workspaceCommand
+  .command("up")
+  .description("Create a worktree for <branch>, bring up its devpod, and register namespaced routes")
+  .argument("<branch>", "Git branch to base the workspace on")
+  .option("--path <dir>", "Worktree directory (default: ../<repo>-<workspace>)")
+  .option("--no-devpod", "Skip 'devpod up' (only create the worktree and register routes)")
+  .option("--open", "Open the namespaced routes after registering")
+  .option("--repo <path>", "Main repository path (defaults to current directory)")
+  .action(withErrorHandling(async (branch: string, _options: unknown, command: Command) => {
+    const options = command.opts<{ path?: string; devpod?: boolean; open?: boolean; repo?: string }>();
+    const { runWorkspaceUpCommand } = await import("./commands/workspace");
+    // commander sets `devpod: false` for --no-devpod; normalize to noDevpod.
+    await runWorkspaceUpCommand(branch, {
+      path: options.path,
+      noDevpod: options.devpod === false,
+      open: Boolean(options.open),
+      repo: options.repo
+    });
+  }));
+
+workspaceCommand
+  .command("ls")
+  .description("List git worktrees with their workspace token and active route count")
+  .option("--repo <path>", "Main repository path (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (_options: unknown, command: Command) => {
+    const options = command.opts<{ repo?: string; json?: boolean }>();
+    const { runWorkspaceLsCommand } = await import("./commands/workspace");
+    runWorkspaceLsCommand(options);
+  }));
+
+workspaceCommand
+  .command("down")
+  .description("Free a workspace's routes, stop its devpod, and remove its worktree")
+  .argument("<workspace>", "Workspace token or branch name")
+  .option("--keep-worktree", "Leave the git worktree in place")
+  .option("--keep-devpod", "Leave the devpod workspace running")
+  .option("--repo <path>", "Main repository path (defaults to current directory)")
+  .action(withErrorHandling(async (target: string, _options: unknown, command: Command) => {
+    const options = command.opts<{ keepWorktree?: boolean; keepDevpod?: boolean; repo?: string }>();
+    const { runWorkspaceDownCommand } = await import("./commands/workspace");
+    runWorkspaceDownCommand(target, options);
   }));
 
 function parseVersionRequest(argv: string[]): { repo?: string } | null {
