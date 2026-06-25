@@ -102,9 +102,11 @@ export async function workspaceUp(
     }
   }
 
-  // 3. Register routes for non-host routed apps. The workspace is auto-derived from
-  //    the worktree's branch, so each app gets its namespaced host.
-  const { config } = loadRuntimeConfig(worktreePath);
+  // 3. Register routes for non-host routed apps. Pass `ws` explicitly (rather than
+  //    re-deriving it inside the call) so the route tag, the devpod `--name`, and
+  //    the namespaced host always agree — even under DEVROUTER_WORKSPACE or a
+  //    detached-HEAD worktree, where auto-detection would diverge.
+  const { config } = loadRuntimeConfig(worktreePath, ws);
   const routed = config.apps.filter(
     (app): app is Extract<typeof app, { host: string }> => "host" in app
   );
@@ -116,7 +118,7 @@ export async function workspaceUp(
       );
       continue;
     }
-    await runConfiguredApp({ name: app.name, repoPath: worktreePath, yes: true });
+    await runConfiguredApp({ name: app.name, repoPath: worktreePath, workspace: ws, yes: true });
     urls.push(app.protocol === "tcp" ? `${app.host} (tcp/${app.tcpProtocol})` : `https://${app.host}`);
   }
 
@@ -132,9 +134,12 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
 
   return worktrees.map((wt, index) => {
     // The primary checkout (first entry) has no workspace; linked worktrees derive
-    // their token from the branch.
+    // their token from the branch. Attribute routes by worktree path (not by tag),
+    // so counts stay correct under detached HEAD and never absorb another repo's
+    // untagged routes.
     const workspace = index === 0 ? undefined : wt.branch ? wsFromBranch(wt.branch) : undefined;
-    const wsRoutes = routes.filter((route) => route.workspace === workspace);
+    const here = path.resolve(wt.path);
+    const wsRoutes = routes.filter((route) => path.resolve(route.repoPath) === here);
     return {
       workspace,
       branch: wt.branch,
@@ -154,9 +159,21 @@ export function workspaceDown(
     throw new Error(`'${target}' does not yield a valid workspace token.`);
   }
 
-  // Free routes by the workspace tag in the state file — never load the worktree's
-  // config, so teardown works even if the worktree/.devrouter.yml is already gone.
-  const routes = listHostRouteState().filter((route) => route.workspace === ws);
+  // Resolve this repo's worktree for the workspace (live entry, else the default
+  // path) so route freeing can be scoped to it. Never load the worktree's config,
+  // so teardown still works when the worktree/.devrouter.yml is already gone.
+  const mainRepo = resolveRepoPath(opts.repoPath);
+  const match = listGitWorktrees(mainRepo).find(
+    (wt) => wt.branch && wsFromBranch(wt.branch) === ws
+  );
+  const worktreePath = match?.path ?? defaultWorktreePath(mainRepo, ws);
+
+  // Free routes by the workspace tag AND the worktree path, so a same-named
+  // workspace in a different repo is never torn down by this call.
+  const here = path.resolve(worktreePath);
+  const routes = listHostRouteState().filter(
+    (route) => route.workspace === ws && path.resolve(route.repoPath) === here
+  );
   for (const route of routes) {
     removeHostRouteById(route.id);
   }
@@ -167,11 +184,6 @@ export function workspaceDown(
   }
 
   if (!opts.keepWorktree) {
-    const mainRepo = resolveRepoPath(opts.repoPath);
-    const match = listGitWorktrees(mainRepo).find(
-      (wt) => wt.branch && wsFromBranch(wt.branch) === ws
-    );
-    const worktreePath = match?.path ?? defaultWorktreePath(mainRepo, ws);
     if (fs.existsSync(worktreePath) && worktreePath !== mainRepo) {
       const rm = spawnSync("git", ["-C", mainRepo, "worktree", "remove", worktreePath], {
         encoding: "utf-8"

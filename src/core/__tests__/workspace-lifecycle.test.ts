@@ -41,12 +41,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function route(workspace: string | undefined, name: string) {
+function route(workspace: string | undefined, name: string, repoPath = "/repo") {
   return {
-    id: `/repo::${name}-${workspace}`,
+    id: `${repoPath}::${name}-${workspace}`,
     name,
     host: `${name}.${workspace ?? "x"}.localhost`,
-    repoPath: "/repo",
+    repoPath,
     port: 3000,
     mode: "proxy" as const,
     workspace,
@@ -56,12 +56,15 @@ function route(workspace: string | undefined, name: string) {
 }
 
 describe("workspaceDown", () => {
-  it("frees only routes tagged with the workspace, without loading any config", () => {
+  it("frees only this repo's routes for the workspace, without loading any config", () => {
+    // feat-a routes live under this repo's worktree; a same-named workspace in
+    // another repo (/other-feat-a) must be left untouched.
     vi.mocked(listHostRouteState).mockReturnValue([
-      route("feat-a", "web"),
-      route("feat-a", "api"),
-      route("feat-b", "web"),
-      route(undefined, "web")
+      route("feat-a", "web", "/main/repo-feat-a"),
+      route("feat-a", "api", "/main/repo-feat-a"),
+      route("feat-a", "web", "/other-feat-a"),
+      route("feat-b", "web", "/main/repo-feat-b"),
+      route(undefined, "web", "/main/repo")
     ]);
     vi.mocked(spawnSync).mockReturnValue({ status: 1 } as never); // devpod absent, no git
 
@@ -70,8 +73,10 @@ describe("workspaceDown", () => {
     expect(result.workspace).toBe("feat-a");
     expect(result.freedRoutes).toBe(2);
     expect(removeHostRouteById).toHaveBeenCalledTimes(2);
-    expect(removeHostRouteById).toHaveBeenCalledWith("/repo::web-feat-a");
-    expect(removeHostRouteById).toHaveBeenCalledWith("/repo::api-feat-a");
+    expect(removeHostRouteById).toHaveBeenCalledWith("/main/repo-feat-a::web-feat-a");
+    expect(removeHostRouteById).toHaveBeenCalledWith("/main/repo-feat-a::api-feat-a");
+    // A different repo's same-named workspace is never torn down.
+    expect(removeHostRouteById).not.toHaveBeenCalledWith("/other-feat-a::web-feat-a");
     // Teardown must not depend on the (possibly-deleted) worktree config.
     expect(loadRuntimeConfig).not.toHaveBeenCalled();
   });
@@ -96,15 +101,21 @@ describe("workspaceDown", () => {
 });
 
 describe("workspaceLs", () => {
-  it("joins worktrees with their workspace token and route counts", () => {
+  it("joins worktrees with their workspace token and route counts by worktree path", () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN } as never);
-    vi.mocked(listHostRouteState).mockReturnValue([route("feat-a", "web"), route("feat-a", "api")]);
+    vi.mocked(listHostRouteState).mockReturnValue([
+      route("feat-a", "web", "/main/repo-feat-a"),
+      route("feat-a", "api", "/main/repo-feat-a"),
+      // A different repo's untagged route must not inflate the primary row.
+      route(undefined, "web", "/other/repo")
+    ]);
 
     const rows = workspaceLs();
 
     expect(rows).toHaveLength(2);
     expect(rows[0].workspace).toBeUndefined(); // primary checkout
     expect(rows[0].branch).toBe("main");
+    expect(rows[0].routeCount).toBe(0); // no route under /main/repo, ignores /other/repo
     expect(rows[1].workspace).toBe("feat-a");
     expect(rows[1].routeCount).toBe(2);
   });
@@ -142,8 +153,15 @@ describe("workspaceUp", () => {
     expect(devpodUp?.args).toEqual(["up", "/main/repo-feat-a", "--name", "feat-a"]);
     // WORKSPACE in the env is what drives the compose ${WORKSPACE} alias substitution.
     expect(devpodUp?.env?.WORKSPACE).toBe("feat-a");
+    // The resolved token is threaded explicitly so route tag == devpod --name.
+    expect(loadRuntimeConfig).toHaveBeenCalledWith("/main/repo-feat-a", "feat-a");
     expect(runConfiguredApp).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "app", repoPath: "/main/repo-feat-a", yes: true })
+      expect.objectContaining({
+        name: "app",
+        repoPath: "/main/repo-feat-a",
+        workspace: "feat-a",
+        yes: true
+      })
     );
   });
 });
