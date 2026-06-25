@@ -94,6 +94,10 @@ export type HostRouteState = {
   upstreamHost?: string;
   pid?: number;
   command?: string;
+  // Workspace token this route belongs to (undefined for the primary checkout).
+  // Lets `dev workspace ls`/`down` and GC filter routes by workspace without
+  // loading the (possibly-deleted) worktree's .devrouter.yml.
+  workspace?: string;
   createdAt: string;
   updatedAt: string;
 };

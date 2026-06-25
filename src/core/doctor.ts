@@ -4,7 +4,7 @@ import YAML from "yaml";
 import { listContainers } from "./docker";
 import { listHostRouteState, listHostRoutes } from "./host-routes";
 import { evictStaleHostRoutes } from "./concurrency";
-import { loadRepoConfig, resolveRepoPath } from "./repo-config";
+import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { getRouterFileLayout, isTLSEnabled } from "./router";
 import { collectRouterStatus } from "./status";
 import { discoverRoutes, findDuplicateHosts } from "./routes";
@@ -439,7 +439,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         });
       }
 
-      const config = loadRepoConfig(repo.path);
+      const config = loadRuntimeConfig(repo.path).config;
       const appNames = new Set(config.apps.map((app) => app.name));
       const missingDependencies = config.apps.flatMap((app) =>
         app.dependencies

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import YAML from "yaml";
+import YAML, { isMap, isSeq, parseDocument, type Document, type YAMLSeq } from "yaml";
 import {
   AppAddOptions,
   DevrouterApp,
@@ -13,6 +13,7 @@ import {
 } from "../types";
 import { parseUpstream } from "./host-routes";
 import { TCP_PROTOCOL_REGISTRY } from "./router";
+import { resolveWorkspace, wsFromBranch } from "./workspace";
 
 const CONFIG_FILE_NAME = ".devrouter.yml";
 
@@ -20,6 +21,39 @@ const VALID_HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[
 const DEVROUTER_VERSION_RE = /^\d+\.\d+\.\d+$/;
 const VALID_ENV_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/i;
 const VALID_ENV_VAR_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+// Workspace templating. `upstream` may embed the literal `${WORKSPACE}` token,
+// which is substituted with the resolved workspace at runtime (see applyWorkspace).
+// The token is illegal in `host` — the front host is auto-namespaced per workspace.
+const WORKSPACE_PLACEHOLDER = "${WORKSPACE}";
+const UPSTREAM_TEMPLATE_RE = /^(?:\$\{WORKSPACE\}|[a-zA-Z0-9._-])+:\d{1,5}$/;
+
+// Validate an `upstream` at config-parse time. A concrete `host:port` is checked
+// strictly; a `${WORKSPACE}` template is accepted as-is (the substituted value is
+// re-validated strictly in applyWorkspace).
+function assertUpstreamSpec(upstream: string, label: string): void {
+  if (upstream.includes(WORKSPACE_PLACEHOLDER)) {
+    if (!UPSTREAM_TEMPLATE_RE.test(upstream.trim())) {
+      throw new Error(`${label} is not a valid host:port template (got '${upstream}').`);
+    }
+    return;
+  }
+  try {
+    parseUpstream(upstream);
+  } catch (err) {
+    throw new Error(`${label}: ${(err as Error).message}`);
+  }
+}
+
+function assertHostNotTemplated(host: string, label: string): void {
+  if (host.includes("${")) {
+    throw new Error(
+      `${label} must not contain template placeholders. The front host is namespaced ` +
+        "automatically per workspace (web.localhost -> web.<workspace>.localhost); do not " +
+        "add ${WORKSPACE} to host."
+    );
+  }
+}
 
 const MAX_COMMAND_LENGTH = 4096;
 
@@ -195,6 +229,7 @@ function parseDependencyDockerConfig(
 
 function parseHostOrThrow(value: unknown, pathLabel: string): string {
   const host = toStringOrThrow(value, pathLabel).toLowerCase();
+  assertHostNotTemplated(host, pathLabel);
   if (!host.endsWith(".localhost")) {
     throw new Error(`${pathLabel} must end with .localhost.`);
   }
@@ -340,11 +375,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     }
 
     const upstream = toStringOrThrow(objectValue.upstream, `${pathLabel}.upstream`);
-    try {
-      parseUpstream(upstream);
-    } catch (err) {
-      throw new Error(`${pathLabel}.upstream: ${(err as Error).message}`);
-    }
+    assertUpstreamSpec(upstream, `${pathLabel}.upstream`);
 
     if (protocol === "tcp") {
       const tcpProtocol = toStringOrThrow(objectValue.tcpProtocol, `${pathLabel}.tcpProtocol`);
@@ -465,6 +496,44 @@ function renderConfig(config: DevrouterConfig): string {
   return YAML.stringify(config, { lineWidth: 0 });
 }
 
+// Surgical, comment-preserving edits to .devrouter.yml. `dev app add` / `dev app rm`
+// must not round-trip the whole file through the serializer (that strips committed
+// comments, reorders apps, and injects empty `dependencies: []`). Instead we mutate
+// the parsed YAML document in place and re-emit only the touched node.
+
+function readConfigDocument(configPath: string): Document {
+  return parseDocument(fs.readFileSync(configPath, "utf-8"));
+}
+
+function writeConfigDocument(configPath: string, doc: Document): void {
+  fs.writeFileSync(configPath, doc.toString({ lineWidth: 0 }), "utf-8");
+}
+
+function getOrCreateAppsSeq(doc: Document): YAMLSeq {
+  const apps = doc.get("apps", true);
+  if (isSeq(apps)) {
+    return apps;
+  }
+  const seq = doc.createNode([]) as YAMLSeq;
+  doc.set("apps", seq);
+  return seq;
+}
+
+function findAppIndex(apps: YAMLSeq, name: string): number {
+  return apps.items.findIndex((item) => isMap(item) && item.get("name") === name);
+}
+
+// Plain-object form of an app for re-emission, dropping the empty `dependencies: []`
+// that would otherwise be injected into a hand-written config. `createNode` already
+// omits `undefined` values (e.g. an absent `docker.router`).
+function appToNodeValue(app: DevrouterApp): Record<string, unknown> {
+  const value = JSON.parse(JSON.stringify(app)) as Record<string, unknown>;
+  if (Array.isArray(value.dependencies) && value.dependencies.length === 0) {
+    delete value.dependencies;
+  }
+  return value;
+}
+
 export function resolveRepoPath(repoPath?: string): string {
   return path.resolve(repoPath ?? process.cwd());
 }
@@ -485,13 +554,6 @@ export function loadRepoConfig(repoPath?: string): DevrouterConfig {
   const raw = fs.readFileSync(configPath, "utf-8");
   const parsed = YAML.parse(raw) as DevrouterConfigWithUnknown | null;
   return parseConfig(parsed ?? {}, configPath);
-}
-
-export function saveRepoConfig(repoPath: string, config: DevrouterConfig): void {
-  const resolvedRepoPath = resolveRepoPath(repoPath);
-  const configPath = getRepoConfigPath(resolvedRepoPath);
-  const validated = parseConfig(config as unknown as Record<string, unknown>, configPath);
-  fs.writeFileSync(configPath, renderConfig(validated), "utf-8");
 }
 
 export function initRepoConfig(
@@ -579,6 +641,7 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
     throw new Error("--host is required when --kind app");
   }
   const host = options.host.toLowerCase();
+  assertHostNotTemplated(host, "--host");
   if (!host.endsWith(".localhost")) {
     throw new Error("--host must end with .localhost");
   }
@@ -635,7 +698,7 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
     if (dependencies.length > 0) {
       throw new Error("--depends-on is not supported when --runtime proxy");
     }
-    parseUpstream(options.upstream);
+    assertUpstreamSpec(options.upstream, "--upstream");
 
     if (options.protocol === "tcp") {
       const tcpProtocol = options.tcpProtocol;
@@ -712,56 +775,155 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
 
 export function upsertRepoApp(repoPath: string, options: AppAddOptions): { configPath: string; app: DevrouterApp } {
   const resolvedRepoPath = resolveRepoPath(repoPath);
+  const configPath = getRepoConfigPath(resolvedRepoPath);
+  // Load (validating the existing file) and build the app before touching the file.
   const config = loadRepoConfig(resolvedRepoPath);
   const app = buildAppFromOptions(options);
-  const apps = config.apps.filter((existing) => existing.name !== app.name);
-  apps.push(app);
-  apps.sort((a, b) => a.name.localeCompare(b.name));
+  // Validate the resulting config as a whole, mirroring the previous save path.
+  const nextApps = config.apps.filter((existing) => existing.name !== app.name);
+  nextApps.push(app);
+  parseConfig({ ...config, apps: nextApps } as unknown as Record<string, unknown>, configPath);
 
-  const next: DevrouterConfig = {
-    ...config,
-    apps
-  };
-  saveRepoConfig(resolvedRepoPath, next);
+  // Apply the change as an in-place document edit so comments/formatting survive.
+  const doc = readConfigDocument(configPath);
+  const apps = getOrCreateAppsSeq(doc);
+  const node = doc.createNode(appToNodeValue(app));
+  const index = findAppIndex(apps, app.name);
+  if (index >= 0) {
+    // Replace in place, carrying over the leading blank line and any comment block
+    // attached to the existing entry.
+    const existing = apps.items[index];
+    if (isMap(existing)) {
+      if (existing.spaceBefore) {
+        node.spaceBefore = true;
+      }
+      if (existing.commentBefore != null) {
+        node.commentBefore = existing.commentBefore;
+      }
+    }
+    apps.set(index, node);
+  } else {
+    // Append at the end (no reordering); separate from prior entries with a blank line.
+    if (apps.items.length > 0) {
+      node.spaceBefore = true;
+    }
+    apps.add(node);
+  }
+  writeConfigDocument(configPath, doc);
 
-  return {
-    configPath: getRepoConfigPath(resolvedRepoPath),
-    app
-  };
+  return { configPath, app };
 }
 
 export function removeRepoApp(repoPath: string, name: string): { configPath: string; removed: boolean } {
   const resolvedRepoPath = resolveRepoPath(repoPath);
+  const configPath = getRepoConfigPath(resolvedRepoPath);
   const config = loadRepoConfig(resolvedRepoPath);
-  const apps = config.apps.filter((app) => app.name !== name);
-  const removed = apps.length !== config.apps.length;
-  if (!removed) {
-    return {
-      configPath: getRepoConfigPath(resolvedRepoPath),
-      removed: false
-    };
+  if (!config.apps.some((app) => app.name === name)) {
+    return { configPath, removed: false };
   }
 
-  saveRepoConfig(resolvedRepoPath, {
-    ...config,
-    apps
-  });
+  const doc = readConfigDocument(configPath);
+  const apps = doc.get("apps", true);
+  if (isSeq(apps)) {
+    const index = findAppIndex(apps, name);
+    if (index >= 0) {
+      apps.delete(index);
+    }
+  }
+  writeConfigDocument(configPath, doc);
 
-  return {
-    configPath: getRepoConfigPath(resolvedRepoPath),
-    removed: true
-  };
+  return { configPath, removed: true };
 }
 
-export function resolveAppByName(repoPath: string, name: string): { config: DevrouterConfig; app: DevrouterApp } {
-  const config = loadRepoConfig(repoPath);
+// Insert the workspace token as the label immediately before `.localhost`:
+// web.localhost -> web.<ws>.localhost; db.app.localhost -> db.app.<ws>.localhost.
+function namespaceHost(host: string, workspace: string): string {
+  const suffix = ".localhost";
+  const base = host.slice(0, host.length - suffix.length);
+  return `${base}.${workspace}${suffix}`;
+}
+
+/**
+ * Derive the runtime (per-workspace) view of a config without mutating the loaded
+ * object or the committed file. When a workspace is active the front host of each
+ * routed app is namespaced and each docker app gets a workspace-unique Traefik
+ * router key. `${WORKSPACE}` in `upstream` is always substituted (with the active
+ * workspace, or the project-name default), then re-validated strictly.
+ *
+ * With no workspace and no `${WORKSPACE}` templates, the config is returned
+ * unchanged — existing single-checkout behavior is byte-identical.
+ */
+export function applyWorkspace(
+  config: DevrouterConfig,
+  workspace: string | undefined,
+  repoPath: string
+): DevrouterConfig {
+  const defaultToken =
+    wsFromBranch(config.project?.name ?? path.basename(path.resolve(repoPath))) ?? "app";
+  const substitutionToken = workspace ?? defaultToken;
+
+  const next = structuredClone(config);
+  for (const app of next.apps) {
+    if (!("host" in app)) {
+      continue; // dependency-only app: no route to namespace
+    }
+
+    if (workspace) {
+      const namespaced = namespaceHost(app.host, workspace);
+      if (!VALID_HOSTNAME_RE.test(namespaced)) {
+        throw new Error(`Namespaced host '${namespaced}' for workspace '${workspace}' is invalid.`);
+      }
+      app.host = namespaced;
+    }
+
+    if ("upstream" in app && app.upstream.includes(WORKSPACE_PLACEHOLDER)) {
+      const resolved = app.upstream.split(WORKSPACE_PLACEHOLDER).join(substitutionToken);
+      try {
+        parseUpstream(resolved);
+      } catch (err) {
+        throw new Error(`Resolved upstream '${resolved}' is invalid: ${(err as Error).message}`);
+      }
+      app.upstream = resolved;
+    }
+
+    if (workspace && app.runtime === "docker") {
+      app.docker.router = `${app.docker.router ?? app.name}-${workspace}`;
+    }
+  }
+
+  return next;
+}
+
+/**
+ * Load a repo config and apply the active workspace transform. This is the single
+ * entry point for runtime commands (run/exec/status/doctor/open) so the whole
+ * surface sees consistent namespaced hosts/upstreams. Config-authoring/read
+ * commands that show the committed template (`app ls`, `upgrade`, `app add/rm`)
+ * keep using raw `loadRepoConfig`.
+ */
+export function loadRuntimeConfig(
+  repoPath?: string,
+  workspaceOverride?: string
+): { config: DevrouterConfig; workspace: string | undefined } {
+  const resolved = resolveRepoPath(repoPath);
+  const raw = loadRepoConfig(resolved);
+  const workspace = resolveWorkspace(resolved, workspaceOverride);
+  return { config: applyWorkspace(raw, workspace, resolved), workspace };
+}
+
+export function resolveAppByName(
+  repoPath: string,
+  name: string,
+  workspaceOverride?: string
+): { config: DevrouterConfig; app: DevrouterApp; workspace: string | undefined } {
+  const { config, workspace } = loadRuntimeConfig(repoPath, workspaceOverride);
   const app = config.apps.find((entry) => entry.name === name);
   if (!app) {
     const available = config.apps.map((entry) => entry.name).join(", ");
     throw new Error(`App '${name}' not found in ${getRepoConfigPath(repoPath)}. Available: ${available || "(none)"}`);
   }
 
-  return { config, app };
+  return { config, app, workspace };
 }
 
 export function resolveAppDependencies(config: DevrouterConfig, app: DevrouterApp): DevrouterApp[] {

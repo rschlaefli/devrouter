@@ -8,6 +8,10 @@ All notable changes to this project are documented in this file.
 
 - `dev app rm --keep-config` frees only the live route/hostname and leaves the repo's `.devrouter.yml` app definition untouched. Use it to release a hostname claimed by another repo's route (e.g. an old worktree) without rewriting that repo's committed config. Without the flag, `dev app rm` still removes the app entry and the route as before.
 
+### Fixed
+
+- `dev app add` / `dev app rm` no longer clobber a hand-written `.devrouter.yml`. They previously round-tripped the whole file through the YAML serializer, which stripped every comment, re-sorted `apps` alphabetically, and injected empty `dependencies: []` into each entry — wiping committed notes (e.g. TLS/SNI `sslnegotiation=direct` docs). Edits are now applied surgically to the parsed YAML document: comments and key order are preserved, existing apps keep their position (new apps append at the end, updates replace in place carrying over the comment/blank line above them), and empty `dependencies` is omitted. On an unchanged config an add+rm round-trip is now a no-op diff.
+
 ### Changed
 
 - `devcontainer-onboarding` skill: onboarding now adds a *Local development (devcontainer)* section to the target repo's agent-instructions file (`AGENTS.md`/`CLAUDE.md`) from the new `references/AGENTS-devcontainer.md`, so future agents default to the devcontainer path; devrouter routing is folded in as a "when available" layer. Added GOTCHAS #22 (platform-schema-copy repos must run `prisma format` between copy and generate, or `prisma generate`/`db push` fails P1012) with the matching `references/post-create.sh` step.
