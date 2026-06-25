@@ -319,34 +319,34 @@ export function removeHostRouteById(id: string): boolean {
 
 export function removeHostRouteByName(name: string, repoPath?: string): HostRouteState {
   return withStateLock(() => {
-  const routes = listHostRouteState();
-  const matches = routes.filter((route) => {
-    if (route.name !== name) {
-      return false;
+    const routes = listHostRouteState();
+    const matches = routes.filter((route) => {
+      if (route.name !== name) {
+        return false;
+      }
+
+      if (repoPath && route.repoPath !== repoPath) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (matches.length === 0) {
+      throw new Error(`No host route named '${name}' found.`);
     }
 
-    if (repoPath && route.repoPath !== repoPath) {
-      return false;
+    if (matches.length > 1 && !repoPath) {
+      const refs = matches.map((route) => `${route.name} (${route.repoPath})`).join(", ");
+      throw new Error(
+        `Multiple host routes named '${name}' exist. Re-run with --repo to disambiguate: ${refs}`
+      );
     }
 
-    return true;
-  });
-
-  if (matches.length === 0) {
-    throw new Error(`No host route named '${name}' found.`);
-  }
-
-  if (matches.length > 1 && !repoPath) {
-    const refs = matches.map((route) => `${route.name} (${route.repoPath})`).join(", ");
-    throw new Error(
-      `Multiple host routes named '${name}' exist. Re-run with --repo to disambiguate: ${refs}`
-    );
-  }
-
-  const match = matches[0];
-  const next = routes.filter((route) => route.id !== match.id);
-  writeState(next);
-  return match;
+    const match = matches[0];
+    const next = routes.filter((route) => route.id !== match.id);
+    writeState(next);
+    return match;
   });
 }
 
