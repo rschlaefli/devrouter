@@ -1,13 +1,13 @@
 # devrouter - agent-native devcontainer usability plan
 
-Status: **final validation in progress**. Last updated: 2026-06-28.
+Status: **PR open, follow-up restructure in progress**. Last updated: 2026-06-28.
 
 ## Plan identity
 
-- Plan path: `project/2026-06-28-agent-native-devcontainer-usability-plan.md`
+- Plan path: `project/2026-06-28-pr-11-agent-native-devcontainer-usability-plan.md`
 - Proposed branch: `codex/agent-native-devcontainer-usability`
 - Target branch: `main`
-- PR: none yet
+- PR: [#11](https://github.com/rschlaefli/devrouter/pull/11)
 - Prior related work:
   - `project/2026-06-25-pr-9-workspace-agent-native.md`
   - `project/2026-06-28-pr-10-architecture-deepening-plan.md`
