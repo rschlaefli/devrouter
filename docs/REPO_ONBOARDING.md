@@ -68,7 +68,7 @@ PR evidence checklist for agents:
 Reference implementation:
 
 - [`../examples/devcontainer/README.md`](../examples/devcontainer/README.md) shows the agent-native DevPod/devcontainer flow with static/live verify evidence.
-- [`../demo/README.md`](../demo/README.md) shows a complete setup with:
+- [`../examples/routing/README.md`](../examples/routing/README.md) shows a complete setup with:
   - host app route
   - docker app route
   - postgres tcp route

@@ -7,7 +7,9 @@ Guidance for agentic coders working in this repository.
 - [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
 - [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) (preferred: front a devcontainer via `runtime: proxy`)
 - [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
-- [`demo/README.md`](./demo/README.md)
+- [`examples/routing/README.md`](./examples/routing/README.md)
+- [`examples/devcontainer/README.md`](./examples/devcontainer/README.md)
+- [`examples/workspace/README.md`](./examples/workspace/README.md)
 - [`docs/PLAN.md`](./docs/PLAN.md)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 
@@ -20,13 +22,15 @@ Keep these docs up to date with any behavior, command, schema, or onboarding wor
 3. `docs/GETTING_STARTED.md`
 4. `docs/REPO_ONBOARDING.md`
 5. `docs/PLAN.md`
-6. `demo/README.md`
-7. `CHANGELOG.md`
-8. `upgrade-prompts/*.md`
+6. `examples/routing/README.md`
+7. `examples/devcontainer/README.md`
+8. `examples/workspace/README.md`
+9. `CHANGELOG.md`
+10. `upgrade-prompts/*.md`
 
 ## Documentation policy
 
-1. Product docs (`README.md`, `docs/*`, `demo/README.md`) must describe the current state only.
+1. Product docs (`README.md`, `docs/*`, `examples/*/README.md`) must describe the current state only.
 2. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
 3. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
 
@@ -107,10 +111,10 @@ Supported routing:
 - `src/commands/logs.ts`: `dev logs` command handler (Traefik log access)
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
-- `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
+- `examples/routing/.devrouter.yml`: complete sample config for host+docker+postgres routing
 - `examples/workspace/`: runnable workspace-isolation showcase (`${WORKSPACE}` proxy upstream + `dev workspace up/ls/down` over two real git worktrees; `run.sh` brings up two namespaced hosts and prints the proof)
 - `examples/devcontainer/`: live DevPod/devcontainer showcase with app + Postgres proxy routes and static/live verify evidence
-- `scripts/smoke-demo.sh`: end-to-end demo smoke script
+- `scripts/smoke-routing.sh`: end-to-end routing smoke script
 - `scripts/smoke-devcontainer.sh`: live DevPod/devcontainer smoke script
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `dev upgrade`
@@ -175,7 +179,7 @@ Supported routing:
 
 1. Commit all implementation changes (fix/feature commits first, separate from release commit).
 2. Bump `version` in `package.json` to `0.0.X`.
-3. Bump `devrouter.version` in `demo/.devrouter.yml` and `examples/devcontainer/.devrouter.yml` to `0.0.X`.
+3. Bump `devrouter.version` in `examples/routing/.devrouter.yml` and `examples/devcontainer/.devrouter.yml` to `0.0.X`.
 4. Add `[0.0.X]` section in `CHANGELOG.md` between `[Unreleased]` and previous release. Include `### Agent Adaptation Prompt` referencing `./upgrade-prompts/0.0.X.md`.
 5. Create `upgrade-prompts/0.0.X.md` with: changes summary, task (bump version, schema migration if any, refresh artifacts), validation steps, report template.
 6. Update `.agents/skills/devrouter/SKILL.md` and `src/core/ai-prompt.ts` to reflect any schema, env injection, CLI flag, or config changes in this release. Run `ai-prompt.test.ts` to verify consistency.
@@ -188,10 +192,10 @@ Supported routing:
 2. `pnpm test`
 3. `pnpm typecheck`
 4. `pnpm build`
-5. `dev setup --repo ./demo --yes --json`
-6. `dev doctor --repo ./demo`
-7. `dev repo inspect --repo ./demo --json`
-8. `pnpm demo:smoke` for full route showcase/regression smoke
+5. `dev setup --repo ./examples/routing --yes --json`
+6. `dev doctor --repo ./examples/routing`
+7. `dev repo inspect --repo ./examples/routing --json`
+8. `pnpm routing:smoke` for full route showcase/regression smoke
 9. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
 10. `pnpm devcontainer:smoke down` after live devcontainer verification
 11. Update docs for any behavior/surface changes

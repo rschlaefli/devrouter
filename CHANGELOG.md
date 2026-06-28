@@ -10,12 +10,14 @@ All notable changes to this project are documented in this file.
 - `dev repo inspect --json` for read-only repository fact gathering: package manager, scripts and likely ports, compose services, env variable names (values redacted), devcontainer presence, devrouter config, and agent guidance files.
 - `dev repo devcontainer write --dry-run --json` and `dev repo devcontainer write --yes` for conservative managed Node/pnpm/Postgres devcontainer scaffolding. Custom existing target files are not overwritten, and non-pnpm repos stop with a structured diagnostic.
 - `dev repo devcontainer verify --json` for read-only onboarding evidence, plus `--live --yes --json` for route registration and HTTP probes after the devcontainer is running.
+- `examples/routing/` plus `pnpm routing:smoke` for the no-devcontainer devrouter routing example.
 - `examples/devcontainer/` plus `pnpm devcontainer:smoke` for a live DevPod/devcontainer app + Postgres showcase.
 - `dev doctor` now reports additional machine/devcontainer diagnostics for Docker Compose v2, mkcert, DevPod, Node/pnpm, devnet aliases, published devcontainer ports, and proxy upstream alias matches.
 
 ### Changed
 
 - `dev doctor` is now strictly diagnostic for route state: it reports stale host routes and orphaned workspace proxy routes without mutating route files. It exits non-zero when any diagnostic has `level: "error"` while still printing JSON when requested.
+- The old root `demo/` fixture is now `examples/routing/`, so all runnable examples live under `examples/`.
 
 ## [0.0.22] - 2026-06-25
 
@@ -111,7 +113,7 @@ Agent adaptation prompt: ./upgrade-prompts/0.0.18.md
 - Generic TCP routing: `tcpProtocol` now supports `postgres`, `redis`, `mariadb`, and `mysql`. New protocols are validated against `TCP_PROTOCOL_REGISTRY`.
 - Dynamic TCP port binding: Traefik entrypoints and port mappings are only created when a TCP protocol is first used (`dev app run` / `dev app exec`). Ports are released on `dev down`.
 - Active TCP protocol state tracked in `~/.config/devrouter/active-tcp-protocols.json`.
-- Redis service added to demo (`demo/docker-compose.yml`, `demo/.devrouter.yml`).
+- Redis service added to the routing example (`examples/routing/docker-compose.yml`, `examples/routing/.devrouter.yml`).
 
 ### Changed
 

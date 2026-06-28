@@ -9,7 +9,9 @@ PRODUCT_DOCS=(
   "docs/GETTING_STARTED.md"
   "docs/REPO_ONBOARDING.md"
   "docs/PLAN.md"
-  "demo/README.md"
+  "examples/routing/README.md"
+  "examples/devcontainer/README.md"
+  "examples/workspace/README.md"
 )
 
 CURRENT_GUIDANCE_SURFACES=(

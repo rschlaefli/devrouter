@@ -44,21 +44,21 @@ Verify:
 dev --help
 ```
 
-Version and upgrade quick check (against the bundled demo repo metadata):
+Version and upgrade quick check (against the bundled routing example metadata):
 
 ```bash
-dev -V --repo ./demo
+dev -V --repo ./examples/routing
 ```
 
-Optional: run bundled smoke demo (host app + docker app + postgres):
+Optional: run the bundled routing smoke (host app + Docker app + Postgres):
 
 ```bash
-pnpm demo:smoke
+pnpm routing:smoke
 ```
 
 Sample assets live in:
 
-- [`../demo/README.md`](../demo/README.md)
+- [`../examples/routing/README.md`](../examples/routing/README.md)
 - [`../examples/devcontainer/README.md`](../examples/devcontainer/README.md)
 
 For the live DevPod/devcontainer showcase:
@@ -90,7 +90,7 @@ healthcheck:
 
 Services **must not** publish host ports (`ports:` mapping) for ports owned by devrouter (80, 443, 5432). Traefik owns these; conflicts cause bind failures.
 
-Services **should not** publish host ports at all. devrouter handles external routing via Traefik labels. Publishing ports creates conflicts when running multiple repos. Use devrouter hostnames (e.g. `demo-db.localhost:5432`) instead of `localhost:<mapped-port>`.
+Services **should not** publish host ports at all. devrouter handles external routing via Traefik labels. Publishing ports creates conflicts when running multiple repos. Use devrouter hostnames (e.g. `routing-db.localhost:5432`) instead of `localhost:<mapped-port>`.
 
 ### Dependency lifecycle
 

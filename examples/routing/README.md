@@ -1,12 +1,14 @@
-# Demo Workspace
+# Routing Example
 
-This folder is a complete demo repository for `devrouter`:
+This folder is a complete `devrouter` example without devcontainers:
 
 - `web-host`: HTTP app running on host via `node app/server.js`
 - `web-docker`: same app running inside Docker
 - `db`: PostgreSQL in Docker routed over shared `:5432`
 
-The demo keeps routing-focused entries only; dependency-only `kind: dependency` services (for example Redis) are supported by devrouter but not required for this baseline demo.
+Use this example to show that devrouter is useful on its own. Devcontainers are a separate onboarding path in [`../devcontainer`](../devcontainer).
+
+The routing example keeps routing-focused entries only. Dependency-only `kind: dependency` services are supported by devrouter but are not required for this baseline.
 
 The `docker-compose.yml` here serves as a reference for devrouter compose conventions: services include healthchecks (required for `--wait`) and do not publish host ports (devrouter handles routing via Traefik).
 
@@ -22,34 +24,34 @@ The `docker-compose.yml` here serves as a reference for devrouter compose conven
 From `/Volumes/HOME/Git/personal/devrouter`:
 
 ```bash
-dev init --repo ./demo
-dev -V --repo ./demo
-dev upgrade --repo ./demo
-dev setup --repo ./demo --yes
-dev doctor --repo ./demo
-dev repo inspect --repo ./demo --json
-dev app exec web-host --repo ./demo --yes -- printenv DB_URL DATABASE_URL DB_SHADOW_URL SHADOW_DATABASE_URL DB_HOST DB_PORT
-dev app run web-docker --repo ./demo --yes
-dev app run web-host --repo ./demo --yes
+dev init --repo ./examples/routing
+dev -V --repo ./examples/routing
+dev upgrade --repo ./examples/routing
+dev setup --repo ./examples/routing --yes
+dev doctor --repo ./examples/routing
+dev repo inspect --repo ./examples/routing --json
+dev app exec web-host --repo ./examples/routing --yes -- printenv DB_URL DATABASE_URL DB_SHADOW_URL SHADOW_DATABASE_URL DB_HOST DB_PORT
+dev app run web-docker --repo ./examples/routing --yes
+dev app run web-host --repo ./examples/routing --yes
 ```
 
 `dev app exec` now tears down only dependencies it started in that command. If `db` is already running (for example while `web-host` is up), an exec seed/migrate command leaves `db` running.
 
 Runtime verification is Docker-permitting. If Docker is unavailable or socket access is restricted, treat runtime failures as environment-blocked.
-When Docker is available, `dev doctor --repo ./demo` should not report `repo.postgres-credentials` mismatch warnings.
+When Docker is available, `dev doctor --repo ./examples/routing` should not report `repo.postgres-credentials` mismatch warnings.
 It should also not report `repo.host-command-env-precedence` warnings for wrapper precedence.
-It should not report `repo.tls-host-coverage` warnings for configured demo hosts.
+It should not report `repo.tls-host-coverage` warnings for configured routing hosts.
 
 `dev init` prints the onboarding prompt only. To also write AGENTS/skill artifacts, run:
 
 ```bash
-dev init --repo ./demo --write-agents --write-skill
+dev init --repo ./examples/routing --write-agents --write-skill
 ```
 
 To also bootstrap optional Linear workflow planning assets:
 
 ```bash
-dev init --repo ./demo --with-linear --write-agents --write-skill
+dev init --repo ./examples/routing --with-linear --write-agents --write-skill
 ```
 
 This captures minimal Linear mapping values (workspace/team/project) into a managed AGENTS block. In non-interactive mode placeholders are written and should be replaced later.
@@ -64,7 +66,7 @@ Required Linear execution hygiene:
 For non-Prisma tooling in host commands, declare aliases in `.devrouter.yml` with dependency `envMap` and run argv-safe exec:
 
 ```bash
-dev app exec web-host --repo ./demo --yes -- printenv DB_URL DATABASE_URL DIRECT_URL DB_SHADOW_URL SHADOW_DATABASE_URL
+dev app exec web-host --repo ./examples/routing --yes -- printenv DB_URL DATABASE_URL DIRECT_URL DB_SHADOW_URL SHADOW_DATABASE_URL
 ```
 
 If a wrapper command (Infisical/Doppler) must set `DATABASE_URI`, do it after `run --`:
@@ -75,8 +77,8 @@ infisical run --env=dev -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev
 
 Then open:
 
-- [https://demo-host.localhost](https://demo-host.localhost)
-- [https://demo-docker.localhost](https://demo-docker.localhost)
+- [https://routing-host.localhost](https://routing-host.localhost)
+- [https://routing-docker.localhost](https://routing-docker.localhost)
 
 Inspect routes:
 
@@ -86,8 +88,8 @@ dev ls
 
 Expected DB endpoint:
 
-- `postgres://demo-db.localhost:5432 (tls required)`
-- `dev open demo-db` (or `dev open demo-db.localhost`) prints TCP connection guidance
+- `postgres://routing-db.localhost:5432 (tls required)`
+- `dev open routing-db` (or `dev open routing-db.localhost`) prints TCP connection guidance
 
 Dependency-only note:
 
@@ -108,19 +110,19 @@ dev workspace down feat/my-feature # free routes, stop devpod, remove worktree
 ```
 
 When a workspace token (e.g. `feat-my-feature`) is active, hosts are auto-namespaced in memory:
-`demo-host.localhost` → `demo-host.feat-my-feature.localhost`. The committed `.devrouter.yml` is never
+`routing-host.localhost` → `routing-host.feat-my-feature.localhost`. The committed `.devrouter.yml` is never
 modified.
 
 For proxy apps (`runtime: proxy`), use `${WORKSPACE}` in the `upstream` field so devrouter substitutes
 the active token at runtime — for example `upstream: ${WORKSPACE}-app:3000` resolves to
 `feat-my-feature-app:3000` for workspace `feat-my-feature`.
 
-See [`../docs/GETTING_STARTED.md`](../docs/GETTING_STARTED.md) section 15 for the full workspace workflow.
+See [`../../docs/GETTING_STARTED.md`](../../docs/GETTING_STARTED.md) section 15 for the full workspace workflow.
 
 ## Cleanup
 
 Stop the `web-host` command with `Ctrl+C`, then:
 
 ```bash
-docker compose -f ./demo/docker-compose.yml down -v
+docker compose -f ./examples/routing/docker-compose.yml down -v
 ```

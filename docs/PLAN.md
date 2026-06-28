@@ -19,7 +19,7 @@ Delivered and active:
 - TCP routing with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services via `kind: dependency` (non-routed, dependency lifecycle only)
 - Shared router ownership of `80/443/5432`
-- Bundled demo repo (`demo/.devrouter.yml`) for onboarding rehearsal and smoke validation
+- Routing example (`examples/routing/.devrouter.yml`) for no-devcontainer routing rehearsal and smoke validation
 - Live DevPod/devcontainer example (`examples/devcontainer/`) with `pnpm devcontainer:smoke`
 - `dev app exec` for one-shot commands with resolved dependency env
 - argv-safe exec by default with explicit `--shell` opt-in
@@ -39,7 +39,7 @@ Delivered and active:
 
 ## Documentation policy
 
-- Product docs (`README.md`, `docs/*`, `demo/README.md`) describe current behavior only.
+- Product docs (`README.md`, `docs/*`, `examples/*/README.md`) describe current behavior only.
 - Upgrade/migration/adaptation instructions stay in `CHANGELOG.md` and `upgrade-prompts/*.md` only.
 - Each release section in `CHANGELOG.md` references exactly one prompt file under `upgrade-prompts/`.
 
@@ -51,12 +51,12 @@ Required checks for behavior and doc consistency:
 2. `pnpm typecheck`
 3. `pnpm test`
 4. `pnpm build`
-5. `node dist/dev.js -V --repo ./demo`
-6. `node dist/dev.js upgrade --repo ./demo`
-7. `node dist/dev.js setup --repo ./demo --yes --json`
-8. `node dist/dev.js doctor --repo ./demo`
-9. `node dist/dev.js repo inspect --repo ./demo --json`
-10. `pnpm demo:smoke` (environment permitting)
+5. `node dist/dev.js -V --repo ./examples/routing`
+6. `node dist/dev.js upgrade --repo ./examples/routing`
+7. `node dist/dev.js setup --repo ./examples/routing --yes --json`
+8. `node dist/dev.js doctor --repo ./examples/routing`
+9. `node dist/dev.js repo inspect --repo ./examples/routing --json`
+10. `pnpm routing:smoke` (environment permitting)
 11. `pnpm devcontainer:smoke` when DevPod is available
 12. `pnpm devcontainer:smoke down` after live devcontainer verification
 

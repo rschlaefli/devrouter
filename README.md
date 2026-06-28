@@ -342,11 +342,11 @@ Expected endpoints:
 - `https://web.localhost`
 - `postgres://db.localhost:5432 (tls required)`
 
-## Demo workspace (in this repo)
+## Routing example (without devcontainers)
 
-A complete sample repository is included at:
+A complete no-devcontainer sample repository is included at:
 
-- [`./demo`](./demo)
+- [`./examples/routing`](./examples/routing)
 
 It contains:
 
@@ -355,10 +355,10 @@ It contains:
 - Postgres in Docker (`db`)
 - ready-to-use `.devrouter.yml`
 
-Run the bundled demo smoke:
+Run the bundled routing smoke:
 
 ```bash
-pnpm demo:smoke
+pnpm routing:smoke
 ```
 
 Run the live DevPod/devcontainer smoke when Docker, DevPod, and mkcert are
@@ -371,7 +371,7 @@ pnpm devcontainer:smoke down
 
 See details:
 
-- [`./demo/README.md`](./demo/README.md)
+- [`./examples/routing/README.md`](./examples/routing/README.md)
 - [`./examples/devcontainer/README.md`](./examples/devcontainer/README.md)
 
 ## AI agent discoverability
@@ -435,6 +435,6 @@ Global managed artifacts remain under:
 - Setup and bootstrapping: [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
 - Onboarding repositories and AI prompt: [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
 - Agent contributor guide: [`AGENTS.md`](./AGENTS.md)
-- Demo workspace: [`./demo/README.md`](./demo/README.md)
+- Routing example: [`./examples/routing/README.md`](./examples/routing/README.md)
 - Roadmap: [`docs/PLAN.md`](./docs/PLAN.md)
 - Release and adaptation history: [`CHANGELOG.md`](./CHANGELOG.md) and [`upgrade-prompts/`](./upgrade-prompts/)

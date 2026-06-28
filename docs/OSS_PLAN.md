@@ -19,7 +19,7 @@ Goal: publish `@devrouter/cli` as a high-quality, simple OSS package on npm.
   - Remove `private: true`
   - Add `repository`, `homepage`, `author`, `license`, `files` fields
   - Set `engines.node` to `>=24`
-- [ ] Add `.npmignore` (exclude `src/`, `scripts/`, `demo/`, `docs/`, `.claude/`)
+- [ ] Add `.npmignore` (exclude `src/`, `scripts/`, `examples/`, `docs/`, `.claude/`)
 - [ ] Add minimal `CONTRIBUTING.md`
 - [ ] Add `CODE_OF_CONDUCT.md` (Contributor Covenant)
 
@@ -59,7 +59,7 @@ Goal: publish `@devrouter/cli` as a high-quality, simple OSS package on npm.
 ## M5: Documentation & Publishing
 
 - [ ] Polish README for OSS audience (badges, install instructions via npm, quickstart)
-- [ ] Sync all 6 tracked docs (README, AGENTS.md, GETTING_STARTED, REPO_ONBOARDING, PLAN, demo/README)
+- [ ] Sync tracked docs (README, AGENTS.md, GETTING_STARTED, REPO_ONBOARDING, PLAN, and example READMEs)
 - [ ] Add `CHANGELOG.md`
 - [ ] Set up semantic-release or changesets for versioning
 - [ ] npm publish workflow in GitHub Actions
