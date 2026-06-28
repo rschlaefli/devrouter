@@ -56,9 +56,17 @@ Optional: run bundled smoke demo (host app + docker app + postgres):
 pnpm demo:smoke
 ```
 
-Demo assets live in:
+Sample assets live in:
 
 - [`../demo/README.md`](../demo/README.md)
+- [`../examples/devcontainer/README.md`](../examples/devcontainer/README.md)
+
+For the live DevPod/devcontainer showcase:
+
+```bash
+pnpm devcontainer:smoke
+pnpm devcontainer:smoke down
+```
 
 Release and adaptation notes live in [`../CHANGELOG.md`](../CHANGELOG.md), with prompt files in [`../upgrade-prompts/`](../upgrade-prompts/).
 

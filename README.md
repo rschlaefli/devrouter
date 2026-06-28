@@ -132,6 +132,11 @@ dev workspace down feat/my-feature
 
 **Try it:** [`examples/workspace/`](examples/workspace/) is a runnable showcase — `./run.sh` brings up one app in two parallel worktrees (`wsdemo.localhost` and `wsdemo.feat-a.localhost`) served at once, then `./run.sh down` tears it down.
 
+**DevPod example:** [`examples/devcontainer/`](examples/devcontainer/) is the
+agent-native devcontainer path end to end — `./run.sh` brings up a DevPod
+workspace, registers app/Postgres proxy routes, runs static/live verification,
+and prints the proof. `./run.sh down` tears it down.
+
 **Orphan detection:** `dev doctor` check `routes.orphaned-workspace-routes` reports proxy routes whose worktree directory was removed without `dev workspace down`. It does not mutate route state.
 
 ## Upgrade metadata and prompts
@@ -341,15 +346,24 @@ It contains:
 - Postgres in Docker (`db`)
 - ready-to-use `.devrouter.yml`
 
-Run the end-to-end smoke demo:
+Run the bundled demo smoke:
 
 ```bash
 pnpm demo:smoke
 ```
 
+Run the live DevPod/devcontainer smoke when Docker, DevPod, and mkcert are
+available:
+
+```bash
+pnpm devcontainer:smoke
+pnpm devcontainer:smoke down
+```
+
 See details:
 
 - [`./demo/README.md`](./demo/README.md)
+- [`./examples/devcontainer/README.md`](./examples/devcontainer/README.md)
 
 ## AI agent discoverability
 

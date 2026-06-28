@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 - `dev repo inspect --json` for read-only repository fact gathering: package manager, scripts and likely ports, compose services, env variable names (values redacted), devcontainer presence, devrouter config, and agent guidance files.
 - `dev repo devcontainer write --dry-run --json` and `dev repo devcontainer write --yes` for conservative managed Node/pnpm/Postgres devcontainer scaffolding. Custom existing target files are not overwritten, and non-pnpm repos stop with a structured diagnostic.
 - `dev repo devcontainer verify --json` for read-only onboarding evidence, plus `--live --yes --json` for route registration and HTTP probes after the devcontainer is running.
+- `examples/devcontainer/` plus `pnpm devcontainer:smoke` for a live DevPod/devcontainer app + Postgres showcase.
 - `dev doctor` now reports additional machine/devcontainer diagnostics for Docker Compose v2, mkcert, DevPod, Node/pnpm, devnet aliases, published devcontainer ports, and proxy upstream alias matches.
 
 ### Changed

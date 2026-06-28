@@ -48,9 +48,12 @@ describe("devcontainer write planning", () => {
 
     expect(written.issues).toEqual([]);
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "docker-compose.yml"), "utf-8")).toContain("devrouter:managed devcontainer");
+    expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "docker-compose.yml"), "utf-8")).toContain("10-create-shadow-db.sh");
+    expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "init-db.sh"), "utf-8")).toContain("CREATE DATABASE shadow");
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "devcontainer.env"), "utf-8")).toContain("PORT=3100");
     expect(fs.readFileSync(path.join(tmpDir, ".devrouter.yml"), "utf-8")).toContain("upstream: ${WORKSPACE}-app:3100");
     expect(fs.readFileSync(path.join(tmpDir, ".devrouter.yml"), "utf-8")).toContain("version: 1.2.3");
+    expect(fs.statSync(path.join(tmpDir, ".devcontainer", "init-db.sh")).mode & 0o111).not.toBe(0);
     expect(fs.statSync(path.join(tmpDir, ".devcontainer", "post-start.sh")).mode & 0o111).not.toBe(0);
 
     const second = planDevcontainerWrite({ repo: tmpDir, dryRun: true, installedVersion: "1.2.3" });

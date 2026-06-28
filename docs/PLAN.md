@@ -20,6 +20,7 @@ Delivered and active:
 - Dependency-only docker services via `kind: dependency` (non-routed, dependency lifecycle only)
 - Shared router ownership of `80/443/5432`
 - Bundled demo repo (`demo/.devrouter.yml`) for onboarding rehearsal and smoke validation
+- Live DevPod/devcontainer example (`examples/devcontainer/`) with `pnpm devcontainer:smoke`
 - `dev app exec` for one-shot commands with resolved dependency env
 - argv-safe exec by default with explicit `--shell` opt-in
 - `dev app exec --env-map TARGET=SOURCE` for deterministic env alias mapping
@@ -56,6 +57,8 @@ Required checks for behavior and doc consistency:
 8. `node dist/dev.js doctor --repo ./demo`
 9. `node dist/dev.js repo inspect --repo ./demo --json`
 10. `pnpm demo:smoke` (environment permitting)
+11. `pnpm devcontainer:smoke` when DevPod is available
+12. `pnpm devcontainer:smoke down` after live devcontainer verification
 
 ## Near-term roadmap
 

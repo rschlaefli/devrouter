@@ -106,6 +106,7 @@ services:
         aliases:
           - \${WORKSPACE:-${projectName}}-db
     volumes:
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-create-shadow-db.sh:ro
       - pgdata:/var/lib/postgresql/data
 
   app:
@@ -136,6 +137,18 @@ networks:
 volumes:
   pgdata:
   node_modules:
+`;
+}
+
+function renderInitDb(): string {
+  return `#!/usr/bin/env bash
+# ${MANAGED_MARKER}
+set -euo pipefail
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+SELECT 'CREATE DATABASE shadow'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'shadow')\\gexec
+SQL
 `;
 }
 
@@ -305,6 +318,7 @@ function plannedFiles(
     files: [
       { relativePath: ".devcontainer/Dockerfile", content: renderDockerfile(nodeMajor, pnpmVersion) },
       { relativePath: ".devcontainer/docker-compose.yml", content: renderCompose(projectName) },
+      { relativePath: ".devcontainer/init-db.sh", content: renderInitDb(), executable: true },
       { relativePath: ".devcontainer/devcontainer.json", content: renderDevcontainerJson(projectName) },
       { relativePath: ".devcontainer/devcontainer.env", content: renderEnv(projectName, port) },
       { relativePath: ".devcontainer/post-create.sh", content: renderPostCreate(), executable: true },

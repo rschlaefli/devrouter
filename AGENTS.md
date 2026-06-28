@@ -109,7 +109,9 @@ Supported routing:
 - `src/types.ts`: shared types
 - `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
 - `examples/workspace/`: runnable workspace-isolation showcase (`${WORKSPACE}` proxy upstream + `dev workspace up/ls/down` over two real git worktrees; `run.sh` brings up two namespaced hosts and prints the proof)
+- `examples/devcontainer/`: live DevPod/devcontainer showcase with app + Postgres proxy routes and static/live verify evidence
 - `scripts/smoke-demo.sh`: end-to-end demo smoke script
+- `scripts/smoke-devcontainer.sh`: live DevPod/devcontainer smoke script
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `dev upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
@@ -173,7 +175,7 @@ Supported routing:
 
 1. Commit all implementation changes (fix/feature commits first, separate from release commit).
 2. Bump `version` in `package.json` to `0.0.X`.
-3. Bump `devrouter.version` in `demo/.devrouter.yml` to `0.0.X`.
+3. Bump `devrouter.version` in `demo/.devrouter.yml` and `examples/devcontainer/.devrouter.yml` to `0.0.X`.
 4. Add `[0.0.X]` section in `CHANGELOG.md` between `[Unreleased]` and previous release. Include `### Agent Adaptation Prompt` referencing `./upgrade-prompts/0.0.X.md`.
 5. Create `upgrade-prompts/0.0.X.md` with: changes summary, task (bump version, schema migration if any, refresh artifacts), validation steps, report template.
 6. Update `.agents/skills/devrouter/SKILL.md` and `src/core/ai-prompt.ts` to reflect any schema, env injection, CLI flag, or config changes in this release. Run `ai-prompt.test.ts` to verify consistency.
@@ -190,4 +192,6 @@ Supported routing:
 6. `dev doctor --repo ./demo`
 7. `dev repo inspect --repo ./demo --json`
 8. `pnpm demo:smoke` for full route showcase/regression smoke
-9. Update docs for any behavior/surface changes
+9. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
+10. `pnpm devcontainer:smoke down` after live devcontainer verification
+11. Update docs for any behavior/surface changes

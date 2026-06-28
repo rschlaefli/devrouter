@@ -41,8 +41,14 @@ Status: **approved, executing**. Last updated: 2026-06-28.
   - Added guarded `dev repo devcontainer verify --live --yes --json`; live mode registers proxy routes with a quiet route-only path and probes HTTP routes without invoking the full app-run dependency lifecycle.
   - Accepted Fermat/Kuhn findings: no `runConfiguredApp` in live verify, parseable JSON with no stdout prefix, runtime workspace hosts for live probes, no duplicated doctor checks in top-level JSON, parent CLI description updated, prompt/skill flow includes `write --yes` before verify.
   - Evidence: `pnpm exec vitest run src/core/__tests__/devcontainer-verify.test.ts src/commands/__tests__/repo-devcontainer.test.ts src/core/__tests__/agents-md.test.ts src/core/__tests__/ai-prompt.test.ts`; `pnpm typecheck`; `pnpm check:docs-policy`; `pnpm build`; generated temp-repo static verify JSON exits 0; live guard JSON exits 1 with `repo.devcontainer.verify-live-confirmation`; live `--yes --json` parseability check emitted JSON first and cleaned temporary route; escalated `pnpm test` passed (36 files, 318 tests).
-- Active slice: S5 Real devcontainer example.
-- Next: add one runnable devcontainer/devrouter example and verify it end to end on this machine.
+- 2026-06-28: S5 implemented and verified.
+  - Added `examples/devcontainer/` with a zero-dependency Node app, Postgres, real `.devcontainer/`, proxy-only `.devrouter.yml`, and a live smoke script.
+  - Added `pnpm devcontainer:smoke` / `pnpm devcontainer:smoke down`; the smoke runs setup, static verify, DevPod startup, live route verify, app JSON assertion, and direct-SSL Postgres checks for both `prisma` and `shadow`.
+  - Extended the generated devcontainer template with a managed Postgres init hook so `SHADOW_DATABASE_URL` points to a real database on fresh volumes.
+  - Accepted Gibbs/Lorentz findings: fixed command/docs drift around `--live --yes --json`, removed misleading workspace override, added cleanup commands to validation docs, added example version metadata to the release checklist, asserted app response body, made `psql` direct-SSL robust, and created/smoked the `shadow` database.
+  - Evidence: `bash -n examples/devcontainer/run.sh scripts/smoke-devcontainer.sh examples/devcontainer/.devcontainer/init-db.sh examples/devcontainer/.devcontainer/post-start.sh`; focused devcontainer tests; `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`; escalated static `node dist/dev.js repo devcontainer verify --repo examples/devcontainer --json` exits 0 with 5 ok checks; escalated `pnpm devcontainer:smoke` passes with live verify 7 ok checks, app JSON `{"ok":true,"workspace":"devcontainer-demo","port":3000}`, and two direct-SSL `psql` checks returning `1`; `pnpm devcontainer:smoke down` passes; escalated `pnpm test` passes (36 files, 318 tests).
+- Active slice: S6 Docs and PR evidence loop.
+- Next: bring README/devcontainer/onboarding docs, bundled skills, and AI prompt into final showcase-ready consistency.
 
 ## Problem
 
@@ -213,7 +219,7 @@ Example JSON shape:
 dev repo devcontainer write --dry-run --json
 dev repo devcontainer write --yes
 dev repo devcontainer verify --json
-dev repo devcontainer verify --live --json --yes
+dev repo devcontainer verify --live --yes --json
 ```
 
 Purpose:
@@ -657,7 +663,7 @@ Command shape:
 
 ```bash
 dev repo devcontainer verify --json
-dev repo devcontainer verify --live --json --yes
+dev repo devcontainer verify --live --yes --json
 ```
 
 Why `--live`:
@@ -707,7 +713,7 @@ Smoke:
 - `dev up`
 - `dev tls install`
 - `devpod up .`
-- `dev repo devcontainer verify --live --json`
+- `dev repo devcontainer verify --live --yes --json`
 - curl app
 - psql direct-SSL if local `psql` available, else skip with structured warning
 - workspace up/down if feasible
@@ -805,7 +811,7 @@ Live checks:
 
 - `dev setup --yes --json`
 - `dev doctor --json`
-- `dev repo devcontainer verify --live --json`
+- `dev repo devcontainer verify --live --yes --json`
 - `examples/devcontainer/run.sh`
 - `examples/devcontainer/run.sh down`
 
