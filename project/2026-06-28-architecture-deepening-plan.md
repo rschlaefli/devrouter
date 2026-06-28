@@ -47,6 +47,12 @@ Status: **in progress, S2 ready to commit**. Last updated: 2026-06-28.
   S2 unit set `28 passed`; app-run/exec `46 passed` with loopback access; `pnpm typecheck`; `pnpm build`; `node
   dist/dev.js doctor --repo ./demo` (`18 OK`, `0 WARN`, `0 ERROR`); isolated temp-`HOME` route-state smoke; workspace
   example up/down. Next: commit S2, then record S4/S5 go/no-go checkpoint before optional code.
+- 2026-06-28: S2 committed as `50f15d6` (`refactor(routes): deepen route state ownership`).
+- 2026-06-28: Optional checkpoint recorded. S4 route inventory: **No-go**. Evidence: `ls`, `open`, and `doctor`
+  still collect Docker + host routes, but the remaining code is thin orchestration over existing helpers and inventory
+  would mostly forward calls. S5 workspace identity: **No-go**. Evidence: path matching/removal now sits in
+  route-state; remaining workspace token/default-worktree behavior is cohesive in `workspace.ts` and
+  `workspace-lifecycle.ts`. Next: start S3 config capability facts.
 
 ## Goal
 
