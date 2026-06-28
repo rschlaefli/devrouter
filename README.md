@@ -76,10 +76,52 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `dev repo agents [--repo <path>] [--with-linear]`
 - `dev app add ...` (`--kind app|dependency`, default `app`)
 - `dev app ls [--repo <path>] [--json]`
-- `dev app run <name> [--repo <path>] [--yes]`
-- `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env-map TARGET=SOURCE] -- <command>`
+- `dev app run <name> [--repo <path>] [--yes] [--workspace <slug>]`
+- `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env-map TARGET=SOURCE] [--workspace <slug>] -- <command>`
 - `dev app rm <name> [--repo <path>]`
 - `dev logs [-f]`
+- `dev workspace up <branch> [--path <dir>] [--no-devpod] [--open] [--repo <path>]`
+- `dev workspace ls [--repo <path>] [--json]`
+- `dev workspace down <workspace|branch> [--keep-worktree] [--keep-devpod] [--repo <path>]`
+
+## Workspace isolation (parallel worktrees)
+
+A **workspace token** lets several git worktrees of the same repo run side-by-side without host or route collisions. The token is a single identity spanning three layers: the devpod workspace id, the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` proxy upstreams and devcontainer compose network aliases.
+
+**Token resolution precedence** (highest to lowest):
+
+1. `--workspace <slug>` CLI flag
+2. `DEVROUTER_WORKSPACE` environment variable
+3. Auto-derived from the linked git worktree's branch name (sanitized: lowercase, non-alphanumeric → `-`, capped at 32 chars)
+4. None — the primary checkout uses no token and routes exactly as a plain repo (back-compatible)
+
+**When a workspace token is active:**
+
+- Hosts are auto-namespaced: `web.localhost` → `web.<ws>.localhost`
+- `${WORKSPACE}` in a proxy app's `upstream` (e.g. `upstream: ${WORKSPACE}-app:3000`) is substituted with the token at runtime
+- The committed `.devrouter.yml` is never rewritten — all namespacing is computed in memory
+- TLS: namespaced hosts are not covered by `*.localhost`; devrouter auto-extends mkcert cert SANs for active workspace hosts
+
+`${WORKSPACE}` is valid in `upstream` only. Using it in `host` is rejected (hosts are namespaced automatically).
+
+**Typical workflow:**
+
+```bash
+# Bring up a feature branch as an isolated workspace
+dev workspace up feat/my-feature
+
+# List git worktrees with workspace tokens and route counts
+dev workspace ls
+
+# Tear down a workspace (stop devpod, remove worktree, free routes)
+dev workspace down feat/my-feature
+```
+
+**devcontainer integration:** the devcontainer compose service exposes a devnet network alias `${WORKSPACE}-app` (defaulting to the project name in `devcontainer.env`); the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. Workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.
+
+**Try it:** [`examples/workspace/`](examples/workspace/) is a runnable showcase — `./run.sh` brings up one app in two parallel worktrees (`wsdemo.localhost` and `wsdemo.feat-a.localhost`) served at once, then `./run.sh down` tears it down.
+
+**GC:** `dev doctor` check `routes.orphaned-workspace-routes` reclaims proxy routes whose worktree directory was removed without `dev workspace down`. Only orphaned workspace routes are reclaimed; primary-checkout routes are never touched.
 
 ## Upgrade metadata and prompts
 
@@ -153,6 +195,7 @@ dev doctor --repo /absolute/path/to/repo --json
 `dev status` now includes readiness hints and next-step commands.
 For host apps that depend on postgres, `dev doctor` also checks host command wrapper precedence and warns with `repo.host-command-env-precedence` when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 When TLS is enabled, `dev doctor` also checks TLS host coverage and warns with `repo.tls-host-coverage` if configured `.localhost` hosts are not covered by the current cert SANs.
+`dev doctor` also reclaims orphaned workspace proxy routes (`routes.orphaned-workspace-routes`) whose worktree directory was removed without `dev workspace down`.
 
 ## `.devrouter.yml` example
 
@@ -199,11 +242,13 @@ apps:
 
   # Route to an already-running port (e.g. a devcontainer's published app).
   # No lifecycle, env injection, or dependencies — devrouter only registers the route.
+  # Use ${WORKSPACE} in upstream for parallel-worktree isolation (see "Workspace isolation").
   - name: app
     host: app.localhost
     protocol: http
     runtime: proxy
     upstream: 127.0.0.1:3000
+    # upstream: ${WORKSPACE}-app:3000   # workspace-aware variant
 ```
 
 Notes:
@@ -221,11 +266,11 @@ Notes:
 
 - reads `.devrouter.yml`
 - prompts to start declared dependencies (or use `--yes`)
-- starts only declared docker dependency services
+- starts docker target services for `runtime: docker` apps, plus declared docker dependencies
 - for `runtime: proxy` apps: registers the route to `upstream` and returns immediately (no process started, no dependencies); re-running is an idempotent upsert and the route persists until `dev app rm`
 - fails fast if host-runtime dependencies are configured (start those manually)
 - waits for Docker dependencies to become healthy (`--wait`) before proceeding
-- automatically stops Docker dependencies when the host app exits
+- automatically stops Docker dependencies when a host app exits; docker app services remain running until explicit cleanup (`docker compose down`, `dev down`, or equivalent)
 - prints recent dependency logs (last 20 lines) after deps start
 - `kind=dependency` apps are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`
 - `kind=dependency` services start as declared in compose (no Traefik labels, no random published ports, no injected env vars)

@@ -4,6 +4,7 @@ import type {
   DevrouterApp,
   DevrouterConfig,
   DevrouterDockerDependencyApp,
+  DevrouterDockerHttpApp,
   DevrouterDockerTcpApp,
   DevrouterHostHttpApp
 } from "../../types";
@@ -124,6 +125,19 @@ const POSTGRES_DEP: DevrouterDockerTcpApp = {
   docker: {
     service: "db",
     internalPort: 5432,
+    composeFiles: ["docker-compose.yml"],
+  },
+};
+
+const DOCKER_APP: DevrouterDockerHttpApp = {
+  name: "web-docker",
+  host: "web-docker.localhost",
+  protocol: "http",
+  runtime: "docker",
+  dependencies: [],
+  docker: {
+    service: "app",
+    internalPort: 3000,
     composeFiles: ["docker-compose.yml"],
   },
 };
@@ -980,5 +994,70 @@ describe("runConfiguredApp", () => {
     const spawnOptions = spawnMock.mock.calls[0]?.[1] as { env: Record<string, string> };
     expect(spawnOptions.env.DB_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
     expect(spawnOptions.env.DATABASE_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+  });
+
+  it("starts a docker app without dependencies and leaves it running", async () => {
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([DOCKER_APP]),
+      app: DOCKER_APP,
+    });
+    resolveAppDependenciesMock.mockReturnValue([]);
+    prepareDockerOverlayMock.mockReturnValue({
+      overlayPath: "/overlay.yml",
+      composeFiles: ["docker-compose.yml"],
+      dockerApps: [DOCKER_APP],
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const result = await runConfiguredApp({
+      name: "web-docker",
+      repoPath: "/repo",
+      yes: true,
+    });
+    stdoutSpy.mockRestore();
+
+    expect(runDockerComposeUpMock).toHaveBeenCalledWith(
+      "/repo",
+      ["docker-compose.yml"],
+      "/overlay.yml",
+      ["app"]
+    );
+    expect(runDockerComposeStopMock).not.toHaveBeenCalled();
+    expect(result.startedServices).toEqual(["app"]);
+  });
+
+  it("starts docker app dependencies without stopping them after run returns", async () => {
+    const appWithDep = {
+      ...DOCKER_APP,
+      dependencies: [{ app: POSTGRES_DEP.name }],
+    };
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([appWithDep, POSTGRES_DEP]),
+      app: appWithDep,
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+    prepareDockerOverlayMock.mockReturnValue({
+      overlayPath: "/overlay.yml",
+      composeFiles: ["docker-compose.yml"],
+      dockerApps: [appWithDep, POSTGRES_DEP],
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const result = await runConfiguredApp({
+      name: "web-docker",
+      repoPath: "/repo",
+      yes: true,
+    });
+    stdoutSpy.mockRestore();
+
+    expect(runDockerComposeUpMock).toHaveBeenCalledWith(
+      "/repo",
+      ["docker-compose.yml"],
+      "/overlay.yml",
+      ["app", "db"]
+    );
+    expect(runDockerComposeStopMock).not.toHaveBeenCalled();
+    expect(result.startedServices).toEqual(["app", "db"]);
+    expect(result.dependencyApps).toEqual(["db"]);
   });
 });

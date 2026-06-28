@@ -6,6 +6,7 @@ export async function runAppExecCommand(options: {
   yes?: boolean;
   shell?: boolean;
   env?: string;
+  workspace?: string;
   command: string[];
 }): Promise<void> {
   const result = await execWithAppEnv({
@@ -14,6 +15,7 @@ export async function runAppExecCommand(options: {
     yes: options.yes,
     shell: options.shell,
     env: options.env,
+    workspace: options.workspace,
     command: options.command
   });
 

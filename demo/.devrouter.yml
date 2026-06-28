@@ -1,6 +1,6 @@
 version: 1
 devrouter:
-  version: 0.0.21
+  version: 0.0.22
 project:
   name: devrouter-demo
 
@@ -43,10 +43,6 @@ apps:
     runtime: docker
     dependencies:
       - app: db
-        envMap:
-          DATABASE_URL: DB_URL
-          DIRECT_URL: DB_URL
-          SHADOW_DATABASE_URL: DB_SHADOW_URL
     docker:
       service: app
       internalPort: 3000

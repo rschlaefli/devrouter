@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runOpenCommand } from "../open";
 import type { Route } from "../../types";
 import { discoverRoutes } from "../../core/routes";
-import { loadRepoConfig } from "../../core/repo-config";
+import { loadRuntimeConfig } from "../../core/repo-config";
 
 vi.mock("../../core/docker", () => ({
   listContainers: vi.fn(async () => []),
@@ -24,7 +24,7 @@ vi.mock("../../core/router", () => ({
 }));
 
 vi.mock("../../core/repo-config", () => ({
-  loadRepoConfig: vi.fn(),
+  loadRuntimeConfig: vi.fn(),
   resolveRepoPath: vi.fn(() => "/repo"),
   getRepoConfigPath: vi.fn(() => "/repo/.devrouter.yml"),
 }));
@@ -71,23 +71,26 @@ describe("runOpenCommand", () => {
       routes: [makeTcpRoute()],
       duplicateHosts: [],
     });
-    vi.mocked(loadRepoConfig).mockReturnValue({
-      version: 1,
-      apps: [
-        {
-          name: "db",
-          host: "db.elearning.klicker.localhost",
-          protocol: "tcp",
-          tcpProtocol: "postgres",
-          runtime: "docker",
-          dependencies: [],
-          docker: {
-            service: "postgres",
-            internalPort: 5432,
-            composeFiles: ["docker-compose.yml"],
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      workspace: undefined,
+      config: {
+        version: 1,
+        apps: [
+          {
+            name: "db",
+            host: "db.elearning.klicker.localhost",
+            protocol: "tcp",
+            tcpProtocol: "postgres",
+            runtime: "docker",
+            dependencies: [],
+            docker: {
+              service: "postgres",
+              internalPort: 5432,
+              composeFiles: ["docker-compose.yml"],
+            },
           },
-        },
-      ],
+        ],
+      },
     });
 
     await runOpenCommand("db");
@@ -101,23 +104,26 @@ describe("runOpenCommand", () => {
       routes: [makeTcpRoute({ hosts: ["other.localhost"], urls: ["postgres://other.localhost:5432 (tls required)"] })],
       duplicateHosts: [],
     });
-    vi.mocked(loadRepoConfig).mockReturnValue({
-      version: 1,
-      apps: [
-        {
-          name: "db",
-          host: "db.elearning.klicker.localhost",
-          protocol: "tcp",
-          tcpProtocol: "postgres",
-          runtime: "docker",
-          dependencies: [],
-          docker: {
-            service: "postgres",
-            internalPort: 5432,
-            composeFiles: ["docker-compose.yml"],
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      workspace: undefined,
+      config: {
+        version: 1,
+        apps: [
+          {
+            name: "db",
+            host: "db.elearning.klicker.localhost",
+            protocol: "tcp",
+            tcpProtocol: "postgres",
+            runtime: "docker",
+            dependencies: [],
+            docker: {
+              service: "postgres",
+              internalPort: 5432,
+              composeFiles: ["docker-compose.yml"],
+            },
           },
-        },
-      ],
+        ],
+      },
     });
 
     await expect(runOpenCommand("db")).rejects.toThrow(
@@ -130,20 +136,23 @@ describe("runOpenCommand", () => {
       routes: [makeTcpRoute()],
       duplicateHosts: [],
     });
-    vi.mocked(loadRepoConfig).mockReturnValue({
-      version: 1,
-      apps: [
-        {
-          kind: "dependency",
-          name: "redis",
-          runtime: "docker",
-          dependencies: [],
-          docker: {
-            service: "redis",
-            composeFiles: ["docker-compose.yml"],
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      workspace: undefined,
+      config: {
+        version: 1,
+        apps: [
+          {
+            kind: "dependency",
+            name: "redis",
+            runtime: "docker",
+            dependencies: [],
+            docker: {
+              service: "redis",
+              composeFiles: ["docker-compose.yml"],
+            },
           },
-        },
-      ],
+        ],
+      },
     });
 
     await expect(runOpenCommand("redis")).rejects.toThrow(

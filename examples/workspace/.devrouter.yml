@@ -1,0 +1,16 @@
+version: 1
+devrouter:
+  version: 0.0.22 # ${WORKSPACE} upstream token requires >= 0.0.22
+project:
+  name: wsdemo
+apps:
+  # HTTP proxy route to the app container's devnet alias (no published host port).
+  # The ${WORKSPACE} token keeps the route and the alias on one identity:
+  #   primary checkout   -> wsdemo-app  @ https://wsdemo.localhost
+  #   worktree `feat-a`  -> feat-a-app  @ https://wsdemo.feat-a.localhost
+  # ${WORKSPACE} is upstream-only; the host is namespaced automatically.
+  - name: app
+    host: wsdemo.localhost
+    protocol: http
+    runtime: proxy
+    upstream: ${WORKSPACE}-app:3000

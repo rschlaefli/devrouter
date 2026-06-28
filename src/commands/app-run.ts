@@ -5,12 +5,14 @@ export async function runAppRunCommand(options: {
   repo?: string;
   yes?: boolean;
   env?: string;
+  workspace?: string;
 }): Promise<void> {
   const result = await runConfiguredApp({
     name: options.name,
     repoPath: options.repo,
     yes: options.yes,
-    env: options.env
+    env: options.env,
+    workspace: options.workspace
   });
   if (result.startedServices.length > 0) {
     process.stdout.write(

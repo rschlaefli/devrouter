@@ -16,9 +16,10 @@ Supported route types:
 
 - HTTP host-run apps
 - HTTP docker apps
-- HTTP proxy apps (`runtime: proxy`, route to an already-running `upstream`)
+- HTTP proxy apps (`runtime: proxy`, route to an already-running `upstream`; supports `${WORKSPACE}` placeholder for parallel-worktree isolation)
 - TCP PostgreSQL docker apps (TLS/SNI on shared `:5432`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
+- Parallel git worktrees via `dev workspace up/ls/down` with auto-namespaced `.localhost` hosts
 
 Scope:
 
@@ -82,7 +83,7 @@ Docker compose file guidance:
 - Every dependency service **must** define a `healthcheck` (devrouter uses `--wait` to block until healthy)
 - Services **must not** publish host ports for devrouter-owned ports (80, 443, 5432)
 - Services **should not** publish host ports at all; use devrouter hostnames instead
-- `dev app run` waits for deps to become healthy, auto-stops them on exit, and prints recent dep logs
+- `dev app run` waits for deps to become healthy, auto-stops docker deps when a host app exits, leaves docker app targets running until explicit cleanup, and prints recent dep logs
 
 ## 4) Fast path
 
@@ -328,7 +329,38 @@ Required Linear execution hygiene:
 3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
 4. Re-check status and comment freshness toward/at session end before stopping.
 
-## 10) AI agent prompt (single copy-paste)
+## 10) Workspace isolation (parallel worktrees)
+
+Multiple git worktrees of the same repo can run concurrently using a **workspace token** — a short slug that namespaces hosts and routes so they do not collide.
+
+**Token precedence:** `--workspace <slug>` flag > `DEVROUTER_WORKSPACE` env var > auto-derived from the worktree branch name > none (primary checkout routes as plain, back-compatible).
+
+**Proxy upstream placeholder:** use `${WORKSPACE}` in the `upstream` field of a `runtime: proxy` app so devrouter substitutes the active token at runtime. Using `${WORKSPACE}` in `host` is rejected — hosts are auto-namespaced automatically.
+
+```yaml
+- name: app
+  host: app.localhost        # → app.<ws>.localhost when workspace is active
+  protocol: http
+  runtime: proxy
+  upstream: ${WORKSPACE}-app:3000   # → feat-a-app:3000 for workspace feat-a
+```
+
+**Lifecycle:**
+
+```bash
+# Create worktree, start devpod, register routes
+dev workspace up feat/my-feature
+
+# List worktrees with workspace tokens and route counts
+dev workspace ls
+
+# Free routes, stop devpod, remove worktree
+dev workspace down feat/my-feature
+```
+
+`dev doctor` check `routes.orphaned-workspace-routes` reclaims routes whose worktree was removed without `dev workspace down`.
+
+## 11) AI agent prompt (single copy-paste)
 
 Use this as the only onboarding prompt for agents:
 
@@ -360,7 +392,7 @@ With `--with-linear` + AGENTS writes, devrouter asks for:
 - team name (optional team key)
 - project name (optional project id)
 
-## 11) Definition of done
+## 12) Definition of done
 
 - `.devrouter.yml` exists and validates.
 - `dev app ls` and `dev ls` are correct.

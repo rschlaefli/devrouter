@@ -22,6 +22,7 @@ type UpsertHostRouteInput = {
   upstreamHost?: string;
   pid?: number;
   command?: string;
+  workspace?: string;
 };
 
 // Loopback hostnames a user would write for a port on their own machine. Traefik
@@ -195,6 +196,55 @@ function writeState(routes: HostRouteState[]): void {
   writeHostRoutesDynamicFile(routes, isTLSEnabled());
 }
 
+const STATE_LOCK_FILE = `${HOST_ROUTES_STATE_FILE}.lock`;
+
+function sleepSync(ms: number): void {
+  // Synchronous, busy-wait-free sleep (no async refactor of the spawn-heavy run path).
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Serialize read-modify-write of the shared host-route state file across
+ * processes. Parallel workspace runs (`dev app run` from several worktrees of the
+ * same repo) otherwise race the read-modify-write and clobber each other's routes.
+ * Uses an `O_EXCL` lockfile with a bounded wait; a lock older than the deadline is
+ * assumed stale (crashed process) and reclaimed.
+ */
+function withStateLock<T>(fn: () => T): T {
+  ensureHostRouteStorage();
+  const deadline = Date.now() + 5000;
+  let fd: number;
+  for (;;) {
+    try {
+      fd = fs.openSync(STATE_LOCK_FILE, "wx");
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw err;
+      }
+      if (Date.now() >= deadline) {
+        try {
+          fs.rmSync(STATE_LOCK_FILE, { force: true });
+        } catch {
+          // Another waiter reclaimed it first; loop and retry.
+        }
+        continue;
+      }
+      sleepSync(20);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    fs.closeSync(fd);
+    try {
+      fs.rmSync(STATE_LOCK_FILE, { force: true });
+    } catch {
+      // Best effort: a stale-lock reclaim may have already removed it.
+    }
+  }
+}
+
 export function refreshHostRoutesDynamicFile(): void {
   const routes = listHostRouteState();
   writeHostRoutesDynamicFile(routes, isTLSEnabled());
@@ -223,74 +273,81 @@ export function listHostRouteState(): HostRouteState[] {
 }
 
 export function upsertHostRoute(input: UpsertHostRouteInput): HostRouteState {
-  const routes = listHostRouteState();
-  const id = buildHostRouteId(input.repoPath, input.name);
-  const existing = routes.find((route) => route.id === id);
-  const now = new Date().toISOString();
+  return withStateLock(() => {
+    const routes = listHostRouteState();
+    const id = buildHostRouteId(input.repoPath, input.name);
+    const existing = routes.find((route) => route.id === id);
+    const now = new Date().toISOString();
 
-  const next: HostRouteState = {
-    id,
-    name: input.name,
-    host: input.host,
-    protocol: input.protocol ?? "http",
-    tcpProtocol: input.tcpProtocol,
-    repoPath: input.repoPath,
-    port: input.port,
-    mode: input.mode,
-    upstreamHost: input.upstreamHost,
-    pid: input.pid,
-    command: input.command,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now
-  };
+    const next: HostRouteState = {
+      id,
+      name: input.name,
+      host: input.host,
+      protocol: input.protocol ?? "http",
+      tcpProtocol: input.tcpProtocol,
+      repoPath: input.repoPath,
+      port: input.port,
+      mode: input.mode,
+      upstreamHost: input.upstreamHost,
+      pid: input.pid,
+      command: input.command,
+      workspace: input.workspace,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
 
-  const remaining = routes.filter((route) => route.id !== id);
-  remaining.push(next);
-  remaining.sort((a, b) => a.name.localeCompare(b.name) || a.repoPath.localeCompare(b.repoPath));
-  writeState(remaining);
-  return next;
+    const remaining = routes.filter((route) => route.id !== id);
+    remaining.push(next);
+    remaining.sort((a, b) => a.name.localeCompare(b.name) || a.repoPath.localeCompare(b.repoPath));
+    writeState(remaining);
+    return next;
+  });
 }
 
 export function removeHostRouteById(id: string): boolean {
-  const routes = listHostRouteState();
-  const next = routes.filter((route) => route.id !== id);
-  if (next.length === routes.length) {
-    return false;
-  }
+  return withStateLock(() => {
+    const routes = listHostRouteState();
+    const next = routes.filter((route) => route.id !== id);
+    if (next.length === routes.length) {
+      return false;
+    }
 
-  writeState(next);
-  return true;
+    writeState(next);
+    return true;
+  });
 }
 
 export function removeHostRouteByName(name: string, repoPath?: string): HostRouteState {
-  const routes = listHostRouteState();
-  const matches = routes.filter((route) => {
-    if (route.name !== name) {
-      return false;
+  return withStateLock(() => {
+    const routes = listHostRouteState();
+    const matches = routes.filter((route) => {
+      if (route.name !== name) {
+        return false;
+      }
+
+      if (repoPath && route.repoPath !== repoPath) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (matches.length === 0) {
+      throw new Error(`No host route named '${name}' found.`);
     }
 
-    if (repoPath && route.repoPath !== repoPath) {
-      return false;
+    if (matches.length > 1 && !repoPath) {
+      const refs = matches.map((route) => `${route.name} (${route.repoPath})`).join(", ");
+      throw new Error(
+        `Multiple host routes named '${name}' exist. Re-run with --repo to disambiguate: ${refs}`
+      );
     }
 
-    return true;
+    const match = matches[0];
+    const next = routes.filter((route) => route.id !== match.id);
+    writeState(next);
+    return match;
   });
-
-  if (matches.length === 0) {
-    throw new Error(`No host route named '${name}' found.`);
-  }
-
-  if (matches.length > 1 && !repoPath) {
-    const refs = matches.map((route) => `${route.name} (${route.repoPath})`).join(", ");
-    throw new Error(
-      `Multiple host routes named '${name}' exist. Re-run with --repo to disambiguate: ${refs}`
-    );
-  }
-
-  const match = matches[0];
-  const next = routes.filter((route) => route.id !== match.id);
-  writeState(next);
-  return match;
 }
 
 export function listHostRoutes(tlsEnabled: boolean): Route[] {

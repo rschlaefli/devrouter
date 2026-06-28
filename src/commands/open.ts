@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { listContainers } from "../core/docker";
 import { listHostRoutes } from "../core/host-routes";
-import { getRepoConfigPath, loadRepoConfig, resolveRepoPath } from "../core/repo-config";
+import { getRepoConfigPath, loadRuntimeConfig, resolveRepoPath } from "../core/repo-config";
 import { discoverRoutes, resolveRouteByName } from "../core/routes";
 import { DEVNET_NAME, isTLSEnabled } from "../core/router";
 import type { Route } from "../types";
@@ -11,7 +11,7 @@ function resolveByConfiguredAppName(routes: Route[], name: string): Route | unde
 
   let config;
   try {
-    config = loadRepoConfig(repoPath);
+    config = loadRuntimeConfig(repoPath).config;
   } catch {
     return undefined;
   }

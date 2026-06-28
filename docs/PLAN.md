@@ -24,6 +24,13 @@ Delivered and active:
 - `dev app run` / `dev app exec` auto-refresh TLS SAN coverage for configured repo hosts
 - Agent discoverability flow via `dev repo agents`
 - Optional Linear workflow bootstrap via `dev init --with-linear` / `dev repo agents --with-linear`
+- Workspace isolation: `dev workspace up/ls/down` for parallel git worktrees of one repo
+  - Three-layer identity: devpod workspace id, devrouter route namespace, and `${WORKSPACE}` upstream placeholder
+  - Token resolution: `--workspace` flag > `DEVROUTER_WORKSPACE` env var > branch-derived slug > none (primary checkout, back-compatible)
+  - Hosts auto-namespaced in memory (`web.localhost` → `web.<ws>.localhost`); committed `.devrouter.yml` is never rewritten
+  - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`
+  - TLS SAN auto-extended for active workspace hosts
+  - `dev doctor` GC check `routes.orphaned-workspace-routes` for worktrees removed without `dev workspace down`
 
 ## Documentation policy
 
@@ -83,3 +90,6 @@ Required checks for behavior and doc consistency:
 - `kind: dependency` remains docker-only and non-routed.
 - `dev app exec` teardown is ownership-aware and non-destructive on ownership uncertainty.
 - Upgrade flows read local repo version from `.devrouter.yml` and prompt files from `upgrade-prompts/`.
+- Workspace namespacing is computed in memory only; the committed `.devrouter.yml` is never rewritten by workspace operations.
+- `${WORKSPACE}` is intentionally scoped to `upstream` only — `host` auto-namespacing is the authoritative mechanism to prevent collisions.
+- Primary-checkout routes (no workspace token) are never touched by workspace GC or teardown operations.

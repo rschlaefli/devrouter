@@ -43,6 +43,10 @@ apps:
     # so a devcontainer container ON devnet (with a network alias) can be fronted
     # by NAME with NO published host port: upstream: <alias>:3000. This is the
     # collision-free way to run many apps at once (each its own *.localhost).
+    # upstream may use the ${WORKSPACE} placeholder (e.g. ${WORKSPACE}-app:3000)
+    # to target a per-workspace devcontainer alias — substituted with the resolved
+    # workspace token at runtime. See "Workspace isolation" below. Do NOT put
+    # ${WORKSPACE} in `host` (rejected); the host is auto-namespaced.
     #
     # proxy + tcp (front a DB in an externally-managed container, e.g. a
     # devcontainer's Postgres on devnet) — no per-DB host port:
@@ -121,6 +125,16 @@ Host apps also receive `PORT` (random free port), `HOSTNAME=0.0.0.0`, `HOST=0.0.
 
 Config-level `envMap` on dependency references aliases per-dep vars to app-expected names (for example `DATABASE_URL: DB_URL` maps the per-dep `DB_URL` to `DATABASE_URL`).
 
+## Workspace isolation (parallel git worktrees / agents)
+
+Run several worktrees of one repo in parallel without host/route collisions. A **workspace token** is a single identity spanning three layers: the devpod workspace id (`devpod up --id <ws>`), the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` upstreams + the devcontainer compose network alias.
+
+- **Token resolution** (precedence): `--workspace <slug>` flag > `DEVROUTER_WORKSPACE` env var > auto-derived from a linked git worktree branch (sanitized: lowercase, non-alphanumeric → `-`, capped at 32 chars) > none. The primary checkout resolves to no token and routes exactly as before (back-compatible).
+- **When active**: hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`), `${WORKSPACE}` in `upstream` is substituted with the token, and the docker `router` key is suffixed per workspace. The runtime config is computed in memory only — the committed `.devrouter.yml` is never rewritten.
+- **TLS**: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.
+- **devcontainer integration**: the devcontainer compose service exposes a devnet alias `${WORKSPACE}-app` (default `WORKSPACE=<project>` in `devcontainer.env`); the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. Workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.
+- **Lifecycle**: `dev workspace up <branch>` (create worktree + devpod + routes), `dev workspace ls` (list worktrees/tokens/route counts), `dev workspace down <workspace|branch>` (free routes by state-file workspace tag + stop devpod + remove worktree). `dev doctor` reclaims orphaned workspace proxy routes whose worktree dir was removed without `dev workspace down`.
+
 ## Secret manager interop (Infisical/Doppler)
 
 - Config-based SM integration: set `secretManager.command` in `.devrouter.yml` (include trailing `--`). devrouter wraps commands and re-injects dep env vars after the SM boundary.
@@ -190,9 +204,12 @@ Config-level `envMap` on dependency references aliases per-dep vars to app-expec
 - `dev repo agents [--with-linear]`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
 - `dev app add`: add/update app entry in `.devrouter.yml`
 - `dev app ls`: list app entries
-- `dev app run <name> [--env <env>]`: run app with dependency lifecycle (--env overrides SM defaultEnv)
-- `dev app exec <name> [--shell] [--env <env>] -- <cmd>`: one-shot command with resolved dep env
-- `dev app rm <name>`: remove app entry
+- `dev app run <name> [--env <env>] [--workspace <slug>]`: run app with dependency lifecycle (--env overrides SM defaultEnv; --workspace overrides the per-workspace token)
+- `dev app exec <name> [--shell] [--env <env>] [--workspace <slug>] -- <cmd>`: one-shot command with resolved dep env
+- `dev app rm <name> [--keep-config]`: remove app entry (`--keep-config` frees only the live route/hostname, leaves `.devrouter.yml` untouched)
+- `dev workspace up <branch> [--path <dir>] [--no-devpod] [--open]`: create a worktree + devpod + namespaced routes
+- `dev workspace ls [--json]`: list git worktrees with workspace token + route count
+- `dev workspace down <workspace|branch> [--keep-worktree] [--keep-devpod]`: free routes + stop devpod + remove worktree
 
 ## Validation workflow
 
@@ -207,7 +224,7 @@ Config-level `envMap` on dependency references aliases per-dep vars to app-expec
 
 ## Runtime behavior notes
 
-- `dev app run` auto-starts Docker dependencies, waits for health, stops them on exit.
+- `dev app run` auto-starts Docker dependencies and waits for health. Host app runs stop auto-started docker deps on exit; docker app runs leave target services running until explicit cleanup.
 - Host-runtime dependencies are NOT auto-started (v1).
 - `kind=dependency` entries do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`.
 - `kind=dependency` services start as declared in compose (no Traefik label wiring, no random port publishing, no injected env vars).

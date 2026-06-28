@@ -97,6 +97,26 @@ Dependency-only note:
 If you change a host to a multi-segment `.localhost` value, `dev app run` / `dev app exec`
 auto-refresh cert SAN coverage when TLS is enabled.
 
+## Parallel worktrees (workspace isolation)
+
+To run multiple branches of this repo side-by-side without host collisions, use `dev workspace`:
+
+```bash
+dev workspace up feat/my-feature   # create worktree, start devpod, register namespaced routes
+dev workspace ls                   # list worktrees with workspace tokens and route counts
+dev workspace down feat/my-feature # free routes, stop devpod, remove worktree
+```
+
+When a workspace token (e.g. `feat-my-feature`) is active, hosts are auto-namespaced in memory:
+`demo-host.localhost` → `demo-host.feat-my-feature.localhost`. The committed `.devrouter.yml` is never
+modified.
+
+For proxy apps (`runtime: proxy`), use `${WORKSPACE}` in the `upstream` field so devrouter substitutes
+the active token at runtime — for example `upstream: ${WORKSPACE}-app:3000` resolves to
+`feat-my-feature-app:3000` for workspace `feat-my-feature`.
+
+See [`../docs/GETTING_STARTED.md`](../docs/GETTING_STARTED.md) section 15 for the full workspace workflow.
+
 ## Cleanup
 
 Stop the `web-host` command with `Ctrl+C`, then:

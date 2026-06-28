@@ -14,7 +14,7 @@ import {
   isTLSConfigured,
   isTLSEnabled
 } from "./router";
-import { getRepoConfigPath, loadRepoConfig, resolveRepoPath } from "./repo-config";
+import { getRepoConfigPath, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { RepoStatus, RouterStatus } from "../types";
 
 function hasPortBinding(
@@ -52,7 +52,7 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
   }
 
   try {
-    const config = loadRepoConfig(resolvedRepoPath);
+    const config = loadRuntimeConfig(resolvedRepoPath).config;
     const tcpAppCount = config.apps.filter(
       (app) => app.kind !== "dependency" && app.protocol === "tcp"
     ).length;
