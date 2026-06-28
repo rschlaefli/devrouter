@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `dev setup --yes --json` for agent-native first-run machine setup. It prepares devrouter-owned state (router files, `devnet`, Traefik, TLS when mkcert exists), reports structured actions/checks/next steps, and refuses mutation unless `--yes` is present.
+- `dev repo inspect --json` for read-only repository fact gathering: package manager, scripts and likely ports, compose services, env variable names (values redacted), devcontainer presence, devrouter config, and agent guidance files.
+- `dev doctor` now reports additional machine/devcontainer diagnostics for Docker Compose v2, mkcert, DevPod, Node/pnpm, devnet aliases, published devcontainer ports, and proxy upstream alias matches.
+
+### Changed
+
+- `dev doctor` is now strictly diagnostic for route state: it reports stale host routes and orphaned workspace proxy routes without mutating route files. It exits non-zero when any diagnostic has `level: "error"` while still printing JSON when requested.
+
 ## [0.0.22] - 2026-06-25
 
 ### Added

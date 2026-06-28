@@ -22,8 +22,14 @@ Status: **approved, executing**. Last updated: 2026-06-28.
   - Changed doctor route-state behavior to report stale/orphaned routes without mutating state.
   - Accepted review findings from Pasteur/Poincare: real `--yes` semantics, doctor exit code on error, long-syntax Compose ports, external `devnet` validation, one stale-route diagnostic, valid orphan-route suggestion.
   - Evidence: `pnpm typecheck`; `pnpm check:docs-policy`; `pnpm build`; escalated `pnpm test` (31 files, 300 tests); `node dist/dev.js setup --repo ./demo --json` exits 1 with `setup.confirmation`; `node dist/dev.js setup --repo ./demo --json --yes` exits 0 with 4 skipped actions and 21 ok checks; `node dist/dev.js doctor --repo ./demo --json` exits 0 with 21 ok checks; `pnpm demo:smoke` passes.
-- Active slice: S1 ready to commit.
-- Next: commit S1, then start S2 `dev repo inspect --json`.
+- 2026-06-28: S1 committed as `622c2bc`.
+- 2026-06-28: S2 implemented and verified.
+  - Added read-only `dev repo inspect --json` plus compact human summary when `--json` is omitted.
+  - Inspector reports package manager, Node metadata, scripts/app candidates with evidence, compose services, env names only, devcontainer files, devrouter config, agent guidance, and actionable issues.
+  - Accepted Nash/Pascal review findings: redact script env assignments, sanitize invalid config errors, include compose files referenced by `.devrouter.yml`, update embedded skill output, make `--json` meaningful, add command-level tests.
+  - Evidence: `pnpm exec vitest run src/core/__tests__/repo-inspect.test.ts src/commands/__tests__/repo-inspect.test.ts src/core/__tests__/agents-md.test.ts`; `pnpm typecheck`; `pnpm check:docs-policy`; `pnpm build`; escalated `pnpm test` (33 files, 305 tests); `node dist/dev.js repo inspect --repo ./demo`; `node dist/dev.js repo inspect --repo ./demo --json`.
+- Active slice: S2 ready to commit.
+- Next: commit S2, then start S3 devcontainer write/dry-run.
 
 ## Problem
 

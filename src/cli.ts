@@ -147,6 +147,16 @@ repoCommand
   }));
 
 repoCommand
+  .command("inspect")
+  .description("Inspect repository stack facts for agent-native onboarding")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
+    const { runRepoInspectCommand } = await import("./commands/repo-inspect");
+    await runRepoInspectCommand(options);
+  }));
+
+repoCommand
   .command("agents")
   .description("Write/update devrouter section in the repo's AGENTS.md")
   .option("--repo <path>", "Repository path (defaults to current directory)")

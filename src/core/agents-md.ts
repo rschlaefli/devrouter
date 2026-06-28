@@ -168,6 +168,7 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - \`dev init [--write-agents] [--write-skill] [--with-linear]\`: print AI onboarding prompt (non-mutating by default)
 - \`dev -V [--repo .]\`: show installed CLI version, local repo version, and next upgrade target
 - \`dev upgrade [version] [--repo .]\`: list upgrade targets or print target Agent Adaptation Prompt
+- \`dev setup --yes [--repo .] [--json]\`: first-run machine setup plus structured diagnostics
 - \`dev up\` / \`dev down\`: start/stop shared Traefik router
 - \`dev status\`: router/container/network/TLS health
 - \`dev doctor [--repo .]\`: deep diagnostics (global + repo)
@@ -176,6 +177,7 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 - \`dev logs [-f]\`: Traefik access logs
 - \`dev tls install\`: install mkcert certs, enable HTTPS + TCP/SNI
 - \`dev repo init\`: create \`.devrouter.yml\`
+- \`dev repo inspect [--json]\`: inspect package, scripts, compose services, env names, devcontainer, devrouter config, and agent guidance for onboarding
 - \`dev repo agents [--with-linear]\`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
 - \`dev app add\`: add/update app entry in \`.devrouter.yml\`
 - \`dev app ls\`: list app entries
@@ -185,9 +187,9 @@ Host apps also receive \`PORT\` (random free port), \`HOSTNAME=0.0.0.0\`, \`HOST
 
 ## Validation workflow
 
-1. \`dev up\` -- ensure shared router is running
-2. For TCP/Postgres repos: \`dev tls install\`
-3. \`dev doctor --repo .\` -- check global + repo health
+1. \`dev setup --repo . --yes\` -- ensure shared router, devnet, and TLS when mkcert exists
+2. \`dev doctor --repo .\` -- check global + repo health without mutating state
+3. \`dev repo inspect --repo . --json\` -- gather stack facts before onboarding edits
 4. \`dev app ls --repo .\` -- verify entries match expectations
 5. \`dev app run <host-app> --repo . --yes\` -- start target app with deps
 6. \`dev ls\` -- confirm routes are exposed

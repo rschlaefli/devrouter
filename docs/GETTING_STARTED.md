@@ -551,6 +551,12 @@ When `.devcontainer/` exists, doctor also checks devnet aliases, published host 
 
 - [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
 
+Agent first pass:
+
+```bash
+dev repo inspect --repo /absolute/path/to/repo --json
+```
+
 ## 15) Workspace isolation (parallel worktrees)
 
 A **workspace token** lets multiple git worktrees of the same repo run concurrently without host or route collisions.

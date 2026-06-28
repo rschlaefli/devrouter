@@ -202,6 +202,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `dev logs [-f]`: Traefik access logs
 - `dev tls install`: install mkcert certs, enable HTTPS + TCP/SNI
 - `dev repo init`: create `.devrouter.yml`
+- `dev repo inspect [--json]`: inspect package, scripts, compose services, env names, devcontainer, devrouter config, and agent guidance for onboarding
 - `dev repo agents [--with-linear]`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
 - `dev app add`: add/update app entry in `.devrouter.yml`
 - `dev app ls`: list app entries
@@ -216,11 +217,12 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 
 1. `dev setup --repo . --yes` -- ensure shared router, devnet, and TLS when mkcert exists
 2. `dev doctor --repo .` -- check global + repo health without mutating state
-3. `dev app ls --repo .` -- verify entries match expectations
-4. `dev app run <host-app> --repo . --yes` -- start target app with deps
-5. `dev ls` -- confirm routes are exposed
-6. `curl -I https://<host>.localhost` -- HTTP reachability
-7. For TCP/Postgres: use `dev open <name>` for connection hint
+3. `dev repo inspect --repo . --json` -- gather stack facts before onboarding edits
+4. `dev app ls --repo .` -- verify entries match expectations
+5. `dev app run <host-app> --repo . --yes` -- start target app with deps
+6. `dev ls` -- confirm routes are exposed
+7. `curl -I https://<host>.localhost` -- HTTP reachability
+8. For TCP/Postgres: use `dev open <name>` for connection hint
 
 ## Runtime behavior notes
 

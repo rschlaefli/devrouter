@@ -114,5 +114,7 @@ describe('agents-md linear workflow support', () => {
     expect(skillContent).toContain(
       'dev -V'
     )
+    expect(skillContent).toContain('dev setup --repo . --yes')
+    expect(skillContent).toContain('dev repo inspect --repo . --json')
   })
 })

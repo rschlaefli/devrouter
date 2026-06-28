@@ -40,6 +40,16 @@ Assumptions:
 - `dev setup --yes` has completed or `dev doctor --json` explains what is missing
 - macOS local environment
 
+Agent-native first pass:
+
+```bash
+dev setup --yes --json
+dev doctor --json
+dev repo inspect --repo /absolute/path/to/repo --json
+```
+
+`dev repo inspect` is read-only. It reports package manager metadata, scripts and likely ports, compose services, env variable names (not values), existing `.devcontainer/`, `.devrouter.yml`, and agent guidance files. Use its evidence and issues to write a small onboarding plan before editing files.
+
 Reference implementation:
 
 - [`../demo/README.md`](../demo/README.md) shows a complete setup with:

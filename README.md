@@ -74,6 +74,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `dev open <name>` (matches app name, then service/container/host)
 - `dev tls install`
 - `dev repo init [--repo <path>]`
+- `dev repo inspect [--repo <path>] [--json]`
 - `dev repo agents [--repo <path>] [--with-linear]`
 - `dev app add ...` (`--kind app|dependency`, default `app`)
 - `dev app ls [--repo <path>] [--json]`

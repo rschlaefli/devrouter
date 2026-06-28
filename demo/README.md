@@ -27,6 +27,7 @@ dev -V --repo ./demo
 dev upgrade --repo ./demo
 dev setup --repo ./demo --yes
 dev doctor --repo ./demo
+dev repo inspect --repo ./demo --json
 dev app exec web-host --repo ./demo --yes -- printenv DATABASE_URL SHADOW_DATABASE_URL DB_HOST DB_PORT
 dev app run web-docker --repo ./demo --yes
 dev app run web-host --repo ./demo --yes

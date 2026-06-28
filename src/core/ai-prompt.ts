@@ -76,6 +76,11 @@ export const COMMAND_INTENTS: CommandIntent[] = [
     purpose: 'Create `.devrouter.yml` in a target repository.',
   },
   {
+    command: 'dev repo inspect',
+    purpose:
+      'Inspect package, scripts, compose services, env names, devcontainer, devrouter config, and agent guidance for onboarding.',
+  },
+  {
     command: 'dev app add',
     purpose: 'Add or update one app entry in `.devrouter.yml`.',
   },
@@ -303,6 +308,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     'Validation commands to run/report:',
     '- dev setup --yes',
     '- dev doctor --repo <REPO_PATH> --json',
+    '- dev repo inspect --repo <REPO_PATH> --json',
     '- dev app ls --repo <REPO_PATH>',
     '- For each entry (when safe): dev app run <name> --repo <REPO_PATH> --yes',
     '- Run one-shot commands with dep env: dev app exec <name> --repo <REPO_PATH> --yes -- <command>',

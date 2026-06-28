@@ -65,7 +65,7 @@ Supported routing:
 - `dev upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
 - `dev setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics)
 - `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
-- `dev repo init`, `dev repo agents` (`--with-linear` optional)
+- `dev repo init`, `dev repo inspect` (`--json`), `dev repo agents` (`--with-linear` optional)
 - `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run` (`--env`, `--workspace`), `dev app exec` (`--shell`, `--env`, `--workspace`), `dev app rm` (`--keep-config`)
 - `dev workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `dev workspace ls` (`--json`), `dev workspace down` (`<workspace|branch>`, `--keep-worktree`, `--keep-devpod`)
 
@@ -77,6 +77,7 @@ Supported routing:
 - `src/core/agents-md.ts`: idempotent AGENTS.md section writer + skill file distributor for repo discoverability
 - `src/core/linear-onboarding.ts`: guided Linear workspace/team/project metadata collector for AGENTS bootstrap
 - `src/commands/repo-agents.ts`: `dev repo agents` command handler
+- `src/commands/repo-inspect.ts`: `dev repo inspect` command handler
 - `src/commands/upgrade.ts`: `dev upgrade` command handler
 - `src/commands/version.ts`: `dev -V` version summary command handler
 - `src/commands/setup.ts`: `dev setup` command handler
@@ -84,6 +85,7 @@ Supported routing:
 - `src/core/setup.ts`: first-run setup orchestration for devrouter-owned machine state
 - `src/core/tool-diagnostics.ts`: shared external-tool checks for Docker Compose, mkcert, DevPod, and Node/pnpm
 - `src/core/devcontainer-diagnostics.ts`: static devcontainer alias/port/upstream checks used by doctor
+- `src/core/repo-inspect.ts`: read-only repo stack inspector for agent onboarding facts
 - `src/core/status.ts`: status collection + readiness insights
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation; workspace runtime config (`loadRuntimeConfig()`, `applyWorkspace()`, `namespaceHost()`, `${WORKSPACE}` upstream substitution)
@@ -183,5 +185,6 @@ Supported routing:
 4. `pnpm build`
 5. `dev setup --repo ./demo --yes --json`
 6. `dev doctor --repo ./demo`
-7. `pnpm demo:smoke` for full route showcase/regression smoke
-8. Update docs for any behavior/surface changes
+7. `dev repo inspect --repo ./demo --json`
+8. `pnpm demo:smoke` for full route showcase/regression smoke
+9. Update docs for any behavior/surface changes

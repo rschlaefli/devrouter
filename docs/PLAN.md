@@ -10,6 +10,7 @@ Delivered and active:
 - Repo-local upgrade metadata: `.devrouter.yml` `devrouter.version`
 - Upgrade commands: `dev -V` and `dev upgrade [version]`
 - First-run machine setup: `dev setup --yes --json`
+- Read-only repo fact inspection: `dev repo inspect --json`
 - Upgrade prompts stored as versioned files: `upgrade-prompts/<version>.md`
 - HTTP routing for host-run and Docker-run apps
 - HTTP proxy routing (`runtime: proxy`) to an already-running upstream (e.g. devcontainer)
@@ -51,7 +52,8 @@ Required checks for behavior and doc consistency:
 6. `node dist/dev.js upgrade --repo ./demo`
 7. `node dist/dev.js setup --repo ./demo --yes --json`
 8. `node dist/dev.js doctor --repo ./demo`
-9. `pnpm demo:smoke` (environment permitting)
+9. `node dist/dev.js repo inspect --repo ./demo --json`
+10. `pnpm demo:smoke` (environment permitting)
 
 ## Near-term roadmap
 
