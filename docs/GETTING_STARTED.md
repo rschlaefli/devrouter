@@ -562,10 +562,20 @@ When `.devcontainer/` exists, doctor also checks devnet aliases, published host 
 Agent first pass:
 
 ```bash
+dev setup --yes --json
+dev doctor --json
 dev repo inspect --repo /absolute/path/to/repo --json
 dev repo devcontainer write --repo /absolute/path/to/repo --dry-run --json
 dev repo devcontainer write --repo /absolute/path/to/repo --yes
 dev repo devcontainer verify --repo /absolute/path/to/repo --json
+```
+
+For full local evidence, start the devcontainer and add the live verify summary
+to the PR:
+
+```bash
+devpod up /absolute/path/to/repo
+dev repo devcontainer verify --repo /absolute/path/to/repo --live --yes --json
 ```
 
 ## 15) Workspace isolation (parallel worktrees)

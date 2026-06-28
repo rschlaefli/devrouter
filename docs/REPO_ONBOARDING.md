@@ -57,6 +57,14 @@ dev repo devcontainer verify --repo /absolute/path/to/repo --json
 
 `dev repo devcontainer verify --json` is read-only and produces PR evidence from doctor checks, required files, proxy app entries, and workspace namespacing. Use `--live --yes --json` only after the devcontainer is running and you want route registration plus HTTP probes.
 
+PR evidence checklist for agents:
+
+- setup and doctor summaries
+- inspect facts and issues
+- static verify summary
+- live verify summary when DevPod was run locally
+- tested URLs, TCP route status, and skipped live checks with reasons
+
 Reference implementation:
 
 - [`../examples/devcontainer/README.md`](../examples/devcontainer/README.md) shows the agent-native DevPod/devcontainer flow with static/live verify evidence.

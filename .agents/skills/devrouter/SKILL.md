@@ -219,14 +219,26 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 
 ## Validation workflow
 
-1. `dev setup --repo . --yes` -- ensure shared router, devnet, and TLS when mkcert exists
-2. `dev doctor --repo .` -- check global + repo health without mutating state
-3. `dev repo inspect --repo . --json` -- gather stack facts before onboarding edits
-4. `dev app ls --repo .` -- verify entries match expectations
-5. `dev app run <host-app> --repo . --yes` -- start target app with deps
-6. `dev ls` -- confirm routes are exposed
-7. `curl -I https://<host>.localhost` -- HTTP reachability
-8. For TCP/Postgres: use `dev open <name>` for connection hint
+For devcontainer onboarding:
+
+1. `dev setup --repo . --yes --json`
+2. `dev doctor --repo . --json`
+3. `dev repo inspect --repo . --json`
+4. `dev repo devcontainer write --repo . --dry-run --json`
+5. `dev repo devcontainer write --repo . --yes`
+6. `dev repo devcontainer verify --repo . --json`
+7. Start the devcontainer, for example `devpod up .`
+8. `dev repo devcontainer verify --repo . --live --yes --json`
+
+For existing host/docker runtime apps:
+
+1. `dev setup --repo . --yes`
+2. `dev doctor --repo .`
+3. `dev app ls --repo .`
+4. `dev app run <host-app> --repo . --yes`
+5. `dev ls`
+6. `curl -I https://<host>.localhost`
+7. For TCP/Postgres, use `dev open <name>` for the connection hint.
 
 ## Runtime behavior notes
 

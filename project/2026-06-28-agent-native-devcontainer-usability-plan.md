@@ -47,8 +47,13 @@ Status: **approved, executing**. Last updated: 2026-06-28.
   - Extended the generated devcontainer template with a managed Postgres init hook so `SHADOW_DATABASE_URL` points to a real database on fresh volumes.
   - Accepted Gibbs/Lorentz findings: fixed command/docs drift around `--live --yes --json`, removed misleading workspace override, added cleanup commands to validation docs, added example version metadata to the release checklist, asserted app response body, made `psql` direct-SSL robust, and created/smoked the `shadow` database.
   - Evidence: `bash -n examples/devcontainer/run.sh scripts/smoke-devcontainer.sh examples/devcontainer/.devcontainer/init-db.sh examples/devcontainer/.devcontainer/post-start.sh`; focused devcontainer tests; `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`; escalated static `node dist/dev.js repo devcontainer verify --repo examples/devcontainer --json` exits 0 with 5 ok checks; escalated `pnpm devcontainer:smoke` passes with live verify 7 ok checks, app JSON `{"ok":true,"workspace":"devcontainer-demo","port":3000}`, and two direct-SSL `psql` checks returning `1`; `pnpm devcontainer:smoke down` passes; escalated `pnpm test` passes (36 files, 318 tests).
-- Active slice: S6 Docs and PR evidence loop.
-- Next: bring README/devcontainer/onboarding docs, bundled skills, and AI prompt into final showcase-ready consistency.
+- 2026-06-28: S6 implemented and verified.
+  - Reworked README, `docs/DEVCONTAINER.md`, `docs/GETTING_STARTED.md`, and `docs/REPO_ONBOARDING.md` so the same agent-native loop appears consistently: setup, doctor, inspect, dry-run write, write, static verify, DevPod, live verify, PR evidence.
+  - Updated bundled `devrouter` and `devcontainer-onboarding` skills, reference snippets, gotchas, and `src/core/ai-prompt.ts` so agents prefer CLI inspect/write/verify before manual template work.
+  - Accepted Maxwell/Euler findings: fixed missing `--repo`/`--json` in prompt validation commands, split devcontainer vs host/docker validation paths, clarified the product scaffold is app + Postgres only, split preflight/devpod/live verify in agent snippets, simplified PR evidence wording, and avoided an unexplained `${WORKSPACE}` in the README first example.
+  - Evidence: stale default-flow search found no outdated `dev up && dev tls` / `for a in app ... dev app run` guidance; `pnpm exec vitest run src/core/__tests__/ai-prompt.test.ts src/core/__tests__/agents-md.test.ts`; `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`; escalated `pnpm test` passes (36 files, 318 tests).
+- Active slice: Final review, release readiness, PR evidence.
+- Next: run final security/thermonuclear/branch reviews, final live validation, and prepare PR/merge evidence.
 
 ## Problem
 

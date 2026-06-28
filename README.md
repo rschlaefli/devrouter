@@ -27,13 +27,12 @@ This is the only supported per-repo config for app routing/runtime definitions.
 
 Both are configured the same way (`.devrouter.yml`) and can be mixed in one repo.
 
-### 1. Front a devcontainer / existing process — `runtime: proxy` (preferred)
+### 1. Front a devcontainer / existing process: `runtime: proxy` (preferred)
 
-The recommended setup going forward. A **devcontainer** (DevPod, VS Code Dev
-Containers, `@devcontainers/cli`, Codespaces) owns the *environment* — toolchain,
-databases, auth mocks, the app process, seeding — and publishes the app on a local
-port. devrouter is a thin **routing layer**: it puts a stable `*.localhost` HTTPS
-host (shared `:443`, mkcert TLS) in front of that port and does nothing else.
+The recommended setup is devcontainer first. The devcontainer owns the toolchain,
+databases, auth mocks, app process, and seed data. devrouter owns only the local
+routes. In the best case the container joins `devnet` and exposes stable network
+aliases, so the app and database need no published host ports.
 
 ```yaml
 apps:
@@ -41,18 +40,20 @@ apps:
     host: myapp.localhost
     protocol: http
     runtime: proxy
-    upstream: 127.0.0.1:3000 # the port your devcontainer publishes
+    upstream: myapp-app:3000 # devnet alias inside the devcontainer compose
 ```
 
 ```bash
-dev setup --yes               # one-time: devnet, router, TLS when mkcert exists
-dev app run app               # registers the route; the container owns start/stop
+dev setup --yes
+devpod up .
+dev repo devcontainer verify --live --yes --json
 ```
 
 Why prefer it: the environment is reproducible and runs anywhere the devcontainer
-spec runs (including remote/cloud via DevPod), devrouter never duplicates the
-DB/lifecycle/env work, and the two layers can't fight. See
-[`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) for the end-to-end walkthrough.
+spec runs, while devrouter gives it stable local HTTPS and database hostnames.
+Agents can add the scaffold with `dev repo inspect`, `dev repo devcontainer write`,
+and `dev repo devcontainer verify`, then include the JSON evidence in a PR. See
+[`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) for the full reference.
 
 ### 2. devrouter runs everything — `runtime: host` / `runtime: docker`
 

@@ -28,12 +28,19 @@ When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), k
 ## Workflow
 
 1. **Detect the stack** (read, don't assume):
+   - Preflight: `dev setup --yes --json`, `dev doctor --json`, then product facts with `dev repo inspect --json`.
    - Package manager + versions: `package.json` `packageManager`/`volta`, lockfile, `.nvmrc`. Pin Node LTS + a current pnpm.
    - DB/cache: existing `docker-compose.yml`, Prisma schema (`prisma/`), connection-string env names. If a script copies in a shared/platform schema (e.g. `prisma/copy.ts`) separately from `prisma:generate`, note it — post-create must run the copy **and** `prisma format` before generate/push (GOTCHAS #22).
    - Auth: NextAuth/Auth0/OIDC? Find the issuer env (e.g. `AUTH0_ISSUER`) and how role/identity is derived. If it's standard OIDC discovery, a mock slots in with ~zero code change.
    - Secrets today: Infisical? `.env`? List the env vars the app actually reads.
-2. **Scaffold `.devcontainer/`** from `references/` (see [REFERENCE.md](REFERENCE.md) for each file + placeholders):
-   - `docker-compose.yml` — `app` (build from `Dockerfile`) + `postgres` + `redis` + `oidc` mock. Self-contained; do **not** extend the root compose.
+2. **Write the scaffold**:
+   - CLI scaffold: for the supported app + Postgres Node/pnpm shape, use the product CLI first:
+     ```bash
+     dev repo devcontainer write --dry-run --json
+     dev repo devcontainer write --yes
+     ```
+   - Manual references: use `references/` (see [REFERENCE.md](REFERENCE.md)) only when the repo needs Redis, OIDC, a monorepo variant, or another shape outside the first product scaffold.
+   - `docker-compose.yml` — product CLI writes `app` (build from `Dockerfile`) + `postgres`; manual references can add `redis` and an `oidc` mock. Self-contained; do **not** extend the root compose.
    - `Dockerfile` — glibc base (`node:<LTS>-bookworm-slim`) for painless native binaries (Prisma/esbuild/sharp); install pnpm via `npm i -g`.
    - `devcontainer.json` — wire `postCreateCommand` / `postStartCommand`.
    - `devcontainer.env` — **committed, dev-only** values (no real secrets). This is the "example that just works".
@@ -42,12 +49,14 @@ When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), k
    - `README.md` — run instructions + the routing trade-off.
 3. **Wire self-contained auth** (if the app authenticates): run the OIDC mock (`navikt/mock-oauth2-server`) as a **sidecar** (`network_mode: service:app`) and route it via devrouter at `https://oidc.<app>.localhost/default`. The browser (authorize) and the app server (discovery/token/jwks) use the SAME issuer host → consistent token `iss`. Server-side reachability needs `extra_hosts: ['oidc.<app>.localhost:host-gateway']` + trusting the mkcert CA (`NODE_EXTRA_CA_CERTS`) — **never** `NODE_TLS_REJECT_UNAUTHORIZED=0`. One-click auto-login with constant claims (stable `sub`). See [GOTCHAS.md](GOTCHAS.md) #3, #16.
 4. **Add `.devrouter.yml`** (`references/devrouter.yml`, copied to the repo root): `runtime: proxy` routes over `devnet` — `app` + `oidc` (http) and `db` + `redis` (tcp/SNI), each `upstream: ${WORKSPACE}-<svc>:<port>`. Attach the services to `devnet` with the matching `${WORKSPACE:-<app>}-<svc>` aliases in the compose; **no published host ports**. The `${WORKSPACE}` token keeps the route and the devnet alias on one identity: the primary checkout resolves it to the project name (unchanged), while a parallel worktree resolves it to `<ws>-*` (see "Parallel worktrees" below). No `hostRun`/`docker`/`dependencies`/`secretManager` — the container owns those. Requires devrouter ≥ 0.0.21 (the `${WORKSPACE}` upstream token requires ≥ 0.0.22). (Full routing walkthrough: devrouter `docs/DEVCONTAINER.md`.)
-5. **Document for agents** — append a short *Local development (devcontainer)* section to the repo's agent-instructions file (`AGENTS.md`, or `CLAUDE.md` if that's the file the repo already uses) from `references/AGENTS-devcontainer.md`. It tells future agents to use the devcontainer as the default local path (not the old host-port/Infisical/Auth0 setup): bring it up with `devpod up .`, run commands/tests/prisma **inside** the container, reach the app at the routed URLs, and log in one-click. Fold the devrouter prerequisites (`dev up && dev tls install`, then the `dev app run` routes) in as the routing layer **when devrouter is in use** — keep the devcontainer instructions usable on their own so the guidance degrades gracefully where devrouter isn't installed.
+5. **Document for agents** — append a short *Local development (devcontainer)* section to the repo's agent-instructions file (`AGENTS.md`, or `CLAUDE.md` if that's the file the repo already uses) from `references/AGENTS-devcontainer.md`. It tells future agents to use the devcontainer as the default local path: bring it up with `devpod up .`, run commands/tests/prisma **inside** the container, reach the app at the routed URLs, and log in one-click. Prefer `dev repo agents` when the target repo should also receive the bundled devrouter skill.
 6. **Verify end-to-end** (mandatory before claiming done) — run static product evidence first:
    ```bash
+   dev setup --yes --json
+   dev doctor --json
    dev repo devcontainer verify --json
    ```
-   Then `dev up && dev tls install`, a clean `devpod up .` (exits 0), and:
+   Then run a clean `devpod up .` (exits 0), and:
    ```bash
    dev repo devcontainer verify --live --yes --json
    ```

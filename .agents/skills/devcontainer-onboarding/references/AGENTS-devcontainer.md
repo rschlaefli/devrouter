@@ -27,12 +27,13 @@ lifecycle by hand inside the container if needed:
 ### Routing (devrouter — when available)
 
 Nothing is published on the host; [devrouter](https://github.com/rschlaefli/devrouter)
-fronts the stack over the shared `devnet` network. One-time host setup, **before**
-the container starts (the stack joins devrouter's external `devnet`):
+fronts the stack over the shared `devnet` network.
 
 ```bash
-dev up && dev tls install                       # Traefik + devnet + mkcert CA
-for a in app oidc db; do dev app run "$a"; done  # register routes (add `redis` if used)
+dev setup --yes
+dev repo devcontainer verify --json
+devpod up .
+dev repo devcontainer verify --live --yes --json
 ```
 
 | What | Reachable at |
