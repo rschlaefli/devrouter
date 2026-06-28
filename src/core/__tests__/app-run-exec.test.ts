@@ -1060,4 +1060,43 @@ describe("runConfiguredApp", () => {
     expect(result.startedServices).toEqual(["app", "db"]);
     expect(result.dependencyApps).toEqual(["db"]);
   });
+
+  it("reports only newly started docker app services when dependencies already run", async () => {
+    const appWithDep = {
+      ...DOCKER_APP,
+      dependencies: [{ app: POSTGRES_DEP.name }],
+    };
+    resolveAppByNameMock.mockReturnValue({
+      config: makeConfig([appWithDep, POSTGRES_DEP]),
+      app: appWithDep,
+    });
+    resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
+    prepareDockerOverlayMock.mockReturnValue({
+      overlayPath: "/overlay.yml",
+      composeFiles: ["docker-compose.yml"],
+      dockerApps: [appWithDep, POSTGRES_DEP],
+    });
+    queryRunningComposeServicesMock.mockReturnValue({
+      status: "known",
+      runningServices: new Set(["db"]),
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const result = await runConfiguredApp({
+      name: "web-docker",
+      repoPath: "/repo",
+      yes: true,
+    });
+    stdoutSpy.mockRestore();
+
+    expect(runDockerComposeUpMock).toHaveBeenCalledWith(
+      "/repo",
+      ["docker-compose.yml"],
+      "/overlay.yml",
+      ["app", "db"]
+    );
+    expect(runDockerComposeStopMock).not.toHaveBeenCalled();
+    expect(result.startedServices).toEqual(["app"]);
+    expect(result.dependencyApps).toEqual([]);
+  });
 });

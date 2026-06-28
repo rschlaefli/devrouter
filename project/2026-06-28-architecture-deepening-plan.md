@@ -1,6 +1,6 @@
 # devrouter - architecture deepening plan
 
-Status: **drafted, not started**. Last updated: 2026-06-28.
+Status: **in progress, S1 ready to commit**. Last updated: 2026-06-28.
 
 ## Plan identity
 
@@ -25,6 +25,15 @@ Status: **drafted, not started**. Last updated: 2026-06-28.
   `147 passed`; `pnpm typecheck`; `pnpm build`; `node dist/dev.js -V --repo ./demo`; `node dist/dev.js upgrade
   --repo ./demo`. Initial sandbox vitest run failed on loopback `EPERM`; rerun with loopback access passed. Next: start
   S1 dependency runtime plan.
+- 2026-06-28: S1 started. Next: add characterization/planner tests, extract pure dependency runtime planning, verify
+  app-run/exec behavior unchanged.
+- 2026-06-28: S1 implemented. Added `src/core/dependency-runtime-plan.ts`, planner characterization tests, and one
+  app-run regression for docker app dependencies already running. Review agent `019f0e9b-ea50-70c1-8d77-3748f18ad6d5`
+  returned `DONE_WITH_CONCERNS`: accepted stale-progress fix and docker-app/already-running dependency test gap.
+  Simplification agent `019f0e9c-1196-7171-a3b9-76707fca9cb0` returned `DONE_WITH_CONCERNS`: accepted narrower
+  planner exports, local app-run display helpers, and clearer base/observed plan names. Verification passed:
+  dependency planner tests `7 passed`; app-run/exec pair `53 passed`; `pnpm typecheck`; `pnpm build`; `pnpm
+  demo:smoke`. Next: commit S1, then start S2 route state ownership.
 
 ## Goal
 
