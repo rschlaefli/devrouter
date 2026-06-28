@@ -1,6 +1,6 @@
 # devrouter - architecture deepening plan
 
-Status: **in progress, final review fixes integrated**. Last updated: 2026-06-28.
+Status: **ready for draft PR**. Last updated: 2026-06-28.
 
 ## Plan identity
 
@@ -82,6 +82,13 @@ Status: **in progress, final review fixes integrated**. Last updated: 2026-06-28
   dist/dev.js doctor --repo ./demo` (`18 OK`, `0 WARN`, `0 ERROR`); `pnpm demo:smoke`; workspace example up/down.
   Release decision: no version bump in this branch because the CLI/config surface remains compatible; use the release
   checklist after merge if maintainers decide to publish a package version.
+- 2026-06-28: Final branch-readiness re-review agent `019f0ed2-762d-7273-8bf0-02a7fa453c86` returned
+  `DONE_WITH_CONCERNS`: prior code findings resolved; accepted remaining plan issues for security-review recording and
+  stale next steps. Final security review agent `019f0ed6-21ac-7101-b0f9-289dc102f147` found `0` high-confidence
+  vulnerabilities, low branch-diff risk, and no needs-verification items. Security review scope covered route-state,
+  config, runtime, workspace, doctor, app-rm, command execution, shell usage, path access, upstream/host validation,
+  env/secrets, state-file mutation, and Docker compose invocation. Next: commit this plan-only readiness update, push
+  the branch, open a draft PR, and watch CI.
 
 ## Goal
 
@@ -794,9 +801,7 @@ Rules:
 
 ## Next steps
 
-1. Commit final review fixes and this plan update.
-2. Run one final independent branch review against the updated branch state.
-3. Push branch and open a draft PR against `main`.
-4. Watch CI; after approval, merge to `main`.
-5. If a package release is desired after merge, follow the release checklist above and verify npm with the listed
+1. Push branch and open a draft PR against `main`.
+2. Watch CI; after approval, merge to `main`.
+3. If a package release is desired after merge, follow the release checklist above and verify npm with the listed
    commands.
