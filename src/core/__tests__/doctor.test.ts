@@ -27,8 +27,13 @@ vi.mock("../docker", () => ({
 }));
 
 vi.mock("../host-routes", () => ({
-  listHostRouteState: vi.fn(() => []),
   listHostRoutes: vi.fn(() => []),
+}));
+
+vi.mock("../route-state", () => ({
+  findStaleProcessRoutes: vi.fn(() => []),
+  evictStaleProcessRoutes: vi.fn(() => 0),
+  evictOrphanedWorkspaceProxyRoutes: vi.fn(() => 0),
 }));
 
 vi.mock("../tls", () => ({

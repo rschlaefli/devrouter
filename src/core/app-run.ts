@@ -26,10 +26,24 @@ import {
   upsertHostRoute
 } from "./host-routes";
 import { assertAppNotRunning } from "./concurrency";
+import { removeRouteForApp } from "./route-state";
 import { ensureNetwork } from "./docker";
 import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY, activateTcpProtocol, ensureRouterFiles, isTLSEnabled, startRouterStack } from "./router";
 import { assertPathWithinRepo } from "./paths";
 import { ensureTLSHostsCovered } from "./tls";
+import {
+  applyDependencyEnvMap,
+  buildDependencyEnv,
+  buildTcpDepShadowUrl,
+  buildTcpDepUrl,
+  planDependencyRuntime,
+  planDependencyStart,
+  type DependencyStopPolicy,
+  type MappedTcpDependency,
+  type ObservedRuntimeServices
+} from "./dependency-runtime-plan";
+
+export { buildTcpDepShadowUrl, buildTcpDepUrl } from "./dependency-runtime-plan";
 
 const POLL_INTERVAL_MS = 1000;
 const DEFAULT_PORT_TIMEOUT_MS = 120_000;
@@ -42,8 +56,6 @@ type RunAppOptions = {
   env?: string;
   workspace?: string;
 };
-
-type DependencyStopPolicy = "always-stop-selected" | "stop-only-newly-started";
 
 type StartAppDependenciesOptions = RunAppOptions & {
   stopPolicy?: DependencyStopPolicy;
@@ -141,6 +153,26 @@ function toError(error: unknown): Error {
   return new Error(String(error));
 }
 
+function dependencyNames(apps: DevrouterApp[]): string[] {
+  return apps.map((entry) => entry.name).sort();
+}
+
+function observedRuntimeServices(
+  result: ReturnType<typeof queryRunningComposeServices> | undefined
+): ObservedRuntimeServices | undefined {
+  if (!result) {
+    return undefined;
+  }
+  if (result.status === "known") {
+    return { status: "known", runningServices: result.runningServices };
+  }
+  return { status: "unknown", reason: result.reason };
+}
+
+function isDependencyOnlyApp(app: DevrouterApp): app is DevrouterDockerDependencyApp {
+  return app.kind === "dependency";
+}
+
 function normalizeProcessEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   const normalized: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
@@ -159,27 +191,6 @@ export function buildExecEnvironment(
     ...normalizeProcessEnv(processEnv),
     ...depEnv
   };
-}
-
-export function buildTcpDepUrl(tcpProtocol: string, port: number): string | undefined {
-  switch (tcpProtocol) {
-    case "postgres":
-      return `postgres://prisma:prisma@localhost:${port}/prisma`;
-    case "redis":
-      return `redis://localhost:${port}`;
-    case "mysql":
-    case "mariadb":
-      return `mysql://root@localhost:${port}`;
-    default:
-      return undefined;
-  }
-}
-
-export function buildTcpDepShadowUrl(tcpProtocol: string, port: number): string | undefined {
-  if (tcpProtocol === "postgres") {
-    return `postgres://prisma:prisma@localhost:${port}/shadow`;
-  }
-  return undefined;
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -468,22 +479,6 @@ async function runHostApp(
   }
 }
 
-function uniqueApps(apps: DevrouterApp[]): DevrouterApp[] {
-  const byName = new Map<string, DevrouterApp>();
-  for (const app of apps) {
-    byName.set(app.name, app);
-  }
-  return Array.from(byName.values());
-}
-
-function dependencyNames(apps: DevrouterApp[]): string[] {
-  return apps.map((entry) => entry.name).sort();
-}
-
-function isDependencyOnlyApp(app: DevrouterApp): app is DevrouterDockerDependencyApp {
-  return app.kind === "dependency";
-}
-
 async function shouldStartDependencies(
   appName: string,
   dependencies: DevrouterApp[],
@@ -551,92 +546,60 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
     );
   }
 
-  // Always include all dependencies for overlay/env probing, regardless of
-  // whether we actually start them (compose up). This ensures env injection
-  // works even when containers are already running.
-  const selectedApps = uniqueApps([app, ...dependencies]);
-  const selectedDockerApps = selectedApps.filter(
-    (entry): entry is Exclude<DevrouterApp, DevrouterHostHttpApp | DevrouterProxyApp> =>
-      entry.runtime === "docker"
-  );
   const stopPolicy = options.stopPolicy ?? "always-stop-selected";
-
   const startedServices: string[] = [];
   let overlay: ReturnType<typeof prepareDockerOverlay> | undefined;
   let startDependencies = false;
+  const basePlan = planDependencyRuntime({ app, dependencies, stopPolicy });
+  let observedPlan = basePlan;
+  let startPlan = planDependencyStart(observedPlan, false);
 
-  const hasTcpDeps = app.runtime === "host" && selectedDockerApps.some(
-    (entry) => entry.kind !== "dependency" && entry.protocol === "tcp"
-  );
+  // Always include all dependencies for overlay/env probing, regardless of
+  // whether we actually start them (compose up). This ensures env injection
+  // works even when containers are already running.
+  if (basePlan.selectedDockerApps.length > 0) {
+    overlay = prepareDockerOverlay(repoPath, app.name, basePlan.selectedDockerApps, basePlan.hasTcpDeps);
 
-  if (selectedDockerApps.length > 0) {
-    overlay = prepareDockerOverlay(repoPath, app.name, selectedDockerApps, hasTcpDeps);
-    const services = selectedDockerApps.map((entry) => entry.docker.service);
-
-    // Check which dep services are already running before deciding whether to prompt
-    const depServices = dependencies
-      .filter((entry) => entry.runtime === "docker")
-      .map((entry) => entry.docker.service);
-    let runningServicesBefore: Set<string> | null = null;
-    let ownershipKnown = true;
-    const preRunResult = depServices.length > 0
-      ? queryRunningComposeServices(repoPath, overlay.composeFiles, overlay.overlayPath, depServices)
+    const preRunResult = basePlan.dependencyServices.length > 0
+      ? queryRunningComposeServices(repoPath, overlay.composeFiles, overlay.overlayPath, basePlan.dependencyServices)
       : undefined;
 
-    const allDepsRunning = preRunResult?.status === "known"
-      && depServices.every((s) => preRunResult.runningServices.has(s));
+    observedPlan = planDependencyRuntime({
+      app,
+      dependencies,
+      stopPolicy,
+      runningServicesBefore: observedRuntimeServices(preRunResult)
+    });
 
-    if (allDepsRunning) {
+    if (observedPlan.allDependencyServicesRunning) {
       // All deps already running — skip prompt and compose up
       startDependencies = false;
-    } else if (dependencies.length > 0) {
+    } else if (observedPlan.shouldPromptForDependencies) {
       startDependencies = await shouldStartDependencies(
         app.name,
         dependencies,
         Boolean(options.yes)
       );
-    } else {
-      startDependencies = false;
     }
 
-    const shouldRunComposeUp = app.runtime === "docker" || startDependencies;
+    startPlan = planDependencyStart(observedPlan, startDependencies);
+    if (startPlan.ownershipWarning) {
+      process.stderr.write(`Warning: ${startPlan.ownershipWarning}\n`);
+    }
 
-    if (shouldRunComposeUp) {
-      // Track ownership for stop policy
-      if (stopPolicy === "stop-only-newly-started") {
-        if (preRunResult?.status === "known") {
-          runningServicesBefore = preRunResult.runningServices;
-        } else if (preRunResult?.status === "unknown") {
-          ownershipKnown = false;
-          process.stderr.write(
-            "Warning: unable to determine which dependencies were already running before 'dev app exec'; " +
-              "leaving dependencies running after command exit to avoid stopping non-owned services. " +
-              `Details: ${preRunResult.reason}\n`
-          );
-        }
-      }
-
-      runDockerComposeUp(repoPath, overlay.composeFiles, overlay.overlayPath, services);
-      if (stopPolicy === "stop-only-newly-started") {
-        const beforeSet = runningServicesBefore;
-        if (ownershipKnown && beforeSet) {
-          startedServices.push(...services.filter((service) => !beforeSet.has(service)));
-        }
-      } else if (app.runtime === "docker") {
-        const beforeSet = preRunResult?.status === "known" ? preRunResult.runningServices : undefined;
-        startedServices.push(...services.filter((service) => !beforeSet?.has(service)));
-      } else {
-        startedServices.push(...services);
-      }
-      runDockerComposeLogs(repoPath, overlay.composeFiles, overlay.overlayPath, services);
+    if (startPlan.shouldRunComposeUp) {
+      runDockerComposeUp(repoPath, overlay.composeFiles, overlay.overlayPath, observedPlan.services);
+      startedServices.push(...startPlan.startedServices);
+      runDockerComposeLogs(repoPath, overlay.composeFiles, overlay.overlayPath, observedPlan.services);
     }
   }
 
-  const depEnv: Record<string, string> = {};
-  if (hasTcpDeps && overlay) {
-    const tcpDeps = selectedDockerApps.filter(
+  let depEnv: Record<string, string> = {};
+  if (observedPlan.hasTcpDeps && overlay) {
+    const tcpDeps = observedPlan.selectedDockerApps.filter(
       (entry): entry is DevrouterDockerTcpApp => entry.kind !== "dependency" && entry.protocol === "tcp"
     );
+    const mappedDeps: MappedTcpDependency[] = [];
 
     let routerRestarted = false;
     for (const dep of tcpDeps) {
@@ -656,18 +619,11 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
         dep.docker.service,
         dep.docker.internalPort
       );
+      mappedDeps.push({ app: dep, mappedPort });
       if (mappedPort !== undefined) {
         const envPrefix = dep.name.toUpperCase().replace(/-/g, "_");
-        depEnv[`${envPrefix}_HOST`] = "localhost";
-        depEnv[`${envPrefix}_PORT`] = String(mappedPort);
         const url = buildTcpDepUrl(dep.tcpProtocol, mappedPort);
-        if (url) {
-          depEnv[`${envPrefix}_URL`] = url;
-        }
         const shadowUrl = buildTcpDepShadowUrl(dep.tcpProtocol, mappedPort);
-        if (shadowUrl) {
-          depEnv[`${envPrefix}_SHADOW_URL`] = shadowUrl;
-        }
         process.stdout.write(`Dependency ${dep.name} available at localhost:${mappedPort}\n`);
         if (url) {
           process.stdout.write(`  ${envPrefix}_URL=${url}\n`);
@@ -677,22 +633,10 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
         }
       }
     }
+    depEnv = buildDependencyEnv(mappedDeps);
   }
 
-  // Apply config-level envMap from dependency references
-  for (const depRef of app.dependencies) {
-    if (depRef.envMap) {
-      for (const [target, source] of Object.entries(depRef.envMap)) {
-        if (!(source in depEnv)) {
-          throw new Error(
-            `envMap on dependency '${depRef.app}': source variable '${source}' not found in dependency env. ` +
-            `Available: ${Object.keys(depEnv).join(", ") || "(none)"}`
-          );
-        }
-        depEnv[target] = depEnv[source];
-      }
-    }
-  }
+  depEnv = applyDependencyEnvMap(app, depEnv);
 
   const stopDeps = () => {
     if (startedServices.length > 0 && overlay) {
@@ -714,7 +658,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
     secretManager: config.secretManager,
     overlay,
     startedServices,
-    dependencyApps: startDependencies ? dependencyNames(dependencies) : [],
+    dependencyApps: startPlan.dependencyApps,
     stopDeps
   };
 }
@@ -750,7 +694,7 @@ function registerProxyRoute(repoPath: string, app: DevrouterProxyApp, workspace?
   // Re-running a proxy app is an idempotent re-register: drop our own prior route
   // first so the shared guard doesn't treat it as "already running", then reuse
   // assertAppNotRunning to evict stale routes and reject a live hostname conflict.
-  removeHostRouteById(buildHostRouteId(repoPath, app.name));
+  removeRouteForApp(repoPath, app.name);
   assertAppNotRunning(repoPath, { name: app.name, host: app.host });
 
   upsertHostRoute({

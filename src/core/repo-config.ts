@@ -12,10 +12,20 @@ import {
   DevrouterProxyHttpApp
 } from "../types";
 import { parseUpstream } from "./host-routes";
-import { TCP_PROTOCOL_REGISTRY } from "./router";
 import { resolveWorkspace, wsFromBranch } from "./workspace";
+import {
+  DEPENDENCY_ONLY_RUNTIME,
+  RUNTIME_PROTOCOL_COMPATIBILITY,
+  SECRET_MANAGER_ENV_PLACEHOLDER,
+  SUPPORTED_PROTOCOLS,
+  SUPPORTED_RUNTIMES,
+  SUPPORTED_TCP_PROTOCOLS,
+  WORKSPACE_PLACEHOLDER,
+  formatSupportedTcpProtocols
+} from "./capabilities";
 
 const CONFIG_FILE_NAME = ".devrouter.yml";
+const DEFAULT_TCP_PROTOCOL = "postgres";
 
 const VALID_HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.localhost$/;
 const DEVROUTER_VERSION_RE = /^\d+\.\d+\.\d+$/;
@@ -25,7 +35,6 @@ const VALID_ENV_VAR_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Workspace templating. `upstream` may embed the literal `${WORKSPACE}` token,
 // which is substituted with the resolved workspace at runtime (see applyWorkspace).
 // The token is illegal in `host` — the front host is auto-namespaced per workspace.
-const WORKSPACE_PLACEHOLDER = "${WORKSPACE}";
 const UPSTREAM_TEMPLATE_RE = /^(?:\$\{WORKSPACE\}|[a-zA-Z0-9._-])+:\d{1,5}$/;
 
 // Validate an `upstream` at config-parse time. A concrete `host:port` is checked
@@ -132,6 +141,27 @@ function parseEnvMap(
     result[key] = source;
   }
   return result;
+}
+
+function isSupportedProtocol(value: string): value is (typeof SUPPORTED_PROTOCOLS)[number] {
+  return SUPPORTED_PROTOCOLS.includes(value as (typeof SUPPORTED_PROTOCOLS)[number]);
+}
+
+function isSupportedRuntime(value: string): value is (typeof SUPPORTED_RUNTIMES)[number] {
+  return SUPPORTED_RUNTIMES.includes(value as (typeof SUPPORTED_RUNTIMES)[number]);
+}
+
+function isSupportedTcpProtocol(value: string): boolean {
+  return SUPPORTED_TCP_PROTOCOLS.includes(value);
+}
+
+function runtimeSupportsProtocol(
+  runtime: (typeof SUPPORTED_RUNTIMES)[number],
+  protocol: (typeof SUPPORTED_PROTOCOLS)[number]
+): boolean {
+  const supportedProtocols: readonly (typeof SUPPORTED_PROTOCOLS)[number][] =
+    RUNTIME_PROTOCOL_COMPATIBILITY[runtime];
+  return supportedProtocols.includes(protocol);
 }
 
 function parseDependencies(
@@ -272,14 +302,14 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     }
 
     const runtime = toStringOrThrow(objectValue.runtime, `${pathLabel}.runtime`);
-    if (runtime !== "docker") {
-      throw new Error(`${pathLabel}.runtime must be 'docker' when kind=dependency.`);
+    if (runtime !== DEPENDENCY_ONLY_RUNTIME) {
+      throw new Error(`${pathLabel}.runtime must be '${DEPENDENCY_ONLY_RUNTIME}' when kind=dependency.`);
     }
 
     return {
       kind: "dependency",
       name,
-      runtime: "docker",
+      runtime: DEPENDENCY_ONLY_RUNTIME,
       dependencies,
       docker: parseDependencyDockerConfig(objectValue.docker, `${pathLabel}.docker`)
     };
@@ -288,9 +318,14 @@ function parseApp(value: unknown, index: number): DevrouterApp {
   const host = parseHostOrThrow(objectValue.host, `${pathLabel}.host`);
   const protocol = toStringOrThrow(objectValue.protocol, `${pathLabel}.protocol`);
   const runtime = toStringOrThrow(objectValue.runtime, `${pathLabel}.runtime`);
-
+  if (!isSupportedProtocol(protocol)) {
+    throw new Error(`${pathLabel}.protocol must be one of: ${SUPPORTED_PROTOCOLS.join(", ")}.`);
+  }
+  if (!isSupportedRuntime(runtime)) {
+    throw new Error(`${pathLabel}.runtime must be one of: ${SUPPORTED_RUNTIMES.join(", ")}.`);
+  }
   if (runtime === "host") {
-    if (protocol !== "http") {
+    if (!runtimeSupportsProtocol("host", protocol)) {
       throw new Error(`${pathLabel}: host runtime currently supports only protocol=http.`);
     }
 
@@ -341,10 +376,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
 
     if (protocol === "tcp") {
       const tcpProtocol = toStringOrThrow(objectValue.tcpProtocol, `${pathLabel}.tcpProtocol`);
-      const supportedProtocols = Object.keys(TCP_PROTOCOL_REGISTRY);
-      if (!supportedProtocols.includes(tcpProtocol)) {
+      if (!isSupportedTcpProtocol(tcpProtocol)) {
         throw new Error(
-          `${pathLabel}.tcpProtocol must be one of: ${supportedProtocols.join(", ")}.`
+          `${pathLabel}.tcpProtocol must be one of: ${formatSupportedTcpProtocols()}.`
         );
       }
 
@@ -361,7 +395,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
   }
 
   if (runtime === "proxy") {
-    if (protocol !== "http" && protocol !== "tcp") {
+    if (!runtimeSupportsProtocol("proxy", protocol)) {
       throw new Error(`${pathLabel}: proxy runtime supports protocol=http or protocol=tcp.`);
     }
     if (objectValue.hostRun !== undefined) {
@@ -379,9 +413,8 @@ function parseApp(value: unknown, index: number): DevrouterApp {
 
     if (protocol === "tcp") {
       const tcpProtocol = toStringOrThrow(objectValue.tcpProtocol, `${pathLabel}.tcpProtocol`);
-      const supportedProtocols = Object.keys(TCP_PROTOCOL_REGISTRY);
-      if (!supportedProtocols.includes(tcpProtocol)) {
-        throw new Error(`${pathLabel}.tcpProtocol must be one of: ${supportedProtocols.join(", ")}.`);
+      if (!isSupportedTcpProtocol(tcpProtocol)) {
+        throw new Error(`${pathLabel}.tcpProtocol must be one of: ${formatSupportedTcpProtocols()}.`);
       }
 
       return {
@@ -460,8 +493,10 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
       }
     }
 
-    if (command.includes("{env}") && !defaultEnv) {
-      throw new Error(`${configPath}.secretManager.defaultEnv is required when command contains {env}.`);
+    if (command.includes(SECRET_MANAGER_ENV_PLACEHOLDER) && !defaultEnv) {
+      throw new Error(
+        `${configPath}.secretManager.defaultEnv is required when command contains ${SECRET_MANAGER_ENV_PLACEHOLDER}.`
+      );
     }
 
     secretManager = { command, ...(defaultEnv ? { defaultEnv } : {}) };
@@ -597,8 +632,8 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
   const dependencies = options.dependsOn.map((app) => ({ app }));
 
   if (kind === "dependency") {
-    if (options.runtime !== undefined && options.runtime !== "docker") {
-      throw new Error("--runtime must be docker when --kind dependency");
+    if (options.runtime !== undefined && options.runtime !== DEPENDENCY_ONLY_RUNTIME) {
+      throw new Error(`--runtime must be ${DEPENDENCY_ONLY_RUNTIME} when --kind dependency`);
     }
     if (options.host !== undefined) {
       throw new Error("--host is not supported when --kind dependency");
@@ -628,7 +663,7 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
     return {
       kind: "dependency",
       name: options.name,
-      runtime: "docker",
+      runtime: DEPENDENCY_ONLY_RUNTIME,
       dependencies,
       docker: {
         service: options.service,
@@ -702,10 +737,9 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
 
     if (options.protocol === "tcp") {
       const tcpProtocol = options.tcpProtocol;
-      const supportedProtocols = Object.keys(TCP_PROTOCOL_REGISTRY);
-      if (!tcpProtocol || !supportedProtocols.includes(tcpProtocol)) {
+      if (!tcpProtocol || !isSupportedTcpProtocol(tcpProtocol)) {
         throw new Error(
-          `--tcp-protocol must be one of: ${supportedProtocols.join(", ")} when --runtime proxy --protocol tcp`
+          `--tcp-protocol must be one of: ${formatSupportedTcpProtocols()} when --runtime proxy --protocol tcp`
         );
       }
 
@@ -756,10 +790,9 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
     };
   }
 
-  const tcpProtocol = options.tcpProtocol ?? "postgres";
-  const supportedProtocols = Object.keys(TCP_PROTOCOL_REGISTRY);
-  if (!supportedProtocols.includes(tcpProtocol)) {
-    throw new Error(`--tcp-protocol must be one of: ${supportedProtocols.join(", ")}`);
+  const tcpProtocol = options.tcpProtocol ?? DEFAULT_TCP_PROTOCOL;
+  if (!isSupportedTcpProtocol(tcpProtocol)) {
+    throw new Error(`--tcp-protocol must be one of: ${formatSupportedTcpProtocols()}`);
   }
 
   return {

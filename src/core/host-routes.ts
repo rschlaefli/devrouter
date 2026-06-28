@@ -317,6 +317,22 @@ export function removeHostRouteById(id: string): boolean {
   });
 }
 
+export function removeHostRoutesWhere(
+  predicate: (route: HostRouteState) => boolean
+): HostRouteState[] {
+  return withStateLock(() => {
+    const routes = listHostRouteState();
+    const removed = routes.filter(predicate);
+    if (removed.length === 0) {
+      return [];
+    }
+
+    const removedIds = new Set(removed.map((route) => route.id));
+    writeState(routes.filter((route) => !removedIds.has(route.id)));
+    return removed;
+  });
+}
+
 export function removeHostRouteByName(name: string, repoPath?: string): HostRouteState {
   return withStateLock(() => {
     const routes = listHostRouteState();

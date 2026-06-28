@@ -1,3 +1,16 @@
+import {
+  DEPENDENCY_ONLY_RUNTIME,
+  DEP_ENV_SUFFIXES,
+  POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE,
+  POSTGRES_DEPENDENCY_URL_TEMPLATE,
+  SECRET_MANAGER_ENV_PLACEHOLDER,
+  SUPPORTED_PROTOCOLS,
+  SUPPORTED_RUNTIMES,
+  SUPPORTED_TCP_PROTOCOLS,
+  WORKSPACE_PLACEHOLDER,
+  formatSupportedProtocolsForRuntime,
+  formatSupportedTcpProtocols,
+} from './capabilities'
 import { resolveRepoPath } from './repo-config'
 
 export type InitPromptOptions = {
@@ -124,6 +137,18 @@ function renderCommandIntentSection(): string {
   return ['Command intent reference:', ...lines].join('\n')
 }
 
+function quotedUnion(values: readonly string[]): string {
+  return values.map((value) => `"${value}"`).join(' | ')
+}
+
+function formatDepEnvNames(): string {
+  return DEP_ENV_SUFFIXES.map((suffix) => `\`{PREFIX}_${suffix}\``).join(', ')
+}
+
+function formatProtocolRule(runtime: 'host' | 'proxy'): string {
+  return formatSupportedProtocolsForRuntime(runtime).replace(', ', ' or ')
+}
+
 export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
   const repoPath = resolveRepoPath(options.repo)
   const entriesJson = normalizeEntriesJson(options.entriesJson)
@@ -151,8 +176,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '- version: 1 (required)',
     '- devrouter.version: semantic version string (recommended; required for `dev -V`/`dev upgrade`)',
     '- project.name: string (optional)',
-    '- secretManager.command: string (optional; SM command including trailing `--` boundary; supports `{env}` template placeholder)',
-    '- secretManager.defaultEnv: string (optional; fallback env for `{env}` template; required when command contains `{env}`)',
+    `- secretManager.command: string (optional; SM command including trailing \`--\` boundary; supports \`${SECRET_MANAGER_ENV_PLACEHOLDER}\` template placeholder)`,
+    `- secretManager.defaultEnv: string (optional; fallback env for \`${SECRET_MANAGER_ENV_PLACEHOLDER}\` template; required when command contains \`${SECRET_MANAGER_ENV_PLACEHOLDER}\`)`,
     '- apps: array (required)',
     '',
     'Canonical valid skeleton:',
@@ -169,8 +194,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '- dependencies: [{ app: "<name>", envMap: { TARGET: "SOURCE" } }] (optional; envMap aliases per-dep vars to app-expected names)',
     '- if kind=app:',
     '  - host: <name>.localhost (single-label or multi-segment, for example `api.v2.app.localhost`)',
-    '  - protocol: "http" | "tcp"',
-    '  - runtime: "host" | "docker" | "proxy"',
+    `  - protocol: ${quotedUnion(SUPPORTED_PROTOCOLS)}`,
+    `  - runtime: ${quotedUnion(SUPPORTED_RUNTIMES)}`,
     '- if kind=app and runtime=host:',
     '  - hostRun.command: string',
     '  - hostRun.cwd: string',
@@ -184,32 +209,32 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '  - optional docker.router: string',
     '- if kind=app and runtime=proxy:',
     '  - upstream: "host:port" (an already-running port, e.g. a devcontainer published on 127.0.0.1:3000, or a container reachable by name on a shared Docker network such as `derivatives-db:5432`)',
-    '  - upstream may use the `${WORKSPACE}` placeholder (e.g. `${WORKSPACE}-app:3000`) to target a per-workspace devcontainer alias; it is substituted with the resolved workspace token at runtime and re-validated. Do NOT put `${WORKSPACE}` in `host` (rejected) — the host is auto-namespaced.',
+    `  - upstream may use the \`${WORKSPACE_PLACEHOLDER}\` placeholder (e.g. \`${WORKSPACE_PLACEHOLDER}-app:3000\`) to target a per-workspace devcontainer alias; it is substituted with the resolved workspace token at runtime and re-validated. Do NOT put \`${WORKSPACE_PLACEHOLDER}\` in \`host\` (rejected) — the host is auto-namespaced.`,
     '  - protocol=http registers an HTTP route; protocol=tcp registers a TLS-SNI TCP route and additionally requires tcpProtocol',
     '  - do not set hostRun/docker/dependencies (proxy only registers a route to the upstream)',
     '  - loopback hosts (localhost/127.0.0.1/0.0.0.0) are rewritten to host.docker.internal for Traefik',
     '- if kind=app and protocol=tcp:',
-    '  - tcpProtocol: "postgres" | "redis" | "mariadb" | "mysql"',
+    `  - tcpProtocol: ${quotedUnion(SUPPORTED_TCP_PROTOCOLS)}`,
     '- if kind=dependency:',
-    '  - runtime: "docker"',
+    `  - runtime: "${DEPENDENCY_ONLY_RUNTIME}"`,
     '  - docker.service: string',
     '  - docker.composeFiles: string[]',
     '  - do not set host/protocol/tcpProtocol/hostRun/docker.internalPort/docker.router',
     '',
     'Validation rules to enforce:',
     '- kind=app host must end with .localhost',
-    '- kind=app runtime=host supports protocol=http only',
-    '- kind=app runtime=proxy supports protocol=http or tcp, requires upstream (host:port), and has no dependencies; protocol=tcp also requires tcpProtocol',
-    '- kind=app protocol=tcp requires runtime=docker or proxy, and tcpProtocol (postgres, redis, mariadb, mysql)',
-    '- kind=dependency requires runtime=docker and non-routed docker config only',
+    `- kind=app runtime=host supports protocol=${formatProtocolRule('host')} only`,
+    `- kind=app runtime=proxy supports protocol=${formatProtocolRule('proxy')}, requires upstream (host:port), and has no dependencies; protocol=tcp also requires tcpProtocol`,
+    `- kind=app protocol=tcp requires runtime=docker or proxy, and tcpProtocol (${formatSupportedTcpProtocols()})`,
+    `- kind=dependency requires runtime=${DEPENDENCY_ONLY_RUNTIME} and non-routed docker config only`,
     '- unknown keys are not allowed (strict schema)',
     '',
     'Docker compose file requirements:',
     '- Every service that acts as a dependency MUST define a healthcheck — devrouter uses `docker compose up --wait` which blocks until healthy; without a healthcheck the wait returns immediately and the dependent app may start before the service is ready.',
     '- Services MUST NOT publish host ports (`ports:` mapping) for any port owned by devrouter (80, 443, 5432) — Traefik owns these; conflicts cause bind failures.',
     '- Services SHOULD NOT publish host ports at all — devrouter handles external routing via Traefik labels; publishing ports creates conflicts when running multiple repos.',
-    '- For TCP dependencies of host apps, devrouter automatically publishes a random host port and injects per-dep deterministic env vars: `{PREFIX}_HOST`, `{PREFIX}_PORT`, `{PREFIX}_URL` (protocol-specific), and `{PREFIX}_SHADOW_URL` (postgres only). `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`.',
-    '- For postgres deps, `{PREFIX}_URL=postgres://prisma:prisma@localhost:<port>/prisma` and `{PREFIX}_SHADOW_URL=postgres://prisma:prisma@localhost:<port>/shadow`. Use config-level `envMap` on the dependency reference to alias these to app-expected names (e.g. `DATABASE_URL: DB_URL`).',
+    `- For TCP dependencies of host apps, devrouter automatically publishes a random host port and injects per-dep deterministic env vars: ${formatDepEnvNames()}. \`{PREFIX}_URL\` is protocol-specific, \`{PREFIX}_SHADOW_URL\` is postgres only. \`{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")\`.`,
+    `- For postgres deps, \`{PREFIX}_URL=${POSTGRES_DEPENDENCY_URL_TEMPLATE}\` and \`{PREFIX}_SHADOW_URL=${POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE}\`. Use config-level \`envMap\` on the dependency reference to alias these to app-expected names (e.g. \`DATABASE_URL: DB_URL\`).`,
     "- The Postgres service in docker-compose must use matching credentials (`POSTGRES_USER=prisma`, `POSTGRES_PASSWORD=prisma`, `POSTGRES_DB=prisma`) and create the shadow database (e.g. via an init script or the app's migration tool). If existing credentials differ, either update them to match or override via `envMap` aliasing.",
     '- If you changed postgres credentials/database defaults on an existing persistent volume, startup may still fail due to stale data. Recommend reconciling credentials or recreating volumes (for example `docker compose down -v`) when safe.',
     '- The TLS/SNI route on :5432 remains available for tools supporting `sslnegotiation=direct` (psql 17+, pgAdmin).',
@@ -223,7 +248,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '- Host-runtime dependencies are NOT auto-started in v1 (must be started manually).',
     '- kind=dependency entries are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`.',
     '- kind=dependency services are started/stopped as declared in compose (no Traefik labels added, no env/port injection).',
-    '- For TCP dependencies of host apps, devrouter publishes a random host port and injects per-dep deterministic vars: `{PREFIX}_HOST=localhost`, `{PREFIX}_PORT=<port>`, `{PREFIX}_URL` (protocol-specific), `{PREFIX}_SHADOW_URL` (postgres only). `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`.',
+    `- For TCP dependencies of host apps, devrouter publishes a random host port and injects per-dep deterministic vars: \`{PREFIX}_HOST=localhost\`, \`{PREFIX}_PORT=<port>\`, \`{PREFIX}_URL\` (protocol-specific), \`{PREFIX}_SHADOW_URL\` (postgres only). \`{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")\`.`,
     '- Config-level `envMap` on dependency references aliases per-dep vars to app-expected names. Example: `envMap: { DATABASE_URL: DB_URL }` maps per-dep `DB_URL` to `DATABASE_URL` in the app process.',
     "- If the repo's Postgres docker-compose service uses different credentials than the injected defaults (`prisma:prisma`), flag this to the user and recommend aligning the compose env vars or using `envMap` aliasing.",
     '- Postgres multiplexing on shared :5432 requires TLS/SNI (useful for psql 17+, pgAdmin, not standard app clients).',
@@ -233,17 +258,17 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '- `envMap` on dependency references (config-level) aliases per-dep vars after dependency env resolution. `envMap` fails fast when source var is missing.',
     '',
     'Workspace isolation (parallel git worktrees / agents):',
-    '- A "workspace token" lets several worktrees of one repo run in parallel without host/route collisions. It is a single identity spanning three layers: the devpod workspace id (`devpod up --id <ws>`), the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` upstreams + the devcontainer compose network alias.',
+    `- A "workspace token" lets several worktrees of one repo run in parallel without host/route collisions. It is a single identity spanning three layers: the devpod workspace id (\`devpod up --id <ws>\`), the routes devrouter registers, and the \`${WORKSPACE_PLACEHOLDER}\` placeholder in \`.devrouter.yml\` upstreams + the devcontainer compose network alias.`,
     '- Token resolution precedence: `--workspace <slug>` flag > `DEVROUTER_WORKSPACE` env var > auto-derived from a linked git worktree branch (sanitized: lowercase, non-alphanumeric → `-`, capped at 32 chars) > none. The primary checkout resolves to no token and routes exactly as before (fully back-compatible).',
-    '- When a workspace is active: hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`), `${WORKSPACE}` in `upstream` is substituted with the token, and the docker `router` key is suffixed per workspace. The runtime config is computed in memory only — the committed `.devrouter.yml` is never rewritten.',
+    `- When a workspace is active: hosts auto-namespace (\`web.localhost\` → \`web.<ws>.localhost\`), \`${WORKSPACE_PLACEHOLDER}\` in \`upstream\` is substituted with the token, and the docker \`router\` key is suffixed per workspace. The runtime config is computed in memory only — the committed \`.devrouter.yml\` is never rewritten.`,
     '- TLS: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.',
     '- Lifecycle: `dev workspace up <branch>` (create worktree + devpod + routes), `dev workspace ls` (list worktrees/tokens/route counts), `dev workspace down <workspace|branch>` (free routes + stop devpod + remove worktree). `dev doctor` reclaims orphaned workspace proxy routes whose worktree dir was removed without `dev workspace down`.',
-    '- devcontainer integration: the devcontainer compose service exposes a devnet alias `${WORKSPACE}-app` (default `WORKSPACE=<project>` in `devcontainer.env`), and the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. Spinning up workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.',
+    `- devcontainer integration: the devcontainer compose service exposes a devnet alias \`${WORKSPACE_PLACEHOLDER}-app\` (default \`WORKSPACE=<project>\` in \`devcontainer.env\`), and the proxy app uses \`upstream: ${WORKSPACE_PLACEHOLDER}-app:<port>\`. Spinning up workspace \`feat-a\` → alias \`feat-a-app\`, host \`app.feat-a.localhost\`.`,
     '',
     'Secret Manager Integration (config-based):',
     '- Optional top-level `secretManager.command` in `.devrouter.yml` wraps `dev app run` and `dev app exec` commands with the SM command and re-applies devrouter-injected dep env vars after the SM boundary via `env KEY=VAL` prefix.',
-    '- Example config: `secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" }`.',
-    '- `{env}` template placeholder in `secretManager.command` is resolved at runtime. `defaultEnv` provides the fallback; `--env` CLI flag overrides it.',
+    `- Example config: \`secretManager: { command: "infisical run --env ${SECRET_MANAGER_ENV_PLACEHOLDER} --", defaultEnv: "dev" }\`.`,
+    `- \`${SECRET_MANAGER_ENV_PLACEHOLDER}\` template placeholder in \`secretManager.command\` is resolved at runtime. \`defaultEnv\` provides the fallback; \`--env\` CLI flag overrides it.`,
     '- When configured, the effective command becomes: `<secretManager.command> env {PREFIX}_URL=<val> ... <user-command>`.',
     '- This ensures devrouter-injected vars take precedence over SM-defined values without manual forwarding.',
     '- Config-level `envMap` targets are also included in the re-injection set.',
