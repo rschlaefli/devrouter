@@ -104,6 +104,46 @@ describe("workspaceDown", () => {
     const remove = calls.find((c) => c.cmd === "git" && c.args.includes("remove"));
     expect(remove?.args).toContain("/main/repo-feat-a");
   });
+
+  it("frees routes when git reports a realpath for a symlinked worktree path", () => {
+    vi.mocked(listHostRouteState).mockReturnValue([
+      route("feat-a", "web", "/tmp/repo-feat-a")
+    ]);
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+      const a = (args as string[]) ?? [];
+      if (cmd === "git" && a.includes("list")) {
+        return {
+          status: 0,
+          stdout: `worktree /main/repo
+HEAD abc
+branch refs/heads/main
+
+worktree /private/tmp/repo-feat-a
+HEAD def
+branch refs/heads/feat/a
+
+`
+        } as never;
+      }
+      return { status: 1 } as never;
+    });
+    const realpath = vi.spyOn(fs.realpathSync, "native").mockImplementation((p) => {
+      const key = String(p);
+      if (key === "/tmp/repo-feat-a" || key === "/private/tmp/repo-feat-a") {
+        return "/private/tmp/repo-feat-a";
+      }
+      return key;
+    });
+
+    try {
+      const result = workspaceDown("feat-a", { keepWorktree: true, keepDevpod: true });
+
+      expect(result.freedRoutes).toBe(1);
+      expect(removeHostRouteById).toHaveBeenCalledWith("/tmp/repo-feat-a::web-feat-a");
+    } finally {
+      realpath.mockRestore();
+    }
+  });
 });
 
 describe("workspaceLs", () => {
@@ -124,6 +164,43 @@ describe("workspaceLs", () => {
     expect(rows[0].routeCount).toBe(0); // no route under /main/repo, ignores /other/repo
     expect(rows[1].workspace).toBe("feat-a");
     expect(rows[1].routeCount).toBe(2);
+  });
+
+  it("counts routes when worktree and route paths use /private/tmp and /tmp aliases", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: `worktree /private/tmp/repo
+HEAD abc
+branch refs/heads/main
+
+worktree /private/tmp/repo-feat-a
+HEAD def
+branch refs/heads/feat/a
+
+`
+    } as never);
+    vi.mocked(listHostRouteState).mockReturnValue([
+      route("feat-a", "web", "/tmp/repo-feat-a")
+    ]);
+    const realpath = vi.spyOn(fs.realpathSync, "native").mockImplementation((p) => {
+      const key = String(p);
+      if (key === "/tmp/repo-feat-a" || key === "/private/tmp/repo-feat-a") {
+        return "/private/tmp/repo-feat-a";
+      }
+      if (key === "/private/tmp/repo") {
+        return "/private/tmp/repo";
+      }
+      return key;
+    });
+
+    try {
+      const rows = workspaceLs("/private/tmp/repo");
+
+      expect(rows[1].workspace).toBe("feat-a");
+      expect(rows[1].routeCount).toBe(1);
+    } finally {
+      realpath.mockRestore();
+    }
   });
 });
 

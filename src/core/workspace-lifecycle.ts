@@ -55,6 +55,19 @@ function defaultWorktreePath(mainRepo: string, ws: string): string {
   return path.join(path.dirname(mainRepo), `${path.basename(mainRepo)}-${ws}`);
 }
 
+function comparablePath(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+function samePath(left: string, right: string): boolean {
+  return comparablePath(left) === comparablePath(right);
+}
+
 export async function workspaceUp(
   branch: string,
   opts: { path?: string; noDevpod?: boolean; open?: boolean; repoPath?: string } = {}
@@ -159,8 +172,7 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
     // untagged routes.
     const workspace =
       isLinkedWorktree(wt.path) && wt.branch ? wsFromBranch(wt.branch) : undefined;
-    const here = path.resolve(wt.path);
-    const wsRoutes = routes.filter((route) => path.resolve(route.repoPath) === here);
+    const wsRoutes = routes.filter((route) => samePath(route.repoPath, wt.path));
     return {
       workspace,
       branch: wt.branch,
@@ -191,9 +203,8 @@ export function workspaceDown(
 
   // Free routes by the workspace tag AND the worktree path, so a same-named
   // workspace in a different repo is never torn down by this call.
-  const here = path.resolve(worktreePath);
   const routes = listHostRouteState().filter(
-    (route) => route.workspace === ws && path.resolve(route.repoPath) === here
+    (route) => route.workspace === ws && samePath(route.repoPath, worktreePath)
   );
   for (const route of routes) {
     removeHostRouteById(route.id);

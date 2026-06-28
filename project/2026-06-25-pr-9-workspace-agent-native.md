@@ -18,11 +18,15 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
 - Accepted issue: PR body has stale verification head `fb7c062`; refresh before ready.
 - 2026-06-28 slice `--open`: implemented HTTP route opening after workspace route registration. Focused checks passed:
   `pnpm exec vitest run src/core/__tests__/workspace-lifecycle.test.ts`; `pnpm typecheck`.
+- 2026-06-28 E2E found path-alias bug: macOS `git worktree list` reports `/private/tmp/...` while routes were tagged
+  with `/tmp/...`; `workspace ls/down` missed routes. Fixed with realpath-aware path compare. Evidence:
+  `pnpm exec vitest run src/core/__tests__/workspace-lifecycle.test.ts`; `pnpm typecheck`; `pnpm build`;
+  `./examples/workspace/run.sh`; `./examples/workspace/run.sh down` plus `dev ls --json` showed no `wsdemo` routes.
 - Active finish sequence:
   1. DONE: commit this plan metadata rename.
   2. DONE: fix `--open`, add unit test, run focused check.
-  3. NEXT: run fresh gates: docs policy, typecheck, tests, build.
-  4. Run `examples/workspace/run.sh` E2E.
+  3. DONE: run fresh gates: docs policy, typecheck, tests, build.
+  4. DONE: run `examples/workspace/run.sh` E2E; fixed path-alias fallout.
   5. Run live devpod E2E proving `WORKSPACE=<ws>` reaches compose alias and namespaced host serves.
   6. Run isolated-home GC safety E2E: orphan removed, primary/live worktree routes preserved.
   7. Run final review + simplification + strict maintainability review.
