@@ -33,6 +33,13 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
 - 2026-06-28 isolated-home GC E2E passed: seeded primary route, live workspace route, and missing-worktree workspace
   route under temp `$HOME`; `node dist/dev.js doctor --repo <repo>` emitted
   `routes.orphaned-workspace-routes WARN Evicted 1...`; state kept primary + live route only.
+- 2026-06-28 final gates passed after branch changes:
+  `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm test` with loopback permission (`277 passed`); `pnpm build`.
+- 2026-06-28 local security review: no high-confidence findings. Checked branch/workspace token sanitization,
+  host/upstream validation, argv-safe git/devpod spawns, `open` URL source, and GC route deletion scope.
+- 2026-06-28 local simplification + thermo-nuclear maintainability review: no blocker. `repo-config.ts` is still a
+  watch item at 960 lines but remains below 1k; extracting workspace config now would export internals and spread
+  coupling. `workspace-lifecycle.ts` remains a focused 234-line orchestration module.
 - Active finish sequence:
   1. DONE: commit this plan metadata rename.
   2. DONE: fix `--open`, add unit test, run focused check.
@@ -40,8 +47,8 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
   4. DONE: run `examples/workspace/run.sh` E2E; fixed path-alias fallout.
   5. DONE: run live devpod E2E proving `WORKSPACE=<ws>` reaches compose alias and namespaced host serves.
   6. DONE: run isolated-home GC safety E2E: orphan removed, primary/live worktree routes preserved.
-  7. NEXT: run final review + simplification + strict maintainability review.
-  8. Refresh PR body, mark ready, merge, create GitHub release `v0.0.22`, verify npm publish.
+  7. DONE: run final review + simplification + strict maintainability review.
+  8. NEXT: refresh PR body, push, mark ready, merge, create GitHub release `v0.0.22`, verify npm publish.
 
 ## Goal prompt
 
