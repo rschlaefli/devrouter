@@ -57,8 +57,9 @@ describe('buildOnboardingPrompt', () => {
       (protocol) => `"${protocol}"`
     ).join(' | ')
     expect(prompt).toContain(
-      'If any tcp/postgres app is configured, run `dev up` and `dev tls install` before runtime validation.'
+      'Run `dev setup --yes` before runtime validation; use `dev doctor --json` to diagnose any missing machine prerequisites.'
     )
+    expect(prompt).toContain('Postgres multiplexing on shared :5432 requires TLS/SNI')
     expect(prompt).toContain(`  - tcpProtocol: ${tcpProtocolUnion}`)
     expect(prompt).toContain(
       `- kind=app runtime=proxy supports protocol=${formatSupportedProtocolsForRuntime('proxy').replace(', ', ' or ')}, requires upstream`

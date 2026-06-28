@@ -62,7 +62,7 @@ The templates are workspace-aware so several git worktrees of one repo run at on
 - Compose aliases use `${WORKSPACE:-<app>}-*` and `.devrouter.yml` upstreams use `${WORKSPACE}-*`. The **primary checkout** leaves `WORKSPACE` unset → both resolve to `<app>-*` (identical to the old behavior); `devcontainer.env` carries `WORKSPACE=<app>` as the container-side default.
 - For a **parallel worktree**, `dev workspace up <branch>` creates the worktree, exports `WORKSPACE=<ws>` to the devpod/compose env (so the container's alias becomes `<ws>-app`), and registers the namespaced host `<app>.<ws>.localhost` → `<ws>-app`. `dev workspace ls` lists them; `dev workspace down <branch>` frees routes + stops the devpod + removes the worktree.
 - Without `dev workspace up` (e.g. a manual `devpod up`), set `WORKSPACE=<ws>` in the worktree's `.devcontainer/.env` or export it before bringing the stack up — the shell env is what drives the `${WORKSPACE}` compose substitution (same mechanism as the existing `${HOME}`/`${DEVROUTER_MKCERT_CAROOT}` mount).
-- `dev doctor` reclaims routes left behind by a worktree removed without `dev workspace down`.
+- `dev doctor` reports routes left behind by a worktree removed without `dev workspace down`; it does not mutate route state.
 
 ## Hard-won gotchas
 

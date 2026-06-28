@@ -11,8 +11,11 @@ export async function runDoctorCommand(options: DoctorCommandOptions): Promise<v
 
   if (options.json) {
     printJSON(report);
-    return;
+  } else {
+    printDoctorReport(report);
   }
 
-  printDoctorReport(report);
+  if (report.summary.error > 0) {
+    process.exitCode = 1;
+  }
 }

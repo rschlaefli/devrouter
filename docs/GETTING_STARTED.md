@@ -8,7 +8,8 @@ Setup and first-run guide for `devrouter` using the unified `.devrouter.yml` mod
 - Docker daemon + CLI
 - Node `>=24`
 - pnpm
-- Homebrew (recommended for automatic mkcert install)
+- mkcert (recommended for local HTTPS/TCP routing)
+- Homebrew (optional, convenient for installing mkcert/DevPod)
 
 Quick checks:
 
@@ -18,6 +19,8 @@ docker context show
 node -v
 pnpm -v
 ```
+
+`dev setup --yes --json` also checks Docker Compose v2, mkcert, DevPod, and the repo's Node/pnpm toolchain, then reports exact remediation steps for missing tools.
 
 ## 2) Install CLI locally
 
@@ -212,12 +215,23 @@ Fallback for specific hostnames only:
 127.0.0.1 db.localhost
 ```
 
-## 4) Start shared router
+## 4) First-time machine setup
+
+```bash
+dev setup --yes
+dev doctor --json
+```
+
+`dev setup` prepares devrouter-owned state: global router files, the shared `devnet` network, the Traefik router stack, and TLS certificates when `mkcert` is available. It does not install broad external toolchains; missing Docker/Compose, mkcert, DevPod, Node, or pnpm become remediation items.
+
+`dev doctor` is check-only. Use it after setup fails, before opening a PR, or when diagnosing a machine/repo.
+
+Lower-level commands remain available:
 
 ```bash
 dev up
+dev tls install
 dev status
-dev doctor
 ```
 
 Expected bound ports:
@@ -519,7 +533,7 @@ For Next.js host-run apps using proxied/custom `.localhost` development hosts, v
 
 ## 13) Validate setup quality (recommended)
 
-Run diagnostics against global state + repository config:
+Run check-only diagnostics against global state, machine prerequisites, route state, and repository config:
 
 ```bash
 dev doctor --repo /absolute/path/to/repo
@@ -530,6 +544,8 @@ For AI/tooling integration:
 ```bash
 dev doctor --repo /absolute/path/to/repo --json
 ```
+
+When `.devcontainer/` exists, doctor also checks devnet aliases, published host ports, and proxy upstream alias matches.
 
 ## 14) Onboard another repository
 
@@ -589,4 +605,4 @@ With workspace `feat-a` active: host becomes `app.feat-a.localhost`, upstream re
 
 The devcontainer compose service should expose a network alias `${WORKSPACE}-app` (where `WORKSPACE` defaults to the project name in `devcontainer.env`).
 
-**GC:** `dev doctor` check `routes.orphaned-workspace-routes` reclaims proxy routes whose worktree directory was deleted without `dev workspace down`. Primary-checkout routes are never touched.
+**Orphan detection:** `dev doctor` check `routes.orphaned-workspace-routes` reports proxy routes whose worktree directory was deleted without `dev workspace down`. It does not mutate route state.

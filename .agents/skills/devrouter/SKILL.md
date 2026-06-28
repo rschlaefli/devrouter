@@ -133,7 +133,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - **When active**: hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`), `${WORKSPACE}` in `upstream` is substituted with the token, and the docker `router` key is suffixed per workspace. The runtime config is computed in memory only — the committed `.devrouter.yml` is never rewritten.
 - **TLS**: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.
 - **devcontainer integration**: the devcontainer compose service exposes a devnet alias `${WORKSPACE}-app` (default `WORKSPACE=<project>` in `devcontainer.env`); the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. Workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.
-- **Lifecycle**: `dev workspace up <branch>` (create worktree + devpod + routes), `dev workspace ls` (list worktrees/tokens/route counts), `dev workspace down <workspace|branch>` (free routes by state-file workspace tag + stop devpod + remove worktree). `dev doctor` reclaims orphaned workspace proxy routes whose worktree dir was removed without `dev workspace down`.
+- **Lifecycle**: `dev workspace up <branch>` (create worktree + devpod + routes), `dev workspace ls` (list worktrees/tokens/route counts), `dev workspace down <workspace|branch>` (free routes by state-file workspace tag + stop devpod + remove worktree). `dev doctor` reports orphaned workspace proxy routes whose worktree dir was removed without `dev workspace down`.
 
 ## Secret manager interop (Infisical/Doppler)
 
@@ -193,6 +193,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `dev init [--write-agents] [--write-skill] [--with-linear]`: print AI onboarding prompt (non-mutating by default)
 - `dev -V [--repo .]`: show installed CLI version, local repo version, and next upgrade target
 - `dev upgrade [version] [--repo .]`: list upgrade targets or print target Agent Adaptation Prompt
+- `dev setup --yes [--repo .] [--json]`: first-run machine setup plus structured diagnostics
 - `dev up` / `dev down`: start/stop shared Traefik router
 - `dev status`: router/container/network/TLS health
 - `dev doctor [--repo .]`: deep diagnostics (global + repo)
@@ -213,14 +214,13 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 
 ## Validation workflow
 
-1. `dev up` -- ensure shared router is running
-2. For TCP/Postgres repos: `dev tls install`
-3. `dev doctor --repo .` -- check global + repo health
-4. `dev app ls --repo .` -- verify entries match expectations
-5. `dev app run <host-app> --repo . --yes` -- start target app with deps
-6. `dev ls` -- confirm routes are exposed
-7. `curl -I https://<host>.localhost` -- HTTP reachability
-8. For TCP/Postgres: use `dev open <name>` for connection hint
+1. `dev setup --repo . --yes` -- ensure shared router, devnet, and TLS when mkcert exists
+2. `dev doctor --repo .` -- check global + repo health without mutating state
+3. `dev app ls --repo .` -- verify entries match expectations
+4. `dev app run <host-app> --repo . --yes` -- start target app with deps
+5. `dev ls` -- confirm routes are exposed
+6. `curl -I https://<host>.localhost` -- HTTP reachability
+7. For TCP/Postgres: use `dev open <name>` for connection hint
 
 ## Runtime behavior notes
 

@@ -10,10 +10,11 @@ import { discoverRoutes, findDuplicateHosts } from "./routes";
 import { assertPathWithinRepo } from "./paths";
 import { getTLSHostCoverage } from "./tls";
 import {
-  evictOrphanedWorkspaceProxyRoutes,
-  evictStaleProcessRoutes,
+  findOrphanedWorkspaceProxyRoutes,
   findStaleProcessRoutes
 } from "./route-state";
+import { buildGlobalToolChecks } from "./tool-diagnostics";
+import { buildDevcontainerChecks } from "./devcontainer-diagnostics";
 import {
   DevrouterApp,
   DevrouterConfig,
@@ -297,6 +298,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
   const fileLayout = getRouterFileLayout();
   const resolvedRepoPath = resolveRepoPath(options.repo);
   const explicitRepo = typeof options.repo === "string" && options.repo.trim().length > 0;
+  let loadedConfig: DevrouterConfig | undefined;
 
   if (fileLayout.missing.length === 0) {
     addCheck(checks, {
@@ -312,6 +314,10 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       details: fileLayout.missing.join(", "),
       suggestion: "Run: dev up"
     });
+  }
+
+  for (const check of buildGlobalToolChecks(resolvedRepoPath)) {
+    addCheck(checks, check);
   }
 
   let statusNextSteps: string[] = [];
@@ -431,6 +437,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       }
 
       const config = loadRuntimeConfig(repo.path).config;
+      loadedConfig = config;
       const appNames = new Set(config.apps.map((app) => app.name));
       const missingDependencies = config.apps.flatMap((app) =>
         app.dependencies
@@ -617,6 +624,10 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     });
   }
 
+  for (const check of buildDevcontainerChecks(resolvedRepoPath, loadedConfig)) {
+    addCheck(checks, check);
+  }
+
   try {
     const tlsEnabled = isTLSEnabled();
     const containers = await listContainers(true);
@@ -642,31 +653,27 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
   }
 
   const staleHostRoutes = findStaleProcessRoutes();
-  addCheck(checks, {
-    id: "routes.host-state",
-    level: staleHostRoutes.length === 0 ? "ok" : "warn",
-    summary: staleHostRoutes.length === 0
-      ? "Host route state contains only running process entries."
-      : `${staleHostRoutes.length} host route entr${staleHostRoutes.length === 1 ? "y is" : "ies are"} stale (process not running).`,
-    suggestion: staleHostRoutes.length === 0 ? undefined : "Re-run the affected host app(s): dev app run <name> --repo <path>"
-  });
-
-  const evictedCount = evictStaleProcessRoutes();
+  const staleCount = staleHostRoutes.length;
   addCheck(checks, {
     id: "routes.stale-host-routes",
-    level: evictedCount === 0 ? "ok" : "warn",
-    summary: evictedCount === 0
-      ? "No stale host route entries to clean up."
-      : `Evicted ${evictedCount} stale host route entr${evictedCount === 1 ? "y" : "ies"} (dead PID).`
+    level: staleCount === 0 ? "ok" : "warn",
+    summary: staleCount === 0
+      ? "No stale host route entries detected."
+      : `${staleCount} stale host route entr${staleCount === 1 ? "y" : "ies"} detected (dead PID).`,
+    suggestion: staleCount === 0 ? undefined : "Re-run the affected host app(s) or remove routes with: dev app rm <name> --repo <path> --keep-config"
   });
 
-  const evictedOrphanCount = evictOrphanedWorkspaceProxyRoutes();
+  const orphanedWorkspaceRoutes = findOrphanedWorkspaceProxyRoutes();
   addCheck(checks, {
     id: "routes.orphaned-workspace-routes",
-    level: evictedOrphanCount === 0 ? "ok" : "warn",
-    summary: evictedOrphanCount === 0
-      ? "No orphaned workspace proxy routes to clean up."
-      : `Evicted ${evictedOrphanCount} orphaned workspace proxy route entr${evictedOrphanCount === 1 ? "y" : "ies"} (worktree removed without 'dev workspace down').`
+    level: orphanedWorkspaceRoutes.length === 0 ? "ok" : "warn",
+    summary: orphanedWorkspaceRoutes.length === 0
+      ? "No orphaned workspace proxy routes detected."
+      : `${orphanedWorkspaceRoutes.length} orphaned workspace proxy route entr${orphanedWorkspaceRoutes.length === 1 ? "y" : "ies"} detected (worktree removed without 'dev workspace down').`,
+    suggestion:
+      orphanedWorkspaceRoutes.length === 0
+        ? undefined
+        : "Run: dev workspace down <workspace>"
   });
 
   const summary = collectSummary(checks);

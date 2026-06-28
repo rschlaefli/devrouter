@@ -63,6 +63,7 @@ Supported routing:
 - `dev init` (`--write-agents` / `--write-skill` optional; `--with-linear` optional; non-mutating by default)
 - `dev -V` (`--repo <path>` optional; shows installed CLI version, local repo version, next upgrade target)
 - `dev upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
+- `dev setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics)
 - `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
 - `dev repo init`, `dev repo agents` (`--with-linear` optional)
 - `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run` (`--env`, `--workspace`), `dev app exec` (`--shell`, `--env`, `--workspace`), `dev app rm` (`--keep-config`)
@@ -78,7 +79,11 @@ Supported routing:
 - `src/commands/repo-agents.ts`: `dev repo agents` command handler
 - `src/commands/upgrade.ts`: `dev upgrade` command handler
 - `src/commands/version.ts`: `dev -V` version summary command handler
+- `src/commands/setup.ts`: `dev setup` command handler
 - `src/core/doctor.ts`: diagnostic report engine for global + repo checks
+- `src/core/setup.ts`: first-run setup orchestration for devrouter-owned machine state
+- `src/core/tool-diagnostics.ts`: shared external-tool checks for Docker Compose, mkcert, DevPod, and Node/pnpm
+- `src/core/devcontainer-diagnostics.ts`: static devcontainer alias/port/upstream checks used by doctor
 - `src/core/status.ts`: status collection + readiness insights
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation; workspace runtime config (`loadRuntimeConfig()`, `applyWorkspace()`, `namespaceHost()`, `${WORKSPACE}` upstream substitution)
@@ -153,7 +158,7 @@ Supported routing:
 - **Env injection**: TCP deps get per-dep deterministic vars: `{PREFIX}_HOST`/`_PORT`/`_URL`/`_SHADOW_URL` (where `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`). Protocol-specific URLs: postgres (`postgres://prisma:prisma@...`), redis (`redis://...`), mysql/mariadb (`mysql://root@...`). Config-level `envMap` on dependency references aliases these to project-specific names (e.g. `DATABASE_URL: DB_URL`). Aliases are applied in `startAppDependencies()` and become part of `depEnv` — they flow through SM re-injection and `buildExecEnvironment()` automatically.
 - **Workspace runtime config**: `loadRuntimeConfig(repoPath, workspaceOverride?)` resolves the workspace token (`resolveWorkspace`) and returns `applyWorkspace(config, ws)` — a deep-cloned, in-memory config with namespaced hosts, `${WORKSPACE}` upstreams substituted (re-validated), and per-workspace docker `router` keys. The committed `.devrouter.yml` is never rewritten. All read paths (`status`, `doctor`, `open`, `app-run`) load through this; the resolved workspace threads down to `upsertHostRoute` as `HostRouteState.workspace` so teardown/GC can filter by tag without re-reading config.
 - **Workspace lifecycle glue**: `dev workspace up` exports `WORKSPACE=<ws>` into the `devpod up` env (drives the compose `${WORKSPACE:-<project>}` alias, same mechanism as the existing `${HOME}` mount substitution) and registers namespaced routes; `dev workspace down` frees routes by state-file `workspace` tag (no config load, survives a deleted worktree). devpod calls are best-effort, gated on `hasDevpod()`.
-- **Orphaned-route GC**: `evictOrphanedWorkspaceRoutes()` (run by `dev doctor`) reclaims proxy routes with a `workspace` tag whose `repoPath` worktree dir no longer exists. Uses worktree existence — never container/alias liveness — so stable primary-checkout routes whose devcontainer is merely stopped are never torn down.
+- **Orphaned-route diagnostics**: `dev doctor` reports proxy routes with a `workspace` tag whose `repoPath` worktree dir no longer exists. It does not mutate route state; explicit teardown remains `dev workspace down` or targeted route removal.
 - **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.
 - **Secret-manager precedence diagnostics**: `dev doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 - **TLS host coverage**: `startAppDependencies()` in `app-run.ts` calls TLS coverage refresh for all configured repo hosts when TLS is enabled. `dev doctor` emits `repo.tls-host-coverage` when configured hosts are not covered by current cert SANs.
@@ -176,6 +181,7 @@ Supported routing:
 2. `pnpm test`
 3. `pnpm typecheck`
 4. `pnpm build`
-5. `dev doctor --repo ./demo`
-6. `pnpm demo:smoke` for full route showcase/regression smoke
-7. Update docs for any behavior/surface changes
+5. `dev setup --repo ./demo --yes --json`
+6. `dev doctor --repo ./demo`
+7. `pnpm demo:smoke` for full route showcase/regression smoke
+8. Update docs for any behavior/surface changes

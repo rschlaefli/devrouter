@@ -37,7 +37,7 @@ Complete global setup first:
 Assumptions:
 
 - `dev` CLI is installed
-- `dev up` is already working
+- `dev setup --yes` has completed or `dev doctor --json` explains what is missing
 - macOS local environment
 
 Reference implementation:
@@ -152,8 +152,7 @@ dev app add \
   --depends-on db \
   --depends-on redis
 
-dev up
-dev tls install
+dev setup --yes
 dev app run web
 ```
 
@@ -358,7 +357,7 @@ dev workspace ls
 dev workspace down feat/my-feature
 ```
 
-`dev doctor` check `routes.orphaned-workspace-routes` reclaims routes whose worktree was removed without `dev workspace down`.
+`dev doctor` check `routes.orphaned-workspace-routes` reports routes whose worktree was removed without `dev workspace down`; it does not mutate route state.
 
 ## 11) AI agent prompt (single copy-paste)
 

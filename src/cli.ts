@@ -59,6 +59,17 @@ program
   }));
 
 program
+  .command("setup")
+  .description("Run first-time devrouter machine setup and report diagnostics")
+  .option("--repo <path>", "Repository path for final diagnostics (defaults to current directory)")
+  .option("--yes", "Confirm non-interactive setup actions")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { repo?: string; yes?: boolean; json?: boolean }) => {
+    const { runSetupCommand } = await import("./commands/setup");
+    await runSetupCommand(options);
+  }));
+
+program
   .command("up")
   .description("Ensure devnet and start shared Traefik (reserves 80/443/5432)")
   .action(withErrorHandling(async () => {

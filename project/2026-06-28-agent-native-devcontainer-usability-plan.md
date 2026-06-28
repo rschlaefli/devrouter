@@ -15,8 +15,15 @@ Status: **approved, executing**. Last updated: 2026-06-28.
 ## Progress
 
 - 2026-06-28: User approved execution with goal prompt. Branch work starts on `codex/agent-native-devcontainer-usability`.
-- Active slice: S0 Plan and command contract.
-- Next: commit this plan alone, then start S1 `dev setup` plus check-only doctor extensions.
+- 2026-06-28: S0 committed as `a24af18`.
+- 2026-06-28: S1 implemented and verified.
+  - Added `dev setup --yes --json` with structured actions/checks/nextSteps and a non-mutating confirmation guard when `--yes` is omitted.
+  - Extended check-only doctor diagnostics for Docker Compose v2, mkcert, DevPod, Node/pnpm, and static devcontainer alias/port/upstream checks.
+  - Changed doctor route-state behavior to report stale/orphaned routes without mutating state.
+  - Accepted review findings from Pasteur/Poincare: real `--yes` semantics, doctor exit code on error, long-syntax Compose ports, external `devnet` validation, one stale-route diagnostic, valid orphan-route suggestion.
+  - Evidence: `pnpm typecheck`; `pnpm check:docs-policy`; `pnpm build`; escalated `pnpm test` (31 files, 300 tests); `node dist/dev.js setup --repo ./demo --json` exits 1 with `setup.confirmation`; `node dist/dev.js setup --repo ./demo --json --yes` exits 0 with 4 skipped actions and 21 ok checks; `node dist/dev.js doctor --repo ./demo --json` exits 0 with 21 ok checks; `pnpm demo:smoke` passes.
+- Active slice: S1 ready to commit.
+- Next: commit S1, then start S2 `dev repo inspect --json`.
 
 ## Problem
 

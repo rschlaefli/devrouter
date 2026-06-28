@@ -1,4 +1,4 @@
-import { DevrouterApp, DoctorReport, HostRouteState, Route, RouterStatus } from "../types";
+import { DevrouterApp, DoctorReport, HostRouteState, Route, RouterStatus, SetupReport } from "../types";
 import { formatAge } from "../util/timeago";
 import { renderTable } from "../util/table";
 
@@ -202,6 +202,51 @@ export function printDoctorReport(report: DoctorReport): void {
     process.stdout.write("\nDetails:\n");
     for (const check of detailedChecks) {
       process.stdout.write(`- ${check.id}: ${check.details}\n`);
+    }
+  }
+
+  if (report.nextSteps.length > 0) {
+    process.stdout.write("\nRecommended next steps:\n");
+    for (const step of report.nextSteps) {
+      process.stdout.write(`- ${step}\n`);
+    }
+  }
+}
+
+export function printSetupReport(report: SetupReport): void {
+  const summaryRows = [
+    ["Generated", report.generatedAt],
+    ["Repo path", report.repoPath ?? "-"],
+    ["Actions performed", String(report.summary.actions.performed)],
+    ["Actions skipped", String(report.summary.actions.skipped)],
+    ["Actions failed", String(report.summary.actions.failed)],
+    ["Checks OK", String(report.summary.checks.ok)],
+    ["Checks WARN", String(report.summary.checks.warn)],
+    ["Checks ERROR", String(report.summary.checks.error)]
+  ];
+  process.stdout.write(`${renderTable(["FIELD", "VALUE"], summaryRows)}\n\n`);
+
+  const actionRows = report.actions.map((entry) => [
+    entry.id,
+    entry.status.toUpperCase(),
+    entry.summary,
+    entry.suggestion ?? "-"
+  ]);
+  process.stdout.write(`${renderTable(["ACTION", "STATUS", "SUMMARY", "SUGGESTION"], actionRows)}\n`);
+
+  const detailedActions = report.actions.filter((entry) => entry.details);
+  if (detailedActions.length > 0) {
+    process.stdout.write("\nAction details:\n");
+    for (const entry of detailedActions) {
+      process.stdout.write(`- ${entry.id}: ${entry.details}\n`);
+    }
+  }
+
+  const failingChecks = report.checks.filter((check) => check.level !== "ok");
+  if (failingChecks.length > 0) {
+    process.stdout.write("\nDiagnostic findings:\n");
+    for (const check of failingChecks) {
+      process.stdout.write(`- ${check.id} [${check.level.toUpperCase()}]: ${check.summary}\n`);
     }
   }
 

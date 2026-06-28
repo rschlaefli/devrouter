@@ -49,7 +49,7 @@ services:
         aliases: [myapp-db]
 networks:
   devnet:
-    external: true   # created by `dev up`; must pre-exist when the stack starts
+    external: true   # created by `dev setup`/`dev up`; must pre-exist when the stack starts
 ```
 
 An OIDC mock or other sidecar that uses `network_mode: service:app` rides the
@@ -90,8 +90,8 @@ Order matters — `devnet` is `external`, so it must exist before the container
 starts:
 
 ```bash
-dev up            # shared Traefik + the devnet network (one-time per machine)
-dev tls install   # mkcert CA + certs for *.localhost (one-time; needs sudo once)
+dev setup --yes   # shared Traefik + devnet + TLS when mkcert exists
+dev doctor --json # check-only diagnostics for machine + repo state
 # ... now bring the devcontainer up (devpod up .) ...
 for a in app db; do dev app run "$a"; done   # one per app name in .devrouter.yml
 ```
@@ -126,7 +126,7 @@ advertises ALPN `postgresql` automatically (libpq direct-SSL mandates it).
 
 ```bash
 dev ls                 # proxy routes show status "active"
-dev doctor --repo .    # proxy routes are never flagged as stale (no PID)
+dev doctor --repo .    # check-only diagnostics, including devcontainer static checks
 dev app rm app         # remove a route (NB: also edits .devrouter.yml)
 dev down               # stop the shared router
 ```

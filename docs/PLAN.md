@@ -9,6 +9,7 @@ Delivered and active:
 - Unified per-repo config: `.devrouter.yml`
 - Repo-local upgrade metadata: `.devrouter.yml` `devrouter.version`
 - Upgrade commands: `dev -V` and `dev upgrade [version]`
+- First-run machine setup: `dev setup --yes --json`
 - Upgrade prompts stored as versioned files: `upgrade-prompts/<version>.md`
 - HTTP routing for host-run and Docker-run apps
 - HTTP proxy routing (`runtime: proxy`) to an already-running upstream (e.g. devcontainer)
@@ -30,7 +31,7 @@ Delivered and active:
   - Hosts auto-namespaced in memory (`web.localhost` → `web.<ws>.localhost`); committed `.devrouter.yml` is never rewritten
   - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`
   - TLS SAN auto-extended for active workspace hosts
-  - `dev doctor` GC check `routes.orphaned-workspace-routes` for worktrees removed without `dev workspace down`
+  - `dev doctor` check `routes.orphaned-workspace-routes` reports worktrees removed without `dev workspace down`
 
 ## Documentation policy
 
@@ -48,8 +49,9 @@ Required checks for behavior and doc consistency:
 4. `pnpm build`
 5. `node dist/dev.js -V --repo ./demo`
 6. `node dist/dev.js upgrade --repo ./demo`
-7. `node dist/dev.js doctor --repo ./demo`
-8. `pnpm demo:smoke` (environment permitting)
+7. `node dist/dev.js setup --repo ./demo --yes --json`
+8. `node dist/dev.js doctor --repo ./demo`
+9. `pnpm demo:smoke` (environment permitting)
 
 ## Near-term roadmap
 

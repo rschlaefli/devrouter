@@ -45,7 +45,7 @@ apps:
 ```
 
 ```bash
-dev up && dev tls install     # one-time
+dev setup --yes               # one-time: devnet, router, TLS when mkcert exists
 dev app run app               # registers the route; the container owns start/stop
 ```
 
@@ -65,6 +65,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `dev init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill] [--with-linear]`
 - `dev -V [--repo <path>]` (installed CLI version, local repo version, next upgrade target)
 - `dev upgrade [version] [--repo <path>]`
+- `dev setup --yes [--repo <path>] [--json]`
 - `dev up`
 - `dev down`
 - `dev status [--repo <path>] [--json]`
@@ -121,7 +122,7 @@ dev workspace down feat/my-feature
 
 **Try it:** [`examples/workspace/`](examples/workspace/) is a runnable showcase — `./run.sh` brings up one app in two parallel worktrees (`wsdemo.localhost` and `wsdemo.feat-a.localhost`) served at once, then `./run.sh down` tears it down.
 
-**GC:** `dev doctor` check `routes.orphaned-workspace-routes` reclaims proxy routes whose worktree directory was removed without `dev workspace down`. Only orphaned workspace routes are reclaimed; primary-checkout routes are never touched.
+**Orphan detection:** `dev doctor` check `routes.orphaned-workspace-routes` reports proxy routes whose worktree directory was removed without `dev workspace down`. It does not mutate route state.
 
 ## Upgrade metadata and prompts
 
@@ -180,7 +181,7 @@ When `--with-linear` is combined with AGENTS writes, devrouter captures minimal 
 
 ## Health diagnostics
 
-Run deep checks for global router state and repo configuration:
+Run check-only diagnostics for global router state, machine prerequisites, route state, and repo configuration:
 
 ```bash
 dev doctor --repo /absolute/path/to/repo
@@ -195,7 +196,8 @@ dev doctor --repo /absolute/path/to/repo --json
 `dev status` now includes readiness hints and next-step commands.
 For host apps that depend on postgres, `dev doctor` also checks host command wrapper precedence and warns with `repo.host-command-env-precedence` when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 When TLS is enabled, `dev doctor` also checks TLS host coverage and warns with `repo.tls-host-coverage` if configured `.localhost` hosts are not covered by the current cert SANs.
-`dev doctor` also reclaims orphaned workspace proxy routes (`routes.orphaned-workspace-routes`) whose worktree directory was removed without `dev workspace down`.
+When `.devcontainer/` exists, `dev doctor` checks devnet aliases, published host ports, and proxy upstream alias matches.
+`dev doctor` reports stale host routes and orphaned workspace proxy routes without mutating route state.
 
 ## `.devrouter.yml` example
 
