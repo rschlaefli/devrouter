@@ -1,0 +1,946 @@
+# devrouter - agent-native devcontainer usability plan
+
+Status: **approved, executing**. Last updated: 2026-06-28.
+
+## Plan identity
+
+- Plan path: `project/2026-06-28-agent-native-devcontainer-usability-plan.md`
+- Proposed branch: `codex/agent-native-devcontainer-usability`
+- Target branch: `main`
+- PR: none yet
+- Prior related work:
+  - `project/2026-06-25-pr-9-workspace-agent-native.md`
+  - `project/2026-06-28-pr-10-architecture-deepening-plan.md`
+
+## Progress
+
+- 2026-06-28: User approved execution with goal prompt. Branch work starts on `codex/agent-native-devcontainer-usability`.
+- Active slice: S0 Plan and command contract.
+- Next: commit this plan alone, then start S1 `dev setup` plus check-only doctor extensions.
+
+## Problem
+
+Engineers should not manually wire devrouter + devcontainer + DevPod. Their agents should do it.
+
+Current state:
+
+- Good primitives exist:
+  - `runtime: proxy` over `devnet`
+  - `${WORKSPACE}` upstreams
+  - `dev workspace up/ls/down`
+  - `dev doctor`
+  - `.agents/skills/devcontainer-onboarding/` templates
+  - `examples/workspace/` smoke
+- Gaps:
+  - Agent must infer too much from prose.
+  - Setup is not one deterministic inspect/apply/verify loop.
+  - Devcontainer onboarding skill is useful but not a product surface.
+  - Diagnostics do not yet explain devcontainer/devpod failures in a direct, fixable way.
+  - Docs start with routing concepts instead of the engineer value: clone, agent sets up PR, engineer runs workspace.
+
+## Goal
+
+Make devrouter devcontainer onboarding agent-native:
+
+1. Agent can bootstrap a machine.
+2. Agent can inspect a new repo.
+3. Agent can propose a small devcontainer/devrouter plan.
+4. Agent can scaffold/update files.
+5. Agent can verify with real devpod/devrouter checks.
+6. Agent can open a PR with concrete evidence.
+
+Human engineer experience:
+
+- "Ask agent to make this repo devrouter-ready."
+- Review PR.
+- After merge: `dev workspace up <branch>` or `devpod up .` plus stable routed URLs.
+
+## Non-goals
+
+- No central repo registry.
+- No cloud control plane.
+- No opaque AI magic inside devrouter CLI.
+- No broad app-framework generator.
+- No attempt to perfectly infer every repo. Unknowns should become explicit TODOs.
+- No large docs rewrite before the product loop works.
+- No support matrix explosion. Start with Node/pnpm + Docker/DevPod + proxy routes.
+- No secrets migration. Devcontainer env stays dev-only; real secrets stay in existing systems.
+
+## Product principle
+
+Agent-native means CLI outputs are:
+
+- deterministic
+- idempotent
+- non-interactive with `--yes`
+- dry-runnable where useful
+- JSON-readable with stable diagnostic IDs
+- actionable: every failure says what to run or edit next
+
+Core loop:
+
+```text
+setup -> doctor -> inspect -> dry-run -> write -> verify -> PR evidence
+```
+
+No command should require the agent to scrape prose when structured output is reasonable.
+
+## Low-complexity command surface
+
+Keep new surface small and grouped.
+
+### Machine setup and diagnostics
+
+```bash
+dev setup --yes --json
+dev doctor --json
+```
+
+Purpose:
+
+- Add one explicit initial setup command for devrouter-owned machine state.
+- Keep `dev doctor --json` as the non-mutating diagnostic command for "what is wrong?"
+- `dev setup` prepares:
+  - global router files under `~/.config/devrouter`
+  - shared Docker network `devnet`
+  - shared Traefik router stack
+  - mkcert TLS/certs when possible
+- Both setup and doctor report machine-level prerequisites:
+  - Docker daemon/context reachable
+  - Docker Compose v2 reachable
+  - Homebrew/mkcert state
+  - DevPod installed when devcontainer/workspace flows are relevant
+  - Node/pnpm versions sane for this repo when repo metadata exists
+
+Rule:
+
+- `dev setup` may mutate devrouter-owned state and run the existing `dev up` / `dev tls install` behavior.
+- `dev setup` should be idempotent and agent-safe with `--yes`.
+- `dev setup --json` returns what it changed, what it skipped, and missing dependency recommendations.
+- Missing external tools become clear remediation items. Do not silently install broad toolchains.
+- `dev doctor --json` never mutates. It checks setup quality and diagnoses failures after setup.
+- Add new doctor/setup check IDs using the same diagnostic shape:
+  - `global.docker-compose`
+  - `global.mkcert`
+  - `global.devpod`
+  - `global.node-toolchain`
+  - `repo.devcontainer.aliases`
+  - `repo.devcontainer.no-published-ports`
+
+Agent-native setup contract:
+
+- Non-interactive path: `dev setup --yes --json`.
+- Idempotent: safe to rerun; already-ready steps report `skipped` or `ok`.
+- Structured: output includes `actions`, `checks`, `summary`, `nextSteps`, and stable diagnostic IDs.
+- Bounded mutation: only devrouter-owned state is changed by default.
+- Dependency recommendations: missing Docker, Compose v2, DevPod, Node, pnpm, Homebrew, or mkcert are reported with exact install/remediation commands.
+- No secret access: setup never asks for or prints credentials.
+- Machine readable failure: exits non-zero on blocking failure and still prints JSON when `--json` is requested.
+- Human readable default: without `--json`, the same result is printed as concise status plus next steps.
+
+### Repo inspection
+
+```bash
+dev repo inspect --json
+```
+
+Purpose:
+
+- Produce stack facts for an agent:
+  - package manager and versions
+  - app candidates and likely ports
+  - existing Docker Compose files
+  - existing `.devcontainer/`
+  - Prisma/Postgres/Redis hints
+  - auth/OIDC hints
+  - existing `.env*` names, without printing secret values
+  - current `.devrouter.yml`
+  - AGENTS/CLAUDE guidance files
+
+Rule:
+
+- Inspector reports confidence and evidence path.
+- It does not decide final architecture alone.
+
+Example JSON shape:
+
+```json
+{
+  "repoPath": "/repo",
+  "packageManager": { "name": "pnpm", "version": "11.6.0", "source": "package.json" },
+  "apps": [
+    { "name": "web", "port": 3000, "confidence": "medium", "evidence": ["package.json:scripts.dev"] }
+  ],
+  "services": [
+    { "kind": "postgres", "source": "docker-compose.yml", "confidence": "high" }
+  ],
+  "devcontainer": { "exists": false },
+  "issues": [
+    { "id": "repo.devcontainer.missing", "level": "warn", "summary": "No .devcontainer found." }
+  ]
+}
+```
+
+### Repo devcontainer onboarding
+
+```bash
+dev repo devcontainer write --dry-run --json
+dev repo devcontainer write --yes
+dev repo devcontainer verify --json
+dev repo devcontainer verify --live --json --yes
+```
+
+Purpose:
+
+- `write --dry-run --json`: create an agent-readable proposed file/change plan from repo inspection.
+- `write`: scaffold or update `.devcontainer/`, `.devrouter.yml`, and local agent guidance.
+- `verify`: run the concrete route/devpod/devnet checks.
+
+Rule:
+
+- Put canonical templates in one source of truth for the CLI.
+- Keep `.agents/skills/devcontainer-onboarding/references/` as a generated or synced consumer copy.
+- Keep placeholder/TODO comments when confidence is low.
+- Do not delete an existing `.devcontainer/`; update conservatively or stop with a plan.
+- Do not clobber an existing custom `.devrouter.yml`.
+- App-entry management stays with `dev app add`; devcontainer write only creates a minimal proxy/dependency config when safe.
+- Never commit real secrets.
+
+## Agent contract
+
+An agent should be able to do this:
+
+```bash
+dev setup --yes --json
+dev doctor --json
+dev repo inspect --json
+dev repo devcontainer write --dry-run --json
+dev repo devcontainer write --yes
+dev repo devcontainer verify --json
+```
+
+Then:
+
+- run repo checks
+- commit changes
+- open PR
+- include `verify --json` summary in PR body
+
+Failure behavior:
+
+- Keep the repo-wide CLI exit contract: `0` for success, `1` for failure.
+- Agents branch on JSON check IDs and levels, not on multiple exit-code meanings.
+- Use existing diagnostic shape where possible: `id`, `level`, `summary`, `details`, `suggestion`, and optional docs links.
+
+JSON issue fields:
+
+```json
+{
+  "id": "global.devnet",
+  "level": "error",
+  "summary": "External Docker network devnet does not exist.",
+  "suggestion": "Run dev up before devpod up.",
+  "docs": "docs/DEVCONTAINER.md#join-devnet"
+}
+```
+
+## Engineer-facing value proposition
+
+Use this phrasing in docs:
+
+> devrouter gives every devcontainer stable local HTTPS and database hostnames with no port collisions. Your agent can add the setup to a repo, verify it, and open a PR. Engineers then run one workspace command per branch instead of hand-wiring ports, TLS, DBs, and auth mocks.
+
+Avoid leading with Traefik/SNI/devnet details. Put those below "How it works".
+
+## Documentation structure
+
+Keep docs small and task-oriented.
+
+### README.md
+
+Top sections:
+
+1. What devrouter is for.
+2. Fast path for engineers.
+3. Fast path for agents.
+4. Existing command reference.
+
+Add this short block:
+
+```md
+## Agent-native setup
+
+For a new machine:
+
+```bash
+dev setup --yes --json
+dev doctor --json
+```
+
+For a new repo:
+
+```bash
+dev repo inspect --json
+dev repo devcontainer write --dry-run --json
+dev repo devcontainer write --yes
+dev repo devcontainer verify --json
+```
+
+Agents should include the verification JSON summary in their PR.
+```
+
+### docs/DEVCONTAINER.md
+
+Keep as concept/reference doc.
+
+Changes:
+
+- Add "agent command flow" near top.
+- Keep devnet, TLS, Postgres direct-SSL details as reference.
+- Link to the agent-native section in `docs/REPO_ONBOARDING.md`.
+
+### docs/GETTING_STARTED.md
+
+Make engineer path obvious:
+
+1. Install CLI.
+2. Run `dev setup`.
+3. Run `dev doctor --json` if setup fails or before opening a PR.
+4. Try demo.
+5. Ask agent to onboard repo.
+
+Do not duplicate full devcontainer reference.
+
+### docs/REPO_ONBOARDING.md
+
+Make this the primary agent-native repo onboarding doc.
+
+Add:
+
+- Short "Agent-native onboarding" section near the top.
+- Command contract:
+  - `dev setup --yes --json`
+  - `dev doctor --json`
+  - `dev repo inspect --json`
+  - `dev repo devcontainer write --dry-run --json`
+  - `dev repo devcontainer write --yes`
+  - `dev repo devcontainer verify --json`
+- JSON diagnostic convention.
+- PR evidence checklist.
+- Retry/idempotency rules.
+- Manual path remains fallback.
+
+Keep the new section under ~150 lines. Only create `docs/AGENT_NATIVE_SETUP.md` later if this contract outgrows the onboarding doc.
+
+### docs/TROUBLESHOOTING.md
+
+New or extracted from existing docs only if needed.
+
+Symptom-first:
+
+- `devpod up` says `devnet` missing.
+- Route returns 404.
+- HTTPS cert not trusted.
+- App cannot fetch OIDC issuer.
+- DB client hangs on `db.<app>.localhost`.
+- Parallel workspace host collides.
+- DevPod project hash changed and old containers linger.
+
+If this doc grows, create it. If not, keep troubleshooting in `DEVCONTAINER.md`.
+
+### .agents/skills/devcontainer-onboarding/
+
+Keep as advanced agent playbook.
+
+Change role:
+
+- from primary interface
+- to implementation/reference material used by CLI docs and advanced agents
+
+## Architecture decisions
+
+### AD1: deterministic CLI, not embedded AI
+
+Decision:
+
+- devrouter CLI detects facts and writes templates.
+- The external coding agent chooses and edits.
+
+Why:
+
+- Lower complexity.
+- Easier to test.
+- Works with Codex, Claude, opencode, future tools.
+
+### AD2: structured diagnostics over prose
+
+Decision:
+
+- `dev setup --json` is the canonical initial machine setup surface.
+- `dev doctor --json` remains the canonical non-mutating health and diagnostic surface.
+- Both surfaces use the same dotted ID convention where they emit issues.
+- JSON uses stable IDs and actionable suggestions.
+
+Why:
+
+- Agents can branch on results.
+- Engineers can read same output.
+- Setup and diagnosis have separate verbs but one shared diagnostic vocabulary.
+
+### AD3: conservative scaffolding
+
+Decision:
+
+- `write --yes` only writes known files.
+- Existing `.devcontainer/` triggers update plan or careful merge, not overwrite.
+- Existing custom `.devrouter.yml` triggers a merge plan and stops unless the file is devrouter-managed.
+- App entries remain owned by `dev app add`; devcontainer write only adds minimal proxy/dependency entries when safe.
+- Unknown app/auth/DB facts become TODOs.
+
+Why:
+
+- Prevents false confidence.
+- Keeps review small.
+
+### AD4: one golden example
+
+Decision:
+
+- Add one real `examples/devcontainer/` using actual `.devcontainer/` and DevPod.
+- Do not create many framework examples yet.
+
+Why:
+
+- One high-quality e2e beats many stale examples.
+
+## Slices
+
+### S0: Plan and command contract
+
+Problem:
+
+- Need agreed API before code.
+
+Do:
+
+- Commit this plan.
+- Treat opencode review findings as scope constraints.
+- Keep MVP command additions to:
+  - `dev setup --yes --json`
+  - `dev repo inspect --json`
+  - `dev repo devcontainer write --dry-run --json`
+  - `dev repo devcontainer write --yes`
+  - `dev repo devcontainer verify --json`
+- Extend `dev doctor --json` as the non-mutating check/diagnosis pair to setup.
+
+Files:
+
+- `project/2026-06-28-agent-native-devcontainer-usability-plan.md`
+
+Check:
+
+- Plan-only: `git diff --check`.
+- No product-doc policy coverage is expected for `project/`.
+
+Commit:
+
+- `docs(project): add agent-native devcontainer plan`
+
+### S1: Machine setup plus non-mutating diagnostics
+
+Problem:
+
+- A new engineer or agent needs one command that actually performs devrouter-owned initial setup.
+- The same engineer or agent also needs a check-only command that explains what is broken without mutating state.
+
+Do:
+
+- Add `dev setup --yes --json`.
+- `dev setup` performs the initial devrouter-owned setup:
+  - ensure `devnet`
+  - ensure global router files
+  - start shared Traefik router
+  - install/refresh TLS via the existing TLS path when possible
+- `dev setup --json` reports:
+  - actions performed
+  - actions skipped because already ready
+  - missing dependency recommendations
+  - final doctor-style summary
+- Extend existing `dev doctor --json`.
+- Add missing global diagnostic checks:
+  - `global.docker-compose`
+  - `global.mkcert`
+  - `global.devpod`
+  - `global.node-toolchain`
+- Add static repo checks when `.devcontainer/` exists:
+  - `repo.devcontainer.aliases`
+  - `repo.devcontainer.no-published-ports`
+  - `repo.devcontainer.upstream-alias-match`
+- Reuse existing diagnostic shape:
+  - `id`
+  - `level`
+  - `summary`
+  - `details`
+  - `suggestion`
+- Keep `dev doctor` strictly non-mutating.
+- Keep `dev up` and `dev tls install` as lower-level commands; docs should point first-time users to `dev setup`.
+
+Likely files:
+
+- `src/cli.ts`
+- `src/commands/setup.ts`
+- `src/core/setup.ts`
+- `src/core/__tests__/setup.test.ts`
+- `src/core/doctor.ts`
+- `src/core/__tests__/doctor.test.ts`
+- `docs/GETTING_STARTED.md`
+- `README.md`
+
+Check:
+
+- Unit tests for idempotent setup, Docker unavailable, missing Compose v2, missing mkcert/Homebrew, missing DevPod, missing Node/pnpm, alias mismatch, and published routed ports.
+- `pnpm typecheck`
+- `pnpm test`
+- Manual: `node dist/dev.js setup --json --yes`
+- Manual: `node dist/dev.js doctor --json --repo ./demo`
+
+Commit:
+
+- `feat(setup): add first-run setup command`
+
+### S2: Repo inspector
+
+Problem:
+
+- Agents need facts without ad hoc greps.
+
+Do:
+
+- Add `dev repo inspect --json`.
+- Detect:
+  - package manager
+  - scripts and likely ports
+  - compose services
+  - existing devcontainer
+  - DB/cache/auth hints
+  - existing devrouter config
+  - agent guidance files
+- Include confidence and evidence.
+- Never print env values, only names.
+
+Likely files:
+
+- `src/commands/repo-inspect.ts`
+- `src/core/repo-inspect.ts`
+- `src/core/__tests__/repo-inspect.test.ts`
+- `src/cli.ts`
+- `docs/REPO_ONBOARDING.md`
+
+Check:
+
+- Fixture repos in tests.
+- Secret-value redaction tests.
+- `pnpm test`
+
+Commit:
+
+- `feat(repo): add stack inspection for agents`
+
+### S3: Devcontainer onboarding write
+
+Problem:
+
+- Agent still manually copies templates and resolves placeholders.
+
+Do:
+
+- Add `dev repo devcontainer write --dry-run --json`.
+- Add `dev repo devcontainer write --yes`.
+- Render templates from one canonical source.
+- Generate:
+  - `.devcontainer/docker-compose.yml`
+  - `.devcontainer/devcontainer.json`
+  - `.devcontainer/Dockerfile`
+  - `.devcontainer/devcontainer.env`
+  - `.devcontainer/post-create.sh`
+  - `.devcontainer/post-start.sh`
+  - `.devcontainer/README.md`
+  - `.devrouter.yml`
+  - AGENTS/CLAUDE local dev section
+- Existing files:
+  - if absent: write
+  - if managed by devrouter marker: update
+  - if custom: stop and emit merge plan
+- Existing `.devrouter.yml`:
+  - if absent: write minimal proxy/dependency config
+  - if devrouter-managed: update managed section only
+  - if custom or contains app entries outside the managed section: stop and emit merge plan
+- Keep app-entry mutations with `dev app add`; do not duplicate that writer.
+- Add a template sync test if skill references remain duplicated.
+
+Keep profiles minimal:
+
+- `node-postgres`
+- `node-postgres-redis`
+- `node-postgres-redis-oidc`
+- `node-monorepo-proxy` as documented variant, not full auto support
+
+Likely files:
+
+- `src/commands/repo-devcontainer.ts`
+- `src/core/devcontainer-plan.ts`
+- `src/core/devcontainer-templates.ts` or `templates/devcontainer/*`
+- `src/core/__tests__/devcontainer-template-sync.test.ts`
+- `src/core/__tests__/devcontainer-plan.test.ts`
+- `src/core/__tests__/devcontainer-write.test.ts`
+- `.agents/skills/devcontainer-onboarding/references/*` sync as needed
+- `docs/REPO_ONBOARDING.md`
+- `docs/DEVCONTAINER.md`
+
+Check:
+
+- Snapshot tests for generated files.
+- Existing-file no-overwrite tests.
+- Placeholder resolution tests.
+- No real secret values in generated env.
+- `pnpm check:docs-policy`
+
+Commit:
+
+- `feat(devcontainer): scaffold agent-native repo setup`
+
+### S4: Devcontainer verify
+
+Problem:
+
+- Agents need one evidence-producing verification command.
+
+Do:
+
+- Add `dev repo devcontainer verify --json`.
+- Verify:
+  - `dev doctor --json` has no blocking devcontainer diagnostics
+  - route registration works
+  - HTTP routes curl
+  - Postgres/Redis command hints are present
+  - workspace route namespacing works for config without starting full second devpod by default
+- Start with non-destructive static checks plus optional `--live`.
+- Keep static shape checks in `dev doctor`; keep this command focused on evidence-producing onboarding verification.
+
+Command shape:
+
+```bash
+dev repo devcontainer verify --json
+dev repo devcontainer verify --live --json --yes
+```
+
+Why `--live`:
+
+- Running devpod/Docker is slower and mutates local state.
+- Agents can still choose it for PR evidence.
+
+Likely files:
+
+- `src/core/devcontainer-verify.ts`
+- `src/commands/repo-devcontainer.ts`
+- `src/core/__tests__/devcontainer-verify.test.ts`
+- `docs/REPO_ONBOARDING.md`
+- `docs/DEVCONTAINER.md`
+
+Check:
+
+- Static fixture tests.
+- Live check on example in S5.
+- `pnpm test`
+
+Commit:
+
+- `feat(devcontainer): verify agent onboarding state`
+
+### S5: Real devcontainer example
+
+Problem:
+
+- Current workspace example proves routing without real DevPod/devcontainer.
+
+Do:
+
+- Add `examples/devcontainer/`.
+- Include minimal Node app + Postgres + Redis optional.
+- Include actual `.devcontainer/`.
+- Include `.devrouter.yml` with `${WORKSPACE}` upstreams.
+- Add smoke script:
+
+```bash
+examples/devcontainer/run.sh
+examples/devcontainer/run.sh down
+```
+
+Smoke:
+
+- `dev up`
+- `dev tls install`
+- `devpod up .`
+- `dev repo devcontainer verify --live --json`
+- curl app
+- psql direct-SSL if local `psql` available, else skip with structured warning
+- workspace up/down if feasible
+
+Likely files:
+
+- `examples/devcontainer/*`
+- `scripts/smoke-devcontainer.sh`
+- `package.json`
+- `docs/GETTING_STARTED.md`
+
+Check:
+
+- `pnpm devcontainer:smoke` on local machine, marked as manual/live because it requires DevPod.
+- If CI lacks DevPod, keep CI static and document live local smoke.
+
+Commit:
+
+- `test(devcontainer): add live devpod example smoke`
+
+### S6: Docs and PR evidence loop
+
+Problem:
+
+- Engineer-facing usefulness must be obvious.
+
+Do:
+
+- Update docs with small structure above.
+- Add PR evidence template for agents.
+- Update bundled `devrouter` skill to tell agents to prefer CLI inspect/apply/verify before manual template work.
+- Keep docs short; link reference docs instead of duplicating.
+
+Likely files:
+
+- `README.md`
+- `docs/DEVCONTAINER.md`
+- `docs/GETTING_STARTED.md`
+- `docs/REPO_ONBOARDING.md`
+- `.agents/skills/devrouter/SKILL.md`
+- `.agents/skills/devcontainer-onboarding/SKILL.md`
+- `src/core/ai-prompt.ts`
+
+Check:
+
+- `pnpm check:docs-policy`
+- `pnpm test`
+- `pnpm typecheck`
+- `pnpm build`
+
+Commit:
+
+- `docs(devcontainer): document agent-native setup flow`
+
+## Merge sequence
+
+Use three PR-sized groups unless implementation proves smaller than expected:
+
+- PR1: S1 + S2. Add `dev setup`, extend `dev doctor --json`, add `dev repo inspect --json`.
+- PR2: S3 + S4. Add devcontainer write/dry-run and verify.
+- PR3: S5 + S6. Add live example and docs/skill/prompt sync.
+
+Reason:
+
+- PR1 gives agents a first-run setup action plus useful structured facts immediately.
+- PR2 adds the real onboarding loop.
+- PR3 proves and explains the flow without blocking the command MVP.
+
+## Later roadmap, not next PR
+
+Do after MVP proves useful:
+
+- Richer dry-run diff rendering if plain JSON is not enough.
+- More profiles:
+  - Python/FastAPI/Postgres
+  - Rails/Postgres/Redis
+  - generic compose-only
+- Hosted example videos/GIFs.
+- Optional Linear issue generation from repo inspection.
+- DevPod provider profiles if engineers need remote workspaces.
+- CI job templates for static verification.
+- Richer browser verification for auth flows.
+
+## Verification strategy
+
+Fast checks:
+
+- unit tests for inspectors/planners/verifiers
+- snapshot tests for templates
+- docs policy
+- typecheck
+- build
+
+Live checks:
+
+- `dev setup --yes --json`
+- `dev doctor --json`
+- `dev repo devcontainer verify --live --json`
+- `examples/devcontainer/run.sh`
+- `examples/devcontainer/run.sh down`
+
+PR evidence:
+
+- JSON summary from `dev setup --yes --json` when machine setup is part of the PR evidence
+- JSON summary from `dev doctor --json`
+- JSON summary from repo inspect
+- JSON summary from devcontainer verify
+- URLs tested
+- DB/cache route status
+- any skipped live checks with reason
+
+## Risk
+
+Risk:
+
+- Too much CLI surface.
+
+Mitigation:
+
+- Add only one `dev setup` command, not a nested setup/check/apply command family.
+- Keep `dev doctor --json` as check-only.
+- Share diagnostic IDs and output shape across setup and doctor.
+- Keep new surface under `repo inspect` and `repo devcontainer`.
+- Do not add profile sprawl until one example works.
+
+Risk:
+
+- Agent over-writes a custom devcontainer.
+
+Mitigation:
+
+- Managed markers.
+- Stop on custom files.
+- `write --dry-run --json` before `write --yes`.
+
+Risk:
+
+- Inspector false confidence.
+
+Mitigation:
+
+- Confidence/evidence fields.
+- Unknowns become TODOs.
+- No auto-auth assumptions.
+
+Risk:
+
+- Live verify flaky across machines.
+
+Mitigation:
+
+- Split static vs `--live`.
+- Stable issue codes.
+- Explicit external dependency failures.
+
+Risk:
+
+- Docs become too long.
+
+Mitigation:
+
+- README = value + commands.
+- `REPO_ONBOARDING.md` = agent contract plus manual fallback.
+- `DEVCONTAINER.md` = reference.
+- Troubleshooting only if symptom content becomes large.
+
+## Open questions
+
+1. Should `dev setup` install missing external tools or only recommend them?
+   - Recommendation: mutate only devrouter-owned state by default. For missing Docker, DevPod, Node, pnpm, Homebrew, or mkcert, emit install recommendations. Preserve existing `dev tls install` behavior for backward compatibility unless we intentionally change it.
+2. Should repo onboarding write AGENTS guidance by default?
+   - Recommendation: yes when `--write-agents` or existing AGENTS/CLAUDE file is present; otherwise emit a suggested file.
+3. Should live verify run DevPod by default?
+   - Recommendation: no. Static verify by default; `--live --yes` for PR evidence.
+4. Should this be one PR?
+   - Recommendation: no. Use PR1 setup/doctor/inspect, PR2 write/verify, PR3 example/docs unless implementation proves much smaller.
+5. Should templates live in CLI source or only in the skill references?
+   - Recommendation: CLI is canonical; skill references are synced/regenerated consumer copies.
+
+## Opencode review
+
+Status: completed and integrated on 2026-06-28.
+
+Requested reviewer:
+
+- opencode
+- model: `opencode-go/glm-5.2`
+- variant: `max`
+
+Prompt:
+
+```text
+Review project/2026-06-28-agent-native-devcontainer-usability-plan.md.
+Focus:
+- Does this make devrouter/devcontainer/devpod setup genuinely agent-native?
+- Is command surface too complex?
+- Are docs structured for engineer understanding?
+- Are slices low-risk and mergeable?
+- What should be cut, merged, or reordered?
+Return Critical/Important/Minor findings and concrete changes.
+```
+
+Accepted findings:
+
+- C1 revised after user review: drop `dev setup check`; keep `dev doctor --json` as the check-only diagnostic command.
+- C2 revised after user review: add one plain `dev setup` command for initial setup; keep `dev up` and `dev tls install` as lower-level commands.
+- C3: define `.devrouter.yml` merge/no-clobber rules and keep app-entry mutations with `dev app add`.
+- I1: collapse `dev repo devcontainer plan` into `dev repo devcontainer write --dry-run --json`.
+- I2: keep the existing CLI exit contract instead of adding 0/1/2/3 meanings.
+- I3: keep static devcontainer diagnostics in `dev doctor`; keep `verify --live` focused on evidence.
+- I4: choose one canonical template source and sync skill references if duplicated.
+- I5: use three PR groups: doctor/inspect, write/verify, example/docs.
+- M1: use existing dotted diagnostic IDs.
+- M2: prefer `docs/REPO_ONBOARDING.md` for the agent contract; add `docs/AGENT_NATIVE_SETUP.md` only if the section grows too large.
+- M3: keep dry-run JSON separate from mutating `write --yes`.
+- M4: mark DevPod smoke as manual/live.
+- M5: use `git diff --check` for the plan-only slice.
+
+Deferred findings:
+
+- Possible `dev up --with-tls`: superseded by `dev setup`.
+
+User correction after opencode review:
+
+- `dev doctor` must not be treated as setup. It checks setup and diagnoses what is wrong.
+- Initial setup should be an explicit command such as `dev setup` or a future cleaned-up `dev init`.
+- The plan now uses `dev setup` for first-run mutation and `dev doctor` for non-mutating diagnostics.
+
+## Goal prompt
+
+Use this prompt after plan approval:
+
+```text
+Goal: execute /Users/rschlae/Git/personal/devrouter/project/2026-06-28-agent-native-devcontainer-usability-plan.md.
+
+Branch:
+codex/agent-native-devcontainer-usability
+
+Target:
+main
+
+Rules:
+- Use df-sliced-development-workflow.
+- Commit approved plan first.
+- Work one slice at a time.
+- Update Progress before and after each slice.
+- Keep command surface minimal and agent-native: setup -> doctor -> inspect -> dry-run -> write -> verify -> PR evidence.
+- Add one explicit `dev setup` command for first-run mutation.
+- Keep `dev doctor --json` strictly non-mutating.
+- Add JSON outputs with stable dotted diagnostic IDs for agent use.
+- Do not silently install external tools; print remediation unless devrouter owns the mutation.
+- Use three PR groups unless implementation is clearly smaller: setup/doctor/inspect, write/verify, example/docs.
+- For each slice: implement, verify, review subagent, simplification subagent, integrate accepted findings, re-run verification, commit.
+- Final: security review, branch review, PR via df-mr-description-writer.
+```
+
+## Next steps
+
+1. Ask user to approve or adjust scope before implementation.
+2. Create branch `codex/agent-native-devcontainer-usability`.
+3. Commit the approved plan.
+4. Start PR1: `dev setup`, doctor extensions, and `dev repo inspect --json`.
