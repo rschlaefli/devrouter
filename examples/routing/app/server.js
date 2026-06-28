@@ -26,7 +26,7 @@ const server = http.createServer((req, res) => {
 
   json(res, 200, {
     ok: true,
-    app: "devrouter-demo",
+    app: "devrouter-routing",
     instance,
     port,
     dbConfigured: dbUrl.length > 0,
@@ -35,5 +35,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, () => {
-  process.stdout.write(`[devrouter-demo] ${instance} listening on ${port}\n`);
+  process.stdout.write(`[devrouter-routing] ${instance} listening on ${port}\n`);
 });

@@ -6,7 +6,7 @@
   "overrideCommand": false,
   "runServices": ["app", "postgres", "redis", "oidc"],
   "_runServices": "Must match the services defined in docker-compose.yml — drop `redis` and/or `oidc` here too if the app doesn't use them.",
-  "_ports": "Nothing is published on the host: the app, postgres, redis and the OIDC sidecar are reached through devrouter over the shared `devnet` network (https://{{APP}}.localhost, db.{{APP}}.localhost:5432, etc.). Run `dev up` before bringing the container up so `devnet` exists, then register each app: `for a in app oidc db redis; do dev app run \"$a\"; done`. No forwardPorts needed.",
+  "_ports": "Nothing is published on the host: the app, postgres, redis and the OIDC sidecar are reached through devrouter over the shared `devnet` network (https://{{APP}}.localhost, db.{{APP}}.localhost:5432, etc.). Run `dev setup --yes` before bringing the container up so `devnet` exists, then run `dev repo devcontainer verify --live --yes --json` after startup for route evidence. No forwardPorts needed.",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "postStartCommand": "bash .devcontainer/post-start.sh",
   "customizations": {

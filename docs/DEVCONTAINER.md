@@ -20,6 +20,21 @@ This works with any devcontainer-spec runner (DevPod, VS Code Dev Containers,
 > playbook + reference templates + gotchas live in the
 > `devcontainer-onboarding` skill (`.agents/skills/devcontainer-onboarding/`).
 
+Agent-native onboarding uses the CLI first:
+
+```bash
+dev setup --yes --json
+dev doctor --json
+dev repo inspect --json
+dev repo devcontainer write --dry-run --json
+dev repo devcontainer write --yes
+dev repo devcontainer verify --json
+```
+
+Use `dev repo devcontainer verify --live --yes --json` only after the
+devcontainer is running and route registration plus HTTP probes should be part
+of the evidence.
+
 ## How it works: `devnet`
 
 devrouter's Traefik runs in Docker on a shared external bridge network,
@@ -49,7 +64,7 @@ services:
         aliases: [myapp-db]
 networks:
   devnet:
-    external: true   # created by `dev up`; must pre-exist when the stack starts
+    external: true   # created by `dev setup`/`dev up`; must pre-exist when the stack starts
 ```
 
 An OIDC mock or other sidecar that uses `network_mode: service:app` rides the
@@ -90,16 +105,16 @@ Order matters — `devnet` is `external`, so it must exist before the container
 starts:
 
 ```bash
-dev up            # shared Traefik + the devnet network (one-time per machine)
-dev tls install   # mkcert CA + certs for *.localhost (one-time; needs sudo once)
-# ... now bring the devcontainer up (devpod up .) ...
-for a in app db; do dev app run "$a"; done   # one per app name in .devrouter.yml
+dev setup --yes
+dev doctor --json
+devpod up .
+dev repo devcontainer verify --live --yes --json
 ```
 
-`dev app run` for a proxy app writes the route and returns immediately — it
-starts no process. The container owns start/stop. The route targets a stable
-devnet alias, so it survives container restarts; re-running is an idempotent
-re-register. Routes persist until `dev app rm <name>`.
+`verify --live` registers proxy routes and probes HTTP routes, so it doubles as
+agent PR evidence. For a manual route-only path, run `dev app run <name> --yes`
+for each proxy app instead. A proxy app route starts no process. The container
+owns start and stop. Routes persist until `dev app rm <name> --keep-config`.
 
 Open `https://myapp.localhost`.
 
@@ -125,10 +140,11 @@ advertises ALPN `postgresql` automatically (libpq direct-SSL mandates it).
 ## 5. Verify / tear down
 
 ```bash
-dev ls                 # proxy routes show status "active"
-dev doctor --repo .    # proxy routes are never flagged as stale (no PID)
-dev app rm app         # remove a route (NB: also edits .devrouter.yml)
-dev down               # stop the shared router
+dev repo devcontainer verify --json
+dev repo devcontainer verify --live --yes --json # after the devcontainer is running; registers/probes routes
+dev ls
+dev app rm app --keep-config
+dev app rm db --keep-config
 ```
 
 ## Notes

@@ -59,6 +59,17 @@ program
   }));
 
 program
+  .command("setup")
+  .description("Run first-time devrouter machine setup and report diagnostics")
+  .option("--repo <path>", "Repository path for final diagnostics (defaults to current directory)")
+  .option("--yes", "Confirm non-interactive setup actions")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { repo?: string; yes?: boolean; json?: boolean }) => {
+    const { runSetupCommand } = await import("./commands/setup");
+    await runSetupCommand(options);
+  }));
+
+program
   .command("up")
   .description("Ensure devnet and start shared Traefik (reserves 80/443/5432)")
   .action(withErrorHandling(async () => {
@@ -136,6 +147,16 @@ repoCommand
   }));
 
 repoCommand
+  .command("inspect")
+  .description("Inspect repository stack facts for agent-native onboarding")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
+    const { runRepoInspectCommand } = await import("./commands/repo-inspect");
+    await runRepoInspectCommand(options);
+  }));
+
+repoCommand
   .command("agents")
   .description("Write/update devrouter section in the repo's AGENTS.md")
   .option("--repo <path>", "Repository path (defaults to current directory)")
@@ -143,6 +164,34 @@ repoCommand
   .action(withErrorHandling(async (options: { repo?: string; withLinear?: boolean }) => {
     const { runRepoAgentsCommand } = await import("./commands/repo-agents");
     await runRepoAgentsCommand(options);
+  }));
+
+const repoDevcontainerCommand = repoCommand
+  .command("devcontainer")
+  .description("Manage devcontainer onboarding");
+
+repoDevcontainerCommand
+  .command("write")
+  .description("Plan or write a conservative devcontainer scaffold")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--dry-run", "Print the planned file changes without writing")
+  .option("--yes", "Write files when no conflicts are detected")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { repo?: string; dryRun?: boolean; yes?: boolean; json?: boolean }) => {
+    const { runRepoDevcontainerWriteCommand } = await import("./commands/repo-devcontainer");
+    await runRepoDevcontainerWriteCommand({ ...options, installedVersion: CLI_VERSION });
+  }));
+
+repoDevcontainerCommand
+  .command("verify")
+  .description("Verify devcontainer onboarding state and emit PR evidence")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--live", "Register proxy routes and probe HTTP routes")
+  .option("--yes", "Confirm live verification actions")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { repo?: string; live?: boolean; yes?: boolean; json?: boolean }) => {
+    const { runRepoDevcontainerVerifyCommand } = await import("./commands/repo-devcontainer");
+    await runRepoDevcontainerVerifyCommand(options);
   }));
 
 const appCommand = program.command("app").description("Manage app entries and runtime actions from `.devrouter.yml`");

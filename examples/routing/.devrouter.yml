@@ -1,8 +1,8 @@
 version: 1
 devrouter:
-  version: 0.0.22
+  version: 0.0.23
 project:
-  name: devrouter-demo
+  name: devrouter-routing
 
 # Optional: wrap dev commands with a secret manager so devrouter-injected
 # env vars take precedence over SM values.
@@ -16,7 +16,7 @@ project:
 
 apps:
   - name: cache
-    host: demo-cache.localhost
+    host: routing-cache.localhost
     protocol: tcp
     tcpProtocol: redis
     runtime: docker
@@ -27,7 +27,7 @@ apps:
         - docker-compose.yml
 
   - name: db
-    host: demo-db.localhost
+    host: routing-db.localhost
     protocol: tcp
     tcpProtocol: postgres
     runtime: docker
@@ -38,7 +38,7 @@ apps:
         - docker-compose.yml
 
   - name: web-docker
-    host: demo-docker.localhost
+    host: routing-docker.localhost
     protocol: http
     runtime: docker
     dependencies:
@@ -50,7 +50,7 @@ apps:
         - docker-compose.yml
 
   - name: web-host
-    host: demo-host.localhost
+    host: routing-host.localhost
     protocol: http
     runtime: host
     dependencies:

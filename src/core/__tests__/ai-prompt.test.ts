@@ -48,7 +48,7 @@ describe('buildOnboardingPrompt', () => {
   it('does not contain contradictory file-edit restrictions', () => {
     const prompt = buildOnboardingPrompt({ repo: tmpDir })
     expect(prompt).not.toContain('Create/update only REPO_PATH/.devrouter.yml.')
-    expect(prompt).toContain('minimal related edits')
+    expect(prompt).toContain('make minimal manual edits')
   })
 
   it('includes explicit tcp/tls onboarding sequence guidance', () => {
@@ -57,8 +57,14 @@ describe('buildOnboardingPrompt', () => {
       (protocol) => `"${protocol}"`
     ).join(' | ')
     expect(prompt).toContain(
-      'If any tcp/postgres app is configured, run `dev up` and `dev tls install` before runtime validation.'
+      'Run `dev setup --yes --json` for devrouter-owned machine state; use `dev doctor --repo <REPO_PATH> --json` to diagnose missing prerequisites without mutation.'
     )
+    expect(prompt).toContain(
+      'dev repo devcontainer verify --repo <REPO_PATH> --live --yes --json'
+    )
+    expect(prompt).toContain('Validation commands to run/report for the devcontainer path:')
+    expect(prompt).toContain('Validation commands to run/report for host/docker runtime apps:')
+    expect(prompt).toContain('Postgres multiplexing on shared :5432 requires TLS/SNI')
     expect(prompt).toContain(`  - tcpProtocol: ${tcpProtocolUnion}`)
     expect(prompt).toContain(
       `- kind=app runtime=proxy supports protocol=${formatSupportedProtocolsForRuntime('proxy').replace(', ', ' or ')}, requires upstream`

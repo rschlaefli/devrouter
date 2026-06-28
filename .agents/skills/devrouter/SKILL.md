@@ -133,7 +133,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - **When active**: hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`), `${WORKSPACE}` in `upstream` is substituted with the token, and the docker `router` key is suffixed per workspace. The runtime config is computed in memory only — the committed `.devrouter.yml` is never rewritten.
 - **TLS**: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.
 - **devcontainer integration**: the devcontainer compose service exposes a devnet alias `${WORKSPACE}-app` (default `WORKSPACE=<project>` in `devcontainer.env`); the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. Workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.
-- **Lifecycle**: `dev workspace up <branch>` (create worktree + devpod + routes), `dev workspace ls` (list worktrees/tokens/route counts), `dev workspace down <workspace|branch>` (free routes by state-file workspace tag + stop devpod + remove worktree). `dev doctor` reclaims orphaned workspace proxy routes whose worktree dir was removed without `dev workspace down`.
+- **Lifecycle**: `dev workspace up <branch>` (create worktree + devpod + routes), `dev workspace ls` (list worktrees/tokens/route counts), `dev workspace down <workspace|branch>` (free routes by state-file workspace tag + stop devpod + remove worktree). `dev doctor` reports orphaned workspace proxy routes whose worktree dir was removed without `dev workspace down`.
 
 ## Secret manager interop (Infisical/Doppler)
 
@@ -193,6 +193,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `dev init [--write-agents] [--write-skill] [--with-linear]`: print AI onboarding prompt (non-mutating by default)
 - `dev -V [--repo .]`: show installed CLI version, local repo version, and next upgrade target
 - `dev upgrade [version] [--repo .]`: list upgrade targets or print target Agent Adaptation Prompt
+- `dev setup --yes [--repo .] [--json]`: first-run machine setup plus structured diagnostics
 - `dev up` / `dev down`: start/stop shared Traefik router
 - `dev status`: router/container/network/TLS health
 - `dev doctor [--repo .]`: deep diagnostics (global + repo)
@@ -201,6 +202,11 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `dev logs [-f]`: Traefik access logs
 - `dev tls install`: install mkcert certs, enable HTTPS + TCP/SNI
 - `dev repo init`: create `.devrouter.yml`
+- `dev repo inspect [--json]`: inspect package, scripts, compose services, env names, devcontainer, devrouter config, and agent guidance for onboarding
+- `dev repo devcontainer write --dry-run --json`: plan conservative Node/pnpm/Postgres devcontainer/devrouter scaffold files without writing
+- `dev repo devcontainer write --yes`: write managed Node/pnpm/Postgres devcontainer/devrouter scaffold files when no custom-file conflicts exist
+- `dev repo devcontainer verify --json`: emit read-only onboarding evidence for PRs
+- `dev repo devcontainer verify --live --yes --json`: register proxy routes and probe HTTP routes after the devcontainer is running
 - `dev repo agents [--with-linear]`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
 - `dev app add`: add/update app entry in `.devrouter.yml`
 - `dev app ls`: list app entries
@@ -213,14 +219,26 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 
 ## Validation workflow
 
-1. `dev up` -- ensure shared router is running
-2. For TCP/Postgres repos: `dev tls install`
-3. `dev doctor --repo .` -- check global + repo health
-4. `dev app ls --repo .` -- verify entries match expectations
-5. `dev app run <host-app> --repo . --yes` -- start target app with deps
-6. `dev ls` -- confirm routes are exposed
-7. `curl -I https://<host>.localhost` -- HTTP reachability
-8. For TCP/Postgres: use `dev open <name>` for connection hint
+For devcontainer onboarding:
+
+1. `dev setup --repo . --yes --json`
+2. `dev doctor --repo . --json`
+3. `dev repo inspect --repo . --json`
+4. `dev repo devcontainer write --repo . --dry-run --json`
+5. `dev repo devcontainer write --repo . --yes`
+6. `dev repo devcontainer verify --repo . --json`
+7. Start the devcontainer, for example `devpod up .`
+8. `dev repo devcontainer verify --repo . --live --yes --json`
+
+For existing host/docker runtime apps:
+
+1. `dev setup --repo . --yes`
+2. `dev doctor --repo .`
+3. `dev app ls --repo .`
+4. `dev app run <host-app> --repo . --yes`
+5. `dev ls`
+6. `curl -I https://<host>.localhost`
+7. For TCP/Postgres, use `dev open <name>` for the connection hint.
 
 ## Runtime behavior notes
 

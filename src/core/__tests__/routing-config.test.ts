@@ -7,9 +7,9 @@ function repoRoot(): string {
   return path.resolve(__dirname, "../../../");
 }
 
-describe("demo configuration alignment", () => {
+describe("routing example configuration alignment", () => {
   it("uses postgres defaults expected by injected dependency urls", () => {
-    const composePath = path.join(repoRoot(), "demo", "docker-compose.yml");
+    const composePath = path.join(repoRoot(), "examples", "routing", "docker-compose.yml");
     const raw = fs.readFileSync(composePath, "utf-8");
     const parsed = YAML.parse(raw) as {
       services?: {
@@ -37,8 +37,8 @@ describe("demo configuration alignment", () => {
     expect(appEnv.DATABASE_URL).toBe("postgres://prisma:prisma@db:5432/prisma");
   });
 
-  it("does not hardcode DATABASE_URL in demo host command", () => {
-    const configPath = path.join(repoRoot(), "demo", ".devrouter.yml");
+  it("does not hardcode DATABASE_URL in routing host command", () => {
+    const configPath = path.join(repoRoot(), "examples", "routing", ".devrouter.yml");
     const raw = fs.readFileSync(configPath, "utf-8");
     const parsed = YAML.parse(raw) as {
       apps?: Array<{

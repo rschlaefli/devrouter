@@ -9,16 +9,21 @@ Delivered and active:
 - Unified per-repo config: `.devrouter.yml`
 - Repo-local upgrade metadata: `.devrouter.yml` `devrouter.version`
 - Upgrade commands: `dev -V` and `dev upgrade [version]`
+- First-run machine setup: `dev setup --yes --json`
+- Read-only repo fact inspection: `dev repo inspect --json`
+- Conservative Node/pnpm/Postgres devcontainer scaffold planning/writing: `dev repo devcontainer write --dry-run --json` and `dev repo devcontainer write --yes`
+- Devcontainer onboarding evidence: `dev repo devcontainer verify --json` (static) and `dev repo devcontainer verify --live --yes --json` (route registration/probes)
 - Upgrade prompts stored as versioned files: `upgrade-prompts/<version>.md`
 - HTTP routing for host-run and Docker-run apps
 - HTTP proxy routing (`runtime: proxy`) to an already-running upstream (e.g. devcontainer)
-- TCP/Postgres Docker routing on `:5432` with TLS/SNI
+- TCP routing with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services via `kind: dependency` (non-routed, dependency lifecycle only)
 - Shared router ownership of `80/443/5432`
-- Bundled demo repo (`demo/.devrouter.yml`) for onboarding rehearsal and smoke validation
+- Routing example (`examples/routing/.devrouter.yml`) for no-devcontainer routing rehearsal and smoke validation
+- Live DevPod/devcontainer example (`examples/devcontainer/`) with `pnpm devcontainer:smoke`
 - `dev app exec` for one-shot commands with resolved dependency env
 - argv-safe exec by default with explicit `--shell` opt-in
-- `dev app exec --env-map TARGET=SOURCE` for deterministic env alias mapping
+- Config-level dependency `envMap` for deterministic env alias mapping
 - `dev doctor` wrapper precedence warning (`repo.host-command-env-precedence`)
 - `dev doctor` TLS SAN coverage warning (`repo.tls-host-coverage`) when TLS is enabled
 - `dev app run` / `dev app exec` auto-refresh TLS SAN coverage for configured repo hosts
@@ -30,11 +35,11 @@ Delivered and active:
   - Hosts auto-namespaced in memory (`web.localhost` → `web.<ws>.localhost`); committed `.devrouter.yml` is never rewritten
   - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`
   - TLS SAN auto-extended for active workspace hosts
-  - `dev doctor` GC check `routes.orphaned-workspace-routes` for worktrees removed without `dev workspace down`
+  - `dev doctor` check `routes.orphaned-workspace-routes` reports worktrees removed without `dev workspace down`
 
 ## Documentation policy
 
-- Product docs (`README.md`, `docs/*`, `demo/README.md`) describe current behavior only.
+- Product docs (`README.md`, `docs/*`, `examples/*/README.md`) describe current behavior only.
 - Upgrade/migration/adaptation instructions stay in `CHANGELOG.md` and `upgrade-prompts/*.md` only.
 - Each release section in `CHANGELOG.md` references exactly one prompt file under `upgrade-prompts/`.
 
@@ -46,10 +51,14 @@ Required checks for behavior and doc consistency:
 2. `pnpm typecheck`
 3. `pnpm test`
 4. `pnpm build`
-5. `node dist/dev.js -V --repo ./demo`
-6. `node dist/dev.js upgrade --repo ./demo`
-7. `node dist/dev.js doctor --repo ./demo`
-8. `pnpm demo:smoke` (environment permitting)
+5. `node dist/dev.js -V --repo ./examples/routing`
+6. `node dist/dev.js upgrade --repo ./examples/routing`
+7. `node dist/dev.js setup --repo ./examples/routing --yes --json`
+8. `node dist/dev.js doctor --repo ./examples/routing`
+9. `node dist/dev.js repo inspect --repo ./examples/routing --json`
+10. `pnpm routing:smoke` (environment permitting)
+11. `pnpm devcontainer:smoke` when DevPod is available
+12. `pnpm devcontainer:smoke down` after live devcontainer verification
 
 ## Near-term roadmap
 

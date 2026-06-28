@@ -32,8 +32,7 @@ vi.mock("../host-routes", () => ({
 
 vi.mock("../route-state", () => ({
   findStaleProcessRoutes: vi.fn(() => []),
-  evictStaleProcessRoutes: vi.fn(() => 0),
-  evictOrphanedWorkspaceProxyRoutes: vi.fn(() => 0),
+  findOrphanedWorkspaceProxyRoutes: vi.fn(() => []),
 }));
 
 vi.mock("../tls", () => ({
@@ -50,6 +49,17 @@ vi.mock("../routes", async () => {
     ...(actual as object),
     discoverRoutes: vi.fn(() => ({ routes: [], duplicateHosts: [] })),
     findDuplicateHosts: vi.fn(() => []),
+  };
+});
+
+vi.mock("../tool-diagnostics", () => ({
+  buildGlobalToolChecks: vi.fn(() => []),
+}));
+
+vi.mock("../devcontainer-diagnostics", async () => {
+  const actual = await vi.importActual("../devcontainer-diagnostics");
+  return {
+    ...(actual as object),
   };
 });
 

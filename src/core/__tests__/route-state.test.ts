@@ -4,6 +4,7 @@ import type { HostRouteState } from "../../types";
 import {
   evictOrphanedWorkspaceProxyRoutes,
   evictStaleProcessRoutes,
+  findOrphanedWorkspaceProxyRoutes,
   findStaleProcessRoutes,
   listRoutesForWorktreePath,
   listRoutesForWorktreePaths,
@@ -200,6 +201,7 @@ describe("workspace route state", () => {
     const existsSpy = vi.spyOn(fs, "existsSync").mockImplementation((value) => String(value) !== "/gone");
 
     try {
+      expect(findOrphanedWorkspaceProxyRoutes().map((entry) => entry.id)).toEqual(["/gone::proxy"]);
       expect(evictOrphanedWorkspaceProxyRoutes()).toBe(1);
       expect(mockRemoveHostRoutesWhere).toHaveBeenCalledTimes(1);
       const removed = mockRemoveHostRoutesWhere.mock.results[0].value as HostRouteState[];

@@ -7,7 +7,9 @@ Guidance for agentic coders working in this repository.
 - [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
 - [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) (preferred: front a devcontainer via `runtime: proxy`)
 - [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
-- [`demo/README.md`](./demo/README.md)
+- [`examples/routing/README.md`](./examples/routing/README.md)
+- [`examples/devcontainer/README.md`](./examples/devcontainer/README.md)
+- [`examples/workspace/README.md`](./examples/workspace/README.md)
 - [`docs/PLAN.md`](./docs/PLAN.md)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 
@@ -20,13 +22,15 @@ Keep these docs up to date with any behavior, command, schema, or onboarding wor
 3. `docs/GETTING_STARTED.md`
 4. `docs/REPO_ONBOARDING.md`
 5. `docs/PLAN.md`
-6. `demo/README.md`
-7. `CHANGELOG.md`
-8. `upgrade-prompts/*.md`
+6. `examples/routing/README.md`
+7. `examples/devcontainer/README.md`
+8. `examples/workspace/README.md`
+9. `CHANGELOG.md`
+10. `upgrade-prompts/*.md`
 
 ## Documentation policy
 
-1. Product docs (`README.md`, `docs/*`, `demo/README.md`) must describe the current state only.
+1. Product docs (`README.md`, `docs/*`, `examples/*/README.md`) must describe the current state only.
 2. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
 3. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
 
@@ -54,7 +58,7 @@ Supported routing:
 - HTTP host-run apps
 - HTTP docker apps
 - HTTP proxy apps (`runtime: proxy`) — route to an already-running `upstream` (`host:port`) with no lifecycle; for fronting a devcontainer / external process. `upstream` may use the `${WORKSPACE}` token (substituted at runtime; rejected in `host`).
-- TCP PostgreSQL docker apps on shared `:5432` (TLS/SNI)
+- TCP apps on shared protocol ports with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
 - Workspace isolation: parallel git worktrees of one repo via a resolved workspace token (`--workspace` > `DEVROUTER_WORKSPACE` > auto-from-worktree-branch > none). When active, hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`) and `${WORKSPACE}` upstreams substitute; the committed `.devrouter.yml` is never rewritten (runtime config is in-memory).
 
@@ -63,8 +67,9 @@ Supported routing:
 - `dev init` (`--write-agents` / `--write-skill` optional; `--with-linear` optional; non-mutating by default)
 - `dev -V` (`--repo <path>` optional; shows installed CLI version, local repo version, next upgrade target)
 - `dev upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
+- `dev setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics)
 - `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
-- `dev repo init`, `dev repo agents` (`--with-linear` optional)
+- `dev repo init`, `dev repo inspect` (`--json`), `dev repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `dev repo devcontainer verify` (`--live`, `--yes`, `--json`), `dev repo agents` (`--with-linear` optional)
 - `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run` (`--env`, `--workspace`), `dev app exec` (`--shell`, `--env`, `--workspace`), `dev app rm` (`--keep-config`)
 - `dev workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `dev workspace ls` (`--json`), `dev workspace down` (`<workspace|branch>`, `--keep-worktree`, `--keep-devpod`)
 
@@ -76,9 +81,18 @@ Supported routing:
 - `src/core/agents-md.ts`: idempotent AGENTS.md section writer + skill file distributor for repo discoverability
 - `src/core/linear-onboarding.ts`: guided Linear workspace/team/project metadata collector for AGENTS bootstrap
 - `src/commands/repo-agents.ts`: `dev repo agents` command handler
+- `src/commands/repo-inspect.ts`: `dev repo inspect` command handler
+- `src/commands/repo-devcontainer.ts`: `dev repo devcontainer write/verify` command handlers
+- `src/core/devcontainer-verify.ts`: devcontainer onboarding verification report builder
 - `src/commands/upgrade.ts`: `dev upgrade` command handler
 - `src/commands/version.ts`: `dev -V` version summary command handler
+- `src/commands/setup.ts`: `dev setup` command handler
 - `src/core/doctor.ts`: diagnostic report engine for global + repo checks
+- `src/core/setup.ts`: first-run setup orchestration for devrouter-owned machine state
+- `src/core/tool-diagnostics.ts`: shared external-tool checks for Docker Compose, mkcert, DevPod, and Node/pnpm
+- `src/core/devcontainer-diagnostics.ts`: static devcontainer alias/port/upstream checks used by doctor
+- `src/core/repo-inspect.ts`: read-only repo stack inspector for agent onboarding facts
+- `src/core/devcontainer-write.ts`: conservative devcontainer scaffold planner/writer
 - `src/core/status.ts`: status collection + readiness insights
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation; workspace runtime config (`loadRuntimeConfig()`, `applyWorkspace()`, `namespaceHost()`, `${WORKSPACE}` upstream substitution)
@@ -97,9 +111,11 @@ Supported routing:
 - `src/commands/logs.ts`: `dev logs` command handler (Traefik log access)
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
-- `demo/.devrouter.yml`: complete sample config for host+docker+postgres routing
+- `examples/routing/.devrouter.yml`: complete sample config for host+docker+postgres routing
 - `examples/workspace/`: runnable workspace-isolation showcase (`${WORKSPACE}` proxy upstream + `dev workspace up/ls/down` over two real git worktrees; `run.sh` brings up two namespaced hosts and prints the proof)
-- `scripts/smoke-demo.sh`: end-to-end demo smoke script
+- `examples/devcontainer/`: live DevPod/devcontainer showcase with app + Postgres proxy routes and static/live verify evidence
+- `scripts/smoke-routing.sh`: end-to-end routing smoke script
+- `scripts/smoke-devcontainer.sh`: live DevPod/devcontainer smoke script
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `dev upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
@@ -153,7 +169,7 @@ Supported routing:
 - **Env injection**: TCP deps get per-dep deterministic vars: `{PREFIX}_HOST`/`_PORT`/`_URL`/`_SHADOW_URL` (where `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`). Protocol-specific URLs: postgres (`postgres://prisma:prisma@...`), redis (`redis://...`), mysql/mariadb (`mysql://root@...`). Config-level `envMap` on dependency references aliases these to project-specific names (e.g. `DATABASE_URL: DB_URL`). Aliases are applied in `startAppDependencies()` and become part of `depEnv` — they flow through SM re-injection and `buildExecEnvironment()` automatically.
 - **Workspace runtime config**: `loadRuntimeConfig(repoPath, workspaceOverride?)` resolves the workspace token (`resolveWorkspace`) and returns `applyWorkspace(config, ws)` — a deep-cloned, in-memory config with namespaced hosts, `${WORKSPACE}` upstreams substituted (re-validated), and per-workspace docker `router` keys. The committed `.devrouter.yml` is never rewritten. All read paths (`status`, `doctor`, `open`, `app-run`) load through this; the resolved workspace threads down to `upsertHostRoute` as `HostRouteState.workspace` so teardown/GC can filter by tag without re-reading config.
 - **Workspace lifecycle glue**: `dev workspace up` exports `WORKSPACE=<ws>` into the `devpod up` env (drives the compose `${WORKSPACE:-<project>}` alias, same mechanism as the existing `${HOME}` mount substitution) and registers namespaced routes; `dev workspace down` frees routes by state-file `workspace` tag (no config load, survives a deleted worktree). devpod calls are best-effort, gated on `hasDevpod()`.
-- **Orphaned-route GC**: `evictOrphanedWorkspaceRoutes()` (run by `dev doctor`) reclaims proxy routes with a `workspace` tag whose `repoPath` worktree dir no longer exists. Uses worktree existence — never container/alias liveness — so stable primary-checkout routes whose devcontainer is merely stopped are never torn down.
+- **Orphaned-route diagnostics**: `dev doctor` reports proxy routes with a `workspace` tag whose `repoPath` worktree dir no longer exists. It does not mutate route state; explicit teardown remains `dev workspace down` or targeted route removal.
 - **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.
 - **Secret-manager precedence diagnostics**: `dev doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 - **TLS host coverage**: `startAppDependencies()` in `app-run.ts` calls TLS coverage refresh for all configured repo hosts when TLS is enabled. `dev doctor` emits `repo.tls-host-coverage` when configured hosts are not covered by current cert SANs.
@@ -163,7 +179,7 @@ Supported routing:
 
 1. Commit all implementation changes (fix/feature commits first, separate from release commit).
 2. Bump `version` in `package.json` to `0.0.X`.
-3. Bump `devrouter.version` in `demo/.devrouter.yml` to `0.0.X`.
+3. Bump `devrouter.version` in `examples/routing/.devrouter.yml` and `examples/devcontainer/.devrouter.yml` to `0.0.X`.
 4. Add `[0.0.X]` section in `CHANGELOG.md` between `[Unreleased]` and previous release. Include `### Agent Adaptation Prompt` referencing `./upgrade-prompts/0.0.X.md`.
 5. Create `upgrade-prompts/0.0.X.md` with: changes summary, task (bump version, schema migration if any, refresh artifacts), validation steps, report template.
 6. Update `.agents/skills/devrouter/SKILL.md` and `src/core/ai-prompt.ts` to reflect any schema, env injection, CLI flag, or config changes in this release. Run `ai-prompt.test.ts` to verify consistency.
@@ -176,6 +192,10 @@ Supported routing:
 2. `pnpm test`
 3. `pnpm typecheck`
 4. `pnpm build`
-5. `dev doctor --repo ./demo`
-6. `pnpm demo:smoke` for full route showcase/regression smoke
-7. Update docs for any behavior/surface changes
+5. `dev setup --repo ./examples/routing --yes --json`
+6. `dev doctor --repo ./examples/routing`
+7. `dev repo inspect --repo ./examples/routing --json`
+8. `pnpm routing:smoke` for full route showcase/regression smoke
+9. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
+10. `pnpm devcontainer:smoke down` after live devcontainer verification
+11. Update docs for any behavior/surface changes

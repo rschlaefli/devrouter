@@ -1,0 +1,13 @@
+{
+  "name": "devrouter-devcontainer-example",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/devcontainer-demo",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": []
+    }
+  }
+}

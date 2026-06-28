@@ -1,0 +1,18 @@
+version: 1
+devrouter:
+  version: 0.0.23
+project:
+  name: devcontainer-demo
+apps:
+  - name: app
+    host: devcontainer-demo.localhost
+    protocol: http
+    runtime: proxy
+    upstream: ${WORKSPACE}-app:3000
+
+  - name: db
+    host: db.devcontainer-demo.localhost
+    protocol: tcp
+    tcpProtocol: postgres
+    runtime: proxy
+    upstream: ${WORKSPACE}-db:5432

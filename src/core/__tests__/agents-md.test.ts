@@ -105,6 +105,11 @@ describe('agents-md linear workflow support', () => {
     expect(content).not.toContain('<!-- devrouter-linear-workflow -->')
 
     const skillContent = fs.readFileSync(skill.path, 'utf-8')
+    const sourceSkillContent = fs.readFileSync(
+      path.join(process.cwd(), '.agents', 'skills', 'devrouter', 'SKILL.md'),
+      'utf-8'
+    )
+    expect(skillContent).toBe(sourceSkillContent)
     expect(skillContent).toContain('kind: app | dependency')
     expect(skillContent).toContain('devrouter:')
     expect(skillContent).toContain('kind=dependency')
@@ -114,5 +119,9 @@ describe('agents-md linear workflow support', () => {
     expect(skillContent).toContain(
       'dev -V'
     )
+    expect(skillContent).toContain('dev setup --repo . --yes')
+    expect(skillContent).toContain('dev repo inspect --repo . --json')
+    expect(skillContent).toContain('dev repo devcontainer write --dry-run --json')
+    expect(skillContent).toContain('dev repo devcontainer verify --json')
   })
 })

@@ -8,7 +8,8 @@ Setup and first-run guide for `devrouter` using the unified `.devrouter.yml` mod
 - Docker daemon + CLI
 - Node `>=24`
 - pnpm
-- Homebrew (recommended for automatic mkcert install)
+- mkcert (recommended for local HTTPS/TCP routing)
+- Homebrew (optional, convenient for installing mkcert/DevPod)
 
 Quick checks:
 
@@ -18,6 +19,8 @@ docker context show
 node -v
 pnpm -v
 ```
+
+`dev setup --yes --json` also checks Docker Compose v2, mkcert, DevPod, and the repo's Node/pnpm toolchain, then reports exact remediation steps for missing tools.
 
 ## 2) Install CLI locally
 
@@ -41,21 +44,29 @@ Verify:
 dev --help
 ```
 
-Version and upgrade quick check (against the bundled demo repo metadata):
+Version and upgrade quick check (against the bundled routing example metadata):
 
 ```bash
-dev -V --repo ./demo
+dev -V --repo ./examples/routing
 ```
 
-Optional: run bundled smoke demo (host app + docker app + postgres):
+Optional: run the bundled routing smoke (host app + Docker app + Postgres):
 
 ```bash
-pnpm demo:smoke
+pnpm routing:smoke
 ```
 
-Demo assets live in:
+Sample assets live in:
 
-- [`../demo/README.md`](../demo/README.md)
+- [`../examples/routing/README.md`](../examples/routing/README.md)
+- [`../examples/devcontainer/README.md`](../examples/devcontainer/README.md)
+
+For the live DevPod/devcontainer showcase:
+
+```bash
+pnpm devcontainer:smoke
+pnpm devcontainer:smoke down
+```
 
 Release and adaptation notes live in [`../CHANGELOG.md`](../CHANGELOG.md), with prompt files in [`../upgrade-prompts/`](../upgrade-prompts/).
 
@@ -79,7 +90,7 @@ healthcheck:
 
 Services **must not** publish host ports (`ports:` mapping) for ports owned by devrouter (80, 443, 5432). Traefik owns these; conflicts cause bind failures.
 
-Services **should not** publish host ports at all. devrouter handles external routing via Traefik labels. Publishing ports creates conflicts when running multiple repos. Use devrouter hostnames (e.g. `demo-db.localhost:5432`) instead of `localhost:<mapped-port>`.
+Services **should not** publish host ports at all. devrouter handles external routing via Traefik labels. Publishing ports creates conflicts when running multiple repos. Use devrouter hostnames (e.g. `routing-db.localhost:5432`) instead of `localhost:<mapped-port>`.
 
 ### Dependency lifecycle
 
@@ -149,7 +160,7 @@ dev app exec web --yes --shell -- "echo $DB_URL"
 
 ### Secret manager integration (config-based)
 
-When a secret manager (Infisical, Doppler, etc.) wraps your dev commands, it can override devrouter-injected env vars (`DATABASE_URL`, `DIRECT_URL`, etc.) with empty or different values. Add `secretManager` to `.devrouter.yml` so devrouter automatically re-applies its injected vars after the SM boundary:
+When a secret manager (Infisical, Doppler, etc.) wraps your dev commands, it can override devrouter-injected per-dep vars (`DB_URL`, `DB_SHADOW_URL`, etc.) and any `envMap` aliases you expose (`DATABASE_URL`, `DIRECT_URL`, etc.) with empty or different values. Add `secretManager` to `.devrouter.yml` so devrouter automatically re-applies its injected vars after the SM boundary:
 
 ```yaml
 secretManager:
@@ -212,12 +223,23 @@ Fallback for specific hostnames only:
 127.0.0.1 db.localhost
 ```
 
-## 4) Start shared router
+## 4) First-time machine setup
+
+```bash
+dev setup --yes
+dev doctor --json
+```
+
+`dev setup` prepares devrouter-owned state: global router files, the shared `devnet` network, the Traefik router stack, and TLS certificates when `mkcert` is available. It does not install broad external toolchains; missing Docker/Compose, mkcert, DevPod, Node, or pnpm become remediation items.
+
+`dev doctor` is check-only. Use it after setup fails, before opening a PR, or when diagnosing a machine/repo.
+
+Lower-level commands remain available:
 
 ```bash
 dev up
+dev tls install
 dev status
-dev doctor
 ```
 
 Expected bound ports:
@@ -519,7 +541,7 @@ For Next.js host-run apps using proxied/custom `.localhost` development hosts, v
 
 ## 13) Validate setup quality (recommended)
 
-Run diagnostics against global state + repository config:
+Run check-only diagnostics against global state, machine prerequisites, route state, and repository config:
 
 ```bash
 dev doctor --repo /absolute/path/to/repo
@@ -531,9 +553,30 @@ For AI/tooling integration:
 dev doctor --repo /absolute/path/to/repo --json
 ```
 
+When `.devcontainer/` exists, doctor also checks devnet aliases, published host ports, and proxy upstream alias matches.
+
 ## 14) Onboard another repository
 
 - [`REPO_ONBOARDING.md`](./REPO_ONBOARDING.md)
+
+Agent first pass:
+
+```bash
+dev setup --yes --json
+dev doctor --json
+dev repo inspect --repo /absolute/path/to/repo --json
+dev repo devcontainer write --repo /absolute/path/to/repo --dry-run --json
+dev repo devcontainer write --repo /absolute/path/to/repo --yes
+dev repo devcontainer verify --repo /absolute/path/to/repo --json
+```
+
+For full local evidence, start the devcontainer and add the live verify summary
+to the PR:
+
+```bash
+devpod up /absolute/path/to/repo
+dev repo devcontainer verify --repo /absolute/path/to/repo --live --yes --json
+```
 
 ## 15) Workspace isolation (parallel worktrees)
 
@@ -589,4 +632,4 @@ With workspace `feat-a` active: host becomes `app.feat-a.localhost`, upstream re
 
 The devcontainer compose service should expose a network alias `${WORKSPACE}-app` (where `WORKSPACE` defaults to the project name in `devcontainer.env`).
 
-**GC:** `dev doctor` check `routes.orphaned-workspace-routes` reclaims proxy routes whose worktree directory was deleted without `dev workspace down`. Primary-checkout routes are never touched.
+**Orphan detection:** `dev doctor` check `routes.orphaned-workspace-routes` reports proxy routes whose worktree directory was deleted without `dev workspace down`. It does not mutate route state.

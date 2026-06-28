@@ -167,6 +167,7 @@ This folder is managed by the devrouter CLI.
 - dev init [--write-agents] [--write-skill] [--with-linear]
 - dev -V [--repo <path>] (installed/local version + next upgrade)
 - dev upgrade [version] [--repo <path>]
+- dev setup --yes [--repo <path>] [--json]
 - dev up
 - dev down
 - dev status
@@ -175,10 +176,13 @@ This folder is managed by the devrouter CLI.
 - dev open <name>
 - dev logs [-f] [--tail N]
 - dev repo init
+- dev repo inspect [--repo <path>] [--json]
+- dev repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]
+- dev repo devcontainer verify [--repo <path>] [--live] [--yes] [--json]
 - dev repo agents [--with-linear]
 - dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
 - dev app run <name>
-- dev app exec <name> [--shell] [--env-map TARGET=SOURCE] -- <command>
+- dev app exec <name> [--shell] [--env <env>] -- <command>
 - dev app ls
 - dev app rm <name>
 - dev tls install

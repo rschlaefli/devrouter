@@ -9,7 +9,20 @@ PRODUCT_DOCS=(
   "docs/GETTING_STARTED.md"
   "docs/REPO_ONBOARDING.md"
   "docs/PLAN.md"
-  "demo/README.md"
+  "examples/routing/README.md"
+  "examples/devcontainer/README.md"
+  "examples/workspace/README.md"
+)
+
+CURRENT_GUIDANCE_SURFACES=(
+  "${PRODUCT_DOCS[@]}"
+  "AGENTS.md"
+  ".agents/skills/devrouter/SKILL.md"
+  ".agents/skills/devcontainer-onboarding/SKILL.md"
+  ".agents/skills/devcontainer-onboarding/GOTCHAS.md"
+  ".agents/skills/devcontainer-onboarding/REFERENCE.md"
+  "src/core/agents-md.ts"
+  "src/core/router.ts"
 )
 
 violations="false"
@@ -25,6 +38,13 @@ if grep -n -H -E -e '^### Agent Adaptation Prompt$' -e '^Agent adaptation prompt
   echo
   echo "Docs policy violation: product docs contain adaptation prompt blocks/references."
   echo "Keep adaptation prompts in CHANGELOG.md and upgrade-prompts/*.md only."
+  violations="true"
+fi
+
+if grep -n -H -- '--env-map' "${CURRENT_GUIDANCE_SURFACES[@]}"; then
+  echo
+  echo "Docs policy violation: current guidance mentions removed --env-map CLI flag."
+  echo "Use config-level dependency envMap examples instead. Historical mentions belong only in CHANGELOG.md or upgrade-prompts/*.md."
   violations="true"
 fi
 

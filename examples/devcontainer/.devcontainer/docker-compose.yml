@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: prisma
+      POSTGRES_PASSWORD: prisma
+      POSTGRES_DB: prisma
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prisma -d prisma"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      default: {}
+      devnet:
+        aliases:
+          - ${WORKSPACE:-devcontainer-demo}-db
+    volumes:
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-create-shadow-db.sh:ro
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    command: sleep infinity
+    env_file:
+      - devcontainer.env
+    networks:
+      default: {}
+      devnet:
+        aliases:
+          - ${WORKSPACE:-devcontainer-demo}-app
+    volumes:
+      - ..:/workspaces/devcontainer-demo:cached
+    working_dir: /workspaces/devcontainer-demo
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  devnet:
+    external: true
+
+volumes:
+  pgdata:

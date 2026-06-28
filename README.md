@@ -27,13 +27,12 @@ This is the only supported per-repo config for app routing/runtime definitions.
 
 Both are configured the same way (`.devrouter.yml`) and can be mixed in one repo.
 
-### 1. Front a devcontainer / existing process — `runtime: proxy` (preferred)
+### 1. Front a devcontainer / existing process: `runtime: proxy` (preferred)
 
-The recommended setup going forward. A **devcontainer** (DevPod, VS Code Dev
-Containers, `@devcontainers/cli`, Codespaces) owns the *environment* — toolchain,
-databases, auth mocks, the app process, seeding — and publishes the app on a local
-port. devrouter is a thin **routing layer**: it puts a stable `*.localhost` HTTPS
-host (shared `:443`, mkcert TLS) in front of that port and does nothing else.
+The recommended setup is devcontainer first. The devcontainer owns the toolchain,
+databases, auth mocks, app process, and seed data. devrouter owns only the local
+routes. In the best case the container joins `devnet` and exposes stable network
+aliases, so the app and database need no published host ports.
 
 ```yaml
 apps:
@@ -41,18 +40,20 @@ apps:
     host: myapp.localhost
     protocol: http
     runtime: proxy
-    upstream: 127.0.0.1:3000 # the port your devcontainer publishes
+    upstream: myapp-app:3000 # devnet alias inside the devcontainer compose
 ```
 
 ```bash
-dev up && dev tls install     # one-time
-dev app run app               # registers the route; the container owns start/stop
+dev setup --yes
+devpod up .
+dev repo devcontainer verify --live --yes --json
 ```
 
 Why prefer it: the environment is reproducible and runs anywhere the devcontainer
-spec runs (including remote/cloud via DevPod), devrouter never duplicates the
-DB/lifecycle/env work, and the two layers can't fight. See
-[`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) for the end-to-end walkthrough.
+spec runs, while devrouter gives it stable local HTTPS and database hostnames.
+Agents can add the scaffold with `dev repo inspect`, `dev repo devcontainer write`,
+and `dev repo devcontainer verify`, then include the JSON evidence in a PR. See
+[`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) for the full reference.
 
 ### 2. devrouter runs everything — `runtime: host` / `runtime: docker`
 
@@ -65,6 +66,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `dev init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill] [--with-linear]`
 - `dev -V [--repo <path>]` (installed CLI version, local repo version, next upgrade target)
 - `dev upgrade [version] [--repo <path>]`
+- `dev setup --yes [--repo <path>] [--json]`
 - `dev up`
 - `dev down`
 - `dev status [--repo <path>] [--json]`
@@ -73,16 +75,26 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `dev open <name>` (matches app name, then service/container/host)
 - `dev tls install`
 - `dev repo init [--repo <path>]`
+- `dev repo inspect [--repo <path>] [--json]`
+- `dev repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]`
+- `dev repo devcontainer verify [--repo <path>] [--live] [--yes] [--json]`
 - `dev repo agents [--repo <path>] [--with-linear]`
 - `dev app add ...` (`--kind app|dependency`, default `app`)
 - `dev app ls [--repo <path>] [--json]`
 - `dev app run <name> [--repo <path>] [--yes] [--workspace <slug>]`
-- `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env-map TARGET=SOURCE] [--workspace <slug>] -- <command>`
+- `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env <env>] [--workspace <slug>] -- <command>`
 - `dev app rm <name> [--repo <path>]`
 - `dev logs [-f]`
 - `dev workspace up <branch> [--path <dir>] [--no-devpod] [--open] [--repo <path>]`
 - `dev workspace ls [--repo <path>] [--json]`
 - `dev workspace down <workspace|branch> [--keep-worktree] [--keep-devpod] [--repo <path>]`
+
+The current `dev repo devcontainer write` scaffold is intentionally narrow:
+Node + pnpm + Postgres. Other package managers stop with a JSON diagnostic
+instead of writing files that would need manual repair.
+Use `dev repo devcontainer verify --json` for read-only PR evidence; add
+`--live --yes` only after the devcontainer is running and route probes should
+mutate local route state.
 
 ## Workspace isolation (parallel worktrees)
 
@@ -121,7 +133,12 @@ dev workspace down feat/my-feature
 
 **Try it:** [`examples/workspace/`](examples/workspace/) is a runnable showcase — `./run.sh` brings up one app in two parallel worktrees (`wsdemo.localhost` and `wsdemo.feat-a.localhost`) served at once, then `./run.sh down` tears it down.
 
-**GC:** `dev doctor` check `routes.orphaned-workspace-routes` reclaims proxy routes whose worktree directory was removed without `dev workspace down`. Only orphaned workspace routes are reclaimed; primary-checkout routes are never touched.
+**DevPod example:** [`examples/devcontainer/`](examples/devcontainer/) is the
+agent-native devcontainer path end to end — `./run.sh` brings up a DevPod
+workspace, registers app/Postgres proxy routes, runs static/live verification,
+and prints the proof. `./run.sh down` tears it down.
+
+**Orphan detection:** `dev doctor` check `routes.orphaned-workspace-routes` reports proxy routes whose worktree directory was removed without `dev workspace down`. It does not mutate route state.
 
 ## Upgrade metadata and prompts
 
@@ -180,7 +197,7 @@ When `--with-linear` is combined with AGENTS writes, devrouter captures minimal 
 
 ## Health diagnostics
 
-Run deep checks for global router state and repo configuration:
+Run check-only diagnostics for global router state, machine prerequisites, route state, and repo configuration:
 
 ```bash
 dev doctor --repo /absolute/path/to/repo
@@ -195,7 +212,8 @@ dev doctor --repo /absolute/path/to/repo --json
 `dev status` now includes readiness hints and next-step commands.
 For host apps that depend on postgres, `dev doctor` also checks host command wrapper precedence and warns with `repo.host-command-env-precedence` when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 When TLS is enabled, `dev doctor` also checks TLS host coverage and warns with `repo.tls-host-coverage` if configured `.localhost` hosts are not covered by the current cert SANs.
-`dev doctor` also reclaims orphaned workspace proxy routes (`routes.orphaned-workspace-routes`) whose worktree directory was removed without `dev workspace down`.
+When `.devcontainer/` exists, `dev doctor` checks devnet aliases, published host ports, and proxy upstream alias matches.
+`dev doctor` reports stale host routes and orphaned workspace proxy routes without mutating route state.
 
 ## `.devrouter.yml` example
 
@@ -255,9 +273,8 @@ Notes:
 
 - `kind` defaults to routed app behavior. Use `kind: dependency` for non-routed Docker dependencies.
 - `runtime: proxy` registers an HTTP route to an externally-managed `upstream` (`host:port`) and does nothing else — use it to put a stable `*.localhost` HTTPS host in front of a devcontainer or any process you start yourself. Loopback upstreams (`localhost`/`127.0.0.1`/`0.0.0.0`) are rewritten to `host.docker.internal` so Traefik (in Docker) can reach the host. The route persists until `dev app rm`.
-- TCP mode currently supports PostgreSQL first (`tcpProtocol: postgres`).
-- Multi-DB hostname routing on shared `:5432` requires TLS/SNI.
-- Plaintext Postgres is not supported for multiplexed hostname routing.
+- TCP routing supports `tcpProtocol: postgres`, `redis`, `mariadb`, and `mysql` on shared protocol ports with TLS/SNI.
+- Plaintext TCP is not supported for multiplexed hostname routing.
 - Multi-segment `.localhost` hosts are supported (for example `elearning.klicker.localhost`).
 
 ## Runtime behavior
@@ -274,24 +291,33 @@ Notes:
 - prints recent dependency logs (last 20 lines) after deps start
 - `kind=dependency` apps are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`
 - `kind=dependency` services start as declared in compose (no Traefik labels, no random published ports, no injected env vars)
-- for TCP deps of host apps: publishes a random host port and injects `<NAME>_HOST`/`<NAME>_PORT` env vars into the host process; for postgres deps also injects `DATABASE_URL` and `SHADOW_DATABASE_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
+- for TCP deps of host apps: publishes a random host port and injects per-dependency `<NAME>_HOST`/`<NAME>_PORT`/`<NAME>_URL` env vars into the host process; for postgres deps also injects `<NAME>_SHADOW_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
 - for one-shot commands, `dev app exec` starts declared docker deps as needed and only stops deps it started in that invocation (already-running deps stay running)
 - if `dev app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid stopping non-owned services
 - when TLS is enabled, `dev app run` / `dev app exec` auto-refresh cert SAN coverage for configured repo hosts before startup (fails fast with `Run: dev tls install` guidance if refresh fails)
 - for one-shot commands, `dev app exec` preserves argv semantics by default (`shell: false`) to avoid nested quoting issues
 - `dev app exec --shell` is explicit and requires one command string after `--`
-- `dev app exec --env-map TARGET=SOURCE` (repeatable) maps aliases after dependency env resolution (for example `DATABASE_URI=DATABASE_URL`)
+- config-level `envMap` on dependency references maps aliases after dependency env resolution (for example `DATABASE_URL: DB_URL`)
 - starts host app command for host runtime apps
 - generates docker overlay in `~/.config/devrouter/cache/...` for docker runtime apps
 
 Secret manager interop (Infisical/Doppler):
 
-- dependency env injection from devrouter includes `<NAME>_HOST`, `<NAME>_PORT`, `DATABASE_URL`, and `SHADOW_DATABASE_URL`
+- dependency env injection from devrouter includes `<NAME>_HOST`, `<NAME>_PORT`, `<NAME>_URL`, and postgres-only `<NAME>_SHADOW_URL`
 - do not assume secret-manager precedence when DB vars overlap; validate effective env before migrate/seed
 - avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values
-- safe host-run override pattern when wrapper also defines `DATABASE_URI`: `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev`
-- non-Prisma mapping example: `dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
-- env probe example: `dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
+- map app-specific names in `.devrouter.yml`:
+  ```yaml
+  dependencies:
+    - app: db
+      envMap:
+        DATABASE_URL: DB_URL
+        DIRECT_URL: DB_URL
+        SHADOW_DATABASE_URL: DB_SHADOW_URL
+  ```
+- safe host-run override pattern when wrapper also defines `DATABASE_URI`: `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev`
+- non-Prisma mapping example: `dev app exec web --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
+- env probe example: `dev app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL`
 - run `dev doctor --repo <path>` to surface risky wrapper precedence (`repo.host-command-env-precedence`) before migrations or app startup
 
 `dev ls` output includes both configured app identity (`APP`) and runtime service identity (`SERVICE`).
@@ -316,11 +342,11 @@ Expected endpoints:
 - `https://web.localhost`
 - `postgres://db.localhost:5432 (tls required)`
 
-## Demo workspace (in this repo)
+## Routing example (without devcontainers)
 
-A complete sample repository is included at:
+A complete no-devcontainer sample repository is included at:
 
-- [`./demo`](./demo)
+- [`./examples/routing`](./examples/routing)
 
 It contains:
 
@@ -329,15 +355,24 @@ It contains:
 - Postgres in Docker (`db`)
 - ready-to-use `.devrouter.yml`
 
-Run the end-to-end smoke demo:
+Run the bundled routing smoke:
 
 ```bash
-pnpm demo:smoke
+pnpm routing:smoke
+```
+
+Run the live DevPod/devcontainer smoke when Docker, DevPod, and mkcert are
+available:
+
+```bash
+pnpm devcontainer:smoke
+pnpm devcontainer:smoke down
 ```
 
 See details:
 
-- [`./demo/README.md`](./demo/README.md)
+- [`./examples/routing/README.md`](./examples/routing/README.md)
+- [`./examples/devcontainer/README.md`](./examples/devcontainer/README.md)
 
 ## AI agent discoverability
 
@@ -380,8 +415,8 @@ Required Linear execution hygiene:
 
 - Host-runtime dependencies are not auto-started; only Docker dependencies are auto-started.
 - `kind=dependency` apps are not direct run/exec/open targets (must be started via a routed app dependency graph).
-- TCP routing currently supports PostgreSQL only (`tcpProtocol: postgres`).
-- Shared `:5432` hostname multiplexing requires TLS/SNI (`sslmode=require` or stronger).
+- TCP routing supports `tcpProtocol: postgres`, `redis`, `mariadb`, and `mysql`.
+- Shared TCP hostname multiplexing requires TLS/SNI (`sslmode=require` or protocol-equivalent client SNI).
 
 ## Router state
 
@@ -400,6 +435,6 @@ Global managed artifacts remain under:
 - Setup and bootstrapping: [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
 - Onboarding repositories and AI prompt: [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
 - Agent contributor guide: [`AGENTS.md`](./AGENTS.md)
-- Demo workspace: [`./demo/README.md`](./demo/README.md)
+- Routing example: [`./examples/routing/README.md`](./examples/routing/README.md)
 - Roadmap: [`docs/PLAN.md`](./docs/PLAN.md)
 - Release and adaptation history: [`CHANGELOG.md`](./CHANGELOG.md) and [`upgrade-prompts/`](./upgrade-prompts/)

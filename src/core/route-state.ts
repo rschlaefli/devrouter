@@ -136,7 +136,15 @@ export function reconcileRouteRunConflict(
 }
 
 export function evictOrphanedWorkspaceProxyRoutes(): number {
-  return removeHostRoutesWhere(
-    (route) => route.mode === "proxy" && route.workspace !== undefined && !fs.existsSync(route.repoPath)
-  ).length;
+  return removeHostRoutesWhere((route) => isOrphanedWorkspaceProxyRoute(route)).length;
+}
+
+function isOrphanedWorkspaceProxyRoute(route: HostRouteState): boolean {
+  return route.mode === "proxy" && route.workspace !== undefined && !fs.existsSync(route.repoPath);
+}
+
+export function findOrphanedWorkspaceProxyRoutes(
+  routes: HostRouteState[] = listHostRouteState()
+): HostRouteState[] {
+  return routes.filter((route) => isOrphanedWorkspaceProxyRoute(route));
 }

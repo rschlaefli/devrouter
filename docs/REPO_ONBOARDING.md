@@ -17,7 +17,7 @@ Supported route types:
 - HTTP host-run apps
 - HTTP docker apps
 - HTTP proxy apps (`runtime: proxy`, route to an already-running `upstream`; supports `${WORKSPACE}` placeholder for parallel-worktree isolation)
-- TCP PostgreSQL docker apps (TLS/SNI on shared `:5432`)
+- TCP apps with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
 - Parallel git worktrees via `dev workspace up/ls/down` with auto-namespaced `.localhost` hosts
 
@@ -37,12 +37,38 @@ Complete global setup first:
 Assumptions:
 
 - `dev` CLI is installed
-- `dev up` is already working
+- `dev setup --yes` has completed or `dev doctor --json` explains what is missing
 - macOS local environment
+
+Agent-native first pass:
+
+```bash
+dev setup --yes --json
+dev doctor --json
+dev repo inspect --repo /absolute/path/to/repo --json
+dev repo devcontainer write --repo /absolute/path/to/repo --dry-run --json
+dev repo devcontainer write --repo /absolute/path/to/repo --yes
+dev repo devcontainer verify --repo /absolute/path/to/repo --json
+```
+
+`dev repo inspect` is read-only. It reports package manager metadata, scripts and likely ports, compose services, env variable names (not values), existing `.devcontainer/`, `.devrouter.yml`, and agent guidance files. Use its evidence and issues to write a small onboarding plan before editing files.
+
+`dev repo devcontainer write --dry-run --json` plans the managed files. `dev repo devcontainer write --yes` writes only when target files are missing or already marked as devrouter-managed; custom existing `.devcontainer/` or `.devrouter.yml` files stop the write with a conflict. The first scaffold supports Node + pnpm + Postgres; non-pnpm repos stop with `repo.devcontainer.package-manager-unsupported`.
+
+`dev repo devcontainer verify --json` is read-only and produces PR evidence from doctor checks, required files, proxy app entries, and workspace namespacing. Use `--live --yes --json` only after the devcontainer is running and you want route registration plus HTTP probes.
+
+PR evidence checklist for agents:
+
+- setup and doctor summaries
+- inspect facts and issues
+- static verify summary
+- live verify summary when DevPod was run locally
+- tested URLs, TCP route status, and skipped live checks with reasons
 
 Reference implementation:
 
-- [`../demo/README.md`](../demo/README.md) shows a complete setup with:
+- [`../examples/devcontainer/README.md`](../examples/devcontainer/README.md) shows the agent-native DevPod/devcontainer flow with static/live verify evidence.
+- [`../examples/routing/README.md`](../examples/routing/README.md) shows a complete setup with:
   - host app route
   - docker app route
   - postgres tcp route
@@ -75,7 +101,7 @@ Docker runtime:
 - `composeFiles`
 - optional dependencies
 - for routed docker apps: `internalPort`
-- for routed TCP apps: `tcpProtocol=postgres`
+- for routed TCP apps: set `tcpProtocol` to one supported protocol (`postgres`, `redis`, `mariadb`, or `mysql`)
 - for `kind=dependency`: no routed fields (`host`, `protocol`, `tcpProtocol`, `hostRun`, `docker.internalPort`, `docker.router`)
 
 Docker compose file guidance:
@@ -152,8 +178,7 @@ dev app add \
   --depends-on db \
   --depends-on redis
 
-dev up
-dev tls install
+dev setup --yes
 dev app run web
 ```
 
@@ -168,8 +193,8 @@ Run one-shot commands (migrations, seeds) with resolved dep env vars:
 ```bash
 dev app exec web --yes -- npx prisma migrate dev
 dev app exec web --yes -- npx prisma db seed
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
+dev app exec web --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
+dev app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL
 ```
 
 Current dependency behavior:
@@ -184,19 +209,27 @@ Current dependency behavior:
 - With TLS enabled, `dev app run` / `dev app exec` auto-refresh cert SAN coverage for configured repo hosts before startup.
 - Default exec mode is argv-safe (`shell: false`) to avoid nested quoting issues.
 - Use `--shell` only when shell expansion is required; it accepts exactly one command string after `--`.
-- Use repeatable `--env-map TARGET=SOURCE` to alias env vars for non-Prisma frameworks (for example `DATABASE_URI=DATABASE_URL`).
+- Use config-level `envMap` on dependency references to alias env vars for app-specific names:
+  ```yaml
+  dependencies:
+    - app: db
+      envMap:
+        DATABASE_URL: DB_URL
+        DIRECT_URL: DB_URL
+        SHADOW_DATABASE_URL: DB_SHADOW_URL
+  ```
 
 Secret manager interop (Infisical/Doppler):
 
-- devrouter injected vars for postgres deps: `DB_HOST`, `DB_PORT`, `DATABASE_URL`, `SHADOW_DATABASE_URL`.
+- devrouter injected vars for postgres deps: `DB_HOST`, `DB_PORT`, `DB_URL`, `DB_SHADOW_URL`; configured `envMap` aliases may also expose app-specific names such as `DATABASE_URL`.
 - If your secret manager also provides DB vars, do not assume precedence.
 - Avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values.
 - Safe host-run override pattern when wrapper also defines `DATABASE_URI`:
-  `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev`
+  `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev`
 - Probe effective env before migration/seed:
 
 ```bash
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
+dev app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL
 ```
 
 - `dev doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
@@ -358,7 +391,7 @@ dev workspace ls
 dev workspace down feat/my-feature
 ```
 
-`dev doctor` check `routes.orphaned-workspace-routes` reclaims routes whose worktree was removed without `dev workspace down`.
+`dev doctor` check `routes.orphaned-workspace-routes` reports routes whose worktree was removed without `dev workspace down`; it does not mutate route state.
 
 ## 11) AI agent prompt (single copy-paste)
 

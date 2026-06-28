@@ -70,6 +70,28 @@ export type DoctorReport = {
   nextSteps: string[];
 };
 
+export type SetupActionStatus = "performed" | "skipped" | "failed";
+
+export type SetupAction = {
+  id: string;
+  status: SetupActionStatus;
+  summary: string;
+  details?: string;
+  suggestion?: string;
+};
+
+export type SetupReport = {
+  generatedAt: string;
+  repoPath?: string;
+  actions: SetupAction[];
+  checks: DiagnosticCheck[];
+  summary: {
+    actions: Record<SetupActionStatus, number>;
+    checks: DoctorReport["summary"];
+  };
+  nextSteps: string[];
+};
+
 export type PortListener = {
   port: number;
   command: string;
