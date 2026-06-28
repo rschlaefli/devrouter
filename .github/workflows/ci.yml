@@ -6,6 +6,13 @@ on:
   pull_request:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the current ref to npm
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   check:
@@ -24,7 +31,7 @@ jobs:
       - run: pnpm build
 
   publish:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
     needs: check
     runs-on: ubuntu-latest
     permissions:
@@ -40,4 +47,12 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm publish --no-git-checks --access public --provenance
+      - name: Publish package
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [ "$REPOSITORY_PRIVATE" = "true" ]; then
+            pnpm publish --no-git-checks --access public
+          else
+            pnpm publish --no-git-checks --access public --provenance
+          fi
