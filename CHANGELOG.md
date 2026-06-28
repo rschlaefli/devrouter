@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.23] - 2026-06-28
+
 ### Added
 
 - `dev setup --yes --json` for agent-native first-run machine setup. It prepares devrouter-owned state (router files, `devnet`, Traefik, TLS when mkcert exists), reports structured actions/checks/next steps, and refuses mutation unless `--yes` is present.
@@ -18,6 +20,10 @@ All notable changes to this project are documented in this file.
 
 - `dev doctor` is now strictly diagnostic for route state: it reports stale host routes and orphaned workspace proxy routes without mutating route files. It exits non-zero when any diagnostic has `level: "error"` while still printing JSON when requested.
 - The old root `demo/` fixture is now `examples/routing/`, so all runnable examples live under `examples/`.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.23.md
 
 ## [0.0.22] - 2026-06-25
 
