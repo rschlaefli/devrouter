@@ -2,14 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { listContainers } from "./docker";
-import { listHostRouteState, listHostRoutes } from "./host-routes";
-import { evictStaleHostRoutes, evictOrphanedWorkspaceRoutes } from "./concurrency";
+import { listHostRoutes } from "./host-routes";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { getRouterFileLayout, isTLSEnabled } from "./router";
 import { collectRouterStatus } from "./status";
 import { discoverRoutes, findDuplicateHosts } from "./routes";
 import { assertPathWithinRepo } from "./paths";
 import { getTLSHostCoverage } from "./tls";
+import {
+  evictOrphanedWorkspaceProxyRoutes,
+  evictStaleProcessRoutes,
+  findStaleProcessRoutes
+} from "./route-state";
 import {
   DevrouterApp,
   DevrouterConfig,
@@ -251,19 +255,6 @@ function inspectHostCommandPrecedence(config: DevrouterConfig): HostCommandPrece
   }
 
   return { inspectedCount, riskyApps };
-}
-
-function isPidRunning(pid: number | undefined): boolean {
-  if (!pid || pid <= 0) {
-    return false;
-  }
-
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function addCheck(
@@ -650,10 +641,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     });
   }
 
-  const staleHostRoutes = listHostRouteState().filter((route) =>
-    // Proxy routes have no backing process; they are never "stale".
-    route.mode === "proxy" ? false : route.pid ? !isPidRunning(route.pid) : true
-  );
+  const staleHostRoutes = findStaleProcessRoutes();
   addCheck(checks, {
     id: "routes.host-state",
     level: staleHostRoutes.length === 0 ? "ok" : "warn",
@@ -663,7 +651,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     suggestion: staleHostRoutes.length === 0 ? undefined : "Re-run the affected host app(s): dev app run <name> --repo <path>"
   });
 
-  const evictedCount = evictStaleHostRoutes();
+  const evictedCount = evictStaleProcessRoutes();
   addCheck(checks, {
     id: "routes.stale-host-routes",
     level: evictedCount === 0 ? "ok" : "warn",
@@ -672,7 +660,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       : `Evicted ${evictedCount} stale host route entr${evictedCount === 1 ? "y" : "ies"} (dead PID).`
   });
 
-  const evictedOrphanCount = evictOrphanedWorkspaceRoutes();
+  const evictedOrphanCount = evictOrphanedWorkspaceProxyRoutes();
   addCheck(checks, {
     id: "routes.orphaned-workspace-routes",
     level: evictedOrphanCount === 0 ? "ok" : "warn",

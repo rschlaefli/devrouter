@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runAppRmCommand } from "../app-rm";
-import { removeHostRouteByName } from "../../core/host-routes";
+import { removeRouteForApp } from "../../core/route-state";
 import { removeRepoApp } from "../../core/repo-config";
 
-vi.mock("../../core/host-routes", () => ({
-  removeHostRouteByName: vi.fn(),
+vi.mock("../../core/route-state", () => ({
+  removeRouteForApp: vi.fn(() => [{ id: "/repo::app" }]),
 }));
 
 vi.mock("../../core/repo-config", () => ({
@@ -30,7 +30,7 @@ describe("runAppRmCommand", () => {
     await runAppRmCommand({ name: "app" });
 
     expect(removeRepoApp).toHaveBeenCalledWith("/repo", "app");
-    expect(removeHostRouteByName).toHaveBeenCalledWith("app", "/repo");
+    expect(removeRouteForApp).toHaveBeenCalledWith("/repo", "app");
     expect(stdoutSpy).toHaveBeenCalledWith("Removed 'app' from /repo/.devrouter.yml\n");
   });
 
@@ -40,21 +40,19 @@ describe("runAppRmCommand", () => {
     await expect(runAppRmCommand({ name: "ghost" })).rejects.toThrow(
       "App 'ghost' not found in /repo/.devrouter.yml."
     );
-    expect(removeHostRouteByName).not.toHaveBeenCalled();
+    expect(removeRouteForApp).not.toHaveBeenCalled();
   });
 
   it("with --keep-config frees only the route and never touches the config", async () => {
     await runAppRmCommand({ name: "app", keepConfig: true });
 
     expect(removeRepoApp).not.toHaveBeenCalled();
-    expect(removeHostRouteByName).toHaveBeenCalledWith("app", "/repo");
+    expect(removeRouteForApp).toHaveBeenCalledWith("/repo", "app");
     expect(stdoutSpy).toHaveBeenCalledWith("Freed route for 'app' (config left intact)\n");
   });
 
   it("with --keep-config and no active route, reports it and leaves the config intact", async () => {
-    vi.mocked(removeHostRouteByName).mockImplementation(() => {
-      throw new Error("No host route named 'app' found.");
-    });
+    vi.mocked(removeRouteForApp).mockReturnValue([]);
 
     await runAppRmCommand({ name: "app", keepConfig: true });
 

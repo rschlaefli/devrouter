@@ -2,14 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { workspaceDown, workspaceLs, workspaceUp } from "../workspace-lifecycle";
-import { listHostRouteState, removeHostRouteById } from "../host-routes";
+import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
 import { loadRuntimeConfig } from "../repo-config";
 import { runConfiguredApp } from "../app-run";
+import type { HostRouteState } from "../../types";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
-vi.mock("../host-routes", () => ({
-  listHostRouteState: vi.fn(() => []),
-  removeHostRouteById: vi.fn()
+vi.mock("../route-state", () => ({
+  listRoutesForWorktreePaths: vi.fn(() => new Map()),
+  removeWorkspaceRoutesForWorktree: vi.fn(() => [])
 }));
 vi.mock("../app-run", () => ({ runConfiguredApp: vi.fn(async () => ({})) }));
 vi.mock("../repo-config", () => ({
@@ -47,14 +48,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function route(workspace: string | undefined, name: string, repoPath = "/repo") {
+function route(workspace: string | undefined, name: string, repoPath = "/repo"): HostRouteState {
   return {
     id: `${repoPath}::${name}-${workspace}`,
     name,
     host: `${name}.${workspace ?? "x"}.localhost`,
     repoPath,
     port: 3000,
-    mode: "proxy" as const,
+    mode: "proxy",
     workspace,
     createdAt: "t",
     updatedAt: "t"
@@ -62,15 +63,10 @@ function route(workspace: string | undefined, name: string, repoPath = "/repo") 
 }
 
 describe("workspaceDown", () => {
-  it("frees only this repo's routes for the workspace, without loading any config", () => {
-    // feat-a routes live under this repo's worktree; a same-named workspace in
-    // another repo (/other-feat-a) must be left untouched.
-    vi.mocked(listHostRouteState).mockReturnValue([
+  it("frees this repo's routes for the workspace, without loading any config", () => {
+    vi.mocked(removeWorkspaceRoutesForWorktree).mockReturnValue([
       route("feat-a", "web", "/main/repo-feat-a"),
-      route("feat-a", "api", "/main/repo-feat-a"),
-      route("feat-a", "web", "/other-feat-a"),
-      route("feat-b", "web", "/main/repo-feat-b"),
-      route(undefined, "web", "/main/repo")
+      route("feat-a", "api", "/main/repo-feat-a")
     ]);
     vi.mocked(spawnSync).mockReturnValue({ status: 1 } as never); // devpod absent, no git
 
@@ -78,17 +74,13 @@ describe("workspaceDown", () => {
 
     expect(result.workspace).toBe("feat-a");
     expect(result.freedRoutes).toBe(2);
-    expect(removeHostRouteById).toHaveBeenCalledTimes(2);
-    expect(removeHostRouteById).toHaveBeenCalledWith("/main/repo-feat-a::web-feat-a");
-    expect(removeHostRouteById).toHaveBeenCalledWith("/main/repo-feat-a::api-feat-a");
-    // A different repo's same-named workspace is never torn down.
-    expect(removeHostRouteById).not.toHaveBeenCalledWith("/other-feat-a::web-feat-a");
+    expect(removeWorkspaceRoutesForWorktree).toHaveBeenCalledWith("feat-a", "/main/repo-feat-a");
     // Teardown must not depend on the (possibly-deleted) worktree config.
     expect(loadRuntimeConfig).not.toHaveBeenCalled();
   });
 
   it("removes the worktree by matching branch->workspace when not kept", () => {
-    vi.mocked(listHostRouteState).mockReturnValue([]);
+    vi.mocked(removeWorkspaceRoutesForWorktree).mockReturnValue([]);
     const calls: Array<{ cmd: string; args: string[] }> = [];
     vi.mocked(spawnSync).mockImplementation((cmd, args) => {
       const a = (args as string[]) ?? [];
@@ -104,103 +96,28 @@ describe("workspaceDown", () => {
     const remove = calls.find((c) => c.cmd === "git" && c.args.includes("remove"));
     expect(remove?.args).toContain("/main/repo-feat-a");
   });
-
-  it("frees routes when git reports a realpath for a symlinked worktree path", () => {
-    vi.mocked(listHostRouteState).mockReturnValue([
-      route("feat-a", "web", "/tmp/repo-feat-a")
-    ]);
-    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
-      const a = (args as string[]) ?? [];
-      if (cmd === "git" && a.includes("list")) {
-        return {
-          status: 0,
-          stdout: `worktree /main/repo
-HEAD abc
-branch refs/heads/main
-
-worktree /private/tmp/repo-feat-a
-HEAD def
-branch refs/heads/feat/a
-
-`
-        } as never;
-      }
-      return { status: 1 } as never;
-    });
-    const realpath = vi.spyOn(fs.realpathSync, "native").mockImplementation((p) => {
-      const key = String(p);
-      if (key === "/tmp/repo-feat-a" || key === "/private/tmp/repo-feat-a") {
-        return "/private/tmp/repo-feat-a";
-      }
-      return key;
-    });
-
-    try {
-      const result = workspaceDown("feat-a", { keepWorktree: true, keepDevpod: true });
-
-      expect(result.freedRoutes).toBe(1);
-      expect(removeHostRouteById).toHaveBeenCalledWith("/tmp/repo-feat-a::web-feat-a");
-    } finally {
-      realpath.mockRestore();
-    }
-  });
 });
 
 describe("workspaceLs", () => {
   it("joins worktrees with their workspace token and route counts by worktree path", () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN } as never);
-    vi.mocked(listHostRouteState).mockReturnValue([
-      route("feat-a", "web", "/main/repo-feat-a"),
-      route("feat-a", "api", "/main/repo-feat-a"),
-      // A different repo's untagged route must not inflate the primary row.
-      route(undefined, "web", "/other/repo")
-    ]);
+    vi.mocked(listRoutesForWorktreePaths).mockReturnValue(new Map([
+      ["/main/repo", []],
+      ["/main/repo-feat-a", [
+        route("feat-a", "web", "/main/repo-feat-a"),
+        route("feat-a", "api", "/main/repo-feat-a")
+      ]]
+    ]));
 
     const rows = workspaceLs();
 
+    expect(listRoutesForWorktreePaths).toHaveBeenCalledWith(["/main/repo", "/main/repo-feat-a"]);
     expect(rows).toHaveLength(2);
     expect(rows[0].workspace).toBeUndefined(); // primary checkout
     expect(rows[0].branch).toBe("main");
-    expect(rows[0].routeCount).toBe(0); // no route under /main/repo, ignores /other/repo
+    expect(rows[0].routeCount).toBe(0);
     expect(rows[1].workspace).toBe("feat-a");
     expect(rows[1].routeCount).toBe(2);
-  });
-
-  it("counts routes when worktree and route paths use /private/tmp and /tmp aliases", () => {
-    vi.mocked(spawnSync).mockReturnValue({
-      status: 0,
-      stdout: `worktree /private/tmp/repo
-HEAD abc
-branch refs/heads/main
-
-worktree /private/tmp/repo-feat-a
-HEAD def
-branch refs/heads/feat/a
-
-`
-    } as never);
-    vi.mocked(listHostRouteState).mockReturnValue([
-      route("feat-a", "web", "/tmp/repo-feat-a")
-    ]);
-    const realpath = vi.spyOn(fs.realpathSync, "native").mockImplementation((p) => {
-      const key = String(p);
-      if (key === "/tmp/repo-feat-a" || key === "/private/tmp/repo-feat-a") {
-        return "/private/tmp/repo-feat-a";
-      }
-      if (key === "/private/tmp/repo") {
-        return "/private/tmp/repo";
-      }
-      return key;
-    });
-
-    try {
-      const rows = workspaceLs("/private/tmp/repo");
-
-      expect(rows[1].workspace).toBe("feat-a");
-      expect(rows[1].routeCount).toBe(1);
-    } finally {
-      realpath.mockRestore();
-    }
   });
 });
 

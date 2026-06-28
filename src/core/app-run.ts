@@ -26,6 +26,7 @@ import {
   upsertHostRoute
 } from "./host-routes";
 import { assertAppNotRunning } from "./concurrency";
+import { removeRouteForApp } from "./route-state";
 import { ensureNetwork } from "./docker";
 import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY, activateTcpProtocol, ensureRouterFiles, isTLSEnabled, startRouterStack } from "./router";
 import { assertPathWithinRepo } from "./paths";
@@ -680,7 +681,7 @@ function registerProxyRoute(repoPath: string, app: DevrouterProxyApp, workspace?
   // Re-running a proxy app is an idempotent re-register: drop our own prior route
   // first so the shared guard doesn't treat it as "already running", then reuse
   // assertAppNotRunning to evict stale routes and reject a live hostname conflict.
-  removeHostRouteById(buildHostRouteId(repoPath, app.name));
+  removeRouteForApp(repoPath, app.name);
   assertAppNotRunning(repoPath, { name: app.name, host: app.host });
 
   upsertHostRoute({

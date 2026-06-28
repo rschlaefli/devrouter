@@ -1,4 +1,4 @@
-import { removeHostRouteByName } from "../core/host-routes";
+import { removeRouteForApp } from "../core/route-state";
 import { removeRepoApp, resolveRepoPath } from "../core/repo-config";
 
 export async function runAppRmCommand(options: {
@@ -11,13 +11,11 @@ export async function runAppRmCommand(options: {
   // --keep-config: free the live route/hostname only (e.g. to release a hostname
   // claimed by another repo) without editing this repo's committed `.devrouter.yml`.
   if (options.keepConfig) {
-    try {
-      removeHostRouteByName(options.name, repoPath);
+    if (removeRouteForApp(repoPath, options.name).length > 0) {
       process.stdout.write(`Freed route for '${options.name}' (config left intact)\n`);
-    } catch {
-      // No active route to free — nothing to do, config stays as-is.
-      process.stdout.write(`No active route for '${options.name}' (config left intact)\n`);
+      return;
     }
+    process.stdout.write(`No active route for '${options.name}' (config left intact)\n`);
     return;
   }
 
@@ -26,11 +24,7 @@ export async function runAppRmCommand(options: {
     throw new Error(`App '${options.name}' not found in ${result.configPath}.`);
   }
 
-  try {
-    removeHostRouteByName(options.name, repoPath);
-  } catch {
-    // Route might not be active. Ignore.
-  }
+  removeRouteForApp(repoPath, options.name);
 
   process.stdout.write(`Removed '${options.name}' from ${result.configPath}\n`);
 }

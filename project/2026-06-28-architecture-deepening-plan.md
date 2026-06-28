@@ -1,6 +1,6 @@
 # devrouter - architecture deepening plan
 
-Status: **in progress, S1 ready to commit**. Last updated: 2026-06-28.
+Status: **in progress, S2 ready to commit**. Last updated: 2026-06-28.
 
 ## Plan identity
 
@@ -34,6 +34,19 @@ Status: **in progress, S1 ready to commit**. Last updated: 2026-06-28.
   planner exports, local app-run display helpers, and clearer base/observed plan names. Verification passed:
   dependency planner tests `7 passed`; app-run/exec pair `53 passed`; `pnpm typecheck`; `pnpm build`; `pnpm
   demo:smoke`. Next: commit S1, then start S2 route state ownership.
+- 2026-06-28: S1 committed as `ef8ba15` (`refactor(runtime): deepen dependency planning`).
+- 2026-06-28: S2 started. Next: map raw route-state policy, add route-state operations/tests, update callers, verify
+  exact route deletion and workspace/orphan behavior.
+- 2026-06-28: S2 implemented. Added `src/core/route-state.ts` and route-state policy tests; moved stale process,
+  orphan workspace proxy, canonical worktree path matching, exact app route deletion, and run-conflict reconciliation
+  behind route-state operations. Review agent `019f0ea9-db88-7831-a108-321ef51a8382` returned
+  `DONE_WITH_CONCERNS`: accepted canonical same-app conflict fix, proxy re-register via route-state, and `/tmp` vs
+  `/private/tmp` regressions. Simplification agent `019f0eaa-0ddd-7b50-884e-229706457f76` returned
+  `DONE_WITH_CONCERNS`: accepted removing concurrency GC wrappers, caller tests mocking route-state, one-read
+  workspace route listing, narrower exports, and mutating conflict operation rename. Verification passed: route-state
+  S2 unit set `28 passed`; app-run/exec `46 passed` with loopback access; `pnpm typecheck`; `pnpm build`; `node
+  dist/dev.js doctor --repo ./demo` (`18 OK`, `0 WARN`, `0 ERROR`); isolated temp-`HOME` route-state smoke; workspace
+  example up/down. Next: commit S2, then record S4/S5 go/no-go checkpoint before optional code.
 
 ## Goal
 

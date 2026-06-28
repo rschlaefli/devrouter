@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { runConfiguredApp } from "./app-run";
-import { listHostRouteState, removeHostRouteById } from "./host-routes";
+import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { isLinkedWorktree, wsFromBranch } from "./workspace";
 
@@ -53,19 +53,6 @@ function listGitWorktrees(repoPath: string): GitWorktree[] {
 
 function defaultWorktreePath(mainRepo: string, ws: string): string {
   return path.join(path.dirname(mainRepo), `${path.basename(mainRepo)}-${ws}`);
-}
-
-function comparablePath(filePath: string): string {
-  const resolved = path.resolve(filePath);
-  try {
-    return fs.realpathSync.native(resolved);
-  } catch {
-    return resolved;
-  }
-}
-
-function samePath(left: string, right: string): boolean {
-  return comparablePath(left) === comparablePath(right);
 }
 
 export async function workspaceUp(
@@ -162,7 +149,7 @@ export async function workspaceUp(
 export function workspaceLs(repoPath?: string): WorkspaceRow[] {
   const mainRepo = resolveRepoPath(repoPath);
   const worktrees = listGitWorktrees(mainRepo);
-  const routes = listHostRouteState();
+  const routesByWorktreePath = listRoutesForWorktreePaths(worktrees.map((worktree) => worktree.path));
 
   return worktrees.map((wt) => {
     // The primary checkout has no workspace; a linked worktree derives its token
@@ -172,7 +159,7 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
     // untagged routes.
     const workspace =
       isLinkedWorktree(wt.path) && wt.branch ? wsFromBranch(wt.branch) : undefined;
-    const wsRoutes = routes.filter((route) => samePath(route.repoPath, wt.path));
+    const wsRoutes = routesByWorktreePath.get(wt.path) ?? [];
     return {
       workspace,
       branch: wt.branch,
@@ -203,12 +190,7 @@ export function workspaceDown(
 
   // Free routes by the workspace tag AND the worktree path, so a same-named
   // workspace in a different repo is never torn down by this call.
-  const routes = listHostRouteState().filter(
-    (route) => route.workspace === ws && samePath(route.repoPath, worktreePath)
-  );
-  for (const route of routes) {
-    removeHostRouteById(route.id);
-  }
+  const routes = removeWorkspaceRoutesForWorktree(ws, worktreePath);
   process.stdout.write(`Freed ${routes.length} route(s) for workspace '${ws}'.\n`);
 
   if (!opts.keepDevpod && hasDevpod()) {
