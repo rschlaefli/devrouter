@@ -266,11 +266,11 @@ Notes:
 
 - reads `.devrouter.yml`
 - prompts to start declared dependencies (or use `--yes`)
-- starts only declared docker dependency services
+- starts docker target services for `runtime: docker` apps, plus declared docker dependencies
 - for `runtime: proxy` apps: registers the route to `upstream` and returns immediately (no process started, no dependencies); re-running is an idempotent upsert and the route persists until `dev app rm`
 - fails fast if host-runtime dependencies are configured (start those manually)
 - waits for Docker dependencies to become healthy (`--wait`) before proceeding
-- automatically stops Docker dependencies when the host app exits
+- automatically stops Docker dependencies when a host app exits; docker app services remain running until explicit cleanup (`docker compose down`, `dev down`, or equivalent)
 - prints recent dependency logs (last 20 lines) after deps start
 - `kind=dependency` apps are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`
 - `kind=dependency` services start as declared in compose (no Traefik labels, no random published ports, no injected env vars)

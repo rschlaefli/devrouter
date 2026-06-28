@@ -16,6 +16,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- `dev app run` now leaves `runtime: docker` target services running after startup. Docker runs previously reused the host-app dependency teardown path, so a routed docker app could be stopped immediately after the command reported it was running. The demo config also no longer declares host-process `envMap` aliases on `web-docker`; its container-local database URL belongs in `docker-compose.yml`.
 - `dev app add` / `dev app rm` no longer clobber a hand-written `.devrouter.yml`. They previously round-tripped the whole file through the YAML serializer, which stripped every comment, re-sorted `apps` alphabetically, and injected empty `dependencies: []` into each entry — wiping committed notes (e.g. TLS/SNI `sslnegotiation=direct` docs). Edits are now applied surgically to the parsed YAML document: comments and key order are preserved, existing apps keep their position (new apps append at the end, updates replace in place carrying over the comment/blank line above them), and empty `dependencies` is omitted. On an unchanged config an add+rm round-trip is now a no-op diff.
 
 ### Changed

@@ -83,7 +83,7 @@ Docker compose file guidance:
 - Every dependency service **must** define a `healthcheck` (devrouter uses `--wait` to block until healthy)
 - Services **must not** publish host ports for devrouter-owned ports (80, 443, 5432)
 - Services **should not** publish host ports at all; use devrouter hostnames instead
-- `dev app run` waits for deps to become healthy, auto-stops them on exit, and prints recent dep logs
+- `dev app run` waits for deps to become healthy, auto-stops docker deps when a host app exits, leaves docker app targets running until explicit cleanup, and prints recent dep logs
 
 ## 4) Fast path
 

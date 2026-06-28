@@ -83,8 +83,8 @@ Services **should not** publish host ports at all. devrouter handles external ro
 
 ### Dependency lifecycle
 
-- `dev app run` waits for Docker dependencies to become healthy before starting the host app
-- Docker dependencies are automatically stopped when the host app exits (Ctrl+C or error)
+- `dev app run` waits for Docker dependencies to become healthy before starting the host or docker app
+- Docker dependencies are automatically stopped when a host app exits (Ctrl+C or error); docker app services remain running until explicit cleanup (`docker compose down`, `dev down`, or equivalent)
 - Recent dependency logs (last 20 lines) are printed after dependencies start
 - `kind=dependency` entries are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`
 - `kind=dependency` services are started as declared in compose (no Traefik labels, no random port publishing, no injected env vars)

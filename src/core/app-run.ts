@@ -599,7 +599,9 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
       startDependencies = false;
     }
 
-    if (startDependencies) {
+    const shouldRunComposeUp = app.runtime === "docker" || startDependencies;
+
+    if (shouldRunComposeUp) {
       // Track ownership for stop policy
       if (stopPolicy === "stop-only-newly-started") {
         if (preRunResult?.status === "known") {
@@ -620,6 +622,9 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
         if (ownershipKnown && beforeSet) {
           startedServices.push(...services.filter((service) => !beforeSet.has(service)));
         }
+      } else if (app.runtime === "docker") {
+        const beforeSet = preRunResult?.status === "known" ? preRunResult.runningServices : undefined;
+        startedServices.push(...services.filter((service) => !beforeSet?.has(service)));
       } else {
         startedServices.push(...services);
       }
@@ -788,7 +793,9 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
       );
     }
   } finally {
-    deps.stopDeps();
+    if (deps.app.runtime === "host") {
+      deps.stopDeps();
+    }
   }
 
   return {

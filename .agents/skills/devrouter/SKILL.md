@@ -224,7 +224,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 
 ## Runtime behavior notes
 
-- `dev app run` auto-starts Docker dependencies, waits for health, stops them on exit.
+- `dev app run` auto-starts Docker dependencies and waits for health. Host app runs stop auto-started docker deps on exit; docker app runs leave target services running until explicit cleanup.
 - Host-runtime dependencies are NOT auto-started (v1).
 - `kind=dependency` entries do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`.
 - `kind=dependency` services start as declared in compose (no Traefik label wiring, no random port publishing, no injected env vars).

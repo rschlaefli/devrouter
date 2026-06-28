@@ -40,6 +40,16 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
 - 2026-06-28 local simplification + thermo-nuclear maintainability review: no blocker. `repo-config.ts` is still a
   watch item at 960 lines but remains below 1k; extracting workspace config now would export internals and spread
   coupling. `workspace-lifecycle.ts` remains a focused 234-line orchestration module.
+- 2026-06-28 release-checklist demo smoke initially failed after workspace fixes. Root cause was twofold: demo
+  `web-docker` declared host-process `envMap` aliases despite its container-local `DATABASE_URL` living in
+  `docker-compose.yml`, and `dev app run` stopped docker target services on return via the host-app dependency
+  teardown path. Fixed by removing the misleading demo `envMap`, keeping host `envMap` coverage, and making docker
+  targets persist until explicit cleanup. Evidence: focused `app-run-exec` + `ai-prompt` tests passed, `pnpm build`
+  passed, and `pnpm demo:smoke` passed with host, docker, and DB routes.
+- 2026-06-28 final local gates after demo-smoke repair passed: `pnpm check:docs-policy`; `pnpm typecheck`;
+  `pnpm test` with loopback permission (`279 passed`); `pnpm build`; `node dist/dev.js doctor --repo ./demo`
+  (`18 OK, 0 WARN, 0 ERROR`); `pnpm demo:smoke` passed. The local `dev` shim points at this checkout's
+  `dist/dev.js`; smoke cleanup left no demo routes in `dev ls --json`.
 - Active finish sequence:
   1. DONE: commit this plan metadata rename.
   2. DONE: fix `--open`, add unit test, run focused check.
@@ -48,7 +58,11 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
   5. DONE: run live devpod E2E proving `WORKSPACE=<ws>` reaches compose alias and namespaced host serves.
   6. DONE: run isolated-home GC safety E2E: orphan removed, primary/live worktree routes preserved.
   7. DONE: run final review + simplification + strict maintainability review.
-  8. NEXT: refresh PR body, push, mark ready, merge, create GitHub release `v0.0.22`, verify npm publish.
+  8. DONE: run `dev doctor --repo ./demo`; no warnings or errors.
+  9. DONE: run `pnpm demo:smoke`; fixed docker-run persistence/demo config fallout, then smoke passed.
+  10. DONE: run final full gates for the new repair.
+  11. NEXT: commit/push, refresh PR body, mark ready, merge, create GitHub
+      release `v0.0.22`, verify npm publish.
 
 ## Goal prompt
 
