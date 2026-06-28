@@ -26,7 +26,13 @@ function plan(error = false): DevcontainerWritePlan {
     dryRun: true,
     files: [{ path: ".devcontainer/Dockerfile", action: "create", reason: "missing" }],
     issues: error
-      ? [{ id: "repo.devcontainer.write-conflict", level: "error", summary: "conflict" }]
+      ? [{
+        id: "repo.devcontainer.package-manager-version-unsupported",
+        level: "error",
+        summary: "unsafe package manager",
+        details: "pnpm@11.6.0 && touch /tmp/pwned",
+        suggestion: "Use a pinned semver packageManager value such as pnpm@11.6.0 before writing the scaffold.",
+      }]
       : [],
     nextSteps: ["next"],
   };
@@ -102,6 +108,19 @@ describe("runRepoDevcontainerWriteCommand", () => {
 
     await runRepoDevcontainerWriteCommand({ repo: "/repo", dryRun: true, json: true });
 
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("prints diagnostic details for human write errors", async () => {
+    vi.mocked(writeDevcontainer).mockReturnValue(plan(true));
+
+    await runRepoDevcontainerWriteCommand({ repo: "/repo", dryRun: true });
+
+    const output = stdoutSpy.mock.calls.map(([chunk]: [unknown, ...unknown[]]) => String(chunk)).join("");
+    expect(output).toContain("Findings:");
+    expect(output).toContain("repo.devcontainer.package-manager-version-unsupported [error]");
+    expect(output).toContain("pnpm@11.6.0 && touch /tmp/pwned");
+    expect(output).toContain("Use a pinned semver packageManager value");
     expect(process.exitCode).toBe(1);
   });
 });

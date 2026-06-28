@@ -49,6 +49,7 @@ describe("devcontainer write planning", () => {
     expect(written.issues).toEqual([]);
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "docker-compose.yml"), "utf-8")).toContain("devrouter:managed devcontainer");
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "docker-compose.yml"), "utf-8")).toContain("10-create-shadow-db.sh");
+    expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "Dockerfile"), "utf-8")).toContain("npm install -g 'pnpm@11.6.0'");
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "init-db.sh"), "utf-8")).toContain("CREATE DATABASE shadow");
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "devcontainer.env"), "utf-8")).toContain("PORT=3100");
     expect(fs.readFileSync(path.join(tmpDir, ".devrouter.yml"), "utf-8")).toContain("upstream: ${WORKSPACE}-app:3100");
@@ -81,5 +82,35 @@ describe("devcontainer write planning", () => {
 
     expect(plan.issues.map((issue) => issue.id)).toContain("repo.devcontainer.package-manager-unsupported");
     expect(fs.existsSync(path.join(tmpDir, ".devcontainer", "Dockerfile"))).toBe(false);
+  });
+
+  it("stops on unsafe pnpm packageManager versions", () => {
+    write("package.json", JSON.stringify({
+      packageManager: "pnpm@11.6.0 && touch /tmp/pwned",
+      engines: { node: ">=24" },
+      scripts: { dev: "next dev --port 3100" },
+    }));
+
+    const plan = writeDevcontainer({ repo: tmpDir, yes: true });
+
+    expect(plan.issues.map((issue) => issue.id)).toContain("repo.devcontainer.package-manager-version-unsupported");
+    expect(plan.nextSteps.join("\n")).toContain("Use a pinned semver packageManager value");
+    expect(plan.nextSteps.join("\n")).not.toContain("Resolve write conflicts");
+    expect(fs.existsSync(path.join(tmpDir, ".devcontainer", "Dockerfile"))).toBe(false);
+  });
+
+  it("quotes inferred script names in generated post-start command", () => {
+    write("package.json", JSON.stringify({
+      packageManager: "pnpm@11.6.0",
+      engines: { node: ">=24" },
+      scripts: { "web;touch pwned:dev": "next dev --port 3100" },
+    }));
+
+    const written = writeDevcontainer({ repo: tmpDir, yes: true });
+    const postStart = fs.readFileSync(path.join(tmpDir, ".devcontainer", "post-start.sh"), "utf-8");
+
+    expect(written.issues).toEqual([]);
+    expect(postStart).toContain("pnpm run -- '\"'\"'web;touch pwned:dev'\"'\"'");
+    expect(postStart).not.toContain("pnpm run -- web;touch pwned:dev");
   });
 });

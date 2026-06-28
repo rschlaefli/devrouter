@@ -1,6 +1,6 @@
 # devrouter - agent-native devcontainer usability plan
 
-Status: **approved, executing**. Last updated: 2026-06-28.
+Status: **final validation in progress**. Last updated: 2026-06-28.
 
 ## Plan identity
 
@@ -52,8 +52,28 @@ Status: **approved, executing**. Last updated: 2026-06-28.
   - Updated bundled `devrouter` and `devcontainer-onboarding` skills, reference snippets, gotchas, and `src/core/ai-prompt.ts` so agents prefer CLI inspect/write/verify before manual template work.
   - Accepted Maxwell/Euler findings: fixed missing `--repo`/`--json` in prompt validation commands, split devcontainer vs host/docker validation paths, clarified the product scaffold is app + Postgres only, split preflight/devpod/live verify in agent snippets, simplified PR evidence wording, and avoided an unexplained `${WORKSPACE}` in the README first example.
   - Evidence: stale default-flow search found no outdated `dev up && dev tls` / `for a in app ... dev app run` guidance; `pnpm exec vitest run src/core/__tests__/ai-prompt.test.ts src/core/__tests__/agents-md.test.ts`; `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`; escalated `pnpm test` passes (36 files, 318 tests).
-- Active slice: Final review, release readiness, PR evidence.
-- Next: run final security/thermonuclear/branch reviews, final live validation, and prepare PR/merge evidence.
+- 2026-06-28: Final branch/security/thermonuclear reviews found release-blocking cleanup items and no design reversal.
+  - Accepted and fixed shell/Dockerfile injection risks in generated devcontainer files: pnpm versions are semver-validated before use, the Dockerfile quotes the package spec, and inferred `*:dev` script names are shell-quoted.
+  - Accepted and fixed docs/generated-guidance drift around removed `--env-map`; current guidance now documents config-level dependency `envMap`, and docs-policy rejects the removed flag in current docs/generated guidance surfaces.
+  - Accepted and fixed stale embedded devrouter skill drift; `dev repo agents` now distributes a copy that exactly matches `.agents/skills/devrouter/SKILL.md`, with a regression test for exact sync.
+  - Accepted and fixed human `dev repo devcontainer write` output so blocking issues print IDs, details, suggestions, and issue-specific next steps.
+  - Accepted and fixed supported-routing summaries so docs mention TCP `runtime: docker` and `runtime: proxy` with the supported protocol set.
+  - Evidence so far: focused devcontainer/agent tests pass; `pnpm check:docs-policy` passes; `pnpm typecheck` passes; `pnpm build` passes.
+- 2026-06-28: Final post-review validation passed.
+  - Static gates: `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`; `git diff --check`.
+  - Unit/integration gates: escalated `pnpm test` passed (36 files, 321 tests).
+  - Demo setup/run gates: `node dist/dev.js -V --repo ./demo`; `node dist/dev.js upgrade --repo ./demo`; `node dist/dev.js repo inspect --repo ./demo --json`; escalated `node dist/dev.js setup --repo ./demo --yes --json` (0 performed, 4 skipped, 21 ok); escalated `node dist/dev.js doctor --repo ./demo --json` (21 ok, 0 warn, 0 error); escalated `pnpm demo:smoke` passed and printed `https://demo-host.localhost`, `https://demo-docker.localhost`, and `postgres://demo-db.localhost:5432`.
+  - Devcontainer/DevPod live gates: escalated `pnpm devcontainer:smoke down`; escalated `pnpm devcontainer:smoke` passed with live verify `7 ok, 0 warn, 0 error`, app JSON `{"ok":true,"workspace":"devcontainer-demo","port":3000}`, and two direct-SSL `psql` checks returning `1`; escalated `pnpm devcontainer:smoke down` cleaned up; final escalated `node dist/dev.js doctor --repo ./demo --json` remained `21 ok, 0 warn, 0 error`.
+- 2026-06-28: Accepted final branch re-check docs findings and fixed stale TCP-summary wording plus one secret-manager/envMap wording issue in `docs/GETTING_STARTED.md`.
+  - Re-check evidence: stale phrase search for old TCP/Postgres-only and always-injected env wording found no hits; `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`; `git diff --check`.
+- Active slice: Commit, push, PR evidence.
+- Next: commit final fixes, push branch, and open/update PR.
+
+### Final Review Deferrals
+
+- Defer extracting duplicated proxy-route registration from `devcontainer-verify.ts` and `app-run.ts`. The duplication is narrow, already covered by live verification, and changing the route mutation abstraction at the final gate would increase risk without improving the showcase path.
+- Defer extracting shared package/compose parsing helpers from `repo-inspect`, diagnostics, and scaffold planning. The current duplication is readable and isolated; a shared parser module should be a separate architecture slice with tests for all call sites.
+- Defer replacing the managed devcontainer substring marker with a stricter per-file manifest. The current marker is sufficient for the generated files in this release; exact ownership metadata belongs in a later scaffold-upgrade slice.
 
 ## Problem
 

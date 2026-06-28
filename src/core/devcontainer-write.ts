@@ -39,6 +39,8 @@ type WriteOptions = {
 };
 
 const DEFAULT_DEVROUTER_VERSION = "0.0.0";
+const DEFAULT_PNPM_VERSION = "11.6.0";
+const VALID_PACKAGE_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 function sanitizeProjectName(value: string): string {
   const sanitized = value
@@ -65,7 +67,7 @@ function inferDevScript(repo: ReturnType<typeof inspectRepo>): string {
   if (!script) {
     return "pnpm dev";
   }
-  return script.name === "dev" ? "pnpm dev" : `pnpm run ${script.name}`;
+  return script.name === "dev" ? "pnpm dev" : `pnpm run -- ${shellSingleQuote(script.name)}`;
 }
 
 function inferPort(repo: ReturnType<typeof inspectRepo>): number {
@@ -73,6 +75,7 @@ function inferPort(repo: ReturnType<typeof inspectRepo>): number {
 }
 
 function renderDockerfile(nodeMajor: string, pnpmVersion: string): string {
+  const pnpmPackageSpec = `pnpm@${pnpmVersion}`;
   return `# ${MANAGED_MARKER}
 FROM node:${nodeMajor}-bookworm-slim
 
@@ -80,7 +83,7 @@ RUN apt-get update \\
   && apt-get install -y --no-install-recommends git ca-certificates curl procps openssl \\
   && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g pnpm@${pnpmVersion}
+RUN npm install -g ${shellSingleQuote(pnpmPackageSpec)}
 
 WORKDIR /workspaces/app
 `;
@@ -272,6 +275,17 @@ function postWriteNextSteps(repoPath: string): string[] {
   ];
 }
 
+function issueNextSteps(issues: DiagnosticCheck[]): string[] {
+  const steps = issues
+    .filter((issue) => issue.level === "error")
+    .map((issue) => issue.suggestion)
+    .filter((suggestion): suggestion is string => Boolean(suggestion));
+  if (steps.length > 0) {
+    return [...steps, "Re-run: dev repo devcontainer write --dry-run --json"];
+  }
+  return ["Resolve reported errors, then re-run: dev repo devcontainer write --dry-run --json"];
+}
+
 function packageManagerIssues(repo: ReturnType<typeof inspectRepo>): DiagnosticCheck[] {
   if (!repo.packageManager) {
     return [
@@ -294,6 +308,17 @@ function packageManagerIssues(repo: ReturnType<typeof inspectRepo>): DiagnosticC
       }
     ];
   }
+  if (repo.packageManager.version && !VALID_PACKAGE_VERSION_RE.test(repo.packageManager.version)) {
+    return [
+      {
+        id: "repo.devcontainer.package-manager-version-unsupported",
+        level: "error",
+        summary: `Unsupported pnpm version '${repo.packageManager.version}' in packageManager.`,
+        details: repo.packageManager.source,
+        suggestion: "Use a pinned semver packageManager value such as pnpm@11.6.0 before writing the scaffold."
+      }
+    ];
+  }
   return [];
 }
 
@@ -307,7 +332,7 @@ function plannedFiles(
   const pnpmVersion =
     repo.packageManager?.name === "pnpm" && repo.packageManager.version
       ? repo.packageManager.version
-      : "11.6.0";
+      : DEFAULT_PNPM_VERSION;
   const port = inferPort(repo);
   const devCommand = inferDevScript(repo);
   const issues = packageManagerIssues(repo);
@@ -397,8 +422,8 @@ function buildPlan(
       files: filePlans,
       issues,
       nextSteps:
-        issues.length > 0
-          ? ["Resolve write conflicts, then re-run: dev repo devcontainer write --dry-run --json"]
+        issues.some((issue) => issue.level === "error")
+          ? issueNextSteps(issues)
           : dryRun
             ? [`Review this plan, then run: dev repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`]
             : postWriteNextSteps(repoPath)

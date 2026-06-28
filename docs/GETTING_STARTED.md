@@ -160,7 +160,7 @@ dev app exec web --yes --shell -- "echo $DB_URL"
 
 ### Secret manager integration (config-based)
 
-When a secret manager (Infisical, Doppler, etc.) wraps your dev commands, it can override devrouter-injected env vars (`DATABASE_URL`, `DIRECT_URL`, etc.) with empty or different values. Add `secretManager` to `.devrouter.yml` so devrouter automatically re-applies its injected vars after the SM boundary:
+When a secret manager (Infisical, Doppler, etc.) wraps your dev commands, it can override devrouter-injected per-dep vars (`DB_URL`, `DB_SHADOW_URL`, etc.) and any `envMap` aliases you expose (`DATABASE_URL`, `DIRECT_URL`, etc.) with empty or different values. Add `secretManager` to `.devrouter.yml` so devrouter automatically re-applies its injected vars after the SM boundary:
 
 ```yaml
 secretManager:

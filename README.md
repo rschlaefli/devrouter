@@ -82,7 +82,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `dev app add ...` (`--kind app|dependency`, default `app`)
 - `dev app ls [--repo <path>] [--json]`
 - `dev app run <name> [--repo <path>] [--yes] [--workspace <slug>]`
-- `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env-map TARGET=SOURCE] [--workspace <slug>] -- <command>`
+- `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env <env>] [--workspace <slug>] -- <command>`
 - `dev app rm <name> [--repo <path>]`
 - `dev logs [-f]`
 - `dev workspace up <branch> [--path <dir>] [--no-devpod] [--open] [--repo <path>]`
@@ -273,9 +273,8 @@ Notes:
 
 - `kind` defaults to routed app behavior. Use `kind: dependency` for non-routed Docker dependencies.
 - `runtime: proxy` registers an HTTP route to an externally-managed `upstream` (`host:port`) and does nothing else — use it to put a stable `*.localhost` HTTPS host in front of a devcontainer or any process you start yourself. Loopback upstreams (`localhost`/`127.0.0.1`/`0.0.0.0`) are rewritten to `host.docker.internal` so Traefik (in Docker) can reach the host. The route persists until `dev app rm`.
-- TCP mode currently supports PostgreSQL first (`tcpProtocol: postgres`).
-- Multi-DB hostname routing on shared `:5432` requires TLS/SNI.
-- Plaintext Postgres is not supported for multiplexed hostname routing.
+- TCP routing supports `tcpProtocol: postgres`, `redis`, `mariadb`, and `mysql` on shared protocol ports with TLS/SNI.
+- Plaintext TCP is not supported for multiplexed hostname routing.
 - Multi-segment `.localhost` hosts are supported (for example `elearning.klicker.localhost`).
 
 ## Runtime behavior
@@ -292,24 +291,33 @@ Notes:
 - prints recent dependency logs (last 20 lines) after deps start
 - `kind=dependency` apps are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`
 - `kind=dependency` services start as declared in compose (no Traefik labels, no random published ports, no injected env vars)
-- for TCP deps of host apps: publishes a random host port and injects `<NAME>_HOST`/`<NAME>_PORT` env vars into the host process; for postgres deps also injects `DATABASE_URL` and `SHADOW_DATABASE_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
+- for TCP deps of host apps: publishes a random host port and injects per-dependency `<NAME>_HOST`/`<NAME>_PORT`/`<NAME>_URL` env vars into the host process; for postgres deps also injects `<NAME>_SHADOW_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
 - for one-shot commands, `dev app exec` starts declared docker deps as needed and only stops deps it started in that invocation (already-running deps stay running)
 - if `dev app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid stopping non-owned services
 - when TLS is enabled, `dev app run` / `dev app exec` auto-refresh cert SAN coverage for configured repo hosts before startup (fails fast with `Run: dev tls install` guidance if refresh fails)
 - for one-shot commands, `dev app exec` preserves argv semantics by default (`shell: false`) to avoid nested quoting issues
 - `dev app exec --shell` is explicit and requires one command string after `--`
-- `dev app exec --env-map TARGET=SOURCE` (repeatable) maps aliases after dependency env resolution (for example `DATABASE_URI=DATABASE_URL`)
+- config-level `envMap` on dependency references maps aliases after dependency env resolution (for example `DATABASE_URL: DB_URL`)
 - starts host app command for host runtime apps
 - generates docker overlay in `~/.config/devrouter/cache/...` for docker runtime apps
 
 Secret manager interop (Infisical/Doppler):
 
-- dependency env injection from devrouter includes `<NAME>_HOST`, `<NAME>_PORT`, `DATABASE_URL`, and `SHADOW_DATABASE_URL`
+- dependency env injection from devrouter includes `<NAME>_HOST`, `<NAME>_PORT`, `<NAME>_URL`, and postgres-only `<NAME>_SHADOW_URL`
 - do not assume secret-manager precedence when DB vars overlap; validate effective env before migrate/seed
 - avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values
-- safe host-run override pattern when wrapper also defines `DATABASE_URI`: `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev`
-- non-Prisma mapping example: `dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
-- env probe example: `dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL`
+- map app-specific names in `.devrouter.yml`:
+  ```yaml
+  dependencies:
+    - app: db
+      envMap:
+        DATABASE_URL: DB_URL
+        DIRECT_URL: DB_URL
+        SHADOW_DATABASE_URL: DB_SHADOW_URL
+  ```
+- safe host-run override pattern when wrapper also defines `DATABASE_URI`: `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev`
+- non-Prisma mapping example: `dev app exec web --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
+- env probe example: `dev app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL`
 - run `dev doctor --repo <path>` to surface risky wrapper precedence (`repo.host-command-env-precedence`) before migrations or app startup
 
 `dev ls` output includes both configured app identity (`APP`) and runtime service identity (`SERVICE`).
@@ -407,8 +415,8 @@ Required Linear execution hygiene:
 
 - Host-runtime dependencies are not auto-started; only Docker dependencies are auto-started.
 - `kind=dependency` apps are not direct run/exec/open targets (must be started via a routed app dependency graph).
-- TCP routing currently supports PostgreSQL only (`tcpProtocol: postgres`).
-- Shared `:5432` hostname multiplexing requires TLS/SNI (`sslmode=require` or stronger).
+- TCP routing supports `tcpProtocol: postgres`, `redis`, `mariadb`, and `mysql`.
+- Shared TCP hostname multiplexing requires TLS/SNI (`sslmode=require` or protocol-equivalent client SNI).
 
 ## Router state
 

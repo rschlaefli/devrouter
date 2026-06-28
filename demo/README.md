@@ -28,7 +28,7 @@ dev upgrade --repo ./demo
 dev setup --repo ./demo --yes
 dev doctor --repo ./demo
 dev repo inspect --repo ./demo --json
-dev app exec web-host --repo ./demo --yes -- printenv DATABASE_URL SHADOW_DATABASE_URL DB_HOST DB_PORT
+dev app exec web-host --repo ./demo --yes -- printenv DB_URL DATABASE_URL DB_SHADOW_URL SHADOW_DATABASE_URL DB_HOST DB_PORT
 dev app run web-docker --repo ./demo --yes
 dev app run web-host --repo ./demo --yes
 ```
@@ -61,16 +61,16 @@ Required Linear execution hygiene:
 3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
 4. Re-check status and comment freshness toward/at session end before stopping.
 
-For non-Prisma tooling in host commands, map aliases with argv-safe exec:
+For non-Prisma tooling in host commands, declare aliases in `.devrouter.yml` with dependency `envMap` and run argv-safe exec:
 
 ```bash
-dev app exec web-host --repo ./demo --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI
+dev app exec web-host --repo ./demo --yes -- printenv DB_URL DATABASE_URL DIRECT_URL DB_SHADOW_URL SHADOW_DATABASE_URL
 ```
 
 If a wrapper command (Infisical/Doppler) must set `DATABASE_URI`, do it after `run --`:
 
 ```bash
-infisical run --env=dev -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev
+infisical run --env=dev -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev
 ```
 
 Then open:

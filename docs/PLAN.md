@@ -16,14 +16,14 @@ Delivered and active:
 - Upgrade prompts stored as versioned files: `upgrade-prompts/<version>.md`
 - HTTP routing for host-run and Docker-run apps
 - HTTP proxy routing (`runtime: proxy`) to an already-running upstream (e.g. devcontainer)
-- TCP/Postgres Docker routing on `:5432` with TLS/SNI
+- TCP routing with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services via `kind: dependency` (non-routed, dependency lifecycle only)
 - Shared router ownership of `80/443/5432`
 - Bundled demo repo (`demo/.devrouter.yml`) for onboarding rehearsal and smoke validation
 - Live DevPod/devcontainer example (`examples/devcontainer/`) with `pnpm devcontainer:smoke`
 - `dev app exec` for one-shot commands with resolved dependency env
 - argv-safe exec by default with explicit `--shell` opt-in
-- `dev app exec --env-map TARGET=SOURCE` for deterministic env alias mapping
+- Config-level dependency `envMap` for deterministic env alias mapping
 - `dev doctor` wrapper precedence warning (`repo.host-command-env-precedence`)
 - `dev doctor` TLS SAN coverage warning (`repo.tls-host-coverage`) when TLS is enabled
 - `dev app run` / `dev app exec` auto-refresh TLS SAN coverage for configured repo hosts

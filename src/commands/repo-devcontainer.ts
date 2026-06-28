@@ -26,6 +26,18 @@ export async function runRepoDevcontainerWriteCommand(options: RepoDevcontainerW
     for (const file of report.files) {
       process.stdout.write(`- ${file.action}: ${file.path} (${file.reason})\n`);
     }
+    if (report.issues.length > 0) {
+      process.stdout.write("\nFindings:\n");
+      for (const issue of report.issues) {
+        process.stdout.write(`- ${issue.id} [${issue.level}]: ${issue.summary}\n`);
+        if (issue.details) {
+          process.stdout.write(`  Details: ${issue.details}\n`);
+        }
+        if (issue.suggestion) {
+          process.stdout.write(`  Suggestion: ${issue.suggestion}\n`);
+        }
+      }
+    }
     if (report.nextSteps.length > 0) {
       process.stdout.write("\nNext steps:\n");
       for (const step of report.nextSteps) {

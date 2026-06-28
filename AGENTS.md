@@ -54,7 +54,7 @@ Supported routing:
 - HTTP host-run apps
 - HTTP docker apps
 - HTTP proxy apps (`runtime: proxy`) — route to an already-running `upstream` (`host:port`) with no lifecycle; for fronting a devcontainer / external process. `upstream` may use the `${WORKSPACE}` token (substituted at runtime; rejected in `host`).
-- TCP PostgreSQL docker apps on shared `:5432` (TLS/SNI)
+- TCP apps on shared protocol ports with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
 - Workspace isolation: parallel git worktrees of one repo via a resolved workspace token (`--workspace` > `DEVROUTER_WORKSPACE` > auto-from-worktree-branch > none). When active, hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`) and `${WORKSPACE}` upstreams substitute; the committed `.devrouter.yml` is never rewritten (runtime config is in-memory).
 

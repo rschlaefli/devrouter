@@ -17,7 +17,7 @@ Supported route types:
 - HTTP host-run apps
 - HTTP docker apps
 - HTTP proxy apps (`runtime: proxy`, route to an already-running `upstream`; supports `${WORKSPACE}` placeholder for parallel-worktree isolation)
-- TCP PostgreSQL docker apps (TLS/SNI on shared `:5432`)
+- TCP apps with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
 - Parallel git worktrees via `dev workspace up/ls/down` with auto-namespaced `.localhost` hosts
 
@@ -101,7 +101,7 @@ Docker runtime:
 - `composeFiles`
 - optional dependencies
 - for routed docker apps: `internalPort`
-- for routed TCP apps: `tcpProtocol=postgres`
+- for routed TCP apps: set `tcpProtocol` to one supported protocol (`postgres`, `redis`, `mariadb`, or `mysql`)
 - for `kind=dependency`: no routed fields (`host`, `protocol`, `tcpProtocol`, `hostRun`, `docker.internalPort`, `docker.router`)
 
 Docker compose file guidance:
@@ -193,8 +193,8 @@ Run one-shot commands (migrations, seeds) with resolved dep env vars:
 ```bash
 dev app exec web --yes -- npx prisma migrate dev
 dev app exec web --yes -- npx prisma db seed
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
+dev app exec web --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
+dev app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL
 ```
 
 Current dependency behavior:
@@ -209,19 +209,27 @@ Current dependency behavior:
 - With TLS enabled, `dev app run` / `dev app exec` auto-refresh cert SAN coverage for configured repo hosts before startup.
 - Default exec mode is argv-safe (`shell: false`) to avoid nested quoting issues.
 - Use `--shell` only when shell expansion is required; it accepts exactly one command string after `--`.
-- Use repeatable `--env-map TARGET=SOURCE` to alias env vars for non-Prisma frameworks (for example `DATABASE_URI=DATABASE_URL`).
+- Use config-level `envMap` on dependency references to alias env vars for app-specific names:
+  ```yaml
+  dependencies:
+    - app: db
+      envMap:
+        DATABASE_URL: DB_URL
+        DIRECT_URL: DB_URL
+        SHADOW_DATABASE_URL: DB_SHADOW_URL
+  ```
 
 Secret manager interop (Infisical/Doppler):
 
-- devrouter injected vars for postgres deps: `DB_HOST`, `DB_PORT`, `DATABASE_URL`, `SHADOW_DATABASE_URL`.
+- devrouter injected vars for postgres deps: `DB_HOST`, `DB_PORT`, `DB_URL`, `DB_SHADOW_URL`; configured `envMap` aliases may also expose app-specific names such as `DATABASE_URL`.
 - If your secret manager also provides DB vars, do not assume precedence.
 - Avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values.
 - Safe host-run override pattern when wrapper also defines `DATABASE_URI`:
-  `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev`
+  `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev`
 - Probe effective env before migration/seed:
 
 ```bash
-dev app exec web --yes --env-map DATABASE_URI=DATABASE_URL -- printenv DATABASE_URL DATABASE_URI DB_HOST DB_PORT SHADOW_DATABASE_URL
+dev app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL
 ```
 
 - `dev doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
