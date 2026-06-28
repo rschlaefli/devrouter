@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 // devcontainer/devpod). It namespaces the front host and the proxy upstream so N
 // parallel worktrees of the same repo route without colliding. The same token is
 // derived deterministically by `wsFromBranch` everywhere — devrouter's runtime
-// config, the `--name` passed to devpod, and the `${WORKSPACE}` substitution — so
+// config, the `--id` passed to devpod, and the `${WORKSPACE}` substitution — so
 // the three layers agree by construction.
 
 // Single label of a `*.localhost` host: lowercase alphanumeric with interior hyphens.
