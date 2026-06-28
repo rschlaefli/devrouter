@@ -13,12 +13,15 @@ import {
 } from "../route-state";
 
 const mockListHostRouteState = vi.fn<() => HostRouteState[]>(() => []);
-const mockRemoveHostRouteById = vi.fn<(id: string) => boolean>(() => true);
 const mockIsPidRunning = vi.fn<(pid: number | undefined) => boolean>(() => false);
+const mockRemoveHostRoutesWhere = vi.fn<(predicate: (route: HostRouteState) => boolean) => HostRouteState[]>(
+  (predicate) => mockListHostRouteState().filter(predicate)
+);
 
 vi.mock("../host-routes", () => ({
   listHostRouteState: (...args: unknown[]) => mockListHostRouteState(...(args as [])),
-  removeHostRouteById: (...args: unknown[]) => mockRemoveHostRouteById(...(args as [string])),
+  removeHostRoutesWhere: (...args: unknown[]) =>
+    mockRemoveHostRoutesWhere(...(args as [(route: HostRouteState) => boolean])),
   isPidRunning: (...args: unknown[]) => mockIsPidRunning(...(args as [number | undefined])),
   buildHostRouteId: (repoPath: string, name: string) => `${repoPath}::${name}`
 }));
@@ -53,8 +56,7 @@ describe("process route state", () => {
 
     expect(findStaleProcessRoutes().map((entry) => entry.id)).toEqual(["/repo::web", "/repo::api"]);
     expect(evictStaleProcessRoutes()).toBe(2);
-    expect(mockRemoveHostRouteById).toHaveBeenCalledWith("/repo::web");
-    expect(mockRemoveHostRouteById).toHaveBeenCalledWith("/repo::api");
+    expect(mockRemoveHostRoutesWhere).toHaveBeenCalledTimes(1);
   });
 
   it("keeps live process routes and proxy routes", () => {
@@ -73,7 +75,7 @@ describe("process route state", () => {
 
     expect(findStaleProcessRoutes()).toEqual([]);
     expect(evictStaleProcessRoutes()).toBe(0);
-    expect(mockRemoveHostRouteById).not.toHaveBeenCalled();
+    expect(mockRemoveHostRoutesWhere).toHaveBeenCalledTimes(1);
   });
 
   it("evicts stale app and hostname conflicts before reporting blockers", () => {
@@ -84,8 +86,27 @@ describe("process route state", () => {
     mockIsPidRunning.mockReturnValue(false);
 
     expect(reconcileRouteRunConflict("/repo", { name: "web", host: "web.localhost" })).toBeUndefined();
-    expect(mockRemoveHostRouteById).toHaveBeenCalledWith("/repo::web");
-    expect(mockRemoveHostRouteById).toHaveBeenCalledWith("/other::api");
+    expect(mockRemoveHostRoutesWhere).toHaveBeenCalledTimes(2);
+    const removedIds = mockRemoveHostRoutesWhere.mock.results.map((result) =>
+      (result.value as HostRouteState[]).map((entry) => entry.id)
+    );
+    expect(removedIds).toEqual([
+      ["/repo::web"],
+      ["/other::api"]
+    ]);
+  });
+
+  it("does not evict a fresh route that replaced a stale snapshot with the same id", () => {
+    const staleSnapshot = route({ id: "/repo::web", pid: 111 });
+    const freshRoute = route({ id: "/repo::web", pid: 222 });
+    mockListHostRouteState.mockReturnValueOnce([staleSnapshot]).mockReturnValue([freshRoute]);
+    mockIsPidRunning.mockImplementation((pid) => pid === 222);
+
+    const conflict = reconcileRouteRunConflict("/repo", { name: "web", host: "web.localhost" });
+
+    expect(conflict?.kind).toBe("same-app");
+    expect(conflict?.route.pid).toBe(222);
+    expect(mockRemoveHostRoutesWhere.mock.results[0].value).toEqual([]);
   });
 
   it("reports live proxy hostname conflicts without PID eviction", () => {
@@ -103,7 +124,7 @@ describe("process route state", () => {
 
     expect(conflict?.kind).toBe("hostname");
     expect(conflict?.route.name).toBe("proxy");
-    expect(mockRemoveHostRouteById).not.toHaveBeenCalled();
+    expect(mockRemoveHostRoutesWhere).not.toHaveBeenCalled();
   });
 
   it("matches same-app conflicts through /tmp and /private/tmp aliases", () => {
@@ -166,8 +187,8 @@ describe("workspace route state", () => {
     const removed = removeWorkspaceRoutesForWorktree("feat-a", "/repo-feat-a");
 
     expect(removed.map((entry) => entry.id)).toEqual(["/repo-feat-a::web", "/repo-feat-a::api"]);
-    expect(mockRemoveHostRouteById).toHaveBeenCalledTimes(2);
-    expect(mockRemoveHostRouteById).not.toHaveBeenCalledWith("/other-feat-a::web");
+    expect(mockRemoveHostRoutesWhere).toHaveBeenCalledTimes(1);
+    expect(removed.map((entry) => entry.id)).not.toContain("/other-feat-a::web");
   });
 
   it("evicts only workspace proxy routes whose worktree no longer exists", () => {
@@ -180,7 +201,9 @@ describe("workspace route state", () => {
 
     try {
       expect(evictOrphanedWorkspaceProxyRoutes()).toBe(1);
-      expect(mockRemoveHostRouteById).toHaveBeenCalledWith("/gone::proxy");
+      expect(mockRemoveHostRoutesWhere).toHaveBeenCalledTimes(1);
+      const removed = mockRemoveHostRoutesWhere.mock.results[0].value as HostRouteState[];
+      expect(removed.map((entry) => entry.id)).toEqual(["/gone::proxy"]);
       expect(existsSpy).not.toHaveBeenCalledWith("/main");
     } finally {
       existsSpy.mockRestore();
@@ -199,9 +222,9 @@ describe("app route removal", () => {
     const removed = removeRouteForApp("/repo", "web");
 
     expect(removed.map((entry) => entry.id)).toEqual(["/repo::web"]);
-    expect(mockRemoveHostRouteById).toHaveBeenCalledWith("/repo::web");
-    expect(mockRemoveHostRouteById).not.toHaveBeenCalledWith("/repo::api");
-    expect(mockRemoveHostRouteById).not.toHaveBeenCalledWith("/other::web");
+    expect(mockRemoveHostRoutesWhere).toHaveBeenCalledTimes(1);
+    expect(removed.map((entry) => entry.id)).not.toContain("/repo::api");
+    expect(removed.map((entry) => entry.id)).not.toContain("/other::web");
   });
 
   it("removes target app routes through /tmp and /private/tmp aliases", () => {
@@ -221,8 +244,8 @@ describe("app route removal", () => {
       const removed = removeRouteForApp("/private/tmp/repo", "web");
 
       expect(removed.map((entry) => entry.id)).toEqual(["/tmp/repo::web"]);
-      expect(mockRemoveHostRouteById).toHaveBeenCalledWith("/tmp/repo::web");
-      expect(mockRemoveHostRouteById).not.toHaveBeenCalledWith("/other::web");
+      expect(mockRemoveHostRoutesWhere).toHaveBeenCalledTimes(1);
+      expect(removed.map((entry) => entry.id)).not.toContain("/other::web");
     } finally {
       realpath.mockRestore();
     }

@@ -1,6 +1,6 @@
 # devrouter - architecture deepening plan
 
-Status: **in progress, S3 ready to commit**. Last updated: 2026-06-28.
+Status: **in progress, final review fixes integrated**. Last updated: 2026-06-28.
 
 ## Plan identity
 
@@ -64,6 +64,24 @@ Status: **in progress, S3 ready to commit**. Last updated: 2026-06-28.
   local to config authoring, removing parser-only helper exports, and extracting prompt env-name formatting.
   Verification passed: focused S3 suite `133 passed`; `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`. Next:
   commit S3, then run final full verification and review gates.
+- 2026-06-28: S3 committed as `cfd6240` (`refactor(config): centralize capability facts`). Final verification started.
+  Next: run the full validation checklist, final strict review, final branch review, and merge/deploy-readiness steps.
+- 2026-06-28: Final verification passed locally: `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`; `pnpm
+  test` (`26` files, `284` tests); `node dist/dev.js -V --repo ./demo`; `node dist/dev.js upgrade --repo ./demo`;
+  `node dist/dev.js doctor --repo ./demo` (`18 OK`, `0 WARN`, `0 ERROR`); `pnpm demo:smoke`; workspace example
+  `./examples/workspace/run.sh` and `./examples/workspace/run.sh down`. Next: run final strict review, independent
+  branch review, integrate findings, then prepare PR/release path.
+- 2026-06-28: Final strict review agent `019f0ec6-392d-7f93-8d30-1370ddcff5b7` returned `DONE_WITH_CONCERNS`:
+  accepted atomic route-state deletion fix and dependency planner boundary cleanup. Final branch-readiness review agent
+  `019f0ec6-410e-7d22-b84e-0bf4982c9089` returned `DONE_WITH_CONCERNS`: accepted plan finalization/commit blocker.
+  Fixes integrated: `removeHostRoutesWhere()` now selects and deletes under one host-route state lock; route-state
+  stale conflict reconciliation retries when a stale snapshot was replaced before deletion; dependency runtime planner
+  owns `ObservedRuntimeServices` instead of importing Docker adapter types. Post-fix verification passed: focused
+  reviewer-fix suite `78 passed`; `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`; full `pnpm test` (`27`
+  files, `286` tests); `node dist/dev.js -V --repo ./demo`; `node dist/dev.js upgrade --repo ./demo`; `node
+  dist/dev.js doctor --repo ./demo` (`18 OK`, `0 WARN`, `0 ERROR`); `pnpm demo:smoke`; workspace example up/down.
+  Release decision: no version bump in this branch because the CLI/config surface remains compatible; use the release
+  checklist after merge if maintainers decide to publish a package version.
 
 ## Goal
 
@@ -776,7 +794,9 @@ Rules:
 
 ## Next steps
 
-1. Create branch `codex/architecture-deepening-runtime-routes`.
-2. Run S0 baseline.
-3. Commit plan alone.
-4. Start S1.
+1. Commit final review fixes and this plan update.
+2. Run one final independent branch review against the updated branch state.
+3. Push branch and open a draft PR against `main`.
+4. Watch CI; after approval, merge to `main`.
+5. If a package release is desired after merge, follow the release checklist above and verify npm with the listed
+   commands.

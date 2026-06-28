@@ -5,7 +5,6 @@ import type {
   DevrouterHostHttpApp,
   DevrouterProxyApp
 } from "../types";
-import type { RunningComposeServicesResult } from "./docker-run";
 import {
   DEP_ENV_SUFFIXES,
   buildPostgresDependencyShadowUrl,
@@ -13,6 +12,10 @@ import {
 } from "./capabilities";
 
 export type DependencyStopPolicy = "always-stop-selected" | "stop-only-newly-started";
+
+export type ObservedRuntimeServices =
+  | { status: "known"; runningServices: Set<string> }
+  | { status: "unknown"; reason: string };
 
 type DockerRuntimeApp = Exclude<DevrouterApp, DevrouterHostHttpApp | DevrouterProxyApp>;
 
@@ -24,7 +27,7 @@ type DependencyRuntimePlan = {
   services: string[];
   dependencyServices: string[];
   stopPolicy: DependencyStopPolicy;
-  runningServicesBefore?: RunningComposeServicesResult;
+  runningServicesBefore?: ObservedRuntimeServices;
   allDependencyServicesRunning: boolean;
   shouldPromptForDependencies: boolean;
   hasTcpDeps: boolean;
@@ -58,7 +61,7 @@ export function planDependencyRuntime(options: {
   app: Exclude<DevrouterApp, DevrouterDockerDependencyApp>;
   dependencies: DevrouterApp[];
   stopPolicy?: DependencyStopPolicy;
-  runningServicesBefore?: RunningComposeServicesResult;
+  runningServicesBefore?: ObservedRuntimeServices;
 }): DependencyRuntimePlan {
   const selectedApps = uniqueApps([options.app, ...options.dependencies]);
   const selectedDockerApps = selectedApps.filter(

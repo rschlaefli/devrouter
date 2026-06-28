@@ -39,7 +39,8 @@ import {
   planDependencyRuntime,
   planDependencyStart,
   type DependencyStopPolicy,
-  type MappedTcpDependency
+  type MappedTcpDependency,
+  type ObservedRuntimeServices
 } from "./dependency-runtime-plan";
 
 export { buildTcpDepShadowUrl, buildTcpDepUrl } from "./dependency-runtime-plan";
@@ -154,6 +155,18 @@ function toError(error: unknown): Error {
 
 function dependencyNames(apps: DevrouterApp[]): string[] {
   return apps.map((entry) => entry.name).sort();
+}
+
+function observedRuntimeServices(
+  result: ReturnType<typeof queryRunningComposeServices> | undefined
+): ObservedRuntimeServices | undefined {
+  if (!result) {
+    return undefined;
+  }
+  if (result.status === "known") {
+    return { status: "known", runningServices: result.runningServices };
+  }
+  return { status: "unknown", reason: result.reason };
 }
 
 function isDependencyOnlyApp(app: DevrouterApp): app is DevrouterDockerDependencyApp {
@@ -555,7 +568,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
       app,
       dependencies,
       stopPolicy,
-      runningServicesBefore: preRunResult
+      runningServicesBefore: observedRuntimeServices(preRunResult)
     });
 
     if (observedPlan.allDependencyServicesRunning) {
