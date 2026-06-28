@@ -1,13 +1,13 @@
 # devrouter - architecture deepening plan
 
-Status: **ready for draft PR**. Last updated: 2026-06-28.
+Status: **draft PR opened**. Last updated: 2026-06-28.
 
 ## Plan identity
 
-- Plan path: `project/2026-06-28-architecture-deepening-plan.md`
+- Plan path: `project/2026-06-28-pr-10-architecture-deepening-plan.md`
 - Proposed branch: `codex/architecture-deepening-runtime-routes`
 - Target branch: `main`
-- PR: none yet
+- PR: #10 (`https://github.com/rschlaefli/devrouter/pull/10`)
 - Source report: `/var/folders/24/j7k2mlqn42l_dhq64jpqslxh0000gp/T/architecture-review-20260628-155228.html`
 - Related history: `project/2026-06-25-pr-9-workspace-agent-native.md` for route/workspace behavior and current release evidence.
 
@@ -89,6 +89,9 @@ Status: **ready for draft PR**. Last updated: 2026-06-28.
   config, runtime, workspace, doctor, app-rm, command execution, shell usage, path access, upstream/host validation,
   env/secrets, state-file mutation, and Docker compose invocation. Next: commit this plan-only readiness update, push
   the branch, open a draft PR, and watch CI.
+- 2026-06-28: Draft PR #10 opened. Plan file renamed to include the PR ID as a metadata-only update. Current-head
+  verification for PR body passed before this metadata rename: docs policy, typecheck, build, full tests, demo doctor,
+  demo smoke, and workspace smoke/teardown. Next: push metadata rename, update PR body/read-back, then watch CI.
 
 ## Goal
 
@@ -801,7 +804,7 @@ Rules:
 
 ## Next steps
 
-1. Push branch and open a draft PR against `main`.
+1. Push metadata rename commit and update/read back PR #10.
 2. Watch CI; after approval, merge to `main`.
 3. If a package release is desired after merge, follow the release checklist above and verify npm with the listed
    commands.
