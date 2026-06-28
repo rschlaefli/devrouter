@@ -43,7 +43,15 @@ When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), k
 3. **Wire self-contained auth** (if the app authenticates): run the OIDC mock (`navikt/mock-oauth2-server`) as a **sidecar** (`network_mode: service:app`) and route it via devrouter at `https://oidc.<app>.localhost/default`. The browser (authorize) and the app server (discovery/token/jwks) use the SAME issuer host → consistent token `iss`. Server-side reachability needs `extra_hosts: ['oidc.<app>.localhost:host-gateway']` + trusting the mkcert CA (`NODE_EXTRA_CA_CERTS`) — **never** `NODE_TLS_REJECT_UNAUTHORIZED=0`. One-click auto-login with constant claims (stable `sub`). See [GOTCHAS.md](GOTCHAS.md) #3, #16.
 4. **Add `.devrouter.yml`** (`references/devrouter.yml`, copied to the repo root): `runtime: proxy` routes over `devnet` — `app` + `oidc` (http) and `db` + `redis` (tcp/SNI), each `upstream: ${WORKSPACE}-<svc>:<port>`. Attach the services to `devnet` with the matching `${WORKSPACE:-<app>}-<svc>` aliases in the compose; **no published host ports**. The `${WORKSPACE}` token keeps the route and the devnet alias on one identity: the primary checkout resolves it to the project name (unchanged), while a parallel worktree resolves it to `<ws>-*` (see "Parallel worktrees" below). No `hostRun`/`docker`/`dependencies`/`secretManager` — the container owns those. Requires devrouter ≥ 0.0.21 (the `${WORKSPACE}` upstream token requires ≥ 0.0.22). (Full routing walkthrough: devrouter `docs/DEVCONTAINER.md`.)
 5. **Document for agents** — append a short *Local development (devcontainer)* section to the repo's agent-instructions file (`AGENTS.md`, or `CLAUDE.md` if that's the file the repo already uses) from `references/AGENTS-devcontainer.md`. It tells future agents to use the devcontainer as the default local path (not the old host-port/Infisical/Auth0 setup): bring it up with `devpod up .`, run commands/tests/prisma **inside** the container, reach the app at the routed URLs, and log in one-click. Fold the devrouter prerequisites (`dev up && dev tls install`, then the `dev app run` routes) in as the routing layer **when devrouter is in use** — keep the devcontainer instructions usable on their own so the guidance degrades gracefully where devrouter isn't installed.
-6. **Verify end-to-end** (mandatory before claiming done) — `dev up && dev tls install` first, then a clean `devpod up .` (exits 0), then `for a in app oidc db redis; do dev app run "$a"; done`, then the **curl matrix** (browser-independent, reliable):
+6. **Verify end-to-end** (mandatory before claiming done) — run static product evidence first:
+   ```bash
+   dev repo devcontainer verify --json
+   ```
+   Then `dev up && dev tls install`, a clean `devpod up .` (exits 0), and:
+   ```bash
+   dev repo devcontainer verify --live --yes --json
+   ```
+   Use the manual **curl matrix** only for deeper app-specific evidence or when the repo has extra routes beyond the current product scaffold:
    ```bash
    curl -sS -o /dev/null -w "app=%{http_code}\n"  https://<app>.localhost/
    curl -sS -o /dev/null -w "oidc=%{http_code}\n" https://oidc.<app>.localhost/default/.well-known/openid-configuration

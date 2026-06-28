@@ -76,6 +76,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `dev repo init [--repo <path>]`
 - `dev repo inspect [--repo <path>] [--json]`
 - `dev repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]`
+- `dev repo devcontainer verify [--repo <path>] [--live] [--yes] [--json]`
 - `dev repo agents [--repo <path>] [--with-linear]`
 - `dev app add ...` (`--kind app|dependency`, default `app`)
 - `dev app ls [--repo <path>] [--json]`
@@ -90,6 +91,9 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 The current `dev repo devcontainer write` scaffold is intentionally narrow:
 Node + pnpm + Postgres. Other package managers stop with a JSON diagnostic
 instead of writing files that would need manual repair.
+Use `dev repo devcontainer verify --json` for read-only PR evidence; add
+`--live --yes` only after the devcontainer is running and route probes should
+mutate local route state.
 
 ## Workspace isolation (parallel worktrees)
 

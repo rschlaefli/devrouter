@@ -168,7 +168,7 @@ repoCommand
 
 const repoDevcontainerCommand = repoCommand
   .command("devcontainer")
-  .description("Plan and write devcontainer onboarding files");
+  .description("Manage devcontainer onboarding");
 
 repoDevcontainerCommand
   .command("write")
@@ -180,6 +180,18 @@ repoDevcontainerCommand
   .action(withErrorHandling(async (options: { repo?: string; dryRun?: boolean; yes?: boolean; json?: boolean }) => {
     const { runRepoDevcontainerWriteCommand } = await import("./commands/repo-devcontainer");
     await runRepoDevcontainerWriteCommand({ ...options, installedVersion: CLI_VERSION });
+  }));
+
+repoDevcontainerCommand
+  .command("verify")
+  .description("Verify devcontainer onboarding state and emit PR evidence")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--live", "Register proxy routes and probe HTTP routes")
+  .option("--yes", "Confirm live verification actions")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { repo?: string; live?: boolean; yes?: boolean; json?: boolean }) => {
+    const { runRepoDevcontainerVerifyCommand } = await import("./commands/repo-devcontainer");
+    await runRepoDevcontainerVerifyCommand(options);
   }));
 
 const appCommand = program.command("app").description("Manage app entries and runtime actions from `.devrouter.yml`");

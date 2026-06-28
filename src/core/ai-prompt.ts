@@ -86,6 +86,11 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       'Dry-run or write conservative managed Node/pnpm/Postgres devcontainer/devrouter scaffold files.',
   },
   {
+    command: 'dev repo devcontainer verify',
+    purpose:
+      'Emit static onboarding evidence, or live route probes with --live --yes.',
+  },
+  {
     command: 'dev app add',
     purpose: 'Add or update one app entry in `.devrouter.yml`.',
   },
@@ -315,6 +320,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '- dev doctor --repo <REPO_PATH> --json',
     '- dev repo inspect --repo <REPO_PATH> --json',
     '- dev repo devcontainer write --repo <REPO_PATH> --dry-run --json',
+    '- dev repo devcontainer write --repo <REPO_PATH> --yes',
+    '- dev repo devcontainer verify --repo <REPO_PATH> --json',
     '- dev app ls --repo <REPO_PATH>',
     '- For each entry (when safe): dev app run <name> --repo <REPO_PATH> --yes',
     '- Run one-shot commands with dep env: dev app exec <name> --repo <REPO_PATH> --yes -- <command>',

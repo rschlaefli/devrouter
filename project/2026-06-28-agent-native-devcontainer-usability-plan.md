@@ -36,8 +36,13 @@ Status: **approved, executing**. Last updated: 2026-06-28.
   - Extended devcontainer diagnostics so `${WORKSPACE:-project}` aliases match both default and active workspace upstreams.
   - Accepted Socrates/Bacon findings: pnpm-only support, installed CLI version in generated `.devrouter.yml`, absolute repo-aware next steps, `--dry-run`/`--json` separation, no implicit AGENTS mutation, broader diagnostics tests.
   - Evidence: `pnpm exec vitest run src/core/__tests__/devcontainer-write.test.ts src/core/__tests__/devcontainer-diagnostics.test.ts src/commands/__tests__/repo-devcontainer.test.ts src/core/__tests__/doctor.test.ts src/core/__tests__/agents-md.test.ts src/core/__tests__/ai-prompt.test.ts`; `pnpm typecheck`; `pnpm check:docs-policy`; `pnpm build`; generated temp-repo dry-run/write/post-write dry-run/doctor replay with all devcontainer checks ok; sandbox `pnpm test` failed only on existing local-listen `EPERM`, escalated `pnpm test` passed (35 files, 313 tests).
-- Active slice: S4 Devcontainer verify command.
-- Next: add `dev repo devcontainer verify --json` as a read-only verification aggregator over setup/doctor/repo-scaffold checks, then review/simplification.
+- 2026-06-28: S4 implemented and verified.
+  - Added `dev repo devcontainer verify --json` as read-only PR evidence over required files, doctor gate, proxy app entries, and workspace namespacing.
+  - Added guarded `dev repo devcontainer verify --live --yes --json`; live mode registers proxy routes with a quiet route-only path and probes HTTP routes without invoking the full app-run dependency lifecycle.
+  - Accepted Fermat/Kuhn findings: no `runConfiguredApp` in live verify, parseable JSON with no stdout prefix, runtime workspace hosts for live probes, no duplicated doctor checks in top-level JSON, parent CLI description updated, prompt/skill flow includes `write --yes` before verify.
+  - Evidence: `pnpm exec vitest run src/core/__tests__/devcontainer-verify.test.ts src/commands/__tests__/repo-devcontainer.test.ts src/core/__tests__/agents-md.test.ts src/core/__tests__/ai-prompt.test.ts`; `pnpm typecheck`; `pnpm check:docs-policy`; `pnpm build`; generated temp-repo static verify JSON exits 0; live guard JSON exits 1 with `repo.devcontainer.verify-live-confirmation`; live `--yes --json` parseability check emitted JSON first and cleaned temporary route; escalated `pnpm test` passed (36 files, 318 tests).
+- Active slice: S5 Real devcontainer example.
+- Next: add one runnable devcontainer/devrouter example and verify it end to end on this machine.
 
 ## Problem
 

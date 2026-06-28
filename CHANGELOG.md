@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 - `dev setup --yes --json` for agent-native first-run machine setup. It prepares devrouter-owned state (router files, `devnet`, Traefik, TLS when mkcert exists), reports structured actions/checks/next steps, and refuses mutation unless `--yes` is present.
 - `dev repo inspect --json` for read-only repository fact gathering: package manager, scripts and likely ports, compose services, env variable names (values redacted), devcontainer presence, devrouter config, and agent guidance files.
 - `dev repo devcontainer write --dry-run --json` and `dev repo devcontainer write --yes` for conservative managed Node/pnpm/Postgres devcontainer scaffolding. Custom existing target files are not overwritten, and non-pnpm repos stop with a structured diagnostic.
+- `dev repo devcontainer verify --json` for read-only onboarding evidence, plus `--live --yes --json` for route registration and HTTP probes after the devcontainer is running.
 - `dev doctor` now reports additional machine/devcontainer diagnostics for Docker Compose v2, mkcert, DevPod, Node/pnpm, devnet aliases, published devcontainer ports, and proxy upstream alias matches.
 
 ### Changed

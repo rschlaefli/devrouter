@@ -556,6 +556,8 @@ Agent first pass:
 ```bash
 dev repo inspect --repo /absolute/path/to/repo --json
 dev repo devcontainer write --repo /absolute/path/to/repo --dry-run --json
+dev repo devcontainer write --repo /absolute/path/to/repo --yes
+dev repo devcontainer verify --repo /absolute/path/to/repo --json
 ```
 
 ## 15) Workspace isolation (parallel worktrees)

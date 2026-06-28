@@ -47,11 +47,15 @@ dev setup --yes --json
 dev doctor --json
 dev repo inspect --repo /absolute/path/to/repo --json
 dev repo devcontainer write --repo /absolute/path/to/repo --dry-run --json
+dev repo devcontainer write --repo /absolute/path/to/repo --yes
+dev repo devcontainer verify --repo /absolute/path/to/repo --json
 ```
 
 `dev repo inspect` is read-only. It reports package manager metadata, scripts and likely ports, compose services, env variable names (not values), existing `.devcontainer/`, `.devrouter.yml`, and agent guidance files. Use its evidence and issues to write a small onboarding plan before editing files.
 
 `dev repo devcontainer write --dry-run --json` plans the managed files. `dev repo devcontainer write --yes` writes only when target files are missing or already marked as devrouter-managed; custom existing `.devcontainer/` or `.devrouter.yml` files stop the write with a conflict. The first scaffold supports Node + pnpm + Postgres; non-pnpm repos stop with `repo.devcontainer.package-manager-unsupported`.
+
+`dev repo devcontainer verify --json` is read-only and produces PR evidence from doctor checks, required files, proxy app entries, and workspace namespacing. Use `--live --yes --json` only after the devcontainer is running and you want route registration plus HTTP probes.
 
 Reference implementation:
 

@@ -12,6 +12,7 @@ Delivered and active:
 - First-run machine setup: `dev setup --yes --json`
 - Read-only repo fact inspection: `dev repo inspect --json`
 - Conservative Node/pnpm/Postgres devcontainer scaffold planning/writing: `dev repo devcontainer write --dry-run --json` and `dev repo devcontainer write --yes`
+- Devcontainer onboarding evidence: `dev repo devcontainer verify --json` (static) and `dev repo devcontainer verify --live --yes --json` (route registration/probes)
 - Upgrade prompts stored as versioned files: `upgrade-prompts/<version>.md`
 - HTTP routing for host-run and Docker-run apps
 - HTTP proxy routing (`runtime: proxy`) to an already-running upstream (e.g. devcontainer)

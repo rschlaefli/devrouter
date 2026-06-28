@@ -20,6 +20,19 @@ This works with any devcontainer-spec runner (DevPod, VS Code Dev Containers,
 > playbook + reference templates + gotchas live in the
 > `devcontainer-onboarding` skill (`.agents/skills/devcontainer-onboarding/`).
 
+Agent-native onboarding uses the CLI first:
+
+```bash
+dev repo inspect --json
+dev repo devcontainer write --dry-run --json
+dev repo devcontainer write --yes
+dev repo devcontainer verify --json
+```
+
+Use `dev repo devcontainer verify --live --yes --json` only after the
+devcontainer is running and route registration plus HTTP probes should be part
+of the evidence.
+
 ## How it works: `devnet`
 
 devrouter's Traefik runs in Docker on a shared external bridge network,
