@@ -1,6 +1,6 @@
 # devrouter — PR 9 workspace & agent native
 
-Status: **merge/deploy finish in progress**. Branch: `feat/workspace-agent-native`. PR: `#9`.
+Status: **merged and deployed**. Branch: `feat/workspace-agent-native`. PR: `#9`.
 Target release: **0.0.22**. Last updated: 2026-06-28.
 
 ## Plan identity
@@ -50,6 +50,14 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
   `pnpm test` with loopback permission (`279 passed`); `pnpm build`; `node dist/dev.js doctor --repo ./demo`
   (`18 OK, 0 WARN, 0 ERROR`); `pnpm demo:smoke` passed. The local `dev` shim points at this checkout's
   `dist/dev.js`; smoke cleanup left no demo routes in `dev ls --json`.
+- 2026-06-28 PR #9 merged to `main` as `7994c02` after PR CI passed. `main` push CI passed on the merge commit.
+- 2026-06-28 GitHub release `v0.0.22` created. Initial release publish failed because npm rejects provenance from
+  private GitHub repositories (`Unsupported GitHub Actions source repository visibility: "private"`). Fixed workflow
+  in `5ea6686` to omit provenance for private repos and added a guarded `workflow_dispatch` publish path. Push CI
+  passed on `5ea6686`; manual publish workflow `28323938502` passed.
+- 2026-06-28 npm deployment verified: `npm view @devrouter/cli@0.0.22 version dist.tarball` returned `0.0.22` and
+  the registry tarball URL; `npx --yes @devrouter/cli@0.0.22 -V --repo ./demo` reported installed/local repo
+  version `0.0.22` and no next upgrade target.
 - Active finish sequence:
   1. DONE: commit this plan metadata rename.
   2. DONE: fix `--open`, add unit test, run focused check.
@@ -61,8 +69,8 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
   8. DONE: run `dev doctor --repo ./demo`; no warnings or errors.
   9. DONE: run `pnpm demo:smoke`; fixed docker-run persistence/demo config fallout, then smoke passed.
   10. DONE: run final full gates for the new repair.
-  11. NEXT: commit/push, refresh PR body, mark ready, merge, create GitHub
-      release `v0.0.22`, verify npm publish.
+  11. DONE: commit/push, refresh PR body, mark ready, merge, create GitHub release `v0.0.22`, fix private-repo
+      publish workflow, publish, and verify npm.
 
 ## Goal prompt
 
