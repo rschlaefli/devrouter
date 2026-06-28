@@ -113,6 +113,7 @@ export async function workspaceUp(
     (app): app is Extract<typeof app, { host: string }> => "host" in app
   );
   const urls: string[] = [];
+  const openUrls: string[] = [];
   for (const app of routed) {
     if (app.runtime === "host") {
       process.stdout.write(
@@ -121,11 +122,27 @@ export async function workspaceUp(
       continue;
     }
     await runConfiguredApp({ name: app.name, repoPath: worktreePath, workspace: ws, yes: true });
-    urls.push(app.protocol === "tcp" ? `${app.host} (tcp/${app.tcpProtocol})` : `https://${app.host}`);
+    if (app.protocol === "tcp") {
+      urls.push(`${app.host} (tcp/${app.tcpProtocol})`);
+    } else {
+      const url = `https://${app.host}`;
+      urls.push(url);
+      openUrls.push(url);
+    }
   }
 
   if (urls.length > 0) {
     process.stdout.write(`\nWorkspace '${ws}' routes:\n${urls.map((u) => `  ${u}`).join("\n")}\n`);
+  }
+  if (opts.open) {
+    for (const url of openUrls) {
+      const opened = spawnSync("open", [url], { encoding: "utf-8" });
+      if (opened.status !== 0) {
+        const detail = [opened.stdout, opened.stderr].filter(Boolean).join("\n").trim();
+        throw new Error(`Unable to open '${url}': ${detail || "unknown error"}`);
+      }
+      process.stdout.write(`Opened ${url}\n`);
+    }
   }
 }
 

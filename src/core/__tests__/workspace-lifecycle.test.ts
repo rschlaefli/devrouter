@@ -170,4 +170,45 @@ describe("workspaceUp", () => {
       })
     );
   });
+
+  it("opens registered HTTP routes when --open is requested", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+      const a = (args as string[]) ?? [];
+      calls.push({ cmd: cmd as string, args: a });
+      return { status: 0, stdout: "" } as never;
+    });
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      workspace: "feat-a",
+      config: {
+        version: 1,
+        apps: [
+          {
+            name: "app",
+            host: "app.feat-a.localhost",
+            protocol: "http",
+            runtime: "proxy",
+            dependencies: [],
+            upstream: "feat-a-app:3000"
+          } as never,
+          {
+            name: "db",
+            host: "db.feat-a.localhost",
+            protocol: "tcp",
+            tcpProtocol: "postgres",
+            runtime: "proxy",
+            dependencies: [],
+            upstream: "feat-a-db:5432"
+          } as never
+        ]
+      }
+    });
+
+    await workspaceUp("feat/a", { noDevpod: true, open: true });
+
+    const opened = calls.filter((c) => c.cmd === "open");
+    expect(opened).toEqual([{ cmd: "open", args: ["https://app.feat-a.localhost"] }]);
+    expect(runConfiguredApp).toHaveBeenCalledTimes(2);
+  });
 });

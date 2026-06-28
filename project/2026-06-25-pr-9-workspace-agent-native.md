@@ -16,10 +16,12 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
 - 2026-06-28 takeover: handoff + Claude session reviewed. Branch clean at `6841b55`; PR #9 open draft, merge clean, CI `check` green.
 - Accepted issue: `dev workspace up --open` is advertised but unused. Fix before ready.
 - Accepted issue: PR body has stale verification head `fb7c062`; refresh before ready.
+- 2026-06-28 slice `--open`: implemented HTTP route opening after workspace route registration. Focused checks passed:
+  `pnpm exec vitest run src/core/__tests__/workspace-lifecycle.test.ts`; `pnpm typecheck`.
 - Active finish sequence:
-  1. Commit this plan metadata rename.
-  2. Fix `--open`, add unit test, run focused check.
-  3. Run fresh gates: docs policy, typecheck, tests, build.
+  1. DONE: commit this plan metadata rename.
+  2. DONE: fix `--open`, add unit test, run focused check.
+  3. NEXT: run fresh gates: docs policy, typecheck, tests, build.
   4. Run `examples/workspace/run.sh` E2E.
   5. Run live devpod E2E proving `WORKSPACE=<ws>` reaches compose alias and namespaced host serves.
   6. Run isolated-home GC safety E2E: orphan removed, primary/live worktree routes preserved.
