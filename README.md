@@ -86,7 +86,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 
 ## Workspace isolation (parallel worktrees)
 
-A **workspace token** lets several git worktrees of the same repo run side-by-side without host or route collisions. The token is a single identity spanning three layers: the devpod workspace name, the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` proxy upstreams and devcontainer compose network aliases.
+A **workspace token** lets several git worktrees of the same repo run side-by-side without host or route collisions. The token is a single identity spanning three layers: the devpod workspace id, the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` proxy upstreams and devcontainer compose network aliases.
 
 **Token resolution precedence** (highest to lowest):
 

@@ -101,14 +101,14 @@ export async function workspaceUp(
     process.stdout.write(`Created worktree ${worktreePath} (workspace '${ws}')\n`);
   }
 
-  // 2. Bring up the devcontainer via devpod. `--name <ws>` names the devpod
-  //    workspace; `WORKSPACE=<ws>` in the environment is what actually drives the
+  // 2. Bring up the devcontainer via devpod. `--id <ws>` sets the devpod
+  //    workspace id; `WORKSPACE=<ws>` in the environment is what actually drives the
   //    compose `${WORKSPACE:-<project>}` alias substitution (devpod's `docker
   //    compose` child inherits this env), so the container's devnet alias becomes
   //    `<ws>-app` — matching the `${WORKSPACE}` upstream devrouter resolves for
   //    this worktree. Best-effort; gated on devpod being installed.
   if (!opts.noDevpod && hasDevpod()) {
-    const dp = spawnSync("devpod", ["up", worktreePath, "--name", ws], {
+    const dp = spawnSync("devpod", ["up", worktreePath, "--id", ws, "--open-ide=false"], {
       stdio: "inherit",
       env: { ...process.env, WORKSPACE: ws }
     });
@@ -118,7 +118,7 @@ export async function workspaceUp(
   }
 
   // 3. Register routes for non-host routed apps. Pass `ws` explicitly (rather than
-  //    re-deriving it inside the call) so the route tag, the devpod `--name`, and
+  //    re-deriving it inside the call) so the route tag, the devpod id, and
   //    the namespaced host always agree — even under DEVROUTER_WORKSPACE or a
   //    detached-HEAD worktree, where auto-detection would diverge.
   const { config } = loadRuntimeConfig(worktreePath, ws);

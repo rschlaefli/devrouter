@@ -205,7 +205,7 @@ branch refs/heads/feat/a
 });
 
 describe("workspaceUp", () => {
-  it("names the devpod workspace with the resolved token (R5) and registers routes", async () => {
+  it("sets the devpod workspace id with the resolved token (R5) and registers routes", async () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(false);
     const calls: Array<{ cmd: string; args: string[]; env?: NodeJS.ProcessEnv }> = [];
     vi.mocked(spawnSync).mockImplementation((cmd, args, opts) => {
@@ -233,10 +233,10 @@ describe("workspaceUp", () => {
     await workspaceUp("feat/a", {});
 
     const devpodUp = calls.find((c) => c.cmd === "devpod" && c.args[0] === "up");
-    expect(devpodUp?.args).toEqual(["up", "/main/repo-feat-a", "--name", "feat-a"]);
+    expect(devpodUp?.args).toEqual(["up", "/main/repo-feat-a", "--id", "feat-a", "--open-ide=false"]);
     // WORKSPACE in the env is what drives the compose ${WORKSPACE} alias substitution.
     expect(devpodUp?.env?.WORKSPACE).toBe("feat-a");
-    // The resolved token is threaded explicitly so route tag == devpod --name.
+    // The resolved token is threaded explicitly so route tag == devpod id.
     expect(loadRuntimeConfig).toHaveBeenCalledWith("/main/repo-feat-a", "feat-a");
     expect(runConfiguredApp).toHaveBeenCalledWith(
       expect.objectContaining({

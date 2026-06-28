@@ -84,7 +84,7 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   {
     command: 'dev workspace up <branch> [--path <dir>] [--no-devpod] [--open]',
     purpose:
-      'Create a git worktree for <branch>, bring up its devpod (`devpod up --name <ws>`), and register workspace-namespaced routes.',
+      'Create a git worktree for <branch>, bring up its devpod (`devpod up --id <ws>`), and register workspace-namespaced routes.',
   },
   {
     command: 'dev workspace ls [--json]',
@@ -233,7 +233,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '- `envMap` on dependency references (config-level) aliases per-dep vars after dependency env resolution. `envMap` fails fast when source var is missing.',
     '',
     'Workspace isolation (parallel git worktrees / agents):',
-    '- A "workspace token" lets several worktrees of one repo run in parallel without host/route collisions. It is a single identity spanning three layers: the devpod workspace name (`devpod up --name <ws>`), the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` upstreams + the devcontainer compose network alias.',
+    '- A "workspace token" lets several worktrees of one repo run in parallel without host/route collisions. It is a single identity spanning three layers: the devpod workspace id (`devpod up --id <ws>`), the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` upstreams + the devcontainer compose network alias.',
     '- Token resolution precedence: `--workspace <slug>` flag > `DEVROUTER_WORKSPACE` env var > auto-derived from a linked git worktree branch (sanitized: lowercase, non-alphanumeric → `-`, capped at 32 chars) > none. The primary checkout resolves to no token and routes exactly as before (fully back-compatible).',
     '- When a workspace is active: hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`), `${WORKSPACE}` in `upstream` is substituted with the token, and the docker `router` key is suffixed per workspace. The runtime config is computed in memory only — the committed `.devrouter.yml` is never rewritten.',
     '- TLS: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.',

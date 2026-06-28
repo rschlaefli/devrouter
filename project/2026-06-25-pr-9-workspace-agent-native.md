@@ -22,13 +22,21 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
   with `/tmp/...`; `workspace ls/down` missed routes. Fixed with realpath-aware path compare. Evidence:
   `pnpm exec vitest run src/core/__tests__/workspace-lifecycle.test.ts`; `pnpm typecheck`; `pnpm build`;
   `./examples/workspace/run.sh`; `./examples/workspace/run.sh down` plus `dev ls --json` showed no `wsdemo` routes.
+- 2026-06-28 live devpod precheck found CLI mismatch: installed DevPod `v0.6.15` supports `devpod up --id <ws>`, not
+  `--name <ws>`. Context7 lookup attempted but quota blocked; local `devpod up --help` used as source. Code/docs
+  updated before live E2E.
+- 2026-06-28 live devpod E2E passed with temp repo `/tmp/devrouter-devpod-e2e`: `dev workspace up codex-e2e`
+  created worktree, ran DevPod with `--id codex-e2e --open-ide=false`, container env had `WORKSPACE=codex-e2e`,
+  devnet aliases included `codex-e2e-app`, `https://app.codex-e2e.localhost` returned
+  `devpod-e2e workspace=codex-e2e`, `workspace ls` showed one route for the workspace, `workspace down` freed it,
+  and final `dev ls --json` showed no `codex-e2e` routes.
 - Active finish sequence:
   1. DONE: commit this plan metadata rename.
   2. DONE: fix `--open`, add unit test, run focused check.
   3. DONE: run fresh gates: docs policy, typecheck, tests, build.
   4. DONE: run `examples/workspace/run.sh` E2E; fixed path-alias fallout.
-  5. Run live devpod E2E proving `WORKSPACE=<ws>` reaches compose alias and namespaced host serves.
-  6. Run isolated-home GC safety E2E: orphan removed, primary/live worktree routes preserved.
+  5. DONE: run live devpod E2E proving `WORKSPACE=<ws>` reaches compose alias and namespaced host serves.
+  6. NEXT: run isolated-home GC safety E2E: orphan removed, primary/live worktree routes preserved.
   7. Run final review + simplification + strict maintainability review.
   8. Refresh PR body, mark ready, merge, create GitHub release `v0.0.22`, verify npm publish.
 
@@ -60,7 +68,7 @@ Adversarial review found 3 blockers + majors. All resolved in-doc (tagged `R1`�
 - **R4** explicit compose `-p` **dropped entirely** — Docker's native basename-derived project name already isolates
   distinct worktree dirs, and `dev workspace up` guarantees distinct basenames. No compose-invocation change → no
   orphaned containers, no `name:`/`COMPOSE_PROJECT_NAME` override risk. Same-basename worktrees = unsupported edge.
-- **R5** `dev workspace up` passes `devpod up --name <ws>`; one `wsFromBranch()` feeds all three layers → the
+- **R5** `dev workspace up` passes `devpod up --id <ws>`; one `wsFromBranch()` feeds all three layers → the
   "one token" contract holds by construction (was aspirational).
 - **R6** generalize proxy GC into both lazy `evictIfStale` and bulk `evictStaleHostRoutes`; conservative
   positive-confirmation eviction. **R6b** `dev workspace down` frees routes by `workspace` state-filter, never config
@@ -109,7 +117,7 @@ over devpod + existing primitives — the routing primitives stay standalone.
 ### The shared-identity contract (the heart of it)
 
 ```
-devpod workspace name  ==  ws token  ==  ${WORKSPACE}
+devpod workspace id    ==  ws token  ==  ${WORKSPACE}
    (devpod up .)           (devrouter)    ├─ .devrouter.yml  upstream: ${WORKSPACE}-app:3000  → front host  web.<ws>.localhost
                                           └─ devcontainer compose  aliases: [${WORKSPACE}-app]  → devnet alias
 ```
@@ -131,7 +139,7 @@ A `.git` directory → primary checkout → none.
 
 `wsFromBranch(branch)` (the lynchpin, **R5**): single deterministic sanitizer → one DNS label
 `[a-z0-9]([a-z0-9-]*[a-z0-9])?`, lowercase, `/`+non-alnum → `-`, collapse, cap 32. ALL three layers derive ws from
-this same function (devrouter auto-resolve, the `--name <ws>` passed to devpod, the `${WORKSPACE}` substitution), so
+this same function (devrouter auto-resolve, the `--id <ws>` passed to devpod, the `${WORKSPACE}` substitution), so
 they agree by construction.
 
 **Back-compat guarantee:** primary checkout + no env + no `${WORKSPACE}` in config = **byte-identical to today**.
@@ -185,8 +193,8 @@ nothing. Same-basename worktrees placed manually is the one unsupported edge (us
 ### New surface — `dev workspace`
 
 - `dev workspace up <branch> [--path <dir>] [--no-devpod] [--open]` — `git worktree add` (if absent) → `ws =
-  wsFromBranch(branch)` → optional **`devpod up <path> --name <ws>`** (best-effort, gated on devpod present; **R5** —
-  `--name <ws>` forces devpod's workspace name to equal the token so the devcontainer's `${WORKSPACE}-app` alias
+  wsFromBranch(branch)` → optional **`devpod up <path> --id <ws>`** (best-effort, gated on devpod present; **R5** —
+  `--id <ws>` forces devpod's workspace id to equal the token so the devcontainer's `${WORKSPACE}-app` alias
   matches what devrouter resolves) → ensure router → `app run` all routed apps → print `https://<app>.<ws>.localhost`.
   Idempotent. Partial-failure: each step is independently re-runnable; on failure print what was/ wasn't done (no
   auto-rollback of `git worktree add`).
@@ -252,9 +260,9 @@ Traefik/`.localhost`/devnet ownership unchanged.
 
 ### S2 — Lifecycle (`dev workspace`)
 - `src/commands/workspace.ts` (`up`/`ls`/`down`) + `cli.ts` registration. `HostRouteState.workspace` field.
-- `up` passes `devpod up --name <ws>` (R5); `down` frees routes by **state-file `workspace` filter, not config load**
+- `up` passes `devpod up --id <ws>` (R5); `down` frees routes by **state-file `workspace` filter, not config load**
   (R6b).
-- Tests: handler orchestration (mock git/devpod, assert `--name <ws>`), ls join, down-frees-by-ws,
+- Tests: handler orchestration (mock git/devpod, assert `--id <ws>`), ls join, down-frees-by-ws,
   **down-with-worktree-already-gone still frees routes**.
 
 ### S3 — GC (worktree-existence orphan reclaim — see revised GC section)

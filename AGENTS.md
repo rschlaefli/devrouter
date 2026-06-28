@@ -114,7 +114,7 @@ Supported routing:
 - `src/core/__tests__/linear-onboarding.test.ts`: unit tests for guided Linear metadata collection + placeholder fallback
 - `src/core/__tests__/concurrency.test.ts`: unit tests for concurrent run guard, dead-PID eviction, and orphaned-worktree proxy route reclaim
 - `src/core/__tests__/workspace.test.ts`: unit tests for workspace token resolution + worktree detection
-- `src/core/__tests__/workspace-lifecycle.test.ts`: unit tests for `dev workspace up/ls/down` orchestration (devpod `--name`/`WORKSPACE` env, route reclaim by tag)
+- `src/core/__tests__/workspace-lifecycle.test.ts`: unit tests for `dev workspace up/ls/down` orchestration (devpod `--id`/`WORKSPACE` env, route reclaim by tag)
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
 - `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, per-dep env vars, config-level envMap, exec dependency ownership teardown, and SM `{env}` template resolution

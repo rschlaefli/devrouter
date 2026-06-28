@@ -25,7 +25,7 @@ Delivered and active:
 - Agent discoverability flow via `dev repo agents`
 - Optional Linear workflow bootstrap via `dev init --with-linear` / `dev repo agents --with-linear`
 - Workspace isolation: `dev workspace up/ls/down` for parallel git worktrees of one repo
-  - Three-layer identity: devpod workspace name, devrouter route namespace, and `${WORKSPACE}` upstream placeholder
+  - Three-layer identity: devpod workspace id, devrouter route namespace, and `${WORKSPACE}` upstream placeholder
   - Token resolution: `--workspace` flag > `DEVROUTER_WORKSPACE` env var > branch-derived slug > none (primary checkout, back-compatible)
   - Hosts auto-namespaced in memory (`web.localhost` → `web.<ws>.localhost`); committed `.devrouter.yml` is never rewritten
   - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`

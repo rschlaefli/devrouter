@@ -127,7 +127,7 @@ Config-level `envMap` on dependency references aliases per-dep vars to app-expec
 
 ## Workspace isolation (parallel git worktrees / agents)
 
-Run several worktrees of one repo in parallel without host/route collisions. A **workspace token** is a single identity spanning three layers: the devpod workspace name (`devpod up --name <ws>`), the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` upstreams + the devcontainer compose network alias.
+Run several worktrees of one repo in parallel without host/route collisions. A **workspace token** is a single identity spanning three layers: the devpod workspace id (`devpod up --id <ws>`), the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` upstreams + the devcontainer compose network alias.
 
 - **Token resolution** (precedence): `--workspace <slug>` flag > `DEVROUTER_WORKSPACE` env var > auto-derived from a linked git worktree branch (sanitized: lowercase, non-alphanumeric → `-`, capped at 32 chars) > none. The primary checkout resolves to no token and routes exactly as before (back-compatible).
 - **When active**: hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`), `${WORKSPACE}` in `upstream` is substituted with the token, and the docker `router` key is suffixed per workspace. The runtime config is computed in memory only — the committed `.devrouter.yml` is never rewritten.
