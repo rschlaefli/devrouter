@@ -177,6 +177,7 @@ This folder is managed by the devrouter CLI.
 - dev logs [-f] [--tail N]
 - dev repo init
 - dev repo inspect [--repo <path>] [--json]
+- dev repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]
 - dev repo agents [--with-linear]
 - dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
 - dev app run <name>

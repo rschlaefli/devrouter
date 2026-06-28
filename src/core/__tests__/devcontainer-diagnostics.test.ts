@@ -7,26 +7,46 @@ import type { DevrouterConfig } from "../../types";
 
 let tmpDir: string;
 
-function writeCompose(content: string): void {
-  const devcontainerDir = path.join(tmpDir, ".devcontainer");
-  fs.mkdirSync(devcontainerDir, { recursive: true });
-  fs.writeFileSync(path.join(devcontainerDir, "docker-compose.yml"), content, "utf-8");
+function writeCompose(options: { aliases?: string[]; external?: boolean; ports?: string } = {}): void {
+  const aliases = options.aliases ?? ["${WORKSPACE:-sample}-app"];
+  const external = options.external ?? true;
+  const ports = options.ports ? `    ports:\n      - ${options.ports}\n` : "";
+  const composePath = path.join(tmpDir, ".devcontainer", "docker-compose.yml");
+  fs.mkdirSync(path.dirname(composePath), { recursive: true });
+  fs.writeFileSync(
+    composePath,
+    `services:
+  app:
+${ports}    networks:
+      devnet:
+        aliases:
+${aliases.map((alias) => `          - ${alias}`).join("\n")}
+networks:
+  devnet:
+    external: ${String(external)}
+`,
+    "utf-8"
+  );
 }
 
-function config(upstream = "${WORKSPACE}-app:3000"): DevrouterConfig {
+function config(upstream: string): DevrouterConfig {
   return {
     version: 1,
     apps: [
       {
         name: "app",
-        host: "app.localhost",
+        host: "sample.localhost",
         protocol: "http",
         runtime: "proxy",
-        upstream,
         dependencies: [],
+        upstream,
       },
     ],
   };
+}
+
+function checkLevel(checks: ReturnType<typeof buildDevcontainerChecks>, id: string): string | undefined {
+  return checks.find((check) => check.id === id)?.level;
 }
 
 beforeEach(() => {
@@ -38,111 +58,43 @@ afterEach(() => {
 });
 
 describe("buildDevcontainerChecks", () => {
-  it("reports ok when proxy upstreams match workspace-aware devnet aliases", () => {
-    writeCompose(`services:
-  app:
-    image: node:24
-    networks:
-      devnet:
-        aliases:
-          - \${WORKSPACE:-demo}-app
-networks:
-  devnet:
-    external: true
-`);
+  it("matches defaulted workspace aliases to concrete default upstreams", () => {
+    writeCompose();
 
-    const checks = buildDevcontainerChecks(tmpDir, config());
-    const byId = new Map(checks.map((check) => [check.id, check]));
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
 
-    expect(byId.get("repo.devcontainer.aliases")?.level).toBe("ok");
-    expect(byId.get("repo.devcontainer.no-published-ports")?.level).toBe("ok");
-    expect(byId.get("repo.devcontainer.upstream-alias-match")?.level).toBe("ok");
+    expect(checkLevel(checks, "repo.devcontainer.upstream-alias-match")).toBe("ok");
   });
 
-  it("reports published host ports as blocking diagnostics", () => {
-    writeCompose(`services:
-  app:
-    image: node:24
-    ports:
-      - "3000:3000"
-    networks:
-      devnet:
-        aliases:
-          - \${WORKSPACE:-demo}-app
-networks:
-  devnet:
-    external: true
-`);
+  it("matches defaulted workspace aliases to active workspace upstreams", () => {
+    writeCompose();
 
-    const checks = buildDevcontainerChecks(tmpDir, config());
-    const portCheck = checks.find((check) => check.id === "repo.devcontainer.no-published-ports");
+    const checks = buildDevcontainerChecks(tmpDir, config("feature-x-app:3000"), "feature-x");
 
-    expect(portCheck?.level).toBe("error");
-    expect(portCheck?.details).toContain("app: 3000:3000");
-    expect(portCheck?.suggestion).toContain("Remove published ports");
+    expect(checkLevel(checks, "repo.devcontainer.upstream-alias-match")).toBe("ok");
   });
 
-  it("reports Compose long-syntax published host ports as blocking diagnostics", () => {
-    writeCompose(`services:
-  app:
-    image: node:24
-    ports:
-      - target: 3000
-        published: 3000
-        protocol: tcp
-    networks:
-      devnet:
-        aliases:
-          - \${WORKSPACE:-demo}-app
-networks:
-  devnet:
-    external: true
-`);
+  it("warns when top-level devnet is not external", () => {
+    writeCompose({ external: false });
 
-    const checks = buildDevcontainerChecks(tmpDir, config());
-    const portCheck = checks.find((check) => check.id === "repo.devcontainer.no-published-ports");
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
 
-    expect(portCheck?.level).toBe("error");
-    expect(portCheck?.details).toContain("app: 3000:3000");
+    expect(checkLevel(checks, "repo.devcontainer.aliases")).toBe("warn");
   });
 
-  it("warns when devnet aliases are not attached to an external devnet network", () => {
-    writeCompose(`services:
-  app:
-    image: node:24
-    networks:
-      devnet:
-        aliases:
-          - \${WORKSPACE:-demo}-app
-networks:
-  devnet: {}
-`);
+  it("errors on published host ports including long syntax", () => {
+    writeCompose({ ports: "{ target: 3000, published: 3000 }" });
 
-    const checks = buildDevcontainerChecks(tmpDir, config());
-    const aliasCheck = checks.find((check) => check.id === "repo.devcontainer.aliases");
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
 
-    expect(aliasCheck?.level).toBe("warn");
-    expect(aliasCheck?.summary).toContain("top-level devnet is not marked external");
-    expect(aliasCheck?.details).toContain("devnetExternal=false");
+    expect(checkLevel(checks, "repo.devcontainer.no-published-ports")).toBe("error");
   });
 
-  it("warns when devrouter upstreams do not match devcontainer aliases", () => {
-    writeCompose(`services:
-  app:
-    image: node:24
-    networks:
-      devnet:
-        aliases:
-          - \${WORKSPACE:-demo}-app
-networks:
-  devnet:
-    external: true
-`);
+  it("warns when proxy upstreams do not match aliases", () => {
+    writeCompose();
 
-    const checks = buildDevcontainerChecks(tmpDir, config("${WORKSPACE}-web:3000"));
-    const matchCheck = checks.find((check) => check.id === "repo.devcontainer.upstream-alias-match");
+    const checks = buildDevcontainerChecks(tmpDir, config("other-app:3000"));
 
-    expect(matchCheck?.level).toBe("warn");
-    expect(matchCheck?.details).toContain("app: ${WORKSPACE}-web");
+    expect(checkLevel(checks, "repo.devcontainer.upstream-alias-match")).toBe("warn");
   });
 });

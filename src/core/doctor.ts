@@ -299,6 +299,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
   const resolvedRepoPath = resolveRepoPath(options.repo);
   const explicitRepo = typeof options.repo === "string" && options.repo.trim().length > 0;
   let loadedConfig: DevrouterConfig | undefined;
+  let loadedWorkspace: string | undefined;
 
   if (fileLayout.missing.length === 0) {
     addCheck(checks, {
@@ -436,8 +437,10 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         });
       }
 
-      const config = loadRuntimeConfig(repo.path).config;
+      const runtimeConfig = loadRuntimeConfig(repo.path);
+      const config = runtimeConfig.config;
       loadedConfig = config;
+      loadedWorkspace = runtimeConfig.workspace;
       const appNames = new Set(config.apps.map((app) => app.name));
       const missingDependencies = config.apps.flatMap((app) =>
         app.dependencies
@@ -624,7 +627,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     });
   }
 
-  for (const check of buildDevcontainerChecks(resolvedRepoPath, loadedConfig)) {
+  for (const check of buildDevcontainerChecks(resolvedRepoPath, loadedConfig, loadedWorkspace)) {
     addCheck(checks, check);
   }
 

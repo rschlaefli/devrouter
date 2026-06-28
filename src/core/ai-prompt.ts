@@ -81,6 +81,11 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       'Inspect package, scripts, compose services, env names, devcontainer, devrouter config, and agent guidance for onboarding.',
   },
   {
+    command: 'dev repo devcontainer write',
+    purpose:
+      'Dry-run or write conservative managed Node/pnpm/Postgres devcontainer/devrouter scaffold files.',
+  },
+  {
     command: 'dev app add',
     purpose: 'Add or update one app entry in `.devrouter.yml`.',
   },
@@ -309,6 +314,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '- dev setup --yes',
     '- dev doctor --repo <REPO_PATH> --json',
     '- dev repo inspect --repo <REPO_PATH> --json',
+    '- dev repo devcontainer write --repo <REPO_PATH> --dry-run --json',
     '- dev app ls --repo <REPO_PATH>',
     '- For each entry (when safe): dev app run <name> --repo <REPO_PATH> --yes',
     '- Run one-shot commands with dep env: dev app exec <name> --repo <REPO_PATH> --yes -- <command>',

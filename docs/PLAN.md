@@ -11,6 +11,7 @@ Delivered and active:
 - Upgrade commands: `dev -V` and `dev upgrade [version]`
 - First-run machine setup: `dev setup --yes --json`
 - Read-only repo fact inspection: `dev repo inspect --json`
+- Conservative Node/pnpm/Postgres devcontainer scaffold planning/writing: `dev repo devcontainer write --dry-run --json` and `dev repo devcontainer write --yes`
 - Upgrade prompts stored as versioned files: `upgrade-prompts/<version>.md`
 - HTTP routing for host-run and Docker-run apps
 - HTTP proxy routing (`runtime: proxy`) to an already-running upstream (e.g. devcontainer)

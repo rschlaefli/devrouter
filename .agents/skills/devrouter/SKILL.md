@@ -203,6 +203,8 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `dev tls install`: install mkcert certs, enable HTTPS + TCP/SNI
 - `dev repo init`: create `.devrouter.yml`
 - `dev repo inspect [--json]`: inspect package, scripts, compose services, env names, devcontainer, devrouter config, and agent guidance for onboarding
+- `dev repo devcontainer write --dry-run --json`: plan conservative Node/pnpm/Postgres devcontainer/devrouter scaffold files without writing
+- `dev repo devcontainer write --yes`: write managed Node/pnpm/Postgres devcontainer/devrouter scaffold files when no custom-file conflicts exist
 - `dev repo agents [--with-linear]`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
 - `dev app add`: add/update app entry in `.devrouter.yml`
 - `dev app ls`: list app entries

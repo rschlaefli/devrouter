@@ -28,8 +28,16 @@ Status: **approved, executing**. Last updated: 2026-06-28.
   - Inspector reports package manager, Node metadata, scripts/app candidates with evidence, compose services, env names only, devcontainer files, devrouter config, agent guidance, and actionable issues.
   - Accepted Nash/Pascal review findings: redact script env assignments, sanitize invalid config errors, include compose files referenced by `.devrouter.yml`, update embedded skill output, make `--json` meaningful, add command-level tests.
   - Evidence: `pnpm exec vitest run src/core/__tests__/repo-inspect.test.ts src/commands/__tests__/repo-inspect.test.ts src/core/__tests__/agents-md.test.ts`; `pnpm typecheck`; `pnpm check:docs-policy`; `pnpm build`; escalated `pnpm test` (33 files, 305 tests); `node dist/dev.js repo inspect --repo ./demo`; `node dist/dev.js repo inspect --repo ./demo --json`.
-- Active slice: S2 ready to commit.
-- Next: commit S2, then start S3 devcontainer write/dry-run.
+- 2026-06-28: S2 committed as `ce6acaa`.
+- 2026-06-28: S3 implemented and verified.
+  - Added `dev repo devcontainer write --dry-run --json` plus guarded `--yes` write for a conservative Node/pnpm/Postgres scaffold.
+  - Generated managed `.devcontainer/` files and `.devrouter.yml`; custom existing target files stop with a conflict; non-pnpm repos stop with `repo.devcontainer.package-manager-unsupported`.
+  - Kept AGENTS mutation explicit via existing `dev repo agents`; `write` now suggests AGENTS guidance instead of editing custom agent docs implicitly.
+  - Extended devcontainer diagnostics so `${WORKSPACE:-project}` aliases match both default and active workspace upstreams.
+  - Accepted Socrates/Bacon findings: pnpm-only support, installed CLI version in generated `.devrouter.yml`, absolute repo-aware next steps, `--dry-run`/`--json` separation, no implicit AGENTS mutation, broader diagnostics tests.
+  - Evidence: `pnpm exec vitest run src/core/__tests__/devcontainer-write.test.ts src/core/__tests__/devcontainer-diagnostics.test.ts src/commands/__tests__/repo-devcontainer.test.ts src/core/__tests__/doctor.test.ts src/core/__tests__/agents-md.test.ts src/core/__tests__/ai-prompt.test.ts`; `pnpm typecheck`; `pnpm check:docs-policy`; `pnpm build`; generated temp-repo dry-run/write/post-write dry-run/doctor replay with all devcontainer checks ok; sandbox `pnpm test` failed only on existing local-listen `EPERM`, escalated `pnpm test` passed (35 files, 313 tests).
+- Active slice: S4 Devcontainer verify command.
+- Next: add `dev repo devcontainer verify --json` as a read-only verification aggregator over setup/doctor/repo-scaffold checks, then review/simplification.
 
 ## Problem
 

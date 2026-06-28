@@ -166,6 +166,22 @@ repoCommand
     await runRepoAgentsCommand(options);
   }));
 
+const repoDevcontainerCommand = repoCommand
+  .command("devcontainer")
+  .description("Plan and write devcontainer onboarding files");
+
+repoDevcontainerCommand
+  .command("write")
+  .description("Plan or write a conservative devcontainer scaffold")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--dry-run", "Print the planned file changes without writing")
+  .option("--yes", "Write files when no conflicts are detected")
+  .option("--json", "Output JSON")
+  .action(withErrorHandling(async (options: { repo?: string; dryRun?: boolean; yes?: boolean; json?: boolean }) => {
+    const { runRepoDevcontainerWriteCommand } = await import("./commands/repo-devcontainer");
+    await runRepoDevcontainerWriteCommand({ ...options, installedVersion: CLI_VERSION });
+  }));
+
 const appCommand = program.command("app").description("Manage app entries and runtime actions from `.devrouter.yml`");
 
 appCommand

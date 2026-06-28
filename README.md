@@ -75,6 +75,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `dev tls install`
 - `dev repo init [--repo <path>]`
 - `dev repo inspect [--repo <path>] [--json]`
+- `dev repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]`
 - `dev repo agents [--repo <path>] [--with-linear]`
 - `dev app add ...` (`--kind app|dependency`, default `app`)
 - `dev app ls [--repo <path>] [--json]`
@@ -85,6 +86,10 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `dev workspace up <branch> [--path <dir>] [--no-devpod] [--open] [--repo <path>]`
 - `dev workspace ls [--repo <path>] [--json]`
 - `dev workspace down <workspace|branch> [--keep-worktree] [--keep-devpod] [--repo <path>]`
+
+The current `dev repo devcontainer write` scaffold is intentionally narrow:
+Node + pnpm + Postgres. Other package managers stop with a JSON diagnostic
+instead of writing files that would need manual repair.
 
 ## Workspace isolation (parallel worktrees)
 

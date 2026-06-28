@@ -28,6 +28,21 @@ function normalizeWorkspaceToken(value: string): string {
   return value.replace(/\$\{WORKSPACE(?::-[^}]+)?\}/g, "${WORKSPACE}");
 }
 
+function expandAliasCandidates(value: string, workspace?: string): string[] {
+  const candidates = new Set<string>([normalizeWorkspaceToken(value)]);
+  const defaulted = value.replace(/\$\{WORKSPACE:-([^}]+)\}/g, "$1");
+  if (defaulted !== value) {
+    candidates.add(defaulted);
+  }
+  if (workspace) {
+    const workspaceValue = value
+      .replace(/\$\{WORKSPACE:-[^}]+\}/g, workspace)
+      .replace(/\$\{WORKSPACE\}/g, workspace);
+    candidates.add(workspaceValue);
+  }
+  return Array.from(candidates.values());
+}
+
 function formatPublishedPort(serviceName: string, value: unknown): string | undefined {
   if (typeof value === "string") {
     return `${serviceName}: ${value}`;
@@ -58,7 +73,7 @@ function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "host.docker.internal";
 }
 
-function inspectCompose(composeFile: string): ComposeInspection {
+function inspectCompose(composeFile: string, workspace?: string): ComposeInspection {
   if (!fs.existsSync(composeFile)) {
     return {
       aliases: [],
@@ -103,7 +118,7 @@ function inspectCompose(composeFile: string): ComposeInspection {
       const networkMap = asRecord(networks);
       const devnet = asRecord(networkMap?.devnet);
       for (const alias of asStringArray(devnet?.aliases)) {
-        aliases.add(normalizeWorkspaceToken(alias));
+        aliases.add(alias);
       }
     }
 
@@ -135,14 +150,15 @@ function routedProxyApps(config: DevrouterConfig | undefined): Array<Extract<Dev
 
 export function buildDevcontainerChecks(
   repoPath: string,
-  config?: DevrouterConfig
+  config?: DevrouterConfig,
+  workspace?: string
 ): DiagnosticCheck[] {
   const devcontainerDir = path.join(repoPath, ".devcontainer");
   if (!fs.existsSync(devcontainerDir)) {
     return [];
   }
 
-  const compose = inspectCompose(path.join(devcontainerDir, "docker-compose.yml"));
+  const compose = inspectCompose(path.join(devcontainerDir, "docker-compose.yml"), workspace);
   const checks: DiagnosticCheck[] = [];
 
   if (compose.parseError) {
@@ -199,7 +215,11 @@ export function buildDevcontainerChecks(
     return checks;
   }
 
-  const aliasSet = new Set(compose.aliases.map(normalizeWorkspaceToken));
+  const aliasSet = new Set(
+    compose.aliases
+      .flatMap((alias) => expandAliasCandidates(alias, workspace))
+      .map(normalizeWorkspaceToken)
+  );
   const proxyApps = routedProxyApps(config);
   const nonLoopbackUpstreams = proxyApps
     .map((app) => ({
