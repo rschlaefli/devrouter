@@ -3,6 +3,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildOnboardingPrompt } from '../ai-prompt'
+import {
+  DEPENDENCY_ONLY_RUNTIME,
+  POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE,
+  POSTGRES_DEPENDENCY_URL_TEMPLATE,
+  SUPPORTED_TCP_PROTOCOLS,
+  formatSupportedProtocolsForRuntime,
+  formatSupportedTcpProtocols,
+} from '../capabilities'
 import { loadRepoConfig } from '../repo-config'
 
 let tmpDir: string
@@ -45,15 +53,27 @@ describe('buildOnboardingPrompt', () => {
 
   it('includes explicit tcp/tls onboarding sequence guidance', () => {
     const prompt = buildOnboardingPrompt({ repo: tmpDir })
+    const tcpProtocolUnion = SUPPORTED_TCP_PROTOCOLS.map(
+      (protocol) => `"${protocol}"`
+    ).join(' | ')
     expect(prompt).toContain(
       'If any tcp/postgres app is configured, run `dev up` and `dev tls install` before runtime validation.'
     )
+    expect(prompt).toContain(`  - tcpProtocol: ${tcpProtocolUnion}`)
+    expect(prompt).toContain(
+      `- kind=app runtime=proxy supports protocol=${formatSupportedProtocolsForRuntime('proxy').replace(', ', ' or ')}, requires upstream`
+    )
+    expect(prompt).toContain(
+      `- kind=app protocol=tcp requires runtime=docker or proxy, and tcpProtocol (${formatSupportedTcpProtocols()})`
+    )
+    expect(prompt).toContain(POSTGRES_DEPENDENCY_URL_TEMPLATE)
+    expect(prompt).toContain(POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE)
   })
 
   it('documents dependency-only app kind semantics', () => {
     const prompt = buildOnboardingPrompt({ repo: tmpDir })
     expect(prompt).toContain('kind: "app" | "dependency"')
-    expect(prompt).toContain('kind=dependency requires runtime=docker')
+    expect(prompt).toContain(`kind=dependency requires runtime=${DEPENDENCY_ONLY_RUNTIME}`)
     expect(prompt).toContain('kind=dependency entries are dependency-only')
   })
 

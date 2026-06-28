@@ -11,6 +11,7 @@ import {
   resolveAppDependencies,
   upsertRepoApp,
 } from "../repo-config";
+import { formatSupportedTcpProtocols } from "../capabilities";
 import type { DevrouterApp, DevrouterConfig } from "../../types";
 
 // -- helpers --
@@ -274,7 +275,9 @@ apps:
   it("rejects proxy + tcp with unsupported tcpProtocol", () => {
     const yaml = VALID_PROXY_APP.replace("protocol: http", "protocol: tcp\n    tcpProtocol: mongodb");
     writeConfig(tmpDir, yaml);
-    expect(() => loadRepoConfig(tmpDir)).toThrow("tcpProtocol must be one of");
+    expect(() => loadRepoConfig(tmpDir)).toThrow(
+      `tcpProtocol must be one of: ${formatSupportedTcpProtocols()}`
+    );
   });
 
   it("rejects proxy with dependencies", () => {
@@ -351,7 +354,7 @@ apps:
     const yaml = VALID_TCP_POSTGRES.replace("postgres", "cassandra");
     writeConfig(tmpDir, yaml);
     expect(() => loadRepoConfig(tmpDir)).toThrow(
-      "tcpProtocol must be one of"
+      `tcpProtocol must be one of: ${formatSupportedTcpProtocols()}`
     );
   });
 
@@ -650,6 +653,16 @@ describe("upsertRepoApp / removeRepoApp", () => {
     expect(app.name).toBe("myapp");
     const config = loadRepoConfig(tmpDir);
     expect(config.apps).toHaveLength(1);
+  });
+
+  it("rejects unsupported tcpProtocol in app add options", () => {
+    expect(() =>
+      upsertRepoApp(tmpDir, {
+        ...baseOptions,
+        protocol: "tcp",
+        tcpProtocol: "mongodb",
+      })
+    ).toThrow(`--tcp-protocol must be one of: ${formatSupportedTcpProtocols()}`);
   });
 
   it("updates existing app (upsert)", () => {

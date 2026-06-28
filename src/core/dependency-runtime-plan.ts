@@ -6,6 +6,11 @@ import type {
   DevrouterProxyApp
 } from "../types";
 import type { RunningComposeServicesResult } from "./docker-run";
+import {
+  DEP_ENV_SUFFIXES,
+  buildPostgresDependencyShadowUrl,
+  buildPostgresDependencyUrl
+} from "./capabilities";
 
 export type DependencyStopPolicy = "always-stop-selected" | "stop-only-newly-started";
 
@@ -141,7 +146,7 @@ export function planDependencyStart(
 export function buildTcpDepUrl(tcpProtocol: string, port: number): string | undefined {
   switch (tcpProtocol) {
     case "postgres":
-      return `postgres://prisma:prisma@localhost:${port}/prisma`;
+      return buildPostgresDependencyUrl(port);
     case "redis":
       return `redis://localhost:${port}`;
     case "mysql":
@@ -154,13 +159,14 @@ export function buildTcpDepUrl(tcpProtocol: string, port: number): string | unde
 
 export function buildTcpDepShadowUrl(tcpProtocol: string, port: number): string | undefined {
   if (tcpProtocol === "postgres") {
-    return `postgres://prisma:prisma@localhost:${port}/shadow`;
+    return buildPostgresDependencyShadowUrl(port);
   }
   return undefined;
 }
 
 export function buildDependencyEnv(mappedDeps: MappedTcpDependency[]): Record<string, string> {
   const depEnv: Record<string, string> = {};
+  const [hostSuffix, portSuffix, urlSuffix, shadowUrlSuffix] = DEP_ENV_SUFFIXES;
 
   for (const { app, mappedPort } of mappedDeps) {
     if (mappedPort === undefined) {
@@ -168,15 +174,15 @@ export function buildDependencyEnv(mappedDeps: MappedTcpDependency[]): Record<st
     }
 
     const envPrefix = app.name.toUpperCase().replace(/-/g, "_");
-    depEnv[`${envPrefix}_HOST`] = "localhost";
-    depEnv[`${envPrefix}_PORT`] = String(mappedPort);
+    depEnv[`${envPrefix}_${hostSuffix}`] = "localhost";
+    depEnv[`${envPrefix}_${portSuffix}`] = String(mappedPort);
     const url = buildTcpDepUrl(app.tcpProtocol, mappedPort);
     if (url) {
-      depEnv[`${envPrefix}_URL`] = url;
+      depEnv[`${envPrefix}_${urlSuffix}`] = url;
     }
     const shadowUrl = buildTcpDepShadowUrl(app.tcpProtocol, mappedPort);
     if (shadowUrl) {
-      depEnv[`${envPrefix}_SHADOW_URL`] = shadowUrl;
+      depEnv[`${envPrefix}_${shadowUrlSuffix}`] = shadowUrl;
     }
   }
 

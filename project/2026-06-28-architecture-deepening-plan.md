@@ -1,6 +1,6 @@
 # devrouter - architecture deepening plan
 
-Status: **in progress, S2 ready to commit**. Last updated: 2026-06-28.
+Status: **in progress, S3 ready to commit**. Last updated: 2026-06-28.
 
 ## Plan identity
 
@@ -53,6 +53,17 @@ Status: **in progress, S2 ready to commit**. Last updated: 2026-06-28.
   would mostly forward calls. S5 workspace identity: **No-go**. Evidence: path matching/removal now sits in
   route-state; remaining workspace token/default-worktree behavior is cohesive in `workspace.ts` and
   `workspace-lifecycle.ts`. Next: start S3 config capability facts.
+- 2026-06-28: S3 started. Next: add small capability facts module, wire parser/prompt low-risk constants, verify docs
+  policy/typecheck/build.
+- 2026-06-28: S3 implemented. Added `src/core/capabilities.ts` for runtime/protocol facts, TCP protocol listing,
+  dependency-only runtime, workspace/secret-manager placeholders, dependency env suffixes, and Postgres dependency URL
+  builders. Parser, dependency env generation, and onboarding prompt now import those facts without generating broad
+  prose. Review agent `019f0eb7-9c61-7d42-b0ef-e9ea677daf08` returned `DONE_WITH_CONCERNS`: accepted expanded facts
+  scope, direct unsupported `--tcp-protocol` app-add test, and stronger prompt drift assertions. Simplification agent
+  `019f0eb7-eb9d-7e12-8397-8f0a2276dbb2` returned `DONE_WITH_CONCERNS`: accepted keeping the default TCP protocol
+  local to config authoring, removing parser-only helper exports, and extracting prompt env-name formatting.
+  Verification passed: focused S3 suite `133 passed`; `pnpm check:docs-policy`; `pnpm typecheck`; `pnpm build`. Next:
+  commit S3, then run final full verification and review gates.
 
 ## Goal
 
