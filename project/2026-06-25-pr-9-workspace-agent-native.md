@@ -30,14 +30,17 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
   devnet aliases included `codex-e2e-app`, `https://app.codex-e2e.localhost` returned
   `devpod-e2e workspace=codex-e2e`, `workspace ls` showed one route for the workspace, `workspace down` freed it,
   and final `dev ls --json` showed no `codex-e2e` routes.
+- 2026-06-28 isolated-home GC E2E passed: seeded primary route, live workspace route, and missing-worktree workspace
+  route under temp `$HOME`; `node dist/dev.js doctor --repo <repo>` emitted
+  `routes.orphaned-workspace-routes WARN Evicted 1...`; state kept primary + live route only.
 - Active finish sequence:
   1. DONE: commit this plan metadata rename.
   2. DONE: fix `--open`, add unit test, run focused check.
   3. DONE: run fresh gates: docs policy, typecheck, tests, build.
   4. DONE: run `examples/workspace/run.sh` E2E; fixed path-alias fallout.
   5. DONE: run live devpod E2E proving `WORKSPACE=<ws>` reaches compose alias and namespaced host serves.
-  6. NEXT: run isolated-home GC safety E2E: orphan removed, primary/live worktree routes preserved.
-  7. Run final review + simplification + strict maintainability review.
+  6. DONE: run isolated-home GC safety E2E: orphan removed, primary/live worktree routes preserved.
+  7. NEXT: run final review + simplification + strict maintainability review.
   8. Refresh PR body, mark ready, merge, create GitHub release `v0.0.22`, verify npm publish.
 
 ## Goal prompt
