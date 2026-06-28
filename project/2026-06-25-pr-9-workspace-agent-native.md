@@ -1,7 +1,45 @@
-# devrouter — workspace & agent native
+# devrouter — PR 9 workspace & agent native
 
-Status: **design v2 — revised post adversarial review; approved to build**. Branch: `feat/workspace-agent-native`.
-Target release: **0.0.22**. Last updated: 2026-06-25.
+Status: **merge/deploy finish in progress**. Branch: `feat/workspace-agent-native`. PR: `#9`.
+Target release: **0.0.22**. Last updated: 2026-06-28.
+
+## Plan identity
+
+- Plan path: `project/2026-06-25-pr-9-workspace-agent-native.md`
+- Branch: `feat/workspace-agent-native`
+- Target: `main`
+- PR: `https://github.com/rschlaefli/devrouter/pull/9`
+- Prior path: `project/2026-06-25-workspace-agent-native.md` (renamed after PR ID existed)
+
+## Progress
+
+- 2026-06-28 takeover: handoff + Claude session reviewed. Branch clean at `6841b55`; PR #9 open draft, merge clean, CI `check` green.
+- Accepted issue: `dev workspace up --open` is advertised but unused. Fix before ready.
+- Accepted issue: PR body has stale verification head `fb7c062`; refresh before ready.
+- Active finish sequence:
+  1. Commit this plan metadata rename.
+  2. Fix `--open`, add unit test, run focused check.
+  3. Run fresh gates: docs policy, typecheck, tests, build.
+  4. Run `examples/workspace/run.sh` E2E.
+  5. Run live devpod E2E proving `WORKSPACE=<ws>` reaches compose alias and namespaced host serves.
+  6. Run isolated-home GC safety E2E: orphan removed, primary/live worktree routes preserved.
+  7. Run final review + simplification + strict maintainability review.
+  8. Refresh PR body, mark ready, merge, create GitHub release `v0.0.22`, verify npm publish.
+
+## Goal prompt
+
+Goal: finish PR #9 workspace-agent-native and deploy `@devrouter/cli@0.0.22`.
+
+Use this plan as current truth: `project/2026-06-25-pr-9-workspace-agent-native.md`.
+
+Rules:
+- Update `Progress` before and after each slice.
+- Work one slice at a time.
+- Use `devrouter`, `df-sliced-development-workflow`, `caveman`, `verification-before-completion`, `thermo-nuclear-code-quality-review`, and `df-mr-description-writer` where applicable.
+- Before any mutating CLI smoke against real/shared state: run `pnpm build`; prefer isolated `$HOME` for destructive-capable verification.
+- Do not mark PR ready, merge, or release until live devpod E2E passes or user explicitly accepts the residual risk.
+- After branch changes, refresh PR body against `main..HEAD` and current verification evidence.
+- Merge path: ready PR -> squash merge to `main` -> wait `main` CI -> create GitHub release `v0.0.22` -> wait publish workflow -> verify `npm view @devrouter/cli@0.0.22 version`.
 
 ## Review revisions (v2)
 
