@@ -1,7 +1,9 @@
 {
   "name": "@devrouter/cli",
   "version": "0.0.23",
-  "description": "Local dev routing CLI with shared Traefik on macOS",
+  "description": "Local dev routing CLI with shared Traefik reverse proxy",
+  "author": "Roland Schlaefli",
+  "homepage": "https://github.com/rschlaefli/devrouter#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -17,7 +19,7 @@
     "node": ">=24"
   },
   "bin": {
-    "dev": "dist/dev.js"
+    "devrouter": "dist/devrouter.js"
   },
   "scripts": {
     "build": "tsup",

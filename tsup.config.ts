@@ -5,7 +5,7 @@ const pkg = JSON.parse(readFileSync("./package.json", "utf-8"));
 
 export default defineConfig({
   entry: {
-    dev: "src/cli.ts"
+    devrouter: "src/cli.ts"
   },
   format: ["cjs"],
   target: "node22",

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET="$HOME/.local/bin/dev"
+TARGET="$HOME/.local/bin/devrouter"
 
 if [ -f "$TARGET" ]; then
   rm "$TARGET"
