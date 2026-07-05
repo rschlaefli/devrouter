@@ -177,7 +177,7 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
     details: firstLine(compose.output) ?? compose.error,
     suggestion: compose.ok
       ? undefined
-      : "Install/start Docker with Compose v2, then run: dev setup --yes"
+      : "Install/start Docker with Compose v2, then run: devrouter setup --yes"
   });
 
   const mkcert = runTool("mkcert", ["-version"]);
@@ -191,7 +191,7 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
       ? undefined
       : brew.ok
         ? "Install mkcert: brew install mkcert"
-        : "Install mkcert for local HTTPS, then run: dev setup --yes"
+        : "Install mkcert for local HTTPS, then run: devrouter setup --yes"
   });
 
   const devpod = runTool("devpod", ["version"]);

@@ -114,7 +114,7 @@ function requiredFileChecks(repoPath: string): DiagnosticCheck {
       : `Missing required devcontainer/devrouter file(s): ${missing.join(", ")}.`,
     suggestion: missing.length === 0
       ? undefined
-      : "Run: dev repo devcontainer write --dry-run --json"
+      : "Run: devrouter repo devcontainer write --dry-run --json"
   };
 }
 
@@ -127,7 +127,7 @@ function proxyConfigCheck(apps: ProxyApp[]): DiagnosticCheck {
       : "No proxy app entries found for devcontainer routing.",
     suggestion: apps.length > 0
       ? undefined
-      : "Add runtime: proxy app entries to .devrouter.yml or run: dev repo devcontainer write --dry-run --json"
+      : "Add runtime: proxy app entries to .devrouter.yml or run: devrouter repo devcontainer write --dry-run --json"
   };
 }
 
@@ -206,7 +206,7 @@ function doctorGateCheck(doctor: DoctorReport): DiagnosticCheck {
       ? "Doctor has no blocking devcontainer diagnostics."
       : `Doctor reported ${blocking.length} blocking devcontainer diagnostic(s).`,
     details: blocking.length > 0 ? blocking.map((check) => check.id).join(", ") : undefined,
-    suggestion: blocking.length > 0 ? "Run: dev doctor --repo <path> --json" : undefined
+    suggestion: blocking.length > 0 ? "Run: devrouter doctor --repo <path> --json" : undefined
   };
 }
 
@@ -233,7 +233,7 @@ function registerProxyRoute(repoPath: string, app: ProxyApp, workspace?: string)
 
   if (app.protocol === "tcp" && !isTLSEnabled()) {
     throw new Error(
-      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run \`dev tls install\` first.`
+      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run \`devrouter tls install\` first.`
     );
   }
 
@@ -271,7 +271,7 @@ async function liveChecks(repoPath: string, yes: boolean): Promise<{
           id: "repo.devcontainer.verify-live-confirmation",
           level: "error",
           summary: "Live devcontainer verification requires --yes.",
-          suggestion: "Run: dev repo devcontainer verify --live --yes --json"
+          suggestion: "Run: devrouter repo devcontainer verify --live --yes --json"
         }
       ]
     };
@@ -289,7 +289,7 @@ async function liveChecks(repoPath: string, yes: boolean): Promise<{
           level: "error",
           summary: "Could not load runtime config for live verification.",
           details: error instanceof Error ? error.message : String(error),
-          suggestion: "Fix .devrouter.yml and re-run: dev repo devcontainer verify --live --yes --json"
+          suggestion: "Fix .devrouter.yml and re-run: devrouter repo devcontainer verify --live --yes --json"
         }
       ]
     };
@@ -345,7 +345,7 @@ async function liveChecks(repoPath: string, yes: boolean): Promise<{
         level: "error",
         summary: `Could not register proxy route '${app.name}'.`,
         details: message,
-        suggestion: "Run: dev setup --yes, start the devcontainer, then retry live verification."
+        suggestion: "Run: devrouter setup --yes, start the devcontainer, then retry live verification."
       });
     }
   }
@@ -374,7 +374,7 @@ export async function verifyDevcontainer(options: VerifyOptions = {}): Promise<D
       level: "error",
       summary: "Could not load .devrouter.yml for devcontainer verification.",
       details: error instanceof Error ? error.message : String(error),
-      suggestion: "Fix .devrouter.yml and re-run: dev repo devcontainer verify --json"
+      suggestion: "Fix .devrouter.yml and re-run: devrouter repo devcontainer verify --json"
     });
   }
 

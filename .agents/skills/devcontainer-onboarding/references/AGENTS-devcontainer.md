@@ -30,10 +30,10 @@ Nothing is published on the host; [devrouter](https://github.com/rschlaefli/devr
 fronts the stack over the shared `devnet` network.
 
 ```bash
-dev setup --yes
-dev repo devcontainer verify --json
+devrouter setup --yes
+devrouter repo devcontainer verify --json
 devpod up .
-dev repo devcontainer verify --live --yes --json
+devrouter repo devcontainer verify --live --yes --json
 ```
 
 | What | Reachable at |
@@ -47,10 +47,10 @@ still builds and runs internally; expose the app another way (e.g. a temporary
 `ports:` publish) — but the supported, collision-free path is devrouter.
 
 To run **several worktrees of this repo in parallel** (devrouter ≥ 0.0.22), use
-`dev workspace up <branch>` instead of a plain `devpod up`: it namespaces the host
+`devrouter workspace up <branch>` instead of a plain `devpod up`: it namespaces the host
 to `{{APP}}.<ws>.localhost`, exports `WORKSPACE=<ws>` so the devcontainer's devnet
 alias becomes `<ws>-app`, and registers the routes — so two worktrees never collide
-on `{{APP}}.localhost`. `dev workspace ls` lists them; `dev workspace down <branch>`
+on `{{APP}}.localhost`. `devrouter workspace ls` lists them; `devrouter workspace down <branch>`
 tears one down (routes + devpod + worktree).
 
 ### Admin login

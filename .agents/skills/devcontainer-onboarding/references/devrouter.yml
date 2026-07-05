@@ -11,9 +11,9 @@
 # workspace up <branch>`) resolves both sides to `<ws>-*` and namespaces the host
 # to `<app>.<ws>.localhost` — so several worktrees run at once with no collisions.
 #
-# Usage: run `dev setup --yes`, bring the devcontainer up (devnet is external
-# and must pre-exist), then run `dev repo devcontainer verify --live --yes --json`.
-# For manual route-only registration, run `dev app run <name> --yes` per app.
+# Usage: run `devrouter setup --yes`, bring the devcontainer up (devnet is external
+# and must pre-exist), then run `devrouter repo devcontainer verify --live --yes --json`.
+# For manual route-only registration, run `devrouter app run <name> --yes` per app.
 version: 1
 devrouter:
   version: 0.0.22 # proxy/tcp requires >= 0.0.21; ${WORKSPACE} upstream requires >= 0.0.22

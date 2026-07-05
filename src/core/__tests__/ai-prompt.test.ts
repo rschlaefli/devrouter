@@ -57,10 +57,10 @@ describe('buildOnboardingPrompt', () => {
       (protocol) => `"${protocol}"`
     ).join(' | ')
     expect(prompt).toContain(
-      'Run `dev setup --yes --json` for devrouter-owned machine state; use `dev doctor --repo <REPO_PATH> --json` to diagnose missing prerequisites without mutation.'
+      'Run `devrouter setup --yes --json` for devrouter-owned machine state; use `devrouter doctor --repo <REPO_PATH> --json` to diagnose missing prerequisites without mutation.'
     )
     expect(prompt).toContain(
-      'dev repo devcontainer verify --repo <REPO_PATH> --live --yes --json'
+      'devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json'
     )
     expect(prompt).toContain('Validation commands to run/report for the devcontainer path:')
     expect(prompt).toContain('Validation commands to run/report for host/docker runtime apps:')
@@ -128,10 +128,10 @@ describe('buildOnboardingPrompt', () => {
       'Before ending a session, post a final recap comment with completed work, remaining work, risks, and next step'
     )
     expect(withLinear).toContain(
-      'dev upgrade <version>'
+      'devrouter upgrade <version>'
     )
     expect(withLinear).toContain(
-      'dev -V'
+      'devrouter -V'
     )
     expect(withLinear).toContain(
       'upgrade-prompts/<version>.md'

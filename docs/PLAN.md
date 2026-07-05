@@ -8,11 +8,11 @@ Delivered and active:
 
 - Unified per-repo config: `.devrouter.yml`
 - Repo-local upgrade metadata: `.devrouter.yml` `devrouter.version`
-- Upgrade commands: `dev -V` and `dev upgrade [version]`
-- First-run machine setup: `dev setup --yes --json`
-- Read-only repo fact inspection: `dev repo inspect --json`
-- Conservative Node/pnpm/Postgres devcontainer scaffold planning/writing: `dev repo devcontainer write --dry-run --json` and `dev repo devcontainer write --yes`
-- Devcontainer onboarding evidence: `dev repo devcontainer verify --json` (static) and `dev repo devcontainer verify --live --yes --json` (route registration/probes)
+- Upgrade commands: `devrouter -V` and `devrouter upgrade [version]`
+- First-run machine setup: `devrouter setup --yes --json`
+- Read-only repo fact inspection: `devrouter repo inspect --json`
+- Conservative Node/pnpm/Postgres devcontainer scaffold planning/writing: `devrouter repo devcontainer write --dry-run --json` and `devrouter repo devcontainer write --yes`
+- Devcontainer onboarding evidence: `devrouter repo devcontainer verify --json` (static) and `devrouter repo devcontainer verify --live --yes --json` (route registration/probes)
 - Upgrade prompts stored as versioned files: `upgrade-prompts/<version>.md`
 - HTTP routing for host-run and Docker-run apps
 - HTTP proxy routing (`runtime: proxy`) to an already-running upstream (e.g. devcontainer)
@@ -21,21 +21,21 @@ Delivered and active:
 - Shared router ownership of `80/443/5432`
 - Routing example (`examples/routing/.devrouter.yml`) for no-devcontainer routing rehearsal and smoke validation
 - Live DevPod/devcontainer example (`examples/devcontainer/`) with `pnpm devcontainer:smoke`
-- `dev app exec` for one-shot commands with resolved dependency env
+- `devrouter app exec` for one-shot commands with resolved dependency env
 - argv-safe exec by default with explicit `--shell` opt-in
 - Config-level dependency `envMap` for deterministic env alias mapping
-- `dev doctor` wrapper precedence warning (`repo.host-command-env-precedence`)
-- `dev doctor` TLS SAN coverage warning (`repo.tls-host-coverage`) when TLS is enabled
-- `dev app run` / `dev app exec` auto-refresh TLS SAN coverage for configured repo hosts
-- Agent discoverability flow via `dev repo agents`
-- Optional Linear workflow bootstrap via `dev init --with-linear` / `dev repo agents --with-linear`
-- Workspace isolation: `dev workspace up/ls/down` for parallel git worktrees of one repo
+- `devrouter doctor` wrapper precedence warning (`repo.host-command-env-precedence`)
+- `devrouter doctor` TLS SAN coverage warning (`repo.tls-host-coverage`) when TLS is enabled
+- `devrouter app run` / `devrouter app exec` auto-refresh TLS SAN coverage for configured repo hosts
+- Agent discoverability flow via `devrouter repo agents`
+- Optional Linear workflow bootstrap via `devrouter init --with-linear` / `devrouter repo agents --with-linear`
+- Workspace isolation: `devrouter workspace up/ls/down` for parallel git worktrees of one repo
   - Three-layer identity: devpod workspace id, devrouter route namespace, and `${WORKSPACE}` upstream placeholder
   - Token resolution: `--workspace` flag > `DEVROUTER_WORKSPACE` env var > branch-derived slug > none (primary checkout, back-compatible)
   - Hosts auto-namespaced in memory (`web.localhost` → `web.<ws>.localhost`); committed `.devrouter.yml` is never rewritten
   - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`
   - TLS SAN auto-extended for active workspace hosts
-  - `dev doctor` check `routes.orphaned-workspace-routes` reports worktrees removed without `dev workspace down`
+  - `devrouter doctor` check `routes.orphaned-workspace-routes` reports worktrees removed without `devrouter workspace down`
 
 ## Documentation policy
 
@@ -70,9 +70,9 @@ Required checks for behavior and doc consistency:
 
 ### Milestone 2: UX and operability
 
-- Add `dev app env <name>` for resolved dependency env inspection.
+- Add `devrouter app env <name>` for resolved dependency env inspection.
 - Add repo bootstrap helper from discovered compose metadata to `.devrouter.yml`.
-- Add `dev app doctor` for app-scoped diagnostics and remediation hints.
+- Add `devrouter app doctor` for app-scoped diagnostics and remediation hints.
 
 ### Milestone 3: Protocol/runtime expansion
 
@@ -97,7 +97,7 @@ Required checks for behavior and doc consistency:
 - Traefik retains ownership of `80/443/5432`.
 - TLS remains mandatory for multiplexed Postgres hostname routing on shared `:5432`.
 - `kind: dependency` remains docker-only and non-routed.
-- `dev app exec` teardown is ownership-aware and non-destructive on ownership uncertainty.
+- `devrouter app exec` teardown is ownership-aware and non-destructive on ownership uncertainty.
 - Upgrade flows read local repo version from `.devrouter.yml` and prompt files from `upgrade-prompts/`.
 - Workspace namespacing is computed in memory only; the committed `.devrouter.yml` is never rewritten by workspace operations.
 - `${WORKSPACE}` is intentionally scoped to `upstream` only — `host` auto-namespacing is the authoritative mechanism to prevent collisions.

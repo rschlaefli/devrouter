@@ -114,14 +114,14 @@ describe('agents-md linear workflow support', () => {
     expect(skillContent).toContain('devrouter:')
     expect(skillContent).toContain('kind=dependency')
     expect(skillContent).toContain(
-      'dev upgrade <version>'
+      'devrouter upgrade <version>'
     )
     expect(skillContent).toContain(
-      'dev -V'
+      'devrouter -V'
     )
-    expect(skillContent).toContain('dev setup --repo . --yes')
-    expect(skillContent).toContain('dev repo inspect --repo . --json')
-    expect(skillContent).toContain('dev repo devcontainer write --dry-run --json')
-    expect(skillContent).toContain('dev repo devcontainer verify --json')
+    expect(skillContent).toContain('devrouter setup --repo . --yes')
+    expect(skillContent).toContain('devrouter repo inspect --repo . --json')
+    expect(skillContent).toContain('devrouter repo devcontainer write --dry-run --json')
+    expect(skillContent).toContain('devrouter repo devcontainer verify --json')
   })
 })

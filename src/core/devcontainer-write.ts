@@ -253,10 +253,10 @@ function renderReadme(projectName: string): string {
 Use this repo through the devcontainer, with devrouter providing stable local routes.
 
 \`\`\`bash
-dev setup --yes
+devrouter setup --yes
 devpod up .
-dev app run app --repo . --yes
-dev app run db --repo . --yes
+devrouter app run app --repo . --yes
+devrouter app run db --repo . --yes
 \`\`\`
 
 - App: https://${projectName}.localhost
@@ -267,11 +267,11 @@ dev app run db --repo . --yes
 function postWriteNextSteps(repoPath: string): string[] {
   const quotedRepoPath = shellSingleQuote(repoPath);
   return [
-    `Run: dev setup --repo ${quotedRepoPath} --yes`,
+    `Run: devrouter setup --repo ${quotedRepoPath} --yes`,
     `Run: cd ${quotedRepoPath} && devpod up .`,
-    `Run: dev app run app --repo ${quotedRepoPath} --yes`,
-    `Run: dev app run db --repo ${quotedRepoPath} --yes`,
-    `Optional: dev repo agents --repo ${quotedRepoPath}`
+    `Run: devrouter app run app --repo ${quotedRepoPath} --yes`,
+    `Run: devrouter app run db --repo ${quotedRepoPath} --yes`,
+    `Optional: devrouter repo agents --repo ${quotedRepoPath}`
   ];
 }
 
@@ -281,9 +281,9 @@ function issueNextSteps(issues: DiagnosticCheck[]): string[] {
     .map((issue) => issue.suggestion)
     .filter((suggestion): suggestion is string => Boolean(suggestion));
   if (steps.length > 0) {
-    return [...steps, "Re-run: dev repo devcontainer write --dry-run --json"];
+    return [...steps, "Re-run: devrouter repo devcontainer write --dry-run --json"];
   }
-  return ["Resolve reported errors, then re-run: dev repo devcontainer write --dry-run --json"];
+  return ["Resolve reported errors, then re-run: devrouter repo devcontainer write --dry-run --json"];
 }
 
 function packageManagerIssues(repo: ReturnType<typeof inspectRepo>): DiagnosticCheck[] {
@@ -409,7 +409,7 @@ function buildPlan(
   filePlans.push({
     path: "AGENTS.md",
     action: "suggest",
-    reason: "run dev repo agents after reviewing the scaffold"
+    reason: "run devrouter repo agents after reviewing the scaffold"
   });
 
   return {
@@ -425,7 +425,7 @@ function buildPlan(
         issues.some((issue) => issue.level === "error")
           ? issueNextSteps(issues)
           : dryRun
-            ? [`Review this plan, then run: dev repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`]
+            ? [`Review this plan, then run: devrouter repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`]
             : postWriteNextSteps(repoPath)
     }
   };
@@ -462,10 +462,10 @@ export function writeDevcontainer(options: WriteOptions = {}): DevcontainerWrite
           id: "repo.devcontainer.confirmation",
           level: "error",
           summary: "Writing devcontainer files requires --yes.",
-          suggestion: `Run: dev repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`
+          suggestion: `Run: devrouter repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`
         }
       ],
-      nextSteps: [`Run: dev repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`]
+      nextSteps: [`Run: devrouter repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`]
     };
   }
 

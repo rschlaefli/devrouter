@@ -63,7 +63,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
     actions.push(action("failed", {
       id: "setup.confirmation",
       summary: "Setup requires --yes before mutating devrouter-owned machine state.",
-      suggestion: "Run: dev setup --yes"
+      suggestion: "Run: devrouter setup --yes"
     }));
 
     const doctor = await buildDoctorReport({ repo: options.repo });
@@ -98,7 +98,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
       id: "global.router-files",
       summary: "Failed to ensure global router files.",
       details: message,
-      suggestion: "Check write access to ~/.config/devrouter, then run: dev setup --yes"
+      suggestion: "Check write access to ~/.config/devrouter, then run: devrouter setup --yes"
     }));
   }
 
@@ -115,7 +115,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
       id: "global.devnet",
       summary: "Failed to ensure shared Docker network devnet.",
       details: message,
-      suggestion: "Start Docker and verify Docker context, then run: dev setup --yes"
+      suggestion: "Start Docker and verify Docker context, then run: devrouter setup --yes"
     }));
   }
 
@@ -132,7 +132,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
       id: "global.router-stack",
       summary: "Failed to start shared Traefik router.",
       details: message,
-      suggestion: "Resolve Docker/port conflicts on 80, 443, or 5432, then run: dev setup --yes"
+      suggestion: "Resolve Docker/port conflicts on 80, 443, or 5432, then run: devrouter setup --yes"
     }));
   }
 
@@ -142,7 +142,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
       id: "global.tls",
       summary: "Skipped TLS setup because mkcert is not installed.",
       details: mkcert.error,
-      suggestion: "Install mkcert, then run: dev setup --yes"
+      suggestion: "Install mkcert, then run: devrouter setup --yes"
     }));
   } else {
     try {
@@ -160,7 +160,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
         id: "global.tls",
         summary: "Failed to install local TLS certificates.",
         details: message,
-        suggestion: "Run: dev tls install"
+        suggestion: "Run: devrouter tls install"
       }));
     }
   }

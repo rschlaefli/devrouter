@@ -164,32 +164,32 @@ This folder is managed by the devrouter CLI.
 
 ## Commands
 
-- dev init [--write-agents] [--write-skill] [--with-linear]
-- dev -V [--repo <path>] (installed/local version + next upgrade)
-- dev upgrade [version] [--repo <path>]
-- dev setup --yes [--repo <path>] [--json]
-- dev up
-- dev down
-- dev status
-- dev doctor
-- dev ls
-- dev open <name>
-- dev logs [-f] [--tail N]
-- dev repo init
-- dev repo inspect [--repo <path>] [--json]
-- dev repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]
-- dev repo devcontainer verify [--repo <path>] [--live] [--yes] [--json]
-- dev repo agents [--with-linear]
-- dev app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
-- dev app run <name>
-- dev app exec <name> [--shell] [--env <env>] -- <command>
-- dev app ls
-- dev app rm <name>
-- dev tls install
+- devrouter init [--write-agents] [--write-skill] [--with-linear]
+- devrouter -V [--repo <path>] (installed/local version + next upgrade)
+- devrouter upgrade [version] [--repo <path>]
+- devrouter setup --yes [--repo <path>] [--json]
+- devrouter up
+- devrouter down
+- devrouter status
+- devrouter doctor
+- devrouter ls
+- devrouter open <name>
+- devrouter logs [-f] [--tail N]
+- devrouter repo init
+- devrouter repo inspect [--repo <path>] [--json]
+- devrouter repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]
+- devrouter repo devcontainer verify [--repo <path>] [--live] [--yes] [--json]
+- devrouter repo agents [--with-linear]
+- devrouter app add --name <name> --host <host.localhost> --protocol <http|tcp> --runtime <host|docker>
+- devrouter app run <name>
+- devrouter app exec <name> [--shell] [--env <env>] -- <command>
+- devrouter app ls
+- devrouter app rm <name>
+- devrouter tls install
 
 ## Troubleshooting
 
-If dev up fails with port conflicts on 80/443 (or TCP protocol ports), run:
+If devrouter up fails with port conflicts on 80/443 (or TCP protocol ports), run:
 
 - lsof -nP -iTCP:80 -sTCP:LISTEN
 - lsof -nP -iTCP:443 -sTCP:LISTEN

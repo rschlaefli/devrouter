@@ -23,15 +23,15 @@ This works with any devcontainer-spec runner (DevPod, VS Code Dev Containers,
 Agent-native onboarding uses the CLI first:
 
 ```bash
-dev setup --yes --json
-dev doctor --json
-dev repo inspect --json
-dev repo devcontainer write --dry-run --json
-dev repo devcontainer write --yes
-dev repo devcontainer verify --json
+devrouter setup --yes --json
+devrouter doctor --json
+devrouter repo inspect --json
+devrouter repo devcontainer write --dry-run --json
+devrouter repo devcontainer write --yes
+devrouter repo devcontainer verify --json
 ```
 
-Use `dev repo devcontainer verify --live --yes --json` only after the
+Use `devrouter repo devcontainer verify --live --yes --json` only after the
 devcontainer is running and route registration plus HTTP probes should be part
 of the evidence.
 
@@ -64,7 +64,7 @@ services:
         aliases: [myapp-db]
 networks:
   devnet:
-    external: true   # created by `dev setup`/`dev up`; must pre-exist when the stack starts
+    external: true   # created by `devrouter setup`/`devrouter up`; must pre-exist when the stack starts
 ```
 
 An OIDC mock or other sidecar that uses `network_mode: service:app` rides the
@@ -105,16 +105,16 @@ Order matters — `devnet` is `external`, so it must exist before the container
 starts:
 
 ```bash
-dev setup --yes
-dev doctor --json
+devrouter setup --yes
+devrouter doctor --json
 devpod up .
-dev repo devcontainer verify --live --yes --json
+devrouter repo devcontainer verify --live --yes --json
 ```
 
 `verify --live` registers proxy routes and probes HTTP routes, so it doubles as
-agent PR evidence. For a manual route-only path, run `dev app run <name> --yes`
+agent PR evidence. For a manual route-only path, run `devrouter app run <name> --yes`
 for each proxy app instead. A proxy app route starts no process. The container
-owns start and stop. Routes persist until `dev app rm <name> --keep-config`.
+owns start and stop. Routes persist until `devrouter app rm <name> --keep-config`.
 
 Open `https://myapp.localhost`.
 
@@ -140,11 +140,11 @@ advertises ALPN `postgresql` automatically (libpq direct-SSL mandates it).
 ## 5. Verify / tear down
 
 ```bash
-dev repo devcontainer verify --json
-dev repo devcontainer verify --live --yes --json # after the devcontainer is running; registers/probes routes
-dev ls
-dev app rm app --keep-config
-dev app rm db --keep-config
+devrouter repo devcontainer verify --json
+devrouter repo devcontainer verify --live --yes --json # after the devcontainer is running; registers/probes routes
+devrouter ls
+devrouter app rm app --keep-config
+devrouter app rm db --keep-config
 ```
 
 ## Notes
