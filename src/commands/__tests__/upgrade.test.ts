@@ -102,7 +102,7 @@ describe("runVersionCommand", () => {
     expect(output).toContain("Installed CLI version: 0.0.13");
     expect(output).toContain("Local repo version");
     expect(output).toContain("Next upgrade target: 0.0.11");
-    expect(output).toContain("Run: dev upgrade 0.0.11");
+    expect(output).toContain("Run: devrouter upgrade 0.0.11");
   });
 
   it("fails fast when local devrouter.version is unavailable", async () => {

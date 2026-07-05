@@ -51,7 +51,7 @@ When work is tracked in Linear, this is required:
 
 Upgrade metadata for agent workflows is stored per repo in:
 
-- `.devrouter.yml` (`devrouter.version` for `dev -V` / `dev upgrade`)
+- `.devrouter.yml` (`devrouter.version` for `devrouter -V` / `devrouter upgrade`)
 
 Supported routing:
 
@@ -64,14 +64,14 @@ Supported routing:
 
 ## Supported command surface
 
-- `dev init` (`--write-agents` / `--write-skill` optional; `--with-linear` optional; non-mutating by default)
-- `dev -V` (`--repo <path>` optional; shows installed CLI version, local repo version, next upgrade target)
-- `dev upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
-- `dev setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics)
-- `dev up`, `dev down`, `dev status`, `dev doctor` (alias: `dev verify`), `dev ls`, `dev open`, `dev logs`, `dev tls install`
-- `dev repo init`, `dev repo inspect` (`--json`), `dev repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `dev repo devcontainer verify` (`--live`, `--yes`, `--json`), `dev repo agents` (`--with-linear` optional)
-- `dev app add` (`--kind app|dependency`), `dev app ls`, `dev app run` (`--env`, `--workspace`), `dev app exec` (`--shell`, `--env`, `--workspace`), `dev app rm` (`--keep-config`)
-- `dev workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `dev workspace ls` (`--json`), `dev workspace down` (`<workspace|branch>`, `--keep-worktree`, `--keep-devpod`)
+- `devrouter init` (`--write-agents` / `--write-skill` optional; `--with-linear` optional; non-mutating by default)
+- `devrouter -V` (`--repo <path>` optional; shows installed CLI version, local repo version, next upgrade target)
+- `devrouter upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
+- `devrouter setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics)
+- `devrouter up`, `devrouter down`, `devrouter status`, `devrouter doctor` (alias: `devrouter verify`), `devrouter ls`, `devrouter open`, `devrouter logs`, `devrouter tls install`
+- `devrouter repo init`, `devrouter repo inspect` (`--json`), `devrouter repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `devrouter repo devcontainer verify` (`--live`, `--yes`, `--json`), `devrouter repo agents` (`--with-linear` optional)
+- `devrouter app add` (`--kind app|dependency`), `devrouter app ls`, `devrouter app run` (`--env`, `--workspace`), `devrouter app exec` (`--shell`, `--env`, `--workspace`), `devrouter app rm` (`--keep-config`)
+- `devrouter workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `devrouter workspace ls` (`--json`), `devrouter workspace down` (`<workspace|branch>`, `--keep-worktree`, `--keep-devpod`)
 
 ## Repository map
 
@@ -80,13 +80,13 @@ Supported routing:
 - `src/core/upgrade.ts`: repo version metadata + `upgrade-prompts/*.md` resolution for upgrade flows
 - `src/core/agents-md.ts`: idempotent AGENTS.md section writer + skill file distributor for repo discoverability
 - `src/core/linear-onboarding.ts`: guided Linear workspace/team/project metadata collector for AGENTS bootstrap
-- `src/commands/repo-agents.ts`: `dev repo agents` command handler
-- `src/commands/repo-inspect.ts`: `dev repo inspect` command handler
-- `src/commands/repo-devcontainer.ts`: `dev repo devcontainer write/verify` command handlers
+- `src/commands/repo-agents.ts`: `devrouter repo agents` command handler
+- `src/commands/repo-inspect.ts`: `devrouter repo inspect` command handler
+- `src/commands/repo-devcontainer.ts`: `devrouter repo devcontainer write/verify` command handlers
 - `src/core/devcontainer-verify.ts`: devcontainer onboarding verification report builder
-- `src/commands/upgrade.ts`: `dev upgrade` command handler
-- `src/commands/version.ts`: `dev -V` version summary command handler
-- `src/commands/setup.ts`: `dev setup` command handler
+- `src/commands/upgrade.ts`: `devrouter upgrade` command handler
+- `src/commands/version.ts`: `devrouter -V` version summary command handler
+- `src/commands/setup.ts`: `devrouter setup` command handler
 - `src/core/doctor.ts`: diagnostic report engine for global + repo checks
 - `src/core/setup.ts`: first-run setup orchestration for devrouter-owned machine state
 - `src/core/tool-diagnostics.ts`: shared external-tool checks for Docker Compose, mkcert, DevPod, and Node/pnpm
@@ -97,27 +97,27 @@ Supported routing:
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation; workspace runtime config (`loadRuntimeConfig()`, `applyWorkspace()`, `namespaceHost()`, `${WORKSPACE}` upstream substitution)
 - `src/core/workspace.ts`: workspace token resolution (`resolveWorkspace()`, `wsFromBranch()`, linked-worktree detection)
-- `src/core/workspace-lifecycle.ts`: `dev workspace up/ls/down` engine (git worktree + best-effort devpod glue + namespaced route registration)
-- `src/commands/workspace.ts`: `dev workspace` command handlers
+- `src/core/workspace-lifecycle.ts`: `devrouter workspace up/ls/down` engine (git worktree + best-effort devpod glue + namespaced route registration)
+- `src/commands/workspace.ts`: `devrouter workspace` command handlers
 - `src/core/concurrency.ts`: concurrent run guard (`assertAppNotRunning`) + stale route eviction (`evictStaleHostRoutes` for dead PIDs; `evictOrphanedWorkspaceRoutes` for removed-worktree proxy routes)
 - `src/core/app-run.ts`: runtime orchestration, `startAppDependencies()` helper, `runConfiguredApp()`, `execWithAppEnv()`
 - `src/core/docker-run.ts`: cached compose overlay generation, compose up, `queryMappedPort()`, `queryRunningComposeServices()` (routed apps get Traefik labels; `kind=dependency` services are left as-is)
-- `src/commands/app-exec.ts`: `dev app exec` command handler
+- `src/commands/app-exec.ts`: `devrouter app exec` command handler
 - `src/core/routes.ts`: discover HTTP + TCP routes from labels
 - `src/core/router.ts`: shared Traefik stack/files under `~/.config/devrouter`
 - `src/core/host-routes.ts`: host process route state + dynamic file rendering
 - `src/core/paths.ts`: path traversal guard (`assertPathWithinRepo`) for repo-scoped file references
 - `src/core/tls.ts`: mkcert integration, SAN coverage checks, and TLS enablement/refresh
-- `src/commands/logs.ts`: `dev logs` command handler (Traefik log access)
+- `src/commands/logs.ts`: `devrouter logs` command handler (Traefik log access)
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
 - `examples/routing/.devrouter.yml`: complete sample config for host+docker+postgres routing
-- `examples/workspace/`: runnable workspace-isolation showcase (`${WORKSPACE}` proxy upstream + `dev workspace up/ls/down` over two real git worktrees; `run.sh` brings up two namespaced hosts and prints the proof)
+- `examples/workspace/`: runnable workspace-isolation showcase (`${WORKSPACE}` proxy upstream + `devrouter workspace up/ls/down` over two real git worktrees; `run.sh` brings up two namespaced hosts and prints the proof)
 - `examples/devcontainer/`: live DevPod/devcontainer showcase with app + Postgres proxy routes and static/live verify evidence
 - `scripts/smoke-routing.sh`: end-to-end routing smoke script
 - `scripts/smoke-devcontainer.sh`: live DevPod/devcontainer smoke script
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
-- `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `dev upgrade`
+- `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `devrouter upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
 - `.agents/skills/linear-workflow/SKILL.md`: optional Linear workflow skill (written with `--with-linear`)
 - `.agents/skills/linear-workflow/references/*`: optional issue/milestone/progress templates for Linear workflow
@@ -130,16 +130,16 @@ Supported routing:
 - `src/core/__tests__/linear-onboarding.test.ts`: unit tests for guided Linear metadata collection + placeholder fallback
 - `src/core/__tests__/concurrency.test.ts`: unit tests for concurrent run guard, dead-PID eviction, and orphaned-worktree proxy route reclaim
 - `src/core/__tests__/workspace.test.ts`: unit tests for workspace token resolution + worktree detection
-- `src/core/__tests__/workspace-lifecycle.test.ts`: unit tests for `dev workspace up/ls/down` orchestration (devpod `--id`/`WORKSPACE` env, route reclaim by tag)
+- `src/core/__tests__/workspace-lifecycle.test.ts`: unit tests for `devrouter workspace up/ls/down` orchestration (devpod `--id`/`WORKSPACE` env, route reclaim by tag)
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
-- `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `dev app exec`, shell mode guard, per-dep env vars, config-level envMap, exec dependency ownership teardown, and SM `{env}` template resolution
+- `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `devrouter app exec`, shell mode guard, per-dep env vars, config-level envMap, exec dependency ownership teardown, and SM `{env}` template resolution
 - `src/core/__tests__/tls.test.ts`: unit tests for TLS SAN parsing, wildcard coverage, and host preservation logic
-- `src/commands/__tests__/init.test.ts`: unit tests for `dev init` side-effect contract
-- `src/commands/__tests__/open.test.ts`: unit tests for `dev open` app-name fallback behavior
-- `src/commands/__tests__/repo-init.test.ts`: unit tests for `dev repo init` metadata initialization behavior
-- `src/commands/__tests__/repo-agents.test.ts`: unit tests for `dev repo agents` optional `--with-linear` behavior
-- `src/commands/__tests__/upgrade.test.ts`: unit tests for `dev upgrade` and `dev -V`
+- `src/commands/__tests__/init.test.ts`: unit tests for `devrouter init` side-effect contract
+- `src/commands/__tests__/open.test.ts`: unit tests for `devrouter open` app-name fallback behavior
+- `src/commands/__tests__/repo-init.test.ts`: unit tests for `devrouter repo init` metadata initialization behavior
+- `src/commands/__tests__/repo-agents.test.ts`: unit tests for `devrouter repo agents` optional `--with-linear` behavior
+- `src/commands/__tests__/upgrade.test.ts`: unit tests for `devrouter upgrade` and `devrouter -V`
 - `src/core/__tests__/upgrade.test.ts`: unit tests for version metadata + prompt-file parsing
 - `vitest.config.ts`: Vitest configuration
 
@@ -158,21 +158,21 @@ Supported routing:
 2. Hostnames must match `VALID_HOSTNAME_RE` (lowercase alphanumeric + hyphens + `.localhost` suffix). No underscores. Namespaced hosts (`web.<ws>.localhost`) are produced by inserting the sanitized token label; `${WORKSPACE}` is rejected in `host` (only allowed in `upstream`).
 3. Dependency graphs are validated for cycles at resolution time (`resolveAppDependencies`).
 4. `shell:true` in host-run spawn is intentional (same trust model as npm scripts / docker-compose). Command length capped at 4096 chars.
-5. Workspace tokens are sanitized via `wsFromBranch()` (lowercase, non-alphanumeric → `-`, capped at 32 chars) before use in hostnames/aliases. `dev workspace` spawns git/devpod argv-safe (no shell-string interpolation of branch/token).
+5. Workspace tokens are sanitized via `wsFromBranch()` (lowercase, non-alphanumeric → `-`, capped at 32 chars) before use in hostnames/aliases. `devrouter workspace` spawns git/devpod argv-safe (no shell-string interpolation of branch/token).
 
 ## Architecture patterns
 
 - **Command pattern**: thin `src/commands/*.ts` handler imports a core function from `src/core/*.ts`. Keep handlers minimal.
-- **Dep lifecycle**: `startAppDependencies()` in `app-run.ts` is the reusable helper for starting deps, resolving env vars, and returning a `stopDeps()` cleanup. `dev app run` stops auto-started docker deps when a host app exits, but docker app targets remain running until explicit cleanup; `dev app exec` uses ownership-aware teardown (stop only deps started by that exec call) and falls back to non-destructive cleanup if ownership detection is unavailable. Any new command needing resolved dep env should call this.
+- **Dep lifecycle**: `startAppDependencies()` in `app-run.ts` is the reusable helper for starting deps, resolving env vars, and returning a `stopDeps()` cleanup. `devrouter app run` stops auto-started docker deps when a host app exits, but docker app targets remain running until explicit cleanup; `devrouter app exec` uses ownership-aware teardown (stop only deps started by that exec call) and falls back to non-destructive cleanup if ownership detection is unavailable. Any new command needing resolved dep env should call this.
 - **Port mapping**: `queryMappedPort()` in `docker-run.ts` calls `docker compose port` to discover random host ports. `prepareDockerOverlay()` accepts `publishTcpPorts` to auto-publish `0:<internalPort>` for TCP deps.
 - **Dependency-only apps**: `kind=dependency` entries are Docker-only and do not expose routes; they can be auto-started/stopped only through dependency graphs (not direct `run`/`exec`/`open` targets).
 - **Env injection**: TCP deps get per-dep deterministic vars: `{PREFIX}_HOST`/`_PORT`/`_URL`/`_SHADOW_URL` (where `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`). Protocol-specific URLs: postgres (`postgres://prisma:prisma@...`), redis (`redis://...`), mysql/mariadb (`mysql://root@...`). Config-level `envMap` on dependency references aliases these to project-specific names (e.g. `DATABASE_URL: DB_URL`). Aliases are applied in `startAppDependencies()` and become part of `depEnv` — they flow through SM re-injection and `buildExecEnvironment()` automatically.
 - **Workspace runtime config**: `loadRuntimeConfig(repoPath, workspaceOverride?)` resolves the workspace token (`resolveWorkspace`) and returns `applyWorkspace(config, ws)` — a deep-cloned, in-memory config with namespaced hosts, `${WORKSPACE}` upstreams substituted (re-validated), and per-workspace docker `router` keys. The committed `.devrouter.yml` is never rewritten. All read paths (`status`, `doctor`, `open`, `app-run`) load through this; the resolved workspace threads down to `upsertHostRoute` as `HostRouteState.workspace` so teardown/GC can filter by tag without re-reading config.
-- **Workspace lifecycle glue**: `dev workspace up` exports `WORKSPACE=<ws>` into the `devpod up` env (drives the compose `${WORKSPACE:-<project>}` alias, same mechanism as the existing `${HOME}` mount substitution) and registers namespaced routes; `dev workspace down` frees routes by state-file `workspace` tag (no config load, survives a deleted worktree). devpod calls are best-effort, gated on `hasDevpod()`.
-- **Orphaned-route diagnostics**: `dev doctor` reports proxy routes with a `workspace` tag whose `repoPath` worktree dir no longer exists. It does not mutate route state; explicit teardown remains `dev workspace down` or targeted route removal.
+- **Workspace lifecycle glue**: `devrouter workspace up` exports `WORKSPACE=<ws>` into the `devpod up` env (drives the compose `${WORKSPACE:-<project>}` alias, same mechanism as the existing `${HOME}` mount substitution) and registers namespaced routes; `devrouter workspace down` frees routes by state-file `workspace` tag (no config load, survives a deleted worktree). devpod calls are best-effort, gated on `hasDevpod()`.
+- **Orphaned-route diagnostics**: `devrouter doctor` reports proxy routes with a `workspace` tag whose `repoPath` worktree dir no longer exists. It does not mutate route state; explicit teardown remains `devrouter workspace down` or targeted route removal.
 - **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.
-- **Secret-manager precedence diagnostics**: `dev doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
-- **TLS host coverage**: `startAppDependencies()` in `app-run.ts` calls TLS coverage refresh for all configured repo hosts when TLS is enabled. `dev doctor` emits `repo.tls-host-coverage` when configured hosts are not covered by current cert SANs.
+- **Secret-manager precedence diagnostics**: `devrouter doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
+- **TLS host coverage**: `startAppDependencies()` in `app-run.ts` calls TLS coverage refresh for all configured repo hosts when TLS is enabled. `devrouter doctor` emits `repo.tls-host-coverage` when configured hosts are not covered by current cert SANs.
 - **SM env override**: `secretManager.command` supports `{env}` template placeholders resolved by `resolveSmCommand()` in `app-run.ts`. `defaultEnv` provides the config-level fallback; `--env` CLI flag overrides at runtime. Resolution happens at usage sites in `execWithAppEnv` and `runHostApp` before passing to `wrapWithSecretManager`.
 
 ## Release checklist
@@ -192,9 +192,9 @@ Supported routing:
 2. `pnpm test`
 3. `pnpm typecheck`
 4. `pnpm build`
-5. `dev setup --repo ./examples/routing --yes --json`
-6. `dev doctor --repo ./examples/routing`
-7. `dev repo inspect --repo ./examples/routing --json`
+5. `devrouter setup --repo ./examples/routing --yes --json`
+6. `devrouter doctor --repo ./examples/routing`
+7. `devrouter repo inspect --repo ./examples/routing --json`
 8. `pnpm routing:smoke` for full route showcase/regression smoke
 9. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
 10. `pnpm devcontainer:smoke down` after live devcontainer verification

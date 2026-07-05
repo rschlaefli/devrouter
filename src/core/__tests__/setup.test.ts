@@ -107,7 +107,7 @@ describe("runSetup", () => {
     expect(installTLS).not.toHaveBeenCalled();
     expect(tlsAction?.status).toBe("skipped");
     expect(tlsAction?.suggestion).toContain("Install mkcert");
-    expect(report.nextSteps).toContain("Install mkcert, then run: dev setup --yes");
+    expect(report.nextSteps).toContain("Install mkcert, then run: devrouter setup --yes");
   });
 
   it("preserves structured output when a setup action fails", async () => {

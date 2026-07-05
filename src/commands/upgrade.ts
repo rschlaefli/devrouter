@@ -29,7 +29,7 @@ function printUpgradeTargets(currentVersion: string, availableTargets: UpgradeRe
     const suffix = release.version === nextTarget.version ? "  <- next" : "";
     process.stdout.write(`- ${release.version}${suffix}\n`);
   }
-  process.stdout.write("\nRun `dev upgrade <version>` to print the Agent Adaptation Prompt for a target version.\n");
+  process.stdout.write("\nRun `devrouter upgrade <version>` to print the Agent Adaptation Prompt for a target version.\n");
 }
 
 export async function runUpgradeCommand(
