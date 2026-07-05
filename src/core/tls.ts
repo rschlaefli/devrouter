@@ -31,15 +31,11 @@ function commandExists(command: string): boolean {
 }
 
 function ensureMkcert(): void {
-  if (commandExists("mkcert")) {
-    return;
+  if (!commandExists("mkcert")) {
+    throw new Error(
+      "mkcert is not installed. Please install it to use TLS features (e.g., 'brew install mkcert' or via your package manager)."
+    );
   }
-
-  if (!commandExists("brew")) {
-    throw new Error("mkcert is missing and Homebrew is not available.");
-  }
-
-  runOrThrow("brew", ["install", "mkcert"]);
 }
 
 function normalizeHost(host: string): string {

@@ -21,7 +21,7 @@ The `docker-compose.yml` here serves as a reference for devrouter compose conven
 
 ## Quick run
 
-From `/Volumes/HOME/Git/personal/devrouter`:
+From the repository root:
 
 ```bash
 dev init --repo ./examples/routing

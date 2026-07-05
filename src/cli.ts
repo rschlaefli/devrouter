@@ -21,7 +21,7 @@ function withErrorHandling<TArgs extends unknown[]>(
 
 const program = new Command();
 program
-  .name("dev")
+  .name("devrouter")
   .description("Local dev router CLI for stable .localhost routing across repositories")
   .showSuggestionAfterError(true)
   .showHelpAfterError();

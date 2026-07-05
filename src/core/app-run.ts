@@ -301,6 +301,36 @@ function parseListeningPorts(outputText: string): number[] {
   return Array.from(ports.values()).sort((a, b) => a - b);
 }
 
+function parseSsListeningPorts(stdout: string, targetPids: Set<number>): number[] {
+  const ports = new Set<number>();
+  const lines = stdout.split(/\r?\n/);
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let matchedPid = false;
+    for (const pid of targetPids) {
+      if (line.includes(`pid=${pid}`)) {
+        matchedPid = true;
+        break;
+      }
+    }
+    if (!matchedPid) {
+      continue;
+    }
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 4) continue;
+    const localAddr = parts[3];
+    const colonIdx = localAddr.lastIndexOf(":");
+    if (colonIdx !== -1) {
+      const portStr = localAddr.slice(colonIdx + 1);
+      const port = Number(portStr);
+      if (Number.isInteger(port) && port > 0) {
+        ports.add(port);
+      }
+    }
+  }
+  return Array.from(ports.values()).sort((a, b) => a - b);
+}
+
 function detectListeningPorts(pids: number[]): number[] {
   if (pids.length === 0) {
     return [];
@@ -311,6 +341,17 @@ function detectListeningPorts(pids: number[]): number[] {
     ["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", pids.join(",")],
     { encoding: "utf-8" }
   );
+
+  if (result.error && (result.error as any).code === "ENOENT") {
+    if (process.platform === "linux") {
+      const ssResult = spawnSync("ss", ["-H", "-lntp", "-p"], { encoding: "utf-8" });
+      if (ssResult.status === 0 && ssResult.stdout) {
+        return parseSsListeningPorts(ssResult.stdout, new Set(pids));
+      }
+    }
+    return [];
+  }
+
   if (result.status !== 0) {
     return [];
   }

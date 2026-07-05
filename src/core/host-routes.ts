@@ -267,7 +267,13 @@ export function listHostRouteState(): HostRouteState[] {
     return parsed
       .filter((item) => item && typeof item === "object")
       .map((item) => item as HostRouteState);
-  } catch {
+  } catch (err) {
+    const error = err as NodeJS.ErrnoException;
+    if (error.code !== "ENOENT") {
+      process.stderr.write(
+        `Warning: devrouter host routes state file is corrupted or unreadable (${error.message}). Recreating route state.\n`
+      );
+    }
     return [];
   }
 }
