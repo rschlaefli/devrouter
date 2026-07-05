@@ -44,15 +44,15 @@ apps:
 ```
 
 ```bash
-dev setup --yes
+devrouter setup --yes
 devpod up .
-dev repo devcontainer verify --live --yes --json
+devrouter repo devcontainer verify --live --yes --json
 ```
 
 Why prefer it: the environment is reproducible and runs anywhere the devcontainer
 spec runs, while devrouter gives it stable local HTTPS and database hostnames.
-Agents can add the scaffold with `dev repo inspect`, `dev repo devcontainer write`,
-and `dev repo devcontainer verify`, then include the JSON evidence in a PR. See
+Agents can add the scaffold with `devrouter repo inspect`, `devrouter repo devcontainer write`,
+and `devrouter repo devcontainer verify`, then include the JSON evidence in a PR. See
 [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) for the full reference.
 
 ### 2. devrouter runs everything — `runtime: host` / `runtime: docker`
@@ -63,36 +63,36 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 
 ## Core commands
 
-- `dev init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill] [--with-linear]`
-- `dev -V [--repo <path>]` (installed CLI version, local repo version, next upgrade target)
-- `dev upgrade [version] [--repo <path>]`
-- `dev setup --yes [--repo <path>] [--json]`
-- `dev up`
-- `dev down`
-- `dev status [--repo <path>] [--json]`
-- `dev doctor|verify [--repo <path>] [--json]`
-- `dev ls [--json]`
-- `dev open <name>` (matches app name, then service/container/host)
-- `dev tls install`
-- `dev repo init [--repo <path>]`
-- `dev repo inspect [--repo <path>] [--json]`
-- `dev repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]`
-- `dev repo devcontainer verify [--repo <path>] [--live] [--yes] [--json]`
-- `dev repo agents [--repo <path>] [--with-linear]`
-- `dev app add ...` (`--kind app|dependency`, default `app`)
-- `dev app ls [--repo <path>] [--json]`
-- `dev app run <name> [--repo <path>] [--yes] [--workspace <slug>]`
-- `dev app exec <name> [--repo <path>] [--yes] [--shell] [--env <env>] [--workspace <slug>] -- <command>`
-- `dev app rm <name> [--repo <path>]`
-- `dev logs [-f]`
-- `dev workspace up <branch> [--path <dir>] [--no-devpod] [--open] [--repo <path>]`
-- `dev workspace ls [--repo <path>] [--json]`
-- `dev workspace down <workspace|branch> [--keep-worktree] [--keep-devpod] [--repo <path>]`
+- `devrouter init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill] [--with-linear]`
+- `devrouter -V [--repo <path>]` (installed CLI version, local repo version, next upgrade target)
+- `devrouter upgrade [version] [--repo <path>]`
+- `devrouter setup --yes [--repo <path>] [--json]`
+- `devrouter up`
+- `devrouter down`
+- `devrouter status [--repo <path>] [--json]`
+- `devrouter doctor|verify [--repo <path>] [--json]`
+- `devrouter ls [--json]`
+- `devrouter open <name>` (matches app name, then service/container/host)
+- `devrouter tls install`
+- `devrouter repo init [--repo <path>]`
+- `devrouter repo inspect [--repo <path>] [--json]`
+- `devrouter repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]`
+- `devrouter repo devcontainer verify [--repo <path>] [--live] [--yes] [--json]`
+- `devrouter repo agents [--repo <path>] [--with-linear]`
+- `devrouter app add ...` (`--kind app|dependency`, default `app`)
+- `devrouter app ls [--repo <path>] [--json]`
+- `devrouter app run <name> [--repo <path>] [--yes] [--workspace <slug>]`
+- `devrouter app exec <name> [--repo <path>] [--yes] [--shell] [--env <env>] [--workspace <slug>] -- <command>`
+- `devrouter app rm <name> [--repo <path>]`
+- `devrouter logs [-f]`
+- `devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open] [--repo <path>]`
+- `devrouter workspace ls [--repo <path>] [--json]`
+- `devrouter workspace down <workspace|branch> [--keep-worktree] [--keep-devpod] [--repo <path>]`
 
-The current `dev repo devcontainer write` scaffold is intentionally narrow:
+The current `devrouter repo devcontainer write` scaffold is intentionally narrow:
 Node + pnpm + Postgres. Other package managers stop with a JSON diagnostic
 instead of writing files that would need manual repair.
-Use `dev repo devcontainer verify --json` for read-only PR evidence; add
+Use `devrouter repo devcontainer verify --json` for read-only PR evidence; add
 `--live --yes` only after the devcontainer is running and route probes should
 mutate local route state.
 
@@ -120,13 +120,13 @@ A **workspace token** lets several git worktrees of the same repo run side-by-si
 
 ```bash
 # Bring up a feature branch as an isolated workspace
-dev workspace up feat/my-feature
+devrouter workspace up feat/my-feature
 
 # List git worktrees with workspace tokens and route counts
-dev workspace ls
+devrouter workspace ls
 
 # Tear down a workspace (stop devpod, remove worktree, free routes)
-dev workspace down feat/my-feature
+devrouter workspace down feat/my-feature
 ```
 
 **devcontainer integration:** the devcontainer compose service exposes a devnet network alias `${WORKSPACE}-app` (defaulting to the project name in `devcontainer.env`); the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. Workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.
@@ -138,11 +138,11 @@ agent-native devcontainer path end to end — `./run.sh` brings up a DevPod
 workspace, registers app/Postgres proxy routes, runs static/live verification,
 and prints the proof. `./run.sh down` tears it down.
 
-**Orphan detection:** `dev doctor` check `routes.orphaned-workspace-routes` reports proxy routes whose worktree directory was removed without `dev workspace down`. It does not mutate route state.
+**Orphan detection:** `devrouter doctor` check `routes.orphaned-workspace-routes` reports proxy routes whose worktree directory was removed without `devrouter workspace down`. It does not mutate route state.
 
 ## Upgrade metadata and prompts
 
-`dev upgrade` and `dev -V` read local upgrade metadata from `.devrouter.yml` in the target repo (`devrouter.version`):
+`devrouter upgrade` and `devrouter -V` read local upgrade metadata from `.devrouter.yml` in the target repo (`devrouter.version`):
 
 ```yaml
 version: 1
@@ -153,18 +153,18 @@ apps: []
 
 Quick checks:
 
-- `dev -V` shows installed CLI version, local repo version, and next available upgrade target.
-- `dev upgrade` lists all upgrade targets newer than the local repo version and marks the next one.
-- `dev upgrade <version>` prints that target release's Agent Adaptation Prompt and then shows if a further version is available.
+- `devrouter -V` shows installed CLI version, local repo version, and next available upgrade target.
+- `devrouter upgrade` lists all upgrade targets newer than the local repo version and marks the next one.
+- `devrouter upgrade <version>` prints that target release's Agent Adaptation Prompt and then shows if a further version is available.
 - Upgrade prompts are sourced from `upgrade-prompts/<version>.md`.
-- `dev repo init` initializes `devrouter.version` to the installed CLI version.
+- `devrouter repo init` initializes `devrouter.version` to the installed CLI version.
 
 ## AI-native onboarding prompt
 
 Generate a ready-to-copy onboarding prompt for an AI agent:
 
 ```bash
-dev init --repo /absolute/path/to/repo
+devrouter init --repo /absolute/path/to/repo
 ```
 
 By default, this command is non-mutating (it prints prompt text only).
@@ -172,25 +172,25 @@ By default, this command is non-mutating (it prints prompt text only).
 Optional: embed target app entries as JSON:
 
 ```bash
-dev init --repo /absolute/path/to/repo --entries-json '[{"name":"web","host":"web.localhost","protocol":"http","runtime":"host"}]'
+devrouter init --repo /absolute/path/to/repo --entries-json '[{"name":"web","host":"web.localhost","protocol":"http","runtime":"host"}]'
 ```
 
 JSON mode for machine consumption:
 
 ```bash
-dev init --repo /absolute/path/to/repo --json
+devrouter init --repo /absolute/path/to/repo --json
 ```
 
 Optional repo artifact writes are explicit:
 
 ```bash
-dev init --repo /absolute/path/to/repo --write-agents --write-skill
+devrouter init --repo /absolute/path/to/repo --write-agents --write-skill
 ```
 
 Optional: also bootstrap Linear workflow skill/templates and AGENTS section:
 
 ```bash
-dev init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
+devrouter init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
 ```
 
 When `--with-linear` is combined with AGENTS writes, devrouter captures minimal Linear mapping (workspace, team, project). In non-interactive mode it writes placeholders and prints a warning so values can be filled in later.
@@ -200,20 +200,20 @@ When `--with-linear` is combined with AGENTS writes, devrouter captures minimal 
 Run check-only diagnostics for global router state, machine prerequisites, route state, and repo configuration:
 
 ```bash
-dev doctor --repo /absolute/path/to/repo
+devrouter doctor --repo /absolute/path/to/repo
 ```
 
 Machine-friendly output:
 
 ```bash
-dev doctor --repo /absolute/path/to/repo --json
+devrouter doctor --repo /absolute/path/to/repo --json
 ```
 
-`dev status` now includes readiness hints and next-step commands.
-For host apps that depend on postgres, `dev doctor` also checks host command wrapper precedence and warns with `repo.host-command-env-precedence` when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
-When TLS is enabled, `dev doctor` also checks TLS host coverage and warns with `repo.tls-host-coverage` if configured `.localhost` hosts are not covered by the current cert SANs.
-When `.devcontainer/` exists, `dev doctor` checks devnet aliases, published host ports, and proxy upstream alias matches.
-`dev doctor` reports stale host routes and orphaned workspace proxy routes without mutating route state.
+`devrouter status` now includes readiness hints and next-step commands.
+For host apps that depend on postgres, `devrouter doctor` also checks host command wrapper precedence and warns with `repo.host-command-env-precedence` when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
+When TLS is enabled, `devrouter doctor` also checks TLS host coverage and warns with `repo.tls-host-coverage` if configured `.localhost` hosts are not covered by the current cert SANs.
+When `.devcontainer/` exists, `devrouter doctor` checks devnet aliases, published host ports, and proxy upstream alias matches.
+`devrouter doctor` reports stale host routes and orphaned workspace proxy routes without mutating route state.
 
 ## `.devrouter.yml` example
 
@@ -272,31 +272,31 @@ apps:
 Notes:
 
 - `kind` defaults to routed app behavior. Use `kind: dependency` for non-routed Docker dependencies.
-- `runtime: proxy` registers an HTTP route to an externally-managed `upstream` (`host:port`) and does nothing else — use it to put a stable `*.localhost` HTTPS host in front of a devcontainer or any process you start yourself. Loopback upstreams (`localhost`/`127.0.0.1`/`0.0.0.0`) are rewritten to `host.docker.internal` so Traefik (in Docker) can reach the host. The route persists until `dev app rm`.
+- `runtime: proxy` registers an HTTP route to an externally-managed `upstream` (`host:port`) and does nothing else — use it to put a stable `*.localhost` HTTPS host in front of a devcontainer or any process you start yourself. Loopback upstreams (`localhost`/`127.0.0.1`/`0.0.0.0`) are rewritten to `host.docker.internal` so Traefik (in Docker) can reach the host. The route persists until `devrouter app rm`.
 - TCP routing supports `tcpProtocol: postgres`, `redis`, `mariadb`, and `mysql` on shared protocol ports with TLS/SNI.
 - Plaintext TCP is not supported for multiplexed hostname routing.
 - Multi-segment `.localhost` hosts are supported (for example `elearning.klicker.localhost`).
 
 ## Runtime behavior
 
-`dev app run <name>`:
+`devrouter app run <name>`:
 
 - reads `.devrouter.yml`
 - prompts to start declared dependencies (or use `--yes`)
 - starts docker target services for `runtime: docker` apps, plus declared docker dependencies
-- for `runtime: proxy` apps: registers the route to `upstream` and returns immediately (no process started, no dependencies); re-running is an idempotent upsert and the route persists until `dev app rm`
+- for `runtime: proxy` apps: registers the route to `upstream` and returns immediately (no process started, no dependencies); re-running is an idempotent upsert and the route persists until `devrouter app rm`
 - fails fast if host-runtime dependencies are configured (start those manually)
 - waits for Docker dependencies to become healthy (`--wait`) before proceeding
-- automatically stops Docker dependencies when a host app exits; docker app services remain running until explicit cleanup (`docker compose down`, `dev down`, or equivalent)
+- automatically stops Docker dependencies when a host app exits; docker app services remain running until explicit cleanup (`docker compose down`, `devrouter down`, or equivalent)
 - prints recent dependency logs (last 20 lines) after deps start
-- `kind=dependency` apps are dependency-only: they do not create routes and cannot be direct targets for `dev app run`, `dev app exec`, or `dev open`
+- `kind=dependency` apps are dependency-only: they do not create routes and cannot be direct targets for `devrouter app run`, `devrouter app exec`, or `devrouter open`
 - `kind=dependency` services start as declared in compose (no Traefik labels, no random published ports, no injected env vars)
 - for TCP deps of host apps: publishes a random host port and injects per-dependency `<NAME>_HOST`/`<NAME>_PORT`/`<NAME>_URL` env vars into the host process; for postgres deps also injects `<NAME>_SHADOW_URL` (fixed credentials `prisma:prisma`, databases `prisma`/`shadow`)
-- for one-shot commands, `dev app exec` starts declared docker deps as needed and only stops deps it started in that invocation (already-running deps stay running)
-- if `dev app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid stopping non-owned services
-- when TLS is enabled, `dev app run` / `dev app exec` auto-refresh cert SAN coverage for configured repo hosts before startup (fails fast with `Run: dev tls install` guidance if refresh fails)
-- for one-shot commands, `dev app exec` preserves argv semantics by default (`shell: false`) to avoid nested quoting issues
-- `dev app exec --shell` is explicit and requires one command string after `--`
+- for one-shot commands, `devrouter app exec` starts declared docker deps as needed and only stops deps it started in that invocation (already-running deps stay running)
+- if `devrouter app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid stopping non-owned services
+- when TLS is enabled, `devrouter app run` / `devrouter app exec` auto-refresh cert SAN coverage for configured repo hosts before startup (fails fast with `Run: devrouter tls install` guidance if refresh fails)
+- for one-shot commands, `devrouter app exec` preserves argv semantics by default (`shell: false`) to avoid nested quoting issues
+- `devrouter app exec --shell` is explicit and requires one command string after `--`
 - config-level `envMap` on dependency references maps aliases after dependency env resolution (for example `DATABASE_URL: DB_URL`)
 - starts host app command for host runtime apps
 - generates docker overlay in `~/.config/devrouter/cache/...` for docker runtime apps
@@ -316,25 +316,25 @@ Secret manager interop (Infisical/Doppler):
         SHADOW_DATABASE_URL: DB_SHADOW_URL
   ```
 - safe host-run override pattern when wrapper also defines `DATABASE_URI`: `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev`
-- non-Prisma mapping example: `dev app exec web --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
-- env probe example: `dev app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL`
-- run `dev doctor --repo <path>` to surface risky wrapper precedence (`repo.host-command-env-precedence`) before migrations or app startup
+- non-Prisma mapping example: `devrouter app exec web --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`
+- env probe example: `devrouter app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL`
+- run `devrouter doctor --repo <path>` to surface risky wrapper precedence (`repo.host-command-env-precedence`) before migrations or app startup
 
-`dev ls` output includes both configured app identity (`APP`) and runtime service identity (`SERVICE`).
+`devrouter ls` output includes both configured app identity (`APP`) and runtime service identity (`SERVICE`).
 
 ## First onboarding quick path
 
 In a repo that has a host app and a Docker Postgres service:
 
 ```bash
-dev repo init
-dev app add --name web --host web.localhost --protocol http --runtime host --command "pnpm dev" --cwd .
-dev app add --name db --host db.localhost --protocol tcp --runtime docker --tcp-protocol postgres --service db --port 5432 --compose-file docker-compose.yml
-dev app add --name redis --kind dependency --service redis --compose-file docker-compose.yml
-dev app add --name web --host web.localhost --protocol http --runtime host --command "pnpm dev" --cwd . --depends-on db --depends-on redis
-dev tls install
-dev app run web --yes
-dev ls
+devrouter repo init
+devrouter app add --name web --host web.localhost --protocol http --runtime host --command "pnpm dev" --cwd .
+devrouter app add --name db --host db.localhost --protocol tcp --runtime docker --tcp-protocol postgres --service db --port 5432 --compose-file docker-compose.yml
+devrouter app add --name redis --kind dependency --service redis --compose-file docker-compose.yml
+devrouter app add --name web --host web.localhost --protocol http --runtime host --command "pnpm dev" --cwd . --depends-on db --depends-on redis
+devrouter tls install
+devrouter app run web --yes
+devrouter ls
 ```
 
 Expected endpoints:
@@ -376,12 +376,12 @@ See details:
 
 ## AI agent discoverability
 
-`dev repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.agents/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
+`devrouter repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.agents/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
 
 If you also want Linear workflow assets and repository mapping metadata, run:
 
 ```bash
-dev repo agents --with-linear
+devrouter repo agents --with-linear
 ```
 
 This additionally installs:

@@ -32,5 +32,5 @@ export async function runVersionCommand(
   const next = availableTargets[0];
   process.stdout.write(`Next upgrade target: ${next.version}\n`);
   process.stdout.write(`All upgrade targets: ${availableTargets.map((entry) => entry.version).join(", ")}\n`);
-  process.stdout.write(`Run: dev upgrade ${next.version}\n`);
+  process.stdout.write(`Run: devrouter upgrade ${next.version}\n`);
 }

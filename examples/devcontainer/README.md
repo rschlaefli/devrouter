@@ -24,10 +24,10 @@ with `sslnegotiation=direct` support is available.
 
 The smoke runs this sequence through `run.sh`:
 
-1. `dev setup --repo <example> --yes --json`
-2. `dev repo devcontainer verify --repo <example> --json`
+1. `devrouter setup --repo <example> --yes --json`
+2. `devrouter repo devcontainer verify --repo <example> --json`
 3. `WORKSPACE=devcontainer-demo devpod up <example> --id devrouter-devcontainer-demo --provider docker --ide none --open-ide=false --recreate`
-4. `dev repo devcontainer verify --repo <example> --live --yes --json`
+4. `devrouter repo devcontainer verify --repo <example> --live --yes --json`
 5. `curl https://devcontainer-demo.localhost`
 6. `psql` direct-SSL against `prisma` and `shadow` on `db.devcontainer-demo.localhost` when available
 

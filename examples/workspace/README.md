@@ -11,7 +11,7 @@ What it demonstrates:
   substituted at runtime with the resolved workspace token.
 - **Auto host namespacing** — `wsdemo.localhost` becomes `wsdemo.<ws>.localhost`
   for a worktree; the committed `.devrouter.yml` is never rewritten.
-- **`dev workspace up/ls/down`** — worktree + (optional devpod) + namespaced routes
+- **`devrouter workspace up/ls/down`** — worktree + (optional devpod) + namespaced routes
   in one command.
 - **Matching devnet alias** — the compose service joins `devnet` as
   `${WORKSPACE:-wsdemo}-app`, so the alias and the route resolve to one identity.
@@ -45,21 +45,21 @@ Two instances of the same app, same code, distinct hosts — served simultaneous
 
 ## How `run.sh` works
 
-`dev workspace` operates on a repo root, so the script copies this example into a
+`devrouter workspace` operates on a repo root, so the script copies this example into a
 standalone git repo under `/tmp/devrouter-wsdemo` (override with `WSDEMO_REPO`),
 then:
 
-1. `dev up` + `dev tls install` — shared router, `devnet`, mkcert CA.
+1. `devrouter up` + `devrouter tls install` — shared router, `devnet`, mkcert CA.
 2. Primary checkout: `WORKSPACE=wsdemo docker compose -p wsdemo up -d` (alias
-   `wsdemo-app`) → `dev app run app` registers `wsdemo.localhost` → `wsdemo-app`.
-3. `dev workspace up feat-a --no-devpod` — creates the `feat-a` worktree and
+   `wsdemo-app`) → `devrouter app run app` registers `wsdemo.localhost` → `wsdemo-app`.
+3. `devrouter workspace up feat-a --no-devpod` — creates the `feat-a` worktree and
    registers `wsdemo.feat-a.localhost` → `feat-a-app`; then
    `WORKSPACE=feat-a docker compose -p wsfeata up -d` brings up that alias.
-4. `curl` both hosts; `dev workspace ls`.
+4. `curl` both hosts; `devrouter workspace ls`.
 
 `--no-devpod` is used so the example needs only Docker (no devpod/devcontainer).
-With a devcontainer, `dev workspace up <branch>` brings the container up for you
+With a devcontainer, `devrouter workspace up <branch>` brings the container up for you
 and exports `WORKSPACE=<ws>` so the alias substitution happens automatically.
 
-Teardown frees the routes (`dev workspace down feat-a`, `dev app rm`), stops both
+Teardown frees the routes (`devrouter workspace down feat-a`, `devrouter app rm`), stops both
 compose projects, and removes the temp repo + worktree.
