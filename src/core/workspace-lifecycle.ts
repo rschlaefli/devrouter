@@ -97,7 +97,11 @@ export async function workspaceUp(
   if (!opts.noDevpod && hasDevpod()) {
     const dp = spawnSync("devpod", ["up", worktreePath, "--id", ws, "--open-ide=false"], {
       stdio: "inherit",
-      env: { ...process.env, WORKSPACE: ws }
+      env: {
+        ...process.env,
+        WORKSPACE: ws,
+        DEVCONTAINER_COMPOSE_OVERLAY: "docker-compose.devrouter.yml"
+      }
     });
     if (dp.status !== 0) {
       process.stderr.write(`Warning: 'devpod up' failed; continuing with route registration.\n`);
