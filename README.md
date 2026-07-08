@@ -63,7 +63,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 
 ## Core commands
 
-- `devrouter init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill] [--with-linear]`
+- `devrouter init [--repo <path>] [--entries-json <json>] [--json] [--write-agents] [--write-skill]`
 - `devrouter -V [--repo <path>]` (installed CLI version, local repo version, next upgrade target)
 - `devrouter upgrade [version] [--repo <path>]`
 - `devrouter setup --yes [--repo <path>] [--json]`
@@ -78,7 +78,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `devrouter repo inspect [--repo <path>] [--json]`
 - `devrouter repo devcontainer write [--repo <path>] [--dry-run] [--yes] [--json]`
 - `devrouter repo devcontainer verify [--repo <path>] [--live] [--yes] [--json]`
-- `devrouter repo agents [--repo <path>] [--with-linear]`
+- `devrouter repo agents [--repo <path>]`
 - `devrouter app add ...` (`--kind app|dependency`, default `app`)
 - `devrouter app ls [--repo <path>] [--json]`
 - `devrouter app run <name> [--repo <path>] [--yes] [--workspace <slug>]`
@@ -186,14 +186,6 @@ Optional repo artifact writes are explicit:
 ```bash
 devrouter init --repo /absolute/path/to/repo --write-agents --write-skill
 ```
-
-Optional: also bootstrap Linear workflow skill/templates and AGENTS section:
-
-```bash
-devrouter init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
-```
-
-When `--with-linear` is combined with AGENTS writes, devrouter captures minimal Linear mapping (workspace, team, project). In non-interactive mode it writes placeholders and prints a warning so values can be filled in later.
 
 ## Health diagnostics
 
@@ -377,39 +369,6 @@ See details:
 ## AI agent discoverability
 
 `devrouter repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.agents/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
-
-If you also want Linear workflow assets and repository mapping metadata, run:
-
-```bash
-devrouter repo agents --with-linear
-```
-
-This additionally installs:
-
-- `.agents/skills/linear-workflow/SKILL.md`
-- `.agents/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
-- `.agents/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
-- `.agents/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
-
-and appends an idempotent `linear-workflow` section to `AGENTS.md`.
-
-With `--with-linear`, AGENTS also stores a managed config block:
-
-- `<!-- devrouter-linear-workflow-config:start -->`
-- `<!-- devrouter-linear-workflow-config:end -->`
-
-The block captures:
-
-- `workspace.name`
-- `team.name` (optional `team.key`)
-- `project.name` (optional `project.id`)
-
-Required Linear execution hygiene:
-
-1. Set issue status at session start and update it at each phase transition.
-2. Post progress comments at meaningful checkpoints during implementation.
-3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
-4. Re-check status and comment freshness toward/at session end before stopping.
 
 ## Known limitations (v1)
 

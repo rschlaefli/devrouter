@@ -103,38 +103,4 @@ describe('buildOnboardingPrompt', () => {
     )
     expect(prompt).not.toContain('--env-map')
   })
-
-  it('includes Linear workflow section only when withLinear is enabled', () => {
-    const withoutLinear = buildOnboardingPrompt({ repo: tmpDir })
-    expect(withoutLinear).not.toContain(
-      'Linear milestone workflow (enabled via --with-linear):'
-    )
-
-    const withLinear = buildOnboardingPrompt({ repo: tmpDir, withLinear: true })
-    expect(withLinear).toContain(
-      'Linear milestone workflow (enabled via --with-linear):'
-    )
-    expect(withLinear).toContain(
-      'Which Linear workspace does this repository belong to?'
-    )
-    expect(withLinear).toContain('devrouter-linear-workflow-config:start')
-    expect(withLinear).toContain(
-      'set issue status at session start and at each phase transition'
-    )
-    expect(withLinear).toContain(
-      'Post progress comments at meaningful checkpoints during implementation'
-    )
-    expect(withLinear).toContain(
-      'Before ending a session, post a final recap comment with completed work, remaining work, risks, and next step'
-    )
-    expect(withLinear).toContain(
-      'devrouter upgrade <version>'
-    )
-    expect(withLinear).toContain(
-      'devrouter -V'
-    )
-    expect(withLinear).toContain(
-      'upgrade-prompts/<version>.md'
-    )
-  })
 })

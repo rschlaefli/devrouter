@@ -1,22 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { LinearWorkflowMetadata } from './linear-onboarding'
 
 const DEVROUTER_SENTINEL = '<!-- devrouter -->'
-const LINEAR_WORKFLOW_SENTINEL = '<!-- devrouter-linear-workflow -->'
-const LINEAR_WORKFLOW_CONFIG_START =
-  '<!-- devrouter-linear-workflow-config:start -->'
-const LINEAR_WORKFLOW_CONFIG_END =
-  '<!-- devrouter-linear-workflow-config:end -->'
 const AGENTS_MD = 'AGENTS.md'
 const DEVROUTER_SKILL_REL_PATH = '.agents/skills/devrouter/SKILL.md'
-const LINEAR_SKILL_REL_PATH = '.agents/skills/linear-workflow/SKILL.md'
-const LINEAR_ISSUE_TEMPLATE_REL_PATH =
-  '.agents/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md'
-const LINEAR_MILESTONE_TEMPLATE_REL_PATH =
-  '.agents/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md'
-const LINEAR_PROGRESS_TEMPLATE_REL_PATH =
-  '.agents/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md'
 
 // Embedded skill content — must be self-contained in the built CLI bundle.
 // Keep in sync with .agents/skills/devrouter/SKILL.md in the devrouter repo.
@@ -199,20 +186,9 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - After upgrading the CLI in a dependent repo, refresh discoverability artifacts with \`devrouter repo agents\` (or \`devrouter init --write-agents --write-skill\`).
 - Re-run validation after upgrade: \`devrouter doctor --repo .\`, \`devrouter app ls --repo .\`, one representative \`devrouter app exec\` flow, and \`devrouter ls\`.
 
-## Optional Linear workflow bootstrap
-
-- To add Linear task-management workflow assets to a repo, run:
-  - \`devrouter init --with-linear --write-agents --write-skill\`, or
-  - \`devrouter repo agents --with-linear\`
-- This writes \`.agents/skills/linear-workflow/SKILL.md\` and reference templates, plus an idempotent AGENTS section.
-- On AGENTS write flows, devrouter asks for minimal Linear mapping (workspace/team/project) and stores it in a managed AGENTS block:
-  - \`<!-- devrouter-linear-workflow-config:start -->\`
-  - \`<!-- devrouter-linear-workflow-config:end -->\`
-- In non-interactive mode, placeholder values are written and should be replaced in the next interactive session.
-
 ## Commands
 
-- \`devrouter init [--write-agents] [--write-skill] [--with-linear]\`: print AI onboarding prompt (non-mutating by default)
+- \`devrouter init [--write-agents] [--write-skill]\`: print AI onboarding prompt (non-mutating by default)
 - \`devrouter -V [--repo .]\`: show installed CLI version, local repo version, and next upgrade target
 - \`devrouter upgrade [version] [--repo .]\`: list upgrade targets or print target Agent Adaptation Prompt
 - \`devrouter setup --yes [--repo .] [--json]\`: first-run machine setup plus structured diagnostics
@@ -229,7 +205,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - \`devrouter repo devcontainer write --yes\`: write managed Node/pnpm/Postgres devcontainer/devrouter scaffold files when no custom-file conflicts exist
 - \`devrouter repo devcontainer verify --json\`: emit read-only onboarding evidence for PRs
 - \`devrouter repo devcontainer verify --live --yes --json\`: register proxy routes and probe HTTP routes after the devcontainer is running
-- \`devrouter repo agents [--with-linear]\`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
+- \`devrouter repo agents\`: write devrouter section in AGENTS.md + install this skill
 - \`devrouter app add\`: add/update app entry in \`.devrouter.yml\`
 - \`devrouter app ls\`: list app entries
 - \`devrouter app run <name> [--env <env>] [--workspace <slug>]\`: run app with dependency lifecycle (--env overrides SM defaultEnv; --workspace overrides the per-workspace token)
@@ -273,119 +249,6 @@ For existing host/docker runtime apps:
 - \`devrouter app exec --shell\` is explicit and requires exactly one command string after \`--\`.
 - Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (\`printenv DB_URL DB_HOST DB_PORT\`) before migrate/seed.
 `
-const LINEAR_WORKFLOW_SKILL_CONTENT = `---
-name: linear-workflow
-description: Use a minimal Linear workspace/team/project mapping for cross-session continuity
-user-invocable: false
----
-
-# linear-workflow
-
-Use this skill when a repository enables Linear workflow via devrouter.
-
-## First step: read AGENTS mapping
-
-Check \`AGENTS.md\` for the managed Linear block:
-
-- \`<!-- devrouter-linear-workflow-config:start -->\`
-- \`<!-- devrouter-linear-workflow-config:end -->\`
-
-Use that block as source of truth for:
-
-- workspace name
-- team name (and optional key)
-- project name (and optional id)
-
-## If mapping is missing or placeholder
-
-Ask the user these guided questions and update the AGENTS managed block:
-
-1. Which Linear workspace does this repository belong to?
-2. Which Linear team owns this repository? (optional team key)
-3. Which Linear project should milestones/issues be created in? (optional project id)
-
-If non-interactive context prevents asking, keep placeholders and request values in the next interactive session.
-
-## Usage rule
-
-- Do not hardcode workspace/team/project assumptions.
-- Always resolve them from AGENTS metadata first.
-
-## Required execution hygiene
-
-When working on Linear-tracked issues, this is required:
-
-1. Set issue status at session start and update it at each phase transition.
-2. Post progress comments at meaningful checkpoints during implementation.
-3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
-4. Re-check status and comment freshness toward/at session end before stopping.
-
-## Devrouter-specific note
-
-If the repository uses devrouter, use \`devrouter upgrade\` to resolve the required Agent Adaptation Prompt for the target version before major changes (prompt files are versioned under \`upgrade-prompts/<version>.md\`).
-`
-
-const LINEAR_ISSUE_TEMPLATE_CONTENT = `# Linear Issue Template
-
-## Problem
-
-## Goal / Expected Outcome
-
-## Scope
-- In scope:
-- Out of scope:
-
-## Technical Approach
-
-## Acceptance Criteria
-
-## Validation Plan
-
-## Dependencies / Blockers
-
-## Rollout Risks
-`
-
-const LINEAR_MILESTONE_TEMPLATE_CONTENT = `# Milestone Plan Template
-
-## Milestone Goal
-
-## Tracker Issue
-- Identifier:
-- Owner:
-
-## Child Issues
-- [ ] Issue 1:
-- [ ] Issue 2:
-- [ ] Issue 3:
-
-## Sequencing
-1.
-2.
-3.
-
-## Risks and Mitigations
-
-## Definition of Done
-`
-
-const LINEAR_PROGRESS_TEMPLATE_CONTENT = `# Progress Update Template
-
-## Summary
-
-## Completed
-- <item>
-
-## In Progress
-- <item>
-
-## Next
-- <item>
-
-## Risks / Blockers
-- <item>
-`
-
 function buildDevrouterSection(): string {
   return [
     DEVROUTER_SENTINEL,
@@ -404,98 +267,6 @@ function buildDevrouterSection(): string {
     '- `devrouter app run <host-app> --repo . --yes`',
     '- `devrouter ls`',
   ].join('\n')
-}
-
-function buildLinearWorkflowSection(): string {
-  return [
-    LINEAR_WORKFLOW_SENTINEL,
-    '## linear-workflow',
-    '',
-    'This repository can optionally use a Linear-centered workflow with a minimal workspace/team/project mapping.',
-    'Use the managed AGENTS metadata block as source of truth before creating/updating Linear issues.',
-    '',
-    'Skill and templates:',
-    `- \`${LINEAR_SKILL_REL_PATH}\``,
-    `- \`${LINEAR_ISSUE_TEMPLATE_REL_PATH}\``,
-    `- \`${LINEAR_MILESTONE_TEMPLATE_REL_PATH}\``,
-    `- \`${LINEAR_PROGRESS_TEMPLATE_REL_PATH}\``,
-    '',
-    'Managed metadata block:',
-    `- \`${LINEAR_WORKFLOW_CONFIG_START}\``,
-    `- \`${LINEAR_WORKFLOW_CONFIG_END}\``,
-    '',
-    'Required Linear execution hygiene:',
-    '- Set issue status at session start and update it at each phase transition.',
-    '- Post progress comments at meaningful checkpoints during implementation.',
-    '- Before ending a session, post a final comment with completed work, remaining work, risks, and next step.',
-    '- Re-check status and comment freshness toward/at session end before stopping.',
-    '',
-    'Bootstrap commands:',
-    '- `devrouter init --with-linear --write-agents --write-skill`',
-    '- `devrouter repo agents --with-linear`',
-  ].join('\n')
-}
-
-function yamlQuote(value: string): string {
-  return JSON.stringify(value)
-}
-
-function renderLinearWorkflowConfig(metadata: LinearWorkflowMetadata): string {
-  const lines = [
-    'linear:',
-    '  workspace:',
-    `    name: ${yamlQuote(metadata.workspace.name)}`,
-    '  team:',
-    `    name: ${yamlQuote(metadata.team.name)}`,
-  ]
-
-  if (metadata.team.key) {
-    lines.push(`    key: ${yamlQuote(metadata.team.key)}`)
-  }
-
-  lines.push('  project:')
-  lines.push(`    name: ${yamlQuote(metadata.project.name)}`)
-
-  if (metadata.project.id) {
-    lines.push(`    id: ${yamlQuote(metadata.project.id)}`)
-  }
-
-  lines.push(`  updated_at: ${yamlQuote(metadata.updatedAt)}`)
-  lines.push(`  capture_mode: ${yamlQuote(metadata.captureMode)}`)
-  return lines.join('\n')
-}
-
-function renderLinearWorkflowConfigBlock(
-  metadata: LinearWorkflowMetadata
-): string {
-  return [
-    LINEAR_WORKFLOW_CONFIG_START,
-    '```yaml',
-    renderLinearWorkflowConfig(metadata),
-    '```',
-    LINEAR_WORKFLOW_CONFIG_END,
-  ].join('\n')
-}
-
-function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function upsertLinearWorkflowConfigBlock(
-  content: string,
-  metadata: LinearWorkflowMetadata
-): string {
-  const block = renderLinearWorkflowConfigBlock(metadata)
-  const pattern = new RegExp(
-    `${escapeRegExp(LINEAR_WORKFLOW_CONFIG_START)}[\\s\\S]*?${escapeRegExp(LINEAR_WORKFLOW_CONFIG_END)}\\n?`,
-    'm'
-  )
-
-  if (pattern.test(content)) {
-    return content.replace(pattern, `${block}\n`)
-  }
-
-  return `${content.trimEnd()}\n\n${block}\n`
 }
 
 function writeRepoFile(
@@ -536,39 +307,6 @@ export function ensureAgentsMdSection(repoPath: string): {
   return { path: filePath, written: true }
 }
 
-export function ensureLinearWorkflowAgentsSection(
-  repoPath: string,
-  metadata: LinearWorkflowMetadata
-): { path: string; written: boolean } {
-  const filePath = join(repoPath, AGENTS_MD)
-
-  if (existsSync(filePath)) {
-    let content = readFileSync(filePath, 'utf-8')
-    let changed = false
-
-    if (!content.includes(LINEAR_WORKFLOW_SENTINEL)) {
-      content = content.trimEnd() + '\n\n' + buildLinearWorkflowSection() + '\n'
-      changed = true
-    }
-
-    const withConfig = upsertLinearWorkflowConfigBlock(content, metadata)
-    if (withConfig !== content) {
-      changed = true
-    }
-
-    if (changed) {
-      writeFileSync(filePath, withConfig, 'utf-8')
-    }
-
-    return { path: filePath, written: changed }
-  }
-
-  const initialContent = '# AGENTS.md\n\n' + buildLinearWorkflowSection() + '\n'
-  const withConfig = upsertLinearWorkflowConfigBlock(initialContent, metadata)
-  writeFileSync(filePath, withConfig, 'utf-8')
-  return { path: filePath, written: true }
-}
-
 export function ensureSkillFile(repoPath: string): {
   path: string
   written: boolean
@@ -579,33 +317,4 @@ export function ensureSkillFile(repoPath: string): {
     DEVROUTER_SKILL_CONTENT
   )
   return { path: filePath, written: true }
-}
-
-export function ensureLinearWorkflowSkillFiles(repoPath: string): {
-  paths: string[]
-  written: true
-} {
-  const paths = [
-    writeRepoFile(
-      repoPath,
-      LINEAR_SKILL_REL_PATH,
-      LINEAR_WORKFLOW_SKILL_CONTENT
-    ),
-    writeRepoFile(
-      repoPath,
-      LINEAR_ISSUE_TEMPLATE_REL_PATH,
-      LINEAR_ISSUE_TEMPLATE_CONTENT
-    ),
-    writeRepoFile(
-      repoPath,
-      LINEAR_MILESTONE_TEMPLATE_REL_PATH,
-      LINEAR_MILESTONE_TEMPLATE_CONTENT
-    ),
-    writeRepoFile(
-      repoPath,
-      LINEAR_PROGRESS_TEMPLATE_REL_PATH,
-      LINEAR_PROGRESS_TEMPLATE_CONTENT
-    ),
-  ]
-  return { paths, written: true }
 }

@@ -336,31 +336,7 @@ This creates/updates:
 
 The skill content is embedded in the CLI bundle, so `devrouter repo agents` always writes the version matching the installed CLI.
 
-Optional Linear workflow bootstrap:
 
-```bash
-devrouter repo agents --with-linear
-```
-
-This additionally creates:
-
-- `AGENTS.md` linear-workflow section
-- `.agents/skills/linear-workflow/SKILL.md`
-- `.agents/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
-- `.agents/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
-- `.agents/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
-- `AGENTS.md` managed Linear mapping block (`workspace/team/project`) between:
-  - `<!-- devrouter-linear-workflow-config:start -->`
-  - `<!-- devrouter-linear-workflow-config:end -->`
-
-Interactive runs prompt for workspace/team/project values. Non-interactive runs write placeholders and warn.
-
-Required Linear execution hygiene:
-
-1. Set issue status at session start and update it at each phase transition.
-2. Post progress comments at meaningful checkpoints during implementation.
-3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
-4. Re-check status and comment freshness toward/at session end before stopping.
 
 ## 10) Workspace isolation (parallel worktrees)
 
@@ -413,17 +389,7 @@ Optional explicit artifact writes:
 devrouter init --repo /absolute/path/to/repo --write-agents --write-skill
 ```
 
-Optional Linear workflow guidance + artifacts:
 
-```bash
-devrouter init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
-```
-
-With `--with-linear` + AGENTS writes, devrouter asks for:
-
-- workspace name
-- team name (optional team key)
-- project name (optional project id)
 
 ## 12) Definition of done
 

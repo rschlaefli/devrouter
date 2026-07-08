@@ -16,7 +16,7 @@ set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SRC/../.." && pwd)"
-DEV() { if command -v dev >/dev/null 2>&1; then command dev "$@"; else node "$ROOT/dist/dev.js" "$@"; fi; }
+DEV() { if command -v devrouter >/dev/null 2>&1; then command devrouter "$@"; else node "$ROOT/dist/devrouter.js" "$@"; fi; }
 
 REPO="${WSDEMO_REPO:-/tmp/devrouter-wsdemo}"
 WT="$REPO-feat-a"
