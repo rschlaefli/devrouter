@@ -2,6 +2,20 @@
 
 Local-first routing for macOS development with one shared Traefik router.
 
+## AI Agent Onboarding
+
+If you are pair programming with an AI agent (such as Cursor, GitHub Copilot, Gemini, or Claude) to onboard or work on a repository, run the following command at the very start to generate a ready-to-copy, context-rich onboarding prompt for the agent:
+
+```bash
+# Using npm/npx:
+npx @devrouter/cli init --repo .
+
+# Or using pnpm/pnpm dlx:
+pnpm dlx @devrouter/cli init --repo .
+```
+
+This prints a canonical prompt containing the full config schemas, best-practice workflows, docker dependency configurations, and verification commands required to configure the repo's devrouter setup.
+
 ## What it solves
 
 Run multiple repos concurrently without manual port juggling:
