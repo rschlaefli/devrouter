@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.25] - 2026-07-08
+
+### Added
+- Outdated CLI version warnings: `loadRepoConfig` automatically prints a warning to `stderr` if the repository's `.devrouter.yml` configuration demands a newer CLI version than the installed/running version.
+- Diagnostic check `repo.cli-outdated` in `devrouter doctor` to report whether the installed CLI version is older than the required version.
+
+### Removed
+- All Linear milestone workflow CLI parameters, integrations, templates, and markdown files.
+
+### Changed
+- Cleaned up stale CLI command references in validation scripts and workspace examples.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.25.md
+
+## [0.0.24] - 2026-07-07
+
+### Added
+- Automatic injection of `DEVCONTAINER_COMPOSE_OVERLAY` environment variable to workspace execution contexts when active.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.24.md
+
 ## [0.0.23] - 2026-06-28
 
 ### Added

@@ -3,7 +3,9 @@ import path from "node:path";
 import YAML from "yaml";
 import { listContainers } from "./docker";
 import { listHostRoutes } from "./host-routes";
-import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
+import { loadRuntimeConfig, resolveRepoPath, compareSemver } from "./repo-config";
+
+declare const __VERSION__: string;
 import { getRouterFileLayout, isTLSEnabled } from "./router";
 import { collectRouterStatus } from "./status";
 import { discoverRoutes, findDuplicateHosts } from "./routes";
@@ -441,6 +443,24 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       const config = runtimeConfig.config;
       loadedConfig = config;
       loadedWorkspace = runtimeConfig.workspace;
+
+      const cliVersion = typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev";
+      const configVersion = config.devrouter?.version;
+      if (configVersion && cliVersion !== "0.0.0-dev" && compareSemver(configVersion, cliVersion) > 0) {
+        addCheck(checks, {
+          id: "repo.cli-outdated",
+          level: "error",
+          summary: `Installed CLI (${cliVersion}) is older than required repo version (${configVersion}).`,
+          suggestion: "Upgrade CLI: npm install -g @devrouter/cli"
+        });
+      } else {
+        addCheck(checks, {
+          id: "repo.cli-outdated",
+          level: "ok",
+          summary: "Installed CLI version is compatible with repo configuration."
+        });
+      }
+
       const appNames = new Set(config.apps.map((app) => app.name));
       const missingDependencies = config.apps.flatMap((app) =>
         app.dependencies
