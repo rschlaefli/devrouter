@@ -10,11 +10,6 @@ STARTED_ROUTER="false"
 HOST_RUN_PID=""
 
 run_dev() {
-  if command -v devrouter >/dev/null 2>&1; then
-    devrouter "$@"
-    return
-  fi
-
   node "$ROOT_DIR/dist/devrouter.js" "$@"
 }
 
@@ -66,6 +61,9 @@ if [ "$READY" != "true" ]; then
   cat "$HOST_LOG" >&2 || true
   exit 1
 fi
+
+# Give Traefik a brief moment to reload its configuration after the routes are detected as running
+sleep 2
 
 routes_json="$(run_dev ls --json)"
 host_url="$(node -e "const data = JSON.parse(process.argv[1]); const route = data.routes.find((entry) => entry.hosts.includes('routing-host.localhost')); if (!route || !route.urls[0]) process.exit(1); process.stdout.write(route.urls[0]);" "$routes_json")"

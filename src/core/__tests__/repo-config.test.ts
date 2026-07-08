@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyWorkspace,
   initRepoConfig,
@@ -558,6 +558,21 @@ describe("secretManager validation", () => {
     writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: doppler run --\napps:\n  - name: web\n    host: web.localhost\n    protocol: http\n    runtime: docker\n    docker:\n      service: web\n      internalPort: 3000\n");
     const config = loadRepoConfig(tmpDir);
     expect(config.secretManager?.command).toBe("doppler run --");
+  });
+
+  it("prints a warning to stderr when repo configuration requires a newer version than running CLI", () => {
+    vi.stubGlobal("__VERSION__", "0.0.24");
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    writeConfig(tmpDir, "version: 1\ndevrouter:\n  version: 0.0.25\napps: []");
+    loadRepoConfig(tmpDir);
+
+    const output = stderrSpy.mock.calls.map((call) => String(call[0])).join("");
+    expect(output).toContain("Warning: The repository configuration requires devrouter version 0.0.25");
+    expect(output).toContain("but you are running version 0.0.24");
+
+    stderrSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 });
 

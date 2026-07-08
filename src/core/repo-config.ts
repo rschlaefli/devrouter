@@ -24,6 +24,24 @@ import {
   formatSupportedTcpProtocols
 } from "./capabilities";
 
+declare const __VERSION__: string;
+
+export function compareSemver(a: string, b: string): number {
+  const parse = (v: string) => {
+    const match = v.trim().match(/^v?(\d+)\.(\d+)\.(\d+)$/);
+    return match
+      ? { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) }
+      : { major: 0, minor: 0, patch: 0 };
+  };
+  const left = parse(a);
+  const right = parse(b);
+  if (left.major !== right.major) return left.major - right.major;
+  if (left.minor !== right.minor) return left.minor - right.minor;
+  return left.patch - right.patch;
+}
+
+let hasWarnedVersionMismatch = false;
+
 const CONFIG_FILE_NAME = ".devrouter.yml";
 const DEFAULT_TCP_PROTOCOL = "postgres";
 
@@ -588,7 +606,22 @@ export function loadRepoConfig(repoPath?: string): DevrouterConfig {
 
   const raw = fs.readFileSync(configPath, "utf-8");
   const parsed = YAML.parse(raw) as DevrouterConfigWithUnknown | null;
-  return parseConfig(parsed ?? {}, configPath);
+  const config = parseConfig(parsed ?? {}, configPath);
+
+  const requiredVersion = config.devrouter?.version;
+  if (requiredVersion && !hasWarnedVersionMismatch) {
+    const cliVersion = typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev";
+    if (cliVersion !== "0.0.0-dev" && compareSemver(requiredVersion, cliVersion) > 0) {
+      hasWarnedVersionMismatch = true;
+      process.stderr.write(
+        `\n⚠️  Warning: The repository configuration requires devrouter version ${requiredVersion}, ` +
+        `but you are running version ${cliVersion}.\n` +
+        `   Please upgrade your CLI to avoid unexpected behavior: npm install -g @devrouter/cli\n\n`
+      );
+    }
+  }
+
+  return config;
 }
 
 export function initRepoConfig(

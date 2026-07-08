@@ -257,4 +257,47 @@ describe("buildDoctorReport", () => {
     expect(precedenceCheck?.level).toBe("ok");
     expect(precedenceCheck?.summary).toContain("No risky pre-wrapper DB env assignments");
   });
+
+  it("reports error when CLI version is older than repo configuration required version", async () => {
+    vi.stubGlobal("__VERSION__", "0.0.24");
+    fs.writeFileSync(
+      path.join(tmpDir, ".devrouter.yml"),
+      `version: 1
+devrouter:
+  version: 0.0.25
+apps: []
+`,
+      "utf-8"
+    );
+    vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const check = report.checks.find((c) => c.id === "repo.cli-outdated");
+    expect(check?.level).toBe("error");
+    expect(check?.summary).toContain("Installed CLI (0.0.24) is older than required repo version (0.0.25)");
+    expect(check?.suggestion).toContain("npm install -g @devrouter/cli");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("reports ok when CLI version is equal or newer than repo configuration required version", async () => {
+    vi.stubGlobal("__VERSION__", "0.0.25");
+    fs.writeFileSync(
+      path.join(tmpDir, ".devrouter.yml"),
+      `version: 1
+devrouter:
+  version: 0.0.25
+apps: []
+`,
+      "utf-8"
+    );
+    vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const check = report.checks.find((c) => c.id === "repo.cli-outdated");
+    expect(check?.level).toBe("ok");
+    expect(check?.summary).toContain("Installed CLI version is compatible");
+
+    vi.unstubAllGlobals();
+  });
 });
