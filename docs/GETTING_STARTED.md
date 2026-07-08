@@ -298,31 +298,7 @@ This creates:
 
 The skill file contains full config schema, docker requirements, env injection behavior, and command reference.
 
-To also install optional Linear workflow planning assets:
 
-```bash
-devrouter repo agents --with-linear
-```
-
-This additionally creates:
-
-- `.agents/skills/linear-workflow/SKILL.md`
-- `.agents/skills/linear-workflow/references/LINEAR_ISSUE_TEMPLATE.md`
-- `.agents/skills/linear-workflow/references/MILESTONE_PLAN_TEMPLATE.md`
-- `.agents/skills/linear-workflow/references/PROGRESS_UPDATE_TEMPLATE.md`
-- `AGENTS.md` linear-workflow section (idempotent)
-- `AGENTS.md` managed Linear mapping block (`workspace/team/project`) between:
-  - `<!-- devrouter-linear-workflow-config:start -->`
-  - `<!-- devrouter-linear-workflow-config:end -->`
-
-If running without an interactive TTY, devrouter writes placeholder mapping values and prints a warning.
-
-Required Linear execution hygiene:
-
-1. Set issue status at session start and update it at each phase transition.
-2. Post progress comments at meaningful checkpoints during implementation.
-3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
-4. Re-check status and comment freshness toward/at session end before stopping.
 
 ## 6) Generate onboarding prompt for an AI agent (optional)
 
@@ -346,17 +322,7 @@ This prints the canonical onboarding prompt with the repository path injected.
 devrouter init --repo /absolute/path/to/repo --write-agents --write-skill
 ```
 
-To include optional Linear workflow guidance/artifacts:
 
-```bash
-devrouter init --repo /absolute/path/to/repo --with-linear --write-agents --write-skill
-```
-
-With `--with-linear` + AGENTS writes, devrouter asks:
-
-- Linear workspace name
-- Linear team name (optional team key)
-- Linear project name (optional project id)
 
 ## 7) Add apps to `.devrouter.yml`
 

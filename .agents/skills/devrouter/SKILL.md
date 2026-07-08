@@ -177,20 +177,9 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - After upgrading the CLI in a dependent repo, refresh discoverability artifacts with `devrouter repo agents` (or `devrouter init --write-agents --write-skill`).
 - Re-run validation after upgrade: `devrouter doctor --repo .`, `devrouter app ls --repo .`, one representative `devrouter app exec` flow, and `devrouter ls`.
 
-## Optional Linear workflow bootstrap
-
-- To add Linear task-management workflow assets to a repo, run:
-  - `devrouter init --with-linear --write-agents --write-skill`, or
-  - `devrouter repo agents --with-linear`
-- This writes `.agents/skills/linear-workflow/SKILL.md` and reference templates, plus an idempotent AGENTS section.
-- On AGENTS write flows, devrouter asks for minimal Linear mapping (workspace/team/project) and stores it in a managed AGENTS block:
-  - `<!-- devrouter-linear-workflow-config:start -->`
-  - `<!-- devrouter-linear-workflow-config:end -->`
-- In non-interactive mode, placeholder values are written and should be replaced in the next interactive session.
-
 ## Commands
 
-- `devrouter init [--write-agents] [--write-skill] [--with-linear]`: print AI onboarding prompt (non-mutating by default)
+- `devrouter init [--write-agents] [--write-skill]`: print AI onboarding prompt (non-mutating by default)
 - `devrouter -V [--repo .]`: show installed CLI version, local repo version, and next upgrade target
 - `devrouter upgrade [version] [--repo .]`: list upgrade targets or print target Agent Adaptation Prompt
 - `devrouter setup --yes [--repo .] [--json]`: first-run machine setup plus structured diagnostics
@@ -207,7 +196,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter repo devcontainer write --yes`: write managed Node/pnpm/Postgres devcontainer/devrouter scaffold files when no custom-file conflicts exist
 - `devrouter repo devcontainer verify --json`: emit read-only onboarding evidence for PRs
 - `devrouter repo devcontainer verify --live --yes --json`: register proxy routes and probe HTTP routes after the devcontainer is running
-- `devrouter repo agents [--with-linear]`: write devrouter section in AGENTS.md + install this skill (and optional Linear workflow assets)
+- `devrouter repo agents`: write devrouter section in AGENTS.md + install this skill
 - `devrouter app add`: add/update app entry in `.devrouter.yml`
 - `devrouter app ls`: list app entries
 - `devrouter app run <name> [--env <env>] [--workspace <slug>]`: run app with dependency lifecycle (--env overrides SM defaultEnv; --workspace overrides the per-workspace token)

@@ -34,14 +34,12 @@ program
   .option("--json", "Output prompt and command intents as JSON")
   .option("--write-agents", "Write/update devrouter section in AGENTS.md")
   .option("--write-skill", "Write .agents/skills/devrouter/SKILL.md")
-  .option("--with-linear", "Include optional Linear workflow guidance/artifacts when writing")
   .action(withErrorHandling(async (options: {
     repo?: string;
     entriesJson?: string;
     json?: boolean;
     writeAgents?: boolean;
     writeSkill?: boolean;
-    withLinear?: boolean;
   }) => {
     const { runInitCommand } = await import("./commands/init");
     await runInitCommand(options);
@@ -160,8 +158,7 @@ repoCommand
   .command("agents")
   .description("Write/update devrouter section in the repo's AGENTS.md")
   .option("--repo <path>", "Repository path (defaults to current directory)")
-  .option("--with-linear", "Also install optional Linear workflow skill/assets and AGENTS section")
-  .action(withErrorHandling(async (options: { repo?: string; withLinear?: boolean }) => {
+  .action(withErrorHandling(async (options: { repo?: string }) => {
     const { runRepoAgentsCommand } = await import("./commands/repo-agents");
     await runRepoAgentsCommand(options);
   }));

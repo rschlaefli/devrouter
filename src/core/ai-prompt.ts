@@ -16,7 +16,6 @@ import { resolveRepoPath } from './repo-config'
 export type InitPromptOptions = {
   repo?: string
   entriesJson?: string
-  withLinear?: boolean
 }
 
 export type CommandIntent = {
@@ -26,7 +25,7 @@ export type CommandIntent = {
 
 export const COMMAND_INTENTS: CommandIntent[] = [
   {
-    command: 'devrouter init [--with-linear]',
+    command: 'devrouter init',
     purpose:
       'Print the AI onboarding prompt template for a repository (non-mutating by default).',
   },
@@ -110,9 +109,9 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       'Remove one app entry from `.devrouter.yml` and free its route. `--keep-config` frees only the live route/hostname (e.g. to release one claimed by another repo) and leaves the config file untouched.',
   },
   {
-    command: 'devrouter repo agents [--with-linear]',
+    command: 'devrouter repo agents',
     purpose:
-      "Write/update devrouter section in the repo's AGENTS.md and optionally add Linear workflow assets.",
+      "Write/update devrouter section in the repo's AGENTS.md and install the devrouter skill.",
   },
   {
     command: 'devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]',
@@ -173,7 +172,6 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
   const repoPath = resolveRepoPath(options.repo)
   const entriesJson = normalizeEntriesJson(options.entriesJson)
   const projectName = repoPath.split(/[\\/]/).filter(Boolean).pop() ?? 'repo'
-  const withLinear = Boolean(options.withLinear)
 
   return [
     'You are adapting an existing repository to devrouter using the unified .devrouter.yml model.',
@@ -349,26 +347,6 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     '   - devrouter ls exposes expected endpoints',
     '   - HTTP routes reachable',
     '   - TCP Postgres route configured with TLS requirement noted',
-    ...(withLinear
-      ? [
-          '',
-          'Linear milestone workflow (enabled via --with-linear):',
-          '- Before creating/updating Linear issues, confirm repository mapping basics with the user:',
-          '  - Which Linear workspace does this repository belong to?',
-          '  - Which Linear team owns this repository? (optional team key)',
-          '  - Which Linear project should this work use? (optional project id)',
-          '- When `--with-linear` is used together with AGENTS write flows, persist answers into the managed AGENTS block between:',
-          '  - `<!-- devrouter-linear-workflow-config:start -->`',
-          '  - `<!-- devrouter-linear-workflow-config:end -->`',
-          '- If placeholders are present in that block, ask these questions again and update the mapping.',
-          '- While implementing Linear-tracked work, set issue status at session start and at each phase transition.',
-          '- Post progress comments at meaningful checkpoints during implementation (not only at the end).',
-          '- Before ending a session, post a final recap comment with completed work, remaining work, risks, and next step, then re-check status/comment freshness.',
-          '- Optional bootstrap commands for repo artifacts: `devrouter init --repo <REPO_PATH> --with-linear --write-agents --write-skill` or `devrouter repo agents --repo <REPO_PATH> --with-linear`.',
-          '- If the repository uses devrouter, keep `.devrouter.yml` metadata `devrouter.version` updated and run `devrouter -V` to verify installed/local versions plus the next target.',
-          '- Resolve adaptation prompts with `devrouter upgrade` (list targets) and `devrouter upgrade <version>` (target prompt), sourced from `upgrade-prompts/<version>.md` in the devrouter release.',
-        ]
-      : []),
     '',
     renderCommandIntentSection(),
   ].join('\n')

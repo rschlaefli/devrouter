@@ -10,12 +10,12 @@ STARTED_ROUTER="false"
 HOST_RUN_PID=""
 
 run_dev() {
-  if command -v dev >/dev/null 2>&1; then
-    dev "$@"
+  if command -v devrouter >/dev/null 2>&1; then
+    devrouter "$@"
     return
   fi
 
-  node "$ROOT_DIR/dist/dev.js" "$@"
+  node "$ROOT_DIR/dist/devrouter.js" "$@"
 }
 
 cleanup() {

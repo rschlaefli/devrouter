@@ -34,14 +34,7 @@ Keep these docs up to date with any behavior, command, schema, or onboarding wor
 2. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
 3. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
 
-## Linear execution hygiene
 
-When work is tracked in Linear, this is required:
-
-1. Set the issue status at session start and update it at each phase transition.
-2. Post progress comments at meaningful checkpoints during implementation.
-3. Before ending a session, post a final comment with completed work, remaining work, risks, and next step.
-4. Re-check status and comment freshness toward/at session end before stopping.
 
 ## Current product model
 
@@ -64,12 +57,12 @@ Supported routing:
 
 ## Supported command surface
 
-- `devrouter init` (`--write-agents` / `--write-skill` optional; `--with-linear` optional; non-mutating by default)
+- `devrouter init` (`--write-agents` / `--write-skill` optional; non-mutating by default)
 - `devrouter -V` (`--repo <path>` optional; shows installed CLI version, local repo version, next upgrade target)
 - `devrouter upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
 - `devrouter setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics)
 - `devrouter up`, `devrouter down`, `devrouter status`, `devrouter doctor` (alias: `devrouter verify`), `devrouter ls`, `devrouter open`, `devrouter logs`, `devrouter tls install`
-- `devrouter repo init`, `devrouter repo inspect` (`--json`), `devrouter repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `devrouter repo devcontainer verify` (`--live`, `--yes`, `--json`), `devrouter repo agents` (`--with-linear` optional)
+- `devrouter repo init`, `devrouter repo inspect` (`--json`), `devrouter repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `devrouter repo devcontainer verify` (`--live`, `--yes`, `--json`), `devrouter repo agents`
 - `devrouter app add` (`--kind app|dependency`), `devrouter app ls`, `devrouter app run` (`--env`, `--workspace`), `devrouter app exec` (`--shell`, `--env`, `--workspace`), `devrouter app rm` (`--keep-config`)
 - `devrouter workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `devrouter workspace ls` (`--json`), `devrouter workspace down` (`<workspace|branch>`, `--keep-worktree`, `--keep-devpod`)
 
@@ -79,7 +72,6 @@ Supported routing:
 - `src/core/ai-prompt.ts`: canonical AI onboarding prompt template + command intents
 - `src/core/upgrade.ts`: repo version metadata + `upgrade-prompts/*.md` resolution for upgrade flows
 - `src/core/agents-md.ts`: idempotent AGENTS.md section writer + skill file distributor for repo discoverability
-- `src/core/linear-onboarding.ts`: guided Linear workspace/team/project metadata collector for AGENTS bootstrap
 - `src/commands/repo-agents.ts`: `devrouter repo agents` command handler
 - `src/commands/repo-inspect.ts`: `devrouter repo inspect` command handler
 - `src/commands/repo-devcontainer.ts`: `devrouter repo devcontainer write/verify` command handlers
@@ -119,16 +111,12 @@ Supported routing:
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `devrouter upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
-- `.agents/skills/linear-workflow/SKILL.md`: optional Linear workflow skill (written with `--with-linear`)
-- `.agents/skills/linear-workflow/references/*`: optional issue/milestone/progress templates for Linear workflow
 - `.agents/skills/devcontainer-onboarding/SKILL.md`: skill for agents onboarding a repo to a self-contained devcontainer + proxy-only routing (`GOTCHAS.md`, `REFERENCE.md`, `references/*` templates)
 - `src/core/__tests__/paths.test.ts`: unit tests for path traversal guard
 - `src/core/__tests__/repo-config.test.ts`: unit tests for `.devrouter.yml` schema validation
 - `src/core/__tests__/routes.test.ts`: unit tests for route discovery and resolution
 - `src/core/__tests__/ai-prompt.test.ts`: unit tests for onboarding prompt/schema consistency
-- `src/core/__tests__/agents-md.test.ts`: unit tests for AGENTS/skill file writers (including Linear workflow support)
-- `src/core/__tests__/linear-onboarding.test.ts`: unit tests for guided Linear metadata collection + placeholder fallback
-- `src/core/__tests__/concurrency.test.ts`: unit tests for concurrent run guard, dead-PID eviction, and orphaned-worktree proxy route reclaim
+- `src/core/__tests__/agents-md.test.ts`: unit tests for AGENTS/skill file writers
 - `src/core/__tests__/workspace.test.ts`: unit tests for workspace token resolution + worktree detection
 - `src/core/__tests__/workspace-lifecycle.test.ts`: unit tests for `devrouter workspace up/ls/down` orchestration (devpod `--id`/`WORKSPACE` env, route reclaim by tag)
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
@@ -138,7 +126,7 @@ Supported routing:
 - `src/commands/__tests__/init.test.ts`: unit tests for `devrouter init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `devrouter open` app-name fallback behavior
 - `src/commands/__tests__/repo-init.test.ts`: unit tests for `devrouter repo init` metadata initialization behavior
-- `src/commands/__tests__/repo-agents.test.ts`: unit tests for `devrouter repo agents` optional `--with-linear` behavior
+- `src/commands/__tests__/repo-agents.test.ts`: unit tests for `devrouter repo agents` behavior
 - `src/commands/__tests__/upgrade.test.ts`: unit tests for `devrouter upgrade` and `devrouter -V`
 - `src/core/__tests__/upgrade.test.ts`: unit tests for version metadata + prompt-file parsing
 - `vitest.config.ts`: Vitest configuration
@@ -170,7 +158,7 @@ Supported routing:
 - **Workspace runtime config**: `loadRuntimeConfig(repoPath, workspaceOverride?)` resolves the workspace token (`resolveWorkspace`) and returns `applyWorkspace(config, ws)` — a deep-cloned, in-memory config with namespaced hosts, `${WORKSPACE}` upstreams substituted (re-validated), and per-workspace docker `router` keys. The committed `.devrouter.yml` is never rewritten. All read paths (`status`, `doctor`, `open`, `app-run`) load through this; the resolved workspace threads down to `upsertHostRoute` as `HostRouteState.workspace` so teardown/GC can filter by tag without re-reading config.
 - **Workspace lifecycle glue**: `devrouter workspace up` exports `WORKSPACE=<ws>` into the `devpod up` env (drives the compose `${WORKSPACE:-<project>}` alias, same mechanism as the existing `${HOME}` mount substitution) and registers namespaced routes; `devrouter workspace down` frees routes by state-file `workspace` tag (no config load, survives a deleted worktree). devpod calls are best-effort, gated on `hasDevpod()`.
 - **Orphaned-route diagnostics**: `devrouter doctor` reports proxy routes with a `workspace` tag whose `repoPath` worktree dir no longer exists. It does not mutate route state; explicit teardown remains `devrouter workspace down` or targeted route removal.
-- **Linear bootstrap metadata**: `--with-linear` AGENTS write flows collect minimal Linear mapping (workspace/team/project), write placeholders in non-interactive mode, and persist to managed AGENTS block sentinels.
+
 - **Secret-manager precedence diagnostics**: `devrouter doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 - **TLS host coverage**: `startAppDependencies()` in `app-run.ts` calls TLS coverage refresh for all configured repo hosts when TLS is enabled. `devrouter doctor` emits `repo.tls-host-coverage` when configured hosts are not covered by current cert SANs.
 - **SM env override**: `secretManager.command` supports `{env}` template placeholders resolved by `resolveSmCommand()` in `app-run.ts`. `defaultEnv` provides the config-level fallback; `--env` CLI flag overrides at runtime. Resolution happens at usage sites in `execWithAppEnv` and `runHostApp` before passing to `wrapWithSecretManager`.

@@ -3,7 +3,7 @@ set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SRC/../.." && pwd)"
-DEV() { if [ -x "$ROOT/dist/dev.js" ]; then node "$ROOT/dist/dev.js" "$@"; else command dev "$@"; fi; }
+DEV() { if [ -x "$ROOT/dist/devrouter.js" ]; then node "$ROOT/dist/devrouter.js" "$@"; else command devrouter "$@"; fi; }
 
 WORKSPACE_NAME="devcontainer-demo"
 DEVPOD_ID="${DEVROUTER_EXAMPLE_DEVPOD_ID:-devrouter-devcontainer-demo}"
@@ -49,8 +49,8 @@ require devpod
 require curl
 require node
 
-if [ ! -x "$ROOT/dist/dev.js" ] && ! command -v dev >/dev/null 2>&1; then
-  echo "devrouter CLI not found. Run pnpm build or install dev first." >&2
+if [ ! -x "$ROOT/dist/devrouter.js" ] && ! command -v devrouter >/dev/null 2>&1; then
+  echo "devrouter CLI not found. Run pnpm build or install devrouter first." >&2
   exit 1
 fi
 
