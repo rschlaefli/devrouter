@@ -16,6 +16,8 @@ Clean split of responsibilities:
 This works with any devcontainer-spec runner (DevPod, VS Code Dev Containers,
 `@devcontainers/cli`, Codespaces) — the container just needs to join `devnet`.
 
+We recommend **DevPod** for orchestrating the devcontainer lifecycle locally because it is a client-only, open-source tool that executes entirely locally on Docker. It mounts and syncs workspace files in the background without forcing developers into a specific IDE or requiring proprietary extensions.
+
 > Requires devrouter ≥ 0.0.21 (TCP proxy routes). The end-to-end onboarding
 > playbook + reference templates + gotchas live in the
 > `devcontainer-onboarding` skill (`.agents/skills/devcontainer-onboarding/`).

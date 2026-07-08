@@ -51,6 +51,12 @@ devrouter repo devcontainer verify --live --yes --json
 
 Why prefer it: the environment is reproducible and runs anywhere the devcontainer
 spec runs, while devrouter gives it stable local HTTPS and database hostnames.
+
+We recommend **DevPod** to orchestrate the devcontainer lifecycle locally because:
+- **IDE/Editor Independence**: DevPod manages the container lifecycle and code synchronization in the background, allowing developers to use any local editor (VS Code, JetBrains, vim) with the containerized toolchain.
+- **No Vendor Lock-in**: It is a client-only, open-source runner that runs entirely locally on Docker without requiring Microsoft's proprietary VS Code extensions or cloud-based runners.
+- **devrouter Integration**: DevPod spins up the devcontainer compose stack on the `devnet` network, and devrouter handles dynamic HTTPS domain routing (`*.localhost`), making manual port-forwarding management obsolete.
+
 Agents can add the scaffold with `devrouter repo inspect`, `devrouter repo devcontainer write`,
 and `devrouter repo devcontainer verify`, then include the JSON evidence in a PR. See
 [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) for the full reference.
