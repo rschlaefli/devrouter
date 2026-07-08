@@ -7,13 +7,13 @@ Local-first routing for macOS development with one shared Traefik router.
 Run multiple repos concurrently without manual port juggling:
 
 - HTTP apps by hostname: `web.localhost`, `api.localhost`
-- PostgreSQL DBs by hostname on shared `:5432` via TLS/SNI: `db.localhost`
+- Databases (Postgres, Redis, MariaDB, MySQL) by hostname on their standard shared ports via TLS/SNI: `db.localhost`, `redis.localhost`
 
 Traefik owns:
 
 - `:80` (HTTP)
 - `:443` (HTTPS)
-- `:5432` (Postgres TCP routing)
+- Shared protocol ports for activated databases (e.g. `:5432`, `:6379`, `:3306`)
 
 ## Unified repo config
 
