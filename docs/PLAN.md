@@ -29,11 +29,14 @@ Delivered and active:
 - `devrouter app run` / `devrouter app exec` auto-refresh TLS SAN coverage for configured repo hosts
 - Agent discoverability flow via `devrouter repo agents`
 - Repository quality gates via Biome, Knip, TypeScript, pre-commit, and Gitleaks
-- Workspace isolation: `devrouter workspace up/ls/down` for parallel git worktrees of one repo
-  - Three-layer identity: devpod workspace id, devrouter route namespace, and `${WORKSPACE}` upstream placeholder
-  - Token resolution: `--workspace` flag > `DEVROUTER_WORKSPACE` env var > branch-derived slug > none (primary checkout, back-compatible)
+- Workspace isolation: `devrouter workspace up/ensure/ls/down` for parallel git worktrees of one repo
+  - One persisted identity across DevPod id, devrouter route namespace, `${WORKSPACE}` upstreams, and devnet aliases
+  - Exact-path DevPod discovery; first use derives a sanitized branch/path slug only when no exact DevPod exists
+  - Persisted identity is authoritative; ambiguous or conflicting identities fail closed
   - Hosts auto-namespaced in memory (`web.localhost` → `web.<ws>.localhost`); committed `.devrouter.yml` is never rewritten
   - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`
+  - `workspace ensure` validates overlay/Git mounts, environment, aliases, health, Git access, HTTP route reachability, and unique running TCP upstream ownership; one stale DevPod gets one recreate
+  - Route replacement happens atomically only after runtime proof; ensure/down serialize per worktree
   - TLS SAN auto-extended for active workspace hosts
   - `devrouter doctor` check `routes.orphaned-workspace-routes` reports worktrees removed without `devrouter workspace down`
 

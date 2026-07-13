@@ -8,6 +8,7 @@ It contains:
 - a zero-dependency Node HTTP app
 - a Postgres service
 - `.devcontainer/` with no published host ports
+- a default compose overlay plus the linked-worktree Git overlay used by `workspace ensure`
 - `.devrouter.yml` proxy routes using `${WORKSPACE}` upstreams
 - `run.sh` for live smoke verification
 
@@ -46,3 +47,7 @@ Expected app response:
 
 The devcontainer compose file attaches both services to the external `devnet`
 network with matching `${WORKSPACE:-devcontainer-demo}-*` aliases.
+
+When this shape is used from a linked worktree, run `devrouter workspace ensure .`.
+It selects `docker-compose.devrouter.yml`, supplies the host Git common-directory
+bind, and proves the exact DevPod, aliases, routes, and endpoints before success.

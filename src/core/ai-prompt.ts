@@ -112,7 +112,12 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   {
     command: "devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]",
     purpose:
-      "Create a git worktree for <branch>, bring up its devpod (`devpod up --id <ws>`), and register workspace-namespaced routes.",
+      "Create a git worktree for <branch>, then run the proven workspace startup unless --no-devpod is set.",
+  },
+  {
+    command: "devrouter workspace ensure [path] [--open]",
+    purpose:
+      "Start or reconcile the exact linked worktree DevPod, prove its runtime, and atomically register workspace routes.",
   },
   {
     command: "devrouter workspace ls [--json]",
@@ -269,12 +274,12 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- `envMap` on dependency references (config-level) aliases per-dep vars after dependency env resolution. `envMap` fails fast when source var is missing.",
     "",
     "Workspace isolation (parallel git worktrees / agents):",
-    `- A "workspace token" lets several worktrees of one repo run in parallel without host/route collisions. It is a single identity spanning three layers: the devpod workspace id (\`devpod up --id <ws>\`), the routes devrouter registers, and the \`${WORKSPACE_PLACEHOLDER}\` placeholder in \`.devrouter.yml\` upstreams + the devcontainer compose network alias.`,
-    "- Token resolution precedence: `--workspace <slug>` flag > `DEVROUTER_WORKSPACE` env var > auto-derived from a linked git worktree branch (sanitized: lowercase, non-alphanumeric → `-`, capped at 32 chars) > none. The primary checkout resolves to no token and routes exactly as before (fully back-compatible).",
+    `- A "workspace token" lets several worktrees of one repo run in parallel without host/route collisions. Each linked worktree persists one authoritative identity spanning the DevPod id, devrouter routes, the \`${WORKSPACE_PLACEHOLDER}\` proxy upstream, and devcontainer aliases.`,
+    "- First use reuses an exact-path DevPod or derives a sanitized branch/path identity. Later flags or `DEVROUTER_WORKSPACE` may repeat but cannot rename the persisted identity. Ambiguous identities fail closed. The primary checkout stays non-namespaced.",
     `- When a workspace is active: hosts auto-namespace (\`web.localhost\` → \`web.<ws>.localhost\`), \`${WORKSPACE_PLACEHOLDER}\` in \`upstream\` is substituted with the token, and the docker \`router\` key is suffixed per workspace. The runtime config is computed in memory only — the committed \`.devrouter.yml\` is never rewritten.`,
     "- TLS: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.",
-    "- Lifecycle: `devrouter workspace up <branch>` (create worktree + devpod + routes), `devrouter workspace ls` (list worktrees/tokens/route counts), `devrouter workspace down <workspace|branch>` (free routes + stop devpod + remove worktree). `devrouter doctor` reports orphaned workspace proxy routes whose worktree dir was removed without `devrouter workspace down`.",
-    `- devcontainer integration: the devcontainer compose service exposes a devnet alias \`${WORKSPACE_PLACEHOLDER}-app\` (default \`WORKSPACE=<project>\` in \`devcontainer.env\`), and the proxy app uses \`upstream: ${WORKSPACE_PLACEHOLDER}-app:<port>\`. Spinning up workspace \`feat-a\` → alias \`feat-a-app\`, host \`app.feat-a.localhost\`.`,
+    "- Lifecycle: `devrouter workspace up <branch>` creates and starts a new worktree; `devrouter workspace ensure .` is the canonical start/reconcile command inside an existing linked worktree; `workspace ls` reports state; `workspace down` serializes teardown with ensure.",
+    "- devcontainer integration: `devcontainer.json` lists the base compose file then `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}`. The default overlay contains `services: {}`; `.devcontainer/docker-compose.devrouter.yml` passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute app-container path. Ensure proves exact DevPod ownership, overlay/Git mounts, env, aliases, health, Git, HTTP route reachability, and unique running TCP upstream ownership before success.",
     "",
     "Secret Manager Integration (config-based):",
     "- Optional top-level `secretManager.command` in `.devrouter.yml` wraps `devrouter app run` and `devrouter app exec` commands with the SM command and re-applies devrouter-injected dep env vars after the SM boundary via `env KEY=VAL` prefix.",
@@ -314,7 +319,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- devrouter repo devcontainer write --repo <REPO_PATH> --dry-run --json",
     "- devrouter repo devcontainer write --repo <REPO_PATH> --yes",
     "- devrouter repo devcontainer verify --repo <REPO_PATH> --json",
-    "- After `devpod up <REPO_PATH>`: devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json",
+    "- In a linked worktree: devrouter workspace ensure <REPO_PATH>",
+    "- In a primary checkout after `devpod up <REPO_PATH>`: devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json",
     "",
     "Validation commands to run/report for host/docker runtime apps:",
     "- devrouter setup --yes --json",

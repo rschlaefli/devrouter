@@ -1,10 +1,16 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { runConfiguredApp } from "./app-run";
-import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
+import { resolveRepoPath } from "./repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
-import { isLinkedWorktree, wsFromBranch } from "./workspace";
+import {
+  isLinkedWorktree,
+  resolveWorktreeWorkspace,
+  sameWorkspacePath,
+  withWorkspaceLifecycleLock,
+  wsFromBranch,
+} from "./workspace";
+import { workspaceEnsure } from "./workspace-ensure";
 
 // `dev workspace` ties a git worktree, an optional devpod/devcontainer, and the
 // per-workspace routes together so an agent can spin up (and tear down) a fully
@@ -25,6 +31,7 @@ function hasDevpod(): boolean {
 }
 
 type GitWorktree = { path: string; branch: string | undefined };
+type IdentifiedGitWorktree = GitWorktree & { workspace: string | undefined };
 
 function listGitWorktrees(repoPath: string): GitWorktree[] {
   const result = spawnSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
@@ -55,7 +62,59 @@ function listGitWorktrees(repoPath: string): GitWorktree[] {
 }
 
 function defaultWorktreePath(mainRepo: string, ws: string): string {
+  return path.join(mainRepo, "trees", ws);
+}
+
+function assertDefaultWorktreeRootIgnored(mainRepo: string): void {
+  const ignored = spawnSync("git", ["-C", mainRepo, "check-ignore", "-q", "--no-index", "trees/"], {
+    encoding: "utf-8",
+  });
+  if (ignored.status !== 0) {
+    throw new Error(
+      `Default worktree root '${path.join(mainRepo, "trees")}' is not ignored. Add 'trees/' to '${path.join(mainRepo, ".gitignore")}' or use --path.`,
+    );
+  }
+}
+
+function legacyDefaultWorktreePath(mainRepo: string, ws: string): string {
   return path.join(path.dirname(mainRepo), `${path.basename(mainRepo)}-${ws}`);
+}
+
+function teardownFallbackPath(mainRepo: string, workspace: string): string {
+  const candidates = [
+    defaultWorktreePath(mainRepo, workspace),
+    legacyDefaultWorktreePath(mainRepo, workspace),
+  ];
+  const routes = listRoutesForWorktreePaths(candidates);
+  const routed = candidates.filter((candidate) => (routes.get(candidate)?.length ?? 0) > 0);
+  if (routed.length > 1) {
+    throw new Error(
+      `Workspace target '${workspace}' has routes for multiple removed worktree paths: ${routed.join(", ")}`,
+    );
+  }
+  return routed[0] ?? candidates[0];
+}
+
+function identifyGitWorktrees(mainRepo: string): IdentifiedGitWorktree[] {
+  return listGitWorktrees(mainRepo).map((worktree) => ({
+    ...worktree,
+    workspace: isLinkedWorktree(worktree.path)
+      ? resolveWorktreeWorkspace(worktree.path, worktree.branch)
+      : undefined,
+  }));
+}
+
+function oneWorkspaceMatch(
+  target: string,
+  matches: IdentifiedGitWorktree[],
+): IdentifiedGitWorktree | undefined {
+  if (matches.length > 1) {
+    const details = matches
+      .map((match) => `${match.path} (${match.branch ?? "detached"})`)
+      .join(", ");
+    throw new Error(`Workspace target '${target}' is ambiguous: ${details}`);
+  }
+  return matches[0];
 }
 
 export async function workspaceUp(
@@ -71,8 +130,22 @@ export async function workspaceUp(
 
   // 1. Create the worktree (idempotent). Try an existing branch first, then create one.
   if (fs.existsSync(worktreePath)) {
+    const registered = listGitWorktrees(mainRepo).find((worktree) =>
+      sameWorkspacePath(worktree.path, worktreePath),
+    );
+    if (!registered || sameWorkspacePath(registered.path, mainRepo)) {
+      throw new Error(`Existing path '${worktreePath}' is not a linked worktree of '${mainRepo}'.`);
+    }
+    if (registered.branch !== branch) {
+      throw new Error(
+        `Existing worktree '${worktreePath}' uses branch '${registered.branch ?? "detached"}', not '${branch}'.`,
+      );
+    }
     process.stdout.write(`Worktree already exists: ${worktreePath}\n`);
   } else {
+    if (!opts.path) {
+      assertDefaultWorktreeRootIgnored(mainRepo);
+    }
     const add = spawnSync("git", ["-C", mainRepo, "worktree", "add", worktreePath, branch], {
       encoding: "utf-8",
     });
@@ -95,71 +168,22 @@ export async function workspaceUp(
     process.stdout.write(`Created worktree ${worktreePath} (workspace '${ws}')\n`);
   }
 
-  // 2. Bring up the devcontainer via devpod. `--id <ws>` sets the devpod
-  //    workspace id; `WORKSPACE=<ws>` in the environment is what actually drives the
-  //    compose `${WORKSPACE:-<project>}` alias substitution (devpod's `docker
-  //    compose` child inherits this env), so the container's devnet alias becomes
-  //    `<ws>-app` — matching the `${WORKSPACE}` upstream devrouter resolves for
-  //    this worktree. Best-effort; gated on devpod being installed.
-  if (!opts.noDevpod && hasDevpod()) {
-    const dp = spawnSync("devpod", ["up", worktreePath, "--id", ws, "--open-ide=false"], {
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        WORKSPACE: ws,
-        DEVCONTAINER_COMPOSE_OVERLAY: "docker-compose.devrouter.yml",
-      },
-    });
-    if (dp.status !== 0) {
-      process.stderr.write(`Warning: 'devpod up' failed; continuing with route registration.\n`);
-    }
+  if (opts.noDevpod) {
+    process.stdout.write("Skipped environment startup; no routes were changed.\n");
+    return;
   }
 
-  // 3. Register routes for non-host routed apps. Pass `ws` explicitly (rather than
-  //    re-deriving it inside the call) so the route tag, the devpod id, and
-  //    the namespaced host always agree — even under DEVROUTER_WORKSPACE or a
-  //    detached-HEAD worktree, where auto-detection would diverge.
-  const { config } = loadRuntimeConfig(worktreePath, ws);
-  const routed = config.apps.filter(
-    (app): app is Extract<typeof app, { host: string }> => "host" in app,
-  );
-  const urls: string[] = [];
-  const openUrls: string[] = [];
-  for (const app of routed) {
-    if (app.runtime === "host") {
-      process.stdout.write(
-        `Skipping host app '${app.name}' (run it in the worktree with 'dev app run ${app.name}').\n`,
-      );
-      continue;
-    }
-    await runConfiguredApp({ name: app.name, repoPath: worktreePath, workspace: ws, yes: true });
-    if (app.protocol === "tcp") {
-      urls.push(`${app.host} (tcp/${app.tcpProtocol})`);
-    } else {
-      const url = `https://${app.host}`;
-      urls.push(url);
-      openUrls.push(url);
-    }
-  }
-
-  if (urls.length > 0) {
-    process.stdout.write(`\nWorkspace '${ws}' routes:\n${urls.map((u) => `  ${u}`).join("\n")}\n`);
-  }
-  if (opts.open) {
-    for (const url of openUrls) {
-      const opened = spawnSync("open", [url], { encoding: "utf-8" });
-      if (opened.status !== 0) {
-        const detail = [opened.stdout, opened.stderr].filter(Boolean).join("\n").trim();
-        throw new Error(`Unable to open '${url}': ${detail || "unknown error"}`);
-      }
-      process.stdout.write(`Opened ${url}\n`);
-    }
+  const ensured = await workspaceEnsure(worktreePath, { open: opts.open });
+  if (ensured.urls.length > 0) {
+    process.stdout.write(
+      `\nWorkspace '${ensured.workspace}' routes:\n${ensured.urls.map((url) => `  ${url}`).join("\n")}\n`,
+    );
   }
 }
 
 export function workspaceLs(repoPath?: string): WorkspaceRow[] {
   const mainRepo = resolveRepoPath(repoPath);
-  const worktrees = listGitWorktrees(mainRepo);
+  const worktrees = identifyGitWorktrees(mainRepo);
   const routesByWorktreePath = listRoutesForWorktreePaths(
     worktrees.map((worktree) => worktree.path),
   );
@@ -170,10 +194,9 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
     // git lists the primary first. Attribute routes by worktree path (not by tag),
     // so counts stay correct under detached HEAD and never absorb another repo's
     // untagged routes.
-    const workspace = isLinkedWorktree(wt.path) && wt.branch ? wsFromBranch(wt.branch) : undefined;
     const wsRoutes = routesByWorktreePath.get(wt.path) ?? [];
     return {
-      workspace,
+      workspace: wt.workspace,
       branch: wt.branch,
       worktreePath: wt.path,
       routeCount: wsRoutes.length,
@@ -182,12 +205,12 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
   });
 }
 
-export function workspaceDown(
+export async function workspaceDown(
   target: string,
   opts: { keepWorktree?: boolean; keepDevpod?: boolean; repoPath?: string } = {},
-): { freedRoutes: number; workspace: string } {
-  const ws = wsFromBranch(target);
-  if (!ws) {
+): Promise<{ freedRoutes: number; workspace: string }> {
+  const requestedWorkspace = wsFromBranch(target);
+  if (!requestedWorkspace) {
     throw new Error(`'${target}' does not yield a valid workspace token.`);
   }
 
@@ -195,34 +218,55 @@ export function workspaceDown(
   // path) so route freeing can be scoped to it. Never load the worktree's config,
   // so teardown still works when the worktree/.devrouter.yml is already gone.
   const mainRepo = resolveRepoPath(opts.repoPath);
-  const match = listGitWorktrees(mainRepo).find(
-    (wt) => wt.branch && wsFromBranch(wt.branch) === ws,
+  const worktrees = identifyGitWorktrees(mainRepo).filter(
+    (worktree) => worktree.workspace !== undefined,
   );
-  const worktreePath = match?.path ?? defaultWorktreePath(mainRepo, ws);
+  const exactBranchMatch = worktrees.find((worktree) => worktree.branch === target);
+  const match =
+    exactBranchMatch ??
+    oneWorkspaceMatch(
+      target,
+      worktrees.filter((worktree) => worktree.workspace === requestedWorkspace),
+    ) ??
+    oneWorkspaceMatch(
+      target,
+      worktrees.filter(
+        (worktree) =>
+          worktree.branch !== undefined && wsFromBranch(worktree.branch) === requestedWorkspace,
+      ),
+    );
+  const workspace = match?.workspace ?? requestedWorkspace;
+  const worktreePath = match?.path ?? teardownFallbackPath(mainRepo, workspace);
 
-  // Free routes by the workspace tag AND the worktree path, so a same-named
-  // workspace in a different repo is never torn down by this call.
-  const routes = removeWorkspaceRoutesForWorktree(ws, worktreePath);
-  process.stdout.write(`Freed ${routes.length} route(s) for workspace '${ws}'.\n`);
+  const teardown = async (): Promise<{ freedRoutes: number; workspace: string }> => {
+    // Free routes by the workspace tag AND the worktree path, so a same-named
+    // workspace in a different repo is never torn down by this call.
+    const routes = removeWorkspaceRoutesForWorktree(workspace, worktreePath);
+    process.stdout.write(`Freed ${routes.length} route(s) for workspace '${workspace}'.\n`);
 
-  if (!opts.keepDevpod && hasDevpod()) {
-    spawnSync("devpod", ["stop", ws], { stdio: "inherit" });
-  }
+    if (!opts.keepDevpod && hasDevpod()) {
+      spawnSync("devpod", ["stop", workspace], { stdio: "inherit" });
+    }
 
-  if (!opts.keepWorktree) {
-    if (fs.existsSync(worktreePath) && worktreePath !== mainRepo) {
-      const rm = spawnSync("git", ["-C", mainRepo, "worktree", "remove", worktreePath], {
-        encoding: "utf-8",
-      });
-      if (rm.status === 0) {
-        process.stdout.write(`Removed worktree ${worktreePath}.\n`);
-      } else {
-        process.stderr.write(
-          `Warning: could not remove worktree ${worktreePath}: ${rm.stderr || "unknown error"}\n`,
-        );
+    if (!opts.keepWorktree) {
+      if (fs.existsSync(worktreePath) && worktreePath !== mainRepo) {
+        const rm = spawnSync("git", ["-C", mainRepo, "worktree", "remove", worktreePath], {
+          encoding: "utf-8",
+        });
+        if (rm.status === 0) {
+          process.stdout.write(`Removed worktree ${worktreePath}.\n`);
+        } else {
+          process.stderr.write(
+            `Warning: could not remove worktree ${worktreePath}: ${rm.stderr || "unknown error"}\n`,
+          );
+        }
       }
     }
-  }
 
-  return { freedRoutes: routes.length, workspace: ws };
+    return { freedRoutes: routes.length, workspace };
+  };
+
+  return match && fs.existsSync(worktreePath)
+    ? withWorkspaceLifecycleLock(worktreePath, teardown)
+    : teardown();
 }

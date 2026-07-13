@@ -42,5 +42,7 @@ describe("agents-md", () => {
     expect(skillContent).toContain("devrouter repo inspect --repo . --json");
     expect(skillContent).toContain("devrouter repo devcontainer write --dry-run --json");
     expect(skillContent).toContain("devrouter repo devcontainer verify --json");
+    expect(skillContent).toContain("DEVCONTAINER_COMPOSE_OVERLAY");
+    expect(skillContent).toContain("DEVROUTER_GIT_COMMON_DIR");
   });
 });

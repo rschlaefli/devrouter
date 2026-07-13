@@ -15,6 +15,28 @@ All notable changes to this project are documented in this file.
 
 - Repository normalized to Biome formatting and import order throughout. Existing files were reformatted in a single pass to establish a clean baseline.
 
+## [0.0.26] - 2026-07-13
+
+### Added
+
+- `devrouter workspace ensure [path]` now attaches to or starts the exact linked worktree's DevPod, persists one stable workspace identity, validates the compose overlay, Git metadata mount, container environment, devnet aliases, route ownership, HTTP route reachability, and unique running TCP upstream ownership/health, and retries once with `--recreate` when an existing DevPod is stale.
+- Managed devcontainer scaffolds now include the default and devrouter compose overlays required for linked-worktree Git access.
+
+### Changed
+
+- Workspace lifecycle operations are serialized per worktree, fail on ambiguous or conflicting identities, and replace routes atomically only after the DevPod runtime proof succeeds.
+- `devrouter workspace up` delegates startup and reconciliation to the same fail-closed lifecycle as `workspace ensure`; `--no-devpod` remains a create-only escape hatch.
+- New worktrees default to the repository-local `trees/<workspace>` layout used by agent workflows.
+
+### Fixed
+
+- Linked-worktree DevPods no longer report success while mounting an unrelated checkout, missing the host Git common directory, exposing stale devnet aliases, or retaining routes for a failed runtime.
+- `devrouter workspace down` no longer inherits unrelated ambient workspace variables and cannot race an in-flight ensure operation for the same worktree.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.26.md
+
 ## [0.0.25] - 2026-07-08
 
 ### Added

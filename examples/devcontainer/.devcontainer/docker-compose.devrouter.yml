@@ -1,0 +1,6 @@
+services:
+  app:
+    volumes:
+      - type: bind
+        source: ${DEVROUTER_GIT_COMMON_DIR}
+        target: ${DEVROUTER_GIT_COMMON_DIR}

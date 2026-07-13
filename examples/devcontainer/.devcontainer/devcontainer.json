@@ -1,6 +1,9 @@
 {
   "name": "devrouter-devcontainer-example",
-  "dockerComposeFile": "docker-compose.yml",
+  "dockerComposeFile": [
+    "docker-compose.yml",
+    "${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}"
+  ],
   "service": "app",
   "workspaceFolder": "/workspaces/devcontainer-demo",
   "postCreateCommand": "bash .devcontainer/post-create.sh",

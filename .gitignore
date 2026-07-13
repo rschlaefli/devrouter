@@ -2,3 +2,4 @@ node_modules
 dist
 trees/
 .DS_Store
+trees/

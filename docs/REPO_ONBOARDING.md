@@ -19,7 +19,7 @@ Supported route types:
 - HTTP proxy apps (`runtime: proxy`, route to an already-running `upstream`; supports `${WORKSPACE}` placeholder for parallel-worktree isolation)
 - TCP apps with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
-- Parallel git worktrees via `devrouter workspace up/ls/down` with auto-namespaced `.localhost` hosts
+- Parallel git worktrees via `devrouter workspace up/ensure/ls/down` with persisted identities and proven, auto-namespaced `.localhost` routes
 
 Scope:
 
@@ -240,6 +240,7 @@ devrouter app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_
 Repo file:
 
 - `.devrouter.yml` is updated/maintained.
+- `.devcontainer/docker-compose.devrouter.yml` is the committed linked-worktree overlay; `workspace ensure` supplies its Git common-directory bind source.
 
 Global generated state:
 
@@ -247,7 +248,7 @@ Global generated state:
 - `~/.config/devrouter/traefik/dynamic/host-routes.yml`
 - `~/.config/devrouter/host-routes-state.json`
 
-No repo-local compose overlay file is required anymore.
+Runtime-generated app overlays stay under the global cache. The committed devcontainer overlay has a different job: it preserves linked-worktree Git metadata and is selected only for the workspace lifecycle.
 
 ## 6) Validation checklist
 
@@ -340,9 +341,7 @@ The skill content is embedded in the CLI bundle, so `devrouter repo agents` alwa
 
 ## 10) Workspace isolation (parallel worktrees)
 
-Multiple git worktrees of the same repo can run concurrently using a **workspace token** — a short slug that namespaces hosts and routes so they do not collide.
-
-**Token precedence:** `--workspace <slug>` flag > `DEVROUTER_WORKSPACE` env var > auto-derived from the worktree branch name > none (primary checkout routes as plain, back-compatible).
+Multiple git worktrees of the same repo can run concurrently using a persisted **workspace token**. First use reuses an exact-path DevPod or derives a sanitized branch/path slug; after that the Git-metadata identity is authoritative. The primary checkout stays plain and non-namespaced.
 
 **Proxy upstream placeholder:** use `${WORKSPACE}` in the `upstream` field of a `runtime: proxy` app so devrouter substitutes the active token at runtime. Using `${WORKSPACE}` in `host` is rejected — hosts are auto-namespaced automatically.
 
@@ -360,6 +359,9 @@ Multiple git worktrees of the same repo can run concurrently using a **workspace
 # Create worktree, start devpod, register routes
 devrouter workspace up feat/my-feature
 
+# Reconcile an existing linked worktree and prove it is ready
+devrouter workspace ensure .
+
 # List worktrees with workspace tokens and route counts
 devrouter workspace ls
 
@@ -368,6 +370,8 @@ devrouter workspace down feat/my-feature
 ```
 
 `devrouter doctor` check `routes.orphaned-workspace-routes` reports routes whose worktree was removed without `devrouter workspace down`; it does not mutate route state.
+
+Workspace-aware devcontainers must select `.devcontainer/docker-compose.devrouter.yml` via `DEVCONTAINER_COMPOSE_OVERLAY`. The overlay passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute path. `workspace ensure` verifies that contract plus the exact worktree, aliases, health, Git access, route ownership, and reachability before success.
 
 ## 11) AI agent prompt (single copy-paste)
 

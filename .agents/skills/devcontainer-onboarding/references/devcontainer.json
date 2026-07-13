@@ -1,6 +1,9 @@
 {
   "name": "{{APP}}",
-  "dockerComposeFile": ["docker-compose.yml"],
+  "dockerComposeFile": [
+    "docker-compose.yml",
+    "${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}"
+  ],
   "service": "app",
   "workspaceFolder": "/workspaces/{{APP}}",
   "overrideCommand": false,

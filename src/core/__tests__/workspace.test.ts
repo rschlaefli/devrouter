@@ -2,7 +2,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isLinkedWorktree, resolveWorkspace, wsFromBranch } from "../workspace";
+import {
+  isLinkedWorktree,
+  persistWorkspace,
+  readPersistedWorkspace,
+  resolveWorkspace,
+  resolveWorktreeWorkspace,
+  withWorkspaceLifecycleLock,
+  wsFromBranch,
+} from "../workspace";
 
 let tmpDir: string;
 
@@ -89,5 +97,69 @@ describe("resolveWorkspace", () => {
     process.env.DEVROUTER_WORKSPACE = "";
     fs.writeFileSync(path.join(tmpDir, ".git"), "gitdir: /repo/.git/worktrees/x\n", "utf-8");
     expect(resolveWorkspace(tmpDir)).toBeUndefined();
+  });
+
+  it("uses one persisted identity across later commands", () => {
+    const gitDir = path.join(tmpDir, "git", "worktrees", "feature");
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".git"), `gitdir: ${gitDir}\n`, "utf-8");
+
+    expect(persistWorkspace(tmpDir, "existing-devpod")).toBe("existing-devpod");
+    expect(readPersistedWorkspace(tmpDir)).toBe("existing-devpod");
+    expect(resolveWorkspace(tmpDir)).toBe("existing-devpod");
+  });
+
+  it("accepts only matching explicit and environment overrides after persistence", () => {
+    const gitDir = path.join(tmpDir, "git", "worktrees", "feature");
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".git"), `gitdir: ${gitDir}\n`, "utf-8");
+    persistWorkspace(tmpDir, "existing-devpod");
+
+    expect(resolveWorkspace(tmpDir, "existing-devpod")).toBe("existing-devpod");
+    expect(() => resolveWorkspace(tmpDir, "branch-derived")).toThrow(
+      "does not match persisted workspace identity 'existing-devpod'",
+    );
+    process.env.DEVROUTER_WORKSPACE = "branch-derived";
+    expect(() => resolveWorkspace(tmpDir)).toThrow(
+      "does not match persisted workspace identity 'existing-devpod'",
+    );
+    expect(resolveWorktreeWorkspace(tmpDir, "feature/branch")).toBe("existing-devpod");
+  });
+
+  it("refuses to overwrite or accept malformed persisted identities", () => {
+    const gitDir = path.join(tmpDir, "git", "worktrees", "feature");
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".git"), `gitdir: ${gitDir}\n`, "utf-8");
+    persistWorkspace(tmpDir, "existing-devpod");
+
+    expect(() => persistWorkspace(tmpDir, "other-devpod")).toThrow(
+      "already has persisted workspace identity 'existing-devpod'",
+    );
+    fs.writeFileSync(path.join(gitDir, "devrouter-workspace"), "Invalid Token!\n", "utf-8");
+    expect(() => readPersistedWorkspace(tmpDir)).toThrow("invalid persisted workspace identity");
+  });
+
+  it("allows only one lifecycle operation per worktree", async () => {
+    const gitDir = path.join(tmpDir, "git", "worktrees", "feature");
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".git"), `gitdir: ${gitDir}\n`, "utf-8");
+
+    await withWorkspaceLifecycleLock(tmpDir, async () => {
+      await expect(withWorkspaceLifecycleLock(tmpDir, async () => undefined)).rejects.toThrow(
+        "workspace lifecycle is already running",
+      );
+    });
+
+    await expect(withWorkspaceLifecycleLock(tmpDir, async () => "done")).resolves.toBe("done");
+  });
+
+  it("atomically reclaims a stale lifecycle lock", async () => {
+    const gitDir = path.join(tmpDir, "git", "worktrees", "feature");
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".git"), `gitdir: ${gitDir}\n`, "utf-8");
+    fs.writeFileSync(path.join(gitDir, "devrouter-workspace.lock"), "2147483647:stale\n");
+
+    await expect(withWorkspaceLifecycleLock(tmpDir, async () => "done")).resolves.toBe("done");
+    expect(fs.existsSync(path.join(gitDir, "devrouter-workspace.lock"))).toBe(false);
   });
 });

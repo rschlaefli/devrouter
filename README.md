@@ -106,6 +106,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `devrouter app rm <name> [--repo <path>]`
 - `devrouter logs [-f]`
 - `devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open] [--repo <path>]`
+- `devrouter workspace ensure [path] [--open]`
 - `devrouter workspace ls [--repo <path>] [--json]`
 - `devrouter workspace down <workspace|branch> [--keep-worktree] [--keep-devpod] [--repo <path>]`
 
@@ -120,12 +121,12 @@ mutate local route state.
 
 A **workspace token** lets several git worktrees of the same repo run side-by-side without host or route collisions. The token is a single identity spanning three layers: the devpod workspace id, the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` proxy upstreams and devcontainer compose network aliases.
 
-**Token resolution precedence** (highest to lowest):
-
-1. `--workspace <slug>` CLI flag
-2. `DEVROUTER_WORKSPACE` environment variable
-3. Auto-derived from the linked git worktree's branch name (sanitized: lowercase, non-alphanumeric → `-`, capped at 32 chars)
-4. None — the primary checkout uses no token and routes exactly as a plain repo (back-compatible)
+Each linked worktree stores one stable identity in its Git metadata. Once stored,
+that value is authoritative: an explicit flag or `DEVROUTER_WORKSPACE` may repeat
+it but cannot silently rename the environment. On first use, devrouter reuses the
+exact DevPod already bound to the worktree path or derives a sanitized identity
+from the linked branch/path. Ambiguous identities and DevPods owned by another
+worktree fail closed. The primary checkout keeps its plain, non-namespaced routes.
 
 **When a workspace token is active:**
 
@@ -142,6 +143,9 @@ A **workspace token** lets several git worktrees of the same repo run side-by-si
 # Bring up a feature branch as an isolated workspace
 devrouter workspace up feat/my-feature
 
+# Reconcile an existing linked worktree (canonical agent startup command)
+devrouter workspace ensure .
+
 # List git worktrees with workspace tokens and route counts
 devrouter workspace ls
 
@@ -149,7 +153,16 @@ devrouter workspace ls
 devrouter workspace down feat/my-feature
 ```
 
-**devcontainer integration:** the devcontainer compose service exposes a devnet network alias `${WORKSPACE}-app` (defaulting to the project name in `devcontainer.env`); the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. Workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.
+New worktrees default to the repository's ignored `trees/<workspace>` directory; use `--path` only when a repository intentionally follows another layout.
+
+**devcontainer integration:** the devcontainer compose service exposes a devnet network alias `${WORKSPACE}-app` (defaulting to the project name in `devcontainer.env`); the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. `.devcontainer/docker-compose.devrouter.yml` passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute container path, so linked-worktree `.git` pointers remain valid. Workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.
+
+`workspace ensure` is intentionally proof-driven: it verifies exact worktree
+ownership, the compose overlay and Git mount, workspace env, devnet aliases,
+container health, Git access, HTTP route reachability, and unique running TCP
+upstream ownership (plus health when configured) before reporting ready. It
+retries one stale DevPod with `--recreate`; failed proof does not leave new routes
+behind.
 
 **Try it:** [`examples/workspace/`](examples/workspace/) is a runnable showcase — `./run.sh` brings up one app in two parallel worktrees (`wsdemo.localhost` and `wsdemo.feat-a.localhost`) served at once, then `./run.sh down` tears it down.
 
