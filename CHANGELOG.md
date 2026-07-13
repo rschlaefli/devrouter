@@ -15,6 +15,16 @@ All notable changes to this project are documented in this file.
 
 - Repository normalized to Biome formatting and import order throughout. Existing files were reformatted in a single pass to establish a clean baseline.
 
+## [0.0.27] - 2026-07-13
+
+### Fixed
+
+- Installed CLI commands now resolve bundled `upgrade-prompts/` through npm's `.bin` symlink instead of looking outside the scoped package.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.27.md
+
 ## [0.0.26] - 2026-07-13
 
 ### Added
