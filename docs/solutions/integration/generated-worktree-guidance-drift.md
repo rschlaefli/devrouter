@@ -24,6 +24,8 @@ Agents following the generated files could skip `devrouter workspace ensure .`, 
 
 The generated quick sequence now gives linked devcontainer worktrees their canonical `workspace ensure` command and labels `app run` as host/docker-only. The skill distinguishes managed-scaffold defaults from custom repository defaults, while retaining the invariant that the combined base and worktree overlay pass both workspace identity variables.
 
+Generated `AGENTS.md` sections now have explicit start and end markers. Re-running `devrouter repo agents` replaces only that owned section. A legacy start-marker-only section is migrated by its known final generated line, preserving any later user-authored content.
+
 Regression assertions cover both generated outputs.
 
 ## Prevention

@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const DEVROUTER_SENTINEL = "<!-- devrouter -->";
+const DEVROUTER_END_SENTINEL = "<!-- /devrouter -->";
+const LEGACY_DEVROUTER_SECTION_END = "- `devrouter ls`";
 const AGENTS_MD = "AGENTS.md";
 const DEVROUTER_SKILL_REL_PATH = ".agents/skills/devrouter/SKILL.md";
 
@@ -268,7 +270,22 @@ function buildDevrouterSection(): string {
     "- Linked devcontainer worktree: `devrouter workspace ensure .`",
     "- Host/docker runtime app only: `devrouter app run <host-app> --repo . --yes`",
     "- `devrouter ls`",
+    DEVROUTER_END_SENTINEL,
   ].join("\n");
+}
+
+function replaceDevrouterSection(content: string): string | undefined {
+  const start = content.indexOf(DEVROUTER_SENTINEL);
+  if (start < 0) return undefined;
+
+  const endSentinel = content.indexOf(DEVROUTER_END_SENTINEL, start);
+  const legacyEnd = content.indexOf(LEGACY_DEVROUTER_SECTION_END, start);
+  let end = -1;
+  if (endSentinel >= 0) end = endSentinel + DEVROUTER_END_SENTINEL.length;
+  else if (legacyEnd >= 0) end = legacyEnd + LEGACY_DEVROUTER_SECTION_END.length;
+
+  if (end < 0) return undefined;
+  return `${content.slice(0, start)}${buildDevrouterSection()}${content.slice(end)}`;
 }
 
 function writeRepoFile(repoPath: string, relPath: string, content: string): string {
@@ -287,7 +304,10 @@ export function ensureAgentsMdSection(repoPath: string): {
   if (existsSync(filePath)) {
     const content = readFileSync(filePath, "utf-8");
     if (content.includes(DEVROUTER_SENTINEL)) {
-      return { path: filePath, written: false };
+      const updated = replaceDevrouterSection(content);
+      if (updated === undefined || updated === content) return { path: filePath, written: false };
+      writeFileSync(filePath, updated, "utf-8");
+      return { path: filePath, written: true };
     }
     writeFileSync(filePath, `${content.trimEnd()}\n\n${buildDevrouterSection()}\n`, "utf-8");
     return { path: filePath, written: true };

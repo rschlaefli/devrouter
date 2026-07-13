@@ -27,6 +27,7 @@ describe("runRepoAgentsCommand", () => {
 
     const agents = fs.readFileSync(path.join(tmpDir, "AGENTS.md"), "utf-8");
     expect(agents).toContain("<!-- devrouter -->");
+    expect(agents).toContain("<!-- /devrouter -->");
     expect(agents).not.toContain("<!-- devrouter-linear-workflow -->");
   });
 });

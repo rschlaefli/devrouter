@@ -20,6 +20,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Generated agent guidance now directs linked devcontainer worktrees to `devrouter workspace ensure .` and keeps host/docker `app run` guidance separate.
+- `devrouter repo agents` now refreshes its owned `AGENTS.md` section while preserving content outside the generated markers, including migration from the legacy start-marker-only format.
 - The installed Devrouter skill now allows repository-specific default compose overlays while requiring the combined worktree config to pass both workspace identity variables.
 
 ### Agent Adaptation Prompt
