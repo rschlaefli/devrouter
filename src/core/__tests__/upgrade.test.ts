@@ -8,6 +8,7 @@ import {
   listAvailableUpgradeTargets,
   normalizeVersion,
   readPromptDirectory,
+  resolvePromptDirectory,
 } from "../upgrade";
 
 let tmpDir: string;
@@ -69,5 +70,26 @@ apps: []
     expect(() => readPromptDirectory(path.join(tmpDir, "upgrade-prompts"))).toThrow(
       "Missing upgrade-prompts directory",
     );
+  });
+
+  it("resolves packaged prompts when invoked through an npm bin symlink", () => {
+    const packageDir = path.join(tmpDir, "node_modules", "@devrouter", "cli");
+    const entryFile = path.join(packageDir, "dist", "devrouter.js");
+    const promptsDir = path.join(packageDir, "upgrade-prompts");
+    const binDir = path.join(tmpDir, "node_modules", ".bin");
+    const binPath = path.join(binDir, "devrouter");
+    fs.mkdirSync(path.dirname(entryFile), { recursive: true });
+    fs.mkdirSync(promptsDir, { recursive: true });
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(entryFile, "", "utf-8");
+    fs.symlinkSync(path.relative(binDir, entryFile), binPath);
+
+    const originalEntryFile = process.argv[1];
+    process.argv[1] = binPath;
+    try {
+      expect(resolvePromptDirectory()).toBe(fs.realpathSync(promptsDir));
+    } finally {
+      process.argv[1] = originalEntryFile;
+    }
   });
 });

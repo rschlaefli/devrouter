@@ -141,8 +141,13 @@ export function resolvePromptDirectory(explicitPath?: string): string {
 
   const entryFile = process.argv[1] ? path.resolve(process.argv[1]) : __filename;
   const entryDir = path.dirname(entryFile);
+  const resolvedEntryDir = fs.existsSync(entryFile)
+    ? path.dirname(fs.realpathSync(entryFile))
+    : entryDir;
   const candidates = [
+    path.resolve(resolvedEntryDir, "..", UPGRADE_PROMPTS_DIR),
     path.resolve(entryDir, "..", UPGRADE_PROMPTS_DIR),
+    path.resolve(__dirname, "..", UPGRADE_PROMPTS_DIR),
     path.resolve(__dirname, "..", "..", UPGRADE_PROMPTS_DIR),
     path.resolve(process.cwd(), UPGRADE_PROMPTS_DIR),
   ];
