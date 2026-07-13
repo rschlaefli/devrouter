@@ -53,7 +53,7 @@ Supported routing:
 - HTTP proxy apps (`runtime: proxy`) — route to an already-running `upstream` (`host:port`) with no lifecycle; for fronting a devcontainer / external process. `upstream` may use the `${WORKSPACE}` token (substituted at runtime; rejected in `host`).
 - TCP apps on shared protocol ports with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
-- Workspace isolation: parallel git worktrees of one repo via a resolved workspace token (`--workspace` > `DEVROUTER_WORKSPACE` > auto-from-worktree-branch > none). When active, hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`) and `${WORKSPACE}` upstreams substitute; the committed `.devrouter.yml` is never rewritten (runtime config is in-memory).
+- Workspace isolation: each linked worktree persists one authoritative workspace identity in its Git metadata. First use reuses an exact-path DevPod or derives a sanitized branch/path identity; later overrides may repeat but never rename it. When active, hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`) and `${WORKSPACE}` upstreams substitute; the committed `.devrouter.yml` is never rewritten (runtime config is in-memory).
 
 ## Supported command surface
 
@@ -64,7 +64,7 @@ Supported routing:
 - `devrouter up`, `devrouter down`, `devrouter status`, `devrouter doctor` (alias: `devrouter verify`), `devrouter ls`, `devrouter open`, `devrouter logs`, `devrouter tls install`
 - `devrouter repo init`, `devrouter repo inspect` (`--json`), `devrouter repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `devrouter repo devcontainer verify` (`--live`, `--yes`, `--json`), `devrouter repo agents`
 - `devrouter app add` (`--kind app|dependency`), `devrouter app ls`, `devrouter app run` (`--env`, `--workspace`), `devrouter app exec` (`--shell`, `--env`, `--workspace`), `devrouter app rm` (`--keep-config`)
-- `devrouter workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `devrouter workspace ls` (`--json`), `devrouter workspace down` (`<workspace|branch>`, `--keep-worktree`, `--keep-devpod`)
+- `devrouter workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `devrouter workspace ensure` (`[path]`, `--open`), `devrouter workspace ls` (`--json`), `devrouter workspace down` (`<workspace|branch>`, `--keep-worktree`, `--keep-devpod`)
 
 ## Repository map
 
@@ -89,7 +89,8 @@ Supported routing:
 - `src/core/docker-error-guidance.ts`: shared Docker failure message enrichment (including disk-space guidance)
 - `src/core/repo-config.ts`: `.devrouter.yml` schema + strict validation; workspace runtime config (`loadRuntimeConfig()`, `applyWorkspace()`, `namespaceHost()`, `${WORKSPACE}` upstream substitution)
 - `src/core/workspace.ts`: workspace token resolution (`resolveWorkspace()`, `wsFromBranch()`, linked-worktree detection)
-- `src/core/workspace-lifecycle.ts`: `devrouter workspace up/ls/down` engine (git worktree + best-effort devpod glue + namespaced route registration)
+- `src/core/workspace-lifecycle.ts`: `devrouter workspace up/ls/down` engine (worktree creation/teardown, lifecycle locking, route cleanup)
+- `src/core/workspace-ensure.ts`: fail-closed `workspace ensure` engine (exact-path DevPod discovery/start, runtime proof, atomic route reconciliation)
 - `src/commands/workspace.ts`: `devrouter workspace` command handlers
 - `src/core/concurrency.ts`: concurrent run guard (`assertAppNotRunning`) + stale route eviction (`evictStaleHostRoutes` for dead PIDs; `evictOrphanedWorkspaceRoutes` for removed-worktree proxy routes)
 - `src/core/app-run.ts`: runtime orchestration, `startAppDependencies()` helper, `runConfiguredApp()`, `execWithAppEnv()`
@@ -104,7 +105,7 @@ Supported routing:
 - `src/core/output.ts`: human table + JSON output
 - `src/types.ts`: shared types
 - `examples/routing/.devrouter.yml`: complete sample config for host+docker+postgres routing
-- `examples/workspace/`: runnable workspace-isolation showcase (`${WORKSPACE}` proxy upstream + `devrouter workspace up/ls/down` over two real git worktrees; `run.sh` brings up two namespaced hosts and prints the proof)
+- `examples/workspace/`: runnable workspace-isolation showcase (`${WORKSPACE}` proxy upstream + workspace lifecycle over two real git worktrees; `run.sh` brings up two namespaced hosts and prints the proof)
 - `examples/devcontainer/`: live DevPod/devcontainer showcase with app + Postgres proxy routes and static/live verify evidence
 - `scripts/smoke-routing.sh`: end-to-end routing smoke script
 - `scripts/smoke-devcontainer.sh`: live DevPod/devcontainer smoke script
@@ -118,7 +119,8 @@ Supported routing:
 - `src/core/__tests__/ai-prompt.test.ts`: unit tests for onboarding prompt/schema consistency
 - `src/core/__tests__/agents-md.test.ts`: unit tests for AGENTS/skill file writers
 - `src/core/__tests__/workspace.test.ts`: unit tests for workspace token resolution + worktree detection
-- `src/core/__tests__/workspace-lifecycle.test.ts`: unit tests for `devrouter workspace up/ls/down` orchestration (devpod `--id`/`WORKSPACE` env, route reclaim by tag)
+- `src/core/__tests__/workspace-lifecycle.test.ts`: unit tests for `devrouter workspace up/ls/down` orchestration (identity persistence, create-only mode, serialized teardown)
+- `src/core/__tests__/workspace-ensure.test.ts`: unit tests for exact-path DevPod ownership, one-time recreate, proof failures, and route replacement
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
 - `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `devrouter app exec`, shell mode guard, per-dep env vars, config-level envMap, exec dependency ownership teardown, and SM `{env}` template resolution
@@ -159,7 +161,7 @@ Supported routing:
 - **Dependency-only apps**: `kind=dependency` entries are Docker-only and do not expose routes; they can be auto-started/stopped only through dependency graphs (not direct `run`/`exec`/`open` targets).
 - **Env injection**: TCP deps get per-dep deterministic vars: `{PREFIX}_HOST`/`_PORT`/`_URL`/`_SHADOW_URL` (where `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`). Protocol-specific URLs: postgres (`postgres://prisma:prisma@...`), redis (`redis://...`), mysql/mariadb (`mysql://root@...`). Config-level `envMap` on dependency references aliases these to project-specific names (e.g. `DATABASE_URL: DB_URL`). Aliases are applied in `startAppDependencies()` and become part of `depEnv` — they flow through SM re-injection and `buildExecEnvironment()` automatically.
 - **Workspace runtime config**: `loadRuntimeConfig(repoPath, workspaceOverride?)` resolves the workspace token (`resolveWorkspace`) and returns `applyWorkspace(config, ws)` — a deep-cloned, in-memory config with namespaced hosts, `${WORKSPACE}` upstreams substituted (re-validated), and per-workspace docker `router` keys. The committed `.devrouter.yml` is never rewritten. All read paths (`status`, `doctor`, `open`, `app-run`) load through this; the resolved workspace threads down to `upsertHostRoute` as `HostRouteState.workspace` so teardown/GC can filter by tag without re-reading config.
-- **Workspace lifecycle glue**: `devrouter workspace up` exports `WORKSPACE=<ws>` into the `devpod up` env (drives the compose `${WORKSPACE:-<project>}` alias, same mechanism as the existing `${HOME}` mount substitution) and registers namespaced routes; `devrouter workspace down` frees routes by state-file `workspace` tag (no config load, survives a deleted worktree). devpod calls are best-effort, gated on `hasDevpod()`.
+- **Workspace lifecycle**: `devrouter workspace up` creates a linked worktree under the repository's ignored `trees/<workspace>` directory and delegates normal startup to `workspace ensure`; `workspace ensure` persists one identity, starts or attaches the exact-path DevPod with `WORKSPACE`, `DEVROUTER_WORKSPACE`, `DEVROUTER_GIT_COMMON_DIR`, and the devrouter compose overlay, proves the container/Git/alias/route runtime, and only then atomically replaces routes. One stale DevPod gets one `--recreate` retry. Failures are explicit. `--no-devpod` is create-only. `workspace down` shares the per-worktree lock and frees routes by exact repo path/state tag before optional DevPod/worktree removal.
 - **Orphaned-route diagnostics**: `devrouter doctor` reports proxy routes with a `workspace` tag whose `repoPath` worktree dir no longer exists. It does not mutate route state; explicit teardown remains `devrouter workspace down` or targeted route removal.
 
 - **Secret-manager precedence diagnostics**: `devrouter doctor` emits `repo.host-command-env-precedence` for host apps with postgres deps when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.

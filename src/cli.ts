@@ -422,8 +422,8 @@ workspaceCommand
     "Create a worktree for <branch>, bring up its devpod, and register namespaced routes",
   )
   .argument("<branch>", "Git branch to base the workspace on")
-  .option("--path <dir>", "Worktree directory (default: ../<repo>-<workspace>)")
-  .option("--no-devpod", "Skip 'devpod up' (only create the worktree and register routes)")
+  .option("--path <dir>", "Worktree directory (default: <repo>/trees/<workspace>)")
+  .option("--no-devpod", "Only create the worktree; do not start the environment or change routes")
   .option("--open", "Open the namespaced routes after registering")
   .option("--repo <path>", "Main repository path (defaults to current directory)")
   .action(
@@ -443,6 +443,21 @@ workspaceCommand
         repo: options.repo,
       });
     }),
+  );
+
+workspaceCommand
+  .command("ensure")
+  .description("Start and prove an existing worktree's DevPod, upstreams, and routes")
+  .argument("[path]", "Linked worktree path (defaults to current directory)")
+  .option("--open", "Open HTTP routes after readiness succeeds")
+  .action(
+    withErrorHandling(
+      async (worktreePath: string | undefined, _options: unknown, command: Command) => {
+        const options = command.opts<{ open?: boolean }>();
+        const { runWorkspaceEnsureCommand } = await import("./commands/workspace");
+        await runWorkspaceEnsureCommand({ path: worktreePath, open: Boolean(options.open) });
+      },
+    ),
   );
 
 workspaceCommand
@@ -473,7 +488,7 @@ workspaceCommand
         repo?: string;
       }>();
       const { runWorkspaceDownCommand } = await import("./commands/workspace");
-      runWorkspaceDownCommand(target, options);
+      await runWorkspaceDownCommand(target, options);
     }),
   );
 

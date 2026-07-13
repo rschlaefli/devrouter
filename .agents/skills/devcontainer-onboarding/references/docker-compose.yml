@@ -12,9 +12,10 @@
 #
 # Workspace isolation: aliases use `${WORKSPACE:-{{APP}}}` so the primary checkout
 # resolves to `{{APP}}-*` (unchanged), while a parallel git worktree resolves to
-# `<ws>-*`. `dev workspace up <branch>` sets WORKSPACE=<ws> in the env devpod runs
-# compose with; otherwise set WORKSPACE in `.devcontainer/.env` or export it. The
-# `.devrouter.yml` proxy upstreams use the matching `${WORKSPACE}-app` token.
+# `<ws>-*`. `devrouter workspace up <branch>` creates one; `devrouter workspace
+# ensure .` starts/reconciles an existing linked worktree and supplies the
+# matching WORKSPACE plus Git overlay. The `.devrouter.yml` proxy upstreams use
+# the same `${WORKSPACE}-app` token.
 services:
   postgres:
     image: postgres:15

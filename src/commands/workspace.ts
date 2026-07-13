@@ -1,3 +1,4 @@
+import { workspaceEnsure } from "../core/workspace-ensure";
 import { workspaceDown, workspaceLs, workspaceUp } from "../core/workspace-lifecycle";
 
 export async function runWorkspaceUpCommand(
@@ -10,6 +11,17 @@ export async function runWorkspaceUpCommand(
     open: options.open,
     repoPath: options.repo,
   });
+}
+
+export async function runWorkspaceEnsureCommand(options: {
+  path?: string;
+  open?: boolean;
+}): Promise<void> {
+  const result = await workspaceEnsure(options.path, { open: options.open });
+  process.stdout.write(
+    `Workspace '${result.workspace}' is ready (${result.devpodId}).\n` +
+      `${result.urls.map((url) => `  ${url}`).join("\n")}\n`,
+  );
 }
 
 export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }): void {
@@ -30,11 +42,11 @@ export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }
   }
 }
 
-export function runWorkspaceDownCommand(
+export async function runWorkspaceDownCommand(
   target: string,
   options: { keepWorktree?: boolean; keepDevpod?: boolean; repo?: string },
-): void {
-  workspaceDown(target, {
+): Promise<void> {
+  await workspaceDown(target, {
     keepWorktree: options.keepWorktree,
     keepDevpod: options.keepDevpod,
     repoPath: options.repo,

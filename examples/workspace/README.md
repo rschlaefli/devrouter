@@ -11,7 +11,7 @@ What it demonstrates:
   substituted at runtime with the resolved workspace token.
 - **Auto host namespacing** — `wsdemo.localhost` becomes `wsdemo.<ws>.localhost`
   for a worktree; the committed `.devrouter.yml` is never rewritten.
-- **`devrouter workspace up/ls/down`** — worktree + (optional devpod) + namespaced routes
+- **`devrouter workspace up/ensure/ls/down`** — worktree creation, proven DevPod startup/reconciliation, state, and teardown
   in one command.
 - **Matching devnet alias** — the compose service joins `devnet` as
   `${WORKSPACE:-wsdemo}-app`, so the alias and the route resolve to one identity.
@@ -60,6 +60,8 @@ then:
 `--no-devpod` is used so the example needs only Docker (no devpod/devcontainer).
 With a devcontainer, `devrouter workspace up <branch>` brings the container up for you
 and exports `WORKSPACE=<ws>` so the alias substitution happens automatically.
+Inside an existing linked worktree, use `devrouter workspace ensure .`; it reuses
+the exact-path DevPod or starts it, then proves the runtime before registering routes.
 
 Teardown frees the routes (`devrouter workspace down feat-a`, `devrouter app rm`), stops both
 compose projects, and removes the temp repo + worktree.

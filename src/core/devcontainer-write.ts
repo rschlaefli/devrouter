@@ -3,6 +3,7 @@ import path from "node:path";
 import type { DiagnosticCheck } from "../types";
 import { resolveRepoPath } from "./repo-config";
 import { inspectRepo } from "./repo-inspect";
+import { isLinkedWorktree } from "./workspace";
 
 const MANAGED_MARKER = "devrouter:managed devcontainer";
 
@@ -143,6 +144,28 @@ volumes:
 `;
 }
 
+function renderDefaultComposeOverlay(): string {
+  return `# ${MANAGED_MARKER}
+services: {}
+`;
+}
+
+function renderDevrouterComposeOverlay(): string {
+  return `# ${MANAGED_MARKER}
+# A linked worktree's .git file points at the host repository's common Git
+# directory. workspace ensure sets this absolute path before DevPod starts.
+services:
+  app:
+    environment:
+      WORKSPACE: \${WORKSPACE:-}
+      DEVROUTER_WORKSPACE: \${DEVROUTER_WORKSPACE:-}
+    volumes:
+      - type: bind
+        source: \${DEVROUTER_GIT_COMMON_DIR}
+        target: \${DEVROUTER_GIT_COMMON_DIR}
+`;
+}
+
 function renderInitDb(): string {
   return `#!/usr/bin/env bash
 # ${MANAGED_MARKER}
@@ -158,7 +181,10 @@ SQL
 function renderDevcontainerJson(projectName: string): string {
   return `{
   "name": "${projectName}",
-  "dockerComposeFile": "docker-compose.yml",
+  "dockerComposeFile": [
+    "docker-compose.yml",
+    "\${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}"
+  ],
   "service": "app",
   "workspaceFolder": "/workspaces/${projectName}",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
@@ -252,11 +278,19 @@ function renderReadme(projectName: string): string {
 
 Use this repo through the devcontainer, with devrouter providing stable local routes.
 
+Primary checkout:
+
 \`\`\`bash
 devrouter setup --yes
 devpod up .
 devrouter app run app --repo . --yes
 devrouter app run db --repo . --yes
+\`\`\`
+
+Existing linked worktree:
+
+\`\`\`bash
+devrouter workspace ensure .
 \`\`\`
 
 - App: https://${projectName}.localhost
@@ -266,6 +300,13 @@ devrouter app run db --repo . --yes
 
 function postWriteNextSteps(repoPath: string): string[] {
   const quotedRepoPath = shellSingleQuote(repoPath);
+  if (isLinkedWorktree(repoPath)) {
+    return [
+      `Run: devrouter setup --repo ${quotedRepoPath} --yes`,
+      `Run: devrouter workspace ensure ${quotedRepoPath}`,
+      `Optional: devrouter repo agents --repo ${quotedRepoPath}`,
+    ];
+  }
   return [
     `Run: devrouter setup --repo ${quotedRepoPath} --yes`,
     `Run: cd ${quotedRepoPath} && devpod up .`,
@@ -351,6 +392,14 @@ function plannedFiles(
         content: renderDockerfile(nodeMajor, pnpmVersion),
       },
       { relativePath: ".devcontainer/docker-compose.yml", content: renderCompose(projectName) },
+      {
+        relativePath: ".devcontainer/docker-compose.default.yml",
+        content: renderDefaultComposeOverlay(),
+      },
+      {
+        relativePath: ".devcontainer/docker-compose.devrouter.yml",
+        content: renderDevrouterComposeOverlay(),
+      },
       { relativePath: ".devcontainer/init-db.sh", content: renderInitDb(), executable: true },
       {
         relativePath: ".devcontainer/devcontainer.json",

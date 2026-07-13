@@ -92,6 +92,7 @@ To run multiple branches of this repo side-by-side without host collisions, use 
 
 ```bash
 dev workspace up feat/my-feature   # create worktree, start devpod, register namespaced routes
+dev workspace ensure .             # reconcile/prove this existing linked worktree
 dev workspace ls                   # list worktrees with workspace tokens and route counts
 dev workspace down feat/my-feature # free routes, stop devpod, remove worktree
 ```

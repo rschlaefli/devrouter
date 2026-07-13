@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import type { HostRouteState, Route } from "../types";
+import { withFileLockSync } from "./file-lock";
 import {
   DEVROUTER_HOME,
   HOST_ROUTES_STATE_FILE,
@@ -10,8 +11,9 @@ import {
   TRAEFIK_DYNAMIC_DIR,
   TRAEFIK_HOST_ROUTES_FILE,
 } from "./router";
+import { sameWorkspacePath } from "./workspace";
 
-type UpsertHostRouteInput = {
+export type HostRouteInput = {
   name: string;
   host: string;
   protocol?: "http" | "tcp";
@@ -70,6 +72,29 @@ export function isPidRunning(pid: number | undefined): boolean {
 
 export function buildHostRouteId(repoPath: string, name: string): string {
   return `${repoPath}::${name}`;
+}
+
+function hostRouteFromInput(
+  input: HostRouteInput,
+  existing: HostRouteState | undefined,
+  now: string,
+): HostRouteState {
+  return {
+    id: buildHostRouteId(input.repoPath, input.name),
+    name: input.name,
+    host: input.host,
+    protocol: input.protocol ?? "http",
+    tcpProtocol: input.tcpProtocol,
+    repoPath: input.repoPath,
+    port: input.port,
+    mode: input.mode,
+    upstreamHost: input.upstreamHost,
+    pid: input.pid,
+    command: input.command,
+    workspace: input.workspace,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
 }
 
 function sanitizeKey(value: string): string {
@@ -205,51 +230,16 @@ function writeState(routes: HostRouteState[]): void {
 
 const STATE_LOCK_FILE = `${HOST_ROUTES_STATE_FILE}.lock`;
 
-function sleepSync(ms: number): void {
-  // Synchronous, busy-wait-free sleep (no async refactor of the spawn-heavy run path).
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 /**
  * Serialize read-modify-write of the shared host-route state file across
  * processes. Parallel workspace runs (`dev app run` from several worktrees of the
  * same repo) otherwise race the read-modify-write and clobber each other's routes.
- * Uses an `O_EXCL` lockfile with a bounded wait; a lock older than the deadline is
- * assumed stale (crashed process) and reclaimed.
+ * Uses an inode-verified dot lock with a bounded wait. Dead owners are reclaimed;
+ * a live owner is never forcibly displaced.
  */
 function withStateLock<T>(fn: () => T): T {
   ensureHostRouteStorage();
-  const deadline = Date.now() + 5000;
-  let fd: number;
-  for (;;) {
-    try {
-      fd = fs.openSync(STATE_LOCK_FILE, "wx");
-      break;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw err;
-      }
-      if (Date.now() >= deadline) {
-        try {
-          fs.rmSync(STATE_LOCK_FILE, { force: true });
-        } catch {
-          // Another waiter reclaimed it first; loop and retry.
-        }
-        continue;
-      }
-      sleepSync(20);
-    }
-  }
-  try {
-    return fn();
-  } finally {
-    fs.closeSync(fd);
-    try {
-      fs.rmSync(STATE_LOCK_FILE, { force: true });
-    } catch {
-      // Best effort: a stale-lock reclaim may have already removed it.
-    }
-  }
+  return withFileLockSync(STATE_LOCK_FILE, { activity: "host route update", waitMs: 5000 }, fn);
 }
 
 export function refreshHostRoutesDynamicFile(): void {
@@ -285,35 +275,68 @@ export function listHostRouteState(): HostRouteState[] {
   }
 }
 
-export function upsertHostRoute(input: UpsertHostRouteInput): HostRouteState {
+export function upsertHostRoute(input: HostRouteInput): HostRouteState {
   return withStateLock(() => {
     const routes = listHostRouteState();
     const id = buildHostRouteId(input.repoPath, input.name);
     const existing = routes.find((route) => route.id === id);
     const now = new Date().toISOString();
-
-    const next: HostRouteState = {
-      id,
-      name: input.name,
-      host: input.host,
-      protocol: input.protocol ?? "http",
-      tcpProtocol: input.tcpProtocol,
-      repoPath: input.repoPath,
-      port: input.port,
-      mode: input.mode,
-      upstreamHost: input.upstreamHost,
-      pid: input.pid,
-      command: input.command,
-      workspace: input.workspace,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    };
+    const next = hostRouteFromInput(input, existing, now);
 
     const remaining = routes.filter((route) => route.id !== id);
     remaining.push(next);
     remaining.sort((a, b) => a.name.localeCompare(b.name) || a.repoPath.localeCompare(b.repoPath));
     writeState(remaining);
     return next;
+  });
+}
+
+/** Replace every route owned by one exact repo/worktree as one locked write. */
+export function replaceHostRoutesForRepo(
+  repoPath: string,
+  inputs: HostRouteInput[],
+): HostRouteState[] {
+  return withStateLock(() => {
+    if (inputs.some((input) => !sameWorkspacePath(input.repoPath, repoPath))) {
+      throw new Error(`Route replacement contains an entry outside '${repoPath}'.`);
+    }
+
+    const routes = listHostRouteState();
+    const remaining = routes.filter((route) => !sameWorkspacePath(route.repoPath, repoPath));
+    const names = new Set<string>();
+    const hosts = new Set<string>();
+    for (const input of inputs) {
+      if (names.has(input.name)) {
+        throw new Error(`Route replacement contains duplicate app '${input.name}'.`);
+      }
+      if (hosts.has(input.host)) {
+        throw new Error(`Route replacement contains duplicate host '${input.host}'.`);
+      }
+      const conflict = remaining.find((route) => route.host === input.host);
+      if (conflict) {
+        throw new Error(
+          `Hostname '${input.host}' is already claimed by '${conflict.name}' (${conflict.repoPath}).`,
+        );
+      }
+      names.add(input.name);
+      hosts.add(input.host);
+    }
+
+    const now = new Date().toISOString();
+    const replacements = inputs.map((input) => {
+      const id = buildHostRouteId(input.repoPath, input.name);
+      return hostRouteFromInput(
+        input,
+        routes.find((route) => route.id === id),
+        now,
+      );
+    });
+    const next = [...remaining, ...replacements].sort(
+      (left, right) =>
+        left.name.localeCompare(right.name) || left.repoPath.localeCompare(right.repoPath),
+    );
+    writeState(next);
+    return replacements;
   });
 }
 

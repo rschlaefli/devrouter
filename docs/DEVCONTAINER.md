@@ -18,7 +18,7 @@ This works with any devcontainer-spec runner (DevPod, VS Code Dev Containers,
 
 We recommend **DevPod** for orchestrating the devcontainer lifecycle locally because it is a client-only, open-source tool that executes entirely locally on Docker. It mounts and syncs workspace files in the background without forcing developers into a specific IDE or requiring proprietary extensions.
 
-> Requires devrouter ≥ 0.0.21 (TCP proxy routes). The end-to-end onboarding
+> Use the current devrouter release. The end-to-end onboarding
 > playbook + reference templates + gotchas live in the
 > `devcontainer-onboarding` skill (`.agents/skills/devcontainer-onboarding/`).
 
@@ -78,7 +78,7 @@ separate alias needed.
 ```yaml
 version: 1
 devrouter:
-  version: 0.0.21 # proxy + protocol: tcp requires >= 0.0.21
+  version: 0.0.26
 project:
   name: myapp
 apps:
@@ -101,7 +101,30 @@ Traefik over the network. (A loopback upstream like `127.0.0.1:3000` still works
 and is rewritten to `host.docker.internal`, but then every app competes for that
 host port — the devnet alias is the collision-free path.)
 
-## 3. Bring up routing
+## 3. Preserve linked-worktree Git metadata
+
+Keep a no-op default overlay for primary-checkout startup and a committed
+`.devcontainer/docker-compose.devrouter.yml` for linked worktrees:
+
+```yaml
+services:
+  app:
+    environment:
+      WORKSPACE: ${WORKSPACE:-}
+      DEVROUTER_WORKSPACE: ${DEVROUTER_WORKSPACE:-}
+    volumes:
+      - type: bind
+        source: ${DEVROUTER_GIT_COMMON_DIR}
+        target: ${DEVROUTER_GIT_COMMON_DIR}
+```
+
+In `devcontainer.json`, list the base compose file followed by
+`${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}`. A linked
+worktree's `.git` file points into the host repository's common Git directory;
+`workspace ensure` supplies that absolute path and the two identity variables,
+then verifies them in the container.
+
+## 4. Bring up routing
 
 Order matters — `devnet` is `external`, so it must exist before the container
 starts:
@@ -113,6 +136,17 @@ devpod up .
 devrouter repo devcontainer verify --live --yes --json
 ```
 
+That sequence is for a primary checkout. In a linked worktree, use one command:
+
+```bash
+devrouter workspace ensure .
+```
+
+It starts or attaches the exact-path DevPod, recreates one stale runtime once,
+and proves the overlay, Git mount, environment, aliases, health, Git access,
+HTTP route reachability, and unique running TCP upstream ownership before
+reporting ready.
+
 `verify --live` registers proxy routes and probes HTTP routes, so it doubles as
 agent PR evidence. For a manual route-only path, run `devrouter app run <name> --yes`
 for each proxy app instead. A proxy app route starts no process. The container
@@ -120,7 +154,7 @@ owns start and stop. Routes persist until `devrouter app rm <name> --keep-config
 
 Open `https://myapp.localhost`.
 
-## 4. Connecting to a TCP route (Postgres / Redis)
+## 5. Connecting to a TCP route (Postgres / Redis)
 
 TCP routes are demuxed by the SNI in the TLS ClientHello, so the client must
 start TLS immediately:
@@ -139,7 +173,7 @@ Plain `sslmode=require` (without `sslnegotiation=direct`) times out: libpq does 
 plaintext `SSLRequest` preamble first, so Traefik never sees the SNI. devrouter
 advertises ALPN `postgresql` automatically (libpq direct-SSL mandates it).
 
-## 5. Verify / tear down
+## 6. Verify / tear down
 
 ```bash
 devrouter repo devcontainer verify --json

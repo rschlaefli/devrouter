@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { listHostRouteState, removeHostRoutesWhere, upsertHostRoute } from "../host-routes";
+import {
+  listHostRouteState,
+  removeHostRoutesWhere,
+  replaceHostRoutesForRepo,
+  upsertHostRoute,
+} from "../host-routes";
 
 const routerPaths = vi.hoisted(() => {
   const root = `/tmp/devrouter-host-routes-test-${process.pid}-${Math.random().toString(36).slice(2)}`;
@@ -35,6 +40,22 @@ afterEach(() => {
 });
 
 describe("host route state mutation", () => {
+  it("reclaims a stale route-state lock", () => {
+    fs.mkdirSync(routerPaths.root, { recursive: true });
+    fs.writeFileSync(`${routerPaths.stateFile}.lock`, "2147483647:stale\n");
+
+    upsertHostRoute({
+      name: "web",
+      host: "web.localhost",
+      repoPath: "/repo",
+      port: 3000,
+      mode: "proxy",
+    });
+
+    expect(listHostRouteState()).toHaveLength(1);
+    expect(fs.existsSync(`${routerPaths.stateFile}.lock`)).toBe(false);
+  });
+
   it("selects and removes matching routes in one state mutation", () => {
     upsertHostRoute({
       name: "web",
@@ -68,5 +89,78 @@ describe("host route state mutation", () => {
         .map((route) => route.id)
         .sort(),
     ).toEqual(["/other::web", "/repo::api"]);
+  });
+
+  it("replaces every route for one repo in a single state mutation", () => {
+    upsertHostRoute({
+      name: "old",
+      host: "old.localhost",
+      repoPath: "/repo",
+      port: 3000,
+      mode: "proxy",
+    });
+    upsertHostRoute({
+      name: "other",
+      host: "other.localhost",
+      repoPath: "/other",
+      port: 4000,
+      mode: "proxy",
+    });
+
+    replaceHostRoutesForRepo("/repo", [
+      {
+        name: "web",
+        host: "web.localhost",
+        repoPath: "/repo",
+        port: 3001,
+        mode: "proxy",
+        workspace: "feature",
+      },
+      {
+        name: "api",
+        host: "api.localhost",
+        repoPath: "/repo",
+        port: 3002,
+        mode: "proxy",
+        workspace: "feature",
+      },
+    ]);
+
+    expect(
+      listHostRouteState()
+        .map((route) => route.id)
+        .sort(),
+    ).toEqual(["/other::other", "/repo::api", "/repo::web"]);
+  });
+
+  it("leaves all routes unchanged when a replacement conflicts", () => {
+    upsertHostRoute({
+      name: "old",
+      host: "old.localhost",
+      repoPath: "/repo",
+      port: 3000,
+      mode: "proxy",
+    });
+    upsertHostRoute({
+      name: "other",
+      host: "claimed.localhost",
+      repoPath: "/other",
+      port: 4000,
+      mode: "proxy",
+    });
+    const before = listHostRouteState();
+
+    expect(() =>
+      replaceHostRoutesForRepo("/repo", [
+        {
+          name: "web",
+          host: "claimed.localhost",
+          repoPath: "/repo",
+          port: 3001,
+          mode: "proxy",
+        },
+      ]),
+    ).toThrow("already claimed");
+    expect(listHostRouteState()).toEqual(before);
   });
 });

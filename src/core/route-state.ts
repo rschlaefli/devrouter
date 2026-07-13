@@ -1,30 +1,17 @@
 import fs from "node:fs";
-import path from "node:path";
 import type { HostRouteState } from "../types";
 import { isPidRunning, listHostRouteState, removeHostRoutesWhere } from "./host-routes";
+import { sameWorkspacePath } from "./workspace";
 
 type RouteRunConflict =
   | { kind: "same-app"; route: HostRouteState }
   | { kind: "hostname"; route: HostRouteState };
 
-function comparablePath(filePath: string): string {
-  const resolved = path.resolve(filePath);
-  try {
-    return fs.realpathSync.native(resolved);
-  } catch {
-    return resolved;
-  }
-}
-
-function sameRoutePath(left: string, right: string): boolean {
-  return comparablePath(left) === comparablePath(right);
-}
-
 export function listRoutesForWorktreePath(
   worktreePath: string,
   routes: HostRouteState[] = listHostRouteState(),
 ): HostRouteState[] {
-  return routes.filter((route) => sameRoutePath(route.repoPath, worktreePath));
+  return routes.filter((route) => sameWorkspacePath(route.repoPath, worktreePath));
 }
 
 export function listRoutesForWorktreePaths(worktreePaths: string[]): Map<string, HostRouteState[]> {
@@ -36,7 +23,7 @@ export function listRoutesForWorktreePaths(worktreePaths: string[]): Map<string,
 
   for (const route of routes) {
     for (const worktreePath of worktreePaths) {
-      if (sameRoutePath(route.repoPath, worktreePath)) {
+      if (sameWorkspacePath(route.repoPath, worktreePath)) {
         byWorktreePath.get(worktreePath)?.push(route);
         break;
       }
@@ -51,13 +38,13 @@ export function removeWorkspaceRoutesForWorktree(
   worktreePath: string,
 ): HostRouteState[] {
   return removeHostRoutesWhere(
-    (route) => route.workspace === workspace && sameRoutePath(route.repoPath, worktreePath),
+    (route) => route.workspace === workspace && sameWorkspacePath(route.repoPath, worktreePath),
   );
 }
 
 export function removeRouteForApp(repoPath: string, appName: string): HostRouteState[] {
   return removeHostRoutesWhere(
-    (route) => route.name === appName && sameRoutePath(route.repoPath, repoPath),
+    (route) => route.name === appName && sameWorkspacePath(route.repoPath, repoPath),
   );
 }
 
@@ -104,7 +91,7 @@ export function reconcileRouteRunConflict(
     let shouldRetry = false;
 
     for (const route of routes) {
-      if (route.name === app.name && sameRoutePath(route.repoPath, repoPath)) {
+      if (route.name === app.name && sameWorkspacePath(route.repoPath, repoPath)) {
         const staleEviction = evictStaleRouteIfNeeded(route);
         if (staleEviction === "evicted") {
           continue;

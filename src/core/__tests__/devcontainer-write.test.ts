@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -5,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { planDevcontainerWrite, writeDevcontainer } from "../devcontainer-write";
 
 let tmpDir: string;
+let linkedDir: string | undefined;
 
 function write(relativePath: string, content: string): void {
   const filePath = path.join(tmpDir, relativePath);
@@ -25,6 +27,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (linkedDir) {
+    fs.rmSync(linkedDir, { recursive: true, force: true });
+    linkedDir = undefined;
+  }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -37,6 +43,9 @@ describe("devcontainer write planning", () => {
     expect(
       plan.files.filter((file) => file.action === "create").map((file) => file.path),
     ).toContain(".devcontainer/docker-compose.yml");
+    expect(
+      plan.files.filter((file) => file.action === "create").map((file) => file.path),
+    ).toContain(".devcontainer/docker-compose.devrouter.yml");
     expect(
       plan.files.filter((file) => file.action === "create").map((file) => file.path),
     ).toContain(".devrouter.yml");
@@ -60,6 +69,15 @@ describe("devcontainer write planning", () => {
     expect(
       fs.readFileSync(path.join(tmpDir, ".devcontainer", "docker-compose.yml"), "utf-8"),
     ).toContain("10-create-shadow-db.sh");
+    const devrouterOverlay = fs.readFileSync(
+      path.join(tmpDir, ".devcontainer", "docker-compose.devrouter.yml"),
+      "utf-8",
+    );
+    expect(devrouterOverlay).toContain("DEVROUTER_GIT_COMMON_DIR");
+    expect(devrouterOverlay).toContain("DEVROUTER_WORKSPACE");
+    expect(
+      fs.readFileSync(path.join(tmpDir, ".devcontainer", "devcontainer.json"), "utf-8"),
+    ).toContain("DEVCONTAINER_COMPOSE_OVERLAY");
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "Dockerfile"), "utf-8")).toContain(
       "npm install -g 'pnpm@11.6.0'",
     );
@@ -86,6 +104,23 @@ describe("devcontainer write planning", () => {
         .filter((file) => file.path !== "AGENTS.md")
         .every((file) => file.action === "skip"),
     ).toBe(true);
+  });
+
+  it("recommends workspace ensure after writing in a linked worktree", () => {
+    execFileSync("git", ["init", "-b", "main"], { cwd: tmpDir });
+    execFileSync("git", ["config", "user.email", "devrouter-test@example.invalid"], {
+      cwd: tmpDir,
+    });
+    execFileSync("git", ["config", "user.name", "Devrouter Test"], { cwd: tmpDir });
+    execFileSync("git", ["add", "package.json"], { cwd: tmpDir });
+    execFileSync("git", ["commit", "-m", "test fixture"], { cwd: tmpDir });
+    linkedDir = `${tmpDir}-linked`;
+    execFileSync("git", ["worktree", "add", "-b", "feature/test", linkedDir], { cwd: tmpDir });
+
+    const written = writeDevcontainer({ repo: linkedDir, yes: true });
+
+    expect(written.nextSteps.join("\n")).toContain("devrouter workspace ensure");
+    expect(written.nextSteps.join("\n")).not.toContain("devpod up");
   });
 
   it("stops on custom existing files", () => {

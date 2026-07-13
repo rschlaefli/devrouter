@@ -34,8 +34,13 @@ The devnet alias just needs to be unique across all routed devcontainers;
 - **`Dockerfile`** — glibc base for native binaries; pnpm via `npm i -g`. Add OS
   packages the app needs at dev time (git, openssl, procps for `pgrep`, curl).
 - **`devcontainer.json`** — points at the compose `app` service and wires the two
-  lifecycle hooks. The `_ports` note documents the devrouter-only access. Add
-  editor extensions as desired.
+  lifecycle hooks. It selects `docker-compose.default.yml` unless workspace
+  ensure supplies the devrouter overlay. The `_ports` note documents the
+  devrouter-only access. Add editor extensions as desired.
+- **`docker-compose.default.yml` / `docker-compose.devrouter.yml`** — the default
+  keeps primary-checkout startup unchanged; the devrouter overlay bind-mounts
+  `${DEVROUTER_GIT_COMMON_DIR}` at the same absolute path so linked-worktree
+  `.git` pointers resolve inside the app container.
 - **`devcontainer.env`** — **committed, dev-only**. Every var the app reads,
   pointed at the in-compose services (`postgres`, `redis`) and the **routed**
   https hosts (`NEXTAUTH_URL`/public URLs → `https://{{APP}}.localhost`, issuer →
