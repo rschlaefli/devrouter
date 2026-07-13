@@ -277,11 +277,15 @@ describe("workspaceEnsure", () => {
       devpodUpStatuses?: number[];
       devpods?: DevpodWorkspace[];
       appAliases?: string[];
+      appAliasSets?: string[][];
       curlStatus?: number;
       curlCode?: string;
+      curlCodes?: string[];
     } = {},
   ): void {
     let devpodUpCall = 0;
+    let dockerInspectCall = 0;
+    let curlCall = 0;
     const listedDevpod = JSON.stringify(
       options.devpods ?? [{ id: "feature", source: { localFolder: tmpDir } }],
     );
@@ -315,9 +319,12 @@ describe("workspaceEnsure", () => {
         return { status: 0, stdout: "app-id\ndb-id\n", stderr: "" } as never;
       }
       if (command === "docker" && argv[0] === "inspect") {
+        const aliases = options.appAliasSets?.[dockerInspectCall];
+        dockerInspectCall += 1;
+        const inspectedApp = aliases ? { ...app, networks: { devnet: { Aliases: aliases } } } : app;
         return {
           status: 0,
-          stdout: `${inspectLine(app)}\n${inspectLine(db)}\n`,
+          stdout: `${inspectLine(inspectedApp)}\n${inspectLine(db)}\n`,
           stderr: "",
         } as never;
       }
@@ -329,9 +336,11 @@ describe("workspaceEnsure", () => {
         } as never;
       }
       if (command === "curl") {
+        const code = options.curlCodes?.[curlCall] ?? options.curlCode ?? "404";
+        curlCall += 1;
         return {
           status: options.curlStatus ?? 0,
-          stdout: options.curlCode ?? "404",
+          stdout: code,
           stderr: options.curlStatus ? "not ready" : "",
         } as never;
       }
@@ -482,14 +491,43 @@ describe("workspaceEnsure", () => {
     expect(devpodUps[1][1]).toContain("--recreate");
   });
 
-  it("removes the whole route batch when HTTP readiness times out", async () => {
+  it("removes the whole route batch when HTTP readiness still fails after recovery", async () => {
     mockLifecycle({ curlStatus: 22, curlCode: "502" });
 
     await expect(
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
     ).rejects.toThrow("HTTP route readiness timed out");
 
-    expect(replaceHostRoutesForRepo).toHaveBeenCalledTimes(2);
+    expect(devpodUpCalls()).toHaveLength(2);
+    expect(replaceHostRoutesForRepo).toHaveBeenCalledTimes(4);
     expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
+  });
+
+  it("recreates an existing workspace once when HTTP readiness fails", async () => {
+    mockLifecycle({ curlCodes: ["500", "404"] });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).resolves.toMatchObject({ workspace: "feature" });
+
+    const devpodUps = devpodUpCalls();
+    expect(devpodUps).toHaveLength(2);
+    expect(devpodUps[1][1]).toContain("--recreate");
+    expect(replaceHostRoutesForRepo).toHaveBeenCalledTimes(3);
+    expect(replaceHostRoutesForRepo).toHaveBeenNthCalledWith(2, tmpDir, []);
+  });
+
+  it("does not recreate again after preflight recovery when HTTP readiness fails", async () => {
+    mockLifecycle({
+      appAliasSets: [["old-app"], ["feature-app"]],
+      curlStatus: 22,
+      curlCode: "502",
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("HTTP route readiness timed out");
+
+    expect(devpodUpCalls()).toHaveLength(2);
   });
 });

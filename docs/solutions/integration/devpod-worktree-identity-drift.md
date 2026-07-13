@@ -1,13 +1,14 @@
 ---
 module: workspace-lifecycle
-date: 2026-07-13
+date: 2026-07-14
 problem_type: integration
 severity: high
 symptoms:
   - "A linked worktree reported ready while its DevPod used another checkout or stale network aliases."
   - "Git commands failed inside an otherwise running worktree container."
   - "Routes survived a failed runtime proof and pointed at an invalid environment."
-root_cause: "DevPod, Git, container, network, and route identity were derived and checked independently."
+  - "A valid container and process group kept serving HTTP 500 after a production build invalidated Next.js development output."
+root_cause: "Workspace identity, container preflight, and application readiness were checked and recovered independently."
 tags: [devpod, git-worktree, devcontainer, docker, routing, identity]
 ---
 
@@ -34,6 +35,8 @@ healthy environment.
   the other identities free to drift again.
 - Treating a successful `devpod up` exit as readiness missed wrong-path attachment, missing Git
   mounts, stale aliases, unhealthy dependencies, and unreachable routes.
+- Treating a valid container and process group as application readiness missed corrupted Next.js
+  development output, while a warm `devpod up` did not rerun the repository's post-start repair.
 - Looking only at containers from the expected Compose working directory hid foreign or standalone
   containers that claimed the same `devnet` alias.
 
@@ -49,7 +52,12 @@ only to identify the owned app container (`src/core/workspace-ensure.ts:137`,
 `src/core/workspace-ensure.ts:177`, `src/core/workspace-ensure.ts:206`). Mark the environment as
 started immediately after `devpod up` succeeds so any later attachment or runtime proof failure
 clears the worktree's route batch (`src/core/workspace-ensure.ts:508`,
-`src/core/workspace-ensure.ts:568`).
+`src/core/workspace-ensure.ts:580`).
+
+Spend the same single recreate budget when an existing exact workspace fails HTTP readiness:
+remove its routes, recreate and reprove the container, then republish the same route batch and wait
+again (`src/core/workspace-ensure.ts:557`, `src/core/workspace-ensure.ts:568`). A second failure
+falls through the existing fail-closed cleanup instead of leaving routes behind.
 
 Use one file-lock primitive for workspace lifecycle and shared route-state mutations. Stale reclaim
 first creates a hard link to the observed lock, then verifies the inode and link count before
@@ -72,7 +80,11 @@ The workspace lifecycle tests cover network-wide container discovery, foreign al
 post-start attachment cleanup, bounded recreate, and atomic route cleanup
 (`src/core/__tests__/workspace-ensure.test.ts:105`,
 `src/core/__tests__/workspace-ensure.test.ts:179`,
-`src/core/__tests__/workspace-ensure.test.ts:408`,
-`src/core/__tests__/workspace-ensure.test.ts:471`). Live release validation must also run
-`devrouter workspace ensure .` twice and confirm the second run preserves the same container and
+`src/core/__tests__/workspace-ensure.test.ts:419`,
+`src/core/__tests__/workspace-ensure.test.ts:482`,
+`src/core/__tests__/workspace-ensure.test.ts:496`,
+`src/core/__tests__/workspace-ensure.test.ts:508`,
+`src/core/__tests__/workspace-ensure.test.ts:522`). Live release validation must deliberately
+break application readiness, confirm one automatic recreate restores every route, then run
+`devrouter workspace ensure .` again and confirm the warm run preserves the same container and
 process group.
