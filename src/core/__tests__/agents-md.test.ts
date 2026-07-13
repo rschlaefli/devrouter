@@ -26,6 +26,8 @@ describe("agents-md", () => {
     const content = fs.readFileSync(agents.path, "utf-8");
     expect(content).toContain("<!-- devrouter -->");
     expect(content).not.toContain("<!-- devrouter-linear-workflow -->");
+    expect(content).toContain("Linked devcontainer worktree: `devrouter workspace ensure .`");
+    expect(content).toContain("Host/docker runtime app only:");
 
     const skillContent = fs.readFileSync(skill.path, "utf-8");
     const sourceSkillContent = fs.readFileSync(
@@ -44,5 +46,7 @@ describe("agents-md", () => {
     expect(skillContent).toContain("devrouter repo devcontainer verify --json");
     expect(skillContent).toContain("DEVCONTAINER_COMPOSE_OVERLAY");
     expect(skillContent).toContain("DEVROUTER_GIT_COMMON_DIR");
+    expect(skillContent).toContain("custom repositories may keep another default overlay");
+    expect(skillContent).toContain("For host/docker runtime apps only:");
   });
 });

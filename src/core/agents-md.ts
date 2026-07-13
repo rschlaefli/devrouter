@@ -141,7 +141,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - **Identity**: each linked worktree stores one authoritative identity in Git metadata. First use reuses an exact-path DevPod or derives a sanitized branch/path slug. Later flags or \`DEVROUTER_WORKSPACE\` may repeat the identity but cannot rename it. Ambiguous identities fail closed. The primary checkout remains non-namespaced.
 - **When active**: hosts auto-namespace (\`web.localhost\` → \`web.<ws>.localhost\`), \`\${WORKSPACE}\` in \`upstream\` is substituted with the token, and the docker \`router\` key is suffixed per workspace. The runtime config is computed in memory only — the committed \`.devrouter.yml\` is never rewritten.
 - **TLS**: namespaced hosts (\`web.<ws>.localhost\`) are not covered by the \`*.localhost\` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.
-- **devcontainer integration**: \`devcontainer.json\` lists the base compose file, then \`\${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}\`. The default overlay contains \`services: {}\`; \`.devcontainer/docker-compose.devrouter.yml\` passes \`WORKSPACE\` and \`DEVROUTER_WORKSPACE\` into the app and bind-mounts \`\${DEVROUTER_GIT_COMMON_DIR}\` to the same absolute app-container path. The app exposes \`\${WORKSPACE}-app\`; the proxy uses \`upstream: \${WORKSPACE}-app:<port>\`.
+- **devcontainer integration**: managed scaffolds list the base compose file, then \`\${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}\`; custom repositories may keep another default overlay. Selecting \`.devcontainer/docker-compose.devrouter.yml\` for linked worktrees must pass \`WORKSPACE\` and \`DEVROUTER_WORKSPACE\` across the combined base/overlay config and bind-mount \`\${DEVROUTER_GIT_COMMON_DIR}\` to the same absolute app-container path. The app exposes \`\${WORKSPACE}-app\`; the proxy uses \`upstream: \${WORKSPACE}-app:<port>\`.
 - **Lifecycle**: \`devrouter workspace up <branch>\` creates and starts a new worktree under the repository's ignored \`trees/<workspace>\` directory; \`devrouter workspace ensure .\` is the canonical startup/reconciliation command in an existing linked worktree; \`workspace ls\` lists identity/route state; \`workspace down\` serializes teardown with ensure. Ensure proves exact DevPod ownership, overlay/Git mounts, env, aliases, health, Git, HTTP route reachability, and unique running TCP upstream ownership before success, with one bounded recreate for stale state.
 
 ## Secret manager interop (Infisical/Doppler)
@@ -229,7 +229,7 @@ For devcontainer onboarding:
 7. In a linked worktree, start and prove the devcontainer with \`devrouter workspace ensure .\` (use \`devpod up .\` for a primary checkout)
 8. \`devrouter repo devcontainer verify --repo . --live --yes --json\`
 
-For existing host/docker runtime apps:
+For host/docker runtime apps only:
 
 1. \`devrouter setup --repo . --yes\`
 2. \`devrouter doctor --repo .\`
@@ -265,7 +265,8 @@ function buildDevrouterSection(): string {
     "- `devrouter up`",
     "- `devrouter tls install` (required when repo defines tcp/postgres apps)",
     "- `devrouter app ls --repo .`",
-    "- `devrouter app run <host-app> --repo . --yes`",
+    "- Linked devcontainer worktree: `devrouter workspace ensure .`",
+    "- Host/docker runtime app only: `devrouter app run <host-app> --repo . --yes`",
     "- `devrouter ls`",
   ].join("\n");
 }

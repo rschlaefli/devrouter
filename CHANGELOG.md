@@ -15,6 +15,17 @@ All notable changes to this project are documented in this file.
 
 - Repository normalized to Biome formatting and import order throughout. Existing files were reformatted in a single pass to establish a clean baseline.
 
+## [0.0.28] - 2026-07-13
+
+### Fixed
+
+- Generated agent guidance now directs linked devcontainer worktrees to `devrouter workspace ensure .` and keeps host/docker `app run` guidance separate.
+- The installed Devrouter skill now allows repository-specific default compose overlays while requiring the combined worktree config to pass both workspace identity variables.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.28.md
+
 ## [0.0.27] - 2026-07-13
 
 ### Fixed
