@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let tmpDir: string;
-let originalDevrouterHome: string;
 
 vi.mock("../docker-error-guidance", () => ({
   withDockerFailureGuidance: vi.fn((msg: string) => msg),
@@ -12,7 +11,6 @@ vi.mock("../docker-error-guidance", () => ({
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-router-tcp-test-"));
-  originalDevrouterHome = process.env.HOME ?? os.homedir();
 });
 
 afterEach(() => {

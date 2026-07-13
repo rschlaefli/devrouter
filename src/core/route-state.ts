@@ -22,14 +22,12 @@ function sameRoutePath(left: string, right: string): boolean {
 
 export function listRoutesForWorktreePath(
   worktreePath: string,
-  routes: HostRouteState[] = listHostRouteState()
+  routes: HostRouteState[] = listHostRouteState(),
 ): HostRouteState[] {
   return routes.filter((route) => sameRoutePath(route.repoPath, worktreePath));
 }
 
-export function listRoutesForWorktreePaths(
-  worktreePaths: string[]
-): Map<string, HostRouteState[]> {
+export function listRoutesForWorktreePaths(worktreePaths: string[]): Map<string, HostRouteState[]> {
   const routes = listHostRouteState();
   const byWorktreePath = new Map<string, HostRouteState[]>();
   for (const worktreePath of worktreePaths) {
@@ -50,15 +48,17 @@ export function listRoutesForWorktreePaths(
 
 export function removeWorkspaceRoutesForWorktree(
   workspace: string,
-  worktreePath: string
+  worktreePath: string,
 ): HostRouteState[] {
   return removeHostRoutesWhere(
-    (route) => route.workspace === workspace && sameRoutePath(route.repoPath, worktreePath)
+    (route) => route.workspace === workspace && sameRoutePath(route.repoPath, worktreePath),
   );
 }
 
 export function removeRouteForApp(repoPath: string, appName: string): HostRouteState[] {
-  return removeHostRoutesWhere((route) => route.name === appName && sameRoutePath(route.repoPath, repoPath));
+  return removeHostRoutesWhere(
+    (route) => route.name === appName && sameRoutePath(route.repoPath, repoPath),
+  );
 }
 
 function isStaleProcessRoute(route: HostRouteState): boolean {
@@ -74,7 +74,7 @@ function isStaleProcessRoute(route: HostRouteState): boolean {
 }
 
 export function findStaleProcessRoutes(
-  routes: HostRouteState[] = listHostRouteState()
+  routes: HostRouteState[] = listHostRouteState(),
 ): HostRouteState[] {
   return routes.filter((route) => isStaleProcessRoute(route));
 }
@@ -86,7 +86,7 @@ function evictStaleRouteIfNeeded(route: HostRouteState): StaleEvictionResult {
     return "not-stale";
   }
   const removed = removeHostRoutesWhere(
-    (candidate) => candidate.id === route.id && isStaleProcessRoute(candidate)
+    (candidate) => candidate.id === route.id && isStaleProcessRoute(candidate),
   );
   return removed.length > 0 ? "evicted" : "changed";
 }
@@ -97,7 +97,7 @@ export function evictStaleProcessRoutes(): number {
 
 export function reconcileRouteRunConflict(
   repoPath: string,
-  app: { name: string; host: string }
+  app: { name: string; host: string },
 ): RouteRunConflict | undefined {
   for (;;) {
     const routes = listHostRouteState();
@@ -144,7 +144,7 @@ function isOrphanedWorkspaceProxyRoute(route: HostRouteState): boolean {
 }
 
 export function findOrphanedWorkspaceProxyRoutes(
-  routes: HostRouteState[] = listHostRouteState()
+  routes: HostRouteState[] = listHostRouteState(),
 ): HostRouteState[] {
   return routes.filter((route) => isOrphanedWorkspaceProxyRoute(route));
 }

@@ -6,7 +6,7 @@ const CLI_VERSION: string = typeof __VERSION__ !== "undefined" ? __VERSION__ : "
 const VERSION_FLAGS = new Set(["-V", "--version"]);
 
 function withErrorHandling<TArgs extends unknown[]>(
-  action: (...args: TArgs) => Promise<void>
+  action: (...args: TArgs) => Promise<void>,
 ): (...args: TArgs) => Promise<void> {
   return async (...args: TArgs) => {
     try {
@@ -34,27 +34,40 @@ program
   .option("--json", "Output prompt and command intents as JSON")
   .option("--write-agents", "Write/update devrouter section in AGENTS.md")
   .option("--write-skill", "Write .agents/skills/devrouter/SKILL.md")
-  .action(withErrorHandling(async (options: {
-    repo?: string;
-    entriesJson?: string;
-    json?: boolean;
-    writeAgents?: boolean;
-    writeSkill?: boolean;
-  }) => {
-    const { runInitCommand } = await import("./commands/init");
-    await runInitCommand(options);
-  }));
+  .action(
+    withErrorHandling(
+      async (options: {
+        repo?: string;
+        entriesJson?: string;
+        json?: boolean;
+        writeAgents?: boolean;
+        writeSkill?: boolean;
+      }) => {
+        const { runInitCommand } = await import("./commands/init");
+        await runInitCommand(options);
+      },
+    ),
+  );
 
 program
   .command("upgrade")
-  .description("Show upgrade targets from .devrouter.yml devrouter.version or print a target prompt")
+  .description(
+    "Show upgrade targets from .devrouter.yml devrouter.version or print a target prompt",
+  )
   .argument("[version]", "Target devrouter version")
-  .option("--repo <path>", "Repository path containing .devrouter.yml (defaults to current directory)")
-  .action(withErrorHandling(async (targetVersion: string | undefined, _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string }>();
-    const { runUpgradeCommand } = await import("./commands/upgrade");
-    await runUpgradeCommand({ targetVersion, repo: options.repo });
-  }));
+  .option(
+    "--repo <path>",
+    "Repository path containing .devrouter.yml (defaults to current directory)",
+  )
+  .action(
+    withErrorHandling(
+      async (targetVersion: string | undefined, _options: unknown, command: Command) => {
+        const options = command.opts<{ repo?: string }>();
+        const { runUpgradeCommand } = await import("./commands/upgrade");
+        await runUpgradeCommand({ targetVersion, repo: options.repo });
+      },
+    ),
+  );
 
 program
   .command("setup")
@@ -62,36 +75,44 @@ program
   .option("--repo <path>", "Repository path for final diagnostics (defaults to current directory)")
   .option("--yes", "Confirm non-interactive setup actions")
   .option("--json", "Output JSON")
-  .action(withErrorHandling(async (options: { repo?: string; yes?: boolean; json?: boolean }) => {
-    const { runSetupCommand } = await import("./commands/setup");
-    await runSetupCommand(options);
-  }));
+  .action(
+    withErrorHandling(async (options: { repo?: string; yes?: boolean; json?: boolean }) => {
+      const { runSetupCommand } = await import("./commands/setup");
+      await runSetupCommand(options);
+    }),
+  );
 
 program
   .command("up")
   .description("Ensure devnet and start shared Traefik (reserves 80/443/5432)")
-  .action(withErrorHandling(async () => {
-    const { runUpCommand } = await import("./commands/up");
-    await runUpCommand();
-  }));
+  .action(
+    withErrorHandling(async () => {
+      const { runUpCommand } = await import("./commands/up");
+      await runUpCommand();
+    }),
+  );
 
 program
   .command("down")
   .description("Stop the shared Traefik router stack")
-  .action(withErrorHandling(async () => {
-    const { runDownCommand } = await import("./commands/down");
-    await runDownCommand();
-  }));
+  .action(
+    withErrorHandling(async () => {
+      const { runDownCommand } = await import("./commands/down");
+      await runDownCommand();
+    }),
+  );
 
 program
   .command("status")
   .description("Show router/container/network/TLS status and bound ports")
   .option("--json", "Output JSON")
   .option("--repo <path>", "Repository path for repo-specific readiness insights")
-  .action(withErrorHandling(async (options: { json?: boolean; repo?: string }) => {
-    const { runStatusCommand } = await import("./commands/status");
-    await runStatusCommand(options);
-  }));
+  .action(
+    withErrorHandling(async (options: { json?: boolean; repo?: string }) => {
+      const { runStatusCommand } = await import("./commands/status");
+      await runStatusCommand(options);
+    }),
+  );
 
 program
   .command("doctor")
@@ -99,69 +120,85 @@ program
   .description("Run global + repo diagnostics with actionable fixes for humans and AI agents")
   .option("--repo <path>", "Repository path to validate (defaults to current directory)")
   .option("--json", "Output JSON")
-  .action(withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
-    const { runDoctorCommand } = await import("./commands/doctor");
-    await runDoctorCommand(options);
-  }));
+  .action(
+    withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
+      const { runDoctorCommand } = await import("./commands/doctor");
+      await runDoctorCommand(options);
+    }),
+  );
 
 program
   .command("ls")
   .alias("list")
   .description("List active HTTP and TCP routes from Docker labels and host runtime state")
   .option("--json", "Output JSON")
-  .action(withErrorHandling(async (options: { json?: boolean }) => {
-    const { runLsCommand } = await import("./commands/ls");
-    await runLsCommand(Boolean(options.json));
-  }));
+  .action(
+    withErrorHandling(async (options: { json?: boolean }) => {
+      const { runLsCommand } = await import("./commands/ls");
+      await runLsCommand(Boolean(options.json));
+    }),
+  );
 
 program
   .command("open")
   .description("Open HTTP routes in browser or show TCP connection hints by app/service/host name")
   .argument("<name>", "app name, service name, or host")
-  .action(withErrorHandling(async (name: string) => {
-    const { runOpenCommand } = await import("./commands/open");
-    await runOpenCommand(name);
-  }));
+  .action(
+    withErrorHandling(async (name: string) => {
+      const { runOpenCommand } = await import("./commands/open");
+      await runOpenCommand(name);
+    }),
+  );
 
 program
   .command("logs")
   .description("Show Traefik router logs (useful for diagnosing routing issues)")
   .option("-f, --follow", "Follow log output")
   .option("--tail <lines>", "Number of lines to show from end of logs", "100")
-  .action(withErrorHandling(async (options: { follow?: boolean; tail?: string }) => {
-    const { runLogsCommand } = await import("./commands/logs");
-    await runLogsCommand(options);
-  }));
+  .action(
+    withErrorHandling(async (options: { follow?: boolean; tail?: string }) => {
+      const { runLogsCommand } = await import("./commands/logs");
+      await runLogsCommand(options);
+    }),
+  );
 
-const repoCommand = program.command("repo").description("Create and manage `.devrouter.yml` in repositories");
+const repoCommand = program
+  .command("repo")
+  .description("Create and manage `.devrouter.yml` in repositories");
 
 repoCommand
   .command("init")
   .description("Initialize `.devrouter.yml` in a repository")
   .option("--repo <path>", "Repository path (defaults to current directory)")
-  .action(withErrorHandling(async (options: { repo?: string }) => {
-    const { runRepoInitCommand } = await import("./commands/repo-init");
-    await runRepoInitCommand({ ...options, installedVersion: CLI_VERSION });
-  }));
+  .action(
+    withErrorHandling(async (options: { repo?: string }) => {
+      const { runRepoInitCommand } = await import("./commands/repo-init");
+      await runRepoInitCommand({ ...options, installedVersion: CLI_VERSION });
+    }),
+  );
 
 repoCommand
   .command("inspect")
   .description("Inspect repository stack facts for agent-native onboarding")
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option("--json", "Output JSON")
-  .action(withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
-    const { runRepoInspectCommand } = await import("./commands/repo-inspect");
-    await runRepoInspectCommand(options);
-  }));
+  .action(
+    withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
+      const { runRepoInspectCommand } = await import("./commands/repo-inspect");
+      await runRepoInspectCommand(options);
+    }),
+  );
 
 repoCommand
   .command("agents")
   .description("Write/update devrouter section in the repo's AGENTS.md")
   .option("--repo <path>", "Repository path (defaults to current directory)")
-  .action(withErrorHandling(async (options: { repo?: string }) => {
-    const { runRepoAgentsCommand } = await import("./commands/repo-agents");
-    await runRepoAgentsCommand(options);
-  }));
+  .action(
+    withErrorHandling(async (options: { repo?: string }) => {
+      const { runRepoAgentsCommand } = await import("./commands/repo-agents");
+      await runRepoAgentsCommand(options);
+    }),
+  );
 
 const repoDevcontainerCommand = repoCommand
   .command("devcontainer")
@@ -174,10 +211,14 @@ repoDevcontainerCommand
   .option("--dry-run", "Print the planned file changes without writing")
   .option("--yes", "Write files when no conflicts are detected")
   .option("--json", "Output JSON")
-  .action(withErrorHandling(async (options: { repo?: string; dryRun?: boolean; yes?: boolean; json?: boolean }) => {
-    const { runRepoDevcontainerWriteCommand } = await import("./commands/repo-devcontainer");
-    await runRepoDevcontainerWriteCommand({ ...options, installedVersion: CLI_VERSION });
-  }));
+  .action(
+    withErrorHandling(
+      async (options: { repo?: string; dryRun?: boolean; yes?: boolean; json?: boolean }) => {
+        const { runRepoDevcontainerWriteCommand } = await import("./commands/repo-devcontainer");
+        await runRepoDevcontainerWriteCommand({ ...options, installedVersion: CLI_VERSION });
+      },
+    ),
+  );
 
 repoDevcontainerCommand
   .command("verify")
@@ -186,12 +227,18 @@ repoDevcontainerCommand
   .option("--live", "Register proxy routes and probe HTTP routes")
   .option("--yes", "Confirm live verification actions")
   .option("--json", "Output JSON")
-  .action(withErrorHandling(async (options: { repo?: string; live?: boolean; yes?: boolean; json?: boolean }) => {
-    const { runRepoDevcontainerVerifyCommand } = await import("./commands/repo-devcontainer");
-    await runRepoDevcontainerVerifyCommand(options);
-  }));
+  .action(
+    withErrorHandling(
+      async (options: { repo?: string; live?: boolean; yes?: boolean; json?: boolean }) => {
+        const { runRepoDevcontainerVerifyCommand } = await import("./commands/repo-devcontainer");
+        await runRepoDevcontainerVerifyCommand(options);
+      },
+    ),
+  );
 
-const appCommand = program.command("app").description("Manage app entries and runtime actions from `.devrouter.yml`");
+const appCommand = program
+  .command("app")
+  .description("Manage app entries and runtime actions from `.devrouter.yml`");
 
 appCommand
   .command("add")
@@ -200,55 +247,72 @@ appCommand
   .option("--kind <kind>", "app or dependency", "app")
   .option("--host <host>", "Hostname ending with .localhost (required for --kind app)")
   .option("--protocol <protocol>", "http or tcp (required for --kind app)")
-  .option("--runtime <runtime>", "host, docker, or proxy (required for --kind app, optional for --kind dependency)")
+  .option(
+    "--runtime <runtime>",
+    "host, docker, or proxy (required for --kind app, optional for --kind dependency)",
+  )
   .option("--service <service>", "Docker service name (runtime=docker)")
   .option("--port <port>", "Internal port (runtime=docker)", (value) => Number(value))
   .option("--upstream <host:port>", "Already-running upstream to route to (runtime=proxy)")
-  .option("--compose-file <file>", "Compose file path (repeatable)", (value, prev: string[] | undefined) => {
-    const next = prev ?? [];
-    next.push(value);
-    return next;
-  })
+  .option(
+    "--compose-file <file>",
+    "Compose file path (repeatable)",
+    (value, prev: string[] | undefined) => {
+      const next = prev ?? [];
+      next.push(value);
+      return next;
+    },
+  )
   .option("--router <id>", "Optional Traefik router ID")
   .option("--tcp-protocol <protocol>", "tcp protocol (postgres, redis, mariadb, mysql)")
   .option("--command <command>", "Host command (runtime=host)")
   .option("--cwd <path>", "Host command working directory (runtime=host)")
-  .option("--depends-on <app>", "Dependency app name (repeatable)", (value, prev: string[] | undefined) => {
-    const next = prev ?? [];
-    next.push(value);
-    return next;
-  })
+  .option(
+    "--depends-on <app>",
+    "Dependency app name (repeatable)",
+    (value, prev: string[] | undefined) => {
+      const next = prev ?? [];
+      next.push(value);
+      return next;
+    },
+  )
   .option("--repo <path>", "Repository path (defaults to current directory)")
-  .action(withErrorHandling(async (options: {
-    name: string;
-    kind?: "app" | "dependency";
-    host?: string;
-    protocol?: "http" | "tcp";
-    runtime?: "host" | "docker" | "proxy";
-    service?: string;
-    port?: number;
-    upstream?: string;
-    composeFile?: string[];
-    router?: string;
-    tcpProtocol?: string;
-    command?: string;
-    cwd?: string;
-    dependsOn?: string[];
-    repo?: string;
-  }) => {
-    const { runAppAddCommand } = await import("./commands/app-add");
-    await runAppAddCommand(options);
-  }));
+  .action(
+    withErrorHandling(
+      async (options: {
+        name: string;
+        kind?: "app" | "dependency";
+        host?: string;
+        protocol?: "http" | "tcp";
+        runtime?: "host" | "docker" | "proxy";
+        service?: string;
+        port?: number;
+        upstream?: string;
+        composeFile?: string[];
+        router?: string;
+        tcpProtocol?: string;
+        command?: string;
+        cwd?: string;
+        dependsOn?: string[];
+        repo?: string;
+      }) => {
+        const { runAppAddCommand } = await import("./commands/app-add");
+        await runAppAddCommand(options);
+      },
+    ),
+  );
 
 appCommand
   .command("ls")
   .description("List app definitions from `.devrouter.yml`")
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option("--json", "Output JSON")
-  .action(withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
-    const { runAppLsCommand } = await import("./commands/app-ls");
-    await runAppLsCommand(options);
-  }));
+  .action(
+    withErrorHandling(async (options: { repo?: string; json?: boolean }) => {
+      const { runAppLsCommand } = await import("./commands/app-ls");
+      await runAppLsCommand(options);
+    }),
+  );
 
 appCommand
   .command("run")
@@ -257,18 +321,28 @@ appCommand
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option("--yes", "Auto-start dependencies without prompt")
   .option("--env <env>", "Override secretManager {env} placeholder")
-  .option("--workspace <slug>", "Override the per-workspace token (default: auto from git worktree)")
-  .action(withErrorHandling(async (name: string, _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string; yes?: boolean; env?: string; workspace?: string }>();
-    const { runAppRunCommand } = await import("./commands/app-run");
-    await runAppRunCommand({
-      name,
-      repo: options.repo,
-      yes: Boolean(options.yes),
-      env: options.env,
-      workspace: options.workspace
-    });
-  }));
+  .option(
+    "--workspace <slug>",
+    "Override the per-workspace token (default: auto from git worktree)",
+  )
+  .action(
+    withErrorHandling(async (name: string, _options: unknown, command: Command) => {
+      const options = command.opts<{
+        repo?: string;
+        yes?: boolean;
+        env?: string;
+        workspace?: string;
+      }>();
+      const { runAppRunCommand } = await import("./commands/app-run");
+      await runAppRunCommand({
+        name,
+        repo: options.repo,
+        yes: Boolean(options.yes),
+        env: options.env,
+        workspace: options.workspace,
+      });
+    }),
+  );
 
 appCommand
   .command("exec")
@@ -279,20 +353,33 @@ appCommand
   .option("--yes", "Auto-start dependencies without prompt")
   .option("--shell", "Run command through system shell (requires a single command string after --)")
   .option("--env <env>", "Override secretManager {env} placeholder")
-  .option("--workspace <slug>", "Override the per-workspace token (default: auto from git worktree)")
-  .action(withErrorHandling(async (name: string, commandParts: string[], _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string; yes?: boolean; shell?: boolean; env?: string; workspace?: string }>();
-    const { runAppExecCommand } = await import("./commands/app-exec");
-    await runAppExecCommand({
-      name,
-      repo: options.repo,
-      yes: Boolean(options.yes),
-      shell: Boolean(options.shell),
-      env: options.env,
-      workspace: options.workspace,
-      command: commandParts
-    });
-  }));
+  .option(
+    "--workspace <slug>",
+    "Override the per-workspace token (default: auto from git worktree)",
+  )
+  .action(
+    withErrorHandling(
+      async (name: string, commandParts: string[], _options: unknown, command: Command) => {
+        const options = command.opts<{
+          repo?: string;
+          yes?: boolean;
+          shell?: boolean;
+          env?: string;
+          workspace?: string;
+        }>();
+        const { runAppExecCommand } = await import("./commands/app-exec");
+        await runAppExecCommand({
+          name,
+          repo: options.repo,
+          yes: Boolean(options.yes),
+          shell: Boolean(options.shell),
+          env: options.env,
+          workspace: options.workspace,
+          command: commandParts,
+        });
+      },
+    ),
+  );
 
 appCommand
   .command("rm")
@@ -301,23 +388,29 @@ appCommand
   .option("--repo <path>", "Repository path (defaults to current directory)")
   .option(
     "--keep-config",
-    "Only free the live route/hostname; leave the `.devrouter.yml` app definition untouched"
+    "Only free the live route/hostname; leave the `.devrouter.yml` app definition untouched",
   )
-  .action(withErrorHandling(async (name: string, _options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string; keepConfig?: boolean }>();
-    const { runAppRmCommand } = await import("./commands/app-rm");
-    await runAppRmCommand({ name, repo: options.repo, keepConfig: Boolean(options.keepConfig) });
-  }));
+  .action(
+    withErrorHandling(async (name: string, _options: unknown, command: Command) => {
+      const options = command.opts<{ repo?: string; keepConfig?: boolean }>();
+      const { runAppRmCommand } = await import("./commands/app-rm");
+      await runAppRmCommand({ name, repo: options.repo, keepConfig: Boolean(options.keepConfig) });
+    }),
+  );
 
-const tlsCommand = program.command("tls").description("TLS helpers for HTTPS and Postgres SNI routing");
+const tlsCommand = program
+  .command("tls")
+  .description("TLS helpers for HTTPS and Postgres SNI routing");
 
 tlsCommand
   .command("install")
   .description("Install mkcert certs and enable HTTPS + TLS redirect behavior")
-  .action(withErrorHandling(async () => {
-    const { runTLSInstallCommand } = await import("./commands/tls");
-    await runTLSInstallCommand();
-  }));
+  .action(
+    withErrorHandling(async () => {
+      const { runTLSInstallCommand } = await import("./commands/tls");
+      await runTLSInstallCommand();
+    }),
+  );
 
 const workspaceCommand = program
   .command("workspace")
@@ -325,34 +418,45 @@ const workspaceCommand = program
 
 workspaceCommand
   .command("up")
-  .description("Create a worktree for <branch>, bring up its devpod, and register namespaced routes")
+  .description(
+    "Create a worktree for <branch>, bring up its devpod, and register namespaced routes",
+  )
   .argument("<branch>", "Git branch to base the workspace on")
   .option("--path <dir>", "Worktree directory (default: ../<repo>-<workspace>)")
   .option("--no-devpod", "Skip 'devpod up' (only create the worktree and register routes)")
   .option("--open", "Open the namespaced routes after registering")
   .option("--repo <path>", "Main repository path (defaults to current directory)")
-  .action(withErrorHandling(async (branch: string, _options: unknown, command: Command) => {
-    const options = command.opts<{ path?: string; devpod?: boolean; open?: boolean; repo?: string }>();
-    const { runWorkspaceUpCommand } = await import("./commands/workspace");
-    // commander sets `devpod: false` for --no-devpod; normalize to noDevpod.
-    await runWorkspaceUpCommand(branch, {
-      path: options.path,
-      noDevpod: options.devpod === false,
-      open: Boolean(options.open),
-      repo: options.repo
-    });
-  }));
+  .action(
+    withErrorHandling(async (branch: string, _options: unknown, command: Command) => {
+      const options = command.opts<{
+        path?: string;
+        devpod?: boolean;
+        open?: boolean;
+        repo?: string;
+      }>();
+      const { runWorkspaceUpCommand } = await import("./commands/workspace");
+      // commander sets `devpod: false` for --no-devpod; normalize to noDevpod.
+      await runWorkspaceUpCommand(branch, {
+        path: options.path,
+        noDevpod: options.devpod === false,
+        open: Boolean(options.open),
+        repo: options.repo,
+      });
+    }),
+  );
 
 workspaceCommand
   .command("ls")
   .description("List git worktrees with their workspace token and active route count")
   .option("--repo <path>", "Main repository path (defaults to current directory)")
   .option("--json", "Output JSON")
-  .action(withErrorHandling(async (_options: unknown, command: Command) => {
-    const options = command.opts<{ repo?: string; json?: boolean }>();
-    const { runWorkspaceLsCommand } = await import("./commands/workspace");
-    runWorkspaceLsCommand(options);
-  }));
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{ repo?: string; json?: boolean }>();
+      const { runWorkspaceLsCommand } = await import("./commands/workspace");
+      runWorkspaceLsCommand(options);
+    }),
+  );
 
 workspaceCommand
   .command("down")
@@ -361,11 +465,17 @@ workspaceCommand
   .option("--keep-worktree", "Leave the git worktree in place")
   .option("--keep-devpod", "Leave the devpod workspace running")
   .option("--repo <path>", "Main repository path (defaults to current directory)")
-  .action(withErrorHandling(async (target: string, _options: unknown, command: Command) => {
-    const options = command.opts<{ keepWorktree?: boolean; keepDevpod?: boolean; repo?: string }>();
-    const { runWorkspaceDownCommand } = await import("./commands/workspace");
-    runWorkspaceDownCommand(target, options);
-  }));
+  .action(
+    withErrorHandling(async (target: string, _options: unknown, command: Command) => {
+      const options = command.opts<{
+        keepWorktree?: boolean;
+        keepDevpod?: boolean;
+        repo?: string;
+      }>();
+      const { runWorkspaceDownCommand } = await import("./commands/workspace");
+      runWorkspaceDownCommand(target, options);
+    }),
+  );
 
 function parseVersionRequest(argv: string[]): { repo?: string } | null {
   let requested = false;
@@ -409,7 +519,7 @@ async function runCli(): Promise<void> {
     const { runVersionCommand } = await import("./commands/version");
     await runVersionCommand({
       repo: versionRequest.repo,
-      installedVersion: CLI_VERSION
+      installedVersion: CLI_VERSION,
     });
     return;
   }

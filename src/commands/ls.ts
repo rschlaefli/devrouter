@@ -1,8 +1,8 @@
 import { listContainers } from "../core/docker";
 import { listHostRoutes } from "../core/host-routes";
 import { printJSON, printRoutes } from "../core/output";
-import { discoverRoutes, findDuplicateHosts } from "../core/routes";
 import { DEVNET_NAME, isTLSEnabled } from "../core/router";
+import { discoverRoutes, findDuplicateHosts } from "../core/routes";
 
 export async function runLsCommand(json: boolean): Promise<void> {
   const containers = await listContainers(true);

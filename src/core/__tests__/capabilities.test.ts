@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildPostgresDependencyShadowUrl,
+  buildPostgresDependencyUrl,
   DEP_ENV_SUFFIXES,
   DEPENDENCY_ONLY_RUNTIME,
+  formatSupportedProtocolsForRuntime,
+  formatSupportedTcpProtocols,
   POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE,
   POSTGRES_DEPENDENCY_URL_TEMPLATE,
   RUNTIME_PROTOCOL_COMPATIBILITY,
@@ -10,10 +14,6 @@ import {
   SUPPORTED_RUNTIMES,
   SUPPORTED_TCP_PROTOCOLS,
   WORKSPACE_PLACEHOLDER,
-  buildPostgresDependencyShadowUrl,
-  buildPostgresDependencyUrl,
-  formatSupportedProtocolsForRuntime,
-  formatSupportedTcpProtocols
 } from "../capabilities";
 
 describe("capability facts", () => {
@@ -39,9 +39,17 @@ describe("capability facts", () => {
   });
 
   it("publishes postgres dependency URL facts", () => {
-    expect(POSTGRES_DEPENDENCY_URL_TEMPLATE).toBe("postgres://prisma:prisma@localhost:<port>/prisma");
-    expect(POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE).toBe("postgres://prisma:prisma@localhost:<port>/shadow");
-    expect(buildPostgresDependencyUrl(55432)).toBe("postgres://prisma:prisma@localhost:55432/prisma");
-    expect(buildPostgresDependencyShadowUrl(55432)).toBe("postgres://prisma:prisma@localhost:55432/shadow");
+    expect(POSTGRES_DEPENDENCY_URL_TEMPLATE).toBe(
+      "postgres://prisma:prisma@localhost:<port>/prisma",
+    );
+    expect(POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE).toBe(
+      "postgres://prisma:prisma@localhost:<port>/shadow",
+    );
+    expect(buildPostgresDependencyUrl(55432)).toBe(
+      "postgres://prisma:prisma@localhost:55432/prisma",
+    );
+    expect(buildPostgresDependencyShadowUrl(55432)).toBe(
+      "postgres://prisma:prisma@localhost:55432/shadow",
+    );
   });
 });

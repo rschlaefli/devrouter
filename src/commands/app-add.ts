@@ -1,5 +1,5 @@
-import { AppAddOptions } from "../types";
 import { resolveRepoPath, upsertRepoApp } from "../core/repo-config";
+import type { AppAddOptions } from "../types";
 
 type CliAppAddOptions = {
   name: string;
@@ -34,7 +34,7 @@ function normalizeOptions(options: CliAppAddOptions): AppAddOptions {
     tcpProtocol: options.tcpProtocol,
     command: options.command,
     cwd: options.cwd,
-    dependsOn: options.dependsOn ?? []
+    dependsOn: options.dependsOn ?? [],
   };
 }
 
@@ -44,16 +44,20 @@ export async function runAppAddCommand(options: CliAppAddOptions): Promise<void>
   process.stdout.write(`Updated ${result.configPath}\n`);
   if (result.app.kind === "dependency") {
     process.stdout.write(
-      `App '${result.app.name}' (dependency/${result.app.runtime}) -> service ${result.app.docker.service}\n`
+      `App '${result.app.name}' (dependency/${result.app.runtime}) -> service ${result.app.docker.service}\n`,
     );
     process.stdout.write(
-      `Dependency-only apps are auto-started via --depends-on. They are not runnable directly.\n`
+      `Dependency-only apps are auto-started via --depends-on. They are not runnable directly.\n`,
     );
   } else {
-    const protocol = result.app.protocol === "tcp" ? `tcp/${result.app.tcpProtocol}` : result.app.protocol;
-    const target = result.app.runtime === "proxy" ? `${result.app.host} -> ${result.app.upstream}` : result.app.host;
+    const protocol =
+      result.app.protocol === "tcp" ? `tcp/${result.app.tcpProtocol}` : result.app.protocol;
+    const target =
+      result.app.runtime === "proxy"
+        ? `${result.app.host} -> ${result.app.upstream}`
+        : result.app.host;
     process.stdout.write(
-      `App '${result.app.name}' (${protocol}/${result.app.runtime}) -> ${target}\n`
+      `App '${result.app.name}' (${protocol}/${result.app.runtime}) -> ${target}\n`,
     );
     process.stdout.write(`Run: dev app run ${result.app.name} --repo ${repoPath}\n`);
   }

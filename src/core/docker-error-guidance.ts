@@ -9,7 +9,7 @@ export function withDockerFailureGuidance(details: string): string {
 
   return (
     `${base}\n\n` +
-    "Docker storage appears full (\"no space left on device\"). " +
+    'Docker storage appears full ("no space left on device"). ' +
     "Free Docker disk space using your preferred method, then retry the command."
   );
 }

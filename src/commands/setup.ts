@@ -1,5 +1,5 @@
-import { runSetup } from "../core/setup";
 import { printJSON, printSetupReport } from "../core/output";
+import { runSetup } from "../core/setup";
 
 type SetupCommandOptions = {
   repo?: string;

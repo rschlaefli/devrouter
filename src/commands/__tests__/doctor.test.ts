@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runDoctorCommand } from "../doctor";
 import { buildDoctorReport } from "../../core/doctor";
 import { printDoctorReport, printJSON } from "../../core/output";
 import type { DoctorReport } from "../../types";
+import { runDoctorCommand } from "../doctor";
 
 vi.mock("../../core/doctor", () => ({
   buildDoctorReport: vi.fn(),

@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Biome pinned to a fixed version for consistent formatting and lint behavior across all environments.
+- Knip pinned for stable detection of unused files, unused dependencies, unlisted dependencies, and unresolved imports.
+- `pre-commit` hooks covering basic file checks, Biome safe fixes, Knip, and Gitleaks secret scanning. Developers run `pre-commit install` once after cloning to activate them.
+- `pnpm check` and `pnpm knip` added as CI gates. Existing CI continues to run `pnpm typecheck`, tests, build, and docs policy.
+
+### Changed
+
+- Repository normalized to Biome formatting and import order throughout. Existing files were reformatted in a single pass to establish a clean baseline.
+
 ## [0.0.25] - 2026-07-08
 
 ### Added

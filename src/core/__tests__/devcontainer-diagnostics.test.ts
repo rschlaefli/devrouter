@@ -2,12 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildDevcontainerChecks } from "../devcontainer-diagnostics";
 import type { DevrouterConfig } from "../../types";
+import { buildDevcontainerChecks } from "../devcontainer-diagnostics";
 
 let tmpDir: string;
 
-function writeCompose(options: { aliases?: string[]; external?: boolean; ports?: string } = {}): void {
+function writeCompose(
+  options: { aliases?: string[]; external?: boolean; ports?: string } = {},
+): void {
   const aliases = options.aliases ?? ["${WORKSPACE:-sample}-app"];
   const external = options.external ?? true;
   const ports = options.ports ? `    ports:\n      - ${options.ports}\n` : "";
@@ -25,7 +27,7 @@ networks:
   devnet:
     external: ${String(external)}
 `,
-    "utf-8"
+    "utf-8",
   );
 }
 
@@ -45,7 +47,10 @@ function config(upstream: string): DevrouterConfig {
   };
 }
 
-function checkLevel(checks: ReturnType<typeof buildDevcontainerChecks>, id: string): string | undefined {
+function checkLevel(
+  checks: ReturnType<typeof buildDevcontainerChecks>,
+  id: string,
+): string | undefined {
   return checks.find((check) => check.id === id)?.level;
 }
 

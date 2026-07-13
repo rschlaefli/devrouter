@@ -8,6 +8,7 @@ Setup and first-run guide for `devrouter` using the unified `.devrouter.yml` mod
 - Docker daemon + CLI
 - Node `>=24`
 - pnpm
+- pre-commit (for repository Git hooks)
 - mkcert (recommended for local HTTPS/TCP routing)
 - Homebrew (optional, convenient for installing mkcert/DevPod)
 
@@ -43,6 +44,38 @@ Verify:
 ```bash
 dev --help
 ```
+
+## Local quality checks
+
+```sh
+pre-commit install
+```
+
+Installs the git hooks defined in `.pre-commit-config.yaml`. Run once after cloning; hooks fire on every commit from that point forward.
+
+```sh
+pnpm check
+```
+
+Runs Biome in check mode across the repository: linting and formatting violations are reported but nothing is written. Use this in CI or to inspect the current state without touching files.
+
+```sh
+pnpm check:fix
+```
+
+Applies Biome fixes in place – formatting and auto-fixable lint rules. Handles import ordering as part of the same pass.
+
+```sh
+pnpm knip
+```
+
+Finds unused files, unused dependencies, unlisted dependencies, and unresolved imports. The output is current state; nothing is removed automatically.
+
+```sh
+pnpm typecheck
+```
+
+Runs the TypeScript compiler in no-emit mode. Covers the full project graph.
 
 Version and upgrade quick check (against the bundled routing example metadata):
 

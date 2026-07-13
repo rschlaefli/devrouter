@@ -390,6 +390,18 @@ See details:
 
 `devrouter repo agents` writes a devrouter section into the repo's `AGENTS.md` and installs a skill file at `.agents/skills/devrouter/SKILL.md`. The skill content is embedded in the CLI bundle so it stays in sync across repos.
 
+## Development quality
+
+`pnpm check` runs Biome formatting, lint, and import-order checks. `pnpm check:fix` applies safe fixes automatically. `pnpm knip` detects unused files, dependencies, and unresolved imports. `pnpm typecheck` runs TypeScript checks across the repo.
+
+Pre-commit hooks run on every commit once installed:
+
+```sh
+pre-commit install
+```
+
+Hooks run Biome safe fixes, Knip, Gitleaks secret scanning, and basic file checks (trailing whitespace, merge conflict markers, large file guard).
+
 ## Known limitations (v1)
 
 - Host-runtime dependencies are not auto-started; only Docker dependencies are auto-started.

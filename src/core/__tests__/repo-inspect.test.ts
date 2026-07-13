@@ -22,15 +22,20 @@ afterEach(() => {
 
 describe("inspectRepo", () => {
   it("detects package, scripts, compose services, env names, devrouter config, and agent files", () => {
-    write("package.json", JSON.stringify({
-      packageManager: "pnpm@11.6.0",
-      engines: { node: ">=24" },
-      scripts: {
-        dev: "DATABASE_URL=postgres://secret-value next dev --port 3100",
-        test: "vitest run",
-      },
-    }));
-    write("infra/compose.yml", `services:
+    write(
+      "package.json",
+      JSON.stringify({
+        packageManager: "pnpm@11.6.0",
+        engines: { node: ">=24" },
+        scripts: {
+          dev: "DATABASE_URL=postgres://secret-value next dev --port 3100",
+          test: "vitest run",
+        },
+      }),
+    );
+    write(
+      "infra/compose.yml",
+      `services:
   postgres:
     image: postgres:16
     environment:
@@ -40,15 +45,21 @@ describe("inspectRepo", () => {
       test: ["CMD-SHELL", "pg_isready -U prisma"]
   redis:
     image: redis:7
-`);
-    write(".env.local", `DATABASE_URL=postgres://secret-value
+`,
+    );
+    write(
+      ".env.local",
+      `DATABASE_URL=postgres://secret-value
 AUTH0_ISSUER=https://issuer.example.test
 PLAIN=value
-`);
+`,
+    );
     write(".devcontainer/devcontainer.json", "{}");
     write("AGENTS.md", "# Agents");
     write(".agents/skills/devrouter/SKILL.md", "# skill");
-    write(".devrouter.yml", `version: 1
+    write(
+      ".devrouter.yml",
+      `version: 1
 apps:
   - name: app
     host: app.localhost
@@ -65,7 +76,8 @@ apps:
       internalPort: 5432
       composeFiles:
         - infra/compose.yml
-`);
+`,
+    );
 
     const report = inspectRepo({ repo: tmpDir });
 
@@ -78,7 +90,9 @@ apps:
     expect(report.scripts[0].command).toContain("DATABASE_URL=<redacted>");
     expect(JSON.stringify(report.scripts)).not.toContain("secret-value");
     expect(report.apps[0]).toMatchObject({ name: "app", port: 3100, confidence: "high" });
-    expect(report.services.map((service) => [service.name, service.kind, service.hasHealthcheck])).toEqual([
+    expect(
+      report.services.map((service) => [service.name, service.kind, service.hasHealthcheck]),
+    ).toEqual([
       ["postgres", "postgres", true],
       ["redis", "redis", false],
     ]);
@@ -91,8 +105,16 @@ apps:
     expect(JSON.stringify(report)).not.toContain("secret-value");
     expect(report.env.authLikeNames).toEqual(["AUTH0_ISSUER"]);
     expect(report.env.databaseLikeNames).toEqual(["DATABASE_URL"]);
-    expect(report.devcontainer).toEqual({ exists: true, files: [".devcontainer/devcontainer.json"] });
-    expect(report.devrouter).toMatchObject({ exists: true, valid: true, appCount: 2, tcpAppCount: 1 });
+    expect(report.devcontainer).toEqual({
+      exists: true,
+      files: [".devcontainer/devcontainer.json"],
+    });
+    expect(report.devrouter).toMatchObject({
+      exists: true,
+      valid: true,
+      appCount: 2,
+      tcpAppCount: 1,
+    });
     expect(report.agentGuidance).toEqual([
       { path: "AGENTS.md", kind: "agents" },
       { path: ".agents/skills/devrouter/SKILL.md", kind: "skill" },
@@ -114,7 +136,9 @@ apps:
   });
 
   it("sanitizes invalid devrouter config errors", () => {
-    write(".devrouter.yml", `version: 1
+    write(
+      ".devrouter.yml",
+      `version: 1
 apps:
   - name: web
     host: web.localhost
@@ -127,7 +151,8 @@ apps:
     hostRun:
       command: pnpm dev
       cwd: .
-`);
+`,
+    );
 
     const report = inspectRepo({ repo: tmpDir });
 

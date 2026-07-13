@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { runSetup } from "../setup";
 import { ensureNetwork, isContainerRunning, networkExists } from "../docker";
-import { ensureRouterFiles, getRouterFileLayout, startRouterStack } from "../router";
-import { installTLS } from "../tls";
 import { buildDoctorReport } from "../doctor";
+import { ensureRouterFiles, getRouterFileLayout, startRouterStack } from "../router";
+import { runSetup } from "../setup";
+import { installTLS } from "../tls";
 import { runTool } from "../tool-diagnostics";
 
 vi.mock("../docker", () => ({
@@ -48,7 +48,10 @@ beforeEach(() => {
   vi.mocked(networkExists).mockResolvedValue(false);
   vi.mocked(isContainerRunning).mockResolvedValue(false);
   vi.mocked(runTool).mockReturnValue({ ok: true, output: "v1.0.0" });
-  vi.mocked(installTLS).mockResolvedValue({ alreadyEnabled: false, hosts: ["localhost", "*.localhost"] });
+  vi.mocked(installTLS).mockResolvedValue({
+    alreadyEnabled: false,
+    hosts: ["localhost", "*.localhost"],
+  });
 });
 
 describe("runSetup", () => {
@@ -90,7 +93,10 @@ describe("runSetup", () => {
   it("reports setup as skipped when devrouter-owned state already exists", async () => {
     vi.mocked(networkExists).mockResolvedValue(true);
     vi.mocked(isContainerRunning).mockResolvedValue(true);
-    vi.mocked(installTLS).mockResolvedValue({ alreadyEnabled: true, hosts: ["localhost", "*.localhost"] });
+    vi.mocked(installTLS).mockResolvedValue({
+      alreadyEnabled: true,
+      hosts: ["localhost", "*.localhost"],
+    });
 
     const report = await runSetup({ repo: "/repo", yes: true });
 

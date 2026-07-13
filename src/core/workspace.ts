@@ -1,6 +1,6 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 
 // A workspace token identifies one isolated dev environment (a git worktree + its
 // devcontainer/devpod). It namespaces the front host and the proxy upstream so N
@@ -60,7 +60,7 @@ export function isLinkedWorktree(repoPath: string): boolean {
 
 function currentBranch(repoPath: string): string | undefined {
   const result = spawnSync("git", ["-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD"], {
-    encoding: "utf-8"
+    encoding: "utf-8",
   });
   if (result.status !== 0) {
     return undefined;

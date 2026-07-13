@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runAppRmCommand } from "../app-rm";
-import { removeRouteForApp } from "../../core/route-state";
 import { removeRepoApp } from "../../core/repo-config";
+import { removeRouteForApp } from "../../core/route-state";
+import { runAppRmCommand } from "../app-rm";
 
 vi.mock("../../core/route-state", () => ({
   removeRouteForApp: vi.fn(() => [{ id: "/repo::app" }]),
@@ -35,10 +35,13 @@ describe("runAppRmCommand", () => {
   });
 
   it("throws when the app is not in the config (default mode)", async () => {
-    vi.mocked(removeRepoApp).mockReturnValue({ removed: false, configPath: "/repo/.devrouter.yml" });
+    vi.mocked(removeRepoApp).mockReturnValue({
+      removed: false,
+      configPath: "/repo/.devrouter.yml",
+    });
 
     await expect(runAppRmCommand({ name: "ghost" })).rejects.toThrow(
-      "App 'ghost' not found in /repo/.devrouter.yml."
+      "App 'ghost' not found in /repo/.devrouter.yml.",
     );
     expect(removeRouteForApp).not.toHaveBeenCalled();
   });

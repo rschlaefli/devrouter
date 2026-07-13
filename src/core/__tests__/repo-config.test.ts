@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DevrouterApp, DevrouterConfig } from "../../types";
+import { formatSupportedTcpProtocols } from "../capabilities";
 import {
   applyWorkspace,
   initRepoConfig,
@@ -11,8 +13,6 @@ import {
   resolveAppDependencies,
   upsertRepoApp,
 } from "../repo-config";
-import { formatSupportedTcpProtocols } from "../capabilities";
-import type { DevrouterApp, DevrouterConfig } from "../../types";
 
 // -- helpers --
 
@@ -129,36 +129,24 @@ describe("loadRepoConfig", () => {
   });
 
   it("loads config with project name", () => {
-    writeConfig(
-      tmpDir,
-      "version: 1\nproject:\n  name: my-project\napps: []"
-    );
+    writeConfig(tmpDir, "version: 1\nproject:\n  name: my-project\napps: []");
     const config = loadRepoConfig(tmpDir);
     expect(config.project?.name).toBe("my-project");
   });
 
   it("loads config with devrouter.version metadata", () => {
-    writeConfig(
-      tmpDir,
-      "version: 1\ndevrouter:\n  version: 0.0.14\napps: []"
-    );
+    writeConfig(tmpDir, "version: 1\ndevrouter:\n  version: 0.0.14\napps: []");
     const config = loadRepoConfig(tmpDir);
     expect(config.devrouter?.version).toBe("0.0.14");
   });
 
   it("rejects invalid devrouter.version values", () => {
-    writeConfig(
-      tmpDir,
-      "version: 1\ndevrouter:\n  version: latest\napps: []"
-    );
+    writeConfig(tmpDir, "version: 1\ndevrouter:\n  version: latest\napps: []");
     expect(() => loadRepoConfig(tmpDir)).toThrow("devrouter.version must be a semantic version");
   });
 
   it("rejects unknown keys under devrouter", () => {
-    writeConfig(
-      tmpDir,
-      "version: 1\ndevrouter:\n  channel: stable\napps: []"
-    );
+    writeConfig(tmpDir, "version: 1\ndevrouter:\n  channel: stable\napps: []");
     expect(() => loadRepoConfig(tmpDir)).toThrow("devrouter.channel is not supported");
   });
 });
@@ -190,10 +178,7 @@ describe("hostname validation", () => {
   });
 
   it("accepts multi-segment host", () => {
-    const yaml = VALID_MINIMAL.replace(
-      "web.localhost",
-      "api.v2.my-app.localhost"
-    );
+    const yaml = VALID_MINIMAL.replace("web.localhost", "api.v2.my-app.localhost");
     writeConfig(tmpDir, yaml);
     const config = loadRepoConfig(tmpDir);
     const app = config.apps[0];
@@ -229,7 +214,9 @@ describe("protocol/runtime combinations", () => {
   });
 
   it("rejects proxy without upstream", () => {
-    const yaml = VALID_PROXY_APP.split("\n").filter((l) => !l.includes("upstream")).join("\n");
+    const yaml = VALID_PROXY_APP.split("\n")
+      .filter((l) => !l.includes("upstream"))
+      .join("\n");
     writeConfig(tmpDir, yaml);
     expect(() => loadRepoConfig(tmpDir)).toThrow("upstream");
   });
@@ -273,10 +260,13 @@ apps:
   });
 
   it("rejects proxy + tcp with unsupported tcpProtocol", () => {
-    const yaml = VALID_PROXY_APP.replace("protocol: http", "protocol: tcp\n    tcpProtocol: mongodb");
+    const yaml = VALID_PROXY_APP.replace(
+      "protocol: http",
+      "protocol: tcp\n    tcpProtocol: mongodb",
+    );
     writeConfig(tmpDir, yaml);
     expect(() => loadRepoConfig(tmpDir)).toThrow(
-      `tcpProtocol must be one of: ${formatSupportedTcpProtocols()}`
+      `tcpProtocol must be one of: ${formatSupportedTcpProtocols()}`,
     );
   });
 
@@ -301,7 +291,9 @@ apps:
       - app: db
 `;
     writeConfig(tmpDir, yaml);
-    expect(() => loadRepoConfig(tmpDir)).toThrow("dependencies is not supported when runtime=proxy");
+    expect(() => loadRepoConfig(tmpDir)).toThrow(
+      "dependencies is not supported when runtime=proxy",
+    );
   });
 
   it("rejects host + tcp", () => {
@@ -318,17 +310,14 @@ apps:
 `;
     writeConfig(tmpDir, yaml);
     expect(() => loadRepoConfig(tmpDir)).toThrow(
-      "host runtime currently supports only protocol=http"
+      "host runtime currently supports only protocol=http",
     );
   });
 
   it("accepts docker + tcp + postgres", () => {
     writeConfig(tmpDir, VALID_TCP_POSTGRES);
     const config = loadRepoConfig(tmpDir);
-    const app = config.apps[0] as Extract<
-      DevrouterApp,
-      { protocol: "tcp" }
-    >;
+    const app = config.apps[0] as Extract<DevrouterApp, { protocol: "tcp" }>;
     expect(app.protocol).toBe("tcp");
     expect(app.tcpProtocol).toBe("postgres");
     expect(app.runtime).toBe("docker");
@@ -354,7 +343,7 @@ apps:
     const yaml = VALID_TCP_POSTGRES.replace("postgres", "cassandra");
     writeConfig(tmpDir, yaml);
     expect(() => loadRepoConfig(tmpDir)).toThrow(
-      `tcpProtocol must be one of: ${formatSupportedTcpProtocols()}`
+      `tcpProtocol must be one of: ${formatSupportedTcpProtocols()}`,
     );
   });
 
@@ -498,7 +487,10 @@ apps:
 
 describe("secretManager validation", () => {
   it("accepts valid secretManager config", () => {
-    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env dev --\napps: []");
+    writeConfig(
+      tmpDir,
+      "version: 1\nsecretManager:\n  command: infisical run --env dev --\napps: []",
+    );
     const config = loadRepoConfig(tmpDir);
     expect(config.secretManager?.command).toBe("infisical run --env dev --");
   });
@@ -515,7 +507,10 @@ describe("secretManager validation", () => {
   });
 
   it("rejects unknown keys under secretManager", () => {
-    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --\n  timeout: 30\napps: []");
+    writeConfig(
+      tmpDir,
+      "version: 1\nsecretManager:\n  command: infisical run --\n  timeout: 30\napps: []",
+    );
     expect(() => loadRepoConfig(tmpDir)).toThrow("timeout is not supported");
   });
 
@@ -526,36 +521,56 @@ describe("secretManager validation", () => {
   });
 
   it("accepts secretManager with defaultEnv", () => {
-    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env {env} --\n  defaultEnv: dev\napps: []");
+    writeConfig(
+      tmpDir,
+      "version: 1\nsecretManager:\n  command: infisical run --env {env} --\n  defaultEnv: dev\napps: []",
+    );
     const config = loadRepoConfig(tmpDir);
     expect(config.secretManager?.command).toBe("infisical run --env {env} --");
     expect(config.secretManager?.defaultEnv).toBe("dev");
   });
 
   it("requires defaultEnv when command contains {env}", () => {
-    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env {env} --\napps: []");
-    expect(() => loadRepoConfig(tmpDir)).toThrow("defaultEnv is required when command contains {env}");
+    writeConfig(
+      tmpDir,
+      "version: 1\nsecretManager:\n  command: infisical run --env {env} --\napps: []",
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(
+      "defaultEnv is required when command contains {env}",
+    );
   });
 
   it("allows defaultEnv to be omitted when no {env} placeholder", () => {
-    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env dev --\napps: []");
+    writeConfig(
+      tmpDir,
+      "version: 1\nsecretManager:\n  command: infisical run --env dev --\napps: []",
+    );
     const config = loadRepoConfig(tmpDir);
     expect(config.secretManager?.defaultEnv).toBeUndefined();
   });
 
   it("rejects defaultEnv exceeding 64 characters", () => {
     const longEnv = "a".repeat(65);
-    writeConfig(tmpDir, `version: 1\nsecretManager:\n  command: infisical run --env {env} --\n  defaultEnv: ${longEnv}\napps: []`);
+    writeConfig(
+      tmpDir,
+      `version: 1\nsecretManager:\n  command: infisical run --env {env} --\n  defaultEnv: ${longEnv}\napps: []`,
+    );
     expect(() => loadRepoConfig(tmpDir)).toThrow("exceeds maximum length of 64");
   });
 
   it("rejects defaultEnv with invalid characters", () => {
-    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: infisical run --env {env} --\n  defaultEnv: dev@prod\napps: []");
+    writeConfig(
+      tmpDir,
+      "version: 1\nsecretManager:\n  command: infisical run --env {env} --\n  defaultEnv: dev@prod\napps: []",
+    );
     expect(() => loadRepoConfig(tmpDir)).toThrow("must be alphanumeric with hyphens");
   });
 
   it("preserves secretManager through save/load roundtrip", () => {
-    writeConfig(tmpDir, "version: 1\nsecretManager:\n  command: doppler run --\napps:\n  - name: web\n    host: web.localhost\n    protocol: http\n    runtime: docker\n    docker:\n      service: web\n      internalPort: 3000\n");
+    writeConfig(
+      tmpDir,
+      "version: 1\nsecretManager:\n  command: doppler run --\napps:\n  - name: web\n    host: web.localhost\n    protocol: http\n    runtime: docker\n    docker:\n      service: web\n      internalPort: 3000\n",
+    );
     const config = loadRepoConfig(tmpDir);
     expect(config.secretManager?.command).toBe("doppler run --");
   });
@@ -568,7 +583,9 @@ describe("secretManager validation", () => {
     loadRepoConfig(tmpDir);
 
     const output = stderrSpy.mock.calls.map((call) => String(call[0])).join("");
-    expect(output).toContain("Warning: The repository configuration requires devrouter version 0.0.25");
+    expect(output).toContain(
+      "Warning: The repository configuration requires devrouter version 0.0.25",
+    );
     expect(output).toContain("but you are running version 0.0.24");
 
     stderrSpy.mockRestore();
@@ -579,10 +596,7 @@ describe("secretManager validation", () => {
 // ---- resolveAppDependencies ----
 
 describe("resolveAppDependencies", () => {
-  function makeApp(
-    name: string,
-    deps: string[] = []
-  ): DevrouterApp {
+  function makeApp(name: string, deps: string[] = []): DevrouterApp {
     return {
       name,
       host: `${name}.localhost`,
@@ -625,17 +639,13 @@ describe("resolveAppDependencies", () => {
     const a = makeApp("a", ["b"]);
     const b = makeApp("b", ["a"]);
     const config = makeConfig(a, b);
-    expect(() => resolveAppDependencies(config, a)).toThrow(
-      "Dependency cycle detected"
-    );
+    expect(() => resolveAppDependencies(config, a)).toThrow("Dependency cycle detected");
   });
 
   it("throws on missing dependency", () => {
     const a = makeApp("a", ["nonexistent"]);
     const config = makeConfig(a);
-    expect(() => resolveAppDependencies(config, a)).toThrow(
-      "does not exist in config"
-    );
+    expect(() => resolveAppDependencies(config, a)).toThrow("does not exist in config");
   });
 
   it("returns empty for app with no dependencies", () => {
@@ -676,7 +686,7 @@ describe("upsertRepoApp / removeRepoApp", () => {
         ...baseOptions,
         protocol: "tcp",
         tcpProtocol: "mongodb",
-      })
+      }),
     ).toThrow(`--tcp-protocol must be one of: ${formatSupportedTcpProtocols()}`);
   });
 
@@ -788,7 +798,9 @@ apps:
     // The update is applied (port changed) without reordering.
     expect(raw.indexOf("name: db")).toBeLessThan(raw.indexOf("name: api"));
     const api = loadRepoConfig(tmpDir).apps.find((a) => a.name === "api");
-    expect(api && api.kind !== "dependency" && api.runtime === "docker" && api.docker.internalPort).toBe(4000);
+    expect(
+      api && api.kind !== "dependency" && api.runtime === "docker" && api.docker.internalPort,
+    ).toBe(4000);
   });
 });
 
@@ -831,11 +843,13 @@ apps:
     protocol: http
     runtime: proxy
     upstream: \${WORKSPACE}-app:3000
-`
+`,
     );
     const config = loadRepoConfig(tmpDir);
     const app = config.apps[0];
-    expect(app.kind !== "dependency" && app.runtime === "proxy" && app.upstream).toBe("${WORKSPACE}-app:3000");
+    expect(app.kind !== "dependency" && app.runtime === "proxy" && app.upstream).toBe(
+      "${WORKSPACE}-app:3000",
+    );
   });
 
   it("rejects ${WORKSPACE} in host", () => {
@@ -848,7 +862,7 @@ apps:
     protocol: http
     runtime: proxy
     upstream: app:3000
-`
+`,
     );
     expect(() => loadRepoConfig(tmpDir)).toThrow(/must not contain template placeholders/);
   });
@@ -863,7 +877,7 @@ apps:
     protocol: http
     runtime: proxy
     upstream: \${WORKSPACE}-app
-`
+`,
     );
     expect(() => loadRepoConfig(tmpDir)).toThrow(/valid host:port template/);
   });
@@ -898,9 +912,13 @@ describe("applyWorkspace", () => {
     const web = result.apps[0];
     const api = result.apps[1];
     expect(web.kind !== "dependency" && web.host).toBe("web.feat-x.localhost");
-    expect(web.kind !== "dependency" && web.runtime === "docker" && web.docker.router).toBe("web-feat-x");
+    expect(web.kind !== "dependency" && web.runtime === "docker" && web.docker.router).toBe(
+      "web-feat-x",
+    );
     expect(api.kind !== "dependency" && api.host).toBe("api.feat-x.localhost");
-    expect(api.kind !== "dependency" && api.runtime === "proxy" && api.upstream).toBe("feat-x-api:4000");
+    expect(api.kind !== "dependency" && api.runtime === "proxy" && api.upstream).toBe(
+      "feat-x-api:4000",
+    );
   });
 
   it("does not mutate the input config", () => {
@@ -914,8 +932,12 @@ describe("applyWorkspace", () => {
     const web = result.apps[0];
     const api = result.apps[1];
     expect(web.kind !== "dependency" && web.host).toBe("web.localhost"); // unchanged
-    expect(web.kind !== "dependency" && web.runtime === "docker" && web.docker.router).toBeUndefined(); // unchanged
-    expect(api.kind !== "dependency" && api.runtime === "proxy" && api.upstream).toBe("myapp-api:4000");
+    expect(
+      web.kind !== "dependency" && web.runtime === "docker" && web.docker.router,
+    ).toBeUndefined(); // unchanged
+    expect(api.kind !== "dependency" && api.runtime === "proxy" && api.upstream).toBe(
+      "myapp-api:4000",
+    );
   });
 
   it("is a structural no-op for a config with no templates and no workspace", () => {
@@ -953,16 +975,18 @@ apps:
     protocol: http
     runtime: proxy
     upstream: \${WORKSPACE}-web:3000
-`
+`,
     );
     process.env.DEVROUTER_WORKSPACE = "feat-x";
     const { config, app, workspace } = resolveAppByName(tmpDir, "web");
     expect(workspace).toBe("feat-x");
     expect(app.kind !== "dependency" && app.host).toBe("web.feat-x.localhost");
-    expect(app.kind !== "dependency" && app.runtime === "proxy" && app.upstream).toBe("feat-x-web:3000");
+    expect(app.kind !== "dependency" && app.runtime === "proxy" && app.upstream).toBe(
+      "feat-x-web:3000",
+    );
     // The hosts the run path feeds to mkcert come from this same config.
     expect(config.apps.map((a) => (a.kind !== "dependency" ? a.host : undefined))).toContain(
-      "web.feat-x.localhost"
+      "web.feat-x.localhost",
     );
   });
 });

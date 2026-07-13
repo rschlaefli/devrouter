@@ -1,26 +1,22 @@
 import fs from "node:fs";
+import type { RepoStatus, RouterStatus } from "../types";
+import { findContainerByName, getCurrentDockerContext, networkExists } from "./docker";
+import { getRepoConfigPath, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import {
-  findContainerByName,
-  getCurrentDockerContext,
-  networkExists
-} from "./docker";
-import {
-  DEVNET_NAME,
-  ROUTER_CONTAINER_NAME,
-  TCP_PROTOCOL_REGISTRY,
   areTLSCertsPresent,
+  DEVNET_NAME,
   getActiveTcpProtocols,
   getRouterFileLayout,
   isTLSConfigured,
-  isTLSEnabled
+  isTLSEnabled,
+  ROUTER_CONTAINER_NAME,
+  TCP_PROTOCOL_REGISTRY,
 } from "./router";
-import { getRepoConfigPath, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
-import { RepoStatus, RouterStatus } from "../types";
 
 function hasPortBinding(
   ports: Array<{ PrivatePort?: number; PublicPort?: number }> | undefined,
   privatePort: number,
-  publicPort: number
+  publicPort: number,
 ): boolean {
   if (!ports) {
     return false;
@@ -47,14 +43,14 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
       valid: false,
       appCount: 0,
       tcpAppCount: 0,
-      error: `Missing .devrouter.yml in ${resolvedRepoPath}`
+      error: `Missing .devrouter.yml in ${resolvedRepoPath}`,
     };
   }
 
   try {
     const config = loadRuntimeConfig(resolvedRepoPath).config;
     const tcpAppCount = config.apps.filter(
-      (app) => app.kind !== "dependency" && app.protocol === "tcp"
+      (app) => app.kind !== "dependency" && app.protocol === "tcp",
     ).length;
     return {
       path: resolvedRepoPath,
@@ -62,7 +58,7 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
       exists: true,
       valid: true,
       appCount: config.apps.length,
-      tcpAppCount
+      tcpAppCount,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -73,7 +69,7 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
       valid: false,
       appCount: 0,
       tcpAppCount: 0,
-      error: message
+      error: message,
     };
   }
 }
@@ -120,17 +116,19 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
     web80: hasPortBinding(container?.Ports, 80, 80),
     web443: hasPortBinding(container?.Ports, 443, 443),
     dashboard8080: hasPortBinding(container?.Ports, 8080, 8080),
-    tcp: tcpBoundPorts
+    tcp: tcpBoundPorts,
   };
 
   const nextSteps: string[] = [];
   const httpRoutingReady = container?.State === "running" && boundPorts.web80;
   const activeTcpProtocols = getActiveTcpProtocols();
-  const tcpRoutingReady = container?.State === "running" && tlsEnabled &&
+  const tcpRoutingReady =
+    container?.State === "running" &&
+    tlsEnabled &&
     activeTcpProtocols.length > 0 &&
     activeTcpProtocols.every((p) => boundPorts.tcp[p]);
 
-  if (!container || container.State !== "running") {
+  if (container?.State !== "running") {
     nextSteps.push("Run: dev up");
   }
 
@@ -146,9 +144,11 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
     nextSteps.push(`Run: dev repo init --repo ${repo.path}`);
   } else if (repo && !repo.valid) {
     nextSteps.push("Fix .devrouter.yml validation errors and re-run `dev doctor --repo <path>`");
-  } else if (repo && repo.valid && repo.appCount === 0) {
-    nextSteps.push(`Run: dev app add --name <name> --host <name>.localhost --protocol http --runtime host --repo ${repo.path}`);
-  } else if (repo && repo.valid) {
+  } else if (repo?.valid && repo.appCount === 0) {
+    nextSteps.push(
+      `Run: dev app add --name <name> --host <name>.localhost --protocol http --runtime host --repo ${repo.path}`,
+    );
+  } else if (repo?.valid) {
     nextSteps.push(`Run: dev app ls --repo ${repo.path}`);
     nextSteps.push("Run: dev app run <name> --repo <path> --yes");
     nextSteps.push("Run: dev ls");
@@ -172,7 +172,7 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
     insights: {
       httpRoutingReady,
       tcpRoutingReady,
-      nextSteps: Array.from(new Set(nextSteps))
-    }
+      nextSteps: Array.from(new Set(nextSteps)),
+    },
   };
 }

@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { inspectRepo } from "./repo-inspect";
-import { resolveRepoPath } from "./repo-config";
 import type { DiagnosticCheck } from "../types";
+import { resolveRepoPath } from "./repo-config";
+import { inspectRepo } from "./repo-inspect";
 
 const MANAGED_MARKER = "devrouter:managed devcontainer";
 
@@ -271,7 +271,7 @@ function postWriteNextSteps(repoPath: string): string[] {
     `Run: cd ${quotedRepoPath} && devpod up .`,
     `Run: devrouter app run app --repo ${quotedRepoPath} --yes`,
     `Run: devrouter app run db --repo ${quotedRepoPath} --yes`,
-    `Optional: devrouter repo agents --repo ${quotedRepoPath}`
+    `Optional: devrouter repo agents --repo ${quotedRepoPath}`,
   ];
 }
 
@@ -283,7 +283,9 @@ function issueNextSteps(issues: DiagnosticCheck[]): string[] {
   if (steps.length > 0) {
     return [...steps, "Re-run: devrouter repo devcontainer write --dry-run --json"];
   }
-  return ["Resolve reported errors, then re-run: devrouter repo devcontainer write --dry-run --json"];
+  return [
+    "Resolve reported errors, then re-run: devrouter repo devcontainer write --dry-run --json",
+  ];
 }
 
 function packageManagerIssues(repo: ReturnType<typeof inspectRepo>): DiagnosticCheck[] {
@@ -293,8 +295,9 @@ function packageManagerIssues(repo: ReturnType<typeof inspectRepo>): DiagnosticC
         id: "repo.devcontainer.package-manager-unknown",
         level: "warn",
         summary: "Package manager could not be detected; pnpm scaffold will be generated.",
-        suggestion: "Add packageManager: pnpm@<version> to package.json or add pnpm-lock.yaml before writing."
-      }
+        suggestion:
+          "Add packageManager: pnpm@<version> to package.json or add pnpm-lock.yaml before writing.",
+      },
     ];
   }
   if (repo.packageManager.name !== "pnpm") {
@@ -304,8 +307,9 @@ function packageManagerIssues(repo: ReturnType<typeof inspectRepo>): DiagnosticC
         level: "error",
         summary: `Only pnpm repositories are supported by this devcontainer scaffold; detected ${repo.packageManager.name}.`,
         details: repo.packageManager.source,
-        suggestion: "Use a pnpm repo for this scaffold, or adapt the generated plan manually before writing."
-      }
+        suggestion:
+          "Use a pnpm repo for this scaffold, or adapt the generated plan manually before writing.",
+      },
     ];
   }
   if (repo.packageManager.version && !VALID_PACKAGE_VERSION_RE.test(repo.packageManager.version)) {
@@ -315,8 +319,9 @@ function packageManagerIssues(repo: ReturnType<typeof inspectRepo>): DiagnosticC
         level: "error",
         summary: `Unsupported pnpm version '${repo.packageManager.version}' in packageManager.`,
         details: repo.packageManager.source,
-        suggestion: "Use a pinned semver packageManager value such as pnpm@11.6.0 before writing the scaffold."
-      }
+        suggestion:
+          "Use a pinned semver packageManager value such as pnpm@11.6.0 before writing the scaffold.",
+      },
     ];
   }
   return [];
@@ -324,7 +329,7 @@ function packageManagerIssues(repo: ReturnType<typeof inspectRepo>): DiagnosticC
 
 function plannedFiles(
   repoPath: string,
-  version: string
+  version: string,
 ): { files: PlannedFile[]; projectName: string; issues: DiagnosticCheck[] } {
   const repo = inspectRepo({ repo: repoPath });
   const projectName = sanitizeProjectName(path.basename(repo.repoPath));
@@ -341,16 +346,30 @@ function plannedFiles(
     projectName,
     issues,
     files: [
-      { relativePath: ".devcontainer/Dockerfile", content: renderDockerfile(nodeMajor, pnpmVersion) },
+      {
+        relativePath: ".devcontainer/Dockerfile",
+        content: renderDockerfile(nodeMajor, pnpmVersion),
+      },
       { relativePath: ".devcontainer/docker-compose.yml", content: renderCompose(projectName) },
       { relativePath: ".devcontainer/init-db.sh", content: renderInitDb(), executable: true },
-      { relativePath: ".devcontainer/devcontainer.json", content: renderDevcontainerJson(projectName) },
+      {
+        relativePath: ".devcontainer/devcontainer.json",
+        content: renderDevcontainerJson(projectName),
+      },
       { relativePath: ".devcontainer/devcontainer.env", content: renderEnv(projectName, port) },
-      { relativePath: ".devcontainer/post-create.sh", content: renderPostCreate(), executable: true },
-      { relativePath: ".devcontainer/post-start.sh", content: renderPostStart(devCommand), executable: true },
+      {
+        relativePath: ".devcontainer/post-create.sh",
+        content: renderPostCreate(),
+        executable: true,
+      },
+      {
+        relativePath: ".devcontainer/post-start.sh",
+        content: renderPostStart(devCommand),
+        executable: true,
+      },
       { relativePath: ".devcontainer/README.md", content: renderReadme(projectName) },
-      { relativePath: ".devrouter.yml", content: renderDevrouter(projectName, port, version) }
-    ]
+      { relativePath: ".devrouter.yml", content: renderDevrouter(projectName, port, version) },
+    ],
   };
 }
 
@@ -361,7 +380,7 @@ function classifyFile(repoPath: string, file: PlannedFile): DevcontainerFilePlan
       path: file.relativePath,
       action: "create",
       reason: "file is missing",
-      bytes: Buffer.byteLength(file.content)
+      bytes: Buffer.byteLength(file.content),
     };
   }
   const current = fs.readFileSync(absolutePath, "utf-8");
@@ -369,7 +388,7 @@ function classifyFile(repoPath: string, file: PlannedFile): DevcontainerFilePlan
     return {
       path: file.relativePath,
       action: "conflict",
-      reason: "existing file is not marked as devrouter-managed"
+      reason: "existing file is not marked as devrouter-managed",
     };
   }
   if (current === file.content) {
@@ -377,21 +396,21 @@ function classifyFile(repoPath: string, file: PlannedFile): DevcontainerFilePlan
       path: file.relativePath,
       action: "skip",
       reason: "managed file already matches",
-      bytes: Buffer.byteLength(file.content)
+      bytes: Buffer.byteLength(file.content),
     };
   }
   return {
     path: file.relativePath,
     action: "update",
     reason: "managed file differs",
-    bytes: Buffer.byteLength(file.content)
+    bytes: Buffer.byteLength(file.content),
   };
 }
 
 function buildPlan(
   repoPath: string,
   dryRun: boolean,
-  version: string
+  version: string,
 ): { plan: DevcontainerWritePlan; files: PlannedFile[] } {
   const rendered = plannedFiles(repoPath, version);
   const files = rendered.files;
@@ -402,14 +421,15 @@ function buildPlan(
       id: "repo.devcontainer.write-conflict",
       level: "error",
       summary: "One or more target files already exist and are not devrouter-managed.",
-      suggestion: "Review the conflicts, move custom files aside, or merge the devrouter-managed section manually."
+      suggestion:
+        "Review the conflicts, move custom files aside, or merge the devrouter-managed section manually.",
     });
   }
 
   filePlans.push({
     path: "AGENTS.md",
     action: "suggest",
-    reason: "run devrouter repo agents after reviewing the scaffold"
+    reason: "run devrouter repo agents after reviewing the scaffold",
   });
 
   return {
@@ -421,13 +441,14 @@ function buildPlan(
       dryRun,
       files: filePlans,
       issues,
-      nextSteps:
-        issues.some((issue) => issue.level === "error")
-          ? issueNextSteps(issues)
-          : dryRun
-            ? [`Review this plan, then run: devrouter repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`]
-            : postWriteNextSteps(repoPath)
-    }
+      nextSteps: issues.some((issue) => issue.level === "error")
+        ? issueNextSteps(issues)
+        : dryRun
+          ? [
+              `Review this plan, then run: devrouter repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`,
+            ]
+          : postWriteNextSteps(repoPath),
+    },
   };
 }
 
@@ -442,7 +463,8 @@ function writeFile(repoPath: string, file: PlannedFile): void {
 
 export function planDevcontainerWrite(options: WriteOptions = {}): DevcontainerWritePlan {
   const repoPath = resolveRepoPath(options.repo);
-  return buildPlan(repoPath, Boolean(options.dryRun), devrouterVersion(options.installedVersion)).plan;
+  return buildPlan(repoPath, Boolean(options.dryRun), devrouterVersion(options.installedVersion))
+    .plan;
 }
 
 export function writeDevcontainer(options: WriteOptions = {}): DevcontainerWritePlan {
@@ -462,10 +484,12 @@ export function writeDevcontainer(options: WriteOptions = {}): DevcontainerWrite
           id: "repo.devcontainer.confirmation",
           level: "error",
           summary: "Writing devcontainer files requires --yes.",
-          suggestion: `Run: devrouter repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`
-        }
+          suggestion: `Run: devrouter repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`,
+        },
       ],
-      nextSteps: [`Run: devrouter repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`]
+      nextSteps: [
+        `Run: devrouter repo devcontainer write --repo ${shellSingleQuote(repoPath)} --yes`,
+      ],
     };
   }
 
@@ -478,6 +502,6 @@ export function writeDevcontainer(options: WriteOptions = {}): DevcontainerWrite
 
   return {
     ...plan,
-    nextSteps: postWriteNextSteps(repoPath)
+    nextSteps: postWriteNextSteps(repoPath),
   };
 }

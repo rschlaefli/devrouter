@@ -1,12 +1,7 @@
+import { ensureAgentsMdSection, ensureSkillFile } from "../core/agents-md";
 import { resolveRepoPath } from "../core/repo-config";
-import {
-  ensureAgentsMdSection,
-  ensureSkillFile
-} from "../core/agents-md";
 
-export async function runRepoAgentsCommand(
-  options: { repo?: string }
-): Promise<void> {
+export async function runRepoAgentsCommand(options: { repo?: string }): Promise<void> {
   const repoPath = resolveRepoPath(options.repo);
 
   const skill = ensureSkillFile(repoPath);

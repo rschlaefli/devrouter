@@ -4,7 +4,6 @@ import { TCP_PROTOCOL_REGISTRY } from "./router";
 
 const HTTP_ROUTER_RULE_KEY = /^traefik\.http\.routers\.([^.]+)\.rule$/;
 const TCP_ROUTER_RULE_KEY = /^traefik\.tcp\.routers\.([^.]+)\.rule$/;
-const TCP_ROUTER_ENTRYPOINTS_KEY = /^traefik\.tcp\.routers\.([^.]+)\.entrypoints$/;
 
 function resolveEntrypointToProtocol(entrypoint: string): string {
   for (const [protocol, entry] of Object.entries(TCP_PROTOCOL_REGISTRY)) {
@@ -35,7 +34,7 @@ function parseHostsFromMatcher(rule: string, matcherName: "Host" | "HostSNI"): s
     const inner = block[1];
     const parts = inner.split(",");
     for (const part of parts) {
-      const clean = part.trim().replaceAll("`", "").replaceAll("\"", "").replaceAll("'", "");
+      const clean = part.trim().replaceAll("`", "").replaceAll('"', "").replaceAll("'", "");
       if (clean.length > 0) {
         hosts.push(clean);
       }
@@ -47,7 +46,7 @@ function parseHostsFromMatcher(rule: string, matcherName: "Host" | "HostSNI"): s
 
 function isOnNetwork(container: ContainerInfo, networkName: string): boolean {
   const networks = container.NetworkSettings?.Networks ?? {};
-  return Object.prototype.hasOwnProperty.call(networks, networkName);
+  return Object.hasOwn(networks, networkName);
 }
 
 function buildRoute(
@@ -55,7 +54,7 @@ function buildRoute(
   routerId: string,
   hosts: string[],
   protocol: Route["protocol"],
-  tlsEnabled: boolean
+  tlsEnabled: boolean,
 ): Route {
   const labels = container.Labels ?? {};
   const containerName = normalizeContainerName(container.Names?.[0]);
@@ -95,14 +94,14 @@ function buildRoute(
     urls,
     status,
     health,
-    createdAt: container.Created
+    createdAt: container.Created,
   };
 }
 
 export function discoverRoutes(
   containers: ContainerInfo[],
   tlsEnabled: boolean,
-  networkName: string
+  networkName: string,
 ): { routes: Route[]; duplicateHosts: string[] } {
   const routes: Route[] = [];
 

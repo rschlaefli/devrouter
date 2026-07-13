@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
-import { DevrouterApp, DiagnosticCheck } from "../types";
+import type { DevrouterApp, DiagnosticCheck } from "../types";
 import { getRepoConfigPath, loadRepoConfig, resolveRepoPath } from "./repo-config";
 
 type Confidence = "high" | "medium" | "low";
@@ -96,7 +96,7 @@ function relative(repoPath: string, filePath: string): string {
 function redactEnvAssignments(value: string): string {
   return value.replace(
     /(^|\s)([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/g,
-    "$1$2=<redacted>"
+    "$1$2=<redacted>",
   );
 }
 
@@ -117,16 +117,19 @@ function parsePackageManager(value: unknown): { name: string; version?: string }
   }
   return {
     name: trimmed.slice(0, separator),
-    version: trimmed.slice(separator + 1)
+    version: trimmed.slice(separator + 1),
   };
 }
 
-function inspectPackageManager(repoPath: string, pkg?: Record<string, unknown>): RepoInspection["packageManager"] {
+function inspectPackageManager(
+  repoPath: string,
+  pkg?: Record<string, unknown>,
+): RepoInspection["packageManager"] {
   const packageManager = parsePackageManager(pkg?.packageManager);
   if (packageManager) {
     return {
       ...packageManager,
-      source: "package.json:packageManager"
+      source: "package.json:packageManager",
     };
   }
 
@@ -135,7 +138,7 @@ function inspectPackageManager(repoPath: string, pkg?: Record<string, unknown>):
     ["package-lock.json", "npm"],
     ["yarn.lock", "yarn"],
     ["bun.lockb", "bun"],
-    ["bun.lock", "bun"]
+    ["bun.lock", "bun"],
   ] as const;
   for (const [fileName, name] of lockfiles) {
     if (fs.existsSync(path.join(repoPath, fileName))) {
@@ -145,7 +148,10 @@ function inspectPackageManager(repoPath: string, pkg?: Record<string, unknown>):
   return undefined;
 }
 
-function inspectNode(repoPath: string, pkg?: Record<string, unknown>): RepoInspection["node"] | undefined {
+function inspectNode(
+  repoPath: string,
+  pkg?: Record<string, unknown>,
+): RepoInspection["node"] | undefined {
   const volta = asRecord(pkg?.volta);
   if (typeof volta?.node === "string") {
     return { version: volta.node, source: "package.json:volta.node" };
@@ -172,20 +178,20 @@ function inspectScripts(pkg?: Record<string, unknown>): RepoInspection["scripts"
     .map(([name, command]) => ({
       name,
       command: redactEnvAssignments(command),
-      evidence: [`package.json:scripts.${name}`]
+      evidence: [`package.json:scripts.${name}`],
     }));
 }
 
 function inferPort(command: string): { port?: number; confidence: Confidence; evidence: string[] } {
-  const patterns = [
-    /\bPORT=(\d{2,5})\b/,
-    /--port[=\s]+(\d{2,5})\b/,
-    /(?:^|\s)-p\s+(\d{2,5})\b/
-  ];
+  const patterns = [/\bPORT=(\d{2,5})\b/, /--port[=\s]+(\d{2,5})\b/, /(?:^|\s)-p\s+(\d{2,5})\b/];
   for (const pattern of patterns) {
     const match = command.match(pattern);
     if (match) {
-      return { port: Number(match[1]), confidence: "high", evidence: [`script command: ${match[0]}`] };
+      return {
+        port: Number(match[1]),
+        confidence: "high",
+        evidence: [`script command: ${match[0]}`],
+      };
     }
   }
 
@@ -193,7 +199,7 @@ function inferPort(command: string): { port?: number; confidence: Confidence; ev
     { pattern: /\bnext\b/, port: 3000, label: "next default port" },
     { pattern: /\bvite\b/, port: 5173, label: "vite default port" },
     { pattern: /\bastro\b/, port: 4321, label: "astro default port" },
-    { pattern: /\bnuxt\b/, port: 3000, label: "nuxt default port" }
+    { pattern: /\bnuxt\b/, port: 3000, label: "nuxt default port" },
   ];
   for (const entry of frameworkDefaults) {
     if (entry.pattern.test(command)) {
@@ -206,15 +212,18 @@ function inferPort(command: string): { port?: number; confidence: Confidence; ev
 
 function inspectAppCandidates(scripts: RepoInspection["scripts"]): RepoInspection["apps"] {
   const candidates = scripts.filter((script) =>
-    /(^dev$|:dev$|dev:|^start$|web|app|serve)/.test(script.name)
+    /(^dev$|:dev$|dev:|^start$|web|app|serve)/.test(script.name),
   );
   return candidates.map((script) => {
     const port = inferPort(script.command);
     return {
-      name: script.name === "dev" || script.name === "start" ? "app" : script.name.replace(/[:_]/g, "-"),
+      name:
+        script.name === "dev" || script.name === "start"
+          ? "app"
+          : script.name.replace(/[:_]/g, "-"),
       port: port.port,
       confidence: port.confidence,
-      evidence: [...script.evidence, ...port.evidence]
+      evidence: [...script.evidence, ...port.evidence],
     };
   });
 }
@@ -223,9 +232,13 @@ function configuredComposeFiles(repoPath: string): string[] {
   try {
     const config = loadRepoConfig(repoPath);
     const files = config.apps
-      .filter((app): app is Extract<DevrouterApp, { runtime: "docker" }> => app.runtime === "docker")
+      .filter(
+        (app): app is Extract<DevrouterApp, { runtime: "docker" }> => app.runtime === "docker",
+      )
       .flatMap((app) => app.docker.composeFiles)
-      .filter((fileName) => !path.isAbsolute(fileName) && !path.normalize(fileName).startsWith(".."));
+      .filter(
+        (fileName) => !path.isAbsolute(fileName) && !path.normalize(fileName).startsWith(".."),
+      );
     return Array.from(new Set(files));
   } catch {
     return [];
@@ -240,16 +253,18 @@ function composeFiles(repoPath: string): string[] {
     "compose.yaml",
     ".devcontainer/docker-compose.yml",
     ".devcontainer/docker-compose.yaml",
-    ...configuredComposeFiles(repoPath)
+    ...configuredComposeFiles(repoPath),
   ];
-  return Array.from(new Set(candidates)).filter((fileName) => fs.existsSync(path.join(repoPath, fileName)));
+  return Array.from(new Set(candidates)).filter((fileName) =>
+    fs.existsSync(path.join(repoPath, fileName)),
+  );
 }
 
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.map((entry) => typeof entry === "string" ? entry : JSON.stringify(entry));
+  return value.map((entry) => (typeof entry === "string" ? entry : JSON.stringify(entry)));
 }
 
 function envNames(value: unknown): string[] {
@@ -272,7 +287,7 @@ function inferServiceKind(name: string, image?: string): { kind: string; confide
     ["mariadb", "mariadb"],
     ["mock-oauth2", "oidc"],
     ["oidc", "oidc"],
-    ["mailhog", "mail"]
+    ["mailhog", "mail"],
   ] as const;
   for (const [needle, kind] of rules) {
     if (source.includes(needle)) {
@@ -303,7 +318,7 @@ function inspectServices(repoPath: string): RepoInspection["services"] {
           ports: stringArray(service.ports),
           hasHealthcheck: service.healthcheck !== undefined,
           envNames: envNames(service.environment),
-          confidence: kind.confidence
+          confidence: kind.confidence,
         });
       }
     } catch {
@@ -314,7 +329,7 @@ function inspectServices(repoPath: string): RepoInspection["services"] {
         ports: [],
         hasHealthcheck: false,
         envNames: [],
-        confidence: "low"
+        confidence: "low",
       });
     }
   }
@@ -322,7 +337,8 @@ function inspectServices(repoPath: string): RepoInspection["services"] {
 }
 
 function inspectEnvFiles(repoPath: string): RepoInspection["env"] {
-  const files = fs.readdirSync(repoPath)
+  const files = fs
+    .readdirSync(repoPath)
     .filter((fileName) => /^\.env(\.|$)/.test(fileName))
     .sort()
     .map((fileName) => {
@@ -340,7 +356,9 @@ function inspectEnvFiles(repoPath: string): RepoInspection["env"] {
   return {
     files,
     authLikeNames: allNames.filter((name) => /(AUTH|OIDC|ISSUER|CLERK|NEXTAUTH)/i.test(name)),
-    databaseLikeNames: allNames.filter((name) => /(DATABASE|POSTGRES|REDIS|MYSQL|MARIADB|DB_)/i.test(name))
+    databaseLikeNames: allNames.filter((name) =>
+      /(DATABASE|POSTGRES|REDIS|MYSQL|MARIADB|DB_)/i.test(name),
+    ),
   };
 }
 
@@ -351,10 +369,11 @@ function inspectDevcontainer(repoPath: string): RepoInspection["devcontainer"] {
   }
   return {
     exists: true,
-    files: fs.readdirSync(dir)
+    files: fs
+      .readdirSync(dir)
       .filter((fileName) => fs.statSync(path.join(dir, fileName)).isFile())
       .sort()
-      .map((fileName) => `.devcontainer/${fileName}`)
+      .map((fileName) => `.devcontainer/${fileName}`),
   };
 }
 
@@ -367,7 +386,7 @@ function inspectDevrouter(repoPath: string): RepoInspection["devrouter"] {
       valid: false,
       appCount: 0,
       tcpAppCount: 0,
-      apps: []
+      apps: [],
     };
   }
 
@@ -378,13 +397,14 @@ function inspectDevrouter(repoPath: string): RepoInspection["devrouter"] {
       configPath,
       valid: true,
       appCount: config.apps.length,
-      tcpAppCount: config.apps.filter((app) => app.kind !== "dependency" && app.protocol === "tcp").length,
+      tcpAppCount: config.apps.filter((app) => app.kind !== "dependency" && app.protocol === "tcp")
+        .length,
       apps: config.apps.map((app) => ({
         name: app.name,
         runtime: app.runtime,
         protocol: app.kind === "dependency" ? undefined : app.protocol,
-        host: app.kind === "dependency" ? undefined : app.host
-      }))
+        host: app.kind === "dependency" ? undefined : app.host,
+      })),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -395,14 +415,17 @@ function inspectDevrouter(repoPath: string): RepoInspection["devrouter"] {
       appCount: 0,
       tcpAppCount: 0,
       apps: [],
-      error: sanitizeDiagnosticText(message)
+      error: sanitizeDiagnosticText(message),
     };
   }
 }
 
 function inspectAgentGuidance(repoPath: string): RepoInspection["agentGuidance"] {
   const results: RepoInspection["agentGuidance"] = [];
-  for (const [fileName, kind] of [["AGENTS.md", "agents"], ["CLAUDE.md", "claude"]] as const) {
+  for (const [fileName, kind] of [
+    ["AGENTS.md", "agents"],
+    ["CLAUDE.md", "claude"],
+  ] as const) {
     if (fs.existsSync(path.join(repoPath, fileName))) {
       results.push({ path: fileName, kind });
     }
@@ -425,14 +448,14 @@ function buildIssues(report: Omit<RepoInspection, "issues">): DiagnosticCheck[] 
     issues.push({
       id: "repo.package-manager.missing",
       level: "warn",
-      summary: "No package manager metadata or lockfile detected."
+      summary: "No package manager metadata or lockfile detected.",
     });
   }
   if (!report.devcontainer.exists) {
     issues.push({
       id: "repo.devcontainer.missing",
       level: "warn",
-      summary: "No .devcontainer directory found."
+      summary: "No .devcontainer directory found.",
     });
   }
   if (!report.devrouter.exists) {
@@ -440,7 +463,7 @@ function buildIssues(report: Omit<RepoInspection, "issues">): DiagnosticCheck[] 
       id: "repo.devrouter.missing",
       level: "warn",
       summary: "No .devrouter.yml found.",
-      suggestion: `Run: dev repo init --repo ${report.repoPath}`
+      suggestion: `Run: dev repo init --repo ${report.repoPath}`,
     });
   } else if (!report.devrouter.valid) {
     issues.push({
@@ -448,7 +471,7 @@ function buildIssues(report: Omit<RepoInspection, "issues">): DiagnosticCheck[] 
       level: "error",
       summary: ".devrouter.yml exists but is invalid.",
       details: report.devrouter.error,
-      suggestion: "Fix .devrouter.yml validation errors."
+      suggestion: "Fix .devrouter.yml validation errors.",
     });
   }
   return issues;
@@ -468,11 +491,11 @@ export function inspectRepo(options: { repo?: string } = {}): RepoInspection {
     env: inspectEnvFiles(repoPath),
     devcontainer: inspectDevcontainer(repoPath),
     devrouter: inspectDevrouter(repoPath),
-    agentGuidance: inspectAgentGuidance(repoPath)
+    agentGuidance: inspectAgentGuidance(repoPath),
   };
 
   return {
     ...reportWithoutIssues,
-    issues: buildIssues(reportWithoutIssues)
+    issues: buildIssues(reportWithoutIssues),
   };
 }

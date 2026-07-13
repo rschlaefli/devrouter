@@ -26,6 +26,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:docs-policy
+      - run: pnpm check
+      - run: pnpm knip
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build

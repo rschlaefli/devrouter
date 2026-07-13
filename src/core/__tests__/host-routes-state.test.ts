@@ -8,7 +8,7 @@ const routerPaths = vi.hoisted(() => {
     root,
     dynamicDir: `${root}/traefik/dynamic`,
     stateFile: `${root}/host-routes-state.json`,
-    hostRoutesFile: `${root}/traefik/dynamic/host-routes.yml`
+    hostRoutesFile: `${root}/traefik/dynamic/host-routes.yml`,
   };
 });
 
@@ -21,9 +21,9 @@ vi.mock("../router", () => ({
     postgres: { port: 5432, entrypoint: "postgres" },
     redis: { port: 6379, entrypoint: "redis" },
     mariadb: { port: 3306, entrypoint: "mariadb" },
-    mysql: { port: 3306, entrypoint: "mysql" }
+    mysql: { port: 3306, entrypoint: "mysql" },
   },
-  isTLSEnabled: () => false
+  isTLSEnabled: () => false,
 }));
 
 beforeEach(() => {
@@ -41,31 +41,32 @@ describe("host route state mutation", () => {
       host: "web.localhost",
       repoPath: "/repo",
       port: 3000,
-      mode: "proxy"
+      mode: "proxy",
     });
     upsertHostRoute({
       name: "api",
       host: "api.localhost",
       repoPath: "/repo",
       port: 3001,
-      mode: "proxy"
+      mode: "proxy",
     });
     upsertHostRoute({
       name: "web",
       host: "other.localhost",
       repoPath: "/other",
       port: 4000,
-      mode: "proxy"
+      mode: "proxy",
     });
 
     const removed = removeHostRoutesWhere(
-      (route) => route.name === "web" && route.repoPath === "/repo"
+      (route) => route.name === "web" && route.repoPath === "/repo",
     );
 
     expect(removed.map((route) => route.id)).toEqual(["/repo::web"]);
-    expect(listHostRouteState().map((route) => route.id).sort()).toEqual([
-      "/other::web",
-      "/repo::api"
-    ]);
+    expect(
+      listHostRouteState()
+        .map((route) => route.id)
+        .sort(),
+    ).toEqual(["/other::web", "/repo::api"]);
   });
 });

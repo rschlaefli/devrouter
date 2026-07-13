@@ -2,8 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runRepoInitCommand } from "../repo-init";
 import { loadRepoConfig } from "../../core/repo-config";
+import { runRepoInitCommand } from "../repo-init";
 
 let tmpDir: string;
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
@@ -35,7 +35,7 @@ devrouter:
   version: 0.0.13
 apps: []
 `,
-      "utf-8"
+      "utf-8",
     );
 
     await runRepoInitCommand({ repo: tmpDir, installedVersion: "0.0.14" });

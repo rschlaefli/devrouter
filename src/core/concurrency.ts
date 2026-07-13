@@ -1,18 +1,18 @@
-import { isTLSEnabled } from "./router";
 import { reconcileRouteRunConflict } from "./route-state";
+import { isTLSEnabled } from "./router";
 
 export class AppAlreadyRunningError extends Error {
   constructor(
     public readonly appName: string,
     public readonly url: string,
     public readonly pid: number | undefined,
-    public readonly repoPath: string
+    public readonly repoPath: string,
   ) {
     const lines = [
       `App "${appName}" is already running.`,
       `  URL:  ${url}`,
       pid ? `  PID:  ${pid}` : null,
-      `  Repo: ${repoPath}`
+      `  Repo: ${repoPath}`,
     ].filter(Boolean);
     super(lines.join("\n"));
     this.name = "AppAlreadyRunningError";
@@ -24,12 +24,12 @@ export class HostnameConflictError extends Error {
     public readonly hostname: string,
     public readonly existingApp: string,
     public readonly existingRepoPath: string,
-    public readonly existingPid: number | undefined
+    public readonly existingPid: number | undefined,
   ) {
     const lines = [
       `Hostname "${hostname}" is already claimed by app "${existingApp}".`,
       existingPid ? `  PID:  ${existingPid}` : null,
-      `  Repo: ${existingRepoPath}`
+      `  Repo: ${existingRepoPath}`,
     ].filter(Boolean);
     super(lines.join("\n"));
     this.name = "HostnameConflictError";
@@ -41,10 +41,7 @@ function routeUrl(host: string): string {
   return `${scheme}://${host}`;
 }
 
-export function assertAppNotRunning(
-  repoPath: string,
-  app: { name: string; host: string }
-): void {
+export function assertAppNotRunning(repoPath: string, app: { name: string; host: string }): void {
   const conflict = reconcileRouteRunConflict(repoPath, app);
   if (!conflict) {
     return;
@@ -55,7 +52,7 @@ export function assertAppNotRunning(
       app.name,
       routeUrl(conflict.route.host),
       conflict.route.pid,
-      conflict.route.repoPath
+      conflict.route.repoPath,
     );
   }
 
@@ -63,6 +60,6 @@ export function assertAppNotRunning(
     app.host,
     conflict.route.name,
     conflict.route.repoPath,
-    conflict.route.pid
+    conflict.route.pid,
   );
 }

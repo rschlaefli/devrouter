@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runOpenCommand } from "../open";
-import type { Route } from "../../types";
-import { discoverRoutes } from "../../core/routes";
 import { loadRuntimeConfig } from "../../core/repo-config";
+import { discoverRoutes } from "../../core/routes";
+import type { Route } from "../../types";
+import { runOpenCommand } from "../open";
 
 vi.mock("../../core/docker", () => ({
   listContainers: vi.fn(async () => []),
@@ -95,13 +95,20 @@ describe("runOpenCommand", () => {
 
     await runOpenCommand("db");
     expect(stdoutSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Route 'postgres' is tcp/postgres: postgres://db.elearning.klicker.localhost:5432")
+      expect.stringContaining(
+        "Route 'postgres' is tcp/postgres: postgres://db.elearning.klicker.localhost:5432",
+      ),
     );
   });
 
   it("throws targeted message when app exists but no active route is found", async () => {
     vi.mocked(discoverRoutes).mockReturnValue({
-      routes: [makeTcpRoute({ hosts: ["other.localhost"], urls: ["postgres://other.localhost:5432 (tls required)"] })],
+      routes: [
+        makeTcpRoute({
+          hosts: ["other.localhost"],
+          urls: ["postgres://other.localhost:5432 (tls required)"],
+        }),
+      ],
       duplicateHosts: [],
     });
     vi.mocked(loadRuntimeConfig).mockReturnValue({
@@ -127,7 +134,7 @@ describe("runOpenCommand", () => {
     });
 
     await expect(runOpenCommand("db")).rejects.toThrow(
-      "Start it with 'dev app run db --repo /repo --yes' and re-run 'dev ls'"
+      "Start it with 'dev app run db --repo /repo --yes' and re-run 'dev ls'",
     );
   });
 
@@ -156,7 +163,7 @@ describe("runOpenCommand", () => {
     });
 
     await expect(runOpenCommand("redis")).rejects.toThrow(
-      "is kind=dependency and does not create a route"
+      "is kind=dependency and does not create a route",
     );
   });
 });

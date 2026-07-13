@@ -1,5 +1,5 @@
-import { removeRouteForApp } from "../core/route-state";
 import { removeRepoApp, resolveRepoPath } from "../core/repo-config";
+import { removeRouteForApp } from "../core/route-state";
 
 export async function runAppRmCommand(options: {
   name: string;

@@ -1,9 +1,9 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { runConfiguredApp } from "./app-run";
-import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
+import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
 import { isLinkedWorktree, wsFromBranch } from "./workspace";
 
 // `dev workspace` ties a git worktree, an optional devpod/devcontainer, and the
@@ -28,7 +28,7 @@ type GitWorktree = { path: string; branch: string | undefined };
 
 function listGitWorktrees(repoPath: string): GitWorktree[] {
   const result = spawnSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
-    encoding: "utf-8"
+    encoding: "utf-8",
   });
   if (result.status !== 0) {
     return [];
@@ -39,7 +39,10 @@ function listGitWorktrees(repoPath: string): GitWorktree[] {
     if (line.startsWith("worktree ")) {
       current = { path: line.slice("worktree ".length).trim() };
     } else if (line.startsWith("branch ")) {
-      current.branch = line.slice("branch ".length).trim().replace(/^refs\/heads\//, "");
+      current.branch = line
+        .slice("branch ".length)
+        .trim()
+        .replace(/^refs\/heads\//, "");
     } else if (line.trim() === "" && current.path) {
       worktrees.push({ path: current.path, branch: current.branch });
       current = {};
@@ -57,7 +60,7 @@ function defaultWorktreePath(mainRepo: string, ws: string): string {
 
 export async function workspaceUp(
   branch: string,
-  opts: { path?: string; noDevpod?: boolean; open?: boolean; repoPath?: string } = {}
+  opts: { path?: string; noDevpod?: boolean; open?: boolean; repoPath?: string } = {},
 ): Promise<void> {
   const mainRepo = resolveRepoPath(opts.repoPath);
   const ws = wsFromBranch(branch);
@@ -71,12 +74,16 @@ export async function workspaceUp(
     process.stdout.write(`Worktree already exists: ${worktreePath}\n`);
   } else {
     const add = spawnSync("git", ["-C", mainRepo, "worktree", "add", worktreePath, branch], {
-      encoding: "utf-8"
+      encoding: "utf-8",
     });
     if (add.status !== 0) {
-      const addNew = spawnSync("git", ["-C", mainRepo, "worktree", "add", "-b", branch, worktreePath], {
-        encoding: "utf-8"
-      });
+      const addNew = spawnSync(
+        "git",
+        ["-C", mainRepo, "worktree", "add", "-b", branch, worktreePath],
+        {
+          encoding: "utf-8",
+        },
+      );
       if (addNew.status !== 0) {
         const detail = [add.stderr, addNew.stderr]
           .map((s) => s?.trim())
@@ -100,8 +107,8 @@ export async function workspaceUp(
       env: {
         ...process.env,
         WORKSPACE: ws,
-        DEVCONTAINER_COMPOSE_OVERLAY: "docker-compose.devrouter.yml"
-      }
+        DEVCONTAINER_COMPOSE_OVERLAY: "docker-compose.devrouter.yml",
+      },
     });
     if (dp.status !== 0) {
       process.stderr.write(`Warning: 'devpod up' failed; continuing with route registration.\n`);
@@ -114,14 +121,14 @@ export async function workspaceUp(
   //    detached-HEAD worktree, where auto-detection would diverge.
   const { config } = loadRuntimeConfig(worktreePath, ws);
   const routed = config.apps.filter(
-    (app): app is Extract<typeof app, { host: string }> => "host" in app
+    (app): app is Extract<typeof app, { host: string }> => "host" in app,
   );
   const urls: string[] = [];
   const openUrls: string[] = [];
   for (const app of routed) {
     if (app.runtime === "host") {
       process.stdout.write(
-        `Skipping host app '${app.name}' (run it in the worktree with 'dev app run ${app.name}').\n`
+        `Skipping host app '${app.name}' (run it in the worktree with 'dev app run ${app.name}').\n`,
       );
       continue;
     }
@@ -153,7 +160,9 @@ export async function workspaceUp(
 export function workspaceLs(repoPath?: string): WorkspaceRow[] {
   const mainRepo = resolveRepoPath(repoPath);
   const worktrees = listGitWorktrees(mainRepo);
-  const routesByWorktreePath = listRoutesForWorktreePaths(worktrees.map((worktree) => worktree.path));
+  const routesByWorktreePath = listRoutesForWorktreePaths(
+    worktrees.map((worktree) => worktree.path),
+  );
 
   return worktrees.map((wt) => {
     // The primary checkout has no workspace; a linked worktree derives its token
@@ -161,22 +170,21 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
     // git lists the primary first. Attribute routes by worktree path (not by tag),
     // so counts stay correct under detached HEAD and never absorb another repo's
     // untagged routes.
-    const workspace =
-      isLinkedWorktree(wt.path) && wt.branch ? wsFromBranch(wt.branch) : undefined;
+    const workspace = isLinkedWorktree(wt.path) && wt.branch ? wsFromBranch(wt.branch) : undefined;
     const wsRoutes = routesByWorktreePath.get(wt.path) ?? [];
     return {
       workspace,
       branch: wt.branch,
       worktreePath: wt.path,
       routeCount: wsRoutes.length,
-      hosts: wsRoutes.map((route) => route.host)
+      hosts: wsRoutes.map((route) => route.host),
     };
   });
 }
 
 export function workspaceDown(
   target: string,
-  opts: { keepWorktree?: boolean; keepDevpod?: boolean; repoPath?: string } = {}
+  opts: { keepWorktree?: boolean; keepDevpod?: boolean; repoPath?: string } = {},
 ): { freedRoutes: number; workspace: string } {
   const ws = wsFromBranch(target);
   if (!ws) {
@@ -188,7 +196,7 @@ export function workspaceDown(
   // so teardown still works when the worktree/.devrouter.yml is already gone.
   const mainRepo = resolveRepoPath(opts.repoPath);
   const match = listGitWorktrees(mainRepo).find(
-    (wt) => wt.branch && wsFromBranch(wt.branch) === ws
+    (wt) => wt.branch && wsFromBranch(wt.branch) === ws,
   );
   const worktreePath = match?.path ?? defaultWorktreePath(mainRepo, ws);
 
@@ -204,13 +212,13 @@ export function workspaceDown(
   if (!opts.keepWorktree) {
     if (fs.existsSync(worktreePath) && worktreePath !== mainRepo) {
       const rm = spawnSync("git", ["-C", mainRepo, "worktree", "remove", worktreePath], {
-        encoding: "utf-8"
+        encoding: "utf-8",
       });
       if (rm.status === 0) {
         process.stdout.write(`Removed worktree ${worktreePath}.\n`);
       } else {
         process.stderr.write(
-          `Warning: could not remove worktree ${worktreePath}: ${rm.stderr || "unknown error"}\n`
+          `Warning: could not remove worktree ${worktreePath}: ${rm.stderr || "unknown error"}\n`,
         );
       }
     }

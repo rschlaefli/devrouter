@@ -2,9 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DoctorReport } from "../../types";
 import { verifyDevcontainer } from "../devcontainer-verify";
 import { buildDoctorReport } from "../doctor";
-import type { DoctorReport } from "../../types";
 
 vi.mock("../doctor", () => ({
   buildDoctorReport: vi.fn(),
@@ -39,7 +39,7 @@ apps:
     tcpProtocol: postgres
     runtime: proxy
     upstream: \${WORKSPACE}-db:5432
-`
+`,
   );
 }
 
@@ -78,8 +78,12 @@ describe("verifyDevcontainer", () => {
     expect(report.summary.error).toBe(0);
     expect(report.evidence.proxyApps.map((app) => app.name)).toEqual(["app", "db"]);
     expect(report.evidence.blockingDoctorChecks).toEqual([]);
-    expect(report.evidence.workspacePreview?.map((app) => app.host)).toContain("sample.verify.localhost");
-    expect(report.checks.find((check) => check.id === "repo.devcontainer.verify-files")?.level).toBe("ok");
+    expect(report.evidence.workspacePreview?.map((app) => app.host)).toContain(
+      "sample.verify.localhost",
+    );
+    expect(
+      report.checks.find((check) => check.id === "repo.devcontainer.verify-files")?.level,
+    ).toBe("ok");
   });
 
   it("surfaces doctor blocking diagnostics", async () => {
@@ -89,7 +93,9 @@ describe("verifyDevcontainer", () => {
     const report = await verifyDevcontainer({ repo: tmpDir });
 
     expect(report.summary.error).toBeGreaterThan(0);
-    expect(report.checks.find((check) => check.id === "repo.devcontainer.verify-doctor")?.level).toBe("error");
+    expect(
+      report.checks.find((check) => check.id === "repo.devcontainer.verify-doctor")?.level,
+    ).toBe("error");
   });
 
   it("requires --yes before live verification mutates route state", async () => {
@@ -98,6 +104,8 @@ describe("verifyDevcontainer", () => {
     const report = await verifyDevcontainer({ repo: tmpDir, live: true });
 
     expect(report.summary.error).toBeGreaterThan(0);
-    expect(report.checks.map((check) => check.id)).toContain("repo.devcontainer.verify-live-confirmation");
+    expect(report.checks.map((check) => check.id)).toContain(
+      "repo.devcontainer.verify-live-confirmation",
+    );
   });
 });

@@ -61,8 +61,8 @@ describe("runInitCommand", () => {
   });
 
   it("rejects json mode with write flags", async () => {
-    await expect(
-      runInitCommand({ repo: tmpDir, json: true, writeAgents: true })
-    ).rejects.toThrow("--json cannot be combined");
+    await expect(runInitCommand({ repo: tmpDir, json: true, writeAgents: true })).rejects.toThrow(
+      "--json cannot be combined",
+    );
   });
 });

@@ -7,7 +7,7 @@ import {
   extractCurrentVersionFromRepoConfig,
   listAvailableUpgradeTargets,
   normalizeVersion,
-  readPromptDirectory
+  readPromptDirectory,
 } from "../upgrade";
 
 let tmpDir: string;
@@ -35,7 +35,7 @@ devrouter:
   version: 0.0.10
 apps: []
 `,
-      "utf-8"
+      "utf-8",
     );
 
     const current = extractCurrentVersionFromRepoConfig(tmpDir);
@@ -58,7 +58,7 @@ apps: []
     const releases = [
       { version: "0.0.10", prompt: "Prompt 10", promptPath: "/tmp/0.0.10.md" },
       { version: "0.0.11", prompt: "Prompt 11", promptPath: "/tmp/0.0.11.md" },
-      { version: "0.0.12", prompt: "Prompt 12", promptPath: "/tmp/0.0.12.md" }
+      { version: "0.0.12", prompt: "Prompt 12", promptPath: "/tmp/0.0.12.md" },
     ];
 
     const targets = listAvailableUpgradeTargets("0.0.10", releases);
@@ -67,7 +67,7 @@ apps: []
 
   it("errors when prompt directory is missing", () => {
     expect(() => readPromptDirectory(path.join(tmpDir, "upgrade-prompts"))).toThrow(
-      "Missing upgrade-prompts directory"
+      "Missing upgrade-prompts directory",
     );
   });
 });

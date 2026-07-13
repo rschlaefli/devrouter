@@ -1,12 +1,12 @@
 import type { ContainerInfo } from "dockerode";
 import { describe, expect, it } from "vitest";
+import type { Route } from "../../types";
 import {
   discoverRoutes,
   findDuplicateHosts,
   parseHostsFromRule,
   resolveRouteByName,
 } from "../routes";
-import type { Route } from "../../types";
 
 // -- helpers --
 
@@ -14,7 +14,7 @@ const NETWORK = "devrouter";
 
 /** Minimal ContainerInfo stub — only fields used by routes.ts */
 function makeContainer(
-  overrides: Partial<ContainerInfo> & { Labels?: Record<string, string> } = {}
+  overrides: Partial<ContainerInfo> & { Labels?: Record<string, string> } = {},
 ): ContainerInfo {
   return {
     Id: overrides.Id ?? "abc123",
@@ -36,8 +36,7 @@ function makeContainer(
 }
 
 function makeRoute(overrides: Partial<Route> = {}): Route {
-  const serviceName =
-    typeof overrides.serviceName === "string" ? overrides.serviceName : "web";
+  const serviceName = typeof overrides.serviceName === "string" ? overrides.serviceName : "web";
 
   return {
     id: "r1",
@@ -61,43 +60,35 @@ function makeRoute(overrides: Partial<Route> = {}): Route {
 
 describe("parseHostsFromRule", () => {
   it("parses single host rule", () => {
-    expect(parseHostsFromRule("Host(`foo.localhost`)")).toEqual([
-      "foo.localhost",
-    ]);
+    expect(parseHostsFromRule("Host(`foo.localhost`)")).toEqual(["foo.localhost"]);
   });
 
   it("parses multiple hosts with ||", () => {
-    expect(
-      parseHostsFromRule(
-        "Host(`a.localhost`) || Host(`b.localhost`)"
-      )
-    ).toEqual(["a.localhost", "b.localhost"]);
+    expect(parseHostsFromRule("Host(`a.localhost`) || Host(`b.localhost`)")).toEqual([
+      "a.localhost",
+      "b.localhost",
+    ]);
   });
 
   it("parses comma-separated hosts in single Host()", () => {
-    expect(
-      parseHostsFromRule("Host(`a.localhost`, `b.localhost`)")
-    ).toEqual(["a.localhost", "b.localhost"]);
+    expect(parseHostsFromRule("Host(`a.localhost`, `b.localhost`)")).toEqual([
+      "a.localhost",
+      "b.localhost",
+    ]);
   });
 
   it("handles double-quoted hosts", () => {
-    expect(parseHostsFromRule('Host("foo.localhost")')).toEqual([
-      "foo.localhost",
-    ]);
+    expect(parseHostsFromRule('Host("foo.localhost")')).toEqual(["foo.localhost"]);
   });
 
   it("handles single-quoted hosts", () => {
-    expect(parseHostsFromRule("Host('foo.localhost')")).toEqual([
-      "foo.localhost",
-    ]);
+    expect(parseHostsFromRule("Host('foo.localhost')")).toEqual(["foo.localhost"]);
   });
 
   it("deduplicates repeated hosts", () => {
-    expect(
-      parseHostsFromRule(
-        "Host(`foo.localhost`) || Host(`foo.localhost`)"
-      )
-    ).toEqual(["foo.localhost"]);
+    expect(parseHostsFromRule("Host(`foo.localhost`) || Host(`foo.localhost`)")).toEqual([
+      "foo.localhost",
+    ]);
   });
 
   it("returns empty for empty string", () => {
@@ -117,18 +108,12 @@ describe("parseHostsFromRule", () => {
 
 describe("findDuplicateHosts", () => {
   it("returns empty when no duplicates", () => {
-    const routes = [
-      makeRoute({ hosts: ["a.localhost"] }),
-      makeRoute({ hosts: ["b.localhost"] }),
-    ];
+    const routes = [makeRoute({ hosts: ["a.localhost"] }), makeRoute({ hosts: ["b.localhost"] })];
     expect(findDuplicateHosts(routes)).toEqual([]);
   });
 
   it("detects one host in two routes", () => {
-    const routes = [
-      makeRoute({ hosts: ["a.localhost"] }),
-      makeRoute({ hosts: ["a.localhost"] }),
-    ];
+    const routes = [makeRoute({ hosts: ["a.localhost"] }), makeRoute({ hosts: ["a.localhost"] })];
     expect(findDuplicateHosts(routes)).toEqual(["a.localhost"]);
   });
 
@@ -138,10 +123,7 @@ describe("findDuplicateHosts", () => {
       makeRoute({ hosts: ["a.localhost"] }),
       makeRoute({ hosts: ["b.localhost"] }),
     ];
-    expect(findDuplicateHosts(routes)).toEqual([
-      "a.localhost",
-      "b.localhost",
-    ]);
+    expect(findDuplicateHosts(routes)).toEqual(["a.localhost", "b.localhost"]);
   });
 
   it("returns empty for empty routes", () => {
@@ -185,7 +167,7 @@ describe("resolveRouteByName", () => {
     expect(resolveRouteByName(withDistinctAppName, "db").id).toBe("db-route");
     expect(resolveRouteByName(withDistinctAppName, "postgres").id).toBe("db-route");
     expect(resolveRouteByName(withDistinctAppName, "db.elearning.klicker.localhost").id).toBe(
-      "db-route"
+      "db-route",
     );
   });
 
@@ -210,9 +192,7 @@ describe("resolveRouteByName", () => {
   });
 
   it("throws when no match found", () => {
-    expect(() => resolveRouteByName(routes, "nonexistent")).toThrow(
-      "No route found"
-    );
+    expect(() => resolveRouteByName(routes, "nonexistent")).toThrow("No route found");
   });
 
   it("throws on ambiguous match", () => {
@@ -286,11 +266,7 @@ describe("discoverRoutes", () => {
       },
     });
 
-    const { routes } = discoverRoutes(
-      [enabled, disabled, missing],
-      true,
-      NETWORK
-    );
+    const { routes } = discoverRoutes([enabled, disabled, missing], true, NETWORK);
     expect(routes).toHaveLength(1);
     expect(routes[0].serviceName).toBe("web");
   });

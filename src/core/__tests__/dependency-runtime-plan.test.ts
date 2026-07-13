@@ -3,13 +3,13 @@ import type {
   DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
   DevrouterDockerTcpApp,
-  DevrouterHostHttpApp
+  DevrouterHostHttpApp,
 } from "../../types";
 import {
   applyDependencyEnvMap,
   buildDependencyEnv,
   planDependencyRuntime,
-  planDependencyStart
+  planDependencyStart,
 } from "../dependency-runtime-plan";
 
 const HOST_APP: DevrouterHostHttpApp = {
@@ -24,9 +24,9 @@ const HOST_APP: DevrouterHostHttpApp = {
     strategy: {
       type: "auto",
       denyPorts: [80, 443, 5432],
-      allowPortRange: "1024-65535"
-    }
-  }
+      allowPortRange: "1024-65535",
+    },
+  },
 };
 
 const POSTGRES_DEP: DevrouterDockerTcpApp = {
@@ -39,8 +39,8 @@ const POSTGRES_DEP: DevrouterDockerTcpApp = {
   docker: {
     service: "db",
     internalPort: 5432,
-    composeFiles: ["docker-compose.yml"]
-  }
+    composeFiles: ["docker-compose.yml"],
+  },
 };
 
 const ANALYTICS_DEP: DevrouterDockerTcpApp = {
@@ -49,8 +49,8 @@ const ANALYTICS_DEP: DevrouterDockerTcpApp = {
   host: "analytics-db.localhost",
   docker: {
     ...POSTGRES_DEP.docker,
-    service: "analytics-db"
-  }
+    service: "analytics-db",
+  },
 };
 
 const DOCKER_APP: DevrouterDockerHttpApp = {
@@ -62,8 +62,8 @@ const DOCKER_APP: DevrouterDockerHttpApp = {
   docker: {
     service: "app",
     internalPort: 3000,
-    composeFiles: ["docker-compose.yml"]
-  }
+    composeFiles: ["docker-compose.yml"],
+  },
 };
 
 const REDIS_DEP: DevrouterDockerDependencyApp = {
@@ -73,8 +73,8 @@ const REDIS_DEP: DevrouterDockerDependencyApp = {
   dependencies: [],
   docker: {
     service: "redis",
-    composeFiles: ["docker-compose.yml"]
-  }
+    composeFiles: ["docker-compose.yml"],
+  },
 };
 
 describe("dependency runtime planning", () => {
@@ -86,14 +86,14 @@ describe("dependency runtime planning", () => {
           app: POSTGRES_DEP.name,
           envMap: {
             DATABASE_URL: "DB_URL",
-            SHADOW_DATABASE_URL: "DB_SHADOW_URL"
-          }
-        }
-      ]
+            SHADOW_DATABASE_URL: "DB_SHADOW_URL",
+          },
+        },
+      ],
     };
     const runtimePlan = planDependencyRuntime({
       app,
-      dependencies: [POSTGRES_DEP]
+      dependencies: [POSTGRES_DEP],
     });
 
     expect(runtimePlan.selectedDockerApps).toEqual([POSTGRES_DEP]);
@@ -110,7 +110,7 @@ describe("dependency runtime planning", () => {
 
     const depEnv = applyDependencyEnvMap(
       app,
-      buildDependencyEnv([{ app: POSTGRES_DEP, mappedPort: 55432 }])
+      buildDependencyEnv([{ app: POSTGRES_DEP, mappedPort: 55432 }]),
     );
     expect(depEnv.DB_HOST).toBe("localhost");
     expect(depEnv.DB_PORT).toBe("55432");
@@ -123,15 +123,15 @@ describe("dependency runtime planning", () => {
   it("skips prompt and compose up when dependency services are already running", () => {
     const app = {
       ...HOST_APP,
-      dependencies: [{ app: POSTGRES_DEP.name }]
+      dependencies: [{ app: POSTGRES_DEP.name }],
     };
     const runtimePlan = planDependencyRuntime({
       app,
       dependencies: [POSTGRES_DEP],
       runningServicesBefore: {
         status: "known",
-        runningServices: new Set(["db"])
-      }
+        runningServices: new Set(["db"]),
+      },
     });
 
     expect(runtimePlan.allDependencyServicesRunning).toBe(true);
@@ -146,7 +146,7 @@ describe("dependency runtime planning", () => {
   it("plans exec teardown for only services that were not already running", () => {
     const app = {
       ...HOST_APP,
-      dependencies: [{ app: POSTGRES_DEP.name }, { app: ANALYTICS_DEP.name }]
+      dependencies: [{ app: POSTGRES_DEP.name }, { app: ANALYTICS_DEP.name }],
     };
     const runtimePlan = planDependencyRuntime({
       app,
@@ -154,8 +154,8 @@ describe("dependency runtime planning", () => {
       stopPolicy: "stop-only-newly-started",
       runningServicesBefore: {
         status: "known",
-        runningServices: new Set(["db"])
-      }
+        runningServices: new Set(["db"]),
+      },
     });
 
     const startPlan = planDependencyStart(runtimePlan, true);
@@ -167,7 +167,7 @@ describe("dependency runtime planning", () => {
   it("keeps exec-started services running when ownership detection is unknown", () => {
     const app = {
       ...HOST_APP,
-      dependencies: [{ app: POSTGRES_DEP.name }]
+      dependencies: [{ app: POSTGRES_DEP.name }],
     };
     const runtimePlan = planDependencyRuntime({
       app,
@@ -175,8 +175,8 @@ describe("dependency runtime planning", () => {
       stopPolicy: "stop-only-newly-started",
       runningServicesBefore: {
         status: "unknown",
-        reason: "docker compose ps failed"
-      }
+        reason: "docker compose ps failed",
+      },
     });
 
     const startPlan = planDependencyStart(runtimePlan, true);
@@ -188,7 +188,7 @@ describe("dependency runtime planning", () => {
   it("plans docker app targets without dependency teardown", () => {
     const runtimePlan = planDependencyRuntime({
       app: DOCKER_APP,
-      dependencies: []
+      dependencies: [],
     });
 
     const startPlan = planDependencyStart(runtimePlan, false);
@@ -201,7 +201,7 @@ describe("dependency runtime planning", () => {
   it("does not build env vars for dependency-only services", () => {
     const runtimePlan = planDependencyRuntime({
       app: { ...HOST_APP, dependencies: [{ app: REDIS_DEP.name }] },
-      dependencies: [REDIS_DEP]
+      dependencies: [REDIS_DEP],
     });
 
     expect(runtimePlan.selectedDockerApps).toEqual([REDIS_DEP]);
@@ -216,14 +216,14 @@ describe("dependency runtime planning", () => {
         {
           app: POSTGRES_DEP.name,
           envMap: {
-            DATABASE_URL: "MISSING"
-          }
-        }
-      ]
+            DATABASE_URL: "MISSING",
+          },
+        },
+      ],
     };
 
     expect(() => applyDependencyEnvMap(app, {})).toThrow(
-      "source variable 'MISSING' not found in dependency env"
+      "source variable 'MISSING' not found in dependency env",
     );
   });
 });

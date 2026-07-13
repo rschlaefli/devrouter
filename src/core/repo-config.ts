@@ -1,28 +1,26 @@
 import fs from "node:fs";
 import path from "node:path";
-import YAML, { isMap, isSeq, parseDocument, type Document, type YAMLSeq } from "yaml";
-import {
+import YAML, { type Document, isMap, isSeq, parseDocument, type YAMLSeq } from "yaml";
+import type {
   AppAddOptions,
   DevrouterApp,
   DevrouterConfig,
   DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
-  DevrouterDockerTcpApp,
   DevrouterHostHttpApp,
-  DevrouterProxyHttpApp
 } from "../types";
-import { parseUpstream } from "./host-routes";
-import { resolveWorkspace, wsFromBranch } from "./workspace";
 import {
   DEPENDENCY_ONLY_RUNTIME,
+  formatSupportedTcpProtocols,
   RUNTIME_PROTOCOL_COMPATIBILITY,
   SECRET_MANAGER_ENV_PLACEHOLDER,
   SUPPORTED_PROTOCOLS,
   SUPPORTED_RUNTIMES,
   SUPPORTED_TCP_PROTOCOLS,
   WORKSPACE_PLACEHOLDER,
-  formatSupportedTcpProtocols
 } from "./capabilities";
+import { parseUpstream } from "./host-routes";
+import { resolveWorkspace, wsFromBranch } from "./workspace";
 
 declare const __VERSION__: string;
 
@@ -45,7 +43,8 @@ let hasWarnedVersionMismatch = false;
 const CONFIG_FILE_NAME = ".devrouter.yml";
 const DEFAULT_TCP_PROTOCOL = "postgres";
 
-const VALID_HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.localhost$/;
+const VALID_HOSTNAME_RE =
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.localhost$/;
 const DEVROUTER_VERSION_RE = /^\d+\.\d+\.\d+$/;
 const VALID_ENV_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/i;
 const VALID_ENV_VAR_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -77,7 +76,7 @@ function assertHostNotTemplated(host: string, label: string): void {
     throw new Error(
       `${label} must not contain template placeholders. The front host is namespaced ` +
         "automatically per workspace (web.localhost -> web.<workspace>.localhost); do not " +
-        "add ${WORKSPACE} to host."
+        "add ${WORKSPACE} to host.",
     );
   }
 }
@@ -87,7 +86,7 @@ const MAX_COMMAND_LENGTH = 4096;
 const DEFAULT_HOST_STRATEGY = {
   type: "auto" as const,
   denyPorts: [80, 443, 5432],
-  allowPortRange: "1024-65535"
+  allowPortRange: "1024-65535",
 };
 
 type DevrouterConfigWithUnknown = Record<string, unknown>;
@@ -103,7 +102,7 @@ function ensureObject(value: unknown, pathLabel: string): Record<string, unknown
 function ensureAllowedKeys(
   value: Record<string, unknown>,
   allowedKeys: string[],
-  pathLabel: string
+  pathLabel: string,
 ): void {
   const allowed = new Set(allowedKeys);
   for (const key of Object.keys(value)) {
@@ -142,10 +141,7 @@ function toIntegerOrThrow(value: unknown, pathLabel: string): number {
   return numberValue;
 }
 
-function parseEnvMap(
-  value: unknown,
-  pathLabel: string
-): Record<string, string> {
+function parseEnvMap(value: unknown, pathLabel: string): Record<string, string> {
   const obj = ensureObject(value, pathLabel);
   const result: Record<string, string> = {};
   for (const [key, val] of Object.entries(obj)) {
@@ -154,7 +150,9 @@ function parseEnvMap(
     }
     const source = toStringOrThrow(val, `${pathLabel}.${key}`);
     if (!VALID_ENV_VAR_RE.test(source)) {
-      throw new Error(`${pathLabel}.${key} value '${source}' is not a valid environment variable name.`);
+      throw new Error(
+        `${pathLabel}.${key} value '${source}' is not a valid environment variable name.`,
+      );
     }
     result[key] = source;
   }
@@ -175,7 +173,7 @@ function isSupportedTcpProtocol(value: string): boolean {
 
 function runtimeSupportsProtocol(
   runtime: (typeof SUPPORTED_RUNTIMES)[number],
-  protocol: (typeof SUPPORTED_PROTOCOLS)[number]
+  protocol: (typeof SUPPORTED_PROTOCOLS)[number],
 ): boolean {
   const supportedProtocols: readonly (typeof SUPPORTED_PROTOCOLS)[number][] =
     RUNTIME_PROTOCOL_COMPATIBILITY[runtime];
@@ -184,7 +182,7 @@ function runtimeSupportsProtocol(
 
 function parseDependencies(
   value: unknown,
-  pathLabel: string
+  pathLabel: string,
 ): Array<{ app: string; envMap?: Record<string, string> }> {
   if (value === undefined) {
     return [];
@@ -198,7 +196,7 @@ function parseDependencies(
     const objectValue = ensureObject(entry, `${pathLabel}[${index}]`);
     ensureAllowedKeys(objectValue, ["app", "envMap"], `${pathLabel}[${index}]`);
     const result: { app: string; envMap?: Record<string, string> } = {
-      app: toStringOrThrow(objectValue.app, `${pathLabel}[${index}].app`)
+      app: toStringOrThrow(objectValue.app, `${pathLabel}[${index}].app`),
     };
     if (objectValue.envMap !== undefined) {
       result.envMap = parseEnvMap(objectValue.envMap, `${pathLabel}[${index}].envMap`);
@@ -207,7 +205,10 @@ function parseDependencies(
   });
 }
 
-function parseHostStrategy(value: unknown, pathLabel: string): DevrouterHostHttpApp["hostRun"]["strategy"] {
+function parseHostStrategy(
+  value: unknown,
+  pathLabel: string,
+): DevrouterHostHttpApp["hostRun"]["strategy"] {
   if (value === undefined) {
     return { ...DEFAULT_HOST_STRATEGY };
   }
@@ -226,7 +227,7 @@ function parseHostStrategy(value: unknown, pathLabel: string): DevrouterHostHttp
       throw new Error(`${pathLabel}.denyPorts must be an array.`);
     }
     denyPorts = objectValue.denyPorts.map((entry, index) =>
-      toIntegerOrThrow(entry, `${pathLabel}.denyPorts[${index}]`)
+      toIntegerOrThrow(entry, `${pathLabel}.denyPorts[${index}]`),
     );
   }
 
@@ -238,14 +239,11 @@ function parseHostStrategy(value: unknown, pathLabel: string): DevrouterHostHttp
   return {
     type: "auto",
     denyPorts,
-    allowPortRange
+    allowPortRange,
   };
 }
 
-function parseDockerConfig(
-  value: unknown,
-  pathLabel: string
-): DevrouterDockerHttpApp["docker"] {
+function parseDockerConfig(value: unknown, pathLabel: string): DevrouterDockerHttpApp["docker"] {
   const objectValue = ensureObject(value, pathLabel);
   ensureAllowedKeys(objectValue, ["service", "internalPort", "composeFiles", "router"], pathLabel);
 
@@ -257,13 +255,13 @@ function parseDockerConfig(
     router:
       objectValue.router === undefined
         ? undefined
-        : toStringOrThrow(objectValue.router, `${pathLabel}.router`)
+        : toStringOrThrow(objectValue.router, `${pathLabel}.router`),
   };
 }
 
 function parseDependencyDockerConfig(
   value: unknown,
-  pathLabel: string
+  pathLabel: string,
 ): DevrouterDockerDependencyApp["docker"] {
   const objectValue = ensureObject(value, pathLabel);
   ensureAllowedKeys(objectValue, ["service", "composeFiles"], pathLabel);
@@ -271,7 +269,7 @@ function parseDependencyDockerConfig(
   const composeFiles = toStringArray(objectValue.composeFiles, `${pathLabel}.composeFiles`);
   return {
     service: toStringOrThrow(objectValue.service, `${pathLabel}.service`),
-    composeFiles: composeFiles.length > 0 ? composeFiles : ["docker-compose.yml"]
+    composeFiles: composeFiles.length > 0 ? composeFiles : ["docker-compose.yml"],
   };
 }
 
@@ -282,7 +280,9 @@ function parseHostOrThrow(value: unknown, pathLabel: string): string {
     throw new Error(`${pathLabel} must end with .localhost.`);
   }
   if (!VALID_HOSTNAME_RE.test(host)) {
-    throw new Error(`${pathLabel} contains invalid characters. Only lowercase alphanumerics and hyphens are allowed.`);
+    throw new Error(
+      `${pathLabel} contains invalid characters. Only lowercase alphanumerics and hyphens are allowed.`,
+    );
   }
   return host;
 }
@@ -292,14 +292,24 @@ function parseApp(value: unknown, index: number): DevrouterApp {
   const objectValue = ensureObject(value, pathLabel);
   ensureAllowedKeys(
     objectValue,
-    ["name", "kind", "host", "protocol", "runtime", "hostRun", "docker", "tcpProtocol", "upstream", "dependencies"],
-    pathLabel
+    [
+      "name",
+      "kind",
+      "host",
+      "protocol",
+      "runtime",
+      "hostRun",
+      "docker",
+      "tcpProtocol",
+      "upstream",
+      "dependencies",
+    ],
+    pathLabel,
   );
 
   const name = toStringOrThrow(objectValue.name, `${pathLabel}.name`);
-  const kind = objectValue.kind === undefined
-    ? "app"
-    : toStringOrThrow(objectValue.kind, `${pathLabel}.kind`);
+  const kind =
+    objectValue.kind === undefined ? "app" : toStringOrThrow(objectValue.kind, `${pathLabel}.kind`);
   if (kind !== "app" && kind !== "dependency") {
     throw new Error(`${pathLabel}.kind must be 'app' or 'dependency'.`);
   }
@@ -321,7 +331,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
 
     const runtime = toStringOrThrow(objectValue.runtime, `${pathLabel}.runtime`);
     if (runtime !== DEPENDENCY_ONLY_RUNTIME) {
-      throw new Error(`${pathLabel}.runtime must be '${DEPENDENCY_ONLY_RUNTIME}' when kind=dependency.`);
+      throw new Error(
+        `${pathLabel}.runtime must be '${DEPENDENCY_ONLY_RUNTIME}' when kind=dependency.`,
+      );
     }
 
     return {
@@ -329,7 +341,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
       name,
       runtime: DEPENDENCY_ONLY_RUNTIME,
       dependencies,
-      docker: parseDependencyDockerConfig(objectValue.docker, `${pathLabel}.docker`)
+      docker: parseDependencyDockerConfig(objectValue.docker, `${pathLabel}.docker`),
     };
   }
 
@@ -348,11 +360,17 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     }
 
     const hostRun = ensureObject(objectValue.hostRun, `${pathLabel}.hostRun`);
-    ensureAllowedKeys(hostRun, ["command", "cwd", "strategy", "portTimeout"], `${pathLabel}.hostRun`);
+    ensureAllowedKeys(
+      hostRun,
+      ["command", "cwd", "strategy", "portTimeout"],
+      `${pathLabel}.hostRun`,
+    );
 
     const command = toStringOrThrow(hostRun.command, `${pathLabel}.hostRun.command`);
     if (command.length > MAX_COMMAND_LENGTH) {
-      throw new Error(`${pathLabel}.hostRun.command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters.`);
+      throw new Error(
+        `${pathLabel}.hostRun.command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters.`,
+      );
     }
 
     const portTimeout =
@@ -373,8 +391,8 @@ function parseApp(value: unknown, index: number): DevrouterApp {
             ? "."
             : toStringOrThrow(hostRun.cwd, `${pathLabel}.hostRun.cwd`),
         strategy: parseHostStrategy(hostRun.strategy, `${pathLabel}.hostRun.strategy`),
-        ...(portTimeout !== undefined ? { portTimeout } : {})
-      }
+        ...(portTimeout !== undefined ? { portTimeout } : {}),
+      },
     };
   }
 
@@ -388,7 +406,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
         protocol: "http",
         runtime: "docker",
         dependencies,
-        docker
+        docker,
       };
     }
 
@@ -396,7 +414,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
       const tcpProtocol = toStringOrThrow(objectValue.tcpProtocol, `${pathLabel}.tcpProtocol`);
       if (!isSupportedTcpProtocol(tcpProtocol)) {
         throw new Error(
-          `${pathLabel}.tcpProtocol must be one of: ${formatSupportedTcpProtocols()}.`
+          `${pathLabel}.tcpProtocol must be one of: ${formatSupportedTcpProtocols()}.`,
         );
       }
 
@@ -407,7 +425,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
         tcpProtocol,
         runtime: "docker",
         dependencies,
-        docker
+        docker,
       };
     }
   }
@@ -432,7 +450,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     if (protocol === "tcp") {
       const tcpProtocol = toStringOrThrow(objectValue.tcpProtocol, `${pathLabel}.tcpProtocol`);
       if (!isSupportedTcpProtocol(tcpProtocol)) {
-        throw new Error(`${pathLabel}.tcpProtocol must be one of: ${formatSupportedTcpProtocols()}.`);
+        throw new Error(
+          `${pathLabel}.tcpProtocol must be one of: ${formatSupportedTcpProtocols()}.`,
+        );
       }
 
       return {
@@ -442,7 +462,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
         tcpProtocol,
         runtime: "proxy",
         dependencies,
-        upstream
+        upstream,
       };
     }
 
@@ -452,7 +472,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
       protocol: "http",
       runtime: "proxy",
       dependencies,
-      upstream
+      upstream,
     };
   }
 
@@ -497,23 +517,29 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
     ensureAllowedKeys(sm, ["command", "defaultEnv"], `${configPath}.secretManager`);
     const command = toStringOrThrow(sm.command, `${configPath}.secretManager.command`);
     if (command.length > MAX_COMMAND_LENGTH) {
-      throw new Error(`${configPath}.secretManager.command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters.`);
+      throw new Error(
+        `${configPath}.secretManager.command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters.`,
+      );
     }
 
     let defaultEnv: string | undefined;
     if (sm.defaultEnv !== undefined) {
       defaultEnv = toStringOrThrow(sm.defaultEnv, `${configPath}.secretManager.defaultEnv`);
       if (defaultEnv.length > 64) {
-        throw new Error(`${configPath}.secretManager.defaultEnv exceeds maximum length of 64 characters.`);
+        throw new Error(
+          `${configPath}.secretManager.defaultEnv exceeds maximum length of 64 characters.`,
+        );
       }
       if (!VALID_ENV_NAME_RE.test(defaultEnv)) {
-        throw new Error(`${configPath}.secretManager.defaultEnv must be alphanumeric with hyphens.`);
+        throw new Error(
+          `${configPath}.secretManager.defaultEnv must be alphanumeric with hyphens.`,
+        );
       }
     }
 
     if (command.includes(SECRET_MANAGER_ENV_PLACEHOLDER) && !defaultEnv) {
       throw new Error(
-        `${configPath}.secretManager.defaultEnv is required when command contains ${SECRET_MANAGER_ENV_PLACEHOLDER}.`
+        `${configPath}.secretManager.defaultEnv is required when command contains ${SECRET_MANAGER_ENV_PLACEHOLDER}.`,
       );
     }
 
@@ -541,7 +567,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
         ? { name: (root.project as { name?: string }).name }
         : undefined,
     ...(secretManager ? { secretManager } : {}),
-    apps
+    apps,
   };
 }
 
@@ -600,7 +626,7 @@ export function loadRepoConfig(repoPath?: string): DevrouterConfig {
   const configPath = getRepoConfigPath(resolvedRepoPath);
   if (!fs.existsSync(configPath)) {
     throw new Error(
-      `Missing ${CONFIG_FILE_NAME} in ${resolvedRepoPath}. Run 'dev repo init --repo ${resolvedRepoPath}' first.`
+      `Missing ${CONFIG_FILE_NAME} in ${resolvedRepoPath}. Run 'dev repo init --repo ${resolvedRepoPath}' first.`,
     );
   }
 
@@ -615,8 +641,8 @@ export function loadRepoConfig(repoPath?: string): DevrouterConfig {
       hasWarnedVersionMismatch = true;
       process.stderr.write(
         `\n⚠️  Warning: The repository configuration requires devrouter version ${requiredVersion}, ` +
-        `but you are running version ${cliVersion}.\n` +
-        `   Please upgrade your CLI to avoid unexpected behavior: npm install -g @devrouter/cli\n\n`
+          `but you are running version ${cliVersion}.\n` +
+          `   Please upgrade your CLI to avoid unexpected behavior: npm install -g @devrouter/cli\n\n`,
       );
     }
   }
@@ -626,7 +652,7 @@ export function loadRepoConfig(repoPath?: string): DevrouterConfig {
 
 export function initRepoConfig(
   repoPath?: string,
-  options: { devrouterVersion?: string } = {}
+  options: { devrouterVersion?: string } = {},
 ): { repoPath: string; configPath: string; created: boolean } {
   const resolvedRepoPath = resolveRepoPath(repoPath);
   const configPath = getRepoConfigPath(resolvedRepoPath);
@@ -634,8 +660,13 @@ export function initRepoConfig(
     return { repoPath: resolvedRepoPath, configPath, created: false };
   }
 
-  if (options.devrouterVersion !== undefined && !DEVROUTER_VERSION_RE.test(options.devrouterVersion)) {
-    throw new Error(`Invalid devrouter version '${options.devrouterVersion}'. Expected semantic version like 0.0.14.`);
+  if (
+    options.devrouterVersion !== undefined &&
+    !DEVROUTER_VERSION_RE.test(options.devrouterVersion)
+  ) {
+    throw new Error(
+      `Invalid devrouter version '${options.devrouterVersion}'. Expected semantic version like 0.0.14.`,
+    );
   }
 
   const initialConfig: DevrouterConfig = {
@@ -643,14 +674,14 @@ export function initRepoConfig(
     ...(options.devrouterVersion
       ? {
           devrouter: {
-            version: options.devrouterVersion
-          }
+            version: options.devrouterVersion,
+          },
         }
       : {}),
     project: {
-      name: path.basename(resolvedRepoPath)
+      name: path.basename(resolvedRepoPath),
     },
-    apps: []
+    apps: [],
   };
 
   fs.writeFileSync(configPath, renderConfig(initialConfig), "utf-8");
@@ -700,8 +731,9 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
       dependencies,
       docker: {
         service: options.service,
-        composeFiles: options.composeFiles.length > 0 ? options.composeFiles : ["docker-compose.yml"]
-      }
+        composeFiles:
+          options.composeFiles.length > 0 ? options.composeFiles : ["docker-compose.yml"],
+      },
     };
   }
 
@@ -714,7 +746,9 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
     throw new Error("--host must end with .localhost");
   }
   if (!VALID_HOSTNAME_RE.test(host)) {
-    throw new Error("--host contains invalid characters. Only lowercase alphanumerics and hyphens are allowed.");
+    throw new Error(
+      "--host contains invalid characters. Only lowercase alphanumerics and hyphens are allowed.",
+    );
   }
 
   if (!options.runtime) {
@@ -742,8 +776,8 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
       hostRun: {
         command: options.command,
         cwd: options.cwd ?? ".",
-        strategy: { ...DEFAULT_HOST_STRATEGY }
-      }
+        strategy: { ...DEFAULT_HOST_STRATEGY },
+      },
     };
   }
 
@@ -772,7 +806,7 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
       const tcpProtocol = options.tcpProtocol;
       if (!tcpProtocol || !isSupportedTcpProtocol(tcpProtocol)) {
         throw new Error(
-          `--tcp-protocol must be one of: ${formatSupportedTcpProtocols()} when --runtime proxy --protocol tcp`
+          `--tcp-protocol must be one of: ${formatSupportedTcpProtocols()} when --runtime proxy --protocol tcp`,
         );
       }
 
@@ -783,7 +817,7 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
         tcpProtocol,
         runtime: "proxy",
         dependencies,
-        upstream: options.upstream
+        upstream: options.upstream,
       };
     }
 
@@ -793,7 +827,7 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
       protocol: "http",
       runtime: "proxy",
       dependencies,
-      upstream: options.upstream
+      upstream: options.upstream,
     };
   }
 
@@ -809,7 +843,7 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
     service: options.service,
     internalPort: options.port,
     composeFiles: options.composeFiles.length > 0 ? options.composeFiles : ["docker-compose.yml"],
-    router: options.router
+    router: options.router,
   };
 
   if (options.protocol === "http") {
@@ -819,7 +853,7 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
       protocol: "http",
       runtime: "docker",
       dependencies,
-      docker
+      docker,
     };
   }
 
@@ -835,11 +869,14 @@ function buildAppFromOptions(options: AppAddOptions): DevrouterApp {
     tcpProtocol,
     runtime: "docker",
     dependencies,
-    docker
+    docker,
   };
 }
 
-export function upsertRepoApp(repoPath: string, options: AppAddOptions): { configPath: string; app: DevrouterApp } {
+export function upsertRepoApp(
+  repoPath: string,
+  options: AppAddOptions,
+): { configPath: string; app: DevrouterApp } {
   const resolvedRepoPath = resolveRepoPath(repoPath);
   const configPath = getRepoConfigPath(resolvedRepoPath);
   // Load (validating the existing file) and build the app before touching the file.
@@ -880,7 +917,10 @@ export function upsertRepoApp(repoPath: string, options: AppAddOptions): { confi
   return { configPath, app };
 }
 
-export function removeRepoApp(repoPath: string, name: string): { configPath: string; removed: boolean } {
+export function removeRepoApp(
+  repoPath: string,
+  name: string,
+): { configPath: string; removed: boolean } {
   const resolvedRepoPath = resolveRepoPath(repoPath);
   const configPath = getRepoConfigPath(resolvedRepoPath);
   const config = loadRepoConfig(resolvedRepoPath);
@@ -922,7 +962,7 @@ function namespaceHost(host: string, workspace: string): string {
 export function applyWorkspace(
   config: DevrouterConfig,
   workspace: string | undefined,
-  repoPath: string
+  repoPath: string,
 ): DevrouterConfig {
   const defaultToken =
     wsFromBranch(config.project?.name ?? path.basename(path.resolve(repoPath))) ?? "app";
@@ -969,7 +1009,7 @@ export function applyWorkspace(
  */
 export function loadRuntimeConfig(
   repoPath?: string,
-  workspaceOverride?: string
+  workspaceOverride?: string,
 ): { config: DevrouterConfig; workspace: string | undefined } {
   const resolved = resolveRepoPath(repoPath);
   const raw = loadRepoConfig(resolved);
@@ -980,13 +1020,15 @@ export function loadRuntimeConfig(
 export function resolveAppByName(
   repoPath: string,
   name: string,
-  workspaceOverride?: string
+  workspaceOverride?: string,
 ): { config: DevrouterConfig; app: DevrouterApp; workspace: string | undefined } {
   const { config, workspace } = loadRuntimeConfig(repoPath, workspaceOverride);
   const app = config.apps.find((entry) => entry.name === name);
   if (!app) {
     const available = config.apps.map((entry) => entry.name).join(", ");
-    throw new Error(`App '${name}' not found in ${getRepoConfigPath(repoPath)}. Available: ${available || "(none)"}`);
+    throw new Error(
+      `App '${name}' not found in ${getRepoConfigPath(repoPath)}. Available: ${available || "(none)"}`,
+    );
   }
 
   return { config, app, workspace };

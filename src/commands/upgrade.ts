@@ -3,7 +3,7 @@ import {
   listAvailableUpgradeTargets,
   loadUpgradeCatalog,
   normalizeVersion,
-  type UpgradeRelease
+  type UpgradeRelease,
 } from "../core/upgrade";
 
 type UpgradeCommandOptions = {
@@ -29,16 +29,18 @@ function printUpgradeTargets(currentVersion: string, availableTargets: UpgradeRe
     const suffix = release.version === nextTarget.version ? "  <- next" : "";
     process.stdout.write(`- ${release.version}${suffix}\n`);
   }
-  process.stdout.write("\nRun `devrouter upgrade <version>` to print the Agent Adaptation Prompt for a target version.\n");
+  process.stdout.write(
+    "\nRun `devrouter upgrade <version>` to print the Agent Adaptation Prompt for a target version.\n",
+  );
 }
 
 export async function runUpgradeCommand(
   options: UpgradeCommandOptions,
-  deps: UpgradeCommandDeps = {}
+  deps: UpgradeCommandDeps = {},
 ): Promise<void> {
   const catalog = loadUpgradeCatalog({
     repo: options.repo,
-    promptsDir: deps.promptsDir
+    promptsDir: deps.promptsDir,
   });
 
   const availableTargets = listAvailableUpgradeTargets(catalog.currentVersion, catalog.releases);
@@ -52,15 +54,13 @@ export async function runUpgradeCommand(
   const selectedTarget = normalizeVersion(options.targetVersion);
   if (compareVersions(selectedTarget, catalog.currentVersion) <= 0) {
     throw new Error(
-      `Target ${selectedTarget} is not newer than current version ${catalog.currentVersion}.`
+      `Target ${selectedTarget} is not newer than current version ${catalog.currentVersion}.`,
     );
   }
 
   const release = catalog.releases.find((entry) => entry.version === selectedTarget);
   if (!release) {
-    throw new Error(
-      `Version ${selectedTarget} was not found in ${catalog.promptsPath}.`
-    );
+    throw new Error(`Version ${selectedTarget} was not found in ${catalog.promptsPath}.`);
   }
 
   process.stdout.write(`Current version: ${catalog.currentVersion}\n`);
@@ -71,7 +71,7 @@ export async function runUpgradeCommand(
   process.stdout.write("```\n");
 
   const furtherTargets = availableTargets.filter(
-    (entry) => compareVersions(entry.version, selectedTarget) > 0
+    (entry) => compareVersions(entry.version, selectedTarget) > 0,
   );
   if (furtherTargets.length === 0) {
     process.stdout.write("\nNo further upgrade targets are available after this version.\n");
@@ -81,7 +81,10 @@ export async function runUpgradeCommand(
   process.stdout.write(`\nFurther version available: ${furtherTargets[0].version}\n`);
   if (furtherTargets.length > 1) {
     process.stdout.write(
-      `More versions after that: ${furtherTargets.slice(1).map((entry) => entry.version).join(", ")}\n`
+      `More versions after that: ${furtherTargets
+        .slice(1)
+        .map((entry) => entry.version)
+        .join(", ")}\n`,
     );
   }
 }

@@ -1,6 +1,6 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import type { DiagnosticCheck } from "../types";
 
 type CommandResult = {
@@ -18,13 +18,13 @@ function outputFromResult(result: ReturnType<typeof spawnSync>): string | undefi
 
 export function runTool(command: string, args: string[] = []): CommandResult {
   const result = spawnSync(command, args, {
-    encoding: "utf-8"
+    encoding: "utf-8",
   });
 
   if (result.error) {
     return {
       ok: false,
-      error: result.error.message
+      error: result.error.message,
     };
   }
 
@@ -36,12 +36,16 @@ export function runTool(command: string, args: string[] = []): CommandResult {
   return {
     ok: false,
     output,
-    error: output ?? `${command} ${args.join(" ")} exited with status ${result.status ?? "unknown"}`
+    error:
+      output ?? `${command} ${args.join(" ")} exited with status ${result.status ?? "unknown"}`,
   };
 }
 
 function firstLine(value: string | undefined): string | undefined {
-  return value?.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim();
+  return value
+    ?.split(/\r?\n/)
+    .find((line) => line.trim().length > 0)
+    ?.trim();
 }
 
 function parsePackageManager(value: unknown): { name: string; version?: string } | undefined {
@@ -61,7 +65,7 @@ function parsePackageManager(value: unknown): { name: string; version?: string }
 
   return {
     name: trimmed.slice(0, separator),
-    version: trimmed.slice(separator + 1)
+    version: trimmed.slice(separator + 1),
   };
 }
 
@@ -106,14 +110,17 @@ function nodeToolchainCheck(repoPath: string): DiagnosticCheck {
     return {
       id: "global.node-toolchain",
       level: "ok",
-      summary: "No package.json found; Node toolchain check is not applicable."
+      summary: "No package.json found; Node toolchain check is not applicable.",
     };
   }
 
-  const engines = typeof pkg.engines === "object" && pkg.engines ? pkg.engines as Record<string, unknown> : {};
-  const volta = typeof pkg.volta === "object" && pkg.volta ? pkg.volta as Record<string, unknown> : {};
+  const engines =
+    typeof pkg.engines === "object" && pkg.engines ? (pkg.engines as Record<string, unknown>) : {};
+  const volta =
+    typeof pkg.volta === "object" && pkg.volta ? (pkg.volta as Record<string, unknown>) : {};
   const nodeRequirement = typeof volta.node === "string" ? volta.node : engines.node;
-  const minimumNodeMajor = parseMinimumNodeMajor(nodeRequirement) ?? parseMajor(String(nodeRequirement ?? ""));
+  const minimumNodeMajor =
+    parseMinimumNodeMajor(nodeRequirement) ?? parseMajor(String(nodeRequirement ?? ""));
   const currentNodeMajor = parseMajor(process.versions.node);
   const packageManager = parsePackageManager(pkg.packageManager);
 
@@ -138,13 +145,19 @@ function nodeToolchainCheck(repoPath: string): DiagnosticCheck {
         details.push(`expectedPnpm=${packageManager.version}`);
         const expectedMajor = parseMajor(packageManager.version);
         const actualMajor = parseMajor(actualPnpm);
-        if (expectedMajor !== undefined && actualMajor !== undefined && expectedMajor !== actualMajor) {
+        if (
+          expectedMajor !== undefined &&
+          actualMajor !== undefined &&
+          expectedMajor !== actualMajor
+        ) {
           problems.push(`pnpm major ${actualMajor} does not match expected ${expectedMajor}`);
         }
       }
     }
   } else if (packageManager) {
-    details.push(`packageManager=${packageManager.name}${packageManager.version ? `@${packageManager.version}` : ""}`);
+    details.push(
+      `packageManager=${packageManager.name}${packageManager.version ? `@${packageManager.version}` : ""}`,
+    );
   }
 
   if (problems.length > 0) {
@@ -153,9 +166,10 @@ function nodeToolchainCheck(repoPath: string): DiagnosticCheck {
       level: "warn",
       summary: "Node package toolchain may not match this repo.",
       details: [...details, ...problems].join(", "),
-      suggestion: packageManager?.name === "pnpm" && packageManager.version
-        ? `Install pnpm ${packageManager.version}: npm install -g pnpm@${packageManager.version}`
-        : "Install the Node/package-manager versions declared by this repo."
+      suggestion:
+        packageManager?.name === "pnpm" && packageManager.version
+          ? `Install pnpm ${packageManager.version}: npm install -g pnpm@${packageManager.version}`
+          : "Install the Node/package-manager versions declared by this repo.",
     };
   }
 
@@ -163,7 +177,7 @@ function nodeToolchainCheck(repoPath: string): DiagnosticCheck {
     id: "global.node-toolchain",
     level: "ok",
     summary: "Node package toolchain is available for this repo.",
-    details: details.join(", ")
+    details: details.join(", "),
   };
 }
 
@@ -177,7 +191,7 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
     details: firstLine(compose.output) ?? compose.error,
     suggestion: compose.ok
       ? undefined
-      : "Install/start Docker with Compose v2, then run: devrouter setup --yes"
+      : "Install/start Docker with Compose v2, then run: devrouter setup --yes",
   });
 
   const mkcert = runTool("mkcert", ["-version"]);
@@ -191,7 +205,7 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
       ? undefined
       : brew.ok
         ? "Install mkcert: brew install mkcert"
-        : "Install mkcert for local HTTPS, then run: devrouter setup --yes"
+        : "Install mkcert for local HTTPS, then run: devrouter setup --yes",
   });
 
   const devpod = runTool("devpod", ["version"]);
@@ -202,7 +216,7 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
     details: firstLine(devpod.output) ?? devpod.error,
     suggestion: devpod.ok
       ? undefined
-      : "Install DevPod for devcontainer workspace flows: brew install devpod"
+      : "Install DevPod for devcontainer workspace flows: brew install devpod",
   });
 
   checks.push(nodeToolchainCheck(repoPath));

@@ -7,8 +7,11 @@ export const DEPENDENCY_ONLY_RUNTIME = "docker";
 export const RUNTIME_PROTOCOL_COMPATIBILITY = {
   host: ["http"],
   docker: ["http", "tcp"],
-  proxy: ["http", "tcp"]
-} as const satisfies Record<(typeof SUPPORTED_RUNTIMES)[number], readonly (typeof SUPPORTED_PROTOCOLS)[number][]>;
+  proxy: ["http", "tcp"],
+} as const satisfies Record<
+  (typeof SUPPORTED_RUNTIMES)[number],
+  readonly (typeof SUPPORTED_PROTOCOLS)[number][]
+>;
 
 export const WORKSPACE_PLACEHOLDER = "${WORKSPACE}";
 export const SECRET_MANAGER_ENV_PLACEHOLDER = "{env}";
@@ -17,17 +20,15 @@ export const POSTGRES_DEPENDENCY_USER = "prisma";
 export const POSTGRES_DEPENDENCY_PASSWORD = "prisma";
 export const POSTGRES_DEPENDENCY_DATABASE = "prisma";
 export const POSTGRES_DEPENDENCY_SHADOW_DATABASE = "shadow";
-export const POSTGRES_DEPENDENCY_URL_TEMPLATE =
-  `postgres://${POSTGRES_DEPENDENCY_USER}:${POSTGRES_DEPENDENCY_PASSWORD}@localhost:<port>/${POSTGRES_DEPENDENCY_DATABASE}`;
-export const POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE =
-  `postgres://${POSTGRES_DEPENDENCY_USER}:${POSTGRES_DEPENDENCY_PASSWORD}@localhost:<port>/${POSTGRES_DEPENDENCY_SHADOW_DATABASE}`;
+export const POSTGRES_DEPENDENCY_URL_TEMPLATE = `postgres://${POSTGRES_DEPENDENCY_USER}:${POSTGRES_DEPENDENCY_PASSWORD}@localhost:<port>/${POSTGRES_DEPENDENCY_DATABASE}`;
+export const POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE = `postgres://${POSTGRES_DEPENDENCY_USER}:${POSTGRES_DEPENDENCY_PASSWORD}@localhost:<port>/${POSTGRES_DEPENDENCY_SHADOW_DATABASE}`;
 
 export function formatSupportedTcpProtocols(): string {
   return SUPPORTED_TCP_PROTOCOLS.join(", ");
 }
 
 export function formatSupportedProtocolsForRuntime(
-  runtime: (typeof SUPPORTED_RUNTIMES)[number]
+  runtime: (typeof SUPPORTED_RUNTIMES)[number],
 ): string {
   return RUNTIME_PROTOCOL_COMPATIBILITY[runtime].join(", ");
 }

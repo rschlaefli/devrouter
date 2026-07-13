@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
-import { ROUTER_CONTAINER_NAME } from "../core/router";
 import { isContainerRunning } from "../core/docker";
+import { ROUTER_CONTAINER_NAME } from "../core/router";
 
 type LogsOptions = {
   follow?: boolean;

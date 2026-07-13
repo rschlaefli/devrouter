@@ -1,20 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostRouteState } from "../../types";
-import {
-  AppAlreadyRunningError,
-  HostnameConflictError,
-  assertAppNotRunning
-} from "../concurrency";
+import { AppAlreadyRunningError, assertAppNotRunning, HostnameConflictError } from "../concurrency";
 import { reconcileRouteRunConflict } from "../route-state";
 
 vi.mock("../route-state", () => ({
-  reconcileRouteRunConflict: vi.fn(() => undefined)
+  reconcileRouteRunConflict: vi.fn(() => undefined),
 }));
 
 const mockIsTLSEnabled = vi.fn<() => boolean>(() => true);
 
 vi.mock("../router", () => ({
-  isTLSEnabled: () => mockIsTLSEnabled()
+  isTLSEnabled: () => mockIsTLSEnabled(),
 }));
 
 function route(overrides: Partial<HostRouteState> = {}): HostRouteState {
@@ -29,7 +25,7 @@ function route(overrides: Partial<HostRouteState> = {}): HostRouteState {
     pid: 12345,
     createdAt: "t",
     updatedAt: "t",
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -40,21 +36,23 @@ beforeEach(() => {
 
 describe("assertAppNotRunning", () => {
   it("does nothing when route state reports no conflict", () => {
-    expect(() => assertAppNotRunning("/repo", { name: "web", host: "web.localhost" })).not.toThrow();
+    expect(() =>
+      assertAppNotRunning("/repo", { name: "web", host: "web.localhost" }),
+    ).not.toThrow();
     expect(reconcileRouteRunConflict).toHaveBeenCalledWith("/repo", {
       name: "web",
-      host: "web.localhost"
+      host: "web.localhost",
     });
   });
 
   it("throws AppAlreadyRunningError for same-app conflicts", () => {
     vi.mocked(reconcileRouteRunConflict).mockReturnValue({
       kind: "same-app",
-      route: route({ pid: 9999 })
+      route: route({ pid: 9999 }),
     });
 
     expect(() => assertAppNotRunning("/repo", { name: "web", host: "web.localhost" })).toThrow(
-      AppAlreadyRunningError
+      AppAlreadyRunningError,
     );
 
     try {
@@ -72,11 +70,11 @@ describe("assertAppNotRunning", () => {
   it("throws HostnameConflictError for hostname conflicts", () => {
     vi.mocked(reconcileRouteRunConflict).mockReturnValue({
       kind: "hostname",
-      route: route({ id: "/other::api", name: "api", repoPath: "/other", pid: 5555 })
+      route: route({ id: "/other::api", name: "api", repoPath: "/other", pid: 5555 }),
     });
 
     expect(() => assertAppNotRunning("/repo", { name: "web", host: "web.localhost" })).toThrow(
-      HostnameConflictError
+      HostnameConflictError,
     );
 
     try {
@@ -95,7 +93,7 @@ describe("assertAppNotRunning", () => {
     mockIsTLSEnabled.mockReturnValue(false);
     vi.mocked(reconcileRouteRunConflict).mockReturnValue({
       kind: "same-app",
-      route: route()
+      route: route(),
     });
 
     try {

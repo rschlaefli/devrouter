@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { PortListener } from "../types";
+import type { PortListener } from "../types";
 
 function parseSsPortListeners(stdout: string, port: number): PortListener[] {
   const listeners: PortListener[] = [];
@@ -25,7 +25,7 @@ function parseSsPortListeners(stdout: string, port: number): PortListener[] {
       command,
       pid,
       user: "?",
-      address: localAddr
+      address: localAddr,
     });
   }
   return listeners;
@@ -33,10 +33,10 @@ function parseSsPortListeners(stdout: string, port: number): PortListener[] {
 
 export function findPortListeners(port: number): PortListener[] {
   const result = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"], {
-    encoding: "utf-8"
+    encoding: "utf-8",
   });
 
-  if (result.error && (result.error as any).code === "ENOENT") {
+  if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
     if (process.platform === "linux") {
       const ssResult = spawnSync("ss", ["-H", "-lntp", "-p"], { encoding: "utf-8" });
       if (ssResult.status === 0 && ssResult.stdout) {
@@ -67,7 +67,7 @@ export function findPortListeners(port: number): PortListener[] {
       command,
       pid,
       user,
-      address
+      address,
     };
   });
 }

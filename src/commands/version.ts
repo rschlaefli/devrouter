@@ -1,7 +1,4 @@
-import {
-  listAvailableUpgradeTargets,
-  loadUpgradeCatalog
-} from "../core/upgrade";
+import { listAvailableUpgradeTargets, loadUpgradeCatalog } from "../core/upgrade";
 
 type VersionCommandOptions = {
   repo?: string;
@@ -14,12 +11,12 @@ type VersionCommandDeps = {
 
 export async function runVersionCommand(
   options: VersionCommandOptions,
-  deps: VersionCommandDeps = {}
+  deps: VersionCommandDeps = {},
 ): Promise<void> {
   process.stdout.write(`Installed CLI version: ${options.installedVersion}\n`);
   const catalog = loadUpgradeCatalog({
     repo: options.repo,
-    promptsDir: deps.promptsDir
+    promptsDir: deps.promptsDir,
   });
   process.stdout.write(`Local repo version (${catalog.configPath}): ${catalog.currentVersion}\n`);
 
@@ -31,6 +28,8 @@ export async function runVersionCommand(
 
   const next = availableTargets[0];
   process.stdout.write(`Next upgrade target: ${next.version}\n`);
-  process.stdout.write(`All upgrade targets: ${availableTargets.map((entry) => entry.version).join(", ")}\n`);
+  process.stdout.write(
+    `All upgrade targets: ${availableTargets.map((entry) => entry.version).join(", ")}\n`,
+  );
   process.stdout.write(`Run: devrouter upgrade ${next.version}\n`);
 }

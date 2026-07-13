@@ -1,47 +1,53 @@
-import net from "node:net";
-import path from "node:path";
-import { createInterface } from "node:readline/promises";
 import { spawn, spawnSync } from "node:child_process";
+import net from "node:net";
 import { stdin as input, stdout as output } from "node:process";
-import {
+import { createInterface } from "node:readline/promises";
+import type {
   DevrouterApp,
   DevrouterDockerDependencyApp,
   DevrouterDockerTcpApp,
   DevrouterHostHttpApp,
-  DevrouterProxyApp
+  DevrouterProxyApp,
 } from "../types";
-import {
-  prepareDockerOverlay,
-  runDockerComposeUp,
-  runDockerComposeStop,
-  runDockerComposeLogs,
-  queryMappedPort,
-  queryRunningComposeServices
-} from "./docker-run";
-import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
-import {
-  buildHostRouteId,
-  parseUpstream,
-  removeHostRouteById,
-  upsertHostRoute
-} from "./host-routes";
 import { assertAppNotRunning } from "./concurrency";
-import { removeRouteForApp } from "./route-state";
-import { ensureNetwork } from "./docker";
-import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY, activateTcpProtocol, ensureRouterFiles, isTLSEnabled, startRouterStack } from "./router";
-import { assertPathWithinRepo } from "./paths";
-import { ensureTLSHostsCovered } from "./tls";
 import {
   applyDependencyEnvMap,
   buildDependencyEnv,
   buildTcpDepShadowUrl,
   buildTcpDepUrl,
-  planDependencyRuntime,
-  planDependencyStart,
   type DependencyStopPolicy,
   type MappedTcpDependency,
-  type ObservedRuntimeServices
+  type ObservedRuntimeServices,
+  planDependencyRuntime,
+  planDependencyStart,
 } from "./dependency-runtime-plan";
+import { ensureNetwork } from "./docker";
+import {
+  prepareDockerOverlay,
+  queryMappedPort,
+  queryRunningComposeServices,
+  runDockerComposeLogs,
+  runDockerComposeStop,
+  runDockerComposeUp,
+} from "./docker-run";
+import {
+  buildHostRouteId,
+  parseUpstream,
+  removeHostRouteById,
+  upsertHostRoute,
+} from "./host-routes";
+import { assertPathWithinRepo } from "./paths";
+import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
+import { removeRouteForApp } from "./route-state";
+import {
+  activateTcpProtocol,
+  DEVNET_NAME,
+  ensureRouterFiles,
+  isTLSEnabled,
+  startRouterStack,
+  TCP_PROTOCOL_REGISTRY,
+} from "./router";
+import { ensureTLSHostsCovered } from "./tls";
 
 export { buildTcpDepShadowUrl, buildTcpDepUrl } from "./dependency-runtime-plan";
 
@@ -99,7 +105,7 @@ export function wrapWithSecretManager(
   smCommand: string,
   reinjectEnv: Record<string, string>,
   userCommand: string | string[],
-  shell: boolean
+  shell: boolean,
 ): string | string[] {
   const envPairs = Object.entries(reinjectEnv).map(([k, v]) => `${k}=${v}`);
 
@@ -122,7 +128,7 @@ export function wrapWithSecretManager(
 export function resolveSmCommand(
   command: string,
   defaultEnv?: string,
-  overrideEnv?: string
+  overrideEnv?: string,
 ): string {
   if (!command.includes("{env}")) {
     return command;
@@ -132,7 +138,7 @@ export function resolveSmCommand(
   if (!env) {
     throw new Error(
       "secretManager.command contains {env} but no environment was resolved. " +
-      "Set secretManager.defaultEnv in .devrouter.yml or pass --env."
+        "Set secretManager.defaultEnv in .devrouter.yml or pass --env.",
     );
   }
 
@@ -158,7 +164,7 @@ function dependencyNames(apps: DevrouterApp[]): string[] {
 }
 
 function observedRuntimeServices(
-  result: ReturnType<typeof queryRunningComposeServices> | undefined
+  result: ReturnType<typeof queryRunningComposeServices> | undefined,
 ): ObservedRuntimeServices | undefined {
   if (!result) {
     return undefined;
@@ -185,11 +191,11 @@ function normalizeProcessEnv(env: NodeJS.ProcessEnv): Record<string, string> {
 
 export function buildExecEnvironment(
   depEnv: Record<string, string>,
-  processEnv: NodeJS.ProcessEnv = process.env
+  processEnv: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
   return {
     ...normalizeProcessEnv(processEnv),
-    ...depEnv
+    ...depEnv,
   };
 }
 
@@ -336,13 +342,11 @@ function detectListeningPorts(pids: number[]): number[] {
     return [];
   }
 
-  const result = spawnSync(
-    "lsof",
-    ["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", pids.join(",")],
-    { encoding: "utf-8" }
-  );
+  const result = spawnSync("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", pids.join(",")], {
+    encoding: "utf-8",
+  });
 
-  if (result.error && (result.error as any).code === "ENOENT") {
+  if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
     if (process.platform === "linux") {
       const ssResult = spawnSync("ss", ["-H", "-lntp", "-p"], { encoding: "utf-8" });
       if (ssResult.status === 0 && ssResult.stdout) {
@@ -376,9 +380,7 @@ function selectAllowedPort(ports: number[], app: DevrouterHostHttpApp): number |
   const denyPorts = new Set<number>([80, 443, 5432, ...app.hostRun.strategy.denyPorts]);
   const deniedPort = ports.find((port) => denyPorts.has(port));
   if (deniedPort !== undefined) {
-    throw new Error(
-      `Detected forbidden host app port ${deniedPort}. Traefik owns 80/443/5432.`
-    );
+    throw new Error(`Detected forbidden host app port ${deniedPort}. Traefik owns 80/443/5432.`);
   }
 
   const range = parseAllowedPortRange(app.hostRun.strategy.allowPortRange);
@@ -407,7 +409,7 @@ async function runHostApp(
   extraEnv: Record<string, string> = {},
   secretManager?: { command: string; defaultEnv?: string },
   env?: string,
-  workspace?: string
+  workspace?: string,
 ): Promise<void> {
   assertAppNotRunning(repoPath, app);
 
@@ -415,10 +417,12 @@ async function runHostApp(
   const commandCwd = assertPathWithinRepo(app.hostRun.cwd, repoPath, "hostRun.cwd");
   const freePort = await findFreePort();
   const spawnCommand = secretManager
-    ? wrapWithSecretManager(
+    ? (wrapWithSecretManager(
         resolveSmCommand(secretManager.command, secretManager.defaultEnv, env),
-        extraEnv, app.hostRun.command, true
-      ) as string
+        extraEnv,
+        app.hostRun.command,
+        true,
+      ) as string)
     : app.hostRun.command;
   // shell:true is intentional — .devrouter.yml is a user-controlled local config file
   // with the same trust model as npm scripts or docker-compose commands. The user who
@@ -427,14 +431,23 @@ async function runHostApp(
     cwd: commandCwd,
     stdio: "inherit",
     shell: true,
-    env: { ...process.env, PORT: String(freePort), HOSTNAME: "0.0.0.0", HOST: "0.0.0.0", ...extraEnv }
+    env: {
+      ...process.env,
+      PORT: String(freePort),
+      HOSTNAME: "0.0.0.0",
+      HOST: "0.0.0.0",
+      ...extraEnv,
+    },
   });
 
-  if (!child.pid) {
+  const childPid = child.pid;
+  if (!childPid) {
     throw new Error(`Failed to start command '${app.hostRun.command}'.`);
   }
 
-  process.stdout.write(`Started '${app.hostRun.command}' for '${app.name}' in ${commandCwd} (PORT=${freePort})\n`);
+  process.stdout.write(
+    `Started '${app.hostRun.command}' for '${app.name}' in ${commandCwd} (PORT=${freePort})\n`,
+  );
 
   const childExit = new Promise<{ code: number | null }>((resolve) => {
     child.once("exit", (code) => resolve({ code }));
@@ -447,8 +460,8 @@ async function runHostApp(
 
   const onSignal = (signal: NodeJS.Signals) => {
     stopRequested = true;
-    if (isProcessRunning(child.pid!)) {
-      killProcessTree(child.pid!, signal);
+    if (isProcessRunning(childPid)) {
+      killProcessTree(childPid, signal);
     }
   };
 
@@ -461,11 +474,11 @@ async function runHostApp(
         break;
       }
 
-      if (!isProcessRunning(child.pid)) {
+      if (!isProcessRunning(childPid)) {
         break;
       }
 
-      const ports = detectListeningPorts(readProcessTree(child.pid));
+      const ports = detectListeningPorts(readProcessTree(childPid));
       const selectedPort = selectAllowedPort(ports, app);
       if (selectedPort !== undefined && selectedPort !== currentPort) {
         currentPort = selectedPort;
@@ -476,9 +489,9 @@ async function runHostApp(
           repoPath,
           port: selectedPort,
           mode: "run",
-          pid: child.pid,
+          pid: childPid,
           command: app.hostRun.command,
-          workspace
+          workspace,
         });
         process.stdout.write(`Route https://${app.host} -> localhost:${selectedPort}\n`);
       } else if (!currentPort) {
@@ -488,8 +501,8 @@ async function runHostApp(
         if (Date.now() - startedAt > timeoutMs) {
           throw new Error(
             `No listening TCP port detected for '${app.name}' after ${Math.floor(
-              timeoutMs / 1000
-            )}s.`
+              timeoutMs / 1000,
+            )}s.`,
           );
         }
       }
@@ -499,12 +512,12 @@ async function runHostApp(
   } catch (error) {
     fatalError = toError(error);
     stopRequested = true;
-    await terminateProcessTree(child.pid);
+    await terminateProcessTree(childPid);
   } finally {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
 
-    const processStillRunning = isProcessRunning(child.pid);
+    const processStillRunning = isProcessRunning(childPid);
     if (stopRequested || fatalError || !processStillRunning) {
       removeHostRouteById(routeId);
     }
@@ -523,7 +536,7 @@ async function runHostApp(
 async function shouldStartDependencies(
   appName: string,
   dependencies: DevrouterApp[],
-  yes: boolean
+  yes: boolean,
 ): Promise<boolean> {
   if (dependencies.length === 0) {
     return false;
@@ -535,16 +548,16 @@ async function shouldStartDependencies(
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error(
-      `App '${appName}' has dependencies (${dependencyNames(
-        dependencies
-      ).join(", ")}). Re-run with --yes in non-interactive mode.`
+      `App '${appName}' has dependencies (${dependencyNames(dependencies).join(
+        ", ",
+      )}). Re-run with --yes in non-interactive mode.`,
     );
   }
 
   const rl = createInterface({ input, output });
   try {
     const answer = await rl.question(
-      `Start dependencies for '${appName}' (${dependencyNames(dependencies).join(", ")})? [y/N] `
+      `Start dependencies for '${appName}' (${dependencyNames(dependencies).join(", ")})? [y/N] `,
     );
     return /^y(es)?$/i.test(answer.trim());
   } finally {
@@ -561,18 +574,21 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   if (isDependencyOnlyApp(app)) {
     throw new Error(
       `App '${app.name}' is kind=dependency and cannot be run directly. ` +
-      "Reference it from another app via dependencies and run that app instead."
+        "Reference it from another app via dependencies and run that app instead.",
     );
   }
 
   const routedHosts = config.apps
-    .filter((entry): entry is Exclude<DevrouterApp, DevrouterDockerDependencyApp> => !isDependencyOnlyApp(entry))
+    .filter(
+      (entry): entry is Exclude<DevrouterApp, DevrouterDockerDependencyApp> =>
+        !isDependencyOnlyApp(entry),
+    )
     .map((entry) => entry.host);
   if (routedHosts.length > 0) {
     const tlsCoverage = await ensureTLSHostsCovered(routedHosts);
     if (tlsCoverage.refreshed) {
       process.stdout.write(
-        `Refreshed TLS cert host coverage for: ${tlsCoverage.uncoveredHosts.join(", ")}\n`
+        `Refreshed TLS cert host coverage for: ${tlsCoverage.uncoveredHosts.join(", ")}\n`,
       );
     }
   }
@@ -582,8 +598,10 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   if (unsupportedDependencies.length > 0) {
     throw new Error(
       `App '${app.name}' has host-runtime dependencies (${dependencyNames(
-        unsupportedDependencies
-      ).join(", ")}). v1 only auto-starts docker dependencies. Start host dependencies manually before running this app.`
+        unsupportedDependencies,
+      ).join(
+        ", ",
+      )}). v1 only auto-starts docker dependencies. Start host dependencies manually before running this app.`,
     );
   }
 
@@ -599,17 +617,28 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
   // whether we actually start them (compose up). This ensures env injection
   // works even when containers are already running.
   if (basePlan.selectedDockerApps.length > 0) {
-    overlay = prepareDockerOverlay(repoPath, app.name, basePlan.selectedDockerApps, basePlan.hasTcpDeps);
+    overlay = prepareDockerOverlay(
+      repoPath,
+      app.name,
+      basePlan.selectedDockerApps,
+      basePlan.hasTcpDeps,
+    );
 
-    const preRunResult = basePlan.dependencyServices.length > 0
-      ? queryRunningComposeServices(repoPath, overlay.composeFiles, overlay.overlayPath, basePlan.dependencyServices)
-      : undefined;
+    const preRunResult =
+      basePlan.dependencyServices.length > 0
+        ? queryRunningComposeServices(
+            repoPath,
+            overlay.composeFiles,
+            overlay.overlayPath,
+            basePlan.dependencyServices,
+          )
+        : undefined;
 
     observedPlan = planDependencyRuntime({
       app,
       dependencies,
       stopPolicy,
-      runningServicesBefore: observedRuntimeServices(preRunResult)
+      runningServicesBefore: observedRuntimeServices(preRunResult),
     });
 
     if (observedPlan.allDependencyServicesRunning) {
@@ -619,7 +648,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
       startDependencies = await shouldStartDependencies(
         app.name,
         dependencies,
-        Boolean(options.yes)
+        Boolean(options.yes),
       );
     }
 
@@ -629,16 +658,27 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
     }
 
     if (startPlan.shouldRunComposeUp) {
-      runDockerComposeUp(repoPath, overlay.composeFiles, overlay.overlayPath, observedPlan.services);
+      runDockerComposeUp(
+        repoPath,
+        overlay.composeFiles,
+        overlay.overlayPath,
+        observedPlan.services,
+      );
       startedServices.push(...startPlan.startedServices);
-      runDockerComposeLogs(repoPath, overlay.composeFiles, overlay.overlayPath, observedPlan.services);
+      runDockerComposeLogs(
+        repoPath,
+        overlay.composeFiles,
+        overlay.overlayPath,
+        observedPlan.services,
+      );
     }
   }
 
   let depEnv: Record<string, string> = {};
   if (observedPlan.hasTcpDeps && overlay) {
     const tcpDeps = observedPlan.selectedDockerApps.filter(
-      (entry): entry is DevrouterDockerTcpApp => entry.kind !== "dependency" && entry.protocol === "tcp"
+      (entry): entry is DevrouterDockerTcpApp =>
+        entry.kind !== "dependency" && entry.protocol === "tcp",
     );
     const mappedDeps: MappedTcpDependency[] = [];
 
@@ -658,7 +698,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
         overlay.composeFiles,
         overlay.overlayPath,
         dep.docker.service,
-        dep.docker.internalPort
+        dep.docker.internalPort,
       );
       mappedDeps.push({ app: dep, mappedPort });
       if (mappedPort !== undefined) {
@@ -700,7 +740,7 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
     overlay,
     startedServices,
     dependencyApps: startPlan.dependencyApps,
-    stopDeps
+    stopDeps,
   };
 }
 
@@ -717,7 +757,7 @@ function registerProxyRoute(repoPath: string, app: DevrouterProxyApp, workspace?
   // ClientHello — so TLS must be installed or the route can never match.
   if (app.protocol === "tcp" && !isTLSEnabled()) {
     throw new Error(
-      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run \`dev tls install\` first.`
+      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run \`dev tls install\` first.`,
     );
   }
 
@@ -747,13 +787,13 @@ function registerProxyRoute(repoPath: string, app: DevrouterProxyApp, workspace?
     port,
     upstreamHost,
     mode: "proxy",
-    workspace
+    workspace,
   });
 
   if (app.protocol === "tcp") {
     const entryPort = TCP_PROTOCOL_REGISTRY[app.tcpProtocol]?.port ?? port;
     process.stdout.write(
-      `TCP proxy route ready: ${app.tcpProtocol}://${app.host}:${entryPort} -> ${app.upstream} (tls required)\n`
+      `TCP proxy route ready: ${app.tcpProtocol}://${app.host}:${entryPort} -> ${app.upstream} (tls required)\n`,
     );
     return;
   }
@@ -767,14 +807,21 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
 
   try {
     if (deps.app.runtime === "host") {
-      await runHostApp(deps.repoPath, deps.app, deps.depEnv, deps.secretManager, options.env, deps.workspace);
+      await runHostApp(
+        deps.repoPath,
+        deps.app,
+        deps.depEnv,
+        deps.secretManager,
+        options.env,
+        deps.workspace,
+      );
     } else if (deps.app.runtime === "proxy") {
       registerProxyRoute(deps.repoPath, deps.app, deps.workspace);
     } else if (deps.app.kind !== "dependency" && deps.app.protocol === "tcp") {
       const registryEntry = TCP_PROTOCOL_REGISTRY[deps.app.tcpProtocol];
       const port = registryEntry?.port ?? "?";
       process.stdout.write(
-        `TCP route ready: ${deps.app.tcpProtocol}://${deps.app.host}:${port} (tls required)\n`
+        `TCP route ready: ${deps.app.tcpProtocol}://${deps.app.host}:${port} (tls required)\n`,
       );
     }
   } finally {
@@ -788,7 +835,7 @@ export async function runConfiguredApp(options: RunAppOptions): Promise<RunAppRe
     appName: deps.app.name,
     mode: deps.app.runtime,
     startedServices: deps.startedServices,
-    dependencyApps: deps.dependencyApps
+    dependencyApps: deps.dependencyApps,
   };
 }
 
@@ -798,17 +845,19 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
     repoPath: options.repoPath,
     yes: options.yes,
     workspace: options.workspace,
-    stopPolicy: "stop-only-newly-started"
+    stopPolicy: "stop-only-newly-started",
   });
 
   try {
     if (options.command.length === 0) {
-      throw new Error("No command provided to dev app exec. Use `dev app exec <name> -- <command>`.");
+      throw new Error(
+        "No command provided to dev app exec. Use `dev app exec <name> -- <command>`.",
+      );
     }
 
     if (options.shell && options.command.length !== 1) {
       throw new Error(
-        "--shell requires exactly one command string after `--` (example: dev app exec web --shell -- \"echo $DATABASE_URL\")."
+        '--shell requires exactly one command string after `--` (example: dev app exec web --shell -- "echo $DATABASE_URL").',
       );
     }
 
@@ -816,27 +865,37 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
     let child: ReturnType<typeof spawn>;
 
     if (deps.secretManager) {
-      const resolvedSmCmd = resolveSmCommand(deps.secretManager.command, deps.secretManager.defaultEnv, options.env);
+      const resolvedSmCmd = resolveSmCommand(
+        deps.secretManager.command,
+        deps.secretManager.defaultEnv,
+        options.env,
+      );
       if (options.shell) {
         const wrapped = wrapWithSecretManager(
-          resolvedSmCmd, deps.depEnv, options.command[0], true
+          resolvedSmCmd,
+          deps.depEnv,
+          options.command[0],
+          true,
         ) as string;
         child = spawn(wrapped, {
           cwd: deps.repoPath,
           stdio: "inherit",
           shell: true,
-          env
+          env,
         });
       } else {
         const wrapped = wrapWithSecretManager(
-          resolvedSmCmd, deps.depEnv, options.command, false
+          resolvedSmCmd,
+          deps.depEnv,
+          options.command,
+          false,
         ) as string[];
         const [cmd, ...wrappedArgs] = wrapped;
         child = spawn(cmd, wrappedArgs, {
           cwd: deps.repoPath,
           stdio: "inherit",
           shell: false,
-          env
+          env,
         });
       }
     } else if (options.shell) {
@@ -844,7 +903,7 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
         cwd: deps.repoPath,
         stdio: "inherit",
         shell: true,
-        env
+        env,
       });
     } else {
       const [command, ...args] = options.command;
@@ -852,14 +911,16 @@ export async function execWithAppEnv(options: ExecAppOptions): Promise<ExecAppRe
         cwd: deps.repoPath,
         stdio: "inherit",
         shell: false,
-        env
+        env,
       });
     }
 
     const renderedCommand = options.command.join(" ");
     const exitCode = await new Promise<number>((resolve, reject) => {
       child.once("error", (error) => {
-        reject(new Error(`Failed to start command '${renderedCommand}': ${toError(error).message}`));
+        reject(
+          new Error(`Failed to start command '${renderedCommand}': ${toError(error).message}`),
+        );
       });
       child.once("exit", (code) => resolve(code ?? 1));
     });

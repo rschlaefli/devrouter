@@ -19,7 +19,7 @@ function writePackageJson(packageManager = "pnpm@11.6.0"): void {
       packageManager,
       engines: { node: ">=1" },
     }),
-    "utf-8"
+    "utf-8",
   );
 }
 

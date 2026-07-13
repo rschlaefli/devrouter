@@ -12,12 +12,10 @@ export async function runAppRunCommand(options: {
     repoPath: options.repo,
     yes: options.yes,
     env: options.env,
-    workspace: options.workspace
+    workspace: options.workspace,
   });
   if (result.startedServices.length > 0) {
-    process.stdout.write(
-      `Started docker services: ${result.startedServices.join(", ")}\n`
-    );
+    process.stdout.write(`Started docker services: ${result.startedServices.join(", ")}\n`);
   }
 
   if (result.dependencyApps.length > 0) {

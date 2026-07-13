@@ -1,6 +1,13 @@
-import { DevrouterApp, DoctorReport, HostRouteState, Route, RouterStatus, SetupReport } from "../types";
-import { formatAge } from "../util/timeago";
+import type {
+  DevrouterApp,
+  DoctorReport,
+  HostRouteState,
+  Route,
+  RouterStatus,
+  SetupReport,
+} from "../types";
 import { renderTable } from "../util/table";
+import { formatAge } from "../util/timeago";
 
 export function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -15,14 +22,15 @@ export function printStatus(status: RouterStatus): void {
     ["Port 443 bound", status.boundPorts.web443 ? "yes" : "no"],
     ["Dashboard 8080 bound", status.boundPorts.dashboard8080 ? "yes" : "no"],
     ...Object.entries(status.boundPorts.tcp).map(([protocol, bound]) => [
-      `TCP ${protocol} bound`, bound ? "yes" : "no"
+      `TCP ${protocol} bound`,
+      bound ? "yes" : "no",
     ]),
     ["devnet exists", status.networkExists ? "yes" : "no"],
     ["TLS configured", status.tlsConfigured ? "yes" : "no"],
     ["TLS certs present", status.certPresent ? "yes" : "no"],
     ["TLS enabled", status.tlsEnabled ? "yes" : "no"],
     ["HTTP routing ready", status.insights.httpRoutingReady ? "yes" : "no"],
-    ["TCP routing ready", status.insights.tcpRoutingReady ? "yes" : "no"]
+    ["TCP routing ready", status.insights.tcpRoutingReady ? "yes" : "no"],
   ];
 
   if (status.repo) {
@@ -30,7 +38,7 @@ export function printStatus(status: RouterStatus): void {
     rows.push(["Repo config", status.repo.exists ? status.repo.configPath : "missing"]);
     rows.push([
       "Repo config valid",
-      status.repo.valid ? "yes" : `no (${status.repo.error ?? "validation failed"})`
+      status.repo.valid ? "yes" : `no (${status.repo.error ?? "validation failed"})`,
     ]);
     rows.push(["Repo apps", String(status.repo.appCount)]);
   }
@@ -67,11 +75,11 @@ export function printRoutes(routes: Route[], duplicateHosts: string[]): void {
       route.protocol,
       route.urls.join(","),
       route.health === "unknown" ? route.status : `${route.status}/${route.health}`,
-      formatAge(route.createdAt)
+      formatAge(route.createdAt),
     ]);
 
   process.stdout.write(
-    `${renderTable(["APP", "SERVICE", "PROJECT", "PROTOCOL", "ENDPOINTS", "STATUS", "AGE"], rows)}\n`
+    `${renderTable(["APP", "SERVICE", "PROJECT", "PROTOCOL", "ENDPOINTS", "STATUS", "AGE"], rows)}\n`,
   );
 
   if (duplicateHosts.length > 0) {
@@ -109,11 +117,11 @@ export function printHostRouteState(routes: HostRouteState[]): void {
       route.mode,
       route.pid ? String(route.pid) : "-",
       route.mode === "proxy" ? "active" : isRunning(route.pid) ? "running" : "stopped",
-      route.updatedAt
+      route.updatedAt,
     ]);
 
   process.stdout.write(
-    `${renderTable(["NAME", "REPO", "PROTOCOL", "HOST", "PORT", "MODE", "PID", "STATUS", "UPDATED"], rows)}\n`
+    `${renderTable(["NAME", "REPO", "PROTOCOL", "HOST", "PORT", "MODE", "PID", "STATUS", "UPDATED"], rows)}\n`,
   );
 }
 
@@ -134,7 +142,7 @@ export function printConfigApps(repoPath: string, apps: DevrouterApp[]): void {
           app.runtime,
           "-",
           app.docker.service,
-          app.dependencies.map((dependency) => dependency.app).join(",")
+          app.dependencies.map((dependency) => dependency.app).join(","),
         ];
       }
 
@@ -145,7 +153,7 @@ export function printConfigApps(repoPath: string, apps: DevrouterApp[]): void {
           app.runtime,
           app.host,
           app.hostRun.command,
-          app.dependencies.map((dependency) => dependency.app).join(",")
+          app.dependencies.map((dependency) => dependency.app).join(","),
         ];
       }
 
@@ -156,7 +164,7 @@ export function printConfigApps(repoPath: string, apps: DevrouterApp[]): void {
           app.runtime,
           app.host,
           app.upstream,
-          app.dependencies.map((dependency) => dependency.app).join(",")
+          app.dependencies.map((dependency) => dependency.app).join(","),
         ];
       }
 
@@ -167,12 +175,12 @@ export function printConfigApps(repoPath: string, apps: DevrouterApp[]): void {
         app.runtime,
         app.host,
         `${app.docker.service}:${app.docker.internalPort}`,
-        app.dependencies.map((dependency) => dependency.app).join(",")
+        app.dependencies.map((dependency) => dependency.app).join(","),
       ];
     });
 
   process.stdout.write(
-    `${renderTable(["NAME", "PROTOCOL", "RUNTIME", "HOST", "TARGET", "DEPS"], rows)}\n`
+    `${renderTable(["NAME", "PROTOCOL", "RUNTIME", "HOST", "TARGET", "DEPS"], rows)}\n`,
   );
 }
 
@@ -182,7 +190,7 @@ export function printDoctorReport(report: DoctorReport): void {
     ["Repo path", report.repoPath ?? "-"],
     ["OK", String(report.summary.ok)],
     ["WARN", String(report.summary.warn)],
-    ["ERROR", String(report.summary.error)]
+    ["ERROR", String(report.summary.error)],
   ];
   process.stdout.write(`${renderTable(["FIELD", "VALUE"], summaryRows)}\n\n`);
 
@@ -190,12 +198,10 @@ export function printDoctorReport(report: DoctorReport): void {
     check.id,
     check.level.toUpperCase(),
     check.summary,
-    check.suggestion ?? "-"
+    check.suggestion ?? "-",
   ]);
 
-  process.stdout.write(
-    `${renderTable(["CHECK", "LEVEL", "SUMMARY", "SUGGESTION"], rows)}\n`
-  );
+  process.stdout.write(`${renderTable(["CHECK", "LEVEL", "SUMMARY", "SUGGESTION"], rows)}\n`);
 
   const detailedChecks = report.checks.filter((check) => check.details);
   if (detailedChecks.length > 0) {
@@ -222,7 +228,7 @@ export function printSetupReport(report: SetupReport): void {
     ["Actions failed", String(report.summary.actions.failed)],
     ["Checks OK", String(report.summary.checks.ok)],
     ["Checks WARN", String(report.summary.checks.warn)],
-    ["Checks ERROR", String(report.summary.checks.error)]
+    ["Checks ERROR", String(report.summary.checks.error)],
   ];
   process.stdout.write(`${renderTable(["FIELD", "VALUE"], summaryRows)}\n\n`);
 
@@ -230,9 +236,11 @@ export function printSetupReport(report: SetupReport): void {
     entry.id,
     entry.status.toUpperCase(),
     entry.summary,
-    entry.suggestion ?? "-"
+    entry.suggestion ?? "-",
   ]);
-  process.stdout.write(`${renderTable(["ACTION", "STATUS", "SUMMARY", "SUGGESTION"], actionRows)}\n`);
+  process.stdout.write(
+    `${renderTable(["ACTION", "STATUS", "SUMMARY", "SUGGESTION"], actionRows)}\n`,
+  );
 
   const detailedActions = report.actions.filter((entry) => entry.details);
   if (detailedActions.length > 0) {

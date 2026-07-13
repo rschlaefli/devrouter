@@ -2,14 +2,14 @@ import { spawnSync } from "node:child_process";
 import { listContainers } from "../core/docker";
 import { listHostRoutes } from "../core/host-routes";
 import { getRepoConfigPath, loadRuntimeConfig, resolveRepoPath } from "../core/repo-config";
-import { discoverRoutes, resolveRouteByName } from "../core/routes";
 import { DEVNET_NAME, isTLSEnabled } from "../core/router";
-import type { Route } from "../types";
+import { discoverRoutes, resolveRouteByName } from "../core/routes";
+import type { DevrouterConfig, Route } from "../types";
 
 function resolveByConfiguredAppName(routes: Route[], name: string): Route | undefined {
   const repoPath = resolveRepoPath();
 
-  let config;
+  let config: DevrouterConfig;
   try {
     config = loadRuntimeConfig(repoPath).config;
   } catch {
@@ -24,7 +24,7 @@ function resolveByConfiguredAppName(routes: Route[], name: string): Route | unde
   if (app.kind === "dependency") {
     throw new Error(
       `App '${name}' in ${getRepoConfigPath(repoPath)} is kind=dependency and does not create a route. ` +
-        "Start a routed app that depends on it, then open that routed app name."
+        "Start a routed app that depends on it, then open that routed app name.",
     );
   }
 
@@ -33,7 +33,7 @@ function resolveByConfiguredAppName(routes: Route[], name: string): Route | unde
   } catch {
     throw new Error(
       `App '${name}' is configured in ${getRepoConfigPath(repoPath)} but no active route was found. ` +
-        `Start it with 'dev app run ${name} --repo ${repoPath} --yes' and re-run 'dev ls'.`
+        `Start it with 'dev app run ${name} --repo ${repoPath} --yes' and re-run 'dev ls'.`,
     );
   }
 }
@@ -54,7 +54,7 @@ export async function runOpenCommand(name: string): Promise<void> {
   if (route.protocol !== "http") {
     process.stdout.write(`Route '${route.serviceName}' is ${route.protocol}: ${url}\n`);
     process.stdout.write(
-      "Use a TLS-enabled Postgres client (for example: psql \"host=<host> port=5432 sslmode=require ...\").\n"
+      'Use a TLS-enabled Postgres client (for example: psql "host=<host> port=5432 sslmode=require ...").\n',
     );
     return;
   }

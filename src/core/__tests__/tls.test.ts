@@ -3,13 +3,13 @@ import {
   buildDesiredTLSCertificateHosts,
   findUncoveredCertificateHosts,
   isHostCoveredByCertificateHost,
-  parseDnsHostsFromSubjectAltName
+  parseDnsHostsFromSubjectAltName,
 } from "../tls";
 
 describe("parseDnsHostsFromSubjectAltName", () => {
   it("parses DNS SANs, normalizes case, and deduplicates", () => {
     const parsed = parseDnsHostsFromSubjectAltName(
-      "DNS:localhost, DNS:*.localhost, DNS:Elearning.Klicker.Localhost, IP Address:127.0.0.1, DNS:localhost"
+      "DNS:localhost, DNS:*.localhost, DNS:Elearning.Klicker.Localhost, IP Address:127.0.0.1, DNS:localhost",
     );
 
     expect(parsed).toEqual(["*.localhost", "elearning.klicker.localhost", "localhost"]);
@@ -26,7 +26,9 @@ describe("isHostCoveredByCertificateHost", () => {
   });
 
   it("does not match multi-segment hosts with single-label wildcard", () => {
-    expect(isHostCoveredByCertificateHost("elearning.klicker.localhost", "*.localhost")).toBe(false);
+    expect(isHostCoveredByCertificateHost("elearning.klicker.localhost", "*.localhost")).toBe(
+      false,
+    );
   });
 });
 
@@ -34,7 +36,7 @@ describe("findUncoveredCertificateHosts", () => {
   it("returns hosts not covered by cert DNS names", () => {
     const uncovered = findUncoveredCertificateHosts(
       ["localhost", "demo.localhost", "elearning.klicker.localhost"],
-      ["localhost", "*.localhost"]
+      ["localhost", "*.localhost"],
     );
 
     expect(uncovered).toEqual(["elearning.klicker.localhost"]);
@@ -45,14 +47,14 @@ describe("buildDesiredTLSCertificateHosts", () => {
   it("keeps defaults, preserves existing explicit SANs, and adds requested hosts", () => {
     const hosts = buildDesiredTLSCertificateHosts(
       ["new.deep.localhost", "localhost"],
-      ["existing.deep.localhost", "*.localhost"]
+      ["existing.deep.localhost", "*.localhost"],
     );
 
     expect(hosts).toEqual([
       "*.localhost",
       "existing.deep.localhost",
       "localhost",
-      "new.deep.localhost"
+      "new.deep.localhost",
     ]);
   });
 });

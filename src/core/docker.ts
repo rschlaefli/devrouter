@@ -29,7 +29,7 @@ async function getDockerodeConstructor(): Promise<DockerodeConstructor> {
 
 function runDockerContextCommand(args: string[]): string {
   const result = spawnSync("docker", ["context", ...args], {
-    encoding: "utf-8"
+    encoding: "utf-8",
   });
 
   if (result.status !== 0) {
@@ -48,7 +48,7 @@ function getDockerHostFromContext(context: string): string {
   const result = spawnSync(
     "docker",
     ["context", "inspect", context, "--format", "{{ .Endpoints.docker.Host }}"],
-    { encoding: "utf-8" }
+    { encoding: "utf-8" },
   );
 
   if (result.status === 0) {
@@ -80,7 +80,7 @@ async function createDockerClient(): Promise<DockerClient> {
     return new DockerodeClass({
       host: url.hostname,
       port: Number(url.port || 2375),
-      protocol: url.protocol.replace(":", "") as "http" | "https"
+      protocol: url.protocol.replace(":", "") as "http" | "https",
     });
   }
 
@@ -115,7 +115,7 @@ export async function ensureNetwork(name: string): Promise<void> {
   await docker.createNetwork({
     Name: name,
     Driver: "bridge",
-    Attachable: true
+    Attachable: true,
   });
 }
 

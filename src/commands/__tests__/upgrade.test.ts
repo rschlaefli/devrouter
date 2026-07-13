@@ -17,7 +17,7 @@ devrouter:
   version: ${version}
 apps: []
 `,
-    "utf-8"
+    "utf-8",
   );
 }
 
@@ -62,7 +62,7 @@ describe("runUpgradeCommand", () => {
 
   it("rejects target versions that are not newer", async () => {
     await expect(
-      runUpgradeCommand({ repo: tmpDir, targetVersion: "0.0.10" }, { promptsDir })
+      runUpgradeCommand({ repo: tmpDir, targetVersion: "0.0.10" }, { promptsDir }),
     ).rejects.toThrow("is not newer than current version");
   });
 
@@ -82,21 +82,18 @@ describe("runUpgradeCommand", () => {
       `version: 1
 apps: []
 `,
-      "utf-8"
+      "utf-8",
     );
 
     await expect(runUpgradeCommand({ repo: tmpDir }, { promptsDir })).rejects.toThrow(
-      "is missing devrouter.version"
+      "is missing devrouter.version",
     );
   });
 });
 
 describe("runVersionCommand", () => {
   it("shows installed and local versions plus next upgrade target", async () => {
-    await runVersionCommand(
-      { repo: tmpDir, installedVersion: "0.0.13" },
-      { promptsDir }
-    );
+    await runVersionCommand({ repo: tmpDir, installedVersion: "0.0.13" }, { promptsDir });
 
     const output = stdout();
     expect(output).toContain("Installed CLI version: 0.0.13");
@@ -111,14 +108,11 @@ describe("runVersionCommand", () => {
       `version: 1
 apps: []
 `,
-      "utf-8"
+      "utf-8",
     );
 
     await expect(
-      runVersionCommand(
-        { repo: tmpDir, installedVersion: "0.0.13" },
-        { promptsDir }
-      )
+      runVersionCommand({ repo: tmpDir, installedVersion: "0.0.13" }, { promptsDir }),
     ).rejects.toThrow("missing devrouter.version");
   });
 });

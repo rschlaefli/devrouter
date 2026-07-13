@@ -1,16 +1,16 @@
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import YAML from "yaml";
-import {
+import type {
   DevrouterApp,
   DevrouterDockerDependencyApp,
-  DevrouterDockerRoutedApp
+  DevrouterDockerRoutedApp,
 } from "../types";
-import { CACHE_DIR, TCP_PROTOCOL_REGISTRY } from "./router";
-import { assertPathWithinRepo } from "./paths";
 import { withDockerFailureGuidance } from "./docker-error-guidance";
+import { assertPathWithinRepo } from "./paths";
+import { CACHE_DIR, TCP_PROTOCOL_REGISTRY } from "./router";
 
 export type RunningComposeServicesResult =
   | {
@@ -23,14 +23,19 @@ export type RunningComposeServicesResult =
     };
 
 function sanitizeRouterId(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return value
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 function repoHash(repoPath: string): string {
   return createHash("sha1").update(path.resolve(repoPath)).digest("hex").slice(0, 12);
 }
 
-function asDockerApp(app: DevrouterApp): app is DevrouterDockerRoutedApp | DevrouterDockerDependencyApp {
+function asDockerApp(
+  app: DevrouterApp,
+): app is DevrouterDockerRoutedApp | DevrouterDockerDependencyApp {
   return app.runtime === "docker";
 }
 
@@ -38,7 +43,9 @@ function asRoutedDockerApp(app: DevrouterApp): app is DevrouterDockerRoutedApp {
   return app.runtime === "docker" && app.kind !== "dependency";
 }
 
-function ensureComposeFiles(dockerApps: Array<DevrouterDockerRoutedApp | DevrouterDockerDependencyApp>): string[] {
+function ensureComposeFiles(
+  dockerApps: Array<DevrouterDockerRoutedApp | DevrouterDockerDependencyApp>,
+): string[] {
   const files: string[] = [];
   for (const app of dockerApps) {
     for (const file of app.docker.composeFiles) {
@@ -53,7 +60,7 @@ function ensureComposeFiles(dockerApps: Array<DevrouterDockerRoutedApp | Devrout
 
 function buildOverlayDocument(
   dockerApps: Array<DevrouterDockerRoutedApp | DevrouterDockerDependencyApp>,
-  publishTcpPorts = false
+  publishTcpPorts = false,
 ): Record<string, unknown> {
   const services: Record<string, Record<string, unknown>> = {};
   const routedDockerApps = dockerApps.filter(asRoutedDockerApp);
@@ -63,7 +70,7 @@ function buildOverlayDocument(
     const labels: Record<string, string> = {
       "traefik.enable": "true",
       "traefik.docker.network": "devnet",
-      "devrouter.app.name": app.name
+      "devrouter.app.name": app.name,
     };
 
     if (app.protocol === "http") {
@@ -71,7 +78,7 @@ function buildOverlayDocument(
       labels[`traefik.http.routers.${routerId}.entrypoints`] = "web,websecure";
       labels[`traefik.http.routers.${routerId}.tls`] = "true";
       labels[`traefik.http.services.${routerId}.loadbalancer.server.port`] = String(
-        app.docker.internalPort
+        app.docker.internalPort,
       );
     } else {
       const registryEntry = TCP_PROTOCOL_REGISTRY[app.tcpProtocol];
@@ -80,13 +87,13 @@ function buildOverlayDocument(
       labels[`traefik.tcp.routers.${routerId}.entrypoints`] = entrypoint;
       labels[`traefik.tcp.routers.${routerId}.tls`] = "true";
       labels[`traefik.tcp.services.${routerId}.loadbalancer.server.port`] = String(
-        app.docker.internalPort
+        app.docker.internalPort,
       );
     }
 
     const serviceEntry: Record<string, unknown> = {
       networks: ["devnet"],
-      labels
+      labels,
     };
 
     if (publishTcpPorts && app.protocol === "tcp") {
@@ -112,9 +119,9 @@ function buildOverlayDocument(
     services,
     networks: {
       devnet: {
-        external: true
-      }
-    }
+        external: true,
+      },
+    },
   };
 }
 
@@ -122,7 +129,7 @@ export function prepareDockerOverlay(
   repoPath: string,
   appName: string,
   apps: DevrouterApp[],
-  publishTcpPorts = false
+  publishTcpPorts = false,
 ): {
   overlayPath: string;
   composeFiles: string[];
@@ -142,7 +149,7 @@ export function prepareDockerOverlay(
   return {
     overlayPath,
     composeFiles: ensureComposeFiles(dockerApps),
-    dockerApps
+    dockerApps,
   };
 }
 
@@ -150,7 +157,7 @@ export function runDockerComposeUp(
   repoPath: string,
   composeFiles: string[],
   overlayPath: string,
-  services: string[]
+  services: string[],
 ): void {
   const fileArgs: string[] = [];
   for (const composeFile of composeFiles) {
@@ -161,12 +168,14 @@ export function runDockerComposeUp(
   const args = ["compose", ...fileArgs, "-f", overlayPath, "up", "-d", "--wait", ...services];
   const result = spawnSync("docker", args, {
     encoding: "utf-8",
-    cwd: repoPath
+    cwd: repoPath,
   });
 
   if (result.status !== 0) {
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`docker compose up failed: ${withDockerFailureGuidance(details || "unknown error")}`);
+    throw new Error(
+      `docker compose up failed: ${withDockerFailureGuidance(details || "unknown error")}`,
+    );
   }
 }
 
@@ -174,7 +183,7 @@ export function queryRunningComposeServices(
   repoPath: string,
   composeFiles: string[],
   overlayPath: string,
-  services: string[]
+  services: string[],
 ): RunningComposeServicesResult {
   const fileArgs: string[] = [];
   for (const composeFile of composeFiles) {
@@ -191,18 +200,18 @@ export function queryRunningComposeServices(
     "--status",
     "running",
     "--services",
-    ...services
+    ...services,
   ];
   const result = spawnSync("docker", args, {
     encoding: "utf-8",
-    cwd: repoPath
+    cwd: repoPath,
   });
 
   if (result.status !== 0) {
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
     return {
       status: "unknown",
-      reason: details || "docker compose ps returned non-zero status"
+      reason: details || "docker compose ps returned non-zero status",
     };
   }
 
@@ -210,11 +219,11 @@ export function queryRunningComposeServices(
     result.stdout
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => line.length > 0)
+      .filter((line) => line.length > 0),
   );
   return {
     status: "known",
-    runningServices
+    runningServices,
   };
 }
 
@@ -222,7 +231,7 @@ export function runDockerComposeStop(
   repoPath: string,
   composeFiles: string[],
   overlayPath: string,
-  services: string[]
+  services: string[],
 ): void {
   const fileArgs: string[] = [];
   for (const composeFile of composeFiles) {
@@ -233,7 +242,7 @@ export function runDockerComposeStop(
   const args = ["compose", ...fileArgs, "-f", overlayPath, "stop", ...services];
   const result = spawnSync("docker", args, {
     encoding: "utf-8",
-    cwd: repoPath
+    cwd: repoPath,
   });
 
   if (result.status !== 0) {
@@ -247,7 +256,7 @@ export function runDockerComposeLogs(
   composeFiles: string[],
   overlayPath: string,
   services: string[],
-  tail: number = 20
+  tail: number = 20,
 ): void {
   const fileArgs: string[] = [];
   for (const composeFile of composeFiles) {
@@ -255,10 +264,19 @@ export function runDockerComposeLogs(
     fileArgs.push("-f", resolved);
   }
 
-  const args = ["compose", ...fileArgs, "-f", overlayPath, "logs", "--tail", String(tail), ...services];
+  const args = [
+    "compose",
+    ...fileArgs,
+    "-f",
+    overlayPath,
+    "logs",
+    "--tail",
+    String(tail),
+    ...services,
+  ];
   spawnSync("docker", args, {
     stdio: "inherit",
-    cwd: repoPath
+    cwd: repoPath,
   });
 }
 
@@ -267,7 +285,7 @@ export function queryMappedPort(
   composeFiles: string[],
   overlayPath: string,
   service: string,
-  internalPort: number
+  internalPort: number,
 ): number | undefined {
   const fileArgs: string[] = [];
   for (const composeFile of composeFiles) {
@@ -278,7 +296,7 @@ export function queryMappedPort(
   const args = ["compose", ...fileArgs, "-f", overlayPath, "port", service, String(internalPort)];
   const result = spawnSync("docker", args, {
     encoding: "utf-8",
-    cwd: repoPath
+    cwd: repoPath,
   });
 
   if (result.status !== 0 || !result.stdout) {

@@ -130,6 +130,9 @@ Supported routing:
 - `src/commands/__tests__/upgrade.test.ts`: unit tests for `devrouter upgrade` and `devrouter -V`
 - `src/core/__tests__/upgrade.test.ts`: unit tests for version metadata + prompt-file parsing
 - `vitest.config.ts`: Vitest configuration
+- `biome.json`: formatting, linting, and import-order configuration
+- `knip.json`: unused file/dependency and unresolved import checks
+- `.pre-commit-config.yaml`: local Biome, Knip, Gitleaks, and basic file guards
 
 ## Non-negotiable constraints
 
@@ -177,13 +180,15 @@ Supported routing:
 ## Validation checklist
 
 1. `pnpm check:docs-policy`
-2. `pnpm test`
-3. `pnpm typecheck`
-4. `pnpm build`
-5. `devrouter setup --repo ./examples/routing --yes --json`
-6. `devrouter doctor --repo ./examples/routing`
-7. `devrouter repo inspect --repo ./examples/routing --json`
-8. `pnpm routing:smoke` for full route showcase/regression smoke
-9. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
-10. `pnpm devcontainer:smoke down` after live devcontainer verification
-11. Update docs for any behavior/surface changes
+2. `pnpm check`
+3. `pnpm knip`
+4. `pnpm typecheck`
+5. `pnpm test`
+6. `pnpm build`
+7. `devrouter setup --repo ./examples/routing --yes --json`
+8. `devrouter doctor --repo ./examples/routing`
+9. `devrouter repo inspect --repo ./examples/routing --json`
+10. `pnpm routing:smoke` for full route showcase/regression smoke
+11. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
+12. `pnpm devcontainer:smoke down` after live devcontainer verification
+13. Update docs for any behavior/surface changes

@@ -1,6 +1,6 @@
-import { inspectRepo } from "../core/repo-inspect";
 import { printJSON } from "../core/output";
 import type { RepoInspection } from "../core/repo-inspect";
+import { inspectRepo } from "../core/repo-inspect";
 
 type RepoInspectCommandOptions = {
   repo?: string;

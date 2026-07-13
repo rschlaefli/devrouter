@@ -2,8 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoctorReport } from "../doctor";
 import type { RouterStatus } from "../../types";
+import { buildDoctorReport } from "../doctor";
 import { collectRouterStatus } from "../status";
 import { getTLSHostCoverage } from "../tls";
 
@@ -69,7 +69,11 @@ function singleQuoteYaml(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function writeRepoFiles(options: { composeEnv: string; hostCommand?: string; hostName?: string }): void {
+function writeRepoFiles(options: {
+  composeEnv: string;
+  hostCommand?: string;
+  hostName?: string;
+}): void {
   const hostName = options.hostName ?? "web.localhost";
   const hostAppBlock = options.hostCommand
     ? `
@@ -101,7 +105,7 @@ ${hostAppBlock}
       composeFiles:
         - docker-compose.yml
 `,
-    "utf-8"
+    "utf-8",
   );
 
   fs.writeFileSync(
@@ -112,7 +116,7 @@ ${hostAppBlock}
     environment:
 ${options.composeEnv}
 `,
-    "utf-8"
+    "utf-8",
   );
 }
 
@@ -159,7 +163,8 @@ afterEach(() => {
 describe("buildDoctorReport", () => {
   it("adds explicit TLS install guidance when tcp apps exist and TLS is disabled", async () => {
     writeRepoFiles({
-      composeEnv: "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+      composeEnv:
+        "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
     });
     vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, false));
 
@@ -189,7 +194,8 @@ describe("buildDoctorReport", () => {
 
   it("warns when TLS cert does not cover configured hosts", async () => {
     writeRepoFiles({
-      composeEnv: "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+      composeEnv:
+        "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
       hostCommand: "pnpm dev",
       hostName: "elearning.klicker.localhost",
     });
@@ -216,7 +222,8 @@ describe("buildDoctorReport", () => {
 
   it("warns when host command assigns DB vars before wrapper boundary", async () => {
     writeRepoFiles({
-      composeEnv: "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+      composeEnv:
+        "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
       hostCommand:
         "DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} infisical run --env=dev -- pnpm dev",
     });
@@ -229,7 +236,9 @@ describe("buildDoctorReport", () => {
     });
 
     const report = await buildDoctorReport({ repo: tmpDir });
-    const precedenceCheck = report.checks.find((check) => check.id === "repo.host-command-env-precedence");
+    const precedenceCheck = report.checks.find(
+      (check) => check.id === "repo.host-command-env-precedence",
+    );
 
     expect(precedenceCheck?.level).toBe("warn");
     expect(precedenceCheck?.details).toContain("web");
@@ -239,7 +248,8 @@ describe("buildDoctorReport", () => {
 
   it("reports ok when DB var assignment happens after wrapper boundary", async () => {
     writeRepoFiles({
-      composeEnv: "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+      composeEnv:
+        "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
       hostCommand:
         "infisical run --env=dev -- env DATABASE_URI=${DATABASE_URL:?missing DATABASE_URL} pnpm dev",
     });
@@ -252,7 +262,9 @@ describe("buildDoctorReport", () => {
     });
 
     const report = await buildDoctorReport({ repo: tmpDir });
-    const precedenceCheck = report.checks.find((check) => check.id === "repo.host-command-env-precedence");
+    const precedenceCheck = report.checks.find(
+      (check) => check.id === "repo.host-command-env-precedence",
+    );
 
     expect(precedenceCheck?.level).toBe("ok");
     expect(precedenceCheck?.summary).toContain("No risky pre-wrapper DB env assignments");
@@ -267,14 +279,16 @@ devrouter:
   version: 0.0.25
 apps: []
 `,
-      "utf-8"
+      "utf-8",
     );
     vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
 
     const report = await buildDoctorReport({ repo: tmpDir });
     const check = report.checks.find((c) => c.id === "repo.cli-outdated");
     expect(check?.level).toBe("error");
-    expect(check?.summary).toContain("Installed CLI (0.0.24) is older than required repo version (0.0.25)");
+    expect(check?.summary).toContain(
+      "Installed CLI (0.0.24) is older than required repo version (0.0.25)",
+    );
     expect(check?.suggestion).toContain("npm install -g @devrouter/cli");
 
     vi.unstubAllGlobals();
@@ -289,7 +303,7 @@ devrouter:
   version: 0.0.25
 apps: []
 `,
-      "utf-8"
+      "utf-8",
     );
     vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
 

@@ -1,22 +1,22 @@
-import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { X509Certificate } from "node:crypto";
+import fs from "node:fs";
+import { findContainerByName, isContainerRunning } from "./docker";
+import { refreshHostRoutesDynamicFile } from "./host-routes";
 import {
   CERT_FILE,
   CERT_KEY_FILE,
   ensureRouterFiles,
   isTLSEnabled,
   setTLSEnabled,
-  startRouterStack
+  startRouterStack,
 } from "./router";
-import { isContainerRunning, findContainerByName } from "./docker";
-import { refreshHostRoutesDynamicFile } from "./host-routes";
 
 export const DEFAULT_TLS_CERT_HOSTS = ["localhost", "*.localhost"] as const;
 
 function runOrThrow(command: string, args: string[]): void {
   const result = spawnSync(command, args, {
-    encoding: "utf-8"
+    encoding: "utf-8",
   });
 
   if (result.status !== 0) {
@@ -33,7 +33,7 @@ function commandExists(command: string): boolean {
 function ensureMkcert(): void {
   if (!commandExists("mkcert")) {
     throw new Error(
-      "mkcert is not installed. Please install it to use TLS features (e.g., 'brew install mkcert' or via your package manager)."
+      "mkcert is not installed. Please install it to use TLS features (e.g., 'brew install mkcert' or via your package manager).",
     );
   }
 }
@@ -95,7 +95,7 @@ export function isHostCoveredByCertificateHost(host: string, certificateHost: st
 
 export function findUncoveredCertificateHosts(
   requiredHosts: string[],
-  certificateHosts: string[]
+  certificateHosts: string[],
 ): string[] {
   const normalizedRequired = normalizeUniqueHosts(requiredHosts);
   const normalizedCertificateHosts = normalizeUniqueHosts(certificateHosts);
@@ -103,8 +103,8 @@ export function findUncoveredCertificateHosts(
   return normalizedRequired.filter(
     (requiredHost) =>
       !normalizedCertificateHosts.some((certificateHost) =>
-        isHostCoveredByCertificateHost(requiredHost, certificateHost)
-      )
+        isHostCoveredByCertificateHost(requiredHost, certificateHost),
+      ),
   );
 }
 
@@ -127,12 +127,12 @@ function currentCertificateHostsOrEmpty(): string[] {
 
 export function buildDesiredTLSCertificateHosts(
   requestedHosts: string[],
-  existingCertificateHosts: string[]
+  existingCertificateHosts: string[],
 ): string[] {
   return normalizeUniqueHosts([
     ...DEFAULT_TLS_CERT_HOSTS,
     ...existingCertificateHosts,
-    ...requestedHosts
+    ...requestedHosts,
   ]);
 }
 
@@ -148,27 +148,23 @@ export function getTLSHostCoverage(hosts: string[]): {
   return {
     requiredHosts,
     certificateHosts,
-    uncoveredHosts
+    uncoveredHosts,
   };
 }
 
-export async function installTLS(options: { hosts?: string[] } = {}): Promise<{ alreadyEnabled: boolean; hosts: string[] }> {
+export async function installTLS(
+  options: { hosts?: string[] } = {},
+): Promise<{ alreadyEnabled: boolean; hosts: string[] }> {
   ensureRouterFiles();
   const alreadyEnabled = isTLSEnabled();
   const desiredHosts = buildDesiredTLSCertificateHosts(
     options.hosts ?? [],
-    currentCertificateHostsOrEmpty()
+    currentCertificateHostsOrEmpty(),
   );
 
   ensureMkcert();
   runOrThrow("mkcert", ["-install"]);
-  runOrThrow("mkcert", [
-    "-cert-file",
-    CERT_FILE,
-    "-key-file",
-    CERT_KEY_FILE,
-    ...desiredHosts
-  ]);
+  runOrThrow("mkcert", ["-cert-file", CERT_FILE, "-key-file", CERT_KEY_FILE, ...desiredHosts]);
 
   setTLSEnabled(true);
   refreshHostRoutesDynamicFile();
@@ -190,7 +186,7 @@ export async function ensureTLSHostsCovered(hosts: string[]): Promise<{
     return {
       refreshed: false,
       uncoveredHosts: [],
-      certificateHosts: []
+      certificateHosts: [],
     };
   }
 
@@ -199,7 +195,7 @@ export async function ensureTLSHostsCovered(hosts: string[]): Promise<{
     return {
       refreshed: false,
       uncoveredHosts: [],
-      certificateHosts: coverage.certificateHosts
+      certificateHosts: coverage.certificateHosts,
     };
   }
 
@@ -208,14 +204,14 @@ export async function ensureTLSHostsCovered(hosts: string[]): Promise<{
     return {
       refreshed: true,
       uncoveredHosts: coverage.uncoveredHosts,
-      certificateHosts: refreshed.hosts
+      certificateHosts: refreshed.hosts,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
       `TLS cert does not currently cover host(s): ${coverage.uncoveredHosts.join(", ")}. ` +
         `Automatic refresh failed: ${message}\n` +
-        "Run: dev tls install"
+        "Run: dev tls install",
     );
   }
 }

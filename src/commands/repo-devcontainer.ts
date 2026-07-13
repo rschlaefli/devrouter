@@ -1,7 +1,7 @@
-import { printJSON } from "../core/output";
-import { writeDevcontainer } from "../core/devcontainer-write";
-import { verifyDevcontainer } from "../core/devcontainer-verify";
 import type { DevcontainerVerifyReport } from "../core/devcontainer-verify";
+import { verifyDevcontainer } from "../core/devcontainer-verify";
+import { writeDevcontainer } from "../core/devcontainer-write";
+import { printJSON } from "../core/output";
 
 type RepoDevcontainerWriteOptions = {
   repo?: string;
@@ -11,12 +11,14 @@ type RepoDevcontainerWriteOptions = {
   installedVersion?: string;
 };
 
-export async function runRepoDevcontainerWriteCommand(options: RepoDevcontainerWriteOptions): Promise<void> {
+export async function runRepoDevcontainerWriteCommand(
+  options: RepoDevcontainerWriteOptions,
+): Promise<void> {
   const report = writeDevcontainer({
     repo: options.repo,
     dryRun: Boolean(options.dryRun),
     yes: Boolean(options.yes),
-    installedVersion: options.installedVersion
+    installedVersion: options.installedVersion,
   });
 
   if (options.json) {
@@ -58,11 +60,13 @@ type RepoDevcontainerVerifyOptions = {
   json?: boolean;
 };
 
-export async function runRepoDevcontainerVerifyCommand(options: RepoDevcontainerVerifyOptions): Promise<void> {
+export async function runRepoDevcontainerVerifyCommand(
+  options: RepoDevcontainerVerifyOptions,
+): Promise<void> {
   const report = await verifyDevcontainer({
     repo: options.repo,
     live: Boolean(options.live),
-    yes: Boolean(options.yes)
+    yes: Boolean(options.yes),
   });
 
   if (options.json) {
@@ -79,7 +83,9 @@ export async function runRepoDevcontainerVerifyCommand(options: RepoDevcontainer
 function printVerifySummary(report: DevcontainerVerifyReport): void {
   process.stdout.write(`Repo: ${report.repoPath}\n`);
   process.stdout.write(`Mode: ${report.live ? "live" : "static"}\n`);
-  process.stdout.write(`Checks: ${report.summary.ok} ok, ${report.summary.warn} warn, ${report.summary.error} error\n`);
+  process.stdout.write(
+    `Checks: ${report.summary.ok} ok, ${report.summary.warn} warn, ${report.summary.error} error\n`,
+  );
   process.stdout.write(`Proxy apps: ${report.evidence.proxyApps.length}\n`);
 
   if (report.checks.some((check) => check.level !== "ok")) {

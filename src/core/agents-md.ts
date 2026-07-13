@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-const DEVROUTER_SENTINEL = '<!-- devrouter -->'
-const AGENTS_MD = 'AGENTS.md'
-const DEVROUTER_SKILL_REL_PATH = '.agents/skills/devrouter/SKILL.md'
+const DEVROUTER_SENTINEL = "<!-- devrouter -->";
+const AGENTS_MD = "AGENTS.md";
+const DEVROUTER_SKILL_REL_PATH = ".agents/skills/devrouter/SKILL.md";
 
 // Embedded skill content — must be self-contained in the built CLI bundle.
 // Keep in sync with .agents/skills/devrouter/SKILL.md in the devrouter repo.
@@ -248,73 +248,57 @@ For existing host/docker runtime apps:
 - \`devrouter app exec\` follows the same dep lifecycle for one-shot commands and preserves argv semantics by default (\`shell: false\`).
 - \`devrouter app exec --shell\` is explicit and requires exactly one command string after \`--\`.
 - Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (\`printenv DB_URL DB_HOST DB_PORT\`) before migrate/seed.
-`
+`;
 function buildDevrouterSection(): string {
   return [
     DEVROUTER_SENTINEL,
-    '## devrouter',
-    '',
-    'This repository uses [devrouter](https://github.com/rschlaefli/devrouter) for local dev routing.',
-    'All apps and dependencies are declared in `.devrouter.yml`.',
-    '',
-    'Full reference (config schema, docker requirements, env injection, commands):',
+    "## devrouter",
+    "",
+    "This repository uses [devrouter](https://github.com/rschlaefli/devrouter) for local dev routing.",
+    "All apps and dependencies are declared in `.devrouter.yml`.",
+    "",
+    "Full reference (config schema, docker requirements, env injection, commands):",
     `\`${DEVROUTER_SKILL_REL_PATH}\``,
-    '',
-    'Quick validation sequence:',
-    '- `devrouter up`',
-    '- `devrouter tls install` (required when repo defines tcp/postgres apps)',
-    '- `devrouter app ls --repo .`',
-    '- `devrouter app run <host-app> --repo . --yes`',
-    '- `devrouter ls`',
-  ].join('\n')
+    "",
+    "Quick validation sequence:",
+    "- `devrouter up`",
+    "- `devrouter tls install` (required when repo defines tcp/postgres apps)",
+    "- `devrouter app ls --repo .`",
+    "- `devrouter app run <host-app> --repo . --yes`",
+    "- `devrouter ls`",
+  ].join("\n");
 }
 
-function writeRepoFile(
-  repoPath: string,
-  relPath: string,
-  content: string
-): string {
-  const absolutePath = join(repoPath, relPath)
-  mkdirSync(dirname(absolutePath), { recursive: true })
-  writeFileSync(absolutePath, content, 'utf-8')
-  return absolutePath
+function writeRepoFile(repoPath: string, relPath: string, content: string): string {
+  const absolutePath = join(repoPath, relPath);
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, content, "utf-8");
+  return absolutePath;
 }
 
 export function ensureAgentsMdSection(repoPath: string): {
-  path: string
-  written: boolean
+  path: string;
+  written: boolean;
 } {
-  const filePath = join(repoPath, AGENTS_MD)
+  const filePath = join(repoPath, AGENTS_MD);
 
   if (existsSync(filePath)) {
-    const content = readFileSync(filePath, 'utf-8')
+    const content = readFileSync(filePath, "utf-8");
     if (content.includes(DEVROUTER_SENTINEL)) {
-      return { path: filePath, written: false }
+      return { path: filePath, written: false };
     }
-    writeFileSync(
-      filePath,
-      content.trimEnd() + '\n\n' + buildDevrouterSection() + '\n',
-      'utf-8'
-    )
-    return { path: filePath, written: true }
+    writeFileSync(filePath, `${content.trimEnd()}\n\n${buildDevrouterSection()}\n`, "utf-8");
+    return { path: filePath, written: true };
   }
 
-  writeFileSync(
-    filePath,
-    '# AGENTS.md\n\n' + buildDevrouterSection() + '\n',
-    'utf-8'
-  )
-  return { path: filePath, written: true }
+  writeFileSync(filePath, `# AGENTS.md\n\n${buildDevrouterSection()}\n`, "utf-8");
+  return { path: filePath, written: true };
 }
 
 export function ensureSkillFile(repoPath: string): {
-  path: string
-  written: boolean
+  path: string;
+  written: boolean;
 } {
-  const filePath = writeRepoFile(
-    repoPath,
-    DEVROUTER_SKILL_REL_PATH,
-    DEVROUTER_SKILL_CONTENT
-  )
-  return { path: filePath, written: true }
+  const filePath = writeRepoFile(repoPath, DEVROUTER_SKILL_REL_PATH, DEVROUTER_SKILL_CONTENT);
+  return { path: filePath, written: true };
 }

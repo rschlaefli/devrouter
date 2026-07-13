@@ -1,7 +1,7 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { withDockerFailureGuidance } from "./docker-error-guidance";
 
 export const DEVNET_NAME = "devnet";
@@ -43,11 +43,13 @@ const ROUTER_REQUIRED_FILES = [
   TRAEFIK_STATIC_FILE,
   TRAEFIK_DYNAMIC_BASE_FILE,
   TRAEFIK_HOST_ROUTES_FILE,
-  HOST_ROUTES_STATE_FILE
+  HOST_ROUTES_STATE_FILE,
 ] as const;
 
 function renderComposeYml(activeTcpPorts: TcpProtocolEntry[]): string {
-  const tcpPortLines = activeTcpPorts.map((entry) => `      - "${entry.port}:${entry.port}"`).join("\n");
+  const tcpPortLines = activeTcpPorts
+    .map((entry) => `      - "${entry.port}:${entry.port}"`)
+    .join("\n");
   const tcpSection = tcpPortLines.length > 0 ? `\n${tcpPortLines}` : "";
   return `services:
   traefik:
@@ -219,7 +221,9 @@ export function getActiveTcpProtocols(): string[] {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.filter((item): item is string => typeof item === "string" && item in TCP_PROTOCOL_REGISTRY);
+    return parsed.filter(
+      (item): item is string => typeof item === "string" && item in TCP_PROTOCOL_REGISTRY,
+    );
   } catch {
     return [];
   }
@@ -227,12 +231,14 @@ export function getActiveTcpProtocols(): string[] {
 
 function saveActiveTcpProtocols(protocols: string[]): void {
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
-  fs.writeFileSync(ACTIVE_TCP_PROTOCOLS_FILE, JSON.stringify(protocols, null, 2) + "\n", "utf-8");
+  fs.writeFileSync(ACTIVE_TCP_PROTOCOLS_FILE, `${JSON.stringify(protocols, null, 2)}\n`, "utf-8");
 }
 
 export function activateTcpProtocol(protocol: string): boolean {
   if (!(protocol in TCP_PROTOCOL_REGISTRY)) {
-    throw new Error(`Unknown TCP protocol '${protocol}'. Supported: ${Object.keys(TCP_PROTOCOL_REGISTRY).join(", ")}`);
+    throw new Error(
+      `Unknown TCP protocol '${protocol}'. Supported: ${Object.keys(TCP_PROTOCOL_REGISTRY).join(", ")}`,
+    );
   }
   const current = getActiveTcpProtocols();
   if (current.includes(protocol)) {
@@ -313,12 +319,14 @@ export function getRouterFileLayout(): { required: string[]; missing: string[] }
 
 export function runDockerCompose(args: string[]): void {
   const result = spawnSync("docker", ["compose", "-f", COMPOSE_FILE, ...args], {
-    encoding: "utf-8"
+    encoding: "utf-8",
   });
 
   if (result.status !== 0) {
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`docker compose failed: ${withDockerFailureGuidance(details || "unknown error")}`);
+    throw new Error(
+      `docker compose failed: ${withDockerFailureGuidance(details || "unknown error")}`,
+    );
   }
 }
 

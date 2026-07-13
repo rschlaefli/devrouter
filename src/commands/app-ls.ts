@@ -8,7 +8,7 @@ export async function runAppLsCommand(options: { repo?: string; json?: boolean }
     printJSON({
       repoPath,
       configPath: `${repoPath}/.devrouter.yml`,
-      apps: config.apps
+      apps: config.apps,
     });
     return;
   }

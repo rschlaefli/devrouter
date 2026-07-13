@@ -1,21 +1,21 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { workspaceDown, workspaceLs, workspaceUp } from "../workspace-lifecycle";
-import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
-import { loadRuntimeConfig } from "../repo-config";
-import { runConfiguredApp } from "../app-run";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostRouteState } from "../../types";
+import { runConfiguredApp } from "../app-run";
+import { loadRuntimeConfig } from "../repo-config";
+import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
+import { workspaceDown, workspaceLs, workspaceUp } from "../workspace-lifecycle";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../route-state", () => ({
   listRoutesForWorktreePaths: vi.fn(() => new Map()),
-  removeWorkspaceRoutesForWorktree: vi.fn(() => [])
+  removeWorkspaceRoutesForWorktree: vi.fn(() => []),
 }));
 vi.mock("../app-run", () => ({ runConfiguredApp: vi.fn(async () => ({})) }));
 vi.mock("../repo-config", () => ({
   loadRuntimeConfig: vi.fn(() => ({ config: { version: 1, apps: [] }, workspace: undefined })),
-  resolveRepoPath: vi.fn((p?: string) => p ?? "/main/repo")
+  resolveRepoPath: vi.fn((p?: string) => p ?? "/main/repo"),
 }));
 // Keep the real wsFromBranch; only stub the on-disk worktree probe (test paths
 // are synthetic). Everything except the primary checkout is a linked worktree.
@@ -58,7 +58,7 @@ function route(workspace: string | undefined, name: string, repoPath = "/repo"):
     mode: "proxy",
     workspace,
     createdAt: "t",
-    updatedAt: "t"
+    updatedAt: "t",
   };
 }
 
@@ -66,7 +66,7 @@ describe("workspaceDown", () => {
   it("frees this repo's routes for the workspace, without loading any config", () => {
     vi.mocked(removeWorkspaceRoutesForWorktree).mockReturnValue([
       route("feat-a", "web", "/main/repo-feat-a"),
-      route("feat-a", "api", "/main/repo-feat-a")
+      route("feat-a", "api", "/main/repo-feat-a"),
     ]);
     vi.mocked(spawnSync).mockReturnValue({ status: 1 } as never); // devpod absent, no git
 
@@ -101,13 +101,18 @@ describe("workspaceDown", () => {
 describe("workspaceLs", () => {
   it("joins worktrees with their workspace token and route counts by worktree path", () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN } as never);
-    vi.mocked(listRoutesForWorktreePaths).mockReturnValue(new Map([
-      ["/main/repo", []],
-      ["/main/repo-feat-a", [
-        route("feat-a", "web", "/main/repo-feat-a"),
-        route("feat-a", "api", "/main/repo-feat-a")
-      ]]
-    ]));
+    vi.mocked(listRoutesForWorktreePaths).mockReturnValue(
+      new Map([
+        ["/main/repo", []],
+        [
+          "/main/repo-feat-a",
+          [
+            route("feat-a", "web", "/main/repo-feat-a"),
+            route("feat-a", "api", "/main/repo-feat-a"),
+          ],
+        ],
+      ]),
+    );
 
     const rows = workspaceLs();
 
@@ -141,16 +146,22 @@ describe("workspaceUp", () => {
             protocol: "http",
             runtime: "proxy",
             dependencies: [],
-            upstream: "feat-a-app:3000"
-          } as never
-        ]
-      }
+            upstream: "feat-a-app:3000",
+          } as never,
+        ],
+      },
     });
 
     await workspaceUp("feat/a", {});
 
     const devpodUp = calls.find((c) => c.cmd === "devpod" && c.args[0] === "up");
-    expect(devpodUp?.args).toEqual(["up", "/main/repo-feat-a", "--id", "feat-a", "--open-ide=false"]);
+    expect(devpodUp?.args).toEqual([
+      "up",
+      "/main/repo-feat-a",
+      "--id",
+      "feat-a",
+      "--open-ide=false",
+    ]);
     // WORKSPACE in the env is what drives the compose ${WORKSPACE} alias substitution.
     expect(devpodUp?.env?.WORKSPACE).toBe("feat-a");
     // The resolved token is threaded explicitly so route tag == devpod id.
@@ -160,8 +171,8 @@ describe("workspaceUp", () => {
         name: "app",
         repoPath: "/main/repo-feat-a",
         workspace: "feat-a",
-        yes: true
-      })
+        yes: true,
+      }),
     );
   });
 
@@ -184,7 +195,7 @@ describe("workspaceUp", () => {
             protocol: "http",
             runtime: "proxy",
             dependencies: [],
-            upstream: "feat-a-app:3000"
+            upstream: "feat-a-app:3000",
           } as never,
           {
             name: "db",
@@ -193,10 +204,10 @@ describe("workspaceUp", () => {
             tcpProtocol: "postgres",
             runtime: "proxy",
             dependencies: [],
-            upstream: "feat-a-db:5432"
-          } as never
-        ]
-      }
+            upstream: "feat-a-db:5432",
+          } as never,
+        ],
+      },
     });
 
     await workspaceUp("feat/a", { noDevpod: true, open: true });

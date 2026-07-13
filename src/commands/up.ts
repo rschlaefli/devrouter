@@ -1,14 +1,18 @@
 import { ensureNetwork, isContainerRunning } from "../core/docker";
 import {
   DEVNET_NAME,
-  ROUTER_CONTAINER_NAME,
   ensureRouterFiles,
-  startRouterStack
+  ROUTER_CONTAINER_NAME,
+  startRouterStack,
 } from "../core/router";
 import { findPortListeners } from "../util/ports";
 
 function buildPortConflictMessage(): string {
-  const listeners = [...findPortListeners(80), ...findPortListeners(443), ...findPortListeners(5432)];
+  const listeners = [
+    ...findPortListeners(80),
+    ...findPortListeners(443),
+    ...findPortListeners(5432),
+  ];
 
   if (listeners.length === 0) {
     return "";

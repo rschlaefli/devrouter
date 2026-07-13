@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { HostRouteState } from "../../types";
 import { buildHostRoutesDocument, parseUpstream } from "../host-routes";
-import { HostRouteState } from "../../types";
 
 function makeRoute(overrides: Partial<HostRouteState>): HostRouteState {
   return {
@@ -14,7 +14,7 @@ function makeRoute(overrides: Partial<HostRouteState>): HostRouteState {
     upstreamHost: "app-app",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -23,7 +23,7 @@ describe("parseUpstream", () => {
     expect(parseUpstream("example.localhost:8080")).toEqual({
       host: "example.localhost",
       port: 8080,
-      upstreamHost: "example.localhost"
+      upstreamHost: "example.localhost",
     });
   });
 
@@ -43,7 +43,7 @@ describe("parseUpstream", () => {
     expect(parseUpstream("my_service:3000")).toEqual({
       host: "my_service",
       port: 3000,
-      upstreamHost: "my_service"
+      upstreamHost: "my_service",
     });
   });
 
@@ -82,7 +82,7 @@ describe("buildHostRoutesDocument", () => {
       protocol: "tcp",
       tcpProtocol: "postgres",
       port: 5432,
-      upstreamHost: "app-db"
+      upstreamHost: "app-db",
     });
     const doc = buildHostRoutesDocument([route], true) as any;
     const key = "host-repo-db";
@@ -102,7 +102,7 @@ describe("buildHostRoutesDocument", () => {
       id: "/repo::cache",
       protocol: "tcp",
       tcpProtocol: "redis",
-      port: 6379
+      port: 6379,
     });
     const doc = buildHostRoutesDocument([route], true) as any;
     expect(doc.tcp.routers["host-repo-cache"].entryPoints).toEqual(["redis"]);

@@ -6,7 +6,7 @@ import type {
   DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
   DevrouterDockerTcpApp,
-  DevrouterHostHttpApp
+  DevrouterHostHttpApp,
 } from "../../types";
 
 const {
@@ -23,7 +23,7 @@ const {
   runDockerComposeLogsMock,
   queryRunningComposeServicesMock,
   queryMappedPortMock,
-  ensureTLSHostsCoveredMock
+  ensureTLSHostsCoveredMock,
 } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
   spawnSyncMock: vi.fn(),
@@ -100,7 +100,15 @@ vi.mock("../tls", () => ({
   ensureTLSHostsCovered: ensureTLSHostsCoveredMock,
 }));
 
-import { buildExecEnvironment, buildTcpDepUrl, buildTcpDepShadowUrl, execWithAppEnv, resolveSmCommand, runConfiguredApp, wrapWithSecretManager } from "../app-run";
+import {
+  buildExecEnvironment,
+  buildTcpDepShadowUrl,
+  buildTcpDepUrl,
+  execWithAppEnv,
+  resolveSmCommand,
+  runConfiguredApp,
+  wrapWithSecretManager,
+} from "../app-run";
 
 const HOST_APP: DevrouterHostHttpApp = {
   name: "web",
@@ -153,13 +161,13 @@ const REDIS_DEP: DevrouterDockerDependencyApp = {
   dependencies: [],
   docker: {
     service: "redis",
-    composeFiles: ["docker-compose.yml"]
-  }
+    composeFiles: ["docker-compose.yml"],
+  },
 };
 
 function makeConfig(
   apps: DevrouterApp[],
-  options?: { secretManager?: { command: string; defaultEnv?: string } }
+  options?: { secretManager?: { command: string; defaultEnv?: string } },
 ): DevrouterConfig {
   return {
     version: 1,
@@ -168,7 +176,9 @@ function makeConfig(
   };
 }
 
-function makeChild(options: { exitCode?: number; error?: Error } = {}): EventEmitter & { pid: number } {
+function makeChild(
+  options: { exitCode?: number; error?: Error } = {},
+): EventEmitter & { pid: number } {
   const child = new EventEmitter() as EventEmitter & { pid: number };
   child.pid = 4242;
   queueMicrotask(() => {
@@ -237,7 +247,7 @@ describe("buildExecEnvironment", () => {
   it("merges dep env over process env", () => {
     const env = buildExecEnvironment(
       { DB_URL: "postgres://dep" },
-      { DB_URL: "postgres://process" }
+      { DB_URL: "postgres://process" },
     );
 
     expect(env.DB_URL).toBe("postgres://dep");
@@ -246,7 +256,9 @@ describe("buildExecEnvironment", () => {
 
 describe("buildTcpDepUrl", () => {
   it("builds postgres URL", () => {
-    expect(buildTcpDepUrl("postgres", 55432)).toBe("postgres://prisma:prisma@localhost:55432/prisma");
+    expect(buildTcpDepUrl("postgres", 55432)).toBe(
+      "postgres://prisma:prisma@localhost:55432/prisma",
+    );
   });
 
   it("builds redis URL", () => {
@@ -268,7 +280,9 @@ describe("buildTcpDepUrl", () => {
 
 describe("buildTcpDepShadowUrl", () => {
   it("builds postgres shadow URL", () => {
-    expect(buildTcpDepShadowUrl("postgres", 55432)).toBe("postgres://prisma:prisma@localhost:55432/shadow");
+    expect(buildTcpDepShadowUrl("postgres", 55432)).toBe(
+      "postgres://prisma:prisma@localhost:55432/shadow",
+    );
   });
 
   it("returns undefined for non-postgres", () => {
@@ -283,7 +297,7 @@ describe("wrapWithSecretManager", () => {
       "infisical run --env dev --",
       { DB_HOST: "localhost", DB_PORT: "55432" },
       "pnpm dev",
-      true
+      true,
     );
     expect(result).toBe("infisical run --env dev -- env DB_HOST=localhost DB_PORT=55432 pnpm dev");
   });
@@ -293,28 +307,45 @@ describe("wrapWithSecretManager", () => {
       "infisical run --env dev --",
       { DB_HOST: "localhost" },
       ["pnpm", "prisma", "migrate"],
-      false
+      false,
     );
     expect(result).toEqual([
-      "infisical", "run", "--env", "dev", "--",
-      "env", "DB_HOST=localhost",
-      "pnpm", "prisma", "migrate"
+      "infisical",
+      "run",
+      "--env",
+      "dev",
+      "--",
+      "env",
+      "DB_HOST=localhost",
+      "pnpm",
+      "prisma",
+      "migrate",
     ]);
   });
 
   it("skips env prefix when reinject env is empty", () => {
     expect(wrapWithSecretManager("sm run --", {}, "pnpm dev", true)).toBe("sm run -- pnpm dev");
-    expect(wrapWithSecretManager("sm run --", {}, ["pnpm", "dev"], false)).toEqual(["sm", "run", "--", "pnpm", "dev"]);
+    expect(wrapWithSecretManager("sm run --", {}, ["pnpm", "dev"], false)).toEqual([
+      "sm",
+      "run",
+      "--",
+      "pnpm",
+      "dev",
+    ]);
   });
 });
 
 describe("resolveSmCommand", () => {
   it("replaces all {env} occurrences with defaultEnv", () => {
-    expect(resolveSmCommand("infisical run --env {env} --", "dev")).toBe("infisical run --env dev --");
+    expect(resolveSmCommand("infisical run --env {env} --", "dev")).toBe(
+      "infisical run --env dev --",
+    );
   });
 
   it("replaces all {env} occurrences with overrideEnv", () => {
-    expect(resolveSmCommand("infisical run --env {env} --", "dev", "stg")).toBe("infisical run --env stg --");
+    expect(resolveSmCommand("infisical run --env {env} --", "dev", "stg")).toBe(
+      "infisical run --env stg --",
+    );
   });
 
   it("returns command as-is when no {env} placeholder", () => {
@@ -323,7 +354,7 @@ describe("resolveSmCommand", () => {
 
   it("throws when {env} present but no env resolved", () => {
     expect(() => resolveSmCommand("cmd --env {env} --")).toThrow(
-      "secretManager.command contains {env} but no environment was resolved"
+      "secretManager.command contains {env} but no environment was resolved",
     );
   });
 
@@ -348,7 +379,7 @@ describe("execWithAppEnv", () => {
         cwd: "/repo",
         shell: false,
         stdio: "inherit",
-      })
+      }),
     );
     expect(ensureTLSHostsCoveredMock).toHaveBeenCalledWith(["web.localhost"]);
   });
@@ -375,7 +406,7 @@ describe("execWithAppEnv", () => {
         repoPath: "/repo",
         shell: true,
         command: ["echo", "DATABASE_URL"],
-      })
+      }),
     ).rejects.toThrow("--shell requires exactly one command string");
 
     expect(spawnMock).not.toHaveBeenCalled();
@@ -395,7 +426,7 @@ describe("execWithAppEnv", () => {
         cwd: "/repo",
         shell: true,
         stdio: "inherit",
-      })
+      }),
     );
   });
 
@@ -404,7 +435,16 @@ describe("execWithAppEnv", () => {
       config: makeConfig([HOST_APP, POSTGRES_DEP]),
       app: {
         ...HOST_APP,
-        dependencies: [{ app: POSTGRES_DEP.name, envMap: { DATABASE_URL: "DB_URL", DIRECT_URL: "DB_URL", SHADOW_DATABASE_URL: "DB_SHADOW_URL" } }],
+        dependencies: [
+          {
+            app: POSTGRES_DEP.name,
+            envMap: {
+              DATABASE_URL: "DB_URL",
+              DIRECT_URL: "DB_URL",
+              SHADOW_DATABASE_URL: "DB_SHADOW_URL",
+            },
+          },
+        ],
       },
     });
     resolveAppDependenciesMock.mockReturnValue([POSTGRES_DEP]);
@@ -423,21 +463,23 @@ describe("execWithAppEnv", () => {
     expect(spawnOptions.env.DB_SHADOW_URL).toBe("postgres://prisma:prisma@localhost:55432/shadow");
     expect(spawnOptions.env.DATABASE_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
     expect(spawnOptions.env.DIRECT_URL).toBe("postgres://prisma:prisma@localhost:55432/prisma");
-    expect(spawnOptions.env.SHADOW_DATABASE_URL).toBe("postgres://prisma:prisma@localhost:55432/shadow");
+    expect(spawnOptions.env.SHADOW_DATABASE_URL).toBe(
+      "postgres://prisma:prisma@localhost:55432/shadow",
+    );
   });
 
   it("rejects direct exec on dependency-only app targets", async () => {
     resolveAppByNameMock.mockReturnValue({
       config: makeConfig([HOST_APP, REDIS_DEP]),
-      app: REDIS_DEP
+      app: REDIS_DEP,
     });
 
     await expect(
       execWithAppEnv({
         name: "redis",
         repoPath: "/repo",
-        command: ["redis-cli", "PING"]
-      })
+        command: ["redis-cli", "PING"],
+      }),
     ).rejects.toThrow("is kind=dependency and cannot be run directly");
   });
 
@@ -446,32 +488,32 @@ describe("execWithAppEnv", () => {
       config: makeConfig([HOST_APP, REDIS_DEP]),
       app: {
         ...HOST_APP,
-        dependencies: [{ app: REDIS_DEP.name }]
-      }
+        dependencies: [{ app: REDIS_DEP.name }],
+      },
     });
     resolveAppDependenciesMock.mockReturnValue([REDIS_DEP]);
     prepareDockerOverlayMock.mockReturnValue({
       overlayPath: "/overlay.yml",
       composeFiles: ["docker-compose.yml"],
-      dockerApps: [REDIS_DEP]
+      dockerApps: [REDIS_DEP],
     });
     queryRunningComposeServicesMock.mockReturnValue({
       status: "known",
-      runningServices: new Set<string>()
+      runningServices: new Set<string>(),
     });
 
     await execWithAppEnv({
       name: "web",
       repoPath: "/repo",
       yes: true,
-      command: ["pnpm", "run", "cache:seed"]
+      command: ["pnpm", "run", "cache:seed"],
     });
 
     expect(runDockerComposeUpMock).toHaveBeenCalledWith(
       "/repo",
       ["docker-compose.yml"],
       "/overlay.yml",
-      ["redis"]
+      ["redis"],
     );
     const spawnOptions = spawnMock.mock.calls[0]?.[2] as { env: Record<string, string> };
     expect(spawnOptions.env.REDIS_HOST).toBeUndefined();
@@ -481,7 +523,7 @@ describe("execWithAppEnv", () => {
       "/repo",
       ["docker-compose.yml"],
       "/overlay.yml",
-      ["redis"]
+      ["redis"],
     );
   });
 
@@ -534,7 +576,7 @@ describe("execWithAppEnv", () => {
       "/repo",
       ["docker-compose.yml"],
       "/overlay.yml",
-      ["db"]
+      ["db"],
     );
   });
 
@@ -578,7 +620,7 @@ describe("execWithAppEnv", () => {
       "/repo",
       ["docker-compose.yml"],
       "/overlay.yml",
-      ["analytics-db"]
+      ["analytics-db"],
     );
   });
 
@@ -606,7 +648,9 @@ describe("execWithAppEnv", () => {
 
     expect(runDockerComposeStopMock).not.toHaveBeenCalled();
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining("unable to determine which dependencies were already running before 'dev app exec'")
+      expect.stringContaining(
+        "unable to determine which dependencies were already running before 'dev app exec'",
+      ),
     );
     stderrSpy.mockRestore();
   });
@@ -619,13 +663,13 @@ describe("execWithAppEnv", () => {
         name: "web",
         repoPath: "/repo",
         command: ["does-not-exist"],
-      })
+      }),
     ).rejects.toThrow("Failed to start command 'does-not-exist'");
   });
 
   it("fails before spawning when TLS coverage refresh fails", async () => {
     ensureTLSHostsCoveredMock.mockRejectedValueOnce(
-      new Error("TLS cert does not currently cover host(s): elearning.klicker.localhost")
+      new Error("TLS cert does not currently cover host(s): elearning.klicker.localhost"),
     );
 
     await expect(
@@ -633,7 +677,7 @@ describe("execWithAppEnv", () => {
         name: "web",
         repoPath: "/repo",
         command: ["pnpm", "payload", "migrate"],
-      })
+      }),
     ).rejects.toThrow("TLS cert does not currently cover host(s): elearning.klicker.localhost");
 
     expect(spawnMock).not.toHaveBeenCalled();
@@ -641,7 +685,9 @@ describe("execWithAppEnv", () => {
 
   it("wraps exec command with secret manager (shell: false)", async () => {
     resolveAppByNameMock.mockReturnValue({
-      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --env dev --" } }),
+      config: makeConfig([HOST_APP, POSTGRES_DEP], {
+        secretManager: { command: "infisical run --env dev --" },
+      }),
       app: {
         ...HOST_APP,
         dependencies: [{ app: POSTGRES_DEP.name }],
@@ -658,11 +704,8 @@ describe("execWithAppEnv", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       "infisical",
-      expect.arrayContaining([
-        "run", "--env", "dev", "--",
-        "env",
-      ]),
-      expect.objectContaining({ shell: false })
+      expect.arrayContaining(["run", "--env", "dev", "--", "env"]),
+      expect.objectContaining({ shell: false }),
     );
     const spawnArgs = spawnMock.mock.calls[0]?.[1] as string[];
     expect(spawnArgs).toContain("DB_HOST=localhost");
@@ -674,7 +717,9 @@ describe("execWithAppEnv", () => {
 
   it("wraps exec command with secret manager (shell: true)", async () => {
     resolveAppByNameMock.mockReturnValue({
-      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --" } }),
+      config: makeConfig([HOST_APP, POSTGRES_DEP], {
+        secretManager: { command: "infisical run --" },
+      }),
       app: {
         ...HOST_APP,
         dependencies: [{ app: POSTGRES_DEP.name }],
@@ -694,15 +739,14 @@ describe("execWithAppEnv", () => {
     expect(spawnCommand).toContain("infisical run --");
     expect(spawnCommand).toContain("env DB_HOST=localhost");
     expect(spawnCommand).toContain("pnpm prisma migrate");
-    expect(spawnMock).toHaveBeenCalledWith(
-      spawnCommand,
-      expect.objectContaining({ shell: true })
-    );
+    expect(spawnMock).toHaveBeenCalledWith(spawnCommand, expect.objectContaining({ shell: true }));
   });
 
   it("includes config envMap targets in secret manager re-injection", async () => {
     resolveAppByNameMock.mockReturnValue({
-      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --" } }),
+      config: makeConfig([HOST_APP, POSTGRES_DEP], {
+        secretManager: { command: "infisical run --" },
+      }),
       app: {
         ...HOST_APP,
         dependencies: [{ app: POSTGRES_DEP.name, envMap: { DATABASE_URL: "DB_URL" } }],
@@ -738,7 +782,7 @@ describe("execWithAppEnv", () => {
         repoPath: "/repo",
         yes: true,
         command: ["pnpm", "test"],
-      })
+      }),
     ).rejects.toThrow("source variable 'NONEXISTENT_VAR' not found in dependency env");
   });
 
@@ -763,9 +807,7 @@ describe("execWithAppEnv", () => {
       composeFiles: ["docker-compose.yml"],
       dockerApps: [POSTGRES_DEP, ANALYTICS_DB_DEP],
     });
-    queryMappedPortMock
-      .mockReturnValueOnce(55432)
-      .mockReturnValueOnce(55433);
+    queryMappedPortMock.mockReturnValueOnce(55432).mockReturnValueOnce(55433);
 
     await execWithAppEnv({
       name: "web",
@@ -781,13 +823,19 @@ describe("execWithAppEnv", () => {
     expect(spawnOptions.env.DB_SHADOW_URL).toBe("postgres://prisma:prisma@localhost:55432/shadow");
     expect(spawnOptions.env.ANALYTICS_DB_HOST).toBe("localhost");
     expect(spawnOptions.env.ANALYTICS_DB_PORT).toBe("55433");
-    expect(spawnOptions.env.ANALYTICS_DB_URL).toBe("postgres://prisma:prisma@localhost:55433/prisma");
-    expect(spawnOptions.env.ANALYTICS_DB_SHADOW_URL).toBe("postgres://prisma:prisma@localhost:55433/shadow");
+    expect(spawnOptions.env.ANALYTICS_DB_URL).toBe(
+      "postgres://prisma:prisma@localhost:55433/prisma",
+    );
+    expect(spawnOptions.env.ANALYTICS_DB_SHADOW_URL).toBe(
+      "postgres://prisma:prisma@localhost:55433/shadow",
+    );
   });
 
   it("resolves {env} placeholder with --env override in exec", async () => {
     resolveAppByNameMock.mockReturnValue({
-      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" } }),
+      config: makeConfig([HOST_APP, POSTGRES_DEP], {
+        secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" },
+      }),
       app: {
         ...HOST_APP,
         dependencies: [{ app: POSTGRES_DEP.name }],
@@ -811,7 +859,9 @@ describe("execWithAppEnv", () => {
 
   it("resolves {env} placeholder with defaultEnv when no --env", async () => {
     resolveAppByNameMock.mockReturnValue({
-      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" } }),
+      config: makeConfig([HOST_APP, POSTGRES_DEP], {
+        secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" },
+      }),
       app: {
         ...HOST_APP,
         dependencies: [{ app: POSTGRES_DEP.name }],
@@ -842,7 +892,7 @@ describe("execWithAppEnv", () => {
     expect(spawnMock).toHaveBeenCalledWith(
       "pnpm",
       ["test"],
-      expect.objectContaining({ shell: false })
+      expect.objectContaining({ shell: false }),
     );
   });
 
@@ -910,21 +960,23 @@ describe("runConfiguredApp", () => {
   it("rejects direct run on dependency-only app targets", async () => {
     resolveAppByNameMock.mockReturnValue({
       config: makeConfig([HOST_APP, REDIS_DEP]),
-      app: REDIS_DEP
+      app: REDIS_DEP,
     });
 
     await expect(
       runConfiguredApp({
         name: "redis",
         repoPath: "/repo",
-        yes: true
-      })
+        yes: true,
+      }),
     ).rejects.toThrow("is kind=dependency and cannot be run directly");
   });
 
   it("wraps host run command with secret manager", async () => {
     resolveAppByNameMock.mockReturnValue({
-      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --" } }),
+      config: makeConfig([HOST_APP, POSTGRES_DEP], {
+        secretManager: { command: "infisical run --" },
+      }),
       app: {
         ...HOST_APP,
         dependencies: [{ app: POSTGRES_DEP.name }],
@@ -946,15 +998,14 @@ describe("runConfiguredApp", () => {
     expect(spawnCommand).toContain("DB_PORT=55432");
     expect(spawnCommand).toContain("DB_URL=postgres://prisma:prisma@localhost:55432/prisma");
     expect(spawnCommand).toContain("pnpm dev");
-    expect(spawnMock).toHaveBeenCalledWith(
-      spawnCommand,
-      expect.objectContaining({ shell: true })
-    );
+    expect(spawnMock).toHaveBeenCalledWith(spawnCommand, expect.objectContaining({ shell: true }));
   });
 
   it("resolves {env} in host run SM command with --env override", async () => {
     resolveAppByNameMock.mockReturnValue({
-      config: makeConfig([HOST_APP, POSTGRES_DEP], { secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" } }),
+      config: makeConfig([HOST_APP, POSTGRES_DEP], {
+        secretManager: { command: "infisical run --env {env} --", defaultEnv: "dev" },
+      }),
       app: {
         ...HOST_APP,
         dependencies: [{ app: POSTGRES_DEP.name }],
@@ -1024,7 +1075,7 @@ describe("runConfiguredApp", () => {
       "/repo",
       ["docker-compose.yml"],
       "/overlay.yml",
-      ["app"]
+      ["app"],
     );
     expect(runDockerComposeStopMock).not.toHaveBeenCalled();
     expect(result.startedServices).toEqual(["app"]);
@@ -1058,7 +1109,7 @@ describe("runConfiguredApp", () => {
       "/repo",
       ["docker-compose.yml"],
       "/overlay.yml",
-      ["app", "db"]
+      ["app", "db"],
     );
     expect(runDockerComposeStopMock).not.toHaveBeenCalled();
     expect(result.startedServices).toEqual(["app", "db"]);
@@ -1097,7 +1148,7 @@ describe("runConfiguredApp", () => {
       "/repo",
       ["docker-compose.yml"],
       "/overlay.yml",
-      ["app", "db"]
+      ["app", "db"],
     );
     expect(runDockerComposeStopMock).not.toHaveBeenCalled();
     expect(result.startedServices).toEqual(["app"]);

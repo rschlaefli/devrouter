@@ -1,6 +1,6 @@
 // Trivial zero-dependency HTTP app. It echoes the WORKSPACE it was started with so
 // you can see, in the browser/curl, which parallel instance answered a request.
-const http = require("http");
+const http = require("node:http");
 
 const workspace = process.env.WORKSPACE || "unset";
 const port = Number(process.env.PORT || 3000);

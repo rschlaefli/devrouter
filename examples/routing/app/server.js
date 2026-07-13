@@ -8,7 +8,7 @@ function json(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     "content-type": "application/json",
-    "content-length": Buffer.byteLength(body)
+    "content-length": Buffer.byteLength(body),
   });
   res.end(body);
 }
@@ -30,7 +30,7 @@ const server = http.createServer((req, res) => {
     instance,
     port,
     dbConfigured: dbUrl.length > 0,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 

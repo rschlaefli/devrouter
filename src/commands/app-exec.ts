@@ -16,7 +16,7 @@ export async function runAppExecCommand(options: {
     shell: options.shell,
     env: options.env,
     workspace: options.workspace,
-    command: options.command
+    command: options.command,
   });
 
   process.exitCode = result.exitCode;

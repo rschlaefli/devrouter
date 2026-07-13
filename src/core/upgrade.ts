@@ -36,7 +36,7 @@ function parseSemver(version: string): ParsedSemver {
   return {
     major: Number(match[1]),
     minor: Number(match[2]),
-    patch: Number(match[3])
+    patch: Number(match[3]),
   };
 }
 
@@ -82,7 +82,7 @@ export function extractCurrentVersionFromRepoConfig(repoPath?: string): {
 
   return {
     configPath,
-    version: normalizeVersion(version)
+    version: normalizeVersion(version),
   };
 }
 
@@ -114,7 +114,9 @@ export function readPromptDirectory(promptDirPath: string): UpgradeRelease[] {
     deduped.set(release.version, release);
   }
 
-  const ordered = Array.from(deduped.values()).sort((a, b) => compareVersions(a.version, b.version));
+  const ordered = Array.from(deduped.values()).sort((a, b) =>
+    compareVersions(a.version, b.version),
+  );
   if (ordered.length === 0) {
     throw new Error(`No semantic-version prompt files were found in ${promptDirPath}.`);
   }
@@ -124,7 +126,7 @@ export function readPromptDirectory(promptDirPath: string): UpgradeRelease[] {
 
 export function listAvailableUpgradeTargets(
   currentVersion: string,
-  releases: UpgradeRelease[]
+  releases: UpgradeRelease[],
 ): UpgradeRelease[] {
   const normalizedCurrentVersion = normalizeVersion(currentVersion);
   return releases
@@ -142,16 +144,15 @@ export function resolvePromptDirectory(explicitPath?: string): string {
   const candidates = [
     path.resolve(entryDir, "..", UPGRADE_PROMPTS_DIR),
     path.resolve(__dirname, "..", "..", UPGRADE_PROMPTS_DIR),
-    path.resolve(process.cwd(), UPGRADE_PROMPTS_DIR)
+    path.resolve(process.cwd(), UPGRADE_PROMPTS_DIR),
   ];
   const existing = candidates.find((candidate) => fs.existsSync(candidate));
   return existing ?? candidates[0];
 }
 
-export function loadUpgradeCatalog(options: {
-  repo?: string;
-  promptsDir?: string;
-} = {}): UpgradeCatalog {
+export function loadUpgradeCatalog(
+  options: { repo?: string; promptsDir?: string } = {},
+): UpgradeCatalog {
   const repoPath = resolveRepoPath(options.repo);
   const current = extractCurrentVersionFromRepoConfig(repoPath);
   const promptsPath = resolvePromptDirectory(options.promptsDir);
@@ -162,6 +163,6 @@ export function loadUpgradeCatalog(options: {
     configPath: current.configPath,
     promptsPath,
     currentVersion: current.version,
-    releases
+    releases,
   };
 }

@@ -21,7 +21,9 @@ describe("runRepoAgentsCommand", () => {
   it("keeps default behavior unchanged", async () => {
     await runRepoAgentsCommand({ repo: tmpDir });
 
-    expect(fs.existsSync(path.join(tmpDir, ".agents", "skills", "devrouter", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".agents", "skills", "devrouter", "SKILL.md"))).toBe(
+      true,
+    );
 
     const agents = fs.readFileSync(path.join(tmpDir, "AGENTS.md"), "utf-8");
     expect(agents).toContain("<!-- devrouter -->");

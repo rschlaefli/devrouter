@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runRepoInspectCommand } from "../repo-inspect";
-import { inspectRepo } from "../../core/repo-inspect";
 import { printJSON } from "../../core/output";
 import type { RepoInspection } from "../../core/repo-inspect";
+import { inspectRepo } from "../../core/repo-inspect";
+import { runRepoInspectCommand } from "../repo-inspect";
 
 vi.mock("../../core/repo-inspect", () => ({
   inspectRepo: vi.fn(),

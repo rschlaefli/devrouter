@@ -25,7 +25,12 @@
     "build": "tsup",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
     "check:docs-policy": "./scripts/check-docs-policy.sh",
+    "format": "biome format --write .",
+    "knip": "knip",
+    "lint": "biome lint .",
     "test:watch": "vitest",
     "routing:smoke": "./scripts/smoke-routing.sh",
     "devcontainer:smoke": "./scripts/smoke-devcontainer.sh",
@@ -41,8 +46,10 @@
     "yaml": "^2.5.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.3",
     "@types/dockerode": "^3.3.35",
     "@types/node": "^22.10.1",
+    "knip": "6.26.0",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

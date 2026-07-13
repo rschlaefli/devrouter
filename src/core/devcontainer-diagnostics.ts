@@ -73,13 +73,13 @@ function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "host.docker.internal";
 }
 
-function inspectCompose(composeFile: string, workspace?: string): ComposeInspection {
+function inspectCompose(composeFile: string, _workspace?: string): ComposeInspection {
   if (!fs.existsSync(composeFile)) {
     return {
       aliases: [],
       publishedPorts: [],
       devnetExternal: false,
-      parseError: `.devcontainer/docker-compose.yml is missing.`
+      parseError: `.devcontainer/docker-compose.yml is missing.`,
     };
   }
 
@@ -125,7 +125,7 @@ function inspectCompose(composeFile: string, workspace?: string): ComposeInspect
     return {
       aliases: Array.from(aliases.values()).sort(),
       publishedPorts,
-      devnetExternal
+      devnetExternal,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -133,25 +133,28 @@ function inspectCompose(composeFile: string, workspace?: string): ComposeInspect
       aliases: [],
       publishedPorts: [],
       devnetExternal: false,
-      parseError: message
+      parseError: message,
     };
   }
 }
 
-function routedProxyApps(config: DevrouterConfig | undefined): Array<Extract<DevrouterApp, { runtime: "proxy" }>> {
+function routedProxyApps(
+  config: DevrouterConfig | undefined,
+): Array<Extract<DevrouterApp, { runtime: "proxy" }>> {
   if (!config) {
     return [];
   }
 
   return config.apps.filter(
-    (app): app is Extract<DevrouterApp, { runtime: "proxy" }> => app.kind !== "dependency" && app.runtime === "proxy"
+    (app): app is Extract<DevrouterApp, { runtime: "proxy" }> =>
+      app.kind !== "dependency" && app.runtime === "proxy",
   );
 }
 
 export function buildDevcontainerChecks(
   repoPath: string,
   config?: DevrouterConfig,
-  workspace?: string
+  workspace?: string,
 ): DiagnosticCheck[] {
   const devcontainerDir = path.join(repoPath, ".devcontainer");
   if (!fs.existsSync(devcontainerDir)) {
@@ -167,26 +170,26 @@ export function buildDevcontainerChecks(
       level: "warn",
       summary: "Could not inspect devcontainer devnet aliases.",
       details: compose.parseError,
-      suggestion: "Add .devcontainer/docker-compose.yml services on the external devnet network with aliases."
+      suggestion:
+        "Add .devcontainer/docker-compose.yml services on the external devnet network with aliases.",
     });
   } else {
     const aliasesReady = compose.aliases.length > 0 && compose.devnetExternal;
     checks.push({
       id: "repo.devcontainer.aliases",
       level: aliasesReady ? "ok" : "warn",
-      summary:
-        aliasesReady
-          ? `Found ${compose.aliases.length} devnet alias(es) on the external devnet network.`
-          : compose.aliases.length > 0
-            ? "Devcontainer aliases exist, but top-level devnet is not marked external."
-            : "No devnet aliases found in the devcontainer compose file.",
+      summary: aliasesReady
+        ? `Found ${compose.aliases.length} devnet alias(es) on the external devnet network.`
+        : compose.aliases.length > 0
+          ? "Devcontainer aliases exist, but top-level devnet is not marked external."
+          : "No devnet aliases found in the devcontainer compose file.",
       details:
         compose.aliases.length > 0
           ? `aliases=${compose.aliases.join(", ")}, devnetExternal=${String(compose.devnetExternal)}`
           : undefined,
       suggestion: aliasesReady
         ? undefined
-        : "Attach routable devcontainer services to an external devnet network and add stable aliases."
+        : "Attach routable devcontainer services to an external devnet network and add stable aliases.",
     });
   }
 
@@ -202,7 +205,7 @@ export function buildDevcontainerChecks(
     suggestion:
       compose.parseError || compose.publishedPorts.length > 0
         ? "Remove published ports and route services through devnet aliases with devrouter proxy apps."
-        : undefined
+        : undefined,
   });
 
   if (!config) {
@@ -210,7 +213,7 @@ export function buildDevcontainerChecks(
       id: "repo.devcontainer.upstream-alias-match",
       level: "warn",
       summary: "Cannot compare devcontainer aliases to .devrouter.yml upstreams.",
-      suggestion: "Add or fix .devrouter.yml proxy entries for the devcontainer services."
+      suggestion: "Add or fix .devrouter.yml proxy entries for the devcontainer services.",
     });
     return checks;
   }
@@ -218,13 +221,13 @@ export function buildDevcontainerChecks(
   const aliasSet = new Set(
     compose.aliases
       .flatMap((alias) => expandAliasCandidates(alias, workspace))
-      .map(normalizeWorkspaceToken)
+      .map(normalizeWorkspaceToken),
   );
   const proxyApps = routedProxyApps(config);
   const nonLoopbackUpstreams = proxyApps
     .map((app) => ({
       app: app.name,
-      host: normalizeWorkspaceToken(upstreamHost(app.upstream))
+      host: normalizeWorkspaceToken(upstreamHost(app.upstream)),
     }))
     .filter((entry) => !isLoopbackHost(entry.host));
   const missing = nonLoopbackUpstreams.filter((entry) => !aliasSet.has(entry.host));
@@ -238,13 +241,14 @@ export function buildDevcontainerChecks(
         : missing.length === 0
           ? "Devrouter proxy upstreams match devcontainer devnet aliases."
           : `${missing.length} devrouter proxy upstream(s) do not match devcontainer aliases.`,
-    details: missing.length > 0
-      ? missing.map((entry) => `${entry.app}: ${entry.host}`).join(", ")
-      : undefined,
+    details:
+      missing.length > 0
+        ? missing.map((entry) => `${entry.app}: ${entry.host}`).join(", ")
+        : undefined,
     suggestion:
       proxyApps.length === 0 || missing.length > 0
         ? "Align .devrouter.yml proxy upstream hosts with .devcontainer/docker-compose.yml devnet aliases."
-        : undefined
+        : undefined,
   });
 
   return checks;

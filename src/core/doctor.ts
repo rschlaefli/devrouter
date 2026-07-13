@@ -3,28 +3,26 @@ import path from "node:path";
 import YAML from "yaml";
 import { listContainers } from "./docker";
 import { listHostRoutes } from "./host-routes";
-import { loadRuntimeConfig, resolveRepoPath, compareSemver } from "./repo-config";
+import { compareSemver, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 
 declare const __VERSION__: string;
-import { getRouterFileLayout, isTLSEnabled } from "./router";
-import { collectRouterStatus } from "./status";
-import { discoverRoutes, findDuplicateHosts } from "./routes";
-import { assertPathWithinRepo } from "./paths";
-import { getTLSHostCoverage } from "./tls";
-import {
-  findOrphanedWorkspaceProxyRoutes,
-  findStaleProcessRoutes
-} from "./route-state";
-import { buildGlobalToolChecks } from "./tool-diagnostics";
-import { buildDevcontainerChecks } from "./devcontainer-diagnostics";
-import {
+
+import type {
   DevrouterApp,
   DevrouterConfig,
   DevrouterDockerDependencyApp,
   DevrouterDockerTcpApp,
   DiagnosticCheck,
-  DoctorReport
+  DoctorReport,
 } from "../types";
+import { buildDevcontainerChecks } from "./devcontainer-diagnostics";
+import { assertPathWithinRepo } from "./paths";
+import { findOrphanedWorkspaceProxyRoutes, findStaleProcessRoutes } from "./route-state";
+import { getRouterFileLayout, isTLSEnabled } from "./router";
+import { discoverRoutes, findDuplicateHosts } from "./routes";
+import { collectRouterStatus } from "./status";
+import { getTLSHostCoverage } from "./tls";
+import { buildGlobalToolChecks } from "./tool-diagnostics";
 
 type DoctorOptions = {
   repo?: string;
@@ -33,7 +31,7 @@ type DoctorOptions = {
 const POSTGRES_DEFAULTS = {
   POSTGRES_USER: "prisma",
   POSTGRES_PASSWORD: "prisma",
-  POSTGRES_DB: "prisma"
+  POSTGRES_DB: "prisma",
 } as const;
 
 type PostgresCredentialMismatch = {
@@ -106,13 +104,16 @@ function isExplicitLiteralValue(value: string): boolean {
   return !value.includes("${") && !value.includes("$(");
 }
 
-function inspectPostgresCredentials(repoPath: string, config: DevrouterConfig): PostgresCredentialInspection {
+function inspectPostgresCredentials(
+  repoPath: string,
+  config: DevrouterConfig,
+): PostgresCredentialInspection {
   const postgresApps = config.apps.filter(
     (app): app is DevrouterDockerTcpApp =>
       app.runtime === "docker" &&
       app.kind !== "dependency" &&
       app.protocol === "tcp" &&
-      app.tcpProtocol === "postgres"
+      app.tcpProtocol === "postgres",
   );
 
   const mismatches: PostgresCredentialMismatch[] = [];
@@ -172,7 +173,7 @@ function inspectPostgresCredentials(repoPath: string, config: DevrouterConfig): 
           composeFiles: app.docker.composeFiles,
           key,
           actualValue,
-          expectedValue
+          expectedValue,
         });
       }
     }
@@ -189,7 +190,7 @@ function findDbAssignmentsBeforeWrapperBoundary(command: string): string[] {
 
   const beforeBoundary = command.slice(0, boundary);
   const matches = Array.from(beforeBoundary.matchAll(/\b(DATABASE_URI|DATABASE_URL)\s*=/g)).map(
-    (match) => match[1]
+    (match) => match[1],
   );
 
   return Array.from(new Set(matches.values()));
@@ -216,7 +217,12 @@ function inspectHostCommandPrecedence(config: DevrouterConfig): HostCommandPrece
       return false;
     }
 
-    if (app.runtime === "docker" && app.kind !== "dependency" && app.protocol === "tcp" && app.tcpProtocol === "postgres") {
+    if (
+      app.runtime === "docker" &&
+      app.kind !== "dependency" &&
+      app.protocol === "tcp" &&
+      app.tcpProtocol === "postgres"
+    ) {
       memo.set(appName, true);
       return true;
     }
@@ -242,7 +248,9 @@ function inspectHostCommandPrecedence(config: DevrouterConfig): HostCommandPrece
       continue;
     }
 
-    const hasPostgresDependency = app.dependencies.some((dependency) => dependsOnPostgres(dependency.app));
+    const hasPostgresDependency = app.dependencies.some((dependency) =>
+      dependsOnPostgres(dependency.app),
+    );
     if (!hasPostgresDependency) {
       continue;
     }
@@ -252,7 +260,7 @@ function inspectHostCommandPrecedence(config: DevrouterConfig): HostCommandPrece
     if (riskyVariables.length > 0) {
       riskyApps.push({
         appName: app.name,
-        variables: riskyVariables
+        variables: riskyVariables,
       });
     }
   }
@@ -260,10 +268,7 @@ function inspectHostCommandPrecedence(config: DevrouterConfig): HostCommandPrece
   return { inspectedCount, riskyApps };
 }
 
-function addCheck(
-  checks: DiagnosticCheck[],
-  check: DiagnosticCheck
-): void {
+function addCheck(checks: DiagnosticCheck[], check: DiagnosticCheck): void {
   checks.push(check);
 }
 
@@ -273,7 +278,7 @@ function collectSummary(checks: DiagnosticCheck[]): DoctorReport["summary"] {
       acc[check.level] += 1;
       return acc;
     },
-    { ok: 0, warn: 0, error: 0 }
+    { ok: 0, warn: 0, error: 0 },
   );
 }
 
@@ -307,7 +312,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     addCheck(checks, {
       id: "global.router-files",
       level: "ok",
-      summary: "Global router files are present."
+      summary: "Global router files are present.",
     });
   } else {
     addCheck(checks, {
@@ -315,7 +320,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       level: "warn",
       summary: `Missing ${fileLayout.missing.length} global router file(s).`,
       details: fileLayout.missing.join(", "),
-      suggestion: "Run: dev up"
+      suggestion: "Run: dev up",
     });
   }
 
@@ -331,7 +336,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     addCheck(checks, {
       id: "global.docker-context",
       level: "ok",
-      summary: `Docker context: ${status.dockerContext}`
+      summary: `Docker context: ${status.dockerContext}`,
     });
 
     addCheck(checks, {
@@ -340,7 +345,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       summary: status.routerRunning
         ? "Router container is running."
         : "Router container is not running.",
-      suggestion: status.routerRunning ? undefined : "Run: dev up"
+      suggestion: status.routerRunning ? undefined : "Run: dev up",
     });
 
     if (status.routerRunning) {
@@ -363,25 +368,28 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       addCheck(checks, {
         id: "global.port-bindings",
         level: missingPorts.length === 0 ? "ok" : "error",
-        summary: missingPorts.length === 0
-          ? `Router has required port bindings (${portSummary}).`
-          : `Router is running but missing bound port(s): ${missingPorts.join(", ")}.`,
-        suggestion: missingPorts.length === 0 ? undefined : "Restart router: dev down && dev up"
+        summary:
+          missingPorts.length === 0
+            ? `Router has required port bindings (${portSummary}).`
+            : `Router is running but missing bound port(s): ${missingPorts.join(", ")}.`,
+        suggestion: missingPorts.length === 0 ? undefined : "Restart router: dev down && dev up",
       });
     }
 
     addCheck(checks, {
       id: "global.devnet",
       level: status.networkExists ? "ok" : "error",
-      summary: status.networkExists ? "Shared network devnet exists." : "Shared network devnet is missing.",
-      suggestion: status.networkExists ? undefined : "Run: dev up"
+      summary: status.networkExists
+        ? "Shared network devnet exists."
+        : "Shared network devnet is missing.",
+      suggestion: status.networkExists ? undefined : "Run: dev up",
     });
 
     if (status.tlsEnabled) {
       addCheck(checks, {
         id: "global.tls",
         level: "ok",
-        summary: "TLS is enabled (certs + Traefik TLS config)."
+        summary: "TLS is enabled (certs + Traefik TLS config).",
       });
     } else if (status.certPresent || status.tlsConfigured) {
       addCheck(checks, {
@@ -389,14 +397,14 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         level: "warn",
         summary: "TLS is partially configured.",
         details: `certPresent=${status.certPresent}, tlsConfigured=${status.tlsConfigured}`,
-        suggestion: "Run: dev tls install"
+        suggestion: "Run: dev tls install",
       });
     } else {
       addCheck(checks, {
         id: "global.tls",
         level: "warn",
         summary: "TLS is not enabled.",
-        suggestion: "Run: dev tls install"
+        suggestion: "Run: dev tls install",
       });
     }
 
@@ -406,14 +414,14 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         id: "repo.config",
         level: "warn",
         summary: "No .devrouter.yml found in current directory.",
-        suggestion: `Run: dev repo init --repo ${resolvedRepoPath}`
+        suggestion: `Run: dev repo init --repo ${resolvedRepoPath}`,
       });
     } else if (!repo.exists) {
       addCheck(checks, {
         id: "repo.config",
         level: explicitRepo ? "error" : "warn",
         summary: `Missing .devrouter.yml in ${repo.path}.`,
-        suggestion: `Run: dev repo init --repo ${repo.path}`
+        suggestion: `Run: dev repo init --repo ${repo.path}`,
       });
     } else if (!repo.valid) {
       addCheck(checks, {
@@ -421,13 +429,13 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         level: "error",
         summary: ".devrouter.yml exists but is invalid.",
         details: repo.error,
-        suggestion: "Fix config errors and re-run: dev doctor --repo <path>"
+        suggestion: "Fix config errors and re-run: dev doctor --repo <path>",
       });
     } else {
       addCheck(checks, {
         id: "repo.config",
         level: "ok",
-        summary: `.devrouter.yml is valid (${repo.appCount} app(s)).`
+        summary: `.devrouter.yml is valid (${repo.appCount} app(s)).`,
       });
 
       if (repo.appCount === 0) {
@@ -435,7 +443,8 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
           id: "repo.apps",
           level: "warn",
           summary: "No apps are configured in .devrouter.yml.",
-          suggestion: "Run: dev app add --name <name> --host <name>.localhost --protocol http --runtime host"
+          suggestion:
+            "Run: dev app add --name <name> --host <name>.localhost --protocol http --runtime host",
         });
       }
 
@@ -446,18 +455,22 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
 
       const cliVersion = typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev";
       const configVersion = config.devrouter?.version;
-      if (configVersion && cliVersion !== "0.0.0-dev" && compareSemver(configVersion, cliVersion) > 0) {
+      if (
+        configVersion &&
+        cliVersion !== "0.0.0-dev" &&
+        compareSemver(configVersion, cliVersion) > 0
+      ) {
         addCheck(checks, {
           id: "repo.cli-outdated",
           level: "error",
           summary: `Installed CLI (${cliVersion}) is older than required repo version (${configVersion}).`,
-          suggestion: "Upgrade CLI: npm install -g @devrouter/cli"
+          suggestion: "Upgrade CLI: npm install -g @devrouter/cli",
         });
       } else {
         addCheck(checks, {
           id: "repo.cli-outdated",
           level: "ok",
-          summary: "Installed CLI version is compatible with repo configuration."
+          summary: "Installed CLI version is compatible with repo configuration.",
         });
       }
 
@@ -465,50 +478,58 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       const missingDependencies = config.apps.flatMap((app) =>
         app.dependencies
           .filter((dependency) => !appNames.has(dependency.app))
-          .map((dependency) => `${app.name}->${dependency.app}`)
+          .map((dependency) => `${app.name}->${dependency.app}`),
       );
       addCheck(checks, {
         id: "repo.dependencies",
         level: missingDependencies.length === 0 ? "ok" : "error",
-        summary: missingDependencies.length === 0
-          ? "All app dependencies resolve to configured app names."
-          : `Missing dependency target(s): ${missingDependencies.join(", ")}.`,
-        suggestion: missingDependencies.length === 0 ? undefined : "Fix dependencies in .devrouter.yml"
+        summary:
+          missingDependencies.length === 0
+            ? "All app dependencies resolve to configured app names."
+            : `Missing dependency target(s): ${missingDependencies.join(", ")}.`,
+        suggestion:
+          missingDependencies.length === 0 ? undefined : "Fix dependencies in .devrouter.yml",
       });
 
       const missingComposeFiles = config.apps
         .filter((app) => app.runtime === "docker")
-        .flatMap((app) => app.docker.composeFiles.map((filePath) => ({
-          app: app.name,
-          filePath,
-          absolutePath: path.resolve(repo.path, filePath)
-        })))
+        .flatMap((app) =>
+          app.docker.composeFiles.map((filePath) => ({
+            app: app.name,
+            filePath,
+            absolutePath: path.resolve(repo.path, filePath),
+          })),
+        )
         .filter((entry) => !fs.existsSync(entry.absolutePath));
 
       addCheck(checks, {
         id: "repo.compose-files",
         level: missingComposeFiles.length === 0 ? "ok" : "error",
-        summary: missingComposeFiles.length === 0
-          ? "All referenced docker compose files exist."
-          : `${missingComposeFiles.length} compose file reference(s) are missing.`,
+        summary:
+          missingComposeFiles.length === 0
+            ? "All referenced docker compose files exist."
+            : `${missingComposeFiles.length} compose file reference(s) are missing.`,
         details:
           missingComposeFiles.length > 0
-            ? missingComposeFiles
-                .map((entry) => `${entry.app}: ${entry.filePath}`)
-                .join(", ")
+            ? missingComposeFiles.map((entry) => `${entry.app}: ${entry.filePath}`).join(", ")
             : undefined,
-        suggestion: missingComposeFiles.length === 0 ? undefined : "Fix docker.composeFiles paths in .devrouter.yml"
+        suggestion:
+          missingComposeFiles.length === 0
+            ? undefined
+            : "Fix docker.composeFiles paths in .devrouter.yml",
       });
 
       const postgresAppCount = config.apps.filter(
-        (app) => app.kind !== "dependency" && app.protocol === "tcp" && app.tcpProtocol === "postgres"
+        (app) =>
+          app.kind !== "dependency" && app.protocol === "tcp" && app.tcpProtocol === "postgres",
       ).length;
       if (postgresAppCount > 0) {
         const inspection = inspectPostgresCredentials(repo.path, config);
         if (inspection.mismatches.length > 0) {
           const details = inspection.mismatches
-            .map((mismatch) =>
-              `${mismatch.appName}/${mismatch.serviceName} ${mismatch.key}=${mismatch.actualValue} (expected ${mismatch.expectedValue})`
+            .map(
+              (mismatch) =>
+                `${mismatch.appName}/${mismatch.serviceName} ${mismatch.key}=${mismatch.actualValue} (expected ${mismatch.expectedValue})`,
             )
             .join(", ");
           addCheck(checks, {
@@ -518,7 +539,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
             details,
             suggestion:
               "Align POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB with prisma defaults or override injected DATABASE_URL values. " +
-              "If a persistent volume was initialized with older credentials, reconcile data or recreate volumes when safe (for example: docker compose down -v)."
+              "If a persistent volume was initialized with older credentials, reconcile data or recreate volumes when safe (for example: docker compose down -v).",
           });
         } else if (inspection.parseErrors.length > 0) {
           addCheck(checks, {
@@ -526,13 +547,15 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
             level: "warn",
             summary: "Could not fully inspect postgres credentials in compose files.",
             details: inspection.parseErrors.join(", "),
-            suggestion: "Verify postgres service environment values match devrouter defaults (prisma/prisma/prisma)."
+            suggestion:
+              "Verify postgres service environment values match devrouter defaults (prisma/prisma/prisma).",
           });
         } else {
           addCheck(checks, {
             id: "repo.postgres-credentials",
             level: "ok",
-            summary: "Postgres compose credentials match devrouter defaults or are not explicitly set."
+            summary:
+              "Postgres compose credentials match devrouter defaults or are not explicitly set.",
           });
         }
       }
@@ -542,23 +565,23 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         .map((app) => ({
           app: app.name,
           cwd: app.hostRun.cwd,
-          absolutePath: path.resolve(repo.path, app.hostRun.cwd)
+          absolutePath: path.resolve(repo.path, app.hostRun.cwd),
         }))
         .filter((entry) => !fs.existsSync(entry.absolutePath));
 
       addCheck(checks, {
         id: "repo.host-cwd",
         level: missingHostCwds.length === 0 ? "ok" : "error",
-        summary: missingHostCwds.length === 0
-          ? "All host runtime cwd paths exist."
-          : `${missingHostCwds.length} host runtime cwd path(s) are missing.`,
+        summary:
+          missingHostCwds.length === 0
+            ? "All host runtime cwd paths exist."
+            : `${missingHostCwds.length} host runtime cwd path(s) are missing.`,
         details:
           missingHostCwds.length > 0
-            ? missingHostCwds
-                .map((entry) => `${entry.app}: ${entry.cwd}`)
-                .join(", ")
+            ? missingHostCwds.map((entry) => `${entry.app}: ${entry.cwd}`).join(", ")
             : undefined,
-        suggestion: missingHostCwds.length === 0 ? undefined : "Fix hostRun.cwd paths in .devrouter.yml"
+        suggestion:
+          missingHostCwds.length === 0 ? undefined : "Fix hostRun.cwd paths in .devrouter.yml",
       });
 
       const hostCommandInspection = inspectHostCommandPrecedence(config);
@@ -567,9 +590,10 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         addCheck(checks, {
           id: "repo.host-command-env-precedence",
           level: riskyCount > 0 ? "warn" : "ok",
-          summary: riskyCount > 0
-            ? `Detected ${riskyCount} host app command(s) with DB env assignment before a 'run --' wrapper boundary.`
-            : "No risky pre-wrapper DB env assignments detected in host app commands with postgres dependencies.",
+          summary:
+            riskyCount > 0
+              ? `Detected ${riskyCount} host app command(s) with DB env assignment before a 'run --' wrapper boundary.`
+              : "No risky pre-wrapper DB env assignments detected in host app commands with postgres dependencies.",
           details:
             riskyCount > 0
               ? hostCommandInspection.riskyApps
@@ -579,7 +603,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
           suggestion:
             riskyCount > 0
               ? "Move DB assignment after wrapper boundary (example: infisical run --env=dev -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev). Then verify effective values with: dev app exec <app> --yes -- infisical run --env=<env> -- printenv DB_URL DB_SHADOW_URL DB_HOST DB_PORT"
-              : undefined
+              : undefined,
         });
       }
 
@@ -588,25 +612,28 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
           id: "repo.tcp-tls",
           level: "error",
           summary: `Repo defines ${repo.tcpAppCount} TCP app(s), but TLS is not enabled.`,
-          suggestion: "Run: dev tls install"
+          suggestion: "Run: dev tls install",
         });
       } else if (repo.tcpAppCount > 0) {
         addCheck(checks, {
           id: "repo.tcp-tls",
           level: "ok",
-          summary: `TLS is ready for ${repo.tcpAppCount} TCP app(s).`
+          summary: `TLS is ready for ${repo.tcpAppCount} TCP app(s).`,
         });
       }
 
       if (status.tlsEnabled) {
         try {
           const configuredHosts = config.apps
-            .filter((entry): entry is Exclude<DevrouterApp, DevrouterDockerDependencyApp> => entry.kind !== "dependency")
+            .filter(
+              (entry): entry is Exclude<DevrouterApp, DevrouterDockerDependencyApp> =>
+                entry.kind !== "dependency",
+            )
             .map((entry) => entry.host.toLowerCase());
           const coverage = getTLSHostCoverage(configuredHosts);
           const configuredHostSet = new Set(configuredHosts);
           const uncoveredConfiguredHosts = coverage.uncoveredHosts.filter((host) =>
-            configuredHostSet.has(host)
+            configuredHostSet.has(host),
           );
 
           addCheck(checks, {
@@ -623,7 +650,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
             suggestion:
               uncoveredConfiguredHosts.length === 0
                 ? undefined
-                : `Run: dev app run <name> --repo ${repo.path} --yes (auto-refresh), or run: dev tls install`
+                : `Run: dev app run <name> --repo ${repo.path} --yes (auto-refresh), or run: dev tls install`,
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -632,7 +659,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
             level: "warn",
             summary: "Could not evaluate TLS host coverage.",
             details: message,
-            suggestion: "Run: dev tls install"
+            suggestion: "Run: dev tls install",
           });
         }
       }
@@ -643,7 +670,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       id: "global.status",
       level: "error",
       summary: "Failed to collect router status diagnostics.",
-      details: message
+      details: message,
     });
   }
 
@@ -660,10 +687,14 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     addCheck(checks, {
       id: "routes.duplicates",
       level: duplicates.length === 0 ? "ok" : "error",
-      summary: duplicates.length === 0
-        ? "No duplicate hostnames detected across active routes."
-        : `Duplicate hostname(s): ${duplicates.join(", ")}.`,
-      suggestion: duplicates.length === 0 ? undefined : "Rename hosts in .devrouter.yml so each hostname is unique"
+      summary:
+        duplicates.length === 0
+          ? "No duplicate hostnames detected across active routes."
+          : `Duplicate hostname(s): ${duplicates.join(", ")}.`,
+      suggestion:
+        duplicates.length === 0
+          ? undefined
+          : "Rename hosts in .devrouter.yml so each hostname is unique",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -671,7 +702,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       id: "routes.duplicates",
       level: "warn",
       summary: "Could not evaluate duplicate hostnames.",
-      details: message
+      details: message,
     });
   }
 
@@ -680,23 +711,26 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
   addCheck(checks, {
     id: "routes.stale-host-routes",
     level: staleCount === 0 ? "ok" : "warn",
-    summary: staleCount === 0
-      ? "No stale host route entries detected."
-      : `${staleCount} stale host route entr${staleCount === 1 ? "y" : "ies"} detected (dead PID).`,
-    suggestion: staleCount === 0 ? undefined : "Re-run the affected host app(s) or remove routes with: dev app rm <name> --repo <path> --keep-config"
+    summary:
+      staleCount === 0
+        ? "No stale host route entries detected."
+        : `${staleCount} stale host route entr${staleCount === 1 ? "y" : "ies"} detected (dead PID).`,
+    suggestion:
+      staleCount === 0
+        ? undefined
+        : "Re-run the affected host app(s) or remove routes with: dev app rm <name> --repo <path> --keep-config",
   });
 
   const orphanedWorkspaceRoutes = findOrphanedWorkspaceProxyRoutes();
   addCheck(checks, {
     id: "routes.orphaned-workspace-routes",
     level: orphanedWorkspaceRoutes.length === 0 ? "ok" : "warn",
-    summary: orphanedWorkspaceRoutes.length === 0
-      ? "No orphaned workspace proxy routes detected."
-      : `${orphanedWorkspaceRoutes.length} orphaned workspace proxy route entr${orphanedWorkspaceRoutes.length === 1 ? "y" : "ies"} detected (worktree removed without 'dev workspace down').`,
-    suggestion:
+    summary:
       orphanedWorkspaceRoutes.length === 0
-        ? undefined
-        : "Run: dev workspace down <workspace>"
+        ? "No orphaned workspace proxy routes detected."
+        : `${orphanedWorkspaceRoutes.length} orphaned workspace proxy route entr${orphanedWorkspaceRoutes.length === 1 ? "y" : "ies"} detected (worktree removed without 'dev workspace down').`,
+    suggestion:
+      orphanedWorkspaceRoutes.length === 0 ? undefined : "Run: dev workspace down <workspace>",
   });
 
   const summary = collectSummary(checks);
@@ -707,6 +741,6 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     repoPath: resolvedRepoPath,
     summary,
     checks,
-    nextSteps
+    nextSteps,
   };
 }

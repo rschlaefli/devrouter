@@ -7,14 +7,12 @@ const REPO = "/tmp/test-repo";
 describe("assertPathWithinRepo", () => {
   it("accepts a relative path within repo", () => {
     expect(assertPathWithinRepo("src/index.ts", REPO, "test")).toBe(
-      path.join(REPO, "src/index.ts")
+      path.join(REPO, "src/index.ts"),
     );
   });
 
   it("accepts nested relative path", () => {
-    expect(assertPathWithinRepo("a/b/c/d.ts", REPO, "test")).toBe(
-      path.join(REPO, "a/b/c/d.ts")
-    );
+    expect(assertPathWithinRepo("a/b/c/d.ts", REPO, "test")).toBe(path.join(REPO, "a/b/c/d.ts"));
   });
 
   it("accepts '.' (repo root itself)", () => {
@@ -22,33 +20,29 @@ describe("assertPathWithinRepo", () => {
   });
 
   it("accepts './foo' style paths", () => {
-    expect(assertPathWithinRepo("./foo", REPO, "test")).toBe(
-      path.join(REPO, "foo")
-    );
+    expect(assertPathWithinRepo("./foo", REPO, "test")).toBe(path.join(REPO, "foo"));
   });
 
   it("rejects '../escape'", () => {
     expect(() => assertPathWithinRepo("../escape", REPO, "test")).toThrow(
-      "escapes the repository root"
+      "escapes the repository root",
     );
   });
 
   it("rejects absolute path outside repo", () => {
     expect(() => assertPathWithinRepo("/etc/passwd", REPO, "test")).toThrow(
-      "escapes the repository root"
+      "escapes the repository root",
     );
   });
 
   it("rejects ../../etc/passwd traversal", () => {
-    expect(() =>
-      assertPathWithinRepo("../../etc/passwd", REPO, "test")
-    ).toThrow("escapes the repository root");
+    expect(() => assertPathWithinRepo("../../etc/passwd", REPO, "test")).toThrow(
+      "escapes the repository root",
+    );
   });
 
   it("allows ./foo/../bar that normalizes within repo", () => {
-    expect(assertPathWithinRepo("./foo/../bar", REPO, "test")).toBe(
-      path.join(REPO, "bar")
-    );
+    expect(assertPathWithinRepo("./foo/../bar", REPO, "test")).toBe(path.join(REPO, "bar"));
   });
 
   it("rejects path that traverses out even if it comes back", () => {
@@ -60,8 +54,6 @@ describe("assertPathWithinRepo", () => {
   });
 
   it("includes the label in the error message", () => {
-    expect(() =>
-      assertPathWithinRepo("../out", REPO, "composeFile")
-    ).toThrow("composeFile");
+    expect(() => assertPathWithinRepo("../out", REPO, "composeFile")).toThrow("composeFile");
   });
 });

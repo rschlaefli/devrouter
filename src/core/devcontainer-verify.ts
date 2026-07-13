@@ -1,30 +1,20 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  applyWorkspace,
-  loadRepoConfig,
-  loadRuntimeConfig,
-  resolveRepoPath
-} from "./repo-config";
+import type { DevrouterApp, DevrouterConfig, DiagnosticCheck, DoctorReport } from "../types";
+import { WORKSPACE_PLACEHOLDER } from "./capabilities";
 import { assertAppNotRunning } from "./concurrency";
-import { parseUpstream, upsertHostRoute } from "./host-routes";
 import { buildDoctorReport } from "./doctor";
+import { parseUpstream, upsertHostRoute } from "./host-routes";
+import { applyWorkspace, loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { removeRouteForApp } from "./route-state";
 import {
-  TCP_PROTOCOL_REGISTRY,
   activateTcpProtocol,
   ensureRouterFiles,
   isTLSEnabled,
-  startRouterStack
+  startRouterStack,
+  TCP_PROTOCOL_REGISTRY,
 } from "./router";
-import { WORKSPACE_PLACEHOLDER } from "./capabilities";
-import type {
-  DevrouterApp,
-  DevrouterConfig,
-  DiagnosticCheck,
-  DoctorReport
-} from "../types";
 
 type VerifySummary = DoctorReport["summary"];
 
@@ -75,7 +65,7 @@ function collectSummary(checks: DiagnosticCheck[]): VerifySummary {
       acc[check.level] += 1;
       return acc;
     },
-    { ok: 0, warn: 0, error: 0 }
+    { ok: 0, warn: 0, error: 0 },
   );
 }
 
@@ -91,7 +81,7 @@ function collectNextSteps(checks: DiagnosticCheck[]): string[] {
 
 function proxyApps(config: DevrouterConfig | undefined): ProxyApp[] {
   return (config?.apps ?? []).filter(
-    (app): app is ProxyApp => app.kind !== "dependency" && app.runtime === "proxy"
+    (app): app is ProxyApp => app.kind !== "dependency" && app.runtime === "proxy",
   );
 }
 
@@ -103,18 +93,18 @@ function requiredFileChecks(repoPath: string): DiagnosticCheck {
   const required = [
     ".devcontainer/devcontainer.json",
     ".devcontainer/docker-compose.yml",
-    ".devrouter.yml"
+    ".devrouter.yml",
   ];
   const missing = required.filter((fileName) => !fs.existsSync(path.join(repoPath, fileName)));
   return {
     id: "repo.devcontainer.verify-files",
     level: missing.length === 0 ? "ok" : "error",
-    summary: missing.length === 0
-      ? "Required devcontainer/devrouter files are present."
-      : `Missing required devcontainer/devrouter file(s): ${missing.join(", ")}.`,
-    suggestion: missing.length === 0
-      ? undefined
-      : "Run: devrouter repo devcontainer write --dry-run --json"
+    summary:
+      missing.length === 0
+        ? "Required devcontainer/devrouter files are present."
+        : `Missing required devcontainer/devrouter file(s): ${missing.join(", ")}.`,
+    suggestion:
+      missing.length === 0 ? undefined : "Run: devrouter repo devcontainer write --dry-run --json",
   };
 }
 
@@ -122,12 +112,14 @@ function proxyConfigCheck(apps: ProxyApp[]): DiagnosticCheck {
   return {
     id: "repo.devcontainer.verify-proxy-apps",
     level: apps.length > 0 ? "ok" : "error",
-    summary: apps.length > 0
-      ? `Found ${apps.length} proxy app(s) for devcontainer routing.`
-      : "No proxy app entries found for devcontainer routing.",
-    suggestion: apps.length > 0
-      ? undefined
-      : "Add runtime: proxy app entries to .devrouter.yml or run: devrouter repo devcontainer write --dry-run --json"
+    summary:
+      apps.length > 0
+        ? `Found ${apps.length} proxy app(s) for devcontainer routing.`
+        : "No proxy app entries found for devcontainer routing.",
+    suggestion:
+      apps.length > 0
+        ? undefined
+        : "Add runtime: proxy app entries to .devrouter.yml or run: devrouter repo devcontainer write --dry-run --json",
   };
 }
 
@@ -152,21 +144,28 @@ function workspaceTemplateCheck(apps: ProxyApp[]): DiagnosticCheck {
     suggestion:
       apps.length > 0 && templated.length !== apps.length
         ? "Use ${WORKSPACE} in devcontainer proxy upstreams so parallel worktrees do not collide."
-        : undefined
+        : undefined,
   };
 }
 
-function workspacePreview(repoPath: string, config: DevrouterConfig): DevcontainerVerifyEvidence["workspacePreview"] {
+function workspacePreview(
+  repoPath: string,
+  config: DevrouterConfig,
+): DevcontainerVerifyEvidence["workspacePreview"] {
   const preview = applyWorkspace(config, "verify", repoPath);
   return routedApps(preview).map((app) => ({
     name: app.name,
     host: app.host,
-    upstream: app.runtime === "proxy" ? app.upstream : undefined
+    upstream: app.runtime === "proxy" ? app.upstream : undefined,
   }));
 }
 
-function workspacePreviewCheck(preview: DevcontainerVerifyEvidence["workspacePreview"]): DiagnosticCheck {
-  const missingNamespacedHosts = (preview ?? []).filter((app) => !app.host.endsWith(".verify.localhost"));
+function workspacePreviewCheck(
+  preview: DevcontainerVerifyEvidence["workspacePreview"],
+): DiagnosticCheck {
+  const missingNamespacedHosts = (preview ?? []).filter(
+    (app) => !app.host.endsWith(".verify.localhost"),
+  );
   return {
     id: "repo.devcontainer.verify-workspace-preview",
     level: (preview ?? []).length > 0 && missingNamespacedHosts.length === 0 ? "ok" : "warn",
@@ -176,13 +175,14 @@ function workspacePreviewCheck(preview: DevcontainerVerifyEvidence["workspacePre
         : missingNamespacedHosts.length === 0
           ? "Workspace preview namespaces configured hosts without rewriting .devrouter.yml."
           : `${missingNamespacedHosts.length} workspace preview host(s) were not namespaced.`,
-    details: missingNamespacedHosts.length > 0
-      ? missingNamespacedHosts.map((app) => `${app.name}: ${app.host}`).join(", ")
-      : undefined,
+    details:
+      missingNamespacedHosts.length > 0
+        ? missingNamespacedHosts.map((app) => `${app.name}: ${app.host}`).join(", ")
+        : undefined,
     suggestion:
       missingNamespacedHosts.length > 0
         ? "Use valid .localhost hosts and let devrouter namespace them at runtime."
-        : undefined
+        : undefined,
   };
 }
 
@@ -193,7 +193,7 @@ function blockingDoctorChecks(doctor: DoctorReport): DiagnosticCheck[] {
       (check.id.startsWith("repo.devcontainer") ||
         check.id === "repo.config" ||
         check.id === "repo.tcp-tls" ||
-        check.id === "global.devnet")
+        check.id === "global.devnet"),
   );
 }
 
@@ -202,11 +202,12 @@ function doctorGateCheck(doctor: DoctorReport): DiagnosticCheck {
   return {
     id: "repo.devcontainer.verify-doctor",
     level: blocking.length === 0 ? "ok" : "error",
-    summary: blocking.length === 0
-      ? "Doctor has no blocking devcontainer diagnostics."
-      : `Doctor reported ${blocking.length} blocking devcontainer diagnostic(s).`,
+    summary:
+      blocking.length === 0
+        ? "Doctor has no blocking devcontainer diagnostics."
+        : `Doctor reported ${blocking.length} blocking devcontainer diagnostic(s).`,
     details: blocking.length > 0 ? blocking.map((check) => check.id).join(", ") : undefined,
-    suggestion: blocking.length > 0 ? "Run: devrouter doctor --repo <path> --json" : undefined
+    suggestion: blocking.length > 0 ? "Run: devrouter doctor --repo <path> --json" : undefined,
   };
 }
 
@@ -216,14 +217,18 @@ function routeUrl(host: string): string {
 
 function curlRoute(host: string): { ok: boolean; details: string } {
   const result = spawnSync("curl", ["-k", "-fsS", "--max-time", "5", routeUrl(host)], {
-    encoding: "utf-8"
+    encoding: "utf-8",
   });
   if (result.status === 0) {
     return { ok: true, details: "HTTP route responded successfully." };
   }
   return {
     ok: false,
-    details: (result.stderr || result.stdout || `curl exited with status ${String(result.status)}`).trim()
+    details: (
+      result.stderr ||
+      result.stdout ||
+      `curl exited with status ${String(result.status)}`
+    ).trim(),
   };
 }
 
@@ -233,7 +238,7 @@ function registerProxyRoute(repoPath: string, app: ProxyApp, workspace?: string)
 
   if (app.protocol === "tcp" && !isTLSEnabled()) {
     throw new Error(
-      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run \`devrouter tls install\` first.`
+      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run \`devrouter tls install\` first.`,
     );
   }
 
@@ -255,11 +260,14 @@ function registerProxyRoute(repoPath: string, app: ProxyApp, workspace?: string)
     port,
     upstreamHost,
     mode: "proxy",
-    workspace
+    workspace,
   });
 }
 
-async function liveChecks(repoPath: string, yes: boolean): Promise<{
+async function liveChecks(
+  repoPath: string,
+  yes: boolean,
+): Promise<{
   checks: DiagnosticCheck[];
   routes: DevcontainerVerifyEvidence["liveRoutes"];
 }> {
@@ -271,9 +279,9 @@ async function liveChecks(repoPath: string, yes: boolean): Promise<{
           id: "repo.devcontainer.verify-live-confirmation",
           level: "error",
           summary: "Live devcontainer verification requires --yes.",
-          suggestion: "Run: devrouter repo devcontainer verify --live --yes --json"
-        }
-      ]
+          suggestion: "Run: devrouter repo devcontainer verify --live --yes --json",
+        },
+      ],
     };
   }
 
@@ -289,9 +297,10 @@ async function liveChecks(repoPath: string, yes: boolean): Promise<{
           level: "error",
           summary: "Could not load runtime config for live verification.",
           details: error instanceof Error ? error.message : String(error),
-          suggestion: "Fix .devrouter.yml and re-run: devrouter repo devcontainer verify --live --yes --json"
-        }
-      ]
+          suggestion:
+            "Fix .devrouter.yml and re-run: devrouter repo devcontainer verify --live --yes --json",
+        },
+      ],
     };
   }
   const apps = proxyApps(runtime.config);
@@ -306,7 +315,7 @@ async function liveChecks(repoPath: string, yes: boolean): Promise<{
           name: app.name,
           host: app.host,
           status: curl.ok ? "reachable" : "failed",
-          details: curl.details
+          details: curl.details,
         });
         checks.push({
           id: `repo.devcontainer.verify-live-http.${app.name}`,
@@ -317,19 +326,19 @@ async function liveChecks(repoPath: string, yes: boolean): Promise<{
           details: curl.ok ? undefined : curl.details,
           suggestion: curl.ok
             ? undefined
-            : "Start the devcontainer app process, then re-run live verification."
+            : "Start the devcontainer app process, then re-run live verification.",
         });
       } else {
         routes.push({
           name: app.name,
           host: app.host,
           status: "registered",
-          details: `${app.tcpProtocol} route registered on port ${String(TCP_PROTOCOL_REGISTRY[app.tcpProtocol]?.port ?? 5432)}.`
+          details: `${app.tcpProtocol} route registered on port ${String(TCP_PROTOCOL_REGISTRY[app.tcpProtocol]?.port ?? 5432)}.`,
         });
         checks.push({
           id: `repo.devcontainer.verify-live-tcp.${app.name}`,
           level: "ok",
-          summary: `TCP proxy route '${app.name}' registered.`
+          summary: `TCP proxy route '${app.name}' registered.`,
         });
       }
     } catch (error) {
@@ -338,14 +347,15 @@ async function liveChecks(repoPath: string, yes: boolean): Promise<{
         name: app.name,
         host: app.host,
         status: "failed",
-        details: message
+        details: message,
       });
       checks.push({
         id: `repo.devcontainer.verify-live-route.${app.name}`,
         level: "error",
         summary: `Could not register proxy route '${app.name}'.`,
         details: message,
-        suggestion: "Run: devrouter setup --yes, start the devcontainer, then retry live verification."
+        suggestion:
+          "Run: devrouter setup --yes, start the devcontainer, then retry live verification.",
       });
     }
   }
@@ -353,7 +363,9 @@ async function liveChecks(repoPath: string, yes: boolean): Promise<{
   return { checks, routes };
 }
 
-export async function verifyDevcontainer(options: VerifyOptions = {}): Promise<DevcontainerVerifyReport> {
+export async function verifyDevcontainer(
+  options: VerifyOptions = {},
+): Promise<DevcontainerVerifyReport> {
   const repoPath = resolveRepoPath(options.repo);
   const doctor = await buildDoctorReport({ repo: repoPath });
   const checks: DiagnosticCheck[] = [doctorGateCheck(doctor), requiredFileChecks(repoPath)];
@@ -374,7 +386,7 @@ export async function verifyDevcontainer(options: VerifyOptions = {}): Promise<D
       level: "error",
       summary: "Could not load .devrouter.yml for devcontainer verification.",
       details: error instanceof Error ? error.message : String(error),
-      suggestion: "Fix .devrouter.yml and re-run: devrouter repo devcontainer verify --json"
+      suggestion: "Fix .devrouter.yml and re-run: devrouter repo devcontainer verify --json",
     });
   }
 
@@ -399,11 +411,11 @@ export async function verifyDevcontainer(options: VerifyOptions = {}): Promise<D
         name: app.name,
         protocol: app.protocol,
         host: app.host,
-        upstream: app.upstream
+        upstream: app.upstream,
       })),
       workspacePreview: workspaceEvidence,
-      liveRoutes
+      liveRoutes,
     },
-    nextSteps: collectNextSteps(checks)
+    nextSteps: collectNextSteps(checks),
   };
 }

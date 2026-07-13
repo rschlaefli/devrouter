@@ -32,7 +32,7 @@ describe("wsFromBranch", () => {
     // 30 'a' + '-' + 'b' -> after slice(0,32) the 32nd char is '-', which is trimmed.
     const branch = `${"a".repeat(30)}-bbbb`;
     const result = wsFromBranch(branch);
-    expect(result).toBe("a".repeat(30) + "-b");
+    expect(result).toBe(`${"a".repeat(30)}-b`);
     expect(result!.length).toBeLessThanOrEqual(32);
     expect(result!.endsWith("-")).toBe(false);
   });
@@ -50,20 +50,12 @@ describe("isLinkedWorktree", () => {
   });
 
   it("is true for a linked worktree (.git file pointing into worktrees/)", () => {
-    fs.writeFileSync(
-      path.join(tmpDir, ".git"),
-      "gitdir: /repo/.git/worktrees/feat-x\n",
-      "utf-8"
-    );
+    fs.writeFileSync(path.join(tmpDir, ".git"), "gitdir: /repo/.git/worktrees/feat-x\n", "utf-8");
     expect(isLinkedWorktree(tmpDir)).toBe(true);
   });
 
   it("is false for a submodule (.git file pointing into modules/)", () => {
-    fs.writeFileSync(
-      path.join(tmpDir, ".git"),
-      "gitdir: /super/.git/modules/sub\n",
-      "utf-8"
-    );
+    fs.writeFileSync(path.join(tmpDir, ".git"), "gitdir: /super/.git/modules/sub\n", "utf-8");
     expect(isLinkedWorktree(tmpDir)).toBe(false);
   });
 

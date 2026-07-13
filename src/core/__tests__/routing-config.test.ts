@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import YAML from "yaml";
 import { describe, expect, it } from "vitest";
+import YAML from "yaml";
 
 function repoRoot(): string {
   return path.resolve(__dirname, "../../../");

@@ -1,8 +1,5 @@
+import { ensureAgentsMdSection, ensureSkillFile } from "../core/agents-md";
 import { buildOnboardingPrompt, COMMAND_INTENTS } from "../core/ai-prompt";
-import {
-  ensureAgentsMdSection,
-  ensureSkillFile
-} from "../core/agents-md";
 import { printJSON } from "../core/output";
 import { resolveRepoPath } from "../core/repo-config";
 
@@ -14,22 +11,20 @@ type InitCommandOptions = {
   writeSkill?: boolean;
 };
 
-export async function runInitCommand(
-  options: InitCommandOptions
-): Promise<void> {
+export async function runInitCommand(options: InitCommandOptions): Promise<void> {
   if (options.json && (options.writeAgents || options.writeSkill)) {
     throw new Error("--json cannot be combined with --write-agents or --write-skill.");
   }
 
   const prompt = buildOnboardingPrompt({
     repo: options.repo,
-    entriesJson: options.entriesJson
+    entriesJson: options.entriesJson,
   });
 
   if (options.json) {
     printJSON({
       prompt,
-      commandIntents: COMMAND_INTENTS
+      commandIntents: COMMAND_INTENTS,
     });
     return;
   }

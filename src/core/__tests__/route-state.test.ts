@@ -8,23 +8,23 @@ import {
   findStaleProcessRoutes,
   listRoutesForWorktreePath,
   listRoutesForWorktreePaths,
+  reconcileRouteRunConflict,
   removeRouteForApp,
   removeWorkspaceRoutesForWorktree,
-  reconcileRouteRunConflict
 } from "../route-state";
 
 const mockListHostRouteState = vi.fn<() => HostRouteState[]>(() => []);
 const mockIsPidRunning = vi.fn<(pid: number | undefined) => boolean>(() => false);
-const mockRemoveHostRoutesWhere = vi.fn<(predicate: (route: HostRouteState) => boolean) => HostRouteState[]>(
-  (predicate) => mockListHostRouteState().filter(predicate)
-);
+const mockRemoveHostRoutesWhere = vi.fn<
+  (predicate: (route: HostRouteState) => boolean) => HostRouteState[]
+>((predicate) => mockListHostRouteState().filter(predicate));
 
 vi.mock("../host-routes", () => ({
   listHostRouteState: (...args: unknown[]) => mockListHostRouteState(...(args as [])),
   removeHostRoutesWhere: (...args: unknown[]) =>
     mockRemoveHostRoutesWhere(...(args as [(route: HostRouteState) => boolean])),
   isPidRunning: (...args: unknown[]) => mockIsPidRunning(...(args as [number | undefined])),
-  buildHostRouteId: (repoPath: string, name: string) => `${repoPath}::${name}`
+  buildHostRouteId: (repoPath: string, name: string) => `${repoPath}::${name}`,
 }));
 
 function route(overrides: Partial<HostRouteState> = {}): HostRouteState {
@@ -39,7 +39,7 @@ function route(overrides: Partial<HostRouteState> = {}): HostRouteState {
     pid: 12345,
     createdAt: "t",
     updatedAt: "t",
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -51,7 +51,7 @@ describe("process route state", () => {
   it("finds and evicts dead process routes", () => {
     mockListHostRouteState.mockReturnValue([
       route({ id: "/repo::web", pid: 111 }),
-      route({ id: "/repo::api", name: "api", host: "api.localhost", pid: 222 })
+      route({ id: "/repo::api", name: "api", host: "api.localhost", pid: 222 }),
     ]);
     mockIsPidRunning.mockReturnValue(false);
 
@@ -69,8 +69,8 @@ describe("process route state", () => {
         host: "proxy.localhost",
         mode: "proxy",
         pid: undefined,
-        upstreamHost: "host.docker.internal"
-      })
+        upstreamHost: "host.docker.internal",
+      }),
     ]);
     mockIsPidRunning.mockReturnValue(true);
 
@@ -82,19 +82,18 @@ describe("process route state", () => {
   it("evicts stale app and hostname conflicts before reporting blockers", () => {
     mockListHostRouteState.mockReturnValue([
       route({ id: "/repo::web", pid: 111 }),
-      route({ id: "/other::api", name: "api", repoPath: "/other", pid: 222 })
+      route({ id: "/other::api", name: "api", repoPath: "/other", pid: 222 }),
     ]);
     mockIsPidRunning.mockReturnValue(false);
 
-    expect(reconcileRouteRunConflict("/repo", { name: "web", host: "web.localhost" })).toBeUndefined();
+    expect(
+      reconcileRouteRunConflict("/repo", { name: "web", host: "web.localhost" }),
+    ).toBeUndefined();
     expect(mockRemoveHostRoutesWhere).toHaveBeenCalledTimes(2);
     const removedIds = mockRemoveHostRoutesWhere.mock.results.map((result) =>
-      (result.value as HostRouteState[]).map((entry) => entry.id)
+      (result.value as HostRouteState[]).map((entry) => entry.id),
     );
-    expect(removedIds).toEqual([
-      ["/repo::web"],
-      ["/other::api"]
-    ]);
+    expect(removedIds).toEqual([["/repo::web"], ["/other::api"]]);
   });
 
   it("does not evict a fresh route that replaced a stale snapshot with the same id", () => {
@@ -117,8 +116,8 @@ describe("process route state", () => {
         name: "proxy",
         repoPath: "/other",
         mode: "proxy",
-        pid: undefined
-      })
+        pid: undefined,
+      }),
     ]);
 
     const conflict = reconcileRouteRunConflict("/repo", { name: "web", host: "web.localhost" });
@@ -130,7 +129,7 @@ describe("process route state", () => {
 
   it("matches same-app conflicts through /tmp and /private/tmp aliases", () => {
     mockListHostRouteState.mockReturnValue([
-      route({ id: "/tmp/repo::web", repoPath: "/tmp/repo", host: "old.localhost", pid: 111 })
+      route({ id: "/tmp/repo::web", repoPath: "/tmp/repo", host: "old.localhost", pid: 111 }),
     ]);
     mockIsPidRunning.mockReturnValue(true);
     const realpath = vi.spyOn(fs.realpathSync, "native").mockImplementation((value) => {
@@ -144,7 +143,7 @@ describe("process route state", () => {
     try {
       const conflict = reconcileRouteRunConflict("/private/tmp/repo", {
         name: "web",
-        host: "new.localhost"
+        host: "new.localhost",
       });
 
       expect(conflict?.kind).toBe("same-app");
@@ -158,7 +157,7 @@ describe("process route state", () => {
 describe("workspace route state", () => {
   it("matches worktree paths through /tmp and /private/tmp aliases", () => {
     mockListHostRouteState.mockReturnValue([
-      route({ id: "/tmp/repo-feat-a::web", repoPath: "/tmp/repo-feat-a", workspace: "feat-a" })
+      route({ id: "/tmp/repo-feat-a::web", repoPath: "/tmp/repo-feat-a", workspace: "feat-a" }),
     ]);
     const realpath = vi.spyOn(fs.realpathSync, "native").mockImplementation((value) => {
       const key = String(value);
@@ -180,9 +179,14 @@ describe("workspace route state", () => {
   it("removes only routes for the requested workspace worktree", () => {
     mockListHostRouteState.mockReturnValue([
       route({ id: "/repo-feat-a::web", repoPath: "/repo-feat-a", workspace: "feat-a" }),
-      route({ id: "/repo-feat-a::api", name: "api", repoPath: "/repo-feat-a", workspace: "feat-a" }),
+      route({
+        id: "/repo-feat-a::api",
+        name: "api",
+        repoPath: "/repo-feat-a",
+        workspace: "feat-a",
+      }),
       route({ id: "/other-feat-a::web", repoPath: "/other-feat-a", workspace: "feat-a" }),
-      route({ id: "/repo-feat-b::web", repoPath: "/repo-feat-b", workspace: "feat-b" })
+      route({ id: "/repo-feat-b::web", repoPath: "/repo-feat-b", workspace: "feat-b" }),
     ]);
 
     const removed = removeWorkspaceRoutesForWorktree("feat-a", "/repo-feat-a");
@@ -196,9 +200,11 @@ describe("workspace route state", () => {
     mockListHostRouteState.mockReturnValue([
       route({ id: "/gone::proxy", repoPath: "/gone", mode: "proxy", workspace: "gone" }),
       route({ id: "/main::proxy", repoPath: "/main", mode: "proxy", workspace: undefined }),
-      route({ id: "/gone::run", repoPath: "/gone", mode: "run", workspace: "gone" })
+      route({ id: "/gone::run", repoPath: "/gone", mode: "run", workspace: "gone" }),
     ]);
-    const existsSpy = vi.spyOn(fs, "existsSync").mockImplementation((value) => String(value) !== "/gone");
+    const existsSpy = vi
+      .spyOn(fs, "existsSync")
+      .mockImplementation((value) => String(value) !== "/gone");
 
     try {
       expect(findOrphanedWorkspaceProxyRoutes().map((entry) => entry.id)).toEqual(["/gone::proxy"]);
@@ -218,7 +224,7 @@ describe("app route removal", () => {
     mockListHostRouteState.mockReturnValue([
       route({ id: "/repo::web", name: "web", repoPath: "/repo" }),
       route({ id: "/repo::api", name: "api", repoPath: "/repo" }),
-      route({ id: "/other::web", name: "web", repoPath: "/other" })
+      route({ id: "/other::web", name: "web", repoPath: "/other" }),
     ]);
 
     const removed = removeRouteForApp("/repo", "web");
@@ -232,7 +238,7 @@ describe("app route removal", () => {
   it("removes target app routes through /tmp and /private/tmp aliases", () => {
     mockListHostRouteState.mockReturnValue([
       route({ id: "/tmp/repo::web", name: "web", repoPath: "/tmp/repo" }),
-      route({ id: "/other::web", name: "web", repoPath: "/other" })
+      route({ id: "/other::web", name: "web", repoPath: "/other" }),
     ]);
     const realpath = vi.spyOn(fs.realpathSync, "native").mockImplementation((value) => {
       const key = String(value);

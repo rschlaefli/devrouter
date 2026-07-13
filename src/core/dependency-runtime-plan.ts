@@ -3,12 +3,12 @@ import type {
   DevrouterDockerDependencyApp,
   DevrouterDockerTcpApp,
   DevrouterHostHttpApp,
-  DevrouterProxyApp
+  DevrouterProxyApp,
 } from "../types";
 import {
-  DEP_ENV_SUFFIXES,
   buildPostgresDependencyShadowUrl,
-  buildPostgresDependencyUrl
+  buildPostgresDependencyUrl,
+  DEP_ENV_SUFFIXES,
 } from "./capabilities";
 
 export type DependencyStopPolicy = "always-stop-selected" | "stop-only-newly-started";
@@ -65,20 +65,22 @@ export function planDependencyRuntime(options: {
 }): DependencyRuntimePlan {
   const selectedApps = uniqueApps([options.app, ...options.dependencies]);
   const selectedDockerApps = selectedApps.filter(
-    (entry): entry is DockerRuntimeApp => entry.runtime === "docker"
+    (entry): entry is DockerRuntimeApp => entry.runtime === "docker",
   );
   const services = selectedDockerApps.map((entry) => entry.docker.service);
   const dependencyServices = options.dependencies
     .filter((entry): entry is DockerRuntimeApp => entry.runtime === "docker")
     .map((entry) => entry.docker.service);
-  const runningServices = options.runningServicesBefore?.status === "known"
-    ? options.runningServicesBefore.runningServices
-    : undefined;
-  const allDependencyServicesRunning = runningServices !== undefined
-    && dependencyServices.every((service) => runningServices.has(service));
-  const hasTcpDeps = options.app.runtime === "host" && selectedDockerApps.some(
-    (entry) => entry.kind !== "dependency" && entry.protocol === "tcp"
-  );
+  const runningServices =
+    options.runningServicesBefore?.status === "known"
+      ? options.runningServicesBefore.runningServices
+      : undefined;
+  const allDependencyServicesRunning =
+    runningServices !== undefined &&
+    dependencyServices.every((service) => runningServices.has(service));
+  const hasTcpDeps =
+    options.app.runtime === "host" &&
+    selectedDockerApps.some((entry) => entry.kind !== "dependency" && entry.protocol === "tcp");
 
   return {
     app: options.app,
@@ -91,20 +93,20 @@ export function planDependencyRuntime(options: {
     runningServicesBefore: options.runningServicesBefore,
     allDependencyServicesRunning,
     shouldPromptForDependencies: options.dependencies.length > 0 && !allDependencyServicesRunning,
-    hasTcpDeps
+    hasTcpDeps,
   };
 }
 
 export function planDependencyStart(
   runtimePlan: DependencyRuntimePlan,
-  startDependencies: boolean
+  startDependencies: boolean,
 ): DependencyStartPlan {
   const shouldRunComposeUp = runtimePlan.app.runtime === "docker" || startDependencies;
   if (!shouldRunComposeUp) {
     return {
       shouldRunComposeUp,
       startedServices: [],
-      dependencyApps: []
+      dependencyApps: [],
     };
   }
 
@@ -117,32 +119,35 @@ export function planDependencyStart(
         ownershipWarning:
           "unable to determine which dependencies were already running before 'dev app exec'; " +
           "leaving dependencies running after command exit to avoid stopping non-owned services. " +
-          `Details: ${runtimePlan.runningServicesBefore.reason}`
+          `Details: ${runtimePlan.runningServicesBefore.reason}`,
       };
     }
 
-    const beforeSet = runtimePlan.runningServicesBefore?.status === "known"
-      ? runtimePlan.runningServicesBefore.runningServices
-      : undefined;
+    const beforeSet =
+      runtimePlan.runningServicesBefore?.status === "known"
+        ? runtimePlan.runningServicesBefore.runningServices
+        : undefined;
     return {
       shouldRunComposeUp,
       startedServices: beforeSet
         ? runtimePlan.services.filter((service) => !beforeSet.has(service))
         : [],
-      dependencyApps: startDependencies ? dependencyNames(runtimePlan.dependencies) : []
+      dependencyApps: startDependencies ? dependencyNames(runtimePlan.dependencies) : [],
     };
   }
 
-  const beforeSet = runtimePlan.app.runtime === "docker" && runtimePlan.runningServicesBefore?.status === "known"
-    ? runtimePlan.runningServicesBefore.runningServices
-    : undefined;
+  const beforeSet =
+    runtimePlan.app.runtime === "docker" && runtimePlan.runningServicesBefore?.status === "known"
+      ? runtimePlan.runningServicesBefore.runningServices
+      : undefined;
 
   return {
     shouldRunComposeUp,
-    startedServices: runtimePlan.app.runtime === "docker"
-      ? runtimePlan.services.filter((service) => !beforeSet?.has(service))
-      : [...runtimePlan.services],
-    dependencyApps: startDependencies ? dependencyNames(runtimePlan.dependencies) : []
+    startedServices:
+      runtimePlan.app.runtime === "docker"
+        ? runtimePlan.services.filter((service) => !beforeSet?.has(service))
+        : [...runtimePlan.services],
+    dependencyApps: startDependencies ? dependencyNames(runtimePlan.dependencies) : [],
   };
 }
 
@@ -194,7 +199,7 @@ export function buildDependencyEnv(mappedDeps: MappedTcpDependency[]): Record<st
 
 export function applyDependencyEnvMap(
   app: Exclude<DevrouterApp, DevrouterDockerDependencyApp>,
-  depEnv: Record<string, string>
+  depEnv: Record<string, string>,
 ): Record<string, string> {
   const mappedEnv = { ...depEnv };
 
@@ -207,7 +212,7 @@ export function applyDependencyEnvMap(
       if (!(source in mappedEnv)) {
         throw new Error(
           `envMap on dependency '${depRef.app}': source variable '${source}' not found in dependency env. ` +
-          `Available: ${Object.keys(mappedEnv).join(", ") || "(none)"}`
+            `Available: ${Object.keys(mappedEnv).join(", ") || "(none)"}`,
         );
       }
       mappedEnv[target] = mappedEnv[source];

@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runRepoDevcontainerVerifyCommand, runRepoDevcontainerWriteCommand } from "../repo-devcontainer";
-import { writeDevcontainer } from "../../core/devcontainer-write";
-import { verifyDevcontainer } from "../../core/devcontainer-verify";
-import { printJSON } from "../../core/output";
-import type { DevcontainerWritePlan } from "../../core/devcontainer-write";
 import type { DevcontainerVerifyReport } from "../../core/devcontainer-verify";
+import { verifyDevcontainer } from "../../core/devcontainer-verify";
+import type { DevcontainerWritePlan } from "../../core/devcontainer-write";
+import { writeDevcontainer } from "../../core/devcontainer-write";
+import { printJSON } from "../../core/output";
+import {
+  runRepoDevcontainerVerifyCommand,
+  runRepoDevcontainerWriteCommand,
+} from "../repo-devcontainer";
 
 vi.mock("../../core/devcontainer-write", () => ({
   writeDevcontainer: vi.fn(),
@@ -26,13 +29,16 @@ function plan(error = false): DevcontainerWritePlan {
     dryRun: true,
     files: [{ path: ".devcontainer/Dockerfile", action: "create", reason: "missing" }],
     issues: error
-      ? [{
-        id: "repo.devcontainer.package-manager-version-unsupported",
-        level: "error",
-        summary: "unsafe package manager",
-        details: "pnpm@11.6.0 && touch /tmp/pwned",
-        suggestion: "Use a pinned semver packageManager value such as pnpm@11.6.0 before writing the scaffold.",
-      }]
+      ? [
+          {
+            id: "repo.devcontainer.package-manager-version-unsupported",
+            level: "error",
+            summary: "unsafe package manager",
+            details: "pnpm@11.6.0 && touch /tmp/pwned",
+            suggestion:
+              "Use a pinned semver packageManager value such as pnpm@11.6.0 before writing the scaffold.",
+          },
+        ]
       : [],
     nextSteps: ["next"],
   };
@@ -116,7 +122,9 @@ describe("runRepoDevcontainerWriteCommand", () => {
 
     await runRepoDevcontainerWriteCommand({ repo: "/repo", dryRun: true });
 
-    const output = stdoutSpy.mock.calls.map(([chunk]: [unknown, ...unknown[]]) => String(chunk)).join("");
+    const output = stdoutSpy.mock.calls
+      .map(([chunk]: [unknown, ...unknown[]]) => String(chunk))
+      .join("");
     expect(output).toContain("Findings:");
     expect(output).toContain("repo.devcontainer.package-manager-version-unsupported [error]");
     expect(output).toContain("pnpm@11.6.0 && touch /tmp/pwned");

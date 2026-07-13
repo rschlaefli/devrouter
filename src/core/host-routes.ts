@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
-import { HostRouteState, Route } from "../types";
+import type { HostRouteState, Route } from "../types";
 import {
   DEVROUTER_HOME,
   HOST_ROUTES_STATE_FILE,
+  isTLSEnabled,
   TCP_PROTOCOL_REGISTRY,
   TRAEFIK_DYNAMIC_DIR,
   TRAEFIK_HOST_ROUTES_FILE,
-  isTLSEnabled
 } from "./router";
 
 type UpsertHostRouteInput = {
@@ -37,7 +37,11 @@ const UPSTREAM_RE = /^([a-zA-Z0-9._-]+):(\d{1,5})$/;
  * any other host passes through verbatim (e.g. a devnet container name).
  * Throws on malformed input or out-of-range port.
  */
-export function parseUpstream(upstream: string): { host: string; port: number; upstreamHost: string } {
+export function parseUpstream(upstream: string): {
+  host: string;
+  port: number;
+  upstreamHost: string;
+} {
   const match = UPSTREAM_RE.exec(upstream.trim());
   if (!match) {
     throw new Error(`upstream must be in the form host:port (got '${upstream}').`);
@@ -69,7 +73,10 @@ export function buildHostRouteId(repoPath: string, name: string): string {
 }
 
 function sanitizeKey(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return value
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 /**
@@ -86,7 +93,7 @@ function sanitizeKey(value: string): string {
 // select ALPN `postgresql`; without it Traefik replies "no application
 // protocol". Declared as a per-protocol TLSOption and referenced by the router.
 const TCP_TLS_ALPN_PROTOCOLS: Record<string, string[]> = {
-  postgres: ["postgresql"]
+  postgres: ["postgresql"],
 };
 
 function tcpTlsOptionName(tcpProtocol: string): string {
@@ -95,7 +102,7 @@ function tcpTlsOptionName(tcpProtocol: string): string {
 
 export function buildHostRoutesDocument(
   routes: HostRouteState[],
-  tlsEnabled: boolean
+  tlsEnabled: boolean,
 ): Record<string, unknown> {
   const routers: Record<string, unknown> = {};
   const services: Record<string, unknown> = {};
@@ -118,16 +125,16 @@ export function buildHostRoutesDocument(
       }
       tcpRouters[key] = {
         rule: `HostSNI(\`${route.host}\`)`,
-        entryPoints: [route.tcpProtocol && TCP_PROTOCOL_REGISTRY[route.tcpProtocol]?.entrypoint].filter(
-          Boolean
-        ),
+        entryPoints: [
+          route.tcpProtocol && TCP_PROTOCOL_REGISTRY[route.tcpProtocol]?.entrypoint,
+        ].filter(Boolean),
         service: key,
-        tls
+        tls,
       };
       tcpServices[key] = {
         loadBalancer: {
-          servers: [{ address: `${route.upstreamHost ?? "host.docker.internal"}:${route.port}` }]
-        }
+          servers: [{ address: `${route.upstreamHost ?? "host.docker.internal"}:${route.port}` }],
+        },
       };
       continue;
     }
@@ -135,7 +142,7 @@ export function buildHostRoutesDocument(
     const router: Record<string, unknown> = {
       rule: `Host(\`${route.host}\`)`,
       entryPoints: tlsEnabled ? ["web", "websecure"] : ["web"],
-      service: key
+      service: key,
     };
     if (tlsEnabled) {
       router.tls = true;
@@ -145,16 +152,16 @@ export function buildHostRoutesDocument(
 
     services[key] = {
       loadBalancer: {
-        servers: [{ url: `http://${route.upstreamHost ?? "host.docker.internal"}:${route.port}` }]
-      }
+        servers: [{ url: `http://${route.upstreamHost ?? "host.docker.internal"}:${route.port}` }],
+      },
     };
   }
 
   const document: Record<string, unknown> = {
     http: {
       routers,
-      services
-    }
+      services,
+    },
   };
   if (Object.keys(tcpRouters).length > 0) {
     document.tcp = { routers: tcpRouters, services: tcpServices };
@@ -181,7 +188,7 @@ export function ensureHostRouteStorage(): void {
     fs.writeFileSync(
       TRAEFIK_HOST_ROUTES_FILE,
       YAML.stringify({ http: { routers: {}, services: {} } }, { lineWidth: 0 }),
-      "utf-8"
+      "utf-8",
     );
   }
 
@@ -271,7 +278,7 @@ export function listHostRouteState(): HostRouteState[] {
     const error = err as NodeJS.ErrnoException;
     if (error.code !== "ENOENT") {
       process.stderr.write(
-        `Warning: devrouter host routes state file is corrupted or unreadable (${error.message}). Recreating route state.\n`
+        `Warning: devrouter host routes state file is corrupted or unreadable (${error.message}). Recreating route state.\n`,
       );
     }
     return [];
@@ -299,7 +306,7 @@ export function upsertHostRoute(input: UpsertHostRouteInput): HostRouteState {
       command: input.command,
       workspace: input.workspace,
       createdAt: existing?.createdAt ?? now,
-      updatedAt: now
+      updatedAt: now,
     };
 
     const remaining = routes.filter((route) => route.id !== id);
@@ -324,7 +331,7 @@ export function removeHostRouteById(id: string): boolean {
 }
 
 export function removeHostRoutesWhere(
-  predicate: (route: HostRouteState) => boolean
+  predicate: (route: HostRouteState) => boolean,
 ): HostRouteState[] {
   return withStateLock(() => {
     const routes = listHostRouteState();
@@ -361,7 +368,7 @@ export function removeHostRouteByName(name: string, repoPath?: string): HostRout
     if (matches.length > 1 && !repoPath) {
       const refs = matches.map((route) => `${route.name} (${route.repoPath})`).join(", ");
       throw new Error(
-        `Multiple host routes named '${name}' exist. Re-run with --repo to disambiguate: ${refs}`
+        `Multiple host routes named '${name}' exist. Re-run with --repo to disambiguate: ${refs}`,
       );
     }
 
@@ -390,13 +397,15 @@ export function listHostRoutes(tlsEnabled: boolean): Route[] {
       // TCP routes are reached via an SNI-aware client on the shared protocol
       // port; surface a protocol-scheme URL rather than http(s)://.
       urls: isTcp
-        ? [`${tcpProtocol}://${route.host}:${TCP_PROTOCOL_REGISTRY[tcpProtocol]?.port ?? route.port}`]
+        ? [
+            `${tcpProtocol}://${route.host}:${TCP_PROTOCOL_REGISTRY[tcpProtocol]?.port ?? route.port}`,
+          ]
         : [`${scheme}://${route.host}`],
       // Proxy routes front an externally-managed upstream and have no pid; they are
       // live as long as the route exists.
       status: route.mode === "proxy" ? "running" : isPidRunning(route.pid) ? "running" : "stopped",
       health: "unknown",
-      createdAt: Math.floor(new Date(route.createdAt).getTime() / 1000)
+      createdAt: Math.floor(new Date(route.createdAt).getTime() / 1000),
     };
   });
 }

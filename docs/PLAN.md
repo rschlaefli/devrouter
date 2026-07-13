@@ -28,6 +28,7 @@ Delivered and active:
 - `devrouter doctor` TLS SAN coverage warning (`repo.tls-host-coverage`) when TLS is enabled
 - `devrouter app run` / `devrouter app exec` auto-refresh TLS SAN coverage for configured repo hosts
 - Agent discoverability flow via `devrouter repo agents`
+- Repository quality gates via Biome, Knip, TypeScript, pre-commit, and Gitleaks
 - Workspace isolation: `devrouter workspace up/ls/down` for parallel git worktrees of one repo
   - Three-layer identity: devpod workspace id, devrouter route namespace, and `${WORKSPACE}` upstream placeholder
   - Token resolution: `--workspace` flag > `DEVROUTER_WORKSPACE` env var > branch-derived slug > none (primary checkout, back-compatible)
@@ -47,17 +48,19 @@ Delivered and active:
 Required checks for behavior and doc consistency:
 
 1. `pnpm check:docs-policy`
-2. `pnpm typecheck`
-3. `pnpm test`
-4. `pnpm build`
-5. `node dist/devrouter.js -V --repo ./examples/routing`
-6. `node dist/devrouter.js upgrade --repo ./examples/routing`
-7. `node dist/devrouter.js setup --repo ./examples/routing --yes --json`
-8. `node dist/devrouter.js doctor --repo ./examples/routing`
-9. `node dist/devrouter.js repo inspect --repo ./examples/routing --json`
-10. `pnpm routing:smoke` (environment permitting)
-11. `pnpm devcontainer:smoke` when DevPod is available
-12. `pnpm devcontainer:smoke down` after live devcontainer verification
+2. `pnpm check`
+3. `pnpm knip`
+4. `pnpm typecheck`
+5. `pnpm test`
+6. `pnpm build`
+7. `node dist/devrouter.js -V --repo ./examples/routing`
+8. `node dist/devrouter.js upgrade --repo ./examples/routing`
+9. `node dist/devrouter.js setup --repo ./examples/routing --yes --json`
+10. `node dist/devrouter.js doctor --repo ./examples/routing`
+11. `node dist/devrouter.js repo inspect --repo ./examples/routing --json`
+12. `pnpm routing:smoke` (environment permitting)
+13. `pnpm devcontainer:smoke` when DevPod is available
+14. `pnpm devcontainer:smoke down` after live devcontainer verification
 
 ## Near-term roadmap
 
