@@ -15,6 +15,16 @@ All notable changes to this project are documented in this file.
 
 - Repository normalized to Biome formatting and import order throughout. Existing files were reformatted in a single pass to establish a clean baseline.
 
+## [0.0.29] - 2026-07-14
+
+### Fixed
+
+- **Fixed:** `workspace ensure` did not apply the one-total-recreate budget to HTTP readiness failure on existing exact workspaces. Routes are now removed before recovery, verified after recreation, and removed again if the retry fails.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.29.md
+
 ## [0.0.28] - 2026-07-13
 
 ### Fixed

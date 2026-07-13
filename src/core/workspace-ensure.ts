@@ -536,6 +536,7 @@ export async function workspaceEnsure(
           await waitForContainerPreflight(repoPath, commonDir, workspace, upstreamHosts, 0);
         } catch {
           await recreateAndWait();
+          recreated = true;
         }
       }
 
@@ -553,8 +554,19 @@ export async function workspaceEnsure(
         }
       }
       startRouterStack();
-      replaceHostRoutesForRepo(repoPath, routeInputs(repoPath, workspace, apps));
-      await waitForHttpRoutes(apps, options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
+      const routes = routeInputs(repoPath, workspace, apps);
+      replaceHostRoutesForRepo(repoPath, routes);
+      try {
+        await waitForHttpRoutes(apps, options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
+      } catch (error) {
+        replaceHostRoutesForRepo(repoPath, []);
+        if (!hadExactDevpod || recreated) {
+          throw error;
+        }
+        await recreateAndWait();
+        replaceHostRoutesForRepo(repoPath, routes);
+        await waitForHttpRoutes(apps, options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
+      }
 
       const urls = apps.map((app) =>
         app.protocol === "tcp"
