@@ -25,7 +25,10 @@ describe("agents-md", () => {
 
     const content = fs.readFileSync(agents.path, "utf-8");
     expect(content).toContain("<!-- devrouter -->");
+    expect(content).toContain("<!-- /devrouter -->");
     expect(content).not.toContain("<!-- devrouter-linear-workflow -->");
+    expect(content).toContain("Linked devcontainer worktree: `devrouter workspace ensure .`");
+    expect(content).toContain("Host/docker runtime app only:");
 
     const skillContent = fs.readFileSync(skill.path, "utf-8");
     const sourceSkillContent = fs.readFileSync(
@@ -44,5 +47,37 @@ describe("agents-md", () => {
     expect(skillContent).toContain("devrouter repo devcontainer verify --json");
     expect(skillContent).toContain("DEVCONTAINER_COMPOSE_OVERLAY");
     expect(skillContent).toContain("DEVROUTER_GIT_COMMON_DIR");
+    expect(skillContent).toContain("custom repositories may keep another default overlay");
+    expect(skillContent).toContain("For host/docker runtime apps only:");
+
+    expect(ensureAgentsMdSection(tmpDir).written).toBe(false);
+  });
+
+  it("refreshes a legacy generated section without replacing later user content", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "AGENTS.md"),
+      [
+        "# AGENTS.md",
+        "",
+        "<!-- devrouter -->",
+        "## devrouter",
+        "",
+        "Quick validation sequence:",
+        "- `devrouter app run <host-app> --repo . --yes`",
+        "- `devrouter ls`",
+        "",
+        "## User notes",
+        "",
+        "Keep this content.",
+        "",
+      ].join("\n"),
+    );
+
+    expect(ensureAgentsMdSection(tmpDir).written).toBe(true);
+
+    const content = fs.readFileSync(path.join(tmpDir, "AGENTS.md"), "utf-8");
+    expect(content).toContain("Linked devcontainer worktree: `devrouter workspace ensure .`");
+    expect(content).toContain("<!-- /devrouter -->");
+    expect(content).toContain("## User notes\n\nKeep this content.");
   });
 });
