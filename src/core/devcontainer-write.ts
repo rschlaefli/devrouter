@@ -86,14 +86,21 @@ function inferPort(repo: ReturnType<typeof inspectRepo>): number {
 function renderDockerfile(nodeMajor: string, pnpmVersion: string, version: string): string {
   const pnpmPackageSpec = `pnpm@${pnpmVersion}`;
   const devrouterPackageSpec = `@devrouter/cli@${version}`;
+  const devrouterTarball = `devrouter-cli-${version}.tgz`;
   return `# ${MANAGED_MARKER}
 FROM node:${nodeMajor}-bookworm-slim
 
 RUN apt-get update \\
-  && apt-get install -y --no-install-recommends git ca-certificates curl procps openssl util-linux \\
+  && apt-get install -y --no-install-recommends git ca-certificates curl procps openssl tar util-linux \\
   && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g ${shellSingleQuote(pnpmPackageSpec)} ${shellSingleQuote(devrouterPackageSpec)}
+RUN npm install -g ${shellSingleQuote(pnpmPackageSpec)}
+
+RUN npm pack --silent ${shellSingleQuote(devrouterPackageSpec)} \\
+  && tar -xzf ${shellSingleQuote(devrouterTarball)} --strip-components=2 \\
+    -C /usr/local/bin package/bin/devrouter-process \\
+  && chmod +x /usr/local/bin/devrouter-process \\
+  && rm ${shellSingleQuote(devrouterTarball)}
 
 WORKDIR /workspaces/app
 `;

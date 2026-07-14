@@ -23,7 +23,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Generated devcontainers install the pinned Devrouter package inside the image and use its managed-process helper instead of emitting repository-specific `pgrep` and `setsid` lifecycle logic.
+- Generated devcontainers extract only the managed-process helper from the exact Devrouter package tarball instead of installing the CLI dependency tree or emitting repository-specific `pgrep` and `setsid` lifecycle logic.
 - HTTP application readiness and the single recreate budget remain owned by host-side `devrouter workspace ensure`.
 
 ### Agent Adaptation Prompt

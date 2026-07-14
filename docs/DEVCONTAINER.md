@@ -126,8 +126,9 @@ then verifies them in the container.
 
 ## 4. Start one owned application process
 
-The managed scaffold installs the pinned Devrouter package inside the app image.
-Its `post-start.sh` delegates background-process lifecycle to the packaged helper:
+The managed scaffold extracts only `devrouter-process` from the exact Devrouter
+package tarball into the app image; it does not install the CLI dependency tree.
+Its `post-start.sh` delegates background-process lifecycle to that packaged helper:
 
 ```bash
 devrouter-process ensure \
