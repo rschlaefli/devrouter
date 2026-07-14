@@ -61,30 +61,46 @@ function devrouterVersion(value: string | undefined): string {
   return value && /^\d+\.\d+\.\d+$/.test(value) ? value : DEFAULT_DEVROUTER_VERSION;
 }
 
-function inferDevScript(repo: ReturnType<typeof inspectRepo>): string {
+function escapeExtendedRegex(value: string): string {
+  return value.replace(/[\\.^$|?*+()[\]{}]/g, "\\$&");
+}
+
+function inferDevProcess(repo: ReturnType<typeof inspectRepo>): {
+  command: string;
+  match: string;
+} {
   const script =
     repo.scripts.find((entry) => entry.name === "dev") ??
     repo.scripts.find((entry) => entry.name.endsWith(":dev"));
-  if (!script) {
-    return "pnpm dev";
-  }
-  return script.name === "dev" ? "pnpm dev" : `pnpm run -- ${shellSingleQuote(script.name)}`;
+  const scriptName = script?.name ?? "dev";
+  return {
+    command: scriptName === "dev" ? "pnpm dev" : `pnpm run -- ${shellSingleQuote(scriptName)}`,
+    match: `pnpm(\\.cjs)? .*${escapeExtendedRegex(scriptName)}`,
+  };
 }
 
 function inferPort(repo: ReturnType<typeof inspectRepo>): number {
   return repo.apps.find((app) => app.port)?.port ?? 3000;
 }
 
-function renderDockerfile(nodeMajor: string, pnpmVersion: string): string {
+function renderDockerfile(nodeMajor: string, pnpmVersion: string, version: string): string {
   const pnpmPackageSpec = `pnpm@${pnpmVersion}`;
+  const devrouterPackageSpec = `@devrouter/cli@${version}`;
+  const devrouterTarball = `devrouter-cli-${version}.tgz`;
   return `# ${MANAGED_MARKER}
 FROM node:${nodeMajor}-bookworm-slim
 
 RUN apt-get update \\
-  && apt-get install -y --no-install-recommends git ca-certificates curl procps openssl \\
+  && apt-get install -y --no-install-recommends git ca-certificates curl procps openssl tar util-linux \\
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g ${shellSingleQuote(pnpmPackageSpec)}
+
+RUN npm pack --silent ${shellSingleQuote(devrouterPackageSpec)} \\
+  && tar -xzf ${shellSingleQuote(devrouterTarball)} --strip-components=2 \\
+    -C /usr/local/bin package/bin/devrouter-process \\
+  && chmod +x /usr/local/bin/devrouter-process \\
+  && rm ${shellSingleQuote(devrouterTarball)}
 
 WORKDIR /workspaces/app
 `;
@@ -230,7 +246,7 @@ function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, "'\"'\"'")}'`;
 }
 
-function renderPostStart(devCommand: string): string {
+function renderPostStart(devProcess: { command: string; match: string }): string {
   return `#!/usr/bin/env bash
 # ${MANAGED_MARKER}
 set -euo pipefail
@@ -241,11 +257,11 @@ set -a
 . .devcontainer/devcontainer.env
 set +a
 
-if pgrep -f ${shellSingleQuote(devCommand)} >/dev/null 2>&1; then
-  exit 0
-fi
-
-setsid bash -lc ${shellSingleQuote(devCommand)} >/tmp/devrouter-app.log 2>&1 </dev/null &
+devrouter-process ensure \\
+  --name app \\
+  --match ${shellSingleQuote(devProcess.match)} \\
+  --log /tmp/devrouter-app.log \\
+  -- bash -lc ${shellSingleQuote(devProcess.command)}
 `;
 }
 
@@ -380,7 +396,7 @@ function plannedFiles(
       ? repo.packageManager.version
       : DEFAULT_PNPM_VERSION;
   const port = inferPort(repo);
-  const devCommand = inferDevScript(repo);
+  const devProcess = inferDevProcess(repo);
   const issues = packageManagerIssues(repo);
 
   return {
@@ -389,7 +405,7 @@ function plannedFiles(
     files: [
       {
         relativePath: ".devcontainer/Dockerfile",
-        content: renderDockerfile(nodeMajor, pnpmVersion),
+        content: renderDockerfile(nodeMajor, pnpmVersion, version),
       },
       { relativePath: ".devcontainer/docker-compose.yml", content: renderCompose(projectName) },
       {
@@ -413,7 +429,7 @@ function plannedFiles(
       },
       {
         relativePath: ".devcontainer/post-start.sh",
-        content: renderPostStart(devCommand),
+        content: renderPostStart(devProcess),
         executable: true,
       },
       { relativePath: ".devcontainer/README.md", content: renderReadme(projectName) },

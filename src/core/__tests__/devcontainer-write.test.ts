@@ -81,6 +81,14 @@ describe("devcontainer write planning", () => {
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "Dockerfile"), "utf-8")).toContain(
       "npm install -g 'pnpm@11.6.0'",
     );
+    const dockerfile = fs.readFileSync(path.join(tmpDir, ".devcontainer", "Dockerfile"), "utf-8");
+    expect(dockerfile).toContain("npm pack --silent '@devrouter/cli@1.2.3'");
+    expect(dockerfile).toContain("devrouter-cli-1.2.3.tgz");
+    expect(dockerfile).not.toContain("npm install -g '@devrouter/cli@1.2.3'");
+    const postStart = fs.readFileSync(path.join(tmpDir, ".devcontainer", "post-start.sh"), "utf-8");
+    expect(postStart).toContain("devrouter-process ensure");
+    expect(postStart).not.toContain("pgrep");
+    expect(postStart).not.toContain("setsid");
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "init-db.sh"), "utf-8")).toContain(
       "CREATE DATABASE shadow",
     );
@@ -185,6 +193,7 @@ describe("devcontainer write planning", () => {
     const postStart = fs.readFileSync(path.join(tmpDir, ".devcontainer", "post-start.sh"), "utf-8");
 
     expect(written.issues).toEqual([]);
+    expect(postStart).toContain("--match 'pnpm(\\.cjs)? .*web;touch pwned:dev'");
     expect(postStart).toContain("pnpm run -- '\"'\"'web;touch pwned:dev'\"'\"'");
     expect(postStart).not.toContain("pnpm run -- web;touch pwned:dev");
   });

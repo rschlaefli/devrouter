@@ -15,6 +15,21 @@ All notable changes to this project are documented in this file.
 
 - Repository normalized to Biome formatting and import order throughout. Existing files were reformatted in a single pass to establish a clean baseline.
 
+## [0.0.30] - 2026-07-14
+
+### Added
+
+- `devrouter-process ensure` provides one reusable Linux devcontainer primitive for locked, fingerprinted, process-group-owned application startup and safe bounded replacement.
+
+### Changed
+
+- Generated devcontainers extract only the managed-process helper from the exact Devrouter package tarball instead of installing the CLI dependency tree or emitting repository-specific `pgrep` and `setsid` lifecycle logic.
+- HTTP application readiness and the single recreate budget remain owned by host-side `devrouter workspace ensure`.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.30.md
+
 ## [0.0.29] - 2026-07-14
 
 ### Fixed

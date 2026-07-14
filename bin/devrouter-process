@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  devrouter-process ensure --name <name> --match <regex> [options] -- <command> [args...]
+
+Options:
+  --fingerprint <value>  Runtime identity. Defaults to command plus workspace identity.
+  --log <path>           Log file. Defaults to /tmp/devrouter-process-<name>.log.
+EOF
+}
+
+die() {
+  echo "[devrouter-process] $*" >&2
+  exit 1
+}
+
+require_value() {
+  [ "$#" -ge 2 ] || die "$1 requires a value."
+}
+
+[ "${1:-}" = "ensure" ] || {
+  usage >&2
+  exit 1
+}
+shift
+
+name=""
+process_match=""
+fingerprint=""
+log_file=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --name)
+      require_value "$@"
+      name="$2"
+      shift 2
+      ;;
+    --match)
+      require_value "$@"
+      process_match="$2"
+      shift 2
+      ;;
+    --fingerprint)
+      require_value "$@"
+      fingerprint="$2"
+      shift 2
+      ;;
+    --log)
+      require_value "$@"
+      log_file="$2"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      die "Unknown option: $1"
+      ;;
+  esac
+done
+
+[[ "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]] || die "--name must be a safe identifier."
+[ -n "$process_match" ] || die "--match is required."
+[ "$#" -gt 0 ] || die "A command is required after --."
+[ -r "/proc/$$/environ" ] || die "Linux /proc process metadata is required."
+
+for tool in awk cksum flock grep pgrep ps setsid tr; do
+  command -v "$tool" >/dev/null 2>&1 || die "Required command is unavailable: $tool"
+done
+
+match_status=0
+pgrep -f -- "$process_match" >/dev/null 2>&1 || match_status=$?
+[ "$match_status" -le 1 ] || die "--match is not a valid process regular expression."
+
+if [ -z "$fingerprint" ]; then
+  fingerprint="$({
+    printf '%s\0' "$name" "${WORKSPACE:-}" "${DEVROUTER_WORKSPACE:-}"
+    printf '%s\0' "$@"
+  } | cksum | awk '{print $1 "-" $2}')"
+fi
+[[ "$fingerprint" =~ ^[a-zA-Z0-9][a-zA-Z0-9._:-]*$ ]] || die "--fingerprint must be a safe identifier."
+
+state_dir="${DEVROUTER_PROCESS_STATE_DIR:-/tmp}"
+state_file="$state_dir/devrouter-process-$name.state"
+lock_file="$state_file.lock"
+log_file="${log_file:-/tmp/devrouter-process-$name.log}"
+lock_timeout="${DEVROUTER_PROCESS_LOCK_TIMEOUT_SECONDS:-30}"
+term_timeout="${DEVROUTER_PROCESS_TERM_TIMEOUT_SECONDS:-15}"
+kill_timeout="${DEVROUTER_PROCESS_KILL_TIMEOUT_SECONDS:-5}"
+
+process_alive() {
+  local pid="$1"
+  local state
+
+  kill -0 "$pid" 2>/dev/null || return 1
+  state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d ' ')"
+  [[ "$state" != Z* ]]
+}
+
+process_owned() {
+  local pid="$1"
+  local pgid="$2"
+  local expected_fingerprint="$3"
+  local actual_pgid
+
+  [ -r "/proc/$pid/environ" ] || return 1
+  actual_pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
+  [ "$actual_pgid" = "$pgid" ] || return 1
+  [ "$pgid" = "$pid" ] || return 1
+  tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null |
+    grep -Fqx "DEVROUTER_PROCESS_NAME=$name" || return 1
+  tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null |
+    grep -Fqx "DEVROUTER_PROCESS_FINGERPRINT=$expected_fingerprint"
+}
+
+process_group_alive() {
+  local pgid="$1"
+
+  ps -eo pgid=,stat= | awk -v expected="$pgid" '
+    $1 == expected && $2 !~ /^Z/ { found = 1 }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+is_self_or_ancestor() {
+  local candidate="$1"
+  local current="$$"
+
+  while [[ "$current" =~ ^[1-9][0-9]*$ ]]; do
+    [ "$candidate" = "$current" ] && return 0
+    [ "$current" -le 1 ] && break
+    current="$(ps -o ppid= -p "$current" 2>/dev/null | tr -d ' ')"
+  done
+  return 1
+}
+
+is_helper_process() {
+  local candidate="$1"
+
+  [ -r "/proc/$candidate/cmdline" ] || return 1
+  tr '\0' '\n' <"/proc/$candidate/cmdline" 2>/dev/null | grep -Fqx "$0"
+}
+
+marked_process_exists() {
+  local environ
+  local pid
+
+  for environ in /proc/[1-9]*/environ; do
+    [ -r "$environ" ] || continue
+    pid="${environ#/proc/}"
+    pid="${pid%/environ}"
+    process_alive "$pid" || continue
+    is_self_or_ancestor "$pid" && continue
+    if tr '\0' '\n' <"$environ" 2>/dev/null | grep -Fqx "DEVROUTER_PROCESS_NAME=$name"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+matching_process_exists() {
+  local pid
+
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    [ -d "/proc/$pid" ] || continue
+    process_alive "$pid" || continue
+    is_self_or_ancestor "$pid" && continue
+    is_helper_process "$pid" && continue
+    return 0
+  done < <(pgrep -f -- "$process_match" 2>/dev/null || true)
+  return 1
+}
+
+unknown_process_exists() {
+  marked_process_exists || matching_process_exists
+}
+
+stop_process_group() {
+  local pid="$1"
+  local pgid="$2"
+  local attempt
+
+  kill -TERM -- "-$pgid" 2>/dev/null || true
+  for ((attempt = 1; attempt <= term_timeout; attempt += 1)); do
+    if ! process_group_alive "$pgid"; then
+      wait "$pid" 2>/dev/null || true
+      return 0
+    fi
+    sleep 1
+  done
+
+  kill -KILL -- "-$pgid" 2>/dev/null || true
+  for ((attempt = 1; attempt <= kill_timeout; attempt += 1)); do
+    if ! process_group_alive "$pgid"; then
+      wait "$pid" 2>/dev/null || true
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "[devrouter-process] Could not stop owned process group $pgid." >&2
+  return 1
+}
+
+mkdir -p "$state_dir" "$(dirname "$log_file")"
+exec 9>"$lock_file"
+flock -w "$lock_timeout" 9 || die "Timed out waiting for the '$name' process lock."
+
+pid=""
+pgid=""
+stored_fingerprint=""
+extra=""
+
+if [ -f "$state_file" ]; then
+  read -r pid pgid stored_fingerprint extra <"$state_file" || true
+  if [ -z "$stored_fingerprint" ] ||
+    ! [[ "$pid" =~ ^[1-9][0-9]*$ ]] ||
+    ! [[ "$pgid" =~ ^[1-9][0-9]*$ ]] ||
+    [ -n "$extra" ]; then
+    if unknown_process_exists; then
+      die "Invalid state while an unowned '$name' process is running; refusing to start or kill it."
+    fi
+    rm -f "$state_file"
+  elif process_alive "$pid"; then
+    process_owned "$pid" "$pgid" "$stored_fingerprint" ||
+      die "State points at an unowned '$name' process; refusing to kill it."
+    if [ "$stored_fingerprint" = "$fingerprint" ]; then
+      echo "[devrouter-process] '$name' already matches this runtime (PID $pid)."
+      exit 0
+    fi
+
+    echo "[devrouter-process] '$name' runtime changed; restarting owned process group $pgid."
+    stop_process_group "$pid" "$pgid"
+    rm -f "$state_file"
+  else
+    rm -f "$state_file"
+  fi
+fi
+
+unknown_process_exists &&
+  die "Found an unowned '$name' process; refusing to start a duplicate or kill it."
+
+echo "[devrouter-process] Starting '$name' (logs: $log_file)..."
+env DEVROUTER_PROCESS_NAME="$name" \
+  DEVROUTER_PROCESS_FINGERPRINT="$fingerprint" \
+  setsid "$@" 9>&- >"$log_file" 2>&1 </dev/null &
+pid=$!
+pgid="$pid"
+
+for attempt in {1..10}; do
+  if process_owned "$pid" "$pgid" "$fingerprint"; then
+    printf '%s %s %s\n' "$pid" "$pgid" "$fingerprint" >"$state_file.tmp.$BASHPID"
+    mv "$state_file.tmp.$BASHPID" "$state_file"
+    echo "[devrouter-process] '$name' started (PID $pid)."
+    exit 0
+  fi
+  if ! process_alive "$pid"; then
+    die "'$name' exited during startup; see $log_file."
+  fi
+  sleep 1
+done
+
+stop_process_group "$pid" "$pgid" || true
+die "Could not verify ownership of '$name'; stopped it."
