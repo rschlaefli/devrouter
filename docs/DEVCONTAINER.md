@@ -78,7 +78,7 @@ separate alias needed.
 ```yaml
 version: 1
 devrouter:
-  version: 0.0.29
+  version: 0.0.30
 project:
   name: myapp
 apps:
@@ -124,7 +124,31 @@ worktree's `.git` file points into the host repository's common Git directory;
 `workspace ensure` supplies that absolute path and the two identity variables,
 then verifies them in the container.
 
-## 4. Bring up routing
+## 4. Start one owned application process
+
+The managed scaffold installs the pinned Devrouter package inside the app image.
+Its `post-start.sh` delegates background-process lifecycle to the packaged helper:
+
+```bash
+devrouter-process ensure \
+  --name app \
+  --match 'pnpm(\.cjs)? .*dev' \
+  --log /tmp/devrouter-app.log \
+  -- bash -lc 'pnpm dev'
+```
+
+The helper serializes concurrent starts, records and verifies the session leader,
+reuses only the same command and workspace identity, replaces only its owned
+process group, and refuses unknown matching processes. It requires Linux `/proc`,
+`procps`, and `util-linux`; the generated image includes them. Use
+`--fingerprint <value>` only when the application has additional runtime identity
+that is not derived from its command, `WORKSPACE`, or `DEVROUTER_WORKSPACE`.
+
+Application environment setup and the exact command remain repository-owned.
+HTTP readiness remains host-side in `workspace ensure`, so applications do not
+need a second route-health policy.
+
+## 5. Bring up routing
 
 Order matters — `devnet` is `external`, so it must exist before the container
 starts:
@@ -154,7 +178,7 @@ owns start and stop. Routes persist until `devrouter app rm <name> --keep-config
 
 Open `https://myapp.localhost`.
 
-## 5. Connecting to a TCP route (Postgres / Redis)
+## 6. Connecting to a TCP route (Postgres / Redis)
 
 TCP routes are demuxed by the SNI in the TLS ClientHello, so the client must
 start TLS immediately:
@@ -173,7 +197,7 @@ Plain `sslmode=require` (without `sslnegotiation=direct`) times out: libpq does 
 plaintext `SSLRequest` preamble first, so Traefik never sees the SNI. devrouter
 advertises ALPN `postgresql` automatically (libpq direct-SSL mandates it).
 
-## 6. Verify / tear down
+## 7. Verify / tear down
 
 ```bash
 devrouter repo devcontainer verify --json

@@ -44,8 +44,8 @@
 
 ## Progress
 
-- Current: Slice 1 complete.
-- Next: Slice 2, release 0.0.30 artifacts and publication gates.
+- Current: implementation and release artifacts complete.
+- Next: complete final security and maintainability gates, then publish and merge the Devrouter PR.
 
 ## Slice 1: reusable managed process
 
@@ -60,6 +60,9 @@
 
 - Do: version, lockfile, changelog, docs, and one upgrade prompt; document the small caller interface and Linux requirements.
 - Check: full test, typecheck, build, docs policy, Knip, package smoke, `git diff --check`.
+- Result: release 0.0.30 documents and packages the managed-process helper, updates generated devcontainer guidance, and leaves route readiness in `workspace ensure`.
+- Evidence: pinned Node 24/pnpm 11 full gate passes docs policy, Biome, Knip, TypeScript, 352/352 Vitest tests, build, and `git diff --check`. Opengrep reports 0 findings. A clean Node 24 Debian container installed the exact 0.0.30 tarball, resolved `/usr/local/bin/devrouter-process`, and passed the complete Linux lifecycle regression through the packaged executable.
+- Note: the clean npm install reports an existing transitive `uuid@10` deprecation and pending optional install-script notices; neither affects the packaged shell executable or this branch's dependency graph.
 - Commit: `chore(release): prepare 0.0.30`.
 
 ## Downstream gate
