@@ -10,6 +10,7 @@
     "url": "https://github.com/rschlaefli/devrouter.git"
   },
   "files": [
+    "bin",
     "dist",
     "upgrade-prompts"
   ],
@@ -19,12 +20,14 @@
     "node": ">=24"
   },
   "bin": {
-    "devrouter": "dist/devrouter.js"
+    "devrouter": "dist/devrouter.js",
+    "devrouter-process": "bin/devrouter-process"
   },
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli.ts",
-    "test": "vitest run",
+    "test": "vitest run && pnpm test:process",
+    "test:process": "bash scripts/test-devrouter-process.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "check:docs-policy": "./scripts/check-docs-policy.sh",

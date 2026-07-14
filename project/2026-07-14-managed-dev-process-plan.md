@@ -44,13 +44,16 @@
 
 ## Progress
 
-- Current: plan approved; implementation not started.
-- Next: Slice 1, reusable helper and generated scaffold integration.
+- Current: Slice 1 complete.
+- Next: Slice 2, release 0.0.30 artifacts and publication gates.
 
 ## Slice 1: reusable managed process
 
 - Do: add packaged helper; adapt generated Dockerfile and post-start scaffold; move lifecycle regression coverage to Devrouter.
 - Check: focused process tests in Linux, scaffold tests, typecheck, Biome, package-content inspection.
+- Result: `devrouter-process ensure` now hides locking, state validation, PID/PGID ownership, fingerprinted reuse, bounded group replacement, logging, and foreign-process refusal behind one command. Generated devcontainers pin the same Devrouter package in the image and call the helper with their inferred pnpm dev command.
+- Evidence: Linux regression passes concurrent start, exact reuse, explicit/default fingerprint changes, workspace change, stale and malformed state, TERM escalation, and foreign-process refusal. Full Vitest passes 352/352; Biome, Knip, TypeScript, build, docs policy, ShellCheck, package manifest inspection, Opengrep, and `git diff --check` pass. The npm tarball includes executable `bin/devrouter-process`.
+- Review: direct correctness and simplification pass kept HTTP health and recreate policy in `workspace ensure`, removed repository-specific lifecycle code from the generated scaffold, and retained no new config schema.
 - Commit: `feat(process): add managed dev-process helper`.
 
 ## Slice 2: release 0.0.30
