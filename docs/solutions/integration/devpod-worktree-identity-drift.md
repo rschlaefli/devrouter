@@ -8,7 +8,8 @@ symptoms:
   - "Git commands failed inside an otherwise running worktree container."
   - "Routes survived a failed runtime proof and pointed at an invalid environment."
   - "A valid container and process group kept serving HTTP 500 after a production build invalidated Next.js development output."
-root_cause: "Workspace identity, container preflight, and application readiness were checked and recovered independently."
+  - "Garbage collection could delete a workspace that was revived after the dry-run snapshot."
+root_cause: "Workspace identity, container preflight, application readiness, and cleanup ownership were checked and recovered independently."
 tags: [devpod, git-worktree, devcontainer, docker, routing, identity]
 ---
 
@@ -28,6 +29,8 @@ healthy environment.
 - A running container exposed the expected alias, but another container could claim the same
   alias and make routing ambiguous.
 - A failed post-start ownership check left previously published routes in place.
+- Cleanup could revalidate a missing owner, then race with `workspace ensure` before deleting its
+  DevPod, routes, and ownership record.
 
 ## What Didn't Work
 
@@ -39,6 +42,8 @@ healthy environment.
   development output, while a warm `devpod up` did not rerun the repository's post-start repair.
 - Looking only at containers from the expected Compose working directory hid foreign or standalone
   containers that claimed the same `devnet` alias.
+- Repeating ownership checks and conditionally removing the record did not close the cleanup race:
+  the DevPod and routes had already been deleted when a changed record was detected.
 
 ## Solution
 
@@ -67,6 +72,21 @@ owners receive a bounded wait and are never forcibly displaced (`src/core/file-l
 `src/core/host-routes.ts:233`). Cleanup removes only the caller's owner token
 (`src/core/file-lock.ts:133`).
 
+Classify DevPod ownership through one adapter that requires one exact ID-and-path pair and invokes
+provider actions with argv arrays (`src/core/devpod-workspaces.ts:47`,
+`src/core/devpod-workspaces.ts:88`). This keeps ensure, lifecycle, doctor, and GC on the same
+fail-closed ownership rule.
+
+Serialize every ownership write or removal through one repository-wide ledger transaction
+(`src/core/workspace-ownership.ts:318`, `src/core/workspace-ownership.ts:338`). GC holds that same
+transaction across final record, Git, DevPod, and route revalidation; provider deletion; exact route
+removal; and conditional record removal (`src/core/workspace-gc.ts:291`). A concurrent ensure either
+writes first and makes revalidation block cleanup, or waits until the old resources are fully
+removed. Keep dry-run inspection separate from apply so mutation always produces a fresh result
+instead of mutating the snapshot report (`src/core/workspace-gc.ts:379`,
+`src/core/workspace-gc.ts:398`). Transaction acquisition and per-candidate failures remain local so
+later eligible candidates can still be processed.
+
 ## Why This Works
 
 Readiness is now a single fail-closed proof. Every identity must resolve back to the exact worktree,
@@ -88,3 +108,9 @@ post-start attachment cleanup, bounded recreate, and atomic route cleanup
 break application readiness, confirm one automatic recreate restores every route, then run
 `devrouter workspace ensure .` again and confirm the warm run preserves the same container and
 process group.
+
+GC regression tests assert that the ownership transaction encloses DevPod, route, and record
+deletion; a workspace revived after inspection is not mutated; and a busy ledger lock fails only
+that candidate while later candidates continue (`src/core/__tests__/workspace-gc.test.ts:141`,
+`src/core/__tests__/workspace-gc.test.ts:242`,
+`src/core/__tests__/workspace-gc.test.ts:301`).
