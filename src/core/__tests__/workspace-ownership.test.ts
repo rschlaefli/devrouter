@@ -9,6 +9,7 @@ import {
   listWorkspaceOwnership,
   readWorkspaceOwnership,
   removeWorkspaceOwnership,
+  removeWorkspaceOwnershipIfMatches,
   resolveGitCommonDir,
   writeWorkspaceOwnership,
 } from "../workspace-ownership";
@@ -129,6 +130,24 @@ describe("workspace ownership storage", () => {
     expect(removeWorkspaceOwnership(repoPath, "feature")).toBe(false);
     expect(readWorkspaceOwnership(repoPath, "feature")).toBeUndefined();
   });
+
+  it("does not remove an ownership record that changed after inspection", () => {
+    const expected = writeWorkspaceOwnership(worktreePath, {
+      workspace: "feature",
+      worktreePath,
+      branch: "feature",
+      devpodId: "feature",
+    });
+    writeWorkspaceOwnership(worktreePath, {
+      workspace: "feature",
+      worktreePath,
+      branch: "renamed",
+      devpodId: "feature",
+    });
+
+    expect(removeWorkspaceOwnershipIfMatches(repoPath, expected)).toBe("changed");
+    expect(readWorkspaceOwnership(repoPath, "feature")).toBeDefined();
+  });
 });
 
 describe("Git worktree evidence", () => {
@@ -219,5 +238,33 @@ describe("workspace ownership status", () => {
     expect(inspectWorkspaceOwnership(record, listGitWorktrees(repoPath), []).ownerStatus).toBe(
       "missing",
     );
+  });
+
+  it("keeps a locked owner protected even when Git also marks it prunable", () => {
+    const record = writeWorkspaceOwnership(worktreePath, {
+      workspace: "feature",
+      worktreePath,
+      branch: "feature",
+      devpodId: "feature",
+    });
+
+    expect(
+      inspectWorkspaceOwnership(
+        record,
+        [{ path: worktreePath, branch: "feature", locked: true, prunable: true }],
+        [],
+      ).ownerStatus,
+    ).toBe("locked");
+  });
+
+  it("treats an existing unregistered path as a conflict instead of missing", () => {
+    const record = writeWorkspaceOwnership(worktreePath, {
+      workspace: "feature",
+      worktreePath,
+      branch: "feature",
+      devpodId: "feature",
+    });
+
+    expect(inspectWorkspaceOwnership(record, [], []).ownerStatus).toBe("conflict");
   });
 });

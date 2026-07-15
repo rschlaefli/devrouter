@@ -9,6 +9,7 @@ import { listDevpodWorkspaces, workspaceEnsure } from "../workspace-ensure";
 import { workspaceDown, workspaceLs, workspaceStop, workspaceUp } from "../workspace-lifecycle";
 import {
   inspectWorkspaceOwnership,
+  listMissingWorkspaceOwnership,
   listWorkspaceOwnership,
   removeWorkspaceOwnership,
 } from "../workspace-ownership";
@@ -36,6 +37,7 @@ vi.mock("../workspace-ownership", async (importOriginal) => {
       devpodStatus: "owned",
       worktree: undefined,
     })),
+    listMissingWorkspaceOwnership: vi.fn(() => []),
     listWorkspaceOwnership: vi.fn(() => []),
     removeWorkspaceOwnership: vi.fn(() => true),
   };
@@ -111,6 +113,7 @@ beforeEach(() => {
     wsFromBranch(branch ?? ""),
   );
   vi.mocked(listWorkspaceOwnership).mockReturnValue([]);
+  vi.mocked(listMissingWorkspaceOwnership).mockReturnValue([]);
   vi.mocked(listDevpodWorkspaces).mockReturnValue([]);
   vi.mocked(inspectWorkspaceOwnership).mockReturnValue({
     ownerStatus: "present",

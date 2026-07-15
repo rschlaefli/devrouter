@@ -1,4 +1,5 @@
 import { workspaceEnsure } from "../core/workspace-ensure";
+import { workspaceGc } from "../core/workspace-gc";
 import {
   workspaceDown,
   workspaceLs,
@@ -63,4 +64,28 @@ export async function runWorkspaceStopCommand(
   options: { repo?: string },
 ): Promise<void> {
   await workspaceStop(target, { repoPath: options.repo });
+}
+
+export function runWorkspaceGcCommand(options: {
+  repo?: string;
+  json?: boolean;
+  yes?: boolean;
+}): void {
+  const report = workspaceGc({ repoPath: options.repo, yes: options.yes });
+  if (options.json) {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else {
+    process.stdout.write(
+      `Workspace GC ${report.mode}: ${report.summary.eligible} eligible, ${report.summary.blocked} blocked, ${report.summary.cleaned} cleaned, ${report.summary.errors} error(s).\n`,
+    );
+    for (const candidate of report.candidates) {
+      process.stdout.write(
+        `${candidate.workspace}\t${candidate.kind}\t${candidate.ownerStatus ?? "legacy"}\t${candidate.eligible ? "eligible" : "blocked"}\t${candidate.worktreePath}\n`,
+      );
+    }
+    if (!options.yes && report.summary.eligible > 0) {
+      process.stdout.write("Dry run only. Re-run with --yes to apply eligible cleanup.\n");
+    }
+  }
+  if (report.summary.errors > 0) process.exitCode = 1;
 }

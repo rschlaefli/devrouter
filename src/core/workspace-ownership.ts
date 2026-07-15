@@ -45,6 +45,8 @@ export type WorkspaceOwnershipStatus = {
   worktree: GitWorktree | undefined;
 };
 
+export type ConditionalOwnershipRemoval = "removed" | "absent" | "changed";
+
 function commandError(command: string, repoPath: string, stderr: string | undefined): Error {
   return new Error(
     `${command} failed for '${repoPath}': ${stderr?.trim() || "not a Git repository"}`,
@@ -288,6 +290,45 @@ export function removeWorkspaceOwnership(repoPath: string, workspace: string): b
   );
 }
 
+function sameOwnershipRecord(
+  left: WorkspaceOwnershipRecord,
+  right: WorkspaceOwnershipRecord,
+): boolean {
+  return (
+    left.version === right.version &&
+    left.workspace === right.workspace &&
+    sameWorkspacePath(left.worktreePath, right.worktreePath) &&
+    left.branch === right.branch &&
+    left.devpodId === right.devpodId &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt
+  );
+}
+
+export function removeWorkspaceOwnershipIfMatches(
+  repoPath: string,
+  expected: WorkspaceOwnershipRecord,
+): ConditionalOwnershipRemoval {
+  const filePath = recordPath(repoPath, expected.workspace);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  return withFileLockSync(
+    `${filePath}.lock`,
+    { activity: "workspace ownership removal", target: `'${expected.workspace}'` },
+    () => {
+      let current: WorkspaceOwnershipRecord;
+      try {
+        current = readRecordFile(filePath, expected.workspace);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+        throw error;
+      }
+      if (!sameOwnershipRecord(current, expected)) return "changed";
+      fs.rmSync(filePath);
+      return "removed";
+    },
+  );
+}
+
 export function inspectWorkspaceOwnership(
   record: WorkspaceOwnershipRecord,
   worktrees: GitWorktree[],
@@ -317,11 +358,14 @@ export function inspectWorkspaceOwnership(
   if (devpodConflict) {
     return { ownerStatus: "conflict", devpodStatus, worktree };
   }
+  if (worktree?.locked) {
+    return { ownerStatus: "locked", devpodStatus, worktree };
+  }
+  if ((!worktree || worktree.prunable) && fs.existsSync(record.worktreePath)) {
+    return { ownerStatus: "conflict", devpodStatus, worktree };
+  }
   if (!worktree || worktree.prunable) {
     return { ownerStatus: "missing", devpodStatus, worktree };
-  }
-  if (worktree.locked) {
-    return { ownerStatus: "locked", devpodStatus, worktree };
   }
 
   let persisted: string | undefined;
@@ -335,4 +379,11 @@ export function inspectWorkspaceOwnership(
     devpodStatus,
     worktree,
   };
+}
+
+export function listMissingWorkspaceOwnership(repoPath: string): WorkspaceOwnershipRecord[] {
+  const worktrees = listGitWorktrees(repoPath);
+  return listWorkspaceOwnership(repoPath).filter(
+    (record) => inspectWorkspaceOwnership(record, worktrees, undefined).ownerStatus === "missing",
+  );
 }

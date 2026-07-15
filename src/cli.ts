@@ -474,6 +474,20 @@ workspaceCommand
   );
 
 workspaceCommand
+  .command("gc")
+  .description("Report or clean missing ledger-owned workspace resources")
+  .option("--repo <path>", "Main repository path (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .option("--yes", "Delete eligible DevPod, route, and ownership resources")
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{ repo?: string; json?: boolean; yes?: boolean }>();
+      const { runWorkspaceGcCommand } = await import("./commands/workspace");
+      runWorkspaceGcCommand(options);
+    }),
+  );
+
+workspaceCommand
   .command("stop")
   .description("Stop a workspace's DevPod and free routes while preserving its worktree and data")
   .argument("<workspace>", "Workspace token or live branch name")

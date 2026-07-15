@@ -23,6 +23,8 @@ import { discoverRoutes, findDuplicateHosts } from "./routes";
 import { collectRouterStatus } from "./status";
 import { getTLSHostCoverage } from "./tls";
 import { buildGlobalToolChecks } from "./tool-diagnostics";
+import { workspaceGc } from "./workspace-gc";
+import { resolveGitCommonDir } from "./workspace-ownership";
 
 type DoctorOptions = {
   repo?: string;
@@ -728,10 +730,58 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
     summary:
       orphanedWorkspaceRoutes.length === 0
         ? "No orphaned workspace proxy routes detected."
-        : `${orphanedWorkspaceRoutes.length} orphaned workspace proxy route entr${orphanedWorkspaceRoutes.length === 1 ? "y" : "ies"} detected (worktree removed without 'dev workspace down').`,
+        : `${orphanedWorkspaceRoutes.length} orphaned workspace proxy route entr${orphanedWorkspaceRoutes.length === 1 ? "y" : "ies"} detected for missing worktree paths.`,
     suggestion:
-      orphanedWorkspaceRoutes.length === 0 ? undefined : "Run: dev workspace down <workspace>",
+      orphanedWorkspaceRoutes.length === 0
+        ? undefined
+        : `Run: dev workspace gc --repo ${resolvedRepoPath}`,
   });
+
+  let gitWorkspaceRepo = false;
+  try {
+    resolveGitCommonDir(resolvedRepoPath);
+    gitWorkspaceRepo = true;
+  } catch {
+    // Workspace diagnostics are Git-only. Other doctor checks remain available.
+  }
+  if (gitWorkspaceRepo) {
+    try {
+      const gc = workspaceGc({ repoPath: resolvedRepoPath });
+      const needsAttention = gc.candidates.filter(
+        (candidate) =>
+          candidate.eligible || candidate.kind === "legacy" || candidate.ownerStatus === "conflict",
+      );
+      addCheck(checks, {
+        id: "workspace.ownership-cleanup",
+        level: needsAttention.length === 0 ? "ok" : "warn",
+        summary:
+          needsAttention.length === 0
+            ? "No missing or legacy workspace ownership detected."
+            : `${needsAttention.length} workspace ownership entr${needsAttention.length === 1 ? "y needs" : "ies need"} explicit cleanup review.`,
+        details:
+          needsAttention.length === 0
+            ? undefined
+            : needsAttention
+                .map(
+                  (candidate) =>
+                    `${candidate.workspace}: ${candidate.worktreePath} (${candidate.reason})`,
+                )
+                .join("\n"),
+        suggestion:
+          needsAttention.length === 0
+            ? undefined
+            : `Run: dev workspace gc --repo ${resolvedRepoPath}`,
+      });
+    } catch (error) {
+      addCheck(checks, {
+        id: "workspace.ownership-cleanup",
+        level: "warn",
+        summary: "Could not inspect workspace ownership cleanup state.",
+        details: error instanceof Error ? error.message : String(error),
+        suggestion: `Run: dev workspace gc --repo ${resolvedRepoPath}`,
+      });
+    }
+  }
 
   const summary = collectSummary(checks);
   const nextSteps = collectNextSteps(checks, statusNextSteps);

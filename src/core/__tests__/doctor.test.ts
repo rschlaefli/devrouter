@@ -6,6 +6,8 @@ import type { RouterStatus } from "../../types";
 import { buildDoctorReport } from "../doctor";
 import { collectRouterStatus } from "../status";
 import { getTLSHostCoverage } from "../tls";
+import { workspaceGc } from "../workspace-gc";
+import { resolveGitCommonDir } from "../workspace-ownership";
 
 vi.mock("../status", () => ({
   collectRouterStatus: vi.fn(),
@@ -34,6 +36,9 @@ vi.mock("../route-state", () => ({
   findStaleProcessRoutes: vi.fn(() => []),
   findOrphanedWorkspaceProxyRoutes: vi.fn(() => []),
 }));
+
+vi.mock("../workspace-gc", () => ({ workspaceGc: vi.fn() }));
+vi.mock("../workspace-ownership", () => ({ resolveGitCommonDir: vi.fn() }));
 
 vi.mock("../tls", () => ({
   getTLSHostCoverage: vi.fn(() => ({
@@ -153,6 +158,14 @@ function makeStatus(repoPath: string, tlsEnabled: boolean): RouterStatus {
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-doctor-test-"));
+  vi.mocked(resolveGitCommonDir).mockReturnValue(path.join(tmpDir, ".git"));
+  vi.mocked(workspaceGc).mockReturnValue({
+    generatedAt: "2026-07-15T10:00:00.000Z",
+    repoPath: tmpDir,
+    mode: "dry-run",
+    summary: { total: 0, eligible: 0, cleaned: 0, blocked: 0, errors: 0 },
+    candidates: [],
+  });
 });
 
 afterEach(() => {
@@ -161,6 +174,77 @@ afterEach(() => {
 });
 
 describe("buildDoctorReport", () => {
+  it("reuses the GC inspector and prints the exact repo cleanup command", async () => {
+    writeRepoFiles({
+      composeEnv:
+        "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
+    vi.mocked(workspaceGc).mockReturnValue({
+      generatedAt: "2026-07-15T10:00:00.000Z",
+      repoPath: tmpDir,
+      mode: "dry-run",
+      summary: { total: 1, eligible: 1, cleaned: 0, blocked: 0, errors: 0 },
+      candidates: [
+        {
+          kind: "owned",
+          workspace: "gone",
+          worktreePath: path.join(tmpDir, "trees", "gone"),
+          ownerStatus: "missing",
+          devpodStatus: "owned",
+          routeCount: 1,
+          eligible: true,
+          reason: "Ownership record is missing from live Git registration or marked prunable.",
+          actions: [],
+        },
+      ],
+    });
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const check = report.checks.find((entry) => entry.id === "workspace.ownership-cleanup");
+
+    expect(check).toMatchObject({
+      level: "warn",
+      suggestion: `Run: dev workspace gc --repo ${tmpDir}`,
+    });
+    expect(check?.details).toContain("gone");
+  });
+
+  it("warns for conflict-only ownership reports without making them eligible", async () => {
+    writeRepoFiles({
+      composeEnv:
+        "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
+    vi.mocked(workspaceGc).mockReturnValue({
+      generatedAt: "2026-07-15T10:00:00.000Z",
+      repoPath: tmpDir,
+      mode: "dry-run",
+      summary: { total: 1, eligible: 0, cleaned: 0, blocked: 1, errors: 0 },
+      candidates: [
+        {
+          kind: "owned",
+          workspace: "conflict",
+          devpodId: "conflict",
+          worktreePath: path.join(tmpDir, "trees", "conflict"),
+          ownerStatus: "conflict",
+          devpodStatus: "conflict",
+          routeCount: 0,
+          eligible: false,
+          reason: "Ownership conflicts with live evidence.",
+          actions: [],
+        },
+      ],
+    });
+
+    const check = (await buildDoctorReport({ repo: tmpDir })).checks.find(
+      (entry) => entry.id === "workspace.ownership-cleanup",
+    );
+
+    expect(check?.level).toBe("warn");
+    expect(check?.details).toContain("conflict");
+  });
+
   it("adds explicit TLS install guidance when tcp apps exist and TLS is disabled", async () => {
     writeRepoFiles({
       composeEnv:

@@ -16,6 +16,7 @@ import {
   type GitWorktree,
   inspectWorkspaceOwnership,
   listGitWorktrees,
+  listMissingWorkspaceOwnership,
   listWorkspaceOwnership,
   removeWorkspaceOwnership,
   type WorkspaceOwnerStatus,
@@ -37,6 +38,14 @@ export type WorkspaceRow = {
 };
 
 type IdentifiedGitWorktree = GitWorktree & { workspace: string | undefined };
+
+function warnMissingWorkspaceOwnership(repoPath: string): void {
+  const missing = listMissingWorkspaceOwnership(repoPath);
+  if (missing.length === 0) return;
+  process.stderr.write(
+    `Warning: ${missing.length} managed workspace owner${missing.length === 1 ? " is" : "s are"} missing. Review: dev workspace gc --repo ${repoPath}\n`,
+  );
+}
 
 function defaultWorktreePath(mainRepo: string, ws: string): string {
   return path.join(mainRepo, "trees", ws);
@@ -312,6 +321,7 @@ export async function workspaceUp(
   }
 
   if (opts.noDevpod) {
+    warnMissingWorkspaceOwnership(mainRepo);
     process.stdout.write("Skipped environment startup; no routes were changed.\n");
     return;
   }

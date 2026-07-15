@@ -24,7 +24,11 @@ import {
   sameWorkspacePath,
   withWorkspaceLifecycleLock,
 } from "./workspace";
-import { resolveGitCommonDir, writeWorkspaceOwnership } from "./workspace-ownership";
+import {
+  listMissingWorkspaceOwnership,
+  resolveGitCommonDir,
+  writeWorkspaceOwnership,
+} from "./workspace-ownership";
 
 const DEVCONTAINER_OVERLAY = "docker-compose.devrouter.yml";
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
@@ -471,6 +475,12 @@ export async function workspaceEnsure(
   const repoPath = comparableWorkspacePath(resolveRepoPath(requestedRepoPath));
   if (!isLinkedWorktree(repoPath)) {
     throw new Error(`workspace ensure requires a linked Git worktree (got '${repoPath}').`);
+  }
+  const missingOwners = listMissingWorkspaceOwnership(repoPath);
+  if (missingOwners.length > 0) {
+    process.stderr.write(
+      `Warning: ${missingOwners.length} managed workspace owner${missingOwners.length === 1 ? " is" : "s are"} missing. Review: dev workspace gc --repo ${repoPath}\n`,
+    );
   }
 
   return withWorkspaceLifecycleLock(repoPath, async () => {

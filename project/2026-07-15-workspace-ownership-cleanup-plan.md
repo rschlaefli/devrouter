@@ -196,5 +196,11 @@ Commit: `chore(release): publish 0.0.31 workspace cleanup`
 - Done: focused Slice 2 verification: 56 tests passed; `pnpm check`, `pnpm typecheck`, and `pnpm build` passed; CLI help contains no `--keep-devpod`.
 - Done: Gemini 3.5 Flash High review found no blocker; spawn errors now include Node error details.
 - Done: separate simplification review consolidated managed ownership validation, isolated legacy validation, clarified transaction phases, and removed stale test/comment machinery.
-- Active: commit Slice 2 after final staged diff verification.
-- Next: Slice 3 red tests for read-only GC, exact eligible cleanup, conflicts, failures, JSON, and doctor reuse.
+- Done: committed Slice 2 as `b0dfffa` (`enhance(workspace): clarify stop and teardown semantics`).
+- Done: Slice 3 ownership-aware dry-run/apply GC, stable JSON report, exact DevPod/route/record ordering, legacy reporting, and doctor reuse implemented.
+- Done: GC fails closed for present, locked, conflicting, path-reused, or changed ownership; apply revalidates each candidate and preserves later candidates after local discovery failures.
+- Done: focused Slice 3 verification: 81 tests passed; `pnpm check`, `pnpm typecheck`, and `pnpm build` passed.
+- Done: correctness review findings for path reuse, stale apply evidence, doctor conflicts, and escaping revalidation failures were fixed; final re-review found no findings at or above 75 confidence.
+- Done: simplification review removed duplicate warnings and fixed persisted DevPod identity use; doctor warning consolidation is intentionally assigned to Slice 4.
+- Active: Slice 4, compatibility regression coverage, lifecycle smoke harness, and synchronized documentation.
+- Next: protect non-Git commands, add Git-only workspace errors, consolidate doctor cleanup warnings, and update every public guidance surface.
