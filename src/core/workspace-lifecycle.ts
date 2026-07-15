@@ -10,7 +10,15 @@ import {
   withWorkspaceLifecycleLock,
   wsFromBranch,
 } from "./workspace";
-import { workspaceEnsure } from "./workspace-ensure";
+import { listDevpodWorkspaces, workspaceEnsure } from "./workspace-ensure";
+import {
+  type DevpodOwnerStatus,
+  type GitWorktree,
+  inspectWorkspaceOwnership,
+  listGitWorktrees,
+  listWorkspaceOwnership,
+  type WorkspaceOwnerStatus,
+} from "./workspace-ownership";
 
 // `dev workspace` ties a git worktree, an optional devpod/devcontainer, and the
 // per-workspace routes together so an agent can spin up (and tear down) a fully
@@ -21,6 +29,9 @@ export type WorkspaceRow = {
   workspace: string | undefined;
   branch: string | undefined;
   worktreePath: string;
+  legacy: boolean;
+  ownerStatus: WorkspaceOwnerStatus | undefined;
+  devpodStatus: DevpodOwnerStatus;
   routeCount: number;
   hosts: string[];
 };
@@ -30,36 +41,7 @@ function hasDevpod(): boolean {
   return result.status === 0;
 }
 
-type GitWorktree = { path: string; branch: string | undefined };
 type IdentifiedGitWorktree = GitWorktree & { workspace: string | undefined };
-
-function listGitWorktrees(repoPath: string): GitWorktree[] {
-  const result = spawnSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
-    encoding: "utf-8",
-  });
-  if (result.status !== 0) {
-    return [];
-  }
-  const worktrees: GitWorktree[] = [];
-  let current: Partial<GitWorktree> = {};
-  for (const line of result.stdout.split("\n")) {
-    if (line.startsWith("worktree ")) {
-      current = { path: line.slice("worktree ".length).trim() };
-    } else if (line.startsWith("branch ")) {
-      current.branch = line
-        .slice("branch ".length)
-        .trim()
-        .replace(/^refs\/heads\//, "");
-    } else if (line.trim() === "" && current.path) {
-      worktrees.push({ path: current.path, branch: current.branch });
-      current = {};
-    }
-  }
-  if (current.path) {
-    worktrees.push({ path: current.path, branch: current.branch });
-  }
-  return worktrees;
-}
 
 function defaultWorktreePath(mainRepo: string, ws: string): string {
   return path.join(mainRepo, "trees", ws);
@@ -184,21 +166,49 @@ export async function workspaceUp(
 export function workspaceLs(repoPath?: string): WorkspaceRow[] {
   const mainRepo = resolveRepoPath(repoPath);
   const worktrees = identifyGitWorktrees(mainRepo);
-  const routesByWorktreePath = listRoutesForWorktreePaths(
-    worktrees.map((worktree) => worktree.path),
+  const records = listWorkspaceOwnership(mainRepo);
+  let devpods: ReturnType<typeof listDevpodWorkspaces> | undefined;
+  try {
+    devpods = listDevpodWorkspaces();
+  } catch {
+    devpods = undefined;
+  }
+  const paths = Array.from(
+    new Set([
+      ...worktrees.map((worktree) => worktree.path),
+      ...records.map((record) => record.worktreePath),
+    ]),
   );
+  const routesByWorktreePath = listRoutesForWorktreePaths(paths);
 
-  return worktrees.map((wt) => {
-    // The primary checkout has no workspace; a linked worktree derives its token
-    // from the branch. Use the canonical isLinkedWorktree() rather than assuming
-    // git lists the primary first. Attribute routes by worktree path (not by tag),
-    // so counts stay correct under detached HEAD and never absorb another repo's
-    // untagged routes.
-    const wsRoutes = routesByWorktreePath.get(wt.path) ?? [];
+  const worktreesByPath = new Map(worktrees.map((worktree) => [worktree.path, worktree]));
+  const recordsByPath = new Map(records.map((record) => [record.worktreePath, record]));
+
+  return paths.map((worktreePath) => {
+    // Attribute routes by exact path, never by token alone. This keeps detached,
+    // missing, and same-token cross-repository workspaces separate.
+    const worktree = worktreesByPath.get(worktreePath);
+    const record = recordsByPath.get(worktreePath);
+    const status = record ? inspectWorkspaceOwnership(record, worktrees, devpods) : undefined;
+    const matchingDevpods = devpods?.filter((devpod) =>
+      sameWorkspacePath(devpod.source.localFolder, worktreePath),
+    );
+    const wsRoutes = routesByWorktreePath.get(worktreePath) ?? [];
     return {
-      workspace: wt.workspace,
-      branch: wt.branch,
-      worktreePath: wt.path,
+      workspace: record?.workspace ?? worktree?.workspace,
+      branch: worktree?.branch ?? record?.branch ?? undefined,
+      worktreePath,
+      legacy: !record && worktree?.workspace !== undefined,
+      ownerStatus: status?.ownerStatus,
+      devpodStatus:
+        status?.devpodStatus ??
+        (devpods === undefined
+          ? ("unknown" as const)
+          : matchingDevpods?.length === 0
+            ? ("absent" as const)
+            : matchingDevpods?.length === 1
+              ? ("owned" as const)
+              : ("conflict" as const)),
       routeCount: wsRoutes.length,
       hosts: wsRoutes.map((route) => route.host),
     };

@@ -36,8 +36,9 @@ export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }
   }
   for (const row of rows) {
     const label = row.workspace ?? "(primary)";
+    const ownership = row.ownerStatus ?? (row.legacy ? "legacy" : "unmanaged");
     process.stdout.write(
-      `${label}\t${row.branch ?? "-"}\t${row.routeCount} route(s)\t${row.worktreePath}\n`,
+      `${label}\t${row.branch ?? "-"}\t${ownership}\tdevpod:${row.devpodStatus}\t${row.routeCount} route(s)\t${row.worktreePath}\n`,
     );
   }
 }

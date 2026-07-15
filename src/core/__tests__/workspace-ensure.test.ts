@@ -281,6 +281,7 @@ describe("workspaceEnsure", () => {
       curlStatus?: number;
       curlCode?: string;
       curlCodes?: string[];
+      onDevpodUp?: () => void;
     } = {},
   ): void {
     let devpodUpCall = 0;
@@ -308,6 +309,7 @@ describe("workspaceEnsure", () => {
         return { status: 0, stdout: listedDevpod, stderr: "" } as never;
       }
       if (command === "devpod" && argv[0] === "up") {
+        options.onDevpodUp?.();
         const status = options.devpodUpStatuses?.[devpodUpCall] ?? options.devpodUpStatus ?? 0;
         devpodUpCall += 1;
         return { status } as never;
@@ -375,6 +377,27 @@ describe("workspaceEnsure", () => {
         }),
       }),
     );
+  });
+
+  it("persists common ownership before the first DevPod startup side effect", async () => {
+    let recordAtStartup: string | undefined;
+    mockLifecycle({
+      onDevpodUp: () => {
+        const recordPath = path.join(gitDir, "devrouter", "workspaces", "feature.json");
+        recordAtStartup = fs.existsSync(recordPath)
+          ? fs.readFileSync(recordPath, "utf-8")
+          : undefined;
+      },
+    });
+
+    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+
+    expect(JSON.parse(recordAtStartup ?? "null")).toMatchObject({
+      version: 1,
+      workspace: "feature",
+      worktreePath: tmpDir,
+      devpodId: "feature",
+    });
   });
 
   it("does not change routes when DevPod startup fails", async () => {

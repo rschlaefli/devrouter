@@ -185,5 +185,10 @@ Commit: `chore(release): publish 0.0.31 workspace cleanup`
 - Done: completed two Gemini 3.5 Flash High plan reviews; no remaining blockers.
 - Done: created `codex/workspace-ownership-cleanup` at the repo-local worktree above.
 - Done: committed `CONTEXT.md` and ADR 0001 separately.
-- Active: commit this approved plan alone.
-- Next: Slice 1 red test for durable ownership persistence before runtime creation.
+- Done: committed this approved plan alone.
+- Done: Slice 1 storage, ensure ordering/adoption, Git evidence parsing, and ownership-aware listing implemented.
+- Done: focused Slice 1 verification: 46 tests passed; `pnpm check` and `pnpm typecheck` passed.
+- Done: Gemini 3.5 Flash High correctness review found one managed-as-unmanaged fallback bug; fixed by separating Git ownership from DevPod availability.
+- Done: separate simplification review removed redundant row state, unified row construction, reused path comparison, and avoided duplicate common-dir discovery within writes.
+- Active: commit Slice 1 after final diff/status verification.
+- Next: Slice 2 red tests for dirty/locked preflight, stop semantics, exact DevPod deletion, and retry-safe ordering.

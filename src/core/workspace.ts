@@ -161,7 +161,7 @@ export async function withWorkspaceLifecycleLock<T>(
   );
 }
 
-function currentBranch(repoPath: string): string | undefined {
+export function currentBranch(repoPath: string): string | undefined {
   const result = spawnSync("git", ["-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD"], {
     encoding: "utf-8",
   });

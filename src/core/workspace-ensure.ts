@@ -16,6 +16,7 @@ import {
 import { ensureTLSHostsCovered } from "./tls";
 import {
   comparableWorkspacePath,
+  currentBranch,
   isLinkedWorktree,
   persistWorkspace,
   readPersistedWorkspace,
@@ -23,6 +24,7 @@ import {
   sameWorkspacePath,
   withWorkspaceLifecycleLock,
 } from "./workspace";
+import { resolveGitCommonDir, writeWorkspaceOwnership } from "./workspace-ownership";
 
 const DEVCONTAINER_OVERLAY = "docker-compose.devrouter.yml";
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
@@ -79,7 +81,7 @@ export function selectDevpodWorkspace(
   return matches[0];
 }
 
-function listDevpodWorkspaces(): DevpodWorkspace[] {
+export function listDevpodWorkspaces(): DevpodWorkspace[] {
   const result = spawnSync("devpod", ["list", "--output", "json"], { encoding: "utf-8" });
   if (result.status !== 0) {
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
@@ -411,18 +413,6 @@ function resolveIdentity(repoPath: string): {
   };
 }
 
-function gitCommonDir(repoPath: string): string {
-  const result = spawnSync(
-    "git",
-    ["-C", repoPath, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-    { encoding: "utf-8" },
-  );
-  if (result.status !== 0 || !result.stdout.trim()) {
-    throw new Error(`Could not resolve the Git common directory for '${repoPath}'.`);
-  }
-  return comparableWorkspacePath(result.stdout.trim());
-}
-
 function startDevpod(
   repoPath: string,
   workspace: string,
@@ -502,13 +492,21 @@ export async function workspaceEnsure(
           );
         }
       }
-      const commonDir = gitCommonDir(repoPath);
+      const commonDir = resolveGitCommonDir(repoPath);
       const upstreamHosts = parsedUpstreams.map((upstream) => upstream.host);
+      const ownership = {
+        workspace,
+        worktreePath: repoPath,
+        branch: currentBranch(repoPath),
+        devpodId: workspace,
+      };
+      writeWorkspaceOwnership(repoPath, ownership);
 
       const startAndProveAttachment = (recreate = false): void => {
         startDevpod(repoPath, workspace, commonDir, recreate);
         environmentStarted = true;
         assertDevpodAttachment(repoPath, workspace);
+        writeWorkspaceOwnership(repoPath, ownership);
       };
       const recreateAndWait = async (): Promise<void> => {
         startAndProveAttachment(true);

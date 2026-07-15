@@ -5,8 +5,9 @@ import type { HostRouteState } from "../../types";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
 import { resolveWorktreeWorkspace, withWorkspaceLifecycleLock, wsFromBranch } from "../workspace";
-import { workspaceEnsure } from "../workspace-ensure";
+import { listDevpodWorkspaces, workspaceEnsure } from "../workspace-ensure";
 import { workspaceDown, workspaceLs, workspaceUp } from "../workspace-lifecycle";
+import { listWorkspaceOwnership } from "../workspace-ownership";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../route-state", () => ({
@@ -14,6 +15,7 @@ vi.mock("../route-state", () => ({
   removeWorkspaceRoutesForWorktree: vi.fn(() => []),
 }));
 vi.mock("../workspace-ensure", () => ({
+  listDevpodWorkspaces: vi.fn(() => []),
   workspaceEnsure: vi.fn(async (repoPath: string) => ({
     repoPath,
     workspace: "feat-a",
@@ -21,6 +23,13 @@ vi.mock("../workspace-ensure", () => ({
     urls: ["https://app.feat-a.localhost"],
   })),
 }));
+vi.mock("../workspace-ownership", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../workspace-ownership")>();
+  return {
+    ...actual,
+    listWorkspaceOwnership: vi.fn(() => []),
+  };
+});
 vi.mock("../repo-config", () => ({
   loadRuntimeConfig: vi.fn(() => ({ config: { version: 1, apps: [] }, workspace: undefined })),
   resolveRepoPath: vi.fn((p?: string) => p ?? "/main/repo"),
@@ -82,6 +91,8 @@ beforeEach(() => {
   vi.mocked(resolveWorktreeWorkspace).mockImplementation((_repoPath, branch) =>
     wsFromBranch(branch ?? ""),
   );
+  vi.mocked(listWorkspaceOwnership).mockReturnValue([]);
+  vi.mocked(listDevpodWorkspaces).mockReturnValue([]);
 });
 
 afterEach(() => {
@@ -110,7 +121,13 @@ describe("workspaceDown", () => {
       route("feat-a", "web", "/main/repo-feat-a"),
       route("feat-a", "api", "/main/repo-feat-a"),
     ]);
-    vi.mocked(spawnSync).mockReturnValue({ status: 1 } as never); // devpod absent, no git
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      return { status: 1 } as never; // DevPod absent
+    });
 
     const result = await workspaceDown("feat-a", { keepWorktree: true, keepDevpod: true });
 
@@ -160,7 +177,13 @@ describe("workspaceDown", () => {
     vi.mocked(removeWorkspaceRoutesForWorktree).mockReturnValue([
       route("feat-a", "web", legacyPath),
     ]);
-    vi.mocked(spawnSync).mockReturnValue({ status: 1 } as never);
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      return { status: 1 } as never;
+    });
 
     const result = await workspaceDown("feat-a", {
       keepWorktree: true,
@@ -297,6 +320,29 @@ describe("workspaceLs", () => {
       branch: undefined,
       worktreePath: "/custom/detached",
     });
+  });
+
+  it("includes a durable owner immediately after its worktree goes missing", () => {
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN } as never);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([
+      {
+        version: 1,
+        workspace: "gone",
+        worktreePath: "/main/repo/trees/gone",
+        branch: "feat/gone",
+        devpodId: "gone",
+        createdAt: "2026-07-15T10:00:00.000Z",
+        updatedAt: "2026-07-15T10:00:00.000Z",
+      },
+    ]);
+
+    expect(workspaceLs()).toContainEqual(
+      expect.objectContaining({
+        workspace: "gone",
+        worktreePath: "/main/repo/trees/gone",
+        ownerStatus: "missing",
+      }),
+    );
   });
 });
 
