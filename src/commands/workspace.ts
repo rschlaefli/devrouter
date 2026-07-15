@@ -1,5 +1,10 @@
 import { workspaceEnsure } from "../core/workspace-ensure";
-import { workspaceDown, workspaceLs, workspaceUp } from "../core/workspace-lifecycle";
+import {
+  workspaceDown,
+  workspaceLs,
+  workspaceStop,
+  workspaceUp,
+} from "../core/workspace-lifecycle";
 
 export async function runWorkspaceUpCommand(
   branch: string,
@@ -45,11 +50,17 @@ export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }
 
 export async function runWorkspaceDownCommand(
   target: string,
-  options: { keepWorktree?: boolean; keepDevpod?: boolean; repo?: string },
+  options: { keepWorktree?: boolean; repo?: string },
 ): Promise<void> {
   await workspaceDown(target, {
     keepWorktree: options.keepWorktree,
-    keepDevpod: options.keepDevpod,
     repoPath: options.repo,
   });
+}
+
+export async function runWorkspaceStopCommand(
+  target: string,
+  options: { repo?: string },
+): Promise<void> {
+  await workspaceStop(target, { repoPath: options.repo });
 }

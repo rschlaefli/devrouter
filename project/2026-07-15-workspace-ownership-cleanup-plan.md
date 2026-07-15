@@ -190,5 +190,11 @@ Commit: `chore(release): publish 0.0.31 workspace cleanup`
 - Done: focused Slice 1 verification: 46 tests passed; `pnpm check` and `pnpm typecheck` passed.
 - Done: Gemini 3.5 Flash High correctness review found one managed-as-unmanaged fallback bug; fixed by separating Git ownership from DevPod availability.
 - Done: separate simplification review removed redundant row state, unified row construction, reused path comparison, and avoided duplicate common-dir discovery within writes.
-- Active: commit Slice 1 after final diff/status verification.
-- Next: Slice 2 red tests for dirty/locked preflight, stop semantics, exact DevPod deletion, and retry-safe ordering.
+- Done: committed Slice 1 as `afbd9b0` (`feat(workspace): persist workspace ownership`).
+- Done: Slice 2 stop/down CLI and fail-closed lifecycle transaction implemented.
+- Done: dirty and locked full down reject before side effects; keep-worktree reclaim remains allowed; exact DevPod delete/stop and record-last ordering verified.
+- Done: focused Slice 2 verification: 56 tests passed; `pnpm check`, `pnpm typecheck`, and `pnpm build` passed; CLI help contains no `--keep-devpod`.
+- Done: Gemini 3.5 Flash High review found no blocker; spawn errors now include Node error details.
+- Done: separate simplification review consolidated managed ownership validation, isolated legacy validation, clarified transaction phases, and removed stale test/comment machinery.
+- Active: commit Slice 2 after final staged diff verification.
+- Next: Slice 3 red tests for read-only GC, exact eligible cleanup, conflicts, failures, JSON, and doctor reuse.

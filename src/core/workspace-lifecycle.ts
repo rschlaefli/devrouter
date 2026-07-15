@@ -17,13 +17,13 @@ import {
   inspectWorkspaceOwnership,
   listGitWorktrees,
   listWorkspaceOwnership,
+  removeWorkspaceOwnership,
   type WorkspaceOwnerStatus,
+  type WorkspaceOwnershipRecord,
 } from "./workspace-ownership";
 
-// `dev workspace` ties a git worktree, an optional devpod/devcontainer, and the
-// per-workspace routes together so an agent can spin up (and tear down) a fully
-// isolated, routed copy of a repo in one command. devrouter stays a router: the
-// devpod calls are best-effort glue, gated on devpod being installed.
+// Workspace lifecycle mutations fail closed: Git, ledger, DevPod source, and
+// route evidence must identify the same exact owner before resources change.
 
 export type WorkspaceRow = {
   workspace: string | undefined;
@@ -35,11 +35,6 @@ export type WorkspaceRow = {
   routeCount: number;
   hosts: string[];
 };
-
-function hasDevpod(): boolean {
-  const result = spawnSync("devpod", ["version"], { encoding: "utf-8" });
-  return result.status === 0;
-}
 
 type IdentifiedGitWorktree = GitWorktree & { workspace: string | undefined };
 
@@ -97,6 +92,172 @@ function oneWorkspaceMatch(
     throw new Error(`Workspace target '${target}' is ambiguous: ${details}`);
   }
   return matches[0];
+}
+
+type ResolvedWorkspaceTarget = {
+  workspace: string;
+  worktreePath: string;
+  worktree: IdentifiedGitWorktree | undefined;
+  record: WorkspaceOwnershipRecord | undefined;
+};
+
+function oneRecordMatch(
+  target: string,
+  matches: WorkspaceOwnershipRecord[],
+): WorkspaceOwnershipRecord | undefined {
+  if (matches.length > 1) {
+    throw new Error(
+      `Workspace target '${target}' is ambiguous: ${matches.map((match) => match.worktreePath).join(", ")}`,
+    );
+  }
+  return matches[0];
+}
+
+function resolveWorkspaceTarget(
+  mainRepo: string,
+  target: string,
+  worktrees: IdentifiedGitWorktree[],
+  records: WorkspaceOwnershipRecord[],
+): ResolvedWorkspaceTarget {
+  const requestedWorkspace = wsFromBranch(target);
+  if (!requestedWorkspace) {
+    throw new Error(`'${target}' does not yield a valid workspace token.`);
+  }
+
+  const liveBranchWorktree = oneWorkspaceMatch(
+    target,
+    worktrees.filter((worktree) => worktree.workspace !== undefined && worktree.branch === target),
+  );
+  if (liveBranchWorktree) {
+    const liveWorkspace = liveBranchWorktree.workspace;
+    if (!liveWorkspace) {
+      throw new Error(`Live branch '${target}' is not an isolated workspace.`);
+    }
+    const liveRecord = oneRecordMatch(
+      target,
+      records.filter((record) => sameWorkspacePath(record.worktreePath, liveBranchWorktree.path)),
+    );
+    return {
+      workspace: liveRecord?.workspace ?? liveWorkspace,
+      worktreePath: liveBranchWorktree.path,
+      worktree: liveBranchWorktree,
+      record: liveRecord,
+    };
+  }
+
+  const record = records.find((candidate) => candidate.workspace === requestedWorkspace);
+  if (record) {
+    return {
+      workspace: record.workspace,
+      worktreePath: record.worktreePath,
+      worktree: worktreeForRecord(worktrees, record),
+      record,
+    };
+  }
+
+  const linked = worktrees.filter((worktree) => worktree.workspace !== undefined);
+  const exactBranchMatch = linked.find((worktree) => worktree.branch === target);
+  const worktree =
+    exactBranchMatch ??
+    oneWorkspaceMatch(
+      target,
+      linked.filter((candidate) => candidate.workspace === requestedWorkspace),
+    ) ??
+    oneWorkspaceMatch(
+      target,
+      linked.filter(
+        (candidate) =>
+          candidate.branch !== undefined && wsFromBranch(candidate.branch) === requestedWorkspace,
+      ),
+    );
+  const workspace = worktree?.workspace ?? requestedWorkspace;
+  return {
+    workspace,
+    worktreePath: worktree?.path ?? teardownFallbackPath(mainRepo, workspace),
+    worktree,
+    record: undefined,
+  };
+}
+
+function worktreeForRecord(
+  worktrees: IdentifiedGitWorktree[],
+  record: WorkspaceOwnershipRecord,
+): IdentifiedGitWorktree | undefined {
+  return worktrees.find((candidate) => sameWorkspacePath(candidate.path, record.worktreePath));
+}
+
+function devpodForTarget(
+  target: ResolvedWorkspaceTarget,
+  worktrees: IdentifiedGitWorktree[],
+  devpods: ReturnType<typeof listDevpodWorkspaces>,
+) {
+  if (target.record) {
+    const status = inspectWorkspaceOwnership(target.record, worktrees, devpods);
+    if (status.ownerStatus === "conflict") {
+      throw new Error(
+        `Workspace '${target.workspace}' ownership conflicts with live Git or DevPod evidence; no resources were changed.`,
+      );
+    }
+    const devpodId = target.record.devpodId;
+    return devpods.find((devpod) => devpod.id === devpodId);
+  }
+
+  // Pre-ledger workspaces need the same exact ID+path proof, but have no record
+  // whose local persisted token can be inspected.
+  const devpodId = target.workspace;
+  const byId = devpods.find((devpod) => devpod.id === devpodId);
+  if (byId && !sameWorkspacePath(byId.source.localFolder, target.worktreePath)) {
+    throw new Error(
+      `DevPod identity '${devpodId}' belongs to '${byId.source.localFolder}', not '${target.worktreePath}'.`,
+    );
+  }
+  const pathOwners = devpods.filter((devpod) =>
+    sameWorkspacePath(devpod.source.localFolder, target.worktreePath),
+  );
+  if (pathOwners.length > 1 || (pathOwners[0] && pathOwners[0].id !== devpodId)) {
+    throw new Error(
+      `Worktree '${target.worktreePath}' has conflicting DevPod ownership: ${pathOwners.map((owner) => owner.id).join(", ")}.`,
+    );
+  }
+  return byId;
+}
+
+function runDevpodLifecycle(action: "stop" | "delete", devpodId: string): void {
+  const args = action === "delete" ? [action, devpodId, "--ignore-not-found"] : [action, devpodId];
+  const result = spawnSync("devpod", args, { encoding: "utf-8" });
+  if (result.status !== 0) {
+    const detail = [result.error?.message, result.stdout, result.stderr]
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    throw new Error(`devpod ${action} failed for '${devpodId}': ${detail || "unknown error"}`);
+  }
+}
+
+function assertFullDownPreflight(mainRepo: string, target: ResolvedWorkspaceTarget): void {
+  if (sameWorkspacePath(target.worktreePath, mainRepo)) {
+    throw new Error("Refusing to remove the primary Git checkout.");
+  }
+  if (!target.worktree || target.worktree.prunable || !fs.existsSync(target.worktreePath)) return;
+  if (target.worktree.locked) {
+    throw new Error(
+      `Worktree '${target.worktreePath}' is locked; unlock it before workspace down.`,
+    );
+  }
+  const status = spawnSync(
+    "git",
+    ["-C", target.worktreePath, "status", "--porcelain", "--untracked-files=normal"],
+    { encoding: "utf-8" },
+  );
+  if (status.status !== 0) {
+    const detail = [status.error?.message, status.stderr].filter(Boolean).join("\n").trim();
+    throw new Error(`git status failed for '${target.worktreePath}': ${detail || "unknown error"}`);
+  }
+  if (status.stdout.trim()) {
+    throw new Error(
+      `Worktree '${target.worktreePath}' has uncommitted changes; use --keep-worktree or clean it before workspace down.`,
+    );
+  }
 }
 
 export async function workspaceUp(
@@ -215,68 +376,76 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
   });
 }
 
-export async function workspaceDown(
+type WorkspaceLifecycleResult = { freedRoutes: number; workspace: string };
+
+async function runWorkspaceLifecycle(
+  action: "stop" | "down",
   target: string,
-  opts: { keepWorktree?: boolean; keepDevpod?: boolean; repoPath?: string } = {},
-): Promise<{ freedRoutes: number; workspace: string }> {
-  const requestedWorkspace = wsFromBranch(target);
-  if (!requestedWorkspace) {
-    throw new Error(`'${target}' does not yield a valid workspace token.`);
-  }
-
-  // Resolve this repo's worktree for the workspace (live entry, else the default
-  // path) so route freeing can be scoped to it. Never load the worktree's config,
-  // so teardown still works when the worktree/.devrouter.yml is already gone.
+  opts: { keepWorktree?: boolean; repoPath?: string } = {},
+): Promise<WorkspaceLifecycleResult> {
   const mainRepo = resolveRepoPath(opts.repoPath);
-  const worktrees = identifyGitWorktrees(mainRepo).filter(
-    (worktree) => worktree.workspace !== undefined,
-  );
-  const exactBranchMatch = worktrees.find((worktree) => worktree.branch === target);
-  const match =
-    exactBranchMatch ??
-    oneWorkspaceMatch(
-      target,
-      worktrees.filter((worktree) => worktree.workspace === requestedWorkspace),
-    ) ??
-    oneWorkspaceMatch(
-      target,
-      worktrees.filter(
-        (worktree) =>
-          worktree.branch !== undefined && wsFromBranch(worktree.branch) === requestedWorkspace,
-      ),
-    );
-  const workspace = match?.workspace ?? requestedWorkspace;
-  const worktreePath = match?.path ?? teardownFallbackPath(mainRepo, workspace);
-
-  const teardown = async (): Promise<{ freedRoutes: number; workspace: string }> => {
-    // Free routes by the workspace tag AND the worktree path, so a same-named
-    // workspace in a different repo is never torn down by this call.
-    const routes = removeWorkspaceRoutesForWorktree(workspace, worktreePath);
-    process.stdout.write(`Freed ${routes.length} route(s) for workspace '${workspace}'.\n`);
-
-    if (!opts.keepDevpod && hasDevpod()) {
-      spawnSync("devpod", ["stop", workspace], { stdio: "inherit" });
+  const worktrees = identifyGitWorktrees(mainRepo);
+  const records = listWorkspaceOwnership(mainRepo);
+  const resolved = resolveWorkspaceTarget(mainRepo, target, worktrees, records);
+  const operation = async (): Promise<WorkspaceLifecycleResult> => {
+    const removeWorktree = action === "down" && !opts.keepWorktree;
+    const devpodAction = action === "stop" ? "stop" : "delete";
+    if (removeWorktree) {
+      assertFullDownPreflight(mainRepo, resolved);
+    }
+    const devpods = listDevpodWorkspaces();
+    const devpod = devpodForTarget(resolved, worktrees, devpods);
+    if (devpod) {
+      runDevpodLifecycle(devpodAction, devpod.id);
     }
 
-    if (!opts.keepWorktree) {
-      if (fs.existsSync(worktreePath) && worktreePath !== mainRepo) {
-        const rm = spawnSync("git", ["-C", mainRepo, "worktree", "remove", worktreePath], {
+    // Free routes only after successful provider mutation. Exact workspace+path
+    // scoping prevents same-token workspaces in other repositories from changing.
+    const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
+    process.stdout.write(
+      `Freed ${routes.length} route(s) for workspace '${resolved.workspace}'.\n`,
+    );
+
+    if (removeWorktree) {
+      if (
+        resolved.worktree &&
+        !resolved.worktree.prunable &&
+        fs.existsSync(resolved.worktreePath)
+      ) {
+        const rm = spawnSync("git", ["-C", mainRepo, "worktree", "remove", resolved.worktreePath], {
           encoding: "utf-8",
         });
-        if (rm.status === 0) {
-          process.stdout.write(`Removed worktree ${worktreePath}.\n`);
-        } else {
-          process.stderr.write(
-            `Warning: could not remove worktree ${worktreePath}: ${rm.stderr || "unknown error"}\n`,
+        if (rm.status !== 0) {
+          const detail = [rm.error?.message, rm.stderr].filter(Boolean).join("\n").trim();
+          throw new Error(
+            `git worktree remove failed for '${resolved.worktreePath}': ${detail || "unknown error"}`,
           );
         }
+        process.stdout.write(`Removed worktree ${resolved.worktreePath}.\n`);
+      }
+      if (resolved.record) {
+        removeWorkspaceOwnership(mainRepo, resolved.workspace);
       }
     }
 
-    return { freedRoutes: routes.length, workspace };
+    return { freedRoutes: routes.length, workspace: resolved.workspace };
   };
 
-  return match && fs.existsSync(worktreePath)
-    ? withWorkspaceLifecycleLock(worktreePath, teardown)
-    : teardown();
+  return resolved.worktree && !resolved.worktree.prunable && fs.existsSync(resolved.worktreePath)
+    ? withWorkspaceLifecycleLock(resolved.worktreePath, operation)
+    : operation();
+}
+
+export async function workspaceStop(
+  target: string,
+  opts: { repoPath?: string } = {},
+): Promise<WorkspaceLifecycleResult> {
+  return runWorkspaceLifecycle("stop", target, opts);
+}
+
+export async function workspaceDown(
+  target: string,
+  opts: { keepWorktree?: boolean; repoPath?: string } = {},
+): Promise<WorkspaceLifecycleResult> {
+  return runWorkspaceLifecycle("down", target, opts);
 }
