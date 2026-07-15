@@ -121,12 +121,22 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   },
   {
     command: "devrouter workspace ls [--json]",
-    purpose: "List git worktrees with their resolved workspace token and active route count.",
+    purpose: "List owner, Git, DevPod, route, path, and branch evidence for managed workspaces.",
   },
   {
-    command: "devrouter workspace down <workspace|branch> [--keep-worktree] [--keep-devpod]",
+    command: "devrouter workspace stop <workspace|branch>",
     purpose:
-      "Free a workspace's routes, stop its devpod, and remove its worktree (routes are freed by state-file workspace tag, no config load).",
+      "Stop the exact DevPod and remove exact routes while preserving the worktree, owner record, and data.",
+  },
+  {
+    command: "devrouter workspace down <workspace|branch> [--keep-worktree]",
+    purpose:
+      "Delete exact runtime/routes and remove only a clean, unlocked worktree and its owner record; --keep-worktree preserves checkout and record.",
+  },
+  {
+    command: "devrouter workspace gc [--json] [--yes]",
+    purpose:
+      "Report missing owners without mutation by default; --yes deletes only exact eligible ledger-owned resources and records, never Git worktrees.",
   },
 ];
 
@@ -274,11 +284,13 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- `envMap` on dependency references (config-level) aliases per-dep vars after dependency env resolution. `envMap` fails fast when source var is missing.",
     "",
     "Workspace isolation (parallel git worktrees / agents):",
-    `- A "workspace token" lets several worktrees of one repo run in parallel without host/route collisions. Each linked worktree persists one authoritative identity spanning the DevPod id, devrouter routes, the \`${WORKSPACE_PLACEHOLDER}\` proxy upstream, and devcontainer aliases.`,
-    "- First use reuses an exact-path DevPod or derives a sanitized branch/path identity. Later flags or `DEVROUTER_WORKSPACE` may repeat but cannot rename the persisted identity. Ambiguous identities fail closed. The primary checkout stays non-namespaced.",
+    `- A "workspace token" lets several worktrees of one repo run in parallel without host/route collisions. Each managed linked worktree has a local Git token plus a durable owner record in the repository's Git common directory spanning the DevPod id, devrouter routes, the \`${WORKSPACE_PLACEHOLDER}\` proxy upstream, and devcontainer aliases.`,
+    "- The owner record survives linked-worktree removal and binds the exact path to its DevPod ID. First use reuses an exact-path DevPod or derives a sanitized branch/path identity. Later flags or `DEVROUTER_WORKSPACE` may repeat but cannot rename it. Ambiguous identities fail closed. The primary checkout stays non-namespaced.",
     `- When a workspace is active: hosts auto-namespace (\`web.localhost\` → \`web.<ws>.localhost\`), \`${WORKSPACE_PLACEHOLDER}\` in \`upstream\` is substituted with the token, and the docker \`router\` key is suffixed per workspace. The runtime config is computed in memory only — the committed \`.devrouter.yml\` is never rewritten.`,
     "- TLS: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.",
-    "- Lifecycle: `devrouter workspace up <branch>` creates and starts a new worktree; `devrouter workspace ensure .` is the canonical start/reconcile command inside an existing linked worktree; `workspace ls` reports state; `workspace down` serializes teardown with ensure.",
+    "- Lifecycle: `workspace up` creates and starts a worktree; `workspace ensure .` starts/reconciles an existing linked worktree; `workspace ls` reports owner/Git/DevPod/route state; `workspace stop` preserves checkout, record, and data; full `workspace down` deletes runtime/routes and removes only a clean, unlocked worktree; `down --keep-worktree` retains checkout and record.",
+    "- Owner status is `present`, `missing`, `locked`, or `conflict`. Dirty or locked full down fails before side effects. `workspace gc` is a dry run; only `--yes` deletes exact eligible missing resources and records, never Git worktrees, branches, or prune state.",
+    "- Workspace commands require Git. Normal config, app, status, and doctor flows work from a `.devrouter.yml` folder without `.git`. Git has no worktree-removal hook; use `workspace ls`, doctor, or dry-run GC after out-of-band removal.",
     "- devcontainer integration: `devcontainer.json` lists the base compose file then `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}`. The default overlay contains `services: {}`; `.devcontainer/docker-compose.devrouter.yml` passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute app-container path. Ensure proves exact DevPod ownership, overlay/Git mounts, env, aliases, health, Git, HTTP route reachability, and unique running TCP upstream ownership before success.",
     "",
     "Secret Manager Integration (config-based):",

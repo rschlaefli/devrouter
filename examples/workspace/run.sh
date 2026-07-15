@@ -19,18 +19,18 @@ ROOT="$(cd "$SRC/../.." && pwd)"
 DEV() { if command -v devrouter >/dev/null 2>&1; then command devrouter "$@"; else node "$ROOT/dist/devrouter.js" "$@"; fi; }
 
 REPO="${WSDEMO_REPO:-/tmp/devrouter-wsdemo}"
-WT="$REPO-feat-a"
+WT="$REPO/trees/feat-a"
 COMPOSE_MAIN=(docker compose -f "$REPO/docker-compose.yml" -p wsdemo)
 COMPOSE_FEAT=(docker compose -f "$WT/docker-compose.yml" -p wsfeata)
 
 cleanup() {
   set +e
   echo "--- teardown ---"
+  WORKSPACE=feat-a "${COMPOSE_FEAT[@]}" down >/dev/null 2>&1
   DEV workspace down feat-a --repo "$REPO" >/dev/null 2>&1
   DEV app rm app --repo "$REPO" --keep-config >/dev/null 2>&1
   WORKSPACE=wsdemo "${COMPOSE_MAIN[@]}" down >/dev/null 2>&1
-  WORKSPACE=feat-a "${COMPOSE_FEAT[@]}" down >/dev/null 2>&1
-  rm -rf "$REPO" "$WT"
+  rm -rf "$REPO"
 }
 
 if [ "${1:-}" = "down" ]; then cleanup; echo "clean."; exit 0; fi
@@ -45,9 +45,10 @@ wait_ok() { # $1=host
 }
 
 # 0. Materialize the example as a standalone git repo.
-rm -rf "$REPO" "$WT"
+rm -rf "$REPO"
 mkdir -p "$REPO"
 cp "$SRC/.devrouter.yml" "$SRC/docker-compose.yml" "$SRC/server.js" "$REPO/"
+printf 'trees/\n' >"$REPO/.gitignore"
 git -C "$REPO" init -q
 git -C "$REPO" add -A
 git -C "$REPO" -c user.email=demo@devrouter.local -c user.name=devrouter-demo commit -qm "wsdemo example"
@@ -61,9 +62,10 @@ WORKSPACE=wsdemo "${COMPOSE_MAIN[@]}" up -d
 DEV app run app --repo "$REPO" --yes
 
 # 2. Parallel worktree `feat-a` -> wsdemo.feat-a.localhost -> feat-a-app
-echo "--- dev workspace up feat-a (worktree + namespaced route) ---"
+echo "--- dev workspace up feat-a (create-only worktree) ---"
 DEV workspace up feat-a --no-devpod --repo "$REPO"
 WORKSPACE=feat-a "${COMPOSE_FEAT[@]}" up -d
+DEV app run app --repo "$WT" --yes
 
 echo "--- waiting for both upstreams ---"
 wait_ok wsdemo.localhost        || { echo "primary not ready"; exit 1; }

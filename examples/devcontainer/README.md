@@ -51,3 +51,8 @@ network with matching `${WORKSPACE:-devcontainer-demo}-*` aliases.
 When this shape is used from a linked worktree, run `devrouter workspace ensure .`.
 It selects `docker-compose.devrouter.yml`, supplies the host Git common-directory
 bind, and proves the exact DevPod, aliases, routes, and endpoints before success.
+Use `workspace stop` to pause its DevPod/routes while preserving checkout and
+data. Full `workspace down` deletes runtime/routes and removes only a clean,
+unlocked worktree; `--keep-worktree` retains the checkout and owner record.
+If Git removes a worktree out of band, review dry-run `workspace gc` before
+applying exact ledger-owned cleanup with `--yes`. Git has no removal hook.

@@ -1,3 +1,4 @@
+import { resolveRepoPath } from "../core/repo-config";
 import { workspaceEnsure } from "../core/workspace-ensure";
 import { workspaceGc } from "../core/workspace-gc";
 import {
@@ -6,16 +7,30 @@ import {
   workspaceStop,
   workspaceUp,
 } from "../core/workspace-lifecycle";
+import { resolveGitCommonDir } from "../core/workspace-ownership";
+
+function resolveGitWorkspaceRepo(repoPath?: string): string {
+  const resolved = resolveRepoPath(repoPath);
+  try {
+    resolveGitCommonDir(resolved);
+  } catch (error) {
+    throw new Error(`Workspace commands require a Git repository: '${resolved}'.`, {
+      cause: error,
+    });
+  }
+  return resolved;
+}
 
 export async function runWorkspaceUpCommand(
   branch: string,
   options: { path?: string; noDevpod?: boolean; open?: boolean; repo?: string },
 ): Promise<void> {
+  const repoPath = resolveGitWorkspaceRepo(options.repo);
   await workspaceUp(branch, {
     path: options.path,
     noDevpod: options.noDevpod,
     open: options.open,
-    repoPath: options.repo,
+    repoPath,
   });
 }
 
@@ -23,7 +38,8 @@ export async function runWorkspaceEnsureCommand(options: {
   path?: string;
   open?: boolean;
 }): Promise<void> {
-  const result = await workspaceEnsure(options.path, { open: options.open });
+  const repoPath = resolveGitWorkspaceRepo(options.path);
+  const result = await workspaceEnsure(repoPath, { open: options.open });
   process.stdout.write(
     `Workspace '${result.workspace}' is ready (${result.devpodId}).\n` +
       `${result.urls.map((url) => `  ${url}`).join("\n")}\n`,
@@ -31,7 +47,8 @@ export async function runWorkspaceEnsureCommand(options: {
 }
 
 export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }): void {
-  const rows = workspaceLs(options.repo);
+  const repoPath = resolveGitWorkspaceRepo(options.repo);
+  const rows = workspaceLs(repoPath);
   if (options.json) {
     process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
     return;
@@ -53,9 +70,10 @@ export async function runWorkspaceDownCommand(
   target: string,
   options: { keepWorktree?: boolean; repo?: string },
 ): Promise<void> {
+  const repoPath = resolveGitWorkspaceRepo(options.repo);
   await workspaceDown(target, {
     keepWorktree: options.keepWorktree,
-    repoPath: options.repo,
+    repoPath,
   });
 }
 
@@ -63,7 +81,8 @@ export async function runWorkspaceStopCommand(
   target: string,
   options: { repo?: string },
 ): Promise<void> {
-  await workspaceStop(target, { repoPath: options.repo });
+  const repoPath = resolveGitWorkspaceRepo(options.repo);
+  await workspaceStop(target, { repoPath });
 }
 
 export function runWorkspaceGcCommand(options: {
@@ -71,7 +90,8 @@ export function runWorkspaceGcCommand(options: {
   json?: boolean;
   yes?: boolean;
 }): void {
-  const report = workspaceGc({ repoPath: options.repo, yes: options.yes });
+  const repoPath = resolveGitWorkspaceRepo(options.repo);
+  const report = workspaceGc({ repoPath, yes: options.yes });
   if (options.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {

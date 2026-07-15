@@ -17,7 +17,7 @@ import type {
 } from "../types";
 import { buildDevcontainerChecks } from "./devcontainer-diagnostics";
 import { assertPathWithinRepo } from "./paths";
-import { findOrphanedWorkspaceProxyRoutes, findStaleProcessRoutes } from "./route-state";
+import { findStaleProcessRoutes } from "./route-state";
 import { getRouterFileLayout, isTLSEnabled } from "./router";
 import { discoverRoutes, findDuplicateHosts } from "./routes";
 import { collectRouterStatus } from "./status";
@@ -721,20 +721,6 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       staleCount === 0
         ? undefined
         : "Re-run the affected host app(s) or remove routes with: dev app rm <name> --repo <path> --keep-config",
-  });
-
-  const orphanedWorkspaceRoutes = findOrphanedWorkspaceProxyRoutes();
-  addCheck(checks, {
-    id: "routes.orphaned-workspace-routes",
-    level: orphanedWorkspaceRoutes.length === 0 ? "ok" : "warn",
-    summary:
-      orphanedWorkspaceRoutes.length === 0
-        ? "No orphaned workspace proxy routes detected."
-        : `${orphanedWorkspaceRoutes.length} orphaned workspace proxy route entr${orphanedWorkspaceRoutes.length === 1 ? "y" : "ies"} detected for missing worktree paths.`,
-    suggestion:
-      orphanedWorkspaceRoutes.length === 0
-        ? undefined
-        : `Run: dev workspace gc --repo ${resolvedRepoPath}`,
   });
 
   let gitWorkspaceRepo = false;

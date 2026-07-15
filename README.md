@@ -108,7 +108,9 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open] [--repo <path>]`
 - `devrouter workspace ensure [path] [--open]`
 - `devrouter workspace ls [--repo <path>] [--json]`
-- `devrouter workspace down <workspace|branch> [--keep-worktree] [--keep-devpod] [--repo <path>]`
+- `devrouter workspace stop <workspace|branch> [--repo <path>]`
+- `devrouter workspace down <workspace|branch> [--keep-worktree] [--repo <path>]`
+- `devrouter workspace gc [--repo <path>] [--json] [--yes]`
 
 The current `devrouter repo devcontainer write` scaffold is intentionally narrow:
 Node + pnpm + Postgres. Other package managers stop with a JSON diagnostic
@@ -126,12 +128,13 @@ mutate local route state.
 
 A **workspace token** lets several git worktrees of the same repo run side-by-side without host or route collisions. The token is a single identity spanning three layers: the devpod workspace id, the routes devrouter registers, and the `${WORKSPACE}` placeholder in `.devrouter.yml` proxy upstreams and devcontainer compose network aliases.
 
-Each linked worktree stores one stable identity in its Git metadata. Once stored,
-that value is authoritative: an explicit flag or `DEVROUTER_WORKSPACE` may repeat
-it but cannot silently rename the environment. On first use, devrouter reuses the
-exact DevPod already bound to the worktree path or derives a sanitized identity
-from the linked branch/path. Ambiguous identities and DevPods owned by another
-worktree fail closed. The primary checkout keeps its plain, non-namespaced routes.
+Each managed linked worktree keeps its local token in Git metadata and a durable
+owner record under the repository's Git common directory. The record survives
+out-of-band linked-worktree removal and ties the exact worktree path to its DevPod
+ID. On first use, devrouter reuses an exact-path DevPod or derives a sanitized
+identity from the linked branch/path. Ambiguous identities and DevPods owned by
+another worktree fail closed. The primary checkout keeps its plain,
+non-namespaced routes.
 
 **When a workspace token is active:**
 
@@ -151,14 +154,40 @@ devrouter workspace up feat/my-feature
 # Reconcile an existing linked worktree (canonical agent startup command)
 devrouter workspace ensure .
 
-# List git worktrees with workspace tokens and route counts
+# List ownership, Git, DevPod, and route state
 devrouter workspace ls
 
-# Tear down a workspace (stop devpod, remove worktree, free routes)
+# Pause runtime while preserving the checkout, owner record, and data
+devrouter workspace stop feat/my-feature
+
+# Delete runtime and routes, then remove the clean worktree and owner record
 devrouter workspace down feat/my-feature
+
+# Review missing owners; add --yes only after reviewing the dry run
+devrouter workspace gc
+devrouter workspace gc --yes
 ```
 
 New worktrees default to the repository's ignored `trees/<workspace>` directory; use `--path` only when a repository intentionally follows another layout.
+
+| Command | DevPod | Routes | Worktree and owner record |
+| --- | --- | --- | --- |
+| `workspace stop` | stop | remove | keep |
+| `workspace down` | delete | remove | remove only when clean and unlocked |
+| `workspace down --keep-worktree` | delete | remove | keep |
+| `workspace gc` | report only | report only | never removes Git worktrees |
+| `workspace gc --yes` | delete eligible missing owners | remove exact owned routes | remove only the owner record |
+
+`workspace ls` reports owner status as `present`, `missing`, `locked`, or
+`conflict`. Full `workspace down` checks ownership, the Git registration, lock,
+and cleanliness before changing runtime or routes; dirty and locked worktrees fail
+with zero teardown side effects.
+
+Workspace lifecycle commands require a Git repository. Normal config, app,
+status, and diagnostic commands remain usable from a `.devrouter.yml` directory
+without Git. Git has no worktree-removal hook, so devrouter does not install one:
+after manual removal, use `workspace ls`, `doctor`, or the dry-run
+`workspace gc` report before applying cleanup with `--yes`.
 
 **devcontainer integration:** the devcontainer compose service exposes a devnet network alias `${WORKSPACE}-app` (defaulting to the project name in `devcontainer.env`); the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. `.devcontainer/docker-compose.devrouter.yml` passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute container path, so linked-worktree `.git` pointers remain valid. Workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.
 
@@ -176,7 +205,10 @@ agent-native devcontainer path end to end — `./run.sh` brings up a DevPod
 workspace, registers app/Postgres proxy routes, runs static/live verification,
 and prints the proof. `./run.sh down` tears it down.
 
-**Orphan detection:** `devrouter doctor` check `routes.orphaned-workspace-routes` reports proxy routes whose worktree directory was removed without `devrouter workspace down`. It does not mutate route state.
+**Missing-owner detection:** `devrouter doctor` reports ledger-owned workspaces
+whose checkout disappeared or conflicts with live Git/DevPod evidence. It does
+not mutate workspace state and prints the exact dry-run remediation command:
+`devrouter workspace gc --repo <repo>`.
 
 ## Upgrade metadata and prompts
 
@@ -243,7 +275,7 @@ devrouter doctor --repo /absolute/path/to/repo --json
 For host apps that depend on postgres, `devrouter doctor` also checks host command wrapper precedence and warns with `repo.host-command-env-precedence` when `DATABASE_URI`/`DATABASE_URL` is assigned before a `run --` wrapper boundary.
 When TLS is enabled, `devrouter doctor` also checks TLS host coverage and warns with `repo.tls-host-coverage` if configured `.localhost` hosts are not covered by the current cert SANs.
 When `.devcontainer/` exists, `devrouter doctor` checks devnet aliases, published host ports, and proxy upstream alias matches.
-`devrouter doctor` reports stale host routes and orphaned workspace proxy routes without mutating route state.
+`devrouter doctor` reports stale host routes and ownership cleanup candidates without mutating route state; workspace findings point to dry-run `devrouter workspace gc --repo <repo>`.
 
 ## `.devrouter.yml` example
 

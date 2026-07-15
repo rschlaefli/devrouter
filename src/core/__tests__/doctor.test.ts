@@ -34,7 +34,6 @@ vi.mock("../host-routes", () => ({
 
 vi.mock("../route-state", () => ({
   findStaleProcessRoutes: vi.fn(() => []),
-  findOrphanedWorkspaceProxyRoutes: vi.fn(() => []),
 }));
 
 vi.mock("../workspace-gc", () => ({ workspaceGc: vi.fn() }));
@@ -174,6 +173,24 @@ afterEach(() => {
 });
 
 describe("buildDoctorReport", () => {
+  it("keeps normal diagnostics available outside Git repositories", async () => {
+    writeRepoFiles({
+      composeEnv:
+        "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
+    vi.mocked(resolveGitCommonDir).mockImplementation(() => {
+      throw new Error("not a Git repository");
+    });
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+
+    expect(report.repoPath).toBe(tmpDir);
+    expect(report.checks.length).toBeGreaterThan(0);
+    expect(report.checks.some((check) => check.id === "workspace.ownership-cleanup")).toBe(false);
+    expect(workspaceGc).not.toHaveBeenCalled();
+  });
+
   it("reuses the GC inspector and prints the exact repo cleanup command", async () => {
     writeRepoFiles({
       composeEnv:

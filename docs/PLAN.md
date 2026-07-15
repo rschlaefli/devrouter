@@ -29,16 +29,19 @@ Delivered and active:
 - `devrouter app run` / `devrouter app exec` auto-refresh TLS SAN coverage for configured repo hosts
 - Agent discoverability flow via `devrouter repo agents`
 - Repository quality gates via Biome, Knip, TypeScript, pre-commit, and Gitleaks
-- Workspace isolation: `devrouter workspace up/ensure/ls/down` for parallel git worktrees of one repo
-  - One persisted identity across DevPod id, devrouter route namespace, `${WORKSPACE}` upstreams, and devnet aliases
+- Workspace isolation: `devrouter workspace up/ensure/ls/stop/down/gc` for parallel git worktrees of one repo
+  - One local token plus a durable Git-common-dir owner record across DevPod id, devrouter route namespace, `${WORKSPACE}` upstreams, and devnet aliases
   - Exact-path DevPod discovery; first use derives a sanitized branch/path slug only when no exact DevPod exists
   - Persisted identity is authoritative; ambiguous or conflicting identities fail closed
   - Hosts auto-namespaced in memory (`web.localhost` → `web.<ws>.localhost`); committed `.devrouter.yml` is never rewritten
   - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`
   - `workspace ensure` validates overlay/Git mounts, environment, aliases, health, Git access, HTTP route reachability, and unique running TCP upstream ownership; one stale DevPod gets one recreate
-  - Route replacement happens atomically only after runtime proof; ensure/down serialize per worktree
+  - Route replacement happens atomically only after runtime proof; ensure/stop/down serialize per worktree
+  - `stop` preserves checkout, owner record, and data; full `down` rejects dirty or locked worktrees before side effects
+  - `workspace ls` reports `present`, `missing`, `locked`, or `conflict`; `gc` reports by default and mutates exact missing owners only with `--yes`
   - TLS SAN auto-extended for active workspace hosts
-  - `devrouter doctor` check `routes.orphaned-workspace-routes` reports worktrees removed without `devrouter workspace down`
+  - Git has no worktree-removal hook; doctor reports missing/conflicting owners and points to dry-run `workspace gc`
+  - Workspace commands require Git; normal config/app/status/doctor flows remain Git-optional
 
 ## Documentation policy
 

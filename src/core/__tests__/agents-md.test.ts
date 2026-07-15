@@ -49,6 +49,12 @@ describe("agents-md", () => {
     expect(skillContent).toContain("DEVROUTER_GIT_COMMON_DIR");
     expect(skillContent).toContain("custom repositories may keep another default overlay");
     expect(skillContent).toContain("For host/docker runtime apps only:");
+    expect(skillContent).toContain("devrouter workspace stop <workspace|branch>");
+    expect(skillContent).toContain("devrouter workspace gc [--json] [--yes]");
+    expect(skillContent).toContain("`present`, `missing`, `locked`, or `conflict`");
+    expect(skillContent).toContain("workspace commands require Git");
+    expect(skillContent).toContain("Git has no worktree-removal hook");
+    expect(skillContent).not.toContain("--keep-devpod");
 
     expect(ensureAgentsMdSection(tmpDir).written).toBe(false);
   });

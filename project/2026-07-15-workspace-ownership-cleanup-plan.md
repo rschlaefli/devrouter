@@ -202,5 +202,12 @@ Commit: `chore(release): publish 0.0.31 workspace cleanup`
 - Done: focused Slice 3 verification: 81 tests passed; `pnpm check`, `pnpm typecheck`, and `pnpm build` passed.
 - Done: correctness review findings for path reuse, stale apply evidence, doctor conflicts, and escaping revalidation failures were fixed; final re-review found no findings at or above 75 confidence.
 - Done: simplification review removed duplicate warnings and fixed persisted DevPod identity use; doctor warning consolidation is intentionally assigned to Slice 4.
-- Active: Slice 4, compatibility regression coverage, lifecycle smoke harness, and synchronized documentation.
-- Next: protect non-Git commands, add Git-only workspace errors, consolidate doctor cleanup warnings, and update every public guidance surface.
+- Done: Slice 4 keeps config/app/doctor flows Git-optional while all workspace commands fail early with one clear Git-required error and reuse the validated path.
+- Done: doctor emits one ownership-aware cleanup diagnostic; public docs, generated AI/agent guidance, bundled skill, and examples now agree on stop/down/gc, owner states, fail-closed teardown, and the no-hook boundary.
+- Done: added an isolated real-DevPod lifecycle smoke harness with guaranteed exact cleanup; corrected the create-only workspace example to register its linked-worktree route explicitly.
+- Done: focused Slice 4 verification: 59 tests passed; docs policy, Biome, Knip, TypeScript, build, and shell syntax passed.
+- Done: Gemini 3.5 Flash High review was attempted with an eight-minute bound but returned no response; fallback correctness review found three concrete example/smoke/docs defects, all fixed and sent for re-review.
+- Done: separate simplification review removed duplicate repository resolution while preserving the underlying Git error as the cause.
+- Done: Slice 4 correctness re-review confirmed all three findings resolved with no remaining actionable issue at or above 75 confidence.
+- Active: Slice 4 final verification and commit.
+- Next: commit Slice 4, then run the real lifecycle/routing/devcontainer proof and prepare release 0.0.31.
