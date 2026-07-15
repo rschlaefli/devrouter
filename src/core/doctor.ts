@@ -23,7 +23,7 @@ import { discoverRoutes, findDuplicateHosts } from "./routes";
 import { collectRouterStatus } from "./status";
 import { getTLSHostCoverage } from "./tls";
 import { buildGlobalToolChecks } from "./tool-diagnostics";
-import { workspaceGc } from "./workspace-gc";
+import { inspectWorkspaceGc } from "./workspace-gc";
 import { resolveGitCommonDir } from "./workspace-ownership";
 
 type DoctorOptions = {
@@ -732,7 +732,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
   }
   if (gitWorkspaceRepo) {
     try {
-      const gc = workspaceGc({ repoPath: resolvedRepoPath });
+      const gc = inspectWorkspaceGc(resolvedRepoPath);
       const needsAttention = gc.candidates.filter(
         (candidate) =>
           candidate.eligible || candidate.kind === "legacy" || candidate.ownerStatus === "conflict",

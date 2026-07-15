@@ -9,8 +9,8 @@ import {
   listWorkspaceOwnership,
   readWorkspaceOwnership,
   removeWorkspaceOwnership,
-  removeWorkspaceOwnershipIfMatches,
   resolveGitCommonDir,
+  withWorkspaceOwnershipTransaction,
   writeWorkspaceOwnership,
 } from "../workspace-ownership";
 
@@ -118,6 +118,27 @@ describe("workspace ownership storage", () => {
     ).toThrow("already owned by workspace 'feature'");
   });
 
+  it("enforces cross-record path uniqueness inside one repository transaction", () => {
+    const ownershipDir = path.join(resolveGitCommonDir(repoPath), "devrouter", "workspaces");
+    withWorkspaceOwnershipTransaction(repoPath, (transaction) => {
+      expect(fs.existsSync(path.join(ownershipDir, ".lock"))).toBe(true);
+      transaction.write({
+        workspace: "feature",
+        worktreePath,
+        branch: "feature",
+        devpodId: "feature",
+      });
+      expect(() =>
+        transaction.write({
+          workspace: "other",
+          worktreePath,
+          branch: "other",
+          devpodId: "other",
+        }),
+      ).toThrow("already owned by workspace 'feature'");
+    });
+  });
+
   it("removes only the exact workspace record", () => {
     writeWorkspaceOwnership(worktreePath, {
       workspace: "feature",
@@ -145,7 +166,11 @@ describe("workspace ownership storage", () => {
       devpodId: "feature",
     });
 
-    expect(removeWorkspaceOwnershipIfMatches(repoPath, expected)).toBe("changed");
+    expect(
+      withWorkspaceOwnershipTransaction(repoPath, (transaction) =>
+        transaction.removeIfMatches(expected),
+      ),
+    ).toBe("changed");
     expect(readWorkspaceOwnership(repoPath, "feature")).toBeDefined();
   });
 });

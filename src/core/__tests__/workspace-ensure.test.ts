@@ -3,13 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspaces";
 import { replaceHostRoutesForRepo } from "../host-routes";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
 import {
-  type DevpodWorkspace,
   inspectWorkspaceContainers,
-  selectDevpodWorkspace,
   validateWorkspaceContainers,
   type WorkspaceContainerSnapshot,
   workspaceEnsure,

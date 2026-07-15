@@ -6,7 +6,7 @@ import type { RouterStatus } from "../../types";
 import { buildDoctorReport } from "../doctor";
 import { collectRouterStatus } from "../status";
 import { getTLSHostCoverage } from "../tls";
-import { workspaceGc } from "../workspace-gc";
+import { inspectWorkspaceGc } from "../workspace-gc";
 import { resolveGitCommonDir } from "../workspace-ownership";
 
 vi.mock("../status", () => ({
@@ -36,7 +36,7 @@ vi.mock("../route-state", () => ({
   findStaleProcessRoutes: vi.fn(() => []),
 }));
 
-vi.mock("../workspace-gc", () => ({ workspaceGc: vi.fn() }));
+vi.mock("../workspace-gc", () => ({ inspectWorkspaceGc: vi.fn() }));
 vi.mock("../workspace-ownership", () => ({ resolveGitCommonDir: vi.fn() }));
 
 vi.mock("../tls", () => ({
@@ -158,7 +158,7 @@ function makeStatus(repoPath: string, tlsEnabled: boolean): RouterStatus {
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-doctor-test-"));
   vi.mocked(resolveGitCommonDir).mockReturnValue(path.join(tmpDir, ".git"));
-  vi.mocked(workspaceGc).mockReturnValue({
+  vi.mocked(inspectWorkspaceGc).mockReturnValue({
     generatedAt: "2026-07-15T10:00:00.000Z",
     repoPath: tmpDir,
     mode: "dry-run",
@@ -188,7 +188,7 @@ describe("buildDoctorReport", () => {
     expect(report.repoPath).toBe(tmpDir);
     expect(report.checks.length).toBeGreaterThan(0);
     expect(report.checks.some((check) => check.id === "workspace.ownership-cleanup")).toBe(false);
-    expect(workspaceGc).not.toHaveBeenCalled();
+    expect(inspectWorkspaceGc).not.toHaveBeenCalled();
   });
 
   it("reuses the GC inspector and prints the exact repo cleanup command", async () => {
@@ -197,7 +197,7 @@ describe("buildDoctorReport", () => {
         "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
     });
     vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
-    vi.mocked(workspaceGc).mockReturnValue({
+    vi.mocked(inspectWorkspaceGc).mockReturnValue({
       generatedAt: "2026-07-15T10:00:00.000Z",
       repoPath: tmpDir,
       mode: "dry-run",
@@ -233,7 +233,7 @@ describe("buildDoctorReport", () => {
         "      POSTGRES_USER: prisma\n      POSTGRES_PASSWORD: prisma\n      POSTGRES_DB: prisma",
     });
     vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
-    vi.mocked(workspaceGc).mockReturnValue({
+    vi.mocked(inspectWorkspaceGc).mockReturnValue({
       generatedAt: "2026-07-15T10:00:00.000Z",
       repoPath: tmpDir,
       mode: "dry-run",

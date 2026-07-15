@@ -1,6 +1,11 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  inspectDevpodWorkspaceOwnership,
+  listDevpodWorkspaces,
+  runDevpodWorkspaceAction,
+} from "./devpod-workspaces";
 import { resolveRepoPath } from "./repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
 import {
@@ -10,7 +15,7 @@ import {
   withWorkspaceLifecycleLock,
   wsFromBranch,
 } from "./workspace";
-import { listDevpodWorkspaces, workspaceEnsure } from "./workspace-ensure";
+import { workspaceEnsure } from "./workspace-ensure";
 import {
   type DevpodOwnerStatus,
   type GitWorktree,
@@ -165,9 +170,7 @@ function resolveWorkspaceTarget(
   }
 
   const linked = worktrees.filter((worktree) => worktree.workspace !== undefined);
-  const exactBranchMatch = linked.find((worktree) => worktree.branch === target);
   const worktree =
-    exactBranchMatch ??
     oneWorkspaceMatch(
       target,
       linked.filter((candidate) => candidate.workspace === requestedWorkspace),
@@ -207,40 +210,19 @@ function devpodForTarget(
         `Workspace '${target.workspace}' ownership conflicts with live Git or DevPod evidence; no resources were changed.`,
       );
     }
-    const devpodId = target.record.devpodId;
-    return devpods.find((devpod) => devpod.id === devpodId);
+    return status.devpodStatus === "owned"
+      ? devpods.find((devpod) => devpod.id === target.record?.devpodId)
+      : undefined;
   }
 
   // Pre-ledger workspaces need the same exact ID+path proof, but have no record
   // whose local persisted token can be inspected.
   const devpodId = target.workspace;
-  const byId = devpods.find((devpod) => devpod.id === devpodId);
-  if (byId && !sameWorkspacePath(byId.source.localFolder, target.worktreePath)) {
-    throw new Error(
-      `DevPod identity '${devpodId}' belongs to '${byId.source.localFolder}', not '${target.worktreePath}'.`,
-    );
+  const ownership = inspectDevpodWorkspaceOwnership(devpods, devpodId, target.worktreePath);
+  if (ownership.status === "conflict") {
+    throw new Error(ownership.reason);
   }
-  const pathOwners = devpods.filter((devpod) =>
-    sameWorkspacePath(devpod.source.localFolder, target.worktreePath),
-  );
-  if (pathOwners.length > 1 || (pathOwners[0] && pathOwners[0].id !== devpodId)) {
-    throw new Error(
-      `Worktree '${target.worktreePath}' has conflicting DevPod ownership: ${pathOwners.map((owner) => owner.id).join(", ")}.`,
-    );
-  }
-  return byId;
-}
-
-function runDevpodLifecycle(action: "stop" | "delete", devpodId: string): void {
-  const args = action === "delete" ? [action, devpodId, "--ignore-not-found"] : [action, devpodId];
-  const result = spawnSync("devpod", args, { encoding: "utf-8" });
-  if (result.status !== 0) {
-    const detail = [result.error?.message, result.stdout, result.stderr]
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    throw new Error(`devpod ${action} failed for '${devpodId}': ${detail || "unknown error"}`);
-  }
+  return ownership.status === "owned" ? ownership.workspace : undefined;
 }
 
 function assertFullDownPreflight(mainRepo: string, target: ResolvedWorkspaceTarget): void {
@@ -406,7 +388,7 @@ async function runWorkspaceLifecycle(
     const devpods = listDevpodWorkspaces();
     const devpod = devpodForTarget(resolved, worktrees, devpods);
     if (devpod) {
-      runDevpodLifecycle(devpodAction, devpod.id);
+      runDevpodWorkspaceAction(devpodAction, devpod.id);
     }
 
     // Free routes only after successful provider mutation. Exact workspace+path

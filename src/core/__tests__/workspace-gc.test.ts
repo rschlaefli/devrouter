@@ -1,26 +1,48 @@
 import { spawnSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { listDevpodWorkspaces } from "../devpod-workspaces";
 import { listHostRouteState } from "../host-routes";
 import { removeWorkspaceRoutesForWorktree } from "../route-state";
-import { listDevpodWorkspaces } from "../workspace-ensure";
-import { workspaceGc } from "../workspace-gc";
+import { applyWorkspaceGc, inspectWorkspaceGc } from "../workspace-gc";
 import {
   inspectWorkspaceOwnership,
   listGitWorktrees,
   listWorkspaceOwnership,
-  removeWorkspaceOwnershipIfMatches,
+  type WorkspaceOwnershipRecord,
+  type WorkspaceOwnershipTransaction,
+  withWorkspaceOwnershipTransaction,
 } from "../workspace-ownership";
+
+const ownershipMocks = vi.hoisted(() => ({
+  removeIfMatches: vi.fn<(expected: unknown) => "removed" | "absent" | "changed">(() => "removed"),
+}));
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../repo-config", () => ({ resolveRepoPath: vi.fn((repo?: string) => repo ?? "/repo") }));
-vi.mock("../workspace-ensure", () => ({ listDevpodWorkspaces: vi.fn(() => []) }));
+vi.mock("../devpod-workspaces", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../devpod-workspaces")>()),
+  listDevpodWorkspaces: vi.fn(() => []),
+}));
 vi.mock("../host-routes", () => ({ listHostRouteState: vi.fn(() => []) }));
 vi.mock("../route-state", () => ({ removeWorkspaceRoutesForWorktree: vi.fn(() => []) }));
 vi.mock("../workspace-ownership", () => ({
   inspectWorkspaceOwnership: vi.fn(),
   listGitWorktrees: vi.fn(() => []),
   listWorkspaceOwnership: vi.fn(() => []),
-  removeWorkspaceOwnershipIfMatches: vi.fn(() => "removed"),
+  withWorkspaceOwnershipTransaction: vi.fn(
+    (repoPath: string, operation: (transaction: WorkspaceOwnershipTransaction) => unknown) =>
+      operation({
+        list: () => listWorkspaceOwnership(repoPath),
+        write: () => {
+          throw new Error("unexpected write");
+        },
+        remove: () => {
+          throw new Error("unexpected remove");
+        },
+        removeIfMatches: (expected: WorkspaceOwnershipRecord) =>
+          ownershipMocks.removeIfMatches(expected),
+      }),
+  ),
 }));
 
 const record = {
@@ -53,8 +75,25 @@ const secondRecord = {
   devpodId: "also-gone",
 };
 
+function workspaceGc(options: { repoPath: string; yes?: boolean }) {
+  const plan = inspectWorkspaceGc(options.repoPath);
+  return options.yes ? applyWorkspaceGc(plan) : plan;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(withWorkspaceOwnershipTransaction).mockImplementation((repoPath, operation) =>
+    operation({
+      list: () => listWorkspaceOwnership(repoPath),
+      write: () => {
+        throw new Error("unexpected write");
+      },
+      remove: () => {
+        throw new Error("unexpected remove");
+      },
+      removeIfMatches: (expected) => ownershipMocks.removeIfMatches(expected),
+    }),
+  );
   vi.mocked(listGitWorktrees).mockReturnValue([]);
   vi.mocked(listWorkspaceOwnership).mockReturnValue([record]);
   vi.mocked(listDevpodWorkspaces).mockReturnValue([
@@ -67,7 +106,7 @@ beforeEach(() => {
     worktree: undefined,
   });
   vi.mocked(removeWorkspaceRoutesForWorktree).mockReturnValue([route]);
-  vi.mocked(removeWorkspaceOwnershipIfMatches).mockReturnValue("removed");
+  ownershipMocks.removeIfMatches.mockReturnValue("removed");
   vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "", stderr: "" } as never);
 });
 
@@ -96,11 +135,29 @@ describe("workspaceGc", () => {
     });
     expect(spawnSync).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
-    expect(removeWorkspaceOwnershipIfMatches).not.toHaveBeenCalled();
+    expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
 
-  it("deletes exact eligible resources in DevPod, routes, record order with --yes", () => {
+  it("holds one ownership transaction across exact DevPod, route, and record deletion", () => {
     const events: string[] = [];
+    vi.mocked(withWorkspaceOwnershipTransaction).mockImplementation((repoPath, operation) => {
+      events.push("lock-start");
+      const result = operation({
+        list: () => listWorkspaceOwnership(repoPath),
+        write: () => {
+          throw new Error("unexpected write");
+        },
+        remove: () => {
+          throw new Error("unexpected remove");
+        },
+        removeIfMatches: (expected) => {
+          events.push("record");
+          return ownershipMocks.removeIfMatches(expected);
+        },
+      });
+      events.push("lock-end");
+      return result;
+    });
     vi.mocked(spawnSync).mockImplementation(() => {
       events.push("devpod");
       return { status: 0, stdout: "", stderr: "" } as never;
@@ -109,14 +166,10 @@ describe("workspaceGc", () => {
       events.push("routes");
       return [route];
     });
-    vi.mocked(removeWorkspaceOwnershipIfMatches).mockImplementation(() => {
-      events.push("record");
-      return "removed";
-    });
 
     const report = workspaceGc({ repoPath: "/repo", yes: true });
 
-    expect(events).toEqual(["devpod", "routes", "record"]);
+    expect(events).toEqual(["lock-start", "devpod", "routes", "record", "lock-end"]);
     expect(spawnSync).toHaveBeenCalledWith(
       "devpod",
       ["delete", "gone", "--ignore-not-found"],
@@ -158,7 +211,7 @@ describe("workspaceGc", () => {
     expect(report.candidates[0]).toMatchObject({ eligible: false, ownerStatus });
     expect(spawnSync).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
-    expect(removeWorkspaceOwnershipIfMatches).not.toHaveBeenCalled();
+    expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
 
   it("revalidates Git ownership immediately before apply and blocks a newly locked owner", () => {
@@ -184,6 +237,34 @@ describe("workspaceGc", () => {
     });
     expect(spawnSync).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
+  });
+
+  it("does not mutate a workspace revived after the dry-run snapshot", () => {
+    const refreshed = { ...record, updatedAt: "2026-07-15T11:00:00.000Z" };
+    vi.mocked(listWorkspaceOwnership).mockReturnValueOnce([record]).mockReturnValue([refreshed]);
+    vi.mocked(inspectWorkspaceOwnership)
+      .mockReturnValueOnce({
+        ownerStatus: "missing",
+        devpodStatus: "owned",
+        worktree: undefined,
+      })
+      .mockReturnValueOnce({
+        ownerStatus: "present",
+        devpodStatus: "owned",
+        worktree: undefined,
+      });
+
+    const report = workspaceGc({ repoPath: "/repo", yes: true });
+
+    expect(report.summary).toMatchObject({ eligible: 0, blocked: 1, cleaned: 0, errors: 0 });
+    expect(report.candidates[0]).toMatchObject({
+      eligible: false,
+      ownerStatus: "present",
+      reason: expect.stringContaining("changed before cleanup"),
+    });
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
+    expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
 
   it("reports a candidate-local revalidation failure and continues cleaning later candidates", () => {
@@ -217,6 +298,47 @@ describe("workspaceGc", () => {
     );
   });
 
+  it("reports transaction acquisition failure locally and continues later candidates", () => {
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([record, secondRecord]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "gone", source: { localFolder: record.worktreePath } },
+      { id: "also-gone", source: { localFolder: secondRecord.worktreePath } },
+    ]);
+    vi.mocked(withWorkspaceOwnershipTransaction)
+      .mockImplementationOnce(() => {
+        throw new Error("ledger lock busy");
+      })
+      .mockImplementation((repoPath, operation) =>
+        operation({
+          list: () => listWorkspaceOwnership(repoPath),
+          write: () => {
+            throw new Error("unexpected write");
+          },
+          remove: () => {
+            throw new Error("unexpected remove");
+          },
+          removeIfMatches: (expected) => ownershipMocks.removeIfMatches(expected),
+        }),
+      );
+
+    const report = workspaceGc({ repoPath: "/repo", yes: true });
+
+    expect(report.summary).toMatchObject({ cleaned: 1, errors: 1 });
+    expect(report.candidates[0].actions).toEqual([
+      {
+        resource: "record",
+        status: "failed",
+        error: "Ownership transaction failed: ledger lock busy",
+      },
+    ]);
+    expect(spawnSync).toHaveBeenCalledTimes(1);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "devpod",
+      ["delete", "also-gone", "--ignore-not-found"],
+      expect.anything(),
+    );
+  });
+
   it("rechecks the machine-global DevPod source immediately before delete", () => {
     const exact = [{ id: "gone", source: { localFolder: record.worktreePath } }];
     vi.mocked(listDevpodWorkspaces)
@@ -230,11 +352,11 @@ describe("workspaceGc", () => {
     expect(report.candidates[0].actions[0]).toMatchObject({
       resource: "devpod",
       status: "failed",
-      error: expect.stringContaining("changed owner"),
+      error: expect.stringContaining("do not have one exact owner"),
     });
     expect(spawnSync).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
-    expect(removeWorkspaceOwnershipIfMatches).not.toHaveBeenCalled();
+    expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
 
   it("retains routes and record when DevPod deletion fails", () => {
@@ -253,7 +375,7 @@ describe("workspaceGc", () => {
       error: expect.stringContaining("provider failed"),
     });
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
-    expect(removeWorkspaceOwnershipIfMatches).not.toHaveBeenCalled();
+    expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
 
   it("retains the ownership record when exact route deletion fails", () => {
@@ -272,7 +394,7 @@ describe("workspaceGc", () => {
         error: "route state unavailable",
       },
     ]);
-    expect(removeWorkspaceOwnershipIfMatches).not.toHaveBeenCalled();
+    expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
 
   it("reports legacy route/DevPod evidence but never mutates it", () => {

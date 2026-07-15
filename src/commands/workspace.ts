@@ -1,6 +1,6 @@
 import { resolveRepoPath } from "../core/repo-config";
 import { workspaceEnsure } from "../core/workspace-ensure";
-import { workspaceGc } from "../core/workspace-gc";
+import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
 import {
   workspaceDown,
   workspaceLs,
@@ -91,7 +91,8 @@ export function runWorkspaceGcCommand(options: {
   yes?: boolean;
 }): void {
   const repoPath = resolveGitWorkspaceRepo(options.repo);
-  const report = workspaceGc({ repoPath, yes: options.yes });
+  const plan = inspectWorkspaceGc(repoPath);
+  const report = options.yes ? applyWorkspaceGc(plan) : plan;
   if (options.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {

@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { type DevpodWorkspace, inspectDevpodWorkspaceOwnership } from "./devpod-workspaces";
 import { withFileLockSync } from "./file-lock";
 import {
   comparableWorkspacePath,
@@ -37,8 +38,6 @@ export type GitWorktree = {
 
 export type WorkspaceOwnerStatus = "present" | "missing" | "locked" | "conflict";
 export type DevpodOwnerStatus = "owned" | "absent" | "conflict" | "unknown";
-export type DevpodOwnershipEvidence = { id: string; source: { localFolder: string } };
-
 export type WorkspaceOwnershipStatus = {
   ownerStatus: WorkspaceOwnerStatus;
   devpodStatus: DevpodOwnerStatus;
@@ -46,6 +45,13 @@ export type WorkspaceOwnershipStatus = {
 };
 
 export type ConditionalOwnershipRemoval = "removed" | "absent" | "changed";
+
+export type WorkspaceOwnershipTransaction = {
+  list: () => WorkspaceOwnershipRecord[];
+  write: (input: WorkspaceOwnershipInput) => WorkspaceOwnershipRecord;
+  remove: (workspace: string) => boolean;
+  removeIfMatches: (expected: WorkspaceOwnershipRecord) => ConditionalOwnershipRemoval;
+};
 
 function commandError(command: string, repoPath: string, stderr: string | undefined): Error {
   return new Error(
@@ -211,83 +217,67 @@ function listWorkspaceOwnershipInDirectory(directory: string): WorkspaceOwnershi
     });
 }
 
-export function writeWorkspaceOwnership(
-  repoPath: string,
+function writeWorkspaceOwnershipInDirectory(
+  directory: string,
   input: WorkspaceOwnershipInput,
 ): WorkspaceOwnershipRecord {
   const workspace = validateWorkspace(input.workspace, "workspace");
   const devpodId = validateWorkspace(input.devpodId, "devpodId");
   const worktreePath = comparableWorkspacePath(input.worktreePath);
-  const directory = ownershipDirectory(repoPath);
-  fs.mkdirSync(directory, { recursive: true });
   const filePath = path.join(directory, `${workspace}.json`);
-
-  return withFileLockSync(
-    `${filePath}.lock`,
-    { activity: "workspace ownership update", target: `'${workspace}'` },
-    () => {
-      const now = new Date().toISOString();
-      const records = listWorkspaceOwnershipInDirectory(directory);
-      const existing = records.find((record) => record.workspace === workspace);
-      if (existing && !sameWorkspacePath(existing.worktreePath, worktreePath)) {
-        throw new Error(
-          `Workspace '${workspace}' already belongs to '${existing.worktreePath}', refusing '${worktreePath}'.`,
-        );
-      }
-      const pathOwner = records.find(
-        (record) =>
-          record.workspace !== workspace && sameWorkspacePath(record.worktreePath, worktreePath),
-      );
-      if (pathOwner) {
-        throw new Error(
-          `Worktree '${worktreePath}' is already owned by workspace '${pathOwner.workspace}'.`,
-        );
-      }
-      if (existing && existing.devpodId !== devpodId) {
-        throw new Error(
-          `Workspace '${workspace}' already owns DevPod '${existing.devpodId}', refusing '${devpodId}'.`,
-        );
-      }
-      const record: WorkspaceOwnershipRecord = {
-        version: OWNERSHIP_VERSION,
-        workspace,
-        worktreePath,
-        branch: input.branch ?? null,
-        devpodId,
-        createdAt: existing?.createdAt ?? validateTimestamp(now, "createdAt"),
-        updatedAt: validateTimestamp(now, "updatedAt"),
-      };
-      const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
-      try {
-        fs.writeFileSync(tempPath, `${JSON.stringify(record, null, 2)}\n`, {
-          encoding: "utf-8",
-          flag: "wx",
-        });
-        fs.renameSync(tempPath, filePath);
-      } finally {
-        fs.rmSync(tempPath, { force: true });
-      }
-      return record;
-    },
+  const now = new Date().toISOString();
+  const records = listWorkspaceOwnershipInDirectory(directory);
+  const existing = records.find((record) => record.workspace === workspace);
+  if (existing && !sameWorkspacePath(existing.worktreePath, worktreePath)) {
+    throw new Error(
+      `Workspace '${workspace}' already belongs to '${existing.worktreePath}', refusing '${worktreePath}'.`,
+    );
+  }
+  const pathOwner = records.find(
+    (record) =>
+      record.workspace !== workspace && sameWorkspacePath(record.worktreePath, worktreePath),
   );
+  if (pathOwner) {
+    throw new Error(
+      `Worktree '${worktreePath}' is already owned by workspace '${pathOwner.workspace}'.`,
+    );
+  }
+  if (existing && existing.devpodId !== devpodId) {
+    throw new Error(
+      `Workspace '${workspace}' already owns DevPod '${existing.devpodId}', refusing '${devpodId}'.`,
+    );
+  }
+  const record: WorkspaceOwnershipRecord = {
+    version: OWNERSHIP_VERSION,
+    workspace,
+    worktreePath,
+    branch: input.branch ?? null,
+    devpodId,
+    createdAt: existing?.createdAt ?? validateTimestamp(now, "createdAt"),
+    updatedAt: validateTimestamp(now, "updatedAt"),
+  };
+  const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tempPath, `${JSON.stringify(record, null, 2)}\n`, {
+      encoding: "utf-8",
+      flag: "wx",
+    });
+    fs.renameSync(tempPath, filePath);
+  } finally {
+    fs.rmSync(tempPath, { force: true });
+  }
+  return record;
 }
 
-export function removeWorkspaceOwnership(repoPath: string, workspace: string): boolean {
-  const filePath = recordPath(repoPath, workspace);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  return withFileLockSync(
-    `${filePath}.lock`,
-    { activity: "workspace ownership removal", target: `'${workspace}'` },
-    () => {
-      try {
-        fs.rmSync(filePath);
-        return true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-        throw error;
-      }
-    },
-  );
+function removeWorkspaceOwnershipInDirectory(directory: string, workspace: string): boolean {
+  const filePath = path.join(directory, `${validateWorkspace(workspace, "workspace")}.json`);
+  try {
+    fs.rmSync(filePath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 function sameOwnershipRecord(
@@ -305,57 +295,73 @@ function sameOwnershipRecord(
   );
 }
 
-export function removeWorkspaceOwnershipIfMatches(
-  repoPath: string,
+function removeWorkspaceOwnershipIfMatchesInDirectory(
+  directory: string,
   expected: WorkspaceOwnershipRecord,
 ): ConditionalOwnershipRemoval {
-  const filePath = recordPath(repoPath, expected.workspace);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const filePath = path.join(
+    directory,
+    `${validateWorkspace(expected.workspace, "workspace")}.json`,
+  );
+  let current: WorkspaceOwnershipRecord;
+  try {
+    current = readRecordFile(filePath, expected.workspace);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+    throw error;
+  }
+  if (!sameOwnershipRecord(current, expected)) return "changed";
+  fs.rmSync(filePath);
+  return "removed";
+}
+
+export function withWorkspaceOwnershipTransaction<T>(
+  repoPath: string,
+  operation: (transaction: WorkspaceOwnershipTransaction) => T,
+): T {
+  const directory = ownershipDirectory(repoPath);
+  fs.mkdirSync(directory, { recursive: true });
   return withFileLockSync(
-    `${filePath}.lock`,
-    { activity: "workspace ownership removal", target: `'${expected.workspace}'` },
-    () => {
-      let current: WorkspaceOwnershipRecord;
-      try {
-        current = readRecordFile(filePath, expected.workspace);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
-        throw error;
-      }
-      if (!sameOwnershipRecord(current, expected)) return "changed";
-      fs.rmSync(filePath);
-      return "removed";
-    },
+    path.join(directory, ".lock"),
+    { activity: "workspace ownership transaction", target: `'${repoPath}'`, waitMs: 5000 },
+    () =>
+      operation({
+        list: () => listWorkspaceOwnershipInDirectory(directory),
+        write: (input) => writeWorkspaceOwnershipInDirectory(directory, input),
+        remove: (workspace) => removeWorkspaceOwnershipInDirectory(directory, workspace),
+        removeIfMatches: (expected) =>
+          removeWorkspaceOwnershipIfMatchesInDirectory(directory, expected),
+      }),
+  );
+}
+
+export function writeWorkspaceOwnership(
+  repoPath: string,
+  input: WorkspaceOwnershipInput,
+): WorkspaceOwnershipRecord {
+  return withWorkspaceOwnershipTransaction(repoPath, (transaction) => transaction.write(input));
+}
+
+export function removeWorkspaceOwnership(repoPath: string, workspace: string): boolean {
+  return withWorkspaceOwnershipTransaction(repoPath, (transaction) =>
+    transaction.remove(workspace),
   );
 }
 
 export function inspectWorkspaceOwnership(
   record: WorkspaceOwnershipRecord,
   worktrees: GitWorktree[],
-  devpods: DevpodOwnershipEvidence[] | undefined,
+  devpods: DevpodWorkspace[] | undefined,
 ): WorkspaceOwnershipStatus {
   const worktree = worktrees.find((candidate) =>
     sameWorkspacePath(candidate.path, record.worktreePath),
   );
-  const devpodById = devpods?.find((candidate) => candidate.id === record.devpodId);
-  const devpodsByPath =
-    devpods?.filter((candidate) =>
-      sameWorkspacePath(candidate.source.localFolder, record.worktreePath),
-    ) ?? [];
-  const devpodConflict =
-    Boolean(devpodById && !sameWorkspacePath(devpodById.source.localFolder, record.worktreePath)) ||
-    devpodsByPath.length > 1 ||
-    Boolean(devpodsByPath[0] && devpodsByPath[0].id !== record.devpodId);
-  const devpodStatus =
-    devpods === undefined
-      ? "unknown"
-      : devpodConflict
-        ? "conflict"
-        : devpodById
-          ? "owned"
-          : "absent";
+  const devpodOwnership = devpods
+    ? inspectDevpodWorkspaceOwnership(devpods, record.devpodId, record.worktreePath)
+    : undefined;
+  const devpodStatus = devpodOwnership?.status ?? "unknown";
 
-  if (devpodConflict) {
+  if (devpodStatus === "conflict") {
     return { ownerStatus: "conflict", devpodStatus, worktree };
   }
   if (worktree?.locked) {

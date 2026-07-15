@@ -2,10 +2,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostRouteState } from "../../types";
+import { listDevpodWorkspaces } from "../devpod-workspaces";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
 import { resolveWorktreeWorkspace, withWorkspaceLifecycleLock, wsFromBranch } from "../workspace";
-import { listDevpodWorkspaces, workspaceEnsure } from "../workspace-ensure";
+import { workspaceEnsure } from "../workspace-ensure";
 import { workspaceDown, workspaceLs, workspaceStop, workspaceUp } from "../workspace-lifecycle";
 import {
   inspectWorkspaceOwnership,
@@ -19,8 +20,11 @@ vi.mock("../route-state", () => ({
   listRoutesForWorktreePaths: vi.fn(() => new Map()),
   removeWorkspaceRoutesForWorktree: vi.fn(() => []),
 }));
-vi.mock("../workspace-ensure", () => ({
+vi.mock("../devpod-workspaces", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../devpod-workspaces")>()),
   listDevpodWorkspaces: vi.fn(() => []),
+}));
+vi.mock("../workspace-ensure", () => ({
   workspaceEnsure: vi.fn(async (repoPath: string) => ({
     repoPath,
     workspace: "feat-a",

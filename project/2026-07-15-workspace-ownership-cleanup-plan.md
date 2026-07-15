@@ -218,5 +218,16 @@ Commit: `chore(release): publish 0.0.31 workspace cleanup`
 - Done: Slice 5 correctness and simplification re-reviews confirmed every finding resolved with no remaining actionable issue at or above 75 confidence.
 - Done: fresh Slice 5 docs policy, Biome, TypeScript, build, shell syntax, and package-content verification passed with pnpm 11.6.0; the dry-run tarball is `@devrouter/cli@0.0.31` with 31 intended files and no tests/project files.
 - Done: the security gate found no high-confidence exploitable vulnerability; destructive flows use argv arrays, exact Git/ledger/DevPod/path evidence, fail-closed conflicts, lifecycle locks, and record-last cleanup.
-- Active: Slice 5 release commit.
-- Next: run the strict maintainability and independent whole-branch gates, resolve findings, and complete final verification.
+- Done: committed Slice 5 as `0294cac` (`chore(release): publish 0.0.31 workspace cleanup`); every configured pre-commit hook passed with pnpm 11.6.0.
+- Done: the strict maintainability review found non-atomic cross-record locking, duplicated DevPod ownership/provider logic, mutable mixed-mode GC orchestration, and one dead target-resolution lookup.
+- Done: the independent whole-branch review found a GC/ensure revival race between final eligibility proof and destructive cleanup.
+- Done: replaced per-record locks with one repository-ledger transaction used by every ownership write/removal; GC now holds it across final record/Git/DevPod/route revalidation and all destructive actions, so ensure either wins before revalidation or waits until cleanup completes.
+- Done: extracted the canonical DevPod list/exact-ownership/stop/delete adapter, split read-only GC planning from apply, made application return fresh candidate reports with explicit failure stages, and removed the dead lookup.
+- Done: added deterministic coverage for cross-record uniqueness, transaction-wrapped cleanup, post-snapshot workspace revival, duplicate DevPod identity evidence, and argv-only provider mutation; focused verification passed.
+- Done: independent correctness re-review confirmed the GC/ensure race resolved with no remaining actionable finding at or above 75 confidence.
+- Done: strict maintainability and independent correctness re-reviews confirmed all final-gate fixes, including candidate-local transaction acquisition failures, with no remaining actionable finding at or above 75 confidence.
+- Done: final docs policy, Biome, Knip, TypeScript, build, and package dry-run passed; `@devrouter/cli@0.0.31` contains the intended 31 files.
+- Done: the full suite passed with 41 files and 401 tests; Opengrep reports only the same eight pre-existing findings outside this branch diff.
+- Done: the final real lifecycle smoke passed every managed and out-of-band cleanup phase; exact follow-up assertions found zero matching DevPods, routes, volumes, or temporary repository.
+- Done: updated the existing DevPod/worktree identity solution with the repository-ledger transaction and GC/ensure race prevention.
+- Next: commit the final-gate fixes and solution update, then hand off the locally complete branch for push/PR authorization.

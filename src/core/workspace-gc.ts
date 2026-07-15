@@ -1,18 +1,22 @@
-import { spawnSync } from "node:child_process";
 import path from "node:path";
+import {
+  inspectDevpodWorkspaceOwnership,
+  listDevpodWorkspaces,
+  runDevpodWorkspaceAction,
+} from "./devpod-workspaces";
 import { listHostRouteState } from "./host-routes";
 import { resolveRepoPath } from "./repo-config";
 import { removeWorkspaceRoutesForWorktree } from "./route-state";
 import { comparableWorkspacePath, sameWorkspacePath } from "./workspace";
-import { listDevpodWorkspaces } from "./workspace-ensure";
 import {
   type DevpodOwnerStatus,
   inspectWorkspaceOwnership,
   listGitWorktrees,
   listWorkspaceOwnership,
-  removeWorkspaceOwnershipIfMatches,
   type WorkspaceOwnerStatus,
   type WorkspaceOwnershipRecord,
+  type WorkspaceOwnershipTransaction,
+  withWorkspaceOwnershipTransaction,
 } from "./workspace-ownership";
 
 export type WorkspaceGcActionResource = "devpod" | "routes" | "record";
@@ -57,7 +61,8 @@ export type WorkspaceGcReport = {
   candidates: WorkspaceGcCandidate[];
 };
 
-type GcOptions = { repoPath?: string; yes?: boolean };
+export type WorkspaceGcPlan = WorkspaceGcReport & { mode: "dry-run" };
+export type WorkspaceGcApplyReport = WorkspaceGcReport & { mode: "apply" };
 
 function routesForOwner(
   routes: ReturnType<typeof listHostRouteState>,
@@ -219,135 +224,160 @@ function legacyCandidates(
   }));
 }
 
-function deleteDevpod(devpodId: string): void {
-  const result = spawnSync("devpod", ["delete", devpodId, "--ignore-not-found"], {
-    encoding: "utf-8",
-  });
-  if (result.status !== 0) {
-    const detail = [result.error?.message, result.stdout, result.stderr]
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    throw new Error(`devpod delete failed for '${devpodId}': ${detail || "unknown error"}`);
-  }
-}
-
 function revalidateCandidate(
   candidate: WorkspaceGcCandidate,
-  report: WorkspaceGcReport,
-): WorkspaceOwnershipRecord | undefined {
-  const record = listWorkspaceOwnership(report.repoPath).find(
-    (entry) => entry.workspace === candidate.workspace,
-  );
+  repoPath: string,
+  transaction: WorkspaceOwnershipTransaction,
+):
+  | { status: "ready"; candidate: WorkspaceGcCandidate; record: WorkspaceOwnershipRecord }
+  | { status: "blocked"; candidate: WorkspaceGcCandidate } {
+  const record = transaction.list().find((entry) => entry.workspace === candidate.workspace);
   if (
     !record ||
     !sameWorkspacePath(record.worktreePath, candidate.worktreePath) ||
     record.devpodId !== candidate.devpodId
   ) {
-    candidate.eligible = false;
-    candidate.reason = "Ownership record disappeared or changed before cleanup.";
-  } else {
-    const fresh = ownedCandidate(
-      record,
-      listGitWorktrees(report.repoPath),
-      listDevpodWorkspaces(),
-      listHostRouteState(),
-    );
-    if (fresh.eligible) {
-      Object.assign(candidate, fresh);
-      return record;
-    }
-    Object.assign(candidate, fresh, {
-      reason: `Ownership changed before cleanup: ${fresh.reason}`,
-    });
+    return {
+      status: "blocked",
+      candidate: {
+        ...candidate,
+        eligible: false,
+        reason: "Ownership record disappeared or changed before cleanup.",
+        actions: [
+          { resource: "devpod", status: "skipped" },
+          { resource: "routes", status: "skipped", count: candidate.routeCount },
+          { resource: "record", status: "skipped" },
+        ],
+      },
+    };
   }
 
-  candidate.actions = [
-    { resource: "devpod", status: "skipped" },
-    { resource: "routes", status: "skipped", count: candidate.routeCount },
-    { resource: "record", status: "skipped" },
-  ];
-  report.summary.eligible -= 1;
-  report.summary.blocked += 1;
-  return undefined;
+  const fresh = ownedCandidate(
+    record,
+    listGitWorktrees(repoPath),
+    listDevpodWorkspaces(),
+    listHostRouteState(),
+  );
+  if (fresh.eligible) return { status: "ready", candidate: fresh, record };
+  return {
+    status: "blocked",
+    candidate: {
+      ...fresh,
+      reason: `Ownership changed before cleanup: ${fresh.reason}`,
+    },
+  };
 }
 
 function recheckDevpodOwnership(record: WorkspaceOwnershipRecord): "owned" | "absent" {
-  const devpods = listDevpodWorkspaces();
-  const byId = devpods.find((devpod) => devpod.id === record.devpodId);
-  if (byId && !sameWorkspacePath(byId.source.localFolder, record.worktreePath)) {
-    throw new Error(
-      `DevPod identity '${record.devpodId}' changed owner to '${byId.source.localFolder}'.`,
-    );
-  }
-  const byPath = devpods.filter((devpod) =>
-    sameWorkspacePath(devpod.source.localFolder, record.worktreePath),
+  const ownership = inspectDevpodWorkspaceOwnership(
+    listDevpodWorkspaces(),
+    record.devpodId,
+    record.worktreePath,
   );
-  if (byPath.length > 1 || (byPath[0] && byPath[0].id !== record.devpodId)) {
-    throw new Error(
-      `Worktree '${record.worktreePath}' gained conflicting DevPod ownership before cleanup.`,
-    );
+  if (ownership.status === "conflict") {
+    throw new Error(ownership.reason);
   }
-  return byId ? "owned" : "absent";
+  return ownership.status;
 }
 
-function applyCandidate(candidate: WorkspaceGcCandidate, report: WorkspaceGcReport): void {
-  let record: WorkspaceOwnershipRecord | undefined;
-  try {
-    record = revalidateCandidate(candidate, report);
-  } catch (error) {
-    candidate.actions = [
-      {
-        resource: "record",
-        status: "failed",
-        error: `Ownership revalidation failed: ${error instanceof Error ? error.message : String(error)}`,
-      },
-    ];
-    report.summary.errors += 1;
-    return;
-  }
-  if (!record) return;
-  const actions: WorkspaceGcAction[] = [];
-  try {
-    const devpodStatus = recheckDevpodOwnership(record);
-    if (devpodStatus === "owned") {
-      deleteDevpod(record.devpodId);
-      actions.push({ resource: "devpod", status: "deleted" });
-    } else {
-      actions.push({ resource: "devpod", status: "already-absent" });
-    }
-
-    const routes = removeWorkspaceRoutesForWorktree(candidate.workspace, candidate.worktreePath);
-    actions.push({
-      resource: "routes",
-      status: routes.length > 0 ? "deleted" : "already-absent",
-      count: routes.length,
-    });
-
-    const removal = removeWorkspaceOwnershipIfMatches(report.repoPath, record);
-    if (removal === "changed") {
-      throw new Error("Ownership record changed during cleanup; record was retained.");
-    }
-    actions.push({
-      resource: "record",
-      status: removal === "removed" ? "deleted" : "already-absent",
-    });
-    report.summary.cleaned += 1;
-  } catch (error) {
-    const resource: WorkspaceGcActionResource =
-      actions.length === 0 ? "devpod" : actions.length === 1 ? "routes" : "record";
-    actions.push({
-      resource,
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-    });
-    report.summary.errors += 1;
-  }
-  candidate.actions = actions;
+function failedAction(resource: WorkspaceGcActionResource, error: unknown): WorkspaceGcAction {
+  return {
+    resource,
+    status: "failed",
+    error: error instanceof Error ? error.message : String(error),
+  };
 }
 
-export function workspaceGc(options: GcOptions = {}): WorkspaceGcReport {
-  const repoPath = comparableWorkspacePath(resolveRepoPath(options.repoPath));
+function applyCandidate(candidate: WorkspaceGcCandidate, repoPath: string): WorkspaceGcCandidate {
+  try {
+    return withWorkspaceOwnershipTransaction(repoPath, (transaction) => {
+      let revalidated: ReturnType<typeof revalidateCandidate>;
+      try {
+        revalidated = revalidateCandidate(candidate, repoPath, transaction);
+      } catch (error) {
+        return {
+          ...candidate,
+          actions: [
+            failedAction(
+              "record",
+              `Ownership revalidation failed: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          ],
+        };
+      }
+      if (revalidated.status === "blocked") return revalidated.candidate;
+
+      const { candidate: fresh, record } = revalidated;
+      const actions: WorkspaceGcAction[] = [];
+      let devpodStatus: "owned" | "absent";
+      try {
+        devpodStatus = recheckDevpodOwnership(record);
+        if (devpodStatus === "owned") runDevpodWorkspaceAction("delete", record.devpodId);
+      } catch (error) {
+        return { ...fresh, actions: [failedAction("devpod", error)] };
+      }
+      actions.push({
+        resource: "devpod",
+        status: devpodStatus === "owned" ? "deleted" : "already-absent",
+      });
+
+      try {
+        const routes = removeWorkspaceRoutesForWorktree(fresh.workspace, fresh.worktreePath);
+        actions.push({
+          resource: "routes",
+          status: routes.length > 0 ? "deleted" : "already-absent",
+          count: routes.length,
+        });
+      } catch (error) {
+        return { ...fresh, actions: [...actions, failedAction("routes", error)] };
+      }
+
+      try {
+        const removal = transaction.removeIfMatches(record);
+        if (removal === "changed") {
+          throw new Error("Ownership record changed during cleanup; record was retained.");
+        }
+        actions.push({
+          resource: "record",
+          status: removal === "removed" ? "deleted" : "already-absent",
+        });
+      } catch (error) {
+        return { ...fresh, actions: [...actions, failedAction("record", error)] };
+      }
+      return { ...fresh, actions };
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      ...candidate,
+      actions: [failedAction("record", `Ownership transaction failed: ${detail}`)],
+    };
+  }
+}
+
+function summarizeGc(mode: WorkspaceGcReport["mode"], candidates: WorkspaceGcCandidate[]) {
+  return {
+    total: candidates.length,
+    eligible: candidates.filter((candidate) => candidate.eligible).length,
+    cleaned:
+      mode === "apply"
+        ? candidates.filter((candidate) =>
+            candidate.actions.some(
+              (action) =>
+                action.resource === "record" &&
+                (action.status === "deleted" || action.status === "already-absent"),
+            ),
+          ).length
+        : 0,
+    blocked: candidates.filter((candidate) => !candidate.eligible).length,
+    errors: candidates.filter((candidate) =>
+      candidate.actions.some((action) => action.status === "failed"),
+    ).length,
+  };
+}
+
+export function inspectWorkspaceGc(repo?: string): WorkspaceGcPlan {
+  const repoPath = comparableWorkspacePath(resolveRepoPath(repo));
   const worktrees = listGitWorktrees(repoPath);
   const records = listWorkspaceOwnership(repoPath);
   const devpods = listDevpodWorkspaces();
@@ -356,24 +386,24 @@ export function workspaceGc(options: GcOptions = {}): WorkspaceGcReport {
     ...records.map((record) => ownedCandidate(record, worktrees, devpods, routes)),
     ...legacyCandidates(repoPath, records, worktrees, devpods, routes),
   ];
-  const report: WorkspaceGcReport = {
+  return {
     generatedAt: new Date().toISOString(),
     repoPath,
-    mode: options.yes ? "apply" : "dry-run",
-    summary: {
-      total: candidates.length,
-      eligible: candidates.filter((candidate) => candidate.eligible).length,
-      cleaned: 0,
-      blocked: candidates.filter((candidate) => !candidate.eligible).length,
-      errors: 0,
-    },
+    mode: "dry-run",
+    summary: summarizeGc("dry-run", candidates),
     candidates,
   };
+}
 
-  if (options.yes) {
-    for (const candidate of candidates) {
-      if (candidate.eligible) applyCandidate(candidate, report);
-    }
-  }
-  return report;
+export function applyWorkspaceGc(plan: WorkspaceGcPlan): WorkspaceGcApplyReport {
+  const candidates = plan.candidates.map((candidate) =>
+    candidate.eligible ? applyCandidate(candidate, plan.repoPath) : candidate,
+  );
+  return {
+    generatedAt: new Date().toISOString(),
+    repoPath: plan.repoPath,
+    mode: "apply",
+    summary: summarizeGc("apply", candidates),
+    candidates,
+  };
 }
