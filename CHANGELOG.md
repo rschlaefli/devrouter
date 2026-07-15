@@ -4,16 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.31] - 2026-07-15
+
 ### Added
 
-- Biome pinned to a fixed version for consistent formatting and lint behavior across all environments.
-- Knip pinned for stable detection of unused files, unused dependencies, unlisted dependencies, and unresolved imports.
-- `pre-commit` hooks covering basic file checks, Biome safe fixes, Knip, and Gitleaks secret scanning. Developers run `pre-commit install` once after cloning to activate them.
-- `pnpm check` and `pnpm knip` added as CI gates. Existing CI continues to run `pnpm typecheck`, tests, build, and docs policy.
+- Durable managed-workspace owner records under each consumer repository's Git common directory, with `present`, `missing`, `locked`, and `conflict` status in `workspace ls`.
+- `devrouter workspace stop` for removing exact routes and stopping the DevPod while preserving the checkout, owner record, and data.
+- Dry-run-first `devrouter workspace gc`; `--yes` deletes only exact ledger-owned resources for missing/prunable owners and never mutates Git worktrees, branches, or prune state.
+- An isolated real-DevPod lifecycle smoke covering stop/resume, dirty-down rejection, clean down, out-of-band Git removal, and GC.
 
 ### Changed
 
-- Repository normalized to Biome formatting and import order throughout. Existing files were reformatted in a single pass to establish a clean baseline.
+- Full `workspace down` now validates exact ownership, Git registration, lock, and cleanliness before any side effect, then deletes the DevPod/routes and removes the clean worktree and record. `--keep-worktree` preserves the checkout and record.
+- Workspace commands now fail early with one Git-required error; normal config, app, status, and doctor flows remain Git-optional.
+- `devrouter doctor` now emits one ownership-aware cleanup diagnostic with the exact dry-run GC remediation command.
+
+### Removed
+
+- Removed ambiguous `workspace down --keep-devpod`; use `workspace stop` to pause a workspace or `workspace down --keep-worktree` to reclaim its runtime while retaining the checkout.
+
+### Fixed
+
+- The runnable devcontainer example now passes both workspace identity variables through its linked-worktree Compose overlay.
+- The devcontainer example now uses only the required shared `devnet` instead of allocating an unused per-project bridge network.
+- The workspace example now treats `--no-devpod` as create-only and explicitly registers the linked-worktree route afterward.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.31.md
 
 ## [0.0.30] - 2026-07-14
 
@@ -66,11 +84,16 @@ Agent adaptation prompt: ./upgrade-prompts/0.0.27.md
 
 ### Added
 
+- Biome pinned to a fixed version for consistent formatting and lint behavior across all environments.
+- Knip pinned for stable detection of unused files, unused dependencies, unlisted dependencies, and unresolved imports.
+- `pre-commit` hooks covering basic file checks, Biome safe fixes, Knip, and Gitleaks secret scanning. Developers run `pre-commit install` once after cloning to activate them.
+- `pnpm check` and `pnpm knip` added as CI gates. Existing CI continues to run `pnpm typecheck`, tests, build, and docs policy.
 - `devrouter workspace ensure [path]` now attaches to or starts the exact linked worktree's DevPod, persists one stable workspace identity, validates the compose overlay, Git metadata mount, container environment, devnet aliases, route ownership, HTTP route reachability, and unique running TCP upstream ownership/health, and retries once with `--recreate` when an existing DevPod is stale.
 - Managed devcontainer scaffolds now include the default and devrouter compose overlays required for linked-worktree Git access.
 
 ### Changed
 
+- Repository normalized to Biome formatting and import order throughout. Existing files were reformatted in a single pass to establish a clean baseline.
 - Workspace lifecycle operations are serialized per worktree, fail on ambiguous or conflicting identities, and replace routes atomically only after the DevPod runtime proof succeeds.
 - `devrouter workspace up` delegates startup and reconciliation to the same fail-closed lifecycle as `workspace ensure`; `--no-devpod` remains a create-only escape hatch.
 - New worktrees default to the repository-local `trees/<workspace>` layout used by agent workflows.

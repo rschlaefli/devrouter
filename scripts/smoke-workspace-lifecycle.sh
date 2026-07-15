@@ -3,12 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIXTURE="$ROOT/examples/devcontainer"
-RUN_ID="${DEVROUTER_LIFECYCLE_SMOKE_ID:-$PPID-$$}"
+RUN_ID="$PPID-$$"
 WS_LIFECYCLE="lifecycle-$RUN_ID"
 WS_GC="gc-$RUN_ID"
 REPO="$(mktemp -d "${TMPDIR:-/tmp}/devrouter-lifecycle-smoke.XXXXXX")"
 WT_LIFECYCLE="$REPO/trees/$WS_LIFECYCLE"
 WT_GC="$REPO/trees/$WS_GC"
+VOLUME_FILE=""
 
 run_dev() {
   node "$ROOT/dist/devrouter.js" "$@"
@@ -34,9 +35,93 @@ cleanup() {
   run_dev workspace down "$WS_LIFECYCLE" --repo "$REPO" >/dev/null 2>&1
   run_dev workspace down "$WS_GC" --repo "$REPO" >/dev/null 2>&1
   run_dev workspace gc --repo "$REPO" --yes >/dev/null 2>&1
-  devpod delete "$WS_LIFECYCLE" --ignore-not-found >/dev/null 2>&1
-  devpod delete "$WS_GC" --ignore-not-found >/dev/null 2>&1
+  delete_owned_devpod "$WS_LIFECYCLE" "$WT_LIFECYCLE"
+  delete_owned_devpod "$WS_GC" "$WT_GC"
+  while IFS=$'\t' read -r compose_project volume; do
+    [ -z "$compose_project" ] && continue
+    [ -z "$volume" ] && continue
+    volume_project="$(docker volume inspect "$volume" --format '{{index .Labels "com.docker.compose.project"}}' 2>/dev/null)"
+    if [ "$volume_project" = "$compose_project" ]; then
+      docker volume rm "$volume" >/dev/null 2>&1
+    fi
+  done <"$VOLUME_FILE"
+  rm -f "$VOLUME_FILE"
   rm -rf "$REPO"
+}
+
+delete_owned_devpod() {
+  local workspace="$1"
+  local worktree_path="$2"
+  local devpods
+  devpods="$(devpod list --output json 2>/dev/null)" || return 0
+  if node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const normalize = (value) => {
+      let current = path.resolve(value);
+      const missing = [];
+      while (!fs.existsSync(current)) {
+        const parent = path.dirname(current);
+        if (parent === current) break;
+        missing.unshift(path.basename(current));
+        current = parent;
+      }
+      try {
+        current = fs.realpathSync.native(current);
+      } catch {}
+      return path.join(current, ...missing);
+    };
+    const rows = JSON.parse(process.argv[1]);
+    const row = rows.find((entry) => entry.id === process.argv[2]);
+    if (!row?.source?.localFolder || normalize(row.source.localFolder) !== normalize(process.argv[3])) {
+      process.exit(1);
+    }
+  ' "$devpods" "$workspace" "$worktree_path"; then
+    devpod delete "$workspace" --ignore-not-found >/dev/null 2>&1
+  fi
+}
+
+capture_workspace_volumes() {
+  local workspace="$1"
+  local worktree_path="$2"
+  local container_ids
+  local compose_project=""
+  local mounts
+  container_ids="$(docker network inspect devnet --format '{{range $id, $_ := .Containers}}{{println $id}}{{end}}')"
+  while IFS= read -r container_id; do
+    [ -z "$container_id" ] && continue
+    container_env="$(docker inspect "$container_id" --format '{{range .Config.Env}}{{println .}}{{end}}')"
+    mounts="$(docker inspect "$container_id" --format '{{json .Mounts}}')"
+    if grep -Fxq "WORKSPACE=$workspace" <<<"$container_env" &&
+      grep -Fxq "DEVROUTER_WORKSPACE=$workspace" <<<"$container_env" &&
+      node -e '
+        const fs = require("node:fs");
+        const path = require("node:path");
+        const normalize = (value) => {
+          const resolved = path.resolve(value);
+          try {
+            return fs.realpathSync.native(resolved);
+          } catch {
+            return resolved;
+          }
+        };
+        const mounts = JSON.parse(process.argv[1]);
+        if (!mounts.some((mount) => mount.Type === "bind" && normalize(mount.Source) === normalize(process.argv[2]))) {
+          process.exit(1);
+        }
+      ' "$mounts" "$worktree_path"; then
+      compose_project="$(docker inspect "$container_id" --format '{{index .Config.Labels "com.docker.compose.project"}}')"
+      break
+    fi
+  done <<<"$container_ids"
+  if [ -z "$compose_project" ]; then
+    echo "Could not resolve the exact Compose project for workspace '$workspace'." >&2
+    return 1
+  fi
+  while IFS= read -r volume; do
+    [ -n "$volume" ] && printf '%s\t%s\n' "$compose_project" "$volume" >>"$VOLUME_FILE"
+  done < <(docker volume ls --filter "label=com.docker.compose.project=$compose_project" --format '{{.Name}}')
+  sort -u "$VOLUME_FILE" -o "$VOLUME_FILE"
 }
 
 assert_workspace() {
@@ -55,6 +140,7 @@ assert_workspace() {
 }
 
 skip_unless_available
+VOLUME_FILE="$(mktemp "${TMPDIR:-/tmp}/devrouter-lifecycle-volumes.XXXXXX")"
 trap cleanup EXIT
 
 if [ ! -f "$ROOT/dist/devrouter.js" ]; then
@@ -73,6 +159,7 @@ run_dev setup --repo "$REPO" --yes --json >/dev/null
 
 echo "--- managed lifecycle: up -> stop -> ensure -> dirty rejection -> down ---"
 run_dev workspace up "$WS_LIFECYCLE" --repo "$REPO"
+capture_workspace_volumes "$WS_LIFECYCLE" "$WT_LIFECYCLE"
 assert_workspace "$(run_dev workspace ls --repo "$REPO" --json)" "$WS_LIFECYCLE" present 2
 
 run_dev workspace stop "$WS_LIFECYCLE" --repo "$REPO"
@@ -90,6 +177,7 @@ run_dev workspace down "$WS_LIFECYCLE" --repo "$REPO"
 
 echo "--- out-of-band removal: dry-run GC -> apply GC ---"
 run_dev workspace up "$WS_GC" --repo "$REPO"
+capture_workspace_volumes "$WS_GC" "$WT_GC"
 git -C "$REPO" worktree remove "$WT_GC"
 
 GC_DRY="$(run_dev workspace gc --repo "$REPO" --json)"

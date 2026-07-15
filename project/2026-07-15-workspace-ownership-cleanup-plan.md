@@ -209,5 +209,14 @@ Commit: `chore(release): publish 0.0.31 workspace cleanup`
 - Done: Gemini 3.5 Flash High review was attempted with an eight-minute bound but returned no response; fallback correctness review found three concrete example/smoke/docs defects, all fixed and sent for re-review.
 - Done: separate simplification review removed duplicate repository resolution while preserving the underlying Git error as the cause.
 - Done: Slice 4 correctness re-review confirmed all three findings resolved with no remaining actionable issue at or above 75 confidence.
-- Active: Slice 4 final verification and commit.
-- Next: commit Slice 4, then run the real lifecycle/routing/devcontainer proof and prepare release 0.0.31.
+- Done: committed Slice 4 as `be302c6` (`test(workspace): protect lifecycle compatibility`).
+- Done: prepared 0.0.31 package/example versions, changelog, upgrade prompt, and the current managed devcontainer example.
+- Done: routing smoke, real DevPod/devcontainer smoke, live HTTP/Postgres checks, explicit devcontainer teardown, all three example doctors, package dry-run, full 395-test suite, docs policy, Biome, Knip, TypeScript, build, and Opengrep completed successfully; the eight Opengrep findings are pre-existing and outside this branch diff.
+- Done: the real lifecycle smoke proved up, stop, resume, dirty-down rejection without side effects, clean full down, out-of-band Git removal, dry-run GC, and apply GC.
+- Done: release correctness and simplification reviews found an obsolete fixture rewrite, unsafe fallback cleanup proof, misleading all-candidates GC wording, and already-released changelog bullets; all were corrected.
+- Done: the corrected lifecycle smoke passed again, and exact follow-up checks found no matching DevPods, routes, Compose volumes, or temporary repository.
+- Done: Slice 5 correctness and simplification re-reviews confirmed every finding resolved with no remaining actionable issue at or above 75 confidence.
+- Done: fresh Slice 5 docs policy, Biome, TypeScript, build, shell syntax, and package-content verification passed with pnpm 11.6.0; the dry-run tarball is `@devrouter/cli@0.0.31` with 31 intended files and no tests/project files.
+- Done: the security gate found no high-confidence exploitable vulnerability; destructive flows use argv arrays, exact Git/ledger/DevPod/path evidence, fail-closed conflicts, lifecycle locks, and record-last cleanup.
+- Active: Slice 5 release commit.
+- Next: run the strict maintainability and independent whole-branch gates, resolve findings, and complete final verification.

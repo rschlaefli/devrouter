@@ -1,5 +1,8 @@
 services:
   app:
+    environment:
+      WORKSPACE: ${WORKSPACE:-}
+      DEVROUTER_WORKSPACE: ${DEVROUTER_WORKSPACE:-}
     volumes:
       - type: bind
         source: ${DEVROUTER_GIT_COMMON_DIR}

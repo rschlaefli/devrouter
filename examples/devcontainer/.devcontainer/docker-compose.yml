@@ -11,7 +11,6 @@ services:
       timeout: 3s
       retries: 20
     networks:
-      default: {}
       devnet:
         aliases:
           - ${WORKSPACE:-devcontainer-demo}-db
@@ -28,7 +27,6 @@ services:
     env_file:
       - devcontainer.env
     networks:
-      default: {}
       devnet:
         aliases:
           - ${WORKSPACE:-devcontainer-demo}-app
