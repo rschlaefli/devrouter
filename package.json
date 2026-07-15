@@ -1,6 +1,6 @@
 {
   "name": "@devrouter/cli",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "description": "Local dev routing CLI with shared Traefik reverse proxy",
   "author": "Roland Schlaefli",
   "homepage": "https://github.com/rschlaefli/devrouter#readme",
@@ -37,6 +37,7 @@
     "test:watch": "vitest",
     "routing:smoke": "./scripts/smoke-routing.sh",
     "devcontainer:smoke": "./scripts/smoke-devcontainer.sh",
+    "workspace:lifecycle-smoke": "./scripts/smoke-workspace-lifecycle.sh",
     "bench:startup": "zsh -lc 'set -euo pipefail; echo \"=== dev --help (x5) ===\"; for i in {1..5}; do /usr/bin/time -p node dist/devrouter.js --help >/dev/null; done; echo \"=== dev app add --help (x5) ===\"; for i in {1..5}; do /usr/bin/time -p node dist/devrouter.js app add --help >/dev/null; done; echo \"=== dev status --json (x3, best effort) ===\"; for i in {1..3}; do /usr/bin/time -p node dist/devrouter.js status --json >/dev/null || true; done'",
     "typecheck": "tsc --noEmit",
     "bootstrap": "pnpm install && pnpm install:local",

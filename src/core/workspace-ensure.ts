@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { DevrouterApp } from "../types";
+import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { ensureNetwork } from "./docker";
 import { type HostRouteInput, parseUpstream, replaceHostRoutesForRepo } from "./host-routes";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
@@ -16,6 +17,7 @@ import {
 import { ensureTLSHostsCovered } from "./tls";
 import {
   comparableWorkspacePath,
+  currentBranch,
   isLinkedWorktree,
   persistWorkspace,
   readPersistedWorkspace,
@@ -23,17 +25,17 @@ import {
   sameWorkspacePath,
   withWorkspaceLifecycleLock,
 } from "./workspace";
+import {
+  listMissingWorkspaceOwnership,
+  resolveGitCommonDir,
+  writeWorkspaceOwnership,
+} from "./workspace-ownership";
 
 const DEVCONTAINER_OVERLAY = "docker-compose.devrouter.yml";
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 1_000;
 
 type ProxyApp = Extract<DevrouterApp, { runtime: "proxy" }>;
-
-export type DevpodWorkspace = {
-  id: string;
-  source: { localFolder: string };
-};
 
 export type WorkspaceContainerSnapshot = {
   id: string;
@@ -63,51 +65,6 @@ type WorkspaceEnsureOptions = {
   containerTimeoutMs?: number;
   httpTimeoutMs?: number;
 };
-
-export function selectDevpodWorkspace(
-  workspaces: DevpodWorkspace[],
-  repoPath: string,
-): DevpodWorkspace | undefined {
-  const matches = workspaces.filter((workspace) =>
-    sameWorkspacePath(workspace.source.localFolder, repoPath),
-  );
-  if (matches.length > 1) {
-    throw new Error(
-      `Multiple DevPod workspaces reference '${repoPath}': ${matches.map((match) => match.id).join(", ")}`,
-    );
-  }
-  return matches[0];
-}
-
-function listDevpodWorkspaces(): DevpodWorkspace[] {
-  const result = spawnSync("devpod", ["list", "--output", "json"], { encoding: "utf-8" });
-  if (result.status !== 0) {
-    const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`devpod list failed: ${details || "devpod is not installed or unavailable"}`);
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch {
-    throw new Error("devpod list returned invalid JSON.");
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error("devpod list returned an unexpected response.");
-  }
-
-  return parsed.map((entry) => {
-    const candidate = entry as Partial<DevpodWorkspace>;
-    if (
-      typeof candidate.id !== "string" ||
-      !candidate.source ||
-      typeof candidate.source.localFolder !== "string"
-    ) {
-      throw new Error("devpod list returned a workspace without id/source.localFolder.");
-    }
-    return candidate as DevpodWorkspace;
-  });
-}
 
 function assertOverlay(container: WorkspaceContainerSnapshot, repoPath: string): void {
   const workingDir = container.labels["com.docker.compose.project.working_dir"];
@@ -411,18 +368,6 @@ function resolveIdentity(repoPath: string): {
   };
 }
 
-function gitCommonDir(repoPath: string): string {
-  const result = spawnSync(
-    "git",
-    ["-C", repoPath, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-    { encoding: "utf-8" },
-  );
-  if (result.status !== 0 || !result.stdout.trim()) {
-    throw new Error(`Could not resolve the Git common directory for '${repoPath}'.`);
-  }
-  return comparableWorkspacePath(result.stdout.trim());
-}
-
 function startDevpod(
   repoPath: string,
   workspace: string,
@@ -482,6 +427,12 @@ export async function workspaceEnsure(
   if (!isLinkedWorktree(repoPath)) {
     throw new Error(`workspace ensure requires a linked Git worktree (got '${repoPath}').`);
   }
+  const missingOwners = listMissingWorkspaceOwnership(repoPath);
+  if (missingOwners.length > 0) {
+    process.stderr.write(
+      `Warning: ${missingOwners.length} managed workspace owner${missingOwners.length === 1 ? " is" : "s are"} missing. Review: dev workspace gc --repo ${repoPath}\n`,
+    );
+  }
 
   return withWorkspaceLifecycleLock(repoPath, async () => {
     let environmentStarted = false;
@@ -502,13 +453,21 @@ export async function workspaceEnsure(
           );
         }
       }
-      const commonDir = gitCommonDir(repoPath);
+      const commonDir = resolveGitCommonDir(repoPath);
       const upstreamHosts = parsedUpstreams.map((upstream) => upstream.host);
+      const ownership = {
+        workspace,
+        worktreePath: repoPath,
+        branch: currentBranch(repoPath),
+        devpodId: workspace,
+      };
+      writeWorkspaceOwnership(repoPath, ownership);
 
       const startAndProveAttachment = (recreate = false): void => {
         startDevpod(repoPath, workspace, commonDir, recreate);
         environmentStarted = true;
         assertDevpodAttachment(repoPath, workspace);
+        writeWorkspaceOwnership(repoPath, ownership);
       };
       const recreateAndWait = async (): Promise<void> => {
         startAndProveAttachment(true);

@@ -11,7 +11,9 @@ What it demonstrates:
   substituted at runtime with the resolved workspace token.
 - **Auto host namespacing** — `wsdemo.localhost` becomes `wsdemo.<ws>.localhost`
   for a worktree; the committed `.devrouter.yml` is never rewritten.
-- **`devrouter workspace up/ensure/ls/down`** — worktree creation, proven DevPod startup/reconciliation, state, and teardown
+- **`devrouter workspace up/ensure/ls/stop/down/gc`** — worktree creation,
+  proven DevPod startup/reconciliation, ownership state, pause, teardown, and
+  missing-owner cleanup
   in one command.
 - **Matching devnet alias** — the compose service joins `devnet` as
   `${WORKSPACE:-wsdemo}-app`, so the alias and the route resolve to one identity.
@@ -52,9 +54,10 @@ then:
 1. `devrouter up` + `devrouter tls install` — shared router, `devnet`, mkcert CA.
 2. Primary checkout: `WORKSPACE=wsdemo docker compose -p wsdemo up -d` (alias
    `wsdemo-app`) → `devrouter app run app` registers `wsdemo.localhost` → `wsdemo-app`.
-3. `devrouter workspace up feat-a --no-devpod` — creates the `feat-a` worktree and
-   registers `wsdemo.feat-a.localhost` → `feat-a-app`; then
-   `WORKSPACE=feat-a docker compose -p wsfeata up -d` brings up that alias.
+3. `devrouter workspace up feat-a --no-devpod` creates only the `feat-a`
+   worktree. `WORKSPACE=feat-a docker compose -p wsfeata up -d` brings up its
+   alias, then `devrouter app run app --repo <worktree> --yes` registers
+   `wsdemo.feat-a.localhost` → `feat-a-app`.
 4. `curl` both hosts; `devrouter workspace ls`.
 
 `--no-devpod` is used so the example needs only Docker (no devpod/devcontainer).
@@ -63,5 +66,7 @@ and exports `WORKSPACE=<ws>` so the alias substitution happens automatically.
 Inside an existing linked worktree, use `devrouter workspace ensure .`; it reuses
 the exact-path DevPod or starts it, then proves the runtime before registering routes.
 
-Teardown frees the routes (`devrouter workspace down feat-a`, `devrouter app rm`), stops both
-compose projects, and removes the temp repo + worktree.
+Teardown stops the compose projects, frees their routes, and runs
+`devrouter workspace down feat-a`, which removes only a clean, unlocked worktree.
+Use `workspace stop` when the checkout and data should remain. If the worktree is
+removed outside devrouter, review `workspace gc` before applying it with `--yes`.

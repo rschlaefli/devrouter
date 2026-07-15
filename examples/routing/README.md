@@ -93,9 +93,18 @@ To run multiple branches of this repo side-by-side without host collisions, use 
 ```bash
 dev workspace up feat/my-feature   # create worktree, start devpod, register namespaced routes
 dev workspace ensure .             # reconcile/prove this existing linked worktree
-dev workspace ls                   # list worktrees with workspace tokens and route counts
-dev workspace down feat/my-feature # free routes, stop devpod, remove worktree
+dev workspace ls                   # list owner, Git, DevPod, and route state
+dev workspace stop feat/my-feature # stop runtime/routes; preserve checkout and data
+dev workspace down feat/my-feature # delete runtime/routes; remove a clean worktree
+dev workspace gc                   # dry-run report for missing owners
 ```
+
+Full `workspace down` rejects dirty or locked worktrees before changing runtime
+or routes. `workspace gc` never removes Git worktrees and mutates exact eligible
+missing owners only with `--yes`. Workspace commands require Git, while the
+normal routing/config commands in this example also work from a non-Git folder.
+Git has no worktree-removal hook; use `workspace ls`, doctor, and the GC dry run
+after manual removal.
 
 When a workspace token (e.g. `feat-my-feature`) is active, hosts are auto-namespaced in memory:
 `routing-host.localhost` → `routing-host.feat-my-feature.localhost`. The committed `.devrouter.yml` is never

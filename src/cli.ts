@@ -474,17 +474,42 @@ workspaceCommand
   );
 
 workspaceCommand
+  .command("gc")
+  .description("Report or clean missing ledger-owned workspace resources")
+  .option("--repo <path>", "Main repository path (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .option("--yes", "Delete eligible DevPod, route, and ownership resources")
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{ repo?: string; json?: boolean; yes?: boolean }>();
+      const { runWorkspaceGcCommand } = await import("./commands/workspace");
+      runWorkspaceGcCommand(options);
+    }),
+  );
+
+workspaceCommand
+  .command("stop")
+  .description("Stop a workspace's DevPod and free routes while preserving its worktree and data")
+  .argument("<workspace>", "Workspace token or live branch name")
+  .option("--repo <path>", "Main repository path (defaults to current directory)")
+  .action(
+    withErrorHandling(async (target: string, _options: unknown, command: Command) => {
+      const options = command.opts<{ repo?: string }>();
+      const { runWorkspaceStopCommand } = await import("./commands/workspace");
+      await runWorkspaceStopCommand(target, options);
+    }),
+  );
+
+workspaceCommand
   .command("down")
-  .description("Free a workspace's routes, stop its devpod, and remove its worktree")
-  .argument("<workspace>", "Workspace token or branch name")
-  .option("--keep-worktree", "Leave the git worktree in place")
-  .option("--keep-devpod", "Leave the devpod workspace running")
+  .description("Delete a workspace's DevPod and routes, then remove its clean Git worktree")
+  .argument("<workspace>", "Workspace token or live branch name")
+  .option("--keep-worktree", "Delete runtime resources but preserve the Git worktree and record")
   .option("--repo <path>", "Main repository path (defaults to current directory)")
   .action(
     withErrorHandling(async (target: string, _options: unknown, command: Command) => {
       const options = command.opts<{
         keepWorktree?: boolean;
-        keepDevpod?: boolean;
         repo?: string;
       }>();
       const { runWorkspaceDownCommand } = await import("./commands/workspace");

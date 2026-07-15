@@ -19,7 +19,7 @@ Supported route types:
 - HTTP proxy apps (`runtime: proxy`, route to an already-running `upstream`; supports `${WORKSPACE}` placeholder for parallel-worktree isolation)
 - TCP apps with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
-- Parallel git worktrees via `devrouter workspace up/ensure/ls/down` with persisted identities and proven, auto-namespaced `.localhost` routes
+- Parallel git worktrees via `devrouter workspace up/ensure/ls/stop/down/gc` with durable ownership and proven, auto-namespaced `.localhost` routes
 
 Scope:
 
@@ -341,7 +341,7 @@ The skill content is embedded in the CLI bundle, so `devrouter repo agents` alwa
 
 ## 10) Workspace isolation (parallel worktrees)
 
-Multiple git worktrees of the same repo can run concurrently using a persisted **workspace token**. First use reuses an exact-path DevPod or derives a sanitized branch/path slug; after that the Git-metadata identity is authoritative. The primary checkout stays plain and non-namespaced.
+Multiple git worktrees of the same repo can run concurrently using a persisted **workspace token**. Each managed worktree keeps a local token plus a durable owner record in the repository's Git common directory. First use reuses an exact-path DevPod or derives a sanitized branch/path slug; after that the recorded identity is authoritative. The primary checkout stays plain and non-namespaced.
 
 **Proxy upstream placeholder:** use `${WORKSPACE}` in the `upstream` field of a `runtime: proxy` app so devrouter substitutes the active token at runtime. Using `${WORKSPACE}` in `host` is rejected — hosts are auto-namespaced automatically.
 
@@ -362,14 +362,34 @@ devrouter workspace up feat/my-feature
 # Reconcile an existing linked worktree and prove it is ready
 devrouter workspace ensure .
 
-# List worktrees with workspace tokens and route counts
+# List owner, Git, DevPod, and route state
 devrouter workspace ls
 
-# Free routes, stop devpod, remove worktree
+# Pause runtime and preserve checkout, owner record, and data
+devrouter workspace stop feat/my-feature
+
+# Delete runtime/routes, then remove the clean worktree and owner record
 devrouter workspace down feat/my-feature
+
+# Review missing owners; apply exact eligible cleanup explicitly
+devrouter workspace gc
+devrouter workspace gc --yes
 ```
 
-`devrouter doctor` check `routes.orphaned-workspace-routes` reports routes whose worktree was removed without `devrouter workspace down`; it does not mutate route state.
+| Command | Result |
+| --- | --- |
+| `workspace stop` | Stops DevPod and removes routes; keeps worktree, record, and data. |
+| `workspace down` | Deletes DevPod/routes and removes only a clean, unlocked worktree, then its record. |
+| `workspace down --keep-worktree` | Deletes runtime/routes; keeps worktree and record. |
+| `workspace gc` | Dry-run report; never removes Git worktrees, branches, or prune state. |
+| `workspace gc --yes` | Deletes only exact ledger-owned missing resources, then their records. |
+
+`workspace ls` reports `present`, `missing`, `locked`, or `conflict`. Full down
+validates ownership, lock, and cleanliness before side effects. Workspace
+commands require Git; normal config, app, status, and doctor flows remain usable
+without `.git`. Git has no worktree-removal hook, so `devrouter doctor` reports
+missing/conflicting owners and points to dry-run
+`devrouter workspace gc --repo <repo>` instead of mutating them.
 
 Workspace-aware devcontainers must select `.devcontainer/docker-compose.devrouter.yml` via `DEVCONTAINER_COMPOSE_OVERLAY`. The overlay passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute path. `workspace ensure` verifies that contract plus the exact worktree, aliases, health, Git access, route ownership, and reachability before success.
 

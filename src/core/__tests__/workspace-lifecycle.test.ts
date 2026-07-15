@@ -2,16 +2,27 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostRouteState } from "../../types";
+import { listDevpodWorkspaces } from "../devpod-workspaces";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
 import { resolveWorktreeWorkspace, withWorkspaceLifecycleLock, wsFromBranch } from "../workspace";
 import { workspaceEnsure } from "../workspace-ensure";
-import { workspaceDown, workspaceLs, workspaceUp } from "../workspace-lifecycle";
+import { workspaceDown, workspaceLs, workspaceStop, workspaceUp } from "../workspace-lifecycle";
+import {
+  inspectWorkspaceOwnership,
+  listMissingWorkspaceOwnership,
+  listWorkspaceOwnership,
+  removeWorkspaceOwnership,
+} from "../workspace-ownership";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../route-state", () => ({
   listRoutesForWorktreePaths: vi.fn(() => new Map()),
   removeWorkspaceRoutesForWorktree: vi.fn(() => []),
+}));
+vi.mock("../devpod-workspaces", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../devpod-workspaces")>()),
+  listDevpodWorkspaces: vi.fn(() => []),
 }));
 vi.mock("../workspace-ensure", () => ({
   workspaceEnsure: vi.fn(async (repoPath: string) => ({
@@ -21,6 +32,20 @@ vi.mock("../workspace-ensure", () => ({
     urls: ["https://app.feat-a.localhost"],
   })),
 }));
+vi.mock("../workspace-ownership", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../workspace-ownership")>();
+  return {
+    ...actual,
+    inspectWorkspaceOwnership: vi.fn(() => ({
+      ownerStatus: "present",
+      devpodStatus: "owned",
+      worktree: undefined,
+    })),
+    listMissingWorkspaceOwnership: vi.fn(() => []),
+    listWorkspaceOwnership: vi.fn(() => []),
+    removeWorkspaceOwnership: vi.fn(() => true),
+  };
+});
 vi.mock("../repo-config", () => ({
   loadRuntimeConfig: vi.fn(() => ({ config: { version: 1, apps: [] }, workspace: undefined })),
   resolveRepoPath: vi.fn((p?: string) => p ?? "/main/repo"),
@@ -73,20 +98,37 @@ branch refs/heads/feat-a
 
 `;
 
+const LOCKED_PORCELAIN = `worktree /main/repo
+HEAD abc
+branch refs/heads/main
+
+worktree /main/repo-feat-a
+HEAD def
+branch refs/heads/feat/a
+locked maintenance
+
+`;
+
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
-let stderrSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   vi.mocked(resolveWorktreeWorkspace).mockImplementation((_repoPath, branch) =>
     wsFromBranch(branch ?? ""),
   );
+  vi.mocked(listWorkspaceOwnership).mockReturnValue([]);
+  vi.mocked(listMissingWorkspaceOwnership).mockReturnValue([]);
+  vi.mocked(listDevpodWorkspaces).mockReturnValue([]);
+  vi.mocked(inspectWorkspaceOwnership).mockReturnValue({
+    ownerStatus: "present",
+    devpodStatus: "owned",
+    worktree: undefined,
+  });
+  vi.mocked(removeWorkspaceOwnership).mockReturnValue(true);
 });
 
 afterEach(() => {
   stdoutSpy.mockRestore();
-  stderrSpy.mockRestore();
   vi.clearAllMocks();
 });
 
@@ -104,15 +146,33 @@ function route(workspace: string | undefined, name: string, repoPath = "/repo"):
   };
 }
 
+function owner(workspace = "feat-a", worktreePath = "/main/repo-feat-a") {
+  return {
+    version: 1 as const,
+    workspace,
+    worktreePath,
+    branch: "feat/a",
+    devpodId: workspace,
+    createdAt: "2026-07-15T10:00:00.000Z",
+    updatedAt: "2026-07-15T10:00:00.000Z",
+  };
+}
+
 describe("workspaceDown", () => {
   it("frees this repo's routes for the workspace, without loading any config", async () => {
     vi.mocked(removeWorkspaceRoutesForWorktree).mockReturnValue([
       route("feat-a", "web", "/main/repo-feat-a"),
       route("feat-a", "api", "/main/repo-feat-a"),
     ]);
-    vi.mocked(spawnSync).mockReturnValue({ status: 1 } as never); // devpod absent, no git
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      return { status: 1 } as never; // DevPod absent
+    });
 
-    const result = await workspaceDown("feat-a", { keepWorktree: true, keepDevpod: true });
+    const result = await workspaceDown("feat-a", { keepWorktree: true });
 
     expect(result.workspace).toBe("feat-a");
     expect(result.freedRoutes).toBe(2);
@@ -126,9 +186,8 @@ describe("workspaceDown", () => {
 
   it("uses the persisted identity when the target is the worktree branch", async () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
-    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+    vi.mocked(spawnSync).mockImplementation((_cmd, args) => {
       const a = (args as string[]) ?? [];
-      if (cmd === "devpod") return { status: 1 } as never;
       if (a.includes("list")) return { status: 0, stdout: PORCELAIN } as never;
       return { status: 0, stdout: "" } as never;
     });
@@ -136,7 +195,7 @@ describe("workspaceDown", () => {
       repoPath === "/main/repo-feat-a" ? "existing-devpod" : branch,
     );
 
-    const result = await workspaceDown("feat-a", { keepWorktree: true, keepDevpod: true });
+    const result = await workspaceDown("feat-a", { keepWorktree: true });
 
     expect(result.workspace).toBe("existing-devpod");
     expect(removeWorkspaceRoutesForWorktree).toHaveBeenCalledWith(
@@ -160,11 +219,16 @@ describe("workspaceDown", () => {
     vi.mocked(removeWorkspaceRoutesForWorktree).mockReturnValue([
       route("feat-a", "web", legacyPath),
     ]);
-    vi.mocked(spawnSync).mockReturnValue({ status: 1 } as never);
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      return { status: 1 } as never;
+    });
 
     const result = await workspaceDown("feat-a", {
       keepWorktree: true,
-      keepDevpod: true,
     });
 
     expect(result.freedRoutes).toBe(1);
@@ -172,9 +236,8 @@ describe("workspaceDown", () => {
   });
 
   it("tears down a detached custom-path worktree by persisted identity", async () => {
-    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+    vi.mocked(spawnSync).mockImplementation((_cmd, args) => {
       const a = (args as string[]) ?? [];
-      if (cmd === "devpod") return { status: 1 } as never;
       if (a.includes("list")) return { status: 0, stdout: DETACHED_PORCELAIN } as never;
       return { status: 0, stdout: "" } as never;
     });
@@ -184,7 +247,6 @@ describe("workspaceDown", () => {
 
     const result = await workspaceDown("detached-id", {
       keepWorktree: true,
-      keepDevpod: true,
     });
 
     expect(result.workspace).toBe("detached-id");
@@ -195,22 +257,35 @@ describe("workspaceDown", () => {
   });
 
   it("prefers an exact branch over a colliding sanitized branch", async () => {
-    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+    vi.mocked(spawnSync).mockImplementation((_cmd, args) => {
       const a = (args as string[]) ?? [];
-      if (cmd === "devpod") return { status: 1 } as never;
       if (a.includes("list")) return { status: 0, stdout: COLLIDING_PORCELAIN } as never;
       return { status: 0, stdout: "" } as never;
     });
 
-    await workspaceDown("feat-a", { keepWorktree: true, keepDevpod: true });
+    await workspaceDown("feat-a", { keepWorktree: true });
+
+    expect(removeWorkspaceRoutesForWorktree).toHaveBeenCalledWith("feat-a", "/main/repo-feat-dash");
+  });
+
+  it("prefers an exact live legacy branch over a colliding record token", async () => {
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner("feat-a", "/main/repo-feat-slash")]);
+    vi.mocked(spawnSync).mockImplementation((_cmd, args) => {
+      const argv = (args as string[]) ?? [];
+      if (argv.includes("list")) {
+        return { status: 0, stdout: COLLIDING_PORCELAIN } as never;
+      }
+      return { status: 0, stdout: "" } as never;
+    });
+
+    await workspaceDown("feat-a", { keepWorktree: true });
 
     expect(removeWorkspaceRoutesForWorktree).toHaveBeenCalledWith("feat-a", "/main/repo-feat-dash");
   });
 
   it("rejects ambiguous derived branch identities", async () => {
-    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+    vi.mocked(spawnSync).mockImplementation((_cmd, args) => {
       const a = (args as string[]) ?? [];
-      if (cmd === "devpod") return { status: 1 } as never;
       if (a.includes("list")) {
         return {
           status: 0,
@@ -220,7 +295,7 @@ describe("workspaceDown", () => {
       return { status: 0, stdout: "" } as never;
     });
 
-    await expect(workspaceDown("feat-a", { keepWorktree: true, keepDevpod: true })).rejects.toThrow(
+    await expect(workspaceDown("feat-a", { keepWorktree: true })).rejects.toThrow(
       "Workspace target 'feat-a' is ambiguous",
     );
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
@@ -232,7 +307,6 @@ describe("workspaceDown", () => {
     vi.mocked(spawnSync).mockImplementation((cmd, args) => {
       const a = (args as string[]) ?? [];
       calls.push({ cmd: cmd as string, args: a });
-      if (cmd === "devpod") return { status: 1 } as never; // devpod absent
       if (a.includes("list")) return { status: 0, stdout: PORCELAIN } as never;
       return { status: 0, stdout: "" } as never;
     });
@@ -242,6 +316,237 @@ describe("workspaceDown", () => {
 
     const remove = calls.find((c) => c.cmd === "git" && c.args.includes("remove"));
     expect(remove?.args).toContain("/main/repo-feat-a");
+  });
+
+  it("rejects a dirty full down before DevPod, routes, or record mutation", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "feat-a", source: { localFolder: "/main/repo-feat-a" } },
+    ]);
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: PORCELAIN, stderr: "" } as never;
+      }
+      if (command === "git" && argv.includes("status")) {
+        return { status: 0, stdout: "?? scratch.txt\n", stderr: "" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    await expect(workspaceDown("feat-a")).rejects.toThrow("uncommitted changes");
+
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "devpod",
+      expect.arrayContaining(["delete"]),
+      expect.anything(),
+    );
+    expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
+    expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
+  });
+
+  it("rejects a locked full down before DevPod, routes, or record mutation", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: LOCKED_PORCELAIN, stderr: "" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    await expect(workspaceDown("feat-a")).rejects.toThrow("is locked");
+    expect(listDevpodWorkspaces).not.toHaveBeenCalled();
+    expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
+    expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
+  });
+
+  it("deletes runtime then routes then worktree then ownership record", async () => {
+    const events: string[] = [];
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "feat-a", source: { localFolder: "/main/repo-feat-a" } },
+    ]);
+    vi.mocked(removeWorkspaceRoutesForWorktree).mockImplementation(() => {
+      events.push("routes");
+      return [];
+    });
+    vi.mocked(removeWorkspaceOwnership).mockImplementation(() => {
+      events.push("record");
+      return true;
+    });
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: PORCELAIN, stderr: "" } as never;
+      }
+      if (command === "git" && argv.includes("status")) {
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      if (command === "devpod" && argv[0] === "delete") events.push("delete");
+      if (command === "git" && argv.includes("remove")) events.push("worktree");
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    await workspaceDown("feat-a");
+
+    expect(events).toEqual(["delete", "routes", "worktree", "record"]);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "devpod",
+      ["delete", "feat-a", "--ignore-not-found"],
+      expect.anything(),
+    );
+  });
+
+  it("retains routes, worktree, and ownership when DevPod deletion fails", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "feat-a", source: { localFolder: "/main/repo-feat-a" } },
+    ]);
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: PORCELAIN, stderr: "" } as never;
+      }
+      if (command === "git" && argv.includes("status")) {
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      if (command === "devpod" && argv[0] === "delete") {
+        return { status: 1, stdout: "", stderr: "provider failed" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    await expect(workspaceDown("feat-a")).rejects.toThrow("devpod delete failed");
+
+    expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
+    expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["worktree", "remove"]),
+      expect.anything(),
+    );
+  });
+
+  it("allows dirty resource reclaim with --keep-worktree and retains its record", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "feat-a", source: { localFolder: "/main/repo-feat-a" } },
+    ]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "", stderr: "" } as never);
+
+    await workspaceDown("feat-a", { keepWorktree: true });
+
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["status"]),
+      expect.anything(),
+    );
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["worktree", "remove"]),
+      expect.anything(),
+    );
+    expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
+  });
+
+  it("retains ownership when Git worktree removal fails", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([]);
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: PORCELAIN, stderr: "" } as never;
+      }
+      if (command === "git" && argv.includes("status")) {
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      if (command === "git" && argv.includes("remove")) {
+        return { status: 1, stdout: "", stderr: "remove failed" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    await expect(workspaceDown("feat-a")).rejects.toThrow("git worktree remove failed");
+    expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
+  });
+});
+
+describe("workspaceStop", () => {
+  it("stops the exact DevPod before freeing routes and preserves ownership", async () => {
+    const events: string[] = [];
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "feat-a", source: { localFolder: "/main/repo-feat-a" } },
+    ]);
+    vi.mocked(removeWorkspaceRoutesForWorktree).mockImplementation(() => {
+      events.push("routes");
+      return [];
+    });
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: PORCELAIN, stderr: "" } as never;
+      }
+      if (command === "devpod" && argv[0] === "stop") events.push("stop");
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    await workspaceStop("feat-a");
+
+    expect(events).toEqual(["stop", "routes"]);
+    expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
+  });
+
+  it("retains routes when DevPod stop fails", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "feat-a", source: { localFolder: "/main/repo-feat-a" } },
+    ]);
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: PORCELAIN, stderr: "" } as never;
+      }
+      if (command === "devpod" && argv[0] === "stop") {
+        return { status: 1, stdout: "", stderr: "stop failed" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    await expect(workspaceStop("feat-a")).rejects.toThrow("devpod stop failed");
+    expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
+  });
+
+  it("blocks a machine-global DevPod id that points at another worktree", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "feat-a", source: { localFolder: "/another/repo/trees/feat-a" } },
+    ]);
+    vi.mocked(inspectWorkspaceOwnership).mockReturnValue({
+      ownerStatus: "conflict",
+      devpodStatus: "conflict",
+      worktree: undefined,
+    });
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: PORCELAIN, stderr: "" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    await expect(workspaceStop("feat-a")).rejects.toThrow("ownership conflicts");
+    expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
   });
 });
 
@@ -297,6 +602,34 @@ describe("workspaceLs", () => {
       branch: undefined,
       worktreePath: "/custom/detached",
     });
+  });
+
+  it("includes a durable owner immediately after its worktree goes missing", () => {
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN } as never);
+    vi.mocked(inspectWorkspaceOwnership).mockReturnValue({
+      ownerStatus: "missing",
+      devpodStatus: "absent",
+      worktree: undefined,
+    });
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([
+      {
+        version: 1,
+        workspace: "gone",
+        worktreePath: "/main/repo/trees/gone",
+        branch: "feat/gone",
+        devpodId: "gone",
+        createdAt: "2026-07-15T10:00:00.000Z",
+        updatedAt: "2026-07-15T10:00:00.000Z",
+      },
+    ]);
+
+    expect(workspaceLs()).toContainEqual(
+      expect.objectContaining({
+        workspace: "gone",
+        worktreePath: "/main/repo/trees/gone",
+        ownerStatus: "missing",
+      }),
+    );
   });
 });
 
