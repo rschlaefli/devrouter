@@ -1,6 +1,6 @@
 # Unified Workspace Reconciler Plan
 
-Status: approved and executing. Slice 1 complete.
+Status: approved and executing. Slices 1-2 complete.
 
 ## Research
 
@@ -617,9 +617,14 @@ Release commit: `chore(release): publish 0.0.33 read-only verification`
 - Done: Slice 1 independent correctness review found two gaps; repo-scoped trust recovery and positive live compatibility coverage were added and re-verified.
 - Done: Slice 1 simplification review removed duplicate mkcert probing and redundant test fixtures/mocks.
 - Done: Slice 1 full gate passed with 44 files / 411 tests, typecheck, Biome, build, Knip, docs policy, and no insecure curl in route/readiness paths; Linux-only process tests skipped on macOS.
-- Active: Slice 2 primary-checkout reconciliation.
-- Next: characterize exact primary DevPod/container evidence, write failing primary-target tests, implement the minimal target split, review, simplify, verify, commit.
-- Implementation: Slice 1 complete; Slices 2-5 pending.
+- Done: Slice 2 live primary characterization proved exact DevPod path/id, default Compose overlay, exact repo mount and Git toplevel, project-fallback aliases, `WORKSPACE=elearning`, and absent linked-only `DEVROUTER_WORKSPACE`.
+- Done: Slice 2 added the linked/primary target split, exact-path primary reuse/rediscovery, shared plus kind-specific container proof, no primary ledger writes, and primary exclusion from GC candidates.
+- Done: Warm elearning primary reconciliation succeeded through the built branch with trusted routes and one unchanged exact DevPod owner; no primary ownership record was created. Cold provider startup remains covered by deterministic tests rather than destructive live teardown.
+- Done: Slice 2 correctness review found inherited workspace leakage and linked-invocation GC scoping; both received red/green regressions and passed narrow re-review. Simplification review found no qualifying changes.
+- Done: Slice 2 full gate passed with 44 files / 419 tests, typecheck, Biome, build, and Knip; Linux-only process tests skipped on macOS.
+- Active: Slice 3 canonical ensure and non-destructive stop.
+- Next: add failing command/lifecycle tests, implement top-level ensure/stop with shared locking and exact provider proof, review, simplify, verify, commit.
+- Implementation: Slices 1-2 complete; Slices 3-5 pending.
 
 ## Approval
 

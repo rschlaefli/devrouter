@@ -447,8 +447,8 @@ workspaceCommand
 
 workspaceCommand
   .command("ensure")
-  .description("Start and prove an existing worktree's DevPod, upstreams, and routes")
-  .argument("[path]", "Linked worktree path (defaults to current directory)")
+  .description("Start and prove a primary or linked checkout's DevPod, upstreams, and routes")
+  .argument("[path]", "Git checkout path (defaults to current directory)")
   .option("--open", "Open HTTP routes after readiness succeeds")
   .action(
     withErrorHandling(

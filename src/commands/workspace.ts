@@ -40,8 +40,9 @@ export async function runWorkspaceEnsureCommand(options: {
 }): Promise<void> {
   const repoPath = resolveGitWorkspaceRepo(options.path);
   const result = await workspaceEnsure(repoPath, { open: options.open });
+  const label = result.kind === "primary" ? "Primary checkout" : `Workspace '${result.workspace}'`;
   process.stdout.write(
-    `Workspace '${result.workspace}' is ready (${result.devpodId}).\n` +
+    `${label} is ready (${result.devpodId}).\n` +
       `${result.urls.map((url) => `  ${url}`).join("\n")}\n`,
   );
 }

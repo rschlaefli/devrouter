@@ -161,6 +161,8 @@ function legacyCandidates(
   routes: ReturnType<typeof listHostRouteState>,
 ): WorkspaceGcCandidate[] {
   const livePaths = worktrees.map((worktree) => worktree.path);
+  // `git worktree list --porcelain` guarantees the main worktree first.
+  const primaryPath = worktrees[0]?.path;
   const evidence = new Map<
     string,
     { workspace: string; worktreePath: string; devpodStatus: DevpodOwnerStatus; routeCount: number }
@@ -180,6 +182,7 @@ function legacyCandidates(
 
   for (const devpod of devpods) {
     if (
+      (primaryPath && sameWorkspacePath(devpod.source.localFolder, primaryPath)) ||
       isRecordedDevpod(devpod.id, devpod.source.localFolder) ||
       !inRepositoryWorkspaceScope(repoPath, devpod.source.localFolder, livePaths)
     ) {
@@ -195,6 +198,7 @@ function legacyCandidates(
 
   for (const route of routes) {
     if (
+      (primaryPath && sameWorkspacePath(route.repoPath, primaryPath)) ||
       !route.workspace ||
       isRecordedRoute(route.workspace, route.repoPath) ||
       !inRepositoryWorkspaceScope(repoPath, route.repoPath, livePaths)

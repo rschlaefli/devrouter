@@ -17,6 +17,7 @@ import {
   resolveWorktreeWorkspace,
   sameWorkspacePath,
   withWorkspaceLifecycleLock,
+  wsFromBranch,
 } from "./workspace";
 import {
   listMissingWorkspaceOwnership,
@@ -40,11 +41,27 @@ export type WorkspaceContainerSnapshot = {
 };
 
 export type WorkspaceEnsureResult = {
+  kind: "primary" | "linked";
   repoPath: string;
-  workspace: string;
+  workspace?: string;
   devpodId: string;
   urls: string[];
 };
+
+type EnvironmentTarget =
+  | {
+      kind: "linked";
+      workspace: string;
+      devpodId: string;
+      hadExactDevpod: boolean;
+      gitCommonDir: string;
+    }
+  | {
+      kind: "primary";
+      workspace?: undefined;
+      devpodId?: string;
+      hadExactDevpod: boolean;
+    };
 
 type ValidatedWorkspaceContainer = {
   id: string;
@@ -86,9 +103,8 @@ export function validateWorkspaceContainers(
   containers: WorkspaceContainerSnapshot[],
   options: {
     repoPath: string;
-    gitCommonDir: string;
-    workspace: string;
     upstreamHosts: string[];
+    target: EnvironmentTarget;
   },
 ): ValidatedWorkspaceContainer {
   const owned = containers.filter((container) => {
@@ -108,23 +124,26 @@ export function validateWorkspaceContainers(
     );
   }
   const appContainer = appContainers[0];
-  assertOverlay(appContainer, options.repoPath);
+  if (options.target.kind === "linked") {
+    assertOverlay(appContainer, options.repoPath);
+  }
   assertReady(appContainer, "Workspace app");
-  const gitMount = appContainer.mounts.find(
-    (mount) =>
-      mount.Type === "bind" &&
-      sameWorkspacePath(mount.Source, options.gitCommonDir) &&
-      sameWorkspacePath(mount.Destination, options.gitCommonDir),
-  );
-  if (!gitMount) {
-    throw new Error(
-      `Workspace app container does not mount Git common directory '${options.gitCommonDir}'.`,
+  if (options.target.kind === "linked") {
+    const gitCommonDir = options.target.gitCommonDir;
+    const gitMount = appContainer.mounts.find(
+      (mount) =>
+        mount.Type === "bind" &&
+        sameWorkspacePath(mount.Source, gitCommonDir) &&
+        sameWorkspacePath(mount.Destination, gitCommonDir),
     );
+    if (!gitMount) {
+      throw new Error(
+        `Workspace app container does not mount Git common directory '${gitCommonDir}'.`,
+      );
+    }
   }
 
-  const devnetHosts = Array.from(new Set(options.upstreamHosts)).filter((host) =>
-    host.startsWith(`${options.workspace}-`),
-  );
+  const devnetHosts = Array.from(new Set(options.upstreamHosts));
   for (const host of devnetHosts) {
     const matches = containers.filter(
       (container) =>
@@ -135,7 +154,9 @@ export function validateWorkspaceContainers(
         `Workspace upstream '${host}' must resolve to exactly one running container; found ${matches.length}.`,
       );
     }
-    assertOverlay(matches[0], options.repoPath);
+    if (options.target.kind === "linked") {
+      assertOverlay(matches[0], options.repoPath);
+    }
     assertReady(matches[0], `Workspace upstream '${host}'`);
   }
 
@@ -189,8 +210,7 @@ function sleep(ms: number): Promise<void> {
 
 async function waitForContainerPreflight(
   repoPath: string,
-  gitCommonDir: string,
-  workspace: string,
+  target: EnvironmentTarget,
   upstreamHosts: string[],
   timeoutMs: number,
 ): Promise<void> {
@@ -200,25 +220,33 @@ async function waitForContainerPreflight(
     try {
       const appContainer = validateWorkspaceContainers(inspectWorkspaceContainers(), {
         repoPath,
-        gitCommonDir,
-        workspace,
         upstreamHosts,
+        target,
       });
-      const workspaceEnv = spawnSync("docker", ["exec", appContainer.id, "printenv", "WORKSPACE"], {
-        encoding: "utf-8",
-      });
-      if (workspaceEnv.status !== 0 || workspaceEnv.stdout.trim() !== workspace) {
-        throw new Error(
-          `Workspace app container must expose WORKSPACE='${workspace}' (got '${workspaceEnv.stdout.trim() || "(empty)"}').`,
+      if (target.kind === "linked") {
+        const workspaceEnv = spawnSync(
+          "docker",
+          ["exec", appContainer.id, "printenv", "WORKSPACE"],
+          { encoding: "utf-8" },
         );
-      }
-      const devrouterWorkspaceEnv = spawnSync(
-        "docker",
-        ["exec", appContainer.id, "printenv", "DEVROUTER_WORKSPACE"],
-        { encoding: "utf-8" },
-      );
-      if (devrouterWorkspaceEnv.status !== 0 || devrouterWorkspaceEnv.stdout.trim() !== workspace) {
-        throw new Error(`Workspace app container must expose DEVROUTER_WORKSPACE='${workspace}'.`);
+        if (workspaceEnv.status !== 0 || workspaceEnv.stdout.trim() !== target.workspace) {
+          throw new Error(
+            `Workspace app container must expose WORKSPACE='${target.workspace}' (got '${workspaceEnv.stdout.trim() || "(empty)"}').`,
+          );
+        }
+        const devrouterWorkspaceEnv = spawnSync(
+          "docker",
+          ["exec", appContainer.id, "printenv", "DEVROUTER_WORKSPACE"],
+          { encoding: "utf-8" },
+        );
+        if (
+          devrouterWorkspaceEnv.status !== 0 ||
+          devrouterWorkspaceEnv.stdout.trim() !== target.workspace
+        ) {
+          throw new Error(
+            `Workspace app container must expose DEVROUTER_WORKSPACE='${target.workspace}'.`,
+          );
+        }
       }
       const gitCheck = spawnSync(
         "docker",
@@ -229,12 +257,15 @@ async function waitForContainerPreflight(
           "-C",
           appContainer.workspacePath,
           "rev-parse",
-          "--is-inside-work-tree",
+          "--show-toplevel",
         ],
         { encoding: "utf-8" },
       );
-      if (gitCheck.status !== 0 || gitCheck.stdout.trim() !== "true") {
-        throw new Error("Git is not usable inside the workspace app container.");
+      if (
+        gitCheck.status !== 0 ||
+        !sameWorkspacePath(gitCheck.stdout.trim(), appContainer.workspacePath)
+      ) {
+        throw new Error("Git does not resolve the expected checkout inside the app container.");
       }
       return;
     } catch (error) {
@@ -284,10 +315,7 @@ async function waitForHttpRoutes(
   );
 }
 
-function resolveIdentity(repoPath: string): {
-  workspace: string;
-  hadExactDevpod: boolean;
-} {
+function resolveLinkedTarget(repoPath: string): EnvironmentTarget {
   const devpods = listDevpodWorkspaces();
   const existingDevpod = selectDevpodWorkspace(devpods, repoPath);
   const persisted = readPersistedWorkspace(repoPath);
@@ -304,51 +332,80 @@ function resolveIdentity(repoPath: string): {
     );
   }
   return {
+    kind: "linked",
     workspace: persistWorkspace(repoPath, candidate),
+    devpodId: candidate,
+    hadExactDevpod: Boolean(existingDevpod),
+    gitCommonDir: resolveGitCommonDir(repoPath),
+  };
+}
+
+function resolvePrimaryTarget(repoPath: string): EnvironmentTarget {
+  const existingDevpod = selectDevpodWorkspace(listDevpodWorkspaces(), repoPath);
+  return {
+    kind: "primary",
+    devpodId: existingDevpod?.id,
     hadExactDevpod: Boolean(existingDevpod),
   };
 }
 
-function startDevpod(
-  repoPath: string,
-  workspace: string,
-  commonDir: string,
-  recreate = false,
-): void {
-  const args = [
-    "up",
-    repoPath,
-    "--id",
-    workspace,
-    "--open-ide=false",
-    "--workspace-env",
-    `WORKSPACE=${workspace}`,
-    "--workspace-env",
-    `DEVROUTER_WORKSPACE=${workspace}`,
-  ];
-  if (recreate) {
-    args.push("--recreate");
-  }
-  const result = spawnSync("devpod", args, {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      WORKSPACE: workspace,
-      DEVROUTER_WORKSPACE: workspace,
-      DEVROUTER_GIT_COMMON_DIR: commonDir,
-      DEVCONTAINER_COMPOSE_OVERLAY: DEVCONTAINER_OVERLAY,
-    },
-  });
-  if (result.status !== 0) {
-    throw new Error(`devpod up failed for '${workspace}'.`);
+function isPrimaryCheckout(repoPath: string): boolean {
+  try {
+    return fs.statSync(path.join(repoPath, ".git")).isDirectory();
+  } catch {
+    return false;
   }
 }
 
-function assertDevpodAttachment(repoPath: string, workspace: string): void {
-  const attached = selectDevpodWorkspace(listDevpodWorkspaces(), repoPath);
-  if (!attached || attached.id !== workspace) {
-    throw new Error(`DevPod did not attach '${repoPath}' as '${workspace}' after startup.`);
+function startDevpod(repoPath: string, target: EnvironmentTarget, recreate = false): void {
+  const args = ["up", repoPath];
+  if (target.devpodId) {
+    args.push("--id", target.devpodId);
   }
+  args.push("--open-ide=false");
+  if (target.kind === "linked") {
+    args.push(
+      "--workspace-env",
+      `WORKSPACE=${target.workspace}`,
+      "--workspace-env",
+      `DEVROUTER_WORKSPACE=${target.workspace}`,
+    );
+  }
+  if (recreate) {
+    if (!target.devpodId) {
+      throw new Error("Cannot recreate a DevPod before its exact id is known.");
+    }
+    args.push("--recreate");
+  }
+  const env = { ...process.env };
+  if (target.kind === "linked") {
+    env.WORKSPACE = target.workspace;
+    env.DEVROUTER_WORKSPACE = target.workspace;
+    env.DEVROUTER_GIT_COMMON_DIR = target.gitCommonDir;
+    env.DEVCONTAINER_COMPOSE_OVERLAY = DEVCONTAINER_OVERLAY;
+  } else {
+    delete env.WORKSPACE;
+    delete env.DEVROUTER_WORKSPACE;
+    delete env.DEVROUTER_GIT_COMMON_DIR;
+    delete env.DEVCONTAINER_COMPOSE_OVERLAY;
+  }
+  const result = spawnSync("devpod", args, {
+    stdio: "inherit",
+    env,
+  });
+  if (result.status !== 0) {
+    throw new Error(`devpod up failed for '${target.devpodId ?? repoPath}'.`);
+  }
+}
+
+function assertDevpodAttachment(repoPath: string, expectedId?: string): string {
+  const attached = selectDevpodWorkspace(listDevpodWorkspaces(), repoPath);
+  if (!attached || (expectedId && attached.id !== expectedId)) {
+    throw new Error(
+      `DevPod did not attach '${repoPath}'${expectedId ? ` as '${expectedId}'` : ""} after startup.`,
+    );
+  }
+  return attached.id;
 }
 
 function openUrls(urls: string[]): void {
@@ -365,57 +422,83 @@ export async function workspaceEnsure(
   options: WorkspaceEnsureOptions = {},
 ): Promise<WorkspaceEnsureResult> {
   const repoPath = comparableWorkspacePath(resolveRepoPath(requestedRepoPath));
-  if (!isLinkedWorktree(repoPath)) {
-    throw new Error(`workspace ensure requires a linked Git worktree (got '${repoPath}').`);
-  }
-  const missingOwners = listMissingWorkspaceOwnership(repoPath);
-  if (missingOwners.length > 0) {
-    process.stderr.write(
-      `Warning: ${missingOwners.length} managed workspace owner${missingOwners.length === 1 ? " is" : "s are"} missing. Review: dev workspace gc --repo ${repoPath}\n`,
+  const linked = isLinkedWorktree(repoPath);
+  if (!linked && !isPrimaryCheckout(repoPath)) {
+    throw new Error(
+      `workspace ensure requires a primary or linked Git checkout (got '${repoPath}').`,
     );
+  }
+  if (linked) {
+    const missingOwners = listMissingWorkspaceOwnership(repoPath);
+    if (missingOwners.length > 0) {
+      process.stderr.write(
+        `Warning: ${missingOwners.length} managed workspace owner${missingOwners.length === 1 ? " is" : "s are"} missing. Review: dev workspace gc --repo ${repoPath}\n`,
+      );
+    }
   }
 
   return withWorkspaceLifecycleLock(repoPath, async () => {
     let environmentStarted = false;
     try {
-      const { workspace, hadExactDevpod } = resolveIdentity(repoPath);
-      const overlayPath = path.join(repoPath, ".devcontainer", DEVCONTAINER_OVERLAY);
-      if (!fs.existsSync(overlayPath)) {
-        throw new Error(`Missing required DevPod compose overlay: ${overlayPath}`);
+      const target = linked ? resolveLinkedTarget(repoPath) : resolvePrimaryTarget(repoPath);
+      let devpodId = target.devpodId;
+      if (target.kind === "linked") {
+        const overlayPath = path.join(repoPath, ".devcontainer", DEVCONTAINER_OVERLAY);
+        if (!fs.existsSync(overlayPath)) {
+          throw new Error(`Missing required DevPod compose overlay: ${overlayPath}`);
+        }
       }
 
-      const runtime = loadRuntimeConfig(repoPath, workspace);
+      const runtime = loadRuntimeConfig(
+        repoPath,
+        target.kind === "primary" ? "" : target.workspace,
+      );
       const apps = proxyAppsFromConfig(runtime.config);
       const parsedUpstreams = apps.map((app) => parseUpstream(app.upstream));
+      const aliasPrefix =
+        target.kind === "linked"
+          ? target.workspace
+          : (wsFromBranch(runtime.config.project?.name ?? path.basename(repoPath)) ?? "app");
       for (const [index, app] of apps.entries()) {
-        if (app.protocol === "tcp" && !parsedUpstreams[index].host.startsWith(`${workspace}-`)) {
+        if (app.protocol === "tcp" && !parsedUpstreams[index].host.startsWith(`${aliasPrefix}-`)) {
+          const owner = target.kind === "linked" ? "workspace" : "checkout";
           throw new Error(
-            `TCP app '${app.name}' must use a workspace-owned upstream beginning with '${workspace}-'.`,
+            `TCP app '${app.name}' must use a ${owner}-owned upstream beginning with '${aliasPrefix}-'.`,
           );
         }
       }
-      const commonDir = resolveGitCommonDir(repoPath);
-      const upstreamHosts = parsedUpstreams.map((upstream) => upstream.host);
-      const ownership = {
-        workspace,
-        worktreePath: repoPath,
-        branch: currentBranch(repoPath),
-        devpodId: workspace,
-      };
-      writeWorkspaceOwnership(repoPath, ownership);
+      const upstreamHosts = parsedUpstreams
+        .map((upstream) => upstream.host)
+        .filter((host) => host.startsWith(`${aliasPrefix}-`));
+      const ownership =
+        target.kind === "linked"
+          ? {
+              workspace: target.workspace,
+              worktreePath: repoPath,
+              branch: currentBranch(repoPath),
+              devpodId: target.devpodId,
+            }
+          : undefined;
+      if (ownership) {
+        writeWorkspaceOwnership(repoPath, ownership);
+      }
+
+      const currentTarget = (): EnvironmentTarget =>
+        target.kind === "linked" ? target : { ...target, devpodId };
 
       const startAndProveAttachment = (recreate = false): void => {
-        startDevpod(repoPath, workspace, commonDir, recreate);
+        startDevpod(repoPath, currentTarget(), recreate);
         environmentStarted = true;
-        assertDevpodAttachment(repoPath, workspace);
-        writeWorkspaceOwnership(repoPath, ownership);
+        devpodId = assertDevpodAttachment(repoPath, devpodId);
+        if (ownership) {
+          writeWorkspaceOwnership(repoPath, ownership);
+        }
       };
       const recreateAndWait = async (): Promise<void> => {
         startAndProveAttachment(true);
         await waitForContainerPreflight(
           repoPath,
-          commonDir,
-          workspace,
+          currentTarget(),
           upstreamHosts,
           options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
         );
@@ -425,7 +508,7 @@ export async function workspaceEnsure(
       try {
         startAndProveAttachment();
       } catch (error) {
-        if (!hadExactDevpod) {
+        if (!target.hadExactDevpod) {
           throw error;
         }
         await recreateAndWait();
@@ -433,14 +516,17 @@ export async function workspaceEnsure(
       }
       if (!recreated) {
         try {
-          await waitForContainerPreflight(repoPath, commonDir, workspace, upstreamHosts, 0);
-        } catch {
+          await waitForContainerPreflight(repoPath, currentTarget(), upstreamHosts, 0);
+        } catch (error) {
+          if (!target.hadExactDevpod) {
+            throw error;
+          }
           await recreateAndWait();
           recreated = true;
         }
       }
 
-      const routes = await replacePublishedProxyRoutes(repoPath, runtime.config, workspace);
+      const routes = await replacePublishedProxyRoutes(repoPath, runtime.config, target.workspace);
       try {
         await waitForHttpRoutes(
           repoPath,
@@ -449,7 +535,7 @@ export async function workspaceEnsure(
         );
       } catch (error) {
         replaceHostRoutesForRepo(repoPath, []);
-        if (!hadExactDevpod || recreated) {
+        if (!target.hadExactDevpod || recreated) {
           throw error;
         }
         await recreateAndWait();
@@ -471,7 +557,10 @@ export async function workspaceEnsure(
           apps.filter((app) => app.protocol === "http").map((app) => httpRouteUrl(app.host)),
         );
       }
-      return { repoPath, workspace, devpodId: workspace, urls };
+      if (!devpodId) {
+        throw new Error(`DevPod id for '${repoPath}' was not resolved after startup.`);
+      }
+      return { kind: target.kind, repoPath, workspace: target.workspace, devpodId, urls };
     } catch (error) {
       if (environmentStarted) {
         try {
