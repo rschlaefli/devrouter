@@ -1,20 +1,13 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { DevrouterApp } from "../types";
+import type { DevrouterProxyApp } from "../types";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
-import { ensureNetwork } from "./docker";
-import { type HostRouteInput, parseUpstream, replaceHostRoutesForRepo } from "./host-routes";
+import { parseUpstream, replaceHostRoutesForRepo } from "./host-routes";
+import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
-import {
-  activateTcpProtocol,
-  DEVNET_NAME,
-  ensureRouterFiles,
-  isTLSEnabled,
-  startRouterStack,
-  TCP_PROTOCOL_REGISTRY,
-} from "./router";
-import { ensureTLSHostsCovered } from "./tls";
+import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
+import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY } from "./router";
 import {
   comparableWorkspacePath,
   currentBranch,
@@ -34,8 +27,6 @@ import {
 const DEVCONTAINER_OVERLAY = "docker-compose.devrouter.yml";
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 1_000;
-
-type ProxyApp = Extract<DevrouterApp, { runtime: "proxy" }>;
 
 export type WorkspaceContainerSnapshot = {
   id: string;
@@ -257,42 +248,11 @@ async function waitForContainerPreflight(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-function proxyApps(config: { apps: DevrouterApp[] }): ProxyApp[] {
-  const unsupported = config.apps.filter(
-    (app) => app.kind !== "dependency" && app.runtime !== "host" && app.runtime !== "proxy",
-  );
-  if (unsupported.length > 0) {
-    throw new Error(
-      `workspace ensure only reconciles proxy routes; unsupported app(s): ${unsupported.map((app) => app.name).join(", ")}`,
-    );
-  }
-  return config.apps.filter(
-    (app): app is ProxyApp => app.kind !== "dependency" && app.runtime === "proxy",
-  );
-}
-
-function routeInputs(repoPath: string, workspace: string, apps: ProxyApp[]): HostRouteInput[] {
-  return apps.map((app) => {
-    const { port, upstreamHost } = parseUpstream(app.upstream);
-    return {
-      name: app.name,
-      host: app.host,
-      protocol: app.protocol,
-      tcpProtocol: app.protocol === "tcp" ? app.tcpProtocol : undefined,
-      repoPath,
-      port,
-      upstreamHost,
-      mode: "proxy",
-      workspace,
-    };
-  });
-}
-
-function routeUrl(host: string): string {
-  return `${isTLSEnabled() ? "https" : "http"}://${host}`;
-}
-
-async function waitForHttpRoutes(apps: ProxyApp[], timeoutMs: number): Promise<void> {
+async function waitForHttpRoutes(
+  repoPath: string,
+  apps: DevrouterProxyApp[],
+  timeoutMs: number,
+): Promise<void> {
   const pending = new Map(
     apps.filter((app) => app.protocol === "http").map((app) => [app.name, app] as const),
   );
@@ -301,31 +261,12 @@ async function waitForHttpRoutes(apps: ProxyApp[], timeoutMs: number): Promise<v
 
   do {
     for (const [name, app] of pending) {
-      const result = spawnSync(
-        "curl",
-        [
-          "-k",
-          "--silent",
-          "--show-error",
-          "--output",
-          "/dev/null",
-          "--write-out",
-          "%{http_code}",
-          "--max-time",
-          "5",
-          routeUrl(app.host),
-        ],
-        { encoding: "utf-8" },
-      );
-      const status = Number(result.stdout.trim());
-      if (result.status === 0 && status >= 100 && status < 500) {
+      const result = probeHttpRoute(app.host, { repoPath });
+      if (result.ok) {
         pending.delete(name);
         failures.delete(name);
       } else {
-        failures.set(
-          name,
-          (result.stderr || result.stdout || `curl exited with ${String(result.status)}`).trim(),
-        );
+        failures.set(name, result.details);
       }
     }
     if (pending.size === 0) {
@@ -444,7 +385,7 @@ export async function workspaceEnsure(
       }
 
       const runtime = loadRuntimeConfig(repoPath, workspace);
-      const apps = proxyApps(runtime.config);
+      const apps = proxyAppsFromConfig(runtime.config);
       const parsedUpstreams = apps.map((app) => parseUpstream(app.upstream));
       for (const [index, app] of apps.entries()) {
         if (app.protocol === "tcp" && !parsedUpstreams[index].host.startsWith(`${workspace}-`)) {
@@ -499,24 +440,13 @@ export async function workspaceEnsure(
         }
       }
 
-      ensureRouterFiles();
-      await ensureNetwork(DEVNET_NAME);
-      await ensureTLSHostsCovered(apps.map((app) => app.host));
-      for (const app of apps) {
-        if (app.protocol === "tcp") {
-          if (!isTLSEnabled()) {
-            throw new Error(
-              `App '${app.name}' is a TCP proxy route and requires TLS. Run 'dev tls install'.`,
-            );
-          }
-          activateTcpProtocol(app.tcpProtocol);
-        }
-      }
-      startRouterStack();
-      const routes = routeInputs(repoPath, workspace, apps);
-      replaceHostRoutesForRepo(repoPath, routes);
+      const routes = await replacePublishedProxyRoutes(repoPath, runtime.config, workspace);
       try {
-        await waitForHttpRoutes(apps, options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
+        await waitForHttpRoutes(
+          repoPath,
+          apps,
+          options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+        );
       } catch (error) {
         replaceHostRoutesForRepo(repoPath, []);
         if (!hadExactDevpod || recreated) {
@@ -524,16 +454,22 @@ export async function workspaceEnsure(
         }
         await recreateAndWait();
         replaceHostRoutesForRepo(repoPath, routes);
-        await waitForHttpRoutes(apps, options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
+        await waitForHttpRoutes(
+          repoPath,
+          apps,
+          options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+        );
       }
 
       const urls = apps.map((app) =>
         app.protocol === "tcp"
           ? `${app.tcpProtocol}://${app.host}:${String(TCP_PROTOCOL_REGISTRY[app.tcpProtocol].port)}`
-          : routeUrl(app.host),
+          : httpRouteUrl(app.host),
       );
       if (options.open) {
-        openUrls(apps.filter((app) => app.protocol === "http").map((app) => routeUrl(app.host)));
+        openUrls(
+          apps.filter((app) => app.protocol === "http").map((app) => httpRouteUrl(app.host)),
+        );
       }
       return { repoPath, workspace, devpodId: workspace, urls };
     } catch (error) {

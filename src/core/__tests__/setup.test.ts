@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureNetwork, isContainerRunning, networkExists } from "../docker";
 import { buildDoctorReport } from "../doctor";
+import { loadRuntimeConfig } from "../repo-config";
 import { ensureRouterFiles, getRouterFileLayout, startRouterStack } from "../router";
 import { runSetup } from "../setup";
 import { installTLS } from "../tls";
@@ -39,6 +40,7 @@ vi.mock("../tool-diagnostics", () => ({
 }));
 
 vi.mock("../repo-config", () => ({
+  loadRuntimeConfig: vi.fn(),
   resolveRepoPath: vi.fn((repo?: string) => repo ?? "/repo"),
 }));
 
@@ -51,6 +53,22 @@ beforeEach(() => {
   vi.mocked(installTLS).mockResolvedValue({
     alreadyEnabled: false,
     hosts: ["localhost", "*.localhost"],
+  });
+  vi.mocked(loadRuntimeConfig).mockReturnValue({
+    workspace: undefined,
+    config: {
+      version: 1,
+      apps: [
+        {
+          name: "app",
+          host: "elearning.klicker.localhost",
+          protocol: "http",
+          runtime: "proxy",
+          upstream: "elearning-app:3000",
+          dependencies: [],
+        },
+      ],
+    },
   });
 });
 
@@ -80,7 +98,7 @@ describe("runSetup", () => {
     expect(ensureRouterFiles).toHaveBeenCalled();
     expect(ensureNetwork).toHaveBeenCalledWith("devnet");
     expect(startRouterStack).toHaveBeenCalled();
-    expect(installTLS).toHaveBeenCalled();
+    expect(installTLS).toHaveBeenCalledWith({ hosts: ["elearning.klicker.localhost"] });
     expect(report.summary.actions).toEqual({ performed: 4, skipped: 0, failed: 0 });
     expect(report.actions.map((entry) => [entry.id, entry.status])).toEqual([
       ["global.router-files", "performed"],

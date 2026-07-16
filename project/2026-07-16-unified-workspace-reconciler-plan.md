@@ -1,6 +1,6 @@
 # Unified Workspace Reconciler Plan
 
-Status: approved and executing. Implementation not started.
+Status: approved and executing. Slice 1 complete.
 
 ## Research
 
@@ -611,9 +611,15 @@ Release commit: `chore(release): publish 0.0.33 read-only verification`
 - Done: exact-file Claude Fable review completed; two blockers and three clarifications integrated.
 - Done: Fable accepted path-owned primary, split route seam, top-level DevPod exec, and deferred logs.
 - Done: user approved Phase A implementation on 2026-07-16.
-- Active: commit approved plan alone, then create repo-local implementation worktree.
-- Next: Slice 1 trusted route publication.
-- Implementation: not started.
+- Done: committed approved plan as `21126d3` and created repo-local implementation worktree.
+- Done: baseline passed with 41 files / 401 tests on Node 24.16.0 and pnpm 11.6.0; Linux-only process tests skipped on macOS.
+- Done: Slice 1 added trusted HTTP probes, explicit trust vs routine SAN refresh, shared route infrastructure, atomic proxy publication, repo-scoped setup remediation, and compatibility live-verify delegation.
+- Done: Slice 1 independent correctness review found two gaps; repo-scoped trust recovery and positive live compatibility coverage were added and re-verified.
+- Done: Slice 1 simplification review removed duplicate mkcert probing and redundant test fixtures/mocks.
+- Done: Slice 1 full gate passed with 44 files / 411 tests, typecheck, Biome, build, Knip, docs policy, and no insecure curl in route/readiness paths; Linux-only process tests skipped on macOS.
+- Active: Slice 2 primary-checkout reconciliation.
+- Next: characterize exact primary DevPod/container evidence, write failing primary-target tests, implement the minimal target split, review, simplify, verify, commit.
+- Implementation: Slice 1 complete; Slices 2-5 pending.
 
 ## Approval
 

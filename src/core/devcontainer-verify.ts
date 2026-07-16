@@ -1,20 +1,13 @@
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { DevrouterApp, DevrouterConfig, DiagnosticCheck, DoctorReport } from "../types";
 import { WORKSPACE_PLACEHOLDER } from "./capabilities";
-import { assertAppNotRunning } from "./concurrency";
 import { buildDoctorReport } from "./doctor";
-import { parseUpstream, upsertHostRoute } from "./host-routes";
+import { probeHttpRoute } from "./http-route-probe";
 import { applyWorkspace, loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
-import { removeRouteForApp } from "./route-state";
-import {
-  activateTcpProtocol,
-  ensureRouterFiles,
-  isTLSEnabled,
-  startRouterStack,
-  TCP_PROTOCOL_REGISTRY,
-} from "./router";
+import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
+import { TCP_PROTOCOL_REGISTRY } from "./router";
+import { tlsSetupCommand } from "./tls";
 
 type VerifySummary = DoctorReport["summary"];
 
@@ -211,59 +204,6 @@ function doctorGateCheck(doctor: DoctorReport): DiagnosticCheck {
   };
 }
 
-function routeUrl(host: string): string {
-  return `${isTLSEnabled() ? "https" : "http"}://${host}`;
-}
-
-function curlRoute(host: string): { ok: boolean; details: string } {
-  const result = spawnSync("curl", ["-k", "-fsS", "--max-time", "5", routeUrl(host)], {
-    encoding: "utf-8",
-  });
-  if (result.status === 0) {
-    return { ok: true, details: "HTTP route responded successfully." };
-  }
-  return {
-    ok: false,
-    details: (
-      result.stderr ||
-      result.stdout ||
-      `curl exited with status ${String(result.status)}`
-    ).trim(),
-  };
-}
-
-function registerProxyRoute(repoPath: string, app: ProxyApp, workspace?: string): void {
-  ensureRouterFiles();
-  const { port, upstreamHost } = parseUpstream(app.upstream);
-
-  if (app.protocol === "tcp" && !isTLSEnabled()) {
-    throw new Error(
-      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run \`devrouter tls install\` first.`,
-    );
-  }
-
-  if (app.protocol === "tcp") {
-    const needsRestart = activateTcpProtocol(app.tcpProtocol);
-    if (needsRestart) {
-      startRouterStack();
-    }
-  }
-
-  removeRouteForApp(repoPath, app.name);
-  assertAppNotRunning(repoPath, { name: app.name, host: app.host });
-  upsertHostRoute({
-    name: app.name,
-    host: app.host,
-    protocol: app.protocol,
-    tcpProtocol: app.protocol === "tcp" ? app.tcpProtocol : undefined,
-    repoPath,
-    port,
-    upstreamHost,
-    mode: "proxy",
-    workspace,
-  });
-}
-
 async function liveChecks(
   repoPath: string,
   yes: boolean,
@@ -303,14 +243,31 @@ async function liveChecks(
       ],
     };
   }
-  const apps = proxyApps(runtime.config);
+  let apps: ProxyApp[];
+  try {
+    apps = proxyAppsFromConfig(runtime.config);
+    await replacePublishedProxyRoutes(repoPath, runtime.config, runtime.workspace);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      routes: [],
+      checks: [
+        {
+          id: "repo.devcontainer.verify-live-routes",
+          level: "error",
+          summary: "Could not publish proxy routes for live verification.",
+          details: message,
+          suggestion: `Run: ${tlsSetupCommand(repoPath)}, start the devcontainer, then retry live verification.`,
+        },
+      ],
+    };
+  }
   const checks: DiagnosticCheck[] = [];
   const routes: DevcontainerVerifyEvidence["liveRoutes"] = [];
   for (const app of apps) {
     try {
-      registerProxyRoute(repoPath, app, runtime.workspace);
       if (app.protocol === "http") {
-        const curl = curlRoute(app.host);
+        const curl = probeHttpRoute(app.host, { repoPath });
         routes.push({
           name: app.name,
           host: app.host,
@@ -354,8 +311,7 @@ async function liveChecks(
         level: "error",
         summary: `Could not register proxy route '${app.name}'.`,
         details: message,
-        suggestion:
-          "Run: devrouter setup --yes, start the devcontainer, then retry live verification.",
+        suggestion: `Run: ${tlsSetupCommand(repoPath)}, start the devcontainer, then retry live verification.`,
       });
     }
   }
@@ -392,6 +348,9 @@ export async function verifyDevcontainer(
 
   let liveRoutes: DevcontainerVerifyEvidence["liveRoutes"];
   if (options.live) {
+    process.stderr.write(
+      "Warning: 'repo devcontainer verify --live' is deprecated; use 'env ensure' for reconciliation.\n",
+    );
     const live = await liveChecks(repoPath, Boolean(options.yes));
     checks.push(...live.checks);
     liveRoutes = live.routes;

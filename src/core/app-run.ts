@@ -21,7 +21,6 @@ import {
   planDependencyRuntime,
   planDependencyStart,
 } from "./dependency-runtime-plan";
-import { ensureNetwork } from "./docker";
 import {
   prepareDockerOverlay,
   queryMappedPort,
@@ -38,16 +37,15 @@ import {
 } from "./host-routes";
 import { assertPathWithinRepo } from "./paths";
 import { resolveAppByName, resolveAppDependencies, resolveRepoPath } from "./repo-config";
+import { ensureRouteInfrastructure } from "./route-publication";
 import { removeRouteForApp } from "./route-state";
 import {
   activateTcpProtocol,
-  DEVNET_NAME,
-  ensureRouterFiles,
   isTLSEnabled,
   startRouterStack,
   TCP_PROTOCOL_REGISTRY,
 } from "./router";
-import { ensureTLSHostsCovered } from "./tls";
+import { tlsSetupCommand } from "./tls";
 
 export { buildTcpDepShadowUrl, buildTcpDepUrl } from "./dependency-runtime-plan";
 
@@ -566,9 +564,6 @@ async function shouldStartDependencies(
 }
 
 async function startAppDependencies(options: StartAppDependenciesOptions): Promise<StartedDeps> {
-  ensureRouterFiles();
-  await ensureNetwork(DEVNET_NAME);
-
   const repoPath = resolveRepoPath(options.repoPath);
   const { config, app, workspace } = resolveAppByName(repoPath, options.name, options.workspace);
   if (isDependencyOnlyApp(app)) {
@@ -578,14 +573,12 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
     );
   }
 
-  const routedHosts = config.apps
-    .filter(
-      (entry): entry is Exclude<DevrouterApp, DevrouterDockerDependencyApp> =>
-        !isDependencyOnlyApp(entry),
-    )
-    .map((entry) => entry.host);
-  if (routedHosts.length > 0) {
-    const tlsCoverage = await ensureTLSHostsCovered(routedHosts);
+  const routedApps = config.apps.filter(
+    (entry): entry is Exclude<DevrouterApp, DevrouterDockerDependencyApp> =>
+      !isDependencyOnlyApp(entry),
+  );
+  if (routedApps.length > 0) {
+    const tlsCoverage = await ensureRouteInfrastructure(routedApps, { repoPath });
     if (tlsCoverage.refreshed) {
       process.stdout.write(
         `Refreshed TLS cert host coverage for: ${tlsCoverage.uncoveredHosts.join(", ")}\n`,
@@ -757,7 +750,7 @@ function registerProxyRoute(repoPath: string, app: DevrouterProxyApp, workspace?
   // ClientHello — so TLS must be installed or the route can never match.
   if (app.protocol === "tcp" && !isTLSEnabled()) {
     throw new Error(
-      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run \`dev tls install\` first.`,
+      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run: ${tlsSetupCommand(repoPath)}`,
     );
   }
 

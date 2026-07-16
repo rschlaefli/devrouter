@@ -36,6 +36,7 @@ vi.mock("../router", () => ({
   startRouterStack: vi.fn(),
 }));
 vi.mock("../tls", () => ({
+  getMkcertRootCAPath: vi.fn(() => "/ca/rootCA.pem"),
   ensureTLSHostsCovered: vi.fn(async () => ({
     refreshed: false,
     uncoveredHosts: [],
