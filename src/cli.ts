@@ -93,6 +93,37 @@ program
   );
 
 program
+  .command("ensure")
+  .description("Start and prove a primary or linked checkout's environment and routes")
+  .argument("[path]", "Git checkout path (defaults to current directory)")
+  .option("--open", "Open HTTP routes after readiness succeeds")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (repoPath: string | undefined, _options: unknown, command: Command) => {
+      const options = command.opts<{ open?: boolean; json?: boolean }>();
+      const { runEnsureCommand } = await import("./commands/ensure");
+      await runEnsureCommand({
+        path: repoPath,
+        open: Boolean(options.open),
+        json: Boolean(options.json),
+      });
+    }),
+  );
+
+program
+  .command("stop")
+  .description("Stop one checkout's exact DevPod and free its routes without deleting data")
+  .argument("[path]", "Git checkout path (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (repoPath: string | undefined, _options: unknown, command: Command) => {
+      const options = command.opts<{ json?: boolean }>();
+      const { runStopCommand } = await import("./commands/stop");
+      await runStopCommand({ path: repoPath, json: Boolean(options.json) });
+    }),
+  );
+
+program
   .command("down")
   .description("Stop the shared Traefik router stack")
   .action(
@@ -450,12 +481,17 @@ workspaceCommand
   .description("Start and prove a primary or linked checkout's DevPod, upstreams, and routes")
   .argument("[path]", "Git checkout path (defaults to current directory)")
   .option("--open", "Open HTTP routes after readiness succeeds")
+  .option("--json", "Output JSON")
   .action(
     withErrorHandling(
       async (worktreePath: string | undefined, _options: unknown, command: Command) => {
-        const options = command.opts<{ open?: boolean }>();
+        const options = command.opts<{ open?: boolean; json?: boolean }>();
         const { runWorkspaceEnsureCommand } = await import("./commands/workspace");
-        await runWorkspaceEnsureCommand({ path: worktreePath, open: Boolean(options.open) });
+        await runWorkspaceEnsureCommand({
+          path: worktreePath,
+          open: Boolean(options.open),
+          json: Boolean(options.json),
+        });
       },
     ),
   );

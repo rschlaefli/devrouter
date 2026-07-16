@@ -481,6 +481,7 @@ describe("workspaceDown", () => {
 describe("workspaceStop", () => {
   it("stops the exact DevPod before freeing routes and preserves ownership", async () => {
     const events: string[] = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
     vi.mocked(listDevpodWorkspaces).mockReturnValue([
@@ -499,10 +500,11 @@ describe("workspaceStop", () => {
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    await workspaceStop("feat-a");
+    await workspaceStop("feat-a", { quiet: true });
 
     expect(events).toEqual(["stop", "routes"]);
     expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
   });
 
   it("retains routes when DevPod stop fails", async () => {

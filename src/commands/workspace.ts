@@ -1,5 +1,4 @@
 import { resolveRepoPath } from "../core/repo-config";
-import { workspaceEnsure } from "../core/workspace-ensure";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
 import {
   workspaceDown,
@@ -8,6 +7,7 @@ import {
   workspaceUp,
 } from "../core/workspace-lifecycle";
 import { resolveGitCommonDir } from "../core/workspace-ownership";
+import { runEnsureCommand } from "./ensure";
 
 function resolveGitWorkspaceRepo(repoPath?: string): string {
   const resolved = resolveRepoPath(repoPath);
@@ -37,14 +37,9 @@ export async function runWorkspaceUpCommand(
 export async function runWorkspaceEnsureCommand(options: {
   path?: string;
   open?: boolean;
+  json?: boolean;
 }): Promise<void> {
-  const repoPath = resolveGitWorkspaceRepo(options.path);
-  const result = await workspaceEnsure(repoPath, { open: options.open });
-  const label = result.kind === "primary" ? "Primary checkout" : `Workspace '${result.workspace}'`;
-  process.stdout.write(
-    `${label} is ready (${result.devpodId}).\n` +
-      `${result.urls.map((url) => `  ${url}`).join("\n")}\n`,
-  );
+  await runEnsureCommand(options);
 }
 
 export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }): void {

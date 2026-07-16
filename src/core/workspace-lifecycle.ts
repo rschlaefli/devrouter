@@ -368,12 +368,17 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
   });
 }
 
-type WorkspaceLifecycleResult = { freedRoutes: number; workspace: string };
+type WorkspaceLifecycleResult = {
+  devpodId?: string;
+  freedRoutes: number;
+  providerChanged: boolean;
+  workspace: string;
+};
 
 async function runWorkspaceLifecycle(
   action: "stop" | "down",
   target: string,
-  opts: { keepWorktree?: boolean; repoPath?: string } = {},
+  opts: { keepWorktree?: boolean; quiet?: boolean; repoPath?: string } = {},
 ): Promise<WorkspaceLifecycleResult> {
   const mainRepo = resolveRepoPath(opts.repoPath);
   const worktrees = identifyGitWorktrees(mainRepo);
@@ -394,9 +399,11 @@ async function runWorkspaceLifecycle(
     // Free routes only after successful provider mutation. Exact workspace+path
     // scoping prevents same-token workspaces in other repositories from changing.
     const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
-    process.stdout.write(
-      `Freed ${routes.length} route(s) for workspace '${resolved.workspace}'.\n`,
-    );
+    if (!opts.quiet) {
+      process.stdout.write(
+        `Freed ${routes.length} route(s) for workspace '${resolved.workspace}'.\n`,
+      );
+    }
 
     if (removeWorktree) {
       if (
@@ -420,7 +427,12 @@ async function runWorkspaceLifecycle(
       }
     }
 
-    return { freedRoutes: routes.length, workspace: resolved.workspace };
+    return {
+      ...(devpod ? { devpodId: devpod.id } : {}),
+      freedRoutes: routes.length,
+      providerChanged: Boolean(devpod),
+      workspace: resolved.workspace,
+    };
   };
 
   return resolved.worktree && !resolved.worktree.prunable && fs.existsSync(resolved.worktreePath)
@@ -430,7 +442,7 @@ async function runWorkspaceLifecycle(
 
 export async function workspaceStop(
   target: string,
-  opts: { repoPath?: string } = {},
+  opts: { quiet?: boolean; repoPath?: string } = {},
 ): Promise<WorkspaceLifecycleResult> {
   return runWorkspaceLifecycle("stop", target, opts);
 }

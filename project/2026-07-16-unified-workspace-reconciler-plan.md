@@ -622,9 +622,13 @@ Release commit: `chore(release): publish 0.0.33 read-only verification`
 - Done: Warm elearning primary reconciliation succeeded through the built branch with trusted routes and one unchanged exact DevPod owner; no primary ownership record was created. Cold provider startup remains covered by deterministic tests rather than destructive live teardown.
 - Done: Slice 2 correctness review found inherited workspace leakage and linked-invocation GC scoping; both received red/green regressions and passed narrow re-review. Simplification review found no qualifying changes.
 - Done: Slice 2 full gate passed with 44 files / 419 tests, typecheck, Biome, build, and Knip; Linux-only process tests skipped on macOS.
-- Active: Slice 3 canonical ensure and non-destructive stop.
-- Next: add failing command/lifecycle tests, implement top-level ensure/stop with shared locking and exact provider proof, review, simplify, verify, commit.
-- Implementation: Slices 1-2 complete; Slices 3-5 pending.
+- Done: Slice 3 added canonical top-level `ensure`/`stop`, shared `workspace ensure` delegation, stable human/JSON output, Git-toplevel normalization, exact path-owned primary/legacy stop, and ledger-backed linked stop through the existing fail-closed lifecycle.
+- Done: Slice 3 correctness review found nested-path identity, linked-ledger bypass, and mixed JSON stdout gaps; all received regression coverage and passed narrow re-review.
+- Done: Slice 3 simplification review replaced split route count/removal with one atomic removal and moved quiet-output coverage to the real lifecycle seam.
+- Done: Slice 3 full gate passed with 46 files / 431 tests, typecheck, Biome, build, Knip, and docs policy; Linux-only process tests skipped on macOS.
+- Active: Slice 4 exact one-shot DevPod exec.
+- Next: add failing exact-path/running-state/argv/exit-code tests, implement top-level `exec`, review, simplify, verify, commit.
+- Implementation: Slices 1-3 complete; Slices 4-5 pending.
 
 ## Approval
 
