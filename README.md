@@ -59,8 +59,8 @@ apps:
 
 ```bash
 devrouter setup --yes
-devpod up .
-devrouter repo devcontainer verify --live --yes --json
+devrouter ensure .
+devrouter exec . -- pnpm seed
 ```
 
 Why prefer it: the environment is reproducible and runs anywhere the devcontainer
@@ -87,6 +87,9 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `devrouter -V [--repo <path>]` (installed CLI version, local repo version, next upgrade target)
 - `devrouter upgrade [version] [--repo <path>]`
 - `devrouter setup --yes [--repo <path>] [--json]`
+- `devrouter ensure [path] [--open] [--json]`
+- `devrouter stop [path] [--json]`
+- `devrouter exec [path] -- <command...>`
 - `devrouter up`
 - `devrouter down`
 - `devrouter status [--repo <path>] [--json]`
@@ -106,7 +109,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `devrouter app rm <name> [--repo <path>]`
 - `devrouter logs [-f]`
 - `devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open] [--repo <path>]`
-- `devrouter workspace ensure [path] [--open]`
+- `devrouter workspace ensure [path] [--open] [--json]` (compatible alias of `ensure`)
 - `devrouter workspace ls [--repo <path>] [--json]`
 - `devrouter workspace stop <workspace|branch> [--repo <path>]`
 - `devrouter workspace down <workspace|branch> [--keep-worktree] [--repo <path>]`
@@ -119,10 +122,9 @@ The generated image extracts `devrouter-process` from the exact Devrouter
 package tarball without installing the CLI dependency tree. Its `post-start.sh`
 uses that helper for locked, owned, idempotent background startup. Application
 commands and environment setup remain repository-owned; route readiness remains
-part of `devrouter workspace ensure`.
+part of `devrouter ensure`.
 Use `devrouter repo devcontainer verify --json` for read-only PR evidence; add
-`--live --yes` only after the devcontainer is running and route probes should
-mutate local route state.
+`--live --yes` only for compatibility checks. Normal startup uses `ensure`.
 
 ## Workspace isolation (parallel worktrees)
 
@@ -151,8 +153,8 @@ non-namespaced routes.
 # Bring up a feature branch as an isolated workspace
 devrouter workspace up feat/my-feature
 
-# Reconcile an existing linked worktree (canonical agent startup command)
-devrouter workspace ensure .
+# Reconcile either a primary or linked checkout
+devrouter ensure .
 
 # List ownership, Git, DevPod, and route state
 devrouter workspace ls
@@ -191,19 +193,23 @@ after manual removal, use `workspace ls`, `doctor`, or the dry-run
 
 **devcontainer integration:** the devcontainer compose service exposes a devnet network alias `${WORKSPACE}-app` (defaulting to the project name in `devcontainer.env`); the proxy app uses `upstream: ${WORKSPACE}-app:<port>`. `.devcontainer/docker-compose.devrouter.yml` passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute container path, so linked-worktree `.git` pointers remain valid. Workspace `feat-a` → alias `feat-a-app`, host `app.feat-a.localhost`.
 
-`workspace ensure` is intentionally proof-driven: it verifies exact worktree
-ownership, the compose overlay and Git mount, workspace env, devnet aliases,
+`ensure` is intentionally proof-driven: it verifies exact checkout ownership,
+the required compose/Git mount contract, workspace env when linked, devnet aliases,
 container health, Git access, HTTP route reachability, and unique running TCP
 upstream ownership (plus health when configured) before reporting ready. It
 retries one stale DevPod with `--recreate`; failed proof does not leave new routes
 behind.
 
+Use `devrouter stop .` to pause the exact environment without deleting data. Use
+`devrouter exec . -- <command...>` for seeds, migrations, and other one-shot
+container commands; it does not start a missing or stopped environment.
+
 **Try it:** [`examples/workspace/`](examples/workspace/) is a runnable showcase — `./run.sh` brings up one app in two parallel worktrees (`wsdemo.localhost` and `wsdemo.feat-a.localhost`) served at once, then `./run.sh down` tears it down.
 
 **DevPod example:** [`examples/devcontainer/`](examples/devcontainer/) is the
 agent-native devcontainer path end to end — `./run.sh` brings up a DevPod
-workspace, registers app/Postgres proxy routes, runs static/live verification,
-and prints the proof. `./run.sh down` tears it down.
+workspace, runs static verification and `ensure`, proves exact-container `exec`,
+and checks trusted app/Postgres routes. `./run.sh down` tears it down.
 
 **Missing-owner detection:** `devrouter doctor` reports ledger-owned workspaces
 whose checkout disappeared or conflicts with live Git/DevPod evidence. It does

@@ -68,9 +68,10 @@ sleep 2
 routes_json="$(run_dev ls --json)"
 host_url="$(node -e "const data = JSON.parse(process.argv[1]); const route = data.routes.find((entry) => entry.hosts.includes('routing-host.localhost')); if (!route || !route.urls[0]) process.exit(1); process.stdout.write(route.urls[0]);" "$routes_json")"
 docker_url="$(node -e "const data = JSON.parse(process.argv[1]); const route = data.routes.find((entry) => entry.hosts.includes('routing-docker.localhost')); if (!route || !route.urls[0]) process.exit(1); process.stdout.write(route.urls[0]);" "$routes_json")"
+root_ca="$(mkcert -CAROOT)/rootCA.pem"
 
-curl -ksSf "$host_url/healthz" >/dev/null
-curl -ksSf "$docker_url/healthz" >/dev/null
+curl --cacert "$root_ca" -sSf "$host_url/healthz" >/dev/null
+curl --cacert "$root_ca" -sSf "$docker_url/healthz" >/dev/null
 
 echo "Routing smoke test passed."
 echo "  Host app:   $host_url"

@@ -569,16 +569,15 @@ devrouter repo devcontainer write --repo /absolute/path/to/repo --yes
 devrouter repo devcontainer verify --repo /absolute/path/to/repo --json
 ```
 
-For full local evidence, start the devcontainer and add the live verify summary
-to the PR:
+For normal local startup and reconciliation, use the same command for primary
+and linked checkouts:
 
 ```bash
-devpod up /absolute/path/to/repo
-devrouter repo devcontainer verify --repo /absolute/path/to/repo --live --yes --json
+devrouter ensure /absolute/path/to/repo --json
 ```
 
-For a linked worktree, use `devrouter workspace ensure /absolute/path/to/worktree`
-instead. It owns startup, runtime proof, and route reconciliation as one operation.
+Do not branch on checkout kind or use live verify as startup. Use
+`devrouter exec /absolute/path/to/repo -- <command...>` for seeds and migrations.
 
 ## 15) Workspace isolation (parallel worktrees)
 
@@ -597,8 +596,8 @@ A **workspace token** lets multiple git worktrees of the same repo run concurren
 # Create a git worktree for a branch, bring up its devpod, register workspace routes
 devrouter workspace up feat/my-feature
 
-# Canonical startup/reconciliation command inside an existing linked worktree
-devrouter workspace ensure .
+# Canonical startup/reconciliation command in any checkout
+devrouter ensure .
 
 # Optional: specify a custom worktree path or skip devpod
 devrouter workspace up feat/my-feature --path ../my-repo-feat --no-devpod
@@ -658,7 +657,7 @@ With workspace `feat-a` active: host becomes `app.feat-a.localhost`, upstream re
 
 The devcontainer compose service should expose a network alias `${WORKSPACE}-app` (where `WORKSPACE` defaults to the project name in `devcontainer.env`). Its `devcontainer.json` selects `.devcontainer/docker-compose.devrouter.yml` through `DEVCONTAINER_COMPOSE_OVERLAY`; that overlay passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute path inside the app container so the linked-worktree `.git` pointer works.
 
-`workspace ensure` reports ready only after it proves exact DevPod/worktree ownership, the overlay and Git mount, workspace environment, devnet aliases, container health, Git access, HTTP route reachability, and unique running TCP upstream ownership (plus health when configured). It recreates one stale existing DevPod once, then fails with the exact missing invariant. Failed proof does not leave new routes behind.
+`ensure` reports ready only after it proves exact DevPod/checkout ownership, the required mount and environment contract, devnet aliases, container health, Git access, HTTP route reachability, and unique running TCP upstream ownership (plus health when configured). It recreates one stale existing DevPod once, then fails with the exact missing invariant. Failed proof does not leave new routes behind.
 
 **Missing-owner detection:** `devrouter doctor` reports ledger-owned workspaces
 whose checkout disappeared or conflicts with live Git/DevPod evidence. It does

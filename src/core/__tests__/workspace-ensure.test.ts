@@ -3,16 +3,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  inspectWorkspaceContainers,
+  resolveRunningWorkspaceContainer,
+  type WorkspaceContainerSnapshot,
+} from "../devpod-environment";
 import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspaces";
 import { replaceHostRoutesForRepo } from "../host-routes";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
-import {
-  inspectWorkspaceContainers,
-  validateWorkspaceContainers,
-  type WorkspaceContainerSnapshot,
-  workspaceEnsure,
-} from "../workspace-ensure";
+import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../host-routes", () => ({
@@ -36,6 +36,7 @@ vi.mock("../router", () => ({
   startRouterStack: vi.fn(),
 }));
 vi.mock("../tls", () => ({
+  getMkcertRootCAPath: vi.fn(() => "/ca/rootCA.pem"),
   ensureTLSHostsCovered: vi.fn(async () => ({
     refreshed: false,
     uncoveredHosts: [],
@@ -129,6 +130,24 @@ describe("inspectWorkspaceContainers", () => {
       { encoding: "utf-8" },
     );
   });
+
+  it("resolves the running compose-owned app container instead of any matching bind mount", () => {
+    const app = container("app-id", "app", ["feature-app"], { mountRepo: true });
+    const unrelated = container("other-id", "tool", [], { mountRepo: true });
+    unrelated.labels["com.docker.compose.project.working_dir"] = "/other/.devcontainer";
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({ status: 0, stdout: "app-id\nother-id\n", stderr: "" } as never)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: `${JSON.stringify(app)}\n${JSON.stringify(unrelated)}\n`,
+        stderr: "",
+      } as never);
+
+    expect(resolveRunningWorkspaceContainer(repoPath)).toEqual({
+      id: "app-id",
+      workspacePath: "/workspaces/repo",
+    });
+  });
 });
 
 describe("validateWorkspaceContainers", () => {
@@ -139,9 +158,14 @@ describe("validateWorkspaceContainers", () => {
     expect(
       validateWorkspaceContainers([app, db], {
         repoPath,
-        gitCommonDir: "/repo/.git",
-        workspace,
-        upstreamHosts: ["feature-app", "feature-db", "external.example"],
+        upstreamHosts: ["feature-app", "feature-db"],
+        target: {
+          kind: "linked",
+          workspace,
+          devpodId: workspace,
+          hadExactDevpod: true,
+          gitCommonDir: "/repo/.git",
+        },
       }),
     ).toEqual({ id: "app-id", workspacePath: "/workspaces/repo" });
   });
@@ -155,9 +179,14 @@ describe("validateWorkspaceContainers", () => {
     expect(() =>
       validateWorkspaceContainers([app], {
         repoPath,
-        gitCommonDir: "/repo/.git",
-        workspace,
         upstreamHosts: ["feature-app"],
+        target: {
+          kind: "linked",
+          workspace,
+          devpodId: workspace,
+          hadExactDevpod: true,
+          gitCommonDir: "/repo/.git",
+        },
       }),
     ).toThrow("docker-compose.devrouter.yml");
   });
@@ -168,9 +197,14 @@ describe("validateWorkspaceContainers", () => {
     expect(() =>
       validateWorkspaceContainers([app], {
         repoPath,
-        gitCommonDir: "/repo/.git",
-        workspace,
         upstreamHosts: ["feature-app"],
+        target: {
+          kind: "linked",
+          workspace,
+          devpodId: workspace,
+          hadExactDevpod: true,
+          gitCommonDir: "/repo/.git",
+        },
       }),
     ).toThrow("exactly one running container");
   });
@@ -185,9 +219,14 @@ describe("validateWorkspaceContainers", () => {
     expect(() =>
       validateWorkspaceContainers([app, foreign], {
         repoPath,
-        gitCommonDir: "/repo/.git",
-        workspace,
         upstreamHosts: ["feature-app"],
+        target: {
+          kind: "linked",
+          workspace,
+          devpodId: workspace,
+          hadExactDevpod: true,
+          gitCommonDir: "/repo/.git",
+        },
       }),
     ).toThrow("found 2");
   });
@@ -201,9 +240,14 @@ describe("validateWorkspaceContainers", () => {
     expect(() =>
       validateWorkspaceContainers([app, db], {
         repoPath,
-        gitCommonDir: "/repo/.git",
-        workspace,
         upstreamHosts: ["feature-db"],
+        target: {
+          kind: "linked",
+          workspace,
+          devpodId: workspace,
+          hadExactDevpod: true,
+          gitCommonDir: "/repo/.git",
+        },
       }),
     ).toThrow("not healthy");
   });
@@ -256,6 +300,7 @@ describe("workspaceEnsure", () => {
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   function inspectLine(snapshot: WorkspaceContainerSnapshot): string {
@@ -332,7 +377,7 @@ describe("workspaceEnsure", () => {
       if (command === "docker" && argv[0] === "exec") {
         return {
           status: 0,
-          stdout: argv.includes("--is-inside-work-tree") ? "true\n" : "feature\n",
+          stdout: argv.includes("--show-toplevel") ? "/workspaces/repo\n" : "feature\n",
           stderr: "",
         } as never;
       }
@@ -348,6 +393,213 @@ describe("workspaceEnsure", () => {
       return { status: 0, stdout: "", stderr: "" } as never;
     });
   }
+
+  function makePrimaryRepo(): void {
+    fs.rmSync(path.join(tmpDir, ".git"), { force: true });
+    fs.mkdirSync(path.join(tmpDir, ".git"), { recursive: true });
+    fs.rmSync(path.join(tmpDir, ".devcontainer", "docker-compose.devrouter.yml"), {
+      force: true,
+    });
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      workspace: undefined,
+      config: {
+        version: 1,
+        project: { name: "sample" },
+        apps: [
+          {
+            name: "app",
+            host: "app.localhost",
+            protocol: "http",
+            runtime: "proxy",
+            dependencies: [],
+            upstream: "sample-app:3000",
+          },
+          {
+            name: "db",
+            host: "db.localhost",
+            protocol: "tcp",
+            tcpProtocol: "postgres",
+            runtime: "proxy",
+            dependencies: [],
+            upstream: "sample-db:5432",
+          },
+        ],
+      },
+    });
+  }
+
+  function mockPrimaryLifecycle(
+    options: { devpodLists?: DevpodWorkspace[][]; appAliases?: string[] } = {},
+  ): void {
+    let devpodListCall = 0;
+    const app = container("app-id", "app", options.appAliases ?? ["sample-app"], {
+      mountRepo: true,
+      overlay: false,
+    });
+    app.labels["com.docker.compose.project.working_dir"] = `${tmpDir}/.devcontainer`;
+    app.labels["com.docker.compose.project.config_files"] =
+      `${tmpDir}/.devcontainer/docker-compose.yml,${tmpDir}/.devcontainer/docker-compose.default.yml`;
+    app.mounts = [{ Type: "bind", Source: tmpDir, Destination: "/workspaces/sample" }];
+    const db = container("db-id", "postgres", ["sample-db"], {
+      health: "healthy",
+      overlay: false,
+    });
+    db.labels["com.docker.compose.project.working_dir"] = `${tmpDir}/.devcontainer`;
+    db.labels["com.docker.compose.project.config_files"] =
+      `${tmpDir}/.devcontainer/docker-compose.yml,${tmpDir}/.devcontainer/docker-compose.default.yml`;
+
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devpod" && argv[0] === "list") {
+        const fallback = [{ id: "sample", source: { localFolder: tmpDir } }];
+        const listed = options.devpodLists?.[devpodListCall] ?? fallback;
+        devpodListCall += 1;
+        return { status: 0, stdout: JSON.stringify(listed), stderr: "" } as never;
+      }
+      if (command === "devpod" && argv[0] === "up") {
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      if (command === "docker" && argv[0] === "ps") {
+        return { status: 0, stdout: "app-id\ndb-id\n", stderr: "" } as never;
+      }
+      if (command === "docker" && argv[0] === "inspect") {
+        return {
+          status: 0,
+          stdout: `${inspectLine(app)}\n${inspectLine(db)}\n`,
+          stderr: "",
+        } as never;
+      }
+      if (command === "docker" && argv[0] === "exec") {
+        return { status: 0, stdout: "/workspaces/sample\n", stderr: "" } as never;
+      }
+      if (command === "curl") {
+        return { status: 0, stdout: "404", stderr: "" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+  }
+
+  it("reuses an exact primary DevPod without linked ownership metadata", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle();
+
+    const result = await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+
+    expect(result).toMatchObject({
+      kind: "primary",
+      devpodId: "sample",
+      repoPath: tmpDir,
+      recreated: false,
+      tlsRefreshed: false,
+    });
+    expect(result.workspace).toBeUndefined();
+    expect(fs.existsSync(path.join(tmpDir, ".git", "devrouter-workspace"))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, ".git", "devrouter", "workspaces"))).toBe(false);
+    const up = devpodUpCalls()[0];
+    expect(up[1]).toContain("sample");
+    expect(up[1]).not.toContain("--workspace-env");
+    expect(up[2]).not.toEqual(
+      expect.objectContaining({
+        env: expect.objectContaining({ DEVCONTAINER_COMPOSE_OVERLAY: expect.anything() }),
+      }),
+    );
+  });
+
+  it("rediscovers the exact DevPod id after a new primary startup", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle({
+      devpodLists: [[], [{ id: "devpod-selected", source: { localFolder: tmpDir } }]],
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).resolves.toMatchObject({ kind: "primary", devpodId: "devpod-selected" });
+
+    expect(devpodUpCalls()[0][1]).not.toContain("--id");
+  });
+
+  it("keeps DevPod progress off stdout in quiet mode", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle();
+
+    await workspaceEnsure(tmpDir, {
+      quiet: true,
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+
+    expect(devpodUpCalls()[0][2]).toEqual(
+      expect.objectContaining({
+        stdio: ["inherit", 2, "inherit"],
+      }),
+    );
+  });
+
+  it("forces primary runtime config to ignore an inherited workspace override", async () => {
+    makePrimaryRepo();
+    vi.stubEnv("DEVROUTER_WORKSPACE", "foreign");
+    mockPrimaryLifecycle();
+
+    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(tmpDir, "");
+  });
+
+  it("rejects duplicate primary path owners before startup or route mutation", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle({
+      devpodLists: [
+        [
+          { id: "first", source: { localFolder: tmpDir } },
+          { id: "second", source: { localFolder: tmpDir } },
+        ],
+      ],
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Multiple DevPod workspaces reference");
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for a primary checkout without writing ownership or stopping DevPod", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle({ appAliases: ["stale-app"] });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("exactly one running container");
+
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
+    expect(fs.existsSync(path.join(tmpDir, ".git", "devrouter", "workspaces"))).toBe(false);
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "devpod",
+      expect.arrayContaining(["stop"]),
+      expect.anything(),
+    );
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "devpod",
+      expect.arrayContaining(["delete"]),
+      expect.anything(),
+    );
+  });
+
+  it("does not recreate a newly attached primary DevPod after failed preflight", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle({
+      appAliases: ["stale-app"],
+      devpodLists: [[], [{ id: "new-primary", source: { localFolder: tmpDir } }]],
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("exactly one running container");
+
+    expect(devpodUpCalls()).toHaveLength(1);
+    expect(devpodUpCalls()[0][1]).not.toContain("--recreate");
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
+  });
 
   it("starts, proves, atomically publishes, and accepts non-5xx HTTP", async () => {
     mockLifecycle();
@@ -417,7 +669,7 @@ describe("workspaceEnsure", () => {
 
     await expect(
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
-    ).resolves.toMatchObject({ workspace: "feature" });
+    ).resolves.toMatchObject({ workspace: "feature", recreated: true });
 
     const devpodUps = devpodUpCalls();
     expect(devpodUps).toHaveLength(2);
@@ -530,7 +782,7 @@ describe("workspaceEnsure", () => {
 
     await expect(
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
-    ).resolves.toMatchObject({ workspace: "feature" });
+    ).resolves.toMatchObject({ workspace: "feature", recreated: true });
 
     const devpodUps = devpodUpCalls();
     expect(devpodUps).toHaveLength(2);

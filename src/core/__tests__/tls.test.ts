@@ -21,8 +21,12 @@ describe("isHostCoveredByCertificateHost", () => {
     expect(isHostCoveredByCertificateHost("demo.localhost", "demo.localhost")).toBe(true);
   });
 
-  it("matches single-label wildcard hosts", () => {
-    expect(isHostCoveredByCertificateHost("demo.localhost", "*.localhost")).toBe(true);
+  it("does not treat wildcard localhost as covering an explicit local hostname", () => {
+    expect(isHostCoveredByCertificateHost("demo.localhost", "*.localhost")).toBe(false);
+  });
+
+  it("matches single-label wildcard hosts for ordinary domains", () => {
+    expect(isHostCoveredByCertificateHost("demo.example.test", "*.example.test")).toBe(true);
   });
 
   it("does not match multi-segment hosts with single-label wildcard", () => {
@@ -39,7 +43,7 @@ describe("findUncoveredCertificateHosts", () => {
       ["localhost", "*.localhost"],
     );
 
-    expect(uncovered).toEqual(["elearning.klicker.localhost"]);
+    expect(uncovered).toEqual(["demo.localhost", "elearning.klicker.localhost"]);
   });
 });
 

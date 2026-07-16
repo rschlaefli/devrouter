@@ -425,4 +425,40 @@ describe("workspaceGc", () => {
 
     expect(workspaceGc({ repoPath: "/repo", yes: true }).candidates).toEqual([]);
   });
+
+  it("never treats the primary checkout DevPod as a legacy GC candidate", () => {
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([]);
+    vi.mocked(listGitWorktrees).mockReturnValue([
+      { path: "/repo", branch: "main", prunable: false, locked: false },
+    ]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "repo", source: { localFolder: "/repo" } },
+    ]);
+    vi.mocked(listHostRouteState).mockReturnValue([]);
+
+    expect(workspaceGc({ repoPath: "/repo" }).candidates).toEqual([]);
+  });
+
+  it("excludes the real primary path when GC is invoked from a linked checkout", () => {
+    const linkedPath = "/repo/trees/feature";
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([]);
+    vi.mocked(listGitWorktrees).mockReturnValue([
+      { path: "/repo", branch: "main", prunable: false, locked: false },
+      { path: linkedPath, branch: "feature", prunable: false, locked: false },
+    ]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "repo", source: { localFolder: "/repo" } },
+      { id: "feature", source: { localFolder: linkedPath } },
+    ]);
+    vi.mocked(listHostRouteState).mockReturnValue([]);
+
+    expect(workspaceGc({ repoPath: linkedPath }).candidates).toEqual([
+      expect.objectContaining({
+        kind: "legacy",
+        workspace: "feature",
+        worktreePath: linkedPath,
+        eligible: false,
+      }),
+    ]);
+  });
 });

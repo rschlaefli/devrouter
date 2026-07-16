@@ -70,6 +70,17 @@ export function resolveGitCommonDir(repoPath: string): string {
   return comparableWorkspacePath(path.isAbsolute(output) ? output : path.resolve(repoPath, output));
 }
 
+export function resolveGitTopLevel(repoPath: string): string {
+  const result = spawnSync("git", ["-C", repoPath, "rev-parse", "--show-toplevel"], {
+    encoding: "utf-8",
+  });
+  const output = result.stdout.trim();
+  if (result.status !== 0 || !output) {
+    throw commandError("Could not resolve the Git checkout root", repoPath, result.stderr);
+  }
+  return comparableWorkspacePath(output);
+}
+
 export function listGitWorktrees(repoPath: string): GitWorktree[] {
   const result = spawnSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
     encoding: "utf-8",

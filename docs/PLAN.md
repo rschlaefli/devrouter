@@ -10,9 +10,12 @@ Delivered and active:
 - Repo-local upgrade metadata: `.devrouter.yml` `devrouter.version`
 - Upgrade commands: `devrouter -V` and `devrouter upgrade [version]`
 - First-run machine setup: `devrouter setup --yes --json`
+- Unified primary/linked reconciliation: `devrouter ensure [path] [--json]`
+- Non-destructive exact-checkout pause: `devrouter stop [path]`
+- Exact running-DevPod one-shot execution: `devrouter exec [path] -- <command...>`
 - Read-only repo fact inspection: `devrouter repo inspect --json`
 - Conservative Node/pnpm/Postgres devcontainer scaffold planning/writing: `devrouter repo devcontainer write --dry-run --json` and `devrouter repo devcontainer write --yes`
-- Devcontainer onboarding evidence: `devrouter repo devcontainer verify --json` (static) and `devrouter repo devcontainer verify --live --yes --json` (route registration/probes)
+- Devcontainer onboarding evidence: `devrouter repo devcontainer verify --json` (static); the mutating `--live --yes --json` form remains temporarily for compatibility after `ensure`
 - Upgrade prompts stored as versioned files: `upgrade-prompts/<version>.md`
 - HTTP routing for host-run and Docker-run apps
 - HTTP proxy routing (`runtime: proxy`) to an already-running upstream (e.g. devcontainer)
@@ -35,7 +38,7 @@ Delivered and active:
   - Persisted identity is authoritative; ambiguous or conflicting identities fail closed
   - Hosts auto-namespaced in memory (`web.localhost` → `web.<ws>.localhost`); committed `.devrouter.yml` is never rewritten
   - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`
-  - `workspace ensure` validates overlay/Git mounts, environment, aliases, health, Git access, HTTP route reachability, and unique running TCP upstream ownership; one stale DevPod gets one recreate
+  - `ensure` validates the applicable primary/linked mounts, environment, aliases, health, Git access, HTTP route reachability, and unique running TCP upstream ownership; one stale DevPod gets one recreate
   - Route replacement happens atomically only after runtime proof; ensure/stop/down serialize per worktree
   - `stop` preserves checkout, owner record, and data; full `down` rejects dirty or locked worktrees before side effects
   - `workspace ls` reports `present`, `missing`, `locked`, or `conflict`; `gc` reports by default and mutates exact missing owners only with `--yes`
@@ -109,4 +112,4 @@ Required checks for behavior and doc consistency:
 - Upgrade flows read local repo version from `.devrouter.yml` and prompt files from `upgrade-prompts/`.
 - Workspace namespacing is computed in memory only; the committed `.devrouter.yml` is never rewritten by workspace operations.
 - `${WORKSPACE}` is intentionally scoped to `upstream` only — `host` auto-namespacing is the authoritative mechanism to prevent collisions.
-- Primary-checkout routes (no workspace token) are never touched by workspace GC or teardown operations.
+- Workspace GC and `workspace down` never touch primary routes or checkouts. Explicit `ensure` and `stop` on the exact primary checkout may replace or remove only that checkout's routes.

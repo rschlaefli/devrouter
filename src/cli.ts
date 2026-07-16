@@ -93,6 +93,51 @@ program
   );
 
 program
+  .command("ensure")
+  .description("Start and prove a primary or linked checkout's environment and routes")
+  .argument("[path]", "Git checkout path (defaults to current directory)")
+  .option("--open", "Open HTTP routes after readiness succeeds")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (repoPath: string | undefined, _options: unknown, command: Command) => {
+      const options = command.opts<{ open?: boolean; json?: boolean }>();
+      const { runEnsureCommand } = await import("./commands/ensure");
+      await runEnsureCommand({
+        path: repoPath,
+        open: Boolean(options.open),
+        json: Boolean(options.json),
+      });
+    }),
+  );
+
+program
+  .command("stop")
+  .description("Stop one checkout's exact DevPod and free its routes without deleting data")
+  .argument("[path]", "Git checkout path (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (repoPath: string | undefined, _options: unknown, command: Command) => {
+      const options = command.opts<{ json?: boolean }>();
+      const { runStopCommand } = await import("./commands/stop");
+      await runStopCommand({ path: repoPath, json: Boolean(options.json) });
+    }),
+  );
+
+program
+  .command("exec")
+  .description("Run one literal command inside the exact checkout's running DevPod")
+  .argument("[args...]", "[path] -- <command...>")
+  .allowUnknownOption(true)
+  .action(
+    withErrorHandling(async () => {
+      const commandIndex = process.argv.indexOf("exec", 2);
+      const { parseExecInvocation, runExecCommand } = await import("./commands/exec");
+      const invocation = parseExecInvocation(process.argv.slice(commandIndex + 1));
+      await runExecCommand(invocation);
+    }),
+  );
+
+program
   .command("down")
   .description("Stop the shared Traefik router stack")
   .action(
@@ -447,15 +492,20 @@ workspaceCommand
 
 workspaceCommand
   .command("ensure")
-  .description("Start and prove an existing worktree's DevPod, upstreams, and routes")
-  .argument("[path]", "Linked worktree path (defaults to current directory)")
+  .description("Start and prove a primary or linked checkout's DevPod, upstreams, and routes")
+  .argument("[path]", "Git checkout path (defaults to current directory)")
   .option("--open", "Open HTTP routes after readiness succeeds")
+  .option("--json", "Output JSON")
   .action(
     withErrorHandling(
       async (worktreePath: string | undefined, _options: unknown, command: Command) => {
-        const options = command.opts<{ open?: boolean }>();
-        const { runWorkspaceEnsureCommand } = await import("./commands/workspace");
-        await runWorkspaceEnsureCommand({ path: worktreePath, open: Boolean(options.open) });
+        const options = command.opts<{ open?: boolean; json?: boolean }>();
+        const { runEnsureCommand } = await import("./commands/ensure");
+        await runEnsureCommand({
+          path: worktreePath,
+          open: Boolean(options.open),
+          json: Boolean(options.json),
+        });
       },
     ),
   );

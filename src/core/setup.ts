@@ -1,7 +1,7 @@
 import type { SetupAction, SetupActionStatus, SetupReport } from "../types";
 import { ensureNetwork, isContainerRunning, networkExists } from "./docker";
 import { buildDoctorReport } from "./doctor";
-import { resolveRepoPath } from "./repo-config";
+import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import {
   DEVNET_NAME,
   ensureRouterFiles,
@@ -61,6 +61,15 @@ function collectNextSteps(
 export async function runSetup(options: SetupOptions = {}): Promise<SetupReport> {
   const repoPath = resolveRepoPath(options.repo);
   const actions: SetupAction[] = [];
+
+  let configuredHosts: string[] = [];
+  try {
+    configuredHosts = loadRuntimeConfig(repoPath).config.apps.flatMap((app) =>
+      app.kind === "dependency" ? [] : [app.host],
+    );
+  } catch {
+    // Global setup remains usable outside a configured repository.
+  }
 
   if (!options.yes) {
     actions.push(
@@ -170,7 +179,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
     );
   } else {
     try {
-      const tls = await installTLS();
+      const tls = await installTLS({ hosts: configuredHosts });
       actions.push(
         action(tls.alreadyEnabled ? "skipped" : "performed", {
           id: "global.tls",

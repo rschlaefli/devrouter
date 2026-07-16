@@ -1,5 +1,4 @@
 import { resolveRepoPath } from "../core/repo-config";
-import { workspaceEnsure } from "../core/workspace-ensure";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
 import {
   workspaceDown,
@@ -32,18 +31,6 @@ export async function runWorkspaceUpCommand(
     open: options.open,
     repoPath,
   });
-}
-
-export async function runWorkspaceEnsureCommand(options: {
-  path?: string;
-  open?: boolean;
-}): Promise<void> {
-  const repoPath = resolveGitWorkspaceRepo(options.path);
-  const result = await workspaceEnsure(repoPath, { open: options.open });
-  process.stdout.write(
-    `Workspace '${result.workspace}' is ready (${result.devpodId}).\n` +
-      `${result.urls.map((url) => `  ${url}`).join("\n")}\n`,
-  );
 }
 
 export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }): void {

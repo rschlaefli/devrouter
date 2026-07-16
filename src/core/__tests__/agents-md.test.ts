@@ -27,7 +27,9 @@ describe("agents-md", () => {
     expect(content).toContain("<!-- devrouter -->");
     expect(content).toContain("<!-- /devrouter -->");
     expect(content).not.toContain("<!-- devrouter-linear-workflow -->");
-    expect(content).toContain("Linked devcontainer worktree: `devrouter workspace ensure .`");
+    expect(content).toContain(
+      "Primary or linked devcontainer checkout: `devrouter ensure . --json`",
+    );
     expect(content).toContain("Host/docker runtime app only:");
 
     const skillContent = fs.readFileSync(skill.path, "utf-8");
@@ -42,6 +44,8 @@ describe("agents-md", () => {
     expect(skillContent).toContain("devrouter upgrade <version>");
     expect(skillContent).toContain("devrouter -V");
     expect(skillContent).toContain("devrouter setup --repo . --yes");
+    expect(skillContent).toContain("devrouter ensure [path] [--open] [--json]");
+    expect(skillContent).toContain("devrouter exec [path] -- <command...>");
     expect(skillContent).toContain("devrouter repo inspect --repo . --json");
     expect(skillContent).toContain("devrouter repo devcontainer write --dry-run --json");
     expect(skillContent).toContain("devrouter repo devcontainer verify --json");
@@ -82,7 +86,9 @@ describe("agents-md", () => {
     expect(ensureAgentsMdSection(tmpDir).written).toBe(true);
 
     const content = fs.readFileSync(path.join(tmpDir, "AGENTS.md"), "utf-8");
-    expect(content).toContain("Linked devcontainer worktree: `devrouter workspace ensure .`");
+    expect(content).toContain(
+      "Primary or linked devcontainer checkout: `devrouter ensure . --json`",
+    );
     expect(content).toContain("<!-- /devrouter -->");
     expect(content).toContain("## User notes\n\nKeep this content.");
   });

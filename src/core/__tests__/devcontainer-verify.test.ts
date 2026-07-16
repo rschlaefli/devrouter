@@ -5,9 +5,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DoctorReport } from "../../types";
 import { verifyDevcontainer } from "../devcontainer-verify";
 import { buildDoctorReport } from "../doctor";
+import { replaceHostRoutesForRepo } from "../host-routes";
+import { probeHttpRoute } from "../http-route-probe";
+import { replacePublishedProxyRoutes } from "../route-publication";
 
 vi.mock("../doctor", () => ({
   buildDoctorReport: vi.fn(),
+}));
+vi.mock("../http-route-probe", () => ({ probeHttpRoute: vi.fn() }));
+vi.mock("../host-routes", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../host-routes")>()),
+  replaceHostRoutesForRepo: vi.fn(() => []),
+}));
+vi.mock("../route-publication", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../route-publication")>()),
+  replacePublishedProxyRoutes: vi.fn(async () => ({ routes: [], tlsRefreshed: false })),
 }));
 
 let tmpDir: string;
@@ -62,6 +74,7 @@ function doctorReport(error = false): DoctorReport {
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-devcontainer-verify-test-"));
   vi.mocked(buildDoctorReport).mockResolvedValue(doctorReport(false));
+  vi.mocked(probeHttpRoute).mockReturnValue({ ok: true, status: 404, details: "HTTP 404" });
 });
 
 afterEach(() => {
@@ -107,5 +120,63 @@ describe("verifyDevcontainer", () => {
     expect(report.checks.map((check) => check.id)).toContain(
       "repo.devcontainer.verify-live-confirmation",
     );
+  });
+
+  it("keeps live verification compatible through one batch publication and trusted probe", async () => {
+    writeValidScaffold();
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const report = await verifyDevcontainer({ repo: tmpDir, live: true, yes: true });
+
+    expect(stderr).toHaveBeenCalledWith(
+      expect.stringContaining("use 'devrouter ensure' for reconciliation"),
+    );
+    expect(replacePublishedProxyRoutes).toHaveBeenCalledOnce();
+    expect(replacePublishedProxyRoutes).toHaveBeenCalledWith(
+      tmpDir,
+      expect.objectContaining({
+        apps: expect.arrayContaining([expect.objectContaining({ name: "app" })]),
+      }),
+      undefined,
+    );
+    expect(probeHttpRoute).toHaveBeenCalledWith("sample.localhost", { repoPath: tmpDir });
+    expect(report.evidence.liveRoutes).toEqual([
+      {
+        name: "app",
+        host: "sample.localhost",
+        status: "reachable",
+        details: "HTTP 404",
+      },
+      expect.objectContaining({ name: "db", status: "registered" }),
+    ]);
+  });
+
+  it("reports a routed 5xx as a live compatibility failure", async () => {
+    writeValidScaffold();
+    vi.mocked(probeHttpRoute).mockReturnValue({ ok: false, status: 503, details: "HTTP 503" });
+
+    const report = await verifyDevcontainer({ repo: tmpDir, live: true, yes: true });
+
+    expect(report.evidence.liveRoutes?.[0]).toMatchObject({
+      name: "app",
+      status: "failed",
+      details: "HTTP 503",
+    });
+    expect(report.summary.error).toBeGreaterThan(0);
+    expect(replaceHostRoutesForRepo).toHaveBeenCalledWith(tmpDir, []);
+    expect(report.nextSteps).toEqual([
+      "Start the devcontainer app process, then re-run live verification.",
+    ]);
+  });
+
+  it("keeps live publication recovery scoped to the target repo", async () => {
+    writeValidScaffold();
+    vi.mocked(replacePublishedProxyRoutes).mockRejectedValueOnce(new Error("missing trust"));
+
+    const report = await verifyDevcontainer({ repo: tmpDir, live: true, yes: true });
+
+    expect(report.nextSteps).toEqual([
+      expect.stringContaining(`devrouter setup --repo '${tmpDir}' --yes`),
+    ]);
   });
 });

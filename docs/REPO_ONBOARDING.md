@@ -55,14 +55,14 @@ devrouter repo devcontainer verify --repo /absolute/path/to/repo --json
 
 `devrouter repo devcontainer write --dry-run --json` plans the managed files. `devrouter repo devcontainer write --yes` writes only when target files are missing or already marked as devrouter-managed; custom existing `.devcontainer/` or `.devrouter.yml` files stop the write with a conflict. The first scaffold supports Node + pnpm + Postgres; non-pnpm repos stop with `repo.devcontainer.package-manager-unsupported`.
 
-`devrouter repo devcontainer verify --json` is read-only and produces PR evidence from doctor checks, required files, proxy app entries, and workspace namespacing. Use `--live --yes --json` only after the devcontainer is running and you want route registration plus HTTP probes.
+`devrouter repo devcontainer verify --json` is read-only and produces PR evidence from doctor checks, required files, proxy app entries, and workspace namespacing. Start either checkout kind with `devrouter ensure <path> --json`. The mutating `--live --yes --json` form remains only as a compatibility check after ensure in this release.
 
 PR evidence checklist for agents:
 
 - setup and doctor summaries
 - inspect facts and issues
 - static verify summary
-- live verify summary when DevPod was run locally
+- ensure summary and trusted route evidence when DevPod was run locally
 - tested URLs, TCP route status, and skipped live checks with reasons
 
 Reference implementation:
@@ -240,7 +240,7 @@ devrouter app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_
 Repo file:
 
 - `.devrouter.yml` is updated/maintained.
-- `.devcontainer/docker-compose.devrouter.yml` is the committed linked-worktree overlay; `workspace ensure` supplies its Git common-directory bind source.
+- `.devcontainer/docker-compose.devrouter.yml` is the committed linked-worktree overlay; `ensure` supplies its Git common-directory bind source.
 
 Global generated state:
 
@@ -360,7 +360,7 @@ Multiple git worktrees of the same repo can run concurrently using a persisted *
 devrouter workspace up feat/my-feature
 
 # Reconcile an existing linked worktree and prove it is ready
-devrouter workspace ensure .
+devrouter ensure .
 
 # List owner, Git, DevPod, and route state
 devrouter workspace ls
@@ -391,7 +391,7 @@ without `.git`. Git has no worktree-removal hook, so `devrouter doctor` reports
 missing/conflicting owners and points to dry-run
 `devrouter workspace gc --repo <repo>` instead of mutating them.
 
-Workspace-aware devcontainers must select `.devcontainer/docker-compose.devrouter.yml` via `DEVCONTAINER_COMPOSE_OVERLAY`. The overlay passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute path. `workspace ensure` verifies that contract plus the exact worktree, aliases, health, Git access, route ownership, and reachability before success.
+Workspace-aware devcontainers must select `.devcontainer/docker-compose.devrouter.yml` via `DEVCONTAINER_COMPOSE_OVERLAY`. The overlay passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute path. `ensure` verifies the applicable primary or linked contract plus the exact checkout, aliases, health, Git access, route ownership, and reachability before success. Use `exec . -- <command...>` for container-local seeds and migrations.
 
 ## 11) AI agent prompt (single copy-paste)
 

@@ -66,6 +66,7 @@ vi.mock("../router", () => ({
   },
   ensureRouterFiles: ensureRouterFilesMock,
   activateTcpProtocol: vi.fn(() => false),
+  isTLSEnabled: vi.fn(() => true),
   startRouterStack: vi.fn(),
 }));
 
@@ -381,7 +382,9 @@ describe("execWithAppEnv", () => {
         stdio: "inherit",
       }),
     );
-    expect(ensureTLSHostsCoveredMock).toHaveBeenCalledWith(["web.localhost"]);
+    expect(ensureTLSHostsCoveredMock).toHaveBeenCalledWith(["web.localhost"], {
+      repoPath: "/repo",
+    });
   });
 
   it("refreshes TLS coverage against all configured repo hosts before exec", async () => {
@@ -396,7 +399,9 @@ describe("execWithAppEnv", () => {
       command: ["pnpm", "payload", "migrate"],
     });
 
-    expect(ensureTLSHostsCoveredMock).toHaveBeenCalledWith(["web.localhost", "db.localhost"]);
+    expect(ensureTLSHostsCoveredMock).toHaveBeenCalledWith(["web.localhost", "db.localhost"], {
+      repoPath: "/repo",
+    });
   });
 
   it("requires exactly one command string in explicit shell mode", async () => {

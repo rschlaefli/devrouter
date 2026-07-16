@@ -32,6 +32,6 @@ disown 2>/dev/null || true
 cat <<'EOF'
 [post-start] App    -> https://{{APP}}.localhost      (via devrouter; first compile ~30s)
 [post-start] OIDC   -> https://oidc.{{APP}}.localhost/default
-[post-start] Routes -> on the host: dev repo devcontainer verify --live --yes --json
+[post-start] Routes -> on the host: devrouter ensure .
 [post-start] Logs   -> tail -f /tmp/dev.log
 EOF

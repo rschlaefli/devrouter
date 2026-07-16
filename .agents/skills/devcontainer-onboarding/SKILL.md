@@ -1,12 +1,12 @@
 ---
 name: devcontainer-onboarding
-description: Onboard a repo to a self-contained devcontainer (app + Postgres + Redis + local OIDC mock) fronted by devrouter over the shared `devnet` network with zero published host ports, so many devcontainers run at once. Use when adding a `.devcontainer/`, replacing manual local setup (Infisical/Auth0/host DBs) with a clone-and-run stack, migrating a repo to the devcontainer-first approach, or moving an older host-port onboard to devnet. Targets Node/pnpm/Prisma/Next + Auth0/OIDC apps; the pattern generalizes. Requires devrouter >= 0.0.21.
+description: Onboard a repo to a self-contained devcontainer (app + Postgres + Redis + local OIDC mock) fronted by devrouter over the shared `devnet` network with zero published host ports, so many devcontainers run at once. Use when adding a `.devcontainer/`, replacing manual local setup (Infisical/Auth0/host DBs) with a clone-and-run stack, migrating a repo to the devcontainer-first approach, or moving an older host-port onboard to devnet. Targets Node/pnpm/Prisma/Next + Auth0/OIDC apps; the pattern generalizes. Requires devrouter >= 0.0.32.
 user-invocable: true
 ---
 
 # devcontainer onboarding
 
-Make a repo **clone-and-run**: `devpod up .` (or any devcontainer-spec tool — VS Code Dev Containers, `@devcontainers/cli`, Codespaces) brings up the full app with **zero manual steps and no external services**. devrouter fronts it over the shared external `devnet` network with **no published host ports**, so many devcontainers (app + DB + OIDC each) run simultaneously with zero collisions and the DBs are reachable from host tooling via `db.<app>.localhost`. Clean split: the **container owns the environment**, **devrouter owns the routing**.
+Make a repo **clone-and-run**: after one-time `devrouter setup --yes`, `devrouter ensure .` brings up and proves the full app for either a primary or linked checkout. Devrouter fronts it over the shared external `devnet` network with **no published host ports**, so many devcontainers (app + DB + OIDC each) run simultaneously with zero collisions and the DBs are reachable from host tooling via `db.<app>.localhost`. Clean split: the **container owns the environment**, **devrouter owns the routing**.
 
 The reference implementations this skill generalizes: `derivatives-game` (Next + Prisma + Postgres + Redis + OIDC mock), `careers`/jobeye (Next + Payload + Postgres), the gbl-uzh `demo-game` (Next + Postgres + OIDC mock, no Redis), and `klicker-uzh` (the **multi-app monorepo** case — one container runs `turbo dev` for 5 apps + Postgres + 3× Redis + MailHog + a Hatchet workflow engine; see the variant note below).
 
@@ -50,16 +50,16 @@ When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), k
    - `README.md` — run instructions + the routing trade-off.
 3. **Wire self-contained auth** (if the app authenticates): run the OIDC mock (`navikt/mock-oauth2-server`) as a **sidecar** (`network_mode: service:app`) and route it via devrouter at `https://oidc.<app>.localhost/default`. The browser (authorize) and the app server (discovery/token/jwks) use the SAME issuer host → consistent token `iss`. Server-side reachability needs `extra_hosts: ['oidc.<app>.localhost:host-gateway']` + trusting the mkcert CA (`NODE_EXTRA_CA_CERTS`) — **never** `NODE_TLS_REJECT_UNAUTHORIZED=0`. One-click auto-login with constant claims (stable `sub`). See [GOTCHAS.md](GOTCHAS.md) #3, #16.
 4. **Add `.devrouter.yml`** (`references/devrouter.yml`, copied to the repo root): `runtime: proxy` routes over `devnet` — `app` + `oidc` (http) and `db` + `redis` (tcp/SNI), each `upstream: ${WORKSPACE}-<svc>:<port>`. Attach the services to `devnet` with the matching `${WORKSPACE:-<app>}-<svc>` aliases in the compose; **no published host ports**. The `${WORKSPACE}` token keeps the route and the devnet alias on one identity: the primary checkout resolves it to the project name (unchanged), while a parallel worktree resolves it to `<ws>-*` (see "Parallel worktrees" below). No `hostRun`/`docker`/`dependencies`/`secretManager` — the container owns those. Requires devrouter ≥ 0.0.21 (the `${WORKSPACE}` upstream token requires ≥ 0.0.22). (Full routing walkthrough: devrouter `docs/DEVCONTAINER.md`.)
-5. **Document for agents** — append a short *Local development (devcontainer)* section to the repo's agent-instructions file (`AGENTS.md`, or `CLAUDE.md` if that's the file the repo already uses) from `references/AGENTS-devcontainer.md`. It tells future agents to use `devrouter workspace ensure .` in linked worktrees, use plain `devpod up .` only in the primary checkout, run commands/tests/prisma **inside** the container, reach the app at the routed URLs, and log in one-click. Prefer `devrouter repo agents` when the target repo should also receive the bundled devrouter skill.
+5. **Document for agents** — append a short *Local development (devcontainer)* section to the repo's agent-instructions file (`AGENTS.md`, or `CLAUDE.md` if that's the file the repo already uses) from `references/AGENTS-devcontainer.md`. It tells future agents to use `devrouter ensure .` for either checkout kind, use `devrouter exec . -- <command...>` for container commands, reach the app at the routed URLs, and log in one-click. Prefer `devrouter repo agents` when the target repo should also receive the bundled devrouter skill.
 6. **Verify end-to-end** (mandatory before claiming done) — run static product evidence first:
    ```bash
    devrouter setup --yes --json
    devrouter doctor --json
    devrouter repo devcontainer verify --json
    ```
-   Then run `devrouter workspace ensure .` in a linked worktree (or a clean `devpod up .` in the primary checkout), and:
+   Then start and prove either checkout kind:
    ```bash
-   devrouter repo devcontainer verify --live --yes --json
+   devrouter ensure . --json
    ```
    Use the manual **curl matrix** only for deeper app-specific evidence or when the repo has extra routes beyond the current product scaffold:
    ```bash
@@ -78,8 +78,8 @@ When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), k
 The templates are workspace-aware so several git worktrees of one repo run at once with no host/alias collisions (devrouter ≥ 0.0.22):
 
 - Compose aliases use `${WORKSPACE:-<app>}-*` and `.devrouter.yml` upstreams use `${WORKSPACE}-*`. The **primary checkout** leaves `WORKSPACE` unset → both resolve to `<app>-*` (identical to the old behavior); `devcontainer.env` carries `WORKSPACE=<app>` as the container-side default.
-- For a **parallel worktree**, `devrouter workspace up <branch>` creates it under the repository's ignored `trees/<workspace>` directory and starts it. In an existing linked worktree, `devrouter workspace ensure .` is canonical: it persists one identity, supplies the workspace env and Git common-directory overlay, starts or attaches the exact-path DevPod, proves the runtime, and only then registers routes. `workspace ls` lists them; `workspace down` serializes teardown with ensure.
-- Do not start linked worktrees with a bare `devpod up`. It cannot supply or prove the full identity/Git/alias/route contract. Use `workspace ensure` and fix the reported invariant instead of manually reconnecting containers or routes.
+- For a **parallel worktree**, `devrouter workspace up <branch>` creates it under the repository's ignored `trees/<workspace>` directory and starts it. In any existing checkout, `devrouter ensure .` is canonical: it selects the checkout kind, persists linked identity where needed, starts or attaches the exact-path DevPod, proves the runtime, and only then registers routes. `workspace ls` lists linked workspaces; `workspace down` serializes destructive linked teardown with ensure.
+- Do not branch manually between bare `devpod up` for primary and workspace commands for linked checkouts. Use `devrouter ensure .` and fix the reported invariant instead of manually reconnecting containers or routes.
 - `devrouter doctor` reports routes left behind by a worktree removed without `devrouter workspace down`; it does not mutate route state.
 
 ## Hard-won gotchas
@@ -94,4 +94,4 @@ The templates are workspace-aware so several git worktrees of one repo run at on
 
 ## Migrating an existing host-port onboard to devnet
 
-A repo onboarded with the pre-0.0.21 pattern publishes `127.0.0.1:<port>` and has a single `upstream: 127.0.0.1:<port>` route. To migrate (the gbl-uzh demo-game is the worked example): drop the compose `ports:`, attach `app`/`postgres`/`redis` to `devnet` with aliases, add the OIDC `extra_hosts` + mkcert CA mount, switch `.devrouter.yml` to the devnet upstreams + `oidc`/`db`(/`redis`) routes, point `devcontainer.env` auth URLs at the routed https hosts (+ `NODE_EXTRA_CA_CERTS`), and add the no-TTY pnpm exports (GOTCHAS #18). Validate with a clean `devpod delete && devpod up` (GOTCHAS #20). If the old route still claims the hostname, free it per GOTCHAS #19.
+A repo onboarded with the pre-0.0.21 pattern publishes `127.0.0.1:<port>` and has a single `upstream: 127.0.0.1:<port>` route. To migrate (the gbl-uzh demo-game is the worked example): drop the compose `ports:`, attach `app`/`postgres`/`redis` to `devnet` with aliases, add the OIDC `extra_hosts` + mkcert CA mount, switch `.devrouter.yml` to the devnet upstreams + `oidc`/`db`(/`redis`) routes, point `devcontainer.env` auth URLs at the routed https hosts (+ `NODE_EXTRA_CA_CERTS`), and add the no-TTY pnpm exports (GOTCHAS #18). Validate with `devrouter ensure .`; if a stale container still violates the proven compose contract, follow ensure's exact remediation instead of deleting an unrelated DevPod (GOTCHAS #20). If the old route still claims the hostname, free it per GOTCHAS #19.

@@ -1,4 +1,4 @@
-# workspace ensure supplies the linked worktree's host Git common directory.
+# devrouter ensure supplies the linked worktree's host Git common directory.
 services:
   app:
     volumes:

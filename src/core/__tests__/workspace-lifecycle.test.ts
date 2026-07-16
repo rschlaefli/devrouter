@@ -7,7 +7,13 @@ import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
 import { resolveWorktreeWorkspace, withWorkspaceLifecycleLock, wsFromBranch } from "../workspace";
 import { workspaceEnsure } from "../workspace-ensure";
-import { workspaceDown, workspaceLs, workspaceStop, workspaceUp } from "../workspace-lifecycle";
+import {
+  workspaceDown,
+  workspaceLs,
+  workspaceStop,
+  workspaceStopOwnedPath,
+  workspaceUp,
+} from "../workspace-lifecycle";
 import {
   inspectWorkspaceOwnership,
   listMissingWorkspaceOwnership,
@@ -479,8 +485,52 @@ describe("workspaceDown", () => {
 });
 
 describe("workspaceStop", () => {
+  it("stops the ledger owner for an exact path despite a colliding branch name", async () => {
+    const checkoutA = owner("feature-foo", "/main/repo-a");
+    const checkoutB = {
+      ...owner("other-token", "/main/repo-b"),
+      branch: "feature-foo",
+      devpodId: "other-token",
+    };
+    const porcelain = `worktree /main/repo
+HEAD abc
+branch refs/heads/main
+
+worktree /main/repo-a
+HEAD def
+branch refs/heads/feat/a
+
+worktree /main/repo-b
+HEAD ghi
+branch refs/heads/feature-foo
+
+`;
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([checkoutA, checkoutB]);
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([
+      { id: "feature-foo", source: { localFolder: "/main/repo-a" } },
+      { id: "other-token", source: { localFolder: "/main/repo-b" } },
+    ]);
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "git" && argv.includes("list")) {
+        return { status: 0, stdout: porcelain, stderr: "" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    const result = await workspaceStopOwnedPath("/main/repo-a", {
+      quiet: true,
+      repoPath: "/main/repo",
+    });
+
+    expect(result).toMatchObject({ workspace: "feature-foo", devpodId: "feature-foo" });
+    expect(removeWorkspaceRoutesForWorktree).toHaveBeenCalledWith("feature-foo", "/main/repo-a");
+  });
+
   it("stops the exact DevPod before freeing routes and preserves ownership", async () => {
     const events: string[] = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
     vi.mocked(listDevpodWorkspaces).mockReturnValue([
@@ -499,10 +549,11 @@ describe("workspaceStop", () => {
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    await workspaceStop("feat-a");
+    await workspaceStop("feat-a", { quiet: true });
 
     expect(events).toEqual(["stop", "routes"]);
     expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
   });
 
   it("retains routes when DevPod stop fails", async () => {
