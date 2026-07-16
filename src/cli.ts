@@ -124,6 +124,20 @@ program
   );
 
 program
+  .command("exec")
+  .description("Run one literal command inside the exact checkout's running DevPod")
+  .argument("[args...]", "[path] -- <command...>")
+  .allowUnknownOption(true)
+  .action(
+    withErrorHandling(async () => {
+      const commandIndex = process.argv.indexOf("exec", 2);
+      const { parseExecInvocation, runExecCommand } = await import("./commands/exec");
+      const invocation = parseExecInvocation(process.argv.slice(commandIndex + 1));
+      await runExecCommand(invocation);
+    }),
+  );
+
+program
   .command("down")
   .description("Stop the shared Traefik router stack")
   .action(

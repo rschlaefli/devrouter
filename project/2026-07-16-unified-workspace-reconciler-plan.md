@@ -626,9 +626,12 @@ Release commit: `chore(release): publish 0.0.33 read-only verification`
 - Done: Slice 3 correctness review found nested-path identity, linked-ledger bypass, and mixed JSON stdout gaps; all received regression coverage and passed narrow re-review.
 - Done: Slice 3 simplification review replaced split route count/removal with one atomic removal and moved quiet-output coverage to the real lifecycle seam.
 - Done: Slice 3 full gate passed with 46 files / 431 tests, typecheck, Biome, build, Knip, and docs policy; Linux-only process tests skipped on macOS.
-- Active: Slice 4 exact one-shot DevPod exec.
-- Next: add failing exact-path/running-state/argv/exit-code tests, implement top-level `exec`, review, simplify, verify, commit.
-- Implementation: Slices 1-3 complete; Slices 4-5 pending.
+- Done: Slice 4 added top-level `exec`, explicit raw `--` parsing with optional checkout path, exact running DevPod selection, lifecycle locking for the full child lifetime, proven container mount `--workdir`, literal POSIX argv quoting, and disabled SSH/GPG forwarding.
+- Done: Slice 4 correctness review found a stop race, missing workdir proof, spoofable exit parsing, and line-buffered stderr; all were replaced with locked execution, exact bind-mount proof, a random per-invocation exit marker, DevPod raw logs, and byte-safe bounded-suffix streaming. Narrow re-review found no remaining issues; simplification review found no qualifying changes.
+- Done: Live elearning proofs preserved spaces, quotes, dollar signs, semicolons, newlines, empty args, command-side flags and separators, newline-free stderr, and exact remote exit 7.
+- Active: Slice 5 guidance, release preparation, and downstream proof.
+- Next: update current/generated guidance and release artifacts, verify downstream migration without editing elearning, review, verify, and commit.
+- Implementation: Slices 1-4 complete; Slice 5 pending.
 
 ## Approval
 
