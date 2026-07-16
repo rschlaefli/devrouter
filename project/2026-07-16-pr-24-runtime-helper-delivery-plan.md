@@ -16,12 +16,12 @@
 
 ## Identity
 
-- Plan: `project/2026-07-16-runtime-helper-delivery-plan.md`
+- Plan: `project/2026-07-16-pr-24-runtime-helper-delivery-plan.md`
 - Branch: `codex/runtime-helper-delivery`
 - Worktree: `trees/runtime-helper-delivery`
 - Target: `main`
 - Base: `main` at `e8a2dbb`
-- PR: none
+- PR: [#24](https://github.com/rschlaefli/devrouter/pull/24) (draft)
 - Related downstream: elearning draft [MR !73](https://gitlab.uzh.ch/uzh-bf/tc/elearning/-/merge_requests/73)
 - Related history: `project/2026-07-14-managed-dev-process-plan.md` and `project/2026-07-16-unified-workspace-reconciler-plan.md`
 
@@ -95,7 +95,7 @@
 
 ## Progress
 
-- Current: Slices 1 and 2 plus `0.0.34` release preparation and final branch gates are complete; the devrouter PR is next.
+- Current: Slices 1 and 2 plus `0.0.34` release preparation and final branch gates are complete; draft PR #24 is open and GitHub CI is pending.
 - Evidence: current `0.0.33` generator and elearning adoption both embed only `devrouter-process`, not the full CLI, but still couple the image build to the devrouter package and version.
 - Review: independent reviewer required exact preflight-result threading, an explicit four-state migration matrix, helper delivery on the HTTP-recreation path, and a truly fresh helper-free cold proof. All four corrections are incorporated above.
 - Slice 1 result: `workspaceEnsure` now classifies the managed-adapter contract exactly once before DevPod startup, threads the exact preflight container into runtime delivery, and invokes only managed adapters using `DEVROUTER_PROCESS_HELPER`. The bounded recreation catch covers only attachment and container-preflight failures; helper delivery or adapter failures stop immediately without recreating the DevPod.
@@ -110,4 +110,4 @@
 - Final maintainability review: the first pass rejected the combined retry boundary, duplicate contract classification, oversized workspace test module, and stale progress. Remediation separates preflight recovery from managed startup, uses a typed plan resolved once, moves ten focused cases into `managed-post-start.test.ts`, and refreshes this progress record. Re-review returned `APPROVED`.
 - Final verification: all 477 Vitest cases pass; the Linux `/proc` helper suite correctly skips on macOS. Biome, TypeScript, Knip, production build, docs policy, ShellCheck, package dry-run, and diff checks pass under Node 24.16.0/pnpm 11.6.0. Focused Opengrep scanning reports 0 findings in the changed runtime/test files; the repository-wide scan reports only eight pre-existing findings in unchanged CI, app-run, and route code.
 - Blocked: none.
-- Next: commit the final-review remediation and open the devrouter PR. Merge and release still require explicit user authority before downstream elearning adoption.
+- Next: read back PR #24 and its GitHub CI result. Merge and release still require explicit user authority before downstream elearning adoption.
