@@ -49,6 +49,12 @@ describe("agents-md", () => {
     expect(skillContent).toContain("devrouter repo inspect --repo . --json");
     expect(skillContent).toContain("devrouter repo devcontainer write --dry-run --json");
     expect(skillContent).toContain("devrouter repo devcontainer verify --json");
+    expect(skillContent).toContain(
+      "Managed devcontainer images contain no devrouter package or helper",
+    );
+    expect(skillContent).toContain(
+      "`.devrouter.yml` as the only consumer-side devrouter version pin",
+    );
     expect(skillContent).toContain("DEVCONTAINER_COMPOSE_OVERLAY");
     expect(skillContent).toContain("DEVROUTER_GIT_COMMON_DIR");
     expect(skillContent).toContain("custom repositories may keep another default overlay");
@@ -89,6 +95,7 @@ describe("agents-md", () => {
     expect(content).toContain(
       "Primary or linked devcontainer checkout: `devrouter ensure . --json`",
     );
+    expect(content).toContain("consumer images contain no devrouter package or helper");
     expect(content).toContain("<!-- /devrouter -->");
     expect(content).toContain("## User notes\n\nKeep this content.");
   });

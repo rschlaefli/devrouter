@@ -10,6 +10,7 @@ import {
 } from "../devpod-environment";
 import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspaces";
 import { replaceHostRoutesForRepo } from "../host-routes";
+import { resolveManagedPostStartPlan, runManagedPostStart } from "../managed-post-start";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
@@ -21,6 +22,10 @@ vi.mock("../host-routes", () => ({
     return { host, port: Number(port), upstreamHost: host };
   }),
   replaceHostRoutesForRepo: vi.fn(() => []),
+}));
+vi.mock("../managed-post-start", () => ({
+  resolveManagedPostStartPlan: vi.fn(() => ({ kind: "unmanaged" })),
+  runManagedPostStart: vi.fn(),
 }));
 vi.mock("../docker", () => ({ ensureNetwork: vi.fn(async () => undefined) }));
 vi.mock("../repo-config", () => ({
@@ -295,6 +300,8 @@ describe("workspaceEnsure", () => {
       },
     });
     vi.mocked(replaceHostRoutesForRepo).mockReturnValue([]);
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue({ kind: "unmanaged" });
+    vi.mocked(runManagedPostStart).mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -325,6 +332,7 @@ describe("workspaceEnsure", () => {
       curlStatus?: number;
       curlCode?: string;
       curlCodes?: string[];
+      events?: string[];
       onDevpodUp?: () => void;
     } = {},
   ): void {
@@ -353,6 +361,7 @@ describe("workspaceEnsure", () => {
         return { status: 0, stdout: listedDevpod, stderr: "" } as never;
       }
       if (command === "devpod" && argv[0] === "up") {
+        options.events?.push("devpod-up");
         options.onDevpodUp?.();
         const status = options.devpodUpStatuses?.[devpodUpCall] ?? options.devpodUpStatus ?? 0;
         devpodUpCall += 1;
@@ -365,6 +374,7 @@ describe("workspaceEnsure", () => {
         return { status: 0, stdout: "app-id\ndb-id\n", stderr: "" } as never;
       }
       if (command === "docker" && argv[0] === "inspect") {
+        options.events?.push("preflight");
         const aliases = options.appAliasSets?.[dockerInspectCall];
         dockerInspectCall += 1;
         const inspectedApp = aliases ? { ...app, networks: { devnet: { Aliases: aliases } } } : app;
@@ -382,6 +392,7 @@ describe("workspaceEnsure", () => {
         } as never;
       }
       if (command === "curl") {
+        options.events?.push("http-ready");
         const code = options.curlCodes?.[curlCall] ?? options.curlCode ?? "404";
         curlCall += 1;
         return {
@@ -630,6 +641,66 @@ describe("workspaceEnsure", () => {
     );
   });
 
+  it("passes the exact preflight container to managed post-start before route readiness", async () => {
+    const events: string[] = [];
+    const plan = { kind: "runtime" as const, adapterPath: ".devcontainer/post-start.sh" };
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue(plan);
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      events.push("managed-start");
+    });
+    mockLifecycle({ events });
+
+    await workspaceEnsure(tmpDir, {
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+
+    expect(events.indexOf("managed-start")).toBeGreaterThan(events.indexOf("preflight"));
+    expect(events.indexOf("http-ready")).toBeGreaterThan(events.indexOf("managed-start"));
+    expect(runManagedPostStart).toHaveBeenCalledWith({
+      plan,
+      container: { id: "app-id", workspacePath: "/workspaces/repo" },
+      quiet: undefined,
+    });
+  });
+
+  it("rejects an invalid managed-start contract before DevPod startup", async () => {
+    vi.mocked(resolveManagedPostStartPlan).mockImplementation(() => {
+      throw new Error("Managed post-start must use DEVROUTER_PROCESS_HELPER");
+    });
+    mockLifecycle();
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed post-start must use DEVROUTER_PROCESS_HELPER");
+
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+  });
+
+  it("does not recreate when managed post-start fails", async () => {
+    const events: string[] = [];
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
+      kind: "runtime",
+      adapterPath: ".devcontainer/post-start.sh",
+    });
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      throw new Error("Managed post-start failed");
+    });
+    mockLifecycle({ events });
+
+    await expect(
+      workspaceEnsure(tmpDir, {
+        containerTimeoutMs: 0,
+        httpTimeoutMs: 0,
+      }),
+    ).rejects.toThrow("Managed post-start failed");
+
+    expect(events).not.toContain("http-ready");
+    expect(devpodUpCalls()).toHaveLength(1);
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
+  });
+
   it("persists common ownership before the first DevPod startup side effect", async () => {
     let recordAtStartup: string | undefined;
     mockLifecycle({
@@ -778,10 +849,21 @@ describe("workspaceEnsure", () => {
   });
 
   it("recreates an existing workspace once when HTTP readiness fails", async () => {
-    mockLifecycle({ curlCodes: ["500", "404"] });
+    const events: string[] = [];
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
+      kind: "runtime",
+      adapterPath: ".devcontainer/post-start.sh",
+    });
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      events.push("managed-start");
+    });
+    mockLifecycle({ curlCodes: ["500", "404"], events });
 
     await expect(
-      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      workspaceEnsure(tmpDir, {
+        containerTimeoutMs: 0,
+        httpTimeoutMs: 0,
+      }),
     ).resolves.toMatchObject({ workspace: "feature", recreated: true });
 
     const devpodUps = devpodUpCalls();
@@ -789,6 +871,7 @@ describe("workspaceEnsure", () => {
     expect(devpodUps[1][1]).toContain("--recreate");
     expect(replaceHostRoutesForRepo).toHaveBeenCalledTimes(3);
     expect(replaceHostRoutesForRepo).toHaveBeenNthCalledWith(2, tmpDir, []);
+    expect(events.filter((event) => event === "managed-start")).toHaveLength(2);
   });
 
   it("does not recreate again after preflight recovery when HTTP readiness fails", async () => {

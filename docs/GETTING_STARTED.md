@@ -578,6 +578,9 @@ devrouter ensure /absolute/path/to/repo --json
 
 Do not branch on checkout kind or use live verify as startup. Use
 `devrouter exec /absolute/path/to/repo -- <command...>` for seeds and migrations.
+Managed consumer images contain no devrouter package or helper: after proving the
+exact container, `ensure` delivers its matching helper to a runtime-only path and
+invokes the repository-owned post-start adapter.
 
 ## 15) Workspace isolation (parallel worktrees)
 

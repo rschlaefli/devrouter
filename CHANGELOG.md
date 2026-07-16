@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.34] - 2026-07-16
+
+### Changed
+
+- `devrouter ensure` now delivers its matching process helper to the exact validated container at runtime, then invokes the repository-owned managed post-start adapter before route readiness.
+- Generated, example, and onboarding-reference devcontainer images no longer download, install, extract, or version-pin devrouter artifacts; `.devrouter.yml` remains the only consumer-side devrouter version pin.
+- Managed devcontainer scaffolds no longer wire a DevPod `postStartCommand`; canonical `devrouter ensure` owns adapter invocation for both primary and linked checkouts.
+
+### Compatibility
+
+- Fully legacy managed scaffolds that still contain both the image helper and direct post-start hook remain temporarily supported.
+- Legacy adapters paired with helper-free images fail before DevPod startup with migration guidance instead of starting without a usable process helper.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.34.md
+
 ## [0.0.33] - 2026-07-16
 
 ### Fixed

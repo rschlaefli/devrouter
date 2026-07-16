@@ -3,7 +3,6 @@ import path from "node:path";
 import type { DiagnosticCheck } from "../types";
 import { resolveRepoPath } from "./repo-config";
 import { inspectRepo } from "./repo-inspect";
-import { isLinkedWorktree } from "./workspace";
 
 const MANAGED_MARKER = "devrouter:managed devcontainer";
 
@@ -83,24 +82,16 @@ function inferPort(repo: ReturnType<typeof inspectRepo>): number {
   return repo.apps.find((app) => app.port)?.port ?? 3000;
 }
 
-function renderDockerfile(nodeMajor: string, pnpmVersion: string, version: string): string {
+function renderDockerfile(nodeMajor: string, pnpmVersion: string): string {
   const pnpmPackageSpec = `pnpm@${pnpmVersion}`;
-  const devrouterPackageSpec = `@devrouter/cli@${version}`;
-  const devrouterTarball = `devrouter-cli-${version}.tgz`;
   return `# ${MANAGED_MARKER}
 FROM node:${nodeMajor}-bookworm-slim
 
 RUN apt-get update \\
-  && apt-get install -y --no-install-recommends git ca-certificates curl procps openssl tar util-linux \\
+  && apt-get install -y --no-install-recommends git ca-certificates curl procps openssl util-linux \\
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g ${shellSingleQuote(pnpmPackageSpec)}
-
-RUN npm pack --silent ${shellSingleQuote(devrouterPackageSpec)} \\
-  && tar -xzf ${shellSingleQuote(devrouterTarball)} --strip-components=2 \\
-    -C /usr/local/bin package/bin/devrouter-process \\
-  && chmod +x /usr/local/bin/devrouter-process \\
-  && rm ${shellSingleQuote(devrouterTarball)}
 
 WORKDIR /workspaces/app
 `;
@@ -204,7 +195,6 @@ function renderDevcontainerJson(projectName: string): string {
   "service": "app",
   "workspaceFolder": "/workspaces/${projectName}",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "postStartCommand": "bash .devcontainer/post-start.sh",
   "customizations": {
     "devrouter": {
       "managed": "${MANAGED_MARKER}"
@@ -257,7 +247,9 @@ set -a
 . .devcontainer/devcontainer.env
 set +a
 
-devrouter-process ensure \\
+: "\${DEVROUTER_PROCESS_HELPER:?Run devrouter ensure to start this managed application process.}"
+
+"$DEVROUTER_PROCESS_HELPER" ensure \\
   --name app \\
   --match ${shellSingleQuote(devProcess.match)} \\
   --log /tmp/devrouter-app.log \\
@@ -294,19 +286,11 @@ function renderReadme(projectName: string): string {
 
 Use this repo through the devcontainer, with devrouter providing stable local routes.
 
-Primary checkout:
+Primary or linked checkout:
 
 \`\`\`bash
 devrouter setup --yes
-devpod up .
-devrouter app run app --repo . --yes
-devrouter app run db --repo . --yes
-\`\`\`
-
-Existing linked worktree:
-
-\`\`\`bash
-devrouter workspace ensure .
+devrouter ensure .
 \`\`\`
 
 - App: https://${projectName}.localhost
@@ -316,18 +300,9 @@ devrouter workspace ensure .
 
 function postWriteNextSteps(repoPath: string): string[] {
   const quotedRepoPath = shellSingleQuote(repoPath);
-  if (isLinkedWorktree(repoPath)) {
-    return [
-      `Run: devrouter setup --repo ${quotedRepoPath} --yes`,
-      `Run: devrouter workspace ensure ${quotedRepoPath}`,
-      `Optional: devrouter repo agents --repo ${quotedRepoPath}`,
-    ];
-  }
   return [
     `Run: devrouter setup --repo ${quotedRepoPath} --yes`,
-    `Run: cd ${quotedRepoPath} && devpod up .`,
-    `Run: devrouter app run app --repo ${quotedRepoPath} --yes`,
-    `Run: devrouter app run db --repo ${quotedRepoPath} --yes`,
+    `Run: devrouter ensure ${quotedRepoPath}`,
     `Optional: devrouter repo agents --repo ${quotedRepoPath}`,
   ];
 }
@@ -405,7 +380,7 @@ function plannedFiles(
     files: [
       {
         relativePath: ".devcontainer/Dockerfile",
-        content: renderDockerfile(nodeMajor, pnpmVersion, version),
+        content: renderDockerfile(nodeMajor, pnpmVersion),
       },
       { relativePath: ".devcontainer/docker-compose.yml", content: renderCompose(projectName) },
       {

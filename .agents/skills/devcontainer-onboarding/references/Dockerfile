@@ -7,11 +7,12 @@ ENV PNPM_HOME="/pnpm" \
     PATH="/pnpm:$PATH" \
     DEBIAN_FRONTEND=noninteractive
 
-# Runtime tools: git (repo ops), openssl/ca-certificates (Prisma + TLS),
-# procps (pgrep for the post-start dev-server guard), curl (healthchecks).
+# Runtime tools: git (repo ops), openssl/ca-certificates (Prisma + TLS), curl
+# (healthchecks), plus procps/util-linux for devrouter's runtime-delivered helper.
+# Do not install devrouter packages or helpers in this image.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        git openssl ca-certificates procps curl \
+        git openssl ca-certificates procps util-linux curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm with npm (not corepack — signature verification can fail on a

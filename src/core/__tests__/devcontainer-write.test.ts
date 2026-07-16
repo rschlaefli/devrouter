@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { planDevcontainerWrite, writeDevcontainer } from "../devcontainer-write";
 
 let tmpDir: string;
-let linkedDir: string | undefined;
 
 function write(relativePath: string, content: string): void {
   const filePath = path.join(tmpDir, relativePath);
@@ -27,10 +25,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (linkedDir) {
-    fs.rmSync(linkedDir, { recursive: true, force: true });
-    linkedDir = undefined;
-  }
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -75,18 +69,24 @@ describe("devcontainer write planning", () => {
     );
     expect(devrouterOverlay).toContain("DEVROUTER_GIT_COMMON_DIR");
     expect(devrouterOverlay).toContain("DEVROUTER_WORKSPACE");
-    expect(
-      fs.readFileSync(path.join(tmpDir, ".devcontainer", "devcontainer.json"), "utf-8"),
-    ).toContain("DEVCONTAINER_COMPOSE_OVERLAY");
+    const devcontainerJson = fs.readFileSync(
+      path.join(tmpDir, ".devcontainer", "devcontainer.json"),
+      "utf-8",
+    );
+    expect(devcontainerJson).toContain("DEVCONTAINER_COMPOSE_OVERLAY");
+    expect(devcontainerJson).not.toContain("postStartCommand");
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "Dockerfile"), "utf-8")).toContain(
       "npm install -g 'pnpm@11.6.0'",
     );
     const dockerfile = fs.readFileSync(path.join(tmpDir, ".devcontainer", "Dockerfile"), "utf-8");
-    expect(dockerfile).toContain("npm pack --silent '@devrouter/cli@1.2.3'");
-    expect(dockerfile).toContain("devrouter-cli-1.2.3.tgz");
-    expect(dockerfile).not.toContain("npm install -g '@devrouter/cli@1.2.3'");
+    expect(dockerfile).not.toContain("@devrouter/cli");
+    expect(dockerfile).not.toContain("devrouter-process");
+    expect(dockerfile).not.toContain("npm pack");
+    expect(dockerfile).not.toContain("1.2.3");
+    expect(dockerfile).not.toMatch(/\btar\b/);
     const postStart = fs.readFileSync(path.join(tmpDir, ".devcontainer", "post-start.sh"), "utf-8");
-    expect(postStart).toContain("devrouter-process ensure");
+    expect(postStart).toContain("DEVROUTER_PROCESS_HELPER");
+    expect(postStart).toContain('"$DEVROUTER_PROCESS_HELPER" ensure');
     expect(postStart).not.toContain("pgrep");
     expect(postStart).not.toContain("setsid");
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "init-db.sh"), "utf-8")).toContain(
@@ -114,21 +114,12 @@ describe("devcontainer write planning", () => {
     ).toBe(true);
   });
 
-  it("recommends workspace ensure after writing in a linked worktree", () => {
-    execFileSync("git", ["init", "-b", "main"], { cwd: tmpDir });
-    execFileSync("git", ["config", "user.email", "devrouter-test@example.invalid"], {
-      cwd: tmpDir,
-    });
-    execFileSync("git", ["config", "user.name", "Devrouter Test"], { cwd: tmpDir });
-    execFileSync("git", ["add", "package.json"], { cwd: tmpDir });
-    execFileSync("git", ["commit", "-m", "test fixture"], { cwd: tmpDir });
-    linkedDir = `${tmpDir}-linked`;
-    execFileSync("git", ["worktree", "add", "-b", "feature/test", linkedDir], { cwd: tmpDir });
+  it("recommends canonical ensure instead of direct DevPod startup", () => {
+    const written = writeDevcontainer({ repo: tmpDir, yes: true });
 
-    const written = writeDevcontainer({ repo: linkedDir, yes: true });
-
-    expect(written.nextSteps.join("\n")).toContain("devrouter workspace ensure");
+    expect(written.nextSteps.join("\n")).toContain("devrouter ensure");
     expect(written.nextSteps.join("\n")).not.toContain("devpod up");
+    expect(written.nextSteps.join("\n")).not.toContain("devrouter app run");
   });
 
   it("stops on custom existing files", () => {

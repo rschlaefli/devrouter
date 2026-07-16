@@ -53,7 +53,8 @@ elif [ "$(git -C "$TEMPLATE" rev-parse --show-toplevel 2>/dev/null || true)" != 
     assert_owned_smoke_repo
     rm -rf "$SMOKE_REPO"
   fi
-  mkdir -m 700 -p "$SMOKE_REPO"
+  mkdir -p "$SMOKE_REPO"
+  chmod 700 "$SMOKE_REPO"
   touch "$SMOKE_REPO/.devrouter-smoke-owned"
   assert_owned_smoke_repo
   cp -R "$TEMPLATE/." "$SMOKE_REPO/"
@@ -137,6 +138,10 @@ node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv
 echo "--- ensure environment ---"
 DEV ensure "$SRC" --json >"$ENSURE_OUT"
 node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(r.kind!=="primary" || !r.devpodId || r.urls.length!==2) process.exit(1); console.log(JSON.stringify(r,null,2));' "$ENSURE_OUT"
+
+echo "--- runtime-only helper delivery ---"
+DEV exec "$SRC" -- sh -c 'test ! -e /usr/local/bin/devrouter-process'
+DEV exec "$SRC" -- sh -c 'test -x /tmp/devrouter/bin/devrouter-process'
 
 echo "--- exact DevPod exec ---"
 DEV exec "$SRC" -- node -e 'if(process.cwd()!=="/workspaces/devcontainer-demo") process.exit(1); console.log(JSON.stringify({cwd:process.cwd(),argv:process.argv.slice(1)}));' 'literal argument'

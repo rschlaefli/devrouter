@@ -55,7 +55,7 @@ devrouter repo devcontainer verify --repo /absolute/path/to/repo --json
 
 `devrouter repo devcontainer write --dry-run --json` plans the managed files. `devrouter repo devcontainer write --yes` writes only when target files are missing or already marked as devrouter-managed; custom existing `.devcontainer/` or `.devrouter.yml` files stop the write with a conflict. The first scaffold supports Node + pnpm + Postgres; non-pnpm repos stop with `repo.devcontainer.package-manager-unsupported`.
 
-`devrouter repo devcontainer verify --json` is read-only and produces PR evidence from doctor checks, required files, proxy app entries, and workspace namespacing. Start either checkout kind with `devrouter ensure <path> --json`. The mutating `--live --yes --json` form remains only as a compatibility check after ensure in this release.
+`devrouter repo devcontainer verify --json` is read-only and produces PR evidence from doctor checks, required files, proxy app entries, workspace namespacing, and a helper-free consumer image. Start either checkout kind with `devrouter ensure <path> --json`; it delivers the host CLI's matching helper at runtime and invokes the repository-owned managed adapter. The mutating `--live --yes --json` form remains only as a compatibility check after ensure in this release.
 
 PR evidence checklist for agents:
 

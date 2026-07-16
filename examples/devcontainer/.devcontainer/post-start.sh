@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
+# devrouter:managed devcontainer
 set -euo pipefail
 
+export CI=true
+export npm_config_verify_deps_before_run=false
 set -a
+# shellcheck source=/dev/null
 . .devcontainer/devcontainer.env
 set +a
 
-if pgrep -f "node server.js" >/dev/null 2>&1; then
-  exit 0
-fi
+: "${DEVROUTER_PROCESS_HELPER:?Run devrouter ensure to start this managed application process.}"
 
-nohup node server.js >/tmp/devrouter-devcontainer-example.log 2>&1 </dev/null &
+"$DEVROUTER_PROCESS_HELPER" ensure \
+  --name app \
+  --match 'node server.js' \
+  --log /tmp/devrouter-devcontainer-example.log \
+  -- node server.js
