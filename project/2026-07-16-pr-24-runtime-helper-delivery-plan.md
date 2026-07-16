@@ -95,7 +95,7 @@
 
 ## Progress
 
-- Current: Slices 1 and 2 plus `0.0.34` release preparation and final branch gates are complete; draft PR #24 is open and GitHub CI is pending.
+- Current: Slices 1 and 2 plus `0.0.34` release preparation and final branch gates are complete; draft PR #24 is open and its GitHub `check` job passed.
 - Evidence: current `0.0.33` generator and elearning adoption both embed only `devrouter-process`, not the full CLI, but still couple the image build to the devrouter package and version.
 - Review: independent reviewer required exact preflight-result threading, an explicit four-state migration matrix, helper delivery on the HTTP-recreation path, and a truly fresh helper-free cold proof. All four corrections are incorporated above.
 - Slice 1 result: `workspaceEnsure` now classifies the managed-adapter contract exactly once before DevPod startup, threads the exact preflight container into runtime delivery, and invokes only managed adapters using `DEVROUTER_PROCESS_HELPER`. The bounded recreation catch covers only attachment and container-preflight failures; helper delivery or adapter failures stop immediately without recreating the DevPod.
@@ -109,5 +109,6 @@
 - Final security review: no high-confidence vulnerability was found. Follow-up hardening rejects symlinked repository adapters, refuses symlinked predictable runtime directories, creates the streamed helper through a mode-restricted unique temporary file, and atomically replaces the runtime helper. Shipped and downstream managed consumers run as the default container user; custom user-remapped containers remain outside the managed template contract and require live validation before support is claimed. Security re-review returned `PASS` with no threshold findings.
 - Final maintainability review: the first pass rejected the combined retry boundary, duplicate contract classification, oversized workspace test module, and stale progress. Remediation separates preflight recovery from managed startup, uses a typed plan resolved once, moves ten focused cases into `managed-post-start.test.ts`, and refreshes this progress record. Re-review returned `APPROVED`.
 - Final verification: all 477 Vitest cases pass; the Linux `/proc` helper suite correctly skips on macOS. Biome, TypeScript, Knip, production build, docs policy, ShellCheck, package dry-run, and diff checks pass under Node 24.16.0/pnpm 11.6.0. Focused Opengrep scanning reports 0 findings in the changed runtime/test files; the repository-wide scan reports only eight pre-existing findings in unchanged CI, app-run, and route code.
+- GitHub verification: PR #24 [check job](https://github.com/rschlaefli/devrouter/actions/runs/29520878181/job/87697359428) passed on `960425b`; the publish job correctly skipped on the pull-request event.
 - Blocked: none.
-- Next: read back PR #24 and its GitHub CI result. Merge and release still require explicit user authority before downstream elearning adoption.
+- Next: obtain explicit merge/release authority for PR #24. After publication, migrate and validate elearning MR !73 against `0.0.34`.
