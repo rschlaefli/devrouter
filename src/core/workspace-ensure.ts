@@ -2,6 +2,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { DevrouterProxyApp } from "../types";
+import {
+  inspectWorkspaceContainers,
+  type WorkspaceContainerSnapshot,
+  workspaceAppContainers,
+} from "./devpod-environment";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { parseUpstream, replaceHostRoutesForRepo } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
@@ -28,17 +33,6 @@ import {
 const DEVCONTAINER_OVERLAY = "docker-compose.devrouter.yml";
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 1_000;
-
-export type WorkspaceContainerSnapshot = {
-  id: string;
-  state: {
-    Running: boolean;
-    Health?: { Status: string };
-  };
-  labels: Record<string, string | undefined>;
-  mounts: Array<{ Type: string; Source: string; Destination: string }>;
-  networks: Record<string, { Aliases?: string[] }>;
-};
 
 export type WorkspaceEnsureResult = {
   kind: "primary" | "linked";
@@ -108,17 +102,7 @@ export function validateWorkspaceContainers(
     target: EnvironmentTarget;
   },
 ): ValidatedWorkspaceContainer {
-  const owned = containers.filter((container) => {
-    const workingDir = container.labels["com.docker.compose.project.working_dir"];
-    return Boolean(
-      workingDir && sameWorkspacePath(workingDir, path.join(options.repoPath, ".devcontainer")),
-    );
-  });
-  const appContainers = owned.filter((container) =>
-    container.mounts.some(
-      (mount) => mount.Type === "bind" && sameWorkspacePath(mount.Source, options.repoPath),
-    ),
-  );
+  const appContainers = workspaceAppContainers(containers, options.repoPath);
   if (appContainers.length !== 1) {
     throw new Error(
       `Expected exactly one container mounted from '${options.repoPath}', found ${appContainers.length}.`,
@@ -168,41 +152,6 @@ export function validateWorkspaceContainers(
     throw new Error(`Workspace app container no longer mounts '${options.repoPath}'.`);
   }
   return { id: appContainer.id, workspacePath: repoMount.Destination };
-}
-
-const SAFE_INSPECT_TEMPLATE =
-  '{"id":{{json .Id}},"state":{"Running":{{json .State.Running}},"Health":{{with (index .State "Health")}}{"Status":{{json .Status}}}{{else}}null{{end}}},"labels":{"com.docker.compose.project.working_dir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"com.docker.compose.project.config_files":{{json (index .Config.Labels "com.docker.compose.project.config_files")}}},"mounts":{{json .Mounts}},"networks":{{json .NetworkSettings.Networks}}}';
-
-export function inspectWorkspaceContainers(): WorkspaceContainerSnapshot[] {
-  const listed = spawnSync("docker", ["ps", "-a", "--format", "{{.ID}}"], {
-    encoding: "utf-8",
-  });
-  if (listed.status !== 0) {
-    throw new Error(
-      `docker ps failed: ${(listed.stderr || listed.stdout || "unknown error").trim()}`,
-    );
-  }
-  const ids = listed.stdout
-    .split(/\r?\n/)
-    .map((id) => id.trim())
-    .filter(Boolean);
-  if (ids.length === 0) {
-    return [];
-  }
-
-  const inspected = spawnSync("docker", ["inspect", "--format", SAFE_INSPECT_TEMPLATE, ...ids], {
-    encoding: "utf-8",
-  });
-  if (inspected.status !== 0) {
-    throw new Error(
-      `docker inspect failed: ${(inspected.stderr || inspected.stdout || "unknown error").trim()}`,
-    );
-  }
-  return inspected.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as WorkspaceContainerSnapshot);
 }
 
 function sleep(ms: number): Promise<void> {

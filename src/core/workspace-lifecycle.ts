@@ -375,6 +375,32 @@ type WorkspaceLifecycleResult = {
   workspace: string;
 };
 
+function mutateWorkspaceRuntime(
+  action: "stop" | "down",
+  resolved: ResolvedWorkspaceTarget,
+  worktrees: IdentifiedGitWorktree[],
+  quiet = false,
+): WorkspaceLifecycleResult {
+  const devpods = listDevpodWorkspaces();
+  const devpod = devpodForTarget(resolved, worktrees, devpods);
+  if (devpod) {
+    runDevpodWorkspaceAction(action === "stop" ? "stop" : "delete", devpod.id);
+  }
+
+  const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
+  if (!quiet) {
+    process.stdout.write(
+      `Freed ${routes.length} route(s) for workspace '${resolved.workspace}'.\n`,
+    );
+  }
+  return {
+    ...(devpod ? { devpodId: devpod.id } : {}),
+    freedRoutes: routes.length,
+    providerChanged: Boolean(devpod),
+    workspace: resolved.workspace,
+  };
+}
+
 async function runWorkspaceLifecycle(
   action: "stop" | "down",
   target: string,
@@ -386,24 +412,10 @@ async function runWorkspaceLifecycle(
   const resolved = resolveWorkspaceTarget(mainRepo, target, worktrees, records);
   const operation = async (): Promise<WorkspaceLifecycleResult> => {
     const removeWorktree = action === "down" && !opts.keepWorktree;
-    const devpodAction = action === "stop" ? "stop" : "delete";
     if (removeWorktree) {
       assertFullDownPreflight(mainRepo, resolved);
     }
-    const devpods = listDevpodWorkspaces();
-    const devpod = devpodForTarget(resolved, worktrees, devpods);
-    if (devpod) {
-      runDevpodWorkspaceAction(devpodAction, devpod.id);
-    }
-
-    // Free routes only after successful provider mutation. Exact workspace+path
-    // scoping prevents same-token workspaces in other repositories from changing.
-    const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
-    if (!opts.quiet) {
-      process.stdout.write(
-        `Freed ${routes.length} route(s) for workspace '${resolved.workspace}'.\n`,
-      );
-    }
+    const result = mutateWorkspaceRuntime(action, resolved, worktrees, opts.quiet);
 
     if (removeWorktree) {
       if (
@@ -427,17 +439,38 @@ async function runWorkspaceLifecycle(
       }
     }
 
-    return {
-      ...(devpod ? { devpodId: devpod.id } : {}),
-      freedRoutes: routes.length,
-      providerChanged: Boolean(devpod),
-      workspace: resolved.workspace,
-    };
+    return result;
   };
 
   return resolved.worktree && !resolved.worktree.prunable && fs.existsSync(resolved.worktreePath)
     ? withWorkspaceLifecycleLock(resolved.worktreePath, operation)
     : operation();
+}
+
+export async function workspaceStopOwnedPath(
+  worktreePath: string,
+  opts: { quiet?: boolean; repoPath?: string } = {},
+): Promise<WorkspaceLifecycleResult> {
+  const mainRepo = resolveRepoPath(opts.repoPath);
+  return withWorkspaceLifecycleLock(worktreePath, async () => {
+    const worktrees = identifyGitWorktrees(mainRepo);
+    const records = listWorkspaceOwnership(mainRepo);
+    const record = oneRecordMatch(
+      worktreePath,
+      records.filter((candidate) => sameWorkspacePath(candidate.worktreePath, worktreePath)),
+    );
+    if (!record) {
+      throw new Error(`Linked checkout '${worktreePath}' has no ownership record.`);
+    }
+
+    const resolved: ResolvedWorkspaceTarget = {
+      workspace: record.workspace,
+      worktreePath: record.worktreePath,
+      worktree: worktreeForRecord(worktrees, record),
+      record,
+    };
+    return mutateWorkspaceRuntime("stop", resolved, worktrees, opts.quiet);
+  });
 }
 
 export async function workspaceStop(

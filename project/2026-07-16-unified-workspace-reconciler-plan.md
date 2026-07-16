@@ -635,9 +635,15 @@ Release commit: `chore(release): publish 0.0.33 read-only verification`
 - Done: primary teardown used the branch build and left zero matching routes and zero matching DevPods. Linked lifecycle smoke passed create, stop, warm ensure, dirty rejection, clean down, dry-run GC, and applied GC.
 - Done: Slice 5 correctness review found cold JSON buffering, branch-build teardown, stale smoke wording, missing report-template, and onboarding minimum-version gaps; all were fixed and re-verified. Separate simplification review found no qualifying simplification.
 - Done: final Slice 5 gate passed docs policy, Biome, Knip, TypeScript, build, 48 files / 456 tests, routing smoke, primary devcontainer smoke/down, linked lifecycle smoke, npm 0.0.32 dry-run package contents, and Opengrep. Opengrep's eight findings are unchanged baseline findings in CI action pins, legacy host `shell: true` paths, and the route parser regex; no Phase A file introduced a finding.
-- Active: final independent Slice 5 read-back, then commit and whole-branch security/maintainability/agy reviews.
-- Next: commit Slice 5, complete final reviews, integrate any accepted findings, and stop before push/PR/publish/downstream edits.
-- Implementation: Slices 1-5 complete; final review gates pending.
+- Done: final security review found an exact-stop branch/token ownership collision and an unsafe predictable smoke-fixture teardown. Exact path-owned lifecycle mutation now re-reads under lock, and smoke teardown now requires a non-symlink current-user `0700` fixture and invokes only the trusted template script. Security re-review cleared both fixes.
+- Done: final maintainability review moved shared container inspection and exact Compose-owned app resolution into `devpod-environment.ts`, removed the exec-to-ensure dependency, centralized routed/proxy app selection, and removed duplicate app-run route infrastructure activation. Maintainability re-review found no qualifying issue or further simplification.
+- Done: trusted routing smoke exposed that OpenSSL clients do not accept `*.localhost` for explicit local hostnames even though the coverage matcher did. A red/green regression now requires explicit `.localhost` SANs while preserving ordinary-domain wildcard matching; trusted routing smoke passed after rebuild.
+- Done: final post-review gate passed docs policy, Biome, Knip, TypeScript, build, 48 files / 459 tests, trusted routing smoke, hardened primary devcontainer smoke/down with zero residual DevPods/routes, linked lifecycle smoke, shell syntax, whitespace checks, npm 0.0.32 dry-run package contents, and Opengrep. The eight Opengrep findings remain the unchanged baseline described above.
+- Done: external `agy` whole-branch review with Claude Opus Thinking found no critical/high-severity issue and cleared Phase A for commit after the local gate. It verified the safety-critical ownership, teardown, primary-ledger, trusted-probe, SAN, route-publication, locking, exec, version, and documentation invariants.
+- Deferred: `agy` reported three non-blocking medium hardening candidates (legacy lifecycle resolution before lock, display-only branch metadata during recreate, and the pre-existing TLS refresh race) plus three low suggestions (CR-tolerant exit parsing, an HTTP-only probe test, and an invalid setup-path warning). None changes the Phase A contract; keep them outside this minimal release and reassess separately.
+- Done: final review fixes staged for the Phase A close-out commit.
+- Next: stop before push, PR, npm publish, or downstream elearning edits unless separately approved.
+- Implementation: Slices 1-5 and all review gates complete.
 
 ## Approval
 

@@ -1,11 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DevrouterApp, DevrouterConfig, DiagnosticCheck, DoctorReport } from "../types";
+import type { DevrouterConfig, DevrouterProxyApp, DiagnosticCheck, DoctorReport } from "../types";
 import { WORKSPACE_PLACEHOLDER } from "./capabilities";
 import { buildDoctorReport } from "./doctor";
 import { probeHttpRoute } from "./http-route-probe";
 import { applyWorkspace, loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
-import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
+import {
+  configuredProxyAppsFromConfig,
+  proxyAppsFromConfig,
+  replacePublishedProxyRoutes,
+  routedAppsFromConfig,
+} from "./route-publication";
 import { TCP_PROTOCOL_REGISTRY } from "./router";
 import { tlsSetupCommand } from "./tls";
 
@@ -49,8 +54,7 @@ type VerifyOptions = {
   yes?: boolean;
 };
 
-type RoutedApp = Exclude<DevrouterApp, { kind: "dependency" }>;
-type ProxyApp = Extract<RoutedApp, { runtime: "proxy" }>;
+type ProxyApp = DevrouterProxyApp;
 
 function collectSummary(checks: DiagnosticCheck[]): VerifySummary {
   return checks.reduce(
@@ -70,16 +74,6 @@ function collectNextSteps(checks: DiagnosticCheck[]): string[] {
     }
   }
   return Array.from(steps.values());
-}
-
-function proxyApps(config: DevrouterConfig | undefined): ProxyApp[] {
-  return (config?.apps ?? []).filter(
-    (app): app is ProxyApp => app.kind !== "dependency" && app.runtime === "proxy",
-  );
-}
-
-function routedApps(config: DevrouterConfig): RoutedApp[] {
-  return config.apps.filter((app): app is RoutedApp => app.kind !== "dependency");
 }
 
 function requiredFileChecks(repoPath: string): DiagnosticCheck {
@@ -146,7 +140,7 @@ function workspacePreview(
   config: DevrouterConfig,
 ): DevcontainerVerifyEvidence["workspacePreview"] {
   const preview = applyWorkspace(config, "verify", repoPath);
-  return routedApps(preview).map((app) => ({
+  return routedAppsFromConfig(preview).map((app) => ({
     name: app.name,
     host: app.host,
     upstream: app.runtime === "proxy" ? app.upstream : undefined,
@@ -331,7 +325,7 @@ export async function verifyDevcontainer(
 
   try {
     config = loadRepoConfig(repoPath);
-    apps = proxyApps(config);
+    apps = config ? configuredProxyAppsFromConfig(config) : [];
     workspaceEvidence = workspacePreview(repoPath, config);
     checks.push(proxyConfigCheck(apps));
     checks.push(workspaceTemplateCheck(apps));

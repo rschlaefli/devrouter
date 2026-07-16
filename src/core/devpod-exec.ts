@@ -1,8 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { resolveRunningWorkspaceContainer } from "./devpod-environment";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
-import { sameWorkspacePath, withWorkspaceLifecycleLock } from "./workspace";
-import { inspectWorkspaceContainers } from "./workspace-ensure";
+import { withWorkspaceLifecycleLock } from "./workspace";
 
 export function quotePosixArg(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -38,19 +38,12 @@ function assertRunningDevpod(devpodId: string, repoPath: string): void {
 }
 
 function resolveWorkspaceDirectory(repoPath: string): string {
-  const matches = inspectWorkspaceContainers().flatMap((container) => {
-    if (!container.state.Running) return [];
-    const mounts = container.mounts.filter(
-      (mount) => mount.Type === "bind" && sameWorkspacePath(mount.Source, repoPath),
-    );
-    return mounts.map((mount) => mount.Destination);
-  });
-  if (matches.length !== 1) {
-    throw new Error(
-      `Expected one running container mounted from '${repoPath}', found ${matches.length}. ${ensureGuidance(repoPath)}`,
-    );
+  try {
+    return resolveRunningWorkspaceContainer(repoPath).workspacePath;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message} ${ensureGuidance(repoPath)}`);
   }
-  return matches[0];
 }
 
 export async function devpodExec(repoPath: string, command: string[]): Promise<number> {

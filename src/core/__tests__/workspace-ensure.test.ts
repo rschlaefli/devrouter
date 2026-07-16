@@ -3,16 +3,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  inspectWorkspaceContainers,
+  resolveRunningWorkspaceContainer,
+  type WorkspaceContainerSnapshot,
+} from "../devpod-environment";
 import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspaces";
 import { replaceHostRoutesForRepo } from "../host-routes";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
-import {
-  inspectWorkspaceContainers,
-  validateWorkspaceContainers,
-  type WorkspaceContainerSnapshot,
-  workspaceEnsure,
-} from "../workspace-ensure";
+import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../host-routes", () => ({
@@ -129,6 +129,24 @@ describe("inspectWorkspaceContainers", () => {
       ]),
       { encoding: "utf-8" },
     );
+  });
+
+  it("resolves the running compose-owned app container instead of any matching bind mount", () => {
+    const app = container("app-id", "app", ["feature-app"], { mountRepo: true });
+    const unrelated = container("other-id", "tool", [], { mountRepo: true });
+    unrelated.labels["com.docker.compose.project.working_dir"] = "/other/.devcontainer";
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({ status: 0, stdout: "app-id\nother-id\n", stderr: "" } as never)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: `${JSON.stringify(app)}\n${JSON.stringify(unrelated)}\n`,
+        stderr: "",
+      } as never);
+
+    expect(resolveRunningWorkspaceContainer(repoPath)).toEqual({
+      id: "app-id",
+      workspacePath: "/workspaces/repo",
+    });
   });
 });
 

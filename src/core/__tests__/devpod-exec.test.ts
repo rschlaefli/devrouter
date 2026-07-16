@@ -2,10 +2,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveRunningWorkspaceContainer } from "../devpod-environment";
 import { devpodExec, quotePosixArg } from "../devpod-exec";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "../devpod-workspaces";
 import { withWorkspaceLifecycleLock } from "../workspace";
-import { inspectWorkspaceContainers } from "../workspace-ensure";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("node:crypto", () => ({ randomUUID: vi.fn(() => "fixed-uuid") }));
@@ -19,7 +19,7 @@ vi.mock("../workspace", () => ({
     operation(),
   ),
 }));
-vi.mock("../workspace-ensure", () => ({ inspectWorkspaceContainers: vi.fn() }));
+vi.mock("../devpod-environment", () => ({ resolveRunningWorkspaceContainer: vi.fn() }));
 
 const STATUS_MARKER = "__DEVROUTER_EXIT_fixed-uuid__:";
 
@@ -41,15 +41,10 @@ function mockExecExit(code: number, stderr: string | Buffer[] = `${STATUS_MARKER
 }
 
 beforeEach(() => {
-  vi.mocked(inspectWorkspaceContainers).mockReturnValue([
-    {
-      id: "container",
-      state: { Running: true },
-      labels: {},
-      mounts: [{ Type: "bind", Source: "/repo", Destination: "/workspaces/custom" }],
-      networks: {},
-    },
-  ]);
+  vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue({
+    id: "container",
+    workspacePath: "/workspaces/custom",
+  });
 });
 
 afterEach(() => {

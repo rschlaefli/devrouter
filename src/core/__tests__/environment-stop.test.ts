@@ -11,7 +11,7 @@ import {
   resolveWorktreeWorkspace,
   withWorkspaceLifecycleLock,
 } from "../workspace";
-import { workspaceStop } from "../workspace-lifecycle";
+import { workspaceStopOwnedPath } from "../workspace-lifecycle";
 import { listGitWorktrees, listWorkspaceOwnership } from "../workspace-ownership";
 
 vi.mock("../devpod-workspaces", () => ({
@@ -24,7 +24,7 @@ vi.mock("../host-routes", () => ({
   removeHostRoutesWhere: vi.fn(() => []),
 }));
 
-vi.mock("../workspace-lifecycle", () => ({ workspaceStop: vi.fn() }));
+vi.mock("../workspace-lifecycle", () => ({ workspaceStopOwnedPath: vi.fn() }));
 
 vi.mock("../workspace-ownership", () => ({
   listGitWorktrees: vi.fn(),
@@ -121,7 +121,7 @@ describe("environmentStop", () => {
         prunable: false,
       },
     ]);
-    vi.mocked(workspaceStop).mockResolvedValue({
+    vi.mocked(workspaceStopOwnedPath).mockResolvedValue({
       devpodId: "feature",
       freedRoutes: 1,
       providerChanged: true,
@@ -137,7 +137,10 @@ describe("environmentStop", () => {
       freedRoutes: 1,
     });
 
-    expect(workspaceStop).toHaveBeenCalledWith("feature", { quiet: true, repoPath: "/repo" });
+    expect(workspaceStopOwnedPath).toHaveBeenCalledWith("/repo/trees/feature", {
+      quiet: true,
+      repoPath: "/repo",
+    });
     expect(runDevpodWorkspaceAction).not.toHaveBeenCalled();
     expect(removeHostRoutesWhere).not.toHaveBeenCalled();
   });
@@ -159,7 +162,7 @@ describe("environmentStop", () => {
     vi.mocked(listGitWorktrees).mockReturnValue([
       { path: "/repo", branch: "main", locked: false, prunable: false },
     ]);
-    vi.mocked(workspaceStop).mockRejectedValue(
+    vi.mocked(workspaceStopOwnedPath).mockRejectedValue(
       new Error("ownership conflicts with live Git or DevPod evidence"),
     );
 

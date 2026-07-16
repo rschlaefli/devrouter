@@ -103,6 +103,12 @@ export function isHostCoveredByCertificateHost(host: string, certificateHost: st
   const normalizedCertificateHost = normalizeHost(certificateHost);
 
   if (normalizedCertificateHost.startsWith("*.")) {
+    // OpenSSL-backed clients do not accept a wildcard directly beneath the
+    // special-use .localhost suffix, so those hosts need explicit SANs.
+    if (normalizedCertificateHost === "*.localhost") {
+      return false;
+    }
+
     const suffix = normalizedCertificateHost.slice(1);
     if (!normalizedHost.endsWith(suffix)) {
       return false;

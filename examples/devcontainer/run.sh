@@ -5,30 +5,68 @@ TEMPLATE="$(cd "$(dirname "$0")" && pwd -P)"
 ROOT="$(cd "$TEMPLATE/../.." && pwd)"
 SMOKE_REPO="${DEVROUTER_DEVCONTAINER_SMOKE_REPO:-${TMPDIR:-/tmp}/devrouter-devcontainer-smoke}"
 
-if [ "$(git -C "$TEMPLATE" rev-parse --show-toplevel 2>/dev/null || true)" != "$TEMPLATE" ]; then
+smoke_owner() {
+  if [ "$(uname -s)" = "Darwin" ]; then
+    stat -f '%u' "$1"
+  else
+    stat -c '%u' "$1"
+  fi
+}
+
+smoke_mode() {
+  if [ "$(uname -s)" = "Darwin" ]; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
+assert_owned_smoke_repo() {
+  if [ ! -d "$SMOKE_REPO" ] || [ -L "$SMOKE_REPO" ]; then
+    echo "refusing non-directory or symlink smoke path: $SMOKE_REPO" >&2
+    exit 1
+  fi
+  if [ "$(smoke_owner "$SMOKE_REPO")" != "$(id -u)" ] || [ "$(smoke_mode "$SMOKE_REPO")" != "700" ]; then
+    echo "refusing smoke path without current-user 0700 ownership: $SMOKE_REPO" >&2
+    exit 1
+  fi
+  if [ ! -f "$SMOKE_REPO/.devrouter-smoke-owned" ] || [ -L "$SMOKE_REPO/.devrouter-smoke-owned" ]; then
+    echo "refusing unmarked smoke path: $SMOKE_REPO" >&2
+    exit 1
+  fi
+}
+
+if [ -n "${DEVROUTER_SMOKE_FIXTURE:-}" ]; then
+  SMOKE_REPO="$DEVROUTER_SMOKE_FIXTURE"
+  assert_owned_smoke_repo
+  SRC="$(cd "$SMOKE_REPO" && pwd -P)"
+elif [ "$(git -C "$TEMPLATE" rev-parse --show-toplevel 2>/dev/null || true)" != "$TEMPLATE" ]; then
   if [ "${1:-}" = "down" ]; then
-    if [ -f "$SMOKE_REPO/.devrouter-smoke-owned" ]; then
-      DEVROUTER_CLI_ROOT="$ROOT" "$SMOKE_REPO/run.sh" down
+    if [ -e "$SMOKE_REPO" ] || [ -L "$SMOKE_REPO" ]; then
+      assert_owned_smoke_repo
+      DEVROUTER_CLI_ROOT="$ROOT" DEVROUTER_SMOKE_FIXTURE="$SMOKE_REPO" "$TEMPLATE/run.sh" down
       rm -rf "$SMOKE_REPO"
     fi
     exit 0
   fi
-  if [ -e "$SMOKE_REPO" ] && [ ! -f "$SMOKE_REPO/.devrouter-smoke-owned" ]; then
-    echo "refusing non-owned smoke path: $SMOKE_REPO" >&2
-    exit 1
+  if [ -e "$SMOKE_REPO" ] || [ -L "$SMOKE_REPO" ]; then
+    assert_owned_smoke_repo
+    rm -rf "$SMOKE_REPO"
   fi
-  rm -rf "$SMOKE_REPO"
-  mkdir -p "$SMOKE_REPO"
-  cp -R "$TEMPLATE/." "$SMOKE_REPO/"
+  mkdir -m 700 -p "$SMOKE_REPO"
   touch "$SMOKE_REPO/.devrouter-smoke-owned"
+  assert_owned_smoke_repo
+  cp -R "$TEMPLATE/." "$SMOKE_REPO/"
   git -C "$SMOKE_REPO" init -q
   git -C "$SMOKE_REPO" add -A
   git -C "$SMOKE_REPO" -c user.email=smoke@devrouter.local -c user.name=devrouter-smoke commit -qm "test fixture"
   export DEVROUTER_CLI_ROOT="$ROOT"
-  exec "$SMOKE_REPO/run.sh" "$@"
+  export DEVROUTER_SMOKE_FIXTURE="$SMOKE_REPO"
+  exec "$TEMPLATE/run.sh" "$@"
+else
+  SRC="$TEMPLATE"
 fi
 
-SRC="$TEMPLATE"
 CLI_ROOT="${DEVROUTER_CLI_ROOT:-$ROOT}"
 DEV() { if [ -x "$CLI_ROOT/dist/devrouter.js" ]; then node "$CLI_ROOT/dist/devrouter.js" "$@"; else command devrouter "$@"; fi; }
 

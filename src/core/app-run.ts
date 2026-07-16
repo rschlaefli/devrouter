@@ -45,7 +45,6 @@ import {
   startRouterStack,
   TCP_PROTOCOL_REGISTRY,
 } from "./router";
-import { tlsSetupCommand } from "./tls";
 
 export { buildTcpDepShadowUrl, buildTcpDepUrl } from "./dependency-runtime-plan";
 
@@ -745,25 +744,6 @@ async function startAppDependencies(options: StartAppDependenciesOptions): Promi
  */
 function registerProxyRoute(repoPath: string, app: DevrouterProxyApp, workspace?: string): void {
   const { port, upstreamHost } = parseUpstream(app.upstream);
-
-  // TCP proxy routes are SNI-routed, and Traefik reads SNI only from a TLS
-  // ClientHello — so TLS must be installed or the route can never match.
-  if (app.protocol === "tcp" && !isTLSEnabled()) {
-    throw new Error(
-      `App "${app.name}" is a TCP proxy route, which requires TLS (SNI). Run: ${tlsSetupCommand(repoPath)}`,
-    );
-  }
-
-  // A TCP proxy needs the shared protocol entrypoint (and its published host
-  // port) to exist on Traefik; activate it and restart the router if it was not
-  // already active.
-  if (app.protocol === "tcp") {
-    const needsRestart = activateTcpProtocol(app.tcpProtocol);
-    if (needsRestart) {
-      process.stdout.write(`Restarting router for new TCP entrypoint: ${app.tcpProtocol}\n`);
-      startRouterStack();
-    }
-  }
 
   // Re-running a proxy app is an idempotent re-register: drop our own prior route
   // first so the shared guard doesn't treat it as "already running", then reuse

@@ -14,8 +14,15 @@ export function routedAppsFromConfig(config: DevrouterConfig): DevrouterRoutedAp
   return config.apps.filter((app): app is DevrouterRoutedApp => app.kind !== "dependency");
 }
 
+export function configuredProxyAppsFromConfig(config: DevrouterConfig): DevrouterProxyApp[] {
+  return routedAppsFromConfig(config).filter(
+    (app): app is DevrouterProxyApp => app.runtime === "proxy",
+  );
+}
+
 export function proxyAppsFromConfig(config: DevrouterConfig): DevrouterProxyApp[] {
   const routedApps = routedAppsFromConfig(config);
+  const proxyApps = configuredProxyAppsFromConfig(config);
   const unsupported = routedApps.filter((app) => app.runtime !== "proxy");
   if (unsupported.length > 0) {
     throw new Error(
@@ -24,7 +31,7 @@ export function proxyAppsFromConfig(config: DevrouterConfig): DevrouterProxyApp[
         .join(", ")}`,
     );
   }
-  return routedApps as DevrouterProxyApp[];
+  return proxyApps;
 }
 
 export async function ensureRouteInfrastructure(

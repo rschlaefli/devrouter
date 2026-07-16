@@ -10,7 +10,7 @@ import {
   sameWorkspacePath,
   withWorkspaceLifecycleLock,
 } from "./workspace";
-import { workspaceStop } from "./workspace-lifecycle";
+import { workspaceStopOwnedPath } from "./workspace-lifecycle";
 import { listGitWorktrees, listWorkspaceOwnership } from "./workspace-ownership";
 
 export type EnvironmentStopResult = {
@@ -42,7 +42,10 @@ export async function environmentStop(repoPath: string): Promise<EnvironmentStop
       if (!mainRepo) {
         throw new Error(`Could not resolve the primary checkout for '${repoPath}'.`);
       }
-      const result = await workspaceStop(record.workspace, { quiet: true, repoPath: mainRepo });
+      const result = await workspaceStopOwnedPath(record.worktreePath, {
+        quiet: true,
+        repoPath: mainRepo,
+      });
       return {
         kind: "linked",
         repoPath,
