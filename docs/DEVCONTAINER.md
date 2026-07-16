@@ -78,7 +78,7 @@ separate alias needed.
 ```yaml
 version: 1
 devrouter:
-  version: 0.0.33
+  version: 0.0.34
 project:
   name: myapp
 apps:
