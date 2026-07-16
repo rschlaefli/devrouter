@@ -224,14 +224,6 @@ export async function refreshTLSCertificate(
 
 export async function ensureTLSHostsCovered(
   hosts: string[],
-  options?: { repoPath?: string },
-): Promise<{
-  refreshed: boolean;
-  uncoveredHosts: string[];
-  certificateHosts: string[];
-}>;
-export async function ensureTLSHostsCovered(
-  hosts: string[],
   options: { repoPath?: string } = {},
 ): Promise<{
   refreshed: boolean;

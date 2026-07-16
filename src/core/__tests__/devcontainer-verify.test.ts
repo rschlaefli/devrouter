@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DoctorReport } from "../../types";
 import { verifyDevcontainer } from "../devcontainer-verify";
 import { buildDoctorReport } from "../doctor";
+import { replaceHostRoutesForRepo } from "../host-routes";
 import { probeHttpRoute } from "../http-route-probe";
 import { replacePublishedProxyRoutes } from "../route-publication";
 
@@ -12,9 +13,13 @@ vi.mock("../doctor", () => ({
   buildDoctorReport: vi.fn(),
 }));
 vi.mock("../http-route-probe", () => ({ probeHttpRoute: vi.fn() }));
+vi.mock("../host-routes", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../host-routes")>()),
+  replaceHostRoutesForRepo: vi.fn(() => []),
+}));
 vi.mock("../route-publication", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../route-publication")>()),
-  replacePublishedProxyRoutes: vi.fn(async () => []),
+  replacePublishedProxyRoutes: vi.fn(async () => ({ routes: [], tlsRefreshed: false })),
 }));
 
 let tmpDir: string;
@@ -158,6 +163,7 @@ describe("verifyDevcontainer", () => {
       details: "HTTP 503",
     });
     expect(report.summary.error).toBeGreaterThan(0);
+    expect(replaceHostRoutesForRepo).toHaveBeenCalledWith(tmpDir, []);
     expect(report.nextSteps).toEqual([
       "Start the devcontainer app process, then re-run live verification.",
     ]);

@@ -40,6 +40,8 @@ export type WorkspaceEnsureResult = {
   workspace?: string;
   devpodId: string;
   urls: string[];
+  recreated: boolean;
+  tlsRefreshed: boolean;
 };
 
 type EnvironmentTarget =
@@ -481,7 +483,11 @@ export async function workspaceEnsure(
         }
       }
 
-      const routes = await replacePublishedProxyRoutes(repoPath, runtime.config, target.workspace);
+      const publication = await replacePublishedProxyRoutes(
+        repoPath,
+        runtime.config,
+        target.workspace,
+      );
       try {
         await waitForHttpRoutes(
           repoPath,
@@ -494,7 +500,8 @@ export async function workspaceEnsure(
           throw error;
         }
         await recreateAndWait();
-        replaceHostRoutesForRepo(repoPath, routes);
+        recreated = true;
+        replaceHostRoutesForRepo(repoPath, publication.routes);
         await waitForHttpRoutes(
           repoPath,
           apps,
@@ -515,7 +522,15 @@ export async function workspaceEnsure(
       if (!devpodId) {
         throw new Error(`DevPod id for '${repoPath}' was not resolved after startup.`);
       }
-      return { kind: target.kind, repoPath, workspace: target.workspace, devpodId, urls };
+      return {
+        kind: target.kind,
+        repoPath,
+        workspace: target.workspace,
+        devpodId,
+        urls,
+        recreated,
+        tlsRefreshed: publication.tlsRefreshed,
+      };
     } catch (error) {
       if (environmentStarted) {
         try {

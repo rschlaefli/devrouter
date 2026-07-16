@@ -7,7 +7,6 @@ import {
   workspaceUp,
 } from "../core/workspace-lifecycle";
 import { resolveGitCommonDir } from "../core/workspace-ownership";
-import { runEnsureCommand } from "./ensure";
 
 function resolveGitWorkspaceRepo(repoPath?: string): string {
   const resolved = resolveRepoPath(repoPath);
@@ -32,14 +31,6 @@ export async function runWorkspaceUpCommand(
     open: options.open,
     repoPath,
   });
-}
-
-export async function runWorkspaceEnsureCommand(options: {
-  path?: string;
-  open?: boolean;
-  json?: boolean;
-}): Promise<void> {
-  await runEnsureCommand(options);
 }
 
 export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }): void {

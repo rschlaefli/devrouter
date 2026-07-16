@@ -3,6 +3,7 @@ import path from "node:path";
 import type { DevrouterConfig, DevrouterProxyApp, DiagnosticCheck, DoctorReport } from "../types";
 import { WORKSPACE_PLACEHOLDER } from "./capabilities";
 import { buildDoctorReport } from "./doctor";
+import { replaceHostRoutesForRepo } from "./host-routes";
 import { probeHttpRoute } from "./http-route-probe";
 import { applyWorkspace, loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import {
@@ -308,6 +309,10 @@ async function liveChecks(
         suggestion: `Run: ${tlsSetupCommand(repoPath)}, start the devcontainer, then retry live verification.`,
       });
     }
+  }
+
+  if (checks.some((check) => check.level === "error")) {
+    replaceHostRoutesForRepo(repoPath, []);
   }
 
   return { checks, routes };

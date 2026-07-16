@@ -500,8 +500,8 @@ workspaceCommand
     withErrorHandling(
       async (worktreePath: string | undefined, _options: unknown, command: Command) => {
         const options = command.opts<{ open?: boolean; json?: boolean }>();
-        const { runWorkspaceEnsureCommand } = await import("./commands/workspace");
-        await runWorkspaceEnsureCommand({
+        const { runEnsureCommand } = await import("./commands/ensure");
+        await runEnsureCommand({
           path: worktreePath,
           open: Boolean(options.open),
           json: Boolean(options.json),

@@ -485,7 +485,13 @@ describe("workspaceEnsure", () => {
 
     const result = await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
 
-    expect(result).toMatchObject({ kind: "primary", devpodId: "sample", repoPath: tmpDir });
+    expect(result).toMatchObject({
+      kind: "primary",
+      devpodId: "sample",
+      repoPath: tmpDir,
+      recreated: false,
+      tlsRefreshed: false,
+    });
     expect(result.workspace).toBeUndefined();
     expect(fs.existsSync(path.join(tmpDir, ".git", "devrouter-workspace"))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, ".git", "devrouter", "workspaces"))).toBe(false);
@@ -663,7 +669,7 @@ describe("workspaceEnsure", () => {
 
     await expect(
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
-    ).resolves.toMatchObject({ workspace: "feature" });
+    ).resolves.toMatchObject({ workspace: "feature", recreated: true });
 
     const devpodUps = devpodUpCalls();
     expect(devpodUps).toHaveLength(2);
@@ -776,7 +782,7 @@ describe("workspaceEnsure", () => {
 
     await expect(
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
-    ).resolves.toMatchObject({ workspace: "feature" });
+    ).resolves.toMatchObject({ workspace: "feature", recreated: true });
 
     const devpodUps = devpodUpCalls();
     expect(devpodUps).toHaveLength(2);

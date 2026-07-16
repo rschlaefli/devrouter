@@ -59,7 +59,12 @@ beforeEach(() => {
 
 describe("replacePublishedProxyRoutes", () => {
   it("prepares shared infrastructure and replaces one complete route batch", async () => {
-    await replacePublishedProxyRoutes("/repo", proxyConfig);
+    vi.mocked(ensureTLSHostsCovered).mockResolvedValueOnce({
+      refreshed: true,
+      uncoveredHosts: ["sample.localhost"],
+      certificateHosts: ["sample.localhost", "db.sample.localhost"],
+    });
+    const result = await replacePublishedProxyRoutes("/repo", proxyConfig);
 
     expect(ensureRouterFiles).toHaveBeenCalledOnce();
     expect(ensureNetwork).toHaveBeenCalledWith("devnet");
@@ -71,6 +76,8 @@ describe("replacePublishedProxyRoutes", () => {
     expect(startRouterStack).toHaveBeenCalledOnce();
     expect(replaceHostRoutesForRepo).toHaveBeenCalledOnce();
     expect(vi.mocked(replaceHostRoutesForRepo).mock.calls[0][1]).toHaveLength(2);
+    expect(result).toMatchObject({ tlsRefreshed: true });
+    expect(result.routes).toHaveLength(2);
   });
 
   it("rejects mixed routed runtimes before infrastructure or route mutation", async () => {

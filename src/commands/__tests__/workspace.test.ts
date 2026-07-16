@@ -8,7 +8,6 @@ import { resolveGitCheckoutPath } from "../environment-path";
 import { runStopCommand } from "../stop";
 import {
   runWorkspaceDownCommand,
-  runWorkspaceEnsureCommand,
   runWorkspaceGcCommand,
   runWorkspaceLsCommand,
   runWorkspaceStopCommand,
@@ -43,7 +42,6 @@ describe("workspace commands outside Git", () => {
 
     const environmentExpected = `Environment commands require a Git repository: '${tmpDir}'.`;
     const environmentCommands = [
-      () => runWorkspaceEnsureCommand({ path: tmpDir }),
       () => runEnsureCommand({ path: tmpDir }),
       () => runStopCommand({ path: tmpDir }),
     ];

@@ -23,6 +23,8 @@ describe("canonical environment commands", () => {
         repoPath: "/repo",
         devpodId: "repo",
         urls: ["https://web.localhost"],
+        recreated: false,
+        tlsRefreshed: false,
       },
       expected: "Primary checkout is ready (repo).\n  https://web.localhost\n",
     },
@@ -33,6 +35,8 @@ describe("canonical environment commands", () => {
         workspace: "feature",
         devpodId: "feature",
         urls: ["https://web.feature.localhost"],
+        recreated: false,
+        tlsRefreshed: false,
       },
       expected: "Workspace 'feature' is ready (feature).\n  https://web.feature.localhost\n",
     },
@@ -53,6 +57,8 @@ describe("canonical environment commands", () => {
       workspace: "feature",
       devpodId: "feature",
       urls: ["https://web.feature.localhost"],
+      recreated: true,
+      tlsRefreshed: true,
     };
     vi.mocked(workspaceEnsure).mockResolvedValue(result);
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
