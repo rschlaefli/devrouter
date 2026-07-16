@@ -21,11 +21,11 @@ devrouter ensure .
 devrouter exec . -- pnpm test
 ```
 
-The dev server auto-starts in the background (`tail -f /tmp/dev.log`). Re-run the
-lifecycle by hand inside the container if needed:
-`bash .devcontainer/post-create.sh` / `bash .devcontainer/post-start.sh`.
+The dev server auto-starts in the background (`tail -f /tmp/dev.log`). Re-run
+`devrouter ensure .` when the managed application process needs reconciliation;
+the host CLI supplies its matching process helper and invokes the repository adapter.
 
-### Routing (devrouter — when available)
+### Routing and lifecycle (devrouter)
 
 Nothing is published on the host; [devrouter](https://github.com/rschlaefli/devrouter)
 fronts the stack over the shared `devnet` network.
@@ -41,9 +41,9 @@ devrouter ensure . --json
 | OIDC mock | `https://oidc.{{APP}}.localhost/default` |
 | Postgres (host tooling) | `db.{{APP}}.localhost:5432` — `sslmode=require sslnegotiation=direct` |
 
-Requires devrouter ≥ 0.0.32. If devrouter is not installed, the devcontainer
-still builds and runs internally; expose the app another way (e.g. a temporary
-`ports:` publish) — but the supported, collision-free path is devrouter.
+Use the devrouter version pinned in `.devrouter.yml`. The image intentionally
+contains no devrouter package or helper; `devrouter ensure` delivers the matching
+helper at runtime and is the supported, collision-free startup path.
 
 To run **several worktrees of this repo in parallel**, use `devrouter workspace
 up <branch>` to create one or `devrouter ensure .` inside any existing checkout.

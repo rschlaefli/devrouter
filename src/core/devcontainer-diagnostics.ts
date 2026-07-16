@@ -208,6 +208,29 @@ export function buildDevcontainerChecks(
         : undefined,
   });
 
+  const dockerfilePath = path.join(devcontainerDir, "Dockerfile");
+  const dockerfileExists = fs.existsSync(dockerfilePath);
+  const dockerfile = dockerfileExists ? fs.readFileSync(dockerfilePath, "utf-8") : "";
+  const devrouterArtifacts = ["@devrouter/cli", "devrouter-process"].filter((artifact) =>
+    dockerfile.includes(artifact),
+  );
+  checks.push({
+    id: "repo.devcontainer.no-devrouter-image-install",
+    level: !dockerfileExists ? "warn" : devrouterArtifacts.length === 0 ? "ok" : "error",
+    summary: !dockerfileExists
+      ? "No .devcontainer/Dockerfile found to inspect for devrouter artifacts."
+      : devrouterArtifacts.length === 0
+        ? "Consumer image does not install or extract devrouter artifacts."
+        : "Consumer image installs or extracts devrouter artifacts.",
+    details:
+      devrouterArtifacts.length > 0 ? `artifacts=${devrouterArtifacts.join(", ")}` : undefined,
+    suggestion: !dockerfileExists
+      ? "Inspect the consumer image definition and keep devrouter package/helper installation out of it."
+      : devrouterArtifacts.length > 0
+        ? "Remove devrouter package/helper installation from the Dockerfile; devrouter ensure delivers the helper at runtime."
+        : undefined,
+  });
+
   if (!config) {
     checks.push({
       id: "repo.devcontainer.upstream-alias-match",

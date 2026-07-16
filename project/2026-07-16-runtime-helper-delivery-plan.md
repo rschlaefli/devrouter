@@ -95,11 +95,15 @@
 
 ## Progress
 
-- Current: Slice 1 complete; Slice 2 is next.
+- Current: Slices 1 and 2 are complete; release preparation and final branch gates are next.
 - Evidence: current `0.0.33` generator and elearning adoption both embed only `devrouter-process`, not the full CLI, but still couple the image build to the devrouter package and version.
 - Review: independent reviewer required exact preflight-result threading, an explicit four-state migration matrix, helper delivery on the HTTP-recreation path, and a truly fresh helper-free cold proof. All four corrections are incorporated above.
 - Slice 1 result: `workspaceEnsure` now classifies invalid migration states before DevPod startup, threads the exact preflight container into one centralized `preflightAndStart` operation, delivers the packaged helper to a runtime-only path, and invokes only managed adapters using `DEVROUTER_PROCESS_HELPER`.
 - Slice 1 evidence: 35 focused lifecycle tests and the full 467-test Vitest suite passed; the macOS shell helper suite correctly reported its Linux `/proc` skip. Biome, TypeScript, Knip, production build, diff checks, and Opengrep with 0 findings passed under the pinned Node 24/pnpm 11.6 toolchain.
 - Slice 1 review: correctness review found one migration-order bug; pre-DevPod classification plus four-state tests resolved it and the reviewer confirmed `DONE`. Simplification removed duplicate preflight/start blocks, a test-only production option, and magic adapter sentinels.
+- Slice 2 result: generated, runnable-example, and bundled-skill consumer images contain no devrouter artifact or image-time version pin; managed DevPod `postStartCommand` hooks are gone; repository adapters require the runtime helper supplied by canonical `devrouter ensure`.
+- Slice 2 guardrails: static verification errors on detected Dockerfile coupling and warns when no Dockerfile can be inspected; docs policy protects both managed template roots, their required files, helper-free Dockerfiles, and absent direct post-start hooks.
+- Slice 2 evidence: focused red tests preceded implementation; 59 focused tests and the full 470-test Vitest suite passed. Biome, TypeScript, Knip, build, docs policy, ShellCheck, package dry-run, diff checks, and Opengrep with 0 findings passed under the pinned toolchain; the Linux-only process suite correctly skipped on macOS.
+- Slice 2 review: correctness review reported no threshold findings. Simplification unified primary/linked guidance on canonical `ensure`, removed checkout branching and its test setup, prevented false clean diagnostics for missing Dockerfiles, and made policy deletion-safe; the reviewer confirmed `DONE` after integration.
 - Blocked: none.
-- Next: execute Slice 2 by removing generated image coupling, updating diagnostics/docs, and protecting the new scaffold contract.
+- Next: commit Slice 2, prepare release metadata/adaptation guidance, then run final security and maintainability gates before opening the PR.

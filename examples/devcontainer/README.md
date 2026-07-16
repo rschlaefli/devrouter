@@ -28,9 +28,10 @@ The smoke runs this sequence through `run.sh`:
 1. `devrouter setup --repo <example> --yes --json`
 2. `devrouter repo devcontainer verify --repo <example> --json`
 3. `devrouter ensure <example> --json`
-4. `devrouter exec <example> -- node -e <literal-argv-proof>`
-5. trusted `curl https://devcontainer-demo.localhost` using the mkcert root CA
-6. `psql` direct-SSL against `prisma` and `shadow` on `db.devcontainer-demo.localhost` when available
+4. proof that the image has no `/usr/local/bin/devrouter-process` and the matching helper exists only at its runtime path
+5. `devrouter exec <example> -- node -e <literal-argv-proof>`
+6. trusted `curl https://devcontainer-demo.localhost` using the mkcert root CA
+7. `psql` direct-SSL against `prisma` and `shadow` on `db.devcontainer-demo.localhost` when available
 
 Expected app response:
 

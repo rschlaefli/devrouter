@@ -25,6 +25,11 @@ CURRENT_GUIDANCE_SURFACES=(
   "src/core/router.ts"
 )
 
+MANAGED_DEVCONTAINER_ROOTS=(
+  "examples/devcontainer/.devcontainer"
+  ".agents/skills/devcontainer-onboarding/references"
+)
+
 violations="false"
 
 if grep -n -H -E -e 'Compatibility note:' -e 'older versions' -e 'v[0-9]+\.[0-9]+\.[0-9]+' "${PRODUCT_DOCS[@]}"; then
@@ -48,8 +53,32 @@ if grep -n -H -- '--env-map' "${CURRENT_GUIDANCE_SURFACES[@]}"; then
   violations="true"
 fi
 
-release_count="$(grep -n -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | wc -l | tr -d ' ')"
-prompt_ref_count="$(grep -n -E '^Agent adaptation prompt: \./upgrade-prompts/[0-9]+\.[0-9]+\.[0-9]+\.md$' CHANGELOG.md | wc -l | tr -d ' ')"
+for root in "${MANAGED_DEVCONTAINER_ROOTS[@]}"; do
+  dockerfile="$root/Dockerfile"
+  devcontainer_json="$root/devcontainer.json"
+  for required_file in "$dockerfile" "$devcontainer_json"; do
+    if [ ! -f "$required_file" ]; then
+      echo
+      echo "Docs policy violation: missing managed devcontainer contract file: $required_file"
+      violations="true"
+    fi
+  done
+  if [ -f "$dockerfile" ] && grep -n -H -E -e '@devrouter/cli' -e 'devrouter-process' "$dockerfile"; then
+    echo
+    echo "Docs policy violation: a consumer Dockerfile installs or extracts devrouter artifacts."
+    echo "Keep the image helper-free; devrouter ensure delivers its matching helper at runtime."
+    violations="true"
+  fi
+  if [ -f "$devcontainer_json" ] && grep -n -H -- 'postStartCommand' "$devcontainer_json"; then
+    echo
+    echo "Docs policy violation: a managed devcontainer wires postStartCommand directly."
+    echo "devrouter ensure must deliver the helper before invoking the repository adapter."
+    violations="true"
+  fi
+done
+
+release_count="$(grep -c -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md)"
+prompt_ref_count="$(grep -c -E '^Agent adaptation prompt: \./upgrade-prompts/[0-9]+\.[0-9]+\.[0-9]+\.md$' CHANGELOG.md)"
 
 if [ "$release_count" -ne "$prompt_ref_count" ]; then
   echo

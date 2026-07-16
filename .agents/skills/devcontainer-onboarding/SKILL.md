@@ -1,6 +1,6 @@
 ---
 name: devcontainer-onboarding
-description: Onboard a repo to a self-contained devcontainer (app + Postgres + Redis + local OIDC mock) fronted by devrouter over the shared `devnet` network with zero published host ports, so many devcontainers run at once. Use when adding a `.devcontainer/`, replacing manual local setup (Infisical/Auth0/host DBs) with a clone-and-run stack, migrating a repo to the devcontainer-first approach, or moving an older host-port onboard to devnet. Targets Node/pnpm/Prisma/Next + Auth0/OIDC apps; the pattern generalizes. Requires devrouter >= 0.0.32.
+description: Onboard a repo to a self-contained devcontainer (app + Postgres + Redis + local OIDC mock) fronted by devrouter over the shared `devnet` network with zero published host ports, so many devcontainers run at once. Use when adding a `.devcontainer/`, replacing manual local setup (Infisical/Auth0/host DBs) with a clone-and-run stack, migrating a repo to the devcontainer-first approach, or moving an older host-port onboard to devnet. Targets Node/pnpm/Prisma/Next + Auth0/OIDC apps; the pattern generalizes.
 user-invocable: true
 ---
 
@@ -42,11 +42,11 @@ When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), k
    - Manual references: use `references/` (see [REFERENCE.md](REFERENCE.md)) only when the repo needs Redis, OIDC, a monorepo variant, or another shape outside the first product scaffold.
    - `docker-compose.yml` — product CLI writes `app` (build from `Dockerfile`) + `postgres`; manual references can add `redis` and an `oidc` mock. Self-contained; do **not** extend the root compose.
    - `Dockerfile` — glibc base (`node:<LTS>-bookworm-slim`) for painless native binaries (Prisma/esbuild/sharp); install pnpm via `npm i -g`.
-   - `devcontainer.json` — wire `postCreateCommand` / `postStartCommand` and select `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}` after the base compose file.
+   - `devcontainer.json` — wire `postCreateCommand` and select `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}` after the base compose file. Do not wire `postStartCommand`; `devrouter ensure` invokes the adapter after runtime helper delivery.
    - `docker-compose.default.yml` / `docker-compose.devrouter.yml` — keep primary-checkout startup unchanged; the devrouter overlay mounts `${DEVROUTER_GIT_COMMON_DIR}` at the same absolute path so linked-worktree Git works in DevPod.
    - `devcontainer.env` — **committed, dev-only** values (no real secrets). This is the "example that just works".
    - `post-create.sh` — install → generate client → push schema (retry through DB warmup) → seed.
-   - `post-start.sh` — launch the dev server **fully detached**.
+   - `post-start.sh` — keep the repository-owned environment and command, require `DEVROUTER_PROCESS_HELPER`, and delegate process ownership to `"$DEVROUTER_PROCESS_HELPER" ensure`. Do not install devrouter in the image or hand-roll `pgrep`/`setsid` lifecycle logic.
    - `README.md` — run instructions + the routing trade-off.
 3. **Wire self-contained auth** (if the app authenticates): run the OIDC mock (`navikt/mock-oauth2-server`) as a **sidecar** (`network_mode: service:app`) and route it via devrouter at `https://oidc.<app>.localhost/default`. The browser (authorize) and the app server (discovery/token/jwks) use the SAME issuer host → consistent token `iss`. Server-side reachability needs `extra_hosts: ['oidc.<app>.localhost:host-gateway']` + trusting the mkcert CA (`NODE_EXTRA_CA_CERTS`) — **never** `NODE_TLS_REJECT_UNAUTHORIZED=0`. One-click auto-login with constant claims (stable `sub`). See [GOTCHAS.md](GOTCHAS.md) #3, #16.
 4. **Add `.devrouter.yml`** (`references/devrouter.yml`, copied to the repo root): `runtime: proxy` routes over `devnet` — `app` + `oidc` (http) and `db` + `redis` (tcp/SNI), each `upstream: ${WORKSPACE}-<svc>:<port>`. Attach the services to `devnet` with the matching `${WORKSPACE:-<app>}-<svc>` aliases in the compose; **no published host ports**. The `${WORKSPACE}` token keeps the route and the devnet alias on one identity: the primary checkout resolves it to the project name (unchanged), while a parallel worktree resolves it to `<ws>-*` (see "Parallel worktrees" below). No `hostRun`/`docker`/`dependencies`/`secretManager` — the container owns those. Requires devrouter ≥ 0.0.21 (the `${WORKSPACE}` upstream token requires ≥ 0.0.22). (Full routing walkthrough: devrouter `docs/DEVCONTAINER.md`.)
@@ -84,7 +84,7 @@ The templates are workspace-aware so several git worktrees of one repo run at on
 
 ## Hard-won gotchas
 
-**Read [GOTCHAS.md](GOTCHAS.md) before scaffolding.** These are the traps that cost the most time (env_file `=` truncation, detached dev server hanging `devpod up`, OIDC issuer/netns, `--recreate` not recreating sidecars, named `node_modules` volumes, …). Skipping them reproduces the same failures.
+**Read [GOTCHAS.md](GOTCHAS.md) before scaffolding.** These are the traps that cost the most time (env_file `=` truncation, runtime helper ownership, OIDC issuer/netns, `--recreate` not recreating sidecars, named `node_modules` volumes, …). Skipping them reproduces the same failures.
 
 ## Guardrails
 

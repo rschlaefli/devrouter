@@ -32,9 +32,10 @@ The devnet alias just needs to be unique across all routed devcontainers;
   OIDC host, and the read-only mkcert root-CA mount. Drop `redis`/`oidc` (and
   their routes) if the app doesn't use them.
 - **`Dockerfile`** — glibc base for native binaries; pnpm via `npm i -g`. Add OS
-  packages the app needs at dev time (git, openssl, procps for `pgrep`, curl).
-- **`devcontainer.json`** — points at the compose `app` service and wires the two
-  lifecycle hooks. It selects `docker-compose.default.yml` unless workspace
+  packages the app needs at dev time plus `procps` and `util-linux` for the
+  runtime-delivered process helper. Do not install devrouter packages or helpers.
+- **`devcontainer.json`** — points at the compose `app` service and wires only
+  `postCreateCommand`. It selects `docker-compose.default.yml` unless workspace
   ensure supplies the devrouter overlay. The `_ports` note documents the
   devrouter-only access. Add editor extensions as desired.
 - **`docker-compose.default.yml` / `docker-compose.devrouter.yml`** — the default
@@ -53,8 +54,9 @@ The devnet alias just needs to be unique across all routed devcontainers;
   through DB warmup) → seed. The copy+format step is required for platform-copy
   repos or generate fails P1012 (GOTCHAS #22). Replace the Prisma/pnpm commands
   with the repo's equivalents for a non-Prisma stack.
-- **`post-start.sh`** — no-TTY hardening → launch the dev server fully detached
-  (GOTCHAS #2). Guard against double-start with `pgrep`.
+- **`post-start.sh`** — no-TTY hardening → repository-owned environment and
+  command → `"$DEVROUTER_PROCESS_HELPER" ensure` for locked, owned, idempotent
+  startup (GOTCHAS #2). `devrouter ensure` supplies and invokes this adapter.
 - **`devrouter.yml`** — proxy-only routing over devnet, copied to the **repo
   root** as `.devrouter.yml`. Routes `app` + `oidc` (http) and `db` + `redis`
   (tcp/SNI). Requires devrouter ≥ 0.0.21.
@@ -65,8 +67,8 @@ The devnet alias just needs to be unique across all routed devcontainers;
 
 ## Adapting to a non-Prisma / non-Next stack
 
-The pattern is stack-agnostic: **services on devnet + committed env + lifecycle
-hooks + proxy routes**. Swap the DB-prepare step (`prisma generate/push/seed`)
+The pattern is stack-agnostic: **services on devnet + committed env + managed
+startup adapter + proxy routes**. Swap the DB-prepare step (`prisma generate/push/seed`)
 for the repo's migration/seed commands, and the dev-server command for the
 repo's (`pnpm dev`, `npm run dev`, `make dev`, …). Keep the gotchas — they are
 about DevPod/compose/devnet/OIDC behavior, not about Prisma.

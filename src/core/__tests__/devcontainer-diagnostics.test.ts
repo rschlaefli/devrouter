@@ -31,6 +31,12 @@ networks:
   );
 }
 
+function writeDockerfile(content: string): void {
+  const dockerfilePath = path.join(tmpDir, ".devcontainer", "Dockerfile");
+  fs.mkdirSync(path.dirname(dockerfilePath), { recursive: true });
+  fs.writeFileSync(dockerfilePath, content, "utf-8");
+}
+
 function config(upstream: string): DevrouterConfig {
   return {
     version: 1,
@@ -93,6 +99,34 @@ describe("buildDevcontainerChecks", () => {
     const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
 
     expect(checkLevel(checks, "repo.devcontainer.no-published-ports")).toBe("error");
+  });
+
+  it("accepts a consumer image without devrouter artifacts", () => {
+    writeCompose();
+    writeDockerfile("FROM node:24-bookworm-slim\nRUN apt-get install -y procps util-linux\n");
+
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
+
+    expect(checkLevel(checks, "repo.devcontainer.no-devrouter-image-install")).toBe("ok");
+  });
+
+  it("warns instead of claiming clean evidence when the Dockerfile is absent", () => {
+    writeCompose();
+
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
+
+    expect(checkLevel(checks, "repo.devcontainer.no-devrouter-image-install")).toBe("warn");
+  });
+
+  it("rejects a consumer image that installs or extracts devrouter artifacts", () => {
+    writeCompose();
+    writeDockerfile(
+      "FROM node:24-bookworm-slim\nRUN npm pack @devrouter/cli && install devrouter-process /usr/local/bin\n",
+    );
+
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
+
+    expect(checkLevel(checks, "repo.devcontainer.no-devrouter-image-install")).toBe("error");
   });
 
   it("warns when proxy upstreams do not match aliases", () => {

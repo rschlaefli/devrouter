@@ -126,19 +126,19 @@ then verifies them in the container.
 
 ## 4. Start one owned application process
 
-The managed scaffold extracts only `devrouter-process` from the exact Devrouter
-package tarball into the app image; it does not install the CLI dependency tree.
-Its `post-start.sh` delegates background-process lifecycle to that packaged helper:
+The managed scaffold keeps Devrouter packages and helpers out of the app image.
+After proving the exact running container, `devrouter ensure` delivers its matching
+helper to a runtime-only path and invokes the repository-owned `post-start.sh`:
 
 ```bash
-devrouter-process ensure \
+"$DEVROUTER_PROCESS_HELPER" ensure \
   --name app \
   --match 'pnpm(\.cjs)? .*dev' \
   --log /tmp/devrouter-app.log \
   -- bash -lc 'pnpm dev'
 ```
 
-The helper serializes concurrent starts, records and verifies the session leader,
+The delivered helper serializes concurrent starts, records and verifies the session leader,
 reuses only the same command and workspace identity, replaces only its owned
 process group, and refuses unknown matching processes. It requires Linux `/proc`,
 `procps`, and `util-linux`; the generated image includes them. Use

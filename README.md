@@ -118,11 +118,11 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 The current `devrouter repo devcontainer write` scaffold is intentionally narrow:
 Node + pnpm + Postgres. Other package managers stop with a JSON diagnostic
 instead of writing files that would need manual repair.
-The generated image extracts `devrouter-process` from the exact Devrouter
-package tarball without installing the CLI dependency tree. Its `post-start.sh`
-uses that helper for locked, owned, idempotent background startup. Application
-commands and environment setup remain repository-owned; route readiness remains
-part of `devrouter ensure`.
+The generated image contains no Devrouter package or helper. `devrouter ensure`
+delivers its matching `devrouter-process` helper to the exact running container,
+then invokes the repository-owned `post-start.sh` for locked, owned, idempotent
+background startup. Application commands and environment setup remain
+repository-owned; route readiness remains part of `devrouter ensure`.
 Use `devrouter repo devcontainer verify --json` for read-only PR evidence; add
 `--live --yes` only for compatibility checks. Normal startup uses `ensure`.
 
