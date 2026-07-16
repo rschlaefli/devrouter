@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.32] - 2026-07-16
+
+### Added
+
+- `devrouter ensure [path]` reconciles primary and linked checkouts through one exact-path, proof-driven lifecycle and publishes routes only after trusted runtime checks succeed.
+- `devrouter stop [path]` stops the exact DevPod and removes only that checkout's routes without deleting checkout, owner record, or data.
+- `devrouter exec [path] -- <command...>` runs literal argv inside the exact running DevPod with the proven checkout mount, disabled agent forwarding, streamed stdio, and exact remote exit status.
+
+### Changed
+
+- HTTPS readiness now verifies the mkcert root CA, actual hostname, and SNI without insecure curl; HTTP `4xx` proves routing while `5xx` remains a failure.
+- Routine route reconciliation refreshes certificate SAN coverage without reinstalling root trust; first-time trust remains an explicit setup action.
+- The primary devcontainer smoke and generated guidance now use `ensure` for normal startup instead of scripting DevPod and live-verify steps.
+
+### Compatibility
+
+- `devrouter workspace ensure` remains as an alias to the same reconciler.
+- `devrouter repo devcontainer verify --live --yes` remains functional for this release, emits deprecation guidance, and uses the trusted atomic publication path.
+- Existing `.devrouter.yml` schema and v1 linked-workspace owner records require no migration.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.32.md
+
 ## [0.0.31] - 2026-07-15
 
 ### Added

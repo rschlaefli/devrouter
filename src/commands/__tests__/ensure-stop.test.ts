@@ -42,7 +42,7 @@ describe("canonical environment commands", () => {
 
     await runEnsureCommand({ path: result.repoPath, open: true });
 
-    expect(workspaceEnsure).toHaveBeenCalledWith(result.repoPath, { open: true });
+    expect(workspaceEnsure).toHaveBeenCalledWith(result.repoPath, { open: true, quiet: false });
     expect(write).toHaveBeenCalledWith(expected);
   });
 
@@ -59,6 +59,10 @@ describe("canonical environment commands", () => {
 
     await runEnsureCommand({ path: result.repoPath, json: true });
 
+    expect(workspaceEnsure).toHaveBeenCalledWith(result.repoPath, {
+      open: undefined,
+      quiet: true,
+    });
     expect(write).toHaveBeenCalledWith(`${JSON.stringify(result, null, 2)}\n`);
   });
 

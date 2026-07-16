@@ -54,6 +54,9 @@ describe("buildOnboardingPrompt", () => {
     expect(prompt).toContain(
       "devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json",
     );
+    expect(prompt).toContain("devrouter ensure <REPO_PATH> --json");
+    expect(prompt).toContain("devrouter exec <REPO_PATH> -- <command...>");
+    expect(prompt).toContain("never branch on checkout kind or use live verify as startup");
     expect(prompt).toContain("Validation commands to run/report for the devcontainer path:");
     expect(prompt).toContain("Validation commands to run/report for host/docker runtime apps:");
     expect(prompt).toContain("Postgres multiplexing on shared :5432 requires TLS/SNI");

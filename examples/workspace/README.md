@@ -63,7 +63,7 @@ then:
 `--no-devpod` is used so the example needs only Docker (no devpod/devcontainer).
 With a devcontainer, `devrouter workspace up <branch>` brings the container up for you
 and exports `WORKSPACE=<ws>` so the alias substitution happens automatically.
-Inside an existing linked worktree, use `devrouter workspace ensure .`; it reuses
+Inside any existing checkout, use `devrouter ensure .`; it reuses
 the exact-path DevPod or starts it, then proves the runtime before registering routes.
 
 Teardown stops the compose projects, frees their routes, and runs

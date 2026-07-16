@@ -78,7 +78,7 @@ separate alias needed.
 ```yaml
 version: 1
 devrouter:
-  version: 0.0.31
+  version: 0.0.32
 project:
   name: myapp
 apps:
@@ -121,7 +121,7 @@ services:
 In `devcontainer.json`, list the base compose file followed by
 `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}`. A linked
 worktree's `.git` file points into the host repository's common Git directory;
-`workspace ensure` supplies that absolute path and the two identity variables,
+`ensure` supplies that absolute path and the two identity variables,
 then verifies them in the container.
 
 ## 4. Start one owned application process
@@ -146,7 +146,7 @@ process group, and refuses unknown matching processes. It requires Linux `/proc`
 that is not derived from its command, `WORKSPACE`, or `DEVROUTER_WORKSPACE`.
 
 Application environment setup and the exact command remain repository-owned.
-HTTP readiness remains host-side in `workspace ensure`, so applications do not
+HTTP readiness remains host-side in `ensure`, so applications do not
 need a second route-health policy.
 
 ## 5. Bring up routing
@@ -157,14 +157,13 @@ starts:
 ```bash
 devrouter setup --yes
 devrouter doctor --json
-devpod up .
-devrouter repo devcontainer verify --live --yes --json
+devrouter ensure .
 ```
 
-That sequence is for a primary checkout. In a linked worktree, use one command:
+The same normal command handles a linked worktree:
 
 ```bash
-devrouter workspace ensure .
+devrouter ensure .
 ```
 
 It starts or attaches the exact-path DevPod, recreates one stale runtime once,
@@ -172,8 +171,8 @@ and proves the overlay, Git mount, environment, aliases, health, Git access,
 HTTP route reachability, and unique running TCP upstream ownership before
 reporting ready.
 
-`verify --live` registers proxy routes and probes HTTP routes, so it doubles as
-agent PR evidence. For a manual route-only path, run `devrouter app run <name> --yes`
+`verify --live` remains a compatibility check in this release, not a startup
+command. For a manual route-only path, run `devrouter app run <name> --yes`
 for each proxy app instead. A proxy app route starts no process. The container
 owns start and stop. Routes persist until `devrouter app rm <name> --keep-config`.
 
@@ -202,10 +201,10 @@ advertises ALPN `postgresql` automatically (libpq direct-SSL mandates it).
 
 ```bash
 devrouter repo devcontainer verify --json
-devrouter repo devcontainer verify --live --yes --json # after the devcontainer is running; registers/probes routes
+devrouter ensure . --json
+devrouter exec . -- pnpm seed
 devrouter ls
-devrouter app rm app --keep-config
-devrouter app rm db --keep-config
+devrouter stop .
 ```
 
 ## Notes

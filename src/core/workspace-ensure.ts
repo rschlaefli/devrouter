@@ -70,6 +70,7 @@ type ValidatedWorkspaceContainer = {
 
 type WorkspaceEnsureOptions = {
   open?: boolean;
+  quiet?: boolean;
   containerTimeoutMs?: number;
   httpTimeoutMs?: number;
 };
@@ -357,7 +358,12 @@ function isPrimaryCheckout(repoPath: string): boolean {
   }
 }
 
-function startDevpod(repoPath: string, target: EnvironmentTarget, recreate = false): void {
+function startDevpod(
+  repoPath: string,
+  target: EnvironmentTarget,
+  recreate = false,
+  quiet = false,
+): void {
   const args = ["up", repoPath];
   if (target.devpodId) {
     args.push("--id", target.devpodId);
@@ -390,7 +396,7 @@ function startDevpod(repoPath: string, target: EnvironmentTarget, recreate = fal
     delete env.DEVCONTAINER_COMPOSE_OVERLAY;
   }
   const result = spawnSync("devpod", args, {
-    stdio: "inherit",
+    stdio: quiet ? ["inherit", 2, "inherit"] : "inherit",
     env,
   });
   if (result.status !== 0) {
@@ -487,7 +493,7 @@ export async function workspaceEnsure(
         target.kind === "linked" ? target : { ...target, devpodId };
 
       const startAndProveAttachment = (recreate = false): void => {
-        startDevpod(repoPath, currentTarget(), recreate);
+        startDevpod(repoPath, currentTarget(), recreate, options.quiet);
         environmentStarted = true;
         devpodId = assertDevpodAttachment(repoPath, devpodId);
         if (ownership) {

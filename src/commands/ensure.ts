@@ -7,7 +7,10 @@ export async function runEnsureCommand(options: {
   json?: boolean;
 }): Promise<void> {
   const repoPath = resolveGitCheckoutPath(options.path);
-  const result = await workspaceEnsure(repoPath, { open: options.open });
+  const result = await workspaceEnsure(repoPath, {
+    open: options.open,
+    quiet: Boolean(options.json),
+  });
   if (options.json) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;

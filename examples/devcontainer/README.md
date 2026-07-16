@@ -8,7 +8,7 @@ It contains:
 - a zero-dependency Node HTTP app
 - a Postgres service
 - `.devcontainer/` with no published host ports
-- a default compose overlay plus the linked-worktree Git overlay used by `workspace ensure`
+- a default compose overlay plus the linked-worktree Git overlay used by `ensure`
 - `.devrouter.yml` proxy routes using `${WORKSPACE}` upstreams
 - `run.sh` for live smoke verification
 
@@ -27,9 +27,9 @@ The smoke runs this sequence through `run.sh`:
 
 1. `devrouter setup --repo <example> --yes --json`
 2. `devrouter repo devcontainer verify --repo <example> --json`
-3. `WORKSPACE=devcontainer-demo devpod up <example> --id devrouter-devcontainer-demo --provider docker --ide none --open-ide=false --recreate`
-4. `devrouter repo devcontainer verify --repo <example> --live --yes --json`
-5. `curl https://devcontainer-demo.localhost`
+3. `devrouter ensure <example> --json`
+4. `devrouter exec <example> -- node -e <literal-argv-proof>`
+5. trusted `curl https://devcontainer-demo.localhost` using the mkcert root CA
 6. `psql` direct-SSL against `prisma` and `shadow` on `db.devcontainer-demo.localhost` when available
 
 Expected app response:
@@ -48,9 +48,10 @@ Expected app response:
 The devcontainer compose file attaches both services to the external `devnet`
 network with matching `${WORKSPACE:-devcontainer-demo}-*` aliases.
 
-When this shape is used from a linked worktree, run `devrouter workspace ensure .`.
-It selects `docker-compose.devrouter.yml`, supplies the host Git common-directory
-bind, and proves the exact DevPod, aliases, routes, and endpoints before success.
+Run `devrouter ensure .` from either a primary or linked checkout. For linked
+worktrees it selects `docker-compose.devrouter.yml`, supplies the host Git
+common-directory bind, and proves the exact DevPod, aliases, routes, and endpoints.
+Use `devrouter exec . -- <command...>` for one-shot container commands.
 Use `workspace stop` to pause its DevPod/routes while preserving checkout and
 data. Full `workspace down` deletes runtime/routes and removes only a clean,
 unlocked worktree; `--keep-worktree` retains the checkout and owner record.

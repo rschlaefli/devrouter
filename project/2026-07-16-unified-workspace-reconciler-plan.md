@@ -629,9 +629,15 @@ Release commit: `chore(release): publish 0.0.33 read-only verification`
 - Done: Slice 4 added top-level `exec`, explicit raw `--` parsing with optional checkout path, exact running DevPod selection, lifecycle locking for the full child lifetime, proven container mount `--workdir`, literal POSIX argv quoting, and disabled SSH/GPG forwarding.
 - Done: Slice 4 correctness review found a stop race, missing workdir proof, spoofable exit parsing, and line-buffered stderr; all were replaced with locked execution, exact bind-mount proof, a random per-invocation exit marker, DevPod raw logs, and byte-safe bounded-suffix streaming. Narrow re-review found no remaining issues; simplification review found no qualifying changes.
 - Done: Live elearning proofs preserved spaces, quotes, dollar signs, semicolons, newlines, empty args, command-side flags and separators, newline-free stderr, and exact remote exit 7.
-- Active: Slice 5 guidance, release preparation, and downstream proof.
-- Next: update current/generated guidance and release artifacts, verify downstream migration without editing elearning, review, verify, and commit.
-- Implementation: Slices 1-4 complete; Slice 5 pending.
+- Done: Slice 5 updated current docs, generated Devrouter guidance, the devcontainer-onboarding skill/templates, examples, smokes, and the 0.0.32 changelog/version/adaptation prompt around one-time setup plus canonical `ensure`/`stop`/`exec`.
+- Done: read-only downstream inspection confirmed elearning still branches between direct DevPod primary startup and linked `workspace ensure`, requires Devrouter 0.0.30, and can migrate to prerequisite check plus `devrouter ensure "$REPO_PATH"` with seed commands through `devrouter exec`; downstream edits remain separately approval-gated.
+- Done: primary cold/warm live evidence used one exact `devrouter-devcontainer-smoke` DevPod, returned parseable stable JSON, streamed unbounded DevPod progress to stderr, proved `/workspaces/devcontainer-demo` through `exec`, served trusted HTTPS without `-k`, and passed compatibility live verify with 24 doctor checks, zero warnings/errors, HTTP 200, and registered Postgres routing.
+- Done: primary teardown used the branch build and left zero matching routes and zero matching DevPods. Linked lifecycle smoke passed create, stop, warm ensure, dirty rejection, clean down, dry-run GC, and applied GC.
+- Done: Slice 5 correctness review found cold JSON buffering, branch-build teardown, stale smoke wording, missing report-template, and onboarding minimum-version gaps; all were fixed and re-verified. Separate simplification review found no qualifying simplification.
+- Done: final Slice 5 gate passed docs policy, Biome, Knip, TypeScript, build, 48 files / 456 tests, routing smoke, primary devcontainer smoke/down, linked lifecycle smoke, npm 0.0.32 dry-run package contents, and Opengrep. Opengrep's eight findings are unchanged baseline findings in CI action pins, legacy host `shell: true` paths, and the route parser regex; no Phase A file introduced a finding.
+- Active: final independent Slice 5 read-back, then commit and whole-branch security/maintainability/agy reviews.
+- Next: commit Slice 5, complete final reviews, integrate any accepted findings, and stop before push/PR/publish/downstream edits.
+- Implementation: Slices 1-5 complete; final review gates pending.
 
 ## Approval
 

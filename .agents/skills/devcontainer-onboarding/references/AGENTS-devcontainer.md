@@ -15,9 +15,10 @@ This repo is **clone-and-run** via a self-contained devcontainer (app + Postgres
 the dev server **inside the container**, never on the host.
 
 ```bash
-# bring the stack up (builds image, starts services, installs, seeds, runs dev)
-devpod up .            # or VS Code "Dev Containers: Reopen in Container"
-devpod ssh {{APP}}     # shell inside the container; run pnpm/prisma/tests here
+# one-time machine setup, then canonical startup for either checkout kind
+devrouter setup --yes
+devrouter ensure .
+devrouter exec . -- pnpm test
 ```
 
 The dev server auto-starts in the background (`tail -f /tmp/dev.log`). Re-run the
@@ -30,10 +31,8 @@ Nothing is published on the host; [devrouter](https://github.com/rschlaefli/devr
 fronts the stack over the shared `devnet` network.
 
 ```bash
-devrouter setup --yes
 devrouter repo devcontainer verify --json
-devpod up .
-devrouter repo devcontainer verify --live --yes --json
+devrouter ensure . --json
 ```
 
 | What | Reachable at |
@@ -42,17 +41,17 @@ devrouter repo devcontainer verify --live --yes --json
 | OIDC mock | `https://oidc.{{APP}}.localhost/default` |
 | Postgres (host tooling) | `db.{{APP}}.localhost:5432` — `sslmode=require sslnegotiation=direct` |
 
-Requires devrouter ≥ 0.0.21. If devrouter is not installed, the devcontainer
+Requires devrouter ≥ 0.0.32. If devrouter is not installed, the devcontainer
 still builds and runs internally; expose the app another way (e.g. a temporary
 `ports:` publish) — but the supported, collision-free path is devrouter.
 
 To run **several worktrees of this repo in parallel**, use `devrouter workspace
-up <branch>` to create one or `devrouter workspace ensure .` inside an existing
-linked worktree. Ensure persists one identity, supplies the Git/compose overlay,
-proves the exact DevPod, HTTP routes, and TCP upstream ownership, and only then
-registers namespaced routes.
-Do not use bare `devpod up` for linked worktrees. `devrouter workspace ls` lists
-them; `devrouter workspace down <branch>` tears one down.
+up <branch>` to create one or `devrouter ensure .` inside any existing checkout.
+Ensure selects the checkout kind, persists linked identity where needed, proves
+the exact DevPod, HTTP routes, and TCP upstream ownership, and only then registers
+routes. Do not branch manually between bare DevPod and workspace startup.
+`devrouter workspace ls` lists linked workspaces; `devrouter workspace down
+<branch>` tears one down.
 
 ### Admin login
 

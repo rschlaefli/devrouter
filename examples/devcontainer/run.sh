@@ -1,22 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$SRC/../.." && pwd)"
-DEV() { if [ -x "$ROOT/dist/devrouter.js" ]; then node "$ROOT/dist/devrouter.js" "$@"; else command devrouter "$@"; fi; }
+TEMPLATE="$(cd "$(dirname "$0")" && pwd -P)"
+ROOT="$(cd "$TEMPLATE/../.." && pwd)"
+SMOKE_REPO="${DEVROUTER_DEVCONTAINER_SMOKE_REPO:-${TMPDIR:-/tmp}/devrouter-devcontainer-smoke}"
 
-WORKSPACE_NAME="devcontainer-demo"
-DEVPOD_ID="${DEVROUTER_EXAMPLE_DEVPOD_ID:-devrouter-devcontainer-demo}"
+if [ "$(git -C "$TEMPLATE" rev-parse --show-toplevel 2>/dev/null || true)" != "$TEMPLATE" ]; then
+  if [ "${1:-}" = "down" ]; then
+    if [ -f "$SMOKE_REPO/.devrouter-smoke-owned" ]; then
+      DEVROUTER_CLI_ROOT="$ROOT" "$SMOKE_REPO/run.sh" down
+      rm -rf "$SMOKE_REPO"
+    fi
+    exit 0
+  fi
+  if [ -e "$SMOKE_REPO" ] && [ ! -f "$SMOKE_REPO/.devrouter-smoke-owned" ]; then
+    echo "refusing non-owned smoke path: $SMOKE_REPO" >&2
+    exit 1
+  fi
+  rm -rf "$SMOKE_REPO"
+  mkdir -p "$SMOKE_REPO"
+  cp -R "$TEMPLATE/." "$SMOKE_REPO/"
+  touch "$SMOKE_REPO/.devrouter-smoke-owned"
+  git -C "$SMOKE_REPO" init -q
+  git -C "$SMOKE_REPO" add -A
+  git -C "$SMOKE_REPO" -c user.email=smoke@devrouter.local -c user.name=devrouter-smoke commit -qm "test fixture"
+  export DEVROUTER_CLI_ROOT="$ROOT"
+  exec "$SMOKE_REPO/run.sh" "$@"
+fi
+
+SRC="$TEMPLATE"
+CLI_ROOT="${DEVROUTER_CLI_ROOT:-$ROOT}"
+DEV() { if [ -x "$CLI_ROOT/dist/devrouter.js" ]; then node "$CLI_ROOT/dist/devrouter.js" "$@"; else command devrouter "$@"; fi; }
+
 APP_HOST="devcontainer-demo.localhost"
 DB_HOST="db.devcontainer-demo.localhost"
 unset DEVROUTER_WORKSPACE || true
 
+exact_devpod_id() {
+  devpod list --output json | node -e 'const fs=require("fs"); const path=require("path"); const repo=fs.realpathSync(process.argv[1]); const rows=JSON.parse(fs.readFileSync(0,"utf8")); const matches=rows.filter((row)=>path.resolve(row.source.localFolder)===repo); if(matches.length>1) process.exit(2); if(matches[0]) process.stdout.write(matches[0].id);' "$SRC"
+}
+
 cleanup() {
   set +e
   echo "--- teardown ---"
-  DEV app rm app --repo "$SRC" --keep-config >/dev/null 2>&1
-  DEV app rm db --repo "$SRC" --keep-config >/dev/null 2>&1
-  devpod delete "$DEVPOD_ID" --force --ignore-not-found >/dev/null 2>&1
+  DEV stop "$SRC" >/dev/null 2>&1
+  local devpod_id
+  devpod_id="$(exact_devpod_id || true)"
+  if [ -n "$devpod_id" ]; then
+    devpod delete "$devpod_id" --force --ignore-not-found >/dev/null 2>&1
+  fi
 }
 
 if [ "${1:-}" = "down" ]; then
@@ -32,35 +64,25 @@ require() {
   fi
 }
 
-wait_verify_live() {
-  local out="$1"
-  for _ in $(seq 1 60); do
-    if DEV repo devcontainer verify --repo "$SRC" --live --yes --json >"$out"; then
-      return 0
-    fi
-    sleep 1
-  done
-  cat "$out" >&2
-  return 1
-}
-
 require docker
 require devpod
 require curl
+require git
 require node
+require mkcert
 
-if [ ! -x "$ROOT/dist/devrouter.js" ] && ! command -v devrouter >/dev/null 2>&1; then
+if [ ! -x "$CLI_ROOT/dist/devrouter.js" ] && ! command -v devrouter >/dev/null 2>&1; then
   echo "devrouter CLI not found. Run pnpm build or install devrouter first." >&2
   exit 1
 fi
 
 VERIFY_STATIC="$(mktemp)"
-VERIFY_LIVE="$(mktemp)"
+ENSURE_OUT="$(mktemp)"
 PSQL_OUT="$(mktemp)"
 PSQL_ERR="$(mktemp)"
 finish() {
   local status=$?
-  rm -f "$VERIFY_STATIC" "$VERIFY_LIVE" "$PSQL_OUT" "$PSQL_ERR"
+  rm -f "$VERIFY_STATIC" "$ENSURE_OUT" "$PSQL_OUT" "$PSQL_ERR"
   if [ "$status" -ne 0 ]; then
     cleanup
   fi
@@ -74,20 +96,15 @@ echo "--- static verify ---"
 DEV repo devcontainer verify --repo "$SRC" --json >"$VERIFY_STATIC"
 node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (r.summary.error) { console.error(JSON.stringify(r,null,2)); process.exit(1); }' "$VERIFY_STATIC"
 
-echo "--- devpod up ---"
-WORKSPACE="$WORKSPACE_NAME" devpod up "$SRC" \
-  --id "$DEVPOD_ID" \
-  --provider docker \
-  --ide none \
-  --open-ide=false \
-  --recreate
+echo "--- ensure environment ---"
+DEV ensure "$SRC" --json >"$ENSURE_OUT"
+node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(r.kind!=="primary" || !r.devpodId || r.urls.length!==2) process.exit(1); console.log(JSON.stringify(r,null,2));' "$ENSURE_OUT"
 
-echo "--- live verify ---"
-wait_verify_live "$VERIFY_LIVE"
-node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); console.log(JSON.stringify({summary:r.summary, liveRoutes:r.evidence.liveRoutes}, null, 2));' "$VERIFY_LIVE"
+echo "--- exact DevPod exec ---"
+DEV exec "$SRC" -- node -e 'if(process.cwd()!=="/workspaces/devcontainer-demo") process.exit(1); console.log(JSON.stringify({cwd:process.cwd(),argv:process.argv.slice(1)}));' 'literal argument'
 
 echo "--- curl app ---"
-APP_RESPONSE="$(curl -fsk "https://$APP_HOST")"
+APP_RESPONSE="$(curl -fsS --cacert "$(mkcert -CAROOT)/rootCA.pem" "https://$APP_HOST")"
 printf '%s\n' "$APP_RESPONSE"
 node -e 'const r=JSON.parse(process.argv[1]); if (r.ok !== true || r.workspace !== "devcontainer-demo" || r.port !== 3000) { console.error(JSON.stringify(r)); process.exit(1); }' "$APP_RESPONSE"
 
@@ -131,4 +148,4 @@ fi
 echo
 echo "Up. Run './run.sh down' or 'pnpm devcontainer:smoke down' to tear down."
 trap - EXIT
-rm -f "$VERIFY_STATIC" "$VERIFY_LIVE" "$PSQL_OUT" "$PSQL_ERR"
+rm -f "$VERIFY_STATIC" "$ENSURE_OUT" "$PSQL_OUT" "$PSQL_ERR"

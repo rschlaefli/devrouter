@@ -119,9 +119,13 @@ describe("verifyDevcontainer", () => {
 
   it("keeps live verification compatible through one batch publication and trusted probe", async () => {
     writeValidScaffold();
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const report = await verifyDevcontainer({ repo: tmpDir, live: true, yes: true });
 
+    expect(stderr).toHaveBeenCalledWith(
+      expect.stringContaining("use 'devrouter ensure' for reconciliation"),
+    );
     expect(replacePublishedProxyRoutes).toHaveBeenCalledOnce();
     expect(replacePublishedProxyRoutes).toHaveBeenCalledWith(
       tmpDir,

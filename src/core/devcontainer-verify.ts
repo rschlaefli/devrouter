@@ -349,7 +349,7 @@ export async function verifyDevcontainer(
   let liveRoutes: DevcontainerVerifyEvidence["liveRoutes"];
   if (options.live) {
     process.stderr.write(
-      "Warning: 'repo devcontainer verify --live' is deprecated; use 'env ensure' for reconciliation.\n",
+      "Warning: 'repo devcontainer verify --live' is deprecated; use 'devrouter ensure' for reconciliation.\n",
     );
     const live = await liveChecks(repoPath, Boolean(options.yes));
     checks.push(...live.checks);

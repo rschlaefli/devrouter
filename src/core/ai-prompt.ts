@@ -110,14 +110,26 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Write/update devrouter section in the repo's AGENTS.md and install the devrouter skill.",
   },
   {
+    command: "devrouter ensure [path] [--open] [--json]",
+    purpose:
+      "Canonical startup and proof for an exact primary or linked checkout; atomically publishes routes after readiness.",
+  },
+  {
+    command: "devrouter stop [path] [--json]",
+    purpose: "Stop the exact checkout DevPod and routes without deleting checkout data.",
+  },
+  {
+    command: "devrouter exec [path] -- <command...>",
+    purpose: "Run literal argv inside the exact already-running DevPod and proven checkout mount.",
+  },
+  {
     command: "devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]",
     purpose:
       "Create a git worktree for <branch>, then run the proven workspace startup unless --no-devpod is set.",
   },
   {
-    command: "devrouter workspace ensure [path] [--open]",
-    purpose:
-      "Start or reconcile the exact linked worktree DevPod, prove its runtime, and atomically register workspace routes.",
+    command: "devrouter workspace ensure [path] [--open] [--json]",
+    purpose: "Compatibility alias of the canonical devrouter ensure command.",
   },
   {
     command: "devrouter workspace ls [--json]",
@@ -288,7 +300,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- The owner record survives linked-worktree removal and binds the exact path to its DevPod ID. First use reuses an exact-path DevPod or derives a sanitized branch/path identity. Later flags or `DEVROUTER_WORKSPACE` may repeat but cannot rename it. Ambiguous identities fail closed. The primary checkout stays non-namespaced.",
     `- When a workspace is active: hosts auto-namespace (\`web.localhost\` → \`web.<ws>.localhost\`), \`${WORKSPACE_PLACEHOLDER}\` in \`upstream\` is substituted with the token, and the docker \`router\` key is suffixed per workspace. The runtime config is computed in memory only — the committed \`.devrouter.yml\` is never rewritten.`,
     "- TLS: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.",
-    "- Lifecycle: `workspace up` creates and starts a worktree; `workspace ensure .` starts/reconciles an existing linked worktree; `workspace ls` reports owner/Git/DevPod/route state; `workspace stop` preserves checkout, record, and data; full `workspace down` deletes runtime/routes and removes only a clean, unlocked worktree; `down --keep-worktree` retains checkout and record.",
+    "- Lifecycle: after one-time setup, use `devrouter ensure .` for both primary and linked checkouts; never branch on checkout kind or use live verify as startup. Use `devrouter stop .` for a non-destructive pause and `devrouter exec . -- <command...>` for container commands. `workspace up` creates linked worktrees; destructive down/GC remains ledger-scoped.",
     "- Owner status is `present`, `missing`, `locked`, or `conflict`. Dirty or locked full down fails before side effects. `workspace gc` is a dry run; only `--yes` deletes exact eligible missing resources and records, never Git worktrees, branches, or prune state.",
     "- Workspace commands require Git. Normal config, app, status, and doctor flows work from a `.devrouter.yml` folder without `.git`. Git has no worktree-removal hook; use `workspace ls`, doctor, or dry-run GC after out-of-band removal.",
     "- devcontainer integration: `devcontainer.json` lists the base compose file then `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}`. The default overlay contains `services: {}`; `.devcontainer/docker-compose.devrouter.yml` passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute app-container path. Ensure proves exact DevPod ownership, overlay/Git mounts, env, aliases, health, Git, HTTP route reachability, and unique running TCP upstream ownership before success.",
@@ -320,7 +332,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "2) Run `devrouter repo inspect --repo <REPO_PATH> --json` before editing files.",
     "3) For the supported Node/pnpm/Postgres devcontainer shape, run `devrouter repo devcontainer write --repo <REPO_PATH> --dry-run --json`, review the plan, then run `devrouter repo devcontainer write --repo <REPO_PATH> --yes`.",
     "4) For unsupported shapes or custom existing files, make minimal manual edits and explain the assumptions.",
-    "5) Verify static evidence with `devrouter repo devcontainer verify --repo <REPO_PATH> --json`; after the devcontainer is running, use `devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json` for route probes.",
+    "5) Verify static evidence with `devrouter repo devcontainer verify --repo <REPO_PATH> --json`, then start either checkout kind with `devrouter ensure <REPO_PATH> --json`. Use live verify only as a compatibility check after ensure.",
     "6) Keep edits minimal, explicit, and idempotent. Do not modify unrelated services.",
     "7) If required info is missing or ambiguous, stop and ask targeted questions.",
     "",
@@ -331,8 +343,9 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- devrouter repo devcontainer write --repo <REPO_PATH> --dry-run --json",
     "- devrouter repo devcontainer write --repo <REPO_PATH> --yes",
     "- devrouter repo devcontainer verify --repo <REPO_PATH> --json",
-    "- In a linked worktree: devrouter workspace ensure <REPO_PATH>",
-    "- In a primary checkout after `devpod up <REPO_PATH>`: devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json",
+    "- Normal primary or linked startup: devrouter ensure <REPO_PATH> --json",
+    "- Container seed/migration: devrouter exec <REPO_PATH> -- <command...>",
+    "- Compatibility verification only after ensure: devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json",
     "",
     "Validation commands to run/report for host/docker runtime apps:",
     "- devrouter setup --yes --json",

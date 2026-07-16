@@ -494,6 +494,23 @@ describe("workspaceEnsure", () => {
     expect(devpodUpCalls()[0][1]).not.toContain("--id");
   });
 
+  it("keeps DevPod progress off stdout in quiet mode", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle();
+
+    await workspaceEnsure(tmpDir, {
+      quiet: true,
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+
+    expect(devpodUpCalls()[0][2]).toEqual(
+      expect.objectContaining({
+        stdio: ["inherit", 2, "inherit"],
+      }),
+    );
+  });
+
   it("forces primary runtime config to ignore an inherited workspace override", async () => {
     makePrimaryRepo();
     vi.stubEnv("DEVROUTER_WORKSPACE", "foreign");

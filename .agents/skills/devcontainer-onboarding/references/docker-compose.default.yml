@@ -1,3 +1,3 @@
 # Primary-checkout default. Linked worktrees select docker-compose.devrouter.yml
-# through devrouter workspace ensure.
+# through devrouter ensure.
 services: {}
