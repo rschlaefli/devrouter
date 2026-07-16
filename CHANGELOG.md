@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.33] - 2026-07-16
+
+### Fixed
+
+- `devrouter exec` now suppresses DevPod's known missing-exit-status diagnostic after devrouter has recovered the real remote status, while preserving command stderr and exact non-zero exit codes.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.33.md
+
 ## [0.0.32] - 2026-07-16
 
 ### Added

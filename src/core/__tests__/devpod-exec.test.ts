@@ -156,12 +156,16 @@ describe("devpodExec", () => {
       stdout: '{"id":"repo","state":"Running"}',
       stderr: "",
     } as never);
-    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const writes: Buffer[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      writes.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      return true;
+    });
     mockExecExit(0, `fatal tunnel: Process exited with status 99\n${STATUS_MARKER}7\n`);
 
     await expect(devpodExec("/repo", ["sh", "-lc", "exit 7"])).resolves.toBe(7);
 
-    expect(write).toHaveBeenCalledWith(
+    expect(Buffer.concat(writes)).toEqual(
       Buffer.from("fatal tunnel: Process exited with status 99\n"),
     );
   });
@@ -223,6 +227,47 @@ describe("devpodExec", () => {
 
     await expect(devpodExec("/repo", ["progress"])).resolves.toBe(0);
     expect(Buffer.concat(writes)).toEqual(userOutput);
+  });
+
+  it("filters DevPod's missing-exit-status diagnostic after the recovered status", async () => {
+    const workspace = { id: "repo", source: { localFolder: "/repo" } };
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([workspace]);
+    vi.mocked(selectDevpodWorkspace).mockReturnValue(workspace);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: '{"id":"repo","state":"Running"}',
+      stderr: "",
+    } as never);
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockExecExit(0, [
+      Buffer.from(`${STATUS_MARKER}7\nError tunneling to container: wait: remote command `),
+      Buffer.from("exited without exit status or exit signal\n"),
+    ]);
+
+    await expect(devpodExec("/repo", ["sh", "-lc", "exit 7"])).resolves.toBe(7);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("preserves the same diagnostic when it came from command stderr", async () => {
+    const workspace = { id: "repo", source: { localFolder: "/repo" } };
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([workspace]);
+    vi.mocked(selectDevpodWorkspace).mockReturnValue(workspace);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: '{"id":"repo","state":"Running"}',
+      stderr: "",
+    } as never);
+    const writes: Buffer[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      writes.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      return true;
+    });
+    const diagnostic =
+      "Error tunneling to container: wait: remote command exited without exit status or exit signal\n";
+    mockExecExit(0, `${diagnostic}${STATUS_MARKER}0\n`);
+
+    await expect(devpodExec("/repo", ["printf", diagnostic])).resolves.toBe(0);
+    expect(Buffer.concat(writes)).toEqual(Buffer.from(diagnostic));
   });
 
   it("fails when the invocation-specific status marker is missing", async () => {
