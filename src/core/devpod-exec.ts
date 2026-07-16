@@ -4,6 +4,19 @@ import { resolveRunningWorkspaceContainer } from "./devpod-environment";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { withWorkspaceLifecycleLock } from "./workspace";
 
+const DEVPOD_MISSING_EXIT_STATUS_DIAGNOSTIC = Buffer.from(
+  "Error tunneling to container: wait: remote command exited without exit status or exit signal\n",
+);
+
+function stripDevpodCompletionDiagnostic(value: Buffer): Buffer {
+  const index = value.indexOf(DEVPOD_MISSING_EXIT_STATUS_DIAGNOSTIC);
+  if (index < 0) return value;
+  return Buffer.concat([
+    value.subarray(0, index),
+    value.subarray(index + DEVPOD_MISSING_EXIT_STATUS_DIAGNOSTIC.length),
+  ]);
+}
+
 export function quotePosixArg(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
@@ -90,6 +103,7 @@ export async function devpodExec(repoPath: string, command: string[]): Promise<n
       child.stderr.on("data", (chunk: Buffer | string) => {
         pending = Buffer.concat([pending, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
         for (;;) {
+          if (remoteStatus !== undefined) break;
           if (readingStatus) {
             const newline = pending.indexOf(0x0a);
             if (newline < 0) {
@@ -125,7 +139,9 @@ export async function devpodExec(repoPath: string, command: string[]): Promise<n
           reject(new Error(`devpod ssh terminated by signal ${signal ?? "unknown"}.`));
           return;
         }
-        if (!readingStatus) forward(pending);
+        if (!readingStatus) {
+          forward(remoteStatus === undefined ? pending : stripDevpodCompletionDiagnostic(pending));
+        }
         if (remoteStatus === undefined) {
           reject(
             new Error(`DevPod command did not report its exit status (devpod exited ${code}).`),
