@@ -95,8 +95,11 @@
 
 ## Progress
 
-- Current: research and independent plan review complete; accepted findings are integrated and the plan is ready for its standalone commit.
+- Current: Slice 1 complete; Slice 2 is next.
 - Evidence: current `0.0.33` generator and elearning adoption both embed only `devrouter-process`, not the full CLI, but still couple the image build to the devrouter package and version.
 - Review: independent reviewer required exact preflight-result threading, an explicit four-state migration matrix, helper delivery on the HTTP-recreation path, and a truly fresh helper-free cold proof. All four corrections are incorporated above.
+- Slice 1 result: `workspaceEnsure` now classifies invalid migration states before DevPod startup, threads the exact preflight container into one centralized `preflightAndStart` operation, delivers the packaged helper to a runtime-only path, and invokes only managed adapters using `DEVROUTER_PROCESS_HELPER`.
+- Slice 1 evidence: 35 focused lifecycle tests and the full 467-test Vitest suite passed; the macOS shell helper suite correctly reported its Linux `/proc` skip. Biome, TypeScript, Knip, production build, diff checks, and Opengrep with 0 findings passed under the pinned Node 24/pnpm 11.6 toolchain.
+- Slice 1 review: correctness review found one migration-order bug; pre-DevPod classification plus four-state tests resolved it and the reviewer confirmed `DONE`. Simplification removed duplicate preflight/start blocks, a test-only production option, and magic adapter sentinels.
 - Blocked: none.
-- Next: commit the plan alone, then execute Slice 1 while leaving ADR 0002 for the implementation commit.
+- Next: execute Slice 2 by removing generated image coupling, updating diagnostics/docs, and protecting the new scaffold contract.

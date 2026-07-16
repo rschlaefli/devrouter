@@ -315,6 +315,35 @@ describe("workspaceEnsure", () => {
       );
   }
 
+  function writeManagedPostStart(): void {
+    fs.writeFileSync(
+      path.join(tmpDir, ".devcontainer", "post-start.sh"),
+      '#!/usr/bin/env bash\n# devrouter:managed devcontainer\n: "${DEVROUTER_PROCESS_HELPER:?}"\n',
+      "utf-8",
+    );
+  }
+
+  function writeLegacyPostStart(): void {
+    fs.writeFileSync(
+      path.join(tmpDir, ".devcontainer", "post-start.sh"),
+      "#!/usr/bin/env bash\n# devrouter:managed devcontainer\ndevrouter-process ensure --name app --match app -- sleep infinity\n",
+      "utf-8",
+    );
+  }
+
+  function writeLegacyImageContract(): void {
+    fs.writeFileSync(
+      path.join(tmpDir, ".devcontainer", "Dockerfile"),
+      "FROM node:24\nRUN npm pack @devrouter/cli && install devrouter-process /usr/local/bin\n",
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, ".devcontainer", "devcontainer.json"),
+      '{"postStartCommand":"bash .devcontainer/post-start.sh"}\n',
+      "utf-8",
+    );
+  }
+
   function mockLifecycle(
     options: {
       devpodUpStatus?: number;
@@ -325,6 +354,9 @@ describe("workspaceEnsure", () => {
       curlStatus?: number;
       curlCode?: string;
       curlCodes?: string[];
+      events?: string[];
+      helperDeliveryStatus?: number;
+      postStartStatus?: number;
       onDevpodUp?: () => void;
     } = {},
   ): void {
@@ -353,6 +385,7 @@ describe("workspaceEnsure", () => {
         return { status: 0, stdout: listedDevpod, stderr: "" } as never;
       }
       if (command === "devpod" && argv[0] === "up") {
+        options.events?.push("devpod-up");
         options.onDevpodUp?.();
         const status = options.devpodUpStatuses?.[devpodUpCall] ?? options.devpodUpStatus ?? 0;
         devpodUpCall += 1;
@@ -365,6 +398,7 @@ describe("workspaceEnsure", () => {
         return { status: 0, stdout: "app-id\ndb-id\n", stderr: "" } as never;
       }
       if (command === "docker" && argv[0] === "inspect") {
+        options.events?.push("preflight");
         const aliases = options.appAliasSets?.[dockerInspectCall];
         dockerInspectCall += 1;
         const inspectedApp = aliases ? { ...app, networks: { devnet: { Aliases: aliases } } } : app;
@@ -375,6 +409,22 @@ describe("workspaceEnsure", () => {
         } as never;
       }
       if (command === "docker" && argv[0] === "exec") {
+        if (argv.includes("-i")) {
+          options.events?.push("helper-delivery");
+          return {
+            status: options.helperDeliveryStatus ?? 0,
+            stdout: "",
+            stderr: options.helperDeliveryStatus ? "delivery failed" : "",
+          } as never;
+        }
+        if (argv.includes(".devcontainer/post-start.sh")) {
+          options.events?.push("post-start");
+          return {
+            status: options.postStartStatus ?? 0,
+            stdout: "",
+            stderr: options.postStartStatus ? "post-start failed" : "",
+          } as never;
+        }
         return {
           status: 0,
           stdout: argv.includes("--show-toplevel") ? "/workspaces/repo\n" : "feature\n",
@@ -382,6 +432,7 @@ describe("workspaceEnsure", () => {
         } as never;
       }
       if (command === "curl") {
+        options.events?.push("http-ready");
         const code = options.curlCodes?.[curlCall] ?? options.curlCode ?? "404";
         curlCall += 1;
         return {
@@ -630,6 +681,113 @@ describe("workspaceEnsure", () => {
     );
   });
 
+  it("delivers the packaged helper to the exact preflight container before managed post-start", async () => {
+    const events: string[] = [];
+    writeManagedPostStart();
+    mockLifecycle({ events });
+
+    await workspaceEnsure(tmpDir, {
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+
+    expect(events.indexOf("helper-delivery")).toBeGreaterThan(events.indexOf("preflight"));
+    expect(events.indexOf("post-start")).toBeGreaterThan(events.indexOf("helper-delivery"));
+    expect(events.indexOf("http-ready")).toBeGreaterThan(events.indexOf("post-start"));
+    expect(spawnSync).toHaveBeenCalledWith(
+      "docker",
+      expect.arrayContaining(["exec", "-i", "app-id"]),
+      expect.objectContaining({ input: expect.any(Buffer) }),
+    );
+    expect(spawnSync).toHaveBeenCalledWith(
+      "docker",
+      [
+        "exec",
+        "--workdir",
+        "/workspaces/repo",
+        "--env",
+        "DEVROUTER_PROCESS_HELPER=/tmp/devrouter/bin/devrouter-process",
+        "app-id",
+        "bash",
+        ".devcontainer/post-start.sh",
+      ],
+      expect.anything(),
+    );
+  });
+
+  it("temporarily preserves the legacy adapter with its legacy image hook", async () => {
+    const events: string[] = [];
+    writeLegacyPostStart();
+    writeLegacyImageContract();
+    mockLifecycle({ events });
+
+    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+
+    expect(events).not.toContain("helper-delivery");
+    expect(events).not.toContain("post-start");
+    expect(events).toContain("http-ready");
+  });
+
+  it("uses the delivered helper for a new adapter even when the legacy image remains", async () => {
+    const events: string[] = [];
+    writeManagedPostStart();
+    writeLegacyImageContract();
+    fs.writeFileSync(path.join(tmpDir, ".devcontainer", "devcontainer.json"), "{}\n", "utf-8");
+    mockLifecycle({ events });
+
+    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+
+    expect(events).toContain("helper-delivery");
+    expect(events).toContain("post-start");
+  });
+
+  it("rejects a legacy adapter with a helper-free image before DevPod startup", async () => {
+    writeLegacyPostStart();
+    fs.writeFileSync(path.join(tmpDir, ".devcontainer", "Dockerfile"), "FROM node:24\n", "utf-8");
+    mockLifecycle();
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed post-start must use DEVROUTER_PROCESS_HELPER");
+
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before route readiness when helper delivery fails", async () => {
+    const events: string[] = [];
+    writeManagedPostStart();
+    mockLifecycle({ events, helperDeliveryStatus: 1 });
+
+    await expect(
+      workspaceEnsure(tmpDir, {
+        containerTimeoutMs: 0,
+        httpTimeoutMs: 0,
+      }),
+    ).rejects.toThrow("Could not deliver the managed process helper");
+
+    expect(events).not.toContain("post-start");
+    expect(events).not.toContain("http-ready");
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
+  });
+
+  it("fails closed before route readiness when managed post-start fails", async () => {
+    const events: string[] = [];
+    writeManagedPostStart();
+    mockLifecycle({ events, postStartStatus: 1 });
+
+    await expect(
+      workspaceEnsure(tmpDir, {
+        containerTimeoutMs: 0,
+        httpTimeoutMs: 0,
+      }),
+    ).rejects.toThrow("Managed post-start failed");
+
+    expect(events).toContain("helper-delivery");
+    expect(events).not.toContain("http-ready");
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
+  });
+
   it("persists common ownership before the first DevPod startup side effect", async () => {
     let recordAtStartup: string | undefined;
     mockLifecycle({
@@ -778,10 +936,15 @@ describe("workspaceEnsure", () => {
   });
 
   it("recreates an existing workspace once when HTTP readiness fails", async () => {
-    mockLifecycle({ curlCodes: ["500", "404"] });
+    const events: string[] = [];
+    writeManagedPostStart();
+    mockLifecycle({ curlCodes: ["500", "404"], events });
 
     await expect(
-      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      workspaceEnsure(tmpDir, {
+        containerTimeoutMs: 0,
+        httpTimeoutMs: 0,
+      }),
     ).resolves.toMatchObject({ workspace: "feature", recreated: true });
 
     const devpodUps = devpodUpCalls();
@@ -789,6 +952,8 @@ describe("workspaceEnsure", () => {
     expect(devpodUps[1][1]).toContain("--recreate");
     expect(replaceHostRoutesForRepo).toHaveBeenCalledTimes(3);
     expect(replaceHostRoutesForRepo).toHaveBeenNthCalledWith(2, tmpDir, []);
+    expect(events.filter((event) => event === "helper-delivery")).toHaveLength(2);
+    expect(events.filter((event) => event === "post-start")).toHaveLength(2);
   });
 
   it("does not recreate again after preflight recovery when HTTP readiness fails", async () => {

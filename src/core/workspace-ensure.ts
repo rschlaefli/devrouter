@@ -10,6 +10,7 @@ import {
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { parseUpstream, replaceHostRoutesForRepo } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
+import { assertManagedPostStartMigration, ensureManagedPostStart } from "./managed-post-start";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY } from "./router";
@@ -165,7 +166,7 @@ async function waitForContainerPreflight(
   target: EnvironmentTarget,
   upstreamHosts: string[],
   timeoutMs: number,
-): Promise<void> {
+): Promise<ValidatedWorkspaceContainer> {
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
   do {
@@ -219,7 +220,7 @@ async function waitForContainerPreflight(
       ) {
         throw new Error("Git does not resolve the expected checkout inside the app container.");
       }
-      return;
+      return appContainer;
     } catch (error) {
       lastError = error;
     }
@@ -405,6 +406,7 @@ export async function workspaceEnsure(
           throw new Error(`Missing required DevPod compose overlay: ${overlayPath}`);
         }
       }
+      assertManagedPostStartMigration(repoPath);
 
       const runtime = loadRuntimeConfig(
         repoPath,
@@ -451,14 +453,22 @@ export async function workspaceEnsure(
           writeWorkspaceOwnership(repoPath, ownership);
         }
       };
-      const recreateAndWait = async (): Promise<void> => {
-        startAndProveAttachment(true);
-        await waitForContainerPreflight(
+      const preflightAndStart = async (timeoutMs: number): Promise<void> => {
+        const container = await waitForContainerPreflight(
           repoPath,
           currentTarget(),
           upstreamHosts,
-          options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+          timeoutMs,
         );
+        ensureManagedPostStart({
+          repoPath,
+          container,
+          quiet: options.quiet,
+        });
+      };
+      const recreateAndWait = async (): Promise<void> => {
+        startAndProveAttachment(true);
+        await preflightAndStart(options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
       };
 
       let recreated = false;
@@ -473,7 +483,7 @@ export async function workspaceEnsure(
       }
       if (!recreated) {
         try {
-          await waitForContainerPreflight(repoPath, currentTarget(), upstreamHosts, 0);
+          await preflightAndStart(0);
         } catch (error) {
           if (!target.hadExactDevpod) {
             throw error;
