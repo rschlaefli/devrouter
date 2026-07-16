@@ -11,6 +11,7 @@ Delivered and active:
 - Upgrade commands: `devrouter -V` and `devrouter upgrade [version]`
 - First-run machine setup: `devrouter setup --yes --json`
 - Unified primary/linked reconciliation: `devrouter ensure [path] [--json]`
+- Runtime-only managed-process delivery: consumer images stay helper-free; `ensure` supplies its matching helper and invokes the repository adapter after exact-container proof
 - Non-destructive exact-checkout pause: `devrouter stop [path]`
 - Exact running-DevPod one-shot execution: `devrouter exec [path] -- <command...>`
 - Read-only repo fact inspection: `devrouter repo inspect --json`

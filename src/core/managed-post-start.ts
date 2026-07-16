@@ -3,14 +3,24 @@ import fs from "node:fs";
 import path from "node:path";
 
 const MANAGED_MARKER = "devrouter:managed devcontainer";
+const MANAGED_ADAPTER_PATH = ".devcontainer/post-start.sh";
 const RUNTIME_HELPER_PATH = "/tmp/devrouter/bin/devrouter-process";
 const DELIVERY_SCRIPT = `set -eu
 umask 077
-mkdir -p /tmp/devrouter/bin
-temporary="${RUNTIME_HELPER_PATH}.tmp.$$"
+runtime_root=/tmp/devrouter
+runtime_bin="$runtime_root/bin"
+if [ -L "$runtime_root" ] || [ -L "$runtime_bin" ]; then
+  echo "Refusing symlinked devrouter runtime path." >&2
+  exit 1
+fi
+mkdir -p "$runtime_bin"
+chmod 700 "$runtime_root" "$runtime_bin"
+temporary="$(mktemp "$runtime_bin/.devrouter-process.XXXXXX")"
+trap 'rm -f "$temporary"' EXIT
 cat > "$temporary"
 chmod 700 "$temporary"
-mv -f "$temporary" ${RUNTIME_HELPER_PATH}
+mv -f "$temporary" "${RUNTIME_HELPER_PATH}"
+trap - EXIT
 `;
 
 type ValidatedContainer = {
@@ -18,12 +28,22 @@ type ValidatedContainer = {
   workspacePath: string;
 };
 
+export type ManagedPostStartPlan =
+  | { kind: "unmanaged" }
+  | { kind: "legacy" }
+  | { kind: "runtime"; adapterPath: string };
+
 function commandFailure(result: ReturnType<typeof spawnSync>): string {
   return [result.error?.message, result.stderr, result.stdout]
     .filter(Boolean)
     .map((value) => String(value).trim())
     .filter(Boolean)
     .join("\n");
+}
+
+function readRegularFile(filePath: string): string | undefined {
+  if (!fs.existsSync(filePath) || !fs.lstatSync(filePath).isFile()) return undefined;
+  return fs.readFileSync(filePath, "utf-8");
 }
 
 export function resolveProcessHelperPath(): string {
@@ -38,39 +58,34 @@ export function resolveProcessHelperPath(): string {
   return helperPath;
 }
 
-function managedAdapterPath(repoPath: string): string | undefined {
-  const adapterPath = path.join(repoPath, ".devcontainer", "post-start.sh");
-  if (!fs.existsSync(adapterPath)) return undefined;
+export function resolveManagedPostStartPlan(repoPath: string): ManagedPostStartPlan {
+  const adapterPath = path.join(repoPath, MANAGED_ADAPTER_PATH);
+  const adapter = readRegularFile(adapterPath);
+  if (adapter === undefined) return { kind: "unmanaged" };
 
-  const adapter = fs.readFileSync(adapterPath, "utf-8");
-  if (!adapter.includes(MANAGED_MARKER)) return undefined;
-  if (adapter.includes("DEVROUTER_PROCESS_HELPER")) return adapterPath;
+  if (!adapter.includes(MANAGED_MARKER)) return { kind: "unmanaged" };
+  if (adapter.includes("DEVROUTER_PROCESS_HELPER")) {
+    return { kind: "runtime", adapterPath: MANAGED_ADAPTER_PATH };
+  }
 
   const dockerfilePath = path.join(repoPath, ".devcontainer", "Dockerfile");
   const devcontainerPath = path.join(repoPath, ".devcontainer", "devcontainer.json");
-  const dockerfile = fs.existsSync(dockerfilePath) ? fs.readFileSync(dockerfilePath, "utf-8") : "";
-  const devcontainer = fs.existsSync(devcontainerPath)
-    ? fs.readFileSync(devcontainerPath, "utf-8")
-    : "";
+  const dockerfile = readRegularFile(dockerfilePath) ?? "";
+  const devcontainer = readRegularFile(devcontainerPath) ?? "";
   if (dockerfile.includes("devrouter-process") && devcontainer.includes("postStartCommand")) {
-    return undefined;
+    return { kind: "legacy" };
   }
   throw new Error(
     "Managed post-start must use DEVROUTER_PROCESS_HELPER before removing the legacy image helper and postStartCommand. Regenerate or migrate the devcontainer, then retry devrouter ensure.",
   );
 }
 
-export function assertManagedPostStartMigration(repoPath: string): void {
-  managedAdapterPath(repoPath);
-}
-
-export function ensureManagedPostStart(options: {
-  repoPath: string;
+export function runManagedPostStart(options: {
+  plan: ManagedPostStartPlan;
   container: ValidatedContainer;
   quiet?: boolean;
 }): void {
-  const adapter = managedAdapterPath(options.repoPath);
-  if (!adapter) return;
+  if (options.plan.kind !== "runtime") return;
 
   const helper = fs.readFileSync(resolveProcessHelperPath());
   const delivered = spawnSync(
@@ -85,7 +100,6 @@ export function ensureManagedPostStart(options: {
     );
   }
 
-  const relativeAdapter = path.relative(options.repoPath, adapter);
   const started = spawnSync(
     "docker",
     [
@@ -96,7 +110,7 @@ export function ensureManagedPostStart(options: {
       `DEVROUTER_PROCESS_HELPER=${RUNTIME_HELPER_PATH}`,
       options.container.id,
       "bash",
-      relativeAdapter,
+      options.plan.adapterPath,
     ],
     { stdio: options.quiet ? ["ignore", 2, "inherit"] : "inherit" },
   );

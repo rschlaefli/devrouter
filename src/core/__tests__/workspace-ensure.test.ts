@@ -10,6 +10,7 @@ import {
 } from "../devpod-environment";
 import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspaces";
 import { replaceHostRoutesForRepo } from "../host-routes";
+import { resolveManagedPostStartPlan, runManagedPostStart } from "../managed-post-start";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
@@ -21,6 +22,10 @@ vi.mock("../host-routes", () => ({
     return { host, port: Number(port), upstreamHost: host };
   }),
   replaceHostRoutesForRepo: vi.fn(() => []),
+}));
+vi.mock("../managed-post-start", () => ({
+  resolveManagedPostStartPlan: vi.fn(() => ({ kind: "unmanaged" })),
+  runManagedPostStart: vi.fn(),
 }));
 vi.mock("../docker", () => ({ ensureNetwork: vi.fn(async () => undefined) }));
 vi.mock("../repo-config", () => ({
@@ -295,6 +300,8 @@ describe("workspaceEnsure", () => {
       },
     });
     vi.mocked(replaceHostRoutesForRepo).mockReturnValue([]);
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue({ kind: "unmanaged" });
+    vi.mocked(runManagedPostStart).mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -315,35 +322,6 @@ describe("workspaceEnsure", () => {
       );
   }
 
-  function writeManagedPostStart(): void {
-    fs.writeFileSync(
-      path.join(tmpDir, ".devcontainer", "post-start.sh"),
-      '#!/usr/bin/env bash\n# devrouter:managed devcontainer\n: "${DEVROUTER_PROCESS_HELPER:?}"\n',
-      "utf-8",
-    );
-  }
-
-  function writeLegacyPostStart(): void {
-    fs.writeFileSync(
-      path.join(tmpDir, ".devcontainer", "post-start.sh"),
-      "#!/usr/bin/env bash\n# devrouter:managed devcontainer\ndevrouter-process ensure --name app --match app -- sleep infinity\n",
-      "utf-8",
-    );
-  }
-
-  function writeLegacyImageContract(): void {
-    fs.writeFileSync(
-      path.join(tmpDir, ".devcontainer", "Dockerfile"),
-      "FROM node:24\nRUN npm pack @devrouter/cli && install devrouter-process /usr/local/bin\n",
-      "utf-8",
-    );
-    fs.writeFileSync(
-      path.join(tmpDir, ".devcontainer", "devcontainer.json"),
-      '{"postStartCommand":"bash .devcontainer/post-start.sh"}\n',
-      "utf-8",
-    );
-  }
-
   function mockLifecycle(
     options: {
       devpodUpStatus?: number;
@@ -355,8 +333,6 @@ describe("workspaceEnsure", () => {
       curlCode?: string;
       curlCodes?: string[];
       events?: string[];
-      helperDeliveryStatus?: number;
-      postStartStatus?: number;
       onDevpodUp?: () => void;
     } = {},
   ): void {
@@ -409,22 +385,6 @@ describe("workspaceEnsure", () => {
         } as never;
       }
       if (command === "docker" && argv[0] === "exec") {
-        if (argv.includes("-i")) {
-          options.events?.push("helper-delivery");
-          return {
-            status: options.helperDeliveryStatus ?? 0,
-            stdout: "",
-            stderr: options.helperDeliveryStatus ? "delivery failed" : "",
-          } as never;
-        }
-        if (argv.includes(".devcontainer/post-start.sh")) {
-          options.events?.push("post-start");
-          return {
-            status: options.postStartStatus ?? 0,
-            stdout: "",
-            stderr: options.postStartStatus ? "post-start failed" : "",
-          } as never;
-        }
         return {
           status: 0,
           stdout: argv.includes("--show-toplevel") ? "/workspaces/repo\n" : "feature\n",
@@ -681,9 +641,13 @@ describe("workspaceEnsure", () => {
     );
   });
 
-  it("delivers the packaged helper to the exact preflight container before managed post-start", async () => {
+  it("passes the exact preflight container to managed post-start before route readiness", async () => {
     const events: string[] = [];
-    writeManagedPostStart();
+    const plan = { kind: "runtime" as const, adapterPath: ".devcontainer/post-start.sh" };
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue(plan);
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      events.push("managed-start");
+    });
     mockLifecycle({ events });
 
     await workspaceEnsure(tmpDir, {
@@ -691,59 +655,19 @@ describe("workspaceEnsure", () => {
       httpTimeoutMs: 0,
     });
 
-    expect(events.indexOf("helper-delivery")).toBeGreaterThan(events.indexOf("preflight"));
-    expect(events.indexOf("post-start")).toBeGreaterThan(events.indexOf("helper-delivery"));
-    expect(events.indexOf("http-ready")).toBeGreaterThan(events.indexOf("post-start"));
-    expect(spawnSync).toHaveBeenCalledWith(
-      "docker",
-      expect.arrayContaining(["exec", "-i", "app-id"]),
-      expect.objectContaining({ input: expect.any(Buffer) }),
-    );
-    expect(spawnSync).toHaveBeenCalledWith(
-      "docker",
-      [
-        "exec",
-        "--workdir",
-        "/workspaces/repo",
-        "--env",
-        "DEVROUTER_PROCESS_HELPER=/tmp/devrouter/bin/devrouter-process",
-        "app-id",
-        "bash",
-        ".devcontainer/post-start.sh",
-      ],
-      expect.anything(),
-    );
+    expect(events.indexOf("managed-start")).toBeGreaterThan(events.indexOf("preflight"));
+    expect(events.indexOf("http-ready")).toBeGreaterThan(events.indexOf("managed-start"));
+    expect(runManagedPostStart).toHaveBeenCalledWith({
+      plan,
+      container: { id: "app-id", workspacePath: "/workspaces/repo" },
+      quiet: undefined,
+    });
   });
 
-  it("temporarily preserves the legacy adapter with its legacy image hook", async () => {
-    const events: string[] = [];
-    writeLegacyPostStart();
-    writeLegacyImageContract();
-    mockLifecycle({ events });
-
-    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
-
-    expect(events).not.toContain("helper-delivery");
-    expect(events).not.toContain("post-start");
-    expect(events).toContain("http-ready");
-  });
-
-  it("uses the delivered helper for a new adapter even when the legacy image remains", async () => {
-    const events: string[] = [];
-    writeManagedPostStart();
-    writeLegacyImageContract();
-    fs.writeFileSync(path.join(tmpDir, ".devcontainer", "devcontainer.json"), "{}\n", "utf-8");
-    mockLifecycle({ events });
-
-    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
-
-    expect(events).toContain("helper-delivery");
-    expect(events).toContain("post-start");
-  });
-
-  it("rejects a legacy adapter with a helper-free image before DevPod startup", async () => {
-    writeLegacyPostStart();
-    fs.writeFileSync(path.join(tmpDir, ".devcontainer", "Dockerfile"), "FROM node:24\n", "utf-8");
+  it("rejects an invalid managed-start contract before DevPod startup", async () => {
+    vi.mocked(resolveManagedPostStartPlan).mockImplementation(() => {
+      throw new Error("Managed post-start must use DEVROUTER_PROCESS_HELPER");
+    });
     mockLifecycle();
 
     await expect(
@@ -754,27 +678,16 @@ describe("workspaceEnsure", () => {
     expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
   });
 
-  it("fails closed before route readiness when helper delivery fails", async () => {
+  it("does not recreate when managed post-start fails", async () => {
     const events: string[] = [];
-    writeManagedPostStart();
-    mockLifecycle({ events, helperDeliveryStatus: 1 });
-
-    await expect(
-      workspaceEnsure(tmpDir, {
-        containerTimeoutMs: 0,
-        httpTimeoutMs: 0,
-      }),
-    ).rejects.toThrow("Could not deliver the managed process helper");
-
-    expect(events).not.toContain("post-start");
-    expect(events).not.toContain("http-ready");
-    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
-  });
-
-  it("fails closed before route readiness when managed post-start fails", async () => {
-    const events: string[] = [];
-    writeManagedPostStart();
-    mockLifecycle({ events, postStartStatus: 1 });
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
+      kind: "runtime",
+      adapterPath: ".devcontainer/post-start.sh",
+    });
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      throw new Error("Managed post-start failed");
+    });
+    mockLifecycle({ events });
 
     await expect(
       workspaceEnsure(tmpDir, {
@@ -783,8 +696,8 @@ describe("workspaceEnsure", () => {
       }),
     ).rejects.toThrow("Managed post-start failed");
 
-    expect(events).toContain("helper-delivery");
     expect(events).not.toContain("http-ready");
+    expect(devpodUpCalls()).toHaveLength(1);
     expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
   });
 
@@ -937,7 +850,13 @@ describe("workspaceEnsure", () => {
 
   it("recreates an existing workspace once when HTTP readiness fails", async () => {
     const events: string[] = [];
-    writeManagedPostStart();
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
+      kind: "runtime",
+      adapterPath: ".devcontainer/post-start.sh",
+    });
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      events.push("managed-start");
+    });
     mockLifecycle({ curlCodes: ["500", "404"], events });
 
     await expect(
@@ -952,8 +871,7 @@ describe("workspaceEnsure", () => {
     expect(devpodUps[1][1]).toContain("--recreate");
     expect(replaceHostRoutesForRepo).toHaveBeenCalledTimes(3);
     expect(replaceHostRoutesForRepo).toHaveBeenNthCalledWith(2, tmpDir, []);
-    expect(events.filter((event) => event === "helper-delivery")).toHaveLength(2);
-    expect(events.filter((event) => event === "post-start")).toHaveLength(2);
+    expect(events.filter((event) => event === "managed-start")).toHaveLength(2);
   });
 
   it("does not recreate again after preflight recovery when HTTP readiness fails", async () => {
