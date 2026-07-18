@@ -12,12 +12,14 @@ export interface KnowledgeDocument {
   filePath: string;
   kind: "concept" | "index" | "log";
   body: string;
+  bodyStartLine: number;
   fields?: Record<string, unknown>;
 }
 
 interface ParsedFrontmatter {
   fields: Record<string, unknown>;
   body: string;
+  bodyStartLine: number;
 }
 
 const INDEX_HEADING = /^#\s+\S/m;
@@ -84,7 +86,11 @@ function splitFrontmatter(
     "CORE_FRONTMATTER",
   );
   if (!fields) return undefined;
-  return { fields, body: lines.slice(closingLine + 1).join("\n") };
+  return {
+    fields,
+    body: lines.slice(closingLine + 1).join("\n"),
+    bodyStartLine: closingLine + 2,
+  };
 }
 
 function hasLeadingFrontmatter(raw: string): boolean {
@@ -190,14 +196,16 @@ function parseReservedDocument(
     }
     if (kind === "index") validateIndexBody(context, filePath, raw);
     else validateLogBody(context, filePath, raw);
-    return { filePath, kind, body: raw };
+    return { filePath, kind, body: raw, bodyStartLine: 1 };
   }
 
   let body = raw;
+  let bodyStartLine = 1;
   if (hasLeadingFrontmatter(raw)) {
     const parsed = splitFrontmatter(context, raw, filePath);
     if (parsed) {
       body = parsed.body;
+      bodyStartLine = parsed.bodyStartLine;
       const keys = Object.keys(parsed.fields);
       if (keys.length !== 1 || keys[0] !== "okf_version" || parsed.fields.okf_version !== "0.1") {
         reportFinding(
@@ -211,7 +219,7 @@ function parseReservedDocument(
     }
   }
   validateIndexBody(context, filePath, body);
-  return { filePath, kind, body };
+  return { filePath, kind, body, bodyStartLine };
 }
 
 export function parseKnowledgeDocument(
@@ -225,7 +233,7 @@ export function parseKnowledgeDocument(
   }
 
   const frontmatter = splitFrontmatter(context, raw, filePath);
-  if (!frontmatter) return { filePath, kind: "concept", body: raw };
+  if (!frontmatter) return { filePath, kind: "concept", body: raw, bodyStartLine: 1 };
   if (typeof frontmatter.fields.type !== "string" || frontmatter.fields.type.trim() === "") {
     reportFinding(
       context,
@@ -239,6 +247,7 @@ export function parseKnowledgeDocument(
     filePath,
     kind: "concept",
     body: frontmatter.body,
+    bodyStartLine: frontmatter.bodyStartLine,
     fields: frontmatter.fields,
   };
 }

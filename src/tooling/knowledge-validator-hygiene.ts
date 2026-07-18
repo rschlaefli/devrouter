@@ -132,6 +132,7 @@ function reportBrokenLink(
 function validateLinks(context: KnowledgeValidationContext, document: KnowledgeDocument): void {
   const realRepoRoot = fs.realpathSync(context.repoRoot);
   for (const [lineIndex, line] of withoutCodeExamples(document.body).split("\n").entries()) {
+    const sourceLine = document.bodyStartLine + lineIndex;
     for (const match of line.matchAll(MARKDOWN_LINK)) {
       const target = linkTarget(match[1]);
       if (!target || target.startsWith("//") || EXTERNAL_SCHEME.test(target)) continue;
@@ -149,7 +150,7 @@ function validateLinks(context: KnowledgeValidationContext, document: KnowledgeD
           context,
           document,
           target,
-          lineIndex + 1,
+          sourceLine,
           "local link has malformed percent-encoding",
         );
         continue;
@@ -162,7 +163,7 @@ function validateLinks(context: KnowledgeValidationContext, document: KnowledgeD
           )
         : document.filePath;
       if (!isContained(context.repoRoot, targetPath) || !fs.existsSync(targetPath)) {
-        reportBrokenLink(context, document, target, lineIndex + 1);
+        reportBrokenLink(context, document, target, sourceLine);
         continue;
       }
 
@@ -172,7 +173,7 @@ function validateLinks(context: KnowledgeValidationContext, document: KnowledgeD
           context,
           document,
           target,
-          lineIndex + 1,
+          sourceLine,
           "local link escapes the repository through a symlink",
         );
         continue;
@@ -191,7 +192,7 @@ function validateLinks(context: KnowledgeValidationContext, document: KnowledgeD
             "HYGIENE_ANCHOR",
             document.filePath,
             `missing Markdown anchor ${fragment} in ${relativeToRepo(context, targetPath)}`,
-            lineIndex + 1,
+            sourceLine,
           );
         }
       }

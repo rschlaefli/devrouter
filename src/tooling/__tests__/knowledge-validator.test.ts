@@ -286,6 +286,28 @@ okf_version: "0.1"
     const linkFindings = validate().findings.filter((item) => item.code === "HYGIENE_LINK");
     expect(linkFindings).toHaveLength(1);
     expect(linkFindings[0].message).toContain("missing.md");
+    expect(linkFindings[0].line).toBe(12);
+  });
+
+  it("reports root-index link lines after optional frontmatter", () => {
+    write(
+      "docs/knowledge/index.md",
+      `---
+okf_version: "0.1"
+---
+
+# Repository knowledge
+
+- [Missing](missing.md)
+`,
+    );
+
+    const linkFindings = validate().findings.filter((item) => item.code === "HYGIENE_LINK");
+    expect(linkFindings).toHaveLength(1);
+    expect(linkFindings[0]).toMatchObject({
+      line: 7,
+      message: expect.stringContaining("missing.md"),
+    });
   });
 
   it("reports malformed percent-encoding in local links", () => {
@@ -343,7 +365,7 @@ okf_version: "0.1"
 
     expect(validate().findings).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ category: "hygiene", code: "HYGIENE_ANCHOR" }),
+        expect.objectContaining({ category: "hygiene", code: "HYGIENE_ANCHOR", line: 12 }),
       ]),
     );
   });
