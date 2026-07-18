@@ -13,15 +13,15 @@
 - Do not turn every Markdown file into an OKF concept.
 - Do not rewrite ADRs, solution records, release history, or completed plans for style.
 - Keep root `CONTEXT.md`; Matt Pocock skills consume its domain vocabulary.
-- Do not merge the safety PR, publish npm, or release a package.
+- No workspace-safety implementation, npm publication, or package release within this branch.
 
 ## Identity
 
 - Plan: `docs/project/2026-07-18-docs-okf-rework-plan.md`
 - Branch: `codex/docs-okf-knowledge`
 - Worktree: `trees/docs-okf-knowledge`
-- Target: `codex/workspace-safety-hardening` while stacked. After the safety PR lands, rebase only this branch's documentation commits onto `origin/main`, verify the merge base and an `origin/main...HEAD` documentation-only diff, then retarget.
-- Related PR: workspace safety hardening [PR #25](https://github.com/rschlaefli/devrouter/pull/25).
+- Target: `main` at `ee425ab`; the documentation commits were rebased after the safety PR merged, and the verified merge base equals `origin/main`.
+- Related PR: merged workspace safety hardening [PR #25](https://github.com/rschlaefli/devrouter/pull/25).
 
 ## Decisions
 
@@ -106,9 +106,9 @@ After moves, scan Markdown, scripts, and configuration for stale source-path lit
 
 - Review each slice for correctness and simplification before commit.
 - Run a documentation-appropriate security review, independent whole-branch review, and strict maintainability review.
-- Update this progress section and the stacked draft PR with whole-branch evidence only after approval to push.
+- Update this progress section and the ready PR against `main` with whole-branch evidence only after approval to push.
 
 ## Progress
 
-- Current: implementation and final review fixes are complete. Slices 1-3 are committed as `86f7414`, `904f0e9`, and `1f78daa`; final maintainability/security fixes are committed as `64a8feb`. Root orientation is 101 lines, getting started is 128, repository onboarding has one consumer-focused authority, the canonical devcontainer contract is retained, and `CONTEXT.md` is unchanged. The OKF validator now parses typed documents once through a 60-line orchestrator and focused context/core/profile/hygiene modules; `profile.yaml` is the sole local required-field authority, and real-path containment rejects symlink escapes. Per-slice reviews are clean; the two-axis branch findings are resolved; security has no high-confidence or medium items; and the thermo-nuclear maintainability gate approves. Final docs policy, OKF validation, Biome, Knip, typecheck, 77-file local-link scan, all 526 tests, build, and diff checks pass. The Linux-only process test is explicitly skipped on macOS; live routing/DevPod smokes are inapplicable to this documentation/tooling-only branch.
-- Next: push the stacked branch and open its draft PR against `codex/workspace-safety-hardening`.
+- Current: implementation and final review fixes are complete. After PR #25 merged, the seven documentation/tooling commits were rebased onto `origin/main` at `ee425ab`; the merge base matches that commit, the branch diff is isolated from the safety implementation, and `CONTEXT.md` remains unchanged. Root orientation is 101 lines, getting started is 128, repository onboarding has one consumer-focused authority, and the canonical devcontainer contract is retained. The OKF validator parses typed documents once through a 60-line orchestrator and focused context/core/profile/hygiene modules; `profile.yaml` is the sole local required-field authority, real-path containment rejects symlink escapes, and link findings map stripped bodies back to exact source lines. Per-slice reviews are clean; two-axis branch and security findings are resolved; the final thermo-nuclear gate approves after its source-line blocker was fixed and re-reviewed; and the separate simplification pass is clean. Fresh docs policy, OKF validation, Biome, Knip, typecheck, all 527 tests, build, and diff checks pass. The earlier 77-file local-link scan still applies because the only later content change is this plan checkpoint; the Linux-only process test is explicitly skipped on macOS, and live routing/DevPod smokes are inapplicable to this documentation/tooling-only branch.
+- Next: push the rebased branch, open a ready PR against `main`, wait for required CI and feedback, then merge under the user's explicit authority.
