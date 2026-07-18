@@ -31,12 +31,13 @@ skip_unless_available() {
 cleanup() {
   set +e
   run_dev workspace stop "$WS_LIFECYCLE" --repo "$REPO" >/dev/null 2>&1
+  if [ -d "$WT_LIFECYCLE" ]; then
+    run_dev stop "$WT_LIFECYCLE" --delete >/dev/null 2>&1
+  fi
   rm -f "$WT_LIFECYCLE/uncommitted-smoke-file"
   run_dev workspace down "$WS_LIFECYCLE" --repo "$REPO" >/dev/null 2>&1
   run_dev workspace down "$WS_GC" --repo "$REPO" >/dev/null 2>&1
   run_dev workspace gc --repo "$REPO" --yes >/dev/null 2>&1
-  delete_owned_devpod "$WS_LIFECYCLE" "$WT_LIFECYCLE"
-  delete_owned_devpod "$WS_GC" "$WT_GC"
   while IFS=$'\t' read -r compose_project volume; do
     [ -z "$compose_project" ] && continue
     [ -z "$volume" ] && continue
@@ -47,38 +48,6 @@ cleanup() {
   done <"$VOLUME_FILE"
   rm -f "$VOLUME_FILE"
   rm -rf "$REPO"
-}
-
-delete_owned_devpod() {
-  local workspace="$1"
-  local worktree_path="$2"
-  local devpods
-  devpods="$(devpod list --output json 2>/dev/null)" || return 0
-  if node -e '
-    const fs = require("node:fs");
-    const path = require("node:path");
-    const normalize = (value) => {
-      let current = path.resolve(value);
-      const missing = [];
-      while (!fs.existsSync(current)) {
-        const parent = path.dirname(current);
-        if (parent === current) break;
-        missing.unshift(path.basename(current));
-        current = parent;
-      }
-      try {
-        current = fs.realpathSync.native(current);
-      } catch {}
-      return path.join(current, ...missing);
-    };
-    const rows = JSON.parse(process.argv[1]);
-    const row = rows.find((entry) => entry.id === process.argv[2]);
-    if (!row?.source?.localFolder || normalize(row.source.localFolder) !== normalize(process.argv[3])) {
-      process.exit(1);
-    }
-  ' "$devpods" "$workspace" "$worktree_path"; then
-    devpod delete "$workspace" --ignore-not-found >/dev/null 2>&1
-  fi
 }
 
 capture_workspace_volumes() {

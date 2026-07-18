@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   inspectDevpodWorkspaceOwnership,
   listDevpodWorkspaces,
-  runDevpodWorkspaceAction,
+  mutateOwnedDevpodWorkspace,
 } from "./devpod-workspaces";
 import { resolveRepoPath } from "./repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
@@ -198,11 +198,11 @@ function worktreeForRecord(
   return worktrees.find((candidate) => sameWorkspacePath(candidate.path, record.worktreePath));
 }
 
-function devpodForTarget(
+function assertDevpodTargetSafe(
   target: ResolvedWorkspaceTarget,
   worktrees: IdentifiedGitWorktree[],
   devpods: ReturnType<typeof listDevpodWorkspaces>,
-) {
+): void {
   if (target.record) {
     const status = inspectWorkspaceOwnership(target.record, worktrees, devpods);
     if (status.ownerStatus === "conflict") {
@@ -210,9 +210,7 @@ function devpodForTarget(
         `Workspace '${target.workspace}' ownership conflicts with live Git or DevPod evidence; no resources were changed.`,
       );
     }
-    return status.devpodStatus === "owned"
-      ? devpods.find((devpod) => devpod.id === target.record?.devpodId)
-      : undefined;
+    return;
   }
 
   // Pre-ledger workspaces need the same exact ID+path proof, but have no record
@@ -222,7 +220,6 @@ function devpodForTarget(
   if (ownership.status === "conflict") {
     throw new Error(ownership.reason);
   }
-  return ownership.status === "owned" ? ownership.workspace : undefined;
 }
 
 function assertFullDownPreflight(mainRepo: string, target: ResolvedWorkspaceTarget): void {
@@ -382,10 +379,13 @@ function mutateWorkspaceRuntime(
   quiet = false,
 ): WorkspaceLifecycleResult {
   const devpods = listDevpodWorkspaces();
-  const devpod = devpodForTarget(resolved, worktrees, devpods);
-  if (devpod) {
-    runDevpodWorkspaceAction(action === "stop" ? "stop" : "delete", devpod.id);
-  }
+  assertDevpodTargetSafe(resolved, worktrees, devpods);
+  const devpodId = resolved.record?.devpodId ?? resolved.workspace;
+  const mutation = mutateOwnedDevpodWorkspace(
+    action === "stop" ? "stop" : "delete",
+    devpodId,
+    resolved.worktreePath,
+  );
 
   const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
   if (!quiet) {
@@ -394,9 +394,9 @@ function mutateWorkspaceRuntime(
     );
   }
   return {
-    ...(devpod ? { devpodId: devpod.id } : {}),
+    ...(mutation.status === "changed" ? { devpodId } : {}),
     freedRoutes: routes.length,
-    providerChanged: Boolean(devpod),
+    providerChanged: mutation.status === "changed",
     workspace: resolved.workspace,
   };
 }
@@ -447,7 +447,8 @@ async function runWorkspaceLifecycle(
     : operation();
 }
 
-export async function workspaceStopOwnedPath(
+async function mutateWorkspaceOwnedPath(
+  action: "stop" | "down",
   worktreePath: string,
   opts: { quiet?: boolean; repoPath?: string } = {},
 ): Promise<WorkspaceLifecycleResult> {
@@ -469,8 +470,22 @@ export async function workspaceStopOwnedPath(
       worktree: worktreeForRecord(worktrees, record),
       record,
     };
-    return mutateWorkspaceRuntime("stop", resolved, worktrees, opts.quiet);
+    return mutateWorkspaceRuntime(action, resolved, worktrees, opts.quiet);
   });
+}
+
+export async function workspaceStopOwnedPath(
+  worktreePath: string,
+  opts: { quiet?: boolean; repoPath?: string } = {},
+): Promise<WorkspaceLifecycleResult> {
+  return mutateWorkspaceOwnedPath("stop", worktreePath, opts);
+}
+
+export async function workspaceDeleteOwnedPath(
+  worktreePath: string,
+  opts: { quiet?: boolean; repoPath?: string } = {},
+): Promise<WorkspaceLifecycleResult> {
+  return mutateWorkspaceOwnedPath("down", worktreePath, opts);
 }
 
 export async function workspaceStop(

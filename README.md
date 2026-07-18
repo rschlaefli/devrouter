@@ -88,7 +88,7 @@ vars. Use it when you are not (yet) on a devcontainer. Fully supported.
 - `devrouter upgrade [version] [--repo <path>]`
 - `devrouter setup --yes [--repo <path>] [--json]`
 - `devrouter ensure [path] [--open] [--json]`
-- `devrouter stop [path] [--json]`
+- `devrouter stop [path] [--delete] [--json]`
 - `devrouter exec [path] -- <command...>`
 - `devrouter up`
 - `devrouter down`
@@ -201,6 +201,9 @@ retries one stale DevPod with `--recreate`; failed proof does not leave new rout
 behind.
 
 Use `devrouter stop .` to pause the exact environment without deleting data. Use
+`devrouter stop . --delete` only for explicit exact-owner cleanup without removing
+the Git checkout. Both paths revalidate provider ownership inside the shared
+machine mutation lock. Use
 `devrouter exec . -- <command...>` for seeds, migrations, and other one-shot
 container commands; it does not start a missing or stopped environment.
 

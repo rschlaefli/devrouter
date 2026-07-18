@@ -205,6 +205,8 @@ devrouter ensure . --json
 devrouter exec . -- pnpm seed
 devrouter ls
 devrouter stop .
+# Explicit full DevPod cleanup while preserving this Git checkout:
+devrouter stop . --delete
 ```
 
 ## Notes

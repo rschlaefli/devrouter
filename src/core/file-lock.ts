@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 
@@ -8,6 +9,11 @@ type FileLockOptions = {
 };
 
 type LockState = { kind: "live"; pid: number } | { kind: "reclaimed" } | { kind: "retry" };
+
+type LockOwner = {
+  pid: number;
+  processBirth?: string;
+};
 
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -20,9 +26,64 @@ function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+function processBirthIdentity(pid: number): string | undefined {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf-8");
+    const commandEnd = stat.lastIndexOf(")");
+    if (commandEnd >= 0) {
+      const fields = stat
+        .slice(commandEnd + 1)
+        .trim()
+        .split(/\s+/);
+      const startTime = fields[19];
+      if (startTime) return `proc:${startTime}`;
+    }
+  } catch {
+    // macOS and other non-procfs hosts use the portable ps fallback below.
+  }
+
+  const result = spawnSync("ps", ["-o", "lstart=", "-o", "command=", "-p", String(pid)], {
+    encoding: "utf-8",
+    env: { ...process.env, LC_ALL: "C" },
+  });
+  const startedAt = result.status === 0 ? result.stdout.trim().replace(/\s+/g, " ") : "";
+  return startedAt ? `ps:${startedAt}` : undefined;
+}
+
+function parseLockOwner(value: string): LockOwner | undefined {
+  const fields = value.split(":");
+  const pid = Number(fields[0]);
+  if (!Number.isInteger(pid) || pid <= 0) return undefined;
+
+  // 0.0.34 and earlier wrote pid:uuid. Keep those records conservative: a live
+  // PID remains live because the old record has no process-birth proof.
+  if (
+    fields.length !== 3 ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(fields[2])
+  ) {
+    return { pid };
+  }
+  try {
+    const processBirth = Buffer.from(fields[1], "base64url").toString("utf-8");
+    const canonical = Buffer.from(processBirth).toString("base64url");
+    return canonical === fields[1] && /^(proc|ps):/.test(processBirth)
+      ? { pid, processBirth }
+      : { pid };
+  } catch {
+    return { pid };
+  }
+}
+
+function isLockOwnerLive(owner: LockOwner): boolean {
+  if (!isProcessAlive(owner.pid)) return false;
+  if (!owner.processBirth) return true;
+  const currentBirth = processBirthIdentity(owner.pid);
+  return currentBirth === undefined || currentBirth === owner.processBirth;
 }
 
 function sameFile(left: fs.Stats, right: fs.Stats): boolean {
@@ -41,10 +102,9 @@ function tryReclaimStaleLock(lockPath: string, staleLinkPath: string): LockState
   }
 
   try {
-    const owner = fs.readFileSync(fd, "utf-8").trim();
-    const ownerPid = Number(owner.split(":", 1)[0]);
-    if (isProcessAlive(ownerPid)) {
-      return { kind: "live", pid: ownerPid };
+    const owner = parseLockOwner(fs.readFileSync(fd, "utf-8").trim());
+    if (owner && isLockOwnerLive(owner)) {
+      return { kind: "live", pid: owner.pid };
     }
 
     const staleStat = fs.fstatSync(fd);
@@ -85,8 +145,13 @@ function tryReclaimStaleLock(lockPath: string, staleLinkPath: string): LockState
 }
 
 function acquireFileLock(lockPath: string, options: FileLockOptions): string {
-  const owner = `${process.pid}:${randomUUID()}`;
-  const candidatePath = `${lockPath}.${owner}.candidate`;
+  const processBirth = processBirthIdentity(process.pid);
+  if (!processBirth) {
+    throw new Error(`could not determine process identity for ${options.activity} lock`);
+  }
+  const ownerId = randomUUID();
+  const owner = `${process.pid}:${Buffer.from(processBirth).toString("base64url")}:${ownerId}`;
+  const candidatePath = `${lockPath}.${process.pid}.${ownerId}.candidate`;
   const staleLinkPath = `${candidatePath}.stale`;
   const deadline = Date.now() + (options.waitMs ?? 0);
   let reclaimAttempts = 0;

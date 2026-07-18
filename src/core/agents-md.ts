@@ -144,7 +144,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - **When active**: hosts auto-namespace (\`web.localhost\` → \`web.<ws>.localhost\`), \`\${WORKSPACE}\` in \`upstream\` is substituted with the token, and the docker \`router\` key is suffixed per workspace. The runtime config is computed in memory only — the committed \`.devrouter.yml\` is never rewritten.
 - **TLS**: namespaced hosts (\`web.<ws>.localhost\`) are not covered by the \`*.localhost\` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.
 - **devcontainer integration**: managed scaffolds list the base compose file, then \`\${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}\`; custom repositories may keep another default overlay. Selecting \`.devcontainer/docker-compose.devrouter.yml\` for linked worktrees must pass \`WORKSPACE\` and \`DEVROUTER_WORKSPACE\` across the combined base/overlay config and bind-mount \`\${DEVROUTER_GIT_COMMON_DIR}\` to the same absolute app-container path. The app exposes \`\${WORKSPACE}-app\`; the proxy uses \`upstream: \${WORKSPACE}-app:<port>\`.
-- **Lifecycle**: after one-time \`setup\`, use \`ensure .\` for both primary and linked checkouts; never branch manually on checkout kind or use live verify as startup. \`stop .\` is non-destructive and \`exec . -- <command...>\` runs one-shot commands only in the exact running DevPod. \`workspace up\` creates linked worktrees; destructive \`workspace down/gc\` remains ledger-scoped. Dirty or locked full down fails before side effects.
+- **Lifecycle**: after one-time \`setup\`, use \`ensure .\` for both primary and linked checkouts; never branch manually on checkout kind or use live verify as startup. \`stop .\` is non-destructive; \`stop . --delete\` is explicit exact-owner cleanup without worktree removal; and \`exec . -- <command...>\` runs one-shot commands only in the exact running DevPod. \`workspace up\` creates linked worktrees; destructive worktree removal and GC remain ledger-scoped. Dirty or locked full down fails before side effects.
 - **Cleanup**: owner status is \`present\`, \`missing\`, \`locked\`, or \`conflict\`. \`workspace gc\` is a dry-run report; \`--yes\` deletes only exact ledger-owned missing/prunable resources and their records. GC never removes Git worktrees, branches, or prune state. Git has no worktree-removal hook.
 - **Boundary**: workspace commands require Git. Normal config, app, status, and doctor flows remain usable from a \`.devrouter.yml\` folder without \`.git\`.
 
@@ -197,7 +197,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - \`devrouter upgrade [version] [--repo .]\`: list upgrade targets or print target Agent Adaptation Prompt
 - \`devrouter setup --yes [--repo .] [--json]\`: first-run machine setup plus structured diagnostics
 - \`devrouter ensure [path] [--open] [--json]\`: canonical startup/reconciliation for primary and linked checkouts
-- \`devrouter stop [path] [--json]\`: stop the exact DevPod and remove exact routes without deleting data
+- \`devrouter stop [path] [--delete] [--json]\`: stop the exact DevPod and remove exact routes; \`--delete\` explicitly deletes its ownership-proven data without removing the checkout
 - \`devrouter exec [path] -- <command...>\`: literal one-shot command inside the exact running DevPod
 - \`devrouter up\` / \`devrouter down\`: start/stop shared Traefik router
 - \`devrouter status\`: router/container/network/TLS health

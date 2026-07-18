@@ -1,9 +1,5 @@
 import path from "node:path";
-import {
-  inspectDevpodWorkspaceOwnership,
-  listDevpodWorkspaces,
-  runDevpodWorkspaceAction,
-} from "./devpod-workspaces";
+import { listDevpodWorkspaces, mutateOwnedDevpodWorkspace } from "./devpod-workspaces";
 import { listHostRouteState } from "./host-routes";
 import { resolveRepoPath } from "./repo-config";
 import { removeWorkspaceRoutesForWorktree } from "./route-state";
@@ -272,18 +268,6 @@ function revalidateCandidate(
   };
 }
 
-function recheckDevpodOwnership(record: WorkspaceOwnershipRecord): "owned" | "absent" {
-  const ownership = inspectDevpodWorkspaceOwnership(
-    listDevpodWorkspaces(),
-    record.devpodId,
-    record.worktreePath,
-  );
-  if (ownership.status === "conflict") {
-    throw new Error(ownership.reason);
-  }
-  return ownership.status;
-}
-
 function failedAction(resource: WorkspaceGcActionResource, error: unknown): WorkspaceGcAction {
   return {
     resource,
@@ -315,8 +299,8 @@ function applyCandidate(candidate: WorkspaceGcCandidate, repoPath: string): Work
       const actions: WorkspaceGcAction[] = [];
       let devpodStatus: "owned" | "absent";
       try {
-        devpodStatus = recheckDevpodOwnership(record);
-        if (devpodStatus === "owned") runDevpodWorkspaceAction("delete", record.devpodId);
+        const mutation = mutateOwnedDevpodWorkspace("delete", record.devpodId, record.worktreePath);
+        devpodStatus = mutation.status === "changed" ? "owned" : "absent";
       } catch (error) {
         return { ...fresh, actions: [failedAction("devpod", error)] };
       }

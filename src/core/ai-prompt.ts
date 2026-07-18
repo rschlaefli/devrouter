@@ -115,8 +115,9 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Canonical startup and proof for an exact primary or linked checkout; atomically publishes routes after readiness.",
   },
   {
-    command: "devrouter stop [path] [--json]",
-    purpose: "Stop the exact checkout DevPod and routes without deleting checkout data.",
+    command: "devrouter stop [path] [--delete] [--json]",
+    purpose:
+      "Stop the exact checkout DevPod and routes; --delete explicitly deletes the ownership-proven DevPod without removing the checkout.",
   },
   {
     command: "devrouter exec [path] -- <command...>",
@@ -300,7 +301,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- The owner record survives linked-worktree removal and binds the exact path to its DevPod ID. First use reuses an exact-path DevPod or derives a sanitized branch/path identity. Later flags or `DEVROUTER_WORKSPACE` may repeat but cannot rename it. Ambiguous identities fail closed. The primary checkout stays non-namespaced.",
     `- When a workspace is active: hosts auto-namespace (\`web.localhost\` → \`web.<ws>.localhost\`), \`${WORKSPACE_PLACEHOLDER}\` in \`upstream\` is substituted with the token, and the docker \`router\` key is suffixed per workspace. The runtime config is computed in memory only — the committed \`.devrouter.yml\` is never rewritten.`,
     "- TLS: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.",
-    "- Lifecycle: after one-time setup, use `devrouter ensure .` for both primary and linked checkouts; never branch on checkout kind or use live verify as startup. Managed consumer images contain no devrouter package/helper: ensure delivers its matching helper at runtime and invokes the repository-owned post-start adapter. Keep `.devrouter.yml` as the only consumer-side version pin. Use `devrouter stop .` for a non-destructive pause and `devrouter exec . -- <command...>` for container commands. `workspace up` creates linked worktrees; destructive down/GC remains ledger-scoped.",
+    "- Lifecycle: after one-time setup, use `devrouter ensure .` for both primary and linked checkouts; never branch on checkout kind or use live verify as startup. Managed consumer images contain no devrouter package/helper: ensure delivers its matching helper at runtime and invokes the repository-owned post-start adapter. Keep `.devrouter.yml` as the only consumer-side version pin. Use `devrouter stop .` for a non-destructive pause, `devrouter stop . --delete` only for explicit exact-owner cleanup without removing the checkout, and `devrouter exec . -- <command...>` for container commands. `workspace up` creates linked worktrees; destructive worktree removal and GC remain ledger-scoped.",
     "- Owner status is `present`, `missing`, `locked`, or `conflict`. Dirty or locked full down fails before side effects. `workspace gc` is a dry run; only `--yes` deletes exact eligible missing resources and records, never Git worktrees, branches, or prune state.",
     "- Workspace commands require Git. Normal config, app, status, and doctor flows work from a `.devrouter.yml` folder without `.git`. Git has no worktree-removal hook; use `workspace ls`, doctor, or dry-run GC after out-of-band removal.",
     "- devcontainer integration: `devcontainer.json` lists the base compose file then `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}`. The default overlay contains `services: {}`; `.devcontainer/docker-compose.devrouter.yml` passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute app-container path. Ensure proves exact DevPod ownership, overlay/Git mounts, env, aliases, health, Git, HTTP route reachability, and unique running TCP upstream ownership before success.",

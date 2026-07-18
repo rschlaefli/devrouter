@@ -7,7 +7,12 @@ import {
   type WorkspaceContainerSnapshot,
   workspaceAppContainers,
 } from "./devpod-environment";
-import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
+import { withDevpodMutationLockSync } from "./devpod-mutation";
+import {
+  inspectDevpodWorkspaceOwnership,
+  listDevpodWorkspaces,
+  selectDevpodWorkspace,
+} from "./devpod-workspaces";
 import { parseUpstream, replaceHostRoutesForRepo } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
 import { resolveManagedPostStartPlan, runManagedPostStart } from "./managed-post-start";
@@ -357,13 +362,22 @@ function startDevpod(
 }
 
 function assertDevpodAttachment(repoPath: string, expectedId?: string): string {
-  const attached = selectDevpodWorkspace(listDevpodWorkspaces(), repoPath);
-  if (!attached || (expectedId && attached.id !== expectedId)) {
+  const workspaces = listDevpodWorkspaces();
+  const attached = selectDevpodWorkspace(workspaces, repoPath);
+  const devpodId = expectedId ?? attached?.id;
+  if (!devpodId) {
     throw new Error(
       `DevPod did not attach '${repoPath}'${expectedId ? ` as '${expectedId}'` : ""} after startup.`,
     );
   }
-  return attached.id;
+  const ownership = inspectDevpodWorkspaceOwnership(workspaces, devpodId, repoPath);
+  if (ownership.status === "conflict") throw new Error(ownership.reason);
+  if (ownership.status !== "owned") {
+    throw new Error(
+      `DevPod did not attach '${repoPath}'${expectedId ? ` as '${expectedId}'` : ""} after startup.`,
+    );
+  }
+  return devpodId;
 }
 
 function openUrls(urls: string[]): void {
@@ -446,9 +460,33 @@ export async function workspaceEnsure(
         target.kind === "linked" ? target : { ...target, devpodId };
 
       const startAndProveAttachment = (recreate = false): void => {
-        startDevpod(repoPath, currentTarget(), recreate, options.quiet);
-        environmentStarted = true;
-        devpodId = assertDevpodAttachment(repoPath, devpodId);
+        devpodId = withDevpodMutationLockSync(
+          recreate ? "DevPod recreate" : "DevPod start",
+          repoPath,
+          () => {
+            const requestedTarget = currentTarget();
+            const workspaces = listDevpodWorkspaces();
+            if (requestedTarget.devpodId) {
+              const before = inspectDevpodWorkspaceOwnership(
+                workspaces,
+                requestedTarget.devpodId,
+                repoPath,
+              );
+              if (before.status === "conflict") throw new Error(before.reason);
+              if (recreate && before.status !== "owned") {
+                throw new Error(
+                  `Cannot recreate DevPod '${requestedTarget.devpodId}' without one exact owner.`,
+                );
+              }
+            } else {
+              devpodId = selectDevpodWorkspace(workspaces, repoPath)?.id;
+            }
+
+            startDevpod(repoPath, currentTarget(), recreate, options.quiet);
+            environmentStarted = true;
+            return assertDevpodAttachment(repoPath, devpodId);
+          },
+        );
         if (ownership) {
           writeWorkspaceOwnership(repoPath, ownership);
         }

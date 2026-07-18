@@ -16,6 +16,19 @@ import { startRouterStack } from "../router";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("../file-lock", () => ({
+  withFileLock: vi.fn(async (_path: string, _options: unknown, operation: () => Promise<unknown>) =>
+    operation(),
+  ),
+  withFileLockSync: vi.fn((_path: string, _options: unknown, operation: () => unknown) =>
+    operation(),
+  ),
+}));
+vi.mock("../devpod-mutation", () => ({
+  withDevpodMutationLockSync: vi.fn(
+    (_activity: string, _target: string, operation: () => unknown) => operation(),
+  ),
+}));
 vi.mock("../host-routes", () => ({
   parseUpstream: vi.fn((upstream: string) => {
     const [host, port] = upstream.split(":");
@@ -519,7 +532,7 @@ describe("workspaceEnsure", () => {
   it("rediscovers the exact DevPod id after a new primary startup", async () => {
     makePrimaryRepo();
     mockPrimaryLifecycle({
-      devpodLists: [[], [{ id: "devpod-selected", source: { localFolder: tmpDir } }]],
+      devpodLists: [[], [], [{ id: "devpod-selected", source: { localFolder: tmpDir } }]],
     });
 
     await expect(
@@ -527,6 +540,26 @@ describe("workspaceEnsure", () => {
     ).resolves.toMatchObject({ kind: "primary", devpodId: "devpod-selected" });
 
     expect(devpodUpCalls()[0][1]).not.toContain("--id");
+  });
+
+  it("rejects a duplicated DevPod id during post-start ownership proof", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle({
+      devpodLists: [
+        [],
+        [],
+        [
+          { id: "duplicated", source: { localFolder: tmpDir } },
+          { id: "duplicated", source: { localFolder: "/other/repo" } },
+        ],
+      ],
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("do not have one exact owner");
+
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
   });
 
   it("keeps DevPod progress off stdout in quiet mode", async () => {
@@ -600,7 +633,7 @@ describe("workspaceEnsure", () => {
     makePrimaryRepo();
     mockPrimaryLifecycle({
       appAliases: ["stale-app"],
-      devpodLists: [[], [{ id: "new-primary", source: { localFolder: tmpDir } }]],
+      devpodLists: [[], [], [{ id: "new-primary", source: { localFolder: tmpDir } }]],
     });
 
     await expect(
