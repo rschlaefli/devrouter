@@ -110,5 +110,5 @@ After moves, scan Markdown, scripts, and configuration for stale source-path lit
 
 ## Progress
 
-- Current: independent review complete; all five blockers resolved. Baseline documentation policy passes.
-- Next: commit this plan alone, then execute Slice 1.
+- Current: Slice 1 complete. All project records now live under `docs/project/`; open roadmap work is preserved, historical statuses are labelled, `CONTEXT.md` is unchanged, and the docs map/policy distinguish current manuals from records. Pinned docs policy, 70-file local Markdown path scan, filename/layout checks, and diff checks pass. Correctness re-review returned `DONE`; simplification removed duplicate navigation, repaired historical destinations, and reconciled stale statuses.
+- Next: commit Slice 1, then add the lean OKF bundle and deterministic validator in Slice 2.

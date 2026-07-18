@@ -1,15 +1,15 @@
 # devrouter - architecture deepening plan
 
-Status: **draft PR opened**. Last updated: 2026-06-28.
+Status: **delivered through PR #10**. Original plan last updated: 2026-06-28.
 
 ## Plan identity
 
-- Plan path: `project/2026-06-28-pr-10-architecture-deepening-plan.md`
+- Plan path: `docs/project/2026-06-28-pr-10-architecture-deepening-plan.md`
 - Proposed branch: `codex/architecture-deepening-runtime-routes`
 - Target branch: `main`
 - PR: #10 (`https://github.com/rschlaefli/devrouter/pull/10`)
 - Source report: `/var/folders/24/j7k2mlqn42l_dhq64jpqslxh0000gp/T/architecture-review-20260628-155228.html`
-- Related history: `project/2026-06-25-pr-9-workspace-agent-native.md` for route/workspace behavior and current release evidence.
+- Related history: `docs/project/2026-06-25-pr-9-workspace-agent-native-plan.md` for route/workspace behavior and current release evidence.
 
 ## Progress
 
@@ -295,7 +295,7 @@ Deferred findings:
 Review prompt:
 
 ```text
-Review /Users/rschlae/Git/personal/devrouter/project/2026-06-28-architecture-deepening-plan.md.
+Review `docs/project/2026-06-28-pr-10-architecture-deepening-plan.md`.
 Goal: plan architecture improvements from local report, not implement.
 Use caveman basic form.
 Return status DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, or BLOCKED.
@@ -320,7 +320,7 @@ Do:
 
 Files:
 
-- `project/2026-06-28-architecture-deepening-plan.md`
+- `docs/project/2026-06-28-pr-10-architecture-deepening-plan.md`
 
 Check:
 
@@ -748,7 +748,7 @@ Required docs if public behavior changes:
 - `AGENTS.md`
 - `docs/GETTING_STARTED.md`
 - `docs/REPO_ONBOARDING.md`
-- `docs/PLAN.md`
+- `docs/project/2026-02-07-devrouter-roadmap.md`
 - `demo/README.md`
 - `CHANGELOG.md`
 - `upgrade-prompts/*.md`
@@ -773,10 +773,10 @@ Likely docs for this branch:
 Use this prompt to continue implementation:
 
 ```text
-Goal: execute /Users/rschlae/Git/personal/devrouter/project/2026-06-28-architecture-deepening-plan.md.
+Goal: execute `docs/project/2026-06-28-pr-10-architecture-deepening-plan.md`.
 
 Current plan path:
-/Users/rschlae/Git/personal/devrouter/project/2026-06-28-architecture-deepening-plan.md
+docs/project/2026-06-28-pr-10-architecture-deepening-plan.md
 
 Branch:
 codex/architecture-deepening-runtime-routes

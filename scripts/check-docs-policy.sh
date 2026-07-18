@@ -6,9 +6,10 @@ cd "$ROOT_DIR"
 
 PRODUCT_DOCS=(
   "README.md"
+  "docs/README.md"
   "docs/GETTING_STARTED.md"
+  "docs/DEVCONTAINER.md"
   "docs/REPO_ONBOARDING.md"
-  "docs/PLAN.md"
   "examples/routing/README.md"
   "examples/devcontainer/README.md"
   "examples/workspace/README.md"

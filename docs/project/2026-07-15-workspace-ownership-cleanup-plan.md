@@ -1,15 +1,15 @@
 # Devrouter workspace ownership and cleanup plan
 
-Status: approved and executing. Date: 2026-07-15.
+Status: delivered. Original execution date: 2026-07-15.
 
 ## Plan identity
 
-- Path: `project/2026-07-15-workspace-ownership-cleanup-plan.md`
+- Path: `docs/project/2026-07-15-workspace-ownership-cleanup-plan.md`
 - Branch: `codex/workspace-ownership-cleanup`
 - Worktree: `/Users/rschlae/Git/personal/devrouter/trees/workspace-ownership-cleanup`
 - Target: `origin/main` at `302ac44` (`0.0.30`)
 - PR: none yet
-- History: `project/2026-06-25-pr-9-workspace-agent-native.md`
+- History: `docs/project/2026-06-25-pr-9-workspace-agent-native-plan.md`
 - ADR: `docs/adr/0001-repo-local-workspace-ownership.md`
 
 ## Goal

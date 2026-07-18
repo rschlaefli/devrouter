@@ -4,13 +4,14 @@ Guidance for agentic coders working in this repository.
 
 ## Setup docs
 
+- [`docs/README.md`](./docs/README.md) (documentation map)
 - [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
 - [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) (preferred: front a devcontainer via `runtime: proxy`)
 - [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
 - [`examples/routing/README.md`](./examples/routing/README.md)
 - [`examples/devcontainer/README.md`](./examples/devcontainer/README.md)
 - [`examples/workspace/README.md`](./examples/workspace/README.md)
-- [`docs/PLAN.md`](./docs/PLAN.md)
+- [`docs/project/index.md`](./docs/project/index.md) (dated active and delivered project records)
 - [`docs/solutions/`](./docs/solutions/) (incident-derived lessons and prevention guidance)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 
@@ -21,19 +22,21 @@ Keep these docs up to date with any behavior, command, schema, or onboarding wor
 1. `README.md`
 2. `AGENTS.md`
 3. `docs/GETTING_STARTED.md`
-4. `docs/REPO_ONBOARDING.md`
-5. `docs/PLAN.md`
-6. `examples/routing/README.md`
-7. `examples/devcontainer/README.md`
-8. `examples/workspace/README.md`
-9. `CHANGELOG.md`
-10. `upgrade-prompts/*.md`
+4. `docs/DEVCONTAINER.md`
+5. `docs/REPO_ONBOARDING.md`
+6. `docs/README.md`
+7. `examples/routing/README.md`
+8. `examples/devcontainer/README.md`
+9. `examples/workspace/README.md`
+10. `CHANGELOG.md`
+11. `upgrade-prompts/*.md`
 
 ## Documentation policy
 
-1. Product docs (`README.md`, `docs/*`, `examples/*/README.md`) must describe the current state only.
-2. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
-3. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
+1. Product manuals (`README.md`, `docs/GETTING_STARTED.md`, `docs/REPO_ONBOARDING.md`, `docs/DEVCONTAINER.md`, and `examples/*/README.md`) and active knowledge must describe current state only.
+2. `docs/project/**`, `docs/adr/**`, and `docs/solutions/**` are status-labelled records and may retain historical context.
+3. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
+4. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
 
 
 

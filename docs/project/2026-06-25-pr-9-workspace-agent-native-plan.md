@@ -5,11 +5,11 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
 
 ## Plan identity
 
-- Plan path: `project/2026-06-25-pr-9-workspace-agent-native.md`
+- Plan path: `docs/project/2026-06-25-pr-9-workspace-agent-native-plan.md`
 - Branch: `feat/workspace-agent-native`
 - Target: `main`
 - PR: `https://github.com/rschlaefli/devrouter/pull/9`
-- Prior path: `project/2026-06-25-workspace-agent-native.md` (renamed after PR ID existed)
+- Prior path: `project/2026-06-25-workspace-agent-native.md` (historical pre-PR path; renamed after the PR ID existed)
 
 ## Progress
 
@@ -76,7 +76,7 @@ Target release: **0.0.22**. Last updated: 2026-06-28.
 
 Goal: finish PR #9 workspace-agent-native and deploy `@devrouter/cli@0.0.22`.
 
-Use this plan as current truth: `project/2026-06-25-pr-9-workspace-agent-native.md`.
+Use this plan as current truth: `docs/project/2026-06-25-pr-9-workspace-agent-native-plan.md`.
 
 Rules:
 - Update `Progress` before and after each slice.

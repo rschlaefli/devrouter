@@ -490,9 +490,12 @@ Global managed artifacts remain under:
 
 ## Docs
 
+- Documentation map: [`docs/README.md`](./docs/README.md)
 - Setup and bootstrapping: [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
 - Onboarding repositories and AI prompt: [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
+- Managed devcontainer integration: [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md)
+- Shared domain vocabulary for planning skills: [`CONTEXT.md`](./CONTEXT.md)
 - Agent contributor guide: [`AGENTS.md`](./AGENTS.md)
 - Routing example: [`./examples/routing/README.md`](./examples/routing/README.md)
-- Roadmap: [`docs/PLAN.md`](./docs/PLAN.md)
+- Project records and roadmap: [`docs/project/index.md`](./docs/project/index.md)
 - Release and adaptation history: [`CHANGELOG.md`](./CHANGELOG.md) and [`upgrade-prompts/`](./upgrade-prompts/)

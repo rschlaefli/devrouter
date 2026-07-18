@@ -1,16 +1,16 @@
 # devrouter - agent-native devcontainer usability plan
 
-Status: **PR open, follow-up restructure in progress**. Last updated: 2026-06-28.
+Status: **delivered through PR #11**. Original plan last updated: 2026-06-28.
 
 ## Plan identity
 
-- Plan path: `project/2026-06-28-pr-11-agent-native-devcontainer-usability-plan.md`
+- Plan path: `docs/project/2026-06-28-pr-11-agent-native-devcontainer-usability-plan.md`
 - Proposed branch: `codex/agent-native-devcontainer-usability`
 - Target branch: `main`
 - PR: [#11](https://github.com/rschlaefli/devrouter/pull/11)
 - Prior related work:
-  - `project/2026-06-25-pr-9-workspace-agent-native.md`
-  - `project/2026-06-28-pr-10-architecture-deepening-plan.md`
+  - `docs/project/2026-06-25-pr-9-workspace-agent-native-plan.md`
+  - `docs/project/2026-06-28-pr-10-architecture-deepening-plan.md`
 
 ## Progress
 
@@ -497,12 +497,12 @@ Do:
 
 Files:
 
-- `project/2026-06-28-agent-native-devcontainer-usability-plan.md`
+- `docs/project/2026-06-28-pr-11-agent-native-devcontainer-usability-plan.md`
 
 Check:
 
 - Plan-only: `git diff --check`.
-- No product-doc policy coverage is expected for `project/`.
+- No product-doc policy coverage is expected for `docs/project/`.
 
 Commit:
 
@@ -936,7 +936,7 @@ Requested reviewer:
 Prompt:
 
 ```text
-Review project/2026-06-28-agent-native-devcontainer-usability-plan.md.
+Review `docs/project/2026-06-28-pr-11-agent-native-devcontainer-usability-plan.md`.
 Focus:
 - Does this make devrouter/devcontainer/devpod setup genuinely agent-native?
 - Is command surface too complex?
@@ -977,7 +977,7 @@ User correction after opencode review:
 Use this prompt after plan approval:
 
 ```text
-Goal: execute /Users/rschlae/Git/personal/devrouter/project/2026-06-28-agent-native-devcontainer-usability-plan.md.
+Goal: execute `docs/project/2026-06-28-pr-11-agent-native-devcontainer-usability-plan.md`.
 
 Branch:
 codex/agent-native-devcontainer-usability

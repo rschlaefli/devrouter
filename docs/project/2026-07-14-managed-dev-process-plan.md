@@ -1,5 +1,7 @@
 # Managed Dev Process Plan
 
+Status: delivered in `0.0.30`. Progress and next-step sections below are historical execution records.
+
 ## Goal
 
 - Ship one reusable, fail-closed dev-process supervisor with Devrouter.
@@ -15,7 +17,7 @@
 
 ## Identity
 
-- Plan: `project/2026-07-14-managed-dev-process-plan.md`
+- Plan: `docs/project/2026-07-14-managed-dev-process-plan.md`
 - Branch: `codex/managed-dev-process`
 - Base: `origin/main` at `4a7b04b`
 - Target: `main`
