@@ -11,6 +11,7 @@ Guidance for agentic coders working in this repository.
 - [`examples/devcontainer/README.md`](./examples/devcontainer/README.md)
 - [`examples/workspace/README.md`](./examples/workspace/README.md)
 - [`docs/PLAN.md`](./docs/PLAN.md)
+- [`docs/solutions/`](./docs/solutions/) (incident-derived lessons and prevention guidance)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 
 ## Documentation sync requirement
