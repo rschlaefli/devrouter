@@ -15,7 +15,7 @@
 # primary or linked startup. Run container commands with `devrouter exec . -- ...`.
 version: 1
 devrouter:
-  version: 0.0.34
+  version: 0.0.35
 project:
   name: {{APP}}
 apps:

@@ -54,7 +54,8 @@ Supported routing:
 - HTTP proxy apps (`runtime: proxy`) — route to an already-running `upstream` (`host:port`); for a managed devcontainer, `ensure` also supplies the process helper and invokes the repository adapter before readiness. `upstream` may use the `${WORKSPACE}` token (substituted at runtime; rejected in `host`).
 - TCP apps on shared protocol ports with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
 - Dependency-only docker services (`kind: dependency`, non-routed)
-- Workspace isolation: each managed linked worktree has a local Git token plus a durable owner record in the repository's Git common directory. First use reuses an exact-path DevPod or derives a sanitized branch/path identity; later overrides may repeat but never rename it. When active, hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`) and `${WORKSPACE}` upstreams substitute; the committed `.devrouter.yml` is never rewritten (runtime config is in-memory).
+- Workspace isolation: each managed linked worktree has a local Git token plus a durable owner record in the repository's Git common directory. First use reuses an exact-path DevPod or derives a sanitized branch/path identity; later overrides may repeat but never rename it. When active, hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`) and `${WORKSPACE}` upstreams substitute; managed `ensure` requires every HTTP/TCP proxy upstream to remain in that exact alias namespace. The committed `.devrouter.yml` is never rewritten (runtime config is in-memory).
+- Managed lifecycle: use devrouter commands rather than raw DevPod mutations. A machine-global provider lock revalidates exact ID/path ownership around each action; managed-process reuse includes exact adapter bytes and allowlisted non-secret runtime identity; published route metadata and Traefik rendering share one canonical artifact.
 
 ## Supported command surface
 
@@ -94,6 +95,7 @@ Supported routing:
 - `src/core/workspace-lifecycle.ts`: `devrouter workspace up/ls/stop/down` engine (worktree creation, reversible stop, fail-closed teardown, lifecycle locking)
 - `src/core/workspace-ownership.ts`: durable Git-common-dir owner records and live Git/DevPod ownership classification
 - `src/core/workspace-gc.ts`: dry-run-first cleanup for exact ledger-owned missing workspaces
+- `src/core/devpod-mutation.ts`: machine-global serialization boundary for ownership-proven DevPod provider mutations
 - `src/core/workspace-ensure.ts`: fail-closed `workspace ensure` engine (exact-path DevPod discovery/start, runtime proof, atomic route reconciliation)
 - `src/core/managed-post-start.ts`: managed-adapter migration guard plus runtime-only process-helper delivery and invocation in the exact validated container
 - `src/core/environment-stop.ts`: non-destructive exact-checkout stop lifecycle
@@ -105,7 +107,7 @@ Supported routing:
 - `src/commands/app-exec.ts`: `devrouter app exec` command handler
 - `src/core/routes.ts`: discover HTTP + TCP routes from labels
 - `src/core/router.ts`: shared Traefik stack/files under `~/.config/devrouter`
-- `src/core/host-routes.ts`: host process route state + dynamic file rendering
+- `src/core/host-routes.ts`: locked host-route state, versioned canonical Traefik metadata/rendering, durable atomic publication, and compatibility recovery
 - `src/core/paths.ts`: path traversal guard (`assertPathWithinRepo`) for repo-scoped file references
 - `src/core/tls.ts`: mkcert integration, SAN coverage checks, and TLS enablement/refresh
 - `src/commands/logs.ts`: `devrouter logs` command handler (Traefik log access)

@@ -590,6 +590,7 @@ A **workspace token** lets multiple git worktrees of the same repo run concurren
 
 - Hosts are auto-namespaced in memory: `web.localhost` → `web.<ws>.localhost`
 - `${WORKSPACE}` in a proxy app's `upstream` field is substituted with the token at runtime
+- Managed `ensure` rejects every HTTP or TCP proxy upstream outside the exact resolved workspace/project alias namespace before starting DevPod or changing routes
 - The committed `.devrouter.yml` is never modified
 - TLS cert SANs are auto-extended for namespaced hosts when TLS is enabled
 
@@ -660,7 +661,9 @@ With workspace `feat-a` active: host becomes `app.feat-a.localhost`, upstream re
 
 The devcontainer compose service should expose a network alias `${WORKSPACE}-app` (where `WORKSPACE` defaults to the project name in `devcontainer.env`). Its `devcontainer.json` selects `.devcontainer/docker-compose.devrouter.yml` through `DEVCONTAINER_COMPOSE_OVERLAY`; that overlay passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute path inside the app container so the linked-worktree `.git` pointer works.
 
-`ensure` reports ready only after it proves exact DevPod/checkout ownership, the required mount and environment contract, devnet aliases, container health, Git access, HTTP route reachability, and unique running TCP upstream ownership (plus health when configured). It recreates one stale existing DevPod once, then fails with the exact missing invariant. Failed proof does not leave new routes behind.
+`ensure` reports ready only after it proves exact DevPod/checkout ownership, the required mount and environment contract, devnet aliases, container health, Git access, HTTP route reachability, and unique running TCP upstream ownership (plus health when configured). It recreates one stale existing DevPod once, then fails with the exact missing invariant. Failed proof does not leave new routes behind. Route metadata and rendered Traefik configuration are one canonical, durable artifact; valid legacy state migrates automatically and corrupt canonical state fails closed.
+
+Use only devrouter lifecycle commands for a managed environment. Raw `devpod up`, `devpod stop`, and `devpod delete` bypass the machine-wide ownership lock and exact ID/path revalidation. Use `devrouter stop . --delete` for explicit exact-owner DevPod cleanup that preserves the checkout.
 
 **Missing-owner detection:** `devrouter doctor` reports ledger-owned workspaces
 whose checkout disappeared or conflicts with live Git/DevPod evidence. It does

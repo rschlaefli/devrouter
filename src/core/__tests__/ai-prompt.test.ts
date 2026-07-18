@@ -58,6 +58,10 @@ describe("buildOnboardingPrompt", () => {
     expect(prompt).toContain("devrouter exec <REPO_PATH> -- <command...>");
     expect(prompt).toContain("never branch on checkout kind or use live verify as startup");
     expect(prompt).toContain("Managed consumer images contain no devrouter package/helper");
+    expect(prompt).toContain(
+      "`DEVROUTER_PROCESS_FINGERPRINT_ENV` to its comma-separated environment names",
+    );
+    expect(prompt).toContain("secret-like names are rejected and raw values are never persisted");
     expect(prompt).toContain("`.devrouter.yml` as the only consumer-side version pin");
     expect(prompt).toContain("Validation commands to run/report for the devcontainer path:");
     expect(prompt).toContain("Validation commands to run/report for host/docker runtime apps:");

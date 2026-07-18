@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.35] - 2026-07-18
+
+### Fixed
+
+- DevPod start, recreate, stop, delete, and garbage-collection mutations are serialized machine-wide and revalidate the exact DevPod ID plus checkout path immediately before and after each provider action.
+- Lock records include process-birth identity, so PID reuse no longer makes a stale lock appear to belong to the original live process.
+- Managed `ensure` rejects every HTTP or TCP proxy upstream outside the resolved checkout alias namespace before DevPod or route mutation.
+- Managed-process reuse now includes exact adapter bytes, workspace identity, command argv, and explicitly allowlisted non-secret environment values; changed runtime identity restarts only the owned process group.
+- Route publication now stores versioned metadata with the rendered Traefik document in one canonical, durable atomic artifact. Interrupted writes recover one complete generation, while corrupt canonical state fails closed.
+
+### Changed
+
+- `devrouter stop <path> --delete` is the explicit exact-owner cleanup path when the Git checkout must be preserved; direct `devpod stop/delete` bypasses devrouter's ownership boundary and is unsupported for managed environments.
+- Devcontainer diagnostics now reject incomplete or unmarked devrouter lifecycle wiring instead of silently treating it as a custom unmanaged adapter.
+
+### Compatibility
+
+- Existing `.devrouter.yml` and workspace ownership schemas remain compatible.
+- Headerless route files written by `0.0.34` are migrated from validated compatibility JSON; a header-bearing Traefik file remains authoritative if the mirror differs.
+- The managed adapter contract introduced in `0.0.34` remains valid. Consumer changes are needed only for foreign proxy aliases, raw DevPod lifecycle commands, or optional runtime environment fingerprinting.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.35.md
+
 ## [0.0.34] - 2026-07-16
 
 ### Changed

@@ -120,9 +120,12 @@ Node + pnpm + Postgres. Other package managers stop with a JSON diagnostic
 instead of writing files that would need manual repair.
 The generated image contains no Devrouter package or helper. `devrouter ensure`
 delivers its matching `devrouter-process` helper to the exact running container,
-then invokes the repository-owned `post-start.sh` for locked, owned, idempotent
-background startup. Application commands and environment setup remain
-repository-owned; route readiness remains part of `devrouter ensure`.
+then invokes an exact captured snapshot of the repository-owned `post-start.sh`
+for locked, owned, idempotent background startup. Process reuse includes the
+command, workspace, and adapter identity. Repositories may name extra non-secret
+runtime variables in `DEVROUTER_PROCESS_FINGERPRINT_ENV`; secret-like names are
+rejected and raw values are not persisted. Application commands and environment
+setup remain repository-owned; route readiness remains part of `devrouter ensure`.
 Use `devrouter repo devcontainer verify --json` for read-only PR evidence; add
 `--live --yes` only for compatibility checks. Normal startup uses `ensure`.
 
@@ -142,6 +145,7 @@ non-namespaced routes.
 
 - Hosts are auto-namespaced: `web.localhost` → `web.<ws>.localhost`
 - `${WORKSPACE}` in a proxy app's `upstream` (e.g. `upstream: ${WORKSPACE}-app:3000`) is substituted with the token at runtime
+- Managed `ensure` requires every HTTP and TCP proxy upstream to begin with the exact resolved workspace/project alias prefix before it starts DevPod or changes routes
 - The committed `.devrouter.yml` is never rewritten — all namespacing is computed in memory
 - TLS: namespaced hosts are not covered by `*.localhost`; devrouter auto-extends mkcert cert SANs for active workspace hosts
 
@@ -198,14 +202,18 @@ the required compose/Git mount contract, workspace env when linked, devnet alias
 container health, Git access, HTTP route reachability, and unique running TCP
 upstream ownership (plus health when configured) before reporting ready. It
 retries one stale DevPod with `--recreate`; failed proof does not leave new routes
-behind.
+behind. Published host routes carry validated metadata in the same canonical
+Traefik file; durable atomic replacement and compatibility-mirror recovery prevent
+partial generations from becoming ready.
 
 Use `devrouter stop .` to pause the exact environment without deleting data. Use
 `devrouter stop . --delete` only for explicit exact-owner cleanup without removing
 the Git checkout. Both paths revalidate provider ownership inside the shared
 machine mutation lock. Use
 `devrouter exec . -- <command...>` for seeds, migrations, and other one-shot
-container commands; it does not start a missing or stopped environment.
+container commands; it does not start a missing or stopped environment. Do not
+use raw `devpod up`, `stop`, or `delete` for a devrouter-managed environment:
+those commands bypass the ownership lock and exact-path postcondition checks.
 
 **Try it:** [`examples/workspace/`](examples/workspace/) is a runnable showcase — `./run.sh` brings up one app in two parallel worktrees (`wsdemo.localhost` and `wsdemo.feat-a.localhost`) served at once, then `./run.sh down` tears it down.
 
