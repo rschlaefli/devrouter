@@ -16,6 +16,14 @@ import { startRouterStack } from "../router";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("../file-lock", () => ({
+  withFileLock: vi.fn(async (_path: string, _options: unknown, operation: () => Promise<unknown>) =>
+    operation(),
+  ),
+  withFileLockSync: vi.fn((_path: string, _options: unknown, operation: () => unknown) =>
+    operation(),
+  ),
+}));
 vi.mock("../host-routes", () => ({
   parseUpstream: vi.fn((upstream: string) => {
     const [host, port] = upstream.split(":");
@@ -33,6 +41,7 @@ vi.mock("../repo-config", () => ({
   resolveRepoPath: vi.fn((repo?: string) => repo ?? process.cwd()),
 }));
 vi.mock("../router", () => ({
+  DEVROUTER_HOME: "/tmp/devrouter-workspace-ensure-test",
   DEVNET_NAME: "devnet",
   TCP_PROTOCOL_REGISTRY: { postgres: { port: 5432, entrypoint: "postgres" } },
   activateTcpProtocol: vi.fn(() => false),
@@ -519,7 +528,7 @@ describe("workspaceEnsure", () => {
   it("rediscovers the exact DevPod id after a new primary startup", async () => {
     makePrimaryRepo();
     mockPrimaryLifecycle({
-      devpodLists: [[], [{ id: "devpod-selected", source: { localFolder: tmpDir } }]],
+      devpodLists: [[], [], [{ id: "devpod-selected", source: { localFolder: tmpDir } }]],
     });
 
     await expect(
@@ -527,6 +536,26 @@ describe("workspaceEnsure", () => {
     ).resolves.toMatchObject({ kind: "primary", devpodId: "devpod-selected" });
 
     expect(devpodUpCalls()[0][1]).not.toContain("--id");
+  });
+
+  it("rejects a duplicated DevPod id during post-start ownership proof", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle({
+      devpodLists: [
+        [],
+        [],
+        [
+          { id: "duplicated", source: { localFolder: tmpDir } },
+          { id: "duplicated", source: { localFolder: "/other/repo" } },
+        ],
+      ],
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("do not have one exact owner");
+
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
   });
 
   it("keeps DevPod progress off stdout in quiet mode", async () => {
@@ -600,7 +629,7 @@ describe("workspaceEnsure", () => {
     makePrimaryRepo();
     mockPrimaryLifecycle({
       appAliases: ["stale-app"],
-      devpodLists: [[], [{ id: "new-primary", source: { localFolder: tmpDir } }]],
+      devpodLists: [[], [], [{ id: "new-primary", source: { localFolder: tmpDir } }]],
     });
 
     await expect(
@@ -643,7 +672,12 @@ describe("workspaceEnsure", () => {
 
   it("passes the exact preflight container to managed post-start before route readiness", async () => {
     const events: string[] = [];
-    const plan = { kind: "runtime" as const, adapterPath: ".devcontainer/post-start.sh" };
+    const plan = {
+      kind: "runtime" as const,
+      adapterPath: ".devcontainer/post-start.sh",
+      adapterSha256: "a".repeat(64),
+      adapterContents: Buffer.from("adapter"),
+    };
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue(plan);
     vi.mocked(runManagedPostStart).mockImplementation(() => {
       events.push("managed-start");
@@ -683,6 +717,8 @@ describe("workspaceEnsure", () => {
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
       kind: "runtime",
       adapterPath: ".devcontainer/post-start.sh",
+      adapterSha256: "a".repeat(64),
+      adapterContents: Buffer.from("adapter"),
     });
     vi.mocked(runManagedPostStart).mockImplementation(() => {
       throw new Error("Managed post-start failed");
@@ -822,6 +858,37 @@ describe("workspaceEnsure", () => {
     expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
   });
 
+  it("rejects an HTTP upstream outside the exact workspace namespace", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      workspace: "feature",
+      config: {
+        version: 1,
+        apps: [
+          {
+            name: "web",
+            host: "web.feature.localhost",
+            protocol: "http",
+            runtime: "proxy",
+            dependencies: [],
+            upstream: "shared-app:3000",
+          },
+        ],
+      },
+    });
+    mockLifecycle();
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("must use a workspace-owned upstream");
+
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "devpod",
+      expect.arrayContaining(["up"]),
+      expect.anything(),
+    );
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+  });
+
   it("clears stale routes when the workspace alias is wrong", async () => {
     mockLifecycle({ appAliases: ["old-app"] });
 
@@ -853,6 +920,8 @@ describe("workspaceEnsure", () => {
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
       kind: "runtime",
       adapterPath: ".devcontainer/post-start.sh",
+      adapterSha256: "a".repeat(64),
+      adapterContents: Buffer.from("adapter"),
     });
     vi.mocked(runManagedPostStart).mockImplementation(() => {
       events.push("managed-start");

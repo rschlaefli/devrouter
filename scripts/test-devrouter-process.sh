@@ -60,6 +60,14 @@ run_helper() {
     -- "$@"
 }
 
+run_default_helper() {
+  "$HELPER" ensure \
+    --name "$name" \
+    --match "$pattern" \
+    --log "$log_file" \
+    -- "$@"
+}
+
 command=(bash -c "exec -a '$pattern' sleep 300")
 run_helper "100-1" "${command[@]}" &
 first_reconcile=$!
@@ -120,20 +128,106 @@ managed_pid=""
 rm -f "$state_file"
 export WORKSPACE=workspace-a
 export DEVROUTER_WORKSPACE=workspace-a
-"$HELPER" ensure --name "$name" --match "$pattern" --log "$log_file" -- "${command[@]}"
+run_default_helper "${command[@]}"
 read -r default_pid _ default_fingerprint <"$state_file"
 managed_pid="$default_pid"
-"$HELPER" ensure --name "$name" --match "$pattern" --log "$log_file" -- "${command[@]}"
+run_default_helper "${command[@]}"
 read -r matching_default_pid _ matching_default_fingerprint <"$state_file"
 [ "$matching_default_pid" = "$default_pid" ]
 [ "$matching_default_fingerprint" = "$default_fingerprint" ]
 export DEVROUTER_WORKSPACE=workspace-b
-"$HELPER" ensure --name "$name" --match "$pattern" --log "$log_file" -- "${command[@]}"
+run_default_helper "${command[@]}"
 read -r changed_workspace_pid _ changed_workspace_fingerprint <"$state_file"
 [ "$changed_workspace_pid" != "$default_pid" ]
 [ "$changed_workspace_fingerprint" != "$default_fingerprint" ]
 managed_pid="$changed_workspace_pid"
-unset WORKSPACE DEVROUTER_WORKSPACE
+
+export DEVROUTER_PROCESS_ADAPTER_SHA256="$(printf 'a%.0s' {1..64})"
+run_default_helper "${command[@]}"
+read -r adapter_a_pid _ adapter_a_fingerprint <"$state_file"
+[ "$adapter_a_pid" != "$changed_workspace_pid" ]
+managed_pid="$adapter_a_pid"
+run_default_helper "${command[@]}"
+read -r matching_adapter_pid _ matching_adapter_fingerprint <"$state_file"
+[ "$matching_adapter_pid" = "$adapter_a_pid" ]
+[ "$matching_adapter_fingerprint" = "$adapter_a_fingerprint" ]
+export DEVROUTER_PROCESS_ADAPTER_SHA256="$(printf 'b%.0s' {1..64})"
+run_default_helper "${command[@]}"
+read -r adapter_b_pid _ adapter_b_fingerprint <"$state_file"
+[ "$adapter_b_pid" != "$adapter_a_pid" ]
+[ "$adapter_b_fingerprint" != "$adapter_a_fingerprint" ]
+managed_pid="$adapter_b_pid"
+
+export DEVROUTER_PROCESS_FINGERPRINT_ENV=PUBLIC_ORIGIN
+unset PUBLIC_ORIGIN
+run_default_helper "${command[@]}"
+read -r origin_unset_pid _ origin_unset_fingerprint <"$state_file"
+[ "$origin_unset_pid" != "$adapter_b_pid" ]
+managed_pid="$origin_unset_pid"
+export PUBLIC_ORIGIN=""
+run_default_helper "${command[@]}"
+read -r origin_empty_pid _ origin_empty_fingerprint <"$state_file"
+[ "$origin_empty_pid" != "$origin_unset_pid" ]
+[ "$origin_empty_fingerprint" != "$origin_unset_fingerprint" ]
+managed_pid="$origin_empty_pid"
+run_default_helper "${command[@]}"
+read -r matching_empty_pid _ matching_empty_fingerprint <"$state_file"
+[ "$matching_empty_pid" = "$origin_empty_pid" ]
+[ "$matching_empty_fingerprint" = "$origin_empty_fingerprint" ]
+export PUBLIC_ORIGIN="https://runtime-origin.example.invalid"
+run_default_helper "${command[@]}"
+read -r origin_value_pid _ origin_value_fingerprint <"$state_file"
+[ "$origin_value_pid" != "$origin_empty_pid" ]
+[ "$origin_value_fingerprint" != "$origin_empty_fingerprint" ]
+managed_pid="$origin_value_pid"
+
+export FIRST_PUBLIC_ORIGIN="https://first-origin.example.invalid"
+export SECOND_PUBLIC_ORIGIN="https://second-origin.example.invalid"
+export DEVROUTER_PROCESS_FINGERPRINT_ENV=SECOND_PUBLIC_ORIGIN,FIRST_PUBLIC_ORIGIN,SECOND_PUBLIC_ORIGIN
+run_default_helper "${command[@]}"
+read -r sorted_origin_pid _ sorted_origin_fingerprint <"$state_file"
+[ "$sorted_origin_pid" != "$origin_value_pid" ]
+managed_pid="$sorted_origin_pid"
+export DEVROUTER_PROCESS_FINGERPRINT_ENV=FIRST_PUBLIC_ORIGIN,SECOND_PUBLIC_ORIGIN
+run_default_helper "${command[@]}"
+read -r reordered_origin_pid _ reordered_origin_fingerprint <"$state_file"
+[ "$reordered_origin_pid" = "$sorted_origin_pid" ]
+[ "$reordered_origin_fingerprint" = "$sorted_origin_fingerprint" ]
+
+export UNDECLARED_RUNTIME_VALUE=first
+export API_TOKEN=first-secret-value
+run_default_helper "${command[@]}"
+read -r undeclared_first_pid _ undeclared_first_fingerprint <"$state_file"
+[ "$undeclared_first_pid" = "$sorted_origin_pid" ]
+export UNDECLARED_RUNTIME_VALUE=second
+export API_TOKEN=second-secret-value
+run_default_helper "${command[@]}"
+read -r undeclared_second_pid _ undeclared_second_fingerprint <"$state_file"
+[ "$undeclared_second_pid" = "$sorted_origin_pid" ]
+[ "$undeclared_second_fingerprint" = "$undeclared_first_fingerprint" ]
+
+for raw_value in \
+  "https://runtime-origin.example.invalid" \
+  "https://first-origin.example.invalid" \
+  "https://second-origin.example.invalid" \
+  "first-secret-value" \
+  "second-secret-value"; do
+  if grep -R -Fq "$raw_value" "$test_dir"; then
+    echo "environment value leaked into process state or logs" >&2
+    exit 1
+  fi
+done
+export DEVROUTER_PROCESS_FINGERPRINT_ENV=FIRST_PUBLIC_ORIGIN,API_TOKEN
+if run_default_helper "${command[@]}" 2>"$test_dir/secret-name.err"; then
+  echo "secret-like fingerprint name was incorrectly accepted" >&2
+  exit 1
+fi
+grep -Fq "rejects secret-like name 'API_TOKEN'" "$test_dir/secret-name.err"
+kill -0 "$managed_pid"
+
+unset WORKSPACE DEVROUTER_WORKSPACE DEVROUTER_PROCESS_ADAPTER_SHA256
+unset DEVROUTER_PROCESS_FINGERPRINT_ENV PUBLIC_ORIGIN FIRST_PUBLIC_ORIGIN SECOND_PUBLIC_ORIGIN
+unset UNDECLARED_RUNTIME_VALUE API_TOKEN
 
 stop_managed_for_test "$managed_pid"
 managed_pid=""

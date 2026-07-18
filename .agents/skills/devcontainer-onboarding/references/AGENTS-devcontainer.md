@@ -48,8 +48,11 @@ helper at runtime and is the supported, collision-free startup path.
 To run **several worktrees of this repo in parallel**, use `devrouter workspace
 up <branch>` to create one or `devrouter ensure .` inside any existing checkout.
 Ensure selects the checkout kind, persists linked identity where needed, proves
-the exact DevPod, HTTP routes, and TCP upstream ownership, and only then registers
-routes. Do not branch manually between bare DevPod and workspace startup.
+the exact DevPod and exact `${WORKSPACE}-*` HTTP/TCP upstream aliases, and only
+then registers routes. Do not branch manually between bare DevPod and workspace
+startup, and do not use raw `devpod stop/delete`; those calls bypass devrouter's
+machine-wide ownership lock. Use `devrouter stop . [--delete]` or the matching
+workspace command.
 `devrouter workspace ls` lists linked workspaces; `devrouter workspace down
 <branch>` tears one down.
 

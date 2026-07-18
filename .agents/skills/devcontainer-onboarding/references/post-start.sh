@@ -18,7 +18,9 @@ export npm_config_verify_deps_before_run=false
 : "${DEVROUTER_PROCESS_HELPER:?Run devrouter ensure to start this managed application process.}"
 
 # Adapt --match and the command to the repo's actual dev process. The helper
-# owns locking, identity checks, process-group replacement, detachment, and logs.
+# owns locking, adapter/workspace/command identity, process-group replacement,
+# detachment, and logs. If a non-secret runtime value affects reuse, export its
+# name through DEVROUTER_PROCESS_FINGERPRINT_ENV before this call.
 "$DEVROUTER_PROCESS_HELPER" ensure \
   --name app \
   --match 'turbo run dev' \

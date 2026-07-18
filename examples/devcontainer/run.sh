@@ -75,19 +75,10 @@ APP_HOST="devcontainer-demo.localhost"
 DB_HOST="db.devcontainer-demo.localhost"
 unset DEVROUTER_WORKSPACE || true
 
-exact_devpod_id() {
-  devpod list --output json | node -e 'const fs=require("fs"); const path=require("path"); const repo=fs.realpathSync(process.argv[1]); const rows=JSON.parse(fs.readFileSync(0,"utf8")); const matches=rows.filter((row)=>path.resolve(row.source.localFolder)===repo); if(matches.length>1) process.exit(2); if(matches[0]) process.stdout.write(matches[0].id);' "$SRC"
-}
-
 cleanup() {
   set +e
   echo "--- teardown ---"
-  DEV stop "$SRC" >/dev/null 2>&1
-  local devpod_id
-  devpod_id="$(exact_devpod_id || true)"
-  if [ -n "$devpod_id" ]; then
-    devpod delete "$devpod_id" --force --ignore-not-found >/dev/null 2>&1
-  fi
+  DEV stop "$SRC" --delete >/dev/null 2>&1
 }
 
 if [ "${1:-}" = "down" ]; then

@@ -37,6 +37,12 @@ function writeDockerfile(content: string): void {
   fs.writeFileSync(dockerfilePath, content, "utf-8");
 }
 
+function writePostStart(content: string): void {
+  const adapterPath = path.join(tmpDir, ".devcontainer", "post-start.sh");
+  fs.mkdirSync(path.dirname(adapterPath), { recursive: true });
+  fs.writeFileSync(adapterPath, content, "utf-8");
+}
+
 function config(upstream: string): DevrouterConfig {
   return {
     version: 1,
@@ -135,5 +141,23 @@ describe("buildDevcontainerChecks", () => {
     const checks = buildDevcontainerChecks(tmpDir, config("other-app:3000"));
 
     expect(checkLevel(checks, "repo.devcontainer.upstream-alias-match")).toBe("warn");
+  });
+
+  it("keeps a truly custom post-start adapter unmanaged", () => {
+    writeCompose();
+    writePostStart("#!/usr/bin/env bash\npnpm dev\n");
+
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
+
+    expect(checkLevel(checks, "repo.devcontainer.managed-post-start")).toBe("ok");
+  });
+
+  it("errors on marker-free devrouter lifecycle wiring", () => {
+    writeCompose();
+    writePostStart('#!/usr/bin/env bash\n: "${DEVROUTER_PROCESS_HELPER:?}"\n');
+
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
+
+    expect(checkLevel(checks, "repo.devcontainer.managed-post-start")).toBe("error");
   });
 });

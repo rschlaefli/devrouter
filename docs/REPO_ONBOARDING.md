@@ -343,7 +343,7 @@ The skill content is embedded in the CLI bundle, so `devrouter repo agents` alwa
 
 Multiple git worktrees of the same repo can run concurrently using a persisted **workspace token**. Each managed worktree keeps a local token plus a durable owner record in the repository's Git common directory. First use reuses an exact-path DevPod or derives a sanitized branch/path slug; after that the recorded identity is authoritative. The primary checkout stays plain and non-namespaced.
 
-**Proxy upstream placeholder:** use `${WORKSPACE}` in the `upstream` field of a `runtime: proxy` app so devrouter substitutes the active token at runtime. Using `${WORKSPACE}` in `host` is rejected — hosts are auto-namespaced automatically.
+**Proxy upstream placeholder:** use `${WORKSPACE}` in the `upstream` field of every `runtime: proxy` app so devrouter substitutes the active token at runtime. Managed `ensure` requires all HTTP and TCP upstreams to begin with the resolved workspace/project alias prefix before any DevPod or route mutation. Using `${WORKSPACE}` in `host` is rejected — hosts are auto-namespaced automatically.
 
 ```yaml
 - name: app
@@ -389,7 +389,11 @@ validates ownership, lock, and cleanliness before side effects. Workspace
 commands require Git; normal config, app, status, and doctor flows remain usable
 without `.git`. Git has no worktree-removal hook, so `devrouter doctor` reports
 missing/conflicting owners and points to dry-run
-`devrouter workspace gc --repo <repo>` instead of mutating them.
+`devrouter workspace gc --repo <repo>` instead of mutating them. Do not
+substitute raw `devpod up`, `stop`, or `delete`: those calls bypass devrouter's
+machine-wide ownership lock and exact ID/path revalidation. Use
+`devrouter stop . --delete` when the DevPod must be deleted while preserving its
+checkout.
 
 Workspace-aware devcontainers must select `.devcontainer/docker-compose.devrouter.yml` via `DEVCONTAINER_COMPOSE_OVERLAY`. The overlay passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute path. `ensure` verifies the applicable primary or linked contract plus the exact checkout, aliases, health, Git access, route ownership, and reachability before success. Use `exec . -- <command...>` for container-local seeds and migrations.
 

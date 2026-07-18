@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { writeFileAtomically } from "./atomic-file";
 import { type DevpodWorkspace, inspectDevpodWorkspaceOwnership } from "./devpod-workspaces";
 import { withFileLockSync } from "./file-lock";
 import {
@@ -267,16 +267,7 @@ function writeWorkspaceOwnershipInDirectory(
     createdAt: existing?.createdAt ?? validateTimestamp(now, "createdAt"),
     updatedAt: validateTimestamp(now, "updatedAt"),
   };
-  const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(tempPath, `${JSON.stringify(record, null, 2)}\n`, {
-      encoding: "utf-8",
-      flag: "wx",
-    });
-    fs.renameSync(tempPath, filePath);
-  } finally {
-    fs.rmSync(tempPath, { force: true });
-  }
+  writeFileAtomically(filePath, `${JSON.stringify(record, null, 2)}\n`);
   return record;
 }
 

@@ -1,8 +1,5 @@
-import {
-  listDevpodWorkspaces,
-  runDevpodWorkspaceAction,
-  selectDevpodWorkspace,
-} from "./devpod-workspaces";
+import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "./devpod-mutation";
+import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { removeHostRoutesWhere } from "./host-routes";
 import {
   isLinkedWorktree,
@@ -10,7 +7,7 @@ import {
   sameWorkspacePath,
   withWorkspaceLifecycleLock,
 } from "./workspace";
-import { workspaceStopOwnedPath } from "./workspace-lifecycle";
+import { workspaceDeleteOwnedPath, workspaceStopOwnedPath } from "./workspace-lifecycle";
 import { listGitWorktrees, listWorkspaceOwnership } from "./workspace-ownership";
 
 export type EnvironmentStopResult = {
@@ -19,10 +16,14 @@ export type EnvironmentStopResult = {
   workspace?: string;
   devpodId?: string;
   stopped: boolean;
+  deleted?: boolean;
   freedRoutes: number;
 };
 
-export async function environmentStop(repoPath: string): Promise<EnvironmentStopResult> {
+export async function environmentStop(
+  repoPath: string,
+  options: { delete?: boolean } = {},
+): Promise<EnvironmentStopResult> {
   const linked = isLinkedWorktree(repoPath);
   const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
   if (linked && !workspace) {
@@ -42,16 +43,20 @@ export async function environmentStop(repoPath: string): Promise<EnvironmentStop
       if (!mainRepo) {
         throw new Error(`Could not resolve the primary checkout for '${repoPath}'.`);
       }
-      const result = await workspaceStopOwnedPath(record.worktreePath, {
-        quiet: true,
-        repoPath: mainRepo,
-      });
+      const result = await (options.delete ? workspaceDeleteOwnedPath : workspaceStopOwnedPath)(
+        record.worktreePath,
+        {
+          quiet: true,
+          repoPath: mainRepo,
+        },
+      );
       return {
         kind: "linked",
         repoPath,
         workspace: result.workspace,
         ...(result.devpodId ? { devpodId: result.devpodId } : {}),
-        stopped: result.providerChanged,
+        stopped: !options.delete && result.providerChanged,
+        ...(options.delete ? { deleted: result.providerChanged } : {}),
         freedRoutes: result.freedRoutes,
       };
     }
@@ -59,10 +64,11 @@ export async function environmentStop(repoPath: string): Promise<EnvironmentStop
 
   return withWorkspaceLifecycleLock(repoPath, async () => {
     const devpod = selectDevpodWorkspace(listDevpodWorkspaces(), repoPath);
-
-    if (devpod) {
-      runDevpodWorkspaceAction("stop", devpod.id);
-    }
+    const mutation = devpod
+      ? options.delete
+        ? deleteOwnedDevpodWorkspace(devpod.id, repoPath)
+        : stopOwnedDevpodWorkspace(devpod.id, repoPath)
+      : { status: "absent" as const };
     const removedRoutes = removeHostRoutesWhere((route) =>
       sameWorkspacePath(route.repoPath, repoPath),
     );
@@ -71,8 +77,9 @@ export async function environmentStop(repoPath: string): Promise<EnvironmentStop
       kind: linked ? "linked" : "primary",
       repoPath,
       ...(workspace ? { workspace } : {}),
-      ...(devpod ? { devpodId: devpod.id } : {}),
-      stopped: Boolean(devpod),
+      ...(mutation.status === "changed" && devpod ? { devpodId: devpod.id } : {}),
+      stopped: !options.delete && mutation.status === "changed",
+      ...(options.delete ? { deleted: mutation.status === "changed" } : {}),
       freedRoutes: removedRoutes.length,
     };
   });

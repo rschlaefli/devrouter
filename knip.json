@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": ["src/core/__tests__/fixtures/**"],
   "project": ["src/**/*.ts", "*.config.ts"],
   "include": ["files", "dependencies", "unlisted", "unresolved"],
   "treatConfigHintsAsErrors": true

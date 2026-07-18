@@ -7,8 +7,12 @@ Usage:
   devrouter-process ensure --name <name> --match <regex> [options] -- <command> [args...]
 
 Options:
-  --fingerprint <value>  Runtime identity. Defaults to command plus workspace identity.
+  --fingerprint <value>  Runtime identity. Defaults to command, workspace, adapter, and safe allowlisted environment identity.
   --log <path>           Log file. Defaults to /tmp/devrouter-process-<name>.log.
+
+Environment:
+  DEVROUTER_PROCESS_ADAPTER_SHA256   Exact managed-adapter SHA-256 supplied by devrouter.
+  DEVROUTER_PROCESS_FINGERPRINT_ENV  Comma-separated non-secret environment names to fingerprint.
 EOF
 }
 
@@ -73,7 +77,7 @@ done
 [ "$#" -gt 0 ] || die "A command is required after --."
 [ -r "/proc/$$/environ" ] || die "Linux /proc process metadata is required."
 
-for tool in awk cksum flock grep pgrep ps setsid tr; do
+for tool in awk flock grep pgrep ps setsid sha256sum sort tr; do
   command -v "$tool" >/dev/null 2>&1 || die "Required command is unavailable: $tool"
 done
 
@@ -81,11 +85,54 @@ match_status=0
 pgrep -f -- "$process_match" >/dev/null 2>&1 || match_status=$?
 [ "$match_status" -le 1 ] || die "--match is not a valid process regular expression."
 
+fingerprint_env_names=()
+fingerprint_env_list="${DEVROUTER_PROCESS_FINGERPRINT_ENV:-}"
+if [ -n "$fingerprint_env_list" ]; then
+  [[ "$fingerprint_env_list" =~ ^[a-zA-Z_][a-zA-Z0-9_]*(,[a-zA-Z_][a-zA-Z0-9_]*)*$ ]] ||
+    die "DEVROUTER_PROCESS_FINGERPRINT_ENV must be an exact comma-separated list of environment names."
+  IFS=',' read -r -a fingerprint_env_names <<<"$fingerprint_env_list"
+  for env_name in "${fingerprint_env_names[@]}"; do
+    upper_name="${env_name^^}"
+    case "$upper_name" in
+      *SECRET* | *TOKEN* | *PASSWORD* | *PASSWD* | *API_KEY* | *PRIVATE_KEY* | *CREDENTIAL* | *COOKIE_VALUE* | *COOKIE)
+        die "DEVROUTER_PROCESS_FINGERPRINT_ENV rejects secret-like name '$env_name'."
+        ;;
+    esac
+  done
+  mapfile -t fingerprint_env_names < <(printf '%s\n' "${fingerprint_env_names[@]}" | LC_ALL=C sort -u)
+fi
+
+if [[ -v DEVROUTER_PROCESS_ADAPTER_SHA256 ]] &&
+  ! [[ "$DEVROUTER_PROCESS_ADAPTER_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]; then
+  die "DEVROUTER_PROCESS_ADAPTER_SHA256 must be a SHA-256 digest."
+fi
+
+emit_environment_field() {
+  local field="$1"
+  local variable="$2"
+
+  if [[ -v "$variable" ]]; then
+    printf '%s\0set\0%s\0' "$field" "${!variable}"
+  else
+    printf '%s\0unset\0' "$field"
+  fi
+}
+
 if [ -z "$fingerprint" ]; then
   fingerprint="$({
-    printf '%s\0' "$name" "${WORKSPACE:-}" "${DEVROUTER_WORKSPACE:-}"
-    printf '%s\0' "$@"
-  } | cksum | awk '{print $1 "-" $2}')"
+    printf 'format\0devrouter-process-v2\0'
+    printf 'name\0%s\0' "$name"
+    emit_environment_field workspace WORKSPACE
+    emit_environment_field devrouter-workspace DEVROUTER_WORKSPACE
+    emit_environment_field adapter-sha256 DEVROUTER_PROCESS_ADAPTER_SHA256
+    for argument in "$@"; do
+      printf 'argv\0%s\0' "$argument"
+    done
+    for env_name in "${fingerprint_env_names[@]}"; do
+      printf 'environment-name\0%s\0' "$env_name"
+      emit_environment_field environment-value "$env_name"
+    done
+  } | LC_ALL=C sha256sum | awk '{print $1}')"
 fi
 [[ "$fingerprint" =~ ^[a-zA-Z0-9][a-zA-Z0-9._:-]*$ ]] || die "--fingerprint must be a safe identifier."
 

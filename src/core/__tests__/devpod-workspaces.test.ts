@@ -1,10 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  inspectDevpodWorkspaceOwnership,
-  listDevpodWorkspaces,
-  runDevpodWorkspaceAction,
-} from "../devpod-workspaces";
+import { inspectDevpodWorkspaceOwnership, listDevpodWorkspaces } from "../devpod-workspaces";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
@@ -41,15 +37,5 @@ describe("DevPod workspace adapter", () => {
         "/repo/trees/feature",
       ),
     ).toMatchObject({ status: "conflict" });
-  });
-
-  it("uses argv-only provider mutation and delete idempotency", () => {
-    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "", stderr: "" } as never);
-
-    runDevpodWorkspaceAction("delete", "feature");
-
-    expect(spawnSync).toHaveBeenCalledWith("devpod", ["delete", "feature", "--ignore-not-found"], {
-      encoding: "utf-8",
-    });
   });
 });

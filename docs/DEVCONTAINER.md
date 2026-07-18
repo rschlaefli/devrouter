@@ -78,7 +78,7 @@ separate alias needed.
 ```yaml
 version: 1
 devrouter:
-  version: 0.0.34
+  version: 0.0.35
 project:
   name: myapp
 apps:
@@ -100,6 +100,11 @@ A proxy app only registers a route — no `hostRun`, `docker`, `dependencies`, o
 Traefik over the network. (A loopback upstream like `127.0.0.1:3000` still works
 and is rewritten to `host.docker.internal`, but then every app competes for that
 host port — the devnet alias is the collision-free path.)
+
+For managed `devrouter ensure`, every HTTP and TCP upstream must begin with the
+resolved checkout alias prefix. Use `${WORKSPACE}-<service>:<port>` with matching
+`${WORKSPACE:-<project>}-<service>` Compose aliases. Generic route-only
+`devrouter app run` remains available for intentionally external upstreams.
 
 ## 3. Preserve linked-worktree Git metadata
 
@@ -138,12 +143,17 @@ helper to a runtime-only path and invokes the repository-owned `post-start.sh`:
   -- bash -lc 'pnpm dev'
 ```
 
-The delivered helper serializes concurrent starts, records and verifies the session leader,
-reuses only the same command and workspace identity, replaces only its owned
-process group, and refuses unknown matching processes. It requires Linux `/proc`,
-`procps`, and `util-linux`; the generated image includes them. Use
-`--fingerprint <value>` only when the application has additional runtime identity
-that is not derived from its command, `WORKSPACE`, or `DEVROUTER_WORKSPACE`.
+Devrouter captures the adapter once, hashes those exact bytes, delivers the same
+snapshot, and executes it in the validated container. The delivered helper
+serializes concurrent starts, records and verifies the session leader, reuses
+only the same command, workspace, adapter, and explicitly allowlisted environment
+identity, replaces only its owned process group, and refuses unknown matching
+processes. It requires Linux `/proc`, `procps`, and `util-linux`; the generated
+image includes them. Set `DEVROUTER_PROCESS_FINGERPRINT_ENV` to a comma-separated
+list only when non-secret environment values such as a public application origin
+affect reuse. Secret-like names are rejected and raw values are never written to
+state. Use `--fingerprint <value>` only for a complete caller-owned identity that
+should replace the default fingerprint.
 
 Application environment setup and the exact command remain repository-owned.
 HTTP readiness remains host-side in `ensure`, so applications do not
@@ -159,6 +169,11 @@ devrouter setup --yes
 devrouter doctor --json
 devrouter ensure .
 ```
+
+Do not replace these commands with raw `devpod up`, `devpod stop`, or
+`devpod delete`. Raw provider calls bypass devrouter's machine-wide mutation lock
+and exact ID/path postcondition checks. Use `devrouter stop . --delete` for
+explicit exact-owner DevPod cleanup while preserving the checkout.
 
 The same normal command handles a linked worktree:
 
@@ -205,6 +220,8 @@ devrouter ensure . --json
 devrouter exec . -- pnpm seed
 devrouter ls
 devrouter stop .
+# Explicit full DevPod cleanup while preserving this Git checkout:
+devrouter stop . --delete
 ```
 
 ## Notes

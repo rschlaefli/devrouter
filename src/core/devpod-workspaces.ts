@@ -84,15 +84,3 @@ export function selectDevpodWorkspace(
   }
   return matches[0];
 }
-
-export function runDevpodWorkspaceAction(action: "stop" | "delete", devpodId: string): void {
-  const args = action === "delete" ? [action, devpodId, "--ignore-not-found"] : [action, devpodId];
-  const result = spawnSync("devpod", args, { encoding: "utf-8" });
-  if (result.status !== 0) {
-    const detail = [result.error?.message, result.stdout, result.stderr]
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    throw new Error(`devpod ${action} failed for '${devpodId}': ${detail || "unknown error"}`);
-  }
-}

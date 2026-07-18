@@ -85,7 +85,7 @@ describe("canonical environment commands", () => {
 
     await runStopCommand({ path: "/repo", json: true });
 
-    expect(environmentStop).toHaveBeenCalledWith("/repo");
+    expect(environmentStop).toHaveBeenCalledWith("/repo", { delete: undefined });
     expect(write).toHaveBeenCalledWith(`${JSON.stringify(result, null, 2)}\n`);
   });
 
@@ -103,6 +103,25 @@ describe("canonical environment commands", () => {
 
     expect(write).toHaveBeenCalledWith(
       "Workspace 'feature' is already stopped; no routes needed removal.\n",
+    );
+  });
+
+  it("reports an explicitly deleted exact DevPod", async () => {
+    vi.mocked(environmentStop).mockResolvedValue({
+      kind: "primary",
+      repoPath: "/repo",
+      devpodId: "repo",
+      stopped: false,
+      deleted: true,
+      freedRoutes: 1,
+    });
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runStopCommand({ path: "/repo", delete: true });
+
+    expect(environmentStop).toHaveBeenCalledWith("/repo", { delete: true });
+    expect(write).toHaveBeenCalledWith(
+      "Deleted DevPod 'repo'. Freed 1 route(s) for primary checkout.\n",
     );
   });
 });

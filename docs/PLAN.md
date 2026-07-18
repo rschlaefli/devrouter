@@ -11,7 +11,7 @@ Delivered and active:
 - Upgrade commands: `devrouter -V` and `devrouter upgrade [version]`
 - First-run machine setup: `devrouter setup --yes --json`
 - Unified primary/linked reconciliation: `devrouter ensure [path] [--json]`
-- Runtime-only managed-process delivery: consumer images stay helper-free; `ensure` supplies its matching helper and invokes the repository adapter after exact-container proof
+- Runtime-only managed-process delivery: consumer images stay helper-free; `ensure` supplies its matching helper, snapshots the repository adapter, and reuses only the same command/workspace/adapter plus explicitly allowlisted non-secret environment identity
 - Non-destructive exact-checkout pause: `devrouter stop [path]`
 - Exact running-DevPod one-shot execution: `devrouter exec [path] -- <command...>`
 - Read-only repo fact inspection: `devrouter repo inspect --json`
@@ -38,9 +38,10 @@ Delivered and active:
   - Exact-path DevPod discovery; first use derives a sanitized branch/path slug only when no exact DevPod exists
   - Persisted identity is authoritative; ambiguous or conflicting identities fail closed
   - Hosts auto-namespaced in memory (`web.localhost` → `web.<ws>.localhost`); committed `.devrouter.yml` is never rewritten
-  - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`
+  - `${WORKSPACE}` substitution in proxy `upstream` only; rejected in `host`; managed `ensure` requires every HTTP/TCP upstream to use the resolved alias namespace before mutation
   - `ensure` validates the applicable primary/linked mounts, environment, aliases, health, Git access, HTTP route reachability, and unique running TCP upstream ownership; one stale DevPod gets one recreate
-  - Route replacement happens atomically only after runtime proof; ensure/stop/down serialize per worktree
+  - DevPod provider mutations serialize machine-wide with exact ID/path revalidation; raw DevPod lifecycle commands are outside the supported managed boundary
+  - Route metadata and rendering share one canonical, durable Traefik artifact; validated JSON remains a compatibility mirror and headerless legacy state migrates automatically
   - `stop` preserves checkout, owner record, and data; full `down` rejects dirty or locked worktrees before side effects
   - `workspace ls` reports `present`, `missing`, `locked`, or `conflict`; `gc` reports by default and mutates exact missing owners only with `--yes`
   - TLS SAN auto-extended for active workspace hosts
@@ -76,7 +77,7 @@ Required checks for behavior and doc consistency:
 
 ### Milestone 1: Test surface hardening
 
-- Add focused tests for `host-routes.ts` state persistence and rendering.
+- Add platform-specific durability coverage where filesystems expose stronger power-loss test hooks.
 - Expand diagnostics tests with mocked Docker responses for edge-case guidance.
 - Add command-level regression tests for docs-related surfaced behavior.
 

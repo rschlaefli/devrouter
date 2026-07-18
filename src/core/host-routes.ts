@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import YAML from "yaml";
 import type { HostRouteState, Route } from "../types";
+import { writeFileAtomically } from "./atomic-file";
 import { withFileLockSync } from "./file-lock";
 import {
   DEVROUTER_HOME,
@@ -200,32 +202,166 @@ export function buildHostRoutesDocument(
   return document;
 }
 
-function writeHostRoutesDynamicFile(routes: HostRouteState[], tlsEnabled: boolean): void {
+const ROUTE_METADATA_PREFIX = "# devrouter-routes-v1: ";
+const ROUTE_METADATA_FAMILY_PREFIX = "# devrouter-routes-";
+
+type RouteMetadata = {
+  version: 1;
+  tlsEnabled: boolean;
+  routes: HostRouteState[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateRouteState(value: unknown, source: string): HostRouteState[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${source} must contain a route array.`);
+  }
+
+  const routes = value.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new Error(`${source} route ${index} must be an object.`);
+    }
+    for (const key of ["id", "name", "host", "repoPath", "createdAt", "updatedAt"] as const) {
+      if (typeof item[key] !== "string" || item[key].length === 0) {
+        throw new Error(`${source} route ${index} has an invalid '${key}'.`);
+      }
+    }
+    if (!Number.isInteger(item.port) || Number(item.port) < 1 || Number(item.port) > 65535) {
+      throw new Error(`${source} route ${index} has an invalid 'port'.`);
+    }
+    if (item.mode !== "run" && item.mode !== "attach" && item.mode !== "proxy") {
+      throw new Error(`${source} route ${index} has an invalid 'mode'.`);
+    }
+    if (item.protocol !== undefined && item.protocol !== "http" && item.protocol !== "tcp") {
+      throw new Error(`${source} route ${index} has an invalid 'protocol'.`);
+    }
+    for (const key of ["tcpProtocol", "upstreamHost", "command", "workspace"] as const) {
+      if (item[key] !== undefined && typeof item[key] !== "string") {
+        throw new Error(`${source} route ${index} has an invalid '${key}'.`);
+      }
+    }
+    if (item.pid !== undefined && (!Number.isInteger(item.pid) || Number(item.pid) <= 0)) {
+      throw new Error(`${source} route ${index} has an invalid 'pid'.`);
+    }
+
+    const route = item as HostRouteState;
+    if (route.id !== buildHostRouteId(route.repoPath, route.name)) {
+      throw new Error(`${source} route ${index} has an inconsistent 'id'.`);
+    }
+    return route;
+  });
+
+  const ids = new Set<string>();
+  const hosts = new Set<string>();
+  for (const route of routes) {
+    if (ids.has(route.id)) {
+      throw new Error(`${source} contains duplicate route id '${route.id}'.`);
+    }
+    if (hosts.has(route.host)) {
+      throw new Error(`${source} contains duplicate route host '${route.host}'.`);
+    }
+    ids.add(route.id);
+    hosts.add(route.host);
+  }
+  return routes;
+}
+
+function renderCompatibilityState(routes: HostRouteState[]): string {
+  return `${JSON.stringify(routes, null, 2)}\n`;
+}
+
+function renderCanonicalState(routes: HostRouteState[], tlsEnabled: boolean): string {
+  const metadata: RouteMetadata = { version: 1, tlsEnabled, routes };
+  const encoded = Buffer.from(JSON.stringify(metadata), "utf-8").toString("base64url");
   const document = buildHostRoutesDocument(routes, tlsEnabled);
-  fs.writeFileSync(TRAEFIK_HOST_ROUTES_FILE, YAML.stringify(document, { lineWidth: 0 }), "utf-8");
+  return `${ROUTE_METADATA_PREFIX}${encoded}\n${YAML.stringify(document, { lineWidth: 0 })}`;
+}
+
+function writeRouteGeneration(routes: HostRouteState[], tlsEnabled: boolean): void {
+  writeFileAtomically(HOST_ROUTES_STATE_FILE, renderCompatibilityState(routes));
+  writeFileAtomically(TRAEFIK_HOST_ROUTES_FILE, renderCanonicalState(routes, tlsEnabled));
+}
+
+function readCompatibilityState(): HostRouteState[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(HOST_ROUTES_STATE_FILE, "utf-8");
+  } catch (error) {
+    throw new Error(
+      `Could not read the compatibility host-route state: ${(error as Error).message}`,
+    );
+  }
+  try {
+    return validateRouteState(JSON.parse(raw), "Compatibility host-route state");
+  } catch (error) {
+    throw new Error(`Invalid compatibility host-route state: ${(error as Error).message}`);
+  }
+}
+
+function parseCanonicalState(
+  raw: string,
+): { kind: "legacy" } | { kind: "canonical"; metadata: RouteMetadata } {
+  const firstNewline = raw.indexOf("\n");
+  const firstLine = firstNewline === -1 ? raw : raw.slice(0, firstNewline);
+  if (!firstLine.startsWith(ROUTE_METADATA_PREFIX)) {
+    if (firstLine.startsWith(ROUTE_METADATA_FAMILY_PREFIX)) {
+      throw new Error(`Unsupported or malformed host-route metadata header '${firstLine}'.`);
+    }
+    return { kind: "legacy" };
+  }
+
+  const encoded = firstLine.slice(ROUTE_METADATA_PREFIX.length);
+  if (!/^[a-zA-Z0-9_-]+$/.test(encoded)) {
+    throw new Error("Host-route metadata header is not valid base64url.");
+  }
+
+  let metadataValue: unknown;
+  try {
+    const decoded = Buffer.from(encoded, "base64url");
+    if (decoded.toString("base64url") !== encoded) {
+      throw new Error("non-canonical base64url encoding");
+    }
+    metadataValue = JSON.parse(decoded.toString("utf-8"));
+  } catch (error) {
+    throw new Error(`Host-route metadata header is invalid: ${(error as Error).message}`);
+  }
+  if (!isRecord(metadataValue) || metadataValue.version !== 1) {
+    throw new Error("Host-route metadata header has an unsupported version.");
+  }
+  if (typeof metadataValue.tlsEnabled !== "boolean") {
+    throw new Error("Host-route metadata header has an invalid TLS state.");
+  }
+  const routes = validateRouteState(metadataValue.routes, "Canonical host-route metadata");
+  const metadata: RouteMetadata = {
+    version: 1,
+    tlsEnabled: metadataValue.tlsEnabled,
+    routes,
+  };
+
+  let document: unknown;
+  try {
+    document = YAML.parse(firstNewline === -1 ? "" : raw.slice(firstNewline + 1));
+  } catch (error) {
+    throw new Error(`Canonical host-route document is invalid: ${(error as Error).message}`);
+  }
+  const expectedDocument = buildHostRoutesDocument(routes, metadata.tlsEnabled);
+  if (!isDeepStrictEqual(document, expectedDocument)) {
+    throw new Error("Canonical host-route document does not match its metadata.");
+  }
+  return { kind: "canonical", metadata };
 }
 
 export function ensureHostRouteStorage(): void {
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   fs.mkdirSync(TRAEFIK_DYNAMIC_DIR, { recursive: true });
-
-  if (!fs.existsSync(TRAEFIK_HOST_ROUTES_FILE)) {
-    fs.writeFileSync(
-      TRAEFIK_HOST_ROUTES_FILE,
-      YAML.stringify({ http: { routers: {}, services: {} } }, { lineWidth: 0 }),
-      "utf-8",
-    );
-  }
-
-  if (!fs.existsSync(HOST_ROUTES_STATE_FILE)) {
-    fs.writeFileSync(HOST_ROUTES_STATE_FILE, "[]\n", "utf-8");
-  }
 }
 
 function writeState(routes: HostRouteState[]): void {
   ensureHostRouteStorage();
-  fs.writeFileSync(HOST_ROUTES_STATE_FILE, `${JSON.stringify(routes, null, 2)}\n`, "utf-8");
-  writeHostRoutesDynamicFile(routes, isTLSEnabled());
+  writeRouteGeneration(routes, isTLSEnabled());
 }
 
 const STATE_LOCK_FILE = `${HOST_ROUTES_STATE_FILE}.lock`;
@@ -243,41 +379,61 @@ function withStateLock<T>(fn: () => T): T {
 }
 
 export function refreshHostRoutesDynamicFile(): void {
-  const routes = listHostRouteState();
-  writeHostRoutesDynamicFile(routes, isTLSEnabled());
+  withStateLock(() => {
+    const routes = readHostRouteStateLocked();
+    writeState(routes);
+  });
+}
+
+function readHostRouteStateLocked(): HostRouteState[] {
+  ensureHostRouteStorage();
+  if (!fs.existsSync(TRAEFIK_HOST_ROUTES_FILE)) {
+    if (fs.existsSync(HOST_ROUTES_STATE_FILE)) {
+      const routes = readCompatibilityState();
+      writeRouteGeneration(routes, isTLSEnabled());
+      return routes;
+    }
+    writeRouteGeneration([], isTLSEnabled());
+    return [];
+  }
+
+  const raw = fs.readFileSync(TRAEFIK_HOST_ROUTES_FILE, "utf-8");
+  const canonical = parseCanonicalState(raw);
+  if (canonical.kind === "legacy") {
+    if (!fs.existsSync(HOST_ROUTES_STATE_FILE)) {
+      throw new Error(
+        "Headerless host-route document requires a valid compatibility state file for migration.",
+      );
+    }
+    const routes = readCompatibilityState();
+    writeRouteGeneration(routes, isTLSEnabled());
+    return routes;
+  }
+
+  let mirrorMatches = false;
+  if (fs.existsSync(HOST_ROUTES_STATE_FILE)) {
+    try {
+      mirrorMatches = isDeepStrictEqual(readCompatibilityState(), canonical.metadata.routes);
+    } catch {
+      mirrorMatches = false;
+    }
+  }
+  if (!mirrorMatches) {
+    writeFileAtomically(
+      HOST_ROUTES_STATE_FILE,
+      renderCompatibilityState(canonical.metadata.routes),
+    );
+  }
+  return canonical.metadata.routes;
 }
 
 export function listHostRouteState(): HostRouteState[] {
-  ensureHostRouteStorage();
-
-  if (!fs.existsSync(HOST_ROUTES_STATE_FILE)) {
-    return [];
-  }
-
-  try {
-    const raw = fs.readFileSync(HOST_ROUTES_STATE_FILE, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .filter((item) => item && typeof item === "object")
-      .map((item) => item as HostRouteState);
-  } catch (err) {
-    const error = err as NodeJS.ErrnoException;
-    if (error.code !== "ENOENT") {
-      process.stderr.write(
-        `Warning: devrouter host routes state file is corrupted or unreadable (${error.message}). Recreating route state.\n`,
-      );
-    }
-    return [];
-  }
+  return withStateLock(readHostRouteStateLocked);
 }
 
 export function upsertHostRoute(input: HostRouteInput): HostRouteState {
   return withStateLock(() => {
-    const routes = listHostRouteState();
+    const routes = readHostRouteStateLocked();
     const id = buildHostRouteId(input.repoPath, input.name);
     const existing = routes.find((route) => route.id === id);
     const now = new Date().toISOString();
@@ -301,7 +457,7 @@ export function replaceHostRoutesForRepo(
       throw new Error(`Route replacement contains an entry outside '${repoPath}'.`);
     }
 
-    const routes = listHostRouteState();
+    const routes = readHostRouteStateLocked();
     const remaining = routes.filter((route) => !sameWorkspacePath(route.repoPath, repoPath));
     const names = new Set<string>();
     const hosts = new Set<string>();
@@ -342,7 +498,7 @@ export function replaceHostRoutesForRepo(
 
 export function removeHostRouteById(id: string): boolean {
   return withStateLock(() => {
-    const routes = listHostRouteState();
+    const routes = readHostRouteStateLocked();
     const next = routes.filter((route) => route.id !== id);
     if (next.length === routes.length) {
       return false;
@@ -357,7 +513,7 @@ export function removeHostRoutesWhere(
   predicate: (route: HostRouteState) => boolean,
 ): HostRouteState[] {
   return withStateLock(() => {
-    const routes = listHostRouteState();
+    const routes = readHostRouteStateLocked();
     const removed = routes.filter(predicate);
     if (removed.length === 0) {
       return [];
@@ -371,7 +527,7 @@ export function removeHostRoutesWhere(
 
 export function removeHostRouteByName(name: string, repoPath?: string): HostRouteState {
   return withStateLock(() => {
-    const routes = listHostRouteState();
+    const routes = readHostRouteStateLocked();
     const matches = routes.filter((route) => {
       if (route.name !== name) {
         return false;
