@@ -676,7 +676,12 @@ describe("workspaceEnsure", () => {
 
   it("passes the exact preflight container to managed post-start before route readiness", async () => {
     const events: string[] = [];
-    const plan = { kind: "runtime" as const, adapterPath: ".devcontainer/post-start.sh" };
+    const plan = {
+      kind: "runtime" as const,
+      adapterPath: ".devcontainer/post-start.sh",
+      adapterSha256: "a".repeat(64),
+      adapterContents: Buffer.from("adapter"),
+    };
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue(plan);
     vi.mocked(runManagedPostStart).mockImplementation(() => {
       events.push("managed-start");
@@ -716,6 +721,8 @@ describe("workspaceEnsure", () => {
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
       kind: "runtime",
       adapterPath: ".devcontainer/post-start.sh",
+      adapterSha256: "a".repeat(64),
+      adapterContents: Buffer.from("adapter"),
     });
     vi.mocked(runManagedPostStart).mockImplementation(() => {
       throw new Error("Managed post-start failed");
@@ -855,6 +862,37 @@ describe("workspaceEnsure", () => {
     expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
   });
 
+  it("rejects an HTTP upstream outside the exact workspace namespace", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      workspace: "feature",
+      config: {
+        version: 1,
+        apps: [
+          {
+            name: "web",
+            host: "web.feature.localhost",
+            protocol: "http",
+            runtime: "proxy",
+            dependencies: [],
+            upstream: "shared-app:3000",
+          },
+        ],
+      },
+    });
+    mockLifecycle();
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("must use a workspace-owned upstream");
+
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "devpod",
+      expect.arrayContaining(["up"]),
+      expect.anything(),
+    );
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+  });
+
   it("clears stale routes when the workspace alias is wrong", async () => {
     mockLifecycle({ appAliases: ["old-app"] });
 
@@ -886,6 +924,8 @@ describe("workspaceEnsure", () => {
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
       kind: "runtime",
       adapterPath: ".devcontainer/post-start.sh",
+      adapterSha256: "a".repeat(64),
+      adapterContents: Buffer.from("adapter"),
     });
     vi.mocked(runManagedPostStart).mockImplementation(() => {
       events.push("managed-start");

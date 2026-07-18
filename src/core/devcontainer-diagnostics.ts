@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import type { DevrouterApp, DevrouterConfig, DiagnosticCheck } from "../types";
+import { resolveManagedPostStartPlan } from "./managed-post-start";
 
 type ComposeInspection = {
   aliases: string[];
@@ -230,6 +231,33 @@ export function buildDevcontainerChecks(
         ? "Remove devrouter package/helper installation from the Dockerfile; devrouter ensure delivers the helper at runtime."
         : undefined,
   });
+
+  try {
+    const managedPostStart = resolveManagedPostStartPlan(repoPath);
+    checks.push({
+      id: "repo.devcontainer.managed-post-start",
+      level: managedPostStart.kind === "legacy" ? "warn" : "ok",
+      summary:
+        managedPostStart.kind === "runtime"
+          ? "Managed post-start uses runtime helper delivery with an exact adapter fingerprint."
+          : managedPostStart.kind === "legacy"
+            ? "Managed post-start still uses the legacy image-installed helper contract."
+            : "No devrouter-managed post-start contract is configured.",
+      suggestion:
+        managedPostStart.kind === "legacy"
+          ? "Regenerate or migrate the devcontainer to runtime helper delivery."
+          : undefined,
+    });
+  } catch (error) {
+    checks.push({
+      id: "repo.devcontainer.managed-post-start",
+      level: "error",
+      summary: "Devrouter lifecycle wiring is incomplete or ambiguous.",
+      details: error instanceof Error ? error.message : String(error),
+      suggestion:
+        "Regenerate or migrate the managed devcontainer, or remove devrouter-specific wiring from a truly custom devcontainer.",
+    });
+  }
 
   if (!config) {
     checks.push({

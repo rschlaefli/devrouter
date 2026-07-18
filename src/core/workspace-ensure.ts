@@ -433,16 +433,14 @@ export async function workspaceEnsure(
           ? target.workspace
           : (wsFromBranch(runtime.config.project?.name ?? path.basename(repoPath)) ?? "app");
       for (const [index, app] of apps.entries()) {
-        if (app.protocol === "tcp" && !parsedUpstreams[index].host.startsWith(`${aliasPrefix}-`)) {
+        if (!parsedUpstreams[index].host.startsWith(`${aliasPrefix}-`)) {
           const owner = target.kind === "linked" ? "workspace" : "checkout";
           throw new Error(
-            `TCP app '${app.name}' must use a ${owner}-owned upstream beginning with '${aliasPrefix}-'.`,
+            `Proxy app '${app.name}' must use a ${owner}-owned upstream beginning with '${aliasPrefix}-'.`,
           );
         }
       }
-      const upstreamHosts = parsedUpstreams
-        .map((upstream) => upstream.host)
-        .filter((host) => host.startsWith(`${aliasPrefix}-`));
+      const upstreamHosts = parsedUpstreams.map((upstream) => upstream.host);
       const ownership =
         target.kind === "linked"
           ? {

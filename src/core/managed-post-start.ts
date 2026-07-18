@@ -1,27 +1,40 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 const MANAGED_MARKER = "devrouter:managed devcontainer";
 const MANAGED_ADAPTER_PATH = ".devcontainer/post-start.sh";
 const RUNTIME_HELPER_PATH = "/tmp/devrouter/bin/devrouter-process";
-const DELIVERY_SCRIPT = `set -eu
+const ADAPTER_WRAPPER = `adapter_snapshot="$1"
+shift
+readonly DEVROUTER_PROCESS_HELPER DEVROUTER_PROCESS_ADAPTER_SHA256
+source "$adapter_snapshot"
+`;
+function renderDeliveryScript(targetPath: string): string {
+  if (!/^\/tmp\/devrouter\/bin\/[a-zA-Z0-9._-]+$/.test(targetPath)) {
+    throw new Error(`Unsafe managed runtime delivery path: ${targetPath}`);
+  }
+  const temporaryPrefix = path.posix.basename(targetPath);
+  return `set -eu
 umask 077
 runtime_root=/tmp/devrouter
 runtime_bin="$runtime_root/bin"
+target="${targetPath}"
 if [ -L "$runtime_root" ] || [ -L "$runtime_bin" ]; then
   echo "Refusing symlinked devrouter runtime path." >&2
   exit 1
 fi
 mkdir -p "$runtime_bin"
 chmod 700 "$runtime_root" "$runtime_bin"
-temporary="$(mktemp "$runtime_bin/.devrouter-process.XXXXXX")"
+temporary="$(mktemp "$runtime_bin/.${temporaryPrefix}.XXXXXX")"
 trap 'rm -f "$temporary"' EXIT
 cat > "$temporary"
 chmod 700 "$temporary"
-mv -f "$temporary" "${RUNTIME_HELPER_PATH}"
+mv -f "$temporary" "$target"
 trap - EXIT
 `;
+}
 
 type ValidatedContainer = {
   id: string;
@@ -31,7 +44,12 @@ type ValidatedContainer = {
 export type ManagedPostStartPlan =
   | { kind: "unmanaged" }
   | { kind: "legacy" }
-  | { kind: "runtime"; adapterPath: string };
+  | {
+      kind: "runtime";
+      adapterPath: string;
+      adapterSha256: string;
+      adapterContents: Buffer;
+    };
 
 function commandFailure(result: ReturnType<typeof spawnSync>): string {
   return [result.error?.message, result.stderr, result.stdout]
@@ -41,9 +59,17 @@ function commandFailure(result: ReturnType<typeof spawnSync>): string {
     .join("\n");
 }
 
-function readRegularFile(filePath: string): string | undefined {
+function readRegularFileBytes(filePath: string): Buffer | undefined {
   if (!fs.existsSync(filePath) || !fs.lstatSync(filePath).isFile()) return undefined;
-  return fs.readFileSync(filePath, "utf-8");
+  return fs.readFileSync(filePath);
+}
+
+function readRegularFile(filePath: string): string | undefined {
+  return readRegularFileBytes(filePath)?.toString("utf-8");
+}
+
+function adapterFingerprint(adapter: Buffer): string {
+  return createHash("sha256").update(adapter).digest("hex");
 }
 
 export function resolveProcessHelperPath(): string {
@@ -60,18 +86,44 @@ export function resolveProcessHelperPath(): string {
 
 export function resolveManagedPostStartPlan(repoPath: string): ManagedPostStartPlan {
   const adapterPath = path.join(repoPath, MANAGED_ADAPTER_PATH);
-  const adapter = readRegularFile(adapterPath);
-  if (adapter === undefined) return { kind: "unmanaged" };
-
-  if (!adapter.includes(MANAGED_MARKER)) return { kind: "unmanaged" };
-  if (adapter.includes("DEVROUTER_PROCESS_HELPER")) {
-    return { kind: "runtime", adapterPath: MANAGED_ADAPTER_PATH };
-  }
-
+  const adapterBytes = readRegularFileBytes(adapterPath);
+  const adapterText = adapterBytes?.toString("utf-8");
   const dockerfilePath = path.join(repoPath, ".devcontainer", "Dockerfile");
   const devcontainerPath = path.join(repoPath, ".devcontainer", "devcontainer.json");
   const dockerfile = readRegularFile(dockerfilePath) ?? "";
   const devcontainer = readRegularFile(devcontainerPath) ?? "";
+  const devrouterPattern = [adapterText, dockerfile, devcontainer]
+    .filter((value): value is string => value !== undefined)
+    .some(
+      (value) => value.includes("DEVROUTER_PROCESS_HELPER") || value.includes("devrouter-process"),
+    );
+  if (adapterBytes === undefined) {
+    if (devrouterPattern) {
+      throw new Error(
+        "Devrouter lifecycle wiring is incomplete: add the managed post-start adapter or remove the stale devrouter-process references.",
+      );
+    }
+    return { kind: "unmanaged" };
+  }
+  const adapter = adapterBytes.toString("utf-8");
+
+  if (!adapter.includes(MANAGED_MARKER)) {
+    if (devrouterPattern) {
+      throw new Error(
+        "Devrouter-looking post-start adapter is missing the 'devrouter:managed devcontainer' marker. Regenerate or migrate the devcontainer, then retry devrouter ensure.",
+      );
+    }
+    return { kind: "unmanaged" };
+  }
+  if (adapter.includes("DEVROUTER_PROCESS_HELPER")) {
+    return {
+      kind: "runtime",
+      adapterPath: MANAGED_ADAPTER_PATH,
+      adapterSha256: adapterFingerprint(adapterBytes),
+      adapterContents: adapterBytes,
+    };
+  }
+
   if (dockerfile.includes("devrouter-process") && devcontainer.includes("postStartCommand")) {
     return { kind: "legacy" };
   }
@@ -90,13 +142,26 @@ export function runManagedPostStart(options: {
   const helper = fs.readFileSync(resolveProcessHelperPath());
   const delivered = spawnSync(
     "docker",
-    ["exec", "-i", options.container.id, "sh", "-c", DELIVERY_SCRIPT],
+    ["exec", "-i", options.container.id, "sh", "-c", renderDeliveryScript(RUNTIME_HELPER_PATH)],
     { input: helper, encoding: "utf-8" },
   );
   if (delivered.status !== 0) {
     const details = commandFailure(delivered);
     throw new Error(
       `Could not deliver the managed process helper${details ? `: ${details}` : "."}`,
+    );
+  }
+
+  const runtimeAdapterPath = `/tmp/devrouter/bin/managed-post-start-${options.plan.adapterSha256}`;
+  const deliveredAdapter = spawnSync(
+    "docker",
+    ["exec", "-i", options.container.id, "sh", "-c", renderDeliveryScript(runtimeAdapterPath)],
+    { input: options.plan.adapterContents, encoding: "utf-8" },
+  );
+  if (deliveredAdapter.status !== 0) {
+    const details = commandFailure(deliveredAdapter);
+    throw new Error(
+      `Could not deliver the managed post-start adapter${details ? `: ${details}` : "."}`,
     );
   }
 
@@ -108,9 +173,14 @@ export function runManagedPostStart(options: {
       options.container.workspacePath,
       "--env",
       `DEVROUTER_PROCESS_HELPER=${RUNTIME_HELPER_PATH}`,
+      "--env",
+      `DEVROUTER_PROCESS_ADAPTER_SHA256=${options.plan.adapterSha256}`,
       options.container.id,
       "bash",
+      "-c",
+      ADAPTER_WRAPPER,
       options.plan.adapterPath,
+      runtimeAdapterPath,
     ],
     { stdio: options.quiet ? ["ignore", 2, "inherit"] : "inherit" },
   );
