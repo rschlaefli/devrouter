@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 
 type FileLockOptions = {
@@ -52,7 +52,7 @@ function processBirthIdentity(pid: number): string | undefined {
     env: { ...process.env, LC_ALL: "C" },
   });
   const startedAt = result.status === 0 ? result.stdout.trim().replace(/\s+/g, " ") : "";
-  return startedAt ? `ps:${startedAt}` : undefined;
+  return startedAt ? `ps:${createHash("sha256").update(startedAt).digest("hex")}` : undefined;
 }
 
 function parseLockOwner(value: string): LockOwner | undefined {

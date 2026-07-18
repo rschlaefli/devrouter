@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { withDevpodMutationLockSync } from "./devpod-mutation";
 import { sameWorkspacePath } from "./workspace";
 
 export type DevpodWorkspace = {
@@ -84,42 +83,4 @@ export function selectDevpodWorkspace(
     );
   }
   return matches[0];
-}
-
-function runDevpodWorkspaceAction(action: "stop" | "delete", devpodId: string): void {
-  const args = action === "delete" ? [action, devpodId, "--ignore-not-found"] : [action, devpodId];
-  const result = spawnSync("devpod", args, { encoding: "utf-8" });
-  if (result.status !== 0) {
-    const detail = [result.error?.message, result.stdout, result.stderr]
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    throw new Error(`devpod ${action} failed for '${devpodId}': ${detail || "unknown error"}`);
-  }
-}
-
-export type OwnedDevpodMutationResult = { status: "changed" } | { status: "absent" };
-
-export function mutateOwnedDevpodWorkspace(
-  action: "stop" | "delete",
-  devpodId: string,
-  worktreePath: string,
-): OwnedDevpodMutationResult {
-  return withDevpodMutationLockSync(`DevPod ${action}`, worktreePath, () => {
-    const before = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
-    if (before.status === "conflict") throw new Error(before.reason);
-    if (before.status === "absent") return { status: "absent" };
-
-    runDevpodWorkspaceAction(action, devpodId);
-
-    const after = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
-    if (after.status === "conflict") throw new Error(after.reason);
-    if (action === "stop" && after.status !== "owned") {
-      throw new Error(`DevPod '${devpodId}' no longer owns '${worktreePath}' after provider stop.`);
-    }
-    if (action === "delete" && after.status !== "absent") {
-      throw new Error(`DevPod '${devpodId}' still owns '${worktreePath}' after provider delete.`);
-    }
-    return { status: "changed" };
-  });
 }

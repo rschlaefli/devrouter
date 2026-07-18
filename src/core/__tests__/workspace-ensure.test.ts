@@ -24,11 +24,6 @@ vi.mock("../file-lock", () => ({
     operation(),
   ),
 }));
-vi.mock("../devpod-mutation", () => ({
-  withDevpodMutationLockSync: vi.fn(
-    (_activity: string, _target: string, operation: () => unknown) => operation(),
-  ),
-}));
 vi.mock("../host-routes", () => ({
   parseUpstream: vi.fn((upstream: string) => {
     const [host, port] = upstream.split(":");
@@ -46,6 +41,7 @@ vi.mock("../repo-config", () => ({
   resolveRepoPath: vi.fn((repo?: string) => repo ?? process.cwd()),
 }));
 vi.mock("../router", () => ({
+  DEVROUTER_HOME: "/tmp/devrouter-workspace-ensure-test",
   DEVNET_NAME: "devnet",
   TCP_PROTOCOL_REGISTRY: { postgres: { port: 5432, entrypoint: "postgres" } },
   activateTcpProtocol: vi.fn(() => false),

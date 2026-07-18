@@ -59,6 +59,23 @@ function commandFailure(result: ReturnType<typeof spawnSync>): string {
     .join("\n");
 }
 
+function deliverRuntimeFile(
+  containerId: string,
+  targetPath: string,
+  contents: Buffer,
+  label: string,
+): void {
+  const result = spawnSync(
+    "docker",
+    ["exec", "-i", containerId, "sh", "-c", renderDeliveryScript(targetPath)],
+    { input: contents, encoding: "utf-8" },
+  );
+  if (result.status !== 0) {
+    const details = commandFailure(result);
+    throw new Error(`Could not deliver ${label}${details ? `: ${details}` : "."}`);
+  }
+}
+
 function readRegularFileBytes(filePath: string): Buffer | undefined {
   if (!fs.existsSync(filePath) || !fs.lstatSync(filePath).isFile()) return undefined;
   return fs.readFileSync(filePath);
@@ -140,30 +157,20 @@ export function runManagedPostStart(options: {
   if (options.plan.kind !== "runtime") return;
 
   const helper = fs.readFileSync(resolveProcessHelperPath());
-  const delivered = spawnSync(
-    "docker",
-    ["exec", "-i", options.container.id, "sh", "-c", renderDeliveryScript(RUNTIME_HELPER_PATH)],
-    { input: helper, encoding: "utf-8" },
+  deliverRuntimeFile(
+    options.container.id,
+    RUNTIME_HELPER_PATH,
+    helper,
+    "the managed process helper",
   );
-  if (delivered.status !== 0) {
-    const details = commandFailure(delivered);
-    throw new Error(
-      `Could not deliver the managed process helper${details ? `: ${details}` : "."}`,
-    );
-  }
 
   const runtimeAdapterPath = `/tmp/devrouter/bin/managed-post-start-${options.plan.adapterSha256}`;
-  const deliveredAdapter = spawnSync(
-    "docker",
-    ["exec", "-i", options.container.id, "sh", "-c", renderDeliveryScript(runtimeAdapterPath)],
-    { input: options.plan.adapterContents, encoding: "utf-8" },
+  deliverRuntimeFile(
+    options.container.id,
+    runtimeAdapterPath,
+    options.plan.adapterContents,
+    "the managed post-start adapter",
   );
-  if (deliveredAdapter.status !== 0) {
-    const details = commandFailure(deliveredAdapter);
-    throw new Error(
-      `Could not deliver the managed post-start adapter${details ? `: ${details}` : "."}`,
-    );
-  }
 
   const started = spawnSync(
     "docker",

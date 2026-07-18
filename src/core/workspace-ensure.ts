@@ -7,12 +7,8 @@ import {
   type WorkspaceContainerSnapshot,
   workspaceAppContainers,
 } from "./devpod-environment";
-import { withDevpodMutationLockSync } from "./devpod-mutation";
-import {
-  inspectDevpodWorkspaceOwnership,
-  listDevpodWorkspaces,
-  selectDevpodWorkspace,
-} from "./devpod-workspaces";
+import { DevpodStartPostconditionError, startDevpodWorkspace } from "./devpod-mutation";
+import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { parseUpstream, replaceHostRoutesForRepo } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
 import { resolveManagedPostStartPlan, runManagedPostStart } from "./managed-post-start";
@@ -315,71 +311,6 @@ function isPrimaryCheckout(repoPath: string): boolean {
   }
 }
 
-function startDevpod(
-  repoPath: string,
-  target: EnvironmentTarget,
-  recreate = false,
-  quiet = false,
-): void {
-  const args = ["up", repoPath];
-  if (target.devpodId) {
-    args.push("--id", target.devpodId);
-  }
-  args.push("--open-ide=false");
-  if (target.kind === "linked") {
-    args.push(
-      "--workspace-env",
-      `WORKSPACE=${target.workspace}`,
-      "--workspace-env",
-      `DEVROUTER_WORKSPACE=${target.workspace}`,
-    );
-  }
-  if (recreate) {
-    if (!target.devpodId) {
-      throw new Error("Cannot recreate a DevPod before its exact id is known.");
-    }
-    args.push("--recreate");
-  }
-  const env = { ...process.env };
-  if (target.kind === "linked") {
-    env.WORKSPACE = target.workspace;
-    env.DEVROUTER_WORKSPACE = target.workspace;
-    env.DEVROUTER_GIT_COMMON_DIR = target.gitCommonDir;
-    env.DEVCONTAINER_COMPOSE_OVERLAY = DEVCONTAINER_OVERLAY;
-  } else {
-    delete env.WORKSPACE;
-    delete env.DEVROUTER_WORKSPACE;
-    delete env.DEVROUTER_GIT_COMMON_DIR;
-    delete env.DEVCONTAINER_COMPOSE_OVERLAY;
-  }
-  const result = spawnSync("devpod", args, {
-    stdio: quiet ? ["inherit", 2, "inherit"] : "inherit",
-    env,
-  });
-  if (result.status !== 0) {
-    throw new Error(`devpod up failed for '${target.devpodId ?? repoPath}'.`);
-  }
-}
-
-function assertDevpodAttachment(repoPath: string, expectedId?: string): string {
-  const workspaces = listDevpodWorkspaces();
-  const attached = selectDevpodWorkspace(workspaces, repoPath);
-  const devpodId = expectedId ?? attached?.id;
-  if (!devpodId) {
-    throw new Error(
-      `DevPod did not attach '${repoPath}'${expectedId ? ` as '${expectedId}'` : ""} after startup.`,
-    );
-  }
-  const ownership = inspectDevpodWorkspaceOwnership(workspaces, devpodId, repoPath);
-  if (ownership.status === "conflict") throw new Error(ownership.reason);
-  if (ownership.status !== "owned") {
-    throw new Error(
-      `DevPod did not attach '${repoPath}'${expectedId ? ` as '${expectedId}'` : ""} after startup.`,
-    );
-  }
-  return devpodId;
-}
-
 function openUrls(urls: string[]): void {
   for (const url of urls) {
     const opened = spawnSync("open", [url], { encoding: "utf-8" });
@@ -458,33 +389,27 @@ export async function workspaceEnsure(
         target.kind === "linked" ? target : { ...target, devpodId };
 
       const startAndProveAttachment = (recreate = false): void => {
-        devpodId = withDevpodMutationLockSync(
-          recreate ? "DevPod recreate" : "DevPod start",
-          repoPath,
-          () => {
-            const requestedTarget = currentTarget();
-            const workspaces = listDevpodWorkspaces();
-            if (requestedTarget.devpodId) {
-              const before = inspectDevpodWorkspaceOwnership(
-                workspaces,
-                requestedTarget.devpodId,
-                repoPath,
-              );
-              if (before.status === "conflict") throw new Error(before.reason);
-              if (recreate && before.status !== "owned") {
-                throw new Error(
-                  `Cannot recreate DevPod '${requestedTarget.devpodId}' without one exact owner.`,
-                );
-              }
-            } else {
-              devpodId = selectDevpodWorkspace(workspaces, repoPath)?.id;
-            }
-
-            startDevpod(repoPath, currentTarget(), recreate, options.quiet);
-            environmentStarted = true;
-            return assertDevpodAttachment(repoPath, devpodId);
-          },
-        );
+        const requestedTarget = currentTarget();
+        try {
+          devpodId = startDevpodWorkspace({
+            repoPath,
+            devpodId: requestedTarget.devpodId,
+            recreate,
+            quiet: options.quiet,
+            ...(requestedTarget.kind === "linked"
+              ? {
+                  workspace: {
+                    token: requestedTarget.workspace,
+                    gitCommonDir: requestedTarget.gitCommonDir,
+                  },
+                }
+              : {}),
+          });
+          environmentStarted = true;
+        } catch (error) {
+          if (error instanceof DevpodStartPostconditionError) environmentStarted = true;
+          throw error;
+        }
         if (ownership) {
           writeWorkspaceOwnership(repoPath, ownership);
         }

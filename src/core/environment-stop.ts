@@ -1,8 +1,5 @@
-import {
-  listDevpodWorkspaces,
-  mutateOwnedDevpodWorkspace,
-  selectDevpodWorkspace,
-} from "./devpod-workspaces";
+import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "./devpod-mutation";
+import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { removeHostRoutesWhere } from "./host-routes";
 import {
   isLinkedWorktree,
@@ -67,9 +64,10 @@ export async function environmentStop(
 
   return withWorkspaceLifecycleLock(repoPath, async () => {
     const devpod = selectDevpodWorkspace(listDevpodWorkspaces(), repoPath);
-    const action = options.delete ? "delete" : "stop";
     const mutation = devpod
-      ? mutateOwnedDevpodWorkspace(action, devpod.id, repoPath)
+      ? options.delete
+        ? deleteOwnedDevpodWorkspace(devpod.id, repoPath)
+        : stopOwnedDevpodWorkspace(devpod.id, repoPath)
       : { status: "absent" as const };
     const removedRoutes = removeHostRoutesWhere((route) =>
       sameWorkspacePath(route.repoPath, repoPath),

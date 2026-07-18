@@ -64,7 +64,7 @@ Supported routing:
 - `devrouter upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
 - `devrouter setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics)
 - `devrouter up`, `devrouter down`, `devrouter status`, `devrouter doctor` (alias: `devrouter verify`), `devrouter ls`, `devrouter open`, `devrouter logs`, `devrouter tls install`
-- `devrouter ensure` (`[path]`, `--open`, `--json`), `devrouter stop` (`[path]`, `--json`), `devrouter exec` (`[path] -- <command...>`)
+- `devrouter ensure` (`[path]`, `--open`, `--json`), `devrouter stop` (`[path]`, `--delete`, `--json`), `devrouter exec` (`[path] -- <command...>`)
 - `devrouter repo init`, `devrouter repo inspect` (`--json`), `devrouter repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `devrouter repo devcontainer verify` (`--live`, `--yes`, `--json`), `devrouter repo agents`
 - `devrouter app add` (`--kind app|dependency`), `devrouter app ls`, `devrouter app run` (`--env`, `--workspace`), `devrouter app exec` (`--shell`, `--env`, `--workspace`), `devrouter app rm` (`--keep-config`)
 - `devrouter workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `devrouter workspace ensure` (`[path]`, `--open`, `--json`, compatibility alias), `devrouter workspace ls` (`--json`), `devrouter workspace stop` (`<workspace|branch>`), `devrouter workspace down` (`<workspace|branch>`, `--keep-worktree`), `devrouter workspace gc` (`--json`, `--yes`)

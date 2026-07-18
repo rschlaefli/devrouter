@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listDevpodWorkspaces, mutateOwnedDevpodWorkspace } from "../devpod-workspaces";
+import { deleteOwnedDevpodWorkspace } from "../devpod-mutation";
+import { listDevpodWorkspaces } from "../devpod-workspaces";
 import { listHostRouteState } from "../host-routes";
 import { removeWorkspaceRoutesForWorktree } from "../route-state";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../workspace-gc";
@@ -20,7 +21,9 @@ vi.mock("../repo-config", () => ({ resolveRepoPath: vi.fn((repo?: string) => rep
 vi.mock("../devpod-workspaces", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../devpod-workspaces")>()),
   listDevpodWorkspaces: vi.fn(() => []),
-  mutateOwnedDevpodWorkspace: vi.fn(() => ({ status: "absent" })),
+}));
+vi.mock("../devpod-mutation", () => ({
+  deleteOwnedDevpodWorkspace: vi.fn(() => ({ status: "absent" })),
 }));
 vi.mock("../host-routes", () => ({ listHostRouteState: vi.fn(() => []) }));
 vi.mock("../route-state", () => ({ removeWorkspaceRoutesForWorktree: vi.fn(() => []) }));
@@ -106,7 +109,7 @@ beforeEach(() => {
   });
   vi.mocked(removeWorkspaceRoutesForWorktree).mockReturnValue([route]);
   ownershipMocks.removeIfMatches.mockReturnValue("removed");
-  vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation((_action, devpodId, worktreePath) => {
+  vi.mocked(deleteOwnedDevpodWorkspace).mockImplementation((devpodId, worktreePath) => {
     const workspace = vi
       .mocked(listDevpodWorkspaces)()
       .find(
@@ -139,7 +142,7 @@ describe("workspaceGc", () => {
         },
       ],
     });
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
     expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
@@ -164,7 +167,7 @@ describe("workspaceGc", () => {
       events.push("lock-end");
       return result;
     });
-    vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation((_action, _id, _worktreePath) => {
+    vi.mocked(deleteOwnedDevpodWorkspace).mockImplementation((_id, _worktreePath) => {
       events.push("devpod");
       return { status: "changed" };
     });
@@ -176,7 +179,7 @@ describe("workspaceGc", () => {
     const report = workspaceGc({ repoPath: "/repo", yes: true });
 
     expect(events).toEqual(["lock-start", "devpod", "routes", "record", "lock-end"]);
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledWith("delete", "gone", record.worktreePath);
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("gone", record.worktreePath);
     expect(report.summary).toMatchObject({ cleaned: 1, errors: 0 });
     expect(report.candidates[0].actions).toEqual([
       { resource: "devpod", status: "deleted" },
@@ -193,11 +196,7 @@ describe("workspaceGc", () => {
 
     const report = workspaceGc({ repoPath: "/repo", yes: true });
 
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledWith(
-      "delete",
-      "provider-id",
-      record.worktreePath,
-    );
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("provider-id", record.worktreePath);
     expect(report.candidates).toHaveLength(1);
   });
 
@@ -211,7 +210,7 @@ describe("workspaceGc", () => {
     const report = workspaceGc({ repoPath: "/repo", yes: true });
 
     expect(report.candidates[0]).toMatchObject({ eligible: false, ownerStatus });
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
     expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
@@ -237,7 +236,7 @@ describe("workspaceGc", () => {
       ownerStatus: "locked",
       reason: expect.stringContaining("changed before cleanup"),
     });
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
   });
 
@@ -264,7 +263,7 @@ describe("workspaceGc", () => {
       ownerStatus: "present",
       reason: expect.stringContaining("changed before cleanup"),
     });
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
     expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
@@ -292,12 +291,8 @@ describe("workspaceGc", () => {
         error: "Ownership revalidation failed: git worktree state unavailable",
       },
     ]);
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledTimes(1);
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledWith(
-      "delete",
-      "also-gone",
-      secondRecord.worktreePath,
-    );
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledTimes(1);
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("also-gone", secondRecord.worktreePath);
   });
 
   it("reports transaction acquisition failure locally and continues later candidates", () => {
@@ -333,16 +328,12 @@ describe("workspaceGc", () => {
         error: "Ownership transaction failed: ledger lock busy",
       },
     ]);
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledTimes(1);
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledWith(
-      "delete",
-      "also-gone",
-      secondRecord.worktreePath,
-    );
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledTimes(1);
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("also-gone", secondRecord.worktreePath);
   });
 
   it("rechecks the machine-global DevPod source immediately before delete", () => {
-    vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation(() => {
+    vi.mocked(deleteOwnedDevpodWorkspace).mockImplementation(() => {
       throw new Error(
         `DevPod 'gone' and worktree '${record.worktreePath}' do not have one exact owner.`,
       );
@@ -356,13 +347,13 @@ describe("workspaceGc", () => {
       status: "failed",
       error: expect.stringContaining("do not have one exact owner"),
     });
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledWith("delete", "gone", record.worktreePath);
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("gone", record.worktreePath);
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
     expect(ownershipMocks.removeIfMatches).not.toHaveBeenCalled();
   });
 
   it("retains routes and record when DevPod deletion fails", () => {
-    vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation(() => {
+    vi.mocked(deleteOwnedDevpodWorkspace).mockImplementation(() => {
       throw new Error("devpod delete failed for 'gone': provider failed");
     });
 
@@ -410,7 +401,7 @@ describe("workspaceGc", () => {
         reason: expect.stringContaining("no ownership record"),
       }),
     );
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
   });
 

@@ -17,6 +17,15 @@ afterEach(() => {
 });
 
 describe("file lock ownership", () => {
+  it("stores only a non-sensitive process-birth verifier", () => {
+    withFileLockSync(lockPath, { activity: "inspect" }, () => {
+      const [, encodedBirth] = fs.readFileSync(lockPath, "utf-8").trim().split(":");
+      const processBirth = Buffer.from(encodedBirth, "base64url").toString("utf-8");
+
+      expect(processBirth).toMatch(/^(proc:[0-9]+|ps:[a-f0-9]{64})$/);
+    });
+  });
+
   it("does not displace the same live process instance", () => {
     withFileLockSync(lockPath, { activity: "outer" }, () => {
       expect(() =>

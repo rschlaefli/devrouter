@@ -1,11 +1,8 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  inspectDevpodWorkspaceOwnership,
-  listDevpodWorkspaces,
-  mutateOwnedDevpodWorkspace,
-} from "./devpod-workspaces";
+import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "./devpod-mutation";
+import { inspectDevpodWorkspaceOwnership, listDevpodWorkspaces } from "./devpod-workspaces";
 import { resolveRepoPath } from "./repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
 import {
@@ -373,7 +370,7 @@ type WorkspaceLifecycleResult = {
 };
 
 function mutateWorkspaceRuntime(
-  action: "stop" | "down",
+  action: "stop" | "delete",
   resolved: ResolvedWorkspaceTarget,
   worktrees: IdentifiedGitWorktree[],
   quiet = false,
@@ -381,11 +378,10 @@ function mutateWorkspaceRuntime(
   const devpods = listDevpodWorkspaces();
   assertDevpodTargetSafe(resolved, worktrees, devpods);
   const devpodId = resolved.record?.devpodId ?? resolved.workspace;
-  const mutation = mutateOwnedDevpodWorkspace(
-    action === "stop" ? "stop" : "delete",
-    devpodId,
-    resolved.worktreePath,
-  );
+  const mutation =
+    action === "stop"
+      ? stopOwnedDevpodWorkspace(devpodId, resolved.worktreePath)
+      : deleteOwnedDevpodWorkspace(devpodId, resolved.worktreePath);
 
   const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
   if (!quiet) {
@@ -415,7 +411,12 @@ async function runWorkspaceLifecycle(
     if (removeWorktree) {
       assertFullDownPreflight(mainRepo, resolved);
     }
-    const result = mutateWorkspaceRuntime(action, resolved, worktrees, opts.quiet);
+    const result = mutateWorkspaceRuntime(
+      action === "stop" ? "stop" : "delete",
+      resolved,
+      worktrees,
+      opts.quiet,
+    );
 
     if (removeWorktree) {
       if (
@@ -448,7 +449,7 @@ async function runWorkspaceLifecycle(
 }
 
 async function mutateWorkspaceOwnedPath(
-  action: "stop" | "down",
+  action: "stop" | "delete",
   worktreePath: string,
   opts: { quiet?: boolean; repoPath?: string } = {},
 ): Promise<WorkspaceLifecycleResult> {
@@ -485,7 +486,7 @@ export async function workspaceDeleteOwnedPath(
   worktreePath: string,
   opts: { quiet?: boolean; repoPath?: string } = {},
 ): Promise<WorkspaceLifecycleResult> {
-  return mutateWorkspaceOwnedPath("down", worktreePath, opts);
+  return mutateWorkspaceOwnedPath("delete", worktreePath, opts);
 }
 
 export async function workspaceStop(

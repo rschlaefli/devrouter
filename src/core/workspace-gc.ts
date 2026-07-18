@@ -1,5 +1,6 @@
 import path from "node:path";
-import { listDevpodWorkspaces, mutateOwnedDevpodWorkspace } from "./devpod-workspaces";
+import { deleteOwnedDevpodWorkspace } from "./devpod-mutation";
+import { listDevpodWorkspaces } from "./devpod-workspaces";
 import { listHostRouteState } from "./host-routes";
 import { resolveRepoPath } from "./repo-config";
 import { removeWorkspaceRoutesForWorktree } from "./route-state";
@@ -299,7 +300,7 @@ function applyCandidate(candidate: WorkspaceGcCandidate, repoPath: string): Work
       const actions: WorkspaceGcAction[] = [];
       let devpodStatus: "owned" | "absent";
       try {
-        const mutation = mutateOwnedDevpodWorkspace("delete", record.devpodId, record.worktreePath);
+        const mutation = deleteOwnedDevpodWorkspace(record.devpodId, record.worktreePath);
         devpodStatus = mutation.status === "changed" ? "owned" : "absent";
       } catch (error) {
         return { ...fresh, actions: [failedAction("devpod", error)] };

@@ -2,7 +2,12 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostRouteState } from "../../types";
-import { listDevpodWorkspaces, mutateOwnedDevpodWorkspace } from "../devpod-workspaces";
+import {
+  deleteOwnedDevpodWorkspace,
+  type OwnedDevpodMutationResult,
+  stopOwnedDevpodWorkspace,
+} from "../devpod-mutation";
+import { listDevpodWorkspaces } from "../devpod-workspaces";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
 import { resolveWorktreeWorkspace, withWorkspaceLifecycleLock, wsFromBranch } from "../workspace";
@@ -30,7 +35,10 @@ vi.mock("../route-state", () => ({
 vi.mock("../devpod-workspaces", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../devpod-workspaces")>()),
   listDevpodWorkspaces: vi.fn(() => []),
-  mutateOwnedDevpodWorkspace: vi.fn(() => ({ status: "absent" })),
+}));
+vi.mock("../devpod-mutation", () => ({
+  deleteOwnedDevpodWorkspace: vi.fn(() => ({ status: "absent" })),
+  stopOwnedDevpodWorkspace: vi.fn(() => ({ status: "absent" })),
 }));
 vi.mock("../workspace-ensure", () => ({
   workspaceEnsure: vi.fn(async (repoPath: string) => ({
@@ -127,14 +135,16 @@ beforeEach(() => {
   vi.mocked(listWorkspaceOwnership).mockReturnValue([]);
   vi.mocked(listMissingWorkspaceOwnership).mockReturnValue([]);
   vi.mocked(listDevpodWorkspaces).mockReturnValue([]);
-  vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation((_action, devpodId, worktreePath) => {
+  const mutation = (devpodId: string, worktreePath: string): OwnedDevpodMutationResult => {
     const workspace = vi
       .mocked(listDevpodWorkspaces)()
       .find(
         (candidate) => candidate.id === devpodId && candidate.source.localFolder === worktreePath,
       );
     return workspace ? { status: "changed" } : { status: "absent" };
-  });
+  };
+  vi.mocked(deleteOwnedDevpodWorkspace).mockImplementation(mutation);
+  vi.mocked(stopOwnedDevpodWorkspace).mockImplementation(mutation);
   vi.mocked(inspectWorkspaceOwnership).mockReturnValue({
     ownerStatus: "present",
     devpodStatus: "owned",
@@ -353,7 +363,8 @@ describe("workspaceDown", () => {
 
     await expect(workspaceDown("feat-a")).rejects.toThrow("uncommitted changes");
 
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
     expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
   });
@@ -390,7 +401,7 @@ describe("workspaceDown", () => {
       events.push("record");
       return true;
     });
-    vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation((_action, _id, _worktreePath) => {
+    vi.mocked(deleteOwnedDevpodWorkspace).mockImplementation((_id, _worktreePath) => {
       events.push("delete");
       return { status: "changed" };
     });
@@ -409,11 +420,7 @@ describe("workspaceDown", () => {
     await workspaceDown("feat-a");
 
     expect(events).toEqual(["delete", "routes", "worktree", "record"]);
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledWith(
-      "delete",
-      "feat-a",
-      "/main/repo-feat-a",
-    );
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("feat-a", "/main/repo-feat-a");
   });
 
   it("retains routes, worktree, and ownership when DevPod deletion fails", async () => {
@@ -422,7 +429,7 @@ describe("workspaceDown", () => {
     vi.mocked(listDevpodWorkspaces).mockReturnValue([
       { id: "feat-a", source: { localFolder: "/main/repo-feat-a" } },
     ]);
-    vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation(() => {
+    vi.mocked(deleteOwnedDevpodWorkspace).mockImplementation(() => {
       throw new Error("devpod delete failed for 'feat-a': provider failed");
     });
     vi.mocked(spawnSync).mockImplementation((command, args) => {
@@ -543,7 +550,7 @@ branch refs/heads/feature-foo
     vi.mocked(listDevpodWorkspaces).mockReturnValue([
       { id: "feat-a", source: { localFolder: "/main/repo-feat-a" } },
     ]);
-    vi.mocked(mutateOwnedDevpodWorkspace).mockReturnValue({ status: "changed" });
+    vi.mocked(deleteOwnedDevpodWorkspace).mockReturnValue({ status: "changed" });
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
       if (command === "git" && argv.includes("list")) {
@@ -559,11 +566,7 @@ branch refs/heads/feature-foo
       }),
     ).resolves.toMatchObject({ workspace: "feat-a", devpodId: "feat-a" });
 
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledWith(
-      "delete",
-      "feat-a",
-      "/main/repo-feat-a",
-    );
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("feat-a", "/main/repo-feat-a");
     expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
   });
 
@@ -579,7 +582,7 @@ branch refs/heads/feature-foo
       events.push("routes");
       return [];
     });
-    vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation((_action, _id, _worktreePath) => {
+    vi.mocked(stopOwnedDevpodWorkspace).mockImplementation((_id, _worktreePath) => {
       events.push("stop");
       return { status: "changed" };
     });
@@ -604,7 +607,7 @@ branch refs/heads/feature-foo
     vi.mocked(listDevpodWorkspaces).mockReturnValue([
       { id: "feat-a", source: { localFolder: "/main/repo-feat-a" } },
     ]);
-    vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation(() => {
+    vi.mocked(stopOwnedDevpodWorkspace).mockImplementation(() => {
       throw new Error("devpod stop failed for 'feat-a': stop failed");
     });
     vi.mocked(spawnSync).mockImplementation((command, args) => {

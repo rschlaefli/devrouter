@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  listDevpodWorkspaces,
-  mutateOwnedDevpodWorkspace,
-  selectDevpodWorkspace,
-} from "../devpod-workspaces";
+import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "../devpod-mutation";
+import { listDevpodWorkspaces, selectDevpodWorkspace } from "../devpod-workspaces";
 import { environmentStop } from "../environment-stop";
 import { removeHostRoutesWhere } from "../host-routes";
 import {
@@ -16,8 +13,11 @@ import { listGitWorktrees, listWorkspaceOwnership } from "../workspace-ownership
 
 vi.mock("../devpod-workspaces", () => ({
   listDevpodWorkspaces: vi.fn(),
-  mutateOwnedDevpodWorkspace: vi.fn(),
   selectDevpodWorkspace: vi.fn(),
+}));
+vi.mock("../devpod-mutation", () => ({
+  deleteOwnedDevpodWorkspace: vi.fn(),
+  stopOwnedDevpodWorkspace: vi.fn(),
 }));
 
 vi.mock("../host-routes", () => ({
@@ -70,7 +70,7 @@ describe("environmentStop", () => {
       events.push("routes");
       return removed;
     });
-    vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation(() => {
+    vi.mocked(stopOwnedDevpodWorkspace).mockImplementation(() => {
       events.push("stop");
       return { status: "changed" };
     });
@@ -84,7 +84,7 @@ describe("environmentStop", () => {
     });
 
     expect(withWorkspaceLifecycleLock).toHaveBeenCalledWith("/repo", expect.any(Function));
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledWith("stop", "repo", "/repo");
+    expect(stopOwnedDevpodWorkspace).toHaveBeenCalledWith("repo", "/repo");
     expect(removeHostRoutesWhere).toHaveBeenCalledOnce();
     expect(events).toEqual(["stop", "routes"]);
   });
@@ -103,7 +103,7 @@ describe("environmentStop", () => {
       freedRoutes: 0,
     });
 
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeHostRoutesWhere).toHaveBeenCalledOnce();
   });
 
@@ -111,7 +111,7 @@ describe("environmentStop", () => {
     const devpod = { id: "repo", source: { localFolder: "/repo" } };
     vi.mocked(listDevpodWorkspaces).mockReturnValue([devpod]);
     vi.mocked(selectDevpodWorkspace).mockReturnValue(devpod);
-    vi.mocked(mutateOwnedDevpodWorkspace).mockReturnValue({ status: "absent" });
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "absent" });
 
     await expect(environmentStop("/repo")).resolves.toEqual({
       kind: "primary",
@@ -125,7 +125,7 @@ describe("environmentStop", () => {
     const devpod = { id: "repo", source: { localFolder: "/repo" } };
     vi.mocked(listDevpodWorkspaces).mockReturnValue([devpod]);
     vi.mocked(selectDevpodWorkspace).mockReturnValue(devpod);
-    vi.mocked(mutateOwnedDevpodWorkspace).mockReturnValue({ status: "changed" });
+    vi.mocked(deleteOwnedDevpodWorkspace).mockReturnValue({ status: "changed" });
 
     await expect(environmentStop("/repo", { delete: true })).resolves.toEqual({
       kind: "primary",
@@ -136,7 +136,7 @@ describe("environmentStop", () => {
       freedRoutes: 0,
     });
 
-    expect(mutateOwnedDevpodWorkspace).toHaveBeenCalledWith("delete", "repo", "/repo");
+    expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("repo", "/repo");
   });
 
   it("delegates ledger-owned linked checkouts to the fail-closed workspace lifecycle", async () => {
@@ -182,7 +182,8 @@ describe("environmentStop", () => {
       quiet: true,
       repoPath: "/repo",
     });
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeHostRoutesWhere).not.toHaveBeenCalled();
   });
 
@@ -250,7 +251,8 @@ describe("environmentStop", () => {
 
     await expect(environmentStop("/repo/trees/feature")).rejects.toThrow("ownership conflicts");
 
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeHostRoutesWhere).not.toHaveBeenCalled();
   });
 
@@ -258,7 +260,7 @@ describe("environmentStop", () => {
     const devpod = { id: "repo", source: { localFolder: "/repo" } };
     vi.mocked(listDevpodWorkspaces).mockReturnValue([devpod]);
     vi.mocked(selectDevpodWorkspace).mockReturnValue(devpod);
-    vi.mocked(mutateOwnedDevpodWorkspace).mockImplementation(() => {
+    vi.mocked(stopOwnedDevpodWorkspace).mockImplementation(() => {
       throw new Error("provider failed");
     });
 
@@ -278,7 +280,8 @@ describe("environmentStop", () => {
 
     await expect(environmentStop("/repo")).rejects.toThrow("Multiple DevPod workspaces");
 
-    expect(mutateOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeHostRoutesWhere).not.toHaveBeenCalled();
   });
 });

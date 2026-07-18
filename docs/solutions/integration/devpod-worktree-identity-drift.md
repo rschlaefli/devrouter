@@ -58,63 +58,67 @@ checkout or runtime generations to be combined into an apparently healthy enviro
 
 Persist one worktree token and use it for DevPod, container environment, aliases, and routes. Before
 starting anything, require every managed HTTP and TCP proxy upstream to begin with the resolved
-checkout alias namespace (`src/core/workspace-ensure.ts:425`,
-`src/core/workspace-ensure.ts:435`). Start the exact path with the Git common directory mounted at
-the same absolute path, then prove the runtime before publishing routes
-(`src/core/workspace-ensure.ts:460`, `src/core/workspace-ensure.ts:492`).
+checkout alias namespace (`workspaceEnsure` in `src/core/workspace-ensure.ts`). Start the exact path
+with the Git common directory mounted at the same absolute path, then prove the runtime before
+publishing routes (`startDevpodWorkspace` in `src/core/devpod-mutation.ts` and `workspaceEnsure` in
+`src/core/workspace-ensure.ts`).
 
 Inspect every Docker container when proving alias uniqueness, while using Compose labels and mounts
-only to identify the owned app container (`src/core/workspace-ensure.ts:137`,
-`src/core/workspace-ensure.ts:177`, `src/core/workspace-ensure.ts:206`). Mark the environment as
-started immediately after `devpod up` succeeds so any later attachment or runtime proof failure
-clears the worktree's route batch (`src/core/workspace-ensure.ts:508`,
-`src/core/workspace-ensure.ts:580`).
+only to identify the owned app container (`validateWorkspaceContainers` and
+`waitForContainerPreflight` in `src/core/workspace-ensure.ts`). Mark the environment as started once
+`devpod up` succeeds, including when its attachment postcondition fails, so any later attachment or
+runtime proof failure clears the worktree's route batch (`DevpodStartPostconditionError` in
+`src/core/devpod-mutation.ts` and `workspaceEnsure` in `src/core/workspace-ensure.ts`).
 
 Spend the same single recreate budget when an existing exact workspace fails HTTP readiness:
 remove its routes, recreate and reprove the container, then republish the same route batch and wait
-again (`src/core/workspace-ensure.ts:557`, `src/core/workspace-ensure.ts:568`). A second failure
-falls through the existing fail-closed cleanup instead of leaving routes behind.
+again (`recreateAndPreflight` inside `workspaceEnsure` in `src/core/workspace-ensure.ts`). A second
+failure falls through the existing fail-closed cleanup instead of leaving routes behind.
 
 Use one file-lock primitive for workspace lifecycle and route-state mutations. Lock records include
-the owner's process-birth identity, so a reused PID cannot impersonate the original owner. Live
-route owners receive a bounded wait and are never forcibly displaced
-(`src/core/host-routes.ts:407`, `src/core/host-routes.ts:416`).
+the owner's process-birth identity, so a reused PID cannot impersonate the original owner. Persist
+only a non-sensitive verifier: Linux records the procfs start tick, while the portable `ps`
+fallback hashes its start-and-command evidence instead of base64-encoding the command line. Live
+route owners receive a bounded wait and are never forcibly displaced (`processBirthIdentity` and
+`withFileLockSync` in `src/core/file-lock.ts`, used by `withStateLock` in
+`src/core/host-routes.ts`).
 
 Keep repository lifecycle locks outermost, then serialize every devrouter `up`, `stop`, and `delete`
-through one machine-global provider lock (`src/core/devpod-mutation.ts:6`,
-`src/core/devpod-mutation.ts:9`). Inside that lock, re-read exact DevPod ID-plus-source ownership,
+through one machine-global provider lock (`withMutationLock` in
+`src/core/devpod-mutation.ts`). Inside that lock, re-read exact DevPod ID-plus-source ownership,
 perform the ID-only provider action, and prove the expected postcondition before release
-(`src/core/devpod-workspaces.ts:103`, `src/core/devpod-workspaces.ts:108`). Direct `devpod` mutations
-remain outside this coordination boundary and must not be used for devrouter-managed environments.
+(`startDevpodWorkspace`, `stopOwnedDevpodWorkspace`, and `deleteOwnedDevpodWorkspace` in the same
+module). Direct `devpod` mutations remain outside this coordination boundary and must not be used
+for devrouter-managed environments.
 
 Classify DevPod ownership through one adapter that requires one exact ID-and-path pair
-(`src/core/devpod-workspaces.ts:48`, `src/core/devpod-workspaces.ts:60`). This keeps ensure,
-lifecycle, doctor, and GC on the same fail-closed ownership rule.
+(`inspectDevpodWorkspaceOwnership` in `src/core/devpod-workspaces.ts`). This keeps ensure, lifecycle,
+doctor, and GC on the same fail-closed ownership rule.
 
 Capture the managed adapter bytes once, fingerprint that snapshot, deliver the same bytes into the
 validated container, and include their SHA-256 in managed-process identity
-(`src/core/managed-post-start.ts:87`, `src/core/managed-post-start.ts:118`,
-`src/core/managed-post-start.ts:155`). The process helper also hashes exact argv, workspace
-identity, and explicitly allowlisted non-secret environment values; adapter or origin drift restarts
-only the owned group instead of reusing stale runtime state.
+(`resolveManagedPostStartPlan`, `adapterFingerprint`, and `deliverRuntimeFile` in
+`src/core/managed-post-start.ts`). The process helper also hashes exact argv, workspace identity, and
+explicitly allowlisted non-secret environment values; adapter or origin drift restarts only the
+owned group instead of reusing stale runtime state.
 
 Make the Traefik dynamic file the canonical route artifact. Its versioned metadata header and YAML
 are generated together; JSON is a compatibility mirror written first, then the canonical file is
-replaced with file and parent-directory `fsync` (`src/core/host-routes.ts:205`,
-`src/core/host-routes.ts:281`, `src/core/host-routes.ts:316`,
-`src/core/host-routes.ts:323`). Canonical reads validate metadata against the rendered document,
-migrate headerless legacy generations from validated JSON, repair stale mirrors, and fail closed on
-corruption (`src/core/host-routes.ts:344`, `src/core/host-routes.ts:428`).
+replaced through the shared file-and-parent-directory `fsync` helper
+(`writeFileAtomically` in `src/core/atomic-file.ts`, used by `writeRouteGeneration` in
+`src/core/host-routes.ts`). Canonical reads validate metadata against the rendered document, migrate
+headerless legacy generations from validated JSON, repair stale mirrors, and fail closed on
+corruption (`parseCanonicalState` and `readHostRouteStateLocked` in `src/core/host-routes.ts`).
 
 Serialize every ownership write or removal through one repository-wide ledger transaction
-(`src/core/workspace-ownership.ts:318`, `src/core/workspace-ownership.ts:338`). GC holds that same
+(`withWorkspaceOwnershipTransaction` in `src/core/workspace-ownership.ts`). GC holds that same
 transaction across final record, Git, DevPod, and route revalidation; provider deletion; exact route
-removal; and conditional record removal (`src/core/workspace-gc.ts:291`). A concurrent ensure either
-writes first and makes revalidation block cleanup, or waits until the old resources are fully
-removed. Keep dry-run inspection separate from apply so mutation always produces a fresh result
-instead of mutating the snapshot report (`src/core/workspace-gc.ts:379`,
-`src/core/workspace-gc.ts:398`). Transaction acquisition and per-candidate failures remain local so
-later eligible candidates can still be processed.
+removal; and conditional record removal (`applyCandidate` in `src/core/workspace-gc.ts`). A
+concurrent ensure either writes first and makes revalidation block cleanup, or waits until the old
+resources are fully removed. Keep dry-run inspection separate from apply so mutation always
+produces a fresh result instead of mutating the snapshot report (`inspectWorkspaceGc` and
+`applyWorkspaceGc` in `src/core/workspace-gc.ts`). Transaction acquisition and per-candidate
+failures remain local so later eligible candidates can still be processed.
 
 ## Why This Works
 
@@ -129,24 +133,14 @@ partial files.
 
 The workspace lifecycle suite rejects foreign HTTP/TCP namespaces before provider or route mutation.
 A real two-process test proves the machine-global provider lock blocks mutations from another
-repository (`src/core/__tests__/devpod-mutation.test.ts:66`,
-`src/core/__tests__/devpod-mutation.test.ts:93`). The Linux process regression proves workspace,
-adapter, and allowlisted-origin drift restart the owned process while undeclared and secret values
-never enter its state (`scripts/test-devrouter-process.sh:129`,
-`scripts/test-devrouter-process.sh:145`, `scripts/test-devrouter-process.sh:161`,
-`scripts/test-devrouter-process.sh:197`).
+repository (`src/core/__tests__/devpod-mutation.test.ts`). The Linux process regression proves
+workspace, adapter, and allowlisted-origin drift restart the owned process while undeclared and
+secret values never enter its state (`scripts/test-devrouter-process.sh`).
 
 Route failure injection covers JSON failure, both sides of canonical rename, corrupt metadata,
 legacy migration, stale-mirror repair, and real concurrent writers whose canonical metadata and YAML
-retain both routes (`src/core/__tests__/host-routes-state.test.ts:225`,
-`src/core/__tests__/host-routes-state.test.ts:259`,
-`src/core/__tests__/host-routes-state.test.ts:296`,
-`src/core/__tests__/host-routes-state.test.ts:332`,
-`src/core/__tests__/host-routes-state.test.ts:351`,
-`src/core/__tests__/host-routes-state.test.ts:389`).
+retain both routes (`src/core/__tests__/host-routes-state.test.ts`).
 
 GC regression tests assert that the ownership transaction encloses DevPod, route, and record
 deletion; a workspace revived after inspection is not mutated; and a busy ledger lock fails only
-that candidate while later candidates continue (`src/core/__tests__/workspace-gc.test.ts:141`,
-`src/core/__tests__/workspace-gc.test.ts:242`,
-`src/core/__tests__/workspace-gc.test.ts:301`).
+that candidate while later candidates continue (`src/core/__tests__/workspace-gc.test.ts`).
