@@ -8,6 +8,7 @@ Guidance for agentic coders working in this repository.
 - [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
 - [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) (preferred: front a devcontainer via `runtime: proxy`)
 - [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
+- [`docs/knowledge/index.md`](./docs/knowledge/index.md) (OKF orientation and cross-cutting contracts)
 - [`examples/routing/README.md`](./examples/routing/README.md)
 - [`examples/devcontainer/README.md`](./examples/devcontainer/README.md)
 - [`examples/workspace/README.md`](./examples/workspace/README.md)
@@ -25,11 +26,12 @@ Keep these docs up to date with any behavior, command, schema, or onboarding wor
 4. `docs/DEVCONTAINER.md`
 5. `docs/REPO_ONBOARDING.md`
 6. `docs/README.md`
-7. `examples/routing/README.md`
-8. `examples/devcontainer/README.md`
-9. `examples/workspace/README.md`
-10. `CHANGELOG.md`
-11. `upgrade-prompts/*.md`
+7. `docs/knowledge/**`
+8. `examples/routing/README.md`
+9. `examples/devcontainer/README.md`
+10. `examples/workspace/README.md`
+11. `CHANGELOG.md`
+12. `upgrade-prompts/*.md`
 
 ## Documentation policy
 
@@ -38,7 +40,9 @@ Keep these docs up to date with any behavior, command, schema, or onboarding wor
 3. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
 4. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
 
+## Repository knowledge
 
+Use `docs/knowledge/index.md` for orientation, cross-cutting invariants, and links to canonical decisions and manuals. Verify current executable behavior in source code, tests, schemas, and configuration before changing it. When the knowledge layer conflicts with an executable artifact, the executable artifact wins; update or flag the affected concept in the same change. Human-authored concepts follow normal review. The bundle index is maintained with the concept set and is not an independent source of truth.
 
 ## Current product model
 
@@ -196,15 +200,16 @@ Supported routing:
 ## Validation checklist
 
 1. `pnpm check:docs-policy`
-2. `pnpm check`
-3. `pnpm knip`
-4. `pnpm typecheck`
-5. `pnpm test`
-6. `pnpm build`
-7. `devrouter setup --repo ./examples/routing --yes --json`
-8. `devrouter doctor --repo ./examples/routing`
-9. `devrouter repo inspect --repo ./examples/routing --json`
-10. `pnpm routing:smoke` for full route showcase/regression smoke
-11. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
-12. `pnpm devcontainer:smoke down` after live devcontainer verification
-13. Update docs for any behavior/surface changes
+2. `pnpm check:knowledge`
+3. `pnpm check`
+4. `pnpm knip`
+5. `pnpm typecheck`
+6. `pnpm test`
+7. `pnpm build`
+8. `devrouter setup --repo ./examples/routing --yes --json`
+9. `devrouter doctor --repo ./examples/routing`
+10. `devrouter repo inspect --repo ./examples/routing --json`
+11. `pnpm routing:smoke` for full route showcase/regression smoke
+12. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
+13. `pnpm devcontainer:smoke down` after live devcontainer verification
+14. Update docs for any behavior/surface changes

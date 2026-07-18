@@ -31,6 +31,7 @@
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "check:docs-policy": "./scripts/check-docs-policy.sh",
+    "check:knowledge": "node --import tsx scripts/check-knowledge.ts",
     "format": "biome format --write .",
     "knip": "knip",
     "lint": "biome lint .",

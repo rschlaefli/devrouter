@@ -11,6 +11,12 @@ Use this page to choose the smallest authoritative document for the task.
 
 These manuals describe supported current behavior. Executable code, tests, `.devrouter.yml` validation, and generated CLI help remain authoritative when prose conflicts.
 
+## Repository knowledge
+
+- [OKF knowledge index](./knowledge/index.md): cross-cutting authority, architecture, lifecycle, integration, and change guidance.
+
+The knowledge bundle is an orientation layer. Its concept frontmatter declares source-path review triggers; run `pnpm check:knowledge` after concept or profile changes.
+
 ## Maintainer context
 
 - [Domain context](../CONTEXT.md): compact vocabulary consumed by Matt Pocock skills and repository planning workflows.

@@ -110,5 +110,5 @@ After moves, scan Markdown, scripts, and configuration for stale source-path lit
 
 ## Progress
 
-- Current: Slice 1 complete. All project records now live under `docs/project/`; open roadmap work is preserved, historical statuses are labelled, `CONTEXT.md` is unchanged, and the docs map/policy distinguish current manuals from records. Pinned docs policy, 70-file local Markdown path scan, filename/layout checks, and diff checks pass. Correctness re-review returned `DONE`; simplification removed duplicate navigation, repaired historical destinations, and reconciled stale statuses.
-- Next: commit Slice 1, then add the lean OKF bundle and deterministic validator in Slice 2.
+- Current: Slice 1 committed as `86f7414`; Slice 2 complete. Six admitted concepts and the bundle index now link the executable authorities, manuals, ADRs, and solution records. The strict local profile and offline validator cover core, profile, and hygiene failures with 19 focused fixtures. Pinned `check:knowledge`, docs policy, Biome, Knip, typecheck, focused Vitest, and diff checks pass. Independent correctness re-review found no remaining blocker; simplification removed redundant source-prefix and filename lists.
+- Next: commit Slice 2, then consolidate the current-state manuals without changing `CONTEXT.md`.

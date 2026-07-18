@@ -9,19 +9,20 @@ Use the [documentation map](../README.md) for supported behavior, [AGENTS.md](..
 Required checks for behavior and documentation consistency:
 
 1. `pnpm check:docs-policy`
-2. `pnpm check`
-3. `pnpm knip`
-4. `pnpm typecheck`
-5. `pnpm test`
-6. `pnpm build`
-7. `node dist/devrouter.js -V --repo ./examples/routing`
-8. `node dist/devrouter.js upgrade --repo ./examples/routing`
-9. `node dist/devrouter.js setup --repo ./examples/routing --yes --json`
-10. `node dist/devrouter.js doctor --repo ./examples/routing`
-11. `node dist/devrouter.js repo inspect --repo ./examples/routing --json`
-12. `pnpm routing:smoke` when Docker and local networking are available
-13. `pnpm devcontainer:smoke` when DevPod is available
-14. `pnpm devcontainer:smoke down` after live devcontainer verification
+2. `pnpm check:knowledge`
+3. `pnpm check`
+4. `pnpm knip`
+5. `pnpm typecheck`
+6. `pnpm test`
+7. `pnpm build`
+8. `node dist/devrouter.js -V --repo ./examples/routing`
+9. `node dist/devrouter.js upgrade --repo ./examples/routing`
+10. `node dist/devrouter.js setup --repo ./examples/routing --yes --json`
+11. `node dist/devrouter.js doctor --repo ./examples/routing`
+12. `node dist/devrouter.js repo inspect --repo ./examples/routing --json`
+13. `pnpm routing:smoke` when Docker and local networking are available
+14. `pnpm devcontainer:smoke` when DevPod is available
+15. `pnpm devcontainer:smoke down` after live devcontainer verification
 
 ## Near-term roadmap
 

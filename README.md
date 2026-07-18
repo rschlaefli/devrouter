@@ -494,6 +494,7 @@ Global managed artifacts remain under:
 - Setup and bootstrapping: [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
 - Onboarding repositories and AI prompt: [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
 - Managed devcontainer integration: [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md)
+- Repository knowledge: [`docs/knowledge/index.md`](./docs/knowledge/index.md)
 - Shared domain vocabulary for planning skills: [`CONTEXT.md`](./CONTEXT.md)
 - Agent contributor guide: [`AGENTS.md`](./AGENTS.md)
 - Routing example: [`./examples/routing/README.md`](./examples/routing/README.md)
