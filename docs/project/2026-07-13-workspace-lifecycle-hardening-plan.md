@@ -1,5 +1,7 @@
 # Workspace Lifecycle Hardening Plan
 
+Status: delivered in `0.0.26`. Progress and next-step sections below are historical execution records.
+
 ## Goal
 
 - Make any existing or new git worktree start through one fail-closed command.
@@ -15,7 +17,7 @@
 
 ## Identity
 
-- Plan: `project/2026-07-13-workspace-lifecycle-hardening-plan.md`
+- Plan: `docs/project/2026-07-13-workspace-lifecycle-hardening-plan.md`
 - Branch: `codex/workspace-lifecycle-hardening`
 - Base: current `main` at `d3c97c5` after rebasing over its quality-tooling commit.
 - Target: `main`

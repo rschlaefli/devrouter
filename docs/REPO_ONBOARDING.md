@@ -1,427 +1,292 @@
-# REPO_ONBOARDING.md
+# Repository onboarding
 
-Guide for adapting an existing repository to unified `devrouter` config.
+Adapt an existing repository to Devrouter's unified `.devrouter.yml` model.
+Complete [machine setup and a first route](./GETTING_STARTED.md) before using
+this guide.
 
-## 1) Purpose
+## Scope
 
-Onboard any repo using one config file:
+Devrouter has no central repository registry and does not manage Kubernetes.
+`.devrouter.yml` is the only supported per-repository configuration.
 
-- `.devrouter.yml`
+## Inspect before editing
 
-Track the applied devrouter release for agent upgrades with:
-
-- `.devrouter.yml` metadata (`devrouter.version`, used by `devrouter -V` / `devrouter upgrade`)
-
-Supported route types:
-
-- HTTP host-run apps
-- HTTP docker apps
-- HTTP proxy apps (`runtime: proxy`, route to an already-running `upstream`; supports `${WORKSPACE}` placeholder for parallel-worktree isolation)
-- TCP apps with TLS/SNI (`runtime: docker` or `runtime: proxy`; supported `tcpProtocol`: `postgres`, `redis`, `mariadb`, `mysql`)
-- Dependency-only docker services (`kind: dependency`, non-routed)
-- Parallel git worktrees via `devrouter workspace up/ensure/ls/stop/down/gc` with durable ownership and proven, auto-namespaced `.localhost` routes
-
-Scope:
-
-- no Kubernetes
-- no central service registry
-- no random host-port URLs for app access
-
-## 2) Before you start
-
-Complete global setup first:
-
-- [`GETTING_STARTED.md`](./GETTING_STARTED.md)
-- Release/adaptation history: [`../CHANGELOG.md`](../CHANGELOG.md) and [`../upgrade-prompts/`](../upgrade-prompts/)
-
-Assumptions:
-
-- `dev` CLI is installed
-- `devrouter setup --yes` has completed or `devrouter doctor --json` explains what is missing
-- macOS local environment
-
-Agent-native first pass:
+Start with read-only evidence:
 
 ```bash
 devrouter setup --yes --json
-devrouter doctor --json
-devrouter repo inspect --repo /absolute/path/to/repo --json
-devrouter repo devcontainer write --repo /absolute/path/to/repo --dry-run --json
-devrouter repo devcontainer write --repo /absolute/path/to/repo --yes
-devrouter repo devcontainer verify --repo /absolute/path/to/repo --json
+devrouter doctor --repo /absolute/path/to/repository --json
+devrouter repo inspect --repo /absolute/path/to/repository --json
 ```
 
-`devrouter repo inspect` is read-only. It reports package manager metadata, scripts and likely ports, compose services, env variable names (not values), existing `.devcontainer/`, `.devrouter.yml`, and agent guidance files. Use its evidence and issues to write a small onboarding plan before editing files.
+Inspection reports package-manager metadata, scripts, likely ports, Compose
+services, environment-variable names but not values, existing Devrouter and
+devcontainer files, and agent guidance. Use those facts to choose one lifecycle
+owner for each application.
 
-`devrouter repo devcontainer write --dry-run --json` plans the managed files. `devrouter repo devcontainer write --yes` writes only when target files are missing or already marked as devrouter-managed; custom existing `.devcontainer/` or `.devrouter.yml` files stop the write with a conflict. The first scaffold supports Node + pnpm + Postgres; non-pnpm repos stop with `repo.devcontainer.package-manager-unsupported`.
+| Repository shape | Recommended path |
+| --- | --- |
+| Self-contained or container-ready | Use the [managed devcontainer contract](./DEVCONTAINER.md) and `runtime: proxy`. |
+| Host development command | Use `runtime: host`; Devrouter starts the command and detects its port. |
+| Existing Compose application | Use `runtime: docker`; Devrouter starts the selected service. |
+| Externally managed listener | Use `runtime: proxy`; Devrouter publishes only the declared upstream. |
 
-`devrouter repo devcontainer verify --json` is read-only and produces PR evidence from doctor checks, required files, proxy app entries, workspace namespacing, and a helper-free consumer image. Start either checkout kind with `devrouter ensure <path> --json`; it delivers the host CLI's matching helper at runtime and invokes the repository-owned managed adapter. The mutating `--live --yes --json` form remains only as a compatibility check after ensure in this release.
+## Preferred managed devcontainer path
 
-PR evidence checklist for agents:
+The first generated scaffold is deliberately narrow: Node.js, pnpm, and
+PostgreSQL. Unsupported package managers stop with
+`repo.devcontainer.package-manager-unsupported` instead of writing a partial
+integration.
 
-- setup and doctor summaries
-- inspect facts and issues
-- static verify summary
-- ensure summary and trusted route evidence when DevPod was run locally
-- tested URLs, TCP route status, and skipped live checks with reasons
+```bash
+devrouter repo devcontainer write --repo /absolute/path/to/repository --dry-run --json
+devrouter repo devcontainer write --repo /absolute/path/to/repository --yes
+devrouter repo devcontainer verify --repo /absolute/path/to/repository --json
+devrouter ensure /absolute/path/to/repository --json
+devrouter exec /absolute/path/to/repository -- pnpm seed
+```
 
-Reference implementation:
+The writer changes only missing or marked Devrouter-managed targets. A custom
+`.devcontainer/` or `.devrouter.yml` produces a conflict for manual review.
+Static `verify --json` is PR evidence; it is not startup. `ensure` starts or
+attaches the exact checkout, delivers the matching runtime helper, invokes the
+repository-owned adapter, proves readiness, and publishes routes. The mutating
+`verify --live --yes` form is only a compatibility check after startup.
 
-- [`../examples/devcontainer/README.md`](../examples/devcontainer/README.md) shows the agent-native DevPod/devcontainer flow with static/live verify evidence.
-- [`../examples/routing/README.md`](../examples/routing/README.md) shows a complete setup with:
-  - host app route
-  - docker app route
-  - postgres tcp route
+Consumer images contain no Devrouter package or helper. See
+[Fronting a devcontainer](./DEVCONTAINER.md) for the canonical Compose overlay,
+network aliases, managed process contract, TCP clients, and teardown.
 
-## 3) Required per-repo decisions
+## Configure `.devrouter.yml`
 
-For each app entry decide:
-
-- `name`
-- `kind` (`app` or `dependency`, default `app`)
-- if `kind=app`: `host` (`*.localhost`, including multi-segment forms like `elearning.klicker.localhost`)
-- if `kind=app`: `protocol` (`http` or `tcp`)
-- `runtime` (`host` or `docker`; for `kind=dependency` must be `docker`)
-
-Host runtime (`http` only):
-
-- `command`
-- `cwd`
-- `portTimeout` (optional, seconds, default 120)
-- optional dependencies
-
-Note: `devrouter app run` injects `PORT=<free-port>` into the host app environment.
-Frameworks reading `PORT` (Next.js, Vite, Remix, etc.) bind to this port automatically.
-Prefer an existing repo dev script (`pnpm dev`, `npm run dev`, etc.) instead of handcrafted command chains.
-For Next.js apps behind proxied/custom `.localhost` dev hosts, align dev-origin host settings in `next.config.*` for your installed Next.js version (option names changed across releases).
-
-Docker runtime:
-
-- `service`
-- `composeFiles`
-- optional dependencies
-- for routed docker apps: `internalPort`
-- for routed TCP apps: set `tcpProtocol` to one supported protocol (`postgres`, `redis`, `mariadb`, or `mysql`)
-- for `kind=dependency`: no routed fields (`host`, `protocol`, `tcpProtocol`, `hostRun`, `docker.internalPort`, `docker.router`)
-
-Docker compose file guidance:
-
-- Every dependency service **must** define a `healthcheck` (devrouter uses `--wait` to block until healthy)
-- Services **must not** publish host ports for devrouter-owned ports (80, 443, 5432)
-- Services **should not** publish host ports at all; use devrouter hostnames instead
-- `devrouter app run` waits for deps to become healthy, auto-stops docker deps when a host app exits, leaves docker app targets running until explicit cleanup, and prints recent dep logs
-
-## 4) Fast path
-
-Initialize:
+Initialize metadata before adding applications:
 
 ```bash
 devrouter repo init
 ```
 
-`devrouter repo init` writes `.devrouter.yml` with schema `version: 1` and initializes upgrade metadata at `devrouter.version` to the installed CLI version.
-If you need to align metadata manually, use:
+The file uses schema version 1 and records the applied CLI version for
+`devrouter -V` and `devrouter upgrade`:
 
 ```yaml
 version: 1
 devrouter:
   version: <semver>
+project:
+  name: my-repository
 apps: []
 ```
 
-Add host app:
-
-```bash
-devrouter app add \
-  --name web \
-  --host web.localhost \
-  --protocol http \
-  --runtime host \
-  --command "pnpm dev" \
-  --cwd .
-```
-
-Add docker Postgres:
-
-```bash
-devrouter app add \
-  --name db \
-  --host db.localhost \
-  --protocol tcp \
-  --runtime docker \
-  --tcp-protocol postgres \
-  --service db \
-  --port 5432 \
-  --compose-file docker-compose.yml
-```
-
-Add dependency-only Redis service:
-
-```bash
-devrouter app add \
-  --name redis \
-  --kind dependency \
-  --service redis \
-  --compose-file docker-compose.yml
-```
-
-Link dependency and run:
-
-```bash
-devrouter app add \
-  --name web \
-  --host web.localhost \
-  --protocol http \
-  --runtime host \
-  --command "pnpm dev" \
-  --cwd . \
-  --depends-on db \
-  --depends-on redis
-
-devrouter setup --yes
-devrouter app run web
-```
-
-Use `--yes` for non-interactive runs:
-
-```bash
-devrouter app run web --yes
-```
-
-Run one-shot commands (migrations, seeds) with resolved dep env vars:
-
-```bash
-devrouter app exec web --yes -- npx prisma migrate dev
-devrouter app exec web --yes -- npx prisma db seed
-devrouter app exec web --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate
-devrouter app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL
-```
-
-Current dependency behavior:
-
-- Docker dependencies can be auto-started.
-- Host-runtime dependencies are not auto-started in v1 and must be started manually.
-- `kind=dependency` apps are dependency-only and cannot be direct `devrouter app run`, `devrouter app exec`, or `devrouter open` targets.
-- `kind=dependency` services start as defined in compose (no Traefik label wiring, no injected env vars, no random published ports).
-- `devrouter app exec` starts deps as needed and runs a single command with resolved env.
-- `devrouter app exec` stops only deps started by that exec call; already-running deps stay running.
-- If `devrouter app exec` cannot determine pre-existing running services, it leaves selected deps running to avoid non-owned teardown.
-- With TLS enabled, `devrouter app run` / `devrouter app exec` auto-refresh cert SAN coverage for configured repo hosts before startup.
-- Default exec mode is argv-safe (`shell: false`) to avoid nested quoting issues.
-- Use `--shell` only when shell expansion is required; it accepts exactly one command string after `--`.
-- Use config-level `envMap` on dependency references to alias env vars for app-specific names:
-  ```yaml
-  dependencies:
-    - app: db
-      envMap:
-        DATABASE_URL: DB_URL
-        DIRECT_URL: DB_URL
-        SHADOW_DATABASE_URL: DB_SHADOW_URL
-  ```
-
-Secret manager interop (Infisical/Doppler):
-
-- devrouter injected vars for postgres deps: `DB_HOST`, `DB_PORT`, `DB_URL`, `DB_SHADOW_URL`; configured `envMap` aliases may also expose app-specific names such as `DATABASE_URL`.
-- If your secret manager also provides DB vars, do not assume precedence.
-- Avoid pre-wrapper DB assignments such as `DATABASE_URI=... <wrapper> run -- ...`; wrapper-managed env may override those values.
-- Safe host-run override pattern when wrapper also defines `DATABASE_URI`:
-  `infisical run --projectId <id> --env=<env> -- env DATABASE_URI=${DB_URL:?missing DB_URL} pnpm dev`
-- Probe effective env before migration/seed:
-
-```bash
-devrouter app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT DB_SHADOW_URL SHADOW_DATABASE_URL
-```
-
-- `devrouter doctor --repo <path>` warns on risky pre-wrapper DB assignments for host apps with postgres dependencies (`repo.host-command-env-precedence`).
-- With TLS enabled, `devrouter doctor --repo <path>` warns on cert SAN mismatches for configured hosts (`repo.tls-host-coverage`).
-
-## 5) What changes
-
-Repo file:
-
-- `.devrouter.yml` is updated/maintained.
-- `.devcontainer/docker-compose.devrouter.yml` is the committed linked-worktree overlay; `ensure` supplies its Git common-directory bind source.
-
-Global generated state:
-
-- `~/.config/devrouter/cache/.../compose.devrouter.yml`
-- `~/.config/devrouter/traefik/dynamic/host-routes.yml`
-- `~/.config/devrouter/host-routes-state.json`
-
-Runtime-generated app overlays stay under the global cache. The committed devcontainer overlay has a different job: it preserves linked-worktree Git metadata and is selected only for the workspace lifecycle.
-
-## 6) Validation checklist
-
-- `devrouter -V` shows installed CLI version, local repo version, and next upgrade target.
-- `devrouter upgrade` lists upgrade targets and marks the next one.
-- `devrouter upgrade <version>` prints that target adaptation prompt and reports further versions.
-- `devrouter upgrade` reads versioned prompt files from `upgrade-prompts/<version>.md`.
-- `devrouter app ls` shows expected entries.
-- `devrouter ls` shows both HTTP and/or TCP endpoints, including app and service identity columns.
-- `kind=dependency` entries appear in `devrouter app ls` but do not create active endpoints in `devrouter ls`.
-- `devrouter doctor --repo <path>` reports no blocking errors.
-- `devrouter doctor --repo <path>` does not warn on `repo.tls-host-coverage`.
-- HTTP app reachable at `https://<host>.localhost` (after `devrouter tls install`).
-- Postgres route visible as `postgres://<host>.localhost:5432 (tls required)`.
-- No duplicate hostnames.
-
-## 7) TLS requirements for Postgres TCP
-
-Postgres hostname multiplexing on one shared `:5432` requires TLS/SNI.
-`*.localhost` covers single-label hosts (for example `web.localhost`), while multi-segment hosts
-(for example `elearning.klicker.localhost`) require exact SAN entries. devrouter auto-refreshes
-those SANs on `devrouter app run` / `devrouter app exec` when TLS is enabled.
-
-Run:
-
-```bash
-devrouter tls install
-```
-
-Client connections should use TLS (for example `sslmode=require`).
-For validation and quick connection hints, use `devrouter open <name>` (`<name>` resolves app name first, then service/container/host).
-
-Concrete examples:
-
-```bash
-psql "host=db.localhost port=5432 dbname=app user=app sslmode=require"
-```
-
-```bash
-psql "postgresql://app_user:app_pass@db.localhost:5432/app?sslmode=require"
-```
-
-## 8) Troubleshooting
-
-Port conflicts:
-
-```bash
-lsof -nP -iTCP:80 -sTCP:LISTEN
-lsof -nP -iTCP:443 -sTCP:LISTEN
-lsof -nP -iTCP:5432 -sTCP:LISTEN
-```
-
-Missing route in `devrouter ls`:
-
-- verify app exists in `.devrouter.yml`
-- verify `devrouter app run <name>` was executed
-- verify docker service started if runtime is docker
-
-Browser shows `TRAEFIK DEFAULT CERT` for a `.localhost` host:
-
-- run `devrouter app run <name> --repo <path> --yes` to trigger SAN auto-refresh
-- or run `devrouter tls install` to refresh certificates manually
-
-Docker errors with `no space left on device`:
-
-- free Docker disk space using your preferred method
-- retry the failed command (`devrouter up`, `devrouter app run`, or `devrouter app exec`)
-
-Postgres auth or database mismatch after credential changes:
-
-- existing persistent volumes may still contain old credentials/default DB state
-- reconcile credentials/data or recreate volumes when safe (for example `docker compose down -v`)
-
-## 9) AI agent discoverability
-
-Write a devrouter section into the repo's `AGENTS.md` and install a skill file:
-
-```bash
-devrouter repo agents
-```
-
-This creates/updates:
-
-- `AGENTS.md` -- short devrouter section pointing to the skill file
-- `.agents/skills/devrouter/SKILL.md` -- full reference (config schema, docker requirements, env injection, commands)
-
-The skill content is embedded in the CLI bundle, so `devrouter repo agents` always writes the version matching the installed CLI.
-
-
-
-## 10) Workspace isolation (parallel worktrees)
-
-Multiple git worktrees of the same repo can run concurrently using a persisted **workspace token**. Each managed worktree keeps a local token plus a durable owner record in the repository's Git common directory. First use reuses an exact-path DevPod or derives a sanitized branch/path slug; after that the recorded identity is authoritative. The primary checkout stays plain and non-namespaced.
-
-**Proxy upstream placeholder:** use `${WORKSPACE}` in the `upstream` field of every `runtime: proxy` app so devrouter substitutes the active token at runtime. Managed `ensure` requires all HTTP and TCP upstreams to begin with the resolved workspace/project alias prefix before any DevPod or route mutation. Using `${WORKSPACE}` in `host` is rejected — hosts are auto-namespaced automatically.
+### Proxy application
 
 ```yaml
 - name: app
-  host: app.localhost        # → app.<ws>.localhost when workspace is active
+  host: app.localhost
   protocol: http
   runtime: proxy
-  upstream: ${WORKSPACE}-app:3000   # → feat-a-app:3000 for workspace feat-a
+  upstream: ${WORKSPACE}-app:3000
 ```
 
-**Lifecycle:**
+A proxy application starts no process or dependency. Re-running it is an
+idempotent route upsert; `devrouter app rm <name> --keep-config` releases the
+live route without editing the config. Loopback upstreams are rewritten to
+`host.docker.internal`, but a stable `devnet` alias avoids host-port collisions.
+
+### Host application
+
+```yaml
+- name: web
+  host: web.localhost
+  protocol: http
+  runtime: host
+  hostRun:
+    command: pnpm dev
+    cwd: .
+    portTimeout: 180
+  dependencies:
+    - app: db
+```
+
+Devrouter injects `PORT=<free-port>`, `HOST=0.0.0.0`, and
+`HOSTNAME=0.0.0.0`. It waits 120 seconds by default for a listener; set
+`portTimeout` only when the real application needs longer. Host-runtime
+dependencies are not auto-started and must be managed separately.
+
+### Routed Docker service and dependency
+
+```yaml
+- name: db
+  host: db.localhost
+  protocol: tcp
+  tcpProtocol: postgres
+  runtime: docker
+  docker:
+    service: db
+    internalPort: 5432
+    composeFiles: [docker-compose.yml]
+
+- name: redis
+  kind: dependency
+  runtime: docker
+  docker:
+    service: redis
+    composeFiles: [docker-compose.yml]
+```
+
+Every Docker dependency must have a Compose healthcheck because Devrouter uses
+`docker compose up --wait`. Do not publish Devrouter-owned ports (`80`, `443`,
+or activated shared TCP ports) from consumer services. Prefer no host port
+publishing at all.
+
+`kind: dependency` entries have no host or route and cannot be direct
+`app run`, `app exec`, or `open` targets. They start exactly as declared—without
+Traefik labels, random port publishing, or injected environment—and only through
+a routed application's dependency graph.
+
+## Dependency environment and one-shot commands
+
+For a host application, each TCP Docker dependency receives a random host port
+and namespaced variables. The prefix is the uppercase dependency name with `-`
+replaced by `_`.
+
+| Protocol | Variables |
+| --- | --- |
+| All TCP dependencies | `<NAME>_HOST`, `<NAME>_PORT`, `<NAME>_URL` |
+| PostgreSQL | Also `<NAME>_SHADOW_URL`; generated local credentials/databases are `prisma` and `shadow`. |
+| Redis | URL form `redis://localhost:<port>`. |
+| MariaDB/MySQL | URL form `mysql://root@localhost:<port>`. |
+
+Map resolved values to application names on the dependency reference:
+
+```yaml
+dependencies:
+  - app: db
+    envMap:
+      DATABASE_URL: DB_URL
+      DIRECT_URL: DB_URL
+      SHADOW_DATABASE_URL: DB_SHADOW_URL
+```
+
+Run migrations and seeds through the routed parent application:
 
 ```bash
-# Create worktree, start devpod, register routes
+devrouter app exec web --yes -- pnpm prisma migrate deploy
+devrouter app exec web --yes -- pnpm seed
+devrouter app exec web --yes -- printenv DB_URL DATABASE_URL DB_HOST DB_PORT
+```
+
+Exec starts missing Docker dependencies, preserves argv semantics by default,
+and stops only dependencies it proved it started. If prior ownership cannot be
+determined, it leaves the selected services running. Use `--shell` only for
+shell expansion and pass exactly one command string after `--`.
+
+### Secret-manager precedence
+
+Use config-based wrapping when a secret manager would otherwise overwrite
+Devrouter's resolved dependency values:
+
+```yaml
+secretManager:
+  command: infisical run --env {env} --
+  defaultEnv: dev
+```
+
+Select another environment with `app run --env <name>` or
+`app exec --env <name>`. Devrouter inserts `env KEY=VALUE ...` after the
+secret-manager boundary so resolved dependency variables and `envMap` aliases
+win. The command must contain its trailing `--` boundary.
+
+Do not assume precedence when overlapping database variables are set manually.
+Avoid assignments before a wrapper's `run --` boundary, probe the effective
+environment before migrations, and use `doctor` to detect
+`repo.host-command-env-precedence` risks. Secret values remain native
+environment state and must not be written into `.devrouter.yml`.
+
+## TLS and TCP clients
+
+Run `devrouter tls install` before TCP routing. Hostname multiplexing requires a
+TLS ClientHello carrying SNI. PostgreSQL clients therefore need direct SSL
+(libpq 17+ or an equivalent client):
+
+```bash
+psql "host=db.localhost port=5432 dbname=app user=app \
+  sslmode=require sslnegotiation=direct"
+```
+
+Plain libpq `sslmode=require` sends a plaintext negotiation preamble first and
+cannot select the hostname-specific Traefik route. `devrouter open <name>` prints
+protocol-specific connection guidance. Multi-segment and workspace hosts receive
+exact certificate SANs when `app run`, `app exec`, or `ensure` refreshes TLS.
+
+## Parallel worktrees
+
+Managed linked worktrees store one token in Git metadata and one durable owner
+record under the repository's Git common directory. The token binds the exact
+checkout, DevPod ID, route namespace, and `${WORKSPACE}` proxy alias. The primary
+checkout remains non-namespaced; the committed `.devrouter.yml` is never
+rewritten.
+
+New worktrees default to the repository's ignored `trees/<workspace>` directory.
+Devrouter refuses creation when `trees/` is not ignored; use `--path` only for an
+intentional alternative.
+
+```bash
 devrouter workspace up feat/my-feature
-
-# Reconcile an existing linked worktree and prove it is ready
 devrouter ensure .
-
-# List owner, Git, DevPod, and route state
 devrouter workspace ls
-
-# Pause runtime and preserve checkout, owner record, and data
-devrouter workspace stop feat/my-feature
-
-# Delete runtime/routes, then remove the clean worktree and owner record
-devrouter workspace down feat/my-feature
-
-# Review missing owners; apply exact eligible cleanup explicitly
-devrouter workspace gc
-devrouter workspace gc --yes
 ```
 
 | Command | Result |
 | --- | --- |
-| `workspace stop` | Stops DevPod and removes routes; keeps worktree, record, and data. |
-| `workspace down` | Deletes DevPod/routes and removes only a clean, unlocked worktree, then its record. |
-| `workspace down --keep-worktree` | Deletes runtime/routes; keeps worktree and record. |
-| `workspace gc` | Dry-run report; never removes Git worktrees, branches, or prune state. |
-| `workspace gc --yes` | Deletes only exact ledger-owned missing resources, then their records. |
+| `workspace stop` | Stop the exact DevPod and remove routes; keep checkout, owner record, and data. |
+| `workspace down` | Delete runtime/routes; remove only a clean, unlocked worktree, then its record. |
+| `workspace down --keep-worktree` | Delete runtime/routes; retain checkout and owner record. |
+| `workspace gc` | Report missing-owner candidates; mutate nothing. |
+| `workspace gc --yes` | Revalidate and delete only exact ledger-owned missing resources and their records; never remove Git worktrees or branches. |
 
-`workspace ls` reports `present`, `missing`, `locked`, or `conflict`. Full down
-validates ownership, lock, and cleanliness before side effects. Workspace
-commands require Git; normal config, app, status, and doctor flows remain usable
-without `.git`. Git has no worktree-removal hook, so `devrouter doctor` reports
-missing/conflicting owners and points to dry-run
-`devrouter workspace gc --repo <repo>` instead of mutating them. Do not
-substitute raw `devpod up`, `stop`, or `delete`: those calls bypass devrouter's
-machine-wide ownership lock and exact ID/path revalidation. Use
-`devrouter stop . --delete` when the DevPod must be deleted while preserving its
-checkout.
+`workspace ls` reports `present`, `missing`, `locked`, or `conflict`. Ambiguous
+identity, foreign ownership, locks, and dirty destructive targets fail closed.
+Git has no worktree-removal hook; after an out-of-band removal, inspect `ls`,
+`doctor`, and dry-run `gc` before applying cleanup.
 
-Workspace-aware devcontainers must select `.devcontainer/docker-compose.devrouter.yml` via `DEVCONTAINER_COMPOSE_OVERLAY`. The overlay passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute path. `ensure` verifies the applicable primary or linked contract plus the exact checkout, aliases, health, Git access, route ownership, and reachability before success. Use `exec . -- <command...>` for container-local seeds and migrations.
+Do not use raw `devpod up`, `stop`, or `delete` for managed environments. Those
+commands bypass Devrouter's machine-wide provider lock and exact ID/source
+revalidation. Use `devrouter stop . --delete` to delete the exact runtime while
+preserving the Git checkout.
 
-## 11) AI agent prompt (single copy-paste)
-
-Use this as the only onboarding prompt for agents:
+## Agent artifacts
 
 ```bash
-devrouter init --repo /absolute/path/to/repo
+devrouter repo agents
+devrouter init --repo .
 ```
 
-For tool/automation pipelines:
+`repo agents` updates the owned Devrouter section in `AGENTS.md` and writes the
+matching bundled skill. `init` prints a non-mutating onboarding prompt unless
+explicit artifact-write flags are supplied.
 
-```bash
-devrouter init --repo /absolute/path/to/repo --json
-```
+## Verification and PR evidence
 
-Optional explicit artifact writes:
+- `.devrouter.yml` parses and `devrouter app ls` shows the intended entries.
+- `devrouter doctor --repo . --json` has no blocking finding or stale TLS coverage.
+- `devrouter ls` shows the intended app and service identities; dependencies have no endpoint.
+- Each HTTP route is exercised through its real `https://*.localhost` URL.
+- Each TCP route is exercised with a direct-TLS/SNI-capable client.
+- Managed devcontainers include static verify, `ensure --json`, route evidence, and exact-container `exec` evidence.
+- Skipped live checks name the missing prerequisite and residual risk.
 
-```bash
-devrouter init --repo /absolute/path/to/repo --write-agents --write-skill
-```
+The [routing example](../examples/routing/README.md), [managed DevPod
+example](../examples/devcontainer/README.md), and [workspace
+example](../examples/workspace/README.md) provide runnable evidence paths.
 
+## Troubleshooting
 
+- Missing route: verify config, run the routed app or `ensure`, then inspect `devrouter ls`.
+- Persistent database credential mismatch: reconcile the volume data; recreate volumes only when data deletion is safe and intentional.
 
-## 12) Definition of done
+For certificate, gateway, port, disk, timeout, and framework-origin failures,
+use the [first-route troubleshooting guide](./GETTING_STARTED.md#if-the-first-route-fails).
 
-- `.devrouter.yml` exists and validates.
-- `devrouter app ls` and `devrouter ls` are correct.
-- Routes are stable via `.localhost` hostnames.
-- Setup is reproducible by another engineer.
+Onboarding is complete when another engineer can reproduce setup, start the
+intended lifecycle owner, reach every routed endpoint, run required one-shot
+commands, and obtain clean diagnostics from the committed repository state.

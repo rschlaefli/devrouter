@@ -1,5 +1,7 @@
 # Runtime helper delivery plan
 
+Status: delivered upstream through merged [PR #24](https://github.com/rschlaefli/devrouter/pull/24) in `0.0.34`. Progress and downstream follow-up below are historical execution records.
+
 ## Goal
 
 - Remove devrouter package downloads and helper installation from generated and adopted consumer Dockerfiles.
@@ -16,14 +18,14 @@
 
 ## Identity
 
-- Plan: `project/2026-07-16-pr-24-runtime-helper-delivery-plan.md`
+- Plan: `docs/project/2026-07-16-pr-24-runtime-helper-delivery-plan.md`
 - Branch: `codex/runtime-helper-delivery`
 - Worktree: `trees/runtime-helper-delivery`
 - Target: `main`
 - Base: `main` at `e8a2dbb`
-- PR: [#24](https://github.com/rschlaefli/devrouter/pull/24) (draft)
+- PR: [#24](https://github.com/rschlaefli/devrouter/pull/24) (merged)
 - Related downstream: elearning draft [MR !73](https://gitlab.uzh.ch/uzh-bf/tc/elearning/-/merge_requests/73)
-- Related history: `project/2026-07-14-managed-dev-process-plan.md` and `project/2026-07-16-unified-workspace-reconciler-plan.md`
+- Related history: `docs/project/2026-07-14-managed-dev-process-plan.md` and `docs/project/2026-07-16-unified-workspace-reconciler-plan.md`
 
 ## Research
 
@@ -36,7 +38,7 @@
 
 ## Resolved decisions
 
-- Decision: follow [ADR 0002](../docs/adr/0002-keep-devrouter-out-of-consumer-images.md). Consumer images contain no devrouter package or helper installation.
+- Decision: follow [ADR 0002](../adr/0002-keep-devrouter-out-of-consumer-images.md). Consumer images contain no devrouter package or helper installation.
 - Decision: after exact-container preflight, `devrouter ensure` copies its packaged helper to a fixed runtime-only path inside the container and invokes the managed repository post-start adapter with the helper path in `DEVROUTER_PROCESS_HELPER`.
 - Decision: preflight returns the exact validated container ID and in-container workspace path. Delivery and adapter execution consume that result directly without re-inspecting or re-selecting a container.
 - Decision: generated `devcontainer.json` no longer declares `postStartCommand`; canonical `ensure` owns adapter invocation after helper delivery. This avoids a bootstrap dependency on a helper that is intentionally absent from the image.
@@ -93,7 +95,7 @@
 - No secrets, credentials, personal data, local fixtures, database exports, or unrelated work are staged.
 - No merge occurs without the repository-required explicit authority.
 
-## Progress
+## Historical progress
 
 - Current: Slices 1 and 2 plus `0.0.34` release preparation and final branch gates are complete; draft PR #24 is open and its GitHub `check` job passed.
 - Evidence: current `0.0.33` generator and elearning adoption both embed only `devrouter-process`, not the full CLI, but still couple the image build to the devrouter package and version.

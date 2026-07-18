@@ -1,6 +1,6 @@
 # Unified Workspace Reconciler Plan
 
-Status: approved and executing. Slices 1-2 complete.
+Status: delivered. Original plan progress below records its execution sequence.
 
 ## Research
 
@@ -17,14 +17,14 @@ Status: approved and executing. Slices 1-2 complete.
   - Generated managed-process log defaults to `/tmp/devrouter-app.log`, but consumers may override it; elearning uses `/tmp/devrouter-elearning.log`.
 - Existing architecture:
   - `docs/adr/0001-repo-local-workspace-ownership.md` scopes durable ownership records to managed linked workspaces.
-  - `docs/PLAN.md` explicitly says primary-checkout routes are never touched by workspace GC or teardown.
+  - `docs/project/2026-02-07-devrouter-roadmap.md` explicitly says primary-checkout routes are never touched by workspace GC or teardown.
   - `src/core/devpod-workspaces.ts` already proves exact DevPod ownership by `source.localFolder`.
 - Installed DevPod evidence: `devpod ssh` accepts a workspace name/path, `--command`, `--workdir`, and explicit forwarding controls. `--command` is one string, so argv must be POSIX-quoted before crossing that boundary.
 - External research: none needed. Local code, installed CLI behavior, existing ADR, real elearning config, and live incident evidence cover current design.
 
 ## Plan identity
 
-- Path: `project/2026-07-16-unified-workspace-reconciler-plan.md`
+- Path: `docs/project/2026-07-16-unified-workspace-reconciler-plan.md`
 - Type: multi-phase epic; plan lands with Phase A implementation PR, then receives progress updates in Phase B.
 - Base: local `main` at `b57315c`
 - Phase A branch: `codex/unified-workspace-reconciler`
@@ -34,9 +34,9 @@ Status: approved and executing. Slices 1-2 complete.
 - Phase B branch/release target: create after Phase A adoption; expected `0.0.33`
 - PRs: none
 - History:
-  - `project/2026-07-13-workspace-lifecycle-hardening-plan.md`
-  - `project/2026-07-14-managed-dev-process-plan.md`
-  - `project/2026-07-15-workspace-ownership-cleanup-plan.md`
+  - `docs/project/2026-07-13-workspace-lifecycle-hardening-plan.md`
+  - `docs/project/2026-07-14-managed-dev-process-plan.md`
+  - `docs/project/2026-07-15-workspace-ownership-cleanup-plan.md`
 - ADR: `docs/adr/0001-repo-local-workspace-ownership.md`
 
 ## Goal
@@ -443,7 +443,7 @@ Do:
   - `docs/GETTING_STARTED.md`
   - `docs/DEVCONTAINER.md`
   - `docs/REPO_ONBOARDING.md`
-  - `docs/PLAN.md`
+  - `docs/project/2026-02-07-devrouter-roadmap.md`
   - `examples/routing/README.md`
   - `examples/devcontainer/README.md`
   - `examples/workspace/README.md`
@@ -461,7 +461,7 @@ Do:
   - primary devcontainer smoke uses `ensure`
   - trusted curl has no `-k`
   - linked lifecycle smoke remains
-- Reword primary safety guarantee in `docs/PLAN.md`: GC and `workspace down` never touch primary routes/checkouts; explicit `ensure`/`stop` on that exact checkout may replace/remove its routes.
+- Reword primary safety guarantee in `docs/project/2026-02-07-devrouter-roadmap.md`: GC and `workspace down` never touch primary routes/checkouts; explicit `ensure`/`stop` on that exact checkout may replace/remove its routes.
 - Release `0.0.32`:
   - package/example versions
   - changelog

@@ -1,0 +1,30 @@
+version: 1
+bundle: docs/knowledge
+allowed_types:
+  - Repository Guide
+  - Architecture Concept
+  - Workflow
+  - Integration Contract
+  - Change Guide
+allowed_statuses:
+  - draft
+  - active
+  - deprecated
+  - superseded
+required_fields:
+  - type
+  - title
+  - description
+  - status
+  - source_paths
+concepts:
+  repository-guide.md: {}
+  architecture-and-ownership.md:
+    high_consequence: true
+  managed-environment-lifecycle.md:
+    high_consequence: true
+  routing-and-runtime-contracts.md:
+    high_consequence: true
+  consumer-devcontainer-contract.md:
+    high_consequence: true
+  change-and-verification-map.md: {}

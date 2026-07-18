@@ -1,6 +1,6 @@
 # Fronting a devcontainer with devrouter
 
-The preferred way to use devrouter going forward. The **devcontainer owns the
+The preferred Devrouter model. The **devcontainer owns the
 environment**; devrouter is a thin **routing layer** that gives it stable,
 TLS-terminated `*.localhost` hosts on the shared `:443` / `:5432` / `:6379` —
 with **no published host ports**, so many devcontainers run at once with zero
@@ -22,20 +22,9 @@ We recommend **DevPod** for orchestrating the devcontainer lifecycle locally bec
 > playbook + reference templates + gotchas live in the
 > `devcontainer-onboarding` skill (`.agents/skills/devcontainer-onboarding/`).
 
-Agent-native onboarding uses the CLI first:
-
-```bash
-devrouter setup --yes --json
-devrouter doctor --json
-devrouter repo inspect --json
-devrouter repo devcontainer write --dry-run --json
-devrouter repo devcontainer write --yes
-devrouter repo devcontainer verify --json
-```
-
-Use `devrouter repo devcontainer verify --live --yes --json` only after the
-devcontainer is running and route registration plus HTTP probes should be part
-of the evidence.
+Use the CLI discovery, writer, and static-evidence sequence in the
+[repository onboarding guide](./REPO_ONBOARDING.md#preferred-managed-devcontainer-path)
+before applying this contract.
 
 ## How it works: `devnet`
 
@@ -78,7 +67,7 @@ separate alias needed.
 ```yaml
 version: 1
 devrouter:
-  version: 0.0.35
+  version: <semver>
 project:
   name: myapp
 apps:
@@ -175,13 +164,8 @@ Do not replace these commands with raw `devpod up`, `devpod stop`, or
 and exact ID/path postcondition checks. Use `devrouter stop . --delete` for
 explicit exact-owner DevPod cleanup while preserving the checkout.
 
-The same normal command handles a linked worktree:
-
-```bash
-devrouter ensure .
-```
-
-It starts or attaches the exact-path DevPod, recreates one stale runtime once,
+The same command handles a linked worktree. It starts or attaches the exact-path
+DevPod, recreates one stale runtime once,
 and proves the overlay, Git mount, environment, aliases, health, Git access,
 HTTP route reachability, and unique running TCP upstream ownership before
 reporting ready.
@@ -234,6 +218,3 @@ devrouter stop . --delete
   host gateway (`extra_hosts: ['oidc.myapp.localhost:host-gateway']`) and trust
   the mkcert CA in-container (`NODE_EXTRA_CA_CERTS`) — never disable TLS
   verification.
-- Migrating from the older host-port onboard (single `upstream: 127.0.0.1:<port>`
-  + published ports): see the `devcontainer-onboarding` skill's "Migrating an
-  existing host-port onboard to devnet" section.

@@ -4,38 +4,46 @@ Guidance for agentic coders working in this repository.
 
 ## Setup docs
 
+- [`docs/README.md`](./docs/README.md) (documentation map)
 - [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md)
 - [`docs/DEVCONTAINER.md`](./docs/DEVCONTAINER.md) (preferred: front a devcontainer via `runtime: proxy`)
 - [`docs/REPO_ONBOARDING.md`](./docs/REPO_ONBOARDING.md)
+- [`docs/knowledge/index.md`](./docs/knowledge/index.md) (OKF orientation and cross-cutting contracts)
 - [`examples/routing/README.md`](./examples/routing/README.md)
 - [`examples/devcontainer/README.md`](./examples/devcontainer/README.md)
 - [`examples/workspace/README.md`](./examples/workspace/README.md)
-- [`docs/PLAN.md`](./docs/PLAN.md)
+- [`docs/project/index.md`](./docs/project/index.md) (dated active and delivered project records)
 - [`docs/solutions/`](./docs/solutions/) (incident-derived lessons and prevention guidance)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 
-## Documentation sync requirement
+## Documentation maintenance
 
-Keep these docs up to date with any behavior, command, schema, or onboarding workflow changes:
+Use [`docs/README.md`](./docs/README.md) to find the owning manual and
+[`docs/knowledge/change-and-verification-map.md`](./docs/knowledge/change-and-verification-map.md)
+to identify coupled evidence. Update only the affected authority instead of
+copying behavior into every manual:
 
-1. `README.md`
-2. `AGENTS.md`
-3. `docs/GETTING_STARTED.md`
-4. `docs/REPO_ONBOARDING.md`
-5. `docs/PLAN.md`
-6. `examples/routing/README.md`
-7. `examples/devcontainer/README.md`
-8. `examples/workspace/README.md`
-9. `CHANGELOG.md`
-10. `upgrade-prompts/*.md`
+- Root `README.md` owns product orientation and the five-minute path.
+- `docs/GETTING_STARTED.md` owns installation, machine setup, and the first route.
+- `docs/REPO_ONBOARDING.md` owns consumer-repository configuration and verification.
+- `docs/DEVCONTAINER.md` owns the managed devnet/proxy integration contract.
+- Runnable `examples/*/README.md` files own their example-specific procedures.
+- `docs/knowledge/**` owns cross-cutting architecture, lifecycle, integration, and change guidance; update a concept only for a material semantic change.
+- `CHANGELOG.md` and `upgrade-prompts/*.md` own versioned release and adaptation guidance.
+
+Keep links between authorities current. Do not restate historical project,
+decision, or incident context in product manuals.
 
 ## Documentation policy
 
-1. Product docs (`README.md`, `docs/*`, `examples/*/README.md`) must describe the current state only.
-2. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
-3. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
+1. Product manuals (`README.md`, `docs/GETTING_STARTED.md`, `docs/REPO_ONBOARDING.md`, `docs/DEVCONTAINER.md`, and `examples/*/README.md`) and active knowledge must describe current state only.
+2. `docs/project/**`, `docs/adr/**`, and `docs/solutions/**` are status-labelled records and may retain historical context.
+3. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
+4. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
 
+## Repository knowledge
 
+Use `docs/knowledge/index.md` for orientation, cross-cutting invariants, and links to canonical decisions and manuals. Verify current executable behavior in source code, tests, schemas, and configuration before changing it. When the knowledge layer conflicts with an executable artifact, the executable artifact wins; update or flag the affected concept in the same change. Human-authored concepts follow normal review. The bundle index is maintained with the concept set and is not an independent source of truth.
 
 ## Current product model
 
@@ -193,15 +201,16 @@ Supported routing:
 ## Validation checklist
 
 1. `pnpm check:docs-policy`
-2. `pnpm check`
-3. `pnpm knip`
-4. `pnpm typecheck`
-5. `pnpm test`
-6. `pnpm build`
-7. `devrouter setup --repo ./examples/routing --yes --json`
-8. `devrouter doctor --repo ./examples/routing`
-9. `devrouter repo inspect --repo ./examples/routing --json`
-10. `pnpm routing:smoke` for full route showcase/regression smoke
-11. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
-12. `pnpm devcontainer:smoke down` after live devcontainer verification
-13. Update docs for any behavior/surface changes
+2. `pnpm check:knowledge`
+3. `pnpm check`
+4. `pnpm knip`
+5. `pnpm typecheck`
+6. `pnpm test`
+7. `pnpm build`
+8. `devrouter setup --repo ./examples/routing --yes --json`
+9. `devrouter doctor --repo ./examples/routing`
+10. `devrouter repo inspect --repo ./examples/routing --json`
+11. `pnpm routing:smoke` for full route showcase/regression smoke
+12. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
+13. `pnpm devcontainer:smoke down` after live devcontainer verification
+14. Update docs for any behavior/surface changes

@@ -16,7 +16,7 @@
 
 ## Identity
 
-- Plan: `project/2026-07-18-workspace-safety-hardening-plan.md`
+- Plan: `docs/project/2026-07-18-pr-25-workspace-safety-hardening-plan.md`
 - Branch: `codex/workspace-safety-hardening`
 - Worktree: `trees/workspace-safety-hardening`
 - Base and target: `main` at `cf7626a`

@@ -1,6 +1,6 @@
 # devrouter — `runtime: proxy` (upstream-only) mode
 
-Status: **planned**. Branch: `feat/proxy-runtime`. Target release: **0.0.20**.
+Status: **delivered in 0.0.20**. Original branch: `feat/proxy-runtime`.
 Last updated: 2026-06-13.
 
 ## Why
@@ -158,7 +158,7 @@ Each slice is independently committable. File refs are current `feat/proxy-runti
    no migration required for existing configs; optional: convert host/docker app
    to proxy when fronting a devcontainer), validation, report template.
 6. Update product docs (`README.md`, `docs/GETTING_STARTED.md`,
-   `docs/REPO_ONBOARDING.md`, `docs/PLAN.md`, `demo/README.md`, AGENTS.md "Current
+   `docs/REPO_ONBOARDING.md`, `docs/project/2026-02-07-devrouter-roadmap.md`, `demo/README.md`, AGENTS.md "Current
    product model" + repo map) to add the proxy runtime.
 7. Validation: `pnpm check:docs-policy`, `pnpm test`, `pnpm typecheck`,
    `pnpm build`, `dev doctor --repo ./demo`. (`demo:smoke` exercises real Docker;
