@@ -7,9 +7,12 @@ Use this page to choose the smallest authoritative document for the task.
 - [Getting started](./GETTING_STARTED.md): install devrouter and publish a first route.
 - [Repository onboarding](./REPO_ONBOARDING.md): inspect and adopt an existing consumer repository.
 - [Devcontainer integration](./DEVCONTAINER.md): connect a self-contained DevPod/devcontainer through managed proxy routing.
-- [Root README](../README.md): product overview and short command reference.
+- [Root README](../README.md): product overview, runtime-model choice, and five-minute path.
 
-These manuals describe supported current behavior. Executable code, tests, `.devrouter.yml` validation, and generated CLI help remain authoritative when prose conflicts.
+These manuals have separate jobs and describe supported current behavior. Link to
+the owning manual instead of copying sections between them. Executable code,
+tests, `.devrouter.yml` validation, and generated CLI help remain authoritative
+when prose conflicts.
 
 ## Repository knowledge
 

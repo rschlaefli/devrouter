@@ -16,22 +16,23 @@ Guidance for agentic coders working in this repository.
 - [`docs/solutions/`](./docs/solutions/) (incident-derived lessons and prevention guidance)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 
-## Documentation sync requirement
+## Documentation maintenance
 
-Keep these docs up to date with any behavior, command, schema, or onboarding workflow changes:
+Use [`docs/README.md`](./docs/README.md) to find the owning manual and
+[`docs/knowledge/change-and-verification-map.md`](./docs/knowledge/change-and-verification-map.md)
+to identify coupled evidence. Update only the affected authority instead of
+copying behavior into every manual:
 
-1. `README.md`
-2. `AGENTS.md`
-3. `docs/GETTING_STARTED.md`
-4. `docs/DEVCONTAINER.md`
-5. `docs/REPO_ONBOARDING.md`
-6. `docs/README.md`
-7. `docs/knowledge/**`
-8. `examples/routing/README.md`
-9. `examples/devcontainer/README.md`
-10. `examples/workspace/README.md`
-11. `CHANGELOG.md`
-12. `upgrade-prompts/*.md`
+- Root `README.md` owns product orientation and the five-minute path.
+- `docs/GETTING_STARTED.md` owns installation, machine setup, and the first route.
+- `docs/REPO_ONBOARDING.md` owns consumer-repository configuration and verification.
+- `docs/DEVCONTAINER.md` owns the managed devnet/proxy integration contract.
+- Runnable `examples/*/README.md` files own their example-specific procedures.
+- `docs/knowledge/**` owns cross-cutting architecture, lifecycle, integration, and change guidance; update a concept only for a material semantic change.
+- `CHANGELOG.md` and `upgrade-prompts/*.md` own versioned release and adaptation guidance.
+
+Keep links between authorities current. Do not restate historical project,
+decision, or incident context in product manuals.
 
 ## Documentation policy
 

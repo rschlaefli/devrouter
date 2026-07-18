@@ -110,5 +110,5 @@ After moves, scan Markdown, scripts, and configuration for stale source-path lit
 
 ## Progress
 
-- Current: Slice 1 committed as `86f7414`; Slice 2 complete. Six admitted concepts and the bundle index now link the executable authorities, manuals, ADRs, and solution records. The strict local profile and offline validator cover core, profile, and hygiene failures with 19 focused fixtures. Pinned `check:knowledge`, docs policy, Biome, Knip, typecheck, focused Vitest, and diff checks pass. Independent correctness re-review found no remaining blocker; simplification removed redundant source-prefix and filename lists.
-- Next: commit Slice 2, then consolidate the current-state manuals without changing `CONTEXT.md`.
+- Current: Slices 1 and 2 committed as `86f7414` and `904f0e9`; Slice 3 complete. Root orientation is 101 lines, getting started is 128, repository onboarding is focused on consumer configuration and proof, and the canonical devcontainer contract is retained. Unique runtime, dependency, secret-manager, TLS/SNI, workspace, safety, and verification guidance remains under one named authority. `CONTEXT.md` is unchanged. Docs policy, OKF validation, Biome, changed-document links, all 526 tests, and build pass. Independent correctness review returned `DONE`; simplification removed five remaining duplicate procedures.
+- Next: commit Slice 3, then run the final security, branch, and strict maintainability gates before preparing the stacked draft PR.
