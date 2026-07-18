@@ -109,33 +109,7 @@ describe("validateKnowledge", () => {
     expect(schemaFindings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ message: "version must be 1" }),
-        expect.objectContaining({ message: "bundle must be `docs/knowledge`" }),
-      ]),
-    );
-  });
-
-  it("requires the repository profile's fixed metadata fields", () => {
-    write(
-      "docs/knowledge/profile.yaml",
-      VALID_PROFILE.replace(
-        `required_fields:
-  - type
-  - title
-  - description
-  - status
-  - source_paths`,
-        `required_fields:
-  - type`,
-      ),
-    );
-
-    expect(validate().findings).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          category: "profile",
-          code: "PROFILE_SCHEMA",
-          message: "required_fields must include: title, description, status, source_paths",
-        }),
+        expect.objectContaining({ message: "bundle must be docs/knowledge" }),
       ]),
     );
   });
@@ -329,6 +303,31 @@ okf_version: "0.1"
         }),
       ]),
     );
+  });
+
+  it("rejects local links whose symlink target escapes the repository", () => {
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-knowledge-outside-"));
+    try {
+      const outsideFile = path.join(outsideRoot, "outside.md");
+      fs.writeFileSync(outsideFile, "# Outside\n", "utf8");
+      fs.symlinkSync(outsideFile, path.join(repoRoot, "docs/knowledge/escape.md"));
+      write(
+        "docs/knowledge/repository-guide.md",
+        validConcept("", "# Repository guide\n\n[Escape](escape.md#outside)"),
+      );
+
+      expect(validate().findings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "hygiene",
+            code: "HYGIENE_LINK",
+            message: expect.stringContaining("escapes the repository through a symlink"),
+          }),
+        ]),
+      );
+    } finally {
+      fs.rmSync(outsideRoot, { recursive: true, force: true });
+    }
   });
 
   it("reports missing local Markdown anchors", () => {

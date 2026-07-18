@@ -28,7 +28,7 @@
 - Use OKF Tier 2 at `docs/knowledge/`; `docs/` remains the mixed documentation root.
 - Keep manuals, ADRs, solutions, project plans, changelog, upgrade prompts, examples, and generated agent guidance outside the OKF bundle.
 - Use `Repository Guide`, `Architecture Concept`, `Workflow`, `Integration Contract`, and `Change Guide` as the local concept types.
-- Require `type`, `title`, `description`, `status`, and `source_paths`. Use role owner `repository maintainers` for the high-consequence lifecycle and integration concepts.
+- Declare `type`, `title`, `description`, `status`, and `source_paths` as required in `docs/knowledge/profile.yaml`; that manifest is the single local policy authority beyond OKF core. Use role owner `repository maintainers` for the high-consequence lifecycle and integration concepts.
 - Validate with existing `yaml` and `tsx` dependencies; add no package dependency.
 - Move all project artifacts to `docs/project/`. Filenames use lowercase kebab-case with the original creation date and `-plan.md` for implementation plans.
 - Date precedence: retain a valid existing `YYYY-MM-DD` prefix as the authorial creation date; for undated files, use the author date of the first-add commit from `git log --follow --diff-filter=A`.
@@ -110,5 +110,5 @@ After moves, scan Markdown, scripts, and configuration for stale source-path lit
 
 ## Progress
 
-- Current: Slices 1 and 2 committed as `86f7414` and `904f0e9`; Slice 3 complete. Root orientation is 101 lines, getting started is 128, repository onboarding is focused on consumer configuration and proof, and the canonical devcontainer contract is retained. Unique runtime, dependency, secret-manager, TLS/SNI, workspace, safety, and verification guidance remains under one named authority. `CONTEXT.md` is unchanged. Docs policy, OKF validation, Biome, changed-document links, all 526 tests, and build pass. Independent correctness review returned `DONE`; simplification removed five remaining duplicate procedures.
-- Next: commit Slice 3, then run the final security, branch, and strict maintainability gates before preparing the stacked draft PR.
+- Current: implementation and final review fixes are complete. Slices 1-3 are committed as `86f7414`, `904f0e9`, and `1f78daa`. Root orientation is 101 lines, getting started is 128, repository onboarding has one consumer-focused authority, the canonical devcontainer contract is retained, and `CONTEXT.md` is unchanged. The OKF validator now parses typed documents once through a 60-line orchestrator and focused context/core/profile/hygiene modules; `profile.yaml` is the sole local required-field authority, and real-path containment rejects symlink escapes. Per-slice reviews are clean; the two-axis branch findings are resolved; security has no high-confidence or medium items; and the thermo-nuclear maintainability gate approves. Final docs policy, OKF validation, Biome, Knip, typecheck, 77-file local-link scan, all 526 tests, build, and diff checks pass. The Linux-only process test is explicitly skipped on macOS; live routing/DevPod smokes are inapplicable to this documentation/tooling-only branch.
+- Next: commit the final review fixes, push the stacked branch, and open its draft PR against `codex/workspace-safety-hardening`.

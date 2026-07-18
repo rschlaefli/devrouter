@@ -254,20 +254,16 @@ commands bypass Devrouter's machine-wide provider lock and exact ID/source
 revalidation. Use `devrouter stop . --delete` to delete the exact runtime while
 preserving the Git checkout.
 
-## Agent and upgrade artifacts
+## Agent artifacts
 
 ```bash
 devrouter repo agents
 devrouter init --repo .
-devrouter -V --repo .
-devrouter upgrade --repo .
 ```
 
 `repo agents` updates the owned Devrouter section in `AGENTS.md` and writes the
 matching bundled skill. `init` prints a non-mutating onboarding prompt unless
-explicit artifact-write flags are supplied. Upgrade commands compare installed
-and repository metadata and read versioned adaptation prompts from
-`upgrade-prompts/`.
+explicit artifact-write flags are supplied.
 
 ## Verification and PR evidence
 
