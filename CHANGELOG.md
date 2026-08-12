@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `devrouter workspace cleanup --repo . --inactive-for 30d [--check-merged] [--json]` reports orthogonal ownership, checkout, route, advisory activity, and integration evidence for managed linked workspaces. It has no `--yes` or apply mode; only `--check-merged` enables read-only origin and matching GitHub/GitLab checks, and suggestions never remove branches or worktrees.
+
 ## [0.0.35] - 2026-07-18
 
 ### Fixed

@@ -11,9 +11,9 @@ What it demonstrates:
   substituted at runtime with the resolved workspace token.
 - **Auto host namespacing** — `wsdemo.localhost` becomes `wsdemo.<ws>.localhost`
   for a worktree; the committed `.devrouter.yml` is never rewritten.
-- **`devrouter workspace up/ensure/ls/stop/down/gc`** — worktree creation,
+- **`devrouter workspace up/ensure/ls/cleanup/stop/down/gc`** — worktree creation,
   proven DevPod startup/reconciliation, ownership state, pause, teardown, and
-  missing-owner cleanup
+  report-only cleanup evidence and missing-owner cleanup
   in one command.
 - **Matching devnet alias** — the compose service joins `devnet` as
   `${WORKSPACE:-wsdemo}-app`, so the alias and the route resolve to one identity.
@@ -65,6 +65,17 @@ With a devcontainer, `devrouter workspace up <branch>` brings the container up f
 and exports `WORKSPACE=<ws>` so the alias substitution happens automatically.
 Inside any existing checkout, use `devrouter ensure .`; it reuses
 the exact-path DevPod or starts it, then proves the runtime before registering routes.
+
+To inspect a managed linked workspace without changing anything, run:
+
+```bash
+devrouter workspace cleanup --repo . --inactive-for 30d --check-merged --json
+```
+
+The report is advisory. It has no `--yes` or apply mode, never removes a branch
+or worktree, and only performs origin/forge checks when `--check-merged` is
+present. DevPod `lastUsed` may be absent or unrelated to runtime activity, so
+unknown evidence suppresses destructive suggestions.
 
 Teardown stops the compose projects, frees their routes, and runs
 `devrouter workspace down feat-a`, which removes only a clean, unlocked worktree.

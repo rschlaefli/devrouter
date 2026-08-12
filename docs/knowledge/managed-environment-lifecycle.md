@@ -44,9 +44,18 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
 | `devrouter workspace stop <target>` | Reversible stop for the resolved linked owner. | Worktree, branch, and owner record. |
 | `devrouter workspace down <target>` | Delete the exact provider runtime and routes, then remove a clean unlocked worktree unless retained. | Branch; worktree and record only when explicitly retained or teardown fails before removal. |
 | `devrouter workspace ls` | Join live Git, ownership, DevPod, and route evidence by exact worktree path. | Read-only. |
+| `devrouter workspace cleanup --repo <repo> --inactive-for 30d --json` | Report orthogonal ownership, checkout, route, advisory activity, and integration evidence for managed linked workspaces; exact guarded commands are suggestions only. | Always report-only; no `--yes` or apply mode. `--check-merged` alone enables read-only origin and matching GitHub/GitLab checks. |
 | `devrouter workspace gc` | Report missing-owner cleanup candidates; `--yes` revalidates and deletes only exact ledger-owned missing resources. | Git worktrees, branches, legacy/unowned resources, and conflicting owners. |
 
 `src/core/workspace-ownership.ts:inspectWorkspaceOwnership` reports `present`, `missing`, `locked`, or `conflict`. A status is evidence for a decision; it is not permission to delete by token alone.
+
+`workspace cleanup` is advisory. It uses only valid DevPod `lastUsed`, route
+`updatedAt`, ownership `updatedAt`, and Git HEAD committer timestamps for
+activity. DevPod `lastUsed` may be absent, provider-version dependent, or fail
+to represent runtime interactions, so recent trustworthy evidence vetoes
+quietness and missing, malformed, unavailable, or conflicting evidence becomes
+unknown. Existing `workspace gc` and `workspace down` revalidate exact identity,
+locks, checkout state, and ownership before any explicit mutation.
 
 ## Failure rules
 
