@@ -4,6 +4,10 @@ import { sameWorkspacePath } from "./workspace";
 export type DevpodWorkspace = {
   id: string;
   source: { localFolder: string };
+  /** Optional provider activity metadata; older DevPod versions omit it. */
+  lastUsed?: string;
+  /** Set when the provider returned a non-string lastUsed value. */
+  lastUsedMalformed?: boolean;
 };
 
 export type DevpodWorkspaceOwnership =
@@ -32,7 +36,7 @@ export function listDevpodWorkspaces(): DevpodWorkspace[] {
   }
 
   return parsed.map((entry) => {
-    const candidate = entry as Partial<DevpodWorkspace>;
+    const candidate = entry as Partial<DevpodWorkspace> & Record<string, unknown>;
     if (
       typeof candidate.id !== "string" ||
       !candidate.source ||
@@ -40,7 +44,18 @@ export function listDevpodWorkspaces(): DevpodWorkspace[] {
     ) {
       throw new Error("devpod list returned a workspace without id/source.localFolder.");
     }
-    return candidate as DevpodWorkspace;
+    const workspace: DevpodWorkspace = {
+      id: candidate.id,
+      source: { localFolder: candidate.source.localFolder },
+    };
+    if ("lastUsed" in candidate) {
+      if (typeof candidate.lastUsed === "string") {
+        workspace.lastUsed = candidate.lastUsed;
+      } else {
+        workspace.lastUsedMalformed = true;
+      }
+    }
+    return workspace;
   });
 }
 

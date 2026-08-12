@@ -252,8 +252,16 @@ without a present linked checkout. No suggestion ever deletes a branch.
   deterministic suggestion guards, subprocess no-side-effects proof, exact
   artifact paths, and ignored review storage. Reviewer report is recorded in
   `docs/project/_local/reviews/`.
-- `Next:` Commit this reviewed plan and then implement Slice 1 on the same
-  branch.
+- `2026-08-12`: Slice 1 implementation is complete in the working tree. The
+  report core is adapter-driven and report-only; route inspection does not
+  create locks/storage or repair mirrors; Git read probes disable optional
+  locks; provider `lastUsed` is optional and malformed values remain unknown;
+  forge and freshness checks are opt-in and synthetic-testable. Focused
+  verification passed: 39 tests across cleanup, route-state, DevPod, and
+  ownership suites; TypeScript; Biome; and Knip.
+- `Next:` Commit Slice 1, then run exactly one simplifier and one
+  intermediate-reviewer in parallel on its immutable range before integrating
+  any findings.
 
 ## Finish gate
 
