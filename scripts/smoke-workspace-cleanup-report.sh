@@ -22,6 +22,9 @@ mkdir -p "$repo/trees"
 git -C "$repo" worktree add -q "$repo/trees/feature" feature
 
 common_dir=$(git -C "$repo" rev-parse --git-common-dir)
+if [[ "$common_dir" != /* ]]; then
+  common_dir="$repo/$common_dir"
+fi
 mkdir -p "$common_dir/devrouter/workspaces"
 cat > "$common_dir/devrouter/workspaces/feature.json" <<EOF
 {
