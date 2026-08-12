@@ -252,16 +252,23 @@ without a present linked checkout. No suggestion ever deletes a branch.
   deterministic suggestion guards, subprocess no-side-effects proof, exact
   artifact paths, and ignored review storage. Reviewer report is recorded in
   `docs/project/_local/reviews/`.
-- `2026-08-12`: Slice 1 implementation is complete in the working tree. The
+- `2026-08-12`: Slice 1 implementation is committed as `159fa8e`. The
   report core is adapter-driven and report-only; route inspection does not
   create locks/storage or repair mirrors; Git read probes disable optional
   locks; provider `lastUsed` is optional and malformed values remain unknown;
   forge and freshness checks are opt-in and synthetic-testable. Focused
   verification passed: 39 tests across cleanup, route-state, DevPod, and
   ownership suites; TypeScript; Biome; and Knip.
-- `Next:` Commit Slice 1, then run exactly one simplifier and one
-  intermediate-reviewer in parallel on its immutable range before integrating
-  any findings.
+- `2026-08-12`: Post-slice simplifier and intermediate review completed in
+  parallel on `159fa8e`, both `DONE_WITH_CONCERNS`. Accepted corrections now
+  gate the default provider probe, suppress activity cleanup suggestions when
+  an explicit integration check is uncertain, restrict forge hosts, classify
+  unsupported/missing/stale source evidence as unknown, resolve verified target
+  ancestry before forge/source-branch checks, remove eager snapshots, and
+  remove the unused formatter helper. Focused verification passed: 41 tests;
+  Biome passed. Reports are recorded in `docs/project/_local/reviews/`.
+- `Next:` Commit the reviewed safety corrections, then wire the CLI command and
+  stable human/JSON output as Slice 2.
 
 ## Finish gate
 

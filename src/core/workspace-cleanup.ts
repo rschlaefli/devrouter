@@ -215,8 +215,21 @@ function quoteCommandArg(value: string): string {
   return /^[a-zA-Z0-9_./:@+-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function commandFor(repoPath: string, args: string[]): string {
-  return ["devrouter", ...args, "--repo", quoteCommandArg(repoPath)].join(" ");
+function workspaceCommand(
+  repoPath: string,
+  args: string[],
+  beforeRepo: string[] = [],
+  afterRepo: string[] = [],
+): string {
+  return [
+    "devrouter",
+    "workspace",
+    ...args,
+    ...beforeRepo,
+    "--repo",
+    quoteCommandArg(repoPath),
+    ...afterRepo,
+  ].join(" ");
 }
 
 export function parseInactiveFor(value = DEFAULT_INACTIVE_FOR): {
@@ -359,7 +372,7 @@ export function parseRemoteIdentity(value: string): WorkspaceCleanupRemoteIdenti
   if (lowerHost === "github.com" && /^[^/]+\/[^/]+$/.test(project)) {
     return { provider: "github", host: lowerHost, project };
   }
-  if (lowerHost === "gitlab.com" || lowerHost.includes("gitlab")) {
+  if (lowerHost === "gitlab.com") {
     return { provider: "gitlab", host: lowerHost, project };
   }
   return undefined;
@@ -510,6 +523,9 @@ function inspectWorkspaceIntegration(
 
   const originUrl = gitOutput(repoPath, ["config", "--get", "remote.origin.url"], commandRunner);
   const identity = originUrl ? parseRemoteIdentity(originUrl) : undefined;
+  if (!identity) {
+    return { status: "unknown", reason: "The origin is missing or uses an unsupported forge." };
+  }
   const targetBranch =
     parseTargetBranch(
       gitOutput(
@@ -539,64 +555,6 @@ function inspectWorkspaceIntegration(
     return { status: "unknown", reason: "The origin target is missing, stale, or unavailable." };
   }
 
-  const sourceRemoteOutput = successfulOutput(
-    commandRunner("git", ["-C", repoPath, "ls-remote", "origin", `refs/heads/${branch}`]),
-  );
-  const sourceRemoteSha = sourceRemoteOutput?.split(/\s+/)[0];
-  const sourceRemotePresent = isSha(sourceRemoteSha);
-  const forgeChanges: WorkspaceCleanupForgeChange[] = [];
-  if (identity && sourceRemotePresent) {
-    const forgeCommand =
-      identity.provider === "github"
-        ? [
-            "pr",
-            "list",
-            "--repo",
-            identity.project,
-            "--state",
-            "all",
-            "--head",
-            branch,
-            "--json",
-            "headRefName,headRefOid,baseRefName,baseRefOid,state,mergedAt,repository,headRepository,mergeCommit",
-          ]
-        : [
-            "mr",
-            "list",
-            "--repo",
-            identity.project,
-            "--all",
-            "--source-branch",
-            branch,
-            "--output",
-            "json",
-          ];
-    const forge = commandRunner(identity.provider === "github" ? "gh" : "glab", forgeCommand);
-    if (forge.status === 0 && !forge.error) {
-      try {
-        const parsed: unknown = JSON.parse(forge.stdout);
-        const changes =
-          identity.provider === "github"
-            ? parseGitHubChanges(parsed, identity.project, branch)
-            : parseGitLabChanges(parsed, identity.project, branch);
-        if (changes) forgeChanges.push(...changes);
-      } catch {
-        // A malformed provider response is represented as unknown below.
-      }
-    }
-  }
-
-  const mergedExact = forgeChanges.find(
-    (change) =>
-      change.merged && change.sourceHeadSha.toLowerCase() === snapshot.head?.toLowerCase(),
-  );
-  if (mergedExact)
-    return {
-      status: "merged-exact",
-      headSha: snapshot.head,
-      reason: "Merged source head exactly matches current HEAD.",
-    };
-
   const worktreePath = snapshot.worktree.path;
   const ancestry = commandRunner("git", [
     "-C",
@@ -613,6 +571,73 @@ function inspectWorkspaceIntegration(
       reason: "Current HEAD is an ancestor of the verified-fresh origin target.",
     };
   }
+
+  const sourceRemoteOutput = successfulOutput(
+    commandRunner("git", ["-C", repoPath, "ls-remote", "origin", `refs/heads/${branch}`]),
+  );
+  const sourceRemoteSha = sourceRemoteOutput?.split(/\s+/)[0];
+  const sourceRemoteMatchesHead = sourceRemoteSha?.toLowerCase() === snapshot.head.toLowerCase();
+  if (!sourceRemoteMatchesHead) {
+    return {
+      status: "unknown",
+      reason: "The workspace source branch is missing, stale, or unavailable on origin.",
+    };
+  }
+
+  const forgeChanges: WorkspaceCleanupForgeChange[] = [];
+  const forgeCommand =
+    identity.provider === "github"
+      ? [
+          "pr",
+          "list",
+          "--repo",
+          identity.project,
+          "--state",
+          "all",
+          "--head",
+          branch,
+          "--json",
+          "headRefName,headRefOid,baseRefName,baseRefOid,state,mergedAt,repository,headRepository,mergeCommit",
+        ]
+      : [
+          "mr",
+          "list",
+          "--repo",
+          identity.project,
+          "--all",
+          "--source-branch",
+          branch,
+          "--output",
+          "json",
+        ];
+  const forge = commandRunner(identity.provider === "github" ? "gh" : "glab", forgeCommand);
+  if (forge.status !== 0 || forge.error) {
+    return { status: "unknown", reason: "The forge query was unavailable or unauthenticated." };
+  }
+  try {
+    const parsed: unknown = JSON.parse(forge.stdout);
+    const changes =
+      identity.provider === "github"
+        ? parseGitHubChanges(parsed, identity.project, branch)
+        : parseGitLabChanges(parsed, identity.project, branch);
+    if (!changes) {
+      return { status: "unknown", reason: "The forge response was malformed." };
+    }
+    forgeChanges.push(...changes);
+  } catch {
+    return { status: "unknown", reason: "The forge response was malformed." };
+  }
+
+  const mergedExact = forgeChanges.find(
+    (change) =>
+      change.merged && change.sourceHeadSha.toLowerCase() === snapshot.head?.toLowerCase(),
+  );
+  if (mergedExact)
+    return {
+      status: "merged-exact",
+      headSha: snapshot.head,
+      reason: "Merged source head exactly matches current HEAD.",
+    };
 
   for (const change of forgeChanges.filter(
     (candidate) => candidate.merged && candidate.sourceHeadSha === snapshot.head,
@@ -632,12 +657,6 @@ function inspectWorkspaceIntegration(
     }
   }
 
-  if (!identity || !sourceRemotePresent) {
-    return {
-      status: "not-verified",
-      reason: "No same-repository merged change with a present source remote was verified.",
-    };
-  }
   return {
     status: "not-verified",
     reason: "Fresh target and forge evidence did not prove integration.",
@@ -715,18 +734,14 @@ function buildSuggestions(
   activity: WorkspaceCleanupActivityStatus,
   integration: WorkspaceCleanupIntegrationEvidence,
   worktree: GitWorktree | undefined,
+  checkMerged: boolean,
 ): { eligibleActions: string[]; suggestions: WorkspaceCleanupSuggestion[]; reasons: string[] } {
   const reasons: string[] = [];
   const eligibleActions: string[] = [];
   const suggestions: WorkspaceCleanupSuggestion[] = [];
-  const gcCommand = commandFor(repoPath, ["workspace", "gc", "--yes"]);
-  const keepCommand = commandFor(repoPath, [
-    "workspace",
-    "down",
-    record.workspace,
-    "--keep-worktree",
-  ]);
-  const downCommand = commandFor(repoPath, ["workspace", "down", record.workspace]);
+  const gcCommand = workspaceCommand(repoPath, ["gc"], [], ["--yes"]);
+  const keepCommand = workspaceCommand(repoPath, ["down", record.workspace], ["--keep-worktree"]);
+  const downCommand = workspaceCommand(repoPath, ["down", record.workspace]);
   const routeSafe = route === "owned" || route === "absent";
   const checkoutSafe = checkout === "clean" && !worktree?.locked;
   const providerSafe = provider === "owned";
@@ -785,6 +800,14 @@ function buildSuggestions(
     reasons.push("Patch-equivalent integration is advisory and never authorizes full removal.");
   if (integration.status === "unknown" || integration.status === "not-verified")
     reasons.push(`Integration is ${integration.status}; full removal is not suggested.`);
+  const activityCleanupAllowed =
+    !checkMerged || integration.status === "on-target" || integration.status === "merged-exact";
+  if (!activityCleanupAllowed) {
+    reasons.push(
+      "Cleanup is not suggested because the requested integration check did not provide a verified target or exact merge.",
+    );
+    return { eligibleActions, suggestions, reasons };
+  }
   if (activity === "quiet") {
     eligibleActions.push(keepCommand);
     suggestions.push({
@@ -847,6 +870,7 @@ function buildRow(
     activity.status,
     integration,
     snapshot.worktree,
+    checkMerged,
   );
   const reasons = [
     `ownership=${ownershipEvidence.ownerStatus}`,
@@ -894,7 +918,9 @@ export function buildWorkspaceCleanupReport(
   const records = (dependencies.listOwnership ?? listWorkspaceOwnership)(repoPath);
   let devpods: DevpodWorkspace[] | undefined;
   try {
-    devpods = (dependencies.listDevpods ?? listDevpodWorkspaces)();
+    const listDevpods =
+      dependencies.listDevpods ?? (options.checkMerged ? listDevpodWorkspaces : undefined);
+    devpods = listDevpods?.();
   } catch {
     devpods = undefined;
   }
@@ -904,29 +930,21 @@ export function buildWorkspaceCleanupReport(
   } catch {
     routes = undefined;
   }
-  const snapshots = new Map(
-    worktrees.map((worktree) => [
-      comparableWorkspacePath(worktree.path),
-      (dependencies.readGitSnapshot ?? ((candidate) => readGitSnapshot(candidate, commandRunner)))(
-        worktree,
-      ),
-    ]),
-  );
   const rows = records
     .map((record) => {
       const worktree = worktrees.find((candidate) =>
         sameWorkspacePath(candidate.path, record.worktreePath),
       );
-      const snapshot =
-        (worktree && snapshots.get(comparableWorkspacePath(worktree.path))) ??
-        (
-          dependencies.readGitSnapshot ?? ((candidate) => readGitSnapshot(candidate, commandRunner))
-        )({
+      const snapshot = (
+        dependencies.readGitSnapshot ?? ((candidate) => readGitSnapshot(candidate, commandRunner))
+      )(
+        worktree ?? {
           path: record.worktreePath,
           branch: record.branch ?? undefined,
           locked: false,
           prunable: true,
-        });
+        },
+      );
       return buildRow(
         repoPath,
         record,
@@ -955,8 +973,4 @@ export function buildWorkspaceCleanupReport(
     checkMerged: Boolean(options.checkMerged),
     workspaces: rows,
   };
-}
-
-export function formatWorkspaceCleanupCommand(row: WorkspaceCleanupRow): string {
-  return row.suggestions.map((suggestion) => suggestion.command).join("; ");
 }

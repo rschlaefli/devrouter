@@ -162,6 +162,7 @@ describe("workspace cleanup forge parsing", () => {
       host: "gitlab.com",
       project: "acme/group/devrouter",
     });
+    expect(parseRemoteIdentity("https://gitlab.example.test/acme/devrouter.git")).toBeUndefined();
     expect(parseRemoteIdentity("https://example.test/acme/devrouter.git")).toBeUndefined();
     expect(parseRemoteIdentity("https://github.com/acme/devrouter?token=secret")).toEqual({
       provider: "github",
@@ -294,11 +295,7 @@ describe("workspace cleanup report and suggestions", () => {
         inspectIntegration: () => ({ status: "patch-equivalent", headSha }),
       }),
     );
-    expect(patchReport.workspaces[0].suggestions).toEqual([
-      expect.objectContaining({
-        command: "devrouter workspace down feature --keep-worktree --repo /repo",
-      }),
-    ]);
+    expect(patchReport.workspaces[0].suggestions).toEqual([]);
     expect(patchReport.workspaces[0].reasons.join(" ")).toContain("advisory");
   });
 
@@ -312,7 +309,7 @@ describe("workspace cleanup report and suggestions", () => {
       }),
     );
     expect(report.workspaces[0].suggestions).toEqual([
-      expect.objectContaining({ command: "devrouter workspace gc --yes --repo /repo" }),
+      expect.objectContaining({ command: "devrouter workspace gc --repo /repo --yes" }),
     ]);
   });
 
@@ -346,5 +343,29 @@ describe("workspace cleanup report and suggestions", () => {
       dependencies({ commandRunner }),
     );
     expect(commandRunner).not.toHaveBeenCalled();
+  });
+
+  it("leaves provider evidence unknown when the provider check is disabled", () => {
+    const inspectOwnership = vi.fn((_record, _worktrees, devpods) => {
+      expect(devpods).toBeUndefined();
+      return { ownerStatus: "present" as const, devpodStatus: "unknown" as const };
+    });
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: false },
+      dependencies({ listDevpods: undefined, inspectOwnership }),
+    );
+    expect(report.workspaces[0].provider).toBe("unknown");
+    expect(report.workspaces[0].suggestions).toEqual([]);
+  });
+
+  it("suppresses activity cleanup suggestions when an explicit merge check is unverified", () => {
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      dependencies({
+        inspectIntegration: () => ({ status: "not-verified", reason: "synthetic" }),
+      }),
+    );
+    expect(report.workspaces[0].suggestions).toEqual([]);
+    expect(report.workspaces[0].reasons.join(" ")).toContain("integration check");
   });
 });
