@@ -529,6 +529,31 @@ workspaceCommand
   );
 
 workspaceCommand
+  .command("cleanup")
+  .description("Report managed workspace activity, identity, checkout, and integration evidence")
+  .option("--repo <path>", "Main repository path (defaults to current directory)")
+  .option("--inactive-for <duration>", "Inactive threshold using Ns, Nm, Nh, Nd, or Nw", "30d")
+  .option("--check-merged", "Enable read-only origin and GitHub/GitLab integration checks")
+  .option("--json", "Output the stable cleanup report as JSON")
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{
+        repo?: string;
+        inactiveFor?: string;
+        checkMerged?: boolean;
+        json?: boolean;
+      }>();
+      const { runWorkspaceCleanupCommand } = await import("./commands/workspace");
+      runWorkspaceCleanupCommand({
+        repo: options.repo,
+        inactiveFor: options.inactiveFor,
+        checkMerged: Boolean(options.checkMerged),
+        json: Boolean(options.json),
+      });
+    }),
+  );
+
+workspaceCommand
   .command("gc")
   .description("Report or clean missing ledger-owned workspace resources")
   .option("--repo <path>", "Main repository path (defaults to current directory)")

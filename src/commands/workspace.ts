@@ -1,4 +1,9 @@
+import { printJSON, printWorkspaceCleanupReport } from "../core/output";
 import { resolveRepoPath } from "../core/repo-config";
+import {
+  buildWorkspaceCleanupReport,
+  type WorkspaceCleanupOptions,
+} from "../core/workspace-cleanup";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
 import {
   workspaceDown,
@@ -51,6 +56,18 @@ export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }
       `${label}\t${row.branch ?? "-"}\t${ownership}\tdevpod:${row.devpodStatus}\t${row.routeCount} route(s)\t${row.worktreePath}\n`,
     );
   }
+}
+
+export function runWorkspaceCleanupCommand(
+  options: WorkspaceCleanupOptions & { json?: boolean },
+): void {
+  const repoPath = resolveGitWorkspaceRepo(options.repo);
+  const report = buildWorkspaceCleanupReport({ ...options, repo: repoPath });
+  if (options.json) {
+    printJSON(report);
+    return;
+  }
+  printWorkspaceCleanupReport(report);
 }
 
 export async function runWorkspaceDownCommand(
