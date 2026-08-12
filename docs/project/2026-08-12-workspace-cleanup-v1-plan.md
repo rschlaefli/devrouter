@@ -269,6 +269,21 @@ without a present linked checkout. No suggestion ever deletes a branch.
   Biome passed. Reports are recorded in `docs/project/_local/reviews/`.
 - `Next:` Commit the reviewed safety corrections, then wire the CLI command and
   stable human/JSON output as Slice 2.
+- `2026-08-12`: Slice 2 CLI/report output is committed as `532709b`; focused
+  command and core checks passed with 16 tests. The required simplifier review
+  completed after one metadata-only dispatch block and one reconciled
+  correction attempt; it found no justified reduction. Report:
+  `docs/project/_local/reviews/2026-08-12-workspace-cleanup-v1-slice-2-simplifier.md`.
+- `2026-08-12`: Advisor review found the initial patch-equivalence branch
+  unreachable and allowed two failed patch probes to compare equal. The
+  correction now requires a distinct current/source SHA, a present source
+  remote matching the forge candidate, at least one unique source commit, and
+  two defined equal stable patch IDs. Focused cleanup tests cover exact merge,
+  missing/stale remotes, squash-style equivalence, and failed probes. Report:
+  `docs/project/_local/reviews/2026-08-12-workspace-cleanup-v1-patch-equivalence-advisor.md`.
+- `Next:` Commit the verified patch-equivalence correction and smoke harness,
+  then run the full repository verification suite before integrated-final
+  review.
 
 ## Finish gate
 

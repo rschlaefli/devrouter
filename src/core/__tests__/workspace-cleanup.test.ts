@@ -95,6 +95,36 @@ function commandResult(stdout = ""): WorkspaceCleanupCommandResult {
   return { status: 0, stdout, stderr: "" };
 }
 
+function integrationDependencies(
+  forgeOutput: string,
+  overrides: Partial<WorkspaceCleanupDependencies> = {},
+  sourceRemoteSha = "d".repeat(40),
+): WorkspaceCleanupDependencies {
+  const targetSha = "e".repeat(40);
+  const calls: string[] = [];
+  const commandRunner = vi.fn((command: string, args: string[], input?: string) => {
+    const rendered = `${command} ${args.join(" ")}`;
+    calls.push(rendered);
+    if (rendered.includes("config --get remote.origin.url"))
+      return commandResult("git@github.com:acme/devrouter.git\n");
+    if (rendered.includes("symbolic-ref --quiet --short refs/remotes/origin/HEAD"))
+      return commandResult("origin/main\n");
+    if (rendered.includes("rev-parse --verify refs/remotes/origin/main"))
+      return commandResult(`${targetSha}\n`);
+    if (rendered.includes("ls-remote origin refs/heads/main"))
+      return commandResult(`${targetSha}\trefs/heads/main\n`);
+    if (rendered.includes("merge-base --is-ancestor")) return { status: 1, stdout: "", stderr: "" };
+    if (rendered.includes("ls-remote origin refs/heads/feature"))
+      return commandResult(`${sourceRemoteSha}\trefs/heads/feature\n`);
+    if (command === "gh") return commandResult(forgeOutput);
+    if (rendered.includes("rev-list --no-merges")) return commandResult(`${"f".repeat(40)}\n`);
+    if (args.includes("diff")) return commandResult("diff --git a/file b/file\n");
+    if (command === "git" && args[0] === "patch-id") return commandResult(`${"1".repeat(40)}  -\n`);
+    return commandResult(input ? "" : "");
+  });
+  return dependencies({ commandRunner, ...overrides, inspectIntegration: undefined });
+}
+
 describe("workspace cleanup duration and activity", () => {
   it("parses the small dependency-free duration syntax and defaults to 30d", () => {
     expect(parseInactiveFor()).toEqual({ input: "30d", seconds: 30 * 86400 });
@@ -220,6 +250,127 @@ describe("workspace cleanup forge parsing", () => {
     );
     expect(gitlab?.[0]).toMatchObject({ merged: true, sourceHeadSha: headSha });
     expect(parseGitHubChanges({ malformed: true }, "acme/devrouter", "feature")).toBeUndefined();
+  });
+
+  it("classifies a same-repository merged head exactly", () => {
+    const forgeOutput = JSON.stringify([
+      {
+        repository: { nameWithOwner: "acme/devrouter" },
+        headRepository: { nameWithOwner: "acme/devrouter" },
+        headRefName: "feature",
+        headRefOid: headSha,
+        baseRefName: "main",
+        baseRefOid: "c".repeat(40),
+        state: "MERGED",
+        mergedAt: recent,
+        mergeCommit: { oid: mergedSha },
+      },
+    ]);
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies(forgeOutput, {}, headSha),
+    );
+    expect(report.workspaces[0].integration).toBe("merged-exact");
+    expect(report.workspaces[0].suggestions).toEqual([
+      expect.objectContaining({ command: "devrouter workspace down feature --repo /repo" }),
+    ]);
+  });
+
+  it("treats a missing source remote as unknown", () => {
+    const sourceSha = "d".repeat(40);
+    const forgeOutput = JSON.stringify([
+      {
+        repository: { nameWithOwner: "acme/devrouter" },
+        headRepository: { nameWithOwner: "acme/devrouter" },
+        headRefName: "feature",
+        headRefOid: sourceSha,
+        baseRefName: "main",
+        baseRefOid: "c".repeat(40),
+        state: "MERGED",
+        mergedAt: recent,
+        mergeCommit: { oid: mergedSha },
+      },
+    ]);
+    const baseRunner = integrationDependencies(forgeOutput).commandRunner!;
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies(forgeOutput, {
+        commandRunner: (command, args, input) => {
+          if (`${command} ${args.join(" ")}`.includes("ls-remote origin refs/heads/feature"))
+            return { status: 0, stdout: "", stderr: "" };
+          return baseRunner(command, args, input);
+        },
+      }),
+    );
+    expect(report.workspaces[0].integration).toBe("unknown");
+  });
+
+  it("treats a stale target remote as unknown", () => {
+    const baseRunner = integrationDependencies("[]").commandRunner!;
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies("[]", {
+        commandRunner: (command, args, input) => {
+          if (`${command} ${args.join(" ")}`.includes("ls-remote origin refs/heads/main"))
+            return commandResult(`${"f".repeat(40)}\trefs/heads/main\n`);
+          return baseRunner(command, args, input);
+        },
+      }),
+    );
+    expect(report.workspaces[0].integration).toBe("unknown");
+  });
+
+  it("classifies a real squash-style merge as patch-equivalent without overclaiming", () => {
+    const sourceSha = "d".repeat(40);
+    const forgeOutput = JSON.stringify([
+      {
+        repository: { nameWithOwner: "acme/devrouter" },
+        headRepository: { nameWithOwner: "acme/devrouter" },
+        headRefName: "feature",
+        headRefOid: sourceSha,
+        baseRefName: "main",
+        baseRefOid: "c".repeat(40),
+        state: "MERGED",
+        mergedAt: recent,
+        mergeCommit: { oid: mergedSha },
+      },
+    ]);
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies(forgeOutput),
+    );
+    expect(report.workspaces[0].integration).toBe("patch-equivalent");
+    expect(report.workspaces[0].suggestions).toEqual([]);
+  });
+
+  it("does not treat failed patch probes as equivalent", () => {
+    const sourceSha = "d".repeat(40);
+    const forgeOutput = JSON.stringify([
+      {
+        repository: { nameWithOwner: "acme/devrouter" },
+        headRepository: { nameWithOwner: "acme/devrouter" },
+        headRefName: "feature",
+        headRefOid: sourceSha,
+        baseRefName: "main",
+        baseRefOid: "c".repeat(40),
+        state: "MERGED",
+        mergedAt: recent,
+        mergeCommit: { oid: mergedSha },
+      },
+    ]);
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies(forgeOutput, {
+        commandRunner: (command, args) => {
+          if (command === "git" && args[0] === "patch-id")
+            return { status: 1, stdout: "", stderr: "failed" };
+          return (
+            integrationDependencies(forgeOutput).commandRunner?.(command, args) ?? commandResult()
+          );
+        },
+      }),
+    );
+    expect(report.workspaces[0].integration).toBe("not-verified");
   });
 });
 

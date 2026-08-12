@@ -576,11 +576,10 @@ function inspectWorkspaceIntegration(
     commandRunner("git", ["-C", repoPath, "ls-remote", "origin", `refs/heads/${branch}`]),
   );
   const sourceRemoteSha = sourceRemoteOutput?.split(/\s+/)[0];
-  const sourceRemoteMatchesHead = sourceRemoteSha?.toLowerCase() === snapshot.head.toLowerCase();
-  if (!sourceRemoteMatchesHead) {
+  if (!isSha(sourceRemoteSha)) {
     return {
       status: "unknown",
-      reason: "The workspace source branch is missing, stale, or unavailable on origin.",
+      reason: "The workspace source branch is missing or unavailable on origin.",
     };
   }
 
@@ -640,15 +639,28 @@ function inspectWorkspaceIntegration(
     };
 
   for (const change of forgeChanges.filter(
-    (candidate) => candidate.merged && candidate.sourceHeadSha === snapshot.head,
+    (candidate) =>
+      candidate.merged && candidate.sourceHeadSha.toLowerCase() !== snapshot.head?.toLowerCase(),
   )) {
+    if (change.sourceHeadSha.toLowerCase() !== sourceRemoteSha?.toLowerCase()) continue;
     if (
       change.baseSha &&
       change.mergeCommitSha &&
-      hasUniqueSourceCommit(worktreePath, change.baseSha, snapshot.head, commandRunner) &&
-      patchIdForRange(worktreePath, change.baseSha, snapshot.head, commandRunner) ===
-        patchIdForRange(worktreePath, change.baseSha, change.mergeCommitSha, commandRunner)
+      hasUniqueSourceCommit(worktreePath, change.baseSha, snapshot.head, commandRunner)
     ) {
+      const currentPatchId = patchIdForRange(
+        worktreePath,
+        change.baseSha,
+        snapshot.head,
+        commandRunner,
+      );
+      const mergedPatchId = patchIdForRange(
+        worktreePath,
+        change.baseSha,
+        change.mergeCommitSha,
+        commandRunner,
+      );
+      if (!currentPatchId || !mergedPatchId || currentPatchId !== mergedPatchId) continue;
       return {
         status: "patch-equivalent",
         headSha: snapshot.head,
