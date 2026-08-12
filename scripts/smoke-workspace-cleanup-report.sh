@@ -37,7 +37,8 @@ cat > "$common_dir/devrouter/workspaces/feature.json" <<EOF
   "updatedAt": "2026-06-01T12:00:00.000Z"
 }
 EOF
-printf 'feature\n' > "$(git -C "$repo/trees/feature" rev-parse --git-dir)/devrouter-workspace"
+feature_git_dir=$(git -C "$repo/trees/feature" rev-parse --path-format=absolute --git-dir)
+printf 'feature\n' > "$feature_git_dir/devrouter-workspace"
 
 cat > "$bin/devpod" <<'EOF'
 #!/usr/bin/env bash
@@ -59,7 +60,7 @@ chmod +x "$bin/devpod" "$bin/gh" "$bin/glab"
 hash_state() {
   shasum "$repo/.git/HEAD" "$repo/.git/index" "$repo/.git/worktrees/feature/HEAD" \
     "$common_dir/devrouter/workspaces/feature.json" \
-    "$repo/trees/feature/.git" "$repo/trees/feature/devrouter-workspace"
+    "$repo/trees/feature/.git" "$feature_git_dir/devrouter-workspace"
 }
 
 calls="$work_root/calls.log"

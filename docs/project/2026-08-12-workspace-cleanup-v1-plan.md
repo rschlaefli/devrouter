@@ -281,9 +281,14 @@ without a present linked checkout. No suggestion ever deletes a branch.
   two defined equal stable patch IDs. Focused cleanup tests cover exact merge,
   missing/stale remotes, squash-style equivalence, and failed probes. Report:
   `docs/project/_local/reviews/2026-08-12-workspace-cleanup-v1-patch-equivalence-advisor.md`.
-- `Next:` Commit the verified patch-equivalence correction and smoke harness,
-  then run the full repository verification suite before integrated-final
-  review.
+- `2026-08-12`: The correction intermediate review found two additional
+  fail-closed gaps: exact merge evidence was not bound to the current source
+  remote and verified target branch, and malformed successful patch/commit
+  output could pass. The follow-up now binds both refs, validates patch IDs,
+  rejects any malformed source commit line, and adds regression coverage.
+  Review: `docs/project/_local/reviews/2026-08-12-workspace-cleanup-v1-patch-correction-intermediate.md`.
+- `Next:` Commit the verified fail-closed correction, rerun the full repository
+  verification and subprocess smoke, then run integrated-final review.
 
 ## Finish gate
 

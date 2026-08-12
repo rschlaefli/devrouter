@@ -472,7 +472,8 @@ function patchIdForRange(
   if (diff.status !== 0 || diff.error || diff.stdout.length === 0) return undefined;
   const result = commandRunner("git", ["patch-id", "--stable"], diff.stdout);
   if (result.status !== 0 || result.error) return undefined;
-  return result.stdout.trim().split(/\s+/)[0] || undefined;
+  const match = /^([0-9a-f]{40,64})\s+(?:-|[0-9a-f]{40,64})$/i.exec(result.stdout.trim());
+  return match?.[1];
 }
 
 function hasUniqueSourceCommit(
@@ -487,7 +488,11 @@ function hasUniqueSourceCommit(
     commandRunner,
   );
   if (!result) return false;
-  return new Set(result.split("\n").filter((sha) => isSha(sha))).size > 0;
+  const commits = result
+    .split(/\r?\n/)
+    .map((sha) => sha.trim())
+    .filter((sha) => sha.length > 0);
+  return commits.length > 0 && commits.every(isSha) && new Set(commits).size > 0;
 }
 
 function parseTargetBranch(output: string | undefined): string | undefined {
@@ -629,7 +634,10 @@ function inspectWorkspaceIntegration(
 
   const mergedExact = forgeChanges.find(
     (change) =>
-      change.merged && change.sourceHeadSha.toLowerCase() === snapshot.head?.toLowerCase(),
+      change.merged &&
+      change.targetBranch === targetBranch &&
+      change.sourceHeadSha.toLowerCase() === snapshot.head?.toLowerCase() &&
+      change.sourceHeadSha.toLowerCase() === sourceRemoteSha.toLowerCase(),
   );
   if (mergedExact)
     return {
@@ -640,7 +648,9 @@ function inspectWorkspaceIntegration(
 
   for (const change of forgeChanges.filter(
     (candidate) =>
-      candidate.merged && candidate.sourceHeadSha.toLowerCase() !== snapshot.head?.toLowerCase(),
+      candidate.merged &&
+      candidate.targetBranch === targetBranch &&
+      candidate.sourceHeadSha.toLowerCase() !== snapshot.head?.toLowerCase(),
   )) {
     if (change.sourceHeadSha.toLowerCase() !== sourceRemoteSha?.toLowerCase()) continue;
     if (

@@ -320,6 +320,86 @@ describe("workspace cleanup forge parsing", () => {
     expect(report.workspaces[0].integration).toBe("unknown");
   });
 
+  it("requires exact merge evidence to match the current source and target refs", () => {
+    const forgeOutput = JSON.stringify([
+      {
+        repository: { nameWithOwner: "acme/devrouter" },
+        headRepository: { nameWithOwner: "acme/devrouter" },
+        headRefName: "feature",
+        headRefOid: headSha,
+        baseRefName: "release",
+        baseRefOid: "c".repeat(40),
+        state: "MERGED",
+        mergedAt: recent,
+        mergeCommit: { oid: mergedSha },
+      },
+    ]);
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies(forgeOutput, {}, "d".repeat(40)),
+    );
+    expect(report.workspaces[0].integration).toBe("not-verified");
+    expect(report.workspaces[0].suggestions).toEqual([]);
+  });
+
+  it("rejects malformed successful patch evidence", () => {
+    const sourceSha = "d".repeat(40);
+    const forgeOutput = JSON.stringify([
+      {
+        repository: { nameWithOwner: "acme/devrouter" },
+        headRepository: { nameWithOwner: "acme/devrouter" },
+        headRefName: "feature",
+        headRefOid: sourceSha,
+        baseRefName: "main",
+        baseRefOid: "c".repeat(40),
+        state: "MERGED",
+        mergedAt: recent,
+        mergeCommit: { oid: mergedSha },
+      },
+    ]);
+    const baseRunner = integrationDependencies(forgeOutput).commandRunner!;
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies(forgeOutput, {
+        commandRunner: (command, args, input) => {
+          if (command === "git" && args[0] === "patch-id")
+            return commandResult("not-a-patch-id  -\n");
+          return baseRunner(command, args, input);
+        },
+      }),
+    );
+    expect(report.workspaces[0].integration).toBe("not-verified");
+  });
+
+  it("rejects partially malformed source commit evidence", () => {
+    const sourceSha = "d".repeat(40);
+    const forgeOutput = JSON.stringify([
+      {
+        repository: { nameWithOwner: "acme/devrouter" },
+        headRepository: { nameWithOwner: "acme/devrouter" },
+        headRefName: "feature",
+        headRefOid: sourceSha,
+        baseRefName: "main",
+        baseRefOid: "c".repeat(40),
+        state: "MERGED",
+        mergedAt: recent,
+        mergeCommit: { oid: mergedSha },
+      },
+    ]);
+    const baseRunner = integrationDependencies(forgeOutput).commandRunner!;
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies(forgeOutput, {
+        commandRunner: (command, args, input) => {
+          if (`${command} ${args.join(" ")}`.includes("rev-list --no-merges"))
+            return commandResult(`${"f".repeat(40)}\nnot-a-sha\n`);
+          return baseRunner(command, args, input);
+        },
+      }),
+    );
+    expect(report.workspaces[0].integration).toBe("not-verified");
+  });
+
   it("classifies a real squash-style merge as patch-equivalent without overclaiming", () => {
     const sourceSha = "d".repeat(40);
     const forgeOutput = JSON.stringify([
