@@ -267,8 +267,8 @@ without a present linked checkout. No suggestion ever deletes a branch.
   ancestry before forge/source-branch checks, remove eager snapshots, and
   remove the unused formatter helper. Focused verification passed: 41 tests;
   Biome passed. Reports are recorded in `docs/project/_local/reviews/`.
-- `Next:` Commit the reviewed safety corrections, then wire the CLI command and
-  stable human/JSON output as Slice 2.
+- `Completed:` Reviewed safety corrections were committed before the CLI slice;
+  the CLI and stable human/JSON output are now integrated.
 - `2026-08-12`: Slice 2 CLI/report output is committed as `532709b`; focused
   command and core checks passed with 16 tests. The required simplifier review
   completed after one metadata-only dispatch block and one reconciled
@@ -293,8 +293,15 @@ without a present linked checkout. No suggestion ever deletes a branch.
   proves both patch ranges share the forge base, hashes route/provider/
   worktree fixtures, and closes the finish-gate progress after fresh checks.
   Review: `docs/project/_local/reviews/2026-08-12-workspace-cleanup-v1-integrated-final.md`.
-- `Next:` Commit the integrated-final corrections, rerun all applicable checks
-  and smoke, then close the one allowed correction review.
+- `Completed:` Integrated-final correction commit `57518f2` passed 23 focused
+  cleanup tests, 552 full tests, docs policy, knowledge, Biome, Knip,
+  TypeScript, build, and the expanded no-state-change report-only smoke.
+  The one allowed correction review returned `DONE_WITH_CONCERNS` with all
+  behavioral findings closed; the remaining concerns are synthetic-only forge
+  evidence and the repository's known `/proc` process-test skip.
+- `Finish status:` DONE_WITH_CONCERNS complete after the final plan-status
+  commit; no prohibited side effect occurred, and no push, PR, merge, release,
+  deployment, publication, worktree removal, or branch deletion was performed.
 
 ## Finish gate
 
