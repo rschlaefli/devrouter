@@ -495,6 +495,23 @@ function hasUniqueSourceCommit(
   return commits.length > 0 && commits.every(isSha) && new Set(commits).size > 0;
 }
 
+function hasVerifiedCommonBase(
+  repoPath: string,
+  baseSha: string,
+  headSha: string,
+  commandRunner: WorkspaceCleanupCommandRunner,
+): boolean {
+  const result = commandRunner("git", [
+    "-C",
+    repoPath,
+    "merge-base",
+    "--is-ancestor",
+    baseSha,
+    headSha,
+  ]);
+  return result.status === 0 && !result.error;
+}
+
 function parseTargetBranch(output: string | undefined): string | undefined {
   if (!output) return undefined;
   const value = output.trim();
@@ -531,21 +548,25 @@ function inspectWorkspaceIntegration(
   if (!identity) {
     return { status: "unknown", reason: "The origin is missing or uses an unsupported forge." };
   }
-  const targetBranch =
-    parseTargetBranch(
-      gitOutput(
-        repoPath,
-        ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-        commandRunner,
-      ),
-    ) ??
-    parseRemoteDefaultTarget(
-      successfulOutput(
-        commandRunner("git", ["-C", repoPath, "ls-remote", "--symref", "origin", "HEAD"]),
-      ),
-    );
-  if (!targetBranch)
-    return { status: "unknown", reason: "The origin default target could not be determined." };
+  const localTargetBranch = parseTargetBranch(
+    gitOutput(
+      repoPath,
+      ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+      commandRunner,
+    ),
+  );
+  const remoteTargetBranch = parseRemoteDefaultTarget(
+    successfulOutput(
+      commandRunner("git", ["-C", repoPath, "ls-remote", "--symref", "origin", "HEAD"]),
+    ),
+  );
+  if (!remoteTargetBranch || (localTargetBranch && localTargetBranch !== remoteTargetBranch)) {
+    return {
+      status: "unknown",
+      reason: "The origin default target is missing, stale, or unavailable.",
+    };
+  }
+  const targetBranch = remoteTargetBranch;
 
   const localTargetSha = gitOutput(
     repoPath,
@@ -656,6 +677,8 @@ function inspectWorkspaceIntegration(
     if (
       change.baseSha &&
       change.mergeCommitSha &&
+      hasVerifiedCommonBase(worktreePath, change.baseSha, snapshot.head, commandRunner) &&
+      hasVerifiedCommonBase(worktreePath, change.baseSha, change.mergeCommitSha, commandRunner) &&
       hasUniqueSourceCommit(worktreePath, change.baseSha, snapshot.head, commandRunner)
     ) {
       const currentPatchId = patchIdForRange(

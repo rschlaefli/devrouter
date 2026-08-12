@@ -40,10 +40,16 @@ EOF
 feature_git_dir=$(git -C "$repo/trees/feature" rev-parse --path-format=absolute --git-dir)
 printf 'feature\n' > "$feature_git_dir/devrouter-workspace"
 
+route_state="$home/.config/devrouter/host-routes-state.json"
+mkdir -p "$(dirname "$route_state")"
+printf '[]\n' > "$route_state"
+provider_fixture="$home/provider-fixture.json"
+printf '[{"id":"feature","source":{"localFolder":"%s"},"lastUsed":"2026-06-01T12:00:00.000Z"}]\n' "$repo/trees/feature" > "$provider_fixture"
+
 cat > "$bin/devpod" <<'EOF'
 #!/usr/bin/env bash
 printf 'devpod %s\n' "$*" >> "${DEVROUTER_SMOKE_CALLS:?}"
-exit 99
+cat "${DEVROUTER_SMOKE_PROVIDER_FIXTURE:?}"
 EOF
 cat > "$bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -58,13 +64,17 @@ EOF
 chmod +x "$bin/devpod" "$bin/gh" "$bin/glab"
 
 hash_state() {
-  shasum "$repo/.git/HEAD" "$repo/.git/index" "$repo/.git/worktrees/feature/HEAD" \
-    "$common_dir/devrouter/workspaces/feature.json" \
-    "$repo/trees/feature/.git" "$feature_git_dir/devrouter-workspace"
+  {
+    find "$repo/.git" "$repo/trees/feature" -type f -print
+    printf '%s\n' "$route_state" "$provider_fixture"
+  } | LC_ALL=C sort -u | while IFS= read -r file; do
+    shasum "$file"
+  done
 }
 
 calls="$work_root/calls.log"
 export DEVROUTER_SMOKE_CALLS="$calls"
+export DEVROUTER_SMOKE_PROVIDER_FIXTURE="$provider_fixture"
 export HOME="$home"
 export PATH="$bin:$PATH"
 

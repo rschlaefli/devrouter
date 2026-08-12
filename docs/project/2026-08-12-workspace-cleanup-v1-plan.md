@@ -287,8 +287,14 @@ without a present linked checkout. No suggestion ever deletes a branch.
   output could pass. The follow-up now binds both refs, validates patch IDs,
   rejects any malformed source commit line, and adds regression coverage.
   Review: `docs/project/_local/reviews/2026-08-12-workspace-cleanup-v1-patch-correction-intermediate.md`.
-- `Next:` Commit the verified fail-closed correction, rerun the full repository
-  verification and subprocess smoke, then run integrated-final review.
+- `2026-08-12`: Integrated-final review found stale local default-target
+  binding, unverified patch bases, an incomplete smoke manifest, and stale
+  progress text. The follow-up now verifies remote/local target agreement,
+  proves both patch ranges share the forge base, hashes route/provider/
+  worktree fixtures, and closes the finish-gate progress after fresh checks.
+  Review: `docs/project/_local/reviews/2026-08-12-workspace-cleanup-v1-integrated-final.md`.
+- `Next:` Commit the integrated-final corrections, rerun all applicable checks
+  and smoke, then close the one allowed correction review.
 
 ## Finish gate
 

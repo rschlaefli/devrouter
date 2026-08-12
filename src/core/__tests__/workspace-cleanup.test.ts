@@ -109,11 +109,18 @@ function integrationDependencies(
       return commandResult("git@github.com:acme/devrouter.git\n");
     if (rendered.includes("symbolic-ref --quiet --short refs/remotes/origin/HEAD"))
       return commandResult("origin/main\n");
+    if (rendered.includes("ls-remote --symref origin HEAD"))
+      return commandResult("ref: refs/heads/main\tHEAD\n");
     if (rendered.includes("rev-parse --verify refs/remotes/origin/main"))
       return commandResult(`${targetSha}\n`);
     if (rendered.includes("ls-remote origin refs/heads/main"))
       return commandResult(`${targetSha}\trefs/heads/main\n`);
-    if (rendered.includes("merge-base --is-ancestor")) return { status: 1, stdout: "", stderr: "" };
+    if (rendered.includes("merge-base --is-ancestor")) {
+      const candidateBase = args[args.length - 2];
+      return candidateBase === "c".repeat(40)
+        ? commandResult()
+        : { status: 1, stdout: "", stderr: "" };
+    }
     if (rendered.includes("ls-remote origin refs/heads/feature"))
       return commandResult(`${sourceRemoteSha}\trefs/heads/feature\n`);
     if (command === "gh") return commandResult(forgeOutput);
@@ -320,6 +327,21 @@ describe("workspace cleanup forge parsing", () => {
     expect(report.workspaces[0].integration).toBe("unknown");
   });
 
+  it("fails closed when the local and remote default targets disagree", () => {
+    const baseRunner = integrationDependencies("[]").commandRunner!;
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies("[]", {
+        commandRunner: (command, args, input) => {
+          if (`${command} ${args.join(" ")}`.includes("ls-remote --symref origin HEAD"))
+            return commandResult("ref: refs/heads/release\tHEAD\n");
+          return baseRunner(command, args, input);
+        },
+      }),
+    );
+    expect(report.workspaces[0].integration).toBe("unknown");
+  });
+
   it("requires exact merge evidence to match the current source and target refs", () => {
     const forgeOutput = JSON.stringify([
       {
@@ -393,6 +415,38 @@ describe("workspace cleanup forge parsing", () => {
         commandRunner: (command, args, input) => {
           if (`${command} ${args.join(" ")}`.includes("rev-list --no-merges"))
             return commandResult(`${"f".repeat(40)}\nnot-a-sha\n`);
+          return baseRunner(command, args, input);
+        },
+      }),
+    );
+    expect(report.workspaces[0].integration).toBe("not-verified");
+  });
+
+  it("rejects patch equivalence without a verified common base", () => {
+    const sourceSha = "d".repeat(40);
+    const forgeOutput = JSON.stringify([
+      {
+        repository: { nameWithOwner: "acme/devrouter" },
+        headRepository: { nameWithOwner: "acme/devrouter" },
+        headRefName: "feature",
+        headRefOid: sourceSha,
+        baseRefName: "main",
+        baseRefOid: "c".repeat(40),
+        state: "MERGED",
+        mergedAt: recent,
+        mergeCommit: { oid: mergedSha },
+      },
+    ]);
+    const baseRunner = integrationDependencies(forgeOutput).commandRunner!;
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies(forgeOutput, {
+        commandRunner: (command, args, input) => {
+          if (
+            `${command} ${args.join(" ")}`.includes("merge-base --is-ancestor") &&
+            args.includes("c".repeat(40))
+          )
+            return { status: 1, stdout: "", stderr: "" };
           return baseRunner(command, args, input);
         },
       }),
