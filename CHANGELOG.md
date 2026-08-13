@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- `devrouter workspace cleanup --repo . --inactive-for 30d [--check-merged] [--json]` reports orthogonal ownership, DevPod registration/runtime, checkout, route, advisory activity, and integration evidence for managed linked workspaces. Local DevPod evidence is always inspected; only `--check-merged` enables read-only origin and matching GitHub/GitLab checks. It has no `--yes` or apply mode, and suggestions never remove branches or worktrees.
+- `devrouter workspace cleanup --repo . --inactive-for 30d [--check-merged] [--json]` reports orthogonal ownership, DevPod registration/runtime, checkout, route, advisory activity, and integration evidence for managed linked workspaces. Local DevPod evidence is always inspected; only `--check-merged` enables read-only origin and matching GitHub/GitLab checks. The report has no `--yes` or apply mode and never mutates state. Suggestions never remove branches; full `workspace down` removes a clean unlocked worktree unless `--keep-worktree` is present.
 
 ### Fixed
 

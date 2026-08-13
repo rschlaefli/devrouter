@@ -357,8 +357,7 @@ function readGitSnapshot(
 }
 
 export function parseRemoteIdentity(value: string): WorkspaceCleanupRemoteIdentity | undefined {
-  let normalized = value.trim();
-  normalized = normalized.replace(/^git\+/, "");
+  const normalized = value.trim();
   let host: string;
   let project: string;
   const scp = /^git@([^:]+):(.+)$/.exec(normalized);
@@ -368,6 +367,7 @@ export function parseRemoteIdentity(value: string): WorkspaceCleanupRemoteIdenti
   } else {
     try {
       const url = new URL(normalized);
+      if (url.protocol !== "https:" && url.protocol !== "ssh:") return undefined;
       host = url.hostname;
       project = url.pathname.replace(/^\/+/, "");
     } catch {

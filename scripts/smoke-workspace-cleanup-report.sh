@@ -100,6 +100,16 @@ cat > "$bin/git" <<'EOF'
 #!/usr/bin/env bash
 printf 'git %s\n' "$*" >> "${DEVROUTER_SMOKE_CALLS:?}"
 case "$*" in
+  "-C ${DEVROUTER_SMOKE_REPO:?} worktree list --porcelain"|\
+  "-C ${DEVROUTER_SMOKE_REPO:?} rev-parse --git-common-dir"|\
+  "-C ${DEVROUTER_SMOKE_FEATURE_PATH:?} rev-parse --verify HEAD"|\
+  "-C ${DEVROUTER_SMOKE_FEATURE_PATH:?} show -s --format=%cI HEAD"|\
+  "-C ${DEVROUTER_SMOKE_FEATURE_PATH:?} status --porcelain=v1 --untracked-files=normal"|\
+  "-C ${DEVROUTER_SMOKE_REPO:?} config --get remote.origin.url"|\
+  "-C ${DEVROUTER_SMOKE_REPO:?} symbolic-ref --quiet --short refs/remotes/origin/HEAD"|\
+  "-C ${DEVROUTER_SMOKE_REPO:?} rev-parse --verify refs/remotes/origin/main")
+    exec "${DEVROUTER_SMOKE_REAL_GIT:?}" "$@"
+    ;;
   "-C ${DEVROUTER_SMOKE_REPO:?} ls-remote --symref origin HEAD")
     printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n' "${DEVROUTER_SMOKE_MAIN_SHA:?}"
     ;;
@@ -109,7 +119,7 @@ case "$*" in
   "-C ${DEVROUTER_SMOKE_REPO:?} ls-remote origin refs/heads/feature")
     printf '%s\trefs/heads/feature\n' "${DEVROUTER_SMOKE_FEATURE_SHA:?}"
     ;;
-  *) exec "${DEVROUTER_SMOKE_REAL_GIT:?}" "$@" ;;
+  *) exit 97 ;;
 esac
 EOF
 chmod +x "$bin/devpod" "$bin/gh" "$bin/glab" "$bin/git"
@@ -139,6 +149,7 @@ export DEVROUTER_SMOKE_PROVIDER_FIXTURE="$provider_fixture"
 export DEVROUTER_SMOKE_STATUS_FIXTURE="$status_fixture"
 export DEVROUTER_SMOKE_FORGE_FIXTURE="$forge_fixture"
 export DEVROUTER_SMOKE_REPO="$repo"
+export DEVROUTER_SMOKE_FEATURE_PATH="$repo/trees/feature"
 export DEVROUTER_SMOKE_MAIN_SHA="$main_sha"
 export DEVROUTER_SMOKE_FEATURE_SHA="$feature_sha"
 export DEVROUTER_SMOKE_REAL_GIT="$real_git"
@@ -153,6 +164,20 @@ grep -Fxq 'devpod list --output json --skip-pro' "$calls"
 grep -Fxq 'devpod status feature --output json --timeout 5s' "$calls"
 test "$(grep -Ec '^(gh|glab) |^git .* ls-remote ' "$calls" || true)" = "0"
 test "$(grep -Ec '^devpod (delete|stop|up) ' "$calls" || true)" = "0"
+node - "$calls" "$repo" <<'NODE'
+const fs = require("node:fs");
+const [callsPath, repo] = process.argv.slice(2);
+const calls = fs.readFileSync(callsPath, "utf8").trim().split("\n");
+const allowed = new Set([
+  `git -C ${repo} worktree list --porcelain`,
+  "devpod list --output json --skip-pro",
+  `git -C ${repo}/trees/feature rev-parse --verify HEAD`,
+  `git -C ${repo}/trees/feature show -s --format=%cI HEAD`,
+  `git -C ${repo}/trees/feature status --porcelain=v1 --untracked-files=normal`,
+  "devpod status feature --output json --timeout 5s",
+]);
+if (calls.length !== allowed.size || calls.some((line) => !allowed.has(line))) process.exit(1);
+NODE
 node -e 'const r=require(process.argv[1]); const w=r.workspaces[0]; if(r.checkMerged || r.inactiveFor !== "30d" || r.workspaces.length !== 1 || w.provider !== "owned" || w.runtime !== "not-found" || w.integration !== "not-verified" || w.suggestions.length !== 1 || !w.suggestions[0].command.includes("--keep-worktree")) process.exit(1)' "$work_root/no-check.json"
 
 : > "$calls"
@@ -166,19 +191,22 @@ node - "$calls" "$repo" <<'NODE'
 const fs = require("node:fs");
 const [callsPath, repo] = process.argv.slice(2);
 const calls = fs.readFileSync(callsPath, "utf8").trim().split("\n");
-const expected = [
+const allowed = new Set([
+  `git -C ${repo} worktree list --porcelain`,
+  "devpod list --output json --skip-pro",
+  `git -C ${repo}/trees/feature rev-parse --verify HEAD`,
+  `git -C ${repo}/trees/feature show -s --format=%cI HEAD`,
+  `git -C ${repo}/trees/feature status --porcelain=v1 --untracked-files=normal`,
+  "devpod status feature --output json --timeout 5s",
+  `git -C ${repo} config --get remote.origin.url`,
+  `git -C ${repo} symbolic-ref --quiet --short refs/remotes/origin/HEAD`,
   `git -C ${repo} ls-remote --symref origin HEAD`,
+  `git -C ${repo} rev-parse --verify refs/remotes/origin/main`,
   `git -C ${repo} ls-remote origin refs/heads/main`,
   `git -C ${repo} ls-remote origin refs/heads/feature`,
-];
-let cursor = -1;
-for (const command of expected) {
-  const next = calls.indexOf(command);
-  if (next <= cursor) process.exit(1);
-  cursor = next;
-}
-const forge = calls.findIndex((line) => line.startsWith("gh pr list "));
-if (forge <= cursor || calls.some((line) => line.includes("merge-base --is-ancestor"))) process.exit(1);
+  "gh pr list --repo smoke/devrouter --state all --head feature --json headRefName,headRefOid,baseRefName,baseRefOid,state,mergedAt,repository,headRepository,mergeCommit",
+]);
+if (calls.length !== allowed.size || calls.some((line) => !allowed.has(line))) process.exit(1);
 NODE
 node -e 'const r=require(process.argv[1]); const w=r.workspaces[0]; if(!r.checkMerged || r.workspaces.length !== 1 || w.provider !== "owned" || w.runtime !== "not-found" || w.integration !== "merged-exact" || w.suggestions.length !== 1 || w.suggestions[0].command.includes("--keep-worktree")) process.exit(1)' "$work_root/check.json"
 

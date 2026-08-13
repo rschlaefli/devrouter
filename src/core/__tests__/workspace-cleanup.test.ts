@@ -202,6 +202,14 @@ describe("workspace cleanup forge parsing", () => {
     });
     expect(parseRemoteIdentity("https://gitlab.example.test/acme/devrouter.git")).toBeUndefined();
     expect(parseRemoteIdentity("https://example.test/acme/devrouter.git")).toBeUndefined();
+    for (const protocol of ["http", "git", "ftp", "file"]) {
+      expect(parseRemoteIdentity(`${protocol}://github.com/acme/devrouter.git`)).toBeUndefined();
+    }
+    expect(parseRemoteIdentity("ssh://git@github.com/acme/devrouter.git")).toEqual({
+      provider: "github",
+      host: "github.com",
+      project: "acme/devrouter",
+    });
     expect(parseRemoteIdentity("https://github.com/acme/devrouter?token=secret")).toEqual({
       provider: "github",
       host: "github.com",
