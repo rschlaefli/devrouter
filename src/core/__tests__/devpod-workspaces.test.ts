@@ -1,6 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { inspectDevpodWorkspaceOwnership, listDevpodWorkspaces } from "../devpod-workspaces";
+import {
+  inspectDevpodRuntimeStatus,
+  inspectDevpodWorkspaceOwnership,
+  listDevpodWorkspaces,
+  parseDevpodRuntimeStatus,
+} from "../devpod-workspaces";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
@@ -19,6 +24,49 @@ describe("DevPod workspace adapter", () => {
     expect(listDevpodWorkspaces()).toEqual([
       { id: "feature", source: { localFolder: "/repo/trees/feature" } },
     ]);
+    expect(spawnSync).toHaveBeenCalledWith("devpod", ["list", "--output", "json", "--skip-pro"], {
+      encoding: "utf-8",
+    });
+  });
+
+  it("strictly classifies exact provider runtime state", () => {
+    for (const [providerState, expected] of [
+      ["Running", "running"],
+      ["Stopped", "stopped"],
+      ["Busy", "busy"],
+      ["NotFound", "not-found"],
+    ] as const) {
+      expect(
+        parseDevpodRuntimeStatus(
+          JSON.stringify({ id: "feature", provider: "docker", state: providerState }),
+          "feature",
+        ),
+      ).toBe(expected);
+    }
+    expect(parseDevpodRuntimeStatus('{"id":"other","state":"Stopped"}', "feature")).toBe("unknown");
+    expect(parseDevpodRuntimeStatus('{"id":"feature","state":"Future"}', "feature")).toBe(
+      "unknown",
+    );
+    expect(parseDevpodRuntimeStatus("invalid", "feature")).toBe("unknown");
+  });
+
+  it("uses a bounded exact runtime probe and fails closed on command errors", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify({ id: "feature", state: "NotFound" }),
+        stderr: "",
+      } as never)
+      .mockReturnValueOnce({ status: 1, stdout: "", stderr: "unavailable" } as never);
+
+    expect(inspectDevpodRuntimeStatus("feature")).toBe("not-found");
+    expect(inspectDevpodRuntimeStatus("feature")).toBe("unknown");
+    expect(spawnSync).toHaveBeenNthCalledWith(
+      1,
+      "devpod",
+      ["status", "feature", "--output", "json", "--timeout", "5s"],
+      { encoding: "utf-8" },
+    );
   });
 
   it("classifies only one exact id and path pair as owned", () => {

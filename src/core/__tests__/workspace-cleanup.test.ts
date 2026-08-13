@@ -83,6 +83,7 @@ function dependencies(
     listOwnership: () => [record()],
     listWorktrees: () => [worktree()],
     listDevpods: () => [devpod],
+    inspectDevpodRuntime: () => "stopped",
     readRoutes: () => [route()],
     readGitSnapshot: () => snapshot(),
     inspectOwnership: () => ({ ownerStatus: "present", devpodStatus: "owned" }),
@@ -523,6 +524,7 @@ describe("workspace cleanup report and suggestions", () => {
     expect(row).toMatchObject({
       ownership: "present",
       provider: "owned",
+      runtime: "stopped",
       checkout: "clean",
       route: "owned",
       activity: "quiet",
@@ -630,17 +632,56 @@ describe("workspace cleanup report and suggestions", () => {
     expect(commandRunner).not.toHaveBeenCalled();
   });
 
-  it("leaves provider evidence unknown when the provider check is disabled", () => {
+  it("always loads local provider evidence without enabling remote checks", () => {
     const inspectOwnership = vi.fn((_record, _worktrees, devpods) => {
-      expect(devpods).toBeUndefined();
-      return { ownerStatus: "present" as const, devpodStatus: "unknown" as const };
+      expect(devpods).toEqual([{ id: "feature", source: { localFolder: "/repo/trees/feature" } }]);
+      return { ownerStatus: "present" as const, devpodStatus: "owned" as const };
     });
     const report = buildWorkspaceCleanupReport(
       { repo: "/repo", now, checkMerged: false },
-      dependencies({ listDevpods: undefined, inspectOwnership }),
+      dependencies({ inspectOwnership }),
     );
-    expect(report.workspaces[0].provider).toBe("unknown");
-    expect(report.workspaces[0].suggestions).toEqual([]);
+    expect(report.workspaces[0]).toMatchObject({ provider: "owned", runtime: "stopped" });
+    expect(report.workspaces[0].suggestions).toHaveLength(1);
+  });
+
+  it("reports pruned runtime explicitly and suppresses busy or unknown runtime advice", () => {
+    const pruned = buildWorkspaceCleanupReport(
+      { repo: "/repo", now },
+      dependencies({ inspectDevpodRuntime: () => "not-found" }),
+    );
+    expect(pruned.workspaces[0]).toMatchObject({ runtime: "not-found" });
+    expect(pruned.workspaces[0].suggestions).toHaveLength(1);
+
+    for (const runtime of ["busy", "unknown"] as const) {
+      const report = buildWorkspaceCleanupReport(
+        { repo: "/repo", now },
+        dependencies({ inspectDevpodRuntime: () => runtime }),
+      );
+      expect(report.workspaces[0].runtime).toBe(runtime);
+      expect(report.workspaces[0].suggestions).toEqual([]);
+    }
+  });
+
+  it("checks source and forge evidence before classifying on-target", () => {
+    const base = integrationDependencies("[]");
+    const calls: string[] = [];
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      integrationDependencies("[]", {
+        commandRunner: (command, args, input) => {
+          calls.push(`${command} ${args.join(" ")}`);
+          if (`${command} ${args.join(" ")}`.includes("merge-base --is-ancestor"))
+            return commandResult();
+          return base.commandRunner?.(command, args, input) ?? commandResult();
+        },
+      }),
+    );
+    expect(report.workspaces[0].integration).toBe("on-target");
+    expect(calls.findIndex((call) => call.startsWith("gh pr list"))).toBeGreaterThanOrEqual(0);
+    expect(calls.findIndex((call) => call.includes("merge-base --is-ancestor"))).toBeGreaterThan(
+      calls.findIndex((call) => call.startsWith("gh pr list")),
+    );
   });
 
   it("suppresses activity cleanup suggestions when an explicit merge check is unverified", () => {

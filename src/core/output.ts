@@ -45,6 +45,7 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
           ["Repo", row.repo],
           ["Worktree", row.worktreePath],
           ["DevPod", `${row.devpodId} (${row.provider})`],
+          ["Runtime", row.runtime],
           ["Ownership", row.ownership],
           ["Checkout", row.checkout],
           ["Route", row.route],

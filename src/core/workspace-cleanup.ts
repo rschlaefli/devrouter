@@ -1,7 +1,12 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import type { HostRouteState } from "../types";
-import { type DevpodWorkspace, listDevpodWorkspaces } from "./devpod-workspaces";
+import {
+  type DevpodRuntimeStatus,
+  type DevpodWorkspace,
+  inspectDevpodRuntimeStatus,
+  listDevpodWorkspaces,
+} from "./devpod-workspaces";
 import { readHostRouteStateReadOnly } from "./host-routes";
 import { resolveRepoPath } from "./repo-config";
 import { comparableWorkspacePath, sameWorkspacePath } from "./workspace";
@@ -41,6 +46,7 @@ export type WorkspaceCleanupActivityEvidence = {
 export type WorkspaceCleanupActivityStatus = "recent" | "quiet" | "unknown";
 export type WorkspaceCleanupCheckoutStatus = "clean" | "dirty" | "missing" | "detached" | "unknown";
 export type WorkspaceCleanupRouteStatus = "owned" | "absent" | "conflict" | "unknown";
+export type WorkspaceCleanupRuntimeStatus = DevpodRuntimeStatus | "absent";
 export type WorkspaceCleanupIntegrationStatus =
   | "merged-exact"
   | "on-target"
@@ -69,6 +75,7 @@ export type WorkspaceCleanupRow = {
   devpodId: string;
   ownership: WorkspaceOwnerStatus;
   provider: DevpodOwnerStatus;
+  runtime: WorkspaceCleanupRuntimeStatus;
   checkout: WorkspaceCleanupCheckoutStatus;
   route: WorkspaceCleanupRouteStatus;
   activity: WorkspaceCleanupActivityStatus;
@@ -116,6 +123,7 @@ export type WorkspaceCleanupDependencies = {
   listOwnership?: (repoPath: string) => WorkspaceOwnershipRecord[];
   listWorktrees?: (repoPath: string) => GitWorktree[];
   listDevpods?: () => DevpodWorkspace[];
+  inspectDevpodRuntime?: (devpodId: string) => DevpodRuntimeStatus;
   readRoutes?: () => HostRouteState[];
   readGitSnapshot?: (worktree: GitWorktree) => WorkspaceCleanupGitSnapshot;
   commandRunner?: WorkspaceCleanupCommandRunner;
@@ -581,23 +589,6 @@ function inspectWorkspaceIntegration(
     return { status: "unknown", reason: "The origin target is missing, stale, or unavailable." };
   }
 
-  const worktreePath = snapshot.worktree.path;
-  const ancestry = commandRunner("git", [
-    "-C",
-    worktreePath,
-    "merge-base",
-    "--is-ancestor",
-    snapshot.head,
-    remoteTargetSha,
-  ]);
-  if (ancestry.status === 0 && !ancestry.error) {
-    return {
-      status: "on-target",
-      headSha: snapshot.head,
-      reason: "Current HEAD is an ancestor of the verified-fresh origin target.",
-    };
-  }
-
   const sourceRemoteOutput = successfulOutput(
     commandRunner("git", ["-C", repoPath, "ls-remote", "origin", `refs/heads/${branch}`]),
   );
@@ -666,6 +657,26 @@ function inspectWorkspaceIntegration(
       headSha: snapshot.head,
       reason: "Merged source head exactly matches current HEAD.",
     };
+
+  const worktreePath = snapshot.worktree.path;
+  const ancestry = commandRunner("git", [
+    "-C",
+    worktreePath,
+    "merge-base",
+    "--is-ancestor",
+    snapshot.head,
+    remoteTargetSha,
+  ]);
+  if (ancestry.status === 0 && !ancestry.error) {
+    return {
+      status: "on-target",
+      headSha: snapshot.head,
+      reason: "Current HEAD is an ancestor of the verified-fresh origin target.",
+    };
+  }
+  if (ancestry.status !== 1 || ancestry.error) {
+    return { status: "unknown", reason: "Target ancestry could not be verified." };
+  }
 
   for (const change of forgeChanges.filter(
     (candidate) =>
@@ -774,6 +785,7 @@ function buildSuggestions(
   record: WorkspaceOwnershipRecord,
   ownership: WorkspaceOwnerStatus,
   provider: DevpodOwnerStatus,
+  runtime: WorkspaceCleanupRuntimeStatus,
   checkout: WorkspaceCleanupCheckoutStatus,
   route: WorkspaceCleanupRouteStatus,
   activity: WorkspaceCleanupActivityStatus,
@@ -790,9 +802,10 @@ function buildSuggestions(
   const routeSafe = route === "owned" || route === "absent";
   const checkoutSafe = checkout === "clean" && !worktree?.locked;
   const providerSafe = provider === "owned";
+  const runtimeSafe = runtime === "running" || runtime === "stopped" || runtime === "not-found";
 
   if (ownership === "missing") {
-    if ((provider === "owned" || provider === "absent") && routeSafe) {
+    if ((provider === "absent" || (provider === "owned" && runtimeSafe)) && routeSafe) {
       eligibleActions.push(gcCommand);
       suggestions.push({
         command: gcCommand,
@@ -801,7 +814,7 @@ function buildSuggestions(
       });
     } else {
       reasons.push(
-        `GC suggestion suppressed because provider=${provider} or route=${route} is not independently safe.`,
+        `GC suggestion suppressed because provider=${provider}, runtime=${runtime}, or route=${route} is not independently safe.`,
       );
     }
     return { eligibleActions, suggestions, reasons };
@@ -812,6 +825,10 @@ function buildSuggestions(
   if (!providerSafe)
     reasons.push(
       `Destructive suggestions require an exact owned DevPod (found provider=${provider}).`,
+    );
+  if (!runtimeSafe)
+    reasons.push(
+      `Destructive suggestions require an actionable DevPod runtime (found runtime=${runtime}).`,
     );
   if (!routeSafe)
     reasons.push(
@@ -828,7 +845,7 @@ function buildSuggestions(
   if (worktree?.locked)
     reasons.push("Git worktree is locked; destructive workspace down is blocked.");
 
-  if (!providerSafe || !routeSafe || !checkoutSafe || ownership !== "present") {
+  if (!providerSafe || !runtimeSafe || !routeSafe || !checkoutSafe || ownership !== "present") {
     return { eligibleActions, suggestions, reasons };
   }
 
@@ -880,6 +897,7 @@ function buildRow(
   commandRunner: WorkspaceCleanupCommandRunner,
   inspectOwnershipFn: NonNullable<WorkspaceCleanupDependencies["inspectOwnership"]>,
   inspectIntegrationFn: WorkspaceCleanupDependencies["inspectIntegration"],
+  inspectRuntimeFn: NonNullable<WorkspaceCleanupDependencies["inspectDevpodRuntime"]>,
 ): WorkspaceCleanupRow {
   const ownershipEvidence = inspectOwnershipFn(record, worktrees, devpods);
   const providerOwnership = devpods?.find(
@@ -905,11 +923,24 @@ function buildRow(
   const integration =
     inspectIntegrationFn?.(repoPath, snapshot, branch, checkMerged) ??
     inspectWorkspaceIntegration(repoPath, snapshot, branch, checkMerged, commandRunner);
+  const runtime: WorkspaceCleanupRuntimeStatus =
+    ownershipEvidence.devpodStatus === "absent"
+      ? "absent"
+      : ownershipEvidence.devpodStatus === "owned"
+        ? (() => {
+            try {
+              return inspectRuntimeFn(record.devpodId);
+            } catch {
+              return "unknown";
+            }
+          })()
+        : "unknown";
   const suggestions = buildSuggestions(
     repoPath,
     record,
     ownershipEvidence.ownerStatus,
     ownershipEvidence.devpodStatus,
+    runtime,
     snapshot.checkout,
     routeStatus(record, routes),
     activity.status,
@@ -920,6 +951,7 @@ function buildRow(
   const reasons = [
     `ownership=${ownershipEvidence.ownerStatus}`,
     `provider=${ownershipEvidence.devpodStatus}`,
+    `runtime=${runtime}`,
     `checkout=${snapshot.checkout}`,
     `route=${routeStatus(record, routes)}`,
     `activity=${activity.status}`,
@@ -936,6 +968,7 @@ function buildRow(
     devpodId: record.devpodId,
     ownership: ownershipEvidence.ownerStatus,
     provider: ownershipEvidence.devpodStatus,
+    runtime,
     checkout: snapshot.checkout,
     route: routeStatus(record, routes),
     activity: activity.status,
@@ -963,9 +996,7 @@ export function buildWorkspaceCleanupReport(
   const records = (dependencies.listOwnership ?? listWorkspaceOwnership)(repoPath);
   let devpods: DevpodWorkspace[] | undefined;
   try {
-    const listDevpods =
-      dependencies.listDevpods ?? (options.checkMerged ? listDevpodWorkspaces : undefined);
-    devpods = listDevpods?.();
+    devpods = (dependencies.listDevpods ?? listDevpodWorkspaces)();
   } catch {
     devpods = undefined;
   }
@@ -1006,6 +1037,7 @@ export function buildWorkspaceCleanupReport(
             return { ownerStatus: status.ownerStatus, devpodStatus: status.devpodStatus };
           }),
         dependencies.inspectIntegration,
+        dependencies.inspectDevpodRuntime ?? inspectDevpodRuntimeStatus,
       );
     })
     .sort((left, right) => left.workspace.localeCompare(right.workspace));

@@ -3,11 +3,13 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 work_root=$(mktemp -d "${TMPDIR:-/tmp}/devrouter-cleanup-smoke.XXXXXX")
+work_root=$(cd "$work_root" && pwd -P)
 trap 'rm -rf "$work_root"' EXIT
 
 repo="$work_root/repo"
 home="$work_root/home"
 bin="$work_root/bin"
+real_git=$(command -v git)
 mkdir -p "$repo" "$home" "$bin"
 
 git -C "$repo" init -q -b main
@@ -20,6 +22,14 @@ GIT_AUTHOR_DATE="2026-06-01T12:00:00Z" GIT_COMMITTER_DATE="2026-06-01T12:00:00Z"
 git -C "$repo" branch feature
 mkdir -p "$repo/trees"
 git -C "$repo" worktree add -q "$repo/trees/feature" feature
+printf 'feature\n' > "$repo/trees/feature/feature.txt"
+git -C "$repo/trees/feature" add feature.txt
+GIT_AUTHOR_DATE="2026-06-02T12:00:00Z" GIT_COMMITTER_DATE="2026-06-02T12:00:00Z" git -C "$repo/trees/feature" commit -q -m feature
+main_sha=$(git -C "$repo" rev-parse main)
+feature_sha=$(git -C "$repo/trees/feature" rev-parse HEAD)
+git -C "$repo" remote add origin git@github.com:smoke/devrouter.git
+git -C "$repo" update-ref refs/remotes/origin/main "$main_sha"
+git -C "$repo" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 
 common_dir=$(git -C "$repo" rev-parse --git-common-dir)
 if [[ "$common_dir" != /* ]]; then
@@ -45,28 +55,52 @@ mkdir -p "$(dirname "$route_state")"
 printf '[]\n' > "$route_state"
 provider_fixture="$home/provider-fixture.json"
 printf '[{"id":"feature","source":{"localFolder":"%s"},"lastUsed":"2026-06-01T12:00:00.000Z"}]\n' "$repo/trees/feature" > "$provider_fixture"
+status_fixture="$home/status-fixture.json"
+printf '{"id":"feature","context":"default","provider":"docker","state":"NotFound"}\n' > "$status_fixture"
+forge_fixture="$home/forge-fixture.json"
+printf '[{"repository":{"nameWithOwner":"smoke/devrouter"},"headRepository":{"nameWithOwner":"smoke/devrouter"},"headRefName":"feature","headRefOid":"%s","baseRefName":"main","baseRefOid":"%s","state":"MERGED","mergedAt":"2026-06-03T12:00:00Z","mergeCommit":{"oid":"%s"}}]\n' "$feature_sha" "$main_sha" "$main_sha" > "$forge_fixture"
 
 cat > "$bin/devpod" <<'EOF'
 #!/usr/bin/env bash
 printf 'devpod %s\n' "$*" >> "${DEVROUTER_SMOKE_CALLS:?}"
-cat "${DEVROUTER_SMOKE_PROVIDER_FIXTURE:?}"
+case "$*" in
+  "list --output json --skip-pro") cat "${DEVROUTER_SMOKE_PROVIDER_FIXTURE:?}" ;;
+  "status feature --output json --timeout 5s") cat "${DEVROUTER_SMOKE_STATUS_FIXTURE:?}" ;;
+  *) exit 97 ;;
+esac
 EOF
 cat > "$bin/gh" <<'EOF'
 #!/usr/bin/env bash
 printf 'gh %s\n' "$*" >> "${DEVROUTER_SMOKE_CALLS:?}"
-printf '[]\n'
+cat "${DEVROUTER_SMOKE_FORGE_FIXTURE:?}"
 EOF
 cat > "$bin/glab" <<'EOF'
 #!/usr/bin/env bash
 printf 'glab %s\n' "$*" >> "${DEVROUTER_SMOKE_CALLS:?}"
-printf '[]\n'
+exit 97
 EOF
-chmod +x "$bin/devpod" "$bin/gh" "$bin/glab"
+cat > "$bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'git %s\n' "$*" >> "${DEVROUTER_SMOKE_CALLS:?}"
+case "$*" in
+  "-C ${DEVROUTER_SMOKE_REPO:?} ls-remote --symref origin HEAD")
+    printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n' "${DEVROUTER_SMOKE_MAIN_SHA:?}"
+    ;;
+  "-C ${DEVROUTER_SMOKE_REPO:?} ls-remote origin refs/heads/main")
+    printf '%s\trefs/heads/main\n' "${DEVROUTER_SMOKE_MAIN_SHA:?}"
+    ;;
+  "-C ${DEVROUTER_SMOKE_REPO:?} ls-remote origin refs/heads/feature")
+    printf '%s\trefs/heads/feature\n' "${DEVROUTER_SMOKE_FEATURE_SHA:?}"
+    ;;
+  *) exec "${DEVROUTER_SMOKE_REAL_GIT:?}" "$@" ;;
+esac
+EOF
+chmod +x "$bin/devpod" "$bin/gh" "$bin/glab" "$bin/git"
 
 hash_state() {
   {
     find "$repo/.git" "$repo/trees/feature" -type f -print
-    printf '%s\n' "$route_state" "$provider_fixture"
+    printf '%s\n' "$route_state" "$provider_fixture" "$status_fixture" "$forge_fixture"
   } | LC_ALL=C sort -u | while IFS= read -r file; do
     shasum "$file"
   done
@@ -75,6 +109,12 @@ hash_state() {
 calls="$work_root/calls.log"
 export DEVROUTER_SMOKE_CALLS="$calls"
 export DEVROUTER_SMOKE_PROVIDER_FIXTURE="$provider_fixture"
+export DEVROUTER_SMOKE_STATUS_FIXTURE="$status_fixture"
+export DEVROUTER_SMOKE_FORGE_FIXTURE="$forge_fixture"
+export DEVROUTER_SMOKE_REPO="$repo"
+export DEVROUTER_SMOKE_MAIN_SHA="$main_sha"
+export DEVROUTER_SMOKE_FEATURE_SHA="$feature_sha"
+export DEVROUTER_SMOKE_REAL_GIT="$real_git"
 export HOME="$home"
 export PATH="$bin:$PATH"
 
@@ -82,8 +122,11 @@ before=$(hash_state)
 node "$repo_root/dist/devrouter.js" workspace cleanup --repo "$repo" --inactive-for 30d --json > "$work_root/no-check.json"
 after=$(hash_state)
 test "$before" = "$after"
-test ! -s "$calls"
-node -e 'const r=require(process.argv[1]); if(r.checkMerged || r.inactiveFor !== "30d" || r.workspaces.length !== 1 || r.workspaces[0].provider !== "unknown" || r.workspaces[0].suggestions.length !== 0) process.exit(1)' "$work_root/no-check.json"
+grep -Fxq 'devpod list --output json --skip-pro' "$calls"
+grep -Fxq 'devpod status feature --output json --timeout 5s' "$calls"
+test "$(grep -Ec '^(gh|glab) |^git .* ls-remote ' "$calls" || true)" = "0"
+test "$(grep -Ec '^devpod (delete|stop|up) ' "$calls" || true)" = "0"
+node -e 'const r=require(process.argv[1]); const w=r.workspaces[0]; if(r.checkMerged || r.inactiveFor !== "30d" || r.workspaces.length !== 1 || w.provider !== "owned" || w.runtime !== "not-found" || w.integration !== "not-verified" || w.suggestions.length !== 1 || !w.suggestions[0].command.includes("--keep-worktree")) process.exit(1)' "$work_root/no-check.json"
 
 : > "$calls"
 before=$(hash_state)
@@ -91,8 +134,26 @@ node "$repo_root/dist/devrouter.js" workspace cleanup --repo "$repo" --inactive-
 after=$(hash_state)
 test "$before" = "$after"
 grep -q '^devpod ' "$calls"
-test "$(grep -Ec '^(gh|glab) ' "$calls" || true)" = "0"
-node -e 'const r=require(process.argv[1]); if(!r.checkMerged || r.workspaces.length !== 1 || r.workspaces[0].integration !== "unknown") process.exit(1)' "$work_root/check.json"
+test "$(grep -Ec '^glab |^devpod (delete|stop|up) ' "$calls" || true)" = "0"
+node - "$calls" "$repo" <<'NODE'
+const fs = require("node:fs");
+const [callsPath, repo] = process.argv.slice(2);
+const calls = fs.readFileSync(callsPath, "utf8").trim().split("\n");
+const expected = [
+  `git -C ${repo} ls-remote --symref origin HEAD`,
+  `git -C ${repo} ls-remote origin refs/heads/main`,
+  `git -C ${repo} ls-remote origin refs/heads/feature`,
+];
+let cursor = -1;
+for (const command of expected) {
+  const next = calls.indexOf(command);
+  if (next <= cursor) process.exit(1);
+  cursor = next;
+}
+const forge = calls.findIndex((line) => line.startsWith("gh pr list "));
+if (forge <= cursor || calls.some((line) => line.includes("merge-base --is-ancestor"))) process.exit(1);
+NODE
+node -e 'const r=require(process.argv[1]); const w=r.workspaces[0]; if(!r.checkMerged || r.workspaces.length !== 1 || w.provider !== "owned" || w.runtime !== "not-found" || w.integration !== "merged-exact" || w.suggestions.length !== 1 || w.suggestions[0].command.includes("--keep-worktree")) process.exit(1)' "$work_root/check.json"
 
 if node "$repo_root/dist/devrouter.js" workspace cleanup --repo "$repo" --help | grep -q -- '--yes'; then
   echo "cleanup unexpectedly exposes --yes" >&2
