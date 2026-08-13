@@ -2,9 +2,26 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-work_root=$(mktemp -d "${TMPDIR:-/tmp}/devrouter-cleanup-smoke.XXXXXX")
+work_root=$(mktemp -d "/tmp/devrouter-cleanup-smoke.XXXXXX")
 work_root=$(cd "$work_root" && pwd -P)
 trap 'rm -rf "$work_root"' EXIT
+
+run_with_timeout() {
+  local timeout=$1
+  shift
+  "$@" &
+  local child=$!
+  (
+    sleep "$timeout"
+    kill -TERM "$child" 2>/dev/null || true
+  ) &
+  local watchdog=$!
+  local status=0
+  wait "$child" || status=$?
+  kill "$watchdog" 2>/dev/null || true
+  wait "$watchdog" 2>/dev/null || true
+  return "$status"
+}
 
 repo="$work_root/repo"
 home="$work_root/home"
@@ -98,10 +115,20 @@ EOF
 chmod +x "$bin/devpod" "$bin/gh" "$bin/glab" "$bin/git"
 
 hash_state() {
-  {
-    find "$repo/.git" "$repo/trees/feature" -type f -print
-    printf '%s\n' "$route_state" "$provider_fixture" "$status_fixture" "$forge_fixture"
-  } | LC_ALL=C sort -u | while IFS= read -r file; do
+  printf '%s\n' \
+    "$common_dir/devrouter/workspaces/feature.json" \
+    "$feature_git_dir/devrouter-workspace" \
+    "$feature_git_dir/HEAD" \
+    "$feature_git_dir/index" \
+    "$repo/.git/HEAD" \
+    "$repo/.git/index" \
+    "$repo/.git/refs/heads/main" \
+    "$repo/.git/refs/heads/feature" \
+    "$repo/.git/refs/remotes/origin/main" \
+    "$route_state" \
+    "$provider_fixture" \
+    "$status_fixture" \
+    "$forge_fixture" | LC_ALL=C sort -u | while IFS= read -r file; do
     shasum "$file"
   done
 }
@@ -119,7 +146,7 @@ export HOME="$home"
 export PATH="$bin:$PATH"
 
 before=$(hash_state)
-node "$repo_root/dist/devrouter.js" workspace cleanup --repo "$repo" --inactive-for 30d --json > "$work_root/no-check.json"
+run_with_timeout 15 node "$repo_root/dist/devrouter.js" workspace cleanup --repo "$repo" --inactive-for 30d --json > "$work_root/no-check.json"
 after=$(hash_state)
 test "$before" = "$after"
 grep -Fxq 'devpod list --output json --skip-pro' "$calls"
@@ -130,7 +157,7 @@ node -e 'const r=require(process.argv[1]); const w=r.workspaces[0]; if(r.checkMe
 
 : > "$calls"
 before=$(hash_state)
-node "$repo_root/dist/devrouter.js" workspace cleanup --repo "$repo" --inactive-for 30d --check-merged --json > "$work_root/check.json"
+run_with_timeout 15 node "$repo_root/dist/devrouter.js" workspace cleanup --repo "$repo" --inactive-for 30d --check-merged --json > "$work_root/check.json"
 after=$(hash_state)
 test "$before" = "$after"
 grep -q '^devpod ' "$calls"
