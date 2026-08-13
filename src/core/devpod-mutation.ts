@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  inspectDevpodRuntimeStatus,
   inspectDevpodWorkspaceOwnership,
   listDevpodWorkspaces,
   selectDevpodWorkspace,
@@ -37,12 +38,15 @@ function commandFailure(result: ReturnType<typeof spawnSync>): string {
   return [result.error?.message, result.stdout, result.stderr].filter(Boolean).join("\n").trim();
 }
 
-function runDevpodAction(action: "stop" | "delete", devpodId: string): void {
-  const args = action === "delete" ? [action, devpodId, "--ignore-not-found"] : [action, devpodId];
+function runDevpodAction(action: "stop" | "delete", devpodId: string, force = false): void {
+  const args =
+    action === "delete"
+      ? [action, devpodId, ...(force ? ["--force"] : []), "--ignore-not-found"]
+      : [action, devpodId];
   const result = spawnSync("devpod", args, { encoding: "utf-8" });
   if (result.status !== 0) {
     throw new Error(
-      `devpod ${action} failed for '${devpodId}': ${commandFailure(result) || "unknown error"}`,
+      `devpod ${action}${force ? " --force" : ""} failed for '${devpodId}': ${commandFailure(result) || "unknown error"}`,
     );
   }
 }
@@ -59,13 +63,30 @@ function mutateOwnedDevpodWorkspace(
 
     runDevpodAction(action, devpodId);
 
-    const after = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
+    let after = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
     if (after.status === "conflict") throw new Error(after.reason);
     if (action === "stop" && after.status !== "owned") {
       throw new Error(`DevPod '${devpodId}' no longer owns '${worktreePath}' after provider stop.`);
     }
-    if (action === "delete" && after.status !== "absent") {
-      throw new Error(`DevPod '${devpodId}' still owns '${worktreePath}' after provider delete.`);
+    if (action === "delete" && after.status === "owned") {
+      const runtime = inspectDevpodRuntimeStatus(devpodId);
+      if (runtime !== "not-found") {
+        throw new Error(
+          `DevPod '${devpodId}' still owns '${worktreePath}' after provider delete (runtime=${runtime}).`,
+        );
+      }
+      after = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
+      if (after.status === "conflict") throw new Error(after.reason);
+      if (after.status === "owned") {
+        runDevpodAction("delete", devpodId, true);
+        after = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
+        if (after.status === "conflict") throw new Error(after.reason);
+      }
+      if (after.status !== "absent") {
+        throw new Error(
+          `DevPod '${devpodId}' still owns '${worktreePath}' after forced provider delete.`,
+        );
+      }
     }
     return { status: "changed" };
   });
