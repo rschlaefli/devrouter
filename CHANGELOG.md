@@ -6,7 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- `devrouter workspace cleanup --repo . --inactive-for 30d [--check-merged] [--json]` reports orthogonal ownership, checkout, route, advisory activity, and integration evidence for managed linked workspaces. It has no `--yes` or apply mode; only `--check-merged` enables read-only origin and matching GitHub/GitLab checks, and suggestions never remove branches or worktrees.
+- `devrouter workspace cleanup --repo . --inactive-for 30d [--check-merged] [--json]` reports orthogonal ownership, DevPod registration/runtime, checkout, route, advisory activity, and integration evidence for managed linked workspaces. Local DevPod evidence is always inspected; only `--check-merged` enables read-only origin and matching GitHub/GitLab checks. It has no `--yes` or apply mode, and suggestions never remove branches or worktrees.
+
+### Fixed
+
+- Registered DevPod workspaces whose Docker resources were stopped or pruned are reported as `stopped` or `not-found` instead of `unknown`; busy or genuinely unavailable runtime evidence remains fail-closed.
+- Exact lifecycle deletion can remove stale DevPod registration metadata after Docker pruning, but only after ordinary deletion, strict expected-ID `NotFound` proof, exact ownership revalidation, forced deletion, and an absent-registration postcondition.
 
 ## [0.0.35] - 2026-07-18
 

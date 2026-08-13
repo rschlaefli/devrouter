@@ -74,8 +74,11 @@ devrouter workspace cleanup --repo . --inactive-for 30d --check-merged --json
 
 The report is advisory. It has no `--yes` or apply mode, never removes a branch
 or worktree, and only performs origin/forge checks when `--check-merged` is
-present. DevPod `lastUsed` may be absent or unrelated to runtime activity, so
-unknown evidence suppresses destructive suggestions.
+present. It always compares local DevPod registration with bounded runtime
+status, so a registration left behind by Docker pruning is `not-found`, not
+`unknown`. DevPod `lastUsed` may still be absent or unrelated to runtime
+activity; genuinely unavailable, busy, or conflicting evidence suppresses
+destructive suggestions.
 
 Teardown stops the compose projects, frees their routes, and runs
 `devrouter workspace down feat-a`, which removes only a clean, unlocked worktree.

@@ -51,20 +51,24 @@ function runDevpodAction(action: "stop" | "delete", devpodId: string, force = fa
   }
 }
 
+function inspectExactOwnership(devpodId: string, worktreePath: string) {
+  const ownership = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
+  if (ownership.status === "conflict") throw new Error(ownership.reason);
+  return ownership;
+}
+
 function mutateOwnedDevpodWorkspace(
   action: "stop" | "delete",
   devpodId: string,
   worktreePath: string,
 ): OwnedDevpodMutationResult {
   return withMutationLock(`DevPod ${action}`, worktreePath, () => {
-    const before = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
-    if (before.status === "conflict") throw new Error(before.reason);
+    const before = inspectExactOwnership(devpodId, worktreePath);
     if (before.status === "absent") return { status: "absent" };
 
     runDevpodAction(action, devpodId);
 
-    let after = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
-    if (after.status === "conflict") throw new Error(after.reason);
+    let after = inspectExactOwnership(devpodId, worktreePath);
     if (action === "stop" && after.status !== "owned") {
       throw new Error(`DevPod '${devpodId}' no longer owns '${worktreePath}' after provider stop.`);
     }
@@ -75,12 +79,10 @@ function mutateOwnedDevpodWorkspace(
           `DevPod '${devpodId}' still owns '${worktreePath}' after provider delete (runtime=${runtime}).`,
         );
       }
-      after = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
-      if (after.status === "conflict") throw new Error(after.reason);
+      after = inspectExactOwnership(devpodId, worktreePath);
       if (after.status === "owned") {
         runDevpodAction("delete", devpodId, true);
-        after = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
-        if (after.status === "conflict") throw new Error(after.reason);
+        after = inspectExactOwnership(devpodId, worktreePath);
       }
       if (after.status !== "absent") {
         throw new Error(

@@ -4,7 +4,6 @@ import {
   inspectDevpodRuntimeStatus,
   inspectDevpodWorkspaceOwnership,
   listDevpodWorkspaces,
-  parseDevpodRuntimeStatus,
 } from "../devpod-workspaces";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
@@ -36,18 +35,21 @@ describe("DevPod workspace adapter", () => {
       ["Busy", "busy"],
       ["NotFound", "not-found"],
     ] as const) {
-      expect(
-        parseDevpodRuntimeStatus(
-          JSON.stringify({ id: "feature", provider: "docker", state: providerState }),
-          "feature",
-        ),
-      ).toBe(expected);
+      vi.mocked(spawnSync).mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify({ id: "feature", provider: "docker", state: providerState }),
+        stderr: "",
+      } as never);
+      expect(inspectDevpodRuntimeStatus("feature")).toBe(expected);
     }
-    expect(parseDevpodRuntimeStatus('{"id":"other","state":"Stopped"}', "feature")).toBe("unknown");
-    expect(parseDevpodRuntimeStatus('{"id":"feature","state":"Future"}', "feature")).toBe(
-      "unknown",
-    );
-    expect(parseDevpodRuntimeStatus("invalid", "feature")).toBe("unknown");
+    for (const output of [
+      '{"id":"other","state":"Stopped"}',
+      '{"id":"feature","state":"Future"}',
+      "invalid",
+    ]) {
+      vi.mocked(spawnSync).mockReturnValueOnce({ status: 0, stdout: output, stderr: "" } as never);
+      expect(inspectDevpodRuntimeStatus("feature")).toBe("unknown");
+    }
   });
 
   it("uses a bounded exact runtime probe and fails closed on command errors", () => {

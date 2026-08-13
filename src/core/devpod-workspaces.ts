@@ -63,7 +63,7 @@ export function listDevpodWorkspaces(): DevpodWorkspace[] {
   });
 }
 
-export function parseDevpodRuntimeStatus(output: string, expectedId: string): DevpodRuntimeStatus {
+function parseDevpodRuntimeStatus(output: string, expectedId: string): DevpodRuntimeStatus {
   let parsed: unknown;
   try {
     parsed = JSON.parse(output);
