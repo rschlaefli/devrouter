@@ -36,6 +36,21 @@ routes, ownership records, Git, Docker, application processes, worktrees, or
 branches. Existing `workspace gc`, `workspace down`, and ownership/provider
 ordering remain unchanged.
 
+### Primitive impact
+
+| Product primitive | Disposition | Contract delta | Compositions and consumers | Evidence |
+| --- | --- | --- | --- | --- |
+| Managed workspace identity | reuse | Keep the Git-common-dir ownership record as the exact path, workspace, branch, and DevPod registration owner. | `workspace cleanup`, `gc`, `down`, `ensure` | `workspace-ownership.ts` remains authoritative. |
+| DevPod registration | extend | Report registration separately from actual runtime state; registration alone never proves that Docker/provider resources still exist. | cleanup report and exact lifecycle revalidation | `devpod list` can retain a workspace after its Docker resources were stopped or pruned. |
+| Managed runtime state | extend | Add `running|stopped|busy|not-found|absent|unknown` from `devpod status`; `not-found` is positive stale-runtime evidence, while `unknown` is reserved for an unavailable or malformed probe. | activity/suggestion guards and stale-registration repair | Local probes on 2026-08-13 returned `Running`, `Stopped`, and `NotFound` for registered Docker workspaces. |
+| Cleanup advice | compose | Combine ownership, registration, runtime, routes, checkout, activity, and integration without adding a second mutation path. | human/JSON report; existing `workspace gc/down` commands | Existing lifecycle commands retain final exact-owner checks. |
+
+The 2026-08-13 extension stays in this branch because it completes the same
+unpublished cleanup contract. The prior integrated-final budget is exhausted.
+After an explicit scope/risk reassessment, the user authorized one exceptional
+third integrated-final review for the existing `workspace-cleanup-v1` package;
+changing the package key does not reset that history or budget.
+
 Only managed linked workspaces represented by the DevPod/route/ownership
 surfaces are included. Direct `runtime: docker` cleanup is outside this
 command.
@@ -48,6 +63,8 @@ orthogonal rather than deriving one state from another:
 - workspace identity: `workspace`, `branch`, `repo`, `worktreePath`,
   `devpodId`;
 - ownership: `present|missing|locked|conflict`;
+- provider registration: `owned|absent|conflict|unknown`;
+- runtime: `running|stopped|busy|not-found|absent|unknown`;
 - checkout: `clean|dirty|missing|detached|unknown`;
 - activity: `recent|quiet|unknown`, `cutoff`, `latestTimestamp`, and ordered
   `contributingEvidence`;
@@ -76,6 +93,11 @@ same concepts and exact commands that JSON carries.
 - Document that DevPod `lastUsed` can be absent, provider-version dependent, or
   unrelated to every runtime interaction, so activity is advisory only and
   does not replace the revalidation in `gc`/`down`.
+- Always inspect local DevPod registration and `lastUsed`; `--check-merged`
+  controls only remote Git/forge calls. Probe exact registered workspaces with
+  `devpod status --output json --timeout 5s` so stopped or pruned Docker state
+  is reported explicitly. A failed or malformed status probe remains
+  `unknown` and suppresses destructive advice.
 
 ### Integration and forge checks
 
@@ -118,6 +140,16 @@ all relevant identity and safety evidence; unknown evidence suppresses it.
 | Exact managed owner is `present`, checkout is `clean`, unlocked, provider/route identity is owned and non-conflicting, and integration is `merged-exact` for current HEAD | `devrouter workspace down <workspace> --repo <repo>` | Full down retains its own clean/unlocked/ownership revalidation; the report never removes branches. |
 | Dirty, locked, conflict, detached, changed, provider-unknown, route-unknown, activity-unknown, integration-unknown/not-verified/patch-equivalent, or incomplete exact identity | none | Explain the specific blocker; do not emit a destructive command. |
 
+Runtime `running`, `stopped`, and `not-found` are actionable only when the
+DevPod registration is exactly owned. `busy` and `unknown` suppress advice.
+For `not-found`, existing exact `workspace gc/down` deletion uses this locked
+sequence: exact registration; ordinary `devpod delete <id>
+--ignore-not-found`; exact registration still present; strict status response
+with the expected ID and `NotFound`; exact ownership revalidation; `devpod
+delete <id> --force --ignore-not-found`; registration absent. ID mismatch,
+reassignment, malformed output, `Busy`, or unavailable status fails closed
+before routes or ownership records change.
+
 The missing-owner GC suggestion is the only suggestion that can be emitted
 without a present linked checkout. No suggestion ever deletes a branch.
 
@@ -133,6 +165,10 @@ without a present linked checkout. No suggestion ever deletes a branch.
 | GitHub/GitLab parsing and privacy | `add new` | Synthetic CLI JSON parser | Provider payload variation, malformed JSON, auth errors, or private data leaks. |
 | Human/JSON output | `add new` | Formatter/command handler | Fields are omitted/conflated or commands/reasons differ by output mode. |
 | Report-only side effects | `add new` | Built-CLI subprocess with spies and hashes | Cleanup invokes mutations or network without the opt-in flag, or changes files while reporting. |
+| DevPod registration versus runtime | `add new` | Synthetic `devpod list/status` adapter and real CLI fixture | A registered but stopped/pruned workspace is reported unknown or mistaken for a live runtime. |
+| Stale DevPod metadata repair | `add new` | Existing exact mutation lifecycle | `gc/down` cannot remove registration after Docker prune, or force deletion runs without exact `NotFound` proof and postcondition. |
+| Integration ordering | `extend existing` | Synthetic Git/forge command runner | `on-target` bypasses forge/source verification or a deleted source branch counts as integrated. |
+| Remote-call allowlist | `extend existing` | Built-CLI PATH-shim smoke | `git ls-remote` or forge argv escapes capture, or a mutating command appears. |
 
 ## Implementation slices
 
@@ -233,16 +269,88 @@ without a present linked checkout. No suggestion ever deletes a branch.
   not push, create/update a PR, merge, release, deploy, publish, remove the
   worktree, or delete the branch.
 
+### Slice 5 — Read-only runtime reconciliation and review corrections
+
+- `Route: main`.
+- `Execution-tier skip reason: critical-path coupling` — registration/runtime
+  semantics, integration ordering, and subprocess proof share one fail-closed
+  report seam.
+- `Do:` Always load local DevPod registration and activity; add strict runtime
+  status parsing/probing; report stopped/pruned resources without guessing.
+- `Do:` Query source/forge evidence before selecting `merged-exact` or
+  `on-target`, keeping missing source refs and unavailable forge checks
+  fail-closed.
+- `Do:` Expand the subprocess smoke with a logging Git shim, synthetic origin,
+  DevPod list/status fixtures, forge response, exact read-only command
+  allowlist, and pre/post state hashes.
+- `Do:` Assert exact call order: default mode uses only local Git, DevPod list,
+  and exact DevPod status; merged mode additionally permits only `git
+  ls-remote` and the matching read-only forge list command.
+- `Check:` Focused cleanup and DevPod tests; built CLI smoke; runtime-field
+  output tests; exact per-mode command allowlists and unchanged-state hashes.
+- `Commit:` `fix(workspace): reconcile cleanup runtime evidence`.
+- `Slice review:` required — cross-system runtime truth and integration seam.
+- `Simplifier:` required — substantive executable/test slice; run in parallel
+  with the slice reviewer on the immutable commit.
+
+### Slice 6 — Harden stale DevPod registration deletion
+
+- `Route: main`.
+- `Execution-tier skip reason: critical-path coupling` — exact ownership,
+  provider mutation, and postcondition ordering form one destructive seam.
+- `Do:` Preserve ordinary exact deletion; only when registration remains,
+  require strict expected-ID `NotFound`, revalidate exact ownership, retry
+  `--force --ignore-not-found`, and require registration absence before routes
+  or ledger mutation.
+- `Check:` Focused DevPod mutation, GC, and lifecycle tests covering every
+  sequence step and fail-closed case; no real cleanup run.
+- `Commit:` `fix(workspace): delete stale DevPod registrations safely`.
+- `Slice review:` required — destructive fallback and data-loss boundary.
+- `Simplifier:` required — substantive executable/test slice; run in parallel
+  with the slice reviewer on the immutable commit.
+
+### Slice 7 — Extension guidance and finish
+
+- `Route: main`.
+- `Execution-tier skip reason: critical-path coupling` — synchronized
+  agent-facing guidance and final evidence must match the reviewed contract.
+- `Do:` Update affected command/lifecycle documentation and this progress
+  record; preserve report-only semantics and distinguish registration from
+  runtime state.
+- `Check:` Full repository validation, expanded smoke, safe real-machine
+  default report with state hashes, then a controlled report-only
+  `--check-merged` run after synthetic remote/forge proof. No suggested command
+  is executed. Run the explicitly authorized exceptional third integrated-final
+  review for `workspace-cleanup-v1` after recording the scope/risk reassessment.
+- `Commit:` `docs(workspace): document runtime cleanup evidence` plus any
+  verified correction commit.
+- `Slice review:` not required for documentation-only changes.
+- `Simplifier:` not applicable for documentation-only changes.
+
 ## Non-goals
 
 - No edits in the primary checkout and no Codex-native worktree.
 - No push, PR/MR, merge, release, deployment, publication, real cleanup,
-  worktree removal, branch deletion, or mutation of existing `workspace gc`.
-- No live network tests. Forge checks use synthetic GitHub/GitLab CLI JSON.
+  worktree removal, or branch deletion. No new mutation entrypoint; `gc` and
+  `down` remain the sole callers and inherit the hardened exact-delete behavior.
+- Automated forge checks use synthetic GitHub/GitLab CLI JSON. A controlled
+  live report-only `--check-merged` machine trial is allowed only after the
+  synthetic allowlist and unchanged-state smoke pass.
 - No filesystem mtime activity, remote-branch absence inference, or secret/
   private-URL output.
 
 ## Progress
+
+- `2026-08-13`: Reopened before publication after a real-machine report and
+  two-axis review. Default mode reported all 33 Klicker providers as unknown;
+  the implementation gated local DevPod evidence behind `--check-merged`.
+  Review also found `on-target` returned before forge/source verification and
+  the subprocess smoke did not capture `git ls-remote`. Local DevPod probes
+  established the missing runtime states: registered workspaces can be
+  `Running`, `Stopped`, or `NotFound` after Docker cleanup. Slices 5-7 fold
+  these findings into the existing branch. The user explicitly authorized one
+  exceptional third integrated-final review after scope/risk reassessment; no
+  cleanup command has been run.
 
 - `2026-08-12`: Orientation complete. Primary `main` was clean and two commits
   behind `origin/main`; manual worktree created from verified `origin/main`.
