@@ -341,6 +341,28 @@ without a present linked checkout. No suggestion ever deletes a branch.
 
 ## Progress
 
+- `2026-08-13`: Slices 5-7 completed. Commit `356c0dd` always reconciles local
+  DevPod registration with bounded exact runtime status, reports pruned Docker
+  resources as `not-found`, moves source/forge proof ahead of integration
+  classification, and expands the subprocess allowlist smoke. Commit `a611148`
+  hardens exact deletion with ordinary delete, expected-ID `NotFound` proof,
+  ownership revalidation, force retry, and absent-registration postcondition.
+  Commits `7b3556c` and `d81c51b` synchronize guidance, accepted simplifications,
+  and bounded smoke behavior. Both slice reviews returned `DONE`; simplifiers
+  proposed two accepted private-surface reductions.
+- `2026-08-13`: Fresh verification passed 82 cleanup/DevPod/GC/lifecycle/agent
+  tests plus 10 destructive-seam tests (one unrelated host process-identity
+  test skipped in the restricted sandbox), docs policy, Biome, Knip, TypeScript,
+  build, and the synthetic no-state-change smoke. The unrestricted full suite
+  remains unavailable in this sandbox because process-birth identity cannot be
+  read; 529 tests passed and 33 existing lock-dependent tests failed for that
+  single environmental reason. A safe real-machine Klicker report classified
+  31 owned registrations as 3 running, 1 stopped, and 27 not-found, with 2
+  absent; zero runtime states were unknown and zero actions were executed. A
+  controlled `--check-merged` report remained fail-closed because 20 source
+  branches were absent and 11 forge queries were unavailable; ownership and
+  route hashes were identical before and after both reports.
+
 - `2026-08-13`: Reopened before publication after a real-machine report and
   two-axis review. Default mode reported all 33 Klicker providers as unknown;
   the implementation gated local DevPod evidence behind `--check-merged`.
