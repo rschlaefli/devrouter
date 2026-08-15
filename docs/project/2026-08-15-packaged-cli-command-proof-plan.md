@@ -241,5 +241,7 @@ worktrees, or merge this W1 PR without explicit authority.
   installed the current tarball and exercised all four probes outside the
   repository. Prototype evidence is not final-branch evidence.
 - `2026-08-15`: Explorer mapping completed and planner challenge incorporated.
-- `2026-08-15`: Execution plan is ready for its own commit; implementation
-  has not started.
+- `2026-08-15`: Execution plan committed as `88c433b`; implementation started.
+- `2026-08-15`: S1 package smoke implemented. Fresh `pnpm build` followed by
+  `pnpm test:package` passed on macOS, including exact tarball membership,
+  executable/package identity, temporary-cwd probes, JSON shape, and cleanup.
