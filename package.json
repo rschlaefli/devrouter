@@ -27,6 +27,7 @@
     "build": "tsup",
     "dev": "tsx src/cli.ts",
     "test": "vitest run && pnpm test:process",
+    "test:package": "./scripts/package-smoke.sh",
     "test:process": "bash scripts/test-devrouter-process.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",

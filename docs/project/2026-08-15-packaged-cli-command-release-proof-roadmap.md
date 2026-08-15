@@ -49,8 +49,8 @@
 | --- | --- | --- |
 | Cleanup package | delivered | PR #27 merged into `main` at `32c29dd`; the command remains report-only. |
 | Package allowlist | exists | `package.json` includes `bin`, `dist`, and `upgrade-prompts` in its published files. |
-| Built-command CI proof | missing | `.github/workflows/ci.yml` runs quality checks and `pnpm build`, but no installed-package probe. |
-| Packed-content proof | missing | The release plan still lists packed contents, `npx`, and installed-executable verification as remaining work. |
+| Built-command CI proof | implemented locally; remote pending | `.github/workflows/ci.yml` now runs `pnpm test:package` immediately after `pnpm build`; the required Ubuntu result remains a delivery gate. |
+| Packed-content proof | implemented locally; registry proof pending | `pnpm test:package` checks the exact local tarball, installed executable, and packaged prompts; registry-backed `npx @devrouter/cli` remains separate. |
 | Upgrade prompt layout risk | present | `src/core/upgrade.ts` resolves prompts from the executable layout but also falls back to `process.cwd()`, so repository-local runs can hide missing package assets. |
 | Candidate command probes | available | `--help`, `-V --repo`, `upgrade --repo`, and `repo inspect --repo ... --json` are existing non-mutating commands. |
 
@@ -214,6 +214,9 @@ finish gate. A future executor must create that plan before implementation.
 
 ## Progress
 
-- `2026-08-15`: W1 approved by the user after read-only repository exploration
-  and a planning-stage challenge. No implementation branch, PR, package smoke,
-  release, or publication exists yet.
+- `2026-08-15`: W1 was approved by the user after read-only repository
+  exploration and a planning-stage challenge; at approval time no
+  implementation branch, PR, package smoke, release, or publication existed.
+- `2026-08-15`: The local package smoke and required CI step were implemented;
+  remote CI evidence and PR delivery remain pending. No release or publication
+  occurred.

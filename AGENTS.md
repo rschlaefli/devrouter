@@ -128,6 +128,7 @@ Supported routing:
 - `examples/devcontainer/`: live DevPod/devcontainer showcase with app + Postgres proxy routes and static/live verify evidence
 - `scripts/smoke-routing.sh`: end-to-end routing smoke script
 - `scripts/smoke-devcontainer.sh`: live DevPod/devcontainer smoke script
+- `scripts/package-smoke.sh`: isolated packed CLI distribution smoke
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `devrouter upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
@@ -209,10 +210,11 @@ Supported routing:
 5. `pnpm typecheck`
 6. `pnpm test`
 7. `pnpm build`
-8. `devrouter setup --repo ./examples/routing --yes --json`
-9. `devrouter doctor --repo ./examples/routing`
-10. `devrouter repo inspect --repo ./examples/routing --json`
-11. `pnpm routing:smoke` for full route showcase/regression smoke
-12. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
-13. `pnpm devcontainer:smoke down` after live devcontainer verification
-14. Update docs for any behavior/surface changes
+8. `pnpm test:package`
+9. `devrouter setup --repo ./examples/routing --yes --json`
+10. `devrouter doctor --repo ./examples/routing`
+11. `devrouter repo inspect --repo ./examples/routing --json`
+12. `pnpm routing:smoke` for full route showcase/regression smoke
+13. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
+14. `pnpm devcontainer:smoke down` after live devcontainer verification
+15. Update docs for any behavior/surface changes
