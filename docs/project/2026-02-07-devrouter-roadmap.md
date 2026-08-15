@@ -34,6 +34,9 @@ Required checks for behavior and documentation consistency:
 
 ### UX and operability
 
+- Keep `devrouter workspace cleanup --repo . --inactive-for 30d --json` as the
+  report-only managed-workspace inspection path; preserve advisory activity,
+  explicit `--check-merged` network scope, and fail-closed suggestions.
 - Add `devrouter app env <name>` for resolved dependency-environment inspection.
 - Add a repository bootstrap helper from discovered Compose metadata to `.devrouter.yml`.
 - Add `devrouter app doctor` for app-scoped diagnostics and remediation hints.

@@ -10,6 +10,7 @@ import type { HostRouteState } from "../../types";
 import {
   buildHostRoutesDocument,
   listHostRouteState,
+  readHostRouteStateReadOnly,
   removeHostRoutesWhere,
   replaceHostRoutesForRepo,
   upsertHostRoute,
@@ -82,6 +83,26 @@ function readCanonical(filePath = routerPaths.hostRoutesFile): {
 }
 
 describe("host route state mutation", () => {
+  it("reads route state without creating storage or repairing a stale mirror", () => {
+    expect(readHostRouteStateReadOnly()).toEqual([]);
+    expect(fs.existsSync(routerPaths.root)).toBe(false);
+
+    upsertHostRoute({
+      name: "web",
+      host: "web.localhost",
+      repoPath: "/repo",
+      port: 3000,
+      mode: "proxy",
+    });
+    const canonical = readCanonical();
+    const staleMirror = `${JSON.stringify([], null, 2)}\n`;
+    fs.writeFileSync(routerPaths.stateFile, staleMirror, "utf-8");
+
+    expect(readHostRouteStateReadOnly()).toEqual(canonical.metadata.routes);
+    expect(fs.readFileSync(routerPaths.stateFile, "utf-8")).toBe(staleMirror);
+    expect(fs.existsSync(`${routerPaths.stateFile}.lock`)).toBe(false);
+  });
+
   it("reclaims a stale route-state lock", () => {
     fs.mkdirSync(routerPaths.root, { recursive: true });
     fs.writeFileSync(`${routerPaths.stateFile}.lock`, "2147483647:stale\n");

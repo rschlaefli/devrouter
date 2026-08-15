@@ -8,9 +8,73 @@ import type {
 } from "../types";
 import { renderTable } from "../util/table";
 import { formatAge } from "../util/timeago";
+import type { WorkspaceCleanupReport } from "./workspace-cleanup";
 
 export function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): void {
+  process.stdout.write("Workspace cleanup report (read-only)\n");
+  process.stdout.write(
+    `${renderTable(
+      ["FIELD", "VALUE"],
+      [
+        ["Repo path", report.repoPath],
+        ["Generated", report.generatedAt],
+        ["Inactive threshold", report.inactiveFor],
+        ["Cutoff", report.cutoff],
+        ["Merged check", report.checkMerged ? "enabled" : "disabled"],
+        ["Managed workspaces", String(report.workspaces.length)],
+      ],
+    )}\n`,
+  );
+
+  if (report.workspaces.length === 0) {
+    process.stdout.write("\nNo managed linked workspaces found.\n");
+    return;
+  }
+
+  for (const row of report.workspaces) {
+    process.stdout.write(`\nWorkspace: ${row.workspace}\n`);
+    process.stdout.write(
+      `${renderTable(
+        ["FIELD", "VALUE"],
+        [
+          ["Branch", row.branch ?? "-"],
+          ["Repo", row.repo],
+          ["Worktree", row.worktreePath],
+          ["DevPod", `${row.devpodId} (${row.provider})`],
+          ["Runtime", row.runtime],
+          ["Ownership", row.ownership],
+          ["Checkout", row.checkout],
+          ["Route", row.route],
+          ["Activity", row.activity],
+          ["Cutoff", row.cutoff],
+          ["Latest activity", row.latestTimestamp ?? "-"],
+          ["Contributing evidence", row.contributingEvidence.join(", ") || "-"],
+          [
+            "Activity evidence",
+            row.activityEvidence
+              .map(
+                (entry) =>
+                  `${entry.source}=${entry.status}${entry.timestamp ? `@${entry.timestamp}` : ""}`,
+              )
+              .join(", "),
+          ],
+          ["Integration", row.integration],
+          ["Eligible actions", row.eligibleActions.join("; ") || "none"],
+          [
+            "Suggestions",
+            row.suggestions
+              .map((suggestion) => `${suggestion.command} (${suggestion.reason})`)
+              .join("; ") || "none",
+          ],
+          ["Reasons", row.reasons.join(" | ") || "none"],
+        ],
+      )}\n`,
+    );
+  }
 }
 
 export function printStatus(status: RouterStatus): void {

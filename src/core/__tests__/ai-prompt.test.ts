@@ -104,7 +104,9 @@ describe("buildOnboardingPrompt", () => {
   it("documents the ownership-aware workspace lifecycle without removed flags", () => {
     const prompt = buildOnboardingPrompt({ repo: tmpDir });
     expect(prompt).toContain("devrouter workspace stop <workspace|branch>");
+    expect(prompt).toContain("devrouter workspace cleanup [--repo <path>] [--inactive-for 30d]");
     expect(prompt).toContain("devrouter workspace gc [--json] [--yes]");
+    expect(prompt).toContain("--check-merged alone enables read-only origin/forge checks");
     expect(prompt).toContain("`present`, `missing`, `locked`, or `conflict`");
     expect(prompt).toContain("Dirty or locked full down fails before side effects");
     expect(prompt).toContain("Workspace commands require Git");

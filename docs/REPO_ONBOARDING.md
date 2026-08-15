@@ -241,6 +241,7 @@ devrouter workspace ls
 | `workspace stop` | Stop the exact DevPod and remove routes; keep checkout, owner record, and data. |
 | `workspace down` | Delete runtime/routes; remove only a clean, unlocked worktree, then its record. |
 | `workspace down --keep-worktree` | Delete runtime/routes; retain checkout and owner record. |
+| `workspace cleanup --repo <repo> --inactive-for 30d --json` | Report-only ownership, DevPod registration/runtime, checkout, route, advisory activity, and integration evidence for managed linked workspaces; no `--yes` or apply mode. Add `--check-merged` to enable read-only origin and matching GitHub/GitLab checks. |
 | `workspace gc` | Report missing-owner candidates; mutate nothing. |
 | `workspace gc --yes` | Revalidate and delete only exact ledger-owned missing resources and their records; never remove Git worktrees or branches. |
 
@@ -248,6 +249,16 @@ devrouter workspace ls
 identity, foreign ownership, locks, and dirty destructive targets fail closed.
 Git has no worktree-removal hook; after an out-of-band removal, inspect `ls`,
 `doctor`, and dry-run `gc` before applying cleanup.
+
+`workspace cleanup` treats activity as advisory. DevPod `lastUsed` can be
+absent, provider-version dependent, or unrelated to every runtime interaction;
+recent trustworthy activity vetoes a quiet result, while unknown or conflicting
+evidence suppresses destructive suggestions. Registration and runtime are
+separate: exact `devpod status` evidence reports `running`, `stopped`, `busy`, or
+`not-found`; `not-found` commonly follows Docker pruning and is not reported as
+unknown. Existing lifecycle commands revalidate suggestions before explicit use
+and can remove an exact stale registration after proving `NotFound`. Suggestions
+never delete branches.
 
 Do not use raw `devpod up`, `stop`, or `delete` for managed environments. Those
 commands bypass Devrouter's machine-wide provider lock and exact ID/source

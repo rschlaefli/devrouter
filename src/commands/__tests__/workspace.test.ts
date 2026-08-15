@@ -2,11 +2,12 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runEnsureCommand } from "../ensure";
 import { resolveGitCheckoutPath } from "../environment-path";
 import { runStopCommand } from "../stop";
 import {
+  runWorkspaceCleanupCommand,
   runWorkspaceDownCommand,
   runWorkspaceGcCommand,
   runWorkspaceLsCommand,
@@ -34,6 +35,7 @@ describe("workspace commands outside Git", () => {
       () => runWorkspaceStopCommand("test", { repo: tmpDir }),
       () => runWorkspaceDownCommand("test", { repo: tmpDir }),
       () => runWorkspaceGcCommand({ repo: tmpDir }),
+      () => runWorkspaceCleanupCommand({ repo: tmpDir }),
     ];
 
     for (const command of commands) {
@@ -57,5 +59,26 @@ describe("workspace commands outside Git", () => {
     fs.mkdirSync(nested, { recursive: true });
 
     expect(resolveGitCheckoutPath(nested)).toBe(fs.realpathSync(tmpDir));
+  });
+
+  it("prints the report-only cleanup command in JSON and human modes", () => {
+    const initialized = spawnSync("git", ["init", "-q", tmpDir], { encoding: "utf-8" });
+    expect(initialized.status).toBe(0);
+    const writes = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    runWorkspaceCleanupCommand({ repo: tmpDir, json: true });
+    const jsonOutput = writes.mock.calls.map(([value]) => String(value)).join("");
+    const report = JSON.parse(jsonOutput) as {
+      checkMerged: boolean;
+      inactiveFor: string;
+      workspaces: unknown[];
+    };
+    expect(report).toMatchObject({ checkMerged: false, inactiveFor: "30d", workspaces: [] });
+
+    writes.mockClear();
+    runWorkspaceCleanupCommand({ repo: tmpDir });
+    const humanOutput = writes.mock.calls.map(([value]) => String(value)).join("");
+    expect(humanOutput).toContain("Workspace cleanup report (read-only)");
+    expect(humanOutput).toContain("No managed linked workspaces found.");
   });
 });

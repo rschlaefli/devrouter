@@ -137,6 +137,115 @@ describe("machine-global DevPod mutation boundary", () => {
     );
   });
 
+  it("force-deletes stale registration only after exact NotFound proof and revalidation", () => {
+    let listCalls = 0;
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devpod" && argv[0] === "list") {
+        listCalls += 1;
+        return {
+          status: 0,
+          stdout:
+            listCalls < 4
+              ? JSON.stringify([{ id: "feature", source: { localFolder: "/repo/feature" } }])
+              : "[]",
+          stderr: "",
+        } as never;
+      }
+      if (command === "devpod" && argv[0] === "status") {
+        return {
+          status: 0,
+          stdout: JSON.stringify({ id: "feature", provider: "docker", state: "NotFound" }),
+          stderr: "",
+        } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    expect(deleteOwnedDevpodWorkspace("feature", "/repo/feature")).toEqual({ status: "changed" });
+    expect(vi.mocked(spawnSync).mock.calls.map(([, args]) => args)).toEqual([
+      ["list", "--output", "json", "--skip-pro"],
+      ["delete", "feature", "--ignore-not-found"],
+      ["list", "--output", "json", "--skip-pro"],
+      ["status", "feature", "--output", "json", "--timeout", "5s"],
+      ["list", "--output", "json", "--skip-pro"],
+      ["delete", "feature", "--force", "--ignore-not-found"],
+      ["list", "--output", "json", "--skip-pro"],
+    ]);
+  });
+
+  it.each([
+    ["Busy", "busy"],
+    ["Running", "running"],
+    ["Stopped", "stopped"],
+    ["Future", "unknown"],
+  ])("fails closed for %s runtime before force deletion", (state, expected) => {
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devpod" && argv[0] === "list") {
+        return {
+          status: 0,
+          stdout: JSON.stringify([{ id: "feature", source: { localFolder: "/repo/feature" } }]),
+          stderr: "",
+        } as never;
+      }
+      if (command === "devpod" && argv[0] === "status") {
+        return {
+          status: 0,
+          stdout: JSON.stringify({ id: "feature", state }),
+          stderr: "",
+        } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    expect(() => deleteOwnedDevpodWorkspace("feature", "/repo/feature")).toThrow(
+      `runtime=${expected}`,
+    );
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "devpod",
+      ["delete", "feature", "--force", "--ignore-not-found"],
+      expect.anything(),
+    );
+  });
+
+  it("fails closed when ownership changes after NotFound proof", () => {
+    let listCalls = 0;
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devpod" && argv[0] === "list") {
+        listCalls += 1;
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              id: "feature",
+              source: { localFolder: listCalls < 3 ? "/repo/feature" : "/other/feature" },
+            },
+          ]),
+          stderr: "",
+        } as never;
+      }
+      if (command === "devpod" && argv[0] === "status") {
+        return {
+          status: 0,
+          stdout: JSON.stringify({ id: "feature", state: "NotFound" }),
+          stderr: "",
+        } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    expect(() => deleteOwnedDevpodWorkspace("feature", "/repo/feature")).toThrow(
+      "do not have one exact owner",
+    );
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "devpod",
+      ["delete", "feature", "--force", "--ignore-not-found"],
+      expect.anything(),
+    );
+  });
+
   it("does not call the provider when the exact owner is absent", () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "[]", stderr: "" } as never);
 

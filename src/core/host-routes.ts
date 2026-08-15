@@ -427,6 +427,33 @@ function readHostRouteStateLocked(): HostRouteState[] {
   return canonical.metadata.routes;
 }
 
+/**
+ * Read host-route metadata without taking the route lock or repairing either
+ * the canonical file or its compatibility mirror. Report-only commands use
+ * this boundary so an inspection cannot create runtime state or migrate an
+ * older generation as a side effect.
+ */
+export function readHostRouteStateReadOnly(): HostRouteState[] {
+  if (!fs.existsSync(TRAEFIK_HOST_ROUTES_FILE)) {
+    if (!fs.existsSync(HOST_ROUTES_STATE_FILE)) {
+      return [];
+    }
+    return readCompatibilityState();
+  }
+
+  const raw = fs.readFileSync(TRAEFIK_HOST_ROUTES_FILE, "utf-8");
+  const canonical = parseCanonicalState(raw);
+  if (canonical.kind === "legacy") {
+    if (!fs.existsSync(HOST_ROUTES_STATE_FILE)) {
+      throw new Error(
+        "Headerless host-route document requires a valid compatibility state file for inspection.",
+      );
+    }
+    return readCompatibilityState();
+  }
+  return canonical.metadata.routes;
+}
+
 export function listHostRouteState(): HostRouteState[] {
   return withStateLock(readHostRouteStateLocked);
 }

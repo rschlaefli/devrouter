@@ -11,6 +11,8 @@ import {
   wsFromBranch,
 } from "./workspace";
 
+const READ_ONLY_GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
+
 const OWNERSHIP_VERSION = 1;
 const OWNERSHIP_DIR = path.join("devrouter", "workspaces");
 
@@ -62,6 +64,7 @@ function commandError(command: string, repoPath: string, stderr: string | undefi
 export function resolveGitCommonDir(repoPath: string): string {
   const result = spawnSync("git", ["-C", repoPath, "rev-parse", "--git-common-dir"], {
     encoding: "utf-8",
+    env: READ_ONLY_GIT_ENV,
   });
   const output = result.stdout.trim();
   if (result.status !== 0 || !output) {
@@ -73,6 +76,7 @@ export function resolveGitCommonDir(repoPath: string): string {
 export function resolveGitTopLevel(repoPath: string): string {
   const result = spawnSync("git", ["-C", repoPath, "rev-parse", "--show-toplevel"], {
     encoding: "utf-8",
+    env: READ_ONLY_GIT_ENV,
   });
   const output = result.stdout.trim();
   if (result.status !== 0 || !output) {
@@ -84,6 +88,7 @@ export function resolveGitTopLevel(repoPath: string): string {
 export function listGitWorktrees(repoPath: string): GitWorktree[] {
   const result = spawnSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
     encoding: "utf-8",
+    env: READ_ONLY_GIT_ENV,
   });
   if (result.status !== 0) {
     throw commandError("git worktree list", repoPath, result.stderr);

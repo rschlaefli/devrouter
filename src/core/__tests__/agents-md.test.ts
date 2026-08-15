@@ -60,8 +60,10 @@ describe("agents-md", () => {
     expect(skillContent).toContain("custom repositories may keep another default overlay");
     expect(skillContent).toContain("For host/docker runtime apps only:");
     expect(skillContent).toContain("devrouter workspace stop <workspace|branch>");
+    expect(skillContent).toContain("devrouter workspace cleanup [--repo .] [--inactive-for 30d]");
     expect(skillContent).toContain("devrouter workspace gc [--json] [--yes]");
-    expect(skillContent).toContain("`present`, `missing`, `locked`, or `conflict`");
+    expect(skillContent).toContain("no-`--yes` report");
+    expect(skillContent).toContain("ownership (`present|missing|locked|conflict`)");
     expect(skillContent).toContain("workspace commands require Git");
     expect(skillContent).toContain("Git has no worktree-removal hook");
     expect(skillContent).not.toContain("--keep-devpod");

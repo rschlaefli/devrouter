@@ -4,6 +4,10 @@ import { sameWorkspacePath } from "./workspace";
 export type DevpodWorkspace = {
   id: string;
   source: { localFolder: string };
+  /** Optional provider activity metadata; older DevPod versions omit it. */
+  lastUsed?: string;
+  /** Set when the provider returned a non-string lastUsed value. */
+  lastUsedMalformed?: boolean;
 };
 
 export type DevpodWorkspaceOwnership =
@@ -11,8 +15,12 @@ export type DevpodWorkspaceOwnership =
   | { status: "absent" }
   | { status: "conflict"; reason: string };
 
+export type DevpodRuntimeStatus = "running" | "stopped" | "busy" | "not-found" | "unknown";
+
 export function listDevpodWorkspaces(): DevpodWorkspace[] {
-  const result = spawnSync("devpod", ["list", "--output", "json"], { encoding: "utf-8" });
+  const result = spawnSync("devpod", ["list", "--output", "json", "--skip-pro"], {
+    encoding: "utf-8",
+  });
   if (result.status !== 0) {
     const details = [result.error?.message, result.stdout, result.stderr]
       .filter(Boolean)
@@ -32,7 +40,7 @@ export function listDevpodWorkspaces(): DevpodWorkspace[] {
   }
 
   return parsed.map((entry) => {
-    const candidate = entry as Partial<DevpodWorkspace>;
+    const candidate = entry as Partial<DevpodWorkspace> & Record<string, unknown>;
     if (
       typeof candidate.id !== "string" ||
       !candidate.source ||
@@ -40,8 +48,56 @@ export function listDevpodWorkspaces(): DevpodWorkspace[] {
     ) {
       throw new Error("devpod list returned a workspace without id/source.localFolder.");
     }
-    return candidate as DevpodWorkspace;
+    const workspace: DevpodWorkspace = {
+      id: candidate.id,
+      source: { localFolder: candidate.source.localFolder },
+    };
+    if ("lastUsed" in candidate) {
+      if (typeof candidate.lastUsed === "string") {
+        workspace.lastUsed = candidate.lastUsed;
+      } else {
+        workspace.lastUsedMalformed = true;
+      }
+    }
+    return workspace;
   });
+}
+
+function parseDevpodRuntimeStatus(output: string, expectedId: string): DevpodRuntimeStatus {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    return "unknown";
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    (parsed as { id?: unknown }).id !== expectedId
+  ) {
+    return "unknown";
+  }
+  switch ((parsed as { state?: unknown }).state) {
+    case "Running":
+      return "running";
+    case "Stopped":
+      return "stopped";
+    case "Busy":
+      return "busy";
+    case "NotFound":
+      return "not-found";
+    default:
+      return "unknown";
+  }
+}
+
+export function inspectDevpodRuntimeStatus(devpodId: string): DevpodRuntimeStatus {
+  const result = spawnSync("devpod", ["status", devpodId, "--output", "json", "--timeout", "5s"], {
+    encoding: "utf-8",
+  });
+  if (result.status !== 0 || result.error) return "unknown";
+  return parseDevpodRuntimeStatus(result.stdout, devpodId);
 }
 
 export function inspectDevpodWorkspaceOwnership(
