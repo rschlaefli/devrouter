@@ -100,7 +100,7 @@ if (missingSource.length > 0) {
   throw new Error(`required source files are missing: ${missingSource.join(', ')}`);
 }
 
-const expected = new Set(['package/package.json']);
+const expected = new Set(['package/package.json', ...required]);
 const addPackagedPath = (relativePath) => {
   const absolutePath = path.resolve(rootDir, relativePath);
   const rootPrefix = `${path.resolve(rootDir)}${path.sep}`;

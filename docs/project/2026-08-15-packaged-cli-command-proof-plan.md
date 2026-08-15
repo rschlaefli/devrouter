@@ -252,3 +252,7 @@ worktrees, or merge this W1 PR without explicit authority.
   required check job, AGENTS validation checklist, parent roadmap gates, and
   release evidence include the package smoke. The Node 24 full sequence passed
   with DevPod hidden from PATH; remote CI remains pending.
+- `2026-08-15`: Integrated review identified that the independently required
+  binary/dist/prompt set was not part of the exact-member equality seed. The
+  smoke now seeds the expected set with those required members; fresh
+  `pnpm build && pnpm test:package` passed again.
