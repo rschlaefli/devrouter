@@ -7,6 +7,17 @@ and garbage-collection evidence, but no report-only command joins that evidence
 into a safe cleanup decision. The new command must help an operator decide what
 to inspect next without changing runtime, Git, route, or ledger state.
 
+## Delivery
+
+- Delivered through [PR #27](https://github.com/rschlaefli/devrouter/pull/27) from
+  `rs/workspace-cleanup-v1`; merged into `main` on 2026-08-15 in
+  [32c29dd](https://github.com/rschlaefli/devrouter/commit/32c29dd54aa0395037e3439d29edcd36dc9b63c8).
+- The required CI check passed and the publish job was skipped. Agy's review
+  with Gemini 3.7 Flash (high) returned pass with no findings; the prompt-
+  bundled review limitation is recorded in the PR.
+- The delivered package remains report-only. No workspace, DevPod, route, Git
+  worktree, branch, or Docker cleanup was executed.
+
 ## Evidence
 
 - Repository: `/Users/rschlae/Git/personal/devrouter`.
@@ -46,7 +57,7 @@ ordering remain unchanged.
 | Cleanup advice | compose | Combine ownership, registration, runtime, routes, checkout, activity, and integration without adding a second mutation path. | human/JSON report; existing `workspace gc/down` commands | Existing lifecycle commands retain final exact-owner checks. |
 
 The 2026-08-13 extension stays in this branch because it completes the same
-unpublished cleanup contract. The prior integrated-final budget is exhausted.
+cleanup contract. The prior integrated-final budget is exhausted.
 After an explicit scope/risk reassessment, the user authorized one exceptional
 third integrated-final review for the existing `workspace-cleanup-v1` package;
 changing the package key does not reset that history or budget.
@@ -330,9 +341,10 @@ without a present linked checkout. No suggestion ever deletes a branch.
 ## Non-goals
 
 - No edits in the primary checkout and no Codex-native worktree.
-- No push, PR/MR, merge, release, deployment, publication, real cleanup,
-  worktree removal, or branch deletion. No new mutation entrypoint; `gc` and
-  `down` remain the sole callers and inherit the hardened exact-delete behavior.
+- No new mutation entrypoint; `gc` and `down` remain the sole callers and
+  inherit the hardened exact-delete behavior.
+- Release, deployment, publication, real cleanup, worktree removal, and branch
+  deletion remain outside this package.
 - Automated forge checks use synthetic GitHub/GitLab CLI JSON. A controlled
   live report-only `--check-merged` machine trial is allowed only after the
   synthetic allowlist and unchanged-state smoke pass.
@@ -341,6 +353,10 @@ without a present linked checkout. No suggestion ever deletes a branch.
 
 ## Progress
 
+- `2026-08-15`: PR #27 merged into `main` at `32c29dd`. The required CI check
+  passed, publish was skipped, and Agy's Gemini 3.7 Flash (high) review found
+  no issues. This reconciles the implementation record with the delivered
+  repository state; no destructive cleanup or release action was performed.
 - `2026-08-13`: Slices 5-7 completed. Commit `356c0dd` always reconciles local
   DevPod registration with bounded exact runtime status, reports pruned Docker
   resources as `not-found`, moves source/forge proof ahead of integration
@@ -429,9 +445,9 @@ without a present linked checkout. No suggestion ever deletes a branch.
   The one allowed correction review returned `DONE_WITH_CONCERNS` with all
   behavioral findings closed; the remaining concerns are synthetic-only forge
   evidence and the repository's known `/proc` process-test skip.
-- `Finish status:` DONE_WITH_CONCERNS complete after the final plan-status
-  commit; no prohibited side effect occurred, and no push, PR, merge, release,
-  deployment, publication, worktree removal, or branch deletion was performed.
+- `Finish status:` DONE_WITH_CONCERNS complete. PR #27 is merged; the package
+  remains report-only and no release, deployment, publication, destructive
+  cleanup, worktree removal, or branch deletion was performed.
 
 ## Finish gate
 
@@ -440,3 +456,10 @@ Return one of `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, or `BLOCKED`.
   verification, persisted required review artifacts, a committed clean branch,
   and no prohibited side effect. Report branch, worktree, commits, changed
   paths, examples, checks, review artifacts, limitations, and next step.
+
+## Next step
+
+The roadmap now names W1, [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md), as the next package. It
+must start from a fresh worktree based on `main` after this reconciliation is
+committed; this plan does not authorize implementation, publication, or
+release work.
