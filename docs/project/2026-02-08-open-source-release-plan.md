@@ -27,7 +27,7 @@ Keep `@devrouter/cli` simple to install, safe to run, and verifiable on supporte
 ### CI and release proof
 
 - Add a Docker-backed smoke lane when a stable runner can exercise TLS and shared ports without weakening the existing local smoke.
-- Verify packed contents, `npx @devrouter/cli`, and an installed `devrouter` executable before publication.
+- Verify packed contents and an installed `devrouter` executable before publication with `pnpm test:package`; the smoke binds the exact local tarball, while registry-backed `npx @devrouter/cli` remains a separate publication check.
 
 ### Troubleshooting UX
 

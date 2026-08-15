@@ -248,3 +248,7 @@ worktrees, or merge this W1 PR without explicit authority.
 - `2026-08-15`: S1 slice review found no reportable correctness or security
   issues. The simplifier removed one redundant checkout-only tarball guard;
   `bash -n scripts/package-smoke.sh && pnpm test:package` passed again.
+- `2026-08-15`: S2 CI and guidance integration is complete locally: the
+  required check job, AGENTS validation checklist, parent roadmap gates, and
+  release evidence include the package smoke. The Node 24 full sequence passed
+  with DevPod hidden from PATH; remote CI remains pending.
