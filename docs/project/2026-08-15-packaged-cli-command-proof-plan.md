@@ -245,3 +245,6 @@ worktrees, or merge this W1 PR without explicit authority.
 - `2026-08-15`: S1 package smoke implemented. Fresh `pnpm build` followed by
   `pnpm test:package` passed on macOS, including exact tarball membership,
   executable/package identity, temporary-cwd probes, JSON shape, and cleanup.
+- `2026-08-15`: S1 slice review found no reportable correctness or security
+  issues. The simplifier removed one redundant checkout-only tarball guard;
+  `bash -n scripts/package-smoke.sh && pnpm test:package` passed again.

@@ -192,10 +192,6 @@ while IFS= read -r member; do
   esac
 done <"$REQUIRED_MEMBERS"
 
-if grep -Eq '(^|/)src/|(^|/)\.git/' "$TAR_MEMBERS"; then
-  fail "packed tarball contains checkout-only files"
-fi
-
 echo "Packed tarball verified: $TARBALL"
 
 if ! (
