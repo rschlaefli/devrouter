@@ -4,8 +4,8 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
-- [Workspace cleanup v1](./2026-08-12-workspace-cleanup-v1-plan.md) — report-only cleanup evidence and safe suggestions for managed linked workspaces.
 - [Devrouter roadmap](./2026-02-07-devrouter-roadmap.md) — current product and quality backlog.
+- [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md) — W1 specification for installed-package and CI verification.
 - [Open-source release plan](./2026-02-08-open-source-release-plan.md) — remaining portability, CI, and release-verification work.
 - [Workspace safety hardening](./2026-07-18-pr-25-workspace-safety-hardening-plan.md) — reviewed `0.0.35` safety candidate in [PR #25](https://github.com/rschlaefli/devrouter/pull/25).
 - [Documentation and OKF rework](./2026-07-18-docs-okf-rework-plan.md) — current documentation architecture change.
@@ -21,3 +21,4 @@ Plans live here as dated execution records. Active records may change; delivered
 - [Workspace ownership cleanup](./2026-07-15-workspace-ownership-cleanup-plan.md) — persisted ownership and added conservative garbage collection.
 - [Runtime helper delivery](./2026-07-16-pr-24-runtime-helper-delivery-plan.md) — removed devrouter from consumer images.
 - [Unified workspace reconciler](./2026-07-16-unified-workspace-reconciler-plan.md) — unified primary and linked checkout startup.
+- [Workspace cleanup v1](./2026-08-12-workspace-cleanup-v1-plan.md) — delivered report-only cleanup evidence and safe suggestions for managed linked workspaces in [PR #27](https://github.com/rschlaefli/devrouter/pull/27), merged in [32c29dd](https://github.com/rschlaefli/devrouter/commit/32c29dd54aa0395037e3439d29edcd36dc9b63c8).

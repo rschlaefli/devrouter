@@ -4,6 +4,10 @@ Status: active. This record contains open work and quality gates, not current pr
 
 Use the [documentation map](../README.md) for supported behavior, [AGENTS.md](../../AGENTS.md) for repository constraints, and the [decision records](../adr/) for durable rationale.
 
+## Next package
+
+- **W1 — [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md):** add a temporary tarball/install smoke for the built CLI, documented non-mutating command probes, and the corresponding CI check after `pnpm build`. This combines the command-regression and package-proof backlog without changing product behavior or publishing a release.
+
 ## Validation gates
 
 Required checks for behavior and documentation consistency:
@@ -30,13 +34,16 @@ Required checks for behavior and documentation consistency:
 
 - Add platform-specific durability coverage where filesystems expose stronger power-loss test hooks.
 - Expand diagnostics tests with mocked Docker responses for edge-case guidance.
-- Add command-level regression tests for documentation-backed behavior.
+- Add command-level regression tests for documentation-backed behavior; the
+  next package's installed-CLI smoke covers this at the distribution boundary.
 
 ### UX and operability
 
 - Keep `devrouter workspace cleanup --repo . --inactive-for 30d --json` as the
-  report-only managed-workspace inspection path; preserve advisory activity,
-  explicit `--check-merged` network scope, and fail-closed suggestions.
+  report-only managed-workspace inspection path, delivered in
+  [PR #27](https://github.com/rschlaefli/devrouter/pull/27); preserve advisory
+  activity, explicit `--check-merged` network scope, and fail-closed
+  suggestions.
 - Add `devrouter app env <name>` for resolved dependency-environment inspection.
 - Add a repository bootstrap helper from discovered Compose metadata to `.devrouter.yml`.
 - Add `devrouter app doctor` for app-scoped diagnostics and remediation hints.
@@ -50,7 +57,8 @@ Required checks for behavior and documentation consistency:
 
 - Keep CI gates aligned with the validation gates above.
 - Keep documentation and knowledge validation mandatory in CI.
-- Ensure packaged assets include every upgrade prompt consumed at runtime.
+- Ensure packaged assets include every upgrade prompt consumed at runtime; W1
+  owns the first executable proof of this boundary.
 
 ## Known risks
 
