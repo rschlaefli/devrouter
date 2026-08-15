@@ -168,15 +168,17 @@ node - "$calls" "$repo" <<'NODE'
 const fs = require("node:fs");
 const [callsPath, repo] = process.argv.slice(2);
 const calls = fs.readFileSync(callsPath, "utf8").trim().split("\n");
-const allowed = new Set([
+const allowed = [
+  `git -C ${repo} rev-parse --git-common-dir`,
   `git -C ${repo} worktree list --porcelain`,
+  `git -C ${repo} rev-parse --git-common-dir`,
   "devpod list --output json --skip-pro",
   `git -C ${repo}/trees/feature rev-parse --verify HEAD`,
   `git -C ${repo}/trees/feature show -s --format=%cI HEAD`,
   `git -C ${repo}/trees/feature status --porcelain=v1 --untracked-files=normal`,
   "devpod status feature --output json --timeout 5s",
-]);
-if (calls.length !== allowed.size || calls.some((line) => !allowed.has(line))) process.exit(1);
+].sort();
+if (JSON.stringify(calls.sort()) !== JSON.stringify(allowed)) process.exit(1);
 NODE
 node -e 'const r=require(process.argv[1]); const w=r.workspaces[0]; if(r.checkMerged || r.inactiveFor !== "30d" || r.workspaces.length !== 1 || w.provider !== "owned" || w.runtime !== "not-found" || w.integration !== "not-verified" || w.suggestions.length !== 1 || !w.suggestions[0].command.includes("--keep-worktree")) process.exit(1)' "$work_root/no-check.json"
 
@@ -191,8 +193,10 @@ node - "$calls" "$repo" <<'NODE'
 const fs = require("node:fs");
 const [callsPath, repo] = process.argv.slice(2);
 const calls = fs.readFileSync(callsPath, "utf8").trim().split("\n");
-const allowed = new Set([
+const allowed = [
+  `git -C ${repo} rev-parse --git-common-dir`,
   `git -C ${repo} worktree list --porcelain`,
+  `git -C ${repo} rev-parse --git-common-dir`,
   "devpod list --output json --skip-pro",
   `git -C ${repo}/trees/feature rev-parse --verify HEAD`,
   `git -C ${repo}/trees/feature show -s --format=%cI HEAD`,
@@ -205,8 +209,8 @@ const allowed = new Set([
   `git -C ${repo} ls-remote origin refs/heads/main`,
   `git -C ${repo} ls-remote origin refs/heads/feature`,
   "gh pr list --repo smoke/devrouter --state all --head feature --json headRefName,headRefOid,baseRefName,baseRefOid,state,mergedAt,repository,headRepository,mergeCommit",
-]);
-if (calls.length !== allowed.size || calls.some((line) => !allowed.has(line))) process.exit(1);
+].sort();
+if (JSON.stringify(calls.sort()) !== JSON.stringify(allowed)) process.exit(1);
 NODE
 node -e 'const r=require(process.argv[1]); const w=r.workspaces[0]; if(!r.checkMerged || r.workspaces.length !== 1 || w.provider !== "owned" || w.runtime !== "not-found" || w.integration !== "merged-exact" || w.suggestions.length !== 1 || w.suggestions[0].command.includes("--keep-worktree")) process.exit(1)' "$work_root/check.json"
 
