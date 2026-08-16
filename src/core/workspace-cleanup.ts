@@ -927,7 +927,6 @@ function buildRow(
   inspectOwnershipFn: NonNullable<WorkspaceCleanupDependencies["inspectOwnership"]>,
   inspectIntegrationFn: WorkspaceCleanupDependencies["inspectIntegration"],
   inspectRuntimeFn: NonNullable<WorkspaceCleanupDependencies["inspectDevpodRuntime"]>,
-  consumption: WorkspaceCleanupConsumption | undefined,
 ): WorkspaceCleanupRow {
   const ownershipEvidence = inspectOwnershipFn(record, worktrees, devpods);
   const providerOwnership = devpods?.find(
@@ -1010,25 +1009,36 @@ function buildRow(
     eligibleActions: suggestions.eligibleActions,
     suggestions: suggestions.suggestions,
     reasons: Array.from(new Set(reasons)),
-    ...(consumption ? { consumption } : {}),
   };
 }
 
 const NOT_COLLECTED: WorkspaceCleanupSize = { status: "unknown", reason: "not collected" };
 
 /**
- * Placeholder consumption for a requested-but-uncollected measurement. Real
- * collectors replace each field individually so one unavailable source never
- * makes the others unknown.
+ * Sums the reclaimable figures, carrying an unknown component through instead
+ * of treating it as zero. Every collector must route its total through here:
+ * a total that silently drops an unmeasured component reads as "less to
+ * reclaim", which is the same wrong answer as a zero.
  */
-function collectConsumption(): WorkspaceCleanupConsumption {
-  return {
-    worktree: NOT_COLLECTED,
-    containerWritable: NOT_COLLECTED,
-    imageShared: NOT_COLLECTED,
-    reclaimable: NOT_COLLECTED,
-  };
+export function deriveReclaimable(
+  worktree: WorkspaceCleanupSize,
+  containerWritable: WorkspaceCleanupSize,
+): WorkspaceCleanupSize {
+  if (worktree.status === "unknown") {
+    return worktree;
+  }
+  if (containerWritable.status === "unknown") {
+    return containerWritable;
+  }
+  return { status: "measured", bytes: worktree.bytes + containerWritable.bytes };
 }
+
+const UNCOLLECTED_CONSUMPTION: WorkspaceCleanupConsumption = {
+  worktree: NOT_COLLECTED,
+  containerWritable: NOT_COLLECTED,
+  imageShared: NOT_COLLECTED,
+  reclaimable: deriveReclaimable(NOT_COLLECTED, NOT_COLLECTED),
+};
 
 export function buildWorkspaceCleanupReport(
   options: WorkspaceCleanupOptions = {},
@@ -1055,7 +1065,7 @@ export function buildWorkspaceCleanupReport(
   }
   const measureSize = Boolean(options.measureSize);
   const rows = records
-    .map((record) => {
+    .map((record): WorkspaceCleanupRow => {
       const worktree = worktrees.find((candidate) =>
         sameWorkspacePath(candidate.path, record.worktreePath),
       );
@@ -1069,7 +1079,7 @@ export function buildWorkspaceCleanupReport(
           prunable: true,
         },
       );
-      return buildRow(
+      const row = buildRow(
         repoPath,
         record,
         worktrees,
@@ -1086,8 +1096,8 @@ export function buildWorkspaceCleanupReport(
           }),
         dependencies.inspectIntegration,
         dependencies.inspectDevpodRuntime ?? inspectDevpodRuntimeStatus,
-        measureSize ? collectConsumption() : undefined,
       );
+      return measureSize ? { ...row, consumption: UNCOLLECTED_CONSUMPTION } : row;
     })
     .sort((left, right) => left.workspace.localeCompare(right.workspace));
   return {

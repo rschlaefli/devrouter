@@ -3,6 +3,7 @@ import type { HostRouteState } from "../../types";
 import type { DevpodWorkspace } from "../devpod-workspaces";
 import {
   buildWorkspaceCleanupReport,
+  deriveReclaimable,
   evaluateWorkspaceActivity,
   parseGitHubChanges,
   parseGitLabChanges,
@@ -723,6 +724,22 @@ describe("workspace cleanup report and suggestions", () => {
       containerWritable: { status: "unknown", reason: "not collected" },
       imageShared: { status: "unknown", reason: "not collected" },
       reclaimable: { status: "unknown", reason: "not collected" },
+    });
+  });
+
+  it("carries an unknown component through the reclaimable total instead of dropping it", () => {
+    const measured = { status: "measured", bytes: 2048 } as const;
+    const unavailable = { status: "unknown", reason: "docker unavailable" } as const;
+
+    expect(deriveReclaimable(measured, { status: "measured", bytes: 1024 })).toEqual({
+      status: "measured",
+      bytes: 3072,
+    });
+    expect(deriveReclaimable(measured, unavailable)).toEqual(unavailable);
+    expect(deriveReclaimable(unavailable, measured)).toEqual(unavailable);
+    expect(deriveReclaimable({ status: "measured", bytes: 0 }, measured)).toEqual({
+      status: "measured",
+      bytes: 2048,
     });
   });
 });

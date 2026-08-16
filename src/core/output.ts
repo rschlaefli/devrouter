@@ -89,11 +89,24 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
   }
 }
 
+const BINARY_SIZE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB"];
+
+/**
+ * Scales to the largest unit that keeps a whole part, so a small measured
+ * figure never renders as a rounded-down zero. A reader must be able to tell
+ * "measured nothing" from "measured a little" from "could not measure".
+ */
 function formatCleanupSize(size: WorkspaceCleanupSize): string {
   if (size.status === "unknown") {
     return `unknown (${size.reason})`;
   }
-  return `${(size.bytes / 1024 ** 2).toFixed(1)} MiB`;
+  let value = size.bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < BINARY_SIZE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return unit === 0 ? `${value} B` : `${value.toFixed(1)} ${BINARY_SIZE_UNITS[unit]}`;
 }
 
 export function printStatus(status: RouterStatus): void {
