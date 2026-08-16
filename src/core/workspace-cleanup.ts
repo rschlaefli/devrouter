@@ -1041,7 +1041,7 @@ export function deriveReclaimable(
 function collectConsumption(
   worktreePath: string,
   measureWorktreeFn: NonNullable<WorkspaceCleanupDependencies["measureWorktree"]>,
-  containers: Map<string, WorkspaceContainerConsumption> | { unavailable: string },
+  containers: Map<string, WorkspaceContainerConsumption>,
 ): WorkspaceCleanupConsumption {
   let worktree: WorkspaceCleanupSize;
   try {
@@ -1052,16 +1052,9 @@ function collectConsumption(
       reason: `worktree measurement failed: ${describeCause(error)}`,
     };
   }
-  const docker =
-    containers instanceof Map
-      ? (containers.get(worktreePath) ?? {
-          containerWritable: NOT_ATTRIBUTED,
-          imageShared: NOT_ATTRIBUTED,
-        })
-      : {
-          containerWritable: { status: "unknown" as const, reason: containers.unavailable },
-          imageShared: { status: "unknown" as const, reason: containers.unavailable },
-        };
+  // Every measured path is keyed before the rows are built, so a miss can only
+  // mean the row was never offered to the collector.
+  const docker = containers.get(worktreePath) ?? unknownContainers("attribution not collected");
   return {
     worktree,
     containerWritable: docker.containerWritable,
@@ -1070,12 +1063,12 @@ function collectConsumption(
   };
 }
 
-// Every measured worktree path is keyed in the container map, so a miss means
-// the row was never offered to the collector rather than that Docker answered.
-const NOT_ATTRIBUTED: WorkspaceCleanupSize = {
-  status: "unknown",
-  reason: "container attribution not collected",
-};
+function unknownContainers(reason: string): WorkspaceContainerConsumption {
+  return {
+    containerWritable: { status: "unknown", reason },
+    imageShared: { status: "unknown", reason },
+  };
+}
 
 function describeCause(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -1109,16 +1102,16 @@ export function buildWorkspaceCleanupReport(
   const measureContainersFn = dependencies.measureContainers ?? measureContainerConsumption;
   // One Docker pass for the whole report: attribution needs every container
   // listed anyway, and a per-row pass would re-list them once per workspace.
-  // A Docker failure is report-wide, so it degrades every row rather than
-  // aborting a read-only report that still has worktree figures to give.
-  let containers: Map<string, WorkspaceContainerConsumption> | { unavailable: string } = {
-    unavailable: "not collected",
-  };
+  // A Docker failure is report-wide, so every row degrades to unknown rather
+  // than aborting a read-only report that still has worktree figures to give.
+  let containers = new Map<string, WorkspaceContainerConsumption>();
   if (measureSize) {
+    const worktreePaths = records.map((record) => record.worktreePath);
     try {
-      containers = measureContainersFn(records.map((record) => record.worktreePath));
+      containers = measureContainersFn(worktreePaths);
     } catch (error) {
-      containers = { unavailable: `container measurement failed: ${describeCause(error)}` };
+      const reason = `container measurement failed: ${describeCause(error)}`;
+      containers = new Map(worktreePaths.map((path) => [path, unknownContainers(reason)]));
     }
   }
   const rows = records
