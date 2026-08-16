@@ -309,3 +309,21 @@ over the integrated branch after the full sequence passes.
   `CHANGELOG.md` records the flag under `[Unreleased]`, including the
   `schemaVersion` 2 bump that applies to every cleanup `--json` report rather
   than only to sized ones. Full verification sequence green at `6977bb5`.
+- `2026-08-16`: Finish gate returned four findings; all four integrated. The one
+  that mattered was medium severity and empirically probed by the reviewer:
+  `measureWorktreeConsumption` discarded its partial sum on a deadline but kept
+  it when a nested directory was unreadable, returning `status: "measured"` for
+  a near-empty figure. Reproduced independently before accepting — a real tree
+  measured 2101248 bytes intact and 4096 bytes with one subdirectory at mode
+  000, still labelled measured. This contradicted the Contract's own list of
+  unknown cases, so the code moved to the Contract rather than the reverse
+  (`cf87356`). The fix deliberately keeps one skip: a path that vanishes between
+  listing and stat is an ordinary race on a worktree with a build running, and
+  failing on it would make such a worktree permanently unknown. Both behaviors
+  are now pinned by tests, closing S2's unmet unreadable-directory obligation;
+  the race test removes its file with `unlinkSync` because `rmSync` stats its
+  target and re-enters the spy. The remaining three were bookkeeping: the
+  CHANGELOG gap was already closed in `6977bb5` before the gate returned, and
+  `0c2a6a1` adds the three missing repository-map entries and serves the beta
+  status fixture the smoke exported but no stub read. Full sequence green at
+  `0c2a6a1`: 585 tests across 55 files, package smoke and cleanup smoke passing.
