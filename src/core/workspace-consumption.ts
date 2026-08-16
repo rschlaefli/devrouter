@@ -35,9 +35,10 @@ type QueuedDirectory = { dirPath: string; entries: fs.Dirent[] };
  * for that warning, only `status`, so a walk that could not see the whole
  * tree says so there.
  *
- * The one skipped case is a path that vanished between reading a directory
- * and stating its entry. That is an ordinary race on a worktree with a dev
- * server or build running, and those blocks really are gone.
+ * The one skipped case is a single entry that vanished between reading a
+ * directory and stating that entry. That is an ordinary race on a worktree
+ * with a dev server or build running, and it costs the total only that
+ * entry's own blocks.
  */
 export function measureWorktreeConsumption(
   worktreePath: string,
@@ -102,7 +103,11 @@ export function measureWorktreeConsumption(
       try {
         entryStat = fs.lstatSync(entryPath);
       } catch (error) {
-        if (vanishedMidWalk(error)) continue;
+        // An entry listed a moment ago and gone by the time it is stated is an
+        // ordinary race on a worktree with a build running, and it costs the
+        // total at most that one entry's own blocks. Anything else means the
+        // walk could not see what is actually there.
+        if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") continue;
         unreadableReason = describeIncompleteWalk(error);
         break;
       }
@@ -116,7 +121,10 @@ export function measureWorktreeConsumption(
       try {
         childEntries = fs.readdirSync(entryPath, { withFileTypes: true });
       } catch (error) {
-        if (vanishedMidWalk(error)) continue;
+        // Deliberately no such exemption here: the lstat above already proved
+        // this a directory, so a failure now can hide a whole subtree, and a
+        // concurrent rename produces the same ENOENT while those blocks are
+        // still sitting inside the worktree under another name.
         unreadableReason = describeIncompleteWalk(error);
         break;
       }
@@ -131,16 +139,6 @@ export function measureWorktreeConsumption(
     return { status: "unknown", reason: unreadableReason };
   }
   return { status: "measured", bytes };
-}
-
-/**
- * A path present in a directory listing but gone by the time it is stated.
- * Its blocks are genuinely freed, so skipping it keeps the total honest;
- * treating the race as a failure would turn any worktree with a running
- * build into a permanent `unknown`.
- */
-function vanishedMidWalk(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 }
 
 /** The message already names the offending path, so it is not repeated. */

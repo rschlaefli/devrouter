@@ -102,6 +102,37 @@ describe("measureWorktreeConsumption", () => {
     }
   });
 
+  it("returns unknown when a directory disappears between its stat and its listing", () => {
+    const doomedDirPath = path.join(dirPath, "build");
+    fs.mkdirSync(doomedDirPath);
+    const childPath = path.join(doomedDirPath, "bundle.js");
+    fs.writeFileSync(childPath, "b".repeat(512 * 1024));
+
+    // Unlike a single vanished file, an unreadable directory hides everything
+    // beneath it, and the same ENOENT arrives when a concurrent rename merely
+    // moved that subtree elsewhere inside the worktree — where its blocks are
+    // still occupied. Stat first, then remove, so the walk sees a directory
+    // and fails on the listing rather than on the stat.
+    const realLstat = fs.lstatSync;
+    let removed = false;
+    const lstat = vi.spyOn(fs, "lstatSync").mockImplementation(((target: fs.PathLike) => {
+      const stat = realLstat(target);
+      if (target === doomedDirPath && !removed) {
+        removed = true;
+        fs.unlinkSync(childPath);
+        fs.rmdirSync(doomedDirPath);
+      }
+      return stat;
+    }) as typeof fs.lstatSync);
+
+    try {
+      const result = measureWorktreeConsumption(dirPath);
+      expect(result).toEqual({ status: "unknown", reason: expect.stringContaining("ENOENT") });
+    } finally {
+      lstat.mockRestore();
+    }
+  });
+
   it("discards a partial sum and returns unknown when the deadline is exceeded", () => {
     fs.writeFileSync(path.join(dirPath, "a.txt"), "a".repeat(1000));
     fs.writeFileSync(path.join(dirPath, "b.txt"), "b".repeat(1000));
