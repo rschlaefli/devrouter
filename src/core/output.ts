@@ -79,7 +79,12 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
                 ["  container writable", formatCleanupSize(row.consumption.containerWritable)],
                 [
                   "Shared image layers",
-                  `${formatCleanupSize(row.consumption.imageShared)} (not reclaimable)`,
+                  // The qualifier describes a size, so it is dropped when there
+                  // is no size to qualify: "unknown (reason) (not reclaimable)"
+                  // reads as two competing answers to the same question.
+                  row.consumption.imageShared.status === "measured"
+                    ? `${formatCleanupSize(row.consumption.imageShared)} (not reclaimable)`
+                    : formatCleanupSize(row.consumption.imageShared),
                 ],
               ]
             : []),
