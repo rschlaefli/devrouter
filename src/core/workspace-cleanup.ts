@@ -66,8 +66,33 @@ export type WorkspaceCleanupActivityResult = {
   evidence: WorkspaceCleanupActivityEvidence[];
 };
 
+/**
+ * A single storage figure. Every unavailable, slow, or malformed source must
+ * land as `unknown`: a zero reads as "nothing to reclaim", which is the one
+ * wrong answer that leads to deleting data for space that was never at stake.
+ */
+export type WorkspaceCleanupSize =
+  | { status: "measured"; bytes: number }
+  | { status: "unknown"; reason: string };
+
+export type WorkspaceCleanupConsumption = {
+  /** Reclaimable. Worktree-local files only; the shared Git object storage in
+   *  the common directory is deliberately excluded. */
+  worktree: WorkspaceCleanupSize;
+  /** Reclaimable. Sum of the attributed containers' writable layers. Container
+   *  filesystems only — named volumes, such as a database's data volume, are
+   *  not measured. */
+  containerWritable: WorkspaceCleanupSize;
+  /** Not reclaimable. Image layers shared with other containers and other
+   *  workspaces. These figures overlap between rows; never add them up. */
+  imageShared: WorkspaceCleanupSize;
+  /** Sum of every field labelled reclaimable above, or `unknown` when any one
+   *  of them is unknown. */
+  reclaimable: WorkspaceCleanupSize;
+};
+
 export type WorkspaceCleanupRow = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   workspace: string;
   branch: string | null;
   repo: string;
@@ -87,15 +112,18 @@ export type WorkspaceCleanupRow = {
   eligibleActions: string[];
   suggestions: WorkspaceCleanupSuggestion[];
   reasons: string[];
+  /** Present only when size collection was requested. */
+  consumption?: WorkspaceCleanupConsumption;
 };
 
 export type WorkspaceCleanupReport = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAt: string;
   repoPath: string;
   inactiveFor: string;
   cutoff: string;
   checkMerged: boolean;
+  measureSize: boolean;
   workspaces: WorkspaceCleanupRow[];
 };
 
@@ -103,6 +131,7 @@ export type WorkspaceCleanupOptions = {
   repo?: string;
   inactiveFor?: string;
   checkMerged?: boolean;
+  measureSize?: boolean;
   now?: Date;
 };
 
@@ -898,6 +927,7 @@ function buildRow(
   inspectOwnershipFn: NonNullable<WorkspaceCleanupDependencies["inspectOwnership"]>,
   inspectIntegrationFn: WorkspaceCleanupDependencies["inspectIntegration"],
   inspectRuntimeFn: NonNullable<WorkspaceCleanupDependencies["inspectDevpodRuntime"]>,
+  consumption: WorkspaceCleanupConsumption | undefined,
 ): WorkspaceCleanupRow {
   const ownershipEvidence = inspectOwnershipFn(record, worktrees, devpods);
   const providerOwnership = devpods?.find(
@@ -960,7 +990,7 @@ function buildRow(
     ...suggestions.reasons,
   ];
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     workspace: record.workspace,
     branch,
     repo: repoPath,
@@ -980,6 +1010,23 @@ function buildRow(
     eligibleActions: suggestions.eligibleActions,
     suggestions: suggestions.suggestions,
     reasons: Array.from(new Set(reasons)),
+    ...(consumption ? { consumption } : {}),
+  };
+}
+
+const NOT_COLLECTED: WorkspaceCleanupSize = { status: "unknown", reason: "not collected" };
+
+/**
+ * Placeholder consumption for a requested-but-uncollected measurement. Real
+ * collectors replace each field individually so one unavailable source never
+ * makes the others unknown.
+ */
+function collectConsumption(): WorkspaceCleanupConsumption {
+  return {
+    worktree: NOT_COLLECTED,
+    containerWritable: NOT_COLLECTED,
+    imageShared: NOT_COLLECTED,
+    reclaimable: NOT_COLLECTED,
   };
 }
 
@@ -1006,6 +1053,7 @@ export function buildWorkspaceCleanupReport(
   } catch {
     routes = undefined;
   }
+  const measureSize = Boolean(options.measureSize);
   const rows = records
     .map((record) => {
       const worktree = worktrees.find((candidate) =>
@@ -1038,16 +1086,18 @@ export function buildWorkspaceCleanupReport(
           }),
         dependencies.inspectIntegration,
         dependencies.inspectDevpodRuntime ?? inspectDevpodRuntimeStatus,
+        measureSize ? collectConsumption() : undefined,
       );
     })
     .sort((left, right) => left.workspace.localeCompare(right.workspace));
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: now.toISOString(),
     repoPath,
     inactiveFor: duration.input,
     cutoff,
     checkMerged: Boolean(options.checkMerged),
+    measureSize,
     workspaces: rows,
   };
 }

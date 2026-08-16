@@ -702,4 +702,27 @@ describe("workspace cleanup report and suggestions", () => {
     expect(report.workspaces[0].suggestions).toEqual([]);
     expect(report.workspaces[0].reasons.join(" ")).toContain("integration check");
   });
+
+  it("omits consumption entirely unless size measurement is requested", () => {
+    const report = buildWorkspaceCleanupReport({ repo: "/repo", now }, dependencies());
+
+    expect(report.schemaVersion).toBe(2);
+    expect(report.measureSize).toBe(false);
+    expect(report.workspaces[0]).not.toHaveProperty("consumption");
+  });
+
+  it("reports every requested consumption figure as unknown while no collector exists", () => {
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, measureSize: true },
+      dependencies(),
+    );
+
+    expect(report.measureSize).toBe(true);
+    expect(report.workspaces[0].consumption).toEqual({
+      worktree: { status: "unknown", reason: "not collected" },
+      containerWritable: { status: "unknown", reason: "not collected" },
+      imageShared: { status: "unknown", reason: "not collected" },
+      reclaimable: { status: "unknown", reason: "not collected" },
+    });
+  });
 });

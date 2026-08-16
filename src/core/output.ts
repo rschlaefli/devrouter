@@ -8,7 +8,7 @@ import type {
 } from "../types";
 import { renderTable } from "../util/table";
 import { formatAge } from "../util/timeago";
-import type { WorkspaceCleanupReport } from "./workspace-cleanup";
+import type { WorkspaceCleanupReport, WorkspaceCleanupSize } from "./workspace-cleanup";
 
 export function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -25,6 +25,7 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
         ["Inactive threshold", report.inactiveFor],
         ["Cutoff", report.cutoff],
         ["Merged check", report.checkMerged ? "enabled" : "disabled"],
+        ["Size measurement", report.measureSize ? "enabled" : "disabled"],
         ["Managed workspaces", String(report.workspaces.length)],
       ],
     )}\n`,
@@ -71,10 +72,28 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
               .join("; ") || "none",
           ],
           ["Reasons", row.reasons.join(" | ") || "none"],
+          ...(row.consumption
+            ? [
+                ["Reclaimable total", formatCleanupSize(row.consumption.reclaimable)],
+                ["  worktree files", formatCleanupSize(row.consumption.worktree)],
+                ["  container writable", formatCleanupSize(row.consumption.containerWritable)],
+                [
+                  "Shared image layers",
+                  `${formatCleanupSize(row.consumption.imageShared)} (not reclaimable)`,
+                ],
+              ]
+            : []),
         ],
       )}\n`,
     );
   }
+}
+
+function formatCleanupSize(size: WorkspaceCleanupSize): string {
+  if (size.status === "unknown") {
+    return `unknown (${size.reason})`;
+  }
+  return `${(size.bytes / 1024 ** 2).toFixed(1)} MiB`;
 }
 
 export function printStatus(status: RouterStatus): void {
