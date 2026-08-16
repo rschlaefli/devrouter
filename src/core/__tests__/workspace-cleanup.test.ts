@@ -704,27 +704,54 @@ describe("workspace cleanup report and suggestions", () => {
     expect(report.workspaces[0].reasons.join(" ")).toContain("integration check");
   });
 
-  it("omits consumption entirely unless size measurement is requested", () => {
-    const report = buildWorkspaceCleanupReport({ repo: "/repo", now }, dependencies());
+  it("omits consumption and never walks a worktree unless size measurement is requested", () => {
+    const measureWorktree = vi.fn(() => ({ status: "measured", bytes: 1 }) as const);
+
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now },
+      dependencies({ measureWorktree }),
+    );
 
     expect(report.schemaVersion).toBe(2);
     expect(report.measureSize).toBe(false);
     expect(report.workspaces[0]).not.toHaveProperty("consumption");
+    expect(measureWorktree).not.toHaveBeenCalled();
   });
 
-  it("reports every requested consumption figure as unknown while no collector exists", () => {
+  it("measures the worktree against its own path and leaves uncollected sources unknown", () => {
+    const measureWorktree = vi.fn(() => ({ status: "measured", bytes: 4096 }) as const);
+
     const report = buildWorkspaceCleanupReport(
       { repo: "/repo", now, measureSize: true },
-      dependencies(),
+      dependencies({ measureWorktree }),
     );
 
     expect(report.measureSize).toBe(true);
+    expect(measureWorktree).toHaveBeenCalledWith("/repo/trees/feature");
     expect(report.workspaces[0].consumption).toEqual({
-      worktree: { status: "unknown", reason: "not collected" },
+      worktree: { status: "measured", bytes: 4096 },
       containerWritable: { status: "unknown", reason: "not collected" },
       imageShared: { status: "unknown", reason: "not collected" },
       reclaimable: { status: "unknown", reason: "not collected" },
     });
+  });
+
+  it("reports a throwing worktree collector as unknown rather than zero bytes", () => {
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, measureSize: true },
+      dependencies({
+        measureWorktree: () => {
+          throw new Error("disk went away");
+        },
+      }),
+    );
+
+    const consumption = report.workspaces[0].consumption;
+    expect(consumption?.worktree.status).toBe("unknown");
+    expect(consumption?.worktree).toMatchObject({
+      reason: expect.stringContaining("disk went away"),
+    });
+    expect(consumption?.reclaimable.status).toBe("unknown");
   });
 
   it("carries an unknown component through the reclaimable total instead of dropping it", () => {

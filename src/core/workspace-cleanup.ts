@@ -10,6 +10,7 @@ import {
 import { readHostRouteStateReadOnly } from "./host-routes";
 import { resolveRepoPath } from "./repo-config";
 import { comparableWorkspacePath, sameWorkspacePath } from "./workspace";
+import { measureWorktreeConsumption } from "./workspace-consumption";
 import {
   type DevpodOwnerStatus,
   type GitWorktree,
@@ -167,6 +168,7 @@ export type WorkspaceCleanupDependencies = {
     branch: string | null,
     checkMerged: boolean,
   ) => WorkspaceCleanupIntegrationEvidence;
+  measureWorktree?: (worktreePath: string) => WorkspaceCleanupSize;
 };
 
 export type WorkspaceCleanupCommandResult = {
@@ -1033,12 +1035,31 @@ export function deriveReclaimable(
   return { status: "measured", bytes: worktree.bytes + containerWritable.bytes };
 }
 
-const UNCOLLECTED_CONSUMPTION: WorkspaceCleanupConsumption = {
-  worktree: NOT_COLLECTED,
-  containerWritable: NOT_COLLECTED,
-  imageShared: NOT_COLLECTED,
-  reclaimable: deriveReclaimable(NOT_COLLECTED, NOT_COLLECTED),
-};
+function collectConsumption(
+  worktreePath: string,
+  measureWorktreeFn: NonNullable<WorkspaceCleanupDependencies["measureWorktree"]>,
+): WorkspaceCleanupConsumption {
+  let worktree: WorkspaceCleanupSize;
+  try {
+    worktree = measureWorktreeFn(worktreePath);
+  } catch (error) {
+    worktree = {
+      status: "unknown",
+      reason: `worktree measurement failed: ${describeCause(error)}`,
+    };
+  }
+  const containerWritable = NOT_COLLECTED;
+  return {
+    worktree,
+    containerWritable,
+    imageShared: NOT_COLLECTED,
+    reclaimable: deriveReclaimable(worktree, containerWritable),
+  };
+}
+
+function describeCause(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export function buildWorkspaceCleanupReport(
   options: WorkspaceCleanupOptions = {},
@@ -1064,6 +1085,7 @@ export function buildWorkspaceCleanupReport(
     routes = undefined;
   }
   const measureSize = Boolean(options.measureSize);
+  const measureWorktreeFn = dependencies.measureWorktree ?? measureWorktreeConsumption;
   const rows = records
     .map((record): WorkspaceCleanupRow => {
       const worktree = worktrees.find((candidate) =>
@@ -1097,7 +1119,9 @@ export function buildWorkspaceCleanupReport(
         dependencies.inspectIntegration,
         dependencies.inspectDevpodRuntime ?? inspectDevpodRuntimeStatus,
       );
-      return measureSize ? { ...row, consumption: UNCOLLECTED_CONSUMPTION } : row;
+      return measureSize
+        ? { ...row, consumption: collectConsumption(record.worktreePath, measureWorktreeFn) }
+        : row;
     })
     .sort((left, right) => left.workspace.localeCompare(right.workspace));
   return {
