@@ -74,9 +74,10 @@ evidence rather than re-litigating them.
 - **Size collection is opt-in.** Directory walks and container size queries are
   expensive; the default `workspace cleanup` invocation must stay as fast as it
   is today. Gate collection behind an explicit flag.
-- **Schema is versioned.** The report's `schemaVersion` moves to `2`; agent
-  consumers parse this output.
 - No secret or private-URL output, consistent with v1.
+
+The report's `schemaVersion` is a consumer-visible contract, so its bump is
+recorded as gate A4 below rather than as a non-negotiable.
 
 ## Known traps
 
@@ -133,7 +134,12 @@ without leaving the tool, which is the question the report exists to serve.
 3. Collect container consumption through the existing attribution seam rather
    than a new one — `inspectWorkspaceContainers()` and `workspaceAppContainers()`
    in `src/core/devpod-environment.ts` already map containers to a repo path.
-   Extend that path; do not write a second container-discovery mechanism.
+   Extend that path; do not write a second container-discovery mechanism. That
+   seam's `SAFE_INSPECT_TEMPLATE` has a fixed field list with no size keys, and
+   Docker emits size fields only under an explicit flag: confirm the exact flag
+   against the installed Docker before relying on it. If it does not
+   materialize, container consumption stays `unknown` — do not add a second
+   discovery mechanism to work around it.
 4. Report image consumption as a separate shared figure, labelled so a reader
    cannot mistake it for reclaimable space.
 5. Add every new collector to `WorkspaceCleanupDependencies`
@@ -159,8 +165,8 @@ additionally:
   flag produces output whose consumption fields are absent or unknown, and
   completes as fast as the current command;
 - the same command with the flag reports non-zero worktree consumption for at
-  least two real worktrees in this repository, with figures within a plausible
-  range of `du -sh` for those paths;
+  least two real worktrees in this repository, and each figure agrees with
+  `du -sk <worktree-path>` within 5%;
 - `scripts/smoke-workspace-cleanup-report.sh` still proves no state change; and
 - the command still produces a complete report with `docker` removed from
   `PATH`, with unknown rather than zero consumption.
@@ -194,6 +200,7 @@ reviewing the cleanup v1 evidence; do not re-litigate the selection.
 | A1 — next package | Whether to prioritize workspace resource accounting over finishing cleanup v1's open evidence, a combined milestone, or `devrouter app env` | Approved by the user on 2026-08-16 after reviewing the cleanup v1 finish state; do not re-litigate. |
 | A2 — reported figures | Whether to report one consumption number or separate measured and reclaimable figures | Ruled while writing this roadmap: two separate fields, because shared Docker layers make a single number an invitation to delete for space that will not be returned. Vetoable by the user; binding on the junior otherwise. |
 | A3 — collection default | Whether size collection runs by default or behind a flag | Ruled while writing this roadmap: opt-in flag, so the default report keeps its current speed. Vetoable by the user; binding on the junior otherwise. |
+| A4 — report schema version | Whether adding consumption fields bumps `schemaVersion` from `1` to `2` | Ruled while writing this roadmap: bump to `2`, because agent consumers parse `--json` and additive fields still change the contract they read. Vetoable by the user; binding on the junior otherwise. |
 
 ## Review and evidence expectations
 
