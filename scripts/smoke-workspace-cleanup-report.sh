@@ -83,6 +83,9 @@ printf 'devpod %s\n' "$*" >> "${DEVROUTER_SMOKE_CALLS:?}"
 case "$*" in
   "list --output json --skip-pro") cat "${DEVROUTER_SMOKE_PROVIDER_FIXTURE:?}" ;;
   "status feature --output json --timeout 5s") cat "${DEVROUTER_SMOKE_STATUS_FIXTURE:?}" ;;
+  # Only reachable once the sizing scenarios export the beta fixture; the
+  # earlier single-workspace scenarios never resolve a beta runtime.
+  "status beta --output json --timeout 5s") cat "${DEVROUTER_SMOKE_BETA_STATUS_FIXTURE:?}" ;;
   *) exit 97 ;;
 esac
 EOF

@@ -104,6 +104,7 @@ Supported routing:
 - `src/core/workspace-lifecycle.ts`: `devrouter workspace up/ls/stop/down` engine (worktree creation, reversible stop, fail-closed teardown, lifecycle locking)
 - `src/core/workspace-ownership.ts`: durable Git-common-dir owner records and live Git/DevPod ownership classification
 - `src/core/workspace-cleanup.ts`: report-only activity, checkout, identity, route, and integration evidence for managed linked workspaces
+- `src/core/workspace-consumption.ts`: opt-in worktree disk walk and Docker container/image size attribution for cleanup reports
 - `src/core/workspace-gc.ts`: dry-run-first cleanup for exact ledger-owned missing workspaces
 - `src/core/devpod-mutation.ts`: machine-global serialization boundary for ownership-proven DevPod provider mutations
 - `src/core/workspace-ensure.ts`: fail-closed `workspace ensure` engine (exact-path DevPod discovery/start, runtime proof, atomic route reconciliation)
@@ -141,6 +142,8 @@ Supported routing:
 - `src/core/__tests__/workspace.test.ts`: unit tests for workspace token resolution + worktree detection
 - `src/core/__tests__/workspace-lifecycle.test.ts`: unit tests for `devrouter workspace up/ls/stop/down` orchestration (identity persistence, create-only mode, serialized fail-closed teardown)
 - `src/core/__tests__/workspace-ownership.test.ts`: unit tests for owner records and `present`/`missing`/`locked`/`conflict` classification
+- `src/core/__tests__/workspace-consumption.test.ts`: unit tests for the worktree walk (hardlinks, symlinks, deadline, unreadable and vanishing paths) and two-phase container attribution
+- `src/core/__tests__/devpod-environment.test.ts`: unit tests for container inspection argv, keeping the unsized hot path free of `--size`
 - `src/core/__tests__/workspace-gc.test.ts`: unit tests for dry-run and exact-evidence garbage collection
 - `src/core/__tests__/workspace-ensure.test.ts`: unit tests for exact-path DevPod ownership, one-time recreate, proof failures, and route replacement
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
