@@ -66,7 +66,7 @@ separates what deleting a workspace actually frees from what it does not:
 containers, overlap across rows, and must never be summed. Container
 attribution reuses the exact-identity predicate `ensure` and `exec` share, so
 sibling compose services are outside a workspace's figures. Any figure that
-cannot be trusted — an unreachable daemon, an unreadable worktree root, a
+cannot be trusted — an unreachable daemon, an unreadable path at any depth, a
 sizing walk that exceeds its deadline, or a size the daemon declines to report
 — is `unknown` with a reason rather than a partial or zero total, since a low
 total reads as "little to reclaim" and is the misleading direction here. A

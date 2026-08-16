@@ -46,6 +46,62 @@ describe("measureWorktreeConsumption", () => {
     expect(result.status).toBe("unknown");
   });
 
+  // Running as root defeats the permission bits this test depends on, so it
+  // would silently assert nothing there rather than fail.
+  const itUnlessRoot =
+    typeof process.getuid === "function" && process.getuid() === 0 ? it.skip : it;
+
+  itUnlessRoot(
+    "discards a partial sum and returns unknown when a nested directory is unreadable",
+    () => {
+      const blockedPath = path.join(dirPath, "blocked");
+      fs.mkdirSync(blockedPath);
+      fs.writeFileSync(path.join(blockedPath, "big.bin"), "x".repeat(512 * 1024));
+      fs.writeFileSync(path.join(dirPath, "small.txt"), "s");
+
+      const intact = measureWorktreeConsumption(dirPath);
+      expect(intact.status).toBe("measured");
+
+      fs.chmodSync(blockedPath, 0o000);
+      try {
+        const result = measureWorktreeConsumption(dirPath);
+        // The bug this pins reported the remaining few kilobytes as `measured`,
+        // which reads as "almost nothing to reclaim" for a workspace whose bulk
+        // simply could not be seen.
+        expect(result).toEqual({ status: "unknown", reason: expect.stringContaining("EACCES") });
+      } finally {
+        fs.chmodSync(blockedPath, 0o755);
+      }
+    },
+  );
+
+  it("keeps measuring when an entry disappears between listing and stat", () => {
+    fs.writeFileSync(path.join(dirPath, "stays.txt"), "s".repeat(1000));
+    const doomedPath = path.join(dirPath, "vanishes.txt");
+    fs.writeFileSync(doomedPath, "v".repeat(1000));
+
+    // A worktree with a dev server or build running churns while the walk is in
+    // flight; those blocks are genuinely gone, so the total stays trustworthy.
+    // Removal goes through `unlinkSync` rather than `rmSync`, which stats its
+    // target and would re-enter this very spy.
+    const realLstat = fs.lstatSync;
+    let removed = false;
+    const lstat = vi.spyOn(fs, "lstatSync").mockImplementation(((target: fs.PathLike) => {
+      if (target === doomedPath && !removed) {
+        removed = true;
+        fs.unlinkSync(doomedPath);
+      }
+      return realLstat(target);
+    }) as typeof fs.lstatSync);
+
+    try {
+      const result = measureWorktreeConsumption(dirPath);
+      expect(result.status).toBe("measured");
+    } finally {
+      lstat.mockRestore();
+    }
+  });
+
   it("discards a partial sum and returns unknown when the deadline is exceeded", () => {
     fs.writeFileSync(path.join(dirPath, "a.txt"), "a".repeat(1000));
     fs.writeFileSync(path.join(dirPath, "b.txt"), "b".repeat(1000));
