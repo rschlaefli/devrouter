@@ -327,3 +327,55 @@ over the integrated branch after the full sequence passes.
   `0c2a6a1` adds the three missing repository-map entries and serves the beta
   status fixture the smoke exported but no stub read. Full sequence green at
   `0c2a6a1`: 585 tests across 55 files, package smoke and cleanup smoke passing.
+- `2026-08-16`: One correction after the gate, from an advisor pass on the
+  integrated branch. `cf87356` applied its vanished-path exemption to both the
+  per-entry stat and the directory listing, but the two mean different things:
+  by the time the listing runs, lstat has already proven the path a directory,
+  so an ENOENT there hides an entire subtree rather than one entry's blocks —
+  and a concurrent rename raises exactly that ENOENT while the subtree still
+  occupies space inside the worktree under its new name. The exemption now
+  applies to the stat alone (`d2d27fa`), matching what the docstring already
+  claimed. Pinned by a test that stats a directory, removes it, and expects
+  `unknown`; it fails when the narrowing is reverted and passes with it.
+  Scope note: the finish-gate reviewer saw `d86277e..900a35a`. Everything after
+  it — the human-report fix, the walker's unknown branch, this narrowing, and
+  the three new tests — was verified by full sequence and reverted-fix checks
+  rather than by a second reviewer pass, a deliberate call under the
+  correction-rerun limit given how small and empirically probed each step was.
+
+  Boundary evidence, inlined because
+  `docs/project/_local/evidence/2026-08-16-w2-consumption/` is gitignored and
+  does not survive this worktree. Measured `--json` (`schemaVersion` is 2 on
+  every cleanup report; `consumption` appears only under `--measure-size`):
+
+  ```json
+  { "workspace": "beta", "consumption": {
+      "worktree":         { "status": "measured", "bytes": 794624 },
+      "containerWritable":{ "status": "measured", "bytes": 1048576 },
+      "imageShared":      { "status": "measured", "bytes": 104857600 },
+      "reclaimable":      { "status": "measured", "bytes": 1843200 } } }
+  ```
+
+  The same row rendered for a human, reclaimable split from shared:
+
+  ```text
+  Reclaimable total      1.8 MiB
+    worktree files       776.0 KiB
+    container writable   1.0 MiB
+  Shared image layers    100.0 MiB (not reclaimable)
+  ```
+
+  And degraded, with the daemon unreachable — the worktree walk still reports
+  while every Docker figure carries its reason, and no size qualifier is
+  appended to a failure:
+
+  ```text
+  Reclaimable total      unknown (container measurement failed: docker ps failed: Cannot connect to the Docker daemon)
+    worktree files       776.0 KiB
+    container writable   unknown (container measurement failed: docker ps failed: Cannot connect to the Docker daemon)
+  Shared image layers    unknown (container measurement failed: docker ps failed: Cannot connect to the Docker daemon)
+  ```
+
+  Reproduce with the cleanup smoke's fixture harness, its cleanup trap disabled
+  and the extra runs appended after the exact-call assertions so the allowlists
+  stay intact. Full sequence green at `d2d27fa`: 586 tests across 55 files.
