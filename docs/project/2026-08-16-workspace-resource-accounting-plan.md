@@ -292,3 +292,20 @@ over the integrated branch after the full sequence passes.
   than trusted for passing: a wrong `sizeRw`, an unsized fixture reaching the
   sized pass, a worktree shrunk after measurement, and a reachable daemon in the
   Docker-absent scenario each fail the run. Full verification sequence green.
+- `2026-08-16`: Human-report gap closed before the finish gate. Every prior
+  execution of `--measure-size` had passed `--json`, so `printWorkspaceCleanupReport`
+  had never rendered a measured byte value; S1 built that printer while all four
+  fields were unknown. A probe over the smoke fixtures (the harness with its
+  cleanup trap disabled, plus a human-mode run appended after the exact-call
+  assertions so the allowlists stay intact) rendered all three states. The
+  reclaimable split reads correctly — `Reclaimable total 1.8 MiB` over indented
+  `worktree files` and `container writable`, with `Shared image layers 100.0 MiB
+  (not reclaimable)` separate — but an unreachable daemon rendered
+  `unknown (reason) (not reclaimable)`, appending a size qualifier to a failure
+  reason. Fixed in `fbdc2bb`. The three JSON reports, the three human renderings,
+  and the subprocess call log are preserved under
+  `docs/project/_local/evidence/2026-08-16-w2-consumption/` as the roadmap's W2
+  boundary evidence; the smoke's own trap deletes them on every ordinary run.
+  `CHANGELOG.md` records the flag under `[Unreleased]`, including the
+  `schemaVersion` 2 bump that applies to every cleanup `--json` report rather
+  than only to sized ones. Full verification sequence green at `6977bb5`.
