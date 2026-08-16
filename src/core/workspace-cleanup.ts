@@ -10,7 +10,11 @@ import {
 import { readHostRouteStateReadOnly } from "./host-routes";
 import { resolveRepoPath } from "./repo-config";
 import { comparableWorkspacePath, sameWorkspacePath } from "./workspace";
-import { measureWorktreeConsumption } from "./workspace-consumption";
+import {
+  measureContainerConsumption,
+  measureWorktreeConsumption,
+  type WorkspaceContainerConsumption,
+} from "./workspace-consumption";
 import {
   type DevpodOwnerStatus,
   type GitWorktree,
@@ -169,6 +173,7 @@ export type WorkspaceCleanupDependencies = {
     checkMerged: boolean,
   ) => WorkspaceCleanupIntegrationEvidence;
   measureWorktree?: (worktreePath: string) => WorkspaceCleanupSize;
+  measureContainers?: (worktreePaths: string[]) => Map<string, WorkspaceContainerConsumption>;
 };
 
 export type WorkspaceCleanupCommandResult = {
@@ -1014,8 +1019,6 @@ function buildRow(
   };
 }
 
-const NOT_COLLECTED: WorkspaceCleanupSize = { status: "unknown", reason: "not collected" };
-
 /**
  * Sums the reclaimable figures, carrying an unknown component through instead
  * of treating it as zero. Every collector must route its total through here:
@@ -1038,6 +1041,7 @@ export function deriveReclaimable(
 function collectConsumption(
   worktreePath: string,
   measureWorktreeFn: NonNullable<WorkspaceCleanupDependencies["measureWorktree"]>,
+  containers: Map<string, WorkspaceContainerConsumption> | { unavailable: string },
 ): WorkspaceCleanupConsumption {
   let worktree: WorkspaceCleanupSize;
   try {
@@ -1048,14 +1052,30 @@ function collectConsumption(
       reason: `worktree measurement failed: ${describeCause(error)}`,
     };
   }
-  const containerWritable = NOT_COLLECTED;
+  const docker =
+    containers instanceof Map
+      ? (containers.get(worktreePath) ?? {
+          containerWritable: NOT_ATTRIBUTED,
+          imageShared: NOT_ATTRIBUTED,
+        })
+      : {
+          containerWritable: { status: "unknown" as const, reason: containers.unavailable },
+          imageShared: { status: "unknown" as const, reason: containers.unavailable },
+        };
   return {
     worktree,
-    containerWritable,
-    imageShared: NOT_COLLECTED,
-    reclaimable: deriveReclaimable(worktree, containerWritable),
+    containerWritable: docker.containerWritable,
+    imageShared: docker.imageShared,
+    reclaimable: deriveReclaimable(worktree, docker.containerWritable),
   };
 }
+
+// Every measured worktree path is keyed in the container map, so a miss means
+// the row was never offered to the collector rather than that Docker answered.
+const NOT_ATTRIBUTED: WorkspaceCleanupSize = {
+  status: "unknown",
+  reason: "container attribution not collected",
+};
 
 function describeCause(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -1086,6 +1106,21 @@ export function buildWorkspaceCleanupReport(
   }
   const measureSize = Boolean(options.measureSize);
   const measureWorktreeFn = dependencies.measureWorktree ?? measureWorktreeConsumption;
+  const measureContainersFn = dependencies.measureContainers ?? measureContainerConsumption;
+  // One Docker pass for the whole report: attribution needs every container
+  // listed anyway, and a per-row pass would re-list them once per workspace.
+  // A Docker failure is report-wide, so it degrades every row rather than
+  // aborting a read-only report that still has worktree figures to give.
+  let containers: Map<string, WorkspaceContainerConsumption> | { unavailable: string } = {
+    unavailable: "not collected",
+  };
+  if (measureSize) {
+    try {
+      containers = measureContainersFn(records.map((record) => record.worktreePath));
+    } catch (error) {
+      containers = { unavailable: `container measurement failed: ${describeCause(error)}` };
+    }
+  }
   const rows = records
     .map((record): WorkspaceCleanupRow => {
       const worktree = worktrees.find((candidate) =>
@@ -1120,7 +1155,10 @@ export function buildWorkspaceCleanupReport(
         dependencies.inspectDevpodRuntime ?? inspectDevpodRuntimeStatus,
       );
       return measureSize
-        ? { ...row, consumption: collectConsumption(record.worktreePath, measureWorktreeFn) }
+        ? {
+            ...row,
+            consumption: collectConsumption(record.worktreePath, measureWorktreeFn, containers),
+          }
         : row;
     })
     .sort((left, right) => left.workspace.localeCompare(right.workspace));

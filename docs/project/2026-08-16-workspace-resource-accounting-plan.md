@@ -119,8 +119,10 @@ export type WorkspaceCleanupSize =
 export type WorkspaceCleanupConsumption = {
   /** Reclaimable: worktree-local files only; shared Git object storage excluded. */
   worktree: WorkspaceCleanupSize;
-  /** Reclaimable: sum of container writable layers. Container filesystems only —
-   *  named volumes (for example a database's data volume) are not measured. */
+  /** Reclaimable: writable layer of the workspace's own app container — the one
+   *  `workspaceAppContainers()` attributes. Container filesystems only: named
+   *  volumes are not measured, and neither are sibling services of the same
+   *  compose project, which carry the workspace label but mount no worktree. */
   containerWritable: WorkspaceCleanupSize;
   /** NOT reclaimable: image layers shared with other containers and workspaces.
    *  These sums overlap across rows; never add them up. */
@@ -207,8 +209,13 @@ Obligation `none` for type declarations, output formatting, and flag wiring.
 
 - `Do:` Parameterize `inspectWorkspaceContainers(options?: {withSize?: boolean; ids?: string[]})`
   in `src/core/devpod-environment.ts`: the size variant appends the two size
-  keys to the template, each guarded with `{{with}}...{{else}}null{{end}}` like
-  the existing `Health` key, and passes `--size`. The default template and argv
+  keys to the template, read through `{{json (index . "SizeRw")}}` rather than
+  the `{{with}}...{{else}}null{{end}}` guard this plan first specified, and
+  passes `--size`. Corrected against live Docker during S3: `index` already
+  degrades to `null` for a container inspected without `--size`, and unlike
+  `{{with}}` it preserves a genuine zero — real container `a08091b5920a`
+  reports `SizeRw: 0` against a 453787648-byte root, which the guard would have
+  misreported as an absent value. The default template and argv
   stay byte-identical, so the three hot-path callers are untouched. Add a
   cleanup collector that attributes containers once with
   `workspaceAppContainers()` against each row's `record.worktreePath`, then
@@ -259,3 +266,17 @@ over the integrated branch after the full sequence passes.
   moves to the fixture harness, because this repository has no managed
   workspace owner records and creating them would mutate real workspace state
   for test convenience. The roadmap's Progress section is updated in S4.
+- `2026-08-16`: S1–S3 committed. Two Contract corrections landed with S3, both
+  forced by a live Docker probe over 187 real containers: the size template
+  reads its keys through `index` rather than a `{{with}}` guard, and
+  `containerWritable` now states the attribution boundary explicitly.
+  **Open, for the user — attribution scope.** `workspaceAppContainers()`
+  attributes only the container that bind-mounts the worktree, so a compose
+  sibling is excluded even though it belongs to the workspace. Measured on a
+  real workspace: `default-fe-625ea-app-1` is attributed, while its Postgres
+  sibling `default-fe-625ea-postgres-1` (same compose project, same
+  `working_dir` label, 466 MiB image) is not, understating that row's
+  `imageShared` by roughly half. Widening to a compose-project predicate would
+  capture it and stays exact, but it would introduce a second attribution
+  definition alongside the one `ensure` and `exec` share, so it is deliberately
+  deferred rather than folded into W2.

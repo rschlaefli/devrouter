@@ -1,5 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  inspectWorkspaceContainers,
+  type WorkspaceContainerSnapshot,
+  workspaceAppContainers,
+} from "./devpod-environment";
 import type { WorkspaceCleanupSize } from "./workspace-cleanup";
 
 const DEFAULT_DEADLINE_MS = 10000;
@@ -121,6 +126,91 @@ export function measureWorktreeConsumption(
     return { status: "unknown", reason: `exceeded deadline of ${deadlineMs}ms` };
   }
   return { status: "measured", bytes };
+}
+
+export type WorkspaceContainerConsumption = {
+  containerWritable: WorkspaceCleanupSize;
+  imageShared: WorkspaceCleanupSize;
+};
+
+/**
+ * Measures the Docker footprint attributable to each of `worktreePaths` in two
+ * passes: one plain inspect of every container to decide attribution, then a
+ * second inspect of only the attributed IDs with `--size`. Sizing costs the
+ * daemon a filesystem walk per container, so asking for it up front would
+ * charge the report for every unrelated container on the machine.
+ *
+ * Attribution is `workspaceAppContainers()`, the same exact-identity predicate
+ * `ensure` and `exec` use: the one container whose compose project working
+ * directory is the worktree's `.devcontainer` and that bind-mounts the worktree
+ * itself. Sibling services of that compose project — a database, a cache — do
+ * not bind-mount the worktree and are therefore excluded, so both figures
+ * describe the app container alone rather than the whole compose project.
+ *
+ * A worktree with no attributed container is a measured zero, not an unknown —
+ * "this workspace has no container" is a real answer, and reporting it as
+ * unknown would hide the most reclaimable-looking rows behind a caveat.
+ *
+ * Throws when Docker itself cannot be reached; the caller decides how that
+ * degrades, since it is a report-wide condition rather than a per-row one.
+ */
+export function measureContainerConsumption(
+  worktreePaths: string[],
+  dependencies?: { inspect?: typeof inspectWorkspaceContainers },
+): Map<string, WorkspaceContainerConsumption> {
+  const byWorktree = new Map<string, WorkspaceContainerConsumption>();
+  // A report with no managed workspaces has nothing to attribute, and listing
+  // every container on the machine to discover that costs a real inspect pass.
+  if (worktreePaths.length === 0) return byWorktree;
+
+  const inspect = dependencies?.inspect ?? inspectWorkspaceContainers;
+  const containers = inspect();
+  const attributedIds = new Set<string>();
+  for (const worktreePath of worktreePaths) {
+    for (const container of workspaceAppContainers(containers, worktreePath)) {
+      attributedIds.add(container.id);
+    }
+  }
+  const sized =
+    attributedIds.size === 0 ? [] : inspect({ withSize: true, ids: Array.from(attributedIds) });
+
+  for (const worktreePath of worktreePaths) {
+    byWorktree.set(worktreePath, summarizeContainers(workspaceAppContainers(sized, worktreePath)));
+  }
+  return byWorktree;
+}
+
+function summarizeContainers(
+  containers: WorkspaceContainerSnapshot[],
+): WorkspaceContainerConsumption {
+  let writable = 0;
+  let shared = 0;
+  for (const container of containers) {
+    const { sizeRw, sizeRootFs } = container;
+    // A daemon that declines to report sizes yields null through the template's
+    // `index` accessor. `SizeRootFs` is the writable layer plus the image
+    // layers beneath it, so a root smaller than the writable layer means the
+    // pair cannot be trusted to split into reclaimable and shared halves.
+    if (
+      typeof sizeRw !== "number" ||
+      typeof sizeRootFs !== "number" ||
+      !Number.isFinite(sizeRw) ||
+      !Number.isFinite(sizeRootFs) ||
+      sizeRootFs < sizeRw
+    ) {
+      const unknown: WorkspaceCleanupSize = {
+        status: "unknown",
+        reason: `container ${container.id.slice(0, 12)} reported no usable size`,
+      };
+      return { containerWritable: unknown, imageShared: unknown };
+    }
+    writable += sizeRw;
+    shared += sizeRootFs - sizeRw;
+  }
+  return {
+    containerWritable: { status: "measured", bytes: writable },
+    imageShared: { status: "measured", bytes: shared },
+  };
 }
 
 function describeError(error: unknown, worktreePath: string): string {

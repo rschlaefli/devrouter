@@ -14,6 +14,7 @@ import {
   type WorkspaceCleanupDependencies,
   type WorkspaceCleanupGitSnapshot,
 } from "../workspace-cleanup";
+import type { WorkspaceContainerConsumption } from "../workspace-consumption";
 import type { GitWorktree, WorkspaceOwnershipRecord } from "../workspace-ownership";
 
 const now = new Date("2026-08-12T12:00:00.000Z");
@@ -89,7 +90,17 @@ function dependencies(
     readGitSnapshot: () => snapshot(),
     inspectOwnership: () => ({ ownerStatus: "present", devpodStatus: "owned" }),
     inspectIntegration: () => ({ status: "not-verified", reason: "synthetic" }),
+    // Stubbed by default so a size-measuring test never reaches the real
+    // collector and spawns docker against whatever the host happens to run.
+    measureContainers: (worktreePaths) => new Map(worktreePaths.map((p) => [p, noContainers()])),
     ...overrides,
+  };
+}
+
+function noContainers(): WorkspaceContainerConsumption {
+  return {
+    containerWritable: { status: "measured", bytes: 0 },
+    imageShared: { status: "measured", bytes: 0 },
   };
 }
 
@@ -704,36 +715,79 @@ describe("workspace cleanup report and suggestions", () => {
     expect(report.workspaces[0].reasons.join(" ")).toContain("integration check");
   });
 
-  it("omits consumption and never walks a worktree unless size measurement is requested", () => {
+  it("omits consumption and touches no measurement source unless size measurement is requested", () => {
     const measureWorktree = vi.fn(() => ({ status: "measured", bytes: 1 }) as const);
+    const measureContainers = vi.fn(() => new Map<string, WorkspaceContainerConsumption>());
 
     const report = buildWorkspaceCleanupReport(
       { repo: "/repo", now },
-      dependencies({ measureWorktree }),
+      dependencies({ measureWorktree, measureContainers }),
     );
 
     expect(report.schemaVersion).toBe(2);
     expect(report.measureSize).toBe(false);
     expect(report.workspaces[0]).not.toHaveProperty("consumption");
     expect(measureWorktree).not.toHaveBeenCalled();
+    expect(measureContainers).not.toHaveBeenCalled();
   });
 
-  it("measures the worktree against its own path and leaves uncollected sources unknown", () => {
+  it("measures each worktree against its own path and collects containers once for the report", () => {
     const measureWorktree = vi.fn(() => ({ status: "measured", bytes: 4096 }) as const);
+    const measureContainers = vi.fn(
+      (worktreePaths: string[]) =>
+        new Map(
+          worktreePaths.map((worktreePath) => [
+            worktreePath,
+            {
+              containerWritable: { status: "measured", bytes: 1024 },
+              imageShared: { status: "measured", bytes: 900_000 },
+            } as WorkspaceContainerConsumption,
+          ]),
+        ),
+    );
 
     const report = buildWorkspaceCleanupReport(
       { repo: "/repo", now, measureSize: true },
-      dependencies({ measureWorktree }),
+      dependencies({ measureWorktree, measureContainers }),
     );
 
     expect(report.measureSize).toBe(true);
     expect(measureWorktree).toHaveBeenCalledWith("/repo/trees/feature");
+    // One pass for the whole report rather than one per row: attribution has to
+    // list every container anyway, so a per-row pass would repeat that listing.
+    expect(measureContainers).toHaveBeenCalledTimes(1);
+    expect(measureContainers).toHaveBeenCalledWith(["/repo/trees/feature"]);
     expect(report.workspaces[0].consumption).toEqual({
       worktree: { status: "measured", bytes: 4096 },
-      containerWritable: { status: "unknown", reason: "not collected" },
-      imageShared: { status: "unknown", reason: "not collected" },
-      reclaimable: { status: "unknown", reason: "not collected" },
+      containerWritable: { status: "measured", bytes: 1024 },
+      imageShared: { status: "measured", bytes: 900_000 },
+      // Shared image layers are excluded: deleting this workspace does not free
+      // layers other containers still reference.
+      reclaimable: { status: "measured", bytes: 5120 },
     });
+  });
+
+  it("degrades every container figure but keeps worktree bytes when Docker cannot be reached", () => {
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, measureSize: true },
+      dependencies({
+        measureWorktree: () => ({ status: "measured", bytes: 4096 }),
+        measureContainers: () => {
+          throw new Error("Cannot connect to the Docker daemon");
+        },
+      }),
+    );
+
+    const consumption = report.workspaces[0].consumption;
+    expect(consumption?.worktree).toEqual({ status: "measured", bytes: 4096 });
+    expect(consumption?.containerWritable).toMatchObject({
+      status: "unknown",
+      reason: expect.stringContaining("Cannot connect to the Docker daemon"),
+    });
+    expect(consumption?.imageShared.status).toBe("unknown");
+    // The total has to follow the weakest component; a measured worktree alone
+    // would understate what deleting the workspace actually frees.
+    expect(consumption?.reclaimable.status).toBe("unknown");
   });
 
   it("reports a throwing worktree collector as unknown rather than zero bytes", () => {
