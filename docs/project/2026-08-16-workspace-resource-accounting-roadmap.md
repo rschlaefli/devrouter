@@ -215,3 +215,12 @@ publication, or release occurred; and an appended dated Progress entry below.
 - `2026-08-16`: Package selected and specified. W1 reconciliation completed
   first; no implementation branch, worktree, PR, or code change exists for W2
   at specification time.
+- `2026-08-16`: B1 ruled by the user while executing W2. The "real-worktree
+  report output with and without the opt-in flag" expectation above is met by
+  the fixture harness in `scripts/smoke-workspace-cleanup-report.sh`, which
+  builds two genuine Git worktrees and compares the reported worktree bytes
+  against `du -sk`, rather than by running against this repository's own
+  workspaces. This repository has no managed workspace owner records, and
+  creating them would mutate real workspace state for test convenience. Docker
+  evidence stays stubbed for the same reason; the Docker-absent expectation is
+  met by the harness scenario that fails the stub.

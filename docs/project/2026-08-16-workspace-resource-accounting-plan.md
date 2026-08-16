@@ -280,3 +280,15 @@ over the integrated branch after the full sequence passes.
   capture it and stays exact, but it would introduce a second attribution
   definition alongside the one `ensure` and `exec` share, so it is deliberately
   deferred rather than folded into W2.
+- `2026-08-16`: S3 gates passed. `slice-reviewer` returned DONE with no blocking
+  findings across all five lenses, noting only that an impossible negative
+  `SizeRw` would slip the guard; left unguarded as unreachable. `simplifier`
+  returned two findings and both were applied: the container map is now one
+  `Map` shape whose failure path is a fully keyed map of unknowns, which removed
+  the `Map | {unavailable}` union, the `instanceof` branch, the duplicated
+  unknown-pair construction, and the `NOT_ATTRIBUTED` constant.
+- `2026-08-16`: S4 committed. The smoke harness gained a `docker` stub and a
+  second real worktree, and its two new scenarios were mutation-probed rather
+  than trusted for passing: a wrong `sizeRw`, an unsized fixture reaching the
+  sized pass, a worktree shrunk after measurement, and a reachable daemon in the
+  Docker-absent scenario each fail the run. Full verification sequence green.
