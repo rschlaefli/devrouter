@@ -6,6 +6,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 - [Devrouter roadmap](./2026-02-07-devrouter-roadmap.md) — current product and quality backlog.
 - [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md) — W2 specification for per-workspace storage consumption in the cleanup report.
+- [Workspace resource accounting plan](./2026-08-16-workspace-resource-accounting-plan.md) — W2 execution plan on `rs/workspace-resource-accounting`.
 - [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md) — W1 specification for installed-package and CI verification.
 - [Open-source release plan](./2026-02-08-open-source-release-plan.md) — remaining portability, CI, and release-verification work.
 - [Workspace safety hardening](./2026-07-18-pr-25-workspace-safety-hardening-plan.md) — reviewed `0.0.35` safety candidate in [PR #25](https://github.com/rschlaefli/devrouter/pull/25).
