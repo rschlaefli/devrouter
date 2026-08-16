@@ -6,9 +6,9 @@ Use the [documentation map](../README.md) for supported behavior, [AGENTS.md](..
 
 ## Next package
 
-None approved. W1 — [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md) was delivered in [PR #29](https://github.com/rschlaefli/devrouter/pull/29) and merged into `main` at [f6718c6](https://github.com/rschlaefli/devrouter/commit/f6718c65a0e91dc6f7bb3b40ac1d328ab6a918cf); it added `pnpm test:package` and the required CI step after `pnpm build`.
+- **W2 — [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md):** extend the report-only `devrouter workspace cleanup` output with per-workspace storage consumption, separating measured from reclaimable figures, so stale-workspace evidence also carries what reclaiming it returns. Approved on 2026-08-16; the package stays report-only and adds no mutation path.
 
-The next package needs its own approval gate before planning starts. The near-term entries below are candidates, not decisions. The registry-backed `npx` proof and any publication or release work remain separate scope.
+W1 — [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md) was delivered in [PR #29](https://github.com/rschlaefli/devrouter/pull/29) and merged into `main` at [f6718c6](https://github.com/rschlaefli/devrouter/commit/f6718c65a0e91dc6f7bb3b40ac1d328ab6a918cf); it added `pnpm test:package` and the required CI step after `pnpm build`. The registry-backed `npx` proof and any publication or release work remain separate scope.
 
 ## Validation gates
 
@@ -36,6 +36,10 @@ Required checks for behavior and documentation consistency:
 ### Test-surface hardening
 
 - Add platform-specific durability coverage where filesystems expose stronger power-loss test hooks.
+- Close the macOS `/proc` process-test skip, which both the workspace cleanup
+  and packaged-CLI packages carried as a residual concern. The
+  [open-source release plan](./2026-02-08-open-source-release-plan.md) owns the
+  matching macOS CI lane.
 - Expand diagnostics tests with mocked Docker responses for edge-case guidance.
 - Add command-level regression tests for documentation-backed behavior; the
   delivered installed-CLI smoke covers this at the distribution boundary.
@@ -47,6 +51,10 @@ Required checks for behavior and documentation consistency:
   [PR #27](https://github.com/rschlaefli/devrouter/pull/27); preserve advisory
   activity, explicit `--check-merged` network scope, and fail-closed
   suggestions.
+- Run the controlled live report-only `--check-merged` trial against a real
+  forge. That package closed as `DONE_WITH_CONCERNS` with synthetic GitHub and
+  GitLab CLI JSON as its only integration evidence, so the network path has
+  never executed against a live forge.
 - Add `devrouter app env <name>` for resolved dependency-environment inspection.
 - Add a repository bootstrap helper from discovered Compose metadata to `.devrouter.yml`.
 - Add `devrouter app doctor` for app-scoped diagnostics and remediation hints.
