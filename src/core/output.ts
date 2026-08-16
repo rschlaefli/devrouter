@@ -8,7 +8,7 @@ import type {
 } from "../types";
 import { renderTable } from "../util/table";
 import { formatAge } from "../util/timeago";
-import type { WorkspaceCleanupReport } from "./workspace-cleanup";
+import type { WorkspaceCleanupReport, WorkspaceCleanupSize } from "./workspace-cleanup";
 
 export function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -25,6 +25,7 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
         ["Inactive threshold", report.inactiveFor],
         ["Cutoff", report.cutoff],
         ["Merged check", report.checkMerged ? "enabled" : "disabled"],
+        ["Size measurement", report.measureSize ? "enabled" : "disabled"],
         ["Managed workspaces", String(report.workspaces.length)],
       ],
     )}\n`,
@@ -71,10 +72,46 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
               .join("; ") || "none",
           ],
           ["Reasons", row.reasons.join(" | ") || "none"],
+          ...(row.consumption
+            ? [
+                ["Reclaimable total", formatCleanupSize(row.consumption.reclaimable)],
+                ["  worktree files", formatCleanupSize(row.consumption.worktree)],
+                ["  container writable", formatCleanupSize(row.consumption.containerWritable)],
+                [
+                  "Shared image layers",
+                  // The qualifier describes a size, so it is dropped when there
+                  // is no size to qualify: "unknown (reason) (not reclaimable)"
+                  // reads as two competing answers to the same question.
+                  row.consumption.imageShared.status === "measured"
+                    ? `${formatCleanupSize(row.consumption.imageShared)} (not reclaimable)`
+                    : formatCleanupSize(row.consumption.imageShared),
+                ],
+              ]
+            : []),
         ],
       )}\n`,
     );
   }
+}
+
+const BINARY_SIZE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB"];
+
+/**
+ * Scales to the largest unit that keeps a whole part, so a small measured
+ * figure never renders as a rounded-down zero. A reader must be able to tell
+ * "measured nothing" from "measured a little" from "could not measure".
+ */
+function formatCleanupSize(size: WorkspaceCleanupSize): string {
+  if (size.status === "unknown") {
+    return `unknown (${size.reason})`;
+  }
+  let value = size.bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < BINARY_SIZE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return unit === 0 ? `${value} B` : `${value.toFixed(1)} ${BINARY_SIZE_UNITS[unit]}`;
 }
 
 export function printStatus(status: RouterStatus): void {

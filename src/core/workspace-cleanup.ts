@@ -11,6 +11,11 @@ import { readHostRouteStateReadOnly } from "./host-routes";
 import { resolveRepoPath } from "./repo-config";
 import { comparableWorkspacePath, sameWorkspacePath } from "./workspace";
 import {
+  measureContainerConsumption,
+  measureWorktreeConsumption,
+  type WorkspaceContainerConsumption,
+} from "./workspace-consumption";
+import {
   type DevpodOwnerStatus,
   type GitWorktree,
   inspectWorkspaceOwnership,
@@ -66,8 +71,33 @@ export type WorkspaceCleanupActivityResult = {
   evidence: WorkspaceCleanupActivityEvidence[];
 };
 
+/**
+ * A single storage figure. Every unavailable, slow, or malformed source must
+ * land as `unknown`: a zero reads as "nothing to reclaim", which is the one
+ * wrong answer that leads to deleting data for space that was never at stake.
+ */
+export type WorkspaceCleanupSize =
+  | { status: "measured"; bytes: number }
+  | { status: "unknown"; reason: string };
+
+export type WorkspaceCleanupConsumption = {
+  /** Reclaimable. Worktree-local files only; the shared Git object storage in
+   *  the common directory is deliberately excluded. */
+  worktree: WorkspaceCleanupSize;
+  /** Reclaimable. Sum of the attributed containers' writable layers. Container
+   *  filesystems only — named volumes, such as a database's data volume, are
+   *  not measured. */
+  containerWritable: WorkspaceCleanupSize;
+  /** Not reclaimable. Image layers shared with other containers and other
+   *  workspaces. These figures overlap between rows; never add them up. */
+  imageShared: WorkspaceCleanupSize;
+  /** Sum of every field labelled reclaimable above, or `unknown` when any one
+   *  of them is unknown. */
+  reclaimable: WorkspaceCleanupSize;
+};
+
 export type WorkspaceCleanupRow = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   workspace: string;
   branch: string | null;
   repo: string;
@@ -87,15 +117,18 @@ export type WorkspaceCleanupRow = {
   eligibleActions: string[];
   suggestions: WorkspaceCleanupSuggestion[];
   reasons: string[];
+  /** Present only when size collection was requested. */
+  consumption?: WorkspaceCleanupConsumption;
 };
 
 export type WorkspaceCleanupReport = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAt: string;
   repoPath: string;
   inactiveFor: string;
   cutoff: string;
   checkMerged: boolean;
+  measureSize: boolean;
   workspaces: WorkspaceCleanupRow[];
 };
 
@@ -103,6 +136,7 @@ export type WorkspaceCleanupOptions = {
   repo?: string;
   inactiveFor?: string;
   checkMerged?: boolean;
+  measureSize?: boolean;
   now?: Date;
 };
 
@@ -138,6 +172,8 @@ export type WorkspaceCleanupDependencies = {
     branch: string | null,
     checkMerged: boolean,
   ) => WorkspaceCleanupIntegrationEvidence;
+  measureWorktree?: (worktreePath: string) => WorkspaceCleanupSize;
+  measureContainers?: (worktreePaths: string[]) => Map<string, WorkspaceContainerConsumption>;
 };
 
 export type WorkspaceCleanupCommandResult = {
@@ -960,7 +996,7 @@ function buildRow(
     ...suggestions.reasons,
   ];
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     workspace: record.workspace,
     branch,
     repo: repoPath,
@@ -981,6 +1017,61 @@ function buildRow(
     suggestions: suggestions.suggestions,
     reasons: Array.from(new Set(reasons)),
   };
+}
+
+/**
+ * Sums the reclaimable figures, carrying an unknown component through instead
+ * of treating it as zero. Every collector must route its total through here:
+ * a total that silently drops an unmeasured component reads as "less to
+ * reclaim", which is the same wrong answer as a zero.
+ */
+export function deriveReclaimable(
+  worktree: WorkspaceCleanupSize,
+  containerWritable: WorkspaceCleanupSize,
+): WorkspaceCleanupSize {
+  if (worktree.status === "unknown") {
+    return worktree;
+  }
+  if (containerWritable.status === "unknown") {
+    return containerWritable;
+  }
+  return { status: "measured", bytes: worktree.bytes + containerWritable.bytes };
+}
+
+function collectConsumption(
+  worktreePath: string,
+  measureWorktreeFn: NonNullable<WorkspaceCleanupDependencies["measureWorktree"]>,
+  containers: Map<string, WorkspaceContainerConsumption>,
+): WorkspaceCleanupConsumption {
+  let worktree: WorkspaceCleanupSize;
+  try {
+    worktree = measureWorktreeFn(worktreePath);
+  } catch (error) {
+    worktree = {
+      status: "unknown",
+      reason: `worktree measurement failed: ${describeCause(error)}`,
+    };
+  }
+  // Every measured path is keyed before the rows are built, so a miss can only
+  // mean the row was never offered to the collector.
+  const docker = containers.get(worktreePath) ?? unknownContainers("attribution not collected");
+  return {
+    worktree,
+    containerWritable: docker.containerWritable,
+    imageShared: docker.imageShared,
+    reclaimable: deriveReclaimable(worktree, docker.containerWritable),
+  };
+}
+
+function unknownContainers(reason: string): WorkspaceContainerConsumption {
+  return {
+    containerWritable: { status: "unknown", reason },
+    imageShared: { status: "unknown", reason },
+  };
+}
+
+function describeCause(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function buildWorkspaceCleanupReport(
@@ -1006,8 +1097,25 @@ export function buildWorkspaceCleanupReport(
   } catch {
     routes = undefined;
   }
+  const measureSize = Boolean(options.measureSize);
+  const measureWorktreeFn = dependencies.measureWorktree ?? measureWorktreeConsumption;
+  const measureContainersFn = dependencies.measureContainers ?? measureContainerConsumption;
+  // One Docker pass for the whole report: attribution needs every container
+  // listed anyway, and a per-row pass would re-list them once per workspace.
+  // A Docker failure is report-wide, so every row degrades to unknown rather
+  // than aborting a read-only report that still has worktree figures to give.
+  let containers = new Map<string, WorkspaceContainerConsumption>();
+  if (measureSize) {
+    const worktreePaths = records.map((record) => record.worktreePath);
+    try {
+      containers = measureContainersFn(worktreePaths);
+    } catch (error) {
+      const reason = `container measurement failed: ${describeCause(error)}`;
+      containers = new Map(worktreePaths.map((path) => [path, unknownContainers(reason)]));
+    }
+  }
   const rows = records
-    .map((record) => {
+    .map((record): WorkspaceCleanupRow => {
       const worktree = worktrees.find((candidate) =>
         sameWorkspacePath(candidate.path, record.worktreePath),
       );
@@ -1021,7 +1129,7 @@ export function buildWorkspaceCleanupReport(
           prunable: true,
         },
       );
-      return buildRow(
+      const row = buildRow(
         repoPath,
         record,
         worktrees,
@@ -1039,15 +1147,22 @@ export function buildWorkspaceCleanupReport(
         dependencies.inspectIntegration,
         dependencies.inspectDevpodRuntime ?? inspectDevpodRuntimeStatus,
       );
+      return measureSize
+        ? {
+            ...row,
+            consumption: collectConsumption(record.worktreePath, measureWorktreeFn, containers),
+          }
+        : row;
     })
     .sort((left, right) => left.workspace.localeCompare(right.workspace));
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: now.toISOString(),
     repoPath,
     inactiveFor: duration.input,
     cutoff,
     checkMerged: Boolean(options.checkMerged),
+    measureSize,
     workspaces: rows,
   };
 }

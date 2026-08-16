@@ -534,6 +534,7 @@ workspaceCommand
   .option("--repo <path>", "Main repository path (defaults to current directory)")
   .option("--inactive-for <duration>", "Inactive threshold using Ns, Nm, Nh, Nd, or Nw", "30d")
   .option("--check-merged", "Enable read-only origin and GitHub/GitLab integration checks")
+  .option("--measure-size", "Measure per-workspace storage consumption (slower, still read-only)")
   .option("--json", "Output the stable cleanup report as JSON")
   .action(
     withErrorHandling(async (_options: unknown, command: Command) => {
@@ -541,6 +542,7 @@ workspaceCommand
         repo?: string;
         inactiveFor?: string;
         checkMerged?: boolean;
+        measureSize?: boolean;
         json?: boolean;
       }>();
       const { runWorkspaceCleanupCommand } = await import("./commands/workspace");
@@ -548,6 +550,7 @@ workspaceCommand
         repo: options.repo,
         inactiveFor: options.inactiveFor,
         checkMerged: Boolean(options.checkMerged),
+        measureSize: Boolean(options.measureSize),
         json: Boolean(options.json),
       });
     }),

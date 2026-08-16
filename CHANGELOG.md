@@ -6,7 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- `devrouter workspace cleanup --repo . --inactive-for 30d [--check-merged] [--json]` reports orthogonal ownership, DevPod registration/runtime, checkout, route, advisory activity, and integration evidence for managed linked workspaces. Local DevPod evidence is always inspected; only `--check-merged` enables read-only origin and matching GitHub/GitLab checks. The report has no `--yes` or apply mode and never mutates state. Suggestions never remove branches; full `workspace down` removes a clean unlocked worktree unless `--keep-worktree` is present.
+- `devrouter workspace cleanup --repo . --inactive-for 30d [--check-merged] [--measure-size] [--json]` reports orthogonal ownership, DevPod registration/runtime, checkout, route, advisory activity, and integration evidence for managed linked workspaces. Local DevPod evidence is always inspected; only `--check-merged` enables read-only origin and matching GitHub/GitLab checks. The report has no `--yes` or apply mode and never mutates state. Suggestions never remove branches; full `workspace down` removes a clean unlocked worktree unless `--keep-worktree` is present.
+- `--measure-size` adds per-workspace storage consumption to that report and remains read-only. It is opt-in because it walks each worktree and asks Docker to size the attributed container. Worktree files and container writable bytes are reclaimable and sum into a `reclaimable` total; shared image layers are reported separately, overlap across workspaces, and must never be summed. Any figure the run cannot trust is `unknown` with a reason rather than a partial total, while a workspace with no attributed container is a measured zero. Cleanup `--json` reports are now `schemaVersion` 2, and each workspace carries a `consumption` object only when the flag is set.
 
 ### Fixed
 

@@ -201,6 +201,7 @@ reviewing the cleanup v1 evidence; do not re-litigate the selection.
 | A2 — reported figures | Whether to report one consumption number or separate measured and reclaimable figures | Ruled while writing this roadmap: two separate fields, because shared Docker layers make a single number an invitation to delete for space that will not be returned. Vetoable by the user; binding on the junior otherwise. |
 | A3 — collection default | Whether size collection runs by default or behind a flag | Ruled while writing this roadmap: opt-in flag, so the default report keeps its current speed. Vetoable by the user; binding on the junior otherwise. |
 | A4 — report schema version | Whether adding consumption fields bumps `schemaVersion` from `1` to `2` | Ruled while writing this roadmap: bump to `2`, because agent consumers parse `--json` and additive fields still change the contract they read. Vetoable by the user; binding on the junior otherwise. |
+| A5 — attribution scope | Whether `imageShared` covers only the workspace's own app container or every sibling service of its compose project | Ruled by the user on 2026-08-16 after W2 implementation: app container only ships as built. Measured on a real workspace, `default-fe-625ea-app-1` is attributed while its Postgres sibling — same compose project, same `working_dir` label, 466 MiB image — is not, so that row's `imageShared` reads roughly half its true value; two containers mounting one worktree would likewise double-count it within a row. Accepted because `imageShared` is labelled not-reclaimable and never summed, so neither error drives a deletion decision. Widening attribution is new planning, not W2 scope. |
 
 ## Review and evidence expectations
 
@@ -215,3 +216,30 @@ publication, or release occurred; and an appended dated Progress entry below.
 - `2026-08-16`: Package selected and specified. W1 reconciliation completed
   first; no implementation branch, worktree, PR, or code change exists for W2
   at specification time.
+- `2026-08-16`: B1 ruled by the user while executing W2. The "real-worktree
+  report output with and without the opt-in flag" expectation above is met by
+  the fixture harness in `scripts/smoke-workspace-cleanup-report.sh`, which
+  builds two genuine Git worktrees and compares the reported worktree bytes
+  against `du -sk`, rather than by running against this repository's own
+  workspaces. This repository has no managed workspace owner records, and
+  creating them would mutate real workspace state for test convenience. Docker
+  evidence stays stubbed for the same reason; the Docker-absent expectation is
+  met by the harness scenario that fails the stub.
+- `2026-08-16`: W2 delivered to `pr_ready`. Branch
+  `rs/workspace-resource-accounting` (base `main` at `d86277e`, head `729f30f`,
+  16 commits, substantive `+1172/-32` excluding this directory's artifacts)
+  is open as draft [PR #30](https://github.com/rschlaefli/devrouter/pull/30)
+  targeting `main`; its GitHub CI check job passed and the publish job skipped.
+  Local sequence green at head: `check:docs-policy`, `check:knowledge`, `check`,
+  `knip`, `typecheck`, `test` (586 tests, 55 files), `build`, `test:package`,
+  `workspace:cleanup-smoke`. Every Check criterion above is met, with the B1
+  substitution standing for the two real-worktree lines. Gates run: simplifier
+  on S1-S3, slice-reviewer on S1 and S3, and one final-reviewer over
+  `d86277e..900a35a` whose four findings were integrated. The three later
+  corrections — `fbdc2bb`, `cf87356`, `d2d27fa` — carry full-sequence and
+  reverted-fix evidence rather than a second reviewer pass, recorded so the
+  gate is not read as covering the head commit. No destructive action, no
+  publication beyond the draft PR, and no release occurred. A5 was raised from
+  this package's evidence and ruled by the user; it changes nothing shipped.
+  W2 was the only approved package here, so no next W-item follows it on this
+  roadmap — further work needs new planning against the parent backlog.

@@ -1,0 +1,88 @@
+import { spawnSync } from "node:child_process";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { inspectWorkspaceContainers } from "../devpod-environment";
+
+vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("inspectWorkspaceContainers", () => {
+  it("lists every container and inspects it without paying for size reporting", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({ status: 0, stdout: "abc123\ndef456\n", stderr: "" } as never)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: `${snapshotLine("abc123")}\n`,
+        stderr: "",
+      } as never);
+
+    expect(inspectWorkspaceContainers()).toEqual([expect.objectContaining({ id: "abc123" })]);
+
+    const [, inspectArgs] = vi.mocked(spawnSync).mock.calls[1];
+    // Sizing costs the daemon a filesystem walk per container, and the callers
+    // on the `ensure`/`exec` hot path never need it.
+    expect(inspectArgs).not.toContain("--size");
+    expect(inspectArgs?.slice(-2)).toEqual(["abc123", "def456"]);
+    expect(String(inspectArgs?.[2])).not.toContain("SizeRw");
+  });
+
+  it("asks for sizes only on the named containers and keeps the shared fields", () => {
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 0,
+      stdout: `${snapshotLine("abc123", { sizeRw: 10, sizeRootFs: 90 })}\n`,
+      stderr: "",
+    } as never);
+
+    expect(inspectWorkspaceContainers({ withSize: true, ids: ["abc123"] })).toEqual([
+      expect.objectContaining({ id: "abc123", sizeRw: 10, sizeRootFs: 90 }),
+    ]);
+
+    // No `docker ps`: an explicit id list is the whole population.
+    expect(spawnSync).toHaveBeenCalledTimes(1);
+    const [, args] = vi.mocked(spawnSync).mock.calls[0];
+    expect(args).toContain("--size");
+    const template = String(args?.[args.indexOf("--format") + 1]);
+    // The size template is derived from the shared one, so it must still carry
+    // every field the attribution pass depends on rather than replacing them.
+    expect(template).toContain("mounts");
+    expect(template).toContain("com.docker.compose.project.working_dir");
+    expect(template).toContain('"sizeRw"');
+  });
+
+  it("names the spawn failure when the docker binary is missing", () => {
+    // ENOENT leaves both streams null, so without the error message the caller
+    // would only ever see "unknown error".
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: null,
+      stdout: null,
+      stderr: null,
+      error: new Error("spawn docker ENOENT"),
+    } as never);
+
+    expect(() => inspectWorkspaceContainers()).toThrow(/spawn docker ENOENT/);
+  });
+
+  it("surfaces the daemon's own error when listing exits non-zero", () => {
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 1,
+      stdout: "",
+      stderr: "Cannot connect to the Docker daemon\n",
+      error: undefined,
+    } as never);
+
+    expect(() => inspectWorkspaceContainers()).toThrow(/Cannot connect to the Docker daemon/);
+  });
+});
+
+function snapshotLine(id: string, sizes?: { sizeRw: number; sizeRootFs: number }): string {
+  return JSON.stringify({
+    id,
+    state: { Running: true, Health: null },
+    labels: { "com.docker.compose.project.working_dir": "/repo/trees/feature/.devcontainer" },
+    mounts: [{ Type: "bind", Source: "/repo/trees/feature", Destination: "/workspaces/app" }],
+    networks: {},
+    ...sizes,
+  });
+}
