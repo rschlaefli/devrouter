@@ -49,8 +49,8 @@
 | --- | --- | --- |
 | Cleanup package | delivered | PR #27 merged into `main` at `32c29dd`; the command remains report-only. |
 | Package allowlist | exists | `package.json` includes `bin`, `dist`, and `upgrade-prompts` in its published files. |
-| Built-command CI proof | implemented locally; remote pending | `.github/workflows/ci.yml` now runs `pnpm test:package` immediately after `pnpm build`; the required Ubuntu result remains a delivery gate. |
-| Packed-content proof | implemented locally; registry proof pending | `pnpm test:package` checks the exact local tarball, installed executable, and packaged prompts; registry-backed `npx @devrouter/cli` remains separate. |
+| Built-command CI proof | delivered | `.github/workflows/ci.yml` runs `pnpm test:package` immediately after `pnpm build`; the required Ubuntu `check` job passed on [PR #29](https://github.com/rschlaefli/devrouter/pull/29) before merge. |
+| Packed-content proof | delivered; registry proof pending | `pnpm test:package` checks the exact local tarball, installed executable, and packaged prompts; registry-backed `npx @devrouter/cli` remains separate. |
 | Upgrade prompt layout risk | present | `src/core/upgrade.ts` resolves prompts from the executable layout but also falls back to `process.cwd()`, so repository-local runs can hide missing package assets. |
 | Candidate command probes | available | `--help`, `-V --repo`, `upgrade --repo`, and `repo inspect --repo ... --json` are existing non-mutating commands. |
 
@@ -220,3 +220,11 @@ finish gate. A future executor must create that plan before implementation.
 - `2026-08-15`: The local package smoke and required CI step were implemented;
   remote CI evidence and PR delivery remain pending. No release or publication
   occurred.
+- `2026-08-16`: W1 was delivered in
+  [PR #29](https://github.com/rschlaefli/devrouter/pull/29). The required
+  `check` job passed with the package smoke running after `pnpm build`, and the
+  branch was squash-merged into `main` on 2026-08-15 at 18:25:28Z as
+  [f6718c6](https://github.com/rschlaefli/devrouter/commit/f6718c65a0e91dc6f7bb3b40ac1d328ab6a918cf).
+  No release, publication, global installation, Docker, DevPod, TLS, or live
+  cleanup action occurred. The registry-backed `npx` proof remains separate
+  scope.

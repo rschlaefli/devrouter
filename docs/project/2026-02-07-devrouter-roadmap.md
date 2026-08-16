@@ -6,7 +6,9 @@ Use the [documentation map](../README.md) for supported behavior, [AGENTS.md](..
 
 ## Next package
 
-- **W1 — [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md):** add a temporary tarball/install smoke for the built CLI, documented non-mutating command probes, and the corresponding CI check after `pnpm build`. This combines the command-regression and package-proof backlog without changing product behavior or publishing a release.
+None approved. W1 — [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md) was delivered in [PR #29](https://github.com/rschlaefli/devrouter/pull/29) and merged into `main` at [f6718c6](https://github.com/rschlaefli/devrouter/commit/f6718c65a0e91dc6f7bb3b40ac1d328ab6a918cf); it added `pnpm test:package` and the required CI step after `pnpm build`.
+
+The next package needs its own approval gate before planning starts. The near-term entries below are candidates, not decisions. The registry-backed `npx` proof and any publication or release work remain separate scope.
 
 ## Validation gates
 
@@ -36,7 +38,7 @@ Required checks for behavior and documentation consistency:
 - Add platform-specific durability coverage where filesystems expose stronger power-loss test hooks.
 - Expand diagnostics tests with mocked Docker responses for edge-case guidance.
 - Add command-level regression tests for documentation-backed behavior; the
-  next package's installed-CLI smoke covers this at the distribution boundary.
+  delivered installed-CLI smoke covers this at the distribution boundary.
 
 ### UX and operability
 
@@ -58,8 +60,8 @@ Required checks for behavior and documentation consistency:
 
 - Keep CI gates aligned with the validation gates above.
 - Keep documentation and knowledge validation mandatory in CI.
-- Ensure packaged assets include every upgrade prompt consumed at runtime; W1
-  owns the first executable proof of this boundary.
+- Ensure packaged assets include every upgrade prompt consumed at runtime;
+  `pnpm test:package` proves this boundary on every required CI run.
 
 ## Known risks
 
