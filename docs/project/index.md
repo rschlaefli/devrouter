@@ -4,6 +4,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [HTTP readiness leaf pin](./2026-08-21-http-readiness-leaf-pin-plan.md) — repair the macOS TLS readiness probe without changing lifecycle contracts.
 - [Devrouter roadmap](./2026-02-07-devrouter-roadmap.md) — current product and quality backlog.
 - [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md) — W2 specification for per-workspace storage consumption in the cleanup report.
 - [Workspace resource accounting plan](./2026-08-16-workspace-resource-accounting-plan.md) — W2 execution plan on `rs/workspace-resource-accounting`.

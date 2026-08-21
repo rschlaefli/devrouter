@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- HTTPS readiness probes pin curl to the exact certificate served by Traefik,
+  avoiding a macOS SecureTransport failure when loading the mkcert root while
+  retaining hostname verification and the existing route status contract.
+
 ## [0.0.36] - 2026-08-16
 
 ### Added
