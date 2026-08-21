@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { isTLSEnabled } from "./router";
+import { CERT_FILE, isTLSEnabled } from "./router";
 import { getMkcertRootCAPath } from "./tls";
 
 export type HttpRouteProbeResult = {
@@ -29,7 +29,10 @@ export function probeHttpRoute(
     String(options.maxTimeSeconds ?? 5),
   ];
   if (tlsEnabled) {
-    args.push("--cacert", getMkcertRootCAPath({ repoPath: options.repoPath }));
+    // Validate mkcert setup for actionable first-time guidance, then pin the
+    // probe to the exact certificate Traefik serves for this local route.
+    getMkcertRootCAPath({ repoPath: options.repoPath });
+    args.push("--cacert", CERT_FILE);
   }
   args.push(url);
 

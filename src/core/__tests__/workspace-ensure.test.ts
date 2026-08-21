@@ -41,6 +41,7 @@ vi.mock("../repo-config", () => ({
   resolveRepoPath: vi.fn((repo?: string) => repo ?? process.cwd()),
 }));
 vi.mock("../router", () => ({
+  CERT_FILE: "/certs/localhost.pem",
   DEVROUTER_HOME: "/tmp/devrouter-workspace-ensure-test",
   DEVNET_NAME: "devnet",
   TCP_PROTOCOL_REGISTRY: { postgres: { port: 5432, entrypoint: "postgres" } },

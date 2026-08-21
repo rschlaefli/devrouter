@@ -118,3 +118,6 @@ PR draft, and do not merge, deploy, or alter the existing dirty worktrees.
 - `2026-08-21`: Native planner review completed with `DONE_WITH_CONCERNS` and
   the leaf-pin correction was adopted. Source edits and runtime proof remain
   pending.
+- `2026-08-21`: The focused route-probe, devcontainer-verify, and
+  workspace-ensure suite passed (45 tests); Biome, docs policy, knowledge,
+  typecheck, and diff checks also passed. No runtime was started.
