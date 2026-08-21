@@ -4,11 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.37] - 2026-08-21
+
 ### Fixed
 
 - HTTPS readiness probes pin curl to the exact certificate served by Traefik,
   avoiding a macOS SecureTransport failure when loading the mkcert root while
   retaining hostname verification and the existing route status contract.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.37.md
 
 ## [0.0.36] - 2026-08-16
 
