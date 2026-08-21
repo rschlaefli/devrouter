@@ -121,3 +121,11 @@ PR draft, and do not merge, deploy, or alter the existing dirty worktrees.
 - `2026-08-21`: The focused route-probe, devcontainer-verify, and
   workspace-ensure suite passed (45 tests); Biome, docs policy, knowledge,
   typecheck, and diff checks also passed. No runtime was started.
+- `2026-08-21`: Exact-head verification passed: 588 Vitest tests, with the
+  macOS `/proc`-dependent process test explicitly skipped, plus build,
+  package smoke, docs policy, knowledge, Biome, Knip, typecheck, and diff
+  checks. The configured slice-reviewer route rejected its available
+  reasoning configuration; the native fallback review passed with no
+  correctness or TLS-security findings. The native final reviewer also
+  passed the committed implementation range. No runtime or browser proof was
+  rerun.
