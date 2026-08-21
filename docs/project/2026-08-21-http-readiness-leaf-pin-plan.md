@@ -7,7 +7,8 @@
 - Branch: `rs/http-readiness-leaf-pin`.
 - Worktree: `/Users/rschlae/Git/personal/devrouter/trees/rs-http-readiness-leaf-pin`.
 - Base and target: `origin/main` at `6ee4707cf372d25ddeb714e3fe1b779b484f3a6f` -> `main`.
-- Pull request: not created yet.
+- Pull request: draft [#32](https://github.com/rschlaefli/devrouter/pull/32),
+  targeting `main`; merge remains outside this task.
 
 This package repairs the host-side HTTPS readiness verifier used by
 `devrouter ensure` and `repo devcontainer verify`. The macOS SecureTransport
@@ -107,9 +108,9 @@ No new runtime, browser, provider, ingestion, or model proof is allowed in
 this package. The final reviewer inspects the integrated committed range only
 after fresh verification and before any completion or PR-readiness claim.
 
-Push and draft-PR creation remain a separate external boundary. If performed,
-use only `origin`, branch `rs/http-readiness-leaf-pin`, target `main`, keep the
-PR draft, and do not merge, deploy, or alter the existing dirty worktrees.
+The branch is published only to `origin` as `rs/http-readiness-leaf-pin`, and
+draft PR #32 targets `main`. Exact-head CI is required before merge; this task
+does not merge, deploy, or alter the existing dirty worktrees.
 
 ## Progress
 
@@ -129,3 +130,6 @@ PR draft, and do not merge, deploy, or alter the existing dirty worktrees.
   correctness or TLS-security findings. The native final reviewer also
   passed the committed implementation range. No runtime or browser proof was
   rerun.
+- `2026-08-21`: Published `rs/http-readiness-leaf-pin` to `origin` and opened
+  draft PR #32 against `main`. CI run `32491618356` passed at head `709e3a3`;
+  the PR remains draft and unmerged.
