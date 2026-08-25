@@ -4,6 +4,38 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.38] - 2026-08-25
+
+### Added
+
+- `profiles` in `.devrouter.yml`: named subsets of routed apps with optional
+  `dependencies` and `readiness` entries and at most one `default` profile.
+  `devrouter ensure <path> --profile <name>` (and `workspace ensure`) starts,
+  routes, and readiness-probes only the selected profile's apps; a config
+  without `profiles` keeps the implicit full behavior.
+- Comma-separated profile selections (`--profile manage,pwa`) union and
+  deduplicate apps, dependencies, and readiness entries. The merged name is
+  canonicalized (sorted unique) so `pwa,manage` and `manage,pwa` share one
+  managed-process fingerprint and route-generation tag; a wildcard member
+  collapses the selection to everything.
+- Managed adapters receive `DEVROUTER_PROFILE` (the canonical resolved profile
+  name) in the post-start environment so repository-owned adapters can scope
+  their dev process tree to the same selection. Profile switches replace the
+  owned process group through the existing fingerprint mechanism.
+
+### Compatibility
+
+- `.devrouter.yml` without `profiles` behaves exactly as before; no migration
+  is required. The `profiles` key is validated strictly (unknown keys, unknown
+  app/dependency/readiness references, and multiple defaults are rejected at
+  config-load time).
+- `ensure` result JSON and human output gained a `profile` field; consumers
+  that parse ensure output must accept the additional key.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.38.md
+
 ## [0.0.37] - 2026-08-21
 
 ### Fixed

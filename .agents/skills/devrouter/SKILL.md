@@ -112,6 +112,31 @@ healthcheck:
   retries: 20
 ```
 
+## Profiles
+
+Optional named subsets of routed apps in `.devrouter.yml` so `ensure` can start only what a task needs:
+
+```yaml
+profiles:
+  manage:
+    apps: [manage, api, auth]
+    readiness: [manage, api]
+  pwa:
+    apps: [pwa, api, auth]
+    readiness: [pwa, api]
+  full:
+    apps: ['*']
+    default: true
+```
+
+- `apps` (required): routed app names (`kind=app`) or `['*']` for everything.
+- `dependencies` (optional): `kind=dependency` services this profile needs; omitted = every dependency a kept app requires transitively.
+- `readiness` (optional): subset of the profile's apps that `ensure` HTTP-probes; omitted = all profile apps with an http route.
+- `default` (optional): at most one; used when `--profile` is omitted. No `profiles` key at all = implicit full behavior.
+- Validation is strict at config load: unknown keys, non-routed `apps`, non-dependency `dependencies`, `readiness` outside the profile's apps, and multiple defaults are rejected.
+- Selection: `devrouter ensure <path> --profile <name>`. Comma-separated selections (`--profile manage,pwa`) merge with deduplication; the canonical name is sorted-unique so order never affects identity or fingerprints. A wildcard member collapses to everything.
+- Managed adapters receive `DEVROUTER_PROFILE` (canonical resolved name) in the post-start env; profile switches replace the owned process group via the fingerprint.
+
 ## Env var injection
 
 When a host app depends on a TCP Docker service, `devrouter app run` and `devrouter app exec` inject per-dep deterministic vars (where `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`):
