@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DevrouterApp, DevrouterConfig } from "../../types";
 import { formatSupportedTcpProtocols } from "../capabilities";
 import {
+  applyProfile,
   applyWorkspace,
   initRepoConfig,
   loadRepoConfig,
+  loadRuntimeConfig,
   removeRepoApp,
   resolveAppByName,
   resolveAppDependencies,
+  resolveProfile,
   upsertRepoApp,
 } from "../repo-config";
 
@@ -988,5 +991,287 @@ apps:
     expect(config.apps.map((a) => (a.kind !== "dependency" ? a.host : undefined))).toContain(
       "web.feat-x.localhost",
     );
+  });
+});
+
+describe("profiles", () => {
+  function writeProfileConfig(dir: string, profilesYaml: string): void {
+    writeConfig(
+      dir,
+      `version: 1
+project:
+  name: myapp
+${profilesYaml}
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: docker
+    docker:
+      service: web
+      internalPort: 3000
+      composeFiles: [docker-compose.yml]
+    dependencies:
+      - app: db
+  - name: api
+    host: api.localhost
+    protocol: http
+    runtime: proxy
+    upstream: \${WORKSPACE}-api:4000
+  - name: db
+    kind: dependency
+    runtime: docker
+    docker:
+      service: db
+      composeFiles: [docker-compose.yml]
+`,
+    );
+  }
+
+  it("loads configs without profiles unchanged", () => {
+    writeProfileConfig(tmpDir, "");
+    const config = loadRepoConfig(tmpDir);
+    expect(config.profiles).toBeUndefined();
+    const resolved = resolveProfile(config);
+    expect(resolved.name).toBe("full");
+    expect(resolved.profile).toBeUndefined();
+  });
+
+  it("validates profile app references against routed apps", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web, missing]
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/references 'missing', which is not a routed app/);
+  });
+
+  it("rejects dependency names in profile apps", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web, db]
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/'db', which is not a routed app/);
+  });
+
+  it("requires profile dependencies to be kind=dependency apps", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web]
+    dependencies: [api]
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/'api', which is not kind=dependency/);
+  });
+
+  it("rejects readiness entries outside the profile apps", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web]
+    readiness: [api]
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/readiness references 'api'/);
+  });
+
+  it("rejects more than one default profile", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web]
+    default: true
+  everything:
+    apps: ["*"]
+    default: true
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/at most one default profile/);
+  });
+
+  it("rejects unknown profile keys and empty apps", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web]
+    bogus: true
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/bogus is not supported/);
+
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  empty:
+    apps: []
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/apps must not be empty/);
+  });
+
+  it("resolves the declared default profile without an override", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web]
+  everything:
+    apps: ["*"]
+    default: true
+`,
+    );
+    const config = loadRepoConfig(tmpDir);
+    const resolved = resolveProfile(config);
+    expect(resolved.name).toBe("everything");
+    expect(resolveProfile(config, "ui").name).toBe("ui");
+    expect(() => resolveProfile(config, "nope")).toThrow(/Profile 'nope' is not defined/);
+  });
+
+  it("falls back to full behavior when profiles declare no default", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web]
+`,
+    );
+    const resolved = resolveProfile(loadRepoConfig(tmpDir));
+    expect(resolved.name).toBe("full");
+    expect(resolved.profile).toBeUndefined();
+  });
+
+  it("filters apps and keeps transitive dependencies", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web]
+`,
+    );
+    const config = loadRepoConfig(tmpDir);
+    const { profile } = resolveProfile(config, "ui");
+    const filtered = applyProfile(config, profile);
+    expect(filtered.apps.map((app) => app.name).sort()).toEqual(["db", "web"]);
+    // The committed config object is untouched.
+    expect(config.apps).toHaveLength(3);
+  });
+
+  it("keeps wildcard profiles byte-identical", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  everything:
+    apps: ["*"]
+    default: true
+`,
+    );
+    const config = loadRepoConfig(tmpDir);
+    const { profile } = resolveProfile(config);
+    expect(applyProfile(config, profile)).toBe(config);
+  });
+
+  it("threads the profile through loadRuntimeConfig", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  ui:
+    apps: [web]
+`,
+    );
+    const { config, profile } = loadRuntimeConfig(tmpDir, "", "ui");
+    expect(profile).toBe("ui");
+    expect(config.apps.map((app) => app.name).sort()).toEqual(["db", "web"]);
+    expect(() => loadRuntimeConfig(tmpDir, "", "nope")).toThrow(/Profile 'nope' is not defined/);
+  });
+});
+
+describe("profile merging", () => {
+  function writeMergeConfig(dir: string): void {
+    writeConfig(
+      dir,
+      `version: 1
+project:
+  name: myapp
+profiles:
+  manage:
+    apps: [web]
+    readiness: [web]
+  pwa:
+    apps: [api]
+    readiness: [api]
+  chat:
+    apps: [web, api]
+    readiness: [web]
+  everything:
+    apps: ["*"]
+    default: true
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: proxy
+    upstream: \${WORKSPACE}-web:3000
+  - name: api
+    host: api.localhost
+    protocol: http
+    runtime: proxy
+    upstream: \${WORKSPACE}-api:4000
+`,
+    );
+  }
+
+  it("merges two profiles with deduplicated apps and union readiness", () => {
+    writeMergeConfig(tmpDir);
+    const config = loadRepoConfig(tmpDir);
+    const { name, profile } = resolveProfile(config, "manage,pwa");
+    expect(name).toBe("manage,pwa"); // canonical: sorted
+    expect(profile?.apps.sort()).toEqual(["api", "web"]);
+    expect(profile?.readiness?.sort()).toEqual(["api", "web"]);
+    const filtered = applyProfile(config, profile);
+    expect(filtered.apps.map((app) => app.name).sort()).toEqual(["api", "web"]);
+  });
+
+  it("canonicalizes order so pwa,manage equals manage,pwa", () => {
+    writeMergeConfig(tmpDir);
+    const config = loadRepoConfig(tmpDir);
+    expect(resolveProfile(config, "pwa,manage").name).toBe("manage,pwa");
+  });
+
+  it("drops duplicate names and whitespace in a selection", () => {
+    writeMergeConfig(tmpDir);
+    const config = loadRepoConfig(tmpDir);
+    const { name, profile } = resolveProfile(config, " chat , manage , chat ");
+    expect(name).toBe("chat,manage");
+    expect(profile?.apps.sort()).toEqual(["api", "web"]);
+  });
+
+  it("a wildcard in the selection collapses to everything", () => {
+    writeMergeConfig(tmpDir);
+    const config = loadRepoConfig(tmpDir);
+    const { profile } = resolveProfile(config, "manage,everything");
+    expect(profile?.apps).toEqual(["*"]);
+  });
+
+  it("rejects a merged selection with an unknown member", () => {
+    writeMergeConfig(tmpDir);
+    const config = loadRepoConfig(tmpDir);
+    expect(() => resolveProfile(config, "manage,nope")).toThrow(/Profile 'nope' is not defined/);
+  });
+
+  it("threads a merged selection through loadRuntimeConfig", () => {
+    writeMergeConfig(tmpDir);
+    const { config, profile } = loadRuntimeConfig(tmpDir, "", "pwa,chat");
+    expect(profile).toBe("chat,pwa");
+    expect(config.apps.map((app) => app.name).sort()).toEqual(["api", "web"]);
   });
 });

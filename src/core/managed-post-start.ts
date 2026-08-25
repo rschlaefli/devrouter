@@ -153,6 +153,7 @@ export function runManagedPostStart(options: {
   plan: ManagedPostStartPlan;
   container: ValidatedContainer;
   quiet?: boolean;
+  profile?: string;
 }): void {
   if (options.plan.kind !== "runtime") return;
 
@@ -182,6 +183,7 @@ export function runManagedPostStart(options: {
       `DEVROUTER_PROCESS_HELPER=${RUNTIME_HELPER_PATH}`,
       "--env",
       `DEVROUTER_PROCESS_ADAPTER_SHA256=${options.plan.adapterSha256}`,
+      ...(options.profile ? ["--env", `DEVROUTER_PROFILE=${options.profile}`] : []),
       options.container.id,
       "bash",
       "-c",
@@ -193,6 +195,6 @@ export function runManagedPostStart(options: {
   );
   if (started.status !== 0) {
     const details = commandFailure(started);
-    throw new Error(`Managed post-start failed${details ? `: ${details}` : "."}`);
+    throw new Error(`Managed post-start failed${details ? `: ${details}.` : "."}`);
   }
 }

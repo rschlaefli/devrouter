@@ -136,7 +136,22 @@ export type DevrouterConfig = {
     command: string;
     defaultEnv?: string;
   };
+  profiles?: Record<string, DevrouterProfile>;
   apps: DevrouterApp[];
+};
+
+// Named subset of routed apps (+ optional dependency services) that
+// `ensure --profile <name>` starts, routes, and probes. A config without
+// `profiles` behaves exactly as before (implicit full profile).
+export type DevrouterProfile = {
+  // Routed app names, or ["*"] for every routed app.
+  apps: string[];
+  // kind=dependency services this profile needs. Omitted = all dependencies.
+  dependencies?: string[];
+  // Routed apps `ensure` HTTP-probes before declaring readiness. Omitted = all
+  // profile apps with an http route.
+  readiness?: string[];
+  default?: boolean;
 };
 
 export type DevrouterAppDependency = {

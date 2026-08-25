@@ -3,6 +3,7 @@ import { resolveGitCheckoutPath } from "./environment-path";
 
 export async function runEnsureCommand(options: {
   path?: string;
+  profile?: string;
   open?: boolean;
   json?: boolean;
 }): Promise<void> {
@@ -10,13 +11,17 @@ export async function runEnsureCommand(options: {
   const result = await workspaceEnsure(repoPath, {
     open: options.open,
     quiet: Boolean(options.json),
+    profile: options.profile,
   });
   if (options.json) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;
   }
 
-  const label = result.kind === "primary" ? "Primary checkout" : `Workspace '${result.workspace}'`;
+  const label =
+    result.kind === "primary"
+      ? `Primary checkout [profile: ${result.profile}]`
+      : `Workspace '${result.workspace}' [profile: ${result.profile}]`;
   const routes = result.urls.map((url) => `  ${url}`).join("\n");
   process.stdout.write(`${label} is ready (${result.devpodId}).\n${routes}${routes ? "\n" : ""}`);
 }

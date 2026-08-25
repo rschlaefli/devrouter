@@ -8,6 +8,7 @@ import type {
   DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
   DevrouterHostHttpApp,
+  DevrouterProfile,
 } from "../types";
 import {
   DEPENDENCY_ONLY_RUNTIME,
@@ -481,7 +482,11 @@ function parseApp(value: unknown, index: number): DevrouterApp {
 
 function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
   const root = ensureObject(raw, configPath);
-  ensureAllowedKeys(root, ["version", "devrouter", "project", "secretManager", "apps"], configPath);
+  ensureAllowedKeys(
+    root,
+    ["version", "devrouter", "project", "secretManager", "profiles", "apps"],
+    configPath,
+  );
 
   const version = toIntegerOrThrow(root.version, `${configPath}.version`);
   if (version !== 1) {
@@ -559,6 +564,8 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
     seenNames.add(app.name);
   }
 
+  const profiles = parseProfiles(root.profiles, configPath, apps);
+
   return {
     version: 1,
     ...(devrouter ? { devrouter } : {}),
@@ -567,8 +574,255 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
         ? { name: (root.project as { name?: string }).name }
         : undefined,
     ...(secretManager ? { secretManager } : {}),
+    ...(profiles ? { profiles } : {}),
     apps,
   };
+}
+
+const PROFILE_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const MAX_PROFILES = 32;
+
+// Parse and validate the optional `profiles` map. Cross-references against
+// `apps` (existence, readiness subset) are checked here so a broken profile
+// graph fails at config-load time, not mid-ensure.
+function parseProfiles(
+  value: unknown,
+  configPath: string,
+  apps: DevrouterApp[],
+): DevrouterConfig["profiles"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const raw = ensureObject(value, `${configPath}.profiles`);
+  if (Object.keys(raw).length === 0) {
+    throw new Error(`${configPath}.profiles must define at least one profile.`);
+  }
+  if (Object.keys(raw).length > MAX_PROFILES) {
+    throw new Error(`${configPath}.profiles exceeds the maximum of ${MAX_PROFILES} profiles.`);
+  }
+
+  const routedNames = new Set(
+    apps.filter((app) => app.kind !== "dependency").map((app) => app.name),
+  );
+
+  const result: Record<string, DevrouterProfile> = {};
+  let defaultCount = 0;
+  for (const [name, profileValue] of Object.entries(raw)) {
+    if (!PROFILE_NAME_RE.test(name)) {
+      throw new Error(
+        `${configPath}.profiles.${name} is not a valid profile name (lowercase alphanumerics and hyphens).`,
+      );
+    }
+    const profile = ensureObject(profileValue, `${configPath}.profiles.${name}`);
+    ensureAllowedKeys(
+      profile,
+      ["apps", "dependencies", "readiness", "default"],
+      `${configPath}.profiles.${name}`,
+    );
+
+    const profileApps = toStringArray(profile.apps, `${configPath}.profiles.${name}.apps`);
+    if (profileApps.length === 0) {
+      throw new Error(`${configPath}.profiles.${name}.apps must not be empty.`);
+    }
+    const isWildcard = profileApps.length === 1 && profileApps[0] === "*";
+    if (!isWildcard) {
+      for (const appName of profileApps) {
+        if (!routedNames.has(appName)) {
+          throw new Error(
+            `${configPath}.profiles.${name}.apps references '${appName}', which is not a routed app (kind=app).`,
+          );
+        }
+      }
+    }
+
+    let dependencies: string[] | undefined;
+    if (profile.dependencies !== undefined) {
+      dependencies = toStringArray(
+        profile.dependencies,
+        `${configPath}.profiles.${name}.dependencies`,
+      );
+      for (const depName of dependencies) {
+        const dependency = apps.find((candidate) => candidate.name === depName);
+        if (!dependency) {
+          throw new Error(
+            `${configPath}.profiles.${name}.dependencies references '${depName}', which does not exist in apps.`,
+          );
+        }
+        if (dependency.kind !== "dependency") {
+          throw new Error(
+            `${configPath}.profiles.${name}.dependencies references '${depName}', which is not kind=dependency.`,
+          );
+        }
+      }
+    }
+
+    let readiness: string[] | undefined;
+    if (profile.readiness !== undefined) {
+      readiness = toStringArray(profile.readiness, `${configPath}.profiles.${name}.readiness`);
+      const appSet = new Set(isWildcard ? Array.from(routedNames) : profileApps);
+      for (const readyName of readiness) {
+        if (!appSet.has(readyName)) {
+          throw new Error(
+            `${configPath}.profiles.${name}.readiness references '${readyName}', which is not in the profile's apps.`,
+          );
+        }
+      }
+    }
+
+    let isDefault = false;
+    if (profile.default !== undefined) {
+      if (typeof profile.default !== "boolean") {
+        throw new Error(`${configPath}.profiles.${name}.default must be a boolean.`);
+      }
+      isDefault = profile.default;
+    }
+
+    if (isDefault) {
+      defaultCount += 1;
+    }
+
+    result[name] = {
+      apps: profileApps,
+      ...(dependencies ? { dependencies } : {}),
+      ...(readiness ? { readiness } : {}),
+      ...(isDefault ? { default: true } : {}),
+    };
+  }
+
+  if (defaultCount > 1) {
+    throw new Error(`${configPath}.profiles must have at most one default profile.`);
+  }
+
+  return result;
+}
+
+// Resolve the effective profile for a config. Explicit selection wins; without
+// one, the config's default profile applies, and a config without `profiles`
+// keeps the implicit full profile (undefined = everything).
+//
+// A selection may name several profiles separated by commas (e.g. `manage,pwa`).
+// The union is deduplicated across apps, dependencies, and readiness entries;
+// readiness entries of every selected profile are kept. `default` flags are
+// ignored when combining — a merged selection is never treated as a default.
+export function resolveProfile(
+  config: DevrouterConfig,
+  profileOverride?: string,
+): { name: string; profile?: DevrouterProfile } {
+  const profiles = config.profiles;
+
+  const mergeSelection = (selection: string): { name: string; profile?: DevrouterProfile } => {
+    const names = Array.from(
+      new Set(
+        selection
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean),
+      ),
+    );
+    if (names.length === 0) {
+      throw new Error("Profile selection is empty.");
+    }
+    const missing = names.filter((name) => !profiles?.[name]);
+    if (missing.length > 0) {
+      const available = profiles ? Object.keys(profiles).join(", ") : "(none defined)";
+      throw new Error(
+        `Profile '${missing[0]}' is not defined in .devrouter.yml. Available: ${available}`,
+      );
+    }
+    if (names.length === 1) {
+      return { name: names[0], profile: profiles?.[names[0]] };
+    }
+
+    // Canonical merged name: sorted unique selection, so `pwa,manage` and
+    // `manage,pwa` share one fingerprint and one route-generation tag.
+    const canonicalName = [...names].sort().join(",");
+
+    const apps = new Set<string>();
+    const dependencies = new Set<string>();
+    const readiness = new Set<string>();
+    let hasWildcard = false;
+    for (const name of names) {
+      const profile = profiles?.[name];
+      if (!profile) continue;
+      if (profile.apps.length === 1 && profile.apps[0] === "*") {
+        hasWildcard = true;
+        continue;
+      }
+      for (const appName of profile.apps) apps.add(appName);
+      for (const depName of profile.dependencies ?? []) dependencies.add(depName);
+      for (const readyName of profile.readiness ?? []) readiness.add(readyName);
+    }
+
+    if (hasWildcard) {
+      // A wildcard profile swallows the union: it already means "everything".
+      return { name: canonicalName, profile: { apps: ["*"] } };
+    }
+
+    const merged: DevrouterProfile = {
+      apps: Array.from(apps),
+      ...(dependencies.size > 0 ? { dependencies: Array.from(dependencies) } : {}),
+      ...(readiness.size > 0 ? { readiness: Array.from(readiness) } : {}),
+    };
+    return { name: canonicalName, profile: merged };
+  };
+
+  if (profileOverride !== undefined) {
+    return mergeSelection(profileOverride);
+  }
+  if (profiles) {
+    const defaultName = Object.keys(profiles).find((name) => profiles[name].default);
+    if (defaultName) {
+      return { name: defaultName, profile: profiles[defaultName] };
+    }
+    // Profiles exist but none is default: full behavior (all apps).
+    return { name: "full", profile: undefined };
+  }
+  return { name: "full", profile: undefined };
+}
+
+// Filter a runtime config down to a profile's apps. Dependencies: a profile with
+// explicit `dependencies` keeps exactly those; otherwise every dependency that a
+// kept app (transitively) requires is preserved.
+export function applyProfile(
+  config: DevrouterConfig,
+  profile: DevrouterProfile | undefined,
+): DevrouterConfig {
+  if (!profile || (profile.apps.length === 1 && profile.apps[0] === "*")) {
+    return config;
+  }
+
+  const appSet = new Set(profile.apps);
+  const next = structuredClone(config);
+  const kept: DevrouterApp[] = [];
+  const keptDependencies = new Set<string>();
+  for (const app of next.apps) {
+    if (app.kind === "dependency") {
+      continue; // decided after dependency closure below
+    }
+    if (!appSet.has(app.name)) {
+      continue;
+    }
+    // Transitively collect every dependency this app requires.
+    for (const dependency of resolveAppDependencies(config, app)) {
+      keptDependencies.add(dependency.name);
+    }
+    kept.push(app);
+  }
+
+  // Explicit profile dependencies are additive (a profile may need a service no
+  // routed app in the profile references).
+  for (const dependencyName of profile.dependencies ?? []) {
+    keptDependencies.add(dependencyName);
+  }
+
+  for (const app of next.apps) {
+    if (app.kind === "dependency" && keptDependencies.has(app.name)) {
+      kept.push(app);
+    }
+  }
+
+  next.apps = kept;
+  return next;
 }
 
 function renderConfig(config: DevrouterConfig): string {
@@ -1006,15 +1260,22 @@ export function applyWorkspace(
  * surface sees consistent namespaced hosts/upstreams. Config-authoring/read
  * commands that show the committed template (`app ls`, `upgrade`, `app add/rm`)
  * keep using raw `loadRepoConfig`.
+ *
+ * When `profileOverride` is set, the config is additionally filtered to that
+ * profile's apps/dependencies (`applyProfile`); without an override, the config's
+ * default profile applies when one is declared, else everything stays.
  */
 export function loadRuntimeConfig(
   repoPath?: string,
   workspaceOverride?: string,
-): { config: DevrouterConfig; workspace: string | undefined } {
+  profileOverride?: string,
+): { config: DevrouterConfig; workspace: string | undefined; profile: string } {
   const resolved = resolveRepoPath(repoPath);
   const raw = loadRepoConfig(resolved);
+  const resolvedProfile = resolveProfile(raw, profileOverride);
   const workspace = resolveWorkspace(resolved, workspaceOverride);
-  return { config: applyWorkspace(raw, workspace, resolved), workspace };
+  const config = applyProfile(applyWorkspace(raw, workspace, resolved), resolvedProfile.profile);
+  return { config, workspace, profile: resolvedProfile.name };
 }
 
 export function resolveAppByName(

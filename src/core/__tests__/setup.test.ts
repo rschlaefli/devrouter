@@ -55,6 +55,7 @@ beforeEach(() => {
     hosts: ["localhost", "*.localhost"],
   });
   vi.mocked(loadRuntimeConfig).mockReturnValue({
+    profile: "full",
     workspace: undefined,
     config: {
       version: 1,
