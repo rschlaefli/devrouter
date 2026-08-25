@@ -72,6 +72,7 @@ describe("runOpenCommand", () => {
       duplicateHosts: [],
     });
     vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
       workspace: undefined,
       config: {
         version: 1,
@@ -112,6 +113,7 @@ describe("runOpenCommand", () => {
       duplicateHosts: [],
     });
     vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
       workspace: undefined,
       config: {
         version: 1,
@@ -144,6 +146,7 @@ describe("runOpenCommand", () => {
       duplicateHosts: [],
     });
     vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
       workspace: undefined,
       config: {
         version: 1,

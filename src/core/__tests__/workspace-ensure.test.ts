@@ -284,6 +284,7 @@ describe("workspaceEnsure", () => {
       "utf-8",
     );
     vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
       workspace: "feature",
       config: {
         version: 1,
@@ -421,6 +422,7 @@ describe("workspaceEnsure", () => {
       force: true,
     });
     vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
       workspace: undefined,
       config: {
         version: 1,
@@ -582,7 +584,7 @@ describe("workspaceEnsure", () => {
 
     await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
 
-    expect(loadRuntimeConfig).toHaveBeenCalledWith(tmpDir, "");
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(tmpDir, "", undefined);
   });
 
   it("rejects duplicate primary path owners before startup or route mutation", async () => {
@@ -695,6 +697,7 @@ describe("workspaceEnsure", () => {
       plan,
       container: { id: "app-id", workspacePath: "/workspaces/repo" },
       quiet: undefined,
+      profile: "full",
     });
   });
 
@@ -828,6 +831,7 @@ describe("workspaceEnsure", () => {
 
   it("rejects a TCP upstream whose workspace ownership cannot be proved", async () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
       workspace: "feature",
       config: {
         version: 1,
@@ -860,6 +864,7 @@ describe("workspaceEnsure", () => {
 
   it("rejects an HTTP upstream outside the exact workspace namespace", async () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
       workspace: "feature",
       config: {
         version: 1,

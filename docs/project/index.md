@@ -7,6 +7,7 @@ Plans live here as dated execution records. Active records may change; delivered
 - [Devrouter roadmap](./2026-02-07-devrouter-roadmap.md) — current product and quality backlog.
 - [Open-source release plan](./2026-02-08-open-source-release-plan.md) — remaining portability, CI, and release-verification work.
 - [Workspace safety hardening](./2026-07-18-pr-25-workspace-safety-hardening-plan.md) — reviewed `0.0.35` safety candidate in [PR #25](https://github.com/rschlaefli/devrouter/pull/25).
+- [Profiles, leases, and resource lifecycle](./2026-08-24-profiles-leases-resource-plan.md) — profile-scoped ensure, lease-based idle tracking, and mode diagnostics for `0.0.36`.
 - [Documentation and OKF rework](./2026-07-18-docs-okf-rework-plan.md) — current documentation architecture change.
 
 ## Delivered history

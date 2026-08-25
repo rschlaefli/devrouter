@@ -96,14 +96,16 @@ program
   .command("ensure")
   .description("Start and prove a primary or linked checkout's environment and routes")
   .argument("[path]", "Git checkout path (defaults to current directory)")
+  .option("--profile <name>", "Start only this profile's apps/dependencies from .devrouter.yml")
   .option("--open", "Open HTTP routes after readiness succeeds")
   .option("--json", "Output JSON")
   .action(
     withErrorHandling(async (repoPath: string | undefined, _options: unknown, command: Command) => {
-      const options = command.opts<{ open?: boolean; json?: boolean }>();
+      const options = command.opts<{ profile?: string; open?: boolean; json?: boolean }>();
       const { runEnsureCommand } = await import("./commands/ensure");
       await runEnsureCommand({
         path: repoPath,
+        profile: options.profile,
         open: Boolean(options.open),
         json: Boolean(options.json),
       });
@@ -499,15 +501,17 @@ workspaceCommand
   .command("ensure")
   .description("Start and prove a primary or linked checkout's DevPod, upstreams, and routes")
   .argument("[path]", "Git checkout path (defaults to current directory)")
+  .option("--profile <name>", "Start only this profile's apps/dependencies from .devrouter.yml")
   .option("--open", "Open HTTP routes after readiness succeeds")
   .option("--json", "Output JSON")
   .action(
     withErrorHandling(
       async (worktreePath: string | undefined, _options: unknown, command: Command) => {
-        const options = command.opts<{ open?: boolean; json?: boolean }>();
+        const options = command.opts<{ profile?: string; open?: boolean; json?: boolean }>();
         const { runEnsureCommand } = await import("./commands/ensure");
         await runEnsureCommand({
           path: worktreePath,
+          profile: options.profile,
           open: Boolean(options.open),
           json: Boolean(options.json),
         });

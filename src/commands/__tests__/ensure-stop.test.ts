@@ -22,11 +22,12 @@ describe("canonical environment commands", () => {
         kind: "primary" as const,
         repoPath: "/repo",
         devpodId: "repo",
+        profile: "full",
         urls: ["https://web.localhost"],
         recreated: false,
         tlsRefreshed: false,
       },
-      expected: "Primary checkout is ready (repo).\n  https://web.localhost\n",
+      expected: "Primary checkout [profile: full] is ready (repo).\n  https://web.localhost\n",
     },
     {
       result: {
@@ -34,11 +35,13 @@ describe("canonical environment commands", () => {
         repoPath: "/repo/trees/feature",
         workspace: "feature",
         devpodId: "feature",
+        profile: "full",
         urls: ["https://web.feature.localhost"],
         recreated: false,
         tlsRefreshed: false,
       },
-      expected: "Workspace 'feature' is ready (feature).\n  https://web.feature.localhost\n",
+      expected:
+        "Workspace 'feature' [profile: full] is ready (feature).\n  https://web.feature.localhost\n",
     },
   ])("ensures $result.kind checkouts through one command", async ({ result, expected }) => {
     vi.mocked(workspaceEnsure).mockResolvedValue(result);
@@ -46,7 +49,11 @@ describe("canonical environment commands", () => {
 
     await runEnsureCommand({ path: result.repoPath, open: true });
 
-    expect(workspaceEnsure).toHaveBeenCalledWith(result.repoPath, { open: true, quiet: false });
+    expect(workspaceEnsure).toHaveBeenCalledWith(result.repoPath, {
+      open: true,
+      quiet: false,
+      profile: undefined,
+    });
     expect(write).toHaveBeenCalledWith(expected);
   });
 
@@ -55,6 +62,7 @@ describe("canonical environment commands", () => {
       kind: "linked" as const,
       repoPath: "/repo/trees/feature",
       workspace: "feature",
+      profile: "full",
       devpodId: "feature",
       urls: ["https://web.feature.localhost"],
       recreated: true,

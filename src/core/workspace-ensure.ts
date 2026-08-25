@@ -40,6 +40,7 @@ export type WorkspaceEnsureResult = {
   kind: "primary" | "linked";
   repoPath: string;
   workspace?: string;
+  profile: string;
   devpodId: string;
   urls: string[];
   recreated: boolean;
@@ -69,6 +70,7 @@ type ValidatedWorkspaceContainer = {
 type WorkspaceEnsureOptions = {
   open?: boolean;
   quiet?: boolean;
+  profile?: string;
   containerTimeoutMs?: number;
   httpTimeoutMs?: number;
 };
@@ -356,6 +358,7 @@ export async function workspaceEnsure(
       const runtime = loadRuntimeConfig(
         repoPath,
         target.kind === "primary" ? "" : target.workspace,
+        options.profile,
       );
       const apps = proxyAppsFromConfig(runtime.config);
       const parsedUpstreams = apps.map((app) => parseUpstream(app.upstream));
@@ -447,6 +450,7 @@ export async function workspaceEnsure(
         plan: managedPostStart,
         container,
         quiet: options.quiet,
+        profile: runtime.profile,
       });
 
       const publication = await replacePublishedProxyRoutes(
@@ -470,6 +474,7 @@ export async function workspaceEnsure(
           plan: managedPostStart,
           container: recoveredContainer,
           quiet: options.quiet,
+          profile: runtime.profile,
         });
         recreated = true;
         replaceHostRoutesForRepo(repoPath, publication.routes);
@@ -497,6 +502,7 @@ export async function workspaceEnsure(
         kind: target.kind,
         repoPath,
         workspace: target.workspace,
+        profile: runtime.profile,
         devpodId,
         urls,
         recreated,
