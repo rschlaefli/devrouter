@@ -126,6 +126,8 @@ function resolveComposeFiles(
       ...fileArgs,
       "config",
       "--services",
+      "--no-interpolate",
+      "--no-env-resolution",
     ],
     { cwd: directory, encoding: "utf-8" },
   );
