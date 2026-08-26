@@ -545,7 +545,10 @@ describe("workspaceEnsure", () => {
       generatedPath: path.join(composeDirectory, "devcontainer.devrouter.json"),
       generatedRelativePath: ".devcontainer/devcontainer.devrouter.json",
       sourceConfigSha256: "a".repeat(64),
-      effectiveConfigSha256: "b".repeat(64),
+      effectiveConfigSha256:
+        desiredProfileServices.length === 1 && desiredProfileServices[0] === "redis"
+          ? "d".repeat(64)
+          : "b".repeat(64),
       primaryService: "app",
       composeDirectory,
       composeFiles,
@@ -651,7 +654,9 @@ describe("workspaceEnsure", () => {
     });
     const listedDevpod = JSON.stringify([{ id: "feature", source: { localFolder: tmpDir } }]);
 
-    vi.mocked(inspectManagedDevcontainerConfig).mockReturnValue(managedPlanFor(["litellm"]));
+    vi.mocked(inspectManagedDevcontainerConfig).mockImplementation(({ profile }) =>
+      managedPlanFor(profile?.devcontainerServices ?? ["litellm"]),
+    );
     vi.mocked(writeManagedDevcontainerConfig).mockImplementation(() => {
       events.push("config-write");
     });
@@ -859,6 +864,34 @@ describe("workspaceEnsure", () => {
     ]);
     expect(writeManagedRuntimeState).not.toHaveBeenCalled();
     expect(events.filter((event) => event === "routes:1")).toHaveLength(2);
+  });
+
+  it("refuses a new transition when the last managed state is degraded", async () => {
+    const events: string[] = [];
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle({ events });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      ...managedPreviousState(),
+      status: "degraded",
+      transitionPhase: "rollback",
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed runtime state is degraded");
+
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(inspectManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
   });
 
   it("reuses an exact primary DevPod without linked ownership metadata", async () => {

@@ -137,6 +137,17 @@ describe("managed Dev Container config", () => {
     expect(fs.existsSync(path.join(tmpDir, MANAGED_DEVCONTAINER_PATH))).toBe(false);
   });
 
+  it("rejects a selected service outside the declared managed registry", () => {
+    expect(() =>
+      inspectManagedDevcontainerConfig({
+        repoPath: tmpDir,
+        config: managedConfig,
+        profile: { apps: [], devcontainerServices: ["missing"] },
+        linked: false,
+      }),
+    ).toThrow(/selects unregistered managed services: missing/);
+  });
+
   it("uses exact project and service arguments for warm additions without recreate", () => {
     const plan = inspectManagedDevcontainerConfig({
       repoPath: tmpDir,

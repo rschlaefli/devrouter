@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { DevrouterProxyApp, HostRouteState } from "../types";
+import type { DevrouterConfig, DevrouterProxyApp, HostRouteState } from "../types";
 import {
   inspectManagedDevcontainerConfig,
   type ManagedDevcontainerPlan,
@@ -136,16 +136,30 @@ function exactWorkspaceServiceContainers(
   repoPath: string,
   composeProject: string,
   service: string,
+  composeFiles?: string[],
 ): WorkspaceContainerSnapshot[] {
-  return containers.filter(
-    (container) =>
-      container.labels["com.docker.compose.project"] === composeProject &&
-      container.labels["com.docker.compose.service"] === service &&
-      sameWorkspacePath(
+  return containers.filter((container) => {
+    if (
+      container.labels["com.docker.compose.project"] !== composeProject ||
+      container.labels["com.docker.compose.service"] !== service ||
+      !sameWorkspacePath(
         container.labels["com.docker.compose.project.working_dir"] ?? "",
         path.join(repoPath, ".devcontainer"),
-      ),
-  );
+      )
+    ) {
+      return false;
+    }
+    if (!composeFiles) return true;
+    const actualFiles = (container.labels["com.docker.compose.project.config_files"] ?? "")
+      .split(",")
+      .filter(Boolean);
+    return (
+      actualFiles.length === composeFiles.length &&
+      composeFiles.every((expected) =>
+        actualFiles.some((actual) => sameWorkspacePath(actual, expected)),
+      )
+    );
+  });
 }
 
 function resolveComposeProject(
@@ -153,6 +167,7 @@ function resolveComposeProject(
   repoPath: string,
   appContainerId: string,
   primaryService: string,
+  composeFiles: string[],
 ): string {
   const app = containers.find((candidate) => candidate.id === appContainerId);
   if (!app) {
@@ -170,6 +185,17 @@ function resolveComposeProject(
     throw new Error(
       `Workspace app container '${appContainerId}' is not Compose service '${primaryService}'.`,
     );
+  }
+  const appConfigFiles = (app.labels["com.docker.compose.project.config_files"] ?? "")
+    .split(",")
+    .filter(Boolean);
+  if (
+    appConfigFiles.length !== composeFiles.length ||
+    !composeFiles.every((expected) =>
+      appConfigFiles.some((actual) => sameWorkspacePath(actual, expected)),
+    )
+  ) {
+    throw new Error(`Workspace app container '${appContainerId}' has an unexpected Compose model.`);
   }
   const project = app.labels["com.docker.compose.project"];
   if (!project) {
@@ -197,6 +223,7 @@ async function waitForManagedServices(
           repoPath,
           composeProject,
           service,
+          plan.composeFiles,
         );
         if (matches.length !== 1) {
           throw new Error(
@@ -228,7 +255,13 @@ function stopDroppedManagedServices(
   const containers = inspectWorkspaceContainers();
   for (const service of plan.profileServices) {
     if (desired.has(service)) continue;
-    const matches = exactWorkspaceServiceContainers(containers, repoPath, composeProject, service);
+    const matches = exactWorkspaceServiceContainers(
+      containers,
+      repoPath,
+      composeProject,
+      service,
+      plan.composeFiles,
+    );
     if (matches.length > 1) {
       throw new Error(
         `Managed service '${service}' has multiple exact workspace containers; refusing to stop any.`,
@@ -248,7 +281,13 @@ function assertDroppedManagedServicesStopped(
   const containers = inspectWorkspaceContainers();
   for (const service of plan.profileServices) {
     if (desired.has(service)) continue;
-    const matches = exactWorkspaceServiceContainers(containers, repoPath, composeProject, service);
+    const matches = exactWorkspaceServiceContainers(
+      containers,
+      repoPath,
+      composeProject,
+      service,
+      plan.composeFiles,
+    );
     if (matches.some((match) => match.state.Running)) {
       throw new Error(`Managed service '${service}' remains running after exact stop.`);
     }
@@ -281,6 +320,29 @@ function desiredManagedProcesses(
 ): string[] {
   if (!profile || isWildcard(profile.processes)) return [...managedRuntime.processes];
   return [...(profile.processes ?? [])];
+}
+
+function restorePreviousManagedConfig(options: {
+  repoPath: string;
+  config: DevrouterConfig;
+  linked: boolean;
+  previousState: ManagedRuntimeState;
+}): void {
+  const restoredPlan = inspectManagedDevcontainerConfig({
+    repoPath: options.repoPath,
+    config: options.config,
+    profile: {
+      apps: [],
+      devcontainerServices: [...options.previousState.desired.services],
+    },
+    linked: options.linked,
+  });
+  writeManagedDevcontainerConfig(restoredPlan);
+  if (restoredPlan.effectiveConfigSha256 !== options.previousState.effectiveConfigSha256) {
+    throw new Error(
+      "The previous managed Dev Container configuration fingerprint no longer matches the current source.",
+    );
+  }
 }
 
 export function validateWorkspaceContainers(
@@ -536,6 +598,8 @@ export async function workspaceEnsure(
     let transitionPhase: ManagedTransitionPhase = "validation";
     let managedProcessRegistry: string[] = [];
     let managedPostStartPlan: ManagedPostStartPlan | undefined;
+    let managedRuntimeConfig: DevrouterConfig | undefined;
+    let managedConfigWritten = false;
     try {
       const target = linked ? resolveLinkedTarget(repoPath) : resolvePrimaryTarget(repoPath);
       let devpodId = target.devpodId;
@@ -554,12 +618,18 @@ export async function workspaceEnsure(
         options.profile,
       );
       const managedRuntime = runtime.config.managedRuntime;
+      managedRuntimeConfig = managedRuntime ? runtime.config : undefined;
       managedProcessRegistry = managedRuntime?.processes ?? [];
       const desiredProcesses = managedRuntime
         ? desiredManagedProcesses(managedRuntime, runtime.resolvedProfile)
         : [];
       if (managedRuntime) {
         previousManagedState = readManagedRuntimeState(repoPath, target.workspace);
+        if (previousManagedState?.status === "degraded") {
+          throw new Error(
+            "Managed runtime state is degraded; refusing a new profile transition until drift is repaired.",
+          );
+        }
         if (previousManagedState && previousManagedState.devpodId !== target.devpodId) {
           throw new Error(
             `Managed runtime state names DevPod '${previousManagedState.devpodId}', not the exact target '${target.devpodId ?? "(absent)"}'.`,
@@ -608,7 +678,10 @@ export async function workspaceEnsure(
           );
         }
       }
-      if (managedPlan) writeManagedDevcontainerConfig(managedPlan);
+      if (managedPlan) {
+        writeManagedDevcontainerConfig(managedPlan);
+        managedConfigWritten = true;
+      }
       const upstreamHosts = parsedUpstreams.map((upstream) => upstream.host);
       const ownership =
         target.kind === "linked"
@@ -691,6 +764,7 @@ export async function workspaceEnsure(
           repoPath,
           container.id,
           managedPlan.primaryService,
+          managedPlan.composeFiles,
         );
         if (previousManagedState && previousManagedState.composeProject !== managedComposeProject) {
           throw new Error(
@@ -705,6 +779,7 @@ export async function workspaceEnsure(
             repoPath,
             managedComposeProject,
             service,
+            managedPlan.composeFiles,
           );
           if (matches.length > 1) {
             throw new Error(
@@ -866,6 +941,20 @@ export async function workspaceEnsure(
         const previousServiceSet = new Set(previousServices);
         const previousProcessSet = new Set(previousProcesses);
         try {
+          if (managedConfigWritten && previousManagedState && managedRuntimeConfig) {
+            restorePreviousManagedConfig({
+              repoPath,
+              config: managedRuntimeConfig,
+              linked,
+              previousState: previousManagedState,
+            });
+          }
+        } catch (rollbackError) {
+          rollbackErrors.push(
+            `configuration: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          );
+        }
+        try {
           const previousAllServices = [
             managedPlan.primaryService,
             ...managedPlan.baseServices,
@@ -926,6 +1015,7 @@ export async function workspaceEnsure(
               repoPath,
               managedComposeProject,
               service,
+              managedPlan.composeFiles,
             );
             if (matches.length > 1) {
               throw new Error(`service '${service}' has multiple exact containers`);
@@ -978,14 +1068,34 @@ export async function workspaceEnsure(
       }
       if (managedPlan) {
         const original = error instanceof Error ? error.message : String(error);
+        const rollbackErrors: string[] = [];
+        if (managedConfigWritten && previousManagedState && managedRuntimeConfig) {
+          try {
+            restorePreviousManagedConfig({
+              repoPath,
+              config: managedRuntimeConfig,
+              linked,
+              previousState: previousManagedState,
+            });
+          } catch (rollbackError) {
+            rollbackErrors.push(
+              `configuration: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+            );
+          }
+        }
         if (candidateRoutesPublished) {
           try {
             replaceHostRoutesForRepo(repoPath, previousRoutes.map(routeInputFromState));
           } catch (rollbackError) {
-            throw new Error(
-              `${original} Rollback left degraded drift: routes: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}.`,
+            rollbackErrors.push(
+              `routes: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
             );
           }
+        }
+        if (rollbackErrors.length > 0) {
+          throw new Error(
+            `${original} Rollback left degraded drift: ${rollbackErrors.join("; ")}.`,
+          );
         }
         throw new Error(
           `${original} Managed runtime transition did not reach a rollback boundary.`,
