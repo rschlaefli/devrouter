@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import type { RepoStatus, RouterStatus } from "../types";
 import { findContainerByName, getCurrentDockerContext, networkExists } from "./docker";
+import { readManagedRuntimeState } from "./managed-runtime-state";
+import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { getRepoConfigPath, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import {
   areTLSCertsPresent,
@@ -48,7 +50,23 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
   }
 
   try {
-    const config = loadRuntimeConfig(resolvedRepoPath).config;
+    let runtime = loadRuntimeConfig(resolvedRepoPath);
+    if (runtime.config.managedRuntime) {
+      let state: ReturnType<typeof readManagedRuntimeState>;
+      try {
+        state = readManagedRuntimeState(resolvedRepoPath, runtime.workspace);
+      } catch {
+        // The status collector reports unreadable state as values-free drift.
+      }
+      if (state && state.profile !== runtime.profile) {
+        try {
+          runtime = loadRuntimeConfig(resolvedRepoPath, runtime.workspace, state.profile);
+        } catch {
+          // Keep the configured profile so the collector can report stale state.
+        }
+      }
+    }
+    const config = runtime.config;
     const tcpAppCount = config.apps.filter(
       (app) => app.kind !== "dependency" && app.protocol === "tcp",
     ).length;
@@ -59,6 +77,13 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
       valid: true,
       appCount: config.apps.length,
       tcpAppCount,
+      managedRuntime: collectManagedRuntimeStatus({
+        repoPath: resolvedRepoPath,
+        workspace: runtime.workspace,
+        config,
+        profile: runtime.profile,
+        resolvedProfile: runtime.resolvedProfile,
+      }),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

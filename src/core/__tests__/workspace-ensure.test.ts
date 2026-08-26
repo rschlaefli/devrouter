@@ -3,14 +3,34 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DevrouterConfig, HostRouteState, ManagedRuntimeStatus } from "../../types";
+import {
+  inspectManagedDevcontainerConfig,
+  type ManagedDevcontainerPlan,
+  removeManagedDevcontainerConfig,
+  startExactManagedServices,
+  stopExactManagedService,
+  writeManagedDevcontainerConfig,
+} from "../devcontainer-profile";
 import {
   inspectWorkspaceContainers,
   resolveRunningWorkspaceContainer,
   type WorkspaceContainerSnapshot,
 } from "../devpod-environment";
 import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspaces";
-import { replaceHostRoutesForRepo } from "../host-routes";
-import { resolveManagedPostStartPlan, runManagedPostStart } from "../managed-post-start";
+import { listHostRouteState, replaceHostRoutesForRepo } from "../host-routes";
+import {
+  resolveManagedPostStartPlan,
+  runManagedPostStart,
+  runManagedProcessAction,
+} from "../managed-post-start";
+import {
+  type ManagedRuntimeState,
+  markManagedRuntimeDegraded,
+  readManagedRuntimeState,
+  writeManagedRuntimeState,
+} from "../managed-runtime-state";
+import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
@@ -25,15 +45,32 @@ vi.mock("../file-lock", () => ({
   ),
 }));
 vi.mock("../host-routes", () => ({
+  listHostRouteState: vi.fn(() => []),
   parseUpstream: vi.fn((upstream: string) => {
     const [host, port] = upstream.split(":");
     return { host, port: Number(port), upstreamHost: host };
   }),
   replaceHostRoutesForRepo: vi.fn(() => []),
 }));
+vi.mock("../devcontainer-profile", () => ({
+  inspectManagedDevcontainerConfig: vi.fn(),
+  removeManagedDevcontainerConfig: vi.fn(),
+  startExactManagedServices: vi.fn(),
+  stopExactManagedService: vi.fn(),
+  writeManagedDevcontainerConfig: vi.fn(),
+}));
 vi.mock("../managed-post-start", () => ({
   resolveManagedPostStartPlan: vi.fn(() => ({ kind: "unmanaged" })),
   runManagedPostStart: vi.fn(),
+  runManagedProcessAction: vi.fn(() => "running"),
+}));
+vi.mock("../managed-runtime-state", () => ({
+  readManagedRuntimeState: vi.fn(() => undefined),
+  writeManagedRuntimeState: vi.fn(),
+  markManagedRuntimeDegraded: vi.fn(),
+}));
+vi.mock("../managed-runtime-status", () => ({
+  collectManagedRuntimeStatus: vi.fn(() => undefined),
 }));
 vi.mock("../docker", () => ({ ensureNetwork: vi.fn(async () => undefined) }));
 vi.mock("../repo-config", () => ({
@@ -83,6 +120,7 @@ function container(
       Health: options.health ? { Status: options.health } : undefined,
     },
     labels: {
+      "com.docker.compose.project": "workspace-project",
       "com.docker.compose.project.working_dir": `${repoPath}/.devcontainer`,
       "com.docker.compose.project.config_files": overlay,
       "com.docker.compose.service": service,
@@ -501,6 +539,472 @@ describe("workspaceEnsure", () => {
       return { status: 0, stdout: "", stderr: "" } as never;
     });
   }
+
+  function managedPlanFor(desiredProfileServices: string[]): ManagedDevcontainerPlan {
+    const composeDirectory = path.join(tmpDir, ".devcontainer");
+    const composeFiles = [
+      path.join(composeDirectory, "docker-compose.yml"),
+      path.join(composeDirectory, "docker-compose.devrouter.yml"),
+    ];
+    const desiredServices = ["app", "postgres", ...desiredProfileServices];
+    return {
+      sourcePath: path.join(composeDirectory, "devcontainer.json"),
+      generatedPath: path.join(composeDirectory, "devcontainer.devrouter.json"),
+      generatedRelativePath: ".devcontainer/devcontainer.devrouter.json",
+      sourceConfigSha256: "a".repeat(64),
+      effectiveConfigSha256:
+        desiredProfileServices.length === 1 && desiredProfileServices[0] === "redis"
+          ? "d".repeat(64)
+          : "b".repeat(64),
+      primaryService: "app",
+      composeDirectory,
+      composeFiles,
+      composeServices: ["app", "litellm", "postgres", "redis"],
+      nativeRunServices: ["app", "postgres", "redis", "litellm"],
+      baseServices: ["postgres"],
+      profileServices: ["redis", "litellm"],
+      desiredProfileServices,
+      desiredServices,
+      contents: "// devrouter:managed devcontainer profile\n{}\n",
+    };
+  }
+
+  function managedRuntimeConfig(): DevrouterConfig {
+    return {
+      version: 1,
+      managedRuntime: {
+        devcontainer: {
+          baseServices: ["postgres"],
+          profileServices: ["redis", "litellm"],
+        },
+        processes: ["app", "local-mcp"],
+      },
+      apps: [
+        {
+          name: "chat",
+          host: "chat.feature.localhost",
+          protocol: "http",
+          runtime: "proxy",
+          dependencies: [],
+          upstream: "feature-app:3000",
+        },
+      ],
+    };
+  }
+
+  function managedPreviousState(): ManagedRuntimeState {
+    return {
+      version: 1,
+      repoPath: tmpDir,
+      workspace: "feature",
+      devpodId: "feature",
+      composeProject: "workspace-project",
+      profile: "old",
+      desired: {
+        apps: ["chat"],
+        services: ["redis"],
+        processes: ["app", "local-mcp"],
+      },
+      sourceConfigSha256: "a".repeat(64),
+      effectiveConfigSha256: "d".repeat(64),
+      status: "ready",
+      updatedAt: "2026-08-26T08:00:00.000Z",
+    };
+  }
+
+  function managedPreviousRoute(): HostRouteState {
+    return {
+      id: "route-old",
+      name: "chat",
+      host: "chat.feature.localhost",
+      protocol: "http",
+      repoPath: tmpDir,
+      port: 3000,
+      mode: "proxy",
+      upstreamHost: "feature-app",
+      workspace: "feature",
+      createdAt: "2026-08-26T08:00:00.000Z",
+      updatedAt: "2026-08-26T08:00:00.000Z",
+    };
+  }
+
+  function mockManagedLifecycle(options: { events?: string[]; curlStatus?: number } = {}): {
+    runningServices: Set<string>;
+    runningProcesses: Set<string>;
+  } {
+    const events = options.events ?? [];
+    const runningServices = new Set(["app", "postgres", "redis"]);
+    const runningProcesses = new Set(["app", "local-mcp"]);
+    const serviceIds: Record<string, string> = {
+      app: "app-id",
+      postgres: "postgres-id",
+      redis: "redis-id",
+      litellm: "litellm-id",
+    };
+    const snapshots = Object.entries(serviceIds).map(([service, id]) => {
+      const snapshot = container(id, service, [`feature-${service}`], {
+        health: service === "app" ? undefined : "healthy",
+        mountRepo: service === "app",
+        running: runningServices.has(service),
+      });
+      snapshot.labels["com.docker.compose.project"] = "workspace-project";
+      snapshot.labels["com.docker.compose.project.working_dir"] = `${tmpDir}/.devcontainer`;
+      snapshot.labels["com.docker.compose.project.config_files"] =
+        `${tmpDir}/.devcontainer/docker-compose.yml,${tmpDir}/.devcontainer/docker-compose.devrouter.yml`;
+      if (service === "app") {
+        snapshot.mounts = [
+          { Type: "bind", Source: tmpDir, Destination: "/workspaces/repo" },
+          { Type: "bind", Source: gitDir, Destination: gitDir },
+        ];
+      }
+      return snapshot;
+    });
+    const listedDevpod = JSON.stringify([{ id: "feature", source: { localFolder: tmpDir } }]);
+
+    vi.mocked(inspectManagedDevcontainerConfig).mockImplementation(({ profile }) =>
+      managedPlanFor(profile?.devcontainerServices ?? ["litellm"]),
+    );
+    vi.mocked(writeManagedDevcontainerConfig).mockImplementation(() => {
+      events.push("config-write");
+    });
+    vi.mocked(removeManagedDevcontainerConfig).mockImplementation(() => {
+      events.push("config-remove");
+    });
+    vi.mocked(readManagedRuntimeState).mockReturnValue(managedPreviousState());
+    vi.mocked(listHostRouteState).mockReturnValue([managedPreviousRoute()]);
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
+      kind: "runtime",
+      adapterPath: ".devcontainer/post-start.sh",
+      adapterSha256: "e".repeat(64),
+      adapterContents: Buffer.from("adapter"),
+    });
+    vi.mocked(startExactManagedServices).mockImplementation(({ services }) => {
+      for (const service of services) runningServices.add(service);
+      events.push(`services-start:${services.join(",")}`);
+    });
+    vi.mocked(stopExactManagedService).mockImplementation((_id, service) => {
+      runningServices.delete(service);
+      events.push(`service-stop:${service}`);
+    });
+    vi.mocked(runManagedPostStart).mockImplementation((options) => {
+      runningProcesses.clear();
+      for (const process of options.processes ?? []) runningProcesses.add(process);
+      events.push(`process-start:${options.processes?.join(",") ?? "legacy"}`);
+    });
+    vi.mocked(runManagedProcessAction).mockImplementation((options) => {
+      if (options.action === "stop") {
+        runningProcesses.delete(options.name);
+        events.push(`process-stop:${options.name}`);
+        return "stopped";
+      }
+      return runningProcesses.has(options.name) ? "running" : "stopped";
+    });
+    vi.mocked(writeManagedRuntimeState).mockImplementation(() => {
+      events.push("state-write");
+    });
+    vi.mocked(replaceHostRoutesForRepo).mockImplementation((_repoPath, routes) => {
+      events.push(`routes:${routes.length}`);
+      return [];
+    });
+
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devpod" && argv[0] === "list") {
+        return { status: 0, stdout: listedDevpod, stderr: "" } as never;
+      }
+      if (command === "devpod" && argv[0] === "up") {
+        events.push("devpod-up");
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      if (command === "git" && argv.includes("--git-common-dir")) {
+        return { status: 0, stdout: `${gitDir}\n`, stderr: "" } as never;
+      }
+      if (command === "docker" && argv[0] === "ps") {
+        return {
+          status: 0,
+          stdout: `${Object.values(serviceIds).join("\n")}\n`,
+          stderr: "",
+        } as never;
+      }
+      if (command === "docker" && argv[0] === "inspect") {
+        return {
+          status: 0,
+          stdout: `${snapshots
+            .map((snapshot) => {
+              const service = snapshot.labels["com.docker.compose.service"];
+              return JSON.stringify({
+                ...snapshot,
+                state: {
+                  ...snapshot.state,
+                  Running: runningServices.has(service ?? ""),
+                },
+              });
+            })
+            .join("\n")}\n`,
+          stderr: "",
+        } as never;
+      }
+      if (command === "docker" && argv[0] === "stop") {
+        const service = Object.entries(serviceIds).find(([, id]) => id === argv[1])?.[0];
+        if (service) runningServices.delete(service);
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      if (command === "docker" && argv[0] === "exec") {
+        return {
+          status: 0,
+          stdout: argv.includes("--show-toplevel") ? "/workspaces/repo\n" : "feature\n",
+          stderr: "",
+        } as never;
+      }
+      if (command === "curl") {
+        events.push("http-ready");
+        return {
+          status: options.curlStatus ?? 0,
+          stdout: options.curlStatus ? "502" : "404",
+          stderr: options.curlStatus ? "not ready" : "",
+        } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    return { runningServices, runningProcesses };
+  }
+
+  it("reconciles selected services and processes without recreating the primary container", async () => {
+    const events: string[] = [];
+    const runtimeConfig = managedRuntimeConfig();
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: runtimeConfig,
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    const managedRuntimeStatus: ManagedRuntimeStatus = {
+      mode: "managed",
+      status: "ready",
+      profile: "ai",
+      desired: { apps: ["chat"], services: ["litellm"], processes: ["app"] },
+      active: { apps: ["chat"], services: ["litellm"], processes: ["app"] },
+      serviceStatuses: { litellm: "healthy" },
+      baseServiceStatuses: { postgres: "healthy" },
+      processStatuses: { app: "running" },
+      drift: [],
+    };
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue(managedRuntimeStatus);
+    const runtime = mockManagedLifecycle({ events });
+
+    const result = await workspaceEnsure(tmpDir, {
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+
+    expect(result).toMatchObject({
+      kind: "linked",
+      workspace: "feature",
+      profile: "ai",
+      devpodId: "feature",
+      recreated: false,
+      managedRuntime: managedRuntimeStatus,
+    });
+    expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "litellm"]));
+    expect(runtime.runningProcesses).toEqual(new Set(["app"]));
+    expect(startExactManagedServices).toHaveBeenCalledWith(
+      expect.objectContaining({ composeProject: "workspace-project", services: ["litellm"] }),
+    );
+    expect(stopExactManagedService).toHaveBeenCalledWith("redis-id", "redis");
+    expect(runManagedPostStart).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: "ai", processes: ["app"] }),
+    );
+    expect(runManagedProcessAction).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "local-mcp", action: "stop" }),
+    );
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(writeManagedRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: "ai",
+        desired: {
+          apps: ["chat"],
+          services: ["litellm"],
+          processes: ["app"],
+        },
+      }),
+    );
+    const devpodUp = devpodUpCalls()[0];
+    expect(devpodUp[1]).toContain("--devcontainer-path");
+    expect(devpodUp[1]).toContain(".devcontainer/devcontainer.devrouter.json");
+    expect(devpodUp[1]).not.toContain("--recreate");
+    expect(events.indexOf("config-write")).toBeLessThan(events.indexOf("devpod-up"));
+    expect(events.indexOf("process-stop:local-mcp")).toBeLessThan(events.indexOf("routes:1"));
+    expect(events.indexOf("service-stop:redis")).toBeLessThan(events.indexOf("routes:1"));
+  });
+
+  it("rolls back candidate services, processes, and routes after route readiness failure", async () => {
+    const events: string[] = [];
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    const runtime = mockManagedLifecycle({ events, curlStatus: 22 });
+
+    await expect(
+      workspaceEnsure(tmpDir, {
+        containerTimeoutMs: 0,
+        httpTimeoutMs: 0,
+      }),
+    ).rejects.toThrow("Candidate runtime was rolled back");
+
+    expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "redis"]));
+    expect(runtime.runningProcesses).toEqual(new Set(["app", "local-mcp"]));
+    expect(writeManagedDevcontainerConfig).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ desiredProfileServices: ["redis"] }),
+    );
+    expect(startExactManagedServices).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ services: ["litellm"] }),
+    );
+    expect(startExactManagedServices).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ services: ["app", "postgres", "redis"] }),
+    );
+    expect(stopExactManagedService).toHaveBeenNthCalledWith(1, "redis-id", "redis");
+    expect(stopExactManagedService).toHaveBeenNthCalledWith(2, "litellm-id", "litellm");
+    expect(runManagedPostStart).toHaveBeenLastCalledWith(
+      expect.objectContaining({ profile: "old", processes: ["app", "local-mcp"] }),
+    );
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, [
+      expect.objectContaining({
+        name: "chat",
+        workspace: "feature",
+        upstreamHost: "feature-app",
+      }),
+    ]);
+    expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+    expect(events.filter((event) => event === "routes:1")).toHaveLength(2);
+  });
+
+  it("refuses a new transition when the last managed state is degraded", async () => {
+    const events: string[] = [];
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle({ events });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      ...managedPreviousState(),
+      status: "degraded",
+      transitionPhase: "rollback",
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed runtime state is degraded");
+
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(inspectManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it("rejects a warm ensure when the managed source configuration changed", async () => {
+    const events: string[] = [];
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle({ events });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      ...managedPreviousState(),
+      sourceConfigSha256: "z".repeat(64),
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed Dev Container source configuration changed");
+
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(devpodUpCalls()).toHaveLength(0);
+  });
+
+  it("marks rollback drift when the previous config fingerprint cannot be restored", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle({ curlStatus: 22 });
+    vi.mocked(inspectManagedDevcontainerConfig).mockImplementation(({ profile }) => {
+      const services = profile?.devcontainerServices ?? ["litellm"];
+      const plan = managedPlanFor(services);
+      return services.includes("redis") ? { ...plan, effectiveConfigSha256: "x".repeat(64) } : plan;
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Rollback left degraded drift: configuration:");
+
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(markManagedRuntimeDegraded).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+      "route-publication",
+    );
+  });
+
+  it("removes the generated candidate when no managed baseline exists", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    const runtime = mockManagedLifecycle({ curlStatus: 22 });
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Candidate runtime was rolled back");
+
+    expect(removeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "redis"]));
+    expect(runtime.runningProcesses).toEqual(new Set(["app", "local-mcp"]));
+    expect(startExactManagedServices).toHaveBeenLastCalledWith(
+      expect.objectContaining({ services: ["app", "postgres", "redis"] }),
+    );
+    expect(runManagedPostStart).toHaveBeenLastCalledWith(
+      expect.objectContaining({ processes: ["app", "local-mcp"] }),
+    );
+  });
 
   it("reuses an exact primary DevPod without linked ownership metadata", async () => {
     makePrimaryRepo();

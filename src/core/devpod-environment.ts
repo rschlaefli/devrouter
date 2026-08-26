@@ -20,7 +20,7 @@ export type WorkspaceContainerSnapshot = {
 };
 
 const SAFE_INSPECT_TEMPLATE =
-  '{"id":{{json .Id}},"state":{"Running":{{json .State.Running}},"Health":{{with (index .State "Health")}}{"Status":{{json .Status}}}{{else}}null{{end}}},"labels":{"com.docker.compose.project.working_dir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"com.docker.compose.project.config_files":{{json (index .Config.Labels "com.docker.compose.project.config_files")}}},"mounts":{{json .Mounts}},"networks":{{json .NetworkSettings.Networks}}}';
+  '{"id":{{json .Id}},"state":{"Running":{{json .State.Running}},"Health":{{with (index .State "Health")}}{"Status":{{json .Status}}}{{else}}null{{end}}},"labels":{"com.docker.compose.project":{{json (index .Config.Labels "com.docker.compose.project")}},"com.docker.compose.service":{{json (index .Config.Labels "com.docker.compose.service")}},"com.docker.compose.project.working_dir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"com.docker.compose.project.config_files":{{json (index .Config.Labels "com.docker.compose.project.config_files")}}},"mounts":{{json .Mounts}},"networks":{{json .NetworkSettings.Networks}}}';
 
 // Size reporting costs the daemon a filesystem walk per container, so it is
 // requested only on demand. The keys are read through `index` rather than as
@@ -89,6 +89,52 @@ export function workspaceAppContainers(
       )
     );
   });
+}
+
+export function hasExactComposeIdentity(
+  container: WorkspaceContainerSnapshot,
+  options: {
+    repoPath: string;
+    service: string;
+    composeProject?: string;
+    composeFiles?: string[];
+  },
+): boolean {
+  if (
+    (options.composeProject !== undefined &&
+      container.labels["com.docker.compose.project"] !== options.composeProject) ||
+    container.labels["com.docker.compose.service"] !== options.service ||
+    !sameWorkspacePath(
+      container.labels["com.docker.compose.project.working_dir"] ?? "",
+      path.join(options.repoPath, ".devcontainer"),
+    )
+  ) {
+    return false;
+  }
+  const expectedFiles = options.composeFiles;
+  if (!expectedFiles) return true;
+
+  const actualFiles = (container.labels["com.docker.compose.project.config_files"] ?? "")
+    .split(",")
+    .map((file) => file.trim())
+    .filter(Boolean);
+  const providerGeneratedFiles = actualFiles.filter((file) => {
+    const normalized = file.replaceAll("\\", "/");
+    return /\/.devpod\/agent\/contexts\/[^/]+\/workspaces\/[^/]+\/.docker-compose\/docker-compose\.devcontainer\.containerFeatures-[^/]+\.yml$/.test(
+      normalized,
+    );
+  });
+  return (
+    actualFiles.length === expectedFiles.length + providerGeneratedFiles.length &&
+    expectedFiles.every((expected) =>
+      actualFiles.some((actual) => sameWorkspacePath(actual, expected)),
+    ) &&
+    actualFiles.every(
+      (actual) =>
+        providerGeneratedFiles.includes(actual) ||
+        expectedFiles.some((expected) => sameWorkspacePath(actual, expected)),
+    )
+  );
 }
 
 export function resolveRunningWorkspaceContainer(repoPath: string): {

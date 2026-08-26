@@ -24,7 +24,7 @@ cleanup() {
     pnpm exec tsx -e "import { removeHostRouteByName } from './src/core/host-routes'; try { removeHostRouteByName('web-host', process.argv[1]); } catch {}" "$ROUTING_DIR" >/dev/null 2>&1 || true
   fi
 
-  docker compose -f "$ROUTING_DIR/docker-compose.yml" down -v >/dev/null 2>&1 || true
+  docker compose -f "$ROUTING_DIR/docker-compose.yml" stop >/dev/null 2>&1 || true
 
   if [ "$STARTED_ROUTER" = "true" ]; then
     run_dev down >/dev/null 2>&1 || true
@@ -70,8 +70,32 @@ host_url="$(node -e "const data = JSON.parse(process.argv[1]); const route = dat
 docker_url="$(node -e "const data = JSON.parse(process.argv[1]); const route = data.routes.find((entry) => entry.hosts.includes('routing-docker.localhost')); if (!route || !route.urls[0]) process.exit(1); process.stdout.write(route.urls[0]);" "$routes_json")"
 root_ca="$(mkcert -CAROOT)/rootCA.pem"
 
-curl --cacert "$root_ca" -sSf "$host_url/healthz" >/dev/null
-curl --cacert "$root_ca" -sSf "$docker_url/healthz" >/dev/null
+probe_trusted_https() {
+  local url="$1"
+  if curl --cacert "$root_ca" -sSf "$url" >/dev/null 2>&1; then
+    return 0
+  fi
+  node - "$url" "$root_ca" <<'NODE'
+const fs = require('node:fs');
+const https = require('node:https');
+
+const [url, caPath] = process.argv.slice(2);
+https.get(url, { ca: fs.readFileSync(caPath) }, (response) => {
+  response.resume();
+  response.on('end', () => {
+    if (response.statusCode === undefined || response.statusCode >= 400) {
+      process.exitCode = 1;
+    }
+  });
+}).on('error', (error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});
+NODE
+}
+
+probe_trusted_https "$host_url/healthz"
+probe_trusted_https "$docker_url/healthz"
 
 echo "Routing smoke test passed."
 echo "  Host app:   $host_url"

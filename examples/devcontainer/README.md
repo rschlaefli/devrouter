@@ -10,6 +10,7 @@ It contains:
 - `.devcontainer/` with no published host ports
 - a default compose overlay plus the linked-worktree Git overlay used by `ensure`
 - `.devrouter.yml` proxy routes using `${WORKSPACE}` upstreams
+- a managed `full` profile that demonstrates the native-full/managed-selective contract
 - `run.sh` for live smoke verification
 
 ## Run
@@ -52,6 +53,12 @@ network with matching `${WORKSPACE:-devcontainer-demo}-*` aliases.
 Run `devrouter ensure .` from either a primary or linked checkout. For linked
 worktrees it selects `docker-compose.devrouter.yml`, supplies the host Git
 common-directory bind, and proves the exact DevPod, aliases, routes, and endpoints.
+The example registers Postgres as a base service and the app process as a
+managed resource. Repositories with optional AI or MCP capabilities can add
+those Compose services and process markers to `managedRuntime`, then select
+them with `devrouter ensure . --profile ai` or `--profile mcp`; omitted optional
+dimensions remain stopped. Native Dev Container clients continue to use the
+source configuration's full service set.
 Use `devrouter exec . -- <command...>` for one-shot container commands.
 Use `workspace stop` to pause its DevPod/routes while preserving checkout and
 data. Full `workspace down` deletes runtime/routes and removes only a clean,

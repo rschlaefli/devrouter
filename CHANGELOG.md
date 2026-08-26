@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.39] - 2026-08-26
+
+### Added
+
+- Managed devcontainer profiles can select routed apps, optional Compose
+  capabilities, and repository-owned processes independently through the
+  `managedRuntime` registry. This supports opt-in services such as LiteLLM and
+  MCP without forcing every task to start them, while preserving the full
+  native Dev Container configuration.
+- Warm profile transitions retain the exact DevPod and volumes, reconcile only
+  exact owned resources, and expose values-free desired, active, and drift
+  state through `status`, `doctor`, and managed `ensure` JSON.
+
+### Compatibility
+
+- Repositories without `managedRuntime` keep the existing app-only profile
+  behavior. Native Dev Container clients continue to use the source
+  configuration's full service set. No database or data migration is required.
+- Managed profile transitions keep the existing DevPod and volume identity and
+  do not rerun `postCreateCommand`; the generated selective configuration is
+  ignored runtime state and is not a consumer artifact.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.39.md
+
 ## [0.0.38] - 2026-08-25
 
 ### Added

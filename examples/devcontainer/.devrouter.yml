@@ -1,8 +1,18 @@
 version: 1
 devrouter:
-  version: 0.0.38
+  version: 0.0.39
 project:
   name: devcontainer-demo
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: []
+  processes: [app]
+profiles:
+  full:
+    apps: ['*']
+    processes: ['*']
+    default: true
 apps:
   - name: app
     host: devcontainer-demo.localhost

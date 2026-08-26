@@ -70,6 +70,13 @@ devrouter ensure .
 devrouter exec . -- pnpm seed
 ```
 
+Managed repositories may define independent profiles for routed apps, optional
+Compose capabilities, and repository-owned processes. Use
+`devrouter ensure . --profile <name>` for a task-specific environment; native
+Dev Container clients still see the full source configuration. Check
+`devrouter status` or `devrouter doctor` when you need the desired, active, and
+drift state.
+
 Use devrouter lifecycle commands for managed environments. Raw `devpod up`,
 `stop`, or `delete` bypass ownership locks and exact checkout validation.
 

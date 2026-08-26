@@ -51,6 +51,8 @@ export type ManagedPostStartPlan =
       adapterContents: Buffer;
     };
 
+export type ManagedProcessStatus = "running" | "stopped" | "foreign" | "drifted";
+
 function commandFailure(result: ReturnType<typeof spawnSync>): string {
   return [result.error?.message, result.stderr, result.stdout]
     .filter(Boolean)
@@ -154,6 +156,7 @@ export function runManagedPostStart(options: {
   container: ValidatedContainer;
   quiet?: boolean;
   profile?: string;
+  processes?: string[];
 }): void {
   if (options.plan.kind !== "runtime") return;
 
@@ -184,6 +187,14 @@ export function runManagedPostStart(options: {
       "--env",
       `DEVROUTER_PROCESS_ADAPTER_SHA256=${options.plan.adapterSha256}`,
       ...(options.profile ? ["--env", `DEVROUTER_PROFILE=${options.profile}`] : []),
+      ...(options.processes
+        ? [
+            "--env",
+            `DEVROUTER_PROCESS_SET=${options.processes.join(",")}`,
+            "--env",
+            "DEVROUTER_PROCESS_FINGERPRINT_ENV=DEVROUTER_PROFILE,DEVROUTER_PROCESS_SET",
+          ]
+        : []),
       options.container.id,
       "bash",
       "-c",
@@ -197,4 +208,62 @@ export function runManagedPostStart(options: {
     const details = commandFailure(started);
     throw new Error(`Managed post-start failed${details ? `: ${details}.` : "."}`);
   }
+}
+
+function assertSafeProcessName(name: string): void {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) {
+    throw new Error(`Managed process '${name}' is not a safe exact identifier.`);
+  }
+}
+
+export function runManagedProcessAction(options: {
+  container: ValidatedContainer;
+  name: string;
+  action: "stop" | "status";
+  quiet?: boolean;
+}): ManagedProcessStatus {
+  assertSafeProcessName(options.name);
+  const result = spawnSync(
+    "docker",
+    [
+      "exec",
+      "--workdir",
+      options.container.workspacePath,
+      "--env",
+      `DEVROUTER_PROCESS_HELPER=${RUNTIME_HELPER_PATH}`,
+      options.container.id,
+      "bash",
+      "-c",
+      'exec "$DEVROUTER_PROCESS_HELPER" "$1" --name "$2"',
+      "devrouter-process",
+      options.action,
+      options.name,
+    ],
+    {
+      encoding: "utf-8",
+      stdio: options.action === "status" ? ["ignore", "pipe", "pipe"] : ["ignore", 2, "inherit"],
+    },
+  );
+  if (options.action === "stop") {
+    if (result.status !== 0) {
+      throw new Error(`Could not stop managed process '${options.name}'.`);
+    }
+    return "stopped";
+  }
+
+  try {
+    const parsed = JSON.parse(result.stdout.trim()) as { status?: unknown };
+    if (
+      parsed.status === "running" ||
+      parsed.status === "stopped" ||
+      parsed.status === "foreign" ||
+      parsed.status === "drifted"
+    ) {
+      return parsed.status;
+    }
+  } catch {
+    // The helper's non-zero status is reported as drift below. Do not expose
+    // its output because it may contain repository-specific command details.
+  }
+  return "drifted";
 }

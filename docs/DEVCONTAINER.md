@@ -148,6 +148,78 @@ Application environment setup and the exact command remain repository-owned.
 HTTP readiness remains host-side in `ensure`, so applications do not
 need a second route-health policy.
 
+## Select only the capabilities a task needs
+
+The source `devcontainer.json` remains the native, full environment. A normal
+Dev Container client uses its declared `runServices` and can start every
+service the repository provides. The managed `devrouter ensure` path can use a
+profile to select only the apps, optional Compose services, and repository-owned
+processes needed for one task.
+
+Register optional resources explicitly in `.devrouter.yml`:
+
+```yaml
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [litellm, mcp-server]
+  processes: [web, local-mcp]
+
+profiles:
+  web:
+    apps: [web]
+    processes: [web]
+  ai:
+    apps: [web]
+    devcontainerServices: [litellm]
+    processes: [web]
+  mcp:
+    devcontainerServices: [mcp-server]
+    processes: [local-mcp]
+  full:
+    apps: ['*']
+    devcontainerServices: ['*']
+    processes: ['*']
+    default: true
+```
+
+`baseServices` stay with the primary app service for every managed profile.
+`profileServices` and `processes` are registries, not an instruction to start
+everything. A managed profile selects each dimension independently, so a
+route-free capability profile such as `mcp` may omit `apps`. An omitted optional
+dimension selects nothing; use the `*` wildcard or the `full` profile when the
+whole registered set is required. An app-only profile therefore does not start
+LiteLLM, MCP, MailHog, or another optional capability unless it names that
+resource explicitly.
+
+Select a profile with the managed lifecycle command:
+
+```bash
+devrouter ensure . --profile ai --json
+devrouter ensure . --profile mcp --json
+devrouter status --repo . --json
+devrouter doctor --repo . --json
+```
+
+The status and doctor output reports desired and active apps, services, and
+processes plus values-free drift. `devrouter ensure` writes an ignored,
+Devrouter-owned `.devcontainer/devcontainer.devrouter.json` beside the source
+configuration and passes it to DevPod before startup. The generated file keeps
+the source configuration's relative paths and changes only the selected
+`runServices`; never commit or hand-edit it. The primary service and every
+declared base service remain selected. DevPod may append its own generated
+container-features Compose file to the runtime labels; devrouter accepts that
+specific provider-owned file while rejecting unrelated Compose overlays.
+
+Switching profiles in an existing workspace is warm and non-destructive. The
+same DevPod and volumes are retained, newly selected services start without
+`--recreate` or `down`, and dropped services or processes stop only after exact
+ownership is proved. `postCreateCommand` does not run again. Routes publish
+last, after service health, process state, and application readiness are proved.
+If a transition fails, the previous route set and successful state are kept
+when possible; otherwise status reports the degraded transition so it can be
+inspected before another profile change.
+
 ## 5. Bring up routing
 
 Order matters — `devnet` is `external`, so it must exist before the container
