@@ -6,6 +6,7 @@ import {
   inspectWorkspaceRuntimeConfig,
   readWorkspaceRuntimeConfig,
   resolveWorkspaceRuntimeDetailed,
+  WorkspaceRuntimeOwnershipError,
 } from "./workspace-runtime";
 
 type CommandResult = {
@@ -213,7 +214,17 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
         : "Install mkcert for local HTTPS, then run: devrouter setup --yes",
   });
 
-  const runtimeResolution = resolveWorkspaceRuntimeDetailed(repoPath);
+  let ownershipProblem: string | undefined;
+  let runtimeResolution: ReturnType<typeof resolveWorkspaceRuntimeDetailed>;
+  try {
+    runtimeResolution = resolveWorkspaceRuntimeDetailed(repoPath);
+  } catch (error) {
+    if (!(error instanceof WorkspaceRuntimeOwnershipError)) throw error;
+    ownershipProblem = error.message;
+    // Keep diagnosing the configured toolchain without treating that fallback
+    // as authority to mutate this checkout.
+    runtimeResolution = resolveWorkspaceRuntimeDetailed();
+  }
   const workspaceRuntime = runtimeResolution.runtime;
   const machineConfig = readWorkspaceRuntimeConfig();
   const runtimeLabel = workspaceRuntime === "devsy" ? "Devsy" : "DevPod";
@@ -222,11 +233,22 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
   // subcommand. Probe each runtime with its supported spelling.
   const runtimeArgs = workspaceRuntime === "devsy" ? ["--version"] : ["version"];
   const runtimeTool = runTool(workspaceRuntime, runtimeArgs);
+  if (ownershipProblem) {
+    checks.push({
+      id: "repo.workspace-runtime-ownership",
+      level: "error",
+      summary: "Workspace runtime ownership cannot be resolved safely.",
+      details: ownershipProblem,
+      suggestion: "Restore both registries and remove any duplicate checkout registration.",
+    });
+  }
   checks.push({
     id: "global.devpod",
     level: runtimeTool.ok ? "ok" : "warn",
     summary: runtimeTool.ok
-      ? `${runtimeLabel} is the active workspace runtime (source: ${runtimeResolution.source}).`
+      ? ownershipProblem
+        ? `${runtimeLabel} is configured, but checkout ownership is unresolved.`
+        : `${runtimeLabel} is the active workspace runtime (source: ${runtimeResolution.source}).`
       : `${runtimeLabel} is the active workspace runtime but is not installed.`,
     details: [
       firstLine(runtimeTool.output) ?? runtimeTool.error,

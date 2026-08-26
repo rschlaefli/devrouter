@@ -45,6 +45,13 @@ let cachedSnapshots: WorkspaceRegistrySnapshots | undefined;
 
 export class UnsupportedWorkspaceRuntimeError extends Error {}
 
+export class WorkspaceRuntimeOwnershipError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkspaceRuntimeOwnershipError";
+  }
+}
+
 export function parseWorkspaceRuntime(value: string): WorkspaceRuntime {
   const requested = value.trim().toLowerCase();
   if (!SUPPORTED_RUNTIMES.includes(requested as WorkspaceRuntime)) {
@@ -194,20 +201,29 @@ export function getWorkspaceRegistrySnapshots(): WorkspaceRegistrySnapshots {
   return snapshots;
 }
 
+type PathOwnerResolution =
+  | { status: "owner"; runtime: WorkspaceRuntime }
+  | { status: "none" }
+  | { status: "conflict" }
+  | { status: "unavailable"; runtimes: WorkspaceRuntime[] };
+
 function pathOwnerRuntime(
   repoPath: string,
   snapshots: WorkspaceRegistrySnapshots,
-): WorkspaceRuntime | undefined {
+): PathOwnerResolution {
+  if (snapshots.unavailable.length > 0) {
+    return { status: "unavailable", runtimes: snapshots.unavailable };
+  }
   const devsyOwners = snapshots.devsy?.filter((workspace) =>
     sameWorkspacePath(workspace.source.localFolder, repoPath),
   );
   const devpodOwners = snapshots.devpod?.filter((workspace) =>
     sameWorkspacePath(workspace.source.localFolder, repoPath),
   );
-  if (devsyOwners?.length && devpodOwners?.length) return undefined;
-  if (devsyOwners?.length) return "devsy";
-  if (devpodOwners?.length) return "devpod";
-  return undefined;
+  if (devsyOwners?.length && devpodOwners?.length) return { status: "conflict" };
+  if (devsyOwners?.length) return { status: "owner", runtime: "devsy" };
+  if (devpodOwners?.length) return { status: "owner", runtime: "devpod" };
+  return { status: "none" };
 }
 
 function autoDetectedRuntime(): WorkspaceRuntime | undefined {
@@ -242,11 +258,23 @@ export function resolveWorkspaceRuntimeDetailed(
   if (repoPath) {
     const snapshots = getWorkspaceRegistrySnapshots();
     const owner = pathOwnerRuntime(repoPath, snapshots);
-    if (owner) {
+    if (owner.status === "conflict") {
+      throw new WorkspaceRuntimeOwnershipError(
+        "Both DevPod and Devsy claim this checkout. Remove the stale registration before running a workspace lifecycle command.",
+      );
+    }
+    if (owner.status === "unavailable") {
+      throw new WorkspaceRuntimeOwnershipError(
+        `Cannot prove checkout ownership because the ${owner.runtimes.join(
+          " and ",
+        )} workspace registry is unavailable. Restore registry access before running a workspace lifecycle command.`,
+      );
+    }
+    if (owner.status === "owner") {
       // Path-owner answers are per checkout and derived from cached registry
       // snapshots, so they are computed per call and never cached: an earlier
       // fallback for one path must not mask another path's owner.
-      return { runtime: owner, source: "path-owner" };
+      return { runtime: owner.runtime, source: "path-owner" };
     }
   }
   if (cachedRuntime) return cachedRuntime;

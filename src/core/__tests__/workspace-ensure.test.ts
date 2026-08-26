@@ -274,6 +274,7 @@ describe("workspaceEnsure", () => {
   let gitDir: string;
 
   beforeEach(() => {
+    vi.stubEnv("DEVROUTER_WORKSPACE_RUNTIME", "devpod");
     resetWorkspaceRuntimeCaches();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-ensure-"));
     tmpDir = fs.realpathSync.native(tmpDir);
@@ -456,10 +457,9 @@ describe("workspaceEnsure", () => {
   function mockPrimaryLifecycle(
     options: { devpodLists?: DevpodWorkspace[][]; appAliases?: string[] } = {},
   ): void {
-    // The first devpod list call feeds runtime-resolution's registry probe
-    // (devsy is mocked as not installed, so only DevPod is probed); the test
-    // fixture lists then line up with the lifecycle reads as before.
-    const devpodLists = [[], ...(options.devpodLists ?? [])];
+    // This provider-specific suite pins DevPod, so every list response belongs
+    // to the lifecycle under test rather than runtime auto-detection.
+    const devpodLists = options.devpodLists ?? [];
     let devpodListCall = 0;
     const app = container("app-id", "app", options.appAliases ?? ["sample-app"], {
       mountRepo: true,

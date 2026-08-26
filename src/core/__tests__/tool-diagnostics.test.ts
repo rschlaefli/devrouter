@@ -19,20 +19,28 @@ const runtimeState = vi.hoisted(() => ({
   config: {} as Record<string, unknown>,
   inspection: { exists: false, config: {}, problems: [] as string[] },
   requestedRepoPath: undefined as string | undefined,
+  ownershipProblem: undefined as string | undefined,
 }));
 
 vi.mock("node:child_process", () => ({
   spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
 }));
 
-vi.mock("../workspace-runtime", () => ({
-  resolveWorkspaceRuntimeDetailed: (repoPath?: string) => {
-    runtimeState.requestedRepoPath = repoPath;
-    return runtimeState.resolution;
-  },
-  readWorkspaceRuntimeConfig: () => runtimeState.config,
-  inspectWorkspaceRuntimeConfig: () => runtimeState.inspection,
-}));
+vi.mock("../workspace-runtime", () => {
+  class WorkspaceRuntimeOwnershipError extends Error {}
+  return {
+    WorkspaceRuntimeOwnershipError,
+    resolveWorkspaceRuntimeDetailed: (repoPath?: string) => {
+      runtimeState.requestedRepoPath = repoPath;
+      if (repoPath && runtimeState.ownershipProblem) {
+        throw new WorkspaceRuntimeOwnershipError(runtimeState.ownershipProblem);
+      }
+      return runtimeState.resolution;
+    },
+    readWorkspaceRuntimeConfig: () => runtimeState.config,
+    inspectWorkspaceRuntimeConfig: () => runtimeState.inspection,
+  };
+});
 
 let tmpDir: string;
 
@@ -55,6 +63,7 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-tool-diagnostics-test-"));
   runtimeState.resolution = { runtime: "devpod", source: "auto-detect" };
   runtimeState.requestedRepoPath = undefined;
+  runtimeState.ownershipProblem = undefined;
   runtimeState.config = {};
   runtimeState.inspection = { exists: false, config: {}, problems: [] };
   spawnSyncMock.mockImplementation((command: string, args: string[]) => {
@@ -208,6 +217,29 @@ describe("buildGlobalToolChecks", () => {
 
     expect(runtimeState.requestedRepoPath).toBe(tmpDir);
     expect(byId.get("global.workspace-runtime-config")?.level).toBe("ok");
+  });
+
+  it("reports ambiguous checkout ownership without hiding the configured runtime tool", () => {
+    writePackageJson();
+    runtimeState.resolution = { runtime: "devsy", source: "machine-config" };
+    runtimeState.ownershipProblem = "Both DevPod and Devsy claim this checkout.";
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      const key = `${command} ${args.join(" ")}`;
+      if (key === "devsy --version") return result(0, "v1.16.2\n");
+      if (key === "pnpm --version") return result(0, "11.6.0\n");
+      return result(1, "", "missing");
+    });
+
+    const checks = buildGlobalToolChecks(tmpDir);
+    const byId = new Map(checks.map((check) => [check.id, check]));
+
+    expect(byId.get("repo.workspace-runtime-ownership")?.level).toBe("error");
+    expect(byId.get("repo.workspace-runtime-ownership")?.details).toContain(
+      "Both DevPod and Devsy",
+    );
+    expect(byId.get("global.devpod")?.summary).toBe(
+      "Devsy is configured, but checkout ownership is unresolved.",
+    );
   });
 
   it("warns about invalid persisted preference content", () => {

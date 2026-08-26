@@ -29,6 +29,8 @@ function mockRegistries(options: {
   devpodInstalled?: boolean;
   devsyWorkspaces?: unknown[];
   devpodWorkspaces?: unknown[];
+  devsyRegistryStatus?: number;
+  devpodRegistryStatus?: number;
 }) {
   spawnSyncMock.mockImplementation((command: string, args: string[]) => {
     const probeArg = command === "devsy" ? "--version" : "version";
@@ -40,10 +42,16 @@ function mockRegistries(options: {
       return result(1);
     }
     if (command === "devsy" && args.includes("list")) {
-      return result(0, JSON.stringify(options.devsyWorkspaces ?? []));
+      return result(
+        options.devsyRegistryStatus ?? 0,
+        JSON.stringify(options.devsyWorkspaces ?? []),
+      );
     }
     if (command === "devpod" && args[0] === "list") {
-      return result(0, JSON.stringify(options.devpodWorkspaces ?? []));
+      return result(
+        options.devpodRegistryStatus ?? 0,
+        JSON.stringify(options.devpodWorkspaces ?? []),
+      );
     }
     return result(1);
   });
@@ -210,7 +218,7 @@ describe("exact-path registry ownership", () => {
     expect(resolve("/repo/fresh").source).toBe("machine-config");
   });
 
-  it("does not guess a path owner when both registries own the path", async () => {
+  it("fails closed when both registries own the path", async () => {
     readFileSyncMock.mockImplementation(() => JSON.stringify({ runtime: "devpod" }));
     mockRegistries({
       devsyInstalled: true,
@@ -219,8 +227,19 @@ describe("exact-path registry ownership", () => {
       devpodWorkspaces: [{ id: "ws", source: { localFolder: "/repo/ws" } }],
     });
     const resolve = await loadRuntime();
-    expect(resolve("/repo/ws").runtime).toBe("devpod");
-    expect(resolve("/repo/ws").source).toBe("machine-config");
+    expect(() => resolve("/repo/ws")).toThrow(/Both DevPod and Devsy claim this checkout/);
+  });
+
+  it("fails closed when an installed runtime registry is unavailable", async () => {
+    readFileSyncMock.mockImplementation(() => JSON.stringify({ runtime: "devsy" }));
+    mockRegistries({
+      devsyInstalled: true,
+      devpodInstalled: true,
+      devsyRegistryStatus: 1,
+      devpodWorkspaces: [],
+    });
+    const resolve = await loadRuntime();
+    expect(() => resolve("/repo/fresh")).toThrow(/Devsy workspace registry is unavailable/i);
   });
 
   it("keeps per-path ownership decisive after a fallback resolved another path first", async () => {

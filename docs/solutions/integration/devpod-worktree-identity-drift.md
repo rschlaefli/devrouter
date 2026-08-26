@@ -98,6 +98,9 @@ doctor, and GC on the same fail-closed ownership rule.
 When more than one workspace runtime is installed, resolve the exact checkout path against both
 provider registries before consulting the machine preference. Probe each provider with its actual
 version command (`devpod version`, `devsy --version`) rather than assuming equivalent CLI syntax.
+Treat duplicate path owners and unreadable installed-provider registries as blocking evidence;
+neither state proves that the machine preference owns the checkout, so lifecycle dispatch must fail
+closed while doctor reports the ambiguity.
 Provider-specific tests must pin `DEVROUTER_WORKSPACE_RUNTIME`; otherwise a developer's persisted
 machine preference can silently route a DevPod test through Devsy. The registry split and test
 isolation are implemented in `src/core/workspace-runtime.ts` and the provider adapter suites from
