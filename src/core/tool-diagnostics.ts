@@ -210,7 +210,10 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
   });
 
   const workspaceRuntime = resolveWorkspaceRuntimeOrDefault();
-  const runtimeTool = runTool(workspaceRuntime, ["version"]);
+  // Devsy exposes only the global --version flag; DevPod accepts a version
+  // subcommand. Probe each runtime with its supported spelling.
+  const runtimeArgs = workspaceRuntime === "devsy" ? ["--version"] : ["version"];
+  const runtimeTool = runTool(workspaceRuntime, runtimeArgs);
   checks.push({
     id: "global.devpod",
     level: runtimeTool.ok ? "ok" : "warn",

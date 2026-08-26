@@ -91,4 +91,27 @@ describe("buildGlobalToolChecks", () => {
     expect(byId.get("global.node-toolchain")?.level).toBe("warn");
     expect(byId.get("global.node-toolchain")?.suggestion).toContain("pnpm@11.6.0");
   });
+
+  it("probes Devsy with its --version flag when it is the active runtime", () => {
+    writePackageJson();
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      const key = `${command} ${args.join(" ")}`;
+      if (key === "devsy --version") {
+        return result(0, "v1.16.2\n");
+      }
+      if (key === "pnpm --version") {
+        return result(0, "11.6.0\n");
+      }
+      if (key === "brew --version") {
+        return result(0, "Homebrew 4.5.0\n");
+      }
+      return result(1, "", "missing");
+    });
+
+    const checks = buildGlobalToolChecks(tmpDir);
+    const byId = new Map(checks.map((check) => [check.id, check]));
+
+    expect(byId.get("global.devpod")?.level).toBe("ok");
+    expect(byId.get("global.devpod")?.summary).toBe("Devsy is installed.");
+  });
 });
