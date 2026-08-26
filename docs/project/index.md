@@ -4,6 +4,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Devsy partial-start recovery](./2026-08-26-devsy-partial-start-recovery-plan.md) — keep failed cold Devsy starts canonically stoppable and prepare the 0.0.42 release PR.
 - [Dependency-aware devcontainer profiles](./2026-08-26-devcontainer-dependency-profiles-plan.md) — managed app/service/process profile dimensions for devcontainer 0.0.39.
 - [HTTP readiness leaf pin](./2026-08-21-http-readiness-leaf-pin-plan.md) — repair the macOS TLS readiness probe without changing lifecycle contracts.
 - [Devrouter roadmap](./2026-02-07-devrouter-roadmap.md) — current product and quality backlog.
