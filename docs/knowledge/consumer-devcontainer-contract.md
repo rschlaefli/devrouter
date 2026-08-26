@@ -8,6 +8,9 @@ source_paths:
   - src/core/managed-post-start.ts
   - src/core/workspace-ensure.ts
   - src/core/devcontainer-*.ts
+  - src/core/managed-runtime*.ts
+  - src/core/status.ts
+  - src/core/doctor.ts
   - src/commands/repo-devcontainer.ts
   - examples/devcontainer/**
   - docs/DEVCONTAINER.md
@@ -32,6 +35,32 @@ Consumer images must not install, download, or version-pin Devrouter. [ADR 0002]
 - Partial or mixed managed wiring fails with migration guidance instead of guessing.
 
 After `workspaceEnsure` proves the exact container and in-container workspace, `runManagedPostStart` copies its matching helper and the captured adapter bytes to runtime-only paths under `/tmp/devrouter/bin`. It passes `DEVROUTER_PROCESS_HELPER` plus the adapter SHA-256 into the exact container and invokes the captured snapshot from the validated workdir. Adapter bytes therefore participate in managed-process identity without becoming an image dependency.
+
+## Selective managed resources
+
+The optional `.devrouter.yml` `managedRuntime` registry names the primary
+container's base services, optional Compose services, and repository-owned
+process markers. Profiles select `apps`, `devcontainerServices`, and `processes`
+independently. Base services and the primary service are always retained. In a
+managed profile, an omitted optional dimension is empty, so an app-only profile
+does not implicitly start an AI gateway, MCP server, mail catcher, or another
+optional capability. A capability-only profile may omit `apps` and therefore
+publishes no route.
+
+The source `devcontainer.json` remains the full native configuration. For
+managed startup, `ensure` creates the ignored, marker-owned
+`.devcontainer/devcontainer.devrouter.json` beside it and passes that exact
+path to DevPod before startup. The generated file is runtime state, not a
+consumer artifact: it is never committed or hand-edited, and its content is
+fingerprinted for status and drift reporting.
+
+The adapter receives `DEVROUTER_PROFILE` and, for managed configurations,
+`DEVROUTER_PROCESS_SET`. The process helper uses those values as non-secret
+identity inputs, so a profile change replaces only the owned process set. A
+warm transition retains the DevPod and volumes, starts newly selected services
+without recreation, stops dropped resources only after exact ownership proof,
+and publishes routes last. Inspect the result with `devrouter status` or
+`devrouter doctor`.
 
 ## Container and network contract
 

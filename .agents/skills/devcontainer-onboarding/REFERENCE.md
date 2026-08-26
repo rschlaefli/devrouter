@@ -65,6 +65,39 @@ The devnet alias just needs to be unique across all routed devcontainers;
   to the devcontainer path. Devcontainer usage stands alone; the devrouter
   routing is a clearly-marked layer "when available" (SKILL.md step 5).
 
+## Optional managed capability profiles
+
+Keep the source `devcontainer.json` and its native Compose configuration as the
+full environment. When `devrouter ensure` needs to start only part of that
+environment, add a `managedRuntime` registry and select the dimensions needed by
+the task:
+
+```yaml
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [litellm, mcp-server]
+  processes: [web, local-mcp]
+
+profiles:
+  ai:
+    apps: [web]
+    devcontainerServices: [litellm]
+    processes: [web]
+  mcp:
+    devcontainerServices: [mcp-server]
+    processes: [local-mcp]
+```
+
+The registry must match actual Compose services and adapter process markers.
+Base services and the primary app service are always selected. In a managed
+profile, an omitted optional dimension is empty, so the `mcp` example is
+route-free and an app-only profile does not start LiteLLM. Use an explicit `*`
+dimension or a `full` profile to select every registered resource. Warm profile
+changes keep the same DevPod and volumes, do not rerun post-create, and stop
+dropped resources only after exact ownership proof. See the full lifecycle
+contract in `docs/DEVCONTAINER.md`.
+
 ## Adapting to a non-Prisma / non-Next stack
 
 The pattern is stack-agnostic: **services on devnet + committed env + managed

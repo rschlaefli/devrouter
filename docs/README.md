@@ -23,7 +23,7 @@ The knowledge bundle is an orientation layer. Its concept frontmatter declares s
 ## Maintainer context
 
 - [Domain context](../CONTEXT.md): compact vocabulary consumed by Matt Pocock skills and repository planning workflows.
-- [Architecture decisions](./adr/): accepted rationale for durable trade-offs.
+- [Architecture decisions](./adr/README.md): accepted rationale for durable trade-offs.
 - [Integration solutions](./solutions/integration/): incident-derived failure analysis and prevention guidance.
 
 ## Project records

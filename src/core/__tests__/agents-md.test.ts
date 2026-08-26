@@ -44,7 +44,7 @@ describe("agents-md", () => {
     expect(skillContent).toContain("devrouter upgrade <version>");
     expect(skillContent).toContain("devrouter -V");
     expect(skillContent).toContain("devrouter setup --repo . --yes");
-    expect(skillContent).toContain("devrouter ensure [path] [--open] [--json]");
+    expect(skillContent).toContain("devrouter ensure [path] [--profile <name>] [--open] [--json]");
     expect(skillContent).toContain("devrouter exec [path] -- <command...>");
     expect(skillContent).toContain("devrouter repo inspect --repo . --json");
     expect(skillContent).toContain("devrouter repo devcontainer write --dry-run --json");

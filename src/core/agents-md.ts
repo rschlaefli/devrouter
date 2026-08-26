@@ -140,13 +140,60 @@ profiles:
     default: true
 \`\`\`
 
-- \`apps\` (required): routed app names (\`kind=app\`) or \`['*']\` for everything.
+- \`apps\` (required for app-only profiles): routed app names (\`kind=app\`) or \`['*']\` for everything; with \`managedRuntime\`, omit it for a route-free capability profile.
 - \`dependencies\` (optional): \`kind=dependency\` services this profile needs; omitted = every dependency a kept app requires transitively.
 - \`readiness\` (optional): subset of the profile's apps that \`ensure\` HTTP-probes; omitted = all profile apps with an http route.
 - \`default\` (optional): at most one; used when \`--profile\` is omitted. No \`profiles\` key at all = implicit full behavior.
 - Validation is strict at config load: unknown keys, non-routed \`apps\`, non-dependency \`dependencies\`, \`readiness\` outside the profile's apps, and multiple defaults are rejected.
 - Selection: \`devrouter ensure <path> --profile <name>\`. Comma-separated selections (\`--profile manage,pwa\`) merge with deduplication; the canonical name is sorted-unique so order never affects identity or fingerprints. A wildcard member collapses to everything.
 - Managed adapters receive \`DEVROUTER_PROFILE\` (canonical resolved name) in the post-start env; profile switches replace the owned process group via the fingerprint.
+
+### Managed devcontainer resources
+
+The optional \`managedRuntime\` registry separates the primary container's base
+Compose services, optional profile services, and repository-owned process
+markers. Profiles select those dimensions independently:
+
+\`\`\`yaml
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [litellm, mcp-server]
+  processes: [web, local-mcp]
+
+profiles:
+  ai:
+    apps: [web]
+    devcontainerServices: [litellm]
+    processes: [web]
+  mcp:
+    devcontainerServices: [mcp-server]
+    processes: [local-mcp]
+  full:
+    apps: ['*']
+    devcontainerServices: ['*']
+    processes: ['*']
+    default: true
+\`\`\`
+
+- \`baseServices\` remain selected with the primary Dev Container service for
+  every managed profile; \`profileServices\` and \`processes\` are registries.
+- \`devcontainerServices\` selects registered optional Compose services, and
+  \`processes\` selects registered managed process markers.
+- With \`managedRuntime\`, \`apps\` may be omitted for a route-free capability
+  profile. An omitted optional dimension selects nothing, so an app-only
+  profile does not start LiteLLM, MCP, MailHog, or another optional service.
+- Use \`*\` or the \`full\` profile to select every registered resource. A config
+  without \`managedRuntime\` keeps the app-only profile behavior.
+- Native Dev Container clients still use the source configuration's full
+  service set. Managed \`ensure\` derives an ignored, marker-owned sibling
+  configuration and changes only \`runServices\`.
+- Warm profile changes retain the exact DevPod and volumes, do not rerun
+  \`postCreateCommand\`, avoid \`--recreate\` and broad \`down\`, and stop dropped
+  services/processes only after exact ownership proof. Routes publish last.
+- Inspect managed desired, active, and drift state with \`devrouter status\` and
+  \`devrouter doctor\`; values such as credentials and environment contents are
+  never written to managed runtime state.
 
 ## Env var injection
 
@@ -226,7 +273,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - \`devrouter -V [--repo .]\`: show installed CLI version, local repo version, and next upgrade target
 - \`devrouter upgrade [version] [--repo .]\`: list upgrade targets or print target Agent Adaptation Prompt
 - \`devrouter setup --yes [--repo .] [--json]\`: first-run machine setup plus structured diagnostics
-- \`devrouter ensure [path] [--open] [--json]\`: canonical startup/reconciliation for primary and linked checkouts
+- \`devrouter ensure [path] [--profile <name>] [--open] [--json]\`: canonical startup/reconciliation for primary and linked checkouts; a managed profile selects its independent resource dimensions
 - \`devrouter stop [path] [--delete] [--json]\`: stop the exact DevPod and remove exact routes; \`--delete\` explicitly deletes its ownership-proven data without removing the checkout
 - \`devrouter exec [path] -- <command...>\`: literal one-shot command inside the exact running DevPod
 - \`devrouter up\` / \`devrouter down\`: start/stop shared Traefik router
@@ -249,7 +296,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - \`devrouter app exec <name> [--shell] [--env <env>] [--workspace <slug>] -- <cmd>\`: one-shot command with resolved dep env
 - \`devrouter app rm <name> [--keep-config]\`: remove app entry (\`--keep-config\` frees only the live route/hostname, leaves \`.devrouter.yml\` untouched)
 - \`devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]\`: create a worktree and start/prove it unless create-only mode is requested
-- \`devrouter workspace ensure [path] [--open] [--json]\`: compatibility alias of \`devrouter ensure\`
+- \`devrouter workspace ensure [path] [--profile <name>] [--open] [--json]\`: compatibility alias of \`devrouter ensure\`
 - \`devrouter workspace ls [--json]\`: list ownership, Git, DevPod, route, path, and branch evidence
 - \`devrouter workspace cleanup [--repo .] [--inactive-for 30d] [--check-merged] [--measure-size] [--json]\`: report-only cleanup evidence and exact guarded suggestions; no \`--yes\` or apply mode
 - \`devrouter workspace stop <workspace|branch>\`: stop DevPod and routes; preserve checkout, owner record, and data
@@ -266,7 +313,7 @@ For devcontainer onboarding:
 4. \`devrouter repo devcontainer write --repo . --dry-run --json\`
 5. \`devrouter repo devcontainer write --repo . --yes\`
 6. \`devrouter repo devcontainer verify --repo . --json\`
-7. Start and prove either checkout kind with \`devrouter ensure . --json\`
+7. Start and prove either checkout kind with \`devrouter ensure . --json\`; for managed selective work, use \`--profile <name>\` and inspect desired/active/drift state
 8. Run seeds or migrations with \`devrouter exec . -- <command...>\`
 
 For host/docker runtime apps only:
@@ -308,6 +355,7 @@ function buildDevrouterSection(): string {
     "- `devrouter tls install` (required when repo defines tcp/postgres apps)",
     "- `devrouter app ls --repo .`",
     "- Primary or linked devcontainer checkout: `devrouter ensure . --json`",
+    "- Managed selective profile: `devrouter ensure . --profile <name> --json`",
     "- Host/docker runtime app only: `devrouter app run <host-app> --repo . --yes`",
     "- `devrouter ls`",
     DEVROUTER_END_SENTINEL,

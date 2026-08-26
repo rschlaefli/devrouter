@@ -387,10 +387,10 @@
 
 ## Progress
 
-- Status: Execution in progress; D0-D3 are committed and reviewed in the task
+- Status: Execution in progress; D0-D4 are committed and reviewed in the task
   worktree. The local release remains unpublished.
-- Active slice: D4, after the DevPod lifecycle seam and managed runtime
-  transition gates passed.
+- Active slice: D5, after the DevPod lifecycle seam and managed runtime
+  transition and status gates passed.
 - Completed: Fresh worktree creation, first-party Dev Container and DevPod
   research, current devrouter contract inspection, Klicker dependency mapping,
   the required planning review, and the installed DevPod characterization.
@@ -400,7 +400,7 @@
   without recreating the primary app container, rerunning `postCreate`, or
   changing the owned volume set. A second exact workspace remained unchanged.
   Both workspaces were stopped and named volumes were retained.
-- Remaining: D3-D6, then the separately authorized publication gate.
+- Remaining: D5-D6, then the separately authorized publication gate.
 - Latest verified base: `origin/main` at `308854e`; task branch was 0 ahead and
   0 behind when created.
 - Runtime: The D1 fixtures are stopped; their named volumes were not removed.
@@ -421,9 +421,26 @@
   both cleared the committed range `308854e..b035d24`. Review artifacts are in
   `docs/project/_local/reviews/`; the reported rollback, exact-model, and
   interpolation concerns were fixed and re-verified.
+- D4 implementation: Added desired/active/drift state to ensure JSON, status,
+  human output, and doctor diagnostics. Managed status now reports base and
+  optional service state, process state, exact generated-config ownership and
+  fingerprints, transition state, and values-free drift. Legacy output remains
+  a compact compatibility row. A shared exact Compose identity predicate is
+  used by status and ensure. The focused correction suite has 77 passing tests;
+  Biome and TypeScript checks pass.
+- D4 review: The native simplifier route terminated before useful work with a
+  provider quota error. The permitted trusted Luna generic-continuity fallback
+  returned `DONE_WITH_CONCERNS`; all five findings were verified and addressed.
+  The disposition is recorded in the ignored local review artifact.
+- D5 guidance: Updated the ADR index, manuals, knowledge concepts, examples,
+  onboarding references, bundled skill, generated agent guidance, onboarding
+  prompt, changelog, upgrade prompt, and release checklist for native-full and
+  managed-selective behavior, independent capability profiles, exact warm
+  transitions, and ignored generated configuration ownership.
 - Required delivery layer: locally committed, fully verified release candidate
   with exact test runtime stopped and status `release_pending`.
 - Achieved delivery layer: reviewed plan, D0 plan commit, and D1
   characterization commit.
-- Next action: Implement D4 status and diagnostics, preserving additive legacy
-  output and values-free desired/active/drift reporting.
+- Next action: Run D5 documentation policy, knowledge, formatting, generated
+  guidance, and exact diff checks, then commit the documentation slice before
+  the 0.0.39 release-candidate checks.
