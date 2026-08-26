@@ -162,4 +162,12 @@ mutation, delete the runtime, switch providers, merge, or publish the package.
   provider status is `Stopped` and exact routes are empty.
 - `2026-08-26`: Required planner review completed with
   `DONE_WITH_CONCERNS`; its fail-closed ownership classification is incorporated
-  above. Implementation and fresh release verification remain pending.
+  above.
+- `2026-08-26`: Committed the provider classification, compatibility
+  normalization, and public rollback regressions as `c73575d`. Focused Devsy,
+  runtime-resolution, and workspace-ensure evidence passed 76 tests; the facade
+  regression, Biome, typecheck, Knip, Gitleaks, and diff checks passed.
+- `2026-08-26`: The configured hosted simplifier and slice-reviewer routes
+  failed before work with HTTP 402. Their documented native continuity reviews
+  both returned `DONE` with no findings. Release artifacts and fresh live proof
+  remain pending.

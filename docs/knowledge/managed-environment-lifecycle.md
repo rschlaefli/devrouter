@@ -40,6 +40,14 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
 6. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, and verify HTTP readiness.
 7. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
 
+A provider command can fail after creating recovery state. Devsy startup
+therefore re-reads exact ownership while its machine-global mutation lock is
+still held. An exact owner, conflicting evidence, or an unreadable registry is
+classified as possibly started; the compatibility adapter preserves the
+generated managed Dev Container configuration so canonical stop can still
+parse the workspace. Only a successfully read registry with no exact owner
+permits first-transition cleanup.
+
 `src/core/workspace-lifecycle.ts:workspaceUp` creates or reuses a Git worktree, then delegates startup to `workspaceEnsure`. `--no-devpod` is create-only and publishes no routes.
 
 ## Profile transitions
