@@ -327,6 +327,24 @@ function restorePreviousManagedConfig(options: {
   writeManagedDevcontainerConfig(restoredPlan);
 }
 
+function restoreFirstTransitionManagedConfig(options: {
+  repoPath: string;
+  config: DevrouterConfig;
+  linked: boolean;
+  services: string[];
+}): void {
+  const restoredPlan = inspectManagedDevcontainerConfig({
+    repoPath: options.repoPath,
+    config: options.config,
+    profile: {
+      apps: [],
+      devcontainerServices: [...options.services],
+    },
+    linked: options.linked,
+  });
+  writeManagedDevcontainerConfig(restoredPlan);
+}
+
 type FirstTransitionBaseline = {
   services: string[];
   processes: string[];
@@ -1037,8 +1055,13 @@ export async function workspaceEnsure(
                 linked,
                 previousState: previousManagedState,
               });
-            } else {
-              removeManagedDevcontainerConfig(managedPlan);
+            } else if (managedRuntimeConfig) {
+              restoreFirstTransitionManagedConfig({
+                repoPath,
+                config: managedRuntimeConfig,
+                linked,
+                services: previousServices,
+              });
             }
           }
         } catch (rollbackError) {
@@ -1171,7 +1194,7 @@ export async function workspaceEnsure(
                 linked,
                 previousState: previousManagedState,
               });
-            } else {
+            } else if (!environmentStarted) {
               removeManagedDevcontainerConfig(managedPlan);
             }
           } catch (rollbackError) {
