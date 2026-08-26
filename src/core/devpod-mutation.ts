@@ -18,6 +18,7 @@ export type OwnedDevpodMutationResult = { status: "changed" } | { status: "absen
 export type DevpodStartOptions = {
   repoPath: string;
   devpodId?: string;
+  devcontainerPath?: string;
   recreate?: boolean;
   quiet?: boolean;
   workspace?: { token: string; gitCommonDir: string };
@@ -125,6 +126,9 @@ export function startDevpodWorkspace(options: DevpodStartOptions): string {
 
     const args = ["up", options.repoPath];
     if (devpodId) args.push("--id", devpodId);
+    if (options.devcontainerPath) {
+      args.push("--devcontainer-path", options.devcontainerPath);
+    }
     args.push("--open-ide=false");
     if (options.workspace) {
       args.push(

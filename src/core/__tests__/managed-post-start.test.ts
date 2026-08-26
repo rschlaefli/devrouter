@@ -8,6 +8,7 @@ import {
   type ManagedPostStartPlan,
   resolveManagedPostStartPlan,
   runManagedPostStart,
+  runManagedProcessAction,
 } from "../managed-post-start";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
@@ -240,5 +241,75 @@ describe("managed post-start", () => {
       "Could not deliver the managed post-start adapter: adapter delivery failed",
     );
     expect(spawnSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("injects the selected profile process set into the captured adapter", () => {
+    runManagedPostStart({
+      plan: runtimePlan,
+      container,
+      profile: "ai,mcp",
+      processes: ["app", "local-mcp"],
+    });
+
+    expect(spawnSync).toHaveBeenNthCalledWith(
+      3,
+      "docker",
+      expect.arrayContaining([
+        "--env",
+        "DEVROUTER_PROFILE=ai,mcp",
+        "--env",
+        "DEVROUTER_PROCESS_SET=app,local-mcp",
+        "--env",
+        "DEVROUTER_PROCESS_FINGERPRINT_ENV=DEVROUTER_PROFILE,DEVROUTER_PROCESS_SET",
+      ]),
+      expect.objectContaining({ stdio: "inherit" }),
+    );
+  });
+
+  it("reports and stops only the named managed process", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: '{"name":"local-mcp","status":"running"}\n',
+      stderr: "",
+    } as never);
+
+    expect(runManagedProcessAction({ container, name: "local-mcp", action: "status" })).toBe(
+      "running",
+    );
+    expect(spawnSync).toHaveBeenCalledWith(
+      "docker",
+      [
+        "exec",
+        "--workdir",
+        "/workspaces/repo",
+        "--env",
+        "DEVROUTER_PROCESS_HELPER=/tmp/devrouter/bin/devrouter-process",
+        "app-id",
+        "bash",
+        "-c",
+        'exec "$DEVROUTER_PROCESS_HELPER" "$1" --name "$2"',
+        "devrouter-process",
+        "status",
+        "local-mcp",
+      ],
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    expect(runManagedProcessAction({ container, name: "local-mcp", action: "stop" })).toBe(
+      "stopped",
+    );
+    expect(spawnSync).toHaveBeenLastCalledWith(
+      "docker",
+      expect.arrayContaining(["devrouter-process", "stop", "local-mcp"]),
+      { encoding: "utf-8", stdio: ["ignore", 2, "inherit"] },
+    );
+  });
+
+  it("converts an invalid managed-process status response into drift", () => {
+    vi.mocked(spawnSync).mockReturnValue({ status: 2, stdout: "not-json\n", stderr: "" } as never);
+
+    expect(runManagedProcessAction({ container, name: "local-mcp", action: "status" })).toBe(
+      "drifted",
+    );
   });
 });

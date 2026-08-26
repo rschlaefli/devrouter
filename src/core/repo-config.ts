@@ -985,9 +985,19 @@ export function resolveProfile(
       };
     }
     // Profiles exist but none is default: full behavior (all apps).
-    return { name: "full", profile: undefined };
+    return {
+      name: "full",
+      profile: config.managedRuntime
+        ? { apps: ["*"], devcontainerServices: ["*"], processes: ["*"] }
+        : undefined,
+    };
   }
-  return { name: "full", profile: undefined };
+  return {
+    name: "full",
+    profile: config.managedRuntime
+      ? { apps: ["*"], devcontainerServices: ["*"], processes: ["*"] }
+      : undefined,
+  };
 }
 
 // Filter a runtime config down to a profile's apps. Dependencies: a profile with
@@ -1480,13 +1490,23 @@ export function loadRuntimeConfig(
   repoPath?: string,
   workspaceOverride?: string,
   profileOverride?: string,
-): { config: DevrouterConfig; workspace: string | undefined; profile: string } {
+): {
+  config: DevrouterConfig;
+  workspace: string | undefined;
+  profile: string;
+  resolvedProfile?: DevrouterProfile;
+} {
   const resolved = resolveRepoPath(repoPath);
   const raw = loadRepoConfig(resolved);
   const resolvedProfile = resolveProfile(raw, profileOverride);
   const workspace = resolveWorkspace(resolved, workspaceOverride);
   const config = applyProfile(applyWorkspace(raw, workspace, resolved), resolvedProfile.profile);
-  return { config, workspace, profile: resolvedProfile.name };
+  return {
+    config,
+    workspace,
+    profile: resolvedProfile.name,
+    resolvedProfile: resolvedProfile.profile,
+  };
 }
 
 export function resolveAppByName(

@@ -387,10 +387,9 @@
 
 ## Progress
 
-- Status: Execution in progress; D0 and D1 are committed, and D2 is ready for
-  its required post-commit reviews. The local
-  release remains unpublished.
-- Active slice: D2, after the DevPod lifecycle seam passed.
+- Status: Execution in progress; D0-D2 are committed and D3 is implemented in
+  the task worktree. The local release remains unpublished.
+- Active slice: D3, after the DevPod lifecycle seam passed.
 - Completed: Fresh worktree creation, first-party Dev Container and DevPod
   research, current devrouter contract inspection, Klicker dependency mapping,
   the required planning review, and the installed DevPod characterization.
@@ -400,7 +399,7 @@
   without recreating the primary app container, rerunning `postCreate`, or
   changing the owned volume set. A second exact workspace remained unchanged.
   Both workspaces were stopped and named volumes were retained.
-- Remaining: D2-D6, then the separately authorized publication gate.
+- Remaining: D3-D6, then the separately authorized publication gate.
 - Latest verified base: `origin/main` at `308854e`; task branch was 0 ahead and
   0 behind when created.
 - Runtime: The D1 fixtures are stopped; their named volumes were not removed.
@@ -408,10 +407,17 @@
 - D2 implementation: Added the strict `managedRuntime` registry, independent
   app/service/process profile dimensions, per-dimension wildcard merging,
   route-free capability profiles, legacy compatibility, focused tests, and ADR
-  0005. The focused profile suite has 96 passing tests and TypeScript passes.
+  0005. The focused profile suite has 100 passing tests and TypeScript passes.
+- D3 implementation: Added same-directory atomic effective Dev Container
+  config generation, exact Compose service reconciliation, managed process
+  stop/status actions, last-successful runtime state, route-publication
+  ordering, and rollback coverage. The focused D3 workspace, process, state,
+  and generated-config suites have 61 passing tests; static checks and
+  typecheck pass. The Linux process-helper suite remains pending in a Linux
+  container because this host has no `/proc`.
 - Required delivery layer: locally committed, fully verified release candidate
   with exact test runtime stopped and status `release_pending`.
 - Achieved delivery layer: reviewed plan, D0 plan commit, and D1
   characterization commit.
-- Next action: Add and test the dependency-aware `managedRuntime` schema and
-  ADR in D2.
+- Next action: Commit D3, run the required simplifier and lifecycle/ownership
+  slice review, then begin D4 status reporting after review disposition.

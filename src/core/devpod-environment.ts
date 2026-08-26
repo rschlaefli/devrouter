@@ -20,7 +20,7 @@ export type WorkspaceContainerSnapshot = {
 };
 
 const SAFE_INSPECT_TEMPLATE =
-  '{"id":{{json .Id}},"state":{"Running":{{json .State.Running}},"Health":{{with (index .State "Health")}}{"Status":{{json .Status}}}{{else}}null{{end}}},"labels":{"com.docker.compose.project.working_dir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"com.docker.compose.project.config_files":{{json (index .Config.Labels "com.docker.compose.project.config_files")}}},"mounts":{{json .Mounts}},"networks":{{json .NetworkSettings.Networks}}}';
+  '{"id":{{json .Id}},"state":{"Running":{{json .State.Running}},"Health":{{with (index .State "Health")}}{"Status":{{json .Status}}}{{else}}null{{end}}},"labels":{"com.docker.compose.project":{{json (index .Config.Labels "com.docker.compose.project")}},"com.docker.compose.service":{{json (index .Config.Labels "com.docker.compose.service")}},"com.docker.compose.project.working_dir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"com.docker.compose.project.config_files":{{json (index .Config.Labels "com.docker.compose.project.config_files")}}},"mounts":{{json .Mounts}},"networks":{{json .NetworkSettings.Networks}}}';
 
 // Size reporting costs the daemon a filesystem walk per container, so it is
 // requested only on demand. The keys are read through `index` rather than as

@@ -1,7 +1,14 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { DevrouterProxyApp } from "../types";
+import type { DevrouterProxyApp, HostRouteState } from "../types";
+import {
+  inspectManagedDevcontainerConfig,
+  type ManagedDevcontainerPlan,
+  startExactManagedServices,
+  stopExactManagedService,
+  writeManagedDevcontainerConfig,
+} from "./devcontainer-profile";
 import {
   inspectWorkspaceContainers,
   type WorkspaceContainerSnapshot,
@@ -9,9 +16,25 @@ import {
 } from "./devpod-environment";
 import { DevpodStartPostconditionError, startDevpodWorkspace } from "./devpod-mutation";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
-import { parseUpstream, replaceHostRoutesForRepo } from "./host-routes";
+import {
+  type HostRouteInput,
+  listHostRouteState,
+  parseUpstream,
+  replaceHostRoutesForRepo,
+} from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
-import { resolveManagedPostStartPlan, runManagedPostStart } from "./managed-post-start";
+import {
+  type ManagedPostStartPlan,
+  resolveManagedPostStartPlan,
+  runManagedPostStart,
+  runManagedProcessAction,
+} from "./managed-post-start";
+import {
+  type ManagedRuntimeState,
+  markManagedRuntimeDegraded,
+  readManagedRuntimeState,
+  writeManagedRuntimeState,
+} from "./managed-runtime-state";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY } from "./router";
@@ -67,6 +90,14 @@ type ValidatedWorkspaceContainer = {
   workspacePath: string;
 };
 
+type ManagedTransitionPhase =
+  | "validation"
+  | "service-start"
+  | "process-start"
+  | "service-stop"
+  | "route-publication"
+  | "rollback";
+
 type WorkspaceEnsureOptions = {
   open?: boolean;
   quiet?: boolean;
@@ -98,6 +129,158 @@ function assertReady(container: WorkspaceContainerSnapshot, label: string): void
   if (health && health !== "healthy") {
     throw new Error(`${label} container '${container.id}' is not healthy (${health}).`);
   }
+}
+
+function exactWorkspaceServiceContainers(
+  containers: WorkspaceContainerSnapshot[],
+  repoPath: string,
+  composeProject: string,
+  service: string,
+): WorkspaceContainerSnapshot[] {
+  return containers.filter(
+    (container) =>
+      container.labels["com.docker.compose.project"] === composeProject &&
+      container.labels["com.docker.compose.service"] === service &&
+      sameWorkspacePath(
+        container.labels["com.docker.compose.project.working_dir"] ?? "",
+        path.join(repoPath, ".devcontainer"),
+      ),
+  );
+}
+
+function resolveComposeProject(
+  containers: WorkspaceContainerSnapshot[],
+  repoPath: string,
+  appContainerId: string,
+  primaryService: string,
+): string {
+  const app = containers.find((candidate) => candidate.id === appContainerId);
+  if (!app) {
+    throw new Error(
+      `Workspace app container '${appContainerId}' disappeared during reconciliation.`,
+    );
+  }
+  const workingDir = app.labels["com.docker.compose.project.working_dir"];
+  if (!workingDir || !sameWorkspacePath(workingDir, path.join(repoPath, ".devcontainer"))) {
+    throw new Error(
+      `Workspace app container '${appContainerId}' has an unexpected Compose directory.`,
+    );
+  }
+  if (app.labels["com.docker.compose.service"] !== primaryService) {
+    throw new Error(
+      `Workspace app container '${appContainerId}' is not Compose service '${primaryService}'.`,
+    );
+  }
+  const project = app.labels["com.docker.compose.project"];
+  if (!project) {
+    throw new Error(`Workspace app container '${appContainerId}' has no Compose project label.`);
+  }
+  return project;
+}
+
+async function waitForManagedServices(
+  plan: ManagedDevcontainerPlan,
+  repoPath: string,
+  composeProject: string,
+  expectedServices: string[],
+  expectedAppId: string,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  do {
+    try {
+      const containers = inspectWorkspaceContainers();
+      for (const service of expectedServices) {
+        const matches = exactWorkspaceServiceContainers(
+          containers,
+          repoPath,
+          composeProject,
+          service,
+        );
+        if (matches.length !== 1) {
+          throw new Error(
+            `Managed service '${service}' must have exactly one exact workspace container; found ${matches.length}.`,
+          );
+        }
+        if (service === plan.primaryService && matches[0].id !== expectedAppId) {
+          throw new Error(
+            `Managed primary service '${service}' changed container identity during profile transition.`,
+          );
+        }
+        assertReady(matches[0], `Managed service '${service}'`);
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+    if (Date.now() < deadline) await sleep(POLL_INTERVAL_MS);
+  } while (Date.now() < deadline);
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function stopDroppedManagedServices(
+  plan: ManagedDevcontainerPlan,
+  repoPath: string,
+  composeProject: string,
+): void {
+  const desired = new Set(plan.desiredProfileServices);
+  const containers = inspectWorkspaceContainers();
+  for (const service of plan.profileServices) {
+    if (desired.has(service)) continue;
+    const matches = exactWorkspaceServiceContainers(containers, repoPath, composeProject, service);
+    if (matches.length > 1) {
+      throw new Error(
+        `Managed service '${service}' has multiple exact workspace containers; refusing to stop any.`,
+      );
+    }
+    const match = matches[0];
+    if (match?.state.Running) stopExactManagedService(match.id, service);
+  }
+}
+
+function assertDroppedManagedServicesStopped(
+  plan: ManagedDevcontainerPlan,
+  repoPath: string,
+  composeProject: string,
+): void {
+  const desired = new Set(plan.desiredProfileServices);
+  const containers = inspectWorkspaceContainers();
+  for (const service of plan.profileServices) {
+    if (desired.has(service)) continue;
+    const matches = exactWorkspaceServiceContainers(containers, repoPath, composeProject, service);
+    if (matches.some((match) => match.state.Running)) {
+      throw new Error(`Managed service '${service}' remains running after exact stop.`);
+    }
+  }
+}
+
+function routeInputFromState(route: HostRouteState): HostRouteInput {
+  return {
+    name: route.name,
+    host: route.host,
+    protocol: route.protocol,
+    tcpProtocol: route.tcpProtocol,
+    repoPath: route.repoPath,
+    port: route.port,
+    mode: route.mode,
+    upstreamHost: route.upstreamHost,
+    pid: route.pid,
+    command: route.command,
+    workspace: route.workspace,
+  };
+}
+
+function isWildcard(values: string[] | undefined): boolean {
+  return values?.length === 1 && values[0] === "*";
+}
+
+function desiredManagedProcesses(
+  managedRuntime: NonNullable<ReturnType<typeof loadRuntimeConfig>["config"]["managedRuntime"]>,
+  profile: ReturnType<typeof loadRuntimeConfig>["resolvedProfile"],
+): string[] {
+  if (!profile || isWildcard(profile.processes)) return [...managedRuntime.processes];
+  return [...(profile.processes ?? [])];
 }
 
 export function validateWorkspaceContainers(
@@ -344,6 +527,15 @@ export async function workspaceEnsure(
 
   return withWorkspaceLifecycleLock(repoPath, async () => {
     let environmentStarted = false;
+    let managedPlan: ManagedDevcontainerPlan | undefined;
+    let previousManagedState: ManagedRuntimeState | undefined;
+    let managedComposeProject: string | undefined;
+    let managedContainer: ValidatedWorkspaceContainer | undefined;
+    let previousRoutes: HostRouteState[] = [];
+    let candidateRoutesPublished = false;
+    let transitionPhase: ManagedTransitionPhase = "validation";
+    let managedProcessRegistry: string[] = [];
+    let managedPostStartPlan: ManagedPostStartPlan | undefined;
     try {
       const target = linked ? resolveLinkedTarget(repoPath) : resolvePrimaryTarget(repoPath);
       let devpodId = target.devpodId;
@@ -354,12 +546,54 @@ export async function workspaceEnsure(
         }
       }
       const managedPostStart = resolveManagedPostStartPlan(repoPath);
+      managedPostStartPlan = managedPostStart;
 
       const runtime = loadRuntimeConfig(
         repoPath,
         target.kind === "primary" ? "" : target.workspace,
         options.profile,
       );
+      const managedRuntime = runtime.config.managedRuntime;
+      managedProcessRegistry = managedRuntime?.processes ?? [];
+      const desiredProcesses = managedRuntime
+        ? desiredManagedProcesses(managedRuntime, runtime.resolvedProfile)
+        : [];
+      if (managedRuntime) {
+        previousManagedState = readManagedRuntimeState(repoPath, target.workspace);
+        if (previousManagedState && previousManagedState.devpodId !== target.devpodId) {
+          throw new Error(
+            `Managed runtime state names DevPod '${previousManagedState.devpodId}', not the exact target '${target.devpodId ?? "(absent)"}'.`,
+          );
+        }
+        if (
+          previousManagedState?.desired.services.some(
+            (service) => !managedRuntime.devcontainer.profileServices.includes(service),
+          )
+        ) {
+          throw new Error("Managed runtime state contains an unregistered profile service.");
+        }
+        if (
+          previousManagedState?.desired.processes.some(
+            (process) => !managedRuntime.processes.includes(process),
+          )
+        ) {
+          throw new Error("Managed runtime state contains an unregistered process marker.");
+        }
+        previousRoutes = listHostRouteState().filter((route) =>
+          sameWorkspacePath(route.repoPath, repoPath),
+        );
+        if (managedPostStart.kind !== "runtime") {
+          throw new Error(
+            "managedRuntime requires the runtime managed post-start adapter for exact process reconciliation.",
+          );
+        }
+        managedPlan = inspectManagedDevcontainerConfig({
+          repoPath,
+          config: runtime.config,
+          profile: runtime.resolvedProfile,
+          linked: target.kind === "linked",
+        });
+      }
       const apps = proxyAppsFromConfig(runtime.config);
       const parsedUpstreams = apps.map((app) => parseUpstream(app.upstream));
       const aliasPrefix =
@@ -374,6 +608,7 @@ export async function workspaceEnsure(
           );
         }
       }
+      if (managedPlan) writeManagedDevcontainerConfig(managedPlan);
       const upstreamHosts = parsedUpstreams.map((upstream) => upstream.host);
       const ownership =
         target.kind === "linked"
@@ -397,6 +632,7 @@ export async function workspaceEnsure(
           devpodId = startDevpodWorkspace({
             repoPath,
             devpodId: requestedTarget.devpodId,
+            devcontainerPath: managedPlan?.generatedRelativePath,
             recreate,
             quiet: options.quiet,
             ...(requestedTarget.kind === "linked"
@@ -429,7 +665,7 @@ export async function workspaceEnsure(
       try {
         startAndProveAttachment();
       } catch (error) {
-        if (!target.hadExactDevpod) {
+        if (managedPlan || !target.hadExactDevpod) {
           throw error;
         }
         container = await recreateAndPreflight();
@@ -439,25 +675,115 @@ export async function workspaceEnsure(
         try {
           container = await preflight(0);
         } catch (error) {
-          if (!target.hadExactDevpod) {
+          if (managedPlan || !target.hadExactDevpod) {
             throw error;
           }
           container = await recreateAndPreflight();
           recreated = true;
         }
       }
+      managedContainer = container;
+      if (managedPlan) {
+        transitionPhase = "service-start";
+        const initialContainers = inspectWorkspaceContainers();
+        managedComposeProject = resolveComposeProject(
+          initialContainers,
+          repoPath,
+          container.id,
+          managedPlan.primaryService,
+        );
+        if (previousManagedState && previousManagedState.composeProject !== managedComposeProject) {
+          throw new Error(
+            `Managed runtime state names Compose project '${previousManagedState.composeProject}', not '${managedComposeProject}'.`,
+          );
+        }
+
+        const missingServices: string[] = [];
+        for (const service of managedPlan.desiredServices) {
+          const matches = exactWorkspaceServiceContainers(
+            initialContainers,
+            repoPath,
+            managedComposeProject,
+            service,
+          );
+          if (matches.length > 1) {
+            throw new Error(
+              `Managed service '${service}' has multiple exact workspace containers; refusing to reconcile it.`,
+            );
+          }
+          if (!matches[0]?.state.Running) missingServices.push(service);
+        }
+        startExactManagedServices({
+          plan: managedPlan,
+          composeProject: managedComposeProject,
+          services: missingServices,
+          quiet: options.quiet,
+        });
+        await waitForManagedServices(
+          managedPlan,
+          repoPath,
+          managedComposeProject,
+          managedPlan.desiredServices,
+          container.id,
+          options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+        );
+        container = await preflight(options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
+        managedContainer = container;
+      }
+
+      transitionPhase = "process-start";
       runManagedPostStart({
         plan: managedPostStart,
         container,
         quiet: options.quiet,
         profile: runtime.profile,
+        ...(managedPlan ? { processes: desiredProcesses } : {}),
       });
 
+      if (managedPlan && managedComposeProject) {
+        const processRegistry = runtime.config.managedRuntime?.processes ?? [];
+        const desiredProcessSet = new Set(desiredProcesses);
+        for (const process of processRegistry) {
+          if (desiredProcessSet.has(process)) continue;
+          runManagedProcessAction({
+            container,
+            name: process,
+            action: "stop",
+            quiet: options.quiet,
+          });
+        }
+        for (const process of desiredProcesses) {
+          const status = runManagedProcessAction({
+            container,
+            name: process,
+            action: "status",
+            quiet: options.quiet,
+          });
+          if (status !== "running") {
+            throw new Error(`Managed process '${process}' is not running (${status}).`);
+          }
+        }
+
+        transitionPhase = "service-stop";
+        stopDroppedManagedServices(managedPlan, repoPath, managedComposeProject);
+        assertDroppedManagedServicesStopped(managedPlan, repoPath, managedComposeProject);
+        await waitForManagedServices(
+          managedPlan,
+          repoPath,
+          managedComposeProject,
+          managedPlan.desiredServices,
+          container.id,
+          options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+        );
+      }
+
+      transitionPhase = "route-publication";
       const publication = await replacePublishedProxyRoutes(
         repoPath,
         runtime.config,
         target.workspace,
       );
+      candidateRoutesPublished = true;
       try {
         await waitForHttpRoutes(
           repoPath,
@@ -465,6 +791,9 @@ export async function workspaceEnsure(
           options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
         );
       } catch (error) {
+        if (managedPlan) {
+          throw error;
+        }
         replaceHostRoutesForRepo(repoPath, []);
         if (!target.hadExactDevpod || recreated) {
           throw error;
@@ -498,6 +827,25 @@ export async function workspaceEnsure(
       if (!devpodId) {
         throw new Error(`DevPod id for '${repoPath}' was not resolved after startup.`);
       }
+      if (managedPlan && managedComposeProject) {
+        writeManagedRuntimeState({
+          version: 1,
+          repoPath,
+          ...(target.workspace !== undefined ? { workspace: target.workspace } : {}),
+          devpodId,
+          composeProject: managedComposeProject,
+          profile: runtime.profile,
+          desired: {
+            apps: apps.map((app) => app.name).sort(),
+            services: [...managedPlan.desiredProfileServices].sort(),
+            processes: [...desiredProcesses].sort(),
+          },
+          sourceConfigSha256: managedPlan.sourceConfigSha256,
+          effectiveConfigSha256: managedPlan.effectiveConfigSha256,
+          status: "ready",
+          updatedAt: new Date().toISOString(),
+        });
+      }
       return {
         kind: target.kind,
         repoPath,
@@ -509,6 +857,140 @@ export async function workspaceEnsure(
         tlsRefreshed: publication.tlsRefreshed,
       };
     } catch (error) {
+      if (managedPlan && managedContainer && managedComposeProject) {
+        const rollbackErrors: string[] = [];
+        const failedPhase = transitionPhase;
+        transitionPhase = "rollback";
+        const previousServices = previousManagedState?.desired.services ?? [];
+        const previousProcesses = previousManagedState?.desired.processes ?? [];
+        const previousServiceSet = new Set(previousServices);
+        const previousProcessSet = new Set(previousProcesses);
+        try {
+          const previousAllServices = [
+            managedPlan.primaryService,
+            ...managedPlan.baseServices,
+            ...previousServices,
+          ];
+          startExactManagedServices({
+            plan: managedPlan,
+            composeProject: managedComposeProject,
+            services: previousAllServices,
+            quiet: options.quiet,
+          });
+          await waitForManagedServices(
+            managedPlan,
+            repoPath,
+            managedComposeProject,
+            previousAllServices,
+            managedContainer.id,
+            options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+          );
+        } catch (rollbackError) {
+          rollbackErrors.push(
+            `services: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          );
+        }
+
+        try {
+          if (!managedPostStartPlan) {
+            throw new Error("Managed post-start plan disappeared during rollback.");
+          }
+          runManagedPostStart({
+            plan: managedPostStartPlan,
+            container: managedContainer,
+            quiet: options.quiet,
+            profile: previousManagedState?.profile ?? "full",
+            processes: previousProcesses,
+          });
+          for (const process of managedProcessRegistry) {
+            if (previousProcessSet.has(process)) continue;
+            runManagedProcessAction({
+              container: managedContainer,
+              name: process,
+              action: "stop",
+              quiet: options.quiet,
+            });
+          }
+        } catch (rollbackError) {
+          rollbackErrors.push(
+            `processes: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          );
+        }
+
+        try {
+          const containers = inspectWorkspaceContainers();
+          for (const service of managedPlan.profileServices) {
+            if (previousServiceSet.has(service)) continue;
+            const matches = exactWorkspaceServiceContainers(
+              containers,
+              repoPath,
+              managedComposeProject,
+              service,
+            );
+            if (matches.length > 1) {
+              throw new Error(`service '${service}' has multiple exact containers`);
+            }
+            if (matches[0]?.state.Running) stopExactManagedService(matches[0].id, service);
+          }
+          assertDroppedManagedServicesStopped(
+            {
+              ...managedPlan,
+              desiredProfileServices: previousServices,
+              desiredServices: [
+                managedPlan.primaryService,
+                ...managedPlan.baseServices,
+                ...previousServices,
+              ],
+            },
+            repoPath,
+            managedComposeProject,
+          );
+        } catch (rollbackError) {
+          rollbackErrors.push(
+            `service cleanup: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          );
+        }
+
+        if (candidateRoutesPublished) {
+          try {
+            replaceHostRoutesForRepo(repoPath, previousRoutes.map(routeInputFromState));
+          } catch (rollbackError) {
+            rollbackErrors.push(
+              `routes: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+            );
+          }
+        }
+        if (rollbackErrors.length > 0 && previousManagedState) {
+          try {
+            markManagedRuntimeDegraded(previousManagedState, failedPhase);
+          } catch (stateError) {
+            rollbackErrors.push(
+              `state: ${stateError instanceof Error ? stateError.message : String(stateError)}`,
+            );
+          }
+        }
+        const original = error instanceof Error ? error.message : String(error);
+        const suffix =
+          rollbackErrors.length > 0
+            ? ` Rollback left degraded drift: ${rollbackErrors.join("; ")}.`
+            : " Candidate runtime was rolled back.";
+        throw new Error(`${original}${suffix}`);
+      }
+      if (managedPlan) {
+        const original = error instanceof Error ? error.message : String(error);
+        if (candidateRoutesPublished) {
+          try {
+            replaceHostRoutesForRepo(repoPath, previousRoutes.map(routeInputFromState));
+          } catch (rollbackError) {
+            throw new Error(
+              `${original} Rollback left degraded drift: routes: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}.`,
+            );
+          }
+        }
+        throw new Error(
+          `${original} Managed runtime transition did not reach a rollback boundary.`,
+        );
+      }
       if (environmentStarted) {
         try {
           replaceHostRoutesForRepo(repoPath, []);
