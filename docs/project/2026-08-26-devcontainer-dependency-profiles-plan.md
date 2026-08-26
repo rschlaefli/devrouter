@@ -387,10 +387,12 @@
 
 ## Progress
 
-- Status: Execution in progress; D0-D5 are committed and reviewed in the task
-  worktree. The local release remains unpublished.
-- Active slice: D6, after the DevPod lifecycle, managed runtime status, and
-  documentation gates passed.
+ worktree. The local release remains unpublished.
+ documentation gates passed.
+- Status: `release_pending`; D0-D6 are committed and reviewed in the task
+  worktree, the final review findings are resolved, and the exact test
+  runtimes are stopped. The local release remains unpublished.
+- Active slice: none.
 - Completed: Fresh worktree creation, first-party Dev Container and DevPod
   research, current devrouter contract inspection, Klicker dependency mapping,
   the required planning review, and the installed DevPod characterization.
@@ -400,7 +402,9 @@
   without recreating the primary app container, rerunning `postCreate`, or
   changing the owned volume set. A second exact workspace remained unchanged.
   Both workspaces were stopped and named volumes were retained.
-- Remaining: D6, then the separately authorized publication gate.
+- Remaining: the separately authorized publication gate. The Linux
+  process-helper suite stays pending for a Linux host because this host has no
+  `/proc`.
 - Latest verified base: `origin/main` at `308854e`; task branch was 0 ahead and
   0 behind when created.
 - Runtime: The D1 fixtures are stopped; their named volumes were not removed.
@@ -448,10 +452,29 @@
   when no explicit selection exists, so a deliberately stopped non-default
   profile reports `stopped` without false profile/config drift. The regression
   is covered by status tests and the packed consumer fixture.
+- 2026-08-26 D6 final review: The final reviewer returned six findings. The
+  four verified code findings were fixed in `fbc3625`: linked warm Compose
+  startup now passes the exact workspace environment, the first managed
+  transition rolls back to the observed native baseline instead of an empty
+  one, a warm ensure rejects a changed source-configuration fingerprint before
+  mutation, and managed process identifiers are validated at config parse
+  time. The two record findings were fixed by this Progress entry and the
+  project-index entry. Each code fix has a regression test.
+- 2026-08-26 final verification: `pnpm check`, `pnpm typecheck`, `pnpm
+  test` (658 tests, 60 files), and `pnpm build` pass on `fbc3625`. The
+  packed-artifact consumer smoke was rerun after the fixes: cold full start
+  ready with empty drift, `mcp` pure capability, `chat-ai` app plus
+  capability, `chat-ai,mcp` warm replacement, `ai` warm reduction, both
+  invalid profile selections rejected without mutation, a trusted mkcert TLS
+  response with status 200, and an exact stop that left zero running fixture
+  containers.
+- Runtime: The consumer fixture is stopped with zero running containers and no
+  owned routes, the D1 fixtures remain stopped, and the earlier routing-smoke
+  host runner was stopped. Named volumes were not removed.
 - Required delivery layer: locally committed, fully verified release candidate
   with exact test runtime stopped and status `release_pending`.
-- Achieved delivery layer: reviewed plan, D0 plan commit, and D1
-  characterization commit.
-- Next action: Commit the integrated local `0.0.39` candidate, run the required
-  final review, resolve any verified findings, and record the final stopped
-  runtime evidence with `release_pending`.
+- Achieved delivery layer: locally committed, fully verified release candidate
+  with exact test runtime stopped and status `release_pending`.
+- Next action: Publication and downstream Klicker adoption need explicit
+  authority for the named push, pull request, release publication, and any
+  host package installation.
