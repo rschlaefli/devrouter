@@ -863,6 +863,21 @@ function normalizeProfile(profile: DevrouterProfile): DevrouterProfile {
   };
 }
 
+function normalizeSelectedProfile(
+  name: string,
+  profile: DevrouterProfile,
+  managedRuntime: DevrouterConfig["managedRuntime"],
+): DevrouterProfile {
+  const normalized = normalizeProfile(profile);
+  if (name !== "full" || !managedRuntime) return normalized;
+  return {
+    ...normalized,
+    apps: ["*"],
+    devcontainerServices: ["*"],
+    processes: ["*"],
+  };
+}
+
 // A selection may name several profiles separated by commas (e.g. `manage,pwa`).
 // The union is deduplicated and sorted independently across every profile
 // dimension. `default` flags are ignored when combining — a merged selection is
@@ -874,14 +889,11 @@ export function resolveProfile(
   const profiles = config.profiles;
 
   const mergeSelection = (selection: string): { name: string; profile?: DevrouterProfile } => {
-    const names = Array.from(
-      new Set(
-        selection
-          .split(",")
-          .map((name) => name.trim())
-          .filter(Boolean),
-      ),
-    );
+    const rawNames = selection.split(",");
+    if (rawNames.some((name) => name.trim().length === 0)) {
+      throw new Error("Profile selection contains an empty token.");
+    }
+    const names = Array.from(new Set(rawNames.map((name) => name.trim())));
     if (names.length === 0) {
       throw new Error("Profile selection is empty.");
     }
@@ -894,7 +906,11 @@ export function resolveProfile(
     }
     if (names.length === 1) {
       const profile = profiles?.[names[0]];
-      return profile ? { name: names[0], profile: normalizeProfile(profile) } : { name: names[0] };
+      if (!profile) return { name: names[0] };
+      return {
+        name: names[0],
+        profile: normalizeSelectedProfile(names[0], profile, config.managedRuntime),
+      };
     }
 
     // Canonical merged name: sorted unique selection, so `pwa,manage` and
@@ -959,7 +975,14 @@ export function resolveProfile(
   if (profiles) {
     const defaultName = Object.keys(profiles).find((name) => profiles[name].default);
     if (defaultName) {
-      return { name: defaultName, profile: normalizeProfile(profiles[defaultName]) };
+      return {
+        name: defaultName,
+        profile: normalizeSelectedProfile(
+          defaultName,
+          profiles[defaultName],
+          config.managedRuntime,
+        ),
+      };
     }
     // Profiles exist but none is default: full behavior (all apps).
     return { name: "full", profile: undefined };
@@ -974,7 +997,8 @@ export function applyProfile(
   config: DevrouterConfig,
   profile: DevrouterProfile | undefined,
 ): DevrouterConfig {
-  if (!profile || (profile.apps.length === 1 && profile.apps[0] === "*")) {
+  const wildcardApps = profile?.apps.length === 1 && profile.apps[0] === "*";
+  if (!profile || (wildcardApps && profile.dependencies === undefined)) {
     return config;
   }
 
@@ -986,7 +1010,7 @@ export function applyProfile(
     if (app.kind === "dependency") {
       continue; // decided after dependency closure below
     }
-    if (!appSet.has(app.name)) {
+    if (!wildcardApps && !appSet.has(app.name)) {
       continue;
     }
     // Transitively collect every dependency this app requires.

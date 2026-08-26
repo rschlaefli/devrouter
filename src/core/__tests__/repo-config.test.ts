@@ -1202,6 +1202,28 @@ apps:
     expect(applyProfile(config, profile)).toBe(config);
   });
 
+  it("filters explicit dependencies even when all routed apps are selected", () => {
+    writeProfileConfig(
+      tmpDir,
+      `profiles:
+  everything:
+    apps: ["*"]
+    dependencies: [db]
+`,
+    );
+    const config = loadRepoConfig(tmpDir);
+    config.apps.push({
+      name: "other",
+      kind: "dependency",
+      runtime: "docker",
+      dependencies: [],
+      docker: { service: "other", composeFiles: ["docker-compose.yml"] },
+    });
+    const { profile } = resolveProfile(config, "everything");
+    const filtered = applyProfile(config, profile);
+    expect(filtered.apps.map((app) => app.name).sort()).toEqual(["api", "db", "web"]);
+  });
+
   it("threads the profile through loadRuntimeConfig", () => {
     writeProfileConfig(
       tmpDir,
@@ -1277,6 +1299,13 @@ apps:
     expect(profile?.apps.sort()).toEqual(["api", "web"]);
   });
 
+  it("rejects empty selection tokens", () => {
+    writeMergeConfig(tmpDir);
+    const config = loadRepoConfig(tmpDir);
+    expect(() => resolveProfile(config, "manage,,pwa")).toThrow(/empty token/);
+    expect(() => resolveProfile(config, " ")).toThrow(/empty token/);
+  });
+
   it("a wildcard in the selection collapses to everything", () => {
     writeMergeConfig(tmpDir);
     const config = loadRepoConfig(tmpDir);
@@ -1322,6 +1351,40 @@ apps:
     expect(merged.profile?.apps).toEqual([]);
     expect(merged.profile?.processes).toEqual(["local-mcp"]);
     expect(merged.profile?.devcontainerServices).toEqual(["litellm"]);
+  });
+
+  it("expands an explicit managed full profile across every runtime dimension", () => {
+    writeManagedProfileConfig(
+      tmpDir,
+      `profiles:
+  full:
+    apps: ["*"]
+`,
+    );
+    const config = loadRepoConfig(tmpDir);
+    expect(resolveProfile(config, "full").profile).toEqual({
+      apps: ["*"],
+      devcontainerServices: ["*"],
+      processes: ["*"],
+    });
+  });
+
+  it("expands a managed full default across every runtime dimension", () => {
+    writeManagedProfileConfig(
+      tmpDir,
+      `profiles:
+  full:
+    apps: ["*"]
+    default: true
+`,
+    );
+    const config = loadRepoConfig(tmpDir);
+    expect(resolveProfile(config).profile).toEqual({
+      apps: ["*"],
+      default: true,
+      devcontainerServices: ["*"],
+      processes: ["*"],
+    });
   });
 
   it("unions app, service, and process dimensions independently", () => {
