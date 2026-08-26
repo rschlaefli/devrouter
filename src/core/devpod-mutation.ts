@@ -7,8 +7,14 @@ import {
   listDevpodWorkspaces,
   selectDevpodWorkspace,
 } from "./devpod-workspaces";
+import {
+  deleteOwnedDevsyWorkspace,
+  startDevsyWorkspace,
+  stopOwnedDevsyWorkspace,
+} from "./devsy-mutation";
 import { withFileLockSync } from "./file-lock";
 import { DEVROUTER_HOME } from "./router";
+import { resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
 
 const DEVPOD_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devpod-mutation.lock");
 const DEVPOD_MUTATION_WAIT_MS = 60_000;
@@ -98,6 +104,9 @@ export function stopOwnedDevpodWorkspace(
   devpodId: string,
   worktreePath: string,
 ): OwnedDevpodMutationResult {
+  if (resolveWorkspaceRuntimeOrDefault() === "devsy") {
+    return stopOwnedDevsyWorkspace(devpodId, worktreePath);
+  }
   return mutateOwnedDevpodWorkspace("stop", devpodId, worktreePath);
 }
 
@@ -105,10 +114,23 @@ export function deleteOwnedDevpodWorkspace(
   devpodId: string,
   worktreePath: string,
 ): OwnedDevpodMutationResult {
+  if (resolveWorkspaceRuntimeOrDefault() === "devsy") {
+    return deleteOwnedDevsyWorkspace(devpodId, worktreePath);
+  }
   return mutateOwnedDevpodWorkspace("delete", devpodId, worktreePath);
 }
 
 export function startDevpodWorkspace(options: DevpodStartOptions): string {
+  if (resolveWorkspaceRuntimeOrDefault() === "devsy") {
+    const result = startDevsyWorkspace({
+      repoPath: options.repoPath,
+      devsyId: options.devpodId,
+      recreate: options.recreate,
+      quiet: options.quiet,
+      workspace: options.workspace,
+    });
+    return result;
+  }
   const activity = options.recreate ? "DevPod recreate" : "DevPod start";
   return withMutationLock(activity, options.repoPath, () => {
     const workspaces = listDevpodWorkspaces();

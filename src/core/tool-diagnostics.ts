@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { DiagnosticCheck } from "../types";
+import { resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
 
 type CommandResult = {
   ok: boolean;
@@ -208,15 +209,20 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
         : "Install mkcert for local HTTPS, then run: devrouter setup --yes",
   });
 
-  const devpod = runTool("devpod", ["version"]);
+  const workspaceRuntime = resolveWorkspaceRuntimeOrDefault();
+  const runtimeTool = runTool(workspaceRuntime, ["version"]);
   checks.push({
     id: "global.devpod",
-    level: devpod.ok ? "ok" : "warn",
-    summary: devpod.ok ? "DevPod is installed." : "DevPod is not installed.",
-    details: firstLine(devpod.output) ?? devpod.error,
-    suggestion: devpod.ok
+    level: runtimeTool.ok ? "ok" : "warn",
+    summary: runtimeTool.ok
+      ? `${workspaceRuntime === "devsy" ? "Devsy" : "DevPod"} is installed.`
+      : `${workspaceRuntime === "devsy" ? "Devsy" : "DevPod"} is not installed.`,
+    details: firstLine(runtimeTool.output) ?? runtimeTool.error,
+    suggestion: runtimeTool.ok
       ? undefined
-      : "Install DevPod for devcontainer workspace flows: brew install devpod",
+      : workspaceRuntime === "devsy"
+        ? "Install Devsy for devcontainer workspace flows: brew install devsy-org/homebrew-tap/devsy"
+        : "Install DevPod for devcontainer workspace flows: brew install devpod",
   });
 
   checks.push(nodeToolchainCheck(repoPath));

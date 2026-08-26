@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
+import {
+  type DevsyWorkspace,
+  inspectDevsyRuntimeStatus,
+  listDevsyWorkspaces,
+} from "./devsy-workspaces";
 import { sameWorkspacePath } from "./workspace";
+import { resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
 
 export type DevpodWorkspace = {
   id: string;
@@ -18,6 +24,13 @@ export type DevpodWorkspaceOwnership =
 export type DevpodRuntimeStatus = "running" | "stopped" | "busy" | "not-found" | "unknown";
 
 export function listDevpodWorkspaces(): DevpodWorkspace[] {
+  if (resolveWorkspaceRuntimeOrDefault() === "devsy") {
+    return listDevsyWorkspaces().map((workspace: DevsyWorkspace) => ({
+      id: workspace.id,
+      source: workspace.source,
+      ...(workspace.lastUsed ? { lastUsed: workspace.lastUsed } : {}),
+    }));
+  }
   const result = spawnSync("devpod", ["list", "--output", "json", "--skip-pro"], {
     encoding: "utf-8",
   });
@@ -93,6 +106,9 @@ function parseDevpodRuntimeStatus(output: string, expectedId: string): DevpodRun
 }
 
 export function inspectDevpodRuntimeStatus(devpodId: string): DevpodRuntimeStatus {
+  if (resolveWorkspaceRuntimeOrDefault() === "devsy") {
+    return inspectDevsyRuntimeStatus(devpodId);
+  }
   const result = spawnSync("devpod", ["status", devpodId, "--output", "json", "--timeout", "5s"], {
     encoding: "utf-8",
   });

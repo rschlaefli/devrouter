@@ -2,7 +2,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { resolveRunningWorkspaceContainer } from "./devpod-environment";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
+import { devsyExec } from "./devsy-exec";
 import { withWorkspaceLifecycleLock } from "./workspace";
+import { resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
 
 const DEVPOD_MISSING_EXIT_STATUS_DIAGNOSTIC = Buffer.from(
   "Error tunneling to container: wait: remote command exited without exit status or exit signal\n",
@@ -60,6 +62,9 @@ function resolveWorkspaceDirectory(repoPath: string): string {
 }
 
 export async function devpodExec(repoPath: string, command: string[]): Promise<number> {
+  if (resolveWorkspaceRuntimeOrDefault() === "devsy") {
+    return devsyExec(repoPath, command);
+  }
   if (command.length === 0) {
     throw new Error("No command provided. Use `devrouter exec [path] -- <command...>`.");
   }
