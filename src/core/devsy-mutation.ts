@@ -21,6 +21,12 @@ export type DevsyStartOptions = {
   recreate?: boolean;
   quiet?: boolean;
   workspace?: { token: string; gitCommonDir: string };
+  /**
+   * Machine-configured inactivity shutdown forwarded as a Devsy provider
+   * option. Omitted when unset so Devsy keeps any per-workspace option the
+   * desktop app already stored for this workspace.
+   */
+  inactivityTimeout?: string;
 };
 
 export class DevsyStartPostconditionError extends Error {}
@@ -148,6 +154,9 @@ export function startDevsyWorkspace(options: DevsyStartOptions): string {
         "--workspace-env",
         `DEVROUTER_WORKSPACE=${options.workspace.token}`,
       );
+    }
+    if (options.inactivityTimeout) {
+      args.push("--provider-option", `INACTIVITY_TIMEOUT=${options.inactivityTimeout}`);
     }
     if (options.recreate) args.push("--recreate");
 

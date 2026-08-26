@@ -215,6 +215,37 @@ describe("startDevsyWorkspace", () => {
     expect(env).not.toHaveProperty("DEVCONTAINER_COMPOSE_OVERLAY");
   });
 
+  it("forwards the configured inactivity timeout as a provider option", () => {
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        return listResult();
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    startDevsyWorkspace({
+      repoPath: "/repo/feature",
+      devsyId: "feature",
+      inactivityTimeout: "30m",
+    });
+
+    const upCall = vi
+      .mocked(spawnSync)
+      .mock.calls.find(([command, args]) => command === "devsy" && (args as string[])[1] === "up");
+    expect(upCall?.[1]).toEqual([
+      "workspace",
+      "up",
+      "/repo/feature",
+      "--id",
+      "feature",
+      "--ide-launch",
+      "skip",
+      "--provider-option",
+      "INACTIVITY_TIMEOUT=30m",
+    ]);
+  });
+
   it("fails when the provider does not attach the workspace after startup", () => {
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];

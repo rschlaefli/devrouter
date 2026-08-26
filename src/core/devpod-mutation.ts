@@ -14,7 +14,11 @@ import {
 } from "./devsy-mutation";
 import { withFileLockSync } from "./file-lock";
 import { DEVROUTER_HOME } from "./router";
-import { resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
+import {
+  readWorkspaceRuntimeConfig,
+  resetWorkspaceRuntimeCaches,
+  resolveWorkspaceRuntimeOrDefault,
+} from "./workspace-runtime";
 
 const DEVPOD_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devpod-mutation.lock");
 const DEVPOD_MUTATION_WAIT_MS = 60_000;
@@ -58,7 +62,11 @@ function runDevpodAction(action: "stop" | "delete", devpodId: string, force = fa
 }
 
 function inspectExactOwnership(devpodId: string, worktreePath: string) {
-  const ownership = inspectDevpodWorkspaceOwnership(listDevpodWorkspaces(), devpodId, worktreePath);
+  const ownership = inspectDevpodWorkspaceOwnership(
+    listDevpodWorkspaces(worktreePath),
+    devpodId,
+    worktreePath,
+  );
   if (ownership.status === "conflict") throw new Error(ownership.reason);
   return ownership;
 }
@@ -79,7 +87,7 @@ function mutateOwnedDevpodWorkspace(
       throw new Error(`DevPod '${devpodId}' no longer owns '${worktreePath}' after provider stop.`);
     }
     if (action === "delete" && after.status === "owned") {
-      const runtime = inspectDevpodRuntimeStatus(devpodId);
+      const runtime = inspectDevpodRuntimeStatus(devpodId, worktreePath);
       if (runtime !== "not-found") {
         throw new Error(
           `DevPod '${devpodId}' still owns '${worktreePath}' after provider delete (runtime=${runtime}).`,
@@ -104,36 +112,46 @@ export function stopOwnedDevpodWorkspace(
   devpodId: string,
   worktreePath: string,
 ): OwnedDevpodMutationResult {
-  if (resolveWorkspaceRuntimeOrDefault() === "devsy") {
-    return stopOwnedDevsyWorkspace(devpodId, worktreePath);
+  if (resolveWorkspaceRuntimeOrDefault(worktreePath) === "devsy") {
+    const result = stopOwnedDevsyWorkspace(devpodId, worktreePath);
+    resetWorkspaceRuntimeCaches();
+    return result;
   }
-  return mutateOwnedDevpodWorkspace("stop", devpodId, worktreePath);
+  const result = mutateOwnedDevpodWorkspace("stop", devpodId, worktreePath);
+  resetWorkspaceRuntimeCaches();
+  return result;
 }
 
 export function deleteOwnedDevpodWorkspace(
   devpodId: string,
   worktreePath: string,
 ): OwnedDevpodMutationResult {
-  if (resolveWorkspaceRuntimeOrDefault() === "devsy") {
-    return deleteOwnedDevsyWorkspace(devpodId, worktreePath);
+  if (resolveWorkspaceRuntimeOrDefault(worktreePath) === "devsy") {
+    const result = deleteOwnedDevsyWorkspace(devpodId, worktreePath);
+    resetWorkspaceRuntimeCaches();
+    return result;
   }
-  return mutateOwnedDevpodWorkspace("delete", devpodId, worktreePath);
+  const result = mutateOwnedDevpodWorkspace("delete", devpodId, worktreePath);
+  resetWorkspaceRuntimeCaches();
+  return result;
 }
 
 export function startDevpodWorkspace(options: DevpodStartOptions): string {
-  if (resolveWorkspaceRuntimeOrDefault() === "devsy") {
+  if (resolveWorkspaceRuntimeOrDefault(options.repoPath) === "devsy") {
     const result = startDevsyWorkspace({
       repoPath: options.repoPath,
       devsyId: options.devpodId,
       recreate: options.recreate,
       quiet: options.quiet,
       workspace: options.workspace,
+      inactivityTimeout: readWorkspaceRuntimeConfig().devsyInactivityTimeout,
     });
+    resetWorkspaceRuntimeCaches();
     return result;
   }
   const activity = options.recreate ? "DevPod recreate" : "DevPod start";
   return withMutationLock(activity, options.repoPath, () => {
-    const workspaces = listDevpodWorkspaces();
+    const workspaces = listDevpodWorkspaces(options.repoPath);
     let devpodId = options.devpodId ?? selectDevpodWorkspace(workspaces, options.repoPath)?.id;
     if (devpodId) {
       const before = inspectDevpodWorkspaceOwnership(workspaces, devpodId, options.repoPath);
@@ -180,7 +198,7 @@ export function startDevpodWorkspace(options: DevpodStartOptions): string {
     }
 
     try {
-      const attached = listDevpodWorkspaces();
+      const attached = listDevpodWorkspaces(options.repoPath);
       devpodId ??= selectDevpodWorkspace(attached, options.repoPath)?.id;
       if (!devpodId) {
         throw new Error(`DevPod did not attach '${options.repoPath}' after startup.`);
@@ -192,6 +210,7 @@ export function startDevpodWorkspace(options: DevpodStartOptions): string {
           `DevPod did not attach '${options.repoPath}' as '${devpodId}' after startup.`,
         );
       }
+      resetWorkspaceRuntimeCaches();
       return devpodId;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -5,7 +5,7 @@ import {
   type DevpodRuntimeStatus,
   type DevpodWorkspace,
   inspectDevpodRuntimeStatus,
-  listDevpodWorkspaces,
+  listDevpodWorkspacesFromSnapshots,
 } from "./devpod-workspaces";
 import { readHostRouteStateReadOnly } from "./host-routes";
 import { resolveRepoPath } from "./repo-config";
@@ -1085,12 +1085,6 @@ export function buildWorkspaceCleanupReport(
   const cutoff = new Date(now.getTime() - duration.seconds * 1000).toISOString();
   const worktrees = (dependencies.listWorktrees ?? listGitWorktrees)(repoPath);
   const records = (dependencies.listOwnership ?? listWorkspaceOwnership)(repoPath);
-  let devpods: DevpodWorkspace[] | undefined;
-  try {
-    devpods = (dependencies.listDevpods ?? listDevpodWorkspaces)();
-  } catch {
-    devpods = undefined;
-  }
   let routes: HostRouteState[] | undefined;
   try {
     routes = (dependencies.readRoutes ?? readHostRouteStateReadOnly)();
@@ -1129,6 +1123,12 @@ export function buildWorkspaceCleanupReport(
           prunable: true,
         },
       );
+      // Per-record registry resolution keeps mixed DevPod+Devsy fleets joined
+      // against the runtime that owns each record. Injected dependencies keep
+      // their fixed single-registry contract for tests.
+      const devpods: DevpodWorkspace[] | undefined = dependencies.listDevpods
+        ? dependencies.listDevpods()
+        : listDevpodWorkspacesFromSnapshots(record.worktreePath);
       const row = buildRow(
         repoPath,
         record,
@@ -1145,7 +1145,8 @@ export function buildWorkspaceCleanupReport(
             return { ownerStatus: status.ownerStatus, devpodStatus: status.devpodStatus };
           }),
         dependencies.inspectIntegration,
-        dependencies.inspectDevpodRuntime ?? inspectDevpodRuntimeStatus,
+        dependencies.inspectDevpodRuntime ??
+          ((devpodId: string) => inspectDevpodRuntimeStatus(devpodId, record.worktreePath)),
       );
       return measureSize
         ? {

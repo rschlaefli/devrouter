@@ -63,7 +63,7 @@ export async function environmentStop(
   }
 
   return withWorkspaceLifecycleLock(repoPath, async () => {
-    const devpod = selectDevpodWorkspace(listDevpodWorkspaces(), repoPath);
+    const devpod = selectDevpodWorkspace(listDevpodWorkspaces(repoPath), repoPath);
     const mutation = devpod
       ? options.delete
         ? deleteOwnedDevpodWorkspace(devpod.id, repoPath)

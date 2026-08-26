@@ -74,12 +74,25 @@ program
   .description("Run first-time devrouter machine setup and report diagnostics")
   .option("--repo <path>", "Repository path for final diagnostics (defaults to current directory)")
   .option("--yes", "Confirm non-interactive setup actions")
+  .option("--workspace-runtime <runtime>", "Persist the machine workspace runtime (devpod|devsy)")
+  .option(
+    "--devsy-inactivity-timeout <duration>",
+    "Persist the Devsy inactivity shutdown duration (e.g. 30m)",
+  )
   .option("--json", "Output JSON")
   .action(
-    withErrorHandling(async (options: { repo?: string; yes?: boolean; json?: boolean }) => {
-      const { runSetupCommand } = await import("./commands/setup");
-      await runSetupCommand(options);
-    }),
+    withErrorHandling(
+      async (options: {
+        repo?: string;
+        yes?: boolean;
+        workspaceRuntime?: string;
+        devsyInactivityTimeout?: string;
+        json?: boolean;
+      }) => {
+        const { runSetupCommand } = await import("./commands/setup");
+        await runSetupCommand(options);
+      },
+    ),
   );
 
 program

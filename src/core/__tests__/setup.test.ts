@@ -6,6 +6,7 @@ import { ensureRouterFiles, getRouterFileLayout, startRouterStack } from "../rou
 import { runSetup } from "../setup";
 import { installTLS } from "../tls";
 import { runTool } from "../tool-diagnostics";
+import { writeWorkspaceRuntimeConfig } from "../workspace-runtime";
 
 vi.mock("../docker", () => ({
   ensureNetwork: vi.fn(async () => undefined),
@@ -15,6 +16,7 @@ vi.mock("../docker", () => ({
 
 vi.mock("../router", () => ({
   DEVNET_NAME: "devnet",
+  DEVROUTER_HOME: "/tmp/devrouter-setup-test-home",
   ROUTER_CONTAINER_NAME: "devrouter-traefik",
   ensureRouterFiles: vi.fn(),
   getRouterFileLayout: vi.fn(() => ({ required: [], missing: [] })),
@@ -42,6 +44,18 @@ vi.mock("../tool-diagnostics", () => ({
 vi.mock("../repo-config", () => ({
   loadRuntimeConfig: vi.fn(),
   resolveRepoPath: vi.fn((repo?: string) => repo ?? "/repo"),
+}));
+
+vi.mock("../workspace-runtime", () => ({
+  parseWorkspaceRuntime: (value: string) => {
+    const requested = value.trim().toLowerCase();
+    if (requested !== "devpod" && requested !== "devsy") {
+      throw new Error(`Unsupported workspace runtime '${value}'.`);
+    }
+    return requested;
+  },
+  readWorkspaceRuntimeConfig: vi.fn(() => ({})),
+  writeWorkspaceRuntimeConfig: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -133,6 +147,57 @@ describe("runSetup", () => {
     expect(tlsAction?.status).toBe("skipped");
     expect(tlsAction?.suggestion).toContain("Install mkcert");
     expect(report.nextSteps).toContain("Install mkcert, then run: devrouter setup --yes");
+  });
+
+  it("persists workspace runtime preferences passed as setup flags", async () => {
+    const report = await runSetup({
+      repo: "/repo",
+      yes: true,
+      workspaceRuntime: "devsy",
+      devsyInactivityTimeout: "30m",
+    });
+
+    expect(writeWorkspaceRuntimeConfig).toHaveBeenCalledWith({
+      runtime: "devsy",
+      devsyInactivityTimeout: "30m",
+    });
+    expect(report.actions).toContainEqual(
+      expect.objectContaining({
+        id: "global.workspace-runtime-config",
+        status: "performed",
+      }),
+    );
+  });
+
+  it("merges new preferences with the persisted machine config", async () => {
+    const { readWorkspaceRuntimeConfig } = await import("../workspace-runtime");
+    vi.mocked(readWorkspaceRuntimeConfig).mockReturnValueOnce({
+      runtime: "devpod",
+      devsyInactivityTimeout: "30m",
+    });
+
+    await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "devsy" });
+
+    expect(writeWorkspaceRuntimeConfig).toHaveBeenCalledWith({
+      runtime: "devsy",
+      devsyInactivityTimeout: "30m",
+    });
+  });
+
+  it("fails the preference action on an unsupported runtime and keeps other actions", async () => {
+    const report = await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "docker" });
+
+    expect(writeWorkspaceRuntimeConfig).not.toHaveBeenCalled();
+    expect(report.actions).toContainEqual(
+      expect.objectContaining({
+        id: "global.workspace-runtime-config",
+        status: "failed",
+        details: "Unsupported workspace runtime 'docker'.",
+      }),
+    );
+    expect(report.actions).toContainEqual(
+      expect.objectContaining({ id: "global.router-files", status: "skipped" }),
+    );
   });
 
   it("preserves structured output when a setup action fails", async () => {

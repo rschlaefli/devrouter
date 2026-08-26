@@ -2,7 +2,12 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "./devpod-mutation";
-import { inspectDevpodWorkspaceOwnership, listDevpodWorkspaces } from "./devpod-workspaces";
+import {
+  type DevpodWorkspace,
+  inspectDevpodWorkspaceOwnership,
+  listDevpodWorkspaces,
+  listDevpodWorkspacesFromSnapshots,
+} from "./devpod-workspaces";
 import { resolveRepoPath } from "./repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
 import {
@@ -314,12 +319,11 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
   const mainRepo = resolveRepoPath(repoPath);
   const worktrees = identifyGitWorktrees(mainRepo);
   const records = listWorkspaceOwnership(mainRepo);
-  let devpods: ReturnType<typeof listDevpodWorkspaces> | undefined;
-  try {
-    devpods = listDevpodWorkspaces();
-  } catch {
-    devpods = undefined;
-  }
+  // Mixed DevPod+Devsy fleets resolve the registry per checkout path so every
+  // row is joined against the runtime that actually owns it.
+  const devpodsForPath = (worktreePath: string): DevpodWorkspace[] | undefined => {
+    return listDevpodWorkspacesFromSnapshots(worktreePath);
+  };
   const paths = Array.from(
     new Set([
       ...worktrees.map((worktree) => worktree.path),
@@ -336,6 +340,7 @@ export function workspaceLs(repoPath?: string): WorkspaceRow[] {
     // missing, and same-token cross-repository workspaces separate.
     const worktree = worktreesByPath.get(worktreePath);
     const record = recordsByPath.get(worktreePath);
+    const devpods = devpodsForPath(worktreePath);
     const status = record ? inspectWorkspaceOwnership(record, worktrees, devpods) : undefined;
     const matchingDevpods = devpods?.filter((devpod) =>
       sameWorkspacePath(devpod.source.localFolder, worktreePath),
@@ -375,7 +380,7 @@ function mutateWorkspaceRuntime(
   worktrees: IdentifiedGitWorktree[],
   quiet = false,
 ): WorkspaceLifecycleResult {
-  const devpods = listDevpodWorkspaces();
+  const devpods = listDevpodWorkspaces(resolved.worktreePath);
   assertDevpodTargetSafe(resolved, worktrees, devpods);
   const devpodId = resolved.record?.devpodId ?? resolved.workspace;
   const mutation =

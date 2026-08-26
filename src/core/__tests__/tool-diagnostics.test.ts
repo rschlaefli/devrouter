@@ -5,9 +5,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildGlobalToolChecks } from "../tool-diagnostics";
 
 const spawnSyncMock = vi.fn();
+const runtimeState = vi.hoisted(() => ({
+  resolution: {
+    runtime: "devpod" as "devpod" | "devsy",
+    source: "auto-detect" as
+      | "override"
+      | "env"
+      | "path-owner"
+      | "machine-config"
+      | "auto-detect"
+      | "default",
+  },
+  config: {} as Record<string, unknown>,
+  inspection: { exists: false, config: {}, problems: [] as string[] },
+}));
 
 vi.mock("node:child_process", () => ({
   spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+}));
+
+vi.mock("../workspace-runtime", () => ({
+  resolveWorkspaceRuntimeDetailed: () => runtimeState.resolution,
+  readWorkspaceRuntimeConfig: () => runtimeState.config,
+  inspectWorkspaceRuntimeConfig: () => runtimeState.inspection,
 }));
 
 let tmpDir: string;
@@ -29,6 +49,9 @@ function result(status: number, stdout = "", stderr = ""): unknown {
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-tool-diagnostics-test-"));
+  runtimeState.resolution = { runtime: "devpod", source: "auto-detect" };
+  runtimeState.config = {};
+  runtimeState.inspection = { exists: false, config: {}, problems: [] };
   spawnSyncMock.mockImplementation((command: string, args: string[]) => {
     const key = `${command} ${args.join(" ")}`;
     if (key === "docker compose version") {
@@ -65,6 +88,7 @@ describe("buildGlobalToolChecks", () => {
       ["global.docker-compose", "ok"],
       ["global.mkcert", "ok"],
       ["global.devpod", "ok"],
+      ["global.workspace-runtime-config", "ok"],
       ["global.node-toolchain", "ok"],
     ]);
   });
@@ -94,6 +118,7 @@ describe("buildGlobalToolChecks", () => {
 
   it("probes Devsy with its --version flag when it is the active runtime", () => {
     writePackageJson();
+    runtimeState.resolution = { runtime: "devsy", source: "machine-config" };
     spawnSyncMock.mockImplementation((command: string, args: string[]) => {
       const key = `${command} ${args.join(" ")}`;
       if (key === "devsy --version") {
@@ -112,6 +137,44 @@ describe("buildGlobalToolChecks", () => {
     const byId = new Map(checks.map((check) => [check.id, check]));
 
     expect(byId.get("global.devpod")?.level).toBe("ok");
-    expect(byId.get("global.devpod")?.summary).toBe("Devsy is installed.");
+    expect(byId.get("global.devpod")?.summary).toBe(
+      "Devsy is the active workspace runtime (source: machine-config).",
+    );
+  });
+
+  it("warns about a configured Devsy inactivity timeout while DevPod is active", () => {
+    writePackageJson();
+    runtimeState.resolution = { runtime: "devpod", source: "auto-detect" };
+    runtimeState.config = { devsyInactivityTimeout: "30m" };
+    runtimeState.inspection = {
+      exists: true,
+      config: { devsyInactivityTimeout: "30m" },
+      problems: [],
+    };
+
+    const checks = buildGlobalToolChecks(tmpDir);
+    const byId = new Map(checks.map((check) => [check.id, check]));
+
+    expect(byId.get("global.workspace-runtime-config")?.level).toBe("warn");
+    expect(byId.get("global.workspace-runtime-config")?.details).toContain(
+      "devsyInactivityTimeout is configured but the active workspace runtime is DevPod",
+    );
+  });
+
+  it("warns about invalid persisted preference content", () => {
+    writePackageJson();
+    runtimeState.inspection = {
+      exists: true,
+      config: {},
+      problems: ["runtime='docker' is not a supported workspace runtime."],
+    };
+
+    const checks = buildGlobalToolChecks(tmpDir);
+    const byId = new Map(checks.map((check) => [check.id, check]));
+
+    expect(byId.get("global.workspace-runtime-config")?.level).toBe("warn");
+    expect(byId.get("global.workspace-runtime-config")?.details).toContain(
+      "runtime='docker' is not a supported workspace runtime.",
+    );
   });
 });

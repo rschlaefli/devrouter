@@ -23,7 +23,7 @@ source_paths:
 
 ## Purpose and boundary
 
-Managed lifecycle commands bind one primary or linked Git checkout to one exact workspace runtime generation. The runtime is DevPod or Devsy, selected by `DEVROUTER_WORKSPACE_RUNTIME` or auto-detected from the installed CLI (`src/core/workspace-runtime.ts`). Use these commands instead of direct DevPod/Devsy lifecycle mutations; direct provider commands do not participate in Devrouter's locks or ownership proofs.
+Managed lifecycle commands bind one primary or linked Git checkout to one exact workspace runtime generation. The runtime is DevPod or Devsy, resolved per checkout path in `src/core/workspace-runtime.ts`: `DEVROUTER_WORKSPACE_RUNTIME` forces one runtime, an exact-path registry owner wins next (mixed fleets keep their checkouts separated), then the machine preference persisted by `devrouter setup --workspace-runtime`, then installed-CLI auto-detection (DevPod first when both are installed). Use these commands instead of direct DevPod/Devsy lifecycle mutations; direct provider commands do not participate in Devrouter's locks or ownership proofs.
 
 ## Startup flow
 

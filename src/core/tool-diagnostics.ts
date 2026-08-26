@@ -2,7 +2,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { DiagnosticCheck } from "../types";
-import { resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
+import {
+  inspectWorkspaceRuntimeConfig,
+  readWorkspaceRuntimeConfig,
+  resolveWorkspaceRuntimeDetailed,
+} from "./workspace-runtime";
 
 type CommandResult = {
   ok: boolean;
@@ -209,7 +213,11 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
         : "Install mkcert for local HTTPS, then run: devrouter setup --yes",
   });
 
-  const workspaceRuntime = resolveWorkspaceRuntimeOrDefault();
+  const runtimeResolution = resolveWorkspaceRuntimeDetailed();
+  const workspaceRuntime = runtimeResolution.runtime;
+  const machineConfig = readWorkspaceRuntimeConfig();
+  const runtimeLabel = workspaceRuntime === "devsy" ? "Devsy" : "DevPod";
+  const configInspection = inspectWorkspaceRuntimeConfig();
   // Devsy exposes only the global --version flag; DevPod accepts a version
   // subcommand. Probe each runtime with its supported spelling.
   const runtimeArgs = workspaceRuntime === "devsy" ? ["--version"] : ["version"];
@@ -218,14 +226,52 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
     id: "global.devpod",
     level: runtimeTool.ok ? "ok" : "warn",
     summary: runtimeTool.ok
-      ? `${workspaceRuntime === "devsy" ? "Devsy" : "DevPod"} is installed.`
-      : `${workspaceRuntime === "devsy" ? "Devsy" : "DevPod"} is not installed.`,
-    details: firstLine(runtimeTool.output) ?? runtimeTool.error,
+      ? `${runtimeLabel} is the active workspace runtime (source: ${runtimeResolution.source}).`
+      : `${runtimeLabel} is the active workspace runtime but is not installed.`,
+    details: [
+      firstLine(runtimeTool.output) ?? runtimeTool.error,
+      `source=${runtimeResolution.source}`,
+      ...(machineConfig.devsyInactivityTimeout
+        ? [`devsyInactivityTimeout=${machineConfig.devsyInactivityTimeout}`]
+        : []),
+    ]
+      .filter(Boolean)
+      .join(", "),
     suggestion: runtimeTool.ok
       ? undefined
       : workspaceRuntime === "devsy"
         ? "Install Devsy for devcontainer workspace flows: brew install devsy-org/homebrew-tap/devsy"
         : "Install DevPod for devcontainer workspace flows: brew install devpod",
+  });
+
+  const configProblems = [...configInspection.problems];
+  if (machineConfig.devsyInactivityTimeout && workspaceRuntime === "devpod") {
+    configProblems.push(
+      "devsyInactivityTimeout is configured but the active workspace runtime is DevPod.",
+    );
+  }
+  const configDetails = configInspection.exists
+    ? [
+        `runtime=${machineConfig.runtime ?? "unset"}`,
+        ...(machineConfig.devsyInactivityTimeout
+          ? [`devsyInactivityTimeout=${machineConfig.devsyInactivityTimeout}`]
+          : []),
+      ].join(", ")
+    : "Runtime selection falls back to auto-detection.";
+  checks.push({
+    id: "global.workspace-runtime-config",
+    level: configProblems.length > 0 ? "warn" : "ok",
+    summary: !configInspection.exists
+      ? "No machine workspace-runtime preference is configured."
+      : configProblems.length > 0
+        ? "Machine workspace-runtime preference has problems."
+        : "Machine workspace-runtime preference is valid.",
+    details:
+      configProblems.length > 0 ? [configDetails, ...configProblems].join(" ") : configDetails,
+    suggestion:
+      configProblems.length > 0
+        ? "Run: devrouter setup --yes --workspace-runtime <devpod|devsy>"
+        : undefined,
   });
 
   checks.push(nodeToolchainCheck(repoPath));

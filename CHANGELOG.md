@@ -8,11 +8,26 @@ All notable changes to this project are documented in this file.
 
 - **Devsy as a first-class workspace runtime**: `devrouter ensure`, `stop`,
   `exec`, and the `workspace` lifecycle now run on Devsy (`devsy workspace up`)
-  as a full replacement for DevPod. The active runtime is selected by
-  `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy` or auto-detected from the
-  installed CLI; nothing installed keeps the historical DevPod path. Runtime
-  selection applies to listing, status, ownership checks, start/stop/delete
-  mutations, exec, and the global tool diagnostic.
+  as a full replacement for DevPod. Runtime selection is path-aware:
+  `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy` forces one runtime, an exact-path
+  registry owner wins next (so mixed DevPod+Devsy fleets each manage their own
+  checkouts), then the persisted machine preference, then installed-CLI
+  auto-detection (DevPod first when both are installed); nothing installed
+  keeps the historical DevPod path. Selection applies to listing, status,
+  ownership checks, start/stop/delete mutations, exec, and diagnostics, and
+  `workspace ls`/`gc`/`cleanup` join records against the registry that owns
+  each path.
+- **Machine workspace-runtime preference**:
+  `devrouter setup --yes --workspace-runtime devpod|devsy` persists the
+  machine default used for checkouts no registry owns yet (stored under
+  `~/.config/devrouter/workspace-runtime.json`). `devrouter doctor` reports
+  the effective runtime, its source (env/machine/auto), and validates the
+  persisted file.
+- **Devsy inactivity shutdown passthrough**:
+  `devrouter setup --yes --devsy-inactivity-timeout <duration>` (for example
+  `30m`) forwards `INACTIVITY_TIMEOUT` as a Devsy provider option on
+  `devrouter ensure`/`workspace up`, so devrouter-created workspaces stop
+  themselves after idle. Unset leaves per-workspace Devsy options untouched.
 - Devsy workspaces use the same exact-ID-plus-path ownership proof as DevPod:
   machine-wide mutation locking, ownership revalidation before and after each
   provider action, exact `NotFound` proof before forced stale-registration

@@ -214,7 +214,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- Shared Traefik router owns host ports 80 (HTTP), 443 (HTTPS), and 5432 (Postgres TCP).",
     "- Per-repo source of truth is REPO_PATH/.devrouter.yml only.",
     "- Global generated/runtime artifacts are managed under ~/.config/devrouter (do not edit these manually).",
-    "- Managed workspace runtime lifecycle uses devrouter ensure/stop/workspace commands; raw DevPod/Devsy mutations bypass exact checkout ownership checks. The active runtime is DevPod or Devsy, selectable via DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy or auto-detected from the installed CLI.",
+    "- Managed workspace runtime lifecycle uses devrouter ensure/stop/workspace commands; raw DevPod/Devsy mutations bypass exact checkout ownership checks. The active runtime is DevPod or Devsy, resolved per checkout: DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy forces one runtime, an exact-path registry owner wins next (mixed fleets stay separated), then the machine preference from 'devrouter setup --workspace-runtime', then installed-CLI auto-detection.",
     "",
     "Inputs:",
     `- REPO_PATH=${repoPath}`,

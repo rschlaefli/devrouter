@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "../devpod-mutation";
 import { withFileLockSync } from "../file-lock";
+import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-global-mutation-test" }));
 const temporaryHomes: string[] = [];
@@ -22,6 +23,7 @@ vi.mock("../file-lock", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetWorkspaceRuntimeCaches();
 });
 
 afterEach(() => {
@@ -89,19 +91,21 @@ describe("machine-global DevPod mutation boundary", () => {
   });
 
   it("revalidates exact ownership before and after deletion", () => {
-    let listCalls = 0;
+    let deleted = false;
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
       if (command === "devpod" && argv[0] === "list") {
-        listCalls += 1;
         return {
           status: 0,
-          stdout:
-            listCalls === 1
-              ? JSON.stringify([{ id: "feature", source: { localFolder: "/repo/feature" } }])
-              : "[]",
+          stdout: deleted
+            ? "[]"
+            : JSON.stringify([{ id: "feature", source: { localFolder: "/repo/feature" } }]),
           stderr: "",
         } as never;
+      }
+      if (command === "devpod" && argv[0] === "delete") {
+        deleted = true;
+        return { status: 0, stdout: "", stderr: "" } as never;
       }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
@@ -138,19 +142,24 @@ describe("machine-global DevPod mutation boundary", () => {
   });
 
   it("force-deletes stale registration only after exact NotFound proof and revalidation", () => {
-    let listCalls = 0;
+    let forceDeleted = false;
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
+      if (command === "devsy") {
+        return { status: 1, stdout: "", stderr: "" } as never;
+      }
       if (command === "devpod" && argv[0] === "list") {
-        listCalls += 1;
         return {
           status: 0,
-          stdout:
-            listCalls < 4
-              ? JSON.stringify([{ id: "feature", source: { localFolder: "/repo/feature" } }])
-              : "[]",
+          stdout: forceDeleted
+            ? "[]"
+            : JSON.stringify([{ id: "feature", source: { localFolder: "/repo/feature" } }]),
           stderr: "",
         } as never;
+      }
+      if (command === "devpod" && argv[0] === "delete") {
+        if (argv.includes("--force")) forceDeleted = true;
+        return { status: 0, stdout: "", stderr: "" } as never;
       }
       if (command === "devpod" && argv[0] === "status") {
         return {
@@ -164,6 +173,9 @@ describe("machine-global DevPod mutation boundary", () => {
 
     expect(deleteOwnedDevpodWorkspace("feature", "/repo/feature")).toEqual({ status: "changed" });
     expect(vi.mocked(spawnSync).mock.calls.map(([, args]) => args)).toEqual([
+      ["--version"],
+      ["--version"],
+      ["list", "--output", "json", "--skip-pro"],
       ["list", "--output", "json", "--skip-pro"],
       ["delete", "feature", "--ignore-not-found"],
       ["list", "--output", "json", "--skip-pro"],

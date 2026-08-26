@@ -272,7 +272,7 @@ async function waitForHttpRoutes(
 }
 
 function resolveLinkedTarget(repoPath: string): EnvironmentTarget {
-  const devpods = listDevpodWorkspaces();
+  const devpods = listDevpodWorkspaces(repoPath);
   const existingDevpod = selectDevpodWorkspace(devpods, repoPath);
   const persisted = readPersistedWorkspace(repoPath);
   const candidate = existingDevpod?.id ?? persisted ?? resolveWorktreeWorkspace(repoPath);
@@ -297,7 +297,7 @@ function resolveLinkedTarget(repoPath: string): EnvironmentTarget {
 }
 
 function resolvePrimaryTarget(repoPath: string): EnvironmentTarget {
-  const existingDevpod = selectDevpodWorkspace(listDevpodWorkspaces(), repoPath);
+  const existingDevpod = selectDevpodWorkspace(listDevpodWorkspaces(repoPath), repoPath);
   return {
     kind: "primary",
     devpodId: existingDevpod?.id,

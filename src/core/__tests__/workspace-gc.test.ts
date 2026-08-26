@@ -21,6 +21,10 @@ vi.mock("../repo-config", () => ({ resolveRepoPath: vi.fn((repo?: string) => rep
 vi.mock("../devpod-workspaces", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../devpod-workspaces")>()),
   listDevpodWorkspaces: vi.fn(() => []),
+  // Reports consume the same mocked registry data through the snapshot
+  // variants so per-test list fixtures keep flowing to every join.
+  listDevpodWorkspacesFromSnapshots: vi.fn(() => listDevpodWorkspaces()),
+  listMergedRuntimeWorkspaces: vi.fn(() => listDevpodWorkspaces()),
 }));
 vi.mock("../devpod-mutation", () => ({
   deleteOwnedDevpodWorkspace: vi.fn(() => ({ status: "absent" })),
