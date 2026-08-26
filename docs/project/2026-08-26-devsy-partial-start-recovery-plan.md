@@ -169,5 +169,25 @@ mutation, delete the runtime, switch providers, merge, or publish the package.
   regression, Biome, typecheck, Knip, Gitleaks, and diff checks passed.
 - `2026-08-26`: The configured hosted simplifier and slice-reviewer routes
   failed before work with HTTP 402. Their documented native continuity reviews
-  both returned `DONE` with no findings. Release artifacts and fresh live proof
-  remain pending.
+  both returned `DONE` with no findings.
+- `2026-08-26`: Prepared and committed release `0.0.42` plus the durable
+  recovery guidance. The Node 24.16.0 verification run passed docs policy,
+  knowledge validation, Biome, Knip, typecheck, all 717 tests, build, package
+  smoke, setup, doctor, repo inspection, Gitleaks, and diff checks. The
+  Linux-only process smoke skipped on macOS because `/proc` is unavailable.
+- `2026-08-26`: The routing smoke started its Docker app and Postgres but its
+  routes did not become ready within 60 seconds. The host process stopped after
+  TLS refresh, and the shared routing environment now reports a duplicate
+  pre-existing `routing-db.localhost` route. This is recorded as environment
+  evidence rather than attributed to the Devsy-only source diff.
+- `2026-08-26`: A fresh retained fixture at
+  `/private/tmp/devrouter-devsy-0-0-42.XDn19t` proved no prior Devsy owner or
+  matching route. Built `0.0.42` selected embedded Devsy `1.16.2` from machine
+  configuration and forwarded `INACTIVITY_TIMEOUT=30m`. Devsy registered the
+  exact ID `devrouter-devsy-0-0-42-xdn19t`, then failed before creating a
+  runtime because its agent reported Docker Compose unavailable. The fixed
+  path retained `.devcontainer/devcontainer.devrouter.json`, preserved exact
+  ownership and timeout metadata, and published zero routes. Canonical
+  `devrouter stop` returned `stopped: true` and `freedRoutes: 0`; provider
+  status is `NotFound`, which proves no runtime exists, and the exact route set
+  remains empty. The fixture and registration remain for inspection.
