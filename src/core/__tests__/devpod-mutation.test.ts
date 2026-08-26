@@ -9,6 +9,7 @@ import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-global-mutation-test" }));
 const temporaryHomes: string[] = [];
+let previousWorkspaceRuntime: string | undefined;
 
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
@@ -22,11 +23,15 @@ vi.mock("../file-lock", () => ({
 }));
 
 beforeEach(() => {
+  previousWorkspaceRuntime = process.env.DEVROUTER_WORKSPACE_RUNTIME;
+  process.env.DEVROUTER_WORKSPACE_RUNTIME = "devpod";
   vi.clearAllMocks();
   resetWorkspaceRuntimeCaches();
 });
 
 afterEach(() => {
+  if (previousWorkspaceRuntime === undefined) delete process.env.DEVROUTER_WORKSPACE_RUNTIME;
+  else process.env.DEVROUTER_WORKSPACE_RUNTIME = previousWorkspaceRuntime;
   for (const home of temporaryHomes.splice(0)) {
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -173,9 +178,6 @@ describe("machine-global DevPod mutation boundary", () => {
 
     expect(deleteOwnedDevpodWorkspace("feature", "/repo/feature")).toEqual({ status: "changed" });
     expect(vi.mocked(spawnSync).mock.calls.map(([, args]) => args)).toEqual([
-      ["--version"],
-      ["--version"],
-      ["list", "--output", "json", "--skip-pro"],
       ["list", "--output", "json", "--skip-pro"],
       ["delete", "feature", "--ignore-not-found"],
       ["list", "--output", "json", "--skip-pro"],

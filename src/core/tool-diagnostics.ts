@@ -213,7 +213,7 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
         : "Install mkcert for local HTTPS, then run: devrouter setup --yes",
   });
 
-  const runtimeResolution = resolveWorkspaceRuntimeDetailed();
+  const runtimeResolution = resolveWorkspaceRuntimeDetailed(repoPath);
   const workspaceRuntime = runtimeResolution.runtime;
   const machineConfig = readWorkspaceRuntimeConfig();
   const runtimeLabel = workspaceRuntime === "devsy" ? "Devsy" : "DevPod";
@@ -245,7 +245,13 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
   });
 
   const configProblems = [...configInspection.problems];
-  if (machineConfig.devsyInactivityTimeout && workspaceRuntime === "devpod") {
+  // A Devsy timeout alongside a path-owned DevPod checkout is a valid mixed
+  // fleet: the timeout only governs new Devsy workspaces, so warn only when
+  // machine-level resolution itself fell back to DevPod.
+  const machineResolvedDevpod =
+    workspaceRuntime === "devpod" &&
+    (runtimeResolution.source === "auto-detect" || runtimeResolution.source === "default");
+  if (machineConfig.devsyInactivityTimeout && machineResolvedDevpod) {
     configProblems.push(
       "devsyInactivityTimeout is configured but the active workspace runtime is DevPod.",
     );

@@ -31,13 +31,13 @@ function mockRegistries(options: {
   devpodWorkspaces?: unknown[];
 }) {
   spawnSyncMock.mockImplementation((command: string, args: string[]) => {
-    if (args[0] === "--version") {
-      return result(
-        (command === "devsy" && options.devsyInstalled) ||
-          (command === "devpod" && options.devpodInstalled)
-          ? 0
-          : 1,
-      );
+    const probeArg = command === "devsy" ? "--version" : "version";
+    if (args[0] === probeArg) {
+      const installed = command === "devsy" ? options.devsyInstalled : options.devpodInstalled;
+      return result(installed ? 0 : 1);
+    }
+    if (args[0] === "--version" || args[0] === "version") {
+      return result(1);
     }
     if (command === "devsy" && args.includes("list")) {
       return result(0, JSON.stringify(options.devsyWorkspaces ?? []));
@@ -177,6 +177,27 @@ describe("exact-path registry ownership", () => {
       devpodWorkspaces: [{ id: "feature", source: { localFolder: "/repo/feature" } }],
     });
     const resolve = await loadRuntime();
+    expect(resolve("/repo/feature").runtime).toBe("devpod");
+    expect(resolve("/repo/feature").source).toBe("path-owner");
+  });
+
+  it("detects DevPod through its version subcommand when the --version flag is unsupported", async () => {
+    readFileSyncMock.mockImplementation(() => JSON.stringify({ runtime: "devsy" }));
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      if (command === "devsy" && args[0] === "--version") return result(0);
+      if (command === "devpod" && args[0] === "version") return result(0);
+      if (command === "devpod" && args[0] === "--version") return result(1);
+      if (command === "devpod" && args[0] === "list") {
+        return result(
+          0,
+          JSON.stringify([{ id: "feature", source: { localFolder: "/repo/feature" } }]),
+        );
+      }
+      if (command === "devsy" && args.includes("list")) return result(0, "[]");
+      return result(1);
+    });
+    const resolve = await loadRuntime();
+
     expect(resolve("/repo/feature").runtime).toBe("devpod");
     expect(resolve("/repo/feature").source).toBe("path-owner");
   });

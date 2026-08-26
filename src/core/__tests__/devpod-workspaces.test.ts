@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   inspectDevpodRuntimeStatus,
   inspectDevpodWorkspaceOwnership,
@@ -8,8 +8,17 @@ import {
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
+let previousWorkspaceRuntime: string | undefined;
+
 beforeEach(() => {
+  previousWorkspaceRuntime = process.env.DEVROUTER_WORKSPACE_RUNTIME;
+  process.env.DEVROUTER_WORKSPACE_RUNTIME = "devpod";
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  if (previousWorkspaceRuntime === undefined) delete process.env.DEVROUTER_WORKSPACE_RUNTIME;
+  else process.env.DEVROUTER_WORKSPACE_RUNTIME = previousWorkspaceRuntime;
 });
 
 describe("DevPod workspace adapter", () => {

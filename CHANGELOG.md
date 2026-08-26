@@ -45,6 +45,14 @@ All notable changes to this project are documented in this file.
   CLI and prefers Devsy only when DevPod is absent; with neither installed,
   managed commands keep the historical DevPod diagnostics and guidance.
 
+### Fixed
+
+- DevPod installation detection now uses its supported `devpod version`
+  subcommand, so mixed DevPod/Devsy fleets can resolve DevPod-owned paths.
+- `devrouter doctor` resolves the workspace runtime for the inspected checkout
+  and does not warn about a Devsy timeout when that path is legitimately owned
+  by DevPod.
+
 ## [0.0.38] - 2026-08-25
 
 ### Added

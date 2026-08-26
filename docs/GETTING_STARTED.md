@@ -13,6 +13,12 @@ secret-manager, workspace, and production-like consumer integration details.
 - pnpm when installing from this source repository
 - DevPod or Devsy when using the managed devcontainer workflow
 
+For Devsy on macOS, the desktop app and CLI share the same workspace registry:
+workspaces started by devrouter through the CLI appear in the app. Keep one
+Devsy version authoritative on `PATH`; when using the CLI bundled with the app,
+add `/Applications/Devsy.app/Contents/Resources/bin` to `PATH` and keep the
+app running so CLI automation can use its local daemon.
+
 Quick checks:
 
 ```bash

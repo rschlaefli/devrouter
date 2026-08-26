@@ -18,6 +18,14 @@ This works with any devcontainer-spec runner (DevPod, VS Code Dev Containers,
 
 We recommend **DevPod** or **Devsy** for orchestrating the devcontainer lifecycle locally; both are client-only, open-source tools that execute entirely locally on Docker, mount and sync workspace files in the background, and do not force a specific IDE. Runtime selection is path-aware: `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy` forces one runtime, an exact-path registry owner wins next (mixed fleets keep their checkouts separated), then the machine preference from `devrouter setup --yes --workspace-runtime <runtime>`, then installed-CLI auto-detection. For Devsy workspaces, `devrouter setup --yes --devsy-inactivity-timeout <duration>` (for example `30m`) configures idle shutdown.
 
+Devsy's desktop app and CLI are complementary: the app manages and displays
+workspaces, while devrouter uses the CLI for deterministic automation. They
+share one registry, so a workspace started with `devrouter ensure` is visible
+in the app. On macOS, the app-bundled CLI lives under
+`/Applications/Devsy.app/Contents/Resources/bin`; keep one Devsy version on
+`PATH` and leave the app running when using that bundled CLI so its local
+daemon handles workspace operations.
+
 > Use the current devrouter release. The end-to-end onboarding
 > playbook + reference templates + gotchas live in the
 > `devcontainer-onboarding` skill (`.agents/skills/devcontainer-onboarding/`).

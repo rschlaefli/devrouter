@@ -56,9 +56,11 @@ export function parseWorkspaceRuntime(value: string): WorkspaceRuntime {
 }
 
 function isRuntimeInstalled(runtime: WorkspaceRuntime): boolean {
-  // Devsy only supports the global --version flag; DevPod accepts a version
-  // subcommand, but --version works for both and never touches a registry.
-  const probe = spawnSync(runtime, ["--version"], { encoding: "utf-8" });
+  // Each runtime only accepts one spelling: Devsy answers the global
+  // --version flag, DevPod answers the version subcommand and rejects the
+  // flag. Neither probe touches a workspace registry.
+  const probeArgs = runtime === "devsy" ? ["--version"] : ["version"];
+  const probe = spawnSync(runtime, probeArgs, { encoding: "utf-8" });
   return probe.status === 0 && !probe.error;
 }
 

@@ -18,6 +18,7 @@ const runtimeState = vi.hoisted(() => ({
   },
   config: {} as Record<string, unknown>,
   inspection: { exists: false, config: {}, problems: [] as string[] },
+  requestedRepoPath: undefined as string | undefined,
 }));
 
 vi.mock("node:child_process", () => ({
@@ -25,7 +26,10 @@ vi.mock("node:child_process", () => ({
 }));
 
 vi.mock("../workspace-runtime", () => ({
-  resolveWorkspaceRuntimeDetailed: () => runtimeState.resolution,
+  resolveWorkspaceRuntimeDetailed: (repoPath?: string) => {
+    runtimeState.requestedRepoPath = repoPath;
+    return runtimeState.resolution;
+  },
   readWorkspaceRuntimeConfig: () => runtimeState.config,
   inspectWorkspaceRuntimeConfig: () => runtimeState.inspection,
 }));
@@ -50,6 +54,7 @@ function result(status: number, stdout = "", stderr = ""): unknown {
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-tool-diagnostics-test-"));
   runtimeState.resolution = { runtime: "devpod", source: "auto-detect" };
+  runtimeState.requestedRepoPath = undefined;
   runtimeState.config = {};
   runtimeState.inspection = { exists: false, config: {}, problems: [] };
   spawnSyncMock.mockImplementation((command: string, args: string[]) => {
@@ -159,6 +164,50 @@ describe("buildGlobalToolChecks", () => {
     expect(byId.get("global.workspace-runtime-config")?.details).toContain(
       "devsyInactivityTimeout is configured but the active workspace runtime is DevPod",
     );
+  });
+
+  it("resolves the workspace runtime for the inspected checkout path", () => {
+    writePackageJson();
+    runtimeState.resolution = { runtime: "devsy", source: "path-owner" };
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      const key = `${command} ${args.join(" ")}`;
+      if (key === "devsy --version") {
+        return result(0, "v1.16.2\n");
+      }
+      if (key === "pnpm --version") {
+        return result(0, "11.6.0\n");
+      }
+      if (key === "brew --version") {
+        return result(0, "Homebrew 4.5.0\n");
+      }
+      return result(1, "", "missing");
+    });
+
+    const checks = buildGlobalToolChecks(tmpDir);
+    const byId = new Map(checks.map((check) => [check.id, check]));
+
+    expect(runtimeState.requestedRepoPath).toBe(tmpDir);
+    expect(byId.get("global.devpod")?.level).toBe("ok");
+    expect(byId.get("global.devpod")?.summary).toBe(
+      "Devsy is the active workspace runtime (source: path-owner).",
+    );
+  });
+
+  it("does not warn about a Devsy timeout for a path-owned DevPod checkout", () => {
+    writePackageJson();
+    runtimeState.resolution = { runtime: "devpod", source: "path-owner" };
+    runtimeState.config = { devsyInactivityTimeout: "30m" };
+    runtimeState.inspection = {
+      exists: true,
+      config: { devsyInactivityTimeout: "30m" },
+      problems: [],
+    };
+
+    const checks = buildGlobalToolChecks(tmpDir);
+    const byId = new Map(checks.map((check) => [check.id, check]));
+
+    expect(runtimeState.requestedRepoPath).toBe(tmpDir);
+    expect(byId.get("global.workspace-runtime-config")?.level).toBe("ok");
   });
 
   it("warns about invalid persisted preference content", () => {
