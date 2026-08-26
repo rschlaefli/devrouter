@@ -101,7 +101,6 @@ function resolveComposeFiles(
     return resolved;
   });
 
-  const services = new Set<string>();
   for (const file of files) {
     let parsed: unknown;
     try {
@@ -114,9 +113,33 @@ function resolveComposeFiles(
     if (!isObject(parsed) || !isObject(parsed.services)) {
       throw new Error(`Managed Dev Container compose file '${file}' has no services map.`);
     }
-    for (const service of Object.keys(parsed.services)) services.add(service);
   }
-  return { directory, files, services: Array.from(services).sort() };
+  const fileArgs = files.flatMap((file) => ["-f", file]);
+  const resolved = spawnSync(
+    "docker",
+    [
+      "compose",
+      "--profile",
+      "*",
+      "--project-directory",
+      directory,
+      ...fileArgs,
+      "config",
+      "--services",
+    ],
+    { cwd: directory, encoding: "utf-8" },
+  );
+  if (resolved.status !== 0) {
+    throw new Error("Could not resolve the effective managed Dev Container Compose model.");
+  }
+  const services = String(resolved.stdout ?? "")
+    .split(/\r?\n/)
+    .map((service) => service.trim())
+    .filter(Boolean);
+  if (services.length === 0 || new Set(services).size !== services.length) {
+    throw new Error("The effective managed Dev Container Compose model has no unique services.");
+  }
+  return { directory, files, services: services.sort() };
 }
 
 function assertIgnoredGeneratedPath(repoPath: string, generatedPath: string): void {
@@ -269,6 +292,19 @@ export function inspectManagedDevcontainerConfig(options: {
 
 export function writeManagedDevcontainerConfig(plan: ManagedDevcontainerPlan): void {
   writeFileAtomically(plan.generatedPath, plan.contents);
+}
+
+export function removeManagedDevcontainerConfig(plan: ManagedDevcontainerPlan): void {
+  if (!fs.existsSync(plan.generatedPath)) return;
+  const stat = fs.lstatSync(plan.generatedPath);
+  if (!stat.isFile()) {
+    throw new Error(`Managed Dev Container path '${plan.generatedPath}' is not a regular file.`);
+  }
+  const contents = fs.readFileSync(plan.generatedPath, "utf-8");
+  if (!contents.startsWith(`${MANAGED_DEVCONTAINER_MARKER}\n`)) {
+    throw new Error(`Managed Dev Container path '${plan.generatedPath}' is not devrouter-owned.`);
+  }
+  fs.unlinkSync(plan.generatedPath);
 }
 
 export function prepareManagedDevcontainerConfig(options: {

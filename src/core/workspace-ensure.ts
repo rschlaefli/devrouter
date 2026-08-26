@@ -5,6 +5,7 @@ import type { DevrouterConfig, DevrouterProxyApp, HostRouteState } from "../type
 import {
   inspectManagedDevcontainerConfig,
   type ManagedDevcontainerPlan,
+  removeManagedDevcontainerConfig,
   startExactManagedServices,
   stopExactManagedService,
   writeManagedDevcontainerConfig,
@@ -337,12 +338,12 @@ function restorePreviousManagedConfig(options: {
     },
     linked: options.linked,
   });
-  writeManagedDevcontainerConfig(restoredPlan);
   if (restoredPlan.effectiveConfigSha256 !== options.previousState.effectiveConfigSha256) {
     throw new Error(
       "The previous managed Dev Container configuration fingerprint no longer matches the current source.",
     );
   }
+  writeManagedDevcontainerConfig(restoredPlan);
 }
 
 export function validateWorkspaceContainers(
@@ -941,13 +942,17 @@ export async function workspaceEnsure(
         const previousServiceSet = new Set(previousServices);
         const previousProcessSet = new Set(previousProcesses);
         try {
-          if (managedConfigWritten && previousManagedState && managedRuntimeConfig) {
-            restorePreviousManagedConfig({
-              repoPath,
-              config: managedRuntimeConfig,
-              linked,
-              previousState: previousManagedState,
-            });
+          if (managedConfigWritten) {
+            if (previousManagedState && managedRuntimeConfig) {
+              restorePreviousManagedConfig({
+                repoPath,
+                config: managedRuntimeConfig,
+                linked,
+                previousState: previousManagedState,
+              });
+            } else {
+              removeManagedDevcontainerConfig(managedPlan);
+            }
           }
         } catch (rollbackError) {
           rollbackErrors.push(
@@ -1069,14 +1074,18 @@ export async function workspaceEnsure(
       if (managedPlan) {
         const original = error instanceof Error ? error.message : String(error);
         const rollbackErrors: string[] = [];
-        if (managedConfigWritten && previousManagedState && managedRuntimeConfig) {
+        if (managedConfigWritten) {
           try {
-            restorePreviousManagedConfig({
-              repoPath,
-              config: managedRuntimeConfig,
-              linked,
-              previousState: previousManagedState,
-            });
+            if (previousManagedState && managedRuntimeConfig) {
+              restorePreviousManagedConfig({
+                repoPath,
+                config: managedRuntimeConfig,
+                linked,
+                previousState: previousManagedState,
+              });
+            } else {
+              removeManagedDevcontainerConfig(managedPlan);
+            }
           } catch (rollbackError) {
             rollbackErrors.push(
               `configuration: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,

@@ -8,6 +8,7 @@ import {
   MANAGED_DEVCONTAINER_MARKER,
   MANAGED_DEVCONTAINER_PATH,
   prepareManagedDevcontainerConfig,
+  removeManagedDevcontainerConfig,
   startExactManagedServices,
 } from "../devcontainer-profile";
 
@@ -72,7 +73,11 @@ function setupRepo(): void {
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-devcontainer-profile-"));
   setupRepo();
-  vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "", stderr: "" } as never);
+  vi.mocked(spawnSync).mockReturnValue({
+    status: 0,
+    stdout: "app\npostgres\nredis\nlitellm\n",
+    stderr: "",
+  } as never);
 });
 
 afterEach(() => {
@@ -146,6 +151,36 @@ describe("managed Dev Container config", () => {
         linked: false,
       }),
     ).toThrow(/selects unregistered managed services: missing/);
+  });
+
+  it("validates services against the resolved Compose model", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: "app\npostgres\nlitellm\n",
+      stderr: "",
+    } as never);
+
+    expect(() =>
+      inspectManagedDevcontainerConfig({
+        repoPath: tmpDir,
+        config: managedConfig,
+        profile: { apps: [], devcontainerServices: ["redis"] },
+        linked: false,
+      }),
+    ).toThrow(/devcontainer.runServices references unknown service 'redis'/);
+  });
+
+  it("removes only an ownership-marked generated config", () => {
+    const plan = prepareManagedDevcontainerConfig({
+      repoPath: tmpDir,
+      config: managedConfig,
+      profile: { apps: [], devcontainerServices: ["litellm"] },
+      linked: false,
+    });
+
+    removeManagedDevcontainerConfig(plan);
+
+    expect(fs.existsSync(plan.generatedPath)).toBe(false);
   });
 
   it("uses exact project and service arguments for warm additions without recreate", () => {

@@ -7,6 +7,7 @@ import type { DevrouterConfig, HostRouteState } from "../../types";
 import {
   inspectManagedDevcontainerConfig,
   type ManagedDevcontainerPlan,
+  removeManagedDevcontainerConfig,
   startExactManagedServices,
   stopExactManagedService,
   writeManagedDevcontainerConfig,
@@ -25,6 +26,7 @@ import {
 } from "../managed-post-start";
 import {
   type ManagedRuntimeState,
+  markManagedRuntimeDegraded,
   readManagedRuntimeState,
   writeManagedRuntimeState,
 } from "../managed-runtime-state";
@@ -51,6 +53,7 @@ vi.mock("../host-routes", () => ({
 }));
 vi.mock("../devcontainer-profile", () => ({
   inspectManagedDevcontainerConfig: vi.fn(),
+  removeManagedDevcontainerConfig: vi.fn(),
   startExactManagedServices: vi.fn(),
   stopExactManagedService: vi.fn(),
   writeManagedDevcontainerConfig: vi.fn(),
@@ -660,6 +663,9 @@ describe("workspaceEnsure", () => {
     vi.mocked(writeManagedDevcontainerConfig).mockImplementation(() => {
       events.push("config-write");
     });
+    vi.mocked(removeManagedDevcontainerConfig).mockImplementation(() => {
+      events.push("config-remove");
+    });
     vi.mocked(readManagedRuntimeState).mockReturnValue(managedPreviousState());
     vi.mocked(listHostRouteState).mockReturnValue([managedPreviousRoute()]);
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
@@ -842,6 +848,10 @@ describe("workspaceEnsure", () => {
 
     expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "redis"]));
     expect(runtime.runningProcesses).toEqual(new Set(["app", "local-mcp"]));
+    expect(writeManagedDevcontainerConfig).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ desiredProfileServices: ["redis"] }),
+    );
     expect(startExactManagedServices).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ services: ["litellm"] }),
@@ -892,6 +902,57 @@ describe("workspaceEnsure", () => {
     expect(devpodUpCalls()).toHaveLength(0);
     expect(inspectManagedDevcontainerConfig).not.toHaveBeenCalled();
     expect(events).toEqual([]);
+  });
+
+  it("marks rollback drift when the previous config fingerprint cannot be restored", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle({ curlStatus: 22 });
+    vi.mocked(inspectManagedDevcontainerConfig).mockImplementation(({ profile }) => {
+      const services = profile?.devcontainerServices ?? ["litellm"];
+      const plan = managedPlanFor(services);
+      return services.includes("redis") ? { ...plan, effectiveConfigSha256: "x".repeat(64) } : plan;
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Rollback left degraded drift: configuration:");
+
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(markManagedRuntimeDegraded).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+      "route-publication",
+    );
+  });
+
+  it("removes the generated candidate when no managed baseline exists", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle({ curlStatus: 22 });
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Candidate runtime was rolled back");
+
+    expect(removeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
   });
 
   it("reuses an exact primary DevPod without linked ownership metadata", async () => {
