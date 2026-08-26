@@ -387,7 +387,8 @@
 
 ## Progress
 
-- Status: Execution in progress; D0 and D1 are committed, and the local
+- Status: Execution in progress; D0 and D1 are committed, and D2 is ready for
+  its required post-commit reviews. The local
   release remains unpublished.
 - Active slice: D2, after the DevPod lifecycle seam passed.
 - Completed: Fresh worktree creation, first-party Dev Container and DevPod
@@ -404,6 +405,10 @@
   0 behind when created.
 - Runtime: The D1 fixtures are stopped; their named volumes were not removed.
 - Active children: none.
+- D2 implementation: Added the strict `managedRuntime` registry, independent
+  app/service/process profile dimensions, per-dimension wildcard merging,
+  route-free capability profiles, legacy compatibility, focused tests, and ADR
+  0005. The focused profile suite has 96 passing tests and TypeScript passes.
 - Required delivery layer: locally committed, fully verified release candidate
   with exact test runtime stopped and status `release_pending`.
 - Achieved delivery layer: reviewed plan, D0 plan commit, and D1

@@ -8,6 +8,7 @@ import type {
   DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
   DevrouterHostHttpApp,
+  DevrouterManagedRuntime,
   DevrouterProfile,
 } from "../types";
 import {
@@ -480,11 +481,77 @@ function parseApp(value: unknown, index: number): DevrouterApp {
   throw new Error(`${pathLabel} has unsupported protocol/runtime combination.`);
 }
 
+function parseUniqueStringArray(value: unknown, pathLabel: string): string[] {
+  const values = toStringArray(value, pathLabel);
+  const seen = new Set<string>();
+  for (const item of values) {
+    if (seen.has(item)) {
+      throw new Error(`${pathLabel} contains duplicate '${item}'.`);
+    }
+    seen.add(item);
+  }
+  return values;
+}
+
+function parseRequiredUniqueStringArray(value: unknown, pathLabel: string): string[] {
+  if (value === undefined) {
+    throw new Error(`${pathLabel} must be an array of strings.`);
+  }
+  return parseUniqueStringArray(value, pathLabel);
+}
+
+function parseManagedRuntime(
+  value: unknown,
+  configPath: string,
+): DevrouterManagedRuntime | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const managedRuntime = ensureObject(value, `${configPath}.managedRuntime`);
+  ensureAllowedKeys(managedRuntime, ["devcontainer", "processes"], `${configPath}.managedRuntime`);
+
+  const devcontainer = ensureObject(
+    managedRuntime.devcontainer,
+    `${configPath}.managedRuntime.devcontainer`,
+  );
+  ensureAllowedKeys(
+    devcontainer,
+    ["baseServices", "profileServices"],
+    `${configPath}.managedRuntime.devcontainer`,
+  );
+  const baseServices = parseRequiredUniqueStringArray(
+    devcontainer.baseServices,
+    `${configPath}.managedRuntime.devcontainer.baseServices`,
+  );
+  const profileServices = parseRequiredUniqueStringArray(
+    devcontainer.profileServices,
+    `${configPath}.managedRuntime.devcontainer.profileServices`,
+  );
+  const baseSet = new Set(baseServices);
+  const overlappingServices = profileServices.filter((service) => baseSet.has(service));
+  if (overlappingServices.length > 0) {
+    throw new Error(
+      `${configPath}.managedRuntime.devcontainer.baseServices and profileServices overlap: ${overlappingServices.join(", ")}.`,
+    );
+  }
+
+  const processes = parseRequiredUniqueStringArray(
+    managedRuntime.processes,
+    `${configPath}.managedRuntime.processes`,
+  );
+
+  return {
+    devcontainer: { baseServices, profileServices },
+    processes,
+  };
+}
+
 function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
   const root = ensureObject(raw, configPath);
   ensureAllowedKeys(
     root,
-    ["version", "devrouter", "project", "secretManager", "profiles", "apps"],
+    ["version", "devrouter", "project", "secretManager", "managedRuntime", "profiles", "apps"],
     configPath,
   );
 
@@ -564,7 +631,8 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
     seenNames.add(app.name);
   }
 
-  const profiles = parseProfiles(root.profiles, configPath, apps);
+  const managedRuntime = parseManagedRuntime(root.managedRuntime, configPath);
+  const profiles = parseProfiles(root.profiles, configPath, apps, managedRuntime);
 
   return {
     version: 1,
@@ -574,6 +642,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
         ? { name: (root.project as { name?: string }).name }
         : undefined,
     ...(secretManager ? { secretManager } : {}),
+    ...(managedRuntime ? { managedRuntime } : {}),
     ...(profiles ? { profiles } : {}),
     apps,
   };
@@ -589,6 +658,7 @@ function parseProfiles(
   value: unknown,
   configPath: string,
   apps: DevrouterApp[],
+  managedRuntime: DevrouterManagedRuntime | undefined,
 ): DevrouterConfig["profiles"] | undefined {
   if (value === undefined) {
     return undefined;
@@ -607,6 +677,8 @@ function parseProfiles(
 
   const result: Record<string, DevrouterProfile> = {};
   let defaultCount = 0;
+  const profileServices = new Set(managedRuntime?.devcontainer.profileServices ?? []);
+  const processMarkers = new Set(managedRuntime?.processes ?? []);
   for (const [name, profileValue] of Object.entries(raw)) {
     if (!PROFILE_NAME_RE.test(name)) {
       throw new Error(
@@ -616,15 +688,20 @@ function parseProfiles(
     const profile = ensureObject(profileValue, `${configPath}.profiles.${name}`);
     ensureAllowedKeys(
       profile,
-      ["apps", "dependencies", "readiness", "default"],
+      ["apps", "dependencies", "readiness", "devcontainerServices", "processes", "default"],
       `${configPath}.profiles.${name}`,
     );
 
     const profileApps = toStringArray(profile.apps, `${configPath}.profiles.${name}.apps`);
-    if (profileApps.length === 0) {
+    if (!managedRuntime && profileApps.length === 0) {
       throw new Error(`${configPath}.profiles.${name}.apps must not be empty.`);
     }
     const isWildcard = profileApps.length === 1 && profileApps[0] === "*";
+    if (profileApps.includes("*") && !isWildcard) {
+      throw new Error(
+        `${configPath}.profiles.${name}.apps must use '*' as its only entry when selecting all apps.`,
+      );
+    }
     if (!isWildcard) {
       for (const appName of profileApps) {
         if (!routedNames.has(appName)) {
@@ -669,6 +746,69 @@ function parseProfiles(
       }
     }
 
+    let devcontainerServices: string[] | undefined;
+    if (profile.devcontainerServices !== undefined) {
+      if (!managedRuntime) {
+        throw new Error(
+          `${configPath}.profiles.${name}.devcontainerServices requires managedRuntime.`,
+        );
+      }
+      devcontainerServices = toStringArray(
+        profile.devcontainerServices,
+        `${configPath}.profiles.${name}.devcontainerServices`,
+      );
+      const isServiceWildcard =
+        devcontainerServices.length === 1 && devcontainerServices[0] === "*";
+      if (devcontainerServices.includes("*") && !isServiceWildcard) {
+        throw new Error(
+          `${configPath}.profiles.${name}.devcontainerServices must use '*' as its only entry when selecting all services.`,
+        );
+      }
+      if (!isServiceWildcard) {
+        for (const service of devcontainerServices) {
+          if (!profileServices.has(service)) {
+            throw new Error(
+              `${configPath}.profiles.${name}.devcontainerServices references '${service}', which is not a registered profile service.`,
+            );
+          }
+        }
+      }
+    }
+
+    let processes: string[] | undefined;
+    if (profile.processes !== undefined) {
+      if (!managedRuntime) {
+        throw new Error(`${configPath}.profiles.${name}.processes requires managedRuntime.`);
+      }
+      processes = toStringArray(profile.processes, `${configPath}.profiles.${name}.processes`);
+      const isProcessWildcard = processes.length === 1 && processes[0] === "*";
+      if (processes.includes("*") && !isProcessWildcard) {
+        throw new Error(
+          `${configPath}.profiles.${name}.processes must use '*' as its only entry when selecting all processes.`,
+        );
+      }
+      if (!isProcessWildcard) {
+        for (const process of processes) {
+          if (!processMarkers.has(process)) {
+            throw new Error(
+              `${configPath}.profiles.${name}.processes references '${process}', which is not a registered process marker.`,
+            );
+          }
+        }
+      }
+    }
+
+    const selectsDimension =
+      profileApps.length > 0 ||
+      (dependencies?.length ?? 0) > 0 ||
+      (devcontainerServices?.length ?? 0) > 0 ||
+      (processes?.length ?? 0) > 0;
+    if (!selectsDimension) {
+      throw new Error(
+        `${configPath}.profiles.${name}.apps must not be empty; select at least one profile dimension.`,
+      );
+    }
+
     let isDefault = false;
     if (profile.default !== undefined) {
       if (typeof profile.default !== "boolean") {
@@ -685,6 +825,8 @@ function parseProfiles(
       apps: profileApps,
       ...(dependencies ? { dependencies } : {}),
       ...(readiness ? { readiness } : {}),
+      ...(devcontainerServices ? { devcontainerServices } : {}),
+      ...(processes ? { processes } : {}),
       ...(isDefault ? { default: true } : {}),
     };
   }
@@ -700,10 +842,31 @@ function parseProfiles(
 // one, the config's default profile applies, and a config without `profiles`
 // keeps the implicit full profile (undefined = everything).
 //
+function canonicalProfileValues(values: string[]): string[] {
+  return Array.from(new Set(values)).sort();
+}
+
+function isProfileWildcard(values: string[] | undefined): boolean {
+  return values?.length === 1 && values[0] === "*";
+}
+
+function normalizeProfile(profile: DevrouterProfile): DevrouterProfile {
+  return {
+    apps: canonicalProfileValues(profile.apps),
+    ...(profile.dependencies ? { dependencies: canonicalProfileValues(profile.dependencies) } : {}),
+    ...(profile.readiness ? { readiness: canonicalProfileValues(profile.readiness) } : {}),
+    ...(profile.devcontainerServices
+      ? { devcontainerServices: canonicalProfileValues(profile.devcontainerServices) }
+      : {}),
+    ...(profile.processes ? { processes: canonicalProfileValues(profile.processes) } : {}),
+    ...(profile.default ? { default: true } : {}),
+  };
+}
+
 // A selection may name several profiles separated by commas (e.g. `manage,pwa`).
-// The union is deduplicated across apps, dependencies, and readiness entries;
-// readiness entries of every selected profile are kept. `default` flags are
-// ignored when combining — a merged selection is never treated as a default.
+// The union is deduplicated and sorted independently across every profile
+// dimension. `default` flags are ignored when combining — a merged selection is
+// never treated as a default.
 export function resolveProfile(
   config: DevrouterConfig,
   profileOverride?: string,
@@ -730,7 +893,8 @@ export function resolveProfile(
       );
     }
     if (names.length === 1) {
-      return { name: names[0], profile: profiles?.[names[0]] };
+      const profile = profiles?.[names[0]];
+      return profile ? { name: names[0], profile: normalizeProfile(profile) } : { name: names[0] };
     }
 
     // Canonical merged name: sorted unique selection, so `pwa,manage` and
@@ -740,28 +904,51 @@ export function resolveProfile(
     const apps = new Set<string>();
     const dependencies = new Set<string>();
     const readiness = new Set<string>();
-    let hasWildcard = false;
+    const devcontainerServices = new Set<string>();
+    const processes = new Set<string>();
+    let hasAppWildcard = false;
+    let hasServiceWildcard = false;
+    let hasProcessWildcard = false;
     for (const name of names) {
       const profile = profiles?.[name];
       if (!profile) continue;
-      if (profile.apps.length === 1 && profile.apps[0] === "*") {
-        hasWildcard = true;
-        continue;
+      if (isProfileWildcard(profile.apps)) {
+        hasAppWildcard = true;
+      } else {
+        for (const appName of profile.apps) apps.add(appName);
       }
-      for (const appName of profile.apps) apps.add(appName);
       for (const depName of profile.dependencies ?? []) dependencies.add(depName);
       for (const readyName of profile.readiness ?? []) readiness.add(readyName);
-    }
-
-    if (hasWildcard) {
-      // A wildcard profile swallows the union: it already means "everything".
-      return { name: canonicalName, profile: { apps: ["*"] } };
+      if (isProfileWildcard(profile.devcontainerServices)) {
+        hasServiceWildcard = true;
+      } else {
+        for (const service of profile.devcontainerServices ?? []) {
+          devcontainerServices.add(service);
+        }
+      }
+      if (isProfileWildcard(profile.processes)) {
+        hasProcessWildcard = true;
+      } else {
+        for (const process of profile.processes ?? []) processes.add(process);
+      }
     }
 
     const merged: DevrouterProfile = {
-      apps: Array.from(apps),
-      ...(dependencies.size > 0 ? { dependencies: Array.from(dependencies) } : {}),
-      ...(readiness.size > 0 ? { readiness: Array.from(readiness) } : {}),
+      apps: hasAppWildcard ? ["*"] : canonicalProfileValues(Array.from(apps)),
+      ...(dependencies.size > 0
+        ? { dependencies: canonicalProfileValues(Array.from(dependencies)) }
+        : {}),
+      ...(readiness.size > 0 ? { readiness: canonicalProfileValues(Array.from(readiness)) } : {}),
+      ...(hasServiceWildcard
+        ? { devcontainerServices: ["*"] }
+        : devcontainerServices.size > 0
+          ? { devcontainerServices: canonicalProfileValues(Array.from(devcontainerServices)) }
+          : {}),
+      ...(hasProcessWildcard
+        ? { processes: ["*"] }
+        : processes.size > 0
+          ? { processes: canonicalProfileValues(Array.from(processes)) }
+          : {}),
     };
     return { name: canonicalName, profile: merged };
   };
@@ -772,7 +959,7 @@ export function resolveProfile(
   if (profiles) {
     const defaultName = Object.keys(profiles).find((name) => profiles[name].default);
     if (defaultName) {
-      return { name: defaultName, profile: profiles[defaultName] };
+      return { name: defaultName, profile: normalizeProfile(profiles[defaultName]) };
     }
     // Profiles exist but none is default: full behavior (all apps).
     return { name: "full", profile: undefined };

@@ -33,6 +33,28 @@ function readConfig(dir: string): string {
   return fs.readFileSync(path.join(dir, ".devrouter.yml"), "utf-8");
 }
 
+function writeManagedProfileConfig(dir: string, profilesYaml: string): void {
+  writeConfig(
+    dir,
+    `version: 1
+project:
+  name: myapp
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [redis, litellm]
+  processes: [klicker-dev, local-mcp]
+${profilesYaml}
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: proxy
+    upstream: \${WORKSPACE}-web:3000
+`,
+  );
+}
+
 /** Minimal valid YAML config string */
 const VALID_MINIMAL = `
 version: 1
@@ -1273,5 +1295,178 @@ apps:
     const { config, profile } = loadRuntimeConfig(tmpDir, "", "pwa,chat");
     expect(profile).toBe("chat,pwa");
     expect(config.apps.map((app) => app.name).sort()).toEqual(["api", "web"]);
+  });
+
+  it("accepts route-free service and process profiles", () => {
+    writeManagedProfileConfig(
+      tmpDir,
+      `profiles:
+  ai:
+    devcontainerServices: [litellm]
+  mcp:
+    processes: [local-mcp]
+  manage:
+    apps: [web]
+`,
+    );
+    const config = loadRepoConfig(tmpDir);
+    expect(config.managedRuntime?.devcontainer.profileServices).toEqual(["redis", "litellm"]);
+
+    const ai = resolveProfile(config, "ai");
+    expect(ai.profile?.apps).toEqual([]);
+    expect(ai.profile?.devcontainerServices).toEqual(["litellm"]);
+    expect(applyProfile(config, ai.profile).apps).toEqual([]);
+
+    const merged = resolveProfile(config, "mcp, ai, mcp");
+    expect(merged.name).toBe("ai,mcp");
+    expect(merged.profile?.apps).toEqual([]);
+    expect(merged.profile?.processes).toEqual(["local-mcp"]);
+    expect(merged.profile?.devcontainerServices).toEqual(["litellm"]);
+  });
+
+  it("unions app, service, and process dimensions independently", () => {
+    writeManagedProfileConfig(
+      tmpDir,
+      `profiles:
+  ai:
+    devcontainerServices: [litellm]
+  mcp:
+    processes: [local-mcp]
+  manage:
+    apps: [web]
+`,
+    );
+    const config = loadRepoConfig(tmpDir);
+    const { profile } = resolveProfile(config, "manage,ai,mcp");
+    expect(profile).toEqual({
+      apps: ["web"],
+      devcontainerServices: ["litellm"],
+      processes: ["local-mcp"],
+    });
+  });
+
+  it("collapses wildcards per dimension instead of discarding other dimensions", () => {
+    writeManagedProfileConfig(
+      tmpDir,
+      `profiles:
+  all-services:
+    devcontainerServices: ["*"]
+  all-processes:
+    processes: ["*"]
+  manage:
+    apps: [web]
+`,
+    );
+    const config = loadRepoConfig(tmpDir);
+    const { profile } = resolveProfile(config, "manage,all-services,all-processes");
+    expect(profile).toEqual({
+      apps: ["web"],
+      devcontainerServices: ["*"],
+      processes: ["*"],
+    });
+  });
+
+  it("rejects new profile dimensions without a managed runtime registry", () => {
+    writeConfig(
+      tmpDir,
+      `version: 1
+profiles:
+  ai:
+    apps: [web]
+    devcontainerServices: [litellm]
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: proxy
+    upstream: \${WORKSPACE}-web:3000
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/devcontainerServices requires managedRuntime/);
+  });
+
+  it("rejects unknown managed services, processes, and registry keys", () => {
+    writeManagedProfileConfig(
+      tmpDir,
+      `profiles:
+  ai:
+    devcontainerServices: [missing]
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/not a registered profile service/);
+
+    writeManagedProfileConfig(
+      tmpDir,
+      `profiles:
+  mcp:
+    processes: [missing]
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/not a registered process marker/);
+
+    writeConfig(
+      tmpDir,
+      `version: 1
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [redis]
+  processes: []
+  unknown: true
+apps: []
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/managedRuntime.unknown is not supported/);
+  });
+
+  it("requires every managed registry and rejects duplicate ownership", () => {
+    writeConfig(
+      tmpDir,
+      `version: 1
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres, postgres]
+    profileServices: [redis]
+  processes: []
+apps: []
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/baseServices contains duplicate 'postgres'/);
+
+    writeConfig(
+      tmpDir,
+      `version: 1
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [postgres]
+  processes: []
+apps: []
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/overlap/);
+
+    writeConfig(
+      tmpDir,
+      `version: 1
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [redis]
+apps: []
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/managedRuntime.processes must be an array/);
+  });
+
+  it("rejects a managed profile that selects no dimension", () => {
+    writeManagedProfileConfig(
+      tmpDir,
+      `profiles:
+  empty:
+    apps: []
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/apps must not be empty/);
   });
 });
