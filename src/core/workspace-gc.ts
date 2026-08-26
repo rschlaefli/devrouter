@@ -1,6 +1,10 @@
 import path from "node:path";
 import { deleteOwnedDevpodWorkspace } from "./devpod-mutation";
-import { listDevpodWorkspaces } from "./devpod-workspaces";
+import {
+  listDevpodWorkspaces,
+  listDevpodWorkspacesFromSnapshots,
+  listMergedRuntimeWorkspaces,
+} from "./devpod-workspaces";
 import { listHostRouteState } from "./host-routes";
 import { resolveRepoPath } from "./repo-config";
 import { removeWorkspaceRoutesForWorktree } from "./route-state";
@@ -124,7 +128,7 @@ function ownedReason(ownerStatus: WorkspaceOwnerStatus): string {
 function ownedCandidate(
   record: WorkspaceOwnershipRecord,
   worktrees: ReturnType<typeof listGitWorktrees>,
-  devpods: ReturnType<typeof listDevpodWorkspaces>,
+  devpods: ReturnType<typeof listDevpodWorkspaces> | undefined,
   routes: ReturnType<typeof listHostRouteState>,
 ): WorkspaceGcCandidate {
   const status = inspectWorkspaceOwnership(record, worktrees, devpods);
@@ -256,7 +260,7 @@ function revalidateCandidate(
   const fresh = ownedCandidate(
     record,
     listGitWorktrees(repoPath),
-    listDevpodWorkspaces(),
+    listDevpodWorkspaces(record.worktreePath),
     listHostRouteState(),
   );
   if (fresh.eligible) return { status: "ready", candidate: fresh, record };
@@ -369,11 +373,20 @@ export function inspectWorkspaceGc(repo?: string): WorkspaceGcPlan {
   const repoPath = comparableWorkspacePath(resolveRepoPath(repo));
   const worktrees = listGitWorktrees(repoPath);
   const records = listWorkspaceOwnership(repoPath);
-  const devpods = listDevpodWorkspaces();
   const routes = listHostRouteState();
   const candidates = [
-    ...records.map((record) => ownedCandidate(record, worktrees, devpods, routes)),
-    ...legacyCandidates(repoPath, records, worktrees, devpods, routes),
+    // Per-record resolution keeps mixed DevPod+Devsy fleets on the registry
+    // that owns each record (snapshot reads: the apply path revalidates
+    // live); legacy detection scans both registries.
+    ...records.map((record) =>
+      ownedCandidate(
+        record,
+        worktrees,
+        listDevpodWorkspacesFromSnapshots(record.worktreePath),
+        routes,
+      ),
+    ),
+    ...legacyCandidates(repoPath, records, worktrees, listMergedRuntimeWorkspaces(), routes),
   ];
   return {
     generatedAt: new Date().toISOString(),

@@ -22,6 +22,7 @@ vi.mock("../workspace", () => ({
 vi.mock("../devpod-environment", () => ({ resolveRunningWorkspaceContainer: vi.fn() }));
 
 const STATUS_MARKER = "__DEVROUTER_EXIT_fixed-uuid__:";
+let previousWorkspaceRuntime: string | undefined;
 
 function mockExecExit(code: number, stderr: string | Buffer[] = `${STATUS_MARKER}${code}\n`): void {
   const child = new EventEmitter() as EventEmitter & {
@@ -41,6 +42,8 @@ function mockExecExit(code: number, stderr: string | Buffer[] = `${STATUS_MARKER
 }
 
 beforeEach(() => {
+  previousWorkspaceRuntime = process.env.DEVROUTER_WORKSPACE_RUNTIME;
+  process.env.DEVROUTER_WORKSPACE_RUNTIME = "devpod";
   vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue({
     id: "container",
     workspacePath: "/workspaces/custom",
@@ -48,6 +51,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (previousWorkspaceRuntime === undefined) delete process.env.DEVROUTER_WORKSPACE_RUNTIME;
+  else process.env.DEVROUTER_WORKSPACE_RUNTIME = previousWorkspaceRuntime;
   vi.clearAllMocks();
   vi.restoreAllMocks();
 });

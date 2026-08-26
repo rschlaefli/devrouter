@@ -12,7 +12,7 @@ symptoms:
   - "A valid container and process group kept serving HTTP 500 after a production build invalidated Next.js development output."
   - "Garbage collection could delete a workspace that was revived after the dry-run snapshot."
 root_cause: "Checkout, provider, process, and route generations were checked or written at separate boundaries without one exact mutation identity."
-tags: [devpod, git-worktree, devcontainer, docker, routing, identity, concurrency]
+tags: [devpod, devsy, git-worktree, devcontainer, docker, routing, identity, concurrency]
 ---
 
 # DevPod worktrees could report ready with mixed runtime identity
@@ -95,6 +95,19 @@ Classify DevPod ownership through one adapter that requires one exact ID-and-pat
 (`inspectDevpodWorkspaceOwnership` in `src/core/devpod-workspaces.ts`). This keeps ensure, lifecycle,
 doctor, and GC on the same fail-closed ownership rule.
 
+When more than one workspace runtime is installed, resolve the exact checkout path against both
+provider registries before consulting the machine preference. Probe each provider with its actual
+version command (`devpod version`, `devsy --version`) rather than assuming equivalent CLI syntax.
+Treat duplicate path owners and unreadable installed-provider registries as blocking evidence;
+neither state proves that the machine preference owns the checkout, so lifecycle dispatch must fail
+closed while doctor reports the ambiguity. Report-only scans degrade the same evidence to an
+unknown row instead of aborting the whole report, and preserve malformed provider activity so no
+cleanup suggestion rests on an untrustworthy timestamp.
+Provider-specific tests must pin `DEVROUTER_WORKSPACE_RUNTIME`; otherwise a developer's persisted
+machine preference can silently route a DevPod test through Devsy. The registry split and test
+isolation are implemented in `src/core/workspace-runtime.ts` and the provider adapter suites from
+[#36](https://github.com/rschlaefli/devrouter/pull/36).
+
 Capture the managed adapter bytes once, fingerprint that snapshot, deliver the same bytes into the
 validated container, and include their SHA-256 in managed-process identity
 (`resolveManagedPostStartPlan`, `adapterFingerprint`, and `deliverRuntimeFile` in
@@ -144,3 +157,8 @@ retain both routes (`src/core/__tests__/host-routes-state.test.ts`).
 GC regression tests assert that the ownership transaction encloses DevPod, route, and record
 deletion; a workspace revived after inspection is not mutated; and a busy ledger lock fails only
 that candidate while later candidates continue (`src/core/__tests__/workspace-gc.test.ts`).
+
+Runtime-resolution tests cover exact-path ownership for both providers, distinct version-probe
+syntax, ambiguous dual registration, and machine-preference fallback
+(`src/core/__tests__/workspace-runtime.test.ts`). DevPod-only adapter tests explicitly select the
+DevPod runtime so machine configuration cannot change their subject under test.

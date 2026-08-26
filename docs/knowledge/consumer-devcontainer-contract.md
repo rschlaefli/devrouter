@@ -26,7 +26,7 @@ Consumer images must not install, download, or version-pin Devrouter. [ADR 0002]
 
 ## Managed adapter contract
 
-`src/core/managed-post-start.ts:resolveManagedPostStartPlan` classifies the repository contract before DevPod startup:
+`src/core/managed-post-start.ts:resolveManagedPostStartPlan` classifies the repository contract before workspace runtime startup:
 
 - The adapter is the regular, non-symlink file `.devcontainer/post-start.sh`.
 - Managed adapters contain the marker `devrouter:managed devcontainer`.
@@ -67,15 +67,15 @@ and publishes routes last. Inspect the result with `devrouter status` or
 
 ## Container and network contract
 
-- DevPod must attach to the exact host checkout. Linked worktrees also mount the Git common directory at the same absolute path so the worktree `.git` pointer remains valid.
+- The active workspace runtime (DevPod or Devsy) must attach to the exact host checkout. Linked worktrees also mount the Git common directory at the same absolute path so the worktree `.git` pointer remains valid.
 - The committed devcontainer Compose overlay supplies the workspace identity and devnet aliases used by `.devrouter.yml` proxy upstreams.
 - Every managed HTTP and TCP proxy upstream begins with the resolved checkout alias namespace.
 - Devrouter proves the Compose project/overlay, workspace mount, in-container Git identity, health, and globally unique aliases before route publication.
-- `devrouter ensure <path>` is the only managed startup path. Direct `devpod up`, automatic image-time post-start, and `devrouter app run` do not provide the same proof.
+- `devrouter ensure <path>` is the only managed startup path. Direct DevPod/Devsy `up`, automatic image-time post-start, and `devrouter app run` do not provide the same proof.
 
 ## Verification and failure modes
 
-`devrouter repo devcontainer verify --json` provides static evidence. `devrouter ensure` owns real startup and readiness; the compatibility `--live` verifier is not a startup substitute. The executable gates are `src/core/__tests__/managed-post-start.test.ts`, `workspace-ensure.test.ts`, and `devcontainer-verify.test.ts`, plus `scripts/smoke-devcontainer.sh` when Docker and DevPod are available.
+`devrouter repo devcontainer verify --json` provides static evidence. `devrouter ensure` owns real startup and readiness; the compatibility `--live` verifier is not a startup substitute. The executable gates are `src/core/__tests__/managed-post-start.test.ts`, `workspace-ensure.test.ts`, and `devcontainer-verify.test.ts`, plus `scripts/smoke-devcontainer.sh` when Docker and a workspace runtime CLI are available.
 
 Generated guidance is also operational code. The [generated guidance drift](../solutions/integration/generated-worktree-guidance-drift.md) record explains why lifecycle commands and scaffold defaults must stay conditional on the actual ownership model.
 

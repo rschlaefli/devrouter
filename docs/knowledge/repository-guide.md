@@ -40,7 +40,7 @@ Repository-generated guidance is a product surface: `src/core/ai-prompt.ts` owns
 ## Task routes
 
 - Configuration or runtime kind: start with `src/core/repo-config.ts`, then follow the [routing contract](./routing-and-runtime-contracts.md).
-- Checkout, DevPod, stop/down, or garbage collection: follow the [managed lifecycle](./managed-environment-lifecycle.md).
+- Checkout, workspace runtime (DevPod/Devsy), stop/down, or garbage collection: follow the [managed lifecycle](./managed-environment-lifecycle.md).
 - Consumer `.devcontainer/` wiring: follow the [devcontainer contract](./consumer-devcontainer-contract.md).
 - Shared router or state ownership: follow [architecture and ownership](./architecture-and-ownership.md).
 - Documentation, generated guidance, CI, or release work: use the [change and verification map](./change-and-verification-map.md).

@@ -34,6 +34,7 @@ import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
+import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../file-lock", () => ({
@@ -311,6 +312,8 @@ describe("workspaceEnsure", () => {
   let gitDir: string;
 
   beforeEach(() => {
+    vi.stubEnv("DEVROUTER_WORKSPACE_RUNTIME", "devpod");
+    resetWorkspaceRuntimeCaches();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-ensure-"));
     tmpDir = fs.realpathSync.native(tmpDir);
     gitDir = path.join(tmpDir, "git", "worktrees", "feature");
@@ -492,6 +495,9 @@ describe("workspaceEnsure", () => {
   function mockPrimaryLifecycle(
     options: { devpodLists?: DevpodWorkspace[][]; appAliases?: string[] } = {},
   ): void {
+    // This provider-specific suite pins DevPod, so every list response belongs
+    // to the lifecycle under test rather than runtime auto-detection.
+    const devpodLists = options.devpodLists ?? [];
     let devpodListCall = 0;
     const app = container("app-id", "app", options.appAliases ?? ["sample-app"], {
       mountRepo: true,
@@ -511,9 +517,12 @@ describe("workspaceEnsure", () => {
 
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
+      if (command === "devsy") {
+        return { status: 1, stdout: "", stderr: "" } as never;
+      }
       if (command === "devpod" && argv[0] === "list") {
         const fallback = [{ id: "sample", source: { localFolder: tmpDir } }];
-        const listed = options.devpodLists?.[devpodListCall] ?? fallback;
+        const listed = devpodLists[devpodListCall] ?? fallback;
         devpodListCall += 1;
         return { status: 0, stdout: JSON.stringify(listed), stderr: "" } as never;
       }

@@ -11,10 +11,17 @@ import {
 } from "./router";
 import { installTLS } from "./tls";
 import { runTool } from "./tool-diagnostics";
+import {
+  parseWorkspaceRuntime,
+  readWorkspaceRuntimeConfig,
+  writeWorkspaceRuntimeConfig,
+} from "./workspace-runtime";
 
 type SetupOptions = {
   repo?: string;
   yes?: boolean;
+  workspaceRuntime?: string;
+  devsyInactivityTimeout?: string;
 };
 
 function action(status: SetupActionStatus, entry: Omit<SetupAction, "status">): SetupAction {
@@ -118,6 +125,36 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
         suggestion: "Check write access to ~/.config/devrouter, then run: devrouter setup --yes",
       }),
     );
+  }
+
+  if (options.workspaceRuntime !== undefined || options.devsyInactivityTimeout !== undefined) {
+    try {
+      const existing = readWorkspaceRuntimeConfig();
+      const next = {
+        runtime: options.workspaceRuntime
+          ? parseWorkspaceRuntime(options.workspaceRuntime)
+          : existing.runtime,
+        devsyInactivityTimeout: options.devsyInactivityTimeout ?? existing.devsyInactivityTimeout,
+      };
+      writeWorkspaceRuntimeConfig(next);
+      actions.push(
+        action("performed", {
+          id: "global.workspace-runtime-config",
+          summary: `Persisted workspace runtime preferences (runtime=${next.runtime ?? "unset"}, devsyInactivityTimeout=${next.devsyInactivityTimeout ?? "unset"}).`,
+        }),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      actions.push(
+        action("failed", {
+          id: "global.workspace-runtime-config",
+          summary: "Failed to persist workspace runtime preferences.",
+          details: message,
+          suggestion:
+            "Use: devrouter setup --yes --workspace-runtime <devpod|devsy> [--devsy-inactivity-timeout <duration>]",
+        }),
+      );
+    }
   }
 
   try {

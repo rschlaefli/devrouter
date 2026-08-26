@@ -1,14 +1,18 @@
 import { spawnSync } from "node:child_process";
+import { type DevpodWorkspace, listDevpodWorkspacesRaw } from "./devpod-registry";
+import {
+  type DevsyWorkspace,
+  inspectDevsyRuntimeStatus,
+  listDevsyWorkspaces,
+} from "./devsy-workspaces";
 import { sameWorkspacePath } from "./workspace";
+import {
+  getWorkspaceRegistrySnapshots,
+  resolveWorkspaceRuntimeForReport,
+  resolveWorkspaceRuntimeOrDefault,
+} from "./workspace-runtime";
 
-export type DevpodWorkspace = {
-  id: string;
-  source: { localFolder: string };
-  /** Optional provider activity metadata; older DevPod versions omit it. */
-  lastUsed?: string;
-  /** Set when the provider returned a non-string lastUsed value. */
-  lastUsedMalformed?: boolean;
-};
+export type { DevpodWorkspace } from "./devpod-registry";
 
 export type DevpodWorkspaceOwnership =
   | { status: "owned"; workspace: DevpodWorkspace }
@@ -17,50 +21,64 @@ export type DevpodWorkspaceOwnership =
 
 export type DevpodRuntimeStatus = "running" | "stopped" | "busy" | "not-found" | "unknown";
 
-export function listDevpodWorkspaces(): DevpodWorkspace[] {
-  const result = spawnSync("devpod", ["list", "--output", "json", "--skip-pro"], {
-    encoding: "utf-8",
-  });
-  if (result.status !== 0) {
-    const details = [result.error?.message, result.stdout, result.stderr]
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    throw new Error(`devpod list failed: ${details || "devpod is not installed or unavailable"}`);
+/**
+ * List workspaces of the runtime that owns (or, for unknown paths, would
+ * manage) the given checkout. Passing the path lets the dispatch honor
+ * exact-path registry ownership in mixed DevPod+Devsy fleets.
+ * Always reads the registry live: mutation postconditions depend on seeing
+ * the provider state a mutation just produced.
+ */
+export function listDevpodWorkspaces(repoPath?: string): DevpodWorkspace[] {
+  if (resolveWorkspaceRuntimeOrDefault(repoPath) === "devsy") {
+    return listDevsyWorkspaces().map((workspace: DevsyWorkspace) => ({
+      id: workspace.id,
+      source: workspace.source,
+      ...(workspace.lastUsed ? { lastUsed: workspace.lastUsed } : {}),
+      ...(workspace.lastUsedMalformed ? { lastUsedMalformed: true } : {}),
+    }));
   }
+  return listDevpodWorkspacesRaw();
+}
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch {
-    throw new Error("devpod list returned invalid JSON.");
+/**
+ * Snapshot-backed variant for read-only reports (workspace ls/gc/cleanup)
+ * that resolve one runtime per checkout and must not spawn one registry read
+ * per row. Returns undefined when the resolved runtime's registry could not
+ * be read so reports can render that row as unknown.
+ */
+export function listDevpodWorkspacesFromSnapshots(
+  repoPath?: string,
+): DevpodWorkspace[] | undefined {
+  const snapshots = getWorkspaceRegistrySnapshots();
+  const runtime = resolveWorkspaceRuntimeForReport(repoPath);
+  if (!runtime) return undefined;
+  if (runtime === "devsy") {
+    return snapshots.devsy?.map((workspace: DevsyWorkspace) => ({
+      id: workspace.id,
+      source: workspace.source,
+      ...(workspace.lastUsed ? { lastUsed: workspace.lastUsed } : {}),
+      ...(workspace.lastUsedMalformed ? { lastUsedMalformed: true } : {}),
+    }));
   }
-  if (!Array.isArray(parsed)) {
-    throw new Error("devpod list returned an unexpected response.");
-  }
+  return snapshots.devpod;
+}
 
-  return parsed.map((entry) => {
-    const candidate = entry as Partial<DevpodWorkspace> & Record<string, unknown>;
-    if (
-      typeof candidate.id !== "string" ||
-      !candidate.source ||
-      typeof candidate.source.localFolder !== "string"
-    ) {
-      throw new Error("devpod list returned a workspace without id/source.localFolder.");
-    }
-    const workspace: DevpodWorkspace = {
-      id: candidate.id,
-      source: { localFolder: candidate.source.localFolder },
-    };
-    if ("lastUsed" in candidate) {
-      if (typeof candidate.lastUsed === "string") {
-        workspace.lastUsed = candidate.lastUsed;
-      } else {
-        workspace.lastUsedMalformed = true;
-      }
-    }
-    return workspace;
-  });
+/**
+ * Workspaces from every installed runtime, shaped uniformly. Used by
+ * whole-repository scans (workspace gc legacy detection) that must consider
+ * both registries regardless of which runtime owns which path.
+ */
+export function listMergedRuntimeWorkspaces(): DevpodWorkspace[] {
+  const snapshots = getWorkspaceRegistrySnapshots();
+  return [
+    ...(snapshots.devpod ?? []),
+    ...(snapshots.devsy?.map((workspace: DevsyWorkspace) => ({
+      id: workspace.id,
+      source: workspace.source,
+      ...(workspace.lastUsed ? { lastUsed: workspace.lastUsed } : {}),
+      ...(workspace.lastUsedMalformed ? { lastUsedMalformed: true } : {}),
+    })) ?? []),
+  ];
 }
 
 function parseDevpodRuntimeStatus(output: string, expectedId: string): DevpodRuntimeStatus {
@@ -92,7 +110,13 @@ function parseDevpodRuntimeStatus(output: string, expectedId: string): DevpodRun
   }
 }
 
-export function inspectDevpodRuntimeStatus(devpodId: string): DevpodRuntimeStatus {
+export function inspectDevpodRuntimeStatus(
+  devpodId: string,
+  repoPath?: string,
+): DevpodRuntimeStatus {
+  if (resolveWorkspaceRuntimeOrDefault(repoPath) === "devsy") {
+    return inspectDevsyRuntimeStatus(devpodId);
+  }
   const result = spawnSync("devpod", ["status", devpodId, "--output", "json", "--timeout", "5s"], {
     encoding: "utf-8",
   });

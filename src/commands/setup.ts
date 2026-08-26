@@ -5,10 +5,17 @@ type SetupCommandOptions = {
   repo?: string;
   json?: boolean;
   yes?: boolean;
+  workspaceRuntime?: string;
+  devsyInactivityTimeout?: string;
 };
 
 export async function runSetupCommand(options: SetupCommandOptions): Promise<void> {
-  const report = await runSetup({ repo: options.repo, yes: Boolean(options.yes) });
+  const report = await runSetup({
+    repo: options.repo,
+    yes: Boolean(options.yes),
+    workspaceRuntime: options.workspaceRuntime,
+    devsyInactivityTimeout: options.devsyInactivityTimeout,
+  });
 
   if (options.json) {
     printJSON(report);

@@ -2,6 +2,12 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { DiagnosticCheck } from "../types";
+import {
+  inspectWorkspaceRuntimeConfig,
+  readWorkspaceRuntimeConfig,
+  resolveWorkspaceRuntimeDetailed,
+  WorkspaceRuntimeOwnershipError,
+} from "./workspace-runtime";
 
 type CommandResult = {
   ok: boolean;
@@ -208,15 +214,92 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
         : "Install mkcert for local HTTPS, then run: devrouter setup --yes",
   });
 
-  const devpod = runTool("devpod", ["version"]);
+  let ownershipProblem: string | undefined;
+  let runtimeResolution: ReturnType<typeof resolveWorkspaceRuntimeDetailed>;
+  try {
+    runtimeResolution = resolveWorkspaceRuntimeDetailed(repoPath);
+  } catch (error) {
+    if (!(error instanceof WorkspaceRuntimeOwnershipError)) throw error;
+    ownershipProblem = error.message;
+    // Keep diagnosing the configured toolchain without treating that fallback
+    // as authority to mutate this checkout.
+    runtimeResolution = resolveWorkspaceRuntimeDetailed();
+  }
+  const workspaceRuntime = runtimeResolution.runtime;
+  const machineConfig = readWorkspaceRuntimeConfig();
+  const runtimeLabel = workspaceRuntime === "devsy" ? "Devsy" : "DevPod";
+  const configInspection = inspectWorkspaceRuntimeConfig();
+  // Devsy exposes only the global --version flag; DevPod accepts a version
+  // subcommand. Probe each runtime with its supported spelling.
+  const runtimeArgs = workspaceRuntime === "devsy" ? ["--version"] : ["version"];
+  const runtimeTool = runTool(workspaceRuntime, runtimeArgs);
+  if (ownershipProblem) {
+    checks.push({
+      id: "repo.workspace-runtime-ownership",
+      level: "error",
+      summary: "Workspace runtime ownership cannot be resolved safely.",
+      details: ownershipProblem,
+      suggestion: "Restore both registries and remove any duplicate checkout registration.",
+    });
+  }
   checks.push({
     id: "global.devpod",
-    level: devpod.ok ? "ok" : "warn",
-    summary: devpod.ok ? "DevPod is installed." : "DevPod is not installed.",
-    details: firstLine(devpod.output) ?? devpod.error,
-    suggestion: devpod.ok
+    level: runtimeTool.ok ? "ok" : "warn",
+    summary: runtimeTool.ok
+      ? ownershipProblem
+        ? `${runtimeLabel} is configured, but checkout ownership is unresolved.`
+        : `${runtimeLabel} is the active workspace runtime (source: ${runtimeResolution.source}).`
+      : `${runtimeLabel} is the active workspace runtime but is not installed.`,
+    details: [
+      firstLine(runtimeTool.output) ?? runtimeTool.error,
+      `source=${runtimeResolution.source}`,
+      ...(machineConfig.devsyInactivityTimeout
+        ? [`devsyInactivityTimeout=${machineConfig.devsyInactivityTimeout}`]
+        : []),
+    ]
+      .filter(Boolean)
+      .join(", "),
+    suggestion: runtimeTool.ok
       ? undefined
-      : "Install DevPod for devcontainer workspace flows: brew install devpod",
+      : workspaceRuntime === "devsy"
+        ? "Install Devsy for devcontainer workspace flows: brew install devsy-org/homebrew-tap/devsy"
+        : "Install DevPod for devcontainer workspace flows: brew install devpod",
+  });
+
+  const configProblems = [...configInspection.problems];
+  // A Devsy timeout alongside a path-owned DevPod checkout is a valid mixed
+  // fleet: the timeout only governs new Devsy workspaces, so warn only when
+  // machine-level resolution itself fell back to DevPod.
+  const machineResolvedDevpod =
+    workspaceRuntime === "devpod" &&
+    (runtimeResolution.source === "auto-detect" || runtimeResolution.source === "default");
+  if (machineConfig.devsyInactivityTimeout && machineResolvedDevpod) {
+    configProblems.push(
+      "devsyInactivityTimeout is configured but the active workspace runtime is DevPod.",
+    );
+  }
+  const configDetails = configInspection.exists
+    ? [
+        `runtime=${machineConfig.runtime ?? "unset"}`,
+        ...(machineConfig.devsyInactivityTimeout
+          ? [`devsyInactivityTimeout=${machineConfig.devsyInactivityTimeout}`]
+          : []),
+      ].join(", ")
+    : "Runtime selection falls back to auto-detection.";
+  checks.push({
+    id: "global.workspace-runtime-config",
+    level: configProblems.length > 0 ? "warn" : "ok",
+    summary: !configInspection.exists
+      ? "No machine workspace-runtime preference is configured."
+      : configProblems.length > 0
+        ? "Machine workspace-runtime preference has problems."
+        : "Machine workspace-runtime preference is valid.",
+    details:
+      configProblems.length > 0 ? [configDetails, ...configProblems].join(" ") : configDetails,
+    suggestion:
+      configProblems.length > 0
+        ? "Run: devrouter setup --yes --workspace-runtime <devpod|devsy>"
+        : undefined,
   });
 
   checks.push(nodeToolchainCheck(repoPath));

@@ -74,12 +74,25 @@ program
   .description("Run first-time devrouter machine setup and report diagnostics")
   .option("--repo <path>", "Repository path for final diagnostics (defaults to current directory)")
   .option("--yes", "Confirm non-interactive setup actions")
+  .option("--workspace-runtime <runtime>", "Persist the machine workspace runtime (devpod|devsy)")
+  .option(
+    "--devsy-inactivity-timeout <duration>",
+    "Persist the Devsy inactivity shutdown duration (e.g. 30m)",
+  )
   .option("--json", "Output JSON")
   .action(
-    withErrorHandling(async (options: { repo?: string; yes?: boolean; json?: boolean }) => {
-      const { runSetupCommand } = await import("./commands/setup");
-      await runSetupCommand(options);
-    }),
+    withErrorHandling(
+      async (options: {
+        repo?: string;
+        yes?: boolean;
+        workspaceRuntime?: string;
+        devsyInactivityTimeout?: string;
+        json?: boolean;
+      }) => {
+        const { runSetupCommand } = await import("./commands/setup");
+        await runSetupCommand(options);
+      },
+    ),
   );
 
 program
@@ -114,10 +127,10 @@ program
 
 program
   .command("stop")
-  .description("Stop one checkout's exact DevPod and free its routes")
+  .description("Stop one checkout's exact workspace runtime (DevPod/Devsy) and free its routes")
   .argument("[path]", "Git checkout path (defaults to current directory)")
   .option("--json", "Output JSON")
-  .option("--delete", "Delete the exact DevPod instead of preserving its data")
+  .option("--delete", "Delete the exact workspace runtime instead of preserving its data")
   .action(
     withErrorHandling(async (repoPath: string | undefined, _options: unknown, command: Command) => {
       const options = command.opts<{ delete?: boolean; json?: boolean }>();
@@ -132,7 +145,7 @@ program
 
 program
   .command("exec")
-  .description("Run one literal command inside the exact checkout's running DevPod")
+  .description("Run one literal command inside the exact checkout's running workspace runtime")
   .argument("[args...]", "[path] -- <command...>")
   .allowUnknownOption(true)
   .action(
@@ -471,7 +484,7 @@ const workspaceCommand = program
 workspaceCommand
   .command("up")
   .description(
-    "Create a worktree for <branch>, bring up its devpod, and register namespaced routes",
+    "Create a worktree for <branch>, bring up its workspace runtime, and register namespaced routes",
   )
   .argument("<branch>", "Git branch to base the workspace on")
   .option("--path <dir>", "Worktree directory (default: <repo>/trees/<workspace>)")
@@ -499,7 +512,9 @@ workspaceCommand
 
 workspaceCommand
   .command("ensure")
-  .description("Start and prove a primary or linked checkout's DevPod, upstreams, and routes")
+  .description(
+    "Start and prove a primary or linked checkout's workspace runtime, upstreams, and routes",
+  )
   .argument("[path]", "Git checkout path (defaults to current directory)")
   .option("--profile <name>", "Start only this profile's apps/dependencies from .devrouter.yml")
   .option("--open", "Open HTTP routes after readiness succeeds")
@@ -565,7 +580,7 @@ workspaceCommand
   .description("Report or clean missing ledger-owned workspace resources")
   .option("--repo <path>", "Main repository path (defaults to current directory)")
   .option("--json", "Output JSON")
-  .option("--yes", "Delete eligible DevPod, route, and ownership resources")
+  .option("--yes", "Delete eligible workspace runtime, route, and ownership resources")
   .action(
     withErrorHandling(async (_options: unknown, command: Command) => {
       const options = command.opts<{ repo?: string; json?: boolean; yes?: boolean }>();
@@ -576,7 +591,7 @@ workspaceCommand
 
 workspaceCommand
   .command("stop")
-  .description("Stop a workspace's DevPod and free routes while preserving its worktree and data")
+  .description("Stop a workspace's runtime and free routes while preserving its worktree and data")
   .argument("<workspace>", "Workspace token or live branch name")
   .option("--repo <path>", "Main repository path (defaults to current directory)")
   .action(
@@ -589,7 +604,7 @@ workspaceCommand
 
 workspaceCommand
   .command("down")
-  .description("Delete a workspace's DevPod and routes, then remove its clean Git worktree")
+  .description("Delete a workspace's runtime and routes, then remove its clean Git worktree")
   .argument("<workspace>", "Workspace token or live branch name")
   .option("--keep-worktree", "Delete runtime resources but preserve the Git worktree and record")
   .option("--repo <path>", "Main repository path (defaults to current directory)")

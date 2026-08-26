@@ -1,15 +1,27 @@
 import { spawnSync } from "node:child_process";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   inspectDevpodRuntimeStatus,
   inspectDevpodWorkspaceOwnership,
   listDevpodWorkspaces,
+  listDevpodWorkspacesFromSnapshots,
 } from "../devpod-workspaces";
+import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
+let previousWorkspaceRuntime: string | undefined;
+
 beforeEach(() => {
+  previousWorkspaceRuntime = process.env.DEVROUTER_WORKSPACE_RUNTIME;
+  process.env.DEVROUTER_WORKSPACE_RUNTIME = "devpod";
   vi.clearAllMocks();
+  resetWorkspaceRuntimeCaches();
+});
+
+afterEach(() => {
+  if (previousWorkspaceRuntime === undefined) delete process.env.DEVROUTER_WORKSPACE_RUNTIME;
+  else process.env.DEVROUTER_WORKSPACE_RUNTIME = previousWorkspaceRuntime;
 });
 
 describe("DevPod workspace adapter", () => {
@@ -26,6 +38,49 @@ describe("DevPod workspace adapter", () => {
     expect(spawnSync).toHaveBeenCalledWith("devpod", ["list", "--output", "json", "--skip-pro"], {
       encoding: "utf-8",
     });
+  });
+
+  it("preserves malformed Devsy activity in live and snapshot projections", () => {
+    process.env.DEVROUTER_WORKSPACE_RUNTIME = "devsy";
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "--version") {
+        return { status: 0, stdout: "v1.16.2", stderr: "" } as never;
+      }
+      if (command === "devpod" && argv[0] === "version") {
+        return { status: 1, stdout: "", stderr: "missing" } as never;
+      }
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              id: "feature",
+              source: { localFolder: "/repo/trees/feature" },
+              lastUsed: null,
+            },
+          ]),
+          stderr: "",
+        } as never;
+      }
+      return { status: 1, stdout: "", stderr: "unexpected" } as never;
+    });
+
+    expect(listDevpodWorkspaces("/repo/trees/feature")).toEqual([
+      {
+        id: "feature",
+        source: { localFolder: "/repo/trees/feature" },
+        lastUsedMalformed: true,
+      },
+    ]);
+    resetWorkspaceRuntimeCaches();
+    expect(listDevpodWorkspacesFromSnapshots("/repo/trees/feature")).toEqual([
+      {
+        id: "feature",
+        source: { localFolder: "/repo/trees/feature" },
+        lastUsedMalformed: true,
+      },
+    ]);
   });
 
   it("strictly classifies exact provider runtime state", () => {

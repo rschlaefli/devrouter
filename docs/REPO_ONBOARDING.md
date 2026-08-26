@@ -262,9 +262,9 @@ exact certificate SANs when `app run`, `app exec`, or `ensure` refreshes TLS.
 
 Managed linked worktrees store one token in Git metadata and one durable owner
 record under the repository's Git common directory. The token binds the exact
-checkout, DevPod ID, route namespace, and `${WORKSPACE}` proxy alias. The primary
-checkout remains non-namespaced; the committed `.devrouter.yml` is never
-rewritten.
+checkout, workspace runtime ID (DevPod or Devsy), route namespace, and
+`${WORKSPACE}` proxy alias. The primary checkout remains non-namespaced; the
+committed `.devrouter.yml` is never rewritten.
 
 New worktrees default to the repository's ignored `trees/<workspace>` directory.
 Devrouter refuses creation when `trees/` is not ignored; use `--path` only for an
@@ -278,10 +278,10 @@ devrouter workspace ls
 
 | Command | Result |
 | --- | --- |
-| `workspace stop` | Stop the exact DevPod and remove routes; keep checkout, owner record, and data. |
+| `workspace stop` | Stop the exact workspace runtime and remove routes; keep checkout, owner record, and data. |
 | `workspace down` | Delete runtime/routes; remove only a clean, unlocked worktree, then its record. |
 | `workspace down --keep-worktree` | Delete runtime/routes; retain checkout and owner record. |
-| `workspace cleanup --repo <repo> --inactive-for 30d --json` | Report-only ownership, DevPod registration/runtime, checkout, route, advisory activity, and integration evidence for managed linked workspaces; no `--yes` or apply mode. Add `--check-merged` to enable read-only origin and matching GitHub/GitLab checks. |
+| `workspace cleanup --repo <repo> --inactive-for 30d --json` | Report-only ownership, workspace runtime registration/state, checkout, route, advisory activity, and integration evidence for managed linked workspaces; no `--yes` or apply mode. Add `--check-merged` to enable read-only origin and matching GitHub/GitLab checks. |
 | `workspace gc` | Report missing-owner candidates; mutate nothing. |
 | `workspace gc --yes` | Revalidate and delete only exact ledger-owned missing resources and their records; never remove Git worktrees or branches. |
 
@@ -290,20 +290,21 @@ identity, foreign ownership, locks, and dirty destructive targets fail closed.
 Git has no worktree-removal hook; after an out-of-band removal, inspect `ls`,
 `doctor`, and dry-run `gc` before applying cleanup.
 
-`workspace cleanup` treats activity as advisory. DevPod `lastUsed` can be
+`workspace cleanup` treats activity as advisory. The runtime's `lastUsed` can be
 absent, provider-version dependent, or unrelated to every runtime interaction;
 recent trustworthy activity vetoes a quiet result, while unknown or conflicting
 evidence suppresses destructive suggestions. Registration and runtime are
-separate: exact `devpod status` evidence reports `running`, `stopped`, `busy`, or
-`not-found`; `not-found` commonly follows Docker pruning and is not reported as
-unknown. Existing lifecycle commands revalidate suggestions before explicit use
-and can remove an exact stale registration after proving `NotFound`. Suggestions
-never delete branches.
+separate: exact DevPod/Devsy status evidence reports `running`, `stopped`,
+`busy`, or `not-found`; `not-found` commonly follows Docker pruning and is not
+reported as unknown. Existing lifecycle commands revalidate suggestions before
+explicit use and can remove an exact stale registration after proving
+`NotFound`. Suggestions never delete branches.
 
-Do not use raw `devpod up`, `stop`, or `delete` for managed environments. Those
-commands bypass Devrouter's machine-wide provider lock and exact ID/source
+Do not use raw DevPod or Devsy `up`/`stop`/`delete` for managed environments.
+Those commands bypass Devrouter's machine-wide provider lock and exact ID/source
 revalidation. Use `devrouter stop . --delete` to delete the exact runtime while
-preserving the Git checkout.
+preserving the Git checkout. Devrouter auto-detects the installed runtime CLI
+and you can pin it with `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy`.
 
 ## Agent artifacts
 
@@ -326,7 +327,7 @@ explicit artifact-write flags are supplied.
 - Managed devcontainers include static verify, `ensure --json`, route evidence, and exact-container `exec` evidence.
 - Skipped live checks name the missing prerequisite and residual risk.
 
-The [routing example](../examples/routing/README.md), [managed DevPod
+The [routing example](../examples/routing/README.md), [managed devcontainer
 example](../examples/devcontainer/README.md), and [workspace
 example](../examples/workspace/README.md) provide runnable evidence paths.
 

@@ -530,6 +530,28 @@ describe("workspace cleanup forge parsing", () => {
 });
 
 describe("workspace cleanup report and suggestions", () => {
+  it("treats malformed provider activity as unknown and suppresses cleanup suggestions", () => {
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now },
+      dependencies({
+        listDevpods: () => [
+          {
+            id: "feature",
+            source: { localFolder: "/repo/trees/feature" },
+            lastUsedMalformed: true,
+          },
+        ],
+      }),
+    );
+
+    expect(report.workspaces[0].activity).toBe("unknown");
+    expect(report.workspaces[0].activityEvidence).toContainEqual({
+      source: "devpod.lastUsed",
+      status: "malformed",
+    });
+    expect(report.workspaces[0].suggestions).toEqual([]);
+  });
+
   beforeEach(() => {
     vi.restoreAllMocks();
   });

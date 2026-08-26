@@ -7,7 +7,7 @@ import {
   type OwnedDevpodMutationResult,
   stopOwnedDevpodWorkspace,
 } from "../devpod-mutation";
-import { listDevpodWorkspaces } from "../devpod-workspaces";
+import { listDevpodWorkspaces, listDevpodWorkspacesFromSnapshots } from "../devpod-workspaces";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
 import { resolveWorktreeWorkspace, withWorkspaceLifecycleLock, wsFromBranch } from "../workspace";
@@ -35,6 +35,7 @@ vi.mock("../route-state", () => ({
 vi.mock("../devpod-workspaces", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../devpod-workspaces")>()),
   listDevpodWorkspaces: vi.fn(() => []),
+  listDevpodWorkspacesFromSnapshots: vi.fn(() => listDevpodWorkspaces()),
 }));
 vi.mock("../devpod-mutation", () => ({
   deleteOwnedDevpodWorkspace: vi.fn(() => ({ status: "absent" })),
@@ -726,6 +727,22 @@ describe("workspaceLs", () => {
         ownerStatus: "missing",
       }),
     );
+  });
+
+  it("joins mixed DevPod and Devsy fleets against the registry owning each path", () => {
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN } as never);
+    vi.mocked(listDevpodWorkspacesFromSnapshots).mockImplementation((repoPath?: string) =>
+      repoPath === "/main/repo-feat-a"
+        ? [{ id: "feat-a", source: { localFolder: "/main/repo-feat-a" } }]
+        : [],
+    );
+
+    const rows = workspaceLs();
+
+    expect(listDevpodWorkspacesFromSnapshots).toHaveBeenCalledWith("/main/repo");
+    expect(listDevpodWorkspacesFromSnapshots).toHaveBeenCalledWith("/main/repo-feat-a");
+    expect(rows[0].devpodStatus).toBe("absent");
+    expect(rows[1].devpodStatus).toBe("owned");
   });
 });
 

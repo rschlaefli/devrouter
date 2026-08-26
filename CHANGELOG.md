@@ -4,6 +4,54 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Devsy as a first-class workspace runtime**: `devrouter ensure`, `stop`,
+  `exec`, and the `workspace` lifecycle now run on Devsy (`devsy workspace up`)
+  as a full replacement for DevPod. Runtime selection is path-aware:
+  `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy` forces one runtime, an exact-path
+  registry owner wins next (so mixed DevPod+Devsy fleets each manage their own
+  checkouts), then the persisted machine preference, then installed-CLI
+  auto-detection (DevPod first when both are installed); nothing installed
+  keeps the historical DevPod path. Selection applies to listing, status,
+  ownership checks, start/stop/delete mutations, exec, and diagnostics, and
+  `workspace ls`/`gc`/`cleanup` join records against the registry that owns
+  each path.
+- **Machine workspace-runtime preference**:
+  `devrouter setup --yes --workspace-runtime devpod|devsy` persists the
+  machine default used for checkouts no registry owns yet (stored under
+  `~/.config/devrouter/workspace-runtime.json`). `devrouter doctor` reports
+  the effective runtime, its source (env/machine/auto), and validates the
+  persisted file.
+- **Devsy inactivity shutdown passthrough**:
+  `devrouter setup --yes --devsy-inactivity-timeout <duration>` (for example
+  `30m`) forwards `INACTIVITY_TIMEOUT` as a Devsy provider option on
+  `devrouter ensure`/`workspace up`, so devrouter-created workspaces stop
+  themselves after idle. Unset leaves per-workspace Devsy options untouched.
+- Devsy workspaces use the same exact-ID-plus-path ownership proof as DevPod:
+  machine-wide mutation locking, ownership revalidation before and after each
+  provider action, exact `NotFound` proof before forced stale-registration
+  deletion, and fail-closed runtime states (`running|stopped|busy|not-found`).
+- `devsy workspace up` starts with a stable `--id` and passes `WORKSPACE`,
+  `DEVROUTER_WORKSPACE`, `DEVROUTER_GIT_COMMON_DIR`, and the
+  `DEVCONTAINER_COMPOSE_OVERLAY` overlay selection, so linked-worktree
+  isolation works unchanged. `devsy workspace exec` forwards the remote exit
+  code natively, so `devrouter exec` reports the exact command status.
+
+### Compatibility
+
+- Existing DevPod-managed environments behave exactly as before. Without an
+  explicit `DEVROUTER_WORKSPACE_RUNTIME`, devrouter auto-detects the installed
+  CLI and prefers Devsy only when DevPod is absent; with neither installed,
+  managed commands keep the historical DevPod diagnostics and guidance.
+
+### Fixed
+
+- DevPod installation detection now uses its supported `devpod version`
+  subcommand, so mixed DevPod/Devsy fleets can resolve DevPod-owned paths.
+- `devrouter doctor` resolves the workspace runtime for the inspected checkout
+  and does not warn about a Devsy timeout when that path is legitimately owned
+  by DevPod.
 ## [0.0.40] - 2026-08-26
 
 ### Fixed

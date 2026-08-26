@@ -14,6 +14,7 @@ vi.mock("../status", () => ({
 }));
 
 vi.mock("../router", () => ({
+  DEVROUTER_HOME: "/tmp/devrouter-doctor-test-home",
   getRouterFileLayout: vi.fn(() => ({ required: [], missing: [] })),
   isTLSEnabled: vi.fn(() => false),
   TCP_PROTOCOL_REGISTRY: {
