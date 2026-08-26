@@ -46,6 +46,7 @@ function makeStatus(): RouterStatus {
           "mcp-doc-query": "missing",
           litellm: "healthy",
         },
+        baseServiceStatuses: { postgres: "healthy" },
         processStatuses: {
           chat: "drifted",
         },
@@ -80,5 +81,28 @@ describe("printStatus", () => {
     expect(output).toContain("litellm=healthy, mcp-doc-query=missing");
     expect(output).toContain("process chat is not running");
     expect(output).toContain("Source config SHA-256");
+  });
+
+  it("keeps legacy runtime output to one compatibility row", () => {
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const status = makeStatus();
+    status.repo!.managedRuntime = {
+      mode: "legacy",
+      status: "legacy",
+      profile: "full",
+      desired: { apps: [], services: [], processes: [] },
+      active: { apps: [], services: [], processes: [] },
+      serviceStatuses: {},
+      baseServiceStatuses: {},
+      processStatuses: {},
+      drift: [],
+    };
+
+    printStatus(status);
+
+    const output = write.mock.calls.map(([value]) => String(value)).join("");
+    expect(output).toContain("Managed runtime");
+    expect(output).toContain("legacy (app-only compatibility)");
+    expect(output).not.toContain("Desired apps");
   });
 });

@@ -165,6 +165,7 @@ function makeManagedRuntimeStatus(
     desired: { apps: ["chat"], services: ["litellm"], processes: ["chat"] },
     active: { apps: ["chat"], services: ["litellm"], processes: ["chat"] },
     serviceStatuses: { litellm: "healthy" },
+    baseServiceStatuses: {},
     processStatuses: { chat: "running" },
     drift: [],
     ...overrides,

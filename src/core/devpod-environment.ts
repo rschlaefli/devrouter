@@ -91,6 +91,40 @@ export function workspaceAppContainers(
   });
 }
 
+export function hasExactComposeIdentity(
+  container: WorkspaceContainerSnapshot,
+  options: {
+    repoPath: string;
+    service: string;
+    composeProject?: string;
+    composeFiles?: string[];
+  },
+): boolean {
+  if (
+    (options.composeProject !== undefined &&
+      container.labels["com.docker.compose.project"] !== options.composeProject) ||
+    container.labels["com.docker.compose.service"] !== options.service ||
+    !sameWorkspacePath(
+      container.labels["com.docker.compose.project.working_dir"] ?? "",
+      path.join(options.repoPath, ".devcontainer"),
+    )
+  ) {
+    return false;
+  }
+  if (!options.composeFiles) return true;
+
+  const actualFiles = (container.labels["com.docker.compose.project.config_files"] ?? "")
+    .split(",")
+    .map((file) => file.trim())
+    .filter(Boolean);
+  return (
+    actualFiles.length === options.composeFiles.length &&
+    options.composeFiles.every((expected) =>
+      actualFiles.some((actual) => sameWorkspacePath(actual, expected)),
+    )
+  );
+}
+
 export function resolveRunningWorkspaceContainer(repoPath: string): {
   id: string;
   workspacePath: string;

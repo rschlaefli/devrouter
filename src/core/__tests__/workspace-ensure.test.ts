@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DevrouterConfig, HostRouteState } from "../../types";
+import type { DevrouterConfig, HostRouteState, ManagedRuntimeStatus } from "../../types";
 import {
   inspectManagedDevcontainerConfig,
   type ManagedDevcontainerPlan,
@@ -30,6 +30,7 @@ import {
   readManagedRuntimeState,
   writeManagedRuntimeState,
 } from "../managed-runtime-state";
+import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
@@ -782,6 +783,18 @@ describe("workspaceEnsure", () => {
         processes: ["app"],
       },
     });
+    const managedRuntimeStatus: ManagedRuntimeStatus = {
+      mode: "managed",
+      status: "ready",
+      profile: "ai",
+      desired: { apps: ["chat"], services: ["litellm"], processes: ["app"] },
+      active: { apps: ["chat"], services: ["litellm"], processes: ["app"] },
+      serviceStatuses: { litellm: "healthy" },
+      baseServiceStatuses: { postgres: "healthy" },
+      processStatuses: { app: "running" },
+      drift: [],
+    };
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue(managedRuntimeStatus);
     const runtime = mockManagedLifecycle({ events });
 
     const result = await workspaceEnsure(tmpDir, {
@@ -795,6 +808,7 @@ describe("workspaceEnsure", () => {
       profile: "ai",
       devpodId: "feature",
       recreated: false,
+      managedRuntime: managedRuntimeStatus,
     });
     expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "litellm"]));
     expect(runtime.runningProcesses).toEqual(new Set(["app"]));

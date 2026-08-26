@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DevrouterConfig } from "../../types";
 import {
   inspectManagedDevcontainerConfig,
+  inspectManagedDevcontainerGeneratedConfig,
   MANAGED_DEVCONTAINER_MARKER,
   MANAGED_DEVCONTAINER_PATH,
   prepareManagedDevcontainerConfig,
@@ -181,6 +182,29 @@ describe("managed Dev Container config", () => {
     removeManagedDevcontainerConfig(plan);
 
     expect(fs.existsSync(plan.generatedPath)).toBe(false);
+  });
+
+  it("hashes the generated file and detects missing or changed content", () => {
+    const plan = prepareManagedDevcontainerConfig({
+      repoPath: tmpDir,
+      config: managedConfig,
+      profile: { apps: [], devcontainerServices: ["litellm"] },
+      linked: false,
+    });
+
+    expect(inspectManagedDevcontainerGeneratedConfig(plan)).toMatchObject({
+      status: "valid",
+      sha256: plan.effectiveConfigSha256,
+    });
+
+    fs.writeFileSync(plan.generatedPath, `${MANAGED_DEVCONTAINER_MARKER}\n{}\n`, "utf-8");
+    expect(inspectManagedDevcontainerGeneratedConfig(plan)).toMatchObject({
+      status: "drifted",
+      sha256: expect.any(String),
+    });
+
+    fs.unlinkSync(plan.generatedPath);
+    expect(inspectManagedDevcontainerGeneratedConfig(plan)).toEqual({ status: "missing" });
   });
 
   it("uses exact project and service arguments for warm additions without recreate", () => {

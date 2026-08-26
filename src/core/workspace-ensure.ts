@@ -16,6 +16,7 @@ import {
   writeManagedDevcontainerConfig,
 } from "./devcontainer-profile";
 import {
+  hasExactComposeIdentity,
   inspectWorkspaceContainers,
   type WorkspaceContainerSnapshot,
   workspaceAppContainers,
@@ -146,28 +147,14 @@ function exactWorkspaceServiceContainers(
   service: string,
   composeFiles?: string[],
 ): WorkspaceContainerSnapshot[] {
-  return containers.filter((container) => {
-    if (
-      container.labels["com.docker.compose.project"] !== composeProject ||
-      container.labels["com.docker.compose.service"] !== service ||
-      !sameWorkspacePath(
-        container.labels["com.docker.compose.project.working_dir"] ?? "",
-        path.join(repoPath, ".devcontainer"),
-      )
-    ) {
-      return false;
-    }
-    if (!composeFiles) return true;
-    const actualFiles = (container.labels["com.docker.compose.project.config_files"] ?? "")
-      .split(",")
-      .filter(Boolean);
-    return (
-      actualFiles.length === composeFiles.length &&
-      composeFiles.every((expected) =>
-        actualFiles.some((actual) => sameWorkspacePath(actual, expected)),
-      )
-    );
-  });
+  return containers.filter((container) =>
+    hasExactComposeIdentity(container, {
+      repoPath,
+      composeProject,
+      service,
+      composeFiles,
+    }),
+  );
 }
 
 function resolveComposeProject(
@@ -183,25 +170,12 @@ function resolveComposeProject(
       `Workspace app container '${appContainerId}' disappeared during reconciliation.`,
     );
   }
-  const workingDir = app.labels["com.docker.compose.project.working_dir"];
-  if (!workingDir || !sameWorkspacePath(workingDir, path.join(repoPath, ".devcontainer"))) {
-    throw new Error(
-      `Workspace app container '${appContainerId}' has an unexpected Compose directory.`,
-    );
-  }
-  if (app.labels["com.docker.compose.service"] !== primaryService) {
-    throw new Error(
-      `Workspace app container '${appContainerId}' is not Compose service '${primaryService}'.`,
-    );
-  }
-  const appConfigFiles = (app.labels["com.docker.compose.project.config_files"] ?? "")
-    .split(",")
-    .filter(Boolean);
   if (
-    appConfigFiles.length !== composeFiles.length ||
-    !composeFiles.every((expected) =>
-      appConfigFiles.some((actual) => sameWorkspacePath(actual, expected)),
-    )
+    !hasExactComposeIdentity(app, {
+      repoPath,
+      service: primaryService,
+      composeFiles,
+    })
   ) {
     throw new Error(`Workspace app container '${appContainerId}' has an unexpected Compose model.`);
   }

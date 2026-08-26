@@ -30,6 +30,11 @@ export type ManagedDevcontainerPlan = {
   contents: string;
 };
 
+export type ManagedDevcontainerGeneratedStatus = {
+  status: "valid" | "missing" | "foreign" | "drifted";
+  sha256?: string;
+};
+
 function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -294,6 +299,29 @@ export function inspectManagedDevcontainerConfig(options: {
 
 export function writeManagedDevcontainerConfig(plan: ManagedDevcontainerPlan): void {
   writeFileAtomically(plan.generatedPath, plan.contents);
+}
+
+export function inspectManagedDevcontainerGeneratedConfig(
+  plan: ManagedDevcontainerPlan,
+): ManagedDevcontainerGeneratedStatus {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(plan.generatedPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { status: "missing" };
+    throw error;
+  }
+  if (!stat.isFile() || stat.isSymbolicLink()) return { status: "foreign" };
+
+  const contents = fs.readFileSync(plan.generatedPath, "utf-8");
+  if (!contents.startsWith(`${MANAGED_DEVCONTAINER_MARKER}\n`)) {
+    return { status: "foreign" };
+  }
+  const fingerprint = sha256(contents);
+  return {
+    status: fingerprint === plan.effectiveConfigSha256 ? "valid" : "drifted",
+    sha256: fingerprint,
+  };
 }
 
 export function removeManagedDevcontainerConfig(plan: ManagedDevcontainerPlan): void {

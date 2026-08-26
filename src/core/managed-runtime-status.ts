@@ -1,4 +1,3 @@
-import path from "node:path";
 import type {
   DevrouterConfig,
   DevrouterProfile,
@@ -7,9 +6,11 @@ import type {
 } from "../types";
 import {
   inspectManagedDevcontainerConfig,
+  inspectManagedDevcontainerGeneratedConfig,
   type ManagedDevcontainerPlan,
 } from "./devcontainer-profile";
 import {
+  hasExactComposeIdentity,
   inspectWorkspaceContainers,
   type WorkspaceContainerSnapshot,
   workspaceAppContainers,
@@ -21,6 +22,7 @@ import { sameWorkspacePath } from "./workspace";
 
 type RuntimeInspection = {
   plan?: ManagedDevcontainerPlan;
+  generatedConfigSha256?: string;
   composeProject?: string;
   primaryReady: boolean;
   primaryActive: boolean;
@@ -49,41 +51,6 @@ function selectedResources(
 ): string[] {
   if (values === undefined) return hasResolvedProfile ? [] : sortedUnique(allValues);
   return values.length === 1 && values[0] === "*" ? sortedUnique(allValues) : sortedUnique(values);
-}
-
-function isExactComposeFiles(
-  container: WorkspaceContainerSnapshot,
-  composeFiles: string[],
-): boolean {
-  const actualFiles = (container.labels["com.docker.compose.project.config_files"] ?? "")
-    .split(",")
-    .map((file) => file.trim())
-    .filter(Boolean);
-  return (
-    actualFiles.length === composeFiles.length &&
-    composeFiles.every((expected) =>
-      actualFiles.some((actual) => sameWorkspacePath(actual, expected)),
-    )
-  );
-}
-
-function hasExactComposeIdentity(
-  container: WorkspaceContainerSnapshot,
-  repoPath: string,
-  plan: ManagedDevcontainerPlan,
-  service: string,
-  composeProject?: string,
-): boolean {
-  return (
-    (composeProject === undefined ||
-      container.labels["com.docker.compose.project"] === composeProject) &&
-    container.labels["com.docker.compose.service"] === service &&
-    sameWorkspacePath(
-      container.labels["com.docker.compose.project.working_dir"] ?? "",
-      path.join(repoPath, ".devcontainer"),
-    ) &&
-    isExactComposeFiles(container, plan.composeFiles)
-  );
 }
 
 function containerResourceStatus(
@@ -233,9 +200,27 @@ function inspectManagedRuntime(options: {
     };
   }
   const resolvedPlan = plan;
+  let generatedConfigSha256: string | undefined;
+  try {
+    const generated = inspectManagedDevcontainerGeneratedConfig(resolvedPlan);
+    generatedConfigSha256 = generated.sha256;
+    if (generated.status === "missing") {
+      drift.push("managed generated Dev Container configuration is missing");
+    } else if (generated.status === "foreign") {
+      drift.push("managed generated Dev Container configuration is not devrouter-owned");
+    } else if (generated.status === "drifted") {
+      drift.push("managed generated Dev Container configuration changed");
+    }
+  } catch {
+    drift.push("managed generated Dev Container configuration could not be inspected");
+  }
 
   const appContainers = workspaceAppContainers(containers, repoPath).filter((container) =>
-    hasExactComposeIdentity(container, repoPath, resolvedPlan, resolvedPlan.primaryService),
+    hasExactComposeIdentity(container, {
+      repoPath,
+      service: resolvedPlan.primaryService,
+      composeFiles: resolvedPlan.composeFiles,
+    }),
   );
   const projectScopedPrimary = state?.composeProject
     ? appContainers.filter(
@@ -267,11 +252,20 @@ function inspectManagedRuntime(options: {
 
   const exactService = (service: string): WorkspaceContainerSnapshot[] =>
     containers.filter((container) =>
-      hasExactComposeIdentity(container, repoPath, resolvedPlan, service, composeProject),
+      hasExactComposeIdentity(container, {
+        repoPath,
+        service,
+        composeProject,
+        composeFiles: resolvedPlan.composeFiles,
+      }),
     );
   const unscopedService = (service: string): WorkspaceContainerSnapshot[] =>
     containers.filter((container) =>
-      hasExactComposeIdentity(container, repoPath, resolvedPlan, service),
+      hasExactComposeIdentity(container, {
+        repoPath,
+        service,
+        composeFiles: resolvedPlan.composeFiles,
+      }),
     );
 
   const inspectService = (
@@ -373,6 +367,7 @@ function inspectManagedRuntime(options: {
 
   return {
     plan,
+    generatedConfigSha256,
     composeProject,
     primaryReady,
     primaryActive,
@@ -400,6 +395,7 @@ export function collectManagedRuntimeStatus(options: {
       desired: { ...EMPTY_RESOURCES },
       active: { ...EMPTY_RESOURCES },
       serviceStatuses: {},
+      baseServiceStatuses: {},
       processStatuses: {},
       drift: [],
     };
@@ -484,6 +480,13 @@ export function collectManagedRuntimeStatus(options: {
   ) {
     drift.push("managed Dev Container effective configuration changed");
   }
+  if (
+    state &&
+    inspection.generatedConfigSha256 &&
+    state.effectiveConfigSha256 !== inspection.generatedConfigSha256
+  ) {
+    drift.push("managed generated Dev Container configuration differs from last successful state");
+  }
 
   const routes = exactRoutes(options.repoPath, options.workspace);
   drift.push(...routes.drift);
@@ -559,6 +562,7 @@ export function collectManagedRuntimeStatus(options: {
     },
     active,
     serviceStatuses: inspection.serviceStatuses,
+    baseServiceStatuses: inspection.baseStatuses,
     processStatuses: inspection.processStatuses,
     drift: sortedUnique(drift),
     ...(inspection.plan?.sourceConfigSha256 || state?.sourceConfigSha256

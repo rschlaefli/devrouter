@@ -59,6 +59,7 @@ const managedStatus: ManagedRuntimeStatus = {
     litellm: "healthy",
     postgres: "healthy",
   },
+  baseServiceStatuses: {},
   processStatuses: {
     backend: "running",
     chat: "running",
@@ -115,6 +116,7 @@ describe("collectRouterStatus", () => {
       desired: { apps: [], services: [], processes: [] },
       active: { apps: [], services: [], processes: [] },
       serviceStatuses: {},
+      baseServiceStatuses: {},
       processStatuses: {},
       drift: [],
     };

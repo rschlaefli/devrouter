@@ -72,6 +72,7 @@ export type ManagedRuntimeStatus = {
     processes: string[];
   };
   serviceStatuses: Record<string, ManagedRuntimeResourceStatus>;
+  baseServiceStatuses: Record<string, ManagedRuntimeResourceStatus>;
   processStatuses: Record<string, ManagedRuntimeResourceStatus>;
   drift: string[];
   sourceConfigSha256?: string;

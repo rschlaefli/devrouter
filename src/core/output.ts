@@ -174,6 +174,10 @@ function formatResourceStatuses(
 }
 
 function appendManagedRuntimeRows(rows: string[][], managedRuntime: ManagedRuntimeStatus): void {
+  if (managedRuntime.mode === "legacy") {
+    rows.push(["Managed runtime", "legacy (app-only compatibility)"]);
+    return;
+  }
   rows.push(["Runtime mode", managedRuntime.mode]);
   rows.push(["Runtime status", managedRuntime.status]);
   rows.push(["Runtime profile", managedRuntime.profile]);
@@ -188,6 +192,7 @@ function appendManagedRuntimeRows(rows: string[][], managedRuntime: ManagedRunti
   rows.push(["Active services", formatResourceNames(managedRuntime.active.services)]);
   rows.push(["Active processes", formatResourceNames(managedRuntime.active.processes)]);
   rows.push(["Service statuses", formatResourceStatuses(managedRuntime.serviceStatuses)]);
+  rows.push(["Base service statuses", formatResourceStatuses(managedRuntime.baseServiceStatuses)]);
   rows.push(["Process statuses", formatResourceStatuses(managedRuntime.processStatuses)]);
   rows.push(["Source config SHA-256", managedRuntime.sourceConfigSha256 ?? "-"]);
   rows.push(["Effective config SHA-256", managedRuntime.effectiveConfigSha256 ?? "-"]);

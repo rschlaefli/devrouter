@@ -5,9 +5,40 @@ import type { WorkspaceContainerSnapshot } from "../devpod-environment";
 import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 
 vi.mock("../devcontainer-profile", () => ({
+  inspectManagedDevcontainerGeneratedConfig: vi.fn(),
   inspectManagedDevcontainerConfig: vi.fn(),
 }));
 vi.mock("../devpod-environment", () => ({
+  hasExactComposeIdentity: vi.fn(
+    (
+      container: WorkspaceContainerSnapshot,
+      options: {
+        repoPath: string;
+        service: string;
+        composeProject?: string;
+        composeFiles?: string[];
+      },
+    ) => {
+      if (
+        (options.composeProject !== undefined &&
+          container.labels["com.docker.compose.project"] !== options.composeProject) ||
+        container.labels["com.docker.compose.service"] !== options.service ||
+        container.labels["com.docker.compose.project.working_dir"] !==
+          `${options.repoPath}/.devcontainer`
+      ) {
+        return false;
+      }
+      if (!options.composeFiles) return true;
+      const actualFiles = (container.labels["com.docker.compose.project.config_files"] ?? "")
+        .split(",")
+        .map((file) => file.trim())
+        .filter(Boolean);
+      return (
+        actualFiles.length === options.composeFiles.length &&
+        options.composeFiles.every((expected) => actualFiles.includes(expected))
+      );
+    },
+  ),
   inspectWorkspaceContainers: vi.fn(),
   workspaceAppContainers: vi.fn(),
 }));
@@ -24,7 +55,10 @@ vi.mock("../workspace", () => ({
   sameWorkspacePath: vi.fn((left: string, right: string) => left === right),
 }));
 
-import { inspectManagedDevcontainerConfig } from "../devcontainer-profile";
+import {
+  inspectManagedDevcontainerConfig,
+  inspectManagedDevcontainerGeneratedConfig,
+} from "../devcontainer-profile";
 import { inspectWorkspaceContainers, workspaceAppContainers } from "../devpod-environment";
 import { listHostRouteState } from "../host-routes";
 import { runManagedProcessAction } from "../managed-post-start";
@@ -137,6 +171,10 @@ function setupManagedRuntime(options: {
 }): void {
   const plan = managedPlan();
   vi.mocked(inspectManagedDevcontainerConfig).mockReturnValue(plan);
+  vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({
+    status: "valid",
+    sha256: plan.effectiveConfigSha256,
+  });
   vi.mocked(inspectWorkspaceContainers).mockReturnValue(options.containers);
   vi.mocked(workspaceAppContainers).mockImplementation((containers) =>
     containers.filter((candidate) => candidate.labels["com.docker.compose.service"] === "app"),
@@ -185,6 +223,7 @@ describe("collectManagedRuntimeStatus", () => {
       desired: { apps: [], services: [], processes: [] },
       active: { apps: [], services: [], processes: [] },
       serviceStatuses: {},
+      baseServiceStatuses: {},
       processStatuses: {},
       drift: [],
     });
@@ -229,6 +268,7 @@ describe("collectManagedRuntimeStatus", () => {
       desired: { apps: ["chat"], services: ["litellm"], processes: ["chat"] },
       active: { apps: ["chat"], services: ["litellm"], processes: ["chat"] },
       serviceStatuses: { litellm: "healthy", "mcp-doc-query": "missing" },
+      baseServiceStatuses: { postgres: "healthy" },
       processStatuses: { chat: "running", "local-mcp": "stopped" },
       drift: [],
     });
@@ -411,5 +451,50 @@ describe("collectManagedRuntimeStatus", () => {
     expect(result.serviceStatuses.litellm).toBe("starting");
     expect(result.active.services).toContain("litellm");
     expect(result.drift).toEqual([]);
+  });
+
+  it("reports a missing generated config as drift", () => {
+    setupManagedRuntime({
+      containers: [container("app", { mountRepo: true }), container("postgres")],
+      routes: [{ name: "chat", repoPath, workspace }],
+      runtimeState: state(),
+      processStatuses: { chat: "running", "local-mcp": "stopped" },
+    });
+    vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({ status: "missing" });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["chat"] },
+    });
+
+    expect(result.status).toBe("drifted");
+    expect(result.drift).toContain("managed generated Dev Container configuration is missing");
+  });
+
+  it("reports a tampered generated config as drift", () => {
+    setupManagedRuntime({
+      containers: [container("app", { mountRepo: true }), container("postgres")],
+      routes: [{ name: "chat", repoPath, workspace }],
+      runtimeState: state(),
+      processStatuses: { chat: "running", "local-mcp": "stopped" },
+    });
+    vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({
+      status: "drifted",
+      sha256: "c".repeat(64),
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["chat"] },
+    });
+
+    expect(result.status).toBe("drifted");
+    expect(result.drift).toContain("managed generated Dev Container configuration changed");
   });
 });
