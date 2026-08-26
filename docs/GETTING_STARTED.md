@@ -11,7 +11,7 @@ secret-manager, workspace, and production-like consumer integration details.
 - Node.js 24 or newer
 - `mkcert` for trusted HTTPS and TCP hostname routing
 - pnpm when installing from this source repository
-- DevPod when using the managed devcontainer workflow
+- DevPod or Devsy when using the managed devcontainer workflow
 
 Quick checks:
 
@@ -22,9 +22,9 @@ node --version
 mkcert --version
 ```
 
-`devrouter setup --yes --json` also checks Docker, Compose, mkcert, DevPod, and
-the target repository's Node/pnpm toolchain. Missing optional tools become
-explicit remediation items.
+`devrouter setup --yes --json` also checks Docker, Compose, mkcert, the active
+workspace runtime CLI (DevPod or Devsy), and the target repository's Node/pnpm
+toolchain. Missing optional tools become explicit remediation items.
 
 ## Install the CLI
 

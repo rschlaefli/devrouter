@@ -28,7 +28,7 @@ Run the smallest focused check first, then the full risk-appropriate gate. Produ
 | --- | --- | --- |
 | `src/cli.ts` or `src/commands/**` | Root README, relevant manual, generated command intents when agent-facing | Command test plus CLI help/build output. |
 | `src/core/repo-config.ts` or `src/types.ts` | [Routing contract](./routing-and-runtime-contracts.md), examples, `src/core/ai-prompt.ts`, bundled Devrouter skill | `repo-config.test.ts`, prompt consistency, docs policy. |
-| Workspace ownership, ensure, stop/down, GC, or DevPod mutation | [Architecture](./architecture-and-ownership.md), [managed lifecycle](./managed-environment-lifecycle.md), relevant ADR/solution | Focused lifecycle/ownership/provider tests and disposable lifecycle smoke. |
+| Workspace ownership, ensure, stop/down, GC, or workspace runtime (DevPod/Devsy) mutation | [Architecture](./architecture-and-ownership.md), [managed lifecycle](./managed-environment-lifecycle.md), relevant ADR/solution | Focused lifecycle/ownership/provider tests and disposable lifecycle smoke. |
 | Managed post-start, devcontainer generator, verification, or example | [Devcontainer contract](./consumer-devcontainer-contract.md), `docs/DEVCONTAINER.md`, bundled onboarding skill and templates | Managed-post-start, scaffold/verify tests, cold/warm DevPod smoke. |
 | Router, TLS, route discovery, or host-route state | [Architecture](./architecture-and-ownership.md), [routing contract](./routing-and-runtime-contracts.md), routing example | Route/config/state tests and routing smoke. |
 | Generated `AGENTS.md`, prompt, or skill output | [Repository guide](./repository-guide.md), `AGENTS.md`, generated snapshots/tests | `agents-md.test.ts`, `ai-prompt.test.ts`, docs policy. |

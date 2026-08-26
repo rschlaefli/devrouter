@@ -16,7 +16,7 @@ Clean split of responsibilities:
 This works with any devcontainer-spec runner (DevPod, VS Code Dev Containers,
 `@devcontainers/cli`, Codespaces) — the container just needs to join `devnet`.
 
-We recommend **DevPod** for orchestrating the devcontainer lifecycle locally because it is a client-only, open-source tool that executes entirely locally on Docker. It mounts and syncs workspace files in the background without forcing developers into a specific IDE or requiring proprietary extensions.
+We recommend **DevPod** or **Devsy** for orchestrating the devcontainer lifecycle locally; both are client-only, open-source tools that execute entirely locally on Docker, mount and sync workspace files in the background, and do not force a specific IDE. Devrouter auto-detects the installed CLI and you can pin the runtime with `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy`.
 
 > Use the current devrouter release. The end-to-end onboarding
 > playbook + reference templates + gotchas live in the
@@ -159,13 +159,13 @@ devrouter doctor --json
 devrouter ensure .
 ```
 
-Do not replace these commands with raw `devpod up`, `devpod stop`, or
-`devpod delete`. Raw provider calls bypass devrouter's machine-wide mutation lock
-and exact ID/path postcondition checks. Use `devrouter stop . --delete` for
-explicit exact-owner DevPod cleanup while preserving the checkout.
+Do not replace these commands with raw DevPod or Devsy `up`/`stop`/`delete`
+calls. Raw provider calls bypass devrouter's machine-wide mutation lock and exact
+ID/path postcondition checks. Use `devrouter stop . --delete` for explicit
+exact-owner workspace runtime cleanup while preserving the checkout.
 
 The same command handles a linked worktree. It starts or attaches the exact-path
-DevPod, recreates one stale runtime once,
+workspace runtime, recreates one stale runtime once,
 and proves the overlay, Git mount, environment, aliases, health, Git access,
 HTTP route reachability, and unique running TCP upstream ownership before
 reporting ready.
@@ -204,7 +204,7 @@ devrouter ensure . --json
 devrouter exec . -- pnpm seed
 devrouter ls
 devrouter stop .
-# Explicit full DevPod cleanup while preserving this Git checkout:
+# Explicit full workspace runtime cleanup while preserving this Git checkout:
 devrouter stop . --delete
 ```
 

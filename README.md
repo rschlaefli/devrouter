@@ -11,7 +11,7 @@ can share their standard ports through TLS/SNI hostname routing.
 - One strict per-repository configuration file: `.devrouter.yml`.
 - Machine setup, the shared `devnet` network, Traefik, local TLS, and route state.
 - Host, Docker, proxy, and dependency-only application definitions.
-- Exact-checkout DevPod lifecycle for primary and linked Git worktrees.
+- Exact-checkout devcontainer workspace lifecycle (DevPod or Devsy) for primary and linked Git worktrees.
 - Check-only diagnostics and JSON evidence for local and agent workflows.
 
 Devrouter does not own application source, consumer toolchains, database data,
@@ -70,8 +70,10 @@ devrouter ensure .
 devrouter exec . -- pnpm seed
 ```
 
-Use devrouter lifecycle commands for managed environments. Raw `devpod up`,
-`stop`, or `delete` bypass ownership locks and exact checkout validation.
+Use devrouter lifecycle commands for managed environments. Raw DevPod or Devsy
+`up`/`stop`/`delete` calls bypass ownership locks and exact checkout validation.
+Devrouter auto-detects the installed workspace runtime CLI (DevPod or Devsy) and
+you can pin it with `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy`.
 
 ## Agent onboarding
 

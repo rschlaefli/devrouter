@@ -25,7 +25,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 | Repository routing intent | Consumer `.devrouter.yml` | Parse strictly through `src/core/repo-config.ts:loadRepoConfig`; never rewrite the committed file for workspace namespacing. |
 | Git checkout and branch | Git | Inspect registered worktrees and refuse ambiguous or dirty destructive targets. |
 | Managed workspace claim | Consumer Git common directory | Persist one record through `src/core/workspace-ownership.ts:writeWorkspaceOwnership`; no machine-global repository registry. |
-| DevPod workspace/container | DevPod provider | Mutate only an exact ID-plus-source owner through `src/core/devpod-mutation.ts`. |
+| DevPod/Devsy workspace/container | Active workspace runtime provider | Mutate only an exact ID-plus-source owner through `src/core/devpod-mutation.ts` (Devsy dispatch: `src/core/devsy-mutation.ts`). |
 | Application startup command | Consumer repository adapter | Supply the runtime helper, then invoke the captured adapter through `src/core/managed-post-start.ts:runManagedPostStart`. |
 | Shared router files and locks | Devrouter | Keep global artifacts under `src/core/router.ts:DEVROUTER_HOME`. |
 | Published route generation | Traefik dynamic file | Write metadata and rendered routes as one canonical artifact through `src/core/host-routes.ts:writeRouteGeneration`. |
@@ -34,7 +34,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 
 - Repository-local workspace ownership survives linked-worktree removal without a global registry. [ADR 0001](../adr/0001-repo-local-workspace-ownership.md) owns this decision.
 - Consumer images contain no devrouter installation or version pin. [ADR 0002](../adr/0002-keep-devrouter-out-of-consumer-images.md) owns the boundary.
-- Repository lifecycle locks remain outer; DevPod provider mutation is serialized machine-wide and revalidated inside that boundary. [ADR 0003](../adr/0003-serialize-devpod-provider-mutations.md) owns the ordering.
+- Repository lifecycle locks remain outer; workspace runtime provider mutation is serialized machine-wide and revalidated inside that boundary. [ADR 0003](../adr/0003-serialize-devpod-provider-mutations.md) owns the ordering.
 - The Traefik dynamic file is canonical for one route generation; JSON is a compatibility mirror. [ADR 0004](../adr/0004-single-artifact-route-state.md) owns recovery behavior.
 - The committed `.devrouter.yml` remains the only supported per-repository Devrouter configuration. Runtime namespacing is an in-memory view produced by `src/core/repo-config.ts:applyWorkspace`.
 
@@ -44,7 +44,7 @@ The [managed lifecycle](./managed-environment-lifecycle.md) proves exact checkou
 
 ## Failure modes
 
-The dangerous failure is mixed identity: a Git checkout, DevPod ID, container alias, process group, and route from different generations can each look valid alone. Devrouter therefore proves the relationship at mutation boundaries and fails closed rather than repairing one layer optimistically. The incident evidence and prevention tests live in [DevPod worktree identity drift](../solutions/integration/devpod-worktree-identity-drift.md).
+The dangerous failure is mixed identity: a Git checkout, workspace runtime ID, container alias, process group, and route from different generations can each look valid alone. Devrouter therefore proves the relationship at mutation boundaries and fails closed rather than repairing one layer optimistically. The incident evidence and prevention tests live in [DevPod worktree identity drift](../solutions/integration/devpod-worktree-identity-drift.md).
 
 ## Change guidance
 

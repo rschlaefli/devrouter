@@ -117,11 +117,12 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   {
     command: "devrouter stop [path] [--delete] [--json]",
     purpose:
-      "Stop the exact checkout DevPod and routes; --delete explicitly deletes the ownership-proven DevPod without removing the checkout.",
+      "Stop the exact checkout workspace runtime and routes; --delete explicitly deletes the ownership-proven runtime without removing the checkout.",
   },
   {
     command: "devrouter exec [path] -- <command...>",
-    purpose: "Run literal argv inside the exact already-running DevPod and proven checkout mount.",
+    purpose:
+      "Run literal argv inside the exact already-running workspace runtime and proven checkout mount.",
   },
   {
     command: "devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]",
@@ -134,7 +135,8 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   },
   {
     command: "devrouter workspace ls [--json]",
-    purpose: "List owner, Git, DevPod, route, path, and branch evidence for managed workspaces.",
+    purpose:
+      "List owner, Git, workspace runtime, route, path, and branch evidence for managed workspaces.",
   },
   {
     command:
@@ -145,12 +147,12 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   {
     command: "devrouter workspace stop <workspace|branch>",
     purpose:
-      "Stop the exact DevPod and remove exact routes while preserving the worktree, owner record, and data.",
+      "Stop the exact workspace runtime and remove exact routes while preserving the worktree, owner record, and data.",
   },
   {
     command: "devrouter workspace down <workspace|branch> [--keep-worktree]",
     purpose:
-      "Delete exact runtime/routes and remove only a clean, unlocked worktree and its owner record; --keep-worktree preserves checkout and record.",
+      "Delete exact workspace runtime/routes and remove only a clean, unlocked worktree and its owner record; --keep-worktree preserves checkout and record.",
   },
   {
     command: "devrouter workspace gc [--json] [--yes]",
@@ -212,7 +214,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- Shared Traefik router owns host ports 80 (HTTP), 443 (HTTPS), and 5432 (Postgres TCP).",
     "- Per-repo source of truth is REPO_PATH/.devrouter.yml only.",
     "- Global generated/runtime artifacts are managed under ~/.config/devrouter (do not edit these manually).",
-    "- Managed DevPod lifecycle uses devrouter ensure/stop/workspace commands; raw devpod mutations bypass exact checkout ownership checks.",
+    "- Managed workspace runtime lifecycle uses devrouter ensure/stop/workspace commands; raw DevPod/Devsy mutations bypass exact checkout ownership checks. The active runtime is DevPod or Devsy, selectable via DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy or auto-detected from the installed CLI.",
     "",
     "Inputs:",
     `- REPO_PATH=${repoPath}`,
@@ -318,13 +320,13 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- The owner record survives linked-worktree removal and binds the exact path to its DevPod ID. First use reuses an exact-path DevPod or derives a sanitized branch/path identity. Later flags or `DEVROUTER_WORKSPACE` may repeat but cannot rename it. Ambiguous identities fail closed. The primary checkout stays non-namespaced.",
     `- When a workspace is active: hosts auto-namespace (\`web.localhost\` → \`web.<ws>.localhost\`), \`${WORKSPACE_PLACEHOLDER}\` in \`upstream\` is substituted with the token, and the docker \`router\` key is suffixed per workspace. Managed ensure rejects every HTTP/TCP upstream outside that exact alias namespace before mutation. The runtime config is computed in memory only — the committed \`.devrouter.yml\` is never rewritten.`,
     "- TLS: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.",
-    "- Lifecycle: after one-time setup, use `devrouter ensure .` for both primary and linked checkouts; never branch on checkout kind or use live verify as startup. Managed consumer images contain no devrouter package/helper: ensure delivers its matching helper at runtime and invokes an exact captured snapshot of the repository-owned post-start adapter. Keep `.devrouter.yml` as the only consumer-side version pin. Use `devrouter stop .` for a non-destructive pause, `devrouter stop . --delete` only for explicit exact-owner cleanup without removing the checkout, and `devrouter exec . -- <command...>` for container commands. Never substitute raw DevPod mutations; they bypass the machine-global ownership lock. `workspace up` creates linked worktrees; destructive worktree removal and GC remain ledger-scoped.",
+    "- Lifecycle: after one-time setup, use `devrouter ensure .` for both primary and linked checkouts; never branch on checkout kind or use live verify as startup. Managed consumer images contain no devrouter package/helper: ensure delivers its matching helper at runtime and invokes an exact captured snapshot of the repository-owned post-start adapter. Keep `.devrouter.yml` as the only consumer-side version pin. Use `devrouter stop .` for a non-destructive pause, `devrouter stop . --delete` only for explicit exact-owner cleanup without removing the checkout, and `devrouter exec . -- <command...>` for container commands. Never substitute raw DevPod/Devsy mutations; they bypass the machine-global ownership lock. `workspace up` creates linked worktrees; destructive worktree removal and GC remain ledger-scoped.",
     "- Managed process reuse fingerprints command argv, workspace identity, and the exact adapter snapshot. If a non-secret runtime value also affects reuse, set `DEVROUTER_PROCESS_FINGERPRINT_ENV` to its comma-separated environment names; secret-like names are rejected and raw values are never persisted.",
     "- Owner status is `present`, `missing`, `locked`, or `conflict`. Dirty or locked full down fails before side effects. `workspace gc` is a dry run; only `--yes` deletes exact eligible missing resources and records, never Git worktrees, branches, or prune state.",
-    "- `devrouter workspace cleanup --repo . --inactive-for 30d --check-merged --json` is report-only and never mutates DevPod, routes, ownership, Git, Docker, applications, worktrees, or branches. It reports ownership, DevPod registration, runtime (`running|stopped|busy|not-found|absent|unknown`), checkout, advisory activity, route, and integration evidence. Local DevPod list/status checks always run; `--check-merged` alone enables read-only origin and matching GitHub/GitLab checks. Treat `not-found` as stale runtime after Docker pruning; busy, unavailable, or conflicting evidence suppresses destructive suggestions. Explicit `gc`/`down` can remove exact stale registration only after expected-ID `NotFound` proof and ownership revalidation. DevPod `lastUsed` remains advisory.",
+    "- `devrouter workspace cleanup --repo . --inactive-for 30d --check-merged --json` is report-only and never mutates the workspace runtime, routes, ownership, Git, Docker, applications, worktrees, or branches. It reports ownership, workspace runtime registration, runtime state (`running|stopped|busy|not-found|absent|unknown`), checkout, advisory activity, route, and integration evidence. Local DevPod/Devsy list/status checks always run; `--check-merged` alone enables read-only origin and matching GitHub/GitLab checks. Treat `not-found` as stale runtime after Docker pruning; busy, unavailable, or conflicting evidence suppresses destructive suggestions. Explicit `gc`/`down` can remove exact stale registration only after expected-ID `NotFound` proof and ownership revalidation. Runtime `lastUsed` remains advisory.",
     '- `--measure-size` adds per-workspace storage consumption and stays read-only, but walks each worktree and runs `docker ps` / `docker inspect --size`, so leave it off for a quick report. Each row reports `worktree` and `containerWritable` bytes, which are reclaimable; `imageShared` bytes, which are not, because those image layers are shared with other containers and overlap across rows; and `reclaimable`, the sum of the reclaimable fields. Never add `imageShared` across rows. Any figure that cannot be trusted reports `{"status": "unknown", "reason": ...}` rather than zero, and a workspace with no container reports a measured `0`.',
     "- Workspace commands require Git. Normal config, app, status, and doctor flows work from a `.devrouter.yml` folder without `.git`. Git has no worktree-removal hook; use `workspace ls`, doctor, or dry-run GC after out-of-band removal.",
-    "- devcontainer integration: `devcontainer.json` lists the base compose file then `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}`. The default overlay contains `services: {}`; `.devcontainer/docker-compose.devrouter.yml` passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute app-container path. Ensure proves exact DevPod ownership, overlay/Git mounts, env, aliases, health, Git, HTTP route reachability, and unique running TCP upstream ownership before success.",
+    "- devcontainer integration: `devcontainer.json` lists the base compose file then `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}`. The default overlay contains `services: {}`; `.devcontainer/docker-compose.devrouter.yml` passes `WORKSPACE` and `DEVROUTER_WORKSPACE` into the app and bind-mounts `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute app-container path. Ensure proves exact workspace runtime ownership, overlay/Git mounts, env, aliases, health, Git, HTTP route reachability, and unique running TCP upstream ownership before success.",
     "",
     "Secret Manager Integration (config-based):",
     "- Optional top-level `secretManager.command` in `.devrouter.yml` wraps `devrouter app run` and `devrouter app exec` commands with the SM command and re-applies devrouter-injected dep env vars after the SM boundary via `env KEY=VAL` prefix.",

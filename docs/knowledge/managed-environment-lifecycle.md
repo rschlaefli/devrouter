@@ -13,13 +13,17 @@ source_paths:
   - src/core/workspace-gc.ts
   - src/core/devpod-mutation.ts
   - src/core/devpod-workspaces.ts
+  - src/core/workspace-runtime.ts
+  - src/core/devsy-mutation.ts
+  - src/core/devsy-workspaces.ts
+  - src/core/devsy-exec.ts
 ---
 
 # Managed environment lifecycle
 
 ## Purpose and boundary
 
-Managed lifecycle commands bind one primary or linked Git checkout to one exact DevPod/runtime generation. Use these commands instead of direct DevPod lifecycle mutations; direct provider commands do not participate in Devrouter's locks or ownership proofs.
+Managed lifecycle commands bind one primary or linked Git checkout to one exact workspace runtime generation. The runtime is DevPod or Devsy, selected by `DEVROUTER_WORKSPACE_RUNTIME` or auto-detected from the installed CLI (`src/core/workspace-runtime.ts`). Use these commands instead of direct DevPod/Devsy lifecycle mutations; direct provider commands do not participate in Devrouter's locks or ownership proofs.
 
 ## Startup flow
 
@@ -28,10 +32,10 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
 1. Resolve the exact checkout and acquire its repository-local lifecycle lock.
 2. Resolve persisted workspace identity and, for a linked checkout, write the Git-common-dir ownership record before provider startup.
 3. Load the in-memory runtime config and reject any managed HTTP or TCP proxy upstream outside the checkout's alias namespace.
-4. Start or attach to the exact-path DevPod through `src/core/devpod-mutation.ts:startDevpodWorkspace`, which serializes and revalidates provider ownership machine-wide.
+4. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide.
 5. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
 6. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, and verify HTTP readiness.
-7. Spend at most one recreate on an already-existing exact DevPod. Clear the route batch when a later proof fails.
+7. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
 
 `src/core/workspace-lifecycle.ts:workspaceUp` creates or reuses a Git worktree, then delegates startup to `workspaceEnsure`. `--no-devpod` is create-only and publishes no routes.
 
@@ -40,18 +44,18 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
 | Command | Effect | Preserved state |
 | --- | --- | --- |
 | `devrouter stop <path>` | Stop the exact primary or linked environment and free its routes. | Checkout and linked ownership record. |
-| `devrouter exec <path> -- <command>` | Execute once inside an already-running exact DevPod. | All lifecycle state; it does not start or recreate. |
+| `devrouter exec <path> -- <command>` | Execute once inside an already-running exact runtime. | All lifecycle state; it does not start or recreate. |
 | `devrouter workspace stop <target>` | Reversible stop for the resolved linked owner. | Worktree, branch, and owner record. |
 | `devrouter workspace down <target>` | Delete the exact provider runtime and routes, then remove a clean unlocked worktree unless retained. | Branch; worktree and record only when explicitly retained or teardown fails before removal. |
-| `devrouter workspace ls` | Join live Git, ownership, DevPod, and route evidence by exact worktree path. | Read-only. |
+| `devrouter workspace ls` | Join live Git, ownership, workspace runtime, and route evidence by exact worktree path. | Read-only. |
 | `devrouter workspace cleanup --repo <repo> --inactive-for 30d --json` | Report orthogonal ownership, checkout, route, advisory activity, and integration evidence for managed linked workspaces; exact guarded commands are suggestions only. | Always report-only; no `--yes` or apply mode. `--check-merged` alone enables read-only origin and matching GitHub/GitLab checks. `--measure-size` adds storage consumption and remains read-only. |
 | `devrouter workspace gc` | Report missing-owner cleanup candidates; `--yes` revalidates and deletes only exact ledger-owned missing resources. | Git worktrees, branches, legacy/unowned resources, and conflicting owners. |
 
 `src/core/workspace-ownership.ts:inspectWorkspaceOwnership` reports `present`, `missing`, `locked`, or `conflict`. A status is evidence for a decision; it is not permission to delete by token alone.
 
-`workspace cleanup` is advisory. It uses only valid DevPod `lastUsed`, route
+`workspace cleanup` is advisory. It uses only valid DevPod/Devsy `lastUsed`, route
 `updatedAt`, ownership `updatedAt`, and Git HEAD committer timestamps for
-activity. DevPod `lastUsed` may be absent, provider-version dependent, or fail
+activity. Runtime `lastUsed` may be absent, provider-version dependent, or fail
 to represent runtime interactions, so recent trustworthy evidence vetoes
 quietness and missing, malformed, unavailable, or conflicting evidence becomes
 unknown. Existing `workspace gc` and `workspace down` revalidate exact identity,
@@ -74,7 +78,7 @@ workspace with no attributed container is a measured zero, not unknown.
 
 ## Failure rules
 
-- Ambiguous Git paths, duplicate DevPod IDs, owner conflicts, foreign aliases, dirty worktrees, and provider reassignments fail before destructive follow-up.
+- Ambiguous Git paths, duplicate runtime IDs, owner conflicts, foreign aliases, dirty worktrees, and provider reassignments fail before destructive follow-up.
 - Provider mutation succeeds before route removal; a failed stop/delete retains routes and ownership so the environment does not appear cleanly torn down.
 - Full down removes runtime, routes, worktree, then owner record. Failures stop that sequence and preserve later state.
 - Garbage collection revalidates inside one ownership transaction; a workspace revived after a dry run is not mutated.
