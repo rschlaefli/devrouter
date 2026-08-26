@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.40] - 2026-08-26
+
+### Fixed
+
+- A failed first managed-profile transition now restores the ignored generated
+  Dev Container configuration to the exact observed service baseline. Cold
+  failures retain an app-and-base-only configuration, so the existing DevPod
+  remains stoppable and a later managed transition can retry without deleting
+  the workspace or its volumes.
+
+### Compatibility
+
+- Managed runtime schemas and profile configuration are unchanged. Existing
+  repositories only need to update `devrouter.version`; no runtime, volume, or
+  data migration is required.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.40.md
+
 ## [0.0.39] - 2026-08-26
 
 ### Added
