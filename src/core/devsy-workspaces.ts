@@ -17,9 +17,13 @@ export type DevsyWorkspaceOwnership =
 export type DevsyRuntimeStatus = "running" | "stopped" | "busy" | "not-found" | "unknown";
 
 export function listDevsyWorkspaces(): DevsyWorkspace[] {
-  const result = spawnSync("devsy", ["workspace", "list", "--result-format", "json"], {
-    encoding: "utf-8",
-  });
+  const result = spawnSync(
+    "devsy",
+    ["workspace", "list", "--result-format", "json", "--skip-pro"],
+    {
+      encoding: "utf-8",
+    },
+  );
   if (result.status !== 0) {
     const details = [result.error?.message, result.stdout, result.stderr]
       .filter(Boolean)

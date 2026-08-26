@@ -97,13 +97,13 @@ describe("Devsy mutation adapter", () => {
 
     expect(deleteOwnedDevsyWorkspace("feature", "/repo/feature")).toEqual({ status: "changed" });
     expect(vi.mocked(spawnSync).mock.calls.map(([, args]) => args)).toEqual([
-      ["workspace", "list", "--result-format", "json"],
+      ["workspace", "list", "--result-format", "json", "--skip-pro"],
       ["workspace", "delete", "feature", "--ignore-not-found"],
-      ["workspace", "list", "--result-format", "json"],
+      ["workspace", "list", "--result-format", "json", "--skip-pro"],
       ["workspace", "status", "feature", "--result-format", "json"],
-      ["workspace", "list", "--result-format", "json"],
+      ["workspace", "list", "--result-format", "json", "--skip-pro"],
       ["workspace", "delete", "feature", "--force", "--ignore-not-found"],
-      ["workspace", "list", "--result-format", "json"],
+      ["workspace", "list", "--result-format", "json", "--skip-pro"],
     ]);
   });
 
@@ -147,6 +147,7 @@ describe("startDevsyWorkspace", () => {
     const id = startDevsyWorkspace({
       repoPath: "/repo/feature",
       devsyId: "feature",
+      devcontainerPath: ".devcontainer/devcontainer.devrouter.json",
       workspace: { token: "feature", gitCommonDir: "/repo/.git" },
     });
 
@@ -161,6 +162,8 @@ describe("startDevsyWorkspace", () => {
       "/repo/feature",
       "--id",
       "feature",
+      "--devcontainer",
+      ".devcontainer/devcontainer.devrouter.json",
       "--ide-launch",
       "skip",
       "--workspace-env",

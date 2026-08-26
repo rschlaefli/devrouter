@@ -8,6 +8,7 @@ import {
 import { sameWorkspacePath } from "./workspace";
 import {
   getWorkspaceRegistrySnapshots,
+  resolveWorkspaceRuntimeForReport,
   resolveWorkspaceRuntimeOrDefault,
 } from "./workspace-runtime";
 
@@ -33,6 +34,7 @@ export function listDevpodWorkspaces(repoPath?: string): DevpodWorkspace[] {
       id: workspace.id,
       source: workspace.source,
       ...(workspace.lastUsed ? { lastUsed: workspace.lastUsed } : {}),
+      ...(workspace.lastUsedMalformed ? { lastUsedMalformed: true } : {}),
     }));
   }
   return listDevpodWorkspacesRaw();
@@ -48,11 +50,14 @@ export function listDevpodWorkspacesFromSnapshots(
   repoPath?: string,
 ): DevpodWorkspace[] | undefined {
   const snapshots = getWorkspaceRegistrySnapshots();
-  if (resolveWorkspaceRuntimeOrDefault(repoPath) === "devsy") {
+  const runtime = resolveWorkspaceRuntimeForReport(repoPath);
+  if (!runtime) return undefined;
+  if (runtime === "devsy") {
     return snapshots.devsy?.map((workspace: DevsyWorkspace) => ({
       id: workspace.id,
       source: workspace.source,
       ...(workspace.lastUsed ? { lastUsed: workspace.lastUsed } : {}),
+      ...(workspace.lastUsedMalformed ? { lastUsedMalformed: true } : {}),
     }));
   }
   return snapshots.devpod;
@@ -71,6 +76,7 @@ export function listMergedRuntimeWorkspaces(): DevpodWorkspace[] {
       id: workspace.id,
       source: workspace.source,
       ...(workspace.lastUsed ? { lastUsed: workspace.lastUsed } : {}),
+      ...(workspace.lastUsedMalformed ? { lastUsedMalformed: true } : {}),
     })) ?? []),
   ];
 }

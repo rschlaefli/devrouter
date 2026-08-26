@@ -18,6 +18,7 @@ export type OwnedDevsyMutationResult = { status: "changed" } | { status: "absent
 export type DevsyStartOptions = {
   repoPath: string;
   devsyId?: string;
+  devcontainerPath?: string;
   recreate?: boolean;
   quiet?: boolean;
   workspace?: { token: string; gitCommonDir: string };
@@ -146,6 +147,7 @@ export function startDevsyWorkspace(options: DevsyStartOptions): string {
     // explicit --id keeps linked-worktree identities stable across restarts.
     const args = ["workspace", "up", options.repoPath];
     if (devsyId) args.push("--id", devsyId);
+    if (options.devcontainerPath) args.push("--devcontainer", options.devcontainerPath);
     args.push("--ide-launch", "skip");
     if (options.workspace) {
       args.push(

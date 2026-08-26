@@ -304,6 +304,27 @@ export function resolveWorkspaceRuntimeOrDefault(repoPath?: string): WorkspaceRu
 }
 
 /**
+ * Resolve a runtime from cached registry evidence for report-only callers.
+ * Ambiguous or unreadable registry evidence returns undefined so reports can
+ * render unknown state without borrowing the mutation path's exception.
+ */
+export function resolveWorkspaceRuntimeForReport(repoPath?: string): WorkspaceRuntime | undefined {
+  const snapshots = getWorkspaceRegistrySnapshots();
+  const envRaw = process.env.DEVROUTER_WORKSPACE_RUNTIME?.trim();
+  if (envRaw) {
+    const runtime = parseWorkspaceRuntime(envRaw);
+    return snapshots[runtime] ? runtime : undefined;
+  }
+  if (repoPath) {
+    const owner = pathOwnerRuntime(repoPath, snapshots);
+    if (owner.status === "conflict" || owner.status === "unavailable") return undefined;
+    if (owner.status === "owner") return owner.runtime;
+  }
+  const runtime = resolveWorkspaceRuntimeDetailed().runtime;
+  return snapshots[runtime] ? runtime : undefined;
+}
+
+/**
  * Drop per-process caches. Called after runtime mutations (workspace
  * start/delete) so later resolution in the same process observes the new
  * registry state instead of a stale pre-mutation snapshot.

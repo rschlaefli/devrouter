@@ -100,7 +100,9 @@ provider registries before consulting the machine preference. Probe each provide
 version command (`devpod version`, `devsy --version`) rather than assuming equivalent CLI syntax.
 Treat duplicate path owners and unreadable installed-provider registries as blocking evidence;
 neither state proves that the machine preference owns the checkout, so lifecycle dispatch must fail
-closed while doctor reports the ambiguity.
+closed while doctor reports the ambiguity. Report-only scans degrade the same evidence to an
+unknown row instead of aborting the whole report, and preserve malformed provider activity so no
+cleanup suggestion rests on an untrustworthy timestamp.
 Provider-specific tests must pin `DEVROUTER_WORKSPACE_RUNTIME`; otherwise a developer's persisted
 machine preference can silently route a DevPod test through Devsy. The registry split and test
 isolation are implemented in `src/core/workspace-runtime.ts` and the provider adapter suites from

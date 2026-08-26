@@ -38,7 +38,7 @@ describe("Devsy workspace adapter", () => {
     ]);
     expect(spawnSync).toHaveBeenCalledWith(
       "devsy",
-      ["workspace", "list", "--result-format", "json"],
+      ["workspace", "list", "--result-format", "json", "--skip-pro"],
       { encoding: "utf-8" },
     );
   });

@@ -242,6 +242,19 @@ describe("exact-path registry ownership", () => {
     expect(() => resolve("/repo/fresh")).toThrow(/Devsy workspace registry is unavailable/i);
   });
 
+  it("returns unknown runtime evidence to report-only callers when a registry is unavailable", async () => {
+    readFileSyncMock.mockImplementation(() => JSON.stringify({ runtime: "devsy" }));
+    mockRegistries({
+      devsyInstalled: true,
+      devpodInstalled: true,
+      devsyRegistryStatus: 1,
+      devpodWorkspaces: [],
+    });
+    const mod = await import("../workspace-runtime");
+
+    expect(mod.resolveWorkspaceRuntimeForReport("/repo/fresh")).toBeUndefined();
+  });
+
   it("keeps per-path ownership decisive after a fallback resolved another path first", async () => {
     readFileSyncMock.mockImplementation(() => JSON.stringify({ runtime: "devpod" }));
     mockRegistries({

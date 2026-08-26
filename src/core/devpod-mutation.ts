@@ -142,6 +142,7 @@ export function startDevpodWorkspace(options: DevpodStartOptions): string {
     const result = startDevsyWorkspace({
       repoPath: options.repoPath,
       devsyId: options.devpodId,
+      devcontainerPath: options.devcontainerPath,
       recreate: options.recreate,
       quiet: options.quiet,
       workspace: options.workspace,
