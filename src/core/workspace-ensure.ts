@@ -327,6 +327,77 @@ function restorePreviousManagedConfig(options: {
   writeManagedDevcontainerConfig(restoredPlan);
 }
 
+type FirstTransitionBaseline = {
+  services: string[];
+  processes: string[];
+};
+
+function isWarmWorkspaceActive(repoPath: string): boolean {
+  try {
+    return workspaceAppContainers(inspectWorkspaceContainers(), repoPath).some(
+      (container) => container.state.Running,
+    );
+  } catch {
+    // Warm-start detection must fail closed: when Docker state cannot be read,
+    // proceed as if the workspace were warm so the fingerprint gate below can
+    // report the concrete failure instead of silently assuming a cold start.
+    return true;
+  }
+}
+
+// Before the first managed mutation on an already-running native workspace,
+// prove which optional services and process markers are actually active. That
+// observed set is the only honest rollback baseline when no successful managed
+// state exists; a stopped or absent workspace has nothing to lose and keeps the
+// empty rollback set.
+function captureFirstTransitionBaseline(options: {
+  repoPath: string;
+  plan: ManagedDevcontainerPlan;
+  processes: string[];
+}): FirstTransitionBaseline | undefined {
+  const containers = inspectWorkspaceContainers();
+  const runningPrimary = workspaceAppContainers(containers, options.repoPath).filter(
+    (container) => container.state.Running,
+  );
+  if (runningPrimary.length === 0) return undefined;
+  if (runningPrimary.length > 1) {
+    throw new Error(
+      "Cannot start the first managed transition while multiple workspace app containers are running.",
+    );
+  }
+  const primary = runningPrimary[0];
+  const composeProject = primary.labels["com.docker.compose.project"];
+  const workspacePath = primary.mounts.find(
+    (mount) => mount.Type === "bind" && sameWorkspacePath(mount.Source, options.repoPath),
+  )?.Destination;
+  if (!composeProject || !workspacePath) {
+    throw new Error(
+      "Cannot prove the exact pre-transition Compose identity for the first managed transition.",
+    );
+  }
+  const services = options.plan.profileServices.filter((service) =>
+    containers.some(
+      (container) =>
+        container.state.Running &&
+        hasExactComposeIdentity(container, { repoPath: options.repoPath, service, composeProject }),
+    ),
+  );
+  const activeProcesses: string[] = [];
+  for (const process of options.processes) {
+    const status = runManagedProcessAction({
+      container: { id: primary.id, workspacePath },
+      name: process,
+      action: "status",
+      quiet: true,
+    });
+    if (status === "running") activeProcesses.push(process);
+  }
+  return {
+    services,
+    processes: activeProcesses,
+  };
+}
+
 export function validateWorkspaceContainers(
   containers: WorkspaceContainerSnapshot[],
   options: {
@@ -582,6 +653,8 @@ export async function workspaceEnsure(
     let managedPostStartPlan: ManagedPostStartPlan | undefined;
     let managedRuntimeConfig: DevrouterConfig | undefined;
     let managedConfigWritten = false;
+    let managedWorkspaceEnv: { token: string; gitCommonDir: string } | undefined;
+    let firstTransitionBaseline: FirstTransitionBaseline | undefined;
     try {
       const target = linked ? resolveLinkedTarget(repoPath) : resolvePrimaryTarget(repoPath);
       let devpodId = target.devpodId;
@@ -645,6 +718,26 @@ export async function workspaceEnsure(
           profile: runtime.resolvedProfile,
           linked: target.kind === "linked",
         });
+        managedWorkspaceEnv =
+          target.kind === "linked"
+            ? { token: target.workspace, gitCommonDir: target.gitCommonDir }
+            : undefined;
+        if (
+          previousManagedState &&
+          isWarmWorkspaceActive(repoPath) &&
+          previousManagedState.sourceConfigSha256 !== managedPlan.sourceConfigSha256
+        ) {
+          throw new Error(
+            `Managed Dev Container source configuration changed since the last successful transition; a warm ensure cannot apply it to the existing runtime for '${repoPath}'. Stop and delete the exact runtime, then run ensure again to recreate it from the current source configuration.`,
+          );
+        }
+        if (!previousManagedState) {
+          firstTransitionBaseline = captureFirstTransitionBaseline({
+            repoPath,
+            plan: managedPlan,
+            processes: managedRuntime.processes,
+          });
+        }
       }
       const apps = proxyAppsFromConfig(runtime.config);
       const parsedUpstreams = apps.map((app) => parseUpstream(app.upstream));
@@ -775,6 +868,7 @@ export async function workspaceEnsure(
           composeProject: managedComposeProject,
           services: missingServices,
           quiet: options.quiet,
+          workspace: managedWorkspaceEnv,
         });
         await waitForManagedServices(
           managedPlan,
@@ -928,8 +1022,10 @@ export async function workspaceEnsure(
         const rollbackErrors: string[] = [];
         const failedPhase = transitionPhase;
         transitionPhase = "rollback";
-        const previousServices = previousManagedState?.desired.services ?? [];
-        const previousProcesses = previousManagedState?.desired.processes ?? [];
+        const previousServices =
+          previousManagedState?.desired.services ?? firstTransitionBaseline?.services ?? [];
+        const previousProcesses =
+          previousManagedState?.desired.processes ?? firstTransitionBaseline?.processes ?? [];
         const previousServiceSet = new Set(previousServices);
         const previousProcessSet = new Set(previousProcesses);
         try {
@@ -961,6 +1057,7 @@ export async function workspaceEnsure(
             composeProject: managedComposeProject,
             services: previousAllServices,
             quiet: options.quiet,
+            workspace: managedWorkspaceEnv,
           });
           await waitForManagedServices(
             managedPlan,

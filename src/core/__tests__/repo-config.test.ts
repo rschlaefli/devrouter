@@ -1520,6 +1520,19 @@ apps: []
 `,
     );
     expect(() => loadRepoConfig(tmpDir)).toThrow(/managedRuntime.processes must be an array/);
+
+    writeConfig(
+      tmpDir,
+      `version: 1
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [redis]
+  processes: ["bad name"]
+apps: []
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/safe exact identifiers: bad name/);
   });
 
   it("rejects a managed profile that selects no dimension", () => {

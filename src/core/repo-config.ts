@@ -540,6 +540,14 @@ function parseManagedRuntime(
     managedRuntime.processes,
     `${configPath}.managedRuntime.processes`,
   );
+  const unsafeProcesses = processes.filter(
+    (process) => !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(process),
+  );
+  if (unsafeProcesses.length > 0) {
+    throw new Error(
+      `${configPath}.managedRuntime.processes entries must be safe exact identifiers: ${unsafeProcesses.join(", ")}.`,
+    );
+  }
 
   return {
     devcontainer: { baseServices, profileServices },

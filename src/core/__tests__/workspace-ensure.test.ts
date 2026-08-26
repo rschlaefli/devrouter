@@ -605,7 +605,7 @@ describe("workspaceEnsure", () => {
         services: ["redis"],
         processes: ["app", "local-mcp"],
       },
-      sourceConfigSha256: "c".repeat(64),
+      sourceConfigSha256: "a".repeat(64),
       effectiveConfigSha256: "d".repeat(64),
       status: "ready",
       updatedAt: "2026-08-26T08:00:00.000Z",
@@ -921,6 +921,32 @@ describe("workspaceEnsure", () => {
     expect(events).toEqual([]);
   });
 
+  it("rejects a warm ensure when the managed source configuration changed", async () => {
+    const events: string[] = [];
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle({ events });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      ...managedPreviousState(),
+      sourceConfigSha256: "z".repeat(64),
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed Dev Container source configuration changed");
+
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(devpodUpCalls()).toHaveLength(0);
+  });
+
   it("marks rollback drift when the previous config fingerprint cannot be restored", async () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({
       config: managedRuntimeConfig(),
@@ -961,7 +987,7 @@ describe("workspaceEnsure", () => {
         processes: ["app"],
       },
     });
-    mockManagedLifecycle({ curlStatus: 22 });
+    const runtime = mockManagedLifecycle({ curlStatus: 22 });
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
 
     await expect(
@@ -970,6 +996,14 @@ describe("workspaceEnsure", () => {
 
     expect(removeManagedDevcontainerConfig).toHaveBeenCalledOnce();
     expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "redis"]));
+    expect(runtime.runningProcesses).toEqual(new Set(["app", "local-mcp"]));
+    expect(startExactManagedServices).toHaveBeenLastCalledWith(
+      expect.objectContaining({ services: ["app", "postgres", "redis"] }),
+    );
+    expect(runManagedPostStart).toHaveBeenLastCalledWith(
+      expect.objectContaining({ processes: ["app", "local-mcp"] }),
+    );
   });
 
   it("reuses an exact primary DevPod without linked ownership metadata", async () => {

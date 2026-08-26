@@ -359,6 +359,7 @@ export function startExactManagedServices(options: {
   composeProject: string;
   services: string[];
   quiet?: boolean;
+  workspace?: { token: string; gitCommonDir: string };
 }): void {
   if (options.services.length === 0) return;
   const project = safeComposeProject(options.composeProject);
@@ -367,6 +368,21 @@ export function startExactManagedServices(options: {
     throw new Error("Exact Compose startup contains a service outside the validated model.");
   }
   const fileArgs = options.plan.composeFiles.flatMap((file) => ["-f", file]);
+  // Mirror the environment DevPod itself receives: linked overlays resolve
+  // their bind mounts from these variables, while a primary checkout must see
+  // the compose defaults instead of any stale host values.
+  const env = { ...process.env };
+  if (options.workspace) {
+    env.WORKSPACE = options.workspace.token;
+    env.DEVROUTER_WORKSPACE = options.workspace.token;
+    env.DEVROUTER_GIT_COMMON_DIR = options.workspace.gitCommonDir;
+    env.DEVCONTAINER_COMPOSE_OVERLAY = "docker-compose.devrouter.yml";
+  } else {
+    delete env.WORKSPACE;
+    delete env.DEVROUTER_WORKSPACE;
+    delete env.DEVROUTER_GIT_COMMON_DIR;
+    delete env.DEVCONTAINER_COMPOSE_OVERLAY;
+  }
   const result = spawnSync(
     "docker",
     [
@@ -385,6 +401,7 @@ export function startExactManagedServices(options: {
     {
       cwd: options.plan.composeDirectory,
       encoding: "utf-8",
+      env,
       stdio: options.quiet ? ["ignore", 2, "inherit"] : "inherit",
     },
   );

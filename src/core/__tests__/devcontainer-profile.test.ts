@@ -236,7 +236,47 @@ describe("managed Dev Container config", () => {
         "--no-deps",
         "litellm",
       ]),
-      expect.objectContaining({ cwd: path.join(tmpDir, ".devcontainer") }),
+      expect.objectContaining({
+        cwd: path.join(tmpDir, ".devcontainer"),
+        env: expect.not.objectContaining({
+          WORKSPACE: expect.anything(),
+          DEVROUTER_WORKSPACE: expect.anything(),
+          DEVROUTER_GIT_COMMON_DIR: expect.anything(),
+          DEVCONTAINER_COMPOSE_OVERLAY: expect.anything(),
+        }),
+      }),
+    );
+
+    startExactManagedServices({
+      plan,
+      composeProject: "fixture",
+      services: ["litellm"],
+      workspace: { token: "feature", gitCommonDir: "/repos/sample.git" },
+    });
+
+    expect(spawnSync).toHaveBeenLastCalledWith(
+      "docker",
+      expect.arrayContaining([
+        "compose",
+        "--project-name",
+        "fixture",
+        "--project-directory",
+        path.join(tmpDir, ".devcontainer"),
+        "up",
+        "-d",
+        "--no-recreate",
+        "--no-deps",
+        "litellm",
+      ]),
+      expect.objectContaining({
+        cwd: path.join(tmpDir, ".devcontainer"),
+        env: expect.objectContaining({
+          WORKSPACE: "feature",
+          DEVROUTER_WORKSPACE: "feature",
+          DEVROUTER_GIT_COMMON_DIR: "/repos/sample.git",
+          DEVCONTAINER_COMPOSE_OVERLAY: "docker-compose.devrouter.yml",
+        }),
+      }),
     );
   });
 });
