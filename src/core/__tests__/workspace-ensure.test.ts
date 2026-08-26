@@ -779,6 +779,45 @@ describe("workspaceEnsure", () => {
     return { runningServices, runningProcesses };
   }
 
+  function mockColdManagedDevsyFailure(attachAfterFailure: boolean): void {
+    vi.stubEnv("DEVROUTER_WORKSPACE_RUNTIME", "devsy");
+    resetWorkspaceRuntimeCaches();
+    fs.writeFileSync(path.join(gitDir, "devrouter-workspace"), "feature\n", "utf-8");
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle();
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    const delegate = vi.mocked(spawnSync).getMockImplementation();
+    let startAttempted = false;
+    vi.mocked(spawnSync).mockImplementation((command, args, options) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        return {
+          status: 0,
+          stdout: JSON.stringify(
+            startAttempted && attachAfterFailure
+              ? [{ id: "feature", source: { localFolder: tmpDir } }]
+              : [],
+          ),
+          stderr: "",
+        } as never;
+      }
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
+        startAttempted = true;
+        return { status: 1, stdout: "", stderr: "agent injection failed" } as never;
+      }
+      return delegate?.(command, args, options) as never;
+    });
+  }
+
   it("reconciles selected services and processes without recreating the primary container", async () => {
     const events: string[] = [];
     const runtimeConfig = managedRuntimeConfig();
@@ -1091,6 +1130,30 @@ describe("workspaceEnsure", () => {
     expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
     expect(removeManagedDevcontainerConfig).not.toHaveBeenCalled();
     expect(startExactManagedServices).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed cold Devsy workspace stoppable when exact ownership appears", async () => {
+    mockColdManagedDevsyFailure(true);
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed runtime transition did not reach a rollback boundary");
+
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(removeManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+  });
+
+  it("removes a cold Devsy candidate config when exact absence is proved", async () => {
+    mockColdManagedDevsyFailure(false);
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed runtime transition did not reach a rollback boundary");
+
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(removeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
   });
 
   it("reuses an exact primary DevPod without linked ownership metadata", async () => {

@@ -32,6 +32,18 @@ export type DevsyStartOptions = {
 
 export class DevsyStartPostconditionError extends Error {}
 
+function failedStartMayHaveAttached(devsyId: string | undefined, repoPath: string): boolean {
+  try {
+    const attached = listDevsyWorkspaces();
+    const attachedId = devsyId ?? selectDevsyWorkspace(attached, repoPath)?.id;
+    if (!attachedId) return false;
+    return inspectDevsyWorkspaceOwnership(attached, attachedId, repoPath).status !== "absent";
+  } catch {
+    // A failed registry read cannot prove that the provider left no recovery state.
+    return true;
+  }
+}
+
 function withMutationLock<T>(activity: string, target: string, operation: () => T): T {
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   return withFileLockSync(
@@ -180,7 +192,11 @@ export function startDevsyWorkspace(options: DevsyStartOptions): string {
       env,
     });
     if (result.status !== 0) {
-      throw new Error(`devsy workspace up failed for '${devsyId ?? options.repoPath}'.`);
+      const message = `devsy workspace up failed for '${devsyId ?? options.repoPath}'.`;
+      if (failedStartMayHaveAttached(devsyId, options.repoPath)) {
+        throw new DevsyStartPostconditionError(message);
+      }
+      throw new Error(message);
     }
 
     try {

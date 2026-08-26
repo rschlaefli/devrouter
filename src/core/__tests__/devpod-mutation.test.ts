@@ -3,7 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "../devpod-mutation";
+import {
+  DevpodStartPostconditionError,
+  deleteOwnedDevpodWorkspace,
+  startDevpodWorkspace,
+  stopOwnedDevpodWorkspace,
+} from "../devpod-mutation";
 import { withFileLockSync } from "../file-lock";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
@@ -75,6 +80,33 @@ function startMutationProcess(home: string, activity: string, waitForRelease: bo
 }
 
 describe("machine-global DevPod mutation boundary", () => {
+  it("normalizes a possibly-started Devsy failure for workspace rollback", () => {
+    process.env.DEVROUTER_WORKSPACE_RUNTIME = "devsy";
+    resetWorkspaceRuntimeCaches();
+    let listCalls = 0;
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        listCalls += 1;
+        return {
+          status: 0,
+          stdout: JSON.stringify(
+            listCalls === 1 ? [] : [{ id: "feature", source: { localFolder: "/repo/feature" } }],
+          ),
+          stderr: "",
+        } as never;
+      }
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
+        return { status: 1, stdout: "", stderr: "agent injection failed" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    expect(() => startDevpodWorkspace({ repoPath: "/repo/feature", devpodId: "feature" })).toThrow(
+      DevpodStartPostconditionError,
+    );
+  });
+
   it("uses one bounded lock path for action-specific APIs", () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "[]", stderr: "" } as never);
 
