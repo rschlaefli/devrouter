@@ -312,6 +312,29 @@ describe("collectManagedRuntimeStatus", () => {
     });
   });
 
+  it("reports an uninitialized managed profile as stopped before first ensure", () => {
+    setupManagedRuntime({ containers: [], routes: [] });
+    vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({ status: "missing" });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["chat"],
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "stopped",
+      active: { apps: [], services: [], processes: [] },
+      drift: [],
+    });
+  });
+
   it("does not activate omitted optional dimensions for an app-only profile", () => {
     setupManagedRuntime({
       containers: [container("app", { mountRepo: true }), container("postgres")],

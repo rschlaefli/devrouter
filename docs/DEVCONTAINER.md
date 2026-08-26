@@ -207,7 +207,9 @@ Devrouter-owned `.devcontainer/devcontainer.devrouter.json` beside the source
 configuration and passes it to DevPod before startup. The generated file keeps
 the source configuration's relative paths and changes only the selected
 `runServices`; never commit or hand-edit it. The primary service and every
-declared base service remain selected.
+declared base service remain selected. DevPod may append its own generated
+container-features Compose file to the runtime labels; devrouter accepts that
+specific provider-owned file while rejecting unrelated Compose overlays.
 
 Switching profiles in an existing workspace is warm and non-destructive. The
 same DevPod and volumes are retained, newly selected services start without

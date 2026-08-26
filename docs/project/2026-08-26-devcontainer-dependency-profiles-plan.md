@@ -387,10 +387,10 @@
 
 ## Progress
 
-- Status: Execution in progress; D0-D4 are committed and reviewed in the task
+- Status: Execution in progress; D0-D5 are committed and reviewed in the task
   worktree. The local release remains unpublished.
-- Active slice: D5, after the DevPod lifecycle seam and managed runtime
-  transition and status gates passed.
+- Active slice: D6, after the DevPod lifecycle, managed runtime status, and
+  documentation gates passed.
 - Completed: Fresh worktree creation, first-party Dev Container and DevPod
   research, current devrouter contract inspection, Klicker dependency mapping,
   the required planning review, and the installed DevPod characterization.
@@ -400,7 +400,7 @@
   without recreating the primary app container, rerunning `postCreate`, or
   changing the owned volume set. A second exact workspace remained unchanged.
   Both workspaces were stopped and named volumes were retained.
-- Remaining: D5-D6, then the separately authorized publication gate.
+- Remaining: D6, then the separately authorized publication gate.
 - Latest verified base: `origin/main` at `308854e`; task branch was 0 ahead and
   0 behind when created.
 - Runtime: The D1 fixtures are stopped; their named volumes were not removed.
@@ -437,10 +437,21 @@
   prompt, changelog, upgrade prompt, and release checklist for native-full and
   managed-selective behavior, independent capability profiles, exact warm
   transitions, and ignored generated configuration ownership.
+- D5 verification: Documentation policy and knowledge validation passed;
+  generated `AGENTS.md`/skill and AI onboarding prompt tests passed. The
+  documentation slice is committed as `2560c3a`.
+- D6 release metadata: Prepared the local `0.0.39` candidate by bumping the
+  package and example config versions, adding the release changelog section,
+  and linking `upgrade-prompts/0.0.39.md`. Publication and host installation
+  remain withheld.
+- D6 status correction: Status now reuses the last successful managed profile
+  when no explicit selection exists, so a deliberately stopped non-default
+  profile reports `stopped` without false profile/config drift. The regression
+  is covered by status tests and the packed consumer fixture.
 - Required delivery layer: locally committed, fully verified release candidate
   with exact test runtime stopped and status `release_pending`.
 - Achieved delivery layer: reviewed plan, D0 plan commit, and D1
   characterization commit.
-- Next action: Run D5 documentation policy, knowledge, formatting, generated
-  guidance, and exact diff checks, then commit the documentation slice before
-  the 0.0.39 release-candidate checks.
+- Next action: Commit the integrated local `0.0.39` candidate, run the required
+  final review, resolve any verified findings, and record the final stopped
+  runtime evidence with `release_pending`.

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import type { RepoStatus, RouterStatus } from "../types";
 import { findContainerByName, getCurrentDockerContext, networkExists } from "./docker";
+import { readManagedRuntimeState } from "./managed-runtime-state";
 import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { getRepoConfigPath, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import {
@@ -49,7 +50,22 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
   }
 
   try {
-    const runtime = loadRuntimeConfig(resolvedRepoPath);
+    let runtime = loadRuntimeConfig(resolvedRepoPath);
+    if (runtime.config.managedRuntime) {
+      let state: ReturnType<typeof readManagedRuntimeState>;
+      try {
+        state = readManagedRuntimeState(resolvedRepoPath, runtime.workspace);
+      } catch {
+        // The status collector reports unreadable state as values-free drift.
+      }
+      if (state && state.profile !== runtime.profile) {
+        try {
+          runtime = loadRuntimeConfig(resolvedRepoPath, runtime.workspace, state.profile);
+        } catch {
+          // Keep the configured profile so the collector can report stale state.
+        }
+      }
+    }
     const config = runtime.config;
     const tcpAppCount = config.apps.filter(
       (app) => app.kind !== "dependency" && app.protocol === "tcp",

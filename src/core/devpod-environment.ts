@@ -111,16 +111,28 @@ export function hasExactComposeIdentity(
   ) {
     return false;
   }
-  if (!options.composeFiles) return true;
+  const expectedFiles = options.composeFiles;
+  if (!expectedFiles) return true;
 
   const actualFiles = (container.labels["com.docker.compose.project.config_files"] ?? "")
     .split(",")
     .map((file) => file.trim())
     .filter(Boolean);
+  const providerGeneratedFiles = actualFiles.filter((file) => {
+    const normalized = file.replaceAll("\\", "/");
+    return /\/.devpod\/agent\/contexts\/[^/]+\/workspaces\/[^/]+\/.docker-compose\/docker-compose\.devcontainer\.containerFeatures-[^/]+\.yml$/.test(
+      normalized,
+    );
+  });
   return (
-    actualFiles.length === options.composeFiles.length &&
-    options.composeFiles.every((expected) =>
+    actualFiles.length === expectedFiles.length + providerGeneratedFiles.length &&
+    expectedFiles.every((expected) =>
       actualFiles.some((actual) => sameWorkspacePath(actual, expected)),
+    ) &&
+    actualFiles.every(
+      (actual) =>
+        providerGeneratedFiles.includes(actual) ||
+        expectedFiles.some((expected) => sameWorkspacePath(actual, expected)),
     )
   );
 }

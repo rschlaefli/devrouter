@@ -15,6 +15,10 @@ vi.mock("../managed-runtime-status", () => ({
   collectManagedRuntimeStatus: vi.fn(),
 }));
 
+vi.mock("../managed-runtime-state", () => ({
+  readManagedRuntimeState: vi.fn(),
+}));
+
 vi.mock("../repo-config", () => ({
   getRepoConfigPath: vi.fn((repoPath: string) => path.join(repoPath, ".devrouter.yml")),
   loadRuntimeConfig: vi.fn(),
@@ -32,6 +36,7 @@ vi.mock("../router", () => ({
   TCP_PROTOCOL_REGISTRY: {},
 }));
 
+import { type ManagedRuntimeState, readManagedRuntimeState } from "../managed-runtime-state";
 import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { loadRuntimeConfig } from "../repo-config";
 
@@ -83,6 +88,7 @@ beforeEach(() => {
     },
   });
   vi.mocked(collectManagedRuntimeStatus).mockReturnValue(managedStatus);
+  vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
 });
 
 afterEach(() => {
@@ -137,6 +143,66 @@ describe("collectRouterStatus", () => {
       config: { version: 1, apps: [] },
       profile: "full",
       resolvedProfile: undefined,
+    });
+  });
+
+  it("uses the last active managed profile when status has no explicit selection", async () => {
+    const managedConfig = {
+      version: 1 as const,
+      managedRuntime: {
+        devcontainer: { baseServices: ["postgres"], profileServices: ["litellm"] },
+        processes: ["chat"],
+      },
+      apps: [],
+    };
+    const activeState: ManagedRuntimeState = {
+      version: 1,
+      repoPath,
+      workspace: "feature",
+      devpodId: "devpod-feature",
+      composeProject: "feature-project",
+      profile: "ai",
+      desired: { apps: [], services: ["litellm"], processes: ["chat"] },
+      sourceConfigSha256: "a".repeat(64),
+      effectiveConfigSha256: "b".repeat(64),
+      status: "ready",
+      updatedAt: "2026-08-26T00:00:00.000Z",
+    };
+    const defaultRuntime = {
+      config: managedConfig,
+      workspace: "feature",
+      profile: "full",
+      resolvedProfile: {
+        apps: ["*"],
+        devcontainerServices: ["*"],
+        processes: ["*"],
+      },
+    };
+    const activeRuntime = {
+      config: managedConfig,
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: [],
+        devcontainerServices: ["litellm"],
+        processes: ["chat"],
+      },
+    };
+    vi.mocked(loadRuntimeConfig)
+      .mockReset()
+      .mockReturnValueOnce(defaultRuntime)
+      .mockReturnValueOnce(activeRuntime);
+    vi.mocked(readManagedRuntimeState).mockReturnValue(activeState);
+
+    await collectRouterStatus(repoPath);
+
+    expect(loadRuntimeConfig).toHaveBeenNthCalledWith(2, repoPath, "feature", "ai");
+    expect(collectManagedRuntimeStatus).toHaveBeenCalledWith({
+      repoPath,
+      workspace: "feature",
+      config: managedConfig,
+      profile: "ai",
+      resolvedProfile: activeRuntime.resolvedProfile,
     });
   });
 });

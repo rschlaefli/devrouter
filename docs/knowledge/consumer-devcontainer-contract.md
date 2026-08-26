@@ -53,6 +53,9 @@ managed startup, `ensure` creates the ignored, marker-owned
 path to DevPod before startup. The generated file is runtime state, not a
 consumer artifact: it is never committed or hand-edited, and its content is
 fingerprinted for status and drift reporting.
+DevPod may add one provider-generated container-features Compose file to the
+runtime project labels; exact identity accepts that known provider path but
+rejects any other unconfigured overlay.
 
 The adapter receives `DEVROUTER_PROFILE` and, for managed configurations,
 `DEVROUTER_PROCESS_SET`. The process helper uses those values as non-secret

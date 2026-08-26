@@ -201,11 +201,12 @@ function inspectManagedRuntime(options: {
   }
   const resolvedPlan = plan;
   let generatedConfigSha256: string | undefined;
+  let generatedConfigMissing = false;
   try {
     const generated = inspectManagedDevcontainerGeneratedConfig(resolvedPlan);
     generatedConfigSha256 = generated.sha256;
     if (generated.status === "missing") {
-      drift.push("managed generated Dev Container configuration is missing");
+      generatedConfigMissing = true;
     } else if (generated.status === "foreign") {
       drift.push("managed generated Dev Container configuration is not devrouter-owned");
     } else if (generated.status === "drifted") {
@@ -301,6 +302,9 @@ function inspectManagedRuntime(options: {
     (mount) => mount.Type === "bind" && sameWorkspacePath(mount.Source, repoPath),
   )?.Destination;
   const primaryActive = Boolean(primary?.state.Running);
+  if (generatedConfigMissing && (state || primaryActive || managedServicesActive)) {
+    drift.push("managed generated Dev Container configuration is missing");
+  }
   const primaryHealth = primary?.state.Health?.Status;
   const primaryReady =
     primaryActive && primaryHealth !== "starting" && primaryHealth !== "unhealthy";
