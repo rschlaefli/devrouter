@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.41] - 2026-08-26
+
 ### Added
 
 - **Devsy as a first-class workspace runtime**: `devrouter ensure`, `stop`,
@@ -52,6 +54,11 @@ All notable changes to this project are documented in this file.
 - `devrouter doctor` resolves the workspace runtime for the inspected checkout
   and does not warn about a Devsy timeout when that path is legitimately owned
   by DevPod.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.41.md
+
 ## [0.0.40] - 2026-08-26
 
 ### Fixed
