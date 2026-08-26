@@ -387,9 +387,10 @@
 
 ## Progress
 
-- Status: Execution in progress; D0-D2 are committed and D3 is implemented in
-  the task worktree. The local release remains unpublished.
-- Active slice: D3, after the DevPod lifecycle seam passed.
+- Status: Execution in progress; D0-D3 are committed and reviewed in the task
+  worktree. The local release remains unpublished.
+- Active slice: D4, after the DevPod lifecycle seam and managed runtime
+  transition gates passed.
 - Completed: Fresh worktree creation, first-party Dev Container and DevPod
   research, current devrouter contract inspection, Klicker dependency mapping,
   the required planning review, and the installed DevPod characterization.
@@ -409,15 +410,20 @@
   route-free capability profiles, legacy compatibility, focused tests, and ADR
   0005. The focused profile suite has 100 passing tests and TypeScript passes.
 - D3 implementation: Added same-directory atomic effective Dev Container
-  config generation, exact Compose service reconciliation, managed process
+  config generation, effective Compose model validation without runtime-value
+  interpolation, exact Compose service reconciliation, managed process
   stop/status actions, last-successful runtime state, route-publication
   ordering, and rollback coverage. The focused D3 workspace, process, state,
-  and generated-config suites have 61 passing tests; static checks and
+  and generated-config suites have 67 passing tests; static checks and
   typecheck pass. The Linux process-helper suite remains pending in a Linux
   container because this host has no `/proc`.
+- D3 review: The required simplifier and lifecycle/ownership slice reviewer
+  both cleared the committed range `308854e..b035d24`. Review artifacts are in
+  `docs/project/_local/reviews/`; the reported rollback, exact-model, and
+  interpolation concerns were fixed and re-verified.
 - Required delivery layer: locally committed, fully verified release candidate
   with exact test runtime stopped and status `release_pending`.
 - Achieved delivery layer: reviewed plan, D0 plan commit, and D1
   characterization commit.
-- Next action: Commit D3, run the required simplifier and lifecycle/ownership
-  slice review, then begin D4 status reporting after review disposition.
+- Next action: Implement D4 status and diagnostics, preserving additive legacy
+  output and values-free desired/active/drift reporting.
