@@ -57,6 +57,46 @@ Consumer images contain no Devrouter package or helper. See
 [Fronting a devcontainer](./DEVCONTAINER.md) for the canonical Compose overlay,
 network aliases, managed process contract, TCP clients, and teardown.
 
+### Selective managed profiles
+
+Keep the source Dev Container configuration usable as a full native environment,
+then describe optional managed resources in `.devrouter.yml`. The
+`managedRuntime` registry separates base Compose services, optional profile
+services, and repository-owned process markers. Profiles select those
+dimensions independently:
+
+```yaml
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [litellm, mcp-server]
+  processes: [web, local-mcp]
+
+profiles:
+  ai:
+    apps: [web]
+    devcontainerServices: [litellm]
+    processes: [web]
+  mcp:
+    devcontainerServices: [mcp-server]
+    processes: [local-mcp]
+  full:
+    apps: ['*']
+    devcontainerServices: ['*']
+    processes: ['*']
+    default: true
+```
+
+Use `devrouter ensure <checkout> --profile ai` when working on AI features and
+`--profile mcp` when only the MCP capability is needed. A profile with no app
+selection is valid when `managedRuntime` is present and publishes no routes.
+Omitted optional dimensions remain stopped, so an app-only profile does not
+implicitly start LiteLLM or MCP. The `full` wildcard profile restores every
+registered dimension. Warm changes preserve the DevPod and volumes, never rerun
+`postCreateCommand`, and stop dropped resources only after exact ownership is
+proved. Inspect desired, active, and drift state with `devrouter status` or
+`devrouter doctor`.
+
 ## Configure `.devrouter.yml`
 
 Initialize metadata before adding applications:

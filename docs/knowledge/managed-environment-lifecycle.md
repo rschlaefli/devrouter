@@ -17,6 +17,9 @@ source_paths:
   - src/core/devsy-mutation.ts
   - src/core/devsy-workspaces.ts
   - src/core/devsy-exec.ts
+  - src/core/managed-runtime*.ts
+  - src/core/status.ts
+  - src/core/doctor.ts
 ---
 
 # Managed environment lifecycle
@@ -38,6 +41,39 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
 7. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
 
 `src/core/workspace-lifecycle.ts:workspaceUp` creates or reuses a Git worktree, then delegates startup to `workspaceEnsure`. `--no-devpod` is create-only and publishes no routes.
+
+## Profile transitions
+
+The native Dev Container view remains full: its source configuration describes
+the complete environment for Dev Container clients. Managed `ensure` derives an
+ignored, marker-owned sibling configuration when `.devrouter.yml` declares a
+`managedRuntime` registry and a selected profile. The generated file changes
+only `runServices`, while the source file, relative paths, volumes, and
+`postCreateCommand` remain untouched.
+
+The managed registry separates base Compose services, optional profile services,
+and repository-owned process markers. Every profile keeps the primary service
+and base services. Its `apps`, `devcontainerServices`, and `processes` selections
+are independent; omitted optional dimensions are empty, so an app-only profile
+does not start optional infrastructure. A profile can therefore start a
+route-free capability such as an AI gateway or MCP server. The `*` wildcard
+selects the complete registered dimension.
+
+Profile changes in an existing workspace are warm. The reconciler validates the
+candidate, writes the effective configuration, starts added exact services,
+proves service health and candidate processes, stops dropped owned processes
+and services by exact identity, and publishes the candidate routes last. It
+does not recreate the DevPod, remove containers, remove volumes, run
+`postCreateCommand` again, or use a broad Compose project command. A failed
+transition retains the previous routes and successful state when possible; a
+degraded transition is persisted for inspection and blocks another managed
+profile transition until the drift is resolved.
+
+Use `devrouter status --repo <path> --json` or `devrouter doctor --repo <path>
+--json` to inspect the canonical profile, desired and active resources, exact
+service/process statuses, fingerprints, and values-free drift. A fully stopped
+exact runtime is a normal stopped state, not evidence that another workspace's
+resources may be reclaimed.
 
 ## Stop, delete, and inspect
 

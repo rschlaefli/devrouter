@@ -52,6 +52,51 @@ All notable changes to this project are documented in this file.
 - `devrouter doctor` resolves the workspace runtime for the inspected checkout
   and does not warn about a Devsy timeout when that path is legitimately owned
   by DevPod.
+## [0.0.40] - 2026-08-26
+
+### Fixed
+
+- A failed first managed-profile transition now restores the ignored generated
+  Dev Container configuration to the exact observed service baseline. Cold
+  failures retain an app-and-base-only configuration, so the existing DevPod
+  remains stoppable and a later managed transition can retry without deleting
+  the workspace or its volumes.
+
+### Compatibility
+
+- Managed runtime schemas and profile configuration are unchanged. Existing
+  repositories only need to update `devrouter.version`; no runtime, volume, or
+  data migration is required.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.40.md
+
+## [0.0.39] - 2026-08-26
+
+### Added
+
+- Managed devcontainer profiles can select routed apps, optional Compose
+  capabilities, and repository-owned processes independently through the
+  `managedRuntime` registry. This supports opt-in services such as LiteLLM and
+  MCP without forcing every task to start them, while preserving the full
+  native Dev Container configuration.
+- Warm profile transitions retain the exact DevPod and volumes, reconcile only
+  exact owned resources, and expose values-free desired, active, and drift
+  state through `status`, `doctor`, and managed `ensure` JSON.
+
+### Compatibility
+
+- Repositories without `managedRuntime` keep the existing app-only profile
+  behavior. Native Dev Container clients continue to use the source
+  configuration's full service set. No database or data migration is required.
+- Managed profile transitions keep the existing DevPod and volume identity and
+  do not rerun `postCreateCommand`; the generated selective configuration is
+  ignored runtime state and is not a consumer artifact.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.39.md
 
 ## [0.0.38] - 2026-08-25
 

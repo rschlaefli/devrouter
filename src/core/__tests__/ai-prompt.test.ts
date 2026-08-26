@@ -75,6 +75,11 @@ describe("buildOnboardingPrompt", () => {
     );
     expect(prompt).toContain(POSTGRES_DEPENDENCY_URL_TEMPLATE);
     expect(prompt).toContain(POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE);
+    expect(prompt).toContain("managedRuntime (optional)");
+    expect(prompt).toContain("route-free capability profile");
+    expect(prompt).toContain("an omitted optional managed dimension selects nothing");
+    expect(prompt).toContain("ignored sibling and changes only runServices");
+    expect(prompt).toContain("managed desired/active resources");
   });
 
   it("documents dependency-only app kind semantics", () => {

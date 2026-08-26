@@ -39,7 +39,45 @@ export type RepoStatus = {
   valid: boolean;
   appCount: number;
   tcpAppCount: number;
+  managedRuntime?: ManagedRuntimeStatus;
   error?: string;
+};
+
+export type ManagedRuntimeResourceStatus =
+  | "running"
+  | "healthy"
+  | "stopped"
+  | "starting"
+  | "unhealthy"
+  | "missing"
+  | "foreign"
+  | "drifted";
+
+export type ManagedRuntimeStatus = {
+  mode: "legacy" | "managed";
+  status: "legacy" | "ready" | "starting" | "stopped" | "drifted" | "failed-transition";
+  profile: string;
+  activeProfile?: string;
+  workspace?: string;
+  devpodId?: string;
+  composeProject?: string;
+  desired: {
+    apps: string[];
+    services: string[];
+    processes: string[];
+  };
+  active: {
+    apps: string[];
+    services: string[];
+    processes: string[];
+  };
+  serviceStatuses: Record<string, ManagedRuntimeResourceStatus>;
+  baseServiceStatuses: Record<string, ManagedRuntimeResourceStatus>;
+  processStatuses: Record<string, ManagedRuntimeResourceStatus>;
+  drift: string[];
+  sourceConfigSha256?: string;
+  effectiveConfigSha256?: string;
+  transitionPhase?: string;
 };
 
 export type RouterInsights = {
@@ -136,13 +174,27 @@ export type DevrouterConfig = {
     command: string;
     defaultEnv?: string;
   };
+  managedRuntime?: DevrouterManagedRuntime;
   profiles?: Record<string, DevrouterProfile>;
   apps: DevrouterApp[];
 };
 
-// Named subset of routed apps (+ optional dependency services) that
-// `ensure --profile <name>` starts, routes, and probes. A config without
-// `profiles` behaves exactly as before (implicit full profile).
+export type DevrouterManagedRuntime = {
+  devcontainer: {
+    // Services that remain active for every managed profile.
+    baseServices: string[];
+    // Complete registry of optional services that profile declarations may select.
+    profileServices: string[];
+  };
+  // Complete registry of repository-managed process markers.
+  processes: string[];
+};
+
+// Named subset of routed apps (+ optional dependency services), Dev Container
+// services, and repository-managed process markers that `ensure --profile
+// <name>` selects. A config without `profiles` behaves exactly as before
+// (implicit full profile). The parser normalizes an omitted `apps` dimension to
+// an empty array for route-free capability profiles.
 export type DevrouterProfile = {
   // Routed app names, or ["*"] for every routed app.
   apps: string[];
@@ -151,6 +203,11 @@ export type DevrouterProfile = {
   // Routed apps `ensure` HTTP-probes before declaring readiness. Omitted = all
   // profile apps with an http route.
   readiness?: string[];
+  // Dev Container services from managedRuntime.devcontainer.profileServices,
+  // or ["*"] for every registered profile service.
+  devcontainerServices?: string[];
+  // Process markers from managedRuntime.processes, or ["*"] for every marker.
+  processes?: string[];
   default?: boolean;
 };
 

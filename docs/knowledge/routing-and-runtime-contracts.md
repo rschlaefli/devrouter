@@ -6,6 +6,9 @@ owner: repository maintainers
 status: active
 source_paths:
   - src/core/repo-config.ts
+  - src/core/managed-runtime*.ts
+  - src/core/devcontainer-profile.ts
+  - src/core/workspace-ensure.ts
   - src/core/app-run.ts
   - src/core/docker-run.ts
   - src/core/routes.ts
@@ -13,6 +16,9 @@ source_paths:
   - src/core/host-routes.ts
   - src/core/router.ts
   - src/core/tls.ts
+  - src/core/status.ts
+  - src/core/doctor.ts
+  - src/core/output.ts
   - src/types.ts
 ---
 
@@ -34,6 +40,28 @@ source_paths:
 | `kind: dependency` | Docker Compose lifecycle through a routed app. | No direct route and no direct run, exec, or open target. |
 
 `src/core/app-run.ts:runConfiguredApp` owns generic host, Docker, and proxy application startup. `src/core/workspace-ensure.ts:workspaceEnsure` owns managed devcontainer proxy reconciliation; do not substitute `app run` for it.
+
+## Managed devcontainer profiles
+
+Managed devcontainers have two supported views of the same source configuration.
+Native Dev Container clients use the source `devcontainer.json` and its full
+service definition. Managed `ensure` may instead select a profile from the
+`managedRuntime` registry in `.devrouter.yml`. The registry names base Compose
+services, optional profile services, and repository-owned process markers.
+
+Profiles select `apps`, `devcontainerServices`, and `processes` independently.
+The primary service and base services are always included. In a managed config,
+omitting an optional dimension means that dimension is not selected; therefore
+an app-only profile does not start optional infrastructure, and a capability-
+only profile can publish no route. `*` selects the complete registry for that
+dimension. Profiles without `managedRuntime` retain the app-only behavior.
+
+The effective managed configuration is an ignored, marker-owned sibling beside
+the source file. It changes only `runServices` and keeps relative paths resolved
+from the same directory. Warm profile transitions retain the exact DevPod and
+volumes, use no recreate or broad Compose down, and publish routes only after
+the selected service, process, and readiness proofs pass. Status and doctor
+expose desired, active, and drift state without environment values.
 
 ## HTTP, TCP, and TLS
 

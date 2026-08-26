@@ -25,6 +25,42 @@ When the repo serves **several apps from one `turbo dev`** (api/auth/web/…), k
 - **Dynamic service tokens** (Hatchet etc.): mint via a sidecar against the **same external DB** the engine server uses, and `exit 1` in post-create if the (boot-required) token never appears (#24).
 - **Framework env**: client/SSR API URLs need the **full endpoint path** (`…/api/graphql`), and set `NODE_ENV=development` for dev-mode backend behavior (#27).
 
+## Selective managed profiles
+
+Native Dev Container clients use the source configuration as the full
+environment. For `devrouter ensure`, register optional Compose capabilities and
+repository-owned process markers separately so unrelated work does not start:
+
+```yaml
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [litellm, mcp-server]
+  processes: [web, local-mcp]
+
+profiles:
+  ai:
+    apps: [web]
+    devcontainerServices: [litellm]
+    processes: [web]
+  mcp:
+    devcontainerServices: [mcp-server]
+    processes: [local-mcp]
+  full:
+    apps: ['*']
+    devcontainerServices: ['*']
+    processes: ['*']
+    default: true
+```
+
+The primary service and `baseServices` remain active. Managed profile
+dimensions are independent: a profile can be route-free, and omitted optional
+dimensions remain stopped. Select them with `devrouter ensure . --profile ai`
+or `--profile mcp`; use `full` when the entire registered environment is
+needed. Profile changes are warm and preserve the DevPod, volumes, and
+post-create state. Use `devrouter status` and `devrouter doctor` to inspect
+desired, active, and drift state.
+
 ## Workflow
 
 1. **Detect the stack** (read, don't assume):

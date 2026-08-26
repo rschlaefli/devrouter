@@ -123,8 +123,19 @@ if group_alive "$term_ignoring_pid"; then
 fi
 read -r managed_pid _ _ <"$state_file"
 
-stop_managed_for_test "$managed_pid"
+status_output="$($HELPER status --name "$name")"
+grep -Fq '{"name":"'"$name"'","status":"running"}' <<<"$status_output"
+"$HELPER" stop --name "$name" >/dev/null
 managed_pid=""
+stopped_status="$($HELPER status --name "$name" 2>/dev/null || true)"
+grep -Fq '{"name":"'"$name"'","status":"stopped"}' <<<"$stopped_status"
+
+printf '999999 999999 200-1\n' >"$state_file"
+if "$HELPER" status --name "$name" >"$test_dir/drifted-status.json" 2>/dev/null; then
+  echo "stale process state was incorrectly reported as healthy" >&2
+  exit 1
+fi
+grep -Fq '{"name":"'"$name"'","status":"drifted"}' "$test_dir/drifted-status.json"
 rm -f "$state_file"
 export WORKSPACE=workspace-a
 export DEVROUTER_WORKSPACE=workspace-a

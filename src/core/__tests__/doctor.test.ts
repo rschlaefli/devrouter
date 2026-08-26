@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RouterStatus } from "../../types";
+import type { ManagedRuntimeStatus, RouterStatus } from "../../types";
 import { buildDoctorReport } from "../doctor";
 import { collectRouterStatus } from "../status";
 import { getTLSHostCoverage } from "../tls";
@@ -153,6 +153,23 @@ function makeStatus(repoPath: string, tlsEnabled: boolean): RouterStatus {
       tcpRoutingReady: tlsEnabled,
       nextSteps: [],
     },
+  };
+}
+
+function makeManagedRuntimeStatus(
+  overrides: Partial<ManagedRuntimeStatus> = {},
+): ManagedRuntimeStatus {
+  return {
+    mode: "managed",
+    status: "ready",
+    profile: "ai",
+    desired: { apps: ["chat"], services: ["litellm"], processes: ["chat"] },
+    active: { apps: ["chat"], services: ["litellm"], processes: ["chat"] },
+    serviceStatuses: { litellm: "healthy" },
+    baseServiceStatuses: {},
+    processStatuses: { chat: "running" },
+    drift: [],
+    ...overrides,
   };
 }
 
@@ -415,5 +432,53 @@ apps: []
     expect(check?.summary).toContain("Installed CLI version is compatible");
 
     vi.unstubAllGlobals();
+  });
+
+  it("reports a ready managed runtime as an ok diagnostic", async () => {
+    writeRepoFiles({
+      composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust",
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue({
+      ...makeStatus(tmpDir, true),
+      repo: {
+        ...makeStatus(tmpDir, true).repo!,
+        managedRuntime: makeManagedRuntimeStatus(),
+      },
+    });
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const check = report.checks.find((entry) => entry.id === "repo.managed-runtime");
+
+    expect(check).toMatchObject({
+      level: "ok",
+      summary: "Managed runtime profile 'ai' is ready.",
+    });
+  });
+
+  it("reports failed transitions without suggesting an unsafe retry", async () => {
+    writeRepoFiles({
+      composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust",
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue({
+      ...makeStatus(tmpDir, true),
+      repo: {
+        ...makeStatus(tmpDir, true).repo!,
+        managedRuntime: makeManagedRuntimeStatus({
+          status: "failed-transition",
+          transitionPhase: "rollback",
+          drift: ["previous runtime could not be restored"],
+        }),
+      },
+    });
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const check = report.checks.find((entry) => entry.id === "repo.managed-runtime");
+
+    expect(check).toMatchObject({
+      level: "error",
+      summary: "Managed runtime profile 'ai' has a failed transition.",
+      details: "transitionPhase=rollback; previous runtime could not be restored",
+      suggestion: `Inspect: dev status --repo ${tmpDir}; resolve the reported drift before retrying ensure.`,
+    });
   });
 });
