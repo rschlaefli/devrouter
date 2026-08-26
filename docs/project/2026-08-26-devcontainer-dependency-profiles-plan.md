@@ -387,17 +387,26 @@
 
 ## Progress
 
-- Status: Reviewed, uncommitted plan; implementation has not started.
-- Active slice: Awaiting one-time approval before D0.
+- Status: Execution in progress; D0 and D1 are committed, and the local
+  release remains unpublished.
+- Active slice: D2, after the DevPod lifecycle seam passed.
 - Completed: Fresh worktree creation, first-party Dev Container and DevPod
   research, current devrouter contract inspection, Klicker dependency mapping,
-  and the required planning review.
-- Remaining: D0-D6, then the separately authorized publication gate.
+  the required planning review, and the installed DevPod characterization.
+- 2026-08-26 D1: `pnpm devpod:profile-smoke` passed with DevPod `v0.6.15`.
+  Cold selective startup omitted the optional Compose service. A running
+  workspace did not add it. Restarting the exact stopped workspace added it
+  without recreating the primary app container, rerunning `postCreate`, or
+  changing the owned volume set. A second exact workspace remained unchanged.
+  Both workspaces were stopped and named volumes were retained.
+- Remaining: D2-D6, then the separately authorized publication gate.
 - Latest verified base: `origin/main` at `308854e`; task branch was 0 ahead and
   0 behind when created.
-- Runtime: No runtime was started for planning.
+- Runtime: The D1 fixtures are stopped; their named volumes were not removed.
 - Active children: none.
 - Required delivery layer: locally committed, fully verified release candidate
   with exact test runtime stopped and status `release_pending`.
-- Achieved delivery layer: reviewed local plan only.
-- Next action: On approval, commit D0 and run the bounded D1 characterization.
+- Achieved delivery layer: reviewed plan, D0 plan commit, and D1
+  characterization commit.
+- Next action: Add and test the dependency-aware `managedRuntime` schema and
+  ADR in D2.
