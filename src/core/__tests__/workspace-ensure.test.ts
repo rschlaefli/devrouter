@@ -976,7 +976,7 @@ describe("workspaceEnsure", () => {
     );
   });
 
-  it("removes the generated candidate when no managed baseline exists", async () => {
+  it("restores the generated config to the observed first-transition baseline", async () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({
       config: managedRuntimeConfig(),
       workspace: "feature",
@@ -994,8 +994,13 @@ describe("workspaceEnsure", () => {
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
     ).rejects.toThrow("Candidate runtime was rolled back");
 
-    expect(removeManagedDevcontainerConfig).toHaveBeenCalledOnce();
-    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(removeManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledTimes(2);
+    expect(inspectManagedDevcontainerConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        profile: expect.objectContaining({ devcontainerServices: ["redis"] }),
+      }),
+    );
     expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "redis"]));
     expect(runtime.runningProcesses).toEqual(new Set(["app", "local-mcp"]));
     expect(startExactManagedServices).toHaveBeenLastCalledWith(
@@ -1004,6 +1009,79 @@ describe("workspaceEnsure", () => {
     expect(runManagedPostStart).toHaveBeenLastCalledWith(
       expect.objectContaining({ processes: ["app", "local-mcp"] }),
     );
+  });
+
+  it("keeps a cold failed DevPod stoppable with the empty baseline config", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    const runtime = mockManagedLifecycle({ curlStatus: 22 });
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    runtime.runningServices.clear();
+    runtime.runningProcesses.clear();
+    const delegate = vi.mocked(spawnSync).getMockImplementation();
+    vi.mocked(spawnSync).mockImplementation((command, args, options) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devpod" && argv[0] === "up") {
+        runtime.runningServices.add("app");
+        runtime.runningServices.add("postgres");
+        runtime.runningServices.add("litellm");
+        runtime.runningProcesses.add("app");
+      }
+      return delegate?.(command, args, options) as never;
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Candidate runtime was rolled back");
+
+    expect(removeManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledTimes(2);
+    expect(inspectManagedDevcontainerConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        profile: expect.objectContaining({ devcontainerServices: [] }),
+      }),
+    );
+    expect(runtime.runningServices).toEqual(new Set(["app", "postgres"]));
+    expect(runtime.runningProcesses).toEqual(new Set());
+  });
+
+  it("retains the candidate config when startup fails before the rollback boundary", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle();
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    const delegate = vi.mocked(spawnSync).getMockImplementation();
+    vi.mocked(spawnSync).mockImplementation((command, args, options) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "docker" && argv[0] === "inspect") {
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
+      return delegate?.(command, args, options) as never;
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed runtime transition did not reach a rollback boundary");
+
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    expect(removeManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(startExactManagedServices).not.toHaveBeenCalled();
   });
 
   it("reuses an exact primary DevPod without linked ownership metadata", async () => {
