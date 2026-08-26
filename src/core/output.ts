@@ -2,6 +2,7 @@ import type {
   DevrouterApp,
   DoctorReport,
   HostRouteState,
+  ManagedRuntimeStatus,
   Route,
   RouterStatus,
   SetupReport,
@@ -142,6 +143,9 @@ export function printStatus(status: RouterStatus): void {
       status.repo.valid ? "yes" : `no (${status.repo.error ?? "validation failed"})`,
     ]);
     rows.push(["Repo apps", String(status.repo.appCount)]);
+    if (status.repo.managedRuntime) {
+      appendManagedRuntimeRows(rows, status.repo.managedRuntime);
+    }
   }
 
   process.stdout.write(`${renderTable(["FIELD", "VALUE"], rows)}\n`);
@@ -152,6 +156,43 @@ export function printStatus(status: RouterStatus): void {
       process.stdout.write(`- ${step}\n`);
     }
   }
+}
+
+function formatResourceNames(values: string[]): string {
+  return values.join(", ") || "-";
+}
+
+function formatResourceStatuses(
+  values: Record<string, ManagedRuntimeStatus["serviceStatuses"][string]>,
+): string {
+  return (
+    Object.entries(values)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, resourceStatus]) => `${name}=${resourceStatus}`)
+      .join(", ") || "-"
+  );
+}
+
+function appendManagedRuntimeRows(rows: string[][], managedRuntime: ManagedRuntimeStatus): void {
+  rows.push(["Runtime mode", managedRuntime.mode]);
+  rows.push(["Runtime status", managedRuntime.status]);
+  rows.push(["Runtime profile", managedRuntime.profile]);
+  rows.push(["Active profile", managedRuntime.activeProfile ?? "-"]);
+  rows.push(["Runtime workspace", managedRuntime.workspace ?? "-"]);
+  rows.push(["Runtime DevPod", managedRuntime.devpodId ?? "-"]);
+  rows.push(["Runtime Compose project", managedRuntime.composeProject ?? "-"]);
+  rows.push(["Desired apps", formatResourceNames(managedRuntime.desired.apps)]);
+  rows.push(["Desired services", formatResourceNames(managedRuntime.desired.services)]);
+  rows.push(["Desired processes", formatResourceNames(managedRuntime.desired.processes)]);
+  rows.push(["Active apps", formatResourceNames(managedRuntime.active.apps)]);
+  rows.push(["Active services", formatResourceNames(managedRuntime.active.services)]);
+  rows.push(["Active processes", formatResourceNames(managedRuntime.active.processes)]);
+  rows.push(["Service statuses", formatResourceStatuses(managedRuntime.serviceStatuses)]);
+  rows.push(["Process statuses", formatResourceStatuses(managedRuntime.processStatuses)]);
+  rows.push(["Source config SHA-256", managedRuntime.sourceConfigSha256 ?? "-"]);
+  rows.push(["Effective config SHA-256", managedRuntime.effectiveConfigSha256 ?? "-"]);
+  rows.push(["Transition phase", managedRuntime.transitionPhase ?? "-"]);
+  rows.push(["Runtime drift", formatResourceNames(managedRuntime.drift)]);
 }
 
 export function printRoutes(routes: Route[], duplicateHosts: string[]): void {

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import type { RepoStatus, RouterStatus } from "../types";
 import { findContainerByName, getCurrentDockerContext, networkExists } from "./docker";
+import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { getRepoConfigPath, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import {
   areTLSCertsPresent,
@@ -48,7 +49,8 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
   }
 
   try {
-    const config = loadRuntimeConfig(resolvedRepoPath).config;
+    const runtime = loadRuntimeConfig(resolvedRepoPath);
+    const config = runtime.config;
     const tcpAppCount = config.apps.filter(
       (app) => app.kind !== "dependency" && app.protocol === "tcp",
     ).length;
@@ -59,6 +61,13 @@ function toRepoStatus(repoPath?: string): RepoStatus | undefined {
       valid: true,
       appCount: config.apps.length,
       tcpAppCount,
+      managedRuntime: collectManagedRuntimeStatus({
+        repoPath: resolvedRepoPath,
+        workspace: runtime.workspace,
+        config,
+        profile: runtime.profile,
+        resolvedProfile: runtime.resolvedProfile,
+      }),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

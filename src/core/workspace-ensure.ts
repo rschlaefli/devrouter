@@ -1,7 +1,12 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { DevrouterConfig, DevrouterProxyApp, HostRouteState } from "../types";
+import type {
+  DevrouterConfig,
+  DevrouterProxyApp,
+  HostRouteState,
+  ManagedRuntimeStatus,
+} from "../types";
 import {
   inspectManagedDevcontainerConfig,
   type ManagedDevcontainerPlan,
@@ -36,6 +41,7 @@ import {
   readManagedRuntimeState,
   writeManagedRuntimeState,
 } from "./managed-runtime-state";
+import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY } from "./router";
@@ -69,6 +75,7 @@ export type WorkspaceEnsureResult = {
   urls: string[];
   recreated: boolean;
   tlsRefreshed: boolean;
+  managedRuntime?: ManagedRuntimeStatus;
 };
 
 type EnvironmentTarget =
@@ -922,6 +929,15 @@ export async function workspaceEnsure(
           updatedAt: new Date().toISOString(),
         });
       }
+      const managedRuntimeStatus = managedPlan
+        ? collectManagedRuntimeStatus({
+            repoPath,
+            workspace: target.workspace,
+            config: runtime.config,
+            profile: runtime.profile,
+            resolvedProfile: runtime.resolvedProfile,
+          })
+        : undefined;
       return {
         kind: target.kind,
         repoPath,
@@ -931,6 +947,7 @@ export async function workspaceEnsure(
         urls,
         recreated,
         tlsRefreshed: publication.tlsRefreshed,
+        ...(managedRuntimeStatus ? { managedRuntime: managedRuntimeStatus } : {}),
       };
     } catch (error) {
       if (managedPlan && managedContainer && managedComposeProject) {

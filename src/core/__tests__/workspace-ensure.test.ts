@@ -68,6 +68,9 @@ vi.mock("../managed-runtime-state", () => ({
   writeManagedRuntimeState: vi.fn(),
   markManagedRuntimeDegraded: vi.fn(),
 }));
+vi.mock("../managed-runtime-status", () => ({
+  collectManagedRuntimeStatus: vi.fn(() => undefined),
+}));
 vi.mock("../docker", () => ({ ensureNetwork: vi.fn(async () => undefined) }));
 vi.mock("../repo-config", () => ({
   loadRuntimeConfig: vi.fn(),

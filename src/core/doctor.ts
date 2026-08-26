@@ -440,6 +440,50 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
         summary: `.devrouter.yml is valid (${repo.appCount} app(s)).`,
       });
 
+      if (repo.managedRuntime) {
+        const managedRuntime = repo.managedRuntime;
+        const level =
+          managedRuntime.mode === "legacy" || managedRuntime.status === "ready"
+            ? "ok"
+            : managedRuntime.status === "starting" || managedRuntime.status === "stopped"
+              ? "warn"
+              : "error";
+        const summary =
+          managedRuntime.mode === "legacy"
+            ? "Legacy runtime contract is active."
+            : managedRuntime.status === "ready"
+              ? `Managed runtime profile '${managedRuntime.profile}' is ready.`
+              : managedRuntime.status === "starting"
+                ? `Managed runtime profile '${managedRuntime.profile}' is starting.`
+                : managedRuntime.status === "stopped"
+                  ? `Managed runtime profile '${managedRuntime.profile}' is stopped.`
+                  : managedRuntime.status === "failed-transition"
+                    ? `Managed runtime profile '${managedRuntime.profile}' has a failed transition.`
+                    : `Managed runtime profile '${managedRuntime.profile}' has runtime drift.`;
+        const details = [
+          managedRuntime.transitionPhase
+            ? `transitionPhase=${managedRuntime.transitionPhase}`
+            : undefined,
+          ...managedRuntime.drift,
+        ]
+          .filter((detail): detail is string => Boolean(detail))
+          .join("; ");
+        addCheck(checks, {
+          id: "repo.managed-runtime",
+          level,
+          summary,
+          ...(details ? { details } : {}),
+          suggestion:
+            managedRuntime.mode === "legacy"
+              ? undefined
+              : managedRuntime.status === "failed-transition"
+                ? `Inspect: dev status --repo ${repo.path}; resolve the reported drift before retrying ensure.`
+                : managedRuntime.status === "ready"
+                  ? undefined
+                  : `Run: dev ensure ${repo.path}`,
+        });
+      }
+
       if (repo.appCount === 0) {
         addCheck(checks, {
           id: "repo.apps",

@@ -39,7 +39,44 @@ export type RepoStatus = {
   valid: boolean;
   appCount: number;
   tcpAppCount: number;
+  managedRuntime?: ManagedRuntimeStatus;
   error?: string;
+};
+
+export type ManagedRuntimeResourceStatus =
+  | "running"
+  | "healthy"
+  | "stopped"
+  | "starting"
+  | "unhealthy"
+  | "missing"
+  | "foreign"
+  | "drifted";
+
+export type ManagedRuntimeStatus = {
+  mode: "legacy" | "managed";
+  status: "legacy" | "ready" | "starting" | "stopped" | "drifted" | "failed-transition";
+  profile: string;
+  activeProfile?: string;
+  workspace?: string;
+  devpodId?: string;
+  composeProject?: string;
+  desired: {
+    apps: string[];
+    services: string[];
+    processes: string[];
+  };
+  active: {
+    apps: string[];
+    services: string[];
+    processes: string[];
+  };
+  serviceStatuses: Record<string, ManagedRuntimeResourceStatus>;
+  processStatuses: Record<string, ManagedRuntimeResourceStatus>;
+  drift: string[];
+  sourceConfigSha256?: string;
+  effectiveConfigSha256?: string;
+  transitionPhase?: string;
 };
 
 export type RouterInsights = {
