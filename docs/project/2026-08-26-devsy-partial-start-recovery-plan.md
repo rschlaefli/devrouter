@@ -152,6 +152,13 @@ agent binary is unavailable, any required check fails, canonical stop cannot
 prove `Stopped`, or exact routes remain. Do not retry with another provider
 mutation, delete the runtime, switch providers, merge, or publish the package.
 
+## Approved plan exception
+
+On `2026-08-27` the user approved opening the draft PR as an evidence-gathering
+artifact while the two live smoke gaps remain. The draft PR must state both
+gaps and remain blocked from merge. Merge, publication, runtime deletion, and
+fixture deletion stay withheld.
+
 ## Progress
 
 - `2026-08-26`: Fetched `origin`; the task worktree is clean at exact
@@ -191,3 +198,7 @@ mutation, delete the runtime, switch providers, merge, or publish the package.
   `devrouter stop` returned `stopped: true` and `freedRoutes: 0`; provider
   status is `NotFound`, which proves no runtime exists, and the exact route set
   remains empty. The fixture and registration remain for inspection.
+- `2026-08-27`: The integrated final review returned `BLOCKED` by the
+  accepted-plan verification gate with no verified implementation defect. The
+  user approved the plan exception above, authorizing the draft PR as an
+  evidence-gathering artifact.
