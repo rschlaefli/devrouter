@@ -223,4 +223,13 @@ fixture deletion stay withheld.
   absent. TDD regressions now cover the observed Devsy path and reject a
   similarly named provider directory; the minimal allowlist fix passes the
   full 719-test suite, Biome, typecheck, build, package smoke, and diff checks.
-  A second live retry remains pending.
+  At this checkpoint, a second live retry remained pending.
+- `2026-08-28`: The retained fixture passed fixed-head ensure on `9b74456`
+  without recreation. Devsy reported the managed runtime ready, both apps
+  active, Postgres healthy, the managed process running, and zero drift. The
+  HTTP route returned `200`; a libpq 18 direct-SSL query through the namespaced
+  Postgres route returned `1`. Ordinary SSL negotiation timed out as documented
+  for SNI routing and was not counted as product evidence. Canonical
+  `devrouter stop` returned `stopped: true` and `freedRoutes: 2`; Devsy now
+  reports `Stopped` and both exact routes are absent. Integrated final review
+  is the remaining pre-merge gate.
