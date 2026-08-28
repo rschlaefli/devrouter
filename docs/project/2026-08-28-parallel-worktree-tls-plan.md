@@ -13,7 +13,7 @@
 - Authority: The user approved this Devrouter improvement, repository edits,
   local commits, validation, push, pull request, merge, and release when exact
   head review and CI are green.
-- Terminal: A released Devrouter version serializes certificate inspection and
+- Terminal: Released Devrouter `0.0.44` serializes certificate inspection and
   refresh; the published artifact passes package smoke; two concurrent real
   refresh processes preserve both hosts; Klicker provider worktrees can run in
   parallel without replacing TLS coverage.
@@ -29,6 +29,7 @@
 - Worktree: `trees/parallel-worktree-tls`
 - Target: `main`
 - Base: released `0.0.43` at `118a8e4`
+- Release candidate: `0.0.44`
 - Pull request: not created
 
 ## Findings
@@ -73,4 +74,5 @@
   missing-file inspection sat outside the lock, and the in-process concurrency
   test did not prove cross-process serialization. All three are corrected.
 - Current: correction diff passes focused 17-test TLS suite and a real
-  cross-process lock test. Full validation and release remain.
+  cross-process lock test. Full validation passes with 65 files and 738 tests;
+  release metadata and final review remain.
