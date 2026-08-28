@@ -161,6 +161,11 @@
   knowledge validation, Knip, typecheck, all 754 tests, build, package smoke,
   and diff checks. Linux-only process tests remain skipped on macOS because
   `/proc` is unavailable.
-- Current state: active. S3 release metadata and corrected full gates are
-  complete; repeat integrated final review remains. Release publication and
-  downstream repin remain withheld pending that gate.
+- `2026-08-29`: Repeat integrated final review passed exact behavioral head
+  `591ac77` with no actionable P0-P3 findings. It confirmed both prior blockers,
+  provider-safe ordering, backward compatibility, and coherent `0.0.45`
+  release metadata.
+- Current state: complete through the prepared pull request boundary. Push and
+  PR creation are next under the approved plan. Merge, publication,
+  installation, downstream repin, and live mixed-provider acceptance remain
+  withheld.
