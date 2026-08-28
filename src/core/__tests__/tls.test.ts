@@ -25,6 +25,10 @@ describe("isHostCoveredByCertificateHost", () => {
     expect(isHostCoveredByCertificateHost("demo.localhost", "*.localhost")).toBe(false);
   });
 
+  it("recognizes an exact wildcard SAN entry", () => {
+    expect(isHostCoveredByCertificateHost("*.localhost", "*.localhost")).toBe(true);
+  });
+
   it("matches single-label wildcard hosts for ordinary domains", () => {
     expect(isHostCoveredByCertificateHost("demo.example.test", "*.example.test")).toBe(true);
   });

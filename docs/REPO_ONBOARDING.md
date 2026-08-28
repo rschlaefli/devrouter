@@ -262,6 +262,8 @@ Plain libpq `sslmode=require` sends a plaintext negotiation preamble first and
 cannot select the hostname-specific Traefik route. `devrouter open <name>` prints
 protocol-specific connection guidance. Multi-segment and workspace hosts receive
 exact certificate SANs when `app run`, `app exec`, or `ensure` refreshes TLS.
+Certificate refreshes are machine-serialized and preserve existing SANs, so
+parallel worktrees cannot replace one another's routed host coverage.
 
 ## Parallel worktrees
 

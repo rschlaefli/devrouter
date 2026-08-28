@@ -6,6 +6,7 @@ owner: repository maintainers
 status: active
 source_paths:
   - src/core/router.ts
+  - src/core/tls.ts
   - src/core/repo-config.ts
   - src/core/workspace*.ts
   - src/core/devpod*.ts
@@ -34,7 +35,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 | Effective managed Dev Container configuration | Devrouter runtime file under the consumer `.devcontainer/` | Generate the ignored, marker-owned sibling from the source configuration; pass it to DevPod before startup and never commit it. |
 | Application startup command | Consumer repository adapter | Supply the runtime helper, then invoke the captured adapter through `src/core/managed-post-start.ts:runManagedPostStart`. |
 | Last successful managed runtime state | Devrouter local managed-runtime state | Persist only exact identity, profile/resource sets, fingerprints, and transition status; never persist environment values or credentials. |
-| Shared router files and locks | Devrouter | Keep global artifacts under `src/core/router.ts:DEVROUTER_HOME`. |
+| Shared router files and locks | Devrouter | Keep global artifacts under `src/core/router.ts:DEVROUTER_HOME`; serialize TLS certificate inspection and refresh before publishing namespaced routes. |
 | Published route generation | Traefik dynamic file | Write metadata and rendered routes as one canonical artifact through `src/core/host-routes.ts:writeRouteGeneration`. |
 
 ## Invariants and rationale
@@ -43,6 +44,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 - Consumer images contain no devrouter installation or version pin. [ADR 0002](../adr/0002-keep-devrouter-out-of-consumer-images.md) owns the boundary.
 - Repository lifecycle locks remain outer; workspace runtime provider mutation is serialized machine-wide and revalidated inside that boundary. [ADR 0003](../adr/0003-serialize-devpod-provider-mutations.md) owns the ordering.
 - The Traefik dynamic file is canonical for one route generation; JSON is a compatibility mirror. [ADR 0004](../adr/0004-single-artifact-route-state.md) owns recovery behavior.
+- The shared TLS certificate is a machine-global read-modify-write transaction. Every refresh merges the SANs already present under one lock, verifies the generated certificate, and retries once before failing closed, so concurrent worktrees cannot drop each other's hosts.
 - Managed profile dimensions are independent. The primary service and declared base services remain active, while optional services, managed processes, and routes are selected only by the resolved profile. [ADR 0005](../adr/0005-dependency-aware-devcontainer-profiles.md) owns this boundary.
 - The committed `.devrouter.yml` remains the only supported per-repository Devrouter configuration. Runtime namespacing is an in-memory view produced by `src/core/repo-config.ts:applyWorkspace`.
 
