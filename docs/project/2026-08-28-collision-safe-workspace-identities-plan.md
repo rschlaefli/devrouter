@@ -133,5 +133,14 @@
 - `2026-08-28`: Sol/xhigh planning continuity approved the repository-local
   transaction design with corrections for both-provider reconciliation,
   residue-safe ordering, `workspace up`, cross-process proof, and no migration.
-- Current state: active. S1 is next. Release publication and downstream repin
-  remain withheld pending explicit approval.
+- `2026-08-28`: S1 and S2 landed together in `7d60f03` because identity
+  reservation and repository-level worktree-path allocation share one
+  transaction boundary. The focused suite passed 119 tests, including a real
+  two-process collision case over one Git common directory.
+- `2026-08-28`: Repository verification passed Biome, docs policy, knowledge
+  validation, Knip, typecheck, all 752 tests, build, package smoke, Gitleaks,
+  and staged/diff checks. Linux-only process tests skipped on macOS because
+  `/proc` is unavailable.
+- Current state: active. S3 release metadata is prepared; simplification and
+  ownership/lifecycle reviews are running. Release publication and downstream
+  repin remain withheld pending those gates.

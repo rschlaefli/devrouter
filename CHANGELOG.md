@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.45] - 2026-08-28
+
+### Fixed
+
+- New linked worktrees now reconcile persisted checkout metadata, repository
+  ownership, and both DevPod and Devsy registries before claiming an identity.
+  The existing readable identity remains unchanged when free; colliding long
+  branch prefixes receive deterministic hash-suffixed identities before any
+  provider or route mutation.
+- `devrouter workspace up` now avoids a default worktree path already claimed
+  by another branch while preserving explicit paths and established workspace
+  identities. Unreadable or conflicting ownership evidence fails closed.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.45.md
+
 ## [0.0.44] - 2026-08-28
 
 ### Fixed
