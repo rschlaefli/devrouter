@@ -207,3 +207,10 @@ fixture deletion stay withheld.
   PostgreSQL TLS routing. Its scoped processes stopped, no duplicate hosts
   remain, and only the expected exited Docker-label routes remain. Successful
   Devsy cold startup is now the sole live verification blocker.
+- `2026-08-28`: An isolated Compose probe reproduced the remaining error
+  without mutating a workspace. Devsy's temporary `DOCKER_CONFIG` hides the
+  OrbStack plugins under `~/.docker/cli-plugins`; the pinned verification
+  `PATH` also omitted `/usr/local/bin`, so Devsy could not reach OrbStack's
+  standalone `docker-compose` fallback. Restoring `/usr/local/bin` made that
+  fallback report Compose `5.1.2`. One corrected cold-start run remains needed
+  to confirm this configuration diagnosis end to end.
