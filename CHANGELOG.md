@@ -13,9 +13,9 @@ All notable changes to this project are documented in this file.
   The existing readable identity remains unchanged when free; colliding long
   branch prefixes receive deterministic hash-suffixed identities before any
   provider or route mutation.
-- `devrouter workspace up` now avoids a default worktree path already claimed
-  by another branch while preserving explicit paths and established workspace
-  identities. Unreadable or conflicting ownership evidence fails closed.
+- `devrouter workspace up` now avoids an occupied default worktree path while
+  preserving explicit paths and established workspace identities. Unreadable
+  or conflicting ownership evidence fails closed.
 
 ### Agent Adaptation Prompt
 

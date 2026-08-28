@@ -808,6 +808,37 @@ ${occupiedLegacyPath}`,
     });
   });
 
+  it("chooses the deterministic fallback path for an unregistered legacy directory", async () => {
+    vi.spyOn(fs, "existsSync").mockImplementation(
+      (candidate) => String(candidate) === "/main/repo/trees/feat-a",
+    );
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+      const argv = (args as string[]) ?? [];
+      calls.push({ cmd: cmd as string, args: argv });
+      if (cmd === "git" && argv.includes("list")) {
+        return {
+          status: 0,
+          stdout: `worktree /main/repo
+HEAD abc
+branch refs/heads/main
+
+`,
+        } as never;
+      }
+      return { status: 0, stdout: "" } as never;
+    });
+
+    await workspaceUp("feat/a", {});
+
+    const add = calls.find((call) => call.args.includes("worktree") && call.args.includes("add"));
+    const fallback = workspaceIdentityCandidates("feat/a")[1];
+    expect(add?.args).toContain(`/main/repo/trees/${fallback}`);
+    expect(workspaceEnsure).toHaveBeenCalledWith(`/main/repo/trees/${fallback}`, {
+      open: undefined,
+    });
+  });
+
   it("reuses an existing exact branch worktree at a custom path", async () => {
     vi.spyOn(fs, "existsSync").mockImplementation(
       (candidate) => String(candidate) === "/custom/feature",
@@ -887,7 +918,9 @@ ${occupiedLegacyPath}`,
   });
 
   it("makes --no-devpod create-only and never registers routes", async () => {
-    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    vi.spyOn(fs, "existsSync").mockImplementation(
+      (candidate) => String(candidate) === "/main/repo/trees/feat-a",
+    );
     vi.mocked(spawnSync).mockImplementation(() => {
       return { status: 0, stdout: "" } as never;
     });
@@ -895,5 +928,12 @@ ${occupiedLegacyPath}`,
     await workspaceUp("feat/a", { noDevpod: true });
 
     expect(workspaceEnsure).not.toHaveBeenCalled();
+    const output = (stdoutSpy.mock.calls as Array<[unknown]>)
+      .map(([chunk]) => String(chunk))
+      .join("");
+    expect(output).toContain(
+      `Created worktree /main/repo/trees/${workspaceIdentityCandidates("feat/a")[1]}\n`,
+    );
+    expect(output).not.toContain("(workspace 'feat-a')");
   });
 });

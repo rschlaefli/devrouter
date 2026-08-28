@@ -54,7 +54,8 @@ permits first-transition cleanup.
 
 `src/core/workspace-lifecycle.ts:workspaceUp` creates or reuses a Git worktree,
 choosing a deterministic non-conflicting default path when two long branch
-names truncate to the same readable token, then delegates startup to
+names truncate to the same readable token or an unregistered directory already
+occupies that path, then delegates startup to
 `workspaceEnsure`. `--no-devpod` is create-only and publishes no routes; its
 provisional identity is reconciled on the first managed `ensure`.
 

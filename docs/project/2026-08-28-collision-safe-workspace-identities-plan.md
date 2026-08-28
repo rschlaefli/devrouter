@@ -55,8 +55,8 @@
   matching record. A crash after ledger creation recovers from the exact-path
   ledger record on the next run.
 - `workspace up` also chooses a deterministic non-conflicting default path when
-  the legacy path belongs to another branch. `--no-devpod` remains provider-free
-  and may retain a provisional branch/path identity until first `ensure`.
+  the legacy path is occupied. `--no-devpod` remains provider-free and may
+  retain a provisional branch/path identity until first `ensure`.
 - Provider mutation, generated managed config, services, processes, and routes
   begin only after the claim is complete. Stop, cleanup, GC, route attribution,
   and the ownership schema remain unchanged.
@@ -141,6 +141,14 @@
   validation, Knip, typecheck, all 752 tests, build, package smoke, Gitleaks,
   and staged/diff checks. Linux-only process tests skipped on macOS because
   `/proc` is unavailable.
-- Current state: active. S3 release metadata is prepared; simplification and
-  ownership/lifecycle reviews are running. Release publication and downstream
-  repin remain withheld pending those gates.
+- `2026-08-28`: The simplification gate found no warranted reduction. The
+  ownership/lifecycle review found two local `workspace up` issues: an
+  unregistered legacy directory did not fall through to a candidate path, and
+  create-only output reported the legacy token after fallback. Both are fixed
+  with focused regressions. Its provider-snapshot race applies only across
+  repository-local ledgers or unsupported raw-provider mutation; same-repository
+  claims re-read the shared ledger under lock. A machine-global cross-repository
+  allocator remains outside this plan and re-arms the ADR gate.
+- Current state: active. S3 release metadata is prepared; corrected full gates
+  and integrated final review remain. Release publication and downstream repin
+  remain withheld pending those gates.

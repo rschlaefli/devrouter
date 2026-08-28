@@ -273,18 +273,11 @@ export async function workspaceUp(
     const candidatePaths = workspaceIdentityCandidates(branch).map((candidate) =>
       defaultWorktreePath(mainRepo, candidate),
     );
-    const legacyPath = candidatePaths[0];
-    const legacyRegistered = worktrees.some((worktree) =>
-      sameWorkspacePath(worktree.path, legacyPath),
+    const generatedPath = candidatePaths.find(
+      (candidate) =>
+        !fs.existsSync(candidate) &&
+        !worktrees.some((worktree) => sameWorkspacePath(worktree.path, candidate)),
     );
-    const generatedPath =
-      fs.existsSync(legacyPath) && !legacyRegistered
-        ? legacyPath
-        : candidatePaths.find(
-            (candidate) =>
-              !fs.existsSync(candidate) &&
-              !worktrees.some((worktree) => sameWorkspacePath(worktree.path, candidate)),
-          );
     const selectedPath = opts.path
       ? path.resolve(opts.path)
       : (existingBranch?.path ?? generatedPath);
@@ -333,7 +326,7 @@ export async function workspaceUp(
         throw new Error(`git worktree add failed: ${detail || "unknown error"}`);
       }
     }
-    process.stdout.write(`Created worktree ${selectedPath} (workspace '${ws}')\n`);
+    process.stdout.write(`Created worktree ${selectedPath}\n`);
     return selectedPath;
   });
 
