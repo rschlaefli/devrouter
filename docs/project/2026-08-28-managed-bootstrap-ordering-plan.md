@@ -281,15 +281,22 @@
   lifecycle slice reviewer requested values-free unsupported-value diagnostics
   and explicit cold marker-failure rollback proof; both corrections are
   implemented and verified for the correction commit.
+- `2026-08-28`: Characterization proved the prior `YAML.parse` path is not a
+  valid JSONC parser. Representative `//` and `/* */` comments were accepted as
+  mapping-key text rather than comments, so a valid commented source could hide
+  `waitFor` from lifecycle validation. `jsonc-parser@3.3.1` is therefore the
+  approved narrow exception: it parses the actual source format strictly and
+  reports malformed input without rewriting it.
 - `2026-08-28`: D2 implementation is complete. Managed scaffolds, bundled
   guidance, examples, version pins, changelog, and the `0.0.43` adaptation
   prompt now encode the safe wait contract. Focused tests (16), full tests
   (730), typecheck, Knip, build, docs policy, knowledge checks, Biome, and diff
-  checks pass; package inspection and the D2 simplifier follow on the committed
-  slice.
-- Current state: `active`. Completed slices: D0-D1. Active: D2 commit and
-  review. Remaining: D3. Latest evidence: the branch contains committed D0 and
-  D1 plus the verified D2 implementation for `0.0.43`; no provider runtime is
-  active for this package. Required delivery: published `0.0.43`; achieved
-  delivery: reviewed plan, committed lifecycle gate, and aligned release
-  candidate.
+  checks pass. Package smoke and independent tarball readback prove
+  `@devrouter/cli@0.0.43`, `dist/devrouter.js`, and the `0.0.43` adaptation
+  prompt with no source, test, environment, credential, or temporary members.
+  The D2 simplifier returned no threshold findings.
+- Current state: `active`. Completed slices: D0-D2. Active: D3 final-review
+  correction on exact range `4abbfc9..47716da`. Remaining: push, PR, exact-head
+  CI, merge, release, and registry readback. No provider runtime is active for
+  this package. Required delivery: published `0.0.43`; achieved delivery:
+  reviewed implementation and inspected release candidate.
