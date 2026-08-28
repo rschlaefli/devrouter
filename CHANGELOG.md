@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.44] - 2026-08-28
+
+### Fixed
+
+- Shared TLS certificate inspection and refresh are now one machine-global
+  read-modify-write transaction. Concurrent worktrees preserve one another's
+  routed host coverage. Routine refresh fails closed when an existing or newly
+  generated certificate cannot prove the full desired host set; explicit
+  setup/install replaces a malformed generated certificate under the same lock.
+- Historical sibling workspace hosts are compacted into valid multi-label
+  wildcard SANs. Exact one-label `.localhost` hosts remain explicit because
+  OpenSSL clients do not accept `*.localhost` as their coverage.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.44.md
+
 ## [0.0.43] - 2026-08-28
 
 ### Fixed

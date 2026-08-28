@@ -261,7 +261,15 @@ psql "host=db.localhost port=5432 dbname=app user=app \
 Plain libpq `sslmode=require` sends a plaintext negotiation preamble first and
 cannot select the hostname-specific Traefik route. `devrouter open <name>` prints
 protocol-specific connection guidance. Multi-segment and workspace hosts receive
-exact certificate SANs when `app run`, `app exec`, or `ensure` refreshes TLS.
+certificate coverage when `app run`, `app exec`, or `ensure` refreshes TLS.
+Certificate refreshes are machine-serialized and preserve existing coverage, so
+parallel worktrees cannot replace one another's routed hosts. Sibling hosts with
+the same multi-label suffix share one valid wildcard SAN, preventing historical
+worktrees from growing the machine certificate by one entry per app.
+Routine refresh fails closed if the generated certificate is malformed. The
+explicit repository-scoped `devrouter setup --repo . --yes` recovery replaces
+that generated certificate under the same lock; manual certificate or lock
+deletion is not required.
 
 ## Parallel worktrees
 

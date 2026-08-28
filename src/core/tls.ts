@@ -3,10 +3,12 @@ import { X509Certificate } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { findContainerByName, isContainerRunning } from "./docker";
+import { withFileLockSync } from "./file-lock";
 import { refreshHostRoutesDynamicFile } from "./host-routes";
 import {
   CERT_FILE,
   CERT_KEY_FILE,
+  DEVROUTER_HOME,
   ensureRouterFiles,
   isTLSEnabled,
   setTLSEnabled,
@@ -14,6 +16,9 @@ import {
 } from "./router";
 
 export const DEFAULT_TLS_CERT_HOSTS = ["localhost", "*.localhost"] as const;
+const TLS_CERTIFICATE_LOCK_FILE = path.join(DEVROUTER_HOME, "tls-certificate.lock");
+const TLS_CERTIFICATE_LOCK_WAIT_MS = 60_000;
+const TLS_CERTIFICATE_WRITE_ATTEMPTS = 2;
 
 function runOrThrow(command: string, args: string[]): string {
   const result = spawnSync(command, args, {
@@ -102,6 +107,10 @@ export function isHostCoveredByCertificateHost(host: string, certificateHost: st
   const normalizedHost = normalizeHost(host);
   const normalizedCertificateHost = normalizeHost(certificateHost);
 
+  if (normalizedHost === normalizedCertificateHost) {
+    return true;
+  }
+
   if (normalizedCertificateHost.startsWith("*.")) {
     // OpenSSL-backed clients do not accept a wildcard directly beneath the
     // special-use .localhost suffix, so those hosts need explicit SANs.
@@ -118,7 +127,7 @@ export function isHostCoveredByCertificateHost(host: string, certificateHost: st
     return wildcardPart.length > 0 && !wildcardPart.includes(".");
   }
 
-  return normalizedHost === normalizedCertificateHost;
+  return false;
 }
 
 export function findUncoveredCertificateHosts(
@@ -136,20 +145,59 @@ export function findUncoveredCertificateHosts(
   );
 }
 
-function readCurrentCertificateHosts(): string[] {
+export function compactTLSCertificateHosts(hosts: string[]): string[] {
+  const normalizedHosts = normalizeUniqueHosts(hosts);
+  const wildcardHosts = new Set(normalizedHosts.filter((host) => host.startsWith("*.")));
+  const siblingGroups = new Map<string, string[]>();
+  const compacted = new Set(wildcardHosts);
+
+  for (const host of normalizedHosts) {
+    if (host.startsWith("*.")) {
+      continue;
+    }
+
+    const labels = host.split(".");
+    if (labels.length < 3 || labels.at(-1) !== "localhost") {
+      compacted.add(host);
+      continue;
+    }
+
+    const suffix = labels.slice(1).join(".");
+    const siblings = siblingGroups.get(suffix) ?? [];
+    siblings.push(host);
+    siblingGroups.set(suffix, siblings);
+  }
+
+  for (const [suffix, siblings] of siblingGroups) {
+    const wildcard = `*.${suffix}`;
+    if (siblings.length > 1 || wildcardHosts.has(wildcard)) {
+      compacted.add(wildcard);
+      continue;
+    }
+    compacted.add(siblings[0]);
+  }
+
+  const selectedWildcards = Array.from(compacted).filter((host) => host.startsWith("*."));
+  return normalizeUniqueHosts(Array.from(compacted)).filter(
+    (host) =>
+      host.startsWith("*.") ||
+      !selectedWildcards.some((wildcard) => isHostCoveredByCertificateHost(host, wildcard)),
+  );
+}
+
+function readCurrentCertificateHosts(options: { replaceMalformed?: boolean } = {}): string[] {
   if (!fs.existsSync(CERT_FILE)) {
     return [];
   }
 
-  const pem = fs.readFileSync(CERT_FILE, "utf-8");
-  return parseCertificateDnsHosts(pem);
-}
-
-function currentCertificateHostsOrEmpty(): string[] {
   try {
-    return readCurrentCertificateHosts();
-  } catch {
-    return [];
+    const pem = fs.readFileSync(CERT_FILE, "utf-8");
+    return parseCertificateDnsHosts(pem);
+  } catch (error) {
+    if (options.replaceMalformed) {
+      return [];
+    }
+    throw error;
   }
 }
 
@@ -157,7 +205,7 @@ export function buildDesiredTLSCertificateHosts(
   requestedHosts: string[],
   existingCertificateHosts: string[],
 ): string[] {
-  return normalizeUniqueHosts([
+  return compactTLSCertificateHosts([
     ...DEFAULT_TLS_CERT_HOSTS,
     ...existingCertificateHosts,
     ...requestedHosts,
@@ -170,14 +218,20 @@ export function getTLSHostCoverage(hosts: string[]): {
   uncoveredHosts: string[];
 } {
   const requiredHosts = normalizeUniqueHosts([...DEFAULT_TLS_CERT_HOSTS, ...hosts]);
-  const certificateHosts = readCurrentCertificateHosts();
-  const uncoveredHosts = findUncoveredCertificateHosts(requiredHosts, certificateHosts);
+  return withFileLockSync(
+    TLS_CERTIFICATE_LOCK_FILE,
+    { activity: "TLS certificate inspection", waitMs: TLS_CERTIFICATE_LOCK_WAIT_MS },
+    () => {
+      const certificateHosts = readCurrentCertificateHosts();
+      const uncoveredHosts = findUncoveredCertificateHosts(requiredHosts, certificateHosts);
 
-  return {
-    requiredHosts,
-    certificateHosts,
-    uncoveredHosts,
-  };
+      return {
+        requiredHosts,
+        certificateHosts,
+        uncoveredHosts,
+      };
+    },
+  );
 }
 
 async function applyTLSCertificate(
@@ -185,29 +239,72 @@ async function applyTLSCertificate(
   installTrust: boolean,
 ): Promise<{ alreadyEnabled: boolean; hosts: string[] }> {
   ensureRouterFiles();
-  const alreadyEnabled = isTLSEnabled();
-  const desiredHosts = buildDesiredTLSCertificateHosts(
-    options.hosts ?? [],
-    currentCertificateHostsOrEmpty(),
+  const result = withFileLockSync(
+    TLS_CERTIFICATE_LOCK_FILE,
+    {
+      activity: "TLS certificate refresh",
+      target: options.repoPath,
+      waitMs: TLS_CERTIFICATE_LOCK_WAIT_MS,
+    },
+    () => {
+      const alreadyEnabled = isTLSEnabled();
+
+      if (installTrust) {
+        ensureMkcert();
+        runOrThrow("mkcert", ["-install"]);
+      } else {
+        getMkcertRootCAPath({ repoPath: options.repoPath });
+      }
+
+      // Routine refresh must preserve readable existing coverage and fail
+      // closed when it cannot. Explicit install/setup is the recovery path: it
+      // replaces a malformed generated certificate while still holding the
+      // same machine-global lock.
+      const existingCertificateHosts = readCurrentCertificateHosts({
+        replaceMalformed: installTrust,
+      });
+      const desiredHosts = buildDesiredTLSCertificateHosts(
+        options.hosts ?? [],
+        existingCertificateHosts,
+      );
+      let certificateHosts: string[] = [];
+      let uncoveredHosts: string[] = [];
+
+      for (let attempt = 1; attempt <= TLS_CERTIFICATE_WRITE_ATTEMPTS; attempt += 1) {
+        runOrThrow("mkcert", [
+          "-cert-file",
+          CERT_FILE,
+          "-key-file",
+          CERT_KEY_FILE,
+          ...desiredHosts,
+        ]);
+
+        certificateHosts = readCurrentCertificateHosts();
+        uncoveredHosts = findUncoveredCertificateHosts(desiredHosts, certificateHosts);
+        if (uncoveredHosts.length === 0) {
+          break;
+        }
+      }
+
+      if (uncoveredHosts.length > 0) {
+        throw new Error(
+          `mkcert did not produce certificate coverage for host(s): ${uncoveredHosts.join(", ")} after ${TLS_CERTIFICATE_WRITE_ATTEMPTS} attempts`,
+        );
+      }
+
+      setTLSEnabled(true);
+      refreshHostRoutesDynamicFile();
+
+      return { alreadyEnabled, hosts: certificateHosts };
+    },
   );
-
-  if (installTrust) {
-    ensureMkcert();
-    runOrThrow("mkcert", ["-install"]);
-  } else {
-    getMkcertRootCAPath({ repoPath: options.repoPath });
-  }
-  runOrThrow("mkcert", ["-cert-file", CERT_FILE, "-key-file", CERT_KEY_FILE, ...desiredHosts]);
-
-  setTLSEnabled(true);
-  refreshHostRoutesDynamicFile();
 
   const routerContainer = await findContainerByName("devrouter-traefik");
   if (routerContainer && (await isContainerRunning("devrouter-traefik"))) {
     startRouterStack();
   }
 
-  return { alreadyEnabled, hosts: desiredHosts };
+  return result;
 }
 
 export async function installTLS(

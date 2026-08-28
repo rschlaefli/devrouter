@@ -4,6 +4,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Parallel worktree TLS serialization](./2026-08-28-parallel-worktree-tls-plan.md) — serialize shared certificate refresh and compact historical workspace SAN coverage.
 - [Devsy partial-start recovery](./2026-08-26-pr-40-devsy-partial-start-recovery-plan.md) — keep failed cold Devsy starts canonically stoppable and prepare the 0.0.42 release in [PR #40](https://github.com/rschlaefli/devrouter/pull/40).
 - [Dependency-aware devcontainer profiles](./2026-08-26-devcontainer-dependency-profiles-plan.md) — managed app/service/process profile dimensions for devcontainer 0.0.39.
 - [HTTP readiness leaf pin](./2026-08-21-http-readiness-leaf-pin-plan.md) — repair the macOS TLS readiness probe without changing lifecycle contracts.
