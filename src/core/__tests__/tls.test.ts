@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDesiredTLSCertificateHosts,
+  compactTLSCertificateHosts,
   findUncoveredCertificateHosts,
   isHostCoveredByCertificateHost,
   parseDnsHostsFromSubjectAltName,
@@ -52,17 +53,48 @@ describe("findUncoveredCertificateHosts", () => {
 });
 
 describe("buildDesiredTLSCertificateHosts", () => {
-  it("keeps defaults, preserves existing explicit SANs, and adds requested hosts", () => {
+  it("keeps defaults and preserves existing and requested host coverage", () => {
     const hosts = buildDesiredTLSCertificateHosts(
       ["new.deep.localhost", "localhost"],
       ["existing.deep.localhost", "*.localhost"],
     );
 
+    expect(hosts).toEqual(["*.deep.localhost", "*.localhost", "localhost"]);
+    expect(
+      findUncoveredCertificateHosts(
+        ["existing.deep.localhost", "new.deep.localhost", "localhost"],
+        hosts,
+      ),
+    ).toEqual([]);
+  });
+
+  it("compacts sibling workspace hosts without using the invalid localhost wildcard", () => {
+    const hosts = buildDesiredTLSCertificateHosts(
+      ["manage.klicker.worktree.localhost", "auth.klicker.worktree.localhost"],
+      ["api.klicker.worktree.localhost", "demo.localhost"],
+    );
+
     expect(hosts).toEqual([
+      "*.klicker.worktree.localhost",
       "*.localhost",
-      "existing.deep.localhost",
+      "demo.localhost",
       "localhost",
-      "new.deep.localhost",
     ]);
+  });
+});
+
+describe("compactTLSCertificateHosts", () => {
+  it("preserves coverage while removing exact SANs already covered by a wildcard", () => {
+    const sourceHosts = [
+      "*.localhost",
+      "api.klicker.alpha.localhost",
+      "auth.klicker.alpha.localhost",
+      "manage.klicker.alpha.localhost",
+      "single.localhost",
+    ];
+    const compacted = compactTLSCertificateHosts(sourceHosts);
+
+    expect(compacted).toEqual(["*.klicker.alpha.localhost", "*.localhost", "single.localhost"]);
+    expect(findUncoveredCertificateHosts(sourceHosts, compacted)).toEqual([]);
   });
 });

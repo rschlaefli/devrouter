@@ -145,6 +145,46 @@ export function findUncoveredCertificateHosts(
   );
 }
 
+export function compactTLSCertificateHosts(hosts: string[]): string[] {
+  const normalizedHosts = normalizeUniqueHosts(hosts);
+  const wildcardHosts = new Set(normalizedHosts.filter((host) => host.startsWith("*.")));
+  const siblingGroups = new Map<string, string[]>();
+  const compacted = new Set(wildcardHosts);
+
+  for (const host of normalizedHosts) {
+    if (host.startsWith("*.")) {
+      continue;
+    }
+
+    const labels = host.split(".");
+    if (labels.length < 3 || labels.at(-1) !== "localhost") {
+      compacted.add(host);
+      continue;
+    }
+
+    const suffix = labels.slice(1).join(".");
+    const siblings = siblingGroups.get(suffix) ?? [];
+    siblings.push(host);
+    siblingGroups.set(suffix, siblings);
+  }
+
+  for (const [suffix, siblings] of siblingGroups) {
+    const wildcard = `*.${suffix}`;
+    if (siblings.length > 1 || wildcardHosts.has(wildcard)) {
+      compacted.add(wildcard);
+      continue;
+    }
+    compacted.add(siblings[0]);
+  }
+
+  const selectedWildcards = Array.from(compacted).filter((host) => host.startsWith("*."));
+  return normalizeUniqueHosts(Array.from(compacted)).filter(
+    (host) =>
+      host.startsWith("*.") ||
+      !selectedWildcards.some((wildcard) => isHostCoveredByCertificateHost(host, wildcard)),
+  );
+}
+
 function readCurrentCertificateHosts(): string[] {
   if (!fs.existsSync(CERT_FILE)) {
     return [];
@@ -154,19 +194,11 @@ function readCurrentCertificateHosts(): string[] {
   return parseCertificateDnsHosts(pem);
 }
 
-function currentCertificateHostsOrEmpty(): string[] {
-  try {
-    return readCurrentCertificateHosts();
-  } catch {
-    return [];
-  }
-}
-
 export function buildDesiredTLSCertificateHosts(
   requestedHosts: string[],
   existingCertificateHosts: string[],
 ): string[] {
-  return normalizeUniqueHosts([
+  return compactTLSCertificateHosts([
     ...DEFAULT_TLS_CERT_HOSTS,
     ...existingCertificateHosts,
     ...requestedHosts,
@@ -179,14 +211,6 @@ export function getTLSHostCoverage(hosts: string[]): {
   uncoveredHosts: string[];
 } {
   const requiredHosts = normalizeUniqueHosts([...DEFAULT_TLS_CERT_HOSTS, ...hosts]);
-  if (!fs.existsSync(CERT_FILE)) {
-    return {
-      requiredHosts,
-      certificateHosts: [],
-      uncoveredHosts: requiredHosts,
-    };
-  }
-
   return withFileLockSync(
     TLS_CERTIFICATE_LOCK_FILE,
     { activity: "TLS certificate inspection", waitMs: TLS_CERTIFICATE_LOCK_WAIT_MS },
@@ -225,14 +249,15 @@ async function applyTLSCertificate(
         getMkcertRootCAPath({ repoPath: options.repoPath });
       }
 
+      const existingCertificateHosts = readCurrentCertificateHosts();
+      const desiredHosts = buildDesiredTLSCertificateHosts(
+        options.hosts ?? [],
+        existingCertificateHosts,
+      );
       let certificateHosts: string[] = [];
       let uncoveredHosts: string[] = [];
 
       for (let attempt = 1; attempt <= TLS_CERTIFICATE_WRITE_ATTEMPTS; attempt += 1) {
-        const desiredHosts = buildDesiredTLSCertificateHosts(
-          options.hosts ?? [],
-          currentCertificateHostsOrEmpty(),
-        );
         runOrThrow("mkcert", [
           "-cert-file",
           CERT_FILE,
@@ -241,7 +266,7 @@ async function applyTLSCertificate(
           ...desiredHosts,
         ]);
 
-        certificateHosts = currentCertificateHostsOrEmpty();
+        certificateHosts = readCurrentCertificateHosts();
         uncoveredHosts = findUncoveredCertificateHosts(desiredHosts, certificateHosts);
         if (uncoveredHosts.length === 0) {
           break;
