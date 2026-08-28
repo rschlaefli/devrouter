@@ -24,6 +24,11 @@ devrouter exec . -- pnpm test
 The dev server auto-starts in the background (`tail -f /tmp/dev.log`). Re-run
 `devrouter ensure .` when the managed application process needs reconciliation;
 the host CLI supplies its matching process helper and invokes the repository adapter.
+When the source `devcontainer.json` declares `postCreateCommand` and this
+managed adapter, it must also set `waitFor` to exactly `postCreateCommand` or
+`postStartCommand`. Devrouter rejects missing, earlier, malformed, or
+unsupported ordering before provider mutation. Managed profile generation
+preserves lifecycle fields and changes only `runServices`.
 
 ### Routing and lifecycle (devrouter)
 

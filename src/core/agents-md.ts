@@ -194,6 +194,10 @@ profiles:
 - Inspect managed desired, active, and drift state with \`devrouter status\` and
   \`devrouter doctor\`; values such as credentials and environment contents are
   never written to managed runtime state.
+- A managed adapter paired with \`postCreateCommand\` requires \`waitFor\` exactly
+  \`postCreateCommand\` or \`postStartCommand\` before provider mutation. Generated
+  selective configuration preserves lifecycle fields and changes only
+  \`runServices\`.
 
 ## Env var injection
 
@@ -358,6 +362,7 @@ function buildDevrouterSection(): string {
     "- Managed selective profile: `devrouter ensure . --profile <name> --json`",
     "- Host/docker runtime app only: `devrouter app run <host-app> --repo . --yes`",
     "- `devrouter ls`",
+    "- Managed devcontainer source configs with `postCreateCommand` and a managed post-start adapter must set `waitFor` exactly to `postCreateCommand` or `postStartCommand`; generated managed configs preserve lifecycle fields and change only `runServices`.",
     DEVROUTER_END_SENTINEL,
   ].join("\n");
 }

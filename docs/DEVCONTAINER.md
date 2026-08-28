@@ -34,6 +34,12 @@ Use the CLI discovery, writer, and static-evidence sequence in the
 [repository onboarding guide](./REPO_ONBOARDING.md#preferred-managed-devcontainer-path)
 before applying this contract.
 
+Before provider startup, a managed adapter paired with `postCreateCommand`
+requires `waitFor` exactly `postCreateCommand` or `postStartCommand`. Devrouter
+rejects missing, earlier, malformed, or unsupported lifecycle ordering before
+provider mutation. Selective managed configuration preserves lifecycle fields
+and changes only `runServices`.
+
 ## How it works: `devnet`
 
 devrouter's Traefik runs in Docker on a shared external bridge network,

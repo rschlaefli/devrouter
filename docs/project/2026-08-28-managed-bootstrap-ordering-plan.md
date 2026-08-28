@@ -281,8 +281,15 @@
   lifecycle slice reviewer requested values-free unsupported-value diagnostics
   and explicit cold marker-failure rollback proof; both corrections are
   implemented and verified for the correction commit.
-- Current state: `active`. Completed slices: D0. Active: D1 correction review.
-  Remaining: D2-D3. Latest evidence: the branch contains committed D0 and D1;
-  no provider runtime is active for this package. Required delivery: published
-  `0.0.43`; achieved delivery: reviewed plan plus committed D1 implementation
-  with verified reviewer corrections.
+- `2026-08-28`: D2 implementation is complete. Managed scaffolds, bundled
+  guidance, examples, version pins, changelog, and the `0.0.43` adaptation
+  prompt now encode the safe wait contract. Focused tests (16), full tests
+  (730), typecheck, Knip, build, docs policy, knowledge checks, Biome, and diff
+  checks pass; package inspection and the D2 simplifier follow on the committed
+  slice.
+- Current state: `active`. Completed slices: D0-D1. Active: D2 commit and
+  review. Remaining: D3. Latest evidence: the branch contains committed D0 and
+  D1 plus the verified D2 implementation for `0.0.43`; no provider runtime is
+  active for this package. Required delivery: published `0.0.43`; achieved
+  delivery: reviewed plan, committed lifecycle gate, and aligned release
+  candidate.

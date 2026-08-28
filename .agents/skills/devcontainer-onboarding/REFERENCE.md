@@ -34,8 +34,9 @@ The devnet alias just needs to be unique across all routed devcontainers;
 - **`Dockerfile`** — glibc base for native binaries; pnpm via `npm i -g`. Add OS
   packages the app needs at dev time plus `procps` and `util-linux` for the
   runtime-delivered process helper. Do not install devrouter packages or helpers.
-- **`devcontainer.json`** — points at the compose `app` service and wires only
-  `postCreateCommand`. It selects `docker-compose.default.yml` unless workspace
+- **`devcontainer.json`** — points at the compose `app` service, wires
+  `postCreateCommand`, and sets `"waitFor": "postCreateCommand"`. It selects
+  `docker-compose.default.yml` unless workspace
   ensure supplies the devrouter overlay. The `_ports` note documents the
   devrouter-only access. Add editor extensions as desired.
 - **`docker-compose.default.yml` / `docker-compose.devrouter.yml`** — the default
@@ -97,6 +98,12 @@ dimension or a `full` profile to select every registered resource. Warm profile
 changes keep the same DevPod and volumes, do not rerun post-create, and stop
 dropped resources only after exact ownership proof. See the full lifecycle
 contract in `docs/DEVCONTAINER.md`.
+
+When `devcontainer.json` declares `postCreateCommand` and the managed
+post-start adapter is present, `waitFor` must be exactly `postCreateCommand` or
+`postStartCommand`; Devrouter rejects missing or invalid ordering before
+provider mutation. The managed sibling preserves lifecycle fields and changes
+only `runServices`.
 
 ## Adapting to a non-Prisma / non-Next stack
 

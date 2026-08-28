@@ -59,6 +59,9 @@ describe("buildOnboardingPrompt", () => {
     expect(prompt).toContain("never branch on checkout kind or use live verify as startup");
     expect(prompt).toContain("Managed consumer images contain no devrouter package/helper");
     expect(prompt).toContain(
+      "A managed adapter plus `postCreateCommand` requires `waitFor` exactly `postCreateCommand` or `postStartCommand`",
+    );
+    expect(prompt).toContain(
       "`DEVROUTER_PROCESS_FINGERPRINT_ENV` to its comma-separated environment names",
     );
     expect(prompt).toContain("secret-like names are rejected and raw values are never persisted");

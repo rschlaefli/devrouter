@@ -183,6 +183,10 @@ profiles:
 - Inspect managed desired, active, and drift state with `devrouter status` and
   `devrouter doctor`; values such as credentials and environment contents are
   never written to managed runtime state.
+- A managed adapter paired with `postCreateCommand` requires `waitFor` exactly
+  `postCreateCommand` or `postStartCommand` before provider mutation. Generated
+  selective configuration preserves lifecycle fields and changes only
+  `runServices`.
 
 ## Env var injection
 
