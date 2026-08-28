@@ -1356,17 +1356,18 @@ describe("workspaceEnsure", () => {
     });
   });
 
-  it("rejects an invalid managed-start contract before DevPod startup", async () => {
+  it("rejects unsafe managed bootstrap ordering before provider mutation", async () => {
     vi.mocked(resolveManagedPostStartPlan).mockImplementation(() => {
-      throw new Error("Managed post-start must use DEVROUTER_PROCESS_HELPER");
+      throw new Error("Set waitFor to 'postCreateCommand' or 'postStartCommand'");
     });
     mockLifecycle();
 
     await expect(
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
-    ).rejects.toThrow("Managed post-start must use DEVROUTER_PROCESS_HELPER");
+    ).rejects.toThrow("Set waitFor to 'postCreateCommand' or 'postStartCommand'");
 
     expect(devpodUpCalls()).toHaveLength(0);
+    expect(startRouterStack).not.toHaveBeenCalled();
     expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
   });
 

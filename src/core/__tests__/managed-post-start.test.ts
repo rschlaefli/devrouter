@@ -29,6 +29,7 @@ describe("managed post-start", () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-managed-post-start-"));
     fs.mkdirSync(path.join(tmpDir, ".devcontainer"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".devcontainer", "devcontainer.json"), "{}\n", "utf-8");
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "", stderr: "" } as never);
   });
 
@@ -108,6 +109,61 @@ describe("managed post-start", () => {
     write(".devcontainer/Dockerfile", "FROM node:24\n");
 
     expect(resolveManagedPostStartPlan(tmpDir)).toEqual(runtimePlan);
+  });
+
+  it.each([
+    "postCreateCommand",
+    "postStartCommand",
+  ])("accepts a managed adapter that waits for %s", (waitFor) => {
+    writeRuntimeAdapter();
+    write(
+      ".devcontainer/devcontainer.json",
+      `{
+  // Managed startup must not outrun post-create.
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "waitFor": "${waitFor}",
+}
+`,
+    );
+
+    expect(resolveManagedPostStartPlan(tmpDir)).toEqual(runtimePlan);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["initializeCommand", "initializeCommand"],
+    ["onCreateCommand", "onCreateCommand"],
+    ["updateContentCommand", "updateContentCommand"],
+  ])("rejects a managed adapter whose waitFor is %s", (_label, waitFor) => {
+    writeRuntimeAdapter();
+    write(
+      ".devcontainer/devcontainer.json",
+      JSON.stringify({
+        postCreateCommand: "bash .devcontainer/post-create.sh",
+        ...(waitFor ? { waitFor } : {}),
+      }),
+    );
+
+    expect(() => resolveManagedPostStartPlan(tmpDir)).toThrow(
+      "Set waitFor to 'postCreateCommand' or 'postStartCommand'",
+    );
+  });
+
+  it("rejects a non-string waitFor for a managed adapter", () => {
+    writeRuntimeAdapter();
+    write(
+      ".devcontainer/devcontainer.json",
+      '{"postCreateCommand":"bootstrap","waitFor":{"command":"postCreateCommand"}}\n',
+    );
+
+    expect(() => resolveManagedPostStartPlan(tmpDir)).toThrow("waitFor is not a string");
+  });
+
+  it("rejects malformed JSONC before selecting the managed adapter", () => {
+    writeRuntimeAdapter();
+    write(".devcontainer/devcontainer.json", '{"postCreateCommand": }\n');
+
+    expect(() => resolveManagedPostStartPlan(tmpDir)).toThrow("as JSONC at offset");
   });
 
   it("changes the exact adapter fingerprint when its bytes change", () => {

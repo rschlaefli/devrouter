@@ -51,6 +51,8 @@ function setupRepo(): void {
   "service": "app",
   "runServices": ["app", "postgres", "redis", "litellm"],
   "forwardPorts": [3000, 4000],
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "waitFor": "postCreateCommand",
 }
 `,
   );
@@ -114,6 +116,7 @@ describe("managed Dev Container config", () => {
     expect(generated).toContain(
       '"runServices": [\n    "app",\n    "postgres",\n    "litellm"\n  ]',
     );
+    expect(generated).toContain('"waitFor": "postCreateCommand"');
     expect(fs.readFileSync(plan.sourcePath, "utf-8")).toContain('"forwardPorts": [3000, 4000]');
   });
 

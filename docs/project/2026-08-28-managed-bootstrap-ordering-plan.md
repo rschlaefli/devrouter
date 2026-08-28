@@ -270,7 +270,14 @@
 - `2026-08-28`: The user approved both linked plans, including the named
   Devrouter merge and `0.0.43` release boundary. D0 is active; D1 follows after
   the plan commit while Klicker K1 runs in its separate worktree.
-- Current state: `active`. Completed slices: none. Remaining: D0-D3. Latest
-  evidence: refreshed `origin/main` equals HEAD `4abbfc9`; worktree contains
-  only this plan. Required delivery: published `0.0.43`; achieved delivery:
-  local planning branch. No provider runtime is active for this package.
+- `2026-08-28`: D0 committed as `8aaa970`. D1 now uses strict JSONC parsing,
+  rejects managed adapters with unsafe bootstrap ordering at the pre-provider
+  resolver seam, preserves the accepted wait point in generated profiles, and
+  reports an actionable values-free diagnostic. Focused verification passes:
+  Biome on all touched files, 88 resolver/profile/ensure/diagnostic tests,
+  TypeScript, Knip, and `git diff --check`.
+- Current state: `active`. Completed slices: D0. Active: D1 review and commit.
+  Remaining: D2-D3. Latest evidence: worktree is 1 commit ahead of
+  `origin/main` before the D1 commit; no provider runtime is active for this
+  package. Required delivery: published `0.0.43`; achieved delivery: reviewed
+  plan plus verified uncommitted D1 implementation.
