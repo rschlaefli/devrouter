@@ -202,3 +202,8 @@ fixture deletion stay withheld.
   accepted-plan verification gate with no verified implementation defect. The
   user approved the plan exception above, authorizing the draft PR as an
   evidence-gathering artifact.
+- `2026-08-28`: The shared routing state had no duplicate hosts before a fresh
+  `pnpm routing:smoke` run. The smoke passed host HTTPS, Docker HTTPS, and
+  PostgreSQL TLS routing. Its scoped processes stopped, no duplicate hosts
+  remain, and only the expected exited Docker-label routes remain. Successful
+  Devsy cold startup is now the sole live verification blocker.
