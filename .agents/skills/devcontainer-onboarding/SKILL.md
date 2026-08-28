@@ -61,6 +61,13 @@ needed. Profile changes are warm and preserve the DevPod, volumes, and
 post-create state. Use `devrouter status` and `devrouter doctor` to inspect
 desired, active, and drift state.
 
+When the source `devcontainer.json` declares `postCreateCommand` and the
+repository has a managed post-start adapter, it must also set `waitFor` exactly
+to `postCreateCommand` or `postStartCommand`. Devrouter rejects missing,
+earlier, malformed, or unsupported ordering before provider mutation. The
+generated managed profile preserves lifecycle fields, including `waitFor`, and
+changes only `runServices`.
+
 ## Workflow
 
 1. **Detect the stack** (read, don't assume):
@@ -78,7 +85,7 @@ desired, active, and drift state.
    - Manual references: use `references/` (see [REFERENCE.md](REFERENCE.md)) only when the repo needs Redis, OIDC, a monorepo variant, or another shape outside the first product scaffold.
    - `docker-compose.yml` — product CLI writes `app` (build from `Dockerfile`) + `postgres`; manual references can add `redis` and an `oidc` mock. Self-contained; do **not** extend the root compose.
    - `Dockerfile` — glibc base (`node:<LTS>-bookworm-slim`) for painless native binaries (Prisma/esbuild/sharp); install pnpm via `npm i -g`.
-   - `devcontainer.json` — wire `postCreateCommand` and select `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}` after the base compose file. Do not wire `postStartCommand`; `devrouter ensure` invokes the adapter after runtime helper delivery.
+   - `devcontainer.json` — wire `postCreateCommand`, set `"waitFor": "postCreateCommand"`, and select `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}` after the base compose file. Do not wire `postStartCommand`; `devrouter ensure` invokes the adapter after runtime helper delivery.
    - `docker-compose.default.yml` / `docker-compose.devrouter.yml` — keep primary-checkout startup unchanged; the devrouter overlay mounts `${DEVROUTER_GIT_COMMON_DIR}` at the same absolute path so linked-worktree Git works in DevPod.
    - `devcontainer.env` — **committed, dev-only** values (no real secrets). This is the "example that just works".
    - `post-create.sh` — install → generate client → push schema (retry through DB warmup) → seed.

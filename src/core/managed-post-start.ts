@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { assertManagedDevcontainerLifecycle } from "./devcontainer-config";
 
 const MANAGED_MARKER = "devrouter:managed devcontainer";
 const MANAGED_ADAPTER_PATH = ".devcontainer/post-start.sh";
@@ -134,6 +135,7 @@ export function resolveManagedPostStartPlan(repoPath: string): ManagedPostStartP
     }
     return { kind: "unmanaged" };
   }
+  assertManagedDevcontainerLifecycle(repoPath);
   if (adapter.includes("DEVROUTER_PROCESS_HELPER")) {
     return {
       kind: "runtime",

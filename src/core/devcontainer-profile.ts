@@ -5,6 +5,7 @@ import path from "node:path";
 import YAML from "yaml";
 import type { DevrouterConfig, DevrouterProfile } from "../types";
 import { writeFileAtomically } from "./atomic-file";
+import { readDevcontainerConfig } from "./devcontainer-config";
 import { assertPathWithinRepo } from "./paths";
 
 export const MANAGED_DEVCONTAINER_PATH = ".devcontainer/devcontainer.devrouter.json";
@@ -201,21 +202,7 @@ export function inspectManagedDevcontainerConfig(options: {
   if (!managedRuntime) {
     throw new Error("Cannot prepare a managed Dev Container without managedRuntime.");
   }
-  const sourcePath = path.join(options.repoPath, ".devcontainer/devcontainer.json");
-  if (!fs.existsSync(sourcePath) || !fs.lstatSync(sourcePath).isFile()) {
-    throw new Error(`Managed Dev Container source config does not exist: ${sourcePath}`);
-  }
-  const sourceContents = fs.readFileSync(sourcePath, "utf-8");
-  let parsed: unknown;
-  try {
-    parsed = YAML.parse(sourceContents);
-  } catch (error) {
-    throw new Error(`Could not parse managed Dev Container source config: ${String(error)}`);
-  }
-  if (!isObject(parsed)) {
-    throw new Error("Managed Dev Container source config must contain an object.");
-  }
-  const source = parsed;
+  const { sourcePath, sourceContents, source } = readDevcontainerConfig(options.repoPath);
   const primaryService = nonEmptyString(source.service, "devcontainer.service");
   const compose = resolveComposeFiles(source, options.repoPath, options.linked);
   const composeServiceSet = new Set(compose.services);

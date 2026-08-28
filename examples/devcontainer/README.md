@@ -59,6 +59,9 @@ those Compose services and process markers to `managedRuntime`, then select
 them with `devrouter ensure . --profile ai` or `--profile mcp`; omitted optional
 dimensions remain stopped. Native Dev Container clients continue to use the
 source configuration's full service set.
+The source `devcontainer.json` sets `waitFor` to `postCreateCommand` because
+the managed post-start adapter must follow post-create initialization. The
+managed sibling preserves this lifecycle field and changes only `runServices`.
 Use `devrouter exec . -- <command...>` for one-shot container commands.
 Use `workspace stop` to pause its DevPod/routes while preserving checkout and
 data. Full `workspace down` deletes runtime/routes and removes only a clean,

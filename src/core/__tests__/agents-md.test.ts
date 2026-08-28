@@ -31,6 +31,9 @@ describe("agents-md", () => {
       "Primary or linked devcontainer checkout: `devrouter ensure . --json`",
     );
     expect(content).toContain("Host/docker runtime app only:");
+    expect(content).toContain(
+      "managed post-start adapter must set `waitFor` exactly to `postCreateCommand` or `postStartCommand`",
+    );
 
     const skillContent = fs.readFileSync(skill.path, "utf-8");
     const sourceSkillContent = fs.readFileSync(

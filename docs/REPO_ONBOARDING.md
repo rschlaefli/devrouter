@@ -57,6 +57,11 @@ Consumer images contain no Devrouter package or helper. See
 [Fronting a devcontainer](./DEVCONTAINER.md) for the canonical Compose overlay,
 network aliases, managed process contract, TCP clients, and teardown.
 
+If a managed adapter is paired with `postCreateCommand`, set `waitFor` exactly
+to `postCreateCommand` or `postStartCommand`. The managed selective
+configuration preserves lifecycle fields and changes only `runServices`; invalid
+ordering is rejected before provider mutation.
+
 ### Selective managed profiles
 
 Keep the source Dev Container configuration usable as a full native environment,

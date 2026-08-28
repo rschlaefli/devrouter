@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.43] - 2026-08-28
+
+### Fixed
+
+- Managed Dev Container scaffolds and onboarding guidance now require an
+  explicit `waitFor` ordering when `postCreateCommand` is paired with the
+  managed post-start adapter. The accepted values are `postCreateCommand` and
+  `postStartCommand`, and validation happens before provider mutation.
+- Generated selective managed configuration preserves lifecycle fields and
+  changes only `runServices`; consumer images remain helper-free and
+  version-free.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.43.md
+
 ## [0.0.42] - 2026-08-26
 
 ### Fixed

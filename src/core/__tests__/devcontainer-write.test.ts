@@ -74,6 +74,7 @@ describe("devcontainer write planning", () => {
       "utf-8",
     );
     expect(devcontainerJson).toContain("DEVCONTAINER_COMPOSE_OVERLAY");
+    expect(devcontainerJson).toContain('"waitFor": "postCreateCommand"');
     expect(devcontainerJson).not.toContain("postStartCommand");
     expect(fs.readFileSync(path.join(tmpDir, ".devcontainer", "Dockerfile"), "utf-8")).toContain(
       "npm install -g 'pnpm@11.6.0'",

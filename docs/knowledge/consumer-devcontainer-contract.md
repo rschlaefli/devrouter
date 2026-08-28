@@ -34,6 +34,11 @@ Consumer images must not install, download, or version-pin Devrouter. [ADR 0002]
 - A custom adapter with no Devrouter lifecycle pattern remains unmanaged.
 - Partial or mixed managed wiring fails with migration guidance instead of guessing.
 
+When `postCreateCommand` is present with a managed adapter, `waitFor` must be
+exactly `postCreateCommand` or `postStartCommand`; Devrouter validates this
+ordering before provider mutation. Generated selective configuration preserves
+lifecycle fields and changes only `runServices`.
+
 After `workspaceEnsure` proves the exact container and in-container workspace, `runManagedPostStart` copies its matching helper and the captured adapter bytes to runtime-only paths under `/tmp/devrouter/bin`. It passes `DEVROUTER_PROCESS_HELPER` plus the adapter SHA-256 into the exact container and invokes the captured snapshot from the validated workdir. Adapter bytes therefore participate in managed-process identity without becoming an image dependency.
 
 ## Selective managed resources

@@ -195,6 +195,7 @@ function renderDevcontainerJson(projectName: string): string {
   "service": "app",
   "workspaceFolder": "/workspaces/${projectName}",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "waitFor": "postCreateCommand",
   "customizations": {
     "devrouter": {
       "managed": "${MANAGED_MARKER}"

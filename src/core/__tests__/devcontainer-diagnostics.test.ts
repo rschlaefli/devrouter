@@ -43,6 +43,12 @@ function writePostStart(content: string): void {
   fs.writeFileSync(adapterPath, content, "utf-8");
 }
 
+function writeDevcontainer(content: string): void {
+  const sourcePath = path.join(tmpDir, ".devcontainer", "devcontainer.json");
+  fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+  fs.writeFileSync(sourcePath, content, "utf-8");
+}
+
 function config(upstream: string): DevrouterConfig {
   return {
     version: 1,
@@ -159,5 +165,19 @@ describe("buildDevcontainerChecks", () => {
     const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
 
     expect(checkLevel(checks, "repo.devcontainer.managed-post-start")).toBe("error");
+  });
+
+  it("errors when managed post-start can outrun post-create", () => {
+    writeCompose();
+    writePostStart(
+      '#!/usr/bin/env bash\n# devrouter:managed devcontainer\n: "${DEVROUTER_PROCESS_HELPER:?}"\n',
+    );
+    writeDevcontainer('{"postCreateCommand":"bash .devcontainer/post-create.sh"}\n');
+
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
+    const lifecycle = checks.find((check) => check.id === "repo.devcontainer.managed-post-start");
+
+    expect(lifecycle?.level).toBe("error");
+    expect(lifecycle?.details).toContain("Set waitFor to 'postCreateCommand'");
   });
 });

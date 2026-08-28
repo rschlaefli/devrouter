@@ -1101,6 +1101,46 @@ describe("workspaceEnsure", () => {
     expect(runtime.runningProcesses).toEqual(new Set());
   });
 
+  it("rolls back cold selected services when the bootstrap marker rejects post-start", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    const runtime = mockManagedLifecycle();
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    runtime.runningServices.clear();
+    runtime.runningProcesses.clear();
+    const delegate = vi.mocked(spawnSync).getMockImplementation();
+    vi.mocked(spawnSync).mockImplementation((command, args, options) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devpod" && argv[0] === "up") {
+        runtime.runningServices.add("app");
+        runtime.runningServices.add("postgres");
+        runtime.runningServices.add("litellm");
+      }
+      return delegate?.(command, args, options) as never;
+    });
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      throw new Error("Bootstrap completion marker is missing");
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Bootstrap completion marker is missing");
+
+    expect(runtime.runningServices).toEqual(new Set(["app", "postgres"]));
+    expect(runtime.runningProcesses).toEqual(new Set());
+    expect(stopExactManagedService).toHaveBeenCalledWith("litellm-id", "litellm");
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+    expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+  });
+
   it("retains the candidate config when startup fails before the rollback boundary", async () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({
       config: managedRuntimeConfig(),
@@ -1356,17 +1396,18 @@ describe("workspaceEnsure", () => {
     });
   });
 
-  it("rejects an invalid managed-start contract before DevPod startup", async () => {
+  it("rejects unsafe managed bootstrap ordering before provider mutation", async () => {
     vi.mocked(resolveManagedPostStartPlan).mockImplementation(() => {
-      throw new Error("Managed post-start must use DEVROUTER_PROCESS_HELPER");
+      throw new Error("Set waitFor to 'postCreateCommand' or 'postStartCommand'");
     });
     mockLifecycle();
 
     await expect(
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
-    ).rejects.toThrow("Managed post-start must use DEVROUTER_PROCESS_HELPER");
+    ).rejects.toThrow("Set waitFor to 'postCreateCommand' or 'postStartCommand'");
 
     expect(devpodUpCalls()).toHaveLength(0);
+    expect(startRouterStack).not.toHaveBeenCalled();
     expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
   });
 

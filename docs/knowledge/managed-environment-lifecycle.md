@@ -59,6 +59,11 @@ ignored, marker-owned sibling configuration when `.devrouter.yml` declares a
 only `runServices`, while the source file, relative paths, volumes, and
 `postCreateCommand` remain untouched.
 
+When a managed adapter is paired with `postCreateCommand`, the source
+configuration must set `waitFor` exactly to `postCreateCommand` or
+`postStartCommand`; invalid ordering is rejected before provider mutation. The
+generated sibling preserves this lifecycle field.
+
 The managed registry separates base Compose services, optional profile services,
 and repository-owned process markers. Every profile keeps the primary service
 and base services. Its `apps`, `devcontainerServices`, and `processes` selections
