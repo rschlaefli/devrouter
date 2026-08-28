@@ -149,6 +149,17 @@ describe("managed post-start", () => {
     );
   });
 
+  it("does not echo an unsupported waitFor value", () => {
+    writeRuntimeAdapter();
+    write(
+      ".devcontainer/devcontainer.json",
+      '{"postCreateCommand":"bootstrap","waitFor":"private-local-command"}\n',
+    );
+
+    expect(() => resolveManagedPostStartPlan(tmpDir)).toThrow("waitFor is an unsupported string");
+    expect(() => resolveManagedPostStartPlan(tmpDir)).not.toThrow("private-local-command");
+  });
+
   it("rejects a non-string waitFor for a managed adapter", () => {
     writeRuntimeAdapter();
     write(

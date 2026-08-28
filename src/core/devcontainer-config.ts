@@ -53,7 +53,7 @@ export function assertManagedDevcontainerLifecycle(repoPath: string): void {
     source.waitFor === undefined
       ? "is missing"
       : typeof source.waitFor === "string"
-        ? `is '${source.waitFor}'`
+        ? "is an unsupported string"
         : "is not a string";
   throw new Error(
     `Managed Dev Container source '${sourcePath}' defines postCreateCommand, but waitFor ${actual}. Set waitFor to 'postCreateCommand' or 'postStartCommand' before retrying devrouter ensure.`,

@@ -276,8 +276,13 @@
   reports an actionable values-free diagnostic. Focused verification passes:
   Biome on all touched files, 88 resolver/profile/ensure/diagnostic tests,
   TypeScript, Knip, and `git diff --check`.
-- Current state: `active`. Completed slices: D0. Active: D1 review and commit.
-  Remaining: D2-D3. Latest evidence: worktree is 1 commit ahead of
-  `origin/main` before the D1 commit; no provider runtime is active for this
-  package. Required delivery: published `0.0.43`; achieved delivery: reviewed
-  plan plus verified uncommitted D1 implementation.
+- `2026-08-28`: D1 committed as `76ff322`. The disclosed Luna/max continuity
+  simplifier found no code simplification and one stale Progress line. The
+  lifecycle slice reviewer requested values-free unsupported-value diagnostics
+  and explicit cold marker-failure rollback proof; both corrections are
+  implemented and verified for the correction commit.
+- Current state: `active`. Completed slices: D0. Active: D1 correction review.
+  Remaining: D2-D3. Latest evidence: the branch contains committed D0 and D1;
+  no provider runtime is active for this package. Required delivery: published
+  `0.0.43`; achieved delivery: reviewed plan plus committed D1 implementation
+  with verified reviewer corrections.
