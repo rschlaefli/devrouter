@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { writeFileAtomically } from "./atomic-file";
 import { withFileLock } from "./file-lock";
 
 // A workspace token identifies one isolated dev environment (a git worktree + its
@@ -178,7 +179,7 @@ export function persistWorkspace(repoPath: string, value: string): string {
   if (!gitDir) {
     throw new Error(`cannot persist workspace identity: '${repoPath}' is not a Git checkout`);
   }
-  fs.writeFileSync(path.join(gitDir, WORKSPACE_METADATA_FILE), `${workspace}\n`, "utf-8");
+  writeFileAtomically(path.join(gitDir, WORKSPACE_METADATA_FILE), `${workspace}\n`);
   return workspace;
 }
 

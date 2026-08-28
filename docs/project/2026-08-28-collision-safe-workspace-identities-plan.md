@@ -50,13 +50,16 @@
   sanitized readable prefix plus `-` and eight lowercase hexadecimal SHA-256
   characters. Hash the domain-separated untruncated branch-or-path source plus
   a bounded attempt number; try at most 16 candidates.
-- Write the owner record and then persist checkout metadata inside one
-  transaction. If metadata persistence fails, remove only the newly written
-  matching record. A crash after ledger creation recovers from the exact-path
-  ledger record on the next run.
+- Write the owner record and then atomically persist checkout metadata inside
+  one transaction. If metadata persistence fails, remove only the newly
+  written matching record. A crash after ledger creation recovers from the
+  exact-path ledger record on the next run.
 - `workspace up` also chooses a deterministic non-conflicting default path when
   the legacy path is occupied. `--no-devpod` remains provider-free and may
-  retain a provisional branch/path identity until first `ensure`.
+  retain a provisional branch/path identity until first `ensure`. Concurrent
+  allocation waits up to 60 seconds for a repository peer completing `git
+  worktree add`, while ordinary owner-record transactions keep their existing
+  short timeout.
 - Provider mutation, generated managed config, services, processes, and routes
   begin only after the claim is complete. Stop, cleanup, GC, route attribution,
   and the ownership schema remain unchanged.
@@ -149,6 +152,15 @@
   repository-local ledgers or unsupported raw-provider mutation; same-repository
   claims re-read the shared ledger under lock. A machine-global cross-repository
   allocator remains outside this plan and re-arms the ADR gate.
-- Current state: active. S3 release metadata is prepared; corrected full gates
-  and integrated final review remain. Release publication and downstream repin
-  remain withheld pending those gates.
+- `2026-08-29`: Integrated final review found that parallel allocation still
+  used the ordinary five-second ownership wait and that checkout metadata used
+  a direct final-file write. Allocation now uses a scoped 60-second wait with a
+  real cross-process regression held beyond five seconds; metadata reuses the
+  fsync-backed atomic-file primitive.
+- `2026-08-29`: Corrected exact-head verification passed Biome, docs policy,
+  knowledge validation, Knip, typecheck, all 754 tests, build, package smoke,
+  and diff checks. Linux-only process tests remain skipped on macOS because
+  `/proc` is unavailable.
+- Current state: active. S3 release metadata and corrected full gates are
+  complete; repeat integrated final review remains. Release publication and
+  downstream repin remain withheld pending that gate.

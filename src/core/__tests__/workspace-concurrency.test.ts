@@ -41,6 +41,34 @@ function startWorkspaceUp(repoPath: string, branch: string) {
   return { child, ready, exited };
 }
 
+function holdWorkspaceOwnership(repoPath: string, holdMs: number) {
+  const fixture = path.join(__dirname, "fixtures", "workspace-ownership-hold.ts");
+  const child = spawn(process.execPath, ["--import", "tsx", fixture, repoPath, String(holdMs)], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  let resolveReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+  child.stdout.on("data", (chunk) => {
+    stdout += String(chunk);
+    if (stdout.includes("ready")) resolveReady();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+  const exited = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`workspace-ownership fixture exited ${code}: ${stderr}`));
+    });
+  });
+  return { ready, exited };
+}
+
 function worktreePathsByBranch(repoPath: string): Map<string, string> {
   const output = execFileSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
     encoding: "utf-8",
@@ -95,4 +123,29 @@ describe("parallel workspace creation", () => {
       path.join(repoPath, "trees", workspaceIdentityCandidates(firstBranch)[0]),
     );
   });
+
+  it("waits beyond the short ownership timeout for an in-flight allocation", async () => {
+    const repoPath = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-workspace-wait-")),
+    );
+    temporaryRepos.push(repoPath);
+    execFileSync("git", ["init", "-q", "-b", "main", repoPath]);
+    execFileSync("git", ["-C", repoPath, "config", "user.email", "devrouter@example.test"]);
+    execFileSync("git", ["-C", repoPath, "config", "user.name", "Devrouter Test"]);
+    fs.writeFileSync(path.join(repoPath, ".gitignore"), "trees/\n", "utf-8");
+    fs.writeFileSync(path.join(repoPath, "README.md"), "test\n", "utf-8");
+    execFileSync("git", ["-C", repoPath, "add", ".gitignore", "README.md"]);
+    execFileSync("git", ["-C", repoPath, "commit", "-q", "-m", "test"]);
+
+    const holder = holdWorkspaceOwnership(repoPath, 5_200);
+    await holder.ready;
+    const creator = startWorkspaceUp(repoPath, "rs/slow-parallel-checkout");
+    await creator.ready;
+    creator.child.stdin.end();
+    await Promise.all([holder.exited, creator.exited]);
+
+    expect(worktreePathsByBranch(repoPath).get("rs/slow-parallel-checkout")).toBe(
+      path.join(repoPath, "trees", "rs-slow-parallel-checkout"),
+    );
+  }, 10_000);
 });

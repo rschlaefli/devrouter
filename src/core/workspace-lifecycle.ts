@@ -34,6 +34,13 @@ import {
 
 // Workspace lifecycle mutations fail closed: Git, ledger, DevPod source, and
 // route evidence must identify the same exact owner before resources change.
+const WORKSPACE_ALLOCATION_LOCK_WAIT_MS = 60_000;
+
+function withWorkspaceAllocationTransaction<T>(repoPath: string, operation: () => T): T {
+  return withWorkspaceOwnershipTransaction(repoPath, operation, {
+    waitMs: WORKSPACE_ALLOCATION_LOCK_WAIT_MS,
+  });
+}
 
 export type WorkspaceRow = {
   workspace: string | undefined;
@@ -261,7 +268,7 @@ export async function workspaceUp(
   if (!ws) {
     throw new Error(`Branch '${branch}' does not yield a valid workspace token.`);
   }
-  const worktreePath = withWorkspaceOwnershipTransaction(mainRepo, () => {
+  const worktreePath = withWorkspaceAllocationTransaction(mainRepo, () => {
     const worktrees = listGitWorktrees(mainRepo);
     const branchWorktrees = worktrees.filter((worktree) => worktree.branch === branch);
     if (branchWorktrees.length > 1) {

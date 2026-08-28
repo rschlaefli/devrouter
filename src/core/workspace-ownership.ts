@@ -334,12 +334,17 @@ function removeWorkspaceOwnershipIfMatchesInDirectory(
 export function withWorkspaceOwnershipTransaction<T>(
   repoPath: string,
   operation: (transaction: WorkspaceOwnershipTransaction) => T,
+  options: { waitMs?: number } = {},
 ): T {
   const directory = ownershipDirectory(repoPath);
   fs.mkdirSync(directory, { recursive: true });
   return withFileLockSync(
     path.join(directory, ".lock"),
-    { activity: "workspace ownership transaction", target: `'${repoPath}'`, waitMs: 5000 },
+    {
+      activity: "workspace ownership transaction",
+      target: `'${repoPath}'`,
+      waitMs: options.waitMs ?? 5000,
+    },
     () =>
       operation({
         list: () => listWorkspaceOwnershipInDirectory(directory),

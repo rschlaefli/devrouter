@@ -44,6 +44,10 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 - New linked checkouts keep the readable legacy workspace identity when it is
   unoccupied. A collision receives a deterministic hash-suffixed fallback
   before provider or route mutation; established identities are never renamed.
+- Owner records and checkout metadata commit under one repository-local
+  transaction. Metadata uses the shared fsync-backed atomic-file writer, so a
+  crash leaves either no token or one complete token that can reconcile with
+  the owner record.
 - Consumer images contain no devrouter installation or version pin. [ADR 0002](../adr/0002-keep-devrouter-out-of-consumer-images.md) owns the boundary.
 - Repository lifecycle locks remain outer; workspace runtime provider mutation is serialized machine-wide and revalidated inside that boundary. [ADR 0003](../adr/0003-serialize-devpod-provider-mutations.md) owns the ordering.
 - The Traefik dynamic file is canonical for one route generation; JSON is a compatibility mirror. [ADR 0004](../adr/0004-single-artifact-route-state.md) owns recovery behavior.

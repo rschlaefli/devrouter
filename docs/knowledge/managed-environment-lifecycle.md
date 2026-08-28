@@ -57,7 +57,10 @@ choosing a deterministic non-conflicting default path when two long branch
 names truncate to the same readable token or an unregistered directory already
 occupies that path, then delegates startup to
 `workspaceEnsure`. `--no-devpod` is create-only and publishes no routes; its
-provisional identity is reconciled on the first managed `ensure`.
+provisional identity is reconciled on the first managed `ensure`. Worktree
+creation holds the repository ownership transaction through `git worktree add`
+and gives concurrent creators 60 seconds to serialize; ordinary ownership
+transactions retain their short wait.
 
 ## Profile transitions
 
