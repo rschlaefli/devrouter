@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withFileLockSync } from "../file-lock";
-import { getMkcertRootCAPath, getTLSHostCoverage, refreshTLSCertificate } from "../tls";
+import { getMkcertRootCAPath, getTLSHostCoverage, installTLS, refreshTLSCertificate } from "../tls";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("node:crypto", () => ({
@@ -150,6 +150,21 @@ describe("refreshTLSCertificate", () => {
         .mocked(spawnSync)
         .mock.calls.some(([command, args]) => command === "mkcert" && args?.[0] === "-cert-file"),
     ).toBe(false);
+  });
+
+  it("replaces a malformed generated certificate during explicit install", async () => {
+    vi.mocked(fs.readFileSync).mockImplementationOnce(() => {
+      throw new Error("invalid certificate");
+    });
+
+    await expect(installTLS({ hosts: ["requested.localhost"] })).resolves.toEqual(
+      expect.objectContaining({ hosts: expect.arrayContaining(["requested.localhost"]) }),
+    );
+    expect(
+      vi
+        .mocked(spawnSync)
+        .mock.calls.some(([command, args]) => command === "mkcert" && args?.[0] === "-cert-file"),
+    ).toBe(true);
   });
 
   it("points missing first-time trust at repo-scoped setup", () => {

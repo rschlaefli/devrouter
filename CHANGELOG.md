@@ -10,8 +10,9 @@ All notable changes to this project are documented in this file.
 
 - Shared TLS certificate inspection and refresh are now one machine-global
   read-modify-write transaction. Concurrent worktrees preserve one another's
-  routed host coverage and fail closed when an existing or newly generated
-  certificate cannot prove the full desired host set.
+  routed host coverage. Routine refresh fails closed when an existing or newly
+  generated certificate cannot prove the full desired host set; explicit
+  setup/install replaces a malformed generated certificate under the same lock.
 - Historical sibling workspace hosts are compacted into valid multi-label
   wildcard SANs. Exact one-label `.localhost` hosts remain explicit because
   OpenSSL clients do not accept `*.localhost` as their coverage.

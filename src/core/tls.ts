@@ -185,13 +185,20 @@ export function compactTLSCertificateHosts(hosts: string[]): string[] {
   );
 }
 
-function readCurrentCertificateHosts(): string[] {
+function readCurrentCertificateHosts(options: { replaceMalformed?: boolean } = {}): string[] {
   if (!fs.existsSync(CERT_FILE)) {
     return [];
   }
 
-  const pem = fs.readFileSync(CERT_FILE, "utf-8");
-  return parseCertificateDnsHosts(pem);
+  try {
+    const pem = fs.readFileSync(CERT_FILE, "utf-8");
+    return parseCertificateDnsHosts(pem);
+  } catch (error) {
+    if (options.replaceMalformed) {
+      return [];
+    }
+    throw error;
+  }
 }
 
 export function buildDesiredTLSCertificateHosts(
@@ -249,7 +256,13 @@ async function applyTLSCertificate(
         getMkcertRootCAPath({ repoPath: options.repoPath });
       }
 
-      const existingCertificateHosts = readCurrentCertificateHosts();
+      // Routine refresh must preserve readable existing coverage and fail
+      // closed when it cannot. Explicit install/setup is the recovery path: it
+      // replaces a malformed generated certificate while still holding the
+      // same machine-global lock.
+      const existingCertificateHosts = readCurrentCertificateHosts({
+        replaceMalformed: installTrust,
+      });
       const desiredHosts = buildDesiredTLSCertificateHosts(
         options.hosts ?? [],
         existingCertificateHosts,

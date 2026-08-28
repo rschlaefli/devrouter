@@ -6,7 +6,9 @@
   worktrees start concurrently.
 - Preserve every already-covered host while compacting sibling Klicker app
   hosts into valid multi-label wildcard SANs.
-- Fail closed on unreadable certificates or incomplete generated coverage.
+- Fail closed on unreadable certificates or incomplete generated coverage
+  during routine refresh, with explicit setup/install as the locked repair path
+  for a malformed generated certificate.
 
 ## Execution contract
 
@@ -45,8 +47,10 @@
 ## Do
 
 - Serialize certificate inspection and refresh under one machine-global lock.
-- Read the initial certificate once, fail closed if it cannot be parsed, and
-  reuse that immutable coverage union for every generation attempt.
+- Read the initial certificate once, fail closed during routine refresh if it
+  cannot be parsed, and reuse that immutable coverage union for every generation
+  attempt. Explicit setup/install may replace a malformed generated certificate
+  while holding the same lock.
 - Verify the generated certificate covers the full desired set before enabling
   TLS or refreshing route configuration.
 - Compact two or more sibling hosts into `*.<multi-label-suffix>` while retaining
