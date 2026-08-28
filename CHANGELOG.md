@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.42] - 2026-08-26
+
+### Fixed
+
+- A failed `devsy workspace up` that already registered or retained the exact
+  checkout now preserves the generated managed Dev Container configuration.
+  Canonical `devrouter stop` therefore remains usable after partial provider
+  startup. Devrouter removes the candidate configuration only when the Devsy
+  registry proves that no exact owner exists; conflicting or unavailable
+  ownership evidence fails closed and keeps recovery state.
+- Devsy's provider-generated Compose file for Dev Container features now counts
+  as part of the exact managed Compose model, matching the existing DevPod
+  treatment while foreign consumer overlays remain rejected.
+
+### Compatibility
+
+- Runtime selection, inactivity shutdown, repository configuration, commands,
+  routes, DevPod behavior, workspaces, and volumes are unchanged. Existing
+  repositories only need to update `devrouter.version`.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.42.md
+
 ## [0.0.41] - 2026-08-26
 
 ### Added

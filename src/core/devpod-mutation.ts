@@ -8,6 +8,7 @@ import {
   selectDevpodWorkspace,
 } from "./devpod-workspaces";
 import {
+  DevsyStartPostconditionError,
   deleteOwnedDevsyWorkspace,
   startDevsyWorkspace,
   stopOwnedDevsyWorkspace,
@@ -139,17 +140,25 @@ export function deleteOwnedDevpodWorkspace(
 
 export function startDevpodWorkspace(options: DevpodStartOptions): string {
   if (resolveWorkspaceRuntimeOrDefault(options.repoPath) === "devsy") {
-    const result = startDevsyWorkspace({
-      repoPath: options.repoPath,
-      devsyId: options.devpodId,
-      devcontainerPath: options.devcontainerPath,
-      recreate: options.recreate,
-      quiet: options.quiet,
-      workspace: options.workspace,
-      inactivityTimeout: readWorkspaceRuntimeConfig().devsyInactivityTimeout,
-    });
-    resetWorkspaceRuntimeCaches();
-    return result;
+    try {
+      const result = startDevsyWorkspace({
+        repoPath: options.repoPath,
+        devsyId: options.devpodId,
+        devcontainerPath: options.devcontainerPath,
+        recreate: options.recreate,
+        quiet: options.quiet,
+        workspace: options.workspace,
+        inactivityTimeout: readWorkspaceRuntimeConfig().devsyInactivityTimeout,
+      });
+      resetWorkspaceRuntimeCaches();
+      return result;
+    } catch (error) {
+      if (error instanceof DevsyStartPostconditionError) {
+        resetWorkspaceRuntimeCaches();
+        throw new DevpodStartPostconditionError(error.message);
+      }
+      throw error;
+    }
   }
   const activity = options.recreate ? "DevPod recreate" : "DevPod start";
   return withMutationLock(activity, options.repoPath, () => {

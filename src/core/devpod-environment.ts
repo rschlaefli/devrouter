@@ -120,7 +120,7 @@ export function hasExactComposeIdentity(
     .filter(Boolean);
   const providerGeneratedFiles = actualFiles.filter((file) => {
     const normalized = file.replaceAll("\\", "/");
-    return /\/.devpod\/agent\/contexts\/[^/]+\/workspaces\/[^/]+\/.docker-compose\/docker-compose\.devcontainer\.containerFeatures-[^/]+\.yml$/.test(
+    return /\/(?:\.devpod\/agent\/contexts\/[^/]+\/workspaces\/[^/]+|\.devsy\/contexts\/[^/]+\/workspaces\/[^/]+\/agent)\/\.docker-compose\/docker-compose\.devcontainer\.containerFeatures-[^/]+\.yml$/.test(
       normalized,
     );
   });

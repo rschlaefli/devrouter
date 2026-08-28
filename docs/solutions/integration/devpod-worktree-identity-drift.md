@@ -30,6 +30,8 @@ checkout or runtime generations to be combined into an apparently healthy enviro
 - A running container exposed the expected alias, but another container could claim the same
   alias and make routing ambiguous.
 - A failed post-start ownership check left previously published routes in place.
+- A failed Devsy agent injection could leave an exact workspace running while
+  removing the generated configuration that Devsy needed for canonical stop.
 - Cleanup could revalidate a missing owner, then race with `workspace ensure` before deleting its
   DevPod, routes, and ownership record.
 - HTTP routes could accept a foreign upstream namespace even though TCP ownership was strict.
@@ -53,6 +55,8 @@ checkout or runtime generations to be combined into an apparently healthy enviro
 - A repository-local lifecycle lock did not serialize DevPod's machine-global ID namespace across
   different repositories.
 - Treating JSON as route authority did not prove which route generation Traefik actually received.
+- Treating a non-zero provider exit as proof that nothing started removed
+  recovery state even though Devsy had already registered the exact checkout.
 
 ## Solution
 
@@ -69,6 +73,14 @@ only to identify the owned app container (`validateWorkspaceContainers` and
 `devpod up` succeeds, including when its attachment postcondition fails, so any later attachment or
 runtime proof failure clears the worktree's route batch (`DevpodStartPostconditionError` in
 `src/core/devpod-mutation.ts` and `workspaceEnsure` in `src/core/workspace-ensure.ts`).
+
+Classify a non-zero Devsy start while the provider lock is still held. The
+post-failure registry check at `src/core/devsy-mutation.ts:35` returns ordinary
+failure only for proven exact absence; an exact owner, conflict, or unreadable
+registry raises the possibly-started signal at `src/core/devsy-mutation.ts:194`.
+The compatibility dispatch at `src/core/devpod-mutation.ts:141` normalizes that
+signal for the provider-neutral rollback boundary, which retains the ignored
+generated configuration and keeps canonical stop parseable.
 
 Spend the same single recreate budget when an existing exact workspace fails HTTP readiness:
 remove its routes, recreate and reprove the container, then republish the same route batch and wait
@@ -162,3 +174,10 @@ Runtime-resolution tests cover exact-path ownership for both providers, distinct
 syntax, ambiguous dual registration, and machine-preference fallback
 (`src/core/__tests__/workspace-runtime.test.ts`). DevPod-only adapter tests explicitly select the
 DevPod runtime so machine configuration cannot change their subject under test.
+
+Provider regressions cover exact ownership appearing after a non-zero Devsy
+start, proven absence, unreadable registry evidence, and ownership conflict in
+`src/core/__tests__/devsy-mutation.test.ts:266`. The public lifecycle cases at
+`src/core/__tests__/workspace-ensure.test.ts:1135` prove that partial ownership
+retains the generated configuration, proven absence removes it, and neither
+failure publishes routes.
