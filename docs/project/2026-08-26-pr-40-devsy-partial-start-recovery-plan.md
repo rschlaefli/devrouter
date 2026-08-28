@@ -214,3 +214,13 @@ fixture deletion stay withheld.
   standalone `docker-compose` fallback. Restoring `/usr/local/bin` made that
   fallback report Compose `5.1.2`. One corrected cold-start run remains needed
   to confirm this configuration diagnosis end to end.
+- `2026-08-28`: The user approved one exact corrected retry. Devsy reached
+  `Running` and created the app container, proving Compose discovery was the
+  configuration issue. Devrouter then rejected Devsy's provider-generated
+  container-features Compose file because exact-model validation allowed only
+  DevPod's equivalent path. Canonical `devrouter stop` succeeded, provider
+  state is `Stopped`, the fixture remains clean, and both exact routes are
+  absent. TDD regressions now cover the observed Devsy path and reject a
+  similarly named provider directory; the minimal allowlist fix passes the
+  full 719-test suite, Biome, typecheck, build, package smoke, and diff checks.
+  A second live retry remains pending.

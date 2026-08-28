@@ -14,6 +14,9 @@ All notable changes to this project are documented in this file.
   startup. Devrouter removes the candidate configuration only when the Devsy
   registry proves that no exact owner exists; conflicting or unavailable
   ownership evidence fails closed and keeps recovery state.
+- Devsy's provider-generated Compose file for Dev Container features now counts
+  as part of the exact managed Compose model, matching the existing DevPod
+  treatment while foreign consumer overlays remain rejected.
 
 ### Compatibility
 
