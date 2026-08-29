@@ -7,11 +7,16 @@ import {
   listDevsyWorkspaces,
   selectDevsyWorkspace,
 } from "./devsy-workspaces";
-import { withFileLockSync } from "./file-lock";
+import { createStderrWaitReporter, withFileLockSync } from "./file-lock";
 import { DEVROUTER_HOME } from "./router";
 
 const DEVSY_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devsy-mutation.lock");
-const DEVSY_MUTATION_WAIT_MS = 60_000;
+/**
+ * Cold Devsy starts can run for minutes. Contenders wait long enough to
+ * drain a small queue of parallel agent worktrees, with throttled stderr
+ * progress so a wait is never silent.
+ */
+const DEVSY_MUTATION_WAIT_MS = 600_000;
 
 export type OwnedDevsyMutationResult = { status: "changed" } | { status: "absent" };
 
@@ -48,7 +53,12 @@ function withMutationLock<T>(activity: string, target: string, operation: () => 
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   return withFileLockSync(
     DEVSY_MUTATION_LOCK_FILE,
-    { activity, target: `'${target}'`, waitMs: DEVSY_MUTATION_WAIT_MS },
+    {
+      activity,
+      target: `'${target}'`,
+      waitMs: DEVSY_MUTATION_WAIT_MS,
+      onWait: createStderrWaitReporter(activity, `'${target}'`),
+    },
     operation,
   );
 }

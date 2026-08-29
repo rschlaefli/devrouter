@@ -16,6 +16,7 @@ vi.mock("../file-lock", () => ({
   withFileLockSync: vi.fn((_path: string, _options: unknown, operation: () => unknown) =>
     operation(),
   ),
+  createStderrWaitReporter: vi.fn(() => () => undefined),
 }));
 
 beforeEach(() => {
@@ -38,13 +39,23 @@ describe("Devsy mutation adapter", () => {
     expect(withFileLockSync).toHaveBeenNthCalledWith(
       1,
       `${paths.home}/devsy-mutation.lock`,
-      { activity: "Devsy stop", target: "'/repo/feature'", waitMs: 60_000 },
+      {
+        activity: "Devsy stop",
+        target: "'/repo/feature'",
+        waitMs: 600_000,
+        onWait: expect.any(Function),
+      },
       expect.any(Function),
     );
     expect(withFileLockSync).toHaveBeenNthCalledWith(
       2,
       `${paths.home}/devsy-mutation.lock`,
-      { activity: "Devsy delete", target: "'/repo/feature'", waitMs: 60_000 },
+      {
+        activity: "Devsy delete",
+        target: "'/repo/feature'",
+        waitMs: 600_000,
+        onWait: expect.any(Function),
+      },
       expect.any(Function),
     );
     expect(spawnSync).not.toHaveBeenCalledWith(

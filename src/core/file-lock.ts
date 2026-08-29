@@ -6,9 +6,27 @@ type FileLockOptions = {
   activity: string;
   target?: string;
   waitMs?: number;
+  /** Called at most once per progress interval while blocked on a live holder. */
+  onWait?: (progress: LockWaitProgress) => void;
+  /** Progress interval for onWait. Defaults to 10 seconds. */
+  progressIntervalMs?: number;
 };
 
-type LockState = { kind: "live"; pid: number } | { kind: "reclaimed" } | { kind: "retry" };
+export type LockWaitProgress = {
+  waitingMs: number;
+  holderPid: number;
+  holderHeldMs?: number;
+};
+
+type LockState =
+  | { kind: "live"; pid: number; acquiredAtMs?: number }
+  | { kind: "reclaimed" }
+  | { kind: "retry" };
+
+const DEFAULT_WAIT_PROGRESS_INTERVAL_MS = 10_000;
+
+const CANONICAL_OWNER_RE =
+  /^[0-9]+:[A-Za-z0-9_-]+:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type LockOwner = {
   pid: number;
@@ -79,6 +97,27 @@ function parseLockOwner(value: string): LockOwner | undefined {
   }
 }
 
+/**
+ * Parse a lock record into its owner plus optional acquisition timestamp.
+ * Records written by this version append an epoch-milliseconds field to a
+ * canonical pid:birth:uuid owner. Anything else keeps the pre-timestamp
+ * parsing, which stays live-conservative for legacy and malformed content.
+ */
+function parseLockRecord(value: string): {
+  owner: LockOwner | undefined;
+  acquiredAtMs?: number;
+} {
+  const trimmed = value.trim();
+  const lastColon = trimmed.lastIndexOf(":");
+  if (lastColon >= 0 && CANONICAL_OWNER_RE.test(trimmed.slice(0, lastColon))) {
+    const tail = Number(trimmed.slice(lastColon + 1));
+    if (Number.isInteger(tail) && tail > 0) {
+      return { owner: parseLockOwner(trimmed.slice(0, lastColon)), acquiredAtMs: tail };
+    }
+  }
+  return { owner: parseLockOwner(trimmed) };
+}
+
 function isLockOwnerLive(owner: LockOwner): boolean {
   if (!isProcessAlive(owner.pid)) return false;
   if (!owner.processBirth) return true;
@@ -102,9 +141,9 @@ function tryReclaimStaleLock(lockPath: string, staleLinkPath: string): LockState
   }
 
   try {
-    const owner = parseLockOwner(fs.readFileSync(fd, "utf-8").trim());
-    if (owner && isLockOwnerLive(owner)) {
-      return { kind: "live", pid: owner.pid };
+    const record = parseLockRecord(fs.readFileSync(fd, "utf-8"));
+    if (record.owner && isLockOwnerLive(record.owner)) {
+      return { kind: "live", pid: record.owner.pid, acquiredAtMs: record.acquiredAtMs };
     }
 
     const staleStat = fs.fstatSync(fd);
@@ -154,14 +193,23 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
   const candidatePath = `${lockPath}.${process.pid}.${ownerId}.candidate`;
   const staleLinkPath = `${candidatePath}.stale`;
   const deadline = Date.now() + (options.waitMs ?? 0);
+  const waitStartedAt = Date.now();
+  const progressIntervalMs = options.progressIntervalMs ?? DEFAULT_WAIT_PROGRESS_INTERVAL_MS;
+  let lastProgressAt = waitStartedAt;
   let reclaimAttempts = 0;
-  fs.writeFileSync(candidatePath, `${owner}\n`, { encoding: "utf-8", flag: "wx" });
+  const acquiredAtMs = Date.now();
+  fs.writeFileSync(candidatePath, `${owner}:${acquiredAtMs}\n`, {
+    encoding: "utf-8",
+    flag: "wx",
+  });
 
   try {
     for (;;) {
       try {
         fs.linkSync(candidatePath, lockPath);
-        return owner;
+        // The stored payload includes the acquisition timestamp so release
+        // keeps comparing the exact on-disk record.
+        return `${owner}:${acquiredAtMs}`;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
           throw error;
@@ -173,9 +221,25 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
         continue;
       }
       if (state.kind === "live") {
-        if (Date.now() >= deadline) {
+        const now = Date.now();
+        if (now >= deadline) {
           const target = options.target ? ` for ${options.target}` : "";
-          throw new Error(`${options.activity} is already running${target} (PID ${state.pid})`);
+          const waitedSeconds = Math.round((now - waitStartedAt) / 1000);
+          const heldSeconds =
+            state.acquiredAtMs !== undefined
+              ? `, held for ${Math.round((now - state.acquiredAtMs) / 1000)}s`
+              : "";
+          throw new Error(
+            `${options.activity} is already running${target} (PID ${state.pid}${heldSeconds}); gave up after waiting ${waitedSeconds}s`,
+          );
+        }
+        if (options.onWait && now - lastProgressAt >= progressIntervalMs) {
+          lastProgressAt = now;
+          options.onWait({
+            waitingMs: now - waitStartedAt,
+            holderPid: state.pid,
+            holderHeldMs: state.acquiredAtMs,
+          });
         }
         sleepSync(20);
         continue;
@@ -231,4 +295,20 @@ export async function withFileLock<T>(
   } finally {
     releaseFileLock(lockPath, owner);
   }
+}
+
+/** Build an onWait reporter that prints one throttled stderr line per wait. */
+export function createStderrWaitReporter(
+  activity: string,
+  target: string,
+): (progress: LockWaitProgress) => void {
+  return (progress) => {
+    const heldSeconds =
+      progress.holderHeldMs !== undefined
+        ? `, held for ${Math.round(progress.holderHeldMs / 1000)}s`
+        : "";
+    process.stderr.write(
+      `${activity} for ${target}: waiting for the provider lock held by PID ${progress.holderPid}${heldSeconds}; waited ${Math.round(progress.waitingMs / 1000)}s so far\n`,
+    );
+  };
 }

@@ -39,7 +39,7 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
    collides, then persist the checkout token within the same repository-local
    transaction.
 3. Load the in-memory runtime config and reject any managed HTTP or TCP proxy upstream outside the checkout's alias namespace.
-4. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide.
+4. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide. Contenders wait up to ten minutes for the machine-global provider lock and print one throttled stderr progress line every ten seconds while waiting; a timeout names the holder PID, how long it has held the lock, and how long the contender waited.
 5. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
 6. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, and verify HTTP readiness.
 7. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
@@ -59,8 +59,9 @@ occupies that path, then delegates startup to
 `workspaceEnsure`. `--no-devpod` is create-only and publishes no routes; its
 provisional identity is reconciled on the first managed `ensure`. Worktree
 creation holds the repository ownership transaction through `git worktree add`
-and gives concurrent creators 60 seconds to serialize; ordinary ownership
-transactions retain their short wait.
+and gives concurrent creators 60 seconds to serialize; the machine-global
+provider mutation lock waits up to ten minutes with throttled stderr progress
+lines; ordinary ownership transactions retain their short wait.
 
 ## Profile transitions
 

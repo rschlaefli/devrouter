@@ -25,6 +25,7 @@ vi.mock("../file-lock", () => ({
   withFileLockSync: vi.fn((_path: string, _options: unknown, operation: () => unknown) =>
     operation(),
   ),
+  createStderrWaitReporter: vi.fn(() => () => undefined),
 }));
 
 beforeEach(() => {
@@ -116,13 +117,23 @@ describe("machine-global DevPod mutation boundary", () => {
     expect(withFileLockSync).toHaveBeenNthCalledWith(
       1,
       `${paths.home}/devpod-mutation.lock`,
-      { activity: "DevPod stop", target: "'/repo-a'", waitMs: 60_000 },
+      {
+        activity: "DevPod stop",
+        target: "'/repo-a'",
+        waitMs: 600_000,
+        onWait: expect.any(Function),
+      },
       expect.any(Function),
     );
     expect(withFileLockSync).toHaveBeenNthCalledWith(
       2,
       `${paths.home}/devpod-mutation.lock`,
-      { activity: "DevPod delete", target: "'/repo-b'", waitMs: 60_000 },
+      {
+        activity: "DevPod delete",
+        target: "'/repo-b'",
+        waitMs: 600_000,
+        onWait: expect.any(Function),
+      },
       expect.any(Function),
     );
   });

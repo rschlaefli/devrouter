@@ -199,5 +199,10 @@ credit-limited today).
 
 ## Progress
 
-- 2026-08-29: Plan written and committed after user approval of the
-  re-evaluated design. Baseline focused suites green on `ddb7e99`. Next: S1.
+- 2026-08-29: Plan committed after user approval of the re-evaluated design;
+  baseline focused suites green on `ddb7e99`.
+- 2026-08-29: S1 complete. Provider-only wait raised to 600 seconds with
+  throttled stderr progress, acquisition timestamps added to lock records
+  with conservative parsing for legacy and malformed records, and contention
+  errors now carry held and waited durations. 34 focused tests pass,
+  including real in-process contention. Next: S2.
