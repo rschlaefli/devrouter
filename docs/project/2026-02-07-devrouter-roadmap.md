@@ -6,7 +6,16 @@ Use the [documentation map](../README.md) for supported behavior, [AGENTS.md](..
 
 ## Next package
 
-- **W2 — [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md):** extend the report-only `devrouter workspace cleanup` output with per-workspace storage consumption, separating measured from reclaimable figures, so stale-workspace evidence also carries what reclaiming it returns. Approved on 2026-08-16; the package stays report-only and adds no mutation path.
+No package is currently approved. Selecting among the independent items in the
+near-term backlog requires a new expert-planning pass.
+
+W2 — [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md)
+was delivered in [PR #30](https://github.com/rschlaefli/devrouter/pull/30),
+merged into `main` at
+[f176a67](https://github.com/rschlaefli/devrouter/commit/f176a6672328fe2a4d1da039a05ffb7f0a68cdf2),
+and published in [v0.0.36](https://github.com/rschlaefli/devrouter/releases/tag/v0.0.36).
+It added opt-in, report-only workspace storage accounting without adding a
+mutation path.
 
 W1 — [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md) was delivered in [PR #29](https://github.com/rschlaefli/devrouter/pull/29) and merged into `main` at [f6718c6](https://github.com/rschlaefli/devrouter/commit/f6718c65a0e91dc6f7bb3b40ac1d328ab6a918cf); it added `pnpm test:package` and the required CI step after `pnpm build`. The registry-backed `npx` proof and any publication or release work remain separate scope.
 
