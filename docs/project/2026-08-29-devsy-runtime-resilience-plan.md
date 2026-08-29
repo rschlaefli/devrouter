@@ -212,3 +212,13 @@ credit-limited today).
   acquisition failure appends DEVSY_AGENT_BINARY/download remediation to the
   typed error message without changing classification. 15 Devsy tests pass.
   Next: S3 release.
+- 2026-08-29: S3 complete. Full release checklist green: docs policy,
+  knowledge validation, Biome, Knip, typecheck, 762 tests (66 files; the
+  Linux-only process helper test skips on macOS), build, and packaged-CLI
+  evidence. The bundled package-smoke script cannot complete inside this
+  sandbox (its pnpm subprocess hits EPERM writing a temp file in the repo,
+  before any output), so its checks were performed manually with `pnpm pack`,
+  an isolated npm install, exact tarball member listing (46 members,
+  including `upgrade-prompts/0.0.46.md`), a successful packed-CLI `--help`,
+  and `devrouter -V` reporting installed 0.0.46 against the bumped example
+  pin. Next: S4 live Devsy trial.

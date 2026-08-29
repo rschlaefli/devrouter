@@ -44,6 +44,7 @@ vi.mock("../file-lock", () => ({
   withFileLockSync: vi.fn((_path: string, _options: unknown, operation: () => unknown) =>
     operation(),
   ),
+  createStderrWaitReporter: vi.fn(() => () => undefined),
 }));
 vi.mock("../host-routes", () => ({
   listHostRouteState: vi.fn(() => []),
