@@ -107,6 +107,11 @@ function parseLockOwner(value: string): LockOwner | undefined {
   }
 }
 
+function parseCanonicalLockOwner(value: string): LockOwner | undefined {
+  const trimmed = value.trim();
+  return CANONICAL_OWNER_RE.test(trimmed) ? parseLockOwner(trimmed) : undefined;
+}
+
 /**
  * Parse a lock record into its owner plus optional acquisition timestamp.
  * Records written by this version append an epoch-milliseconds field to a
@@ -157,7 +162,7 @@ function inspectFairQueue(lockPath: string, ownTicketPath: string): FairQueueSta
     const leaderPath = path.join(directory, names[0]);
     let leader: LockOwner | undefined;
     try {
-      leader = parseLockOwner(fs.readFileSync(leaderPath, "utf-8").trim());
+      leader = parseCanonicalLockOwner(fs.readFileSync(leaderPath, "utf-8"));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw error;
@@ -287,7 +292,6 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
       fs.writeFileSync(candidatePath, `${record}\n`, "utf-8");
       try {
         fs.linkSync(candidatePath, lockPath);
-        if (options.fair) fs.rmSync(queueTicketPath, { force: true });
         return record;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") {

@@ -244,3 +244,11 @@ credit-limited today).
   evidence is provider `NotFound` with zero exact routes, so its stale Devsy
   registration is retained under the no-deletion boundary. Next: commit the
   correction, run its simplifier gate, then repeat S4 with fresh exact tokens.
+- 2026-08-30: S4 correction simplifier completed on `790fa98` with one accepted
+  net reduction: remove duplicate success-path ticket cleanup. Its correctness
+  handoff identified that legacy-conservative owner parsing could preserve a
+  malformed queue leader with a live PID; queue tickets now require the
+  canonical owner format, and the regression covers dead canonical plus
+  malformed live-PID leaders. Focused Biome, 39 tests, and typecheck pass.
+  Live C/D trial is active: D repeatedly reports provider queue position 2 led
+  by C while both wait behind a legitimate installed-client fleet mutation.

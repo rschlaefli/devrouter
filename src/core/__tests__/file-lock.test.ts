@@ -140,14 +140,22 @@ describe("file lock ownership", () => {
     expect(progress.every((item) => item.waitingOn === "lock")).toBe(true);
   });
 
-  it("reclaims a dead fair-queue leader before acquisition", () => {
-    const staleTicket = `${lockPath}.queue.0000000000000.0999999999.stale`;
-    fs.writeFileSync(staleTicket, "999999999:legacy-owner\n", "utf-8");
+  it("reclaims dead and malformed fair-queue leaders before acquisition", () => {
+    const deadTicket = `${lockPath}.queue.0000000000000.0999999999.dead`;
+    const malformedTicket = `${lockPath}.queue.0000000000001.${String(process.pid).padStart(10, "0")}.malformed`;
+    const deadBirth = Buffer.from("proc:1").toString("base64url");
+    fs.writeFileSync(
+      deadTicket,
+      `999999999:${deadBirth}:00000000-0000-4000-8000-000000000000\n`,
+      "utf-8",
+    );
+    fs.writeFileSync(malformedTicket, `${process.pid}:legacy-owner\n`, "utf-8");
 
     const result = withFileLockSync(lockPath, { activity: "fair", fair: true }, () => "acquired");
 
     expect(result).toBe("acquired");
-    expect(fs.existsSync(staleTicket)).toBe(false);
+    expect(fs.existsSync(deadTicket)).toBe(false);
+    expect(fs.existsSync(malformedTicket)).toBe(false);
   });
 
   it("does not report progress before the progress interval elapses", () => {
