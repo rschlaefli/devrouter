@@ -206,3 +206,9 @@ credit-limited today).
   with conservative parsing for legacy and malformed records, and contention
   errors now carry held and waited durations. 34 focused tests pass,
   including real in-process contention. Next: S2.
+- 2026-08-29: S2 complete. Devsy `workspace up` stderr is captured in a
+  bounded tail and replayed to fd 2 (spawnSync cannot stream while the child
+  runs; stdout stays inherited for live progress); the known agent-binary
+  acquisition failure appends DEVSY_AGENT_BINARY/download remediation to the
+  typed error message without changing classification. 15 Devsy tests pass.
+  Next: S3 release.

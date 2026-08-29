@@ -316,6 +316,98 @@ describe("startDevsyWorkspace", () => {
     expect((failure as Error).message).toContain("devsy workspace up failed");
   });
 
+  it("appends agent-acquisition remediation only for the known failure", () => {
+    let listCalls = 0;
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    let replayed = "";
+    stderrWrite.mockImplementation((chunk) => {
+      replayed += String(chunk);
+      return true;
+    });
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        listCalls += 1;
+        return listResult(listCalls === 1 ? [] : []);
+      }
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
+        return { status: 1, stdout: "", stderr: "inject agent: agent binary not found" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    let failure: unknown;
+    try {
+      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect((failure as Error).message).toContain("DEVSY_AGENT_BINARY");
+    expect(replayed).toContain("inject agent: agent binary not found");
+    stderrWrite.mockRestore();
+    const upCall = vi
+      .mocked(spawnSync)
+      .mock.calls.find(([command, args]) => command === "devsy" && (args as string[])[1] === "up");
+    expect(upCall && (upCall[2] as { stdio?: unknown }).stdio).toEqual([
+      "inherit",
+      "inherit",
+      "pipe",
+    ]);
+  });
+
+  it("keeps the unknown-failure message free of remediation", () => {
+    let listCalls = 0;
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        listCalls += 1;
+        return listResult(listCalls === 1 ? [] : []);
+      }
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
+        return { status: 1, stdout: "", stderr: "provider failed" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    let failure: unknown;
+    try {
+      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+    } catch (error) {
+      failure = error;
+    } finally {
+      stderrWrite.mockRestore();
+    }
+
+    expect((failure as Error).message).not.toContain("DEVSY_AGENT_BINARY");
+  });
+
+  it("carries the remediation through the possibly-started classification", () => {
+    let listCalls = 0;
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        listCalls += 1;
+        return listResult(listCalls === 1 ? [] : [owned]);
+      }
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
+        return { status: 1, stdout: "", stderr: "inject agent: agent binary not found" } as never;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    let failure: unknown;
+    try {
+      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(DevsyStartPostconditionError);
+    expect((failure as Error).message).toContain("DEVSY_AGENT_BINARY");
+  });
+
   it("fails closed when ownership cannot be read after a failed start", () => {
     let listCalls = 0;
     vi.mocked(spawnSync).mockImplementation((command, args) => {

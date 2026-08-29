@@ -67,6 +67,23 @@ function commandFailure(result: ReturnType<typeof spawnSync>): string {
   return [result.error?.message, result.stdout, result.stderr].filter(Boolean).join("\n").trim();
 }
 
+/** Devsy cannot start its workspace when its agent binary is unavailable. */
+const AGENT_ACQUISITION_RE = /inject agent.*agent binary not found/i;
+
+/** spawnSync stdio for "devsy workspace up": inherited stdout, piped stderr. */
+const DEVSY_UP_STDIO: ["inherit", "inherit", "pipe"] = ["inherit", "inherit", "pipe"];
+
+/**
+ * Capture Devsy startup stderr in a bounded tail and replay it to fd 2.
+ * spawnSync cannot stream while the child runs, so stdout stays inherited for
+ * live progress and captured stderr is replayed as soon as Devsy exits.
+ */
+function captureDevsyUpStderr(result: ReturnType<typeof spawnSync>): string {
+  const captured = typeof result.stderr === "string" ? result.stderr : "";
+  if (captured) process.stderr.write(captured);
+  return captured.slice(-8192);
+}
+
 function runDevsyAction(action: "stop" | "delete", devsyId: string, force = false): void {
   const args =
     action === "delete"
@@ -198,11 +215,16 @@ export function startDevsyWorkspace(options: DevsyStartOptions): string {
     }
 
     const result = spawnSync("devsy", args, {
-      stdio: options.quiet ? ["inherit", 2, "inherit"] : "inherit",
+      stdio: DEVSY_UP_STDIO,
       env,
     });
     if (result.status !== 0) {
-      const message = `devsy workspace up failed for '${devsyId ?? options.repoPath}'.`;
+      const capturedStderr = captureDevsyUpStderr(result);
+      let message = `devsy workspace up failed for '${devsyId ?? options.repoPath}'.`;
+      if (AGENT_ACQUISITION_RE.test(capturedStderr)) {
+        message +=
+          " Devsy could not obtain its agent binary; allow Devsy to download it or set DEVSY_AGENT_BINARY to a verified official Devsy agent binary matching this platform and Devsy version.";
+      }
       if (failedStartMayHaveAttached(devsyId, options.repoPath)) {
         throw new DevsyStartPostconditionError(message);
       }
