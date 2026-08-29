@@ -26,7 +26,7 @@ const DEVPOD_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devpod-mutation.loc
  * Matches the Devsy provider wait so mixed fleets behave identically under
  * parallel agent load; waits report throttled stderr progress.
  */
-const DEVPOD_MUTATION_WAIT_MS = 600_000;
+const DEVPOD_MUTATION_WAIT_MS = 1_800_000;
 
 export type OwnedDevpodMutationResult = { status: "changed" } | { status: "absent" };
 
@@ -49,6 +49,7 @@ function withMutationLock<T>(activity: string, target: string, operation: () => 
       activity,
       target: `'${target}'`,
       waitMs: DEVPOD_MUTATION_WAIT_MS,
+      fair: true,
       onWait: createStderrWaitReporter(activity, `'${target}'`),
     },
     operation,

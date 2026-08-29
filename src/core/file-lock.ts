@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 
 type FileLockOptions = {
   activity: string;
@@ -10,12 +11,16 @@ type FileLockOptions = {
   onWait?: (progress: LockWaitProgress) => void;
   /** Progress interval for onWait. Defaults to 10 seconds. */
   progressIntervalMs?: number;
+  /** Preserve arrival order for long-running machine-global provider mutations. */
+  fair?: boolean;
 };
 
 export type LockWaitProgress = {
   waitingMs: number;
   holderPid: number;
   holderHeldMs?: number;
+  queuePosition?: number;
+  waitingOn?: "lock" | "queue";
 };
 
 type LockState =
@@ -31,6 +36,11 @@ const CANONICAL_OWNER_RE =
 type LockOwner = {
   pid: number;
   processBirth?: string;
+};
+
+type FairQueueState = {
+  leaderPid: number;
+  position: number;
 };
 
 function sleepSync(ms: number): void {
@@ -129,6 +139,40 @@ function sameFile(left: fs.Stats, right: fs.Stats): boolean {
   return left.dev === right.dev && left.ino === right.ino;
 }
 
+function inspectFairQueue(lockPath: string, ownTicketPath: string): FairQueueState {
+  const directory = path.dirname(lockPath);
+  const prefix = `${path.basename(lockPath)}.queue.`;
+
+  for (;;) {
+    const names = fs
+      .readdirSync(directory)
+      .filter((name) => name.startsWith(prefix))
+      .sort();
+    const ownName = path.basename(ownTicketPath);
+    const position = names.indexOf(ownName);
+    if (position < 0) {
+      throw new Error("provider mutation queue ticket disappeared before acquisition");
+    }
+
+    const leaderPath = path.join(directory, names[0]);
+    let leader: LockOwner | undefined;
+    try {
+      leader = parseLockOwner(fs.readFileSync(leaderPath, "utf-8").trim());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    if (leader && isLockOwnerLive(leader)) {
+      return { leaderPid: leader.pid, position: position + 1 };
+    }
+
+    // Queue records are written through an atomic rename. A malformed or dead
+    // leader therefore cannot belong to an in-flight writer and is safe to
+    // remove so the next live waiter can advance.
+    fs.rmSync(leaderPath, { force: true });
+  }
+}
+
 function tryReclaimStaleLock(lockPath: string, staleLinkPath: string): LockState {
   let fd: number;
   try {
@@ -192,24 +236,59 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
   const owner = `${process.pid}:${Buffer.from(processBirth).toString("base64url")}:${ownerId}`;
   const candidatePath = `${lockPath}.${process.pid}.${ownerId}.candidate`;
   const staleLinkPath = `${candidatePath}.stale`;
+  const enqueuedAtMs = Date.now();
+  const queueTicketPath = `${lockPath}.queue.${String(enqueuedAtMs).padStart(13, "0")}.${String(process.pid).padStart(10, "0")}.${ownerId}`;
+  const queueCandidatePath = `${queueTicketPath}.candidate`;
   const deadline = Date.now() + (options.waitMs ?? 0);
   const waitStartedAt = Date.now();
   const progressIntervalMs = options.progressIntervalMs ?? DEFAULT_WAIT_PROGRESS_INTERVAL_MS;
   let lastProgressAt = waitStartedAt;
   let reclaimAttempts = 0;
-  const acquiredAtMs = Date.now();
-  fs.writeFileSync(candidatePath, `${owner}:${acquiredAtMs}\n`, {
+  fs.writeFileSync(candidatePath, `${owner}\n`, {
     encoding: "utf-8",
     flag: "wx",
   });
+  if (options.fair) {
+    fs.writeFileSync(queueCandidatePath, `${owner}\n`, { encoding: "utf-8", flag: "wx" });
+    fs.renameSync(queueCandidatePath, queueTicketPath);
+  }
 
   try {
     for (;;) {
+      let queueState: FairQueueState | undefined;
+      if (options.fair) {
+        queueState = inspectFairQueue(lockPath, queueTicketPath);
+      }
+
+      if (queueState && queueState.position > 1) {
+        const now = Date.now();
+        if (now >= deadline) {
+          const target = options.target ? ` for ${options.target}` : "";
+          const waitedSeconds = Math.round((now - waitStartedAt) / 1000);
+          throw new Error(
+            `${options.activity} is still queued${target} (position ${queueState.position}, ahead PID ${queueState.leaderPid}); gave up after waiting ${waitedSeconds}s`,
+          );
+        }
+        if (options.onWait && now - lastProgressAt >= progressIntervalMs) {
+          lastProgressAt = now;
+          options.onWait({
+            waitingMs: now - waitStartedAt,
+            holderPid: queueState.leaderPid,
+            queuePosition: queueState.position,
+            waitingOn: "queue",
+          });
+        }
+        sleepSync(20);
+        continue;
+      }
+
+      const acquiredAtMs = Date.now();
+      const record = `${owner}:${acquiredAtMs}`;
+      fs.writeFileSync(candidatePath, `${record}\n`, "utf-8");
       try {
         fs.linkSync(candidatePath, lockPath);
-        // The stored payload includes the acquisition timestamp so release
-        // keeps comparing the exact on-disk record.
-        return `${owner}:${acquiredAtMs}`;
+        if (options.fair) fs.rmSync(queueTicketPath, { force: true });
+        return record;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
           throw error;
@@ -238,7 +317,10 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
           options.onWait({
             waitingMs: now - waitStartedAt,
             holderPid: state.pid,
-            holderHeldMs: state.acquiredAtMs,
+            holderHeldMs:
+              state.acquiredAtMs !== undefined ? Math.max(0, now - state.acquiredAtMs) : undefined,
+            queuePosition: queueState?.position,
+            waitingOn: "lock",
           });
         }
         sleepSync(20);
@@ -256,6 +338,8 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
   } finally {
     fs.rmSync(candidatePath, { force: true });
     fs.rmSync(staleLinkPath, { force: true });
+    fs.rmSync(queueCandidatePath, { force: true });
+    fs.rmSync(queueTicketPath, { force: true });
   }
 }
 
@@ -307,8 +391,14 @@ export function createStderrWaitReporter(
       progress.holderHeldMs !== undefined
         ? `, held for ${Math.round(progress.holderHeldMs / 1000)}s`
         : "";
+    const status =
+      progress.waitingOn === "queue"
+        ? `waiting in provider queue position ${progress.queuePosition} led by PID ${progress.holderPid}`
+        : progress.queuePosition !== undefined && progress.queuePosition > 1
+          ? `waiting in provider queue position ${progress.queuePosition}; provider lock held by PID ${progress.holderPid}${heldSeconds}`
+          : `waiting for the provider lock held by PID ${progress.holderPid}${heldSeconds}`;
     process.stderr.write(
-      `${activity} for ${target}: waiting for the provider lock held by PID ${progress.holderPid}${heldSeconds}; waited ${Math.round(progress.waitingMs / 1000)}s so far\n`,
+      `${activity} for ${target}: ${status}; waited ${Math.round(progress.waitingMs / 1000)}s so far\n`,
     );
   };
 }

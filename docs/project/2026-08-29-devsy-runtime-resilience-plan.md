@@ -13,13 +13,15 @@ indistinguishable from a hang. Separately, a failed `devsy workspace up` whose
 stderr reports an agent-binary acquisition failure surfaces only a generic
 wrapper message with no remediation pointer.
 
-## Decision (user-approved 2026-08-29)
+## Decision (user-approved 2026-08-29, evidence-corrected 2026-08-30)
 
-The earlier fair-queue idea is replaced by the simpler fix. Keep the existing
-hard-link lock and contention error. Raise the provider-only wait, make the
-wait observable, record acquisition time in the lock record, and capture/replay
-Devsy startup stderr with a narrowly classified remediation hint. No FIFO
-ticket queue, no `DEVSY_AGENT_PATH`, no download or cache logic.
+Keep the existing hard-link lock, make waits observable, and capture/replay
+Devsy startup stderr with a narrowly classified remediation hint. The first
+live fleet trial disproved the retry-only assumption: two later mutations
+overtook a 600-second waiter, and timestamps written before acquisition made
+queue time look like lock-hold time. Provider mutations therefore use a small
+arrival-order ticket queue, a thirty-minute bound, and timestamps written only
+at successful lock acquisition. No `DEVSY_AGENT_PATH`, download, or cache logic.
 
 ## Execution contract
 
@@ -33,8 +35,8 @@ ticket queue, no `DEVSY_AGENT_PATH`, no download or cache logic.
 - Withheld: merge, publication (npm release), OrbStack restart, machine
   `--workspace-runtime` preference change, provider registry/workspace
   deletion, worktree or branch deletion, secret values, OpenRouter calls,
-  network Devsy download attempts, `DEVSY_AGENT_PATH` support, FIFO queue
-  implementation, Klicker v3 integration beyond the existing branch base.
+  network Devsy download attempts, `DEVSY_AGENT_PATH` support, Klicker v3
+  integration beyond the existing branch base.
 - Terminal: exact-head CI reported on the draft PR, final review recorded,
   Klicker pin committed with bounded profile qualification evidence, and both
   Progress sections current. Merge and publication stay separately gated.
@@ -73,11 +75,10 @@ ticket queue, no `DEVSY_AGENT_PATH`, no download or cache logic.
 
 ## Unclarities / grill pass
 
-- Assumption: contention is a handful of parallel agents, not an unbounded
-  fleet, so a long bounded wait beats fairness ordering. Risk: a very long hold
-  delays every contender past the extended bound. Decision: extended bound plus
-  observable progress and an actionable timeout message; the queue stays
-  rejected as premature machinery.
+- Evidence correction: the first live trial placed two clients behind a real
+  fleet mutation; a later mutation overtook both, and one client exhausted the
+  600-second bound. Decision: provider-only arrival ordering plus a thirty-minute
+  bound is required; the queue is not used for short repository-local locks.
 - Risk: adding a fourth lock-record field could confuse older readers.
   Decision: append-only field; older readers already treat non-canonical
   records as live-conservative, so no cross-version regression.
@@ -97,8 +98,8 @@ substitution.
 | Risk / behavior | Existing evidence | Test obligation | Primary seam | Distinct realistic failure | Owning slice |
 | --- | --- | --- | --- | --- | --- |
 | Waiter observes throttled progress while blocked on a live holder | none | add new (real cross-process) | file-lock acquire loop | silent multi-minute wait looks hung | S1 |
-| Extended provider-only wait drains a realistic queue; non-provider locks unchanged | devpod-mutation cross-process test | extend existing | mutation wait constants and lock options | second ensure still fails during a cold start | S1 |
-| Acquisition timestamp is recorded; legacy and malformed records stay live-conservative | file-lock ownership tests | extend existing | lock record parsing | timestamp parsing regresses PID-reuse reclaim | S1 |
+| Fair provider-only wait drains a realistic queue; non-provider locks unchanged | devpod-mutation cross-process test | extend existing | mutation wait constants and lock options | later mutations overtake a long-waiting ensure | S4 correction |
+| True acquisition timestamp is recorded; legacy and malformed records stay live-conservative | file-lock ownership tests | extend existing | lock record parsing | queue time is misreported as holder time or PID-reuse reclaim regresses | S4 correction |
 | Timeout message carries held and waited durations | none | add new | timeout branch message | operator cannot tell stale from active holder | S1 |
 | Devsy up stderr is replayed live; known acquisition failure appends the hint, unknown failures do not | devsy-mutation start failure tests | extend existing | `startDevsyWorkspace` stderr handling | hint noise on unrelated failures; hidden output in quiet mode | S2 |
 | Typed postcondition classification unchanged | existing devsy/devpod tests | retain (keep passing) | `failedStartMayHaveAttached` selection | rollback misclassifies possibly-started runs | S2 |
@@ -176,7 +177,11 @@ credit-limited today).
      blocked, use the verified official binary via `DEVSY_AGENT_BINARY` when
      a verifiable copy exists; delete nothing.
    - Check: exact runtime state lines plus `devrouter ls --json` route count.
-   - Commit: none; evidence rides with the S6 metadata commit.
+   - Correction: the first run disproved retry-only fairness and true-duration
+     assumptions. Add provider-only ticket ordering, a thirty-minute bound,
+     true acquisition-time recording, and regression coverage before rerun.
+   - Commit: `fix(workspace): queue provider mutations fairly`; final live
+     evidence rides with the S6 metadata commit.
 5. S5 - Klicker repin and profile qualification
    - Route: main
    - Acceptance: pin commit in the clean Klicker worktree; ensure passes on the
@@ -222,3 +227,20 @@ credit-limited today).
   including `upgrade-prompts/0.0.46.md`), a successful packed-CLI `--help`,
   and `devrouter -V` reporting installed 0.0.46 against the bumped example
   pin. Next: S4 live Devsy trial.
+- 2026-08-30: S4 first trial produced actionable branch evidence under real
+  fleet load. Both clients printed ten-second progress lines, but later
+  mutations overtook them; client A timed out after 600 seconds and exposed an
+  impossible epoch-scale held duration, while client B acquired the lock and
+  then hit an external Docker Hub DNS timeout. Root cause: no arrival ordering,
+  and the candidate timestamp was created before waiting. Active correction:
+  provider-only fair tickets, a thirty-minute bound, and true acquisition-time
+  records. The exact failed B runtime is being stopped non-destructively; no
+  provider registration, worktree, container, volume, or route is deleted.
+- 2026-08-30: S4 correction implementation passes docs policy, knowledge
+  validation, Biome, Knip, typecheck, 764 tests across 66 files, build, and
+  `git diff --check`. The three-process regression proves arrival ordering;
+  stale queue leaders are reclaimed, and progress durations are elapsed times
+  rather than epoch timestamps. The failed B runtime stop completed; fresh
+  evidence is provider `NotFound` with zero exact routes, so its stale Devsy
+  registration is retained under the no-deletion boundary. Next: commit the
+  correction, run its simplifier gate, then repeat S4 with fresh exact tokens.

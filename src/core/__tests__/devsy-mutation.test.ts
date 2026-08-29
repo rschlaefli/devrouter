@@ -42,7 +42,8 @@ describe("Devsy mutation adapter", () => {
       {
         activity: "Devsy stop",
         target: "'/repo/feature'",
-        waitMs: 600_000,
+        waitMs: 1_800_000,
+        fair: true,
         onWait: expect.any(Function),
       },
       expect.any(Function),
@@ -53,7 +54,8 @@ describe("Devsy mutation adapter", () => {
       {
         activity: "Devsy delete",
         target: "'/repo/feature'",
-        waitMs: 600_000,
+        waitMs: 1_800_000,
+        fair: true,
         onWait: expect.any(Function),
       },
       expect.any(Function),

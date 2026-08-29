@@ -10,7 +10,7 @@ process.stdout.write("attempting\n");
 fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
 withFileLockSync(
   path.join(DEVROUTER_HOME, "devpod-mutation.lock"),
-  { activity, target: `'${process.cwd()}'`, waitMs: 60_000 },
+  { activity, target: `'${process.cwd()}'`, waitMs: 60_000, fair: true },
   () => {
     process.stdout.write("entered\n");
     if (waitForRelease) fs.readFileSync(0, "utf-8");

@@ -10,9 +10,9 @@ All notable changes to this project are documented in this file.
 
 - Parallel managed checkouts no longer fail after a silent one-minute
   provider wait. Contenders for the machine-global Devsy/DevPod mutation
-  lock now wait up to ten minutes, print one throttled stderr progress line
-  every ten seconds (holder PID and hold time included), and a timeout names
-  the holder and both durations.
+  lock now wait up to thirty minutes in a fair arrival-order queue, print one
+  throttled stderr progress line every ten seconds, and a timeout names the
+  queue position or holder PID plus true holder and waiter durations.
 - Lock records carry an acquisition timestamp; legacy and malformed records
   remain conservatively live.
 - A failed `devsy workspace up` whose stderr reports the agent-binary

@@ -12,11 +12,11 @@ import { DEVROUTER_HOME } from "./router";
 
 const DEVSY_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devsy-mutation.lock");
 /**
- * Cold Devsy starts can run for minutes. Contenders wait long enough to
- * drain a small queue of parallel agent worktrees, with throttled stderr
- * progress so a wait is never silent.
+ * Cold Devsy starts can run for minutes. Contenders wait in arrival order long
+ * enough to drain parallel agent worktrees, with throttled stderr progress so
+ * a wait is never silent.
  */
-const DEVSY_MUTATION_WAIT_MS = 600_000;
+const DEVSY_MUTATION_WAIT_MS = 1_800_000;
 
 export type OwnedDevsyMutationResult = { status: "changed" } | { status: "absent" };
 
@@ -57,6 +57,7 @@ function withMutationLock<T>(activity: string, target: string, operation: () => 
       activity,
       target: `'${target}'`,
       waitMs: DEVSY_MUTATION_WAIT_MS,
+      fair: true,
       onWait: createStderrWaitReporter(activity, `'${target}'`),
     },
     operation,

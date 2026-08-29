@@ -113,7 +113,41 @@ describe("file lock ownership", () => {
     expect(progress.length).toBeGreaterThanOrEqual(2);
     expect(progress[0].holderPid).toBe(process.pid);
     expect(progress[0].holderHeldMs).toBeDefined();
+    expect(progress[0].holderHeldMs).toBeLessThan(10_000);
     expect(progress[progress.length - 1].waitingMs).toBeGreaterThan(progress[0].waitingMs);
+  });
+
+  it("reports a stable queue position while an earlier fair waiter leads", () => {
+    const progress: LockWaitProgress[] = [];
+    withFileLockSync(lockPath, { activity: "outer" }, () => {
+      expect(() =>
+        withFileLockSync(
+          lockPath,
+          {
+            activity: "inner",
+            fair: true,
+            waitMs: 80,
+            progressIntervalMs: 20,
+            onWait: (item) => progress.push(item),
+          },
+          () => undefined,
+        ),
+      ).toThrow();
+    });
+
+    expect(progress.length).toBeGreaterThanOrEqual(1);
+    expect(progress.every((item) => item.queuePosition === 1)).toBe(true);
+    expect(progress.every((item) => item.waitingOn === "lock")).toBe(true);
+  });
+
+  it("reclaims a dead fair-queue leader before acquisition", () => {
+    const staleTicket = `${lockPath}.queue.0000000000000.0999999999.stale`;
+    fs.writeFileSync(staleTicket, "999999999:legacy-owner\n", "utf-8");
+
+    const result = withFileLockSync(lockPath, { activity: "fair", fair: true }, () => "acquired");
+
+    expect(result).toBe("acquired");
+    expect(fs.existsSync(staleTicket)).toBe(false);
   });
 
   it("does not report progress before the progress interval elapses", () => {
