@@ -15,6 +15,7 @@ import {
   resolveWorktreeWorkspace,
   sameWorkspacePath,
   withWorkspaceLifecycleLock,
+  workspaceIdentityCandidates,
   wsFromBranch,
 } from "./workspace";
 import { workspaceEnsure } from "./workspace-ensure";
@@ -28,10 +29,18 @@ import {
   removeWorkspaceOwnership,
   type WorkspaceOwnerStatus,
   type WorkspaceOwnershipRecord,
+  withWorkspaceOwnershipTransaction,
 } from "./workspace-ownership";
 
 // Workspace lifecycle mutations fail closed: Git, ledger, DevPod source, and
 // route evidence must identify the same exact owner before resources change.
+const WORKSPACE_ALLOCATION_LOCK_WAIT_MS = 60_000;
+
+function withWorkspaceAllocationTransaction<T>(repoPath: string, operation: () => T): T {
+  return withWorkspaceOwnershipTransaction(repoPath, operation, {
+    waitMs: WORKSPACE_ALLOCATION_LOCK_WAIT_MS,
+  });
+}
 
 export type WorkspaceRow = {
   workspace: string | undefined;
@@ -259,47 +268,74 @@ export async function workspaceUp(
   if (!ws) {
     throw new Error(`Branch '${branch}' does not yield a valid workspace token.`);
   }
-  const worktreePath = opts.path ? path.resolve(opts.path) : defaultWorktreePath(mainRepo, ws);
-
-  // 1. Create the worktree (idempotent). Try an existing branch first, then create one.
-  if (fs.existsSync(worktreePath)) {
-    const registered = listGitWorktrees(mainRepo).find((worktree) =>
-      sameWorkspacePath(worktree.path, worktreePath),
-    );
-    if (!registered || sameWorkspacePath(registered.path, mainRepo)) {
-      throw new Error(`Existing path '${worktreePath}' is not a linked worktree of '${mainRepo}'.`);
-    }
-    if (registered.branch !== branch) {
+  const worktreePath = withWorkspaceAllocationTransaction(mainRepo, () => {
+    const worktrees = listGitWorktrees(mainRepo);
+    const branchWorktrees = worktrees.filter((worktree) => worktree.branch === branch);
+    if (branchWorktrees.length > 1) {
       throw new Error(
-        `Existing worktree '${worktreePath}' uses branch '${registered.branch ?? "detached"}', not '${branch}'.`,
+        `Branch '${branch}' is checked out in multiple worktrees: ${branchWorktrees.map((worktree) => worktree.path).join(", ")}`,
       );
     }
-    process.stdout.write(`Worktree already exists: ${worktreePath}\n`);
-  } else {
-    if (!opts.path) {
-      assertDefaultWorktreeRootIgnored(mainRepo);
+    const existingBranch = branchWorktrees[0];
+    const candidatePaths = workspaceIdentityCandidates(branch).map((candidate) =>
+      defaultWorktreePath(mainRepo, candidate),
+    );
+    const generatedPath = candidatePaths.find(
+      (candidate) =>
+        !fs.existsSync(candidate) &&
+        !worktrees.some((worktree) => sameWorkspacePath(worktree.path, candidate)),
+    );
+    const selectedPath = opts.path
+      ? path.resolve(opts.path)
+      : (existingBranch?.path ?? generatedPath);
+    if (!selectedPath) {
+      throw new Error(`Could not allocate a collision-safe worktree path for branch '${branch}'.`);
     }
-    const add = spawnSync("git", ["-C", mainRepo, "worktree", "add", worktreePath, branch], {
+    if (existingBranch && !sameWorkspacePath(existingBranch.path, selectedPath)) {
+      throw new Error(
+        `Branch '${branch}' already uses worktree '${existingBranch.path}', not '${selectedPath}'.`,
+      );
+    }
+
+    if (fs.existsSync(selectedPath)) {
+      const registered = worktrees.find((worktree) =>
+        sameWorkspacePath(worktree.path, selectedPath),
+      );
+      if (!registered || sameWorkspacePath(registered.path, mainRepo)) {
+        throw new Error(
+          `Existing path '${selectedPath}' is not a linked worktree of '${mainRepo}'.`,
+        );
+      }
+      if (registered.branch !== branch) {
+        throw new Error(
+          `Existing worktree '${selectedPath}' uses branch '${registered.branch ?? "detached"}', not '${branch}'.`,
+        );
+      }
+      process.stdout.write(`Worktree already exists: ${selectedPath}\n`);
+      return selectedPath;
+    }
+
+    if (!opts.path) assertDefaultWorktreeRootIgnored(mainRepo);
+    const add = spawnSync("git", ["-C", mainRepo, "worktree", "add", selectedPath, branch], {
       encoding: "utf-8",
     });
     if (add.status !== 0) {
       const addNew = spawnSync(
         "git",
-        ["-C", mainRepo, "worktree", "add", "-b", branch, worktreePath],
-        {
-          encoding: "utf-8",
-        },
+        ["-C", mainRepo, "worktree", "add", "-b", branch, selectedPath],
+        { encoding: "utf-8" },
       );
       if (addNew.status !== 0) {
         const detail = [add.stderr, addNew.stderr]
-          .map((s) => s?.trim())
+          .map((stderr) => stderr?.trim())
           .filter(Boolean)
           .join("; ");
         throw new Error(`git worktree add failed: ${detail || "unknown error"}`);
       }
     }
-    process.stdout.write(`Created worktree ${worktreePath} (workspace '${ws}')\n`);
-  }
+    process.stdout.write(`Created worktree ${selectedPath}\n`);
+    return selectedPath;
+  });
 
   if (opts.noDevpod) {
     warnMissingWorkspaceOwnership(mainRepo);

@@ -1515,7 +1515,7 @@ describe("workspaceEnsure", () => {
 
     await expect(
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
-    ).rejects.toThrow("already belongs to '/repo/trees/other'");
+    ).rejects.toThrow("workspace runtime identity 'feature' already belongs to");
 
     expect(spawnSync).not.toHaveBeenCalledWith(
       "devpod",

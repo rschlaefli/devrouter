@@ -33,7 +33,11 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
 `src/core/workspace-ensure.ts:workspaceEnsure` is the canonical reconciliation path for both primary and linked checkouts:
 
 1. Resolve the exact checkout and acquire its repository-local lifecycle lock.
-2. Resolve persisted workspace identity and, for a linked checkout, write the Git-common-dir ownership record before provider startup.
+2. Reconcile persisted identity, the exact-path Git-common-dir owner record,
+   and both provider registries. For a new linked checkout, claim the readable
+   legacy identity when free or a deterministic hash-suffixed fallback when it
+   collides, then persist the checkout token within the same repository-local
+   transaction.
 3. Load the in-memory runtime config and reject any managed HTTP or TCP proxy upstream outside the checkout's alias namespace.
 4. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide.
 5. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
@@ -48,7 +52,15 @@ generated managed Dev Container configuration so canonical stop can still
 parse the workspace. Only a successfully read registry with no exact owner
 permits first-transition cleanup.
 
-`src/core/workspace-lifecycle.ts:workspaceUp` creates or reuses a Git worktree, then delegates startup to `workspaceEnsure`. `--no-devpod` is create-only and publishes no routes.
+`src/core/workspace-lifecycle.ts:workspaceUp` creates or reuses a Git worktree,
+choosing a deterministic non-conflicting default path when two long branch
+names truncate to the same readable token or an unregistered directory already
+occupies that path, then delegates startup to
+`workspaceEnsure`. `--no-devpod` is create-only and publishes no routes; its
+provisional identity is reconciled on the first managed `ensure`. Worktree
+creation holds the repository ownership transaction through `git worktree add`
+and gives concurrent creators 60 seconds to serialize; ordinary ownership
+transactions retain their short wait.
 
 ## Profile transitions
 

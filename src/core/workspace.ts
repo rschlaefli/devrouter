@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { writeFileAtomically } from "./atomic-file";
 import { withFileLock } from "./file-lock";
 
 // A workspace token identifies one isolated dev environment (a git worktree + its
@@ -12,6 +14,10 @@ import { withFileLock } from "./file-lock";
 
 // Single label of a `*.localhost` host: lowercase alphanumeric with interior hyphens.
 const MAX_WORKSPACE_LENGTH = 32;
+const WORKSPACE_IDENTITY_CANDIDATE_LIMIT = 16;
+const WORKSPACE_IDENTITY_HASH_LENGTH = 8;
+const WORKSPACE_IDENTITY_PREFIX_LENGTH = MAX_WORKSPACE_LENGTH - WORKSPACE_IDENTITY_HASH_LENGTH - 1;
+const WORKSPACE_IDENTITY_HASH_DOMAIN = "devrouter-workspace-identity-v1";
 const WORKSPACE_METADATA_FILE = "devrouter-workspace";
 const WORKSPACE_LOCK_FILE = "devrouter-workspace.lock";
 
@@ -41,6 +47,39 @@ export function wsFromBranch(branch: string): string | undefined {
     .slice(0, MAX_WORKSPACE_LENGTH)
     .replace(/-+$/, "");
   return slug.length > 0 ? slug : undefined;
+}
+
+function workspaceIdentityFallback(source: string, attempt: number): string {
+  const readablePrefix = (wsFromBranch(source) ?? "workspace")
+    .slice(0, WORKSPACE_IDENTITY_PREFIX_LENGTH)
+    .replace(/-+$/, "");
+  const prefix = readablePrefix || "workspace";
+  const hash = createHash("sha256")
+    .update(WORKSPACE_IDENTITY_HASH_DOMAIN, "utf-8")
+    .update("\0", "utf-8")
+    .update(source, "utf-8")
+    .update("\0", "utf-8")
+    .update(String(attempt), "utf-8")
+    .digest("hex")
+    .slice(0, WORKSPACE_IDENTITY_HASH_LENGTH);
+  return `${prefix}-${hash}`;
+}
+
+/**
+ * Return the bounded, deterministic identity candidates for a new linked
+ * worktree. The first candidate preserves the historical sanitized identity;
+ * later candidates retain a readable prefix and hash the complete source so
+ * branches that only differ after the DNS label limit remain distinct.
+ */
+export function workspaceIdentityCandidates(source: string): string[] {
+  const candidates: string[] = [];
+  const legacy = wsFromBranch(source);
+  if (legacy) candidates.push(legacy);
+
+  for (let attempt = 0; candidates.length < WORKSPACE_IDENTITY_CANDIDATE_LIMIT; attempt += 1) {
+    candidates.push(workspaceIdentityFallback(source, attempt));
+  }
+  return candidates;
 }
 
 /**
@@ -140,7 +179,7 @@ export function persistWorkspace(repoPath: string, value: string): string {
   if (!gitDir) {
     throw new Error(`cannot persist workspace identity: '${repoPath}' is not a Git checkout`);
   }
-  fs.writeFileSync(path.join(gitDir, WORKSPACE_METADATA_FILE), `${workspace}\n`, "utf-8");
+  writeFileAtomically(path.join(gitDir, WORKSPACE_METADATA_FILE), `${workspace}\n`);
   return workspace;
 }
 

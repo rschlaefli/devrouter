@@ -10,7 +10,12 @@ import {
 import { listDevpodWorkspaces, listDevpodWorkspacesFromSnapshots } from "../devpod-workspaces";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
-import { resolveWorktreeWorkspace, withWorkspaceLifecycleLock, wsFromBranch } from "../workspace";
+import {
+  resolveWorktreeWorkspace,
+  withWorkspaceLifecycleLock,
+  workspaceIdentityCandidates,
+  wsFromBranch,
+} from "../workspace";
 import { workspaceEnsure } from "../workspace-ensure";
 import {
   workspaceDeleteOwnedPath,
@@ -61,6 +66,9 @@ vi.mock("../workspace-ownership", async (importOriginal) => {
     listMissingWorkspaceOwnership: vi.fn(() => []),
     listWorkspaceOwnership: vi.fn(() => []),
     removeWorkspaceOwnership: vi.fn(() => true),
+    withWorkspaceOwnershipTransaction: vi.fn((_repoPath: string, operation: () => unknown) =>
+      operation(),
+    ),
   };
 });
 vi.mock("../repo-config", () => ({
@@ -762,6 +770,100 @@ describe("workspaceUp", () => {
     expect(workspaceEnsure).toHaveBeenCalledWith("/main/repo/trees/feat-a", { open: undefined });
   });
 
+  it("chooses the deterministic fallback path when the legacy path is occupied", async () => {
+    const occupiedLegacyPath = `worktree /main/repo/trees/feat-a
+HEAD def
+branch refs/heads/other
+
+`;
+    let listRead = false;
+    vi.spyOn(fs, "existsSync").mockImplementation(
+      (candidate) => listRead && String(candidate) === "/main/repo/trees/feat-a",
+    );
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+      const argv = (args as string[]) ?? [];
+      calls.push({ cmd: cmd as string, args: argv });
+      if (cmd === "git" && argv.includes("list")) {
+        listRead = true;
+        return {
+          status: 0,
+          stdout: `worktree /main/repo
+HEAD abc
+branch refs/heads/main
+
+${occupiedLegacyPath}`,
+        } as never;
+      }
+      return { status: 0, stdout: "" } as never;
+    });
+
+    await workspaceUp("feat/a", {});
+
+    const add = calls.find((call) => call.args.includes("worktree") && call.args.includes("add"));
+    const fallback = workspaceIdentityCandidates("feat/a")[1];
+    expect(add?.args).toContain(`/main/repo/trees/${fallback}`);
+    expect(workspaceEnsure).toHaveBeenCalledWith(`/main/repo/trees/${fallback}`, {
+      open: undefined,
+    });
+  });
+
+  it("chooses the deterministic fallback path for an unregistered legacy directory", async () => {
+    vi.spyOn(fs, "existsSync").mockImplementation(
+      (candidate) => String(candidate) === "/main/repo/trees/feat-a",
+    );
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+      const argv = (args as string[]) ?? [];
+      calls.push({ cmd: cmd as string, args: argv });
+      if (cmd === "git" && argv.includes("list")) {
+        return {
+          status: 0,
+          stdout: `worktree /main/repo
+HEAD abc
+branch refs/heads/main
+
+`,
+        } as never;
+      }
+      return { status: 0, stdout: "" } as never;
+    });
+
+    await workspaceUp("feat/a", {});
+
+    const add = calls.find((call) => call.args.includes("worktree") && call.args.includes("add"));
+    const fallback = workspaceIdentityCandidates("feat/a")[1];
+    expect(add?.args).toContain(`/main/repo/trees/${fallback}`);
+    expect(workspaceEnsure).toHaveBeenCalledWith(`/main/repo/trees/${fallback}`, {
+      open: undefined,
+    });
+  });
+
+  it("reuses an existing exact branch worktree at a custom path", async () => {
+    vi.spyOn(fs, "existsSync").mockImplementation(
+      (candidate) => String(candidate) === "/custom/feature",
+    );
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+      const argv = (args as string[]) ?? [];
+      if (cmd === "git" && argv.includes("list")) {
+        return {
+          status: 0,
+          stdout: PORCELAIN.replace("/main/repo-feat-a", "/custom/feature"),
+        } as never;
+      }
+      return { status: 0, stdout: "" } as never;
+    });
+
+    await workspaceUp("feat/a", { path: "/custom/feature" });
+
+    expect(workspaceEnsure).toHaveBeenCalledWith("/custom/feature", { open: undefined });
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["worktree", "add"]),
+      expect.anything(),
+    );
+  });
+
   it("refuses the default repository-local path when trees is not ignored", async () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(false);
     vi.mocked(spawnSync).mockImplementation((cmd, args) => {
@@ -794,7 +896,7 @@ describe("workspaceUp", () => {
     });
 
     await expect(workspaceUp("feat/a", { path: "/main/unrelated-worktree" })).rejects.toThrow(
-      "is not a linked worktree of '/main/repo'",
+      "already uses worktree '/main/repo-feat-a', not '/main/unrelated-worktree'",
     );
     expect(workspaceEnsure).not.toHaveBeenCalled();
   });
@@ -816,7 +918,9 @@ describe("workspaceUp", () => {
   });
 
   it("makes --no-devpod create-only and never registers routes", async () => {
-    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    vi.spyOn(fs, "existsSync").mockImplementation(
+      (candidate) => String(candidate) === "/main/repo/trees/feat-a",
+    );
     vi.mocked(spawnSync).mockImplementation(() => {
       return { status: 0, stdout: "" } as never;
     });
@@ -824,5 +928,12 @@ describe("workspaceUp", () => {
     await workspaceUp("feat/a", { noDevpod: true });
 
     expect(workspaceEnsure).not.toHaveBeenCalled();
+    const output = (stdoutSpy.mock.calls as Array<[unknown]>)
+      .map(([chunk]) => String(chunk))
+      .join("");
+    expect(output).toContain(
+      `Created worktree /main/repo/trees/${workspaceIdentityCandidates("feat/a")[1]}\n`,
+    );
+    expect(output).not.toContain("(workspace 'feat-a')");
   });
 });

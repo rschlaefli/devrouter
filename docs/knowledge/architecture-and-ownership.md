@@ -30,7 +30,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 | Repository routing intent | Consumer `.devrouter.yml` | Parse strictly through `src/core/repo-config.ts:loadRepoConfig`; never rewrite the committed file for workspace namespacing. |
 | Managed profile intent | Consumer `.devrouter.yml` `managedRuntime` registry and `profiles` map | Keep base services, optional Compose services, and managed process markers explicit; resolve each profile dimension independently. |
 | Git checkout and branch | Git | Inspect registered worktrees and refuse ambiguous or dirty destructive targets. |
-| Managed workspace claim | Consumer Git common directory | Persist one record through `src/core/workspace-ownership.ts:writeWorkspaceOwnership`; no machine-global repository registry. |
+| Managed workspace claim | Consumer Git common directory | Reconcile persisted metadata, the exact-path owner record, and both provider registries before atomically claiming one repository-local identity; no machine-global repository registry. |
 | DevPod/Devsy workspace/container | Active workspace runtime provider | Mutate only an exact ID-plus-source owner through `src/core/devpod-mutation.ts` (Devsy dispatch: `src/core/devsy-mutation.ts`). |
 | Effective managed Dev Container configuration | Devrouter runtime file under the consumer `.devcontainer/` | Generate the ignored, marker-owned sibling from the source configuration; pass it to DevPod before startup and never commit it. |
 | Application startup command | Consumer repository adapter | Supply the runtime helper, then invoke the captured adapter through `src/core/managed-post-start.ts:runManagedPostStart`. |
@@ -41,6 +41,13 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 ## Invariants and rationale
 
 - Repository-local workspace ownership survives linked-worktree removal without a global registry. [ADR 0001](../adr/0001-repo-local-workspace-ownership.md) owns this decision.
+- New linked checkouts keep the readable legacy workspace identity when it is
+  unoccupied. A collision receives a deterministic hash-suffixed fallback
+  before provider or route mutation; established identities are never renamed.
+- Owner records and checkout metadata commit under one repository-local
+  transaction. Metadata uses the shared fsync-backed atomic-file writer, so a
+  crash leaves either no token or one complete token that can reconcile with
+  the owner record.
 - Consumer images contain no devrouter installation or version pin. [ADR 0002](../adr/0002-keep-devrouter-out-of-consumer-images.md) owns the boundary.
 - Repository lifecycle locks remain outer; workspace runtime provider mutation is serialized machine-wide and revalidated inside that boundary. [ADR 0003](../adr/0003-serialize-devpod-provider-mutations.md) owns the ordering.
 - The Traefik dynamic file is canonical for one route generation; JSON is a compatibility mirror. [ADR 0004](../adr/0004-single-artifact-route-state.md) owns recovery behavior.

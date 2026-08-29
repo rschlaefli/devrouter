@@ -9,6 +9,7 @@ import {
   resolveWorkspace,
   resolveWorktreeWorkspace,
   withWorkspaceLifecycleLock,
+  workspaceIdentityCandidates,
   wsFromBranch,
 } from "../workspace";
 
@@ -48,6 +49,24 @@ describe("wsFromBranch", () => {
   it("returns undefined when nothing usable remains", () => {
     expect(wsFromBranch("---")).toBeUndefined();
     expect(wsFromBranch("")).toBeUndefined();
+  });
+
+  it("keeps legacy byte-compatible output while offering deterministic hashed candidates", () => {
+    const source = `feature/${"a".repeat(40)}`;
+
+    expect(wsFromBranch(source)).toBe(`feature-${"a".repeat(24)}`);
+    const candidates = workspaceIdentityCandidates(source);
+    expect(candidates).toHaveLength(16);
+    expect(candidates[0]).toBe(`feature-${"a".repeat(24)}`);
+    expect(candidates.slice(1, 4)).toEqual([
+      "feature-aaaaaaaaaaaaaaa-3860844a",
+      "feature-aaaaaaaaaaaaaaa-68870afa",
+      "feature-aaaaaaaaaaaaaaa-682430ee",
+    ]);
+    for (const candidate of candidates.slice(1)) {
+      expect(candidate).toMatch(/^[a-z0-9-]+-[0-9a-f]{8}$/);
+      expect(candidate.length).toBeLessThanOrEqual(32);
+    }
   });
 });
 

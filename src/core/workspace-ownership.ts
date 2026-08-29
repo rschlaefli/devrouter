@@ -6,8 +6,10 @@ import { type DevpodWorkspace, inspectDevpodWorkspaceOwnership } from "./devpod-
 import { withFileLockSync } from "./file-lock";
 import {
   comparableWorkspacePath,
+  persistWorkspace,
   readPersistedWorkspace,
   sameWorkspacePath,
+  workspaceIdentityCandidates,
   wsFromBranch,
 } from "./workspace";
 
@@ -47,6 +49,13 @@ export type WorkspaceOwnershipStatus = {
 };
 
 export type ConditionalOwnershipRemoval = "removed" | "absent" | "changed";
+
+export type WorkspaceIdentityClaimInput = {
+  source: string;
+  branch?: string | null;
+  providerWorkspaces: DevpodWorkspace[];
+  unavailableRuntimes: string[];
+};
 
 export type WorkspaceOwnershipTransaction = {
   list: () => WorkspaceOwnershipRecord[];
@@ -325,12 +334,17 @@ function removeWorkspaceOwnershipIfMatchesInDirectory(
 export function withWorkspaceOwnershipTransaction<T>(
   repoPath: string,
   operation: (transaction: WorkspaceOwnershipTransaction) => T,
+  options: { waitMs?: number } = {},
 ): T {
   const directory = ownershipDirectory(repoPath);
   fs.mkdirSync(directory, { recursive: true });
   return withFileLockSync(
     path.join(directory, ".lock"),
-    { activity: "workspace ownership transaction", target: `'${repoPath}'`, waitMs: 5000 },
+    {
+      activity: "workspace ownership transaction",
+      target: `'${repoPath}'`,
+      waitMs: options.waitMs ?? 5000,
+    },
     () =>
       operation({
         list: () => listWorkspaceOwnershipInDirectory(directory),
@@ -347,6 +361,204 @@ export function writeWorkspaceOwnership(
   input: WorkspaceOwnershipInput,
 ): WorkspaceOwnershipRecord {
   return withWorkspaceOwnershipTransaction(repoPath, (transaction) => transaction.write(input));
+}
+
+function providerPathOwner(
+  providerWorkspaces: DevpodWorkspace[],
+  worktreePath: string,
+): DevpodWorkspace | undefined {
+  const owners = providerWorkspaces.filter((workspace) =>
+    sameWorkspacePath(workspace.source.localFolder, worktreePath),
+  );
+  if (owners.length > 1) {
+    throw new Error(
+      `Worktree '${worktreePath}' is registered by multiple workspace runtimes; no identity was claimed.`,
+    );
+  }
+  return owners[0];
+}
+
+function persistedWorkspaceOwners(repoPath: string, worktreePath: string): Map<string, string> {
+  const owners = new Map<string, string>();
+  for (const worktree of listGitWorktrees(repoPath)) {
+    if (sameWorkspacePath(worktree.path, worktreePath)) continue;
+    let workspace: string | undefined;
+    try {
+      workspace = readPersistedWorkspace(worktree.path);
+    } catch (error) {
+      if (!fs.existsSync(worktree.path)) continue;
+      throw error;
+    }
+    if (!workspace) continue;
+    const existing = owners.get(workspace);
+    if (existing && !sameWorkspacePath(existing, worktree.path)) {
+      throw new Error(`Persisted workspace identity '${workspace}' belongs to multiple worktrees.`);
+    }
+    owners.set(workspace, worktree.path);
+  }
+  return owners;
+}
+
+function claimConflict(
+  workspace: string,
+  devpodId: string,
+  worktreePath: string,
+  records: WorkspaceOwnershipRecord[],
+  providerWorkspaces: DevpodWorkspace[],
+  persistedOwners: Map<string, string>,
+  exactRecord?: WorkspaceOwnershipRecord,
+): string | undefined {
+  const recordOwner = records.find(
+    (record) =>
+      record !== exactRecord && (record.workspace === workspace || record.devpodId === devpodId),
+  );
+  if (recordOwner) {
+    return `workspace owner record '${recordOwner.workspace}' for '${recordOwner.worktreePath}'`;
+  }
+  const providerOwner = providerWorkspaces.find(
+    (providerWorkspace) =>
+      providerWorkspace.id === devpodId &&
+      !sameWorkspacePath(providerWorkspace.source.localFolder, worktreePath),
+  );
+  if (providerOwner) {
+    return `workspace runtime identity '${providerOwner.id}' already belongs to '${providerOwner.source.localFolder}'`;
+  }
+  const persistedOwner = persistedOwners.get(workspace);
+  if (persistedOwner) {
+    return `persisted checkout metadata for '${persistedOwner}'`;
+  }
+  return undefined;
+}
+
+/**
+ * Reconcile and claim one linked checkout identity before provider or route
+ * mutation. Provider evidence is collected before this repository-local
+ * transaction; persisted checkout metadata and owner records are re-read
+ * while the transaction is held.
+ */
+export function claimWorkspaceIdentity(
+  repoPath: string,
+  input: WorkspaceIdentityClaimInput,
+): WorkspaceOwnershipRecord {
+  const worktreePath = comparableWorkspacePath(repoPath);
+  const exactProvider = providerPathOwner(input.providerWorkspaces, worktreePath);
+
+  return withWorkspaceOwnershipTransaction(repoPath, (transaction) => {
+    const records = transaction.list();
+    const exactRecords = records.filter((record) =>
+      sameWorkspacePath(record.worktreePath, worktreePath),
+    );
+    if (exactRecords.length > 1) {
+      throw new Error(
+        `Worktree '${worktreePath}' has multiple workspace owner records; no identity was claimed.`,
+      );
+    }
+    const exactRecord = exactRecords[0];
+    const persisted = readPersistedWorkspace(worktreePath);
+    const persistedOwners = persistedWorkspaceOwners(repoPath, worktreePath);
+
+    if (exactRecord) {
+      if (persisted && persisted !== exactRecord.workspace) {
+        throw new Error(
+          `Persisted workspace identity '${persisted}' disagrees with owner record '${exactRecord.workspace}'.`,
+        );
+      }
+      if (exactProvider && exactProvider.id !== exactRecord.devpodId) {
+        throw new Error(
+          `Workspace runtime '${exactProvider.id}' disagrees with owner record '${exactRecord.devpodId}'.`,
+        );
+      }
+      const conflict = claimConflict(
+        exactRecord.workspace,
+        exactRecord.devpodId,
+        worktreePath,
+        records,
+        input.providerWorkspaces,
+        persistedOwners,
+        exactRecord,
+      );
+      if (conflict) {
+        throw new Error(
+          `Workspace '${exactRecord.workspace}' conflicts with ${conflict}; no identity was claimed.`,
+        );
+      }
+      if (!persisted) persistWorkspace(worktreePath, exactRecord.workspace);
+      return transaction.write({
+        workspace: exactRecord.workspace,
+        worktreePath,
+        branch: input.branch ?? null,
+        devpodId: exactRecord.devpodId,
+      });
+    }
+
+    if (persisted && exactProvider && persisted !== exactProvider.id) {
+      throw new Error(
+        `Persisted workspace identity '${persisted}' disagrees with workspace runtime '${exactProvider.id}'.`,
+      );
+    }
+
+    let workspace = persisted ?? exactProvider?.id;
+    let devpodId = exactProvider?.id ?? persisted;
+    if (!workspace || !devpodId) {
+      if (input.unavailableRuntimes.length > 0) {
+        throw new Error(
+          `Cannot claim a new workspace identity because these runtime registries are unavailable: ${input.unavailableRuntimes.join(", ")}.`,
+        );
+      }
+      const candidate = workspaceIdentityCandidates(input.source).find(
+        (next) =>
+          !claimConflict(
+            next,
+            next,
+            worktreePath,
+            records,
+            input.providerWorkspaces,
+            persistedOwners,
+          ),
+      );
+      if (!candidate) {
+        throw new Error(
+          `Could not allocate a collision-safe workspace identity for '${worktreePath}'.`,
+        );
+      }
+      workspace = candidate;
+      devpodId = candidate;
+    }
+
+    const conflict = claimConflict(
+      workspace,
+      devpodId,
+      worktreePath,
+      records,
+      input.providerWorkspaces,
+      persistedOwners,
+    );
+    if (conflict) {
+      throw new Error(
+        `Workspace '${workspace}' conflicts with ${conflict}; no identity was claimed.`,
+      );
+    }
+
+    const written = transaction.write({
+      workspace,
+      worktreePath,
+      branch: input.branch ?? null,
+      devpodId,
+    });
+    try {
+      persistWorkspace(worktreePath, workspace);
+    } catch (error) {
+      const cleanup = transaction.removeIfMatches(written);
+      if (cleanup !== "removed") {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Could not persist workspace identity and owner-record rollback was '${cleanup}': ${detail}`,
+        );
+      }
+      throw error;
+    }
+    return written;
+  });
 }
 
 export function removeWorkspaceOwnership(repoPath: string, workspace: string): boolean {

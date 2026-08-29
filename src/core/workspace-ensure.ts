@@ -50,18 +50,16 @@ import {
   comparableWorkspacePath,
   currentBranch,
   isLinkedWorktree,
-  persistWorkspace,
-  readPersistedWorkspace,
-  resolveWorktreeWorkspace,
   sameWorkspacePath,
   withWorkspaceLifecycleLock,
   wsFromBranch,
 } from "./workspace";
 import {
+  claimWorkspaceIdentity,
   listMissingWorkspaceOwnership,
   resolveGitCommonDir,
-  writeWorkspaceOwnership,
 } from "./workspace-ownership";
+import { getWorkspaceRegistrySnapshots } from "./workspace-runtime";
 
 const DEVCONTAINER_OVERLAY = "docker-compose.devrouter.yml";
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
@@ -588,25 +586,31 @@ async function waitForHttpRoutes(
 }
 
 function resolveLinkedTarget(repoPath: string): EnvironmentTarget {
-  const devpods = listDevpodWorkspaces(repoPath);
-  const existingDevpod = selectDevpodWorkspace(devpods, repoPath);
-  const persisted = readPersistedWorkspace(repoPath);
-  const candidate = existingDevpod?.id ?? persisted ?? resolveWorktreeWorkspace(repoPath);
-  if (!candidate) {
-    throw new Error(`Could not resolve a workspace identity for '${repoPath}'.`);
-  }
-  const otherOwner = devpods.find(
-    (devpod) => devpod.id === candidate && !sameWorkspacePath(devpod.source.localFolder, repoPath),
+  const snapshots = getWorkspaceRegistrySnapshots();
+  const providerWorkspaces = [
+    ...(snapshots.devpod ?? []),
+    ...(snapshots.devsy?.map((workspace) => ({
+      id: workspace.id,
+      source: workspace.source,
+      ...(workspace.lastUsed ? { lastUsed: workspace.lastUsed } : {}),
+      ...(workspace.lastUsedMalformed ? { lastUsedMalformed: true } : {}),
+    })) ?? []),
+  ];
+  const branch = currentBranch(repoPath);
+  const claim = claimWorkspaceIdentity(repoPath, {
+    source: branch ?? repoPath,
+    branch: branch ?? null,
+    providerWorkspaces,
+    unavailableRuntimes: snapshots.unavailable,
+  });
+  const existingDevpod = providerWorkspaces.find(
+    (workspace) =>
+      workspace.id === claim.devpodId && sameWorkspacePath(workspace.source.localFolder, repoPath),
   );
-  if (otherOwner) {
-    throw new Error(
-      `DevPod identity '${candidate}' already belongs to '${otherOwner.source.localFolder}'.`,
-    );
-  }
   return {
     kind: "linked",
-    workspace: persistWorkspace(repoPath, candidate),
-    devpodId: candidate,
+    workspace: claim.workspace,
+    devpodId: claim.devpodId,
     hadExactDevpod: Boolean(existingDevpod),
     gitCommonDir: resolveGitCommonDir(repoPath),
   };
@@ -776,19 +780,6 @@ export async function workspaceEnsure(
         managedConfigWritten = true;
       }
       const upstreamHosts = parsedUpstreams.map((upstream) => upstream.host);
-      const ownership =
-        target.kind === "linked"
-          ? {
-              workspace: target.workspace,
-              worktreePath: repoPath,
-              branch: currentBranch(repoPath),
-              devpodId: target.devpodId,
-            }
-          : undefined;
-      if (ownership) {
-        writeWorkspaceOwnership(repoPath, ownership);
-      }
-
       const currentTarget = (): EnvironmentTarget =>
         target.kind === "linked" ? target : { ...target, devpodId };
 
@@ -814,9 +805,6 @@ export async function workspaceEnsure(
         } catch (error) {
           if (error instanceof DevpodStartPostconditionError) environmentStarted = true;
           throw error;
-        }
-        if (ownership) {
-          writeWorkspaceOwnership(repoPath, ownership);
         }
       };
       const preflight = (timeoutMs: number): Promise<ValidatedWorkspaceContainer> =>
