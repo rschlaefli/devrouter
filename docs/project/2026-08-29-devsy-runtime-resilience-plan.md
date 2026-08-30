@@ -106,6 +106,7 @@ substitution.
 | Release metadata consistency | ai-prompt test, docs-policy and knowledge checks | extend existing | release checklist gates | prompt or docs drift breaks the upgrade flow | S3 |
 | Cross-process contention with progress on real Devsy | prior PR-40/45 trial procedure | add new (manual evidence) | /tmp fixture with built CLI | lab tests pass but real fleets still collide badly | S4 |
 | Klicker profiles start under 0.0.46 | PR 5646-era evidence | extend existing (manual qualification) | Klicker clean worktree ensure | repin breaks consumer startup | S5 |
+| Detached managed state cannot strand a provider handoff | degraded-state fail-closed test | extend existing | workspace ensure state preflight | prior Compose project disappeared but stale state blocks every retry | S5 correction |
 
 ## Delegation map
 
@@ -191,6 +192,12 @@ credit-limited today).
      clean worktree; record evidence.
    - Check: `devrouter -V --repo .` reports 0.0.46; ensures green.
    - Commit: `chore(devrouter): pin 0.0.46` on the Klicker branch
+   - Correction: the first Devsy profile run proved that persisted managed
+     state can outlive its exact Compose project and block a safe provider
+     handoff. Rebaseline only when Docker proves that no container from the
+     prior exact project remains; inspection failure and surviving containers
+     stay fail-closed.
+   - Devrouter commit: `fix(workspace): recover detached managed state`
 6. S6 - Final review and draft PR
    - Route: main
    - Acceptance: final review recorded against the exact committed range;
@@ -252,3 +259,28 @@ credit-limited today).
   malformed live-PID leaders. Focused Biome, 39 tests, and typecheck pass.
   Live C/D trial is active: D repeatedly reports provider queue position 2 led
   by C while both wait behind a legitimate installed-client fleet mutation.
+- 2026-08-30: S4 complete. Devsy's default agent acquisition failed with the
+  new actionable diagnostic. A locally existing official v1.16.2 Linux agent
+  was copied into the disposable fixture and verified against its source hash
+  (`31060b96486b5398f2aa3ee0875b2555782a2db0954a799d387be38ed4b4990d`).
+  Fresh E/F linked worktrees then completed concurrently: the second reported
+  queue position 2, both managed runtimes reached ready with zero drift, both
+  HTTPS routes returned the fixture JSON, and both PostgreSQL TCP routes
+  accepted connections. Canonical exact stops left C/D/E/F provider states
+  `Stopped` and zero matching routes; nothing was deleted.
+- 2026-08-30: S5 consumer pin committed in Klicker as `48669528f` on
+  `rs/devsy-runtime-resilience`. The branch remains intentionally based on
+  `bb495a1`; current `origin/v3` is one unrelated video-embed commit ahead.
+  The first `mcp` run exposed detached managed state from absent Compose
+  project `default-rs-b75ca`; the new exact-project preflight rebaselined on
+  `default-rs-c760d` only after Docker proved the prior project had no
+  containers. Regression coverage keeps surviving projects and unreadable
+  Docker state fail-closed.
+- 2026-08-30: S5 profile qualification complete under Devsy without changing
+  the machine runtime preference. `mcp` had zero routes, only the local MCP
+  process, and a live endpoint; `ai` had zero routes, only healthy LiteLLM,
+  and no upstream model call; `manage` had exactly API/Auth/Manage routes,
+  healthy Redis services, LiteLLM stopped, and live host responses. Every
+  profile reported ready with zero drift. The final exact stop freed three
+  routes; provider state is `Stopped` and exact route count is zero. Next: S6
+  commit, full validation, final review, and draft PR.

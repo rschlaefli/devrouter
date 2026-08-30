@@ -19,6 +19,11 @@ All notable changes to this project are documented in this file.
   acquisition failure now appends remediation (allow Devsy to download its
   agent or set `DEVSY_AGENT_BINARY` to a verified official binary). Captured
   startup stderr is replayed so quiet runs never hide provider output.
+- Detached managed runtime state no longer permanently blocks a checkout after
+  its exact Compose project disappears. Devrouter rebaselines from the exact
+  currently observed workspace before a provider or Compose-project handoff;
+  existing prior-project containers or failed Docker inspection still keep the
+  degraded-state and project-mismatch gates fail-closed.
 
 ### Agent Adaptation Prompt
 

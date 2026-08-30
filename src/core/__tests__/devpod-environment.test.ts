@@ -28,6 +28,32 @@ describe("inspectWorkspaceContainers", () => {
     expect(String(inspectArgs?.[2])).not.toContain("SizeRw");
   });
 
+  it("limits container discovery to the requested Docker filters", () => {
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    } as never);
+
+    expect(
+      inspectWorkspaceContainers({
+        filters: ["label=com.docker.compose.project=workspace-project"],
+      }),
+    ).toEqual([]);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "docker",
+      [
+        "ps",
+        "-a",
+        "--filter",
+        "label=com.docker.compose.project=workspace-project",
+        "--format",
+        "{{.ID}}",
+      ],
+      { encoding: "utf-8" },
+    );
+  });
+
   it("asks for sizes only on the named containers and keeps the shared fields", () => {
     vi.mocked(spawnSync).mockReturnValueOnce({
       status: 0,

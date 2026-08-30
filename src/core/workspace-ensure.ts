@@ -361,6 +361,24 @@ function isWarmWorkspaceActive(repoPath: string): boolean {
   }
 }
 
+function hasExactManagedComposeProject(repoPath: string, state: ManagedRuntimeState): boolean {
+  try {
+    return inspectWorkspaceContainers({
+      filters: [`label=com.docker.compose.project=${state.composeProject}`],
+    }).some((container) => {
+      const workingDir = container.labels["com.docker.compose.project.working_dir"];
+      return (
+        container.labels["com.docker.compose.project"] === state.composeProject &&
+        Boolean(workingDir && sameWorkspacePath(workingDir, path.join(repoPath, ".devcontainer")))
+      );
+    });
+  } catch {
+    // State recovery must fail closed when Docker cannot prove that the
+    // previous exact Compose project has disappeared.
+    return true;
+  }
+}
+
 // Before the first managed mutation on an already-running native workspace,
 // prove which optional services and process markers are actually active. That
 // observed set is the only honest rollback baseline when no successful managed
@@ -702,6 +720,12 @@ export async function workspaceEnsure(
         : [];
       if (managedRuntime) {
         previousManagedState = readManagedRuntimeState(repoPath, target.workspace);
+        if (
+          previousManagedState &&
+          !hasExactManagedComposeProject(repoPath, previousManagedState)
+        ) {
+          previousManagedState = undefined;
+        }
         if (previousManagedState?.status === "degraded") {
           throw new Error(
             "Managed runtime state is degraded; refusing a new profile transition until drift is repaired.",

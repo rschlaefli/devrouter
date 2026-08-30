@@ -37,12 +37,21 @@ const SIZE_INSPECT_TEMPLATE = SAFE_INSPECT_TEMPLATE.replace(
 export function inspectWorkspaceContainers(options?: {
   withSize?: boolean;
   ids?: string[];
+  filters?: string[];
 }): WorkspaceContainerSnapshot[] {
   let ids = options?.ids;
   if (!ids) {
-    const listed = spawnSync("docker", ["ps", "-a", "--format", "{{.ID}}"], {
-      encoding: "utf-8",
-    });
+    const listed = spawnSync(
+      "docker",
+      [
+        "ps",
+        "-a",
+        ...(options?.filters ?? []).flatMap((filter) => ["--filter", filter]),
+        "--format",
+        "{{.ID}}",
+      ],
+      { encoding: "utf-8" },
+    );
     if (listed.status !== 0) {
       // `listed.error` carries the spawn failure itself (ENOENT when the docker
       // binary is absent), where stdout and stderr are both null; without it a

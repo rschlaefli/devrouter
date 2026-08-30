@@ -93,7 +93,14 @@ does not recreate the DevPod, remove containers, remove volumes, run
 `postCreateCommand` again, or use a broad Compose project command. A failed
 transition retains the previous routes and successful state when possible; a
 degraded transition is persisted for inspection and blocks another managed
-profile transition until the drift is resolved.
+profile transition until the drift is resolved. Persisted state remains
+authoritative while any container from its exact Compose project still exists.
+When that exact project has disappeared, Devrouter treats the state as detached
+and rebaselines from the currently observed exact workspace before proceeding.
+This permits a provider or Compose-project handoff without weakening ownership:
+an unreadable Docker state stays attached and fails closed, no container or
+state is deleted, and any surviving prior-project container still blocks the
+transition.
 
 Use `devrouter status --repo <path> --json` or `devrouter doctor --repo <path>
 --json` to inspect the canonical profile, desired and active resources, exact

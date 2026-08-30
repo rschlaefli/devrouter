@@ -970,6 +970,55 @@ describe("workspaceEnsure", () => {
     expect(events).toEqual([]);
   });
 
+  it("rebaselines degraded state after its exact Compose project disappeared", async () => {
+    const events: string[] = [];
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    const runtime = mockManagedLifecycle({ events });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      ...managedPreviousState(),
+      composeProject: "disappeared-project",
+      status: "degraded",
+      transitionPhase: "service-start",
+    });
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
+      mode: "managed",
+      status: "ready",
+      profile: "ai",
+      desired: { apps: ["chat"], services: ["litellm"], processes: ["app"] },
+      active: { apps: ["chat"], services: ["litellm"], processes: ["app"] },
+      serviceStatuses: { litellm: "healthy" },
+      baseServiceStatuses: { postgres: "healthy" },
+      processStatuses: { app: "running" },
+      drift: [],
+    });
+
+    const result = await workspaceEnsure(tmpDir, {
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+
+    expect(result.managedRuntime?.status).toBe("ready");
+    expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "litellm"]));
+    expect(runtime.runningProcesses).toEqual(new Set(["app"]));
+    expect(writeManagedRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        composeProject: "workspace-project",
+        profile: "ai",
+        status: "ready",
+      }),
+    );
+    expect(markManagedRuntimeDegraded).not.toHaveBeenCalled();
+  });
+
   it("rejects a warm ensure when the managed source configuration changed", async () => {
     const events: string[] = [];
     vi.mocked(loadRuntimeConfig).mockReturnValue({
