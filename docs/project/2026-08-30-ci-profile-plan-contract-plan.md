@@ -342,6 +342,10 @@ no-subagent instruction keep every slice in the main session.
   non-Git fixture with a non-writable home, no runtime tools, matching stdout and
   mode-`0600` file output. The full Vitest suite passes 840 tests across 71 files;
   the Linux-only process harness reports its expected macOS skip.
+- Completed: D3 release preparation pins `0.0.51` across package metadata and
+  examples, adds the changelog and adaptation prompt, and passes docs policy,
+  knowledge validation, Biome, Knip, typecheck, all 840 Vitest cases, build,
+  exact version/help readback, and installed-tarball smoke.
 - Remaining: D3 and K1-K3.
 - Latest evidence: Devrouter baseline is `0/0` against `origin/main` at
   `865fe89`; [PR #5683](https://github.com/uzh-bf/klicker-uzh/pull/5683) is
@@ -356,15 +360,24 @@ no-subagent instruction keep every slice in the main session.
   states consumer ownership explicitly, and proves the installed package rather
   than the source entry point. Later slice and integrated reviews remain
   required under the no-subagent execution exception.
+- Devrouter integrated review: the complete branch retains one profile parser,
+  one thin command handler, and one generic contract boundary. The new code has
+  no child-process, shell, Docker, provider, router, environment-expansion, or
+  dynamic-import path. Repository paths, resource registries, input size,
+  output integrity, and consumer ownership all fail closed. No further finding
+  remains before publication.
 - Required delivery layer: published Devrouter package, merged Klicker source,
   and live public-runner proof when a safe eligible trigger exists.
-- Achieved delivery layer: complete locally committed D1 plus locally verified
-  D2 documentation/package work; Klicker remains a draft PR.
+- Achieved delivery layer: locally committed D0-D2 plus a fully verified
+  `0.0.51` release candidate; Klicker remains a draft PR.
 - Local verification note: Homebrew Bash 5.3 deadlocked while writing the
   package smoke's pre-existing first heredoc, before producing any fixture file;
   macOS system Bash completed the unchanged smoke. The `pnpm test` wrapper ran
   all 840 Vitest cases, then its nested host `pnpm` resolved 11.24.0 instead of
   the pinned 11.6.0; the pinned process command was run separately and reached
   its expected Linux-only skip.
-- Next action: commit D2, prepare the exact 0.0.51 release artifacts, and run
-  the full release gate.
+- Live runtime checks: skipped as not applicable. The changed command is
+  contract-only and the smallest observable seam is the installed package; no
+  route, workspace, DevPod, Devsy, Docker, or Traefik behavior changed.
+- Next action: commit the release candidate, push it, publish and merge its pull
+  request, then release and verify npm `0.0.51`.
