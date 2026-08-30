@@ -321,12 +321,30 @@ ownership, and tightly coupled setup/start integration remain with `main`.
   Commit `bb08415` adds a pinned asset-ID GitHub CLI fallback through the same
   streaming size and digest gate. Its 50 focused tests, typecheck, Biome, docs
   policy, knowledge validation, build, and the 799-test full suite passed.
-- Current: S5 is active. The built CLI acquired the official arm64 asset with
+- 2026-08-30: S5 release artifacts were committed at `f4f8f25`. The built CLI
+  acquired the official arm64 asset with
   `transport=github-cli`; the Devrouter cache is mode `0700`, 124518562 bytes,
   and has SHA-256 `31060b96486b5398f2aa3ee0875b2555782a2db0954a799d387be38ed4b4990d`.
   Network-free doctor reports 25 ok, zero warnings, and zero errors. Devsy's
   private cache retained its prior mtime and digest; no workspace was started.
-- Delivery: required local reviewed release branch; execution is authorized;
-  push, PR, merge, and publication remain withheld.
-- Next: commit release artifacts, finish the canonical package checks, then run
-  the integrated final review without starting a workspace runtime.
+- 2026-08-30: the first integrated final review rejected prerelease CLI
+  acceptance and source-first stale remediation. Commit `c0756d6` parses the
+  complete SemVer token and centralizes stale-first repair guidance across
+  setup, doctor, and start. Its simplifier pass returned `DONE`.
+- 2026-08-30: canonical checks pass on `c0756d6`: docs policy, knowledge,
+  Biome, Knip, typecheck, build, package smoke, and 805 tests across 67 files.
+  The Linux-only process script remains correctly skipped on macOS because
+  `/proc` is unavailable. Opengrep reports only eight pre-existing findings in
+  unchanged CI, shell-run, and route-regex code.
+- 2026-08-30: routing smoke remains an environment-only gap accepted by final
+  review. The host process returned 200 directly and the mounted route file was
+  correct; the long-running shared Traefik process did not reload that router,
+  so HTTPS returned 404. Restarting shared Traefik was withheld to avoid
+  disrupting unrelated tasks. Exact smoke routes and containers were cleaned.
+- Current: S0-S5 are complete. The final-review findings are resolved and the
+  final review must now verify only the correction range plus this current
+  Progress record.
+- Delivery: required local reviewed release branch. Push, PR, merge, npm or
+  GitHub publication, cleanup, and deletion remain withheld.
+- Next: complete correction-range final review, then report the exact local
+  head for the separately approved delivery step.
