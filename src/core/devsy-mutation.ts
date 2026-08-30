@@ -2,6 +2,11 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  DEVSY_AGENT_SETUP_COMMAND,
+  DevsyAgentReadinessError,
+  requireReadyDevsyAgent,
+} from "./devsy-agent";
+import {
   inspectDevsyRuntimeStatus,
   inspectDevsyWorkspaceOwnership,
   listDevsyWorkspaces,
@@ -223,8 +228,21 @@ function assertDevsyTarget(devsyId: string | undefined, repoPath: string): strin
   return id;
 }
 
-export function startDevsyWorkspace(options: DevsyStartOptions): Promise<string> {
+export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<string> {
   const activity = options.recreate ? "Devsy recreate" : "Devsy start";
+  let agent: ReturnType<typeof requireReadyDevsyAgent>;
+  try {
+    agent = requireReadyDevsyAgent();
+  } catch (error) {
+    if (!(error instanceof DevsyAgentReadinessError)) throw error;
+    const repair =
+      error.inspection.source === "explicit"
+        ? `Fix or unset DEVSY_AGENT_BINARY, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
+        : error.inspection.state === "stale"
+          ? `Install Devsy 1.16.2 for a supported host, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
+          : `Run: ${DEVSY_AGENT_SETUP_COMMAND}`;
+    throw new Error(`${error.message}. ${repair}`);
+  }
   return withMutationLockAsync(activity, options.repoPath, async () => {
     let devsyId = assertDevsyTarget(options.devsyId, options.repoPath);
     if (devsyId && options.recreate) {
@@ -258,6 +276,7 @@ export function startDevsyWorkspace(options: DevsyStartOptions): Promise<string>
     if (options.recreate) args.push("--recreate");
 
     const env = { ...process.env };
+    env.DEVSY_AGENT_BINARY = agent.binaryPath;
     if (options.workspace) {
       env.WORKSPACE = options.workspace.token;
       env.DEVROUTER_WORKSPACE = options.workspace.token;
@@ -275,8 +294,7 @@ export function startDevsyWorkspace(options: DevsyStartOptions): Promise<string>
       let message = `devsy workspace up failed for '${devsyId ?? options.repoPath}'.`;
       if (result.error?.message) message += ` ${result.error.message}`;
       if (AGENT_ACQUISITION_RE.test(result.stderrTail)) {
-        message +=
-          " Devsy could not obtain its agent binary; allow Devsy to download it or set DEVSY_AGENT_BINARY to a verified official Devsy agent binary matching this platform and Devsy version.";
+        message += ` Devsy rejected the verified agent source. Run: ${DEVSY_AGENT_SETUP_COMMAND}`;
       }
       if (failedStartMayHaveAttached(devsyId, options.repoPath)) {
         throw new DevsyStartPostconditionError(message);
