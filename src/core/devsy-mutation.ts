@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -7,11 +7,16 @@ import {
   listDevsyWorkspaces,
   selectDevsyWorkspace,
 } from "./devsy-workspaces";
-import { withFileLockSync } from "./file-lock";
+import { createStderrWaitReporter, withFileLock, withFileLockSync } from "./file-lock";
 import { DEVROUTER_HOME } from "./router";
 
 const DEVSY_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devsy-mutation.lock");
-const DEVSY_MUTATION_WAIT_MS = 60_000;
+/**
+ * Cold Devsy starts can run for minutes. Contenders wait in arrival order long
+ * enough to drain parallel agent worktrees, with throttled stderr progress so
+ * a wait is never silent.
+ */
+const DEVSY_MUTATION_WAIT_MS = 1_800_000;
 
 export type OwnedDevsyMutationResult = { status: "changed" } | { status: "absent" };
 
@@ -48,13 +53,91 @@ function withMutationLock<T>(activity: string, target: string, operation: () => 
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   return withFileLockSync(
     DEVSY_MUTATION_LOCK_FILE,
-    { activity, target: `'${target}'`, waitMs: DEVSY_MUTATION_WAIT_MS },
+    {
+      activity,
+      target: `'${target}'`,
+      waitMs: DEVSY_MUTATION_WAIT_MS,
+      fair: true,
+      onWait: createStderrWaitReporter(activity, `'${target}'`),
+    },
+    operation,
+  );
+}
+
+function withMutationLockAsync<T>(
+  activity: string,
+  target: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
+  return withFileLock(
+    DEVSY_MUTATION_LOCK_FILE,
+    {
+      activity,
+      target: `'${target}'`,
+      waitMs: DEVSY_MUTATION_WAIT_MS,
+      fair: true,
+      onWait: createStderrWaitReporter(activity, `'${target}'`),
+    },
     operation,
   );
 }
 
 function commandFailure(result: ReturnType<typeof spawnSync>): string {
   return [result.error?.message, result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+}
+
+/** Devsy cannot start its workspace when its agent binary is unavailable. */
+const AGENT_ACQUISITION_RE = /inject agent.*agent binary not found/i;
+
+const DEVSY_STDERR_TAIL_BYTES = 8192;
+
+type DevsyUpResult = {
+  status: number | null;
+  error?: Error;
+  stderrTail: string;
+};
+
+/** Stream Devsy stderr to fd 2 while retaining only a bounded diagnostic tail. */
+function runDevsyUp(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  quiet: boolean,
+): Promise<DevsyUpResult> {
+  return new Promise((resolve) => {
+    const child = spawn("devsy", args, {
+      stdio: ["inherit", quiet ? 2 : "inherit", "pipe"],
+      env,
+    });
+    const stderr = child.stderr;
+    if (!stderr) throw new Error("Devsy startup stderr pipe was not created.");
+    let stderrTail = Buffer.alloc(0);
+    let spawnError: Error | undefined;
+
+    stderr.on("data", (chunk: Buffer | string) => {
+      const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const writable = process.stderr.write(value);
+      if (!writable) {
+        stderr.pause();
+        process.stderr.once("drain", () => stderr.resume());
+      }
+      if (value.length >= DEVSY_STDERR_TAIL_BYTES) {
+        stderrTail = Buffer.from(value.subarray(value.length - DEVSY_STDERR_TAIL_BYTES));
+      } else {
+        const combined = Buffer.concat([stderrTail, value]);
+        stderrTail =
+          combined.length > DEVSY_STDERR_TAIL_BYTES
+            ? combined.subarray(combined.length - DEVSY_STDERR_TAIL_BYTES)
+            : combined;
+      }
+    });
+    child.once("error", (error) => {
+      spawnError = error;
+    });
+    child.once("close", (status) => {
+      resolve({ status, error: spawnError, stderrTail: stderrTail.toString("utf-8") });
+    });
+  });
 }
 
 function runDevsyAction(action: "stop" | "delete", devsyId: string, force = false): void {
@@ -140,9 +223,9 @@ function assertDevsyTarget(devsyId: string | undefined, repoPath: string): strin
   return id;
 }
 
-export function startDevsyWorkspace(options: DevsyStartOptions): string {
+export function startDevsyWorkspace(options: DevsyStartOptions): Promise<string> {
   const activity = options.recreate ? "Devsy recreate" : "Devsy start";
-  return withMutationLock(activity, options.repoPath, () => {
+  return withMutationLockAsync(activity, options.repoPath, async () => {
     let devsyId = assertDevsyTarget(options.devsyId, options.repoPath);
     if (devsyId && options.recreate) {
       const attached = listDevsyWorkspaces();
@@ -187,12 +270,14 @@ export function startDevsyWorkspace(options: DevsyStartOptions): string {
       delete env.DEVCONTAINER_COMPOSE_OVERLAY;
     }
 
-    const result = spawnSync("devsy", args, {
-      stdio: options.quiet ? ["inherit", 2, "inherit"] : "inherit",
-      env,
-    });
+    const result = await runDevsyUp(args, env, options.quiet ?? false);
     if (result.status !== 0) {
-      const message = `devsy workspace up failed for '${devsyId ?? options.repoPath}'.`;
+      let message = `devsy workspace up failed for '${devsyId ?? options.repoPath}'.`;
+      if (result.error?.message) message += ` ${result.error.message}`;
+      if (AGENT_ACQUISITION_RE.test(result.stderrTail)) {
+        message +=
+          " Devsy could not obtain its agent binary; allow Devsy to download it or set DEVSY_AGENT_BINARY to a verified official Devsy agent binary matching this platform and Devsy version.";
+      }
       if (failedStartMayHaveAttached(devsyId, options.repoPath)) {
         throw new DevsyStartPostconditionError(message);
       }

@@ -1,7 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DevpodStartPostconditionError,
@@ -13,24 +15,37 @@ import { withFileLockSync } from "../file-lock";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-global-mutation-test" }));
+const childProcessMocks = vi.hoisted(() => ({ devsySpawn: vi.fn() }));
 const temporaryHomes: string[] = [];
 let previousWorkspaceRuntime: string | undefined;
 
-vi.mock("node:child_process", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("node:child_process")>()),
-  spawnSync: vi.fn(),
-}));
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...original,
+    spawn: ((command: string, ...args: unknown[]) =>
+      command === "devsy"
+        ? childProcessMocks.devsySpawn(command, ...args)
+        : Reflect.apply(original.spawn, undefined, [command, ...args])) as typeof original.spawn,
+    spawnSync: vi.fn(),
+  };
+});
 vi.mock("../router", () => ({ DEVROUTER_HOME: paths.home }));
 vi.mock("../file-lock", () => ({
+  withFileLock: vi.fn(async (_path: string, _options: unknown, operation: () => Promise<unknown>) =>
+    operation(),
+  ),
   withFileLockSync: vi.fn((_path: string, _options: unknown, operation: () => unknown) =>
     operation(),
   ),
+  createStderrWaitReporter: vi.fn(() => () => undefined),
 }));
 
 beforeEach(() => {
   previousWorkspaceRuntime = process.env.DEVROUTER_WORKSPACE_RUNTIME;
   process.env.DEVROUTER_WORKSPACE_RUNTIME = "devpod";
   vi.clearAllMocks();
+  mockDevsyStart();
   resetWorkspaceRuntimeCaches();
 });
 
@@ -79,10 +94,43 @@ function startMutationProcess(home: string, activity: string, waitForRelease: bo
   return { child, attempting, entered, exited };
 }
 
+function mockDevsyStart(options: { status?: number; stderr?: string } = {}): void {
+  childProcessMocks.devsySpawn.mockImplementation(() => {
+    const child = new EventEmitter();
+    const stderr = new PassThrough();
+    Object.assign(child, { stderr });
+    queueMicrotask(() => {
+      if (options.stderr) stderr.write(Buffer.from(options.stderr));
+      stderr.end();
+      child.emit("close", options.status ?? 0, null);
+    });
+    return child;
+  });
+}
+
+async function waitForQueueTicket(home: string, pid: number): Promise<void> {
+  const directory = path.join(home, ".config", "devrouter");
+  const pidField = `.${String(pid).padStart(10, "0")}.`;
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const names = fs.existsSync(directory) ? fs.readdirSync(directory) : [];
+    if (
+      names.some(
+        (name) => name.startsWith("devpod-mutation.lock.queue.") && name.includes(pidField),
+      )
+    ) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`mutation fixture PID ${pid} did not join the provider queue`);
+}
+
 describe("machine-global DevPod mutation boundary", () => {
-  it("normalizes a possibly-started Devsy failure for workspace rollback", () => {
+  it("normalizes a possibly-started Devsy failure for workspace rollback", async () => {
     process.env.DEVROUTER_WORKSPACE_RUNTIME = "devsy";
     resetWorkspaceRuntimeCaches();
+    mockDevsyStart({ status: 1, stderr: "agent injection failed" });
     let listCalls = 0;
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
@@ -96,15 +144,12 @@ describe("machine-global DevPod mutation boundary", () => {
           stderr: "",
         } as never;
       }
-      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
-        return { status: 1, stdout: "", stderr: "agent injection failed" } as never;
-      }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    expect(() => startDevpodWorkspace({ repoPath: "/repo/feature", devpodId: "feature" })).toThrow(
-      DevpodStartPostconditionError,
-    );
+    await expect(
+      startDevpodWorkspace({ repoPath: "/repo/feature", devpodId: "feature" }),
+    ).rejects.toThrow(DevpodStartPostconditionError);
   });
 
   it("uses one bounded lock path for action-specific APIs", () => {
@@ -116,13 +161,25 @@ describe("machine-global DevPod mutation boundary", () => {
     expect(withFileLockSync).toHaveBeenNthCalledWith(
       1,
       `${paths.home}/devpod-mutation.lock`,
-      { activity: "DevPod stop", target: "'/repo-a'", waitMs: 60_000 },
+      {
+        activity: "DevPod stop",
+        target: "'/repo-a'",
+        waitMs: 1_800_000,
+        fair: true,
+        onWait: expect.any(Function),
+      },
       expect.any(Function),
     );
     expect(withFileLockSync).toHaveBeenNthCalledWith(
       2,
       `${paths.home}/devpod-mutation.lock`,
-      { activity: "DevPod delete", target: "'/repo-b'", waitMs: 60_000 },
+      {
+        activity: "DevPod delete",
+        target: "'/repo-b'",
+        waitMs: 1_800_000,
+        fair: true,
+        onWait: expect.any(Function),
+      },
       expect.any(Function),
     );
   });
@@ -299,15 +356,19 @@ describe("machine-global DevPod mutation boundary", () => {
     expect(spawnSync).not.toHaveBeenCalledWith("devpod", ["stop", "feature"], expect.anything());
   });
 
-  it("serializes mutation processes from different repositories machine-wide", async () => {
+  it("serializes mutation processes from different repositories in arrival order", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-mutation-home-"));
     temporaryHomes.push(home);
     const first = startMutationProcess(home, "DevPod start", true);
     await first.attempting;
     await first.entered;
 
-    const second = startMutationProcess(home, "DevPod delete", false);
+    const second = startMutationProcess(home, "DevPod delete", true);
     await second.attempting;
+    await waitForQueueTicket(home, second.child.pid as number);
+    const third = startMutationProcess(home, "DevPod stop", false);
+    await third.attempting;
+    await waitForQueueTicket(home, third.child.pid as number);
     const contention = await Promise.race([
       second.entered.then(() => "entered" as const),
       new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 100)),
@@ -315,6 +376,14 @@ describe("machine-global DevPod mutation boundary", () => {
     expect(contention).toBe("blocked");
 
     first.child.stdin.end();
-    await Promise.all([first.exited, second.entered, second.exited]);
+    await Promise.all([first.exited, second.entered]);
+    const overtaking = await Promise.race([
+      third.entered.then(() => "entered" as const),
+      new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 100)),
+    ]);
+    expect(overtaking).toBe("blocked");
+
+    second.child.stdin.end();
+    await Promise.all([second.exited, third.entered, third.exited]);
   });
 });

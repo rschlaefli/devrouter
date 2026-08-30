@@ -361,6 +361,23 @@ function isWarmWorkspaceActive(repoPath: string): boolean {
   }
 }
 
+function hasExactManagedComposeProject(repoPath: string, state: ManagedRuntimeState): boolean {
+  try {
+    return inspectWorkspaceContainers({
+      composeProject: state.composeProject,
+    }).some((container) => {
+      const workingDir = container.labels["com.docker.compose.project.working_dir"];
+      return Boolean(
+        workingDir && sameWorkspacePath(workingDir, path.join(repoPath, ".devcontainer")),
+      );
+    });
+  } catch {
+    // State recovery must fail closed when Docker cannot prove that the
+    // previous exact Compose project has disappeared.
+    return true;
+  }
+}
+
 // Before the first managed mutation on an already-running native workspace,
 // prove which optional services and process markers are actually active. That
 // observed set is the only honest rollback baseline when no successful managed
@@ -702,6 +719,12 @@ export async function workspaceEnsure(
         : [];
       if (managedRuntime) {
         previousManagedState = readManagedRuntimeState(repoPath, target.workspace);
+        if (
+          previousManagedState &&
+          !hasExactManagedComposeProject(repoPath, previousManagedState)
+        ) {
+          previousManagedState = undefined;
+        }
         if (previousManagedState?.status === "degraded") {
           throw new Error(
             "Managed runtime state is degraded; refusing a new profile transition until drift is repaired.",
@@ -783,10 +806,10 @@ export async function workspaceEnsure(
       const currentTarget = (): EnvironmentTarget =>
         target.kind === "linked" ? target : { ...target, devpodId };
 
-      const startAndProveAttachment = (recreate = false): void => {
+      const startAndProveAttachment = async (recreate = false): Promise<void> => {
         const requestedTarget = currentTarget();
         try {
-          devpodId = startDevpodWorkspace({
+          devpodId = await startDevpodWorkspace({
             repoPath,
             devpodId: requestedTarget.devpodId,
             devcontainerPath: managedPlan?.generatedRelativePath,
@@ -810,14 +833,14 @@ export async function workspaceEnsure(
       const preflight = (timeoutMs: number): Promise<ValidatedWorkspaceContainer> =>
         waitForContainerPreflight(repoPath, currentTarget(), upstreamHosts, timeoutMs);
       const recreateAndPreflight = async (): Promise<ValidatedWorkspaceContainer> => {
-        startAndProveAttachment(true);
+        await startAndProveAttachment(true);
         return preflight(options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
       };
 
       let recreated = false;
       let container: ValidatedWorkspaceContainer | undefined;
       try {
-        startAndProveAttachment();
+        await startAndProveAttachment();
       } catch (error) {
         if (managedPlan || !target.hadExactDevpod) {
           throw error;

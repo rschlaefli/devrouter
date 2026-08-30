@@ -39,7 +39,7 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
    collides, then persist the checkout token within the same repository-local
    transaction.
 3. Load the in-memory runtime config and reject any managed HTTP or TCP proxy upstream outside the checkout's alias namespace.
-4. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide.
+4. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide. Contenders join a fair arrival-order queue, wait up to thirty minutes for the machine-global provider lock, and print one throttled stderr progress line every ten seconds while waiting; a timeout names the queue position or holder PID, the true lock-hold duration when known, and how long the contender waited.
 5. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
 6. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, and verify HTTP readiness.
 7. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
@@ -59,8 +59,9 @@ occupies that path, then delegates startup to
 `workspaceEnsure`. `--no-devpod` is create-only and publishes no routes; its
 provisional identity is reconciled on the first managed `ensure`. Worktree
 creation holds the repository ownership transaction through `git worktree add`
-and gives concurrent creators 60 seconds to serialize; ordinary ownership
-transactions retain their short wait.
+and gives concurrent creators 60 seconds to serialize; the machine-global
+provider mutation lock waits up to thirty minutes in arrival order with throttled stderr progress
+lines; ordinary ownership transactions retain their short wait.
 
 ## Profile transitions
 
@@ -92,7 +93,14 @@ does not recreate the DevPod, remove containers, remove volumes, run
 `postCreateCommand` again, or use a broad Compose project command. A failed
 transition retains the previous routes and successful state when possible; a
 degraded transition is persisted for inspection and blocks another managed
-profile transition until the drift is resolved.
+profile transition until the drift is resolved. Persisted state remains
+authoritative while any container from its exact Compose project still exists.
+When that exact project has disappeared, Devrouter treats the state as detached
+and rebaselines from the currently observed exact workspace before proceeding.
+This permits a provider or Compose-project handoff without weakening ownership:
+an unreadable Docker state stays attached and fails closed, no container or
+state is deleted, and any surviving prior-project container still blocks the
+transition.
 
 Use `devrouter status --repo <path> --json` or `devrouter doctor --repo <path>
 --json` to inspect the canonical profile, desired and active resources, exact

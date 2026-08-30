@@ -13,7 +13,7 @@ import {
   startDevsyWorkspace,
   stopOwnedDevsyWorkspace,
 } from "./devsy-mutation";
-import { withFileLockSync } from "./file-lock";
+import { createStderrWaitReporter, withFileLockSync } from "./file-lock";
 import { DEVROUTER_HOME } from "./router";
 import {
   readWorkspaceRuntimeConfig,
@@ -22,7 +22,11 @@ import {
 } from "./workspace-runtime";
 
 const DEVPOD_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devpod-mutation.lock");
-const DEVPOD_MUTATION_WAIT_MS = 60_000;
+/**
+ * Matches the Devsy provider wait so mixed fleets behave identically under
+ * parallel agent load; waits report throttled stderr progress.
+ */
+const DEVPOD_MUTATION_WAIT_MS = 1_800_000;
 
 export type OwnedDevpodMutationResult = { status: "changed" } | { status: "absent" };
 
@@ -41,7 +45,13 @@ function withMutationLock<T>(activity: string, target: string, operation: () => 
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   return withFileLockSync(
     DEVPOD_MUTATION_LOCK_FILE,
-    { activity, target: `'${target}'`, waitMs: DEVPOD_MUTATION_WAIT_MS },
+    {
+      activity,
+      target: `'${target}'`,
+      waitMs: DEVPOD_MUTATION_WAIT_MS,
+      fair: true,
+      onWait: createStderrWaitReporter(activity, `'${target}'`),
+    },
     operation,
   );
 }
@@ -138,10 +148,10 @@ export function deleteOwnedDevpodWorkspace(
   return result;
 }
 
-export function startDevpodWorkspace(options: DevpodStartOptions): string {
+export async function startDevpodWorkspace(options: DevpodStartOptions): Promise<string> {
   if (resolveWorkspaceRuntimeOrDefault(options.repoPath) === "devsy") {
     try {
-      const result = startDevsyWorkspace({
+      const result = await startDevsyWorkspace({
         repoPath: options.repoPath,
         devsyId: options.devpodId,
         devcontainerPath: options.devcontainerPath,

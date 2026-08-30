@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.46] - 2026-08-29
+
+### Fixed
+
+- Parallel managed checkouts no longer fail after a silent one-minute
+  provider wait. Contenders for the machine-global Devsy/DevPod mutation
+  lock now wait up to thirty minutes in a fair arrival-order queue, print one
+  throttled stderr progress line every ten seconds, and a timeout names the
+  queue position or holder PID plus true holder and waiter durations.
+- Lock records carry an acquisition timestamp; legacy and malformed records
+  remain conservatively live.
+- A failed `devsy workspace up` whose stderr reports the agent-binary
+  acquisition failure now appends remediation (allow Devsy to download its
+  agent or set `DEVSY_AGENT_BINARY` to a verified official binary). Startup
+  stderr is streamed to fd 2 while only a bounded diagnostic tail is retained,
+  so quiet runs never hide provider output or corrupt JSON stdout.
+- Detached managed runtime state no longer permanently blocks a checkout after
+  its exact Compose project disappears. Devrouter rebaselines from the exact
+  currently observed workspace before a provider or Compose-project handoff;
+  existing prior-project containers or failed Docker inspection still keep the
+  degraded-state and project-mismatch gates fail-closed.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.46.md
+
 ## [0.0.45] - 2026-08-28
 
 ### Fixed
