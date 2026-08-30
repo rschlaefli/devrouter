@@ -85,9 +85,12 @@ Traefik loaded the generated file. An application may legitimately return 404,
 which is indistinguishable from Traefik's unmatched-route 404 at the route URL.
 `src/core/traefik-route-health.ts:ensureTraefikRoutesLoaded` therefore checks the
 exact HTTP and TCP `@file` router names through the localhost Traefik API. It
-allows a short hot-reload grace period, serializes concurrent recovery, restarts
-only the Devrouter-owned Traefik service once, and fails closed with a log command
-when the expected routers remain absent.
+requests a bounded 1,000-router view for each protocol so Traefik's default
+100-entry page cannot hide a valid router. An absent router in a full bounded
+response is treated as incomplete proof. The check allows a short hot-reload
+grace period, serializes concurrent recovery, restarts only the Devrouter-owned
+Traefik service once, and fails closed with a log command when the expected
+routers remain absent.
 
 ## Change guidance
 
