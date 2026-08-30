@@ -14,26 +14,9 @@ import { withFileLock, withFileLockSync } from "../file-lock";
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-devsy-mutation-test" }));
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
-vi.mock("../devsy-agent", () => ({
-  DEVSY_AGENT_SETUP_COMMAND: "devrouter setup --yes --workspace-runtime devsy",
-  DevsyAgentReadinessError: class DevsyAgentReadinessError extends Error {
-    constructor(
-      readonly inspection: {
-        state: string;
-        source: string;
-        reason: string;
-        binaryPath?: string;
-      },
-    ) {
-      super(`Devsy agent is ${inspection.state}: ${inspection.reason}`);
-    }
-  },
-  requireReadyDevsyAgent: vi.fn(() => ({
-    binaryPath: "/managed/devsy-agent",
-    source: "managed",
-    asset: { name: "devsy-linux-arm64" },
-    changed: false,
-  })),
+vi.mock("../devsy-agent", async (importOriginal) => ({
+  ...(await importOriginal()),
+  requireReadyDevsyAgent: vi.fn(),
 }));
 vi.mock("../router", () => ({ DEVROUTER_HOME: paths.home }));
 vi.mock("../file-lock", () => ({
