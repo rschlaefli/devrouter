@@ -191,12 +191,6 @@ describe("buildGlobalToolChecks", () => {
     runtimeState.resolution = { runtime: "devsy", source: "machine-config" };
     runtimeState.agent.state = state;
     runtimeState.agent.reason = `fixture ${state}`;
-    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
-      const key = `${command} ${args.join(" ")}`;
-      if (key === "devsy --version") return result(0, "v1.16.2\n");
-      if (key === "pnpm --version") return result(0, "11.6.0\n");
-      return result(1, "", "missing");
-    });
 
     const check = buildGlobalToolChecks(tmpDir).find((entry) => entry.id === "global.devsy-agent");
 
@@ -214,12 +208,6 @@ describe("buildGlobalToolChecks", () => {
       installedVersion: "1.16.2",
       asset: { name: "devsy-linux-arm64" },
     };
-    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
-      const key = `${command} ${args.join(" ")}`;
-      if (key === "devsy --version") return result(0, "v1.16.2\n");
-      if (key === "pnpm --version") return result(0, "11.6.0\n");
-      return result(1, "", "missing");
-    });
 
     const check = buildGlobalToolChecks(tmpDir).find((entry) => entry.id === "global.devsy-agent");
     expect(check?.suggestion).toBe(
