@@ -45,7 +45,7 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
    the verified path enters only the copied CLI child environment.
 5. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide. Contenders join a fair arrival-order queue, wait up to thirty minutes for the machine-global provider lock, and print one throttled stderr progress line every ten seconds while waiting; a timeout names the queue position or holder PID, the true lock-hold duration when known, and how long the contender waited.
 6. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
-7. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, prove that Traefik loaded the exact file-provider routers, and then verify HTTP readiness.
+7. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, prove that Traefik loaded desired file-provider routers and unloaded removed routers, and then verify HTTP readiness.
 8. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
 
 A provider command can fail after creating recovery state. Devsy startup
@@ -93,10 +93,11 @@ Profile changes in an existing workspace are warm. The reconciler validates the
 candidate, writes the effective configuration, starts added exact services,
 proves service health and candidate processes, stops dropped owned processes
 and services by exact identity, and publishes the candidate routes last. It
-does not recreate the DevPod, remove containers, remove volumes, run
-`postCreateCommand` again, or use a broad Compose project command. A failed
-transition retains the previous routes and successful state when possible; a
-degraded transition is persisted for inspection and blocks another managed
+proves both that selected routers loaded and that routers dropped by the profile
+unloaded before persisting ready state. It does not recreate the DevPod, remove
+containers, remove volumes, run `postCreateCommand` again, or use a broad
+Compose project command. A failed transition retains the previous routes and
+successful state when possible; a degraded transition is persisted for inspection and blocks another managed
 profile transition until the drift is resolved. Persisted state remains
 authoritative while any container from its exact Compose project still exists.
 When that exact project has disappeared, Devrouter treats the state as detached
@@ -116,7 +117,7 @@ resources may be reclaimed.
 
 | Command | Effect | Preserved state |
 | --- | --- | --- |
-| `devrouter stop <path>` | Stop the exact primary or linked environment and free its routes. | Checkout and linked ownership record. |
+| `devrouter stop <path>` | Stop the exact primary or linked environment, remove its canonical routes, and prove Traefik unloaded them. | Checkout and linked ownership record. |
 | `devrouter exec <path> -- <command>` | Execute once inside an already-running exact runtime. | All lifecycle state; it does not start or recreate. |
 | `devrouter workspace stop <target>` | Reversible stop for the resolved linked owner. | Worktree, branch, and owner record. |
 | `devrouter workspace down <target>` | Delete the exact provider runtime and routes, then remove a clean unlocked worktree unless retained. | Branch; worktree and record only when explicitly retained or teardown fails before removal. |
@@ -155,7 +156,7 @@ workspace with no attributed container is a measured zero, not unknown.
   `devrouter setup --yes --workspace-runtime devsy`; doctor checks the resulting
   readiness state without network access.
 - Ambiguous Git paths, duplicate runtime IDs, owner conflicts, foreign aliases, dirty worktrees, and provider reassignments fail before destructive follow-up.
-- Provider mutation succeeds before route removal; a failed stop/delete retains routes and ownership so the environment does not appear cleanly torn down.
+- Provider mutation succeeds before route removal; a provider failure retains routes and ownership. After canonical removal, stop/delete still fails closed if bounded Traefik inspection plus one serialized restart cannot prove the routers unloaded.
 - Full down removes runtime, routes, worktree, then owner record. Failures stop that sequence and preserve later state.
 - Garbage collection revalidates inside one ownership transaction; a workspace revived after a dry run is not mutated.
 

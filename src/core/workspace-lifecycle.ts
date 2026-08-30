@@ -10,6 +10,7 @@ import {
 } from "./devpod-workspaces";
 import { resolveRepoPath } from "./repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
+import { ensureTraefikRoutesRemoved } from "./traefik-route-health";
 import {
   isLinkedWorktree,
   resolveWorktreeWorkspace,
@@ -410,12 +411,12 @@ type WorkspaceLifecycleResult = {
   workspace: string;
 };
 
-function mutateWorkspaceRuntime(
+async function mutateWorkspaceRuntime(
   action: "stop" | "delete",
   resolved: ResolvedWorkspaceTarget,
   worktrees: IdentifiedGitWorktree[],
   quiet = false,
-): WorkspaceLifecycleResult {
+): Promise<WorkspaceLifecycleResult> {
   const devpods = listDevpodWorkspaces(resolved.worktreePath);
   assertDevpodTargetSafe(resolved, worktrees, devpods);
   const devpodId = resolved.record?.devpodId ?? resolved.workspace;
@@ -425,6 +426,7 @@ function mutateWorkspaceRuntime(
       : deleteOwnedDevpodWorkspace(devpodId, resolved.worktreePath);
 
   const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
+  await ensureTraefikRoutesRemoved(routes);
   if (!quiet) {
     process.stdout.write(
       `Freed ${routes.length} route(s) for workspace '${resolved.workspace}'.\n`,
@@ -452,7 +454,7 @@ async function runWorkspaceLifecycle(
     if (removeWorktree) {
       assertFullDownPreflight(mainRepo, resolved);
     }
-    const result = mutateWorkspaceRuntime(
+    const result = await mutateWorkspaceRuntime(
       action === "stop" ? "stop" : "delete",
       resolved,
       worktrees,

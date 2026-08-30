@@ -3,6 +3,7 @@ import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "../devpod-
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "../devpod-workspaces";
 import { environmentStop } from "../environment-stop";
 import { removeHostRoutesWhere } from "../host-routes";
+import { ensureTraefikRoutesRemoved } from "../traefik-route-health";
 import {
   isLinkedWorktree,
   resolveWorktreeWorkspace,
@@ -22,6 +23,10 @@ vi.mock("../devpod-mutation", () => ({
 
 vi.mock("../host-routes", () => ({
   removeHostRoutesWhere: vi.fn(() => []),
+}));
+
+vi.mock("../traefik-route-health", () => ({
+  ensureTraefikRoutesRemoved: vi.fn(async () => ({ restarted: false })),
 }));
 
 vi.mock("../workspace-lifecycle", () => ({
@@ -45,6 +50,7 @@ vi.mock("../workspace", () => ({
 
 beforeEach(() => {
   vi.mocked(isLinkedWorktree).mockReturnValue(false);
+  vi.mocked(ensureTraefikRoutesRemoved).mockResolvedValue({ restarted: false });
   vi.mocked(resolveWorktreeWorkspace).mockReturnValue(undefined);
   vi.mocked(listWorkspaceOwnership).mockReturnValue([]);
   vi.mocked(listGitWorktrees).mockReturnValue([]);
@@ -86,7 +92,30 @@ describe("environmentStop", () => {
     expect(withWorkspaceLifecycleLock).toHaveBeenCalledWith("/repo", expect.any(Function));
     expect(stopOwnedDevpodWorkspace).toHaveBeenCalledWith("repo", "/repo");
     expect(removeHostRoutesWhere).toHaveBeenCalledOnce();
+    expect(ensureTraefikRoutesRemoved).toHaveBeenCalledWith([
+      expect.objectContaining({ name: "web", repoPath: "/repo" }),
+    ]);
     expect(events).toEqual(["stop", "routes"]);
+  });
+
+  it("fails closed when Traefik does not unload a removed primary route", async () => {
+    const devpod = { id: "repo", source: { localFolder: "/repo" } };
+    const removedRoute = {
+      id: "route",
+      name: "web",
+      host: "web.localhost",
+      repoPath: "/repo",
+    } as never;
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([devpod]);
+    vi.mocked(selectDevpodWorkspace).mockReturnValue(devpod);
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "changed" });
+    vi.mocked(removeHostRoutesWhere).mockReturnValue([removedRoute]);
+    vi.mocked(ensureTraefikRoutesRemoved).mockRejectedValueOnce(
+      new Error("Traefik did not remove file-provider routes after one restart"),
+    );
+
+    await expect(environmentStop("/repo")).rejects.toThrow("did not remove file-provider routes");
+    expect(ensureTraefikRoutesRemoved).toHaveBeenCalledWith([removedRoute]);
   });
 
   it("returns linked identity and never deletes a DevPod", async () => {

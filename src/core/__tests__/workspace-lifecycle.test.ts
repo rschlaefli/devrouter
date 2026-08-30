@@ -10,6 +10,7 @@ import {
 import { listDevpodWorkspaces, listDevpodWorkspacesFromSnapshots } from "../devpod-workspaces";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
+import { ensureTraefikRoutesRemoved } from "../traefik-route-health";
 import {
   resolveWorktreeWorkspace,
   withWorkspaceLifecycleLock,
@@ -36,6 +37,9 @@ vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../route-state", () => ({
   listRoutesForWorktreePaths: vi.fn(() => new Map()),
   removeWorkspaceRoutesForWorktree: vi.fn(() => []),
+}));
+vi.mock("../traefik-route-health", () => ({
+  ensureTraefikRoutesRemoved: vi.fn(async () => ({ restarted: false })),
 }));
 vi.mock("../devpod-workspaces", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../devpod-workspaces")>()),
@@ -138,6 +142,7 @@ let stdoutSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  vi.mocked(ensureTraefikRoutesRemoved).mockResolvedValue({ restarted: false });
   vi.mocked(resolveWorktreeWorkspace).mockImplementation((_repoPath, branch) =>
     wsFromBranch(branch ?? ""),
   );
@@ -215,6 +220,10 @@ describe("workspaceDown", () => {
       "feat-a",
       "/main/repo/trees/feat-a",
     );
+    expect(ensureTraefikRoutesRemoved).toHaveBeenCalledWith([
+      expect.objectContaining({ name: "web" }),
+      expect.objectContaining({ name: "api" }),
+    ]);
     // Teardown must not depend on the (possibly-deleted) worktree config.
     expect(loadRuntimeConfig).not.toHaveBeenCalled();
   });
@@ -406,6 +415,10 @@ describe("workspaceDown", () => {
       events.push("routes");
       return [];
     });
+    vi.mocked(ensureTraefikRoutesRemoved).mockImplementation(async () => {
+      events.push("proof");
+      return { restarted: false };
+    });
     vi.mocked(removeWorkspaceOwnership).mockImplementation(() => {
       events.push("record");
       return true;
@@ -428,7 +441,7 @@ describe("workspaceDown", () => {
 
     await workspaceDown("feat-a");
 
-    expect(events).toEqual(["delete", "routes", "worktree", "record"]);
+    expect(events).toEqual(["delete", "routes", "proof", "worktree", "record"]);
     expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("feat-a", "/main/repo-feat-a");
   });
 
@@ -591,6 +604,10 @@ branch refs/heads/feature-foo
       events.push("routes");
       return [];
     });
+    vi.mocked(ensureTraefikRoutesRemoved).mockImplementation(async () => {
+      events.push("proof");
+      return { restarted: false };
+    });
     vi.mocked(stopOwnedDevpodWorkspace).mockImplementation((_id, _worktreePath) => {
       events.push("stop");
       return { status: "changed" };
@@ -605,7 +622,7 @@ branch refs/heads/feature-foo
 
     await workspaceStop("feat-a", { quiet: true });
 
-    expect(events).toEqual(["stop", "routes"]);
+    expect(events).toEqual(["stop", "routes", "proof"]);
     expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
     expect(write).not.toHaveBeenCalled();
   });

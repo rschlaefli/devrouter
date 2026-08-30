@@ -1,6 +1,7 @@
 import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "./devpod-mutation";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { removeHostRoutesWhere } from "./host-routes";
+import { ensureTraefikRoutesRemoved } from "./traefik-route-health";
 import {
   isLinkedWorktree,
   resolveWorktreeWorkspace,
@@ -72,6 +73,7 @@ export async function environmentStop(
     const removedRoutes = removeHostRoutesWhere((route) =>
       sameWorkspacePath(route.repoPath, repoPath),
     );
+    await ensureTraefikRoutesRemoved(removedRoutes);
 
     return {
       kind: linked ? "linked" : "primary",

@@ -6,7 +6,7 @@ severity: high
 symptoms:
   - "A linked worktree reported ready while its DevPod used another checkout or stale network aliases."
   - "Git commands failed inside an otherwise running worktree container."
-  - "Routes survived a failed runtime proof and pointed at an invalid environment."
+  - "Routes survived a failed runtime proof or successful stop because Traefik missed the dynamic-file update."
   - "A DevPod ID could be reassigned between ownership inspection and an ID-only provider mutation."
   - "Route metadata and the Traefik document could describe different write generations."
   - "A valid container and process group kept serving HTTP 500 after a production build invalidated Next.js development output."
@@ -41,6 +41,8 @@ checkout or runtime generations to be combined into an apparently healthy enviro
   different generations.
 - The canonical route file and mounted container bytes could be correct while Traefik's dynamic
   router API contained none of the new routers and every host returned Traefik's 404.
+- A stopped workspace had no canonical routes, state entries, or reported drift, while Traefik's
+  router API still exposed all three removed `@file` routers.
 
 ## What Didn't Work
 
@@ -61,6 +63,8 @@ checkout or runtime generations to be combined into an apparently healthy enviro
   also accepted Traefik's unmatched-route 404 when its file provider missed a reload.
 - Querying Traefik's router APIs without pagination inspected only the default first 100 entries,
   so a valid router later in a large shared installation looked absent even after recovery.
+- Treating an empty canonical route batch and `routeCount=0` as cleanup proof missed the inverse
+  file-provider reload failure: Traefik could keep serving routers already removed from disk.
 - Treating a non-zero provider exit as proof that nothing started removed
   recovery state even though Devsy had already registered the exact checkout.
 
@@ -154,6 +158,14 @@ the response reaches that bound, report incomplete proof instead of claiming abs
 coverage places the target beyond Traefik's default first 100 entries and retains the persistent
 absence failure (`src/core/__tests__/traefik-route-health.test.ts`).
 
+Apply the same bounded proof to route removal. Exact stop/down paths and managed route-generation
+replacement wait for removed HTTP and TCP router names to disappear. A stale router enters the same
+machine-wide recovery lock, gets one Devrouter-owned Traefik restart, and then fails closed if it
+remains. Managed rollback proves both restored routers present and candidate-only routers absent
+before reporting a recovered boundary (`src/core/traefik-route-health.ts`,
+`src/core/environment-stop.ts`, `src/core/workspace-lifecycle.ts`, and
+`src/core/workspace-ensure.ts`).
+
 Serialize every ownership write or removal through one repository-wide ledger transaction
 (`withWorkspaceOwnershipTransaction` in `src/core/workspace-ownership.ts`). GC holds that same
 transaction across final record, Git, DevPod, and route revalidation; provider deletion; exact route
@@ -173,10 +185,10 @@ second devrouter process from reassigning the ID mid-mutation. Canonical route m
 the exact generation Traefik received, so recovery chooses a complete generation instead of merging
 partial files.
 
-Provider-level router proof separates route loading from application behavior. Concurrent profile
-starts cannot create a restart storm because the recovery lock rechecks after acquisition, while a
-persistently rejected or unreadable dynamic configuration gets one bounded restart and then an
-actionable failure instead of an apparently ready runtime.
+Provider-level router proof separates route loading and unloading from application behavior.
+Concurrent profile starts or stops cannot create a restart storm because the recovery lock rechecks
+after acquisition, while a persistently rejected or unreadable dynamic configuration gets one
+bounded restart and then an actionable failure instead of an apparently ready or clean runtime.
 
 ## Prevention
 
@@ -191,10 +203,12 @@ legacy migration, stale-mirror repair, and real concurrent writers whose canonic
 retain both routes (`src/core/__tests__/host-routes-state.test.ts`).
 
 The focused provider regression proves exact HTTP and TCP names, a target beyond the default API
-page, bounded-view uncertainty, one-restart recovery, and persistent fail-closed absence
-(`src/core/__tests__/traefik-route-health.test.ts:69-166`). The workspace regression preserves
-application-level 404 readiness while requiring the missing provider router to trigger recovery
-(`src/core/__tests__/workspace-ensure.test.ts:940-990`).
+page, bounded-view uncertainty, load and unload recovery, and persistent fail-closed mismatches
+(`src/core/__tests__/traefik-route-health.test.ts`). Workspace and lifecycle regressions preserve
+application-level 404 readiness while requiring publication, profile replacement, rollback, stop,
+and down to prove the matching live router state (`src/core/__tests__/workspace-ensure.test.ts`,
+`src/core/__tests__/environment-stop.test.ts`, and
+`src/core/__tests__/workspace-lifecycle.test.ts`).
 
 GC regression tests assert that the ownership transaction encloses DevPod, route, and record
 deletion; a workspace revived after inspection is not mutated; and a busy ledger lock fails only

@@ -35,7 +35,7 @@ import {
 import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
-import { ensureTraefikRoutesLoaded } from "../traefik-route-health";
+import { ensureTraefikRoutesLoaded, ensureTraefikRoutesRemoved } from "../traefik-route-health";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
@@ -109,6 +109,7 @@ vi.mock("../router", () => ({
 }));
 vi.mock("../traefik-route-health", () => ({
   ensureTraefikRoutesLoaded: vi.fn(async () => ({ restarted: false })),
+  ensureTraefikRoutesRemoved: vi.fn(async () => ({ restarted: false })),
 }));
 vi.mock("../tls", () => ({
   getMkcertRootCAPath: vi.fn(() => "/ca/rootCA.pem"),
@@ -374,6 +375,8 @@ describe("workspaceEnsure", () => {
       },
     });
     vi.mocked(replaceHostRoutesForRepo).mockReturnValue([]);
+    vi.mocked(ensureTraefikRoutesLoaded).mockResolvedValue({ restarted: false });
+    vi.mocked(ensureTraefikRoutesRemoved).mockResolvedValue({ restarted: false });
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue({ kind: "unmanaged" });
     vi.mocked(runManagedPostStart).mockImplementation(() => undefined);
     mockDevsyUp();
@@ -978,6 +981,39 @@ describe("workspaceEnsure", () => {
     );
   });
 
+  it("proves routes dropped by a managed profile are unloaded before ready", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle();
+    const removedRoute: HostRouteState = {
+      ...managedPreviousRoute(),
+      id: "route-old-api",
+      name: "api",
+      host: "api.feature.localhost",
+    };
+    vi.mocked(listHostRouteState).mockReturnValue([managedPreviousRoute(), removedRoute]);
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).resolves.toMatchObject({ profile: "ai" });
+
+    expect(ensureTraefikRoutesRemoved).toHaveBeenCalledWith(
+      [expect.objectContaining({ name: "api", repoPath: tmpDir })],
+      { initialTimeoutMs: 0, recoveryTimeoutMs: 0 },
+    );
+    expect(writeManagedRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
   it("rolls back managed routes when Traefik still lacks them after recovery", async () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({
       config: managedRuntimeConfig(),
@@ -1003,6 +1039,34 @@ describe("workspaceEnsure", () => {
     ]);
     expect(ensureTraefikRoutesLoaded).toHaveBeenCalledTimes(2);
     expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+  });
+
+  it("proves a failed cold candidate route is unloaded during rollback", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle();
+    vi.mocked(listHostRouteState).mockReturnValue([]);
+    vi.mocked(ensureTraefikRoutesLoaded).mockRejectedValueOnce(
+      new Error("Traefik did not load file-provider routes after one restart"),
+    );
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Candidate runtime was rolled back");
+
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
+    expect(ensureTraefikRoutesRemoved).toHaveBeenCalledWith(
+      [expect.objectContaining({ name: "chat", repoPath: tmpDir })],
+      { initialTimeoutMs: 0, recoveryTimeoutMs: 0 },
+    );
   });
 
   it("rolls back candidate services, processes, and routes after route readiness failure", async () => {
