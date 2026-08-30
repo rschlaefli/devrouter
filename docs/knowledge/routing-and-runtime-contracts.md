@@ -14,6 +14,7 @@ source_paths:
   - src/core/routes.ts
   - src/core/route-publication.ts
   - src/core/host-routes.ts
+  - src/core/traefik-route-health.ts
   - src/core/router.ts
   - src/core/tls.ts
   - src/core/status.ts
@@ -78,6 +79,15 @@ Loopback proxy upstreams are rewritten by `src/core/host-routes.ts:parseUpstream
 `src/core/host-routes.ts:replaceHostRoutesForRepo` validates and replaces one exact repository/worktree route batch under a shared lock. `writeRouteGeneration` writes the JSON compatibility mirror first and the canonical Traefik file second; the canonical file carries encoded metadata for the same rendered generation. Reads validate metadata against YAML, migrate complete headerless legacy state, repair stale mirrors, and fail closed on corruption.
 
 Route-state failure injection and concurrency coverage live in `src/core/__tests__/host-routes-state.test.ts`. Config/runtime combinations live in `repo-config.test.ts`; generic application and dependency behavior lives in `app-run-exec.test.ts`; Docker-label discovery lives in `routes.test.ts`.
+
+Managed proxy publication does not treat an HTTP response alone as proof that
+Traefik loaded the generated file. An application may legitimately return 404,
+which is indistinguishable from Traefik's unmatched-route 404 at the route URL.
+`src/core/traefik-route-health.ts:ensureTraefikRoutesLoaded` therefore checks the
+exact HTTP and TCP `@file` router names through the localhost Traefik API. It
+allows a short hot-reload grace period, serializes concurrent recovery, restarts
+only the Devrouter-owned Traefik service once, and fails closed with a log command
+when the expected routers remain absent.
 
 ## Change guidance
 

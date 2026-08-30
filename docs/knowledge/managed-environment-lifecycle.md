@@ -41,7 +41,7 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
 3. Load the in-memory runtime config and reject any managed HTTP or TCP proxy upstream outside the checkout's alias namespace.
 4. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide. Contenders join a fair arrival-order queue, wait up to thirty minutes for the machine-global provider lock, and print one throttled stderr progress line every ten seconds while waiting; a timeout names the queue position or holder PID, the true lock-hold duration when known, and how long the contender waited.
 5. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
-6. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, and verify HTTP readiness.
+6. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, prove that Traefik loaded the exact file-provider routers, and then verify HTTP readiness.
 7. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
 
 A provider command can fail after creating recovery state. Devsy startup

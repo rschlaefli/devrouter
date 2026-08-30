@@ -114,6 +114,15 @@ and unit/CLI tests. Do not edit release or Devsy-owned files. Check focused
 Vitest, Biome, Knip, typecheck, build, and the package smoke extension.
 Commit: `feat(profile): expose side-effect-free resolution`.
 
+### D1.5 - Harden dynamic route publication
+
+Merged-state consumer dogfood proved that a managed profile could reach ready
+with correct route state and mounted Traefik bytes while Traefik's API contained
+none of the new routers. Add exact file-provider router proof after publication,
+one serialized Traefik-only restart, and a terminal fail-closed diagnostic. Keep
+application 404 responses valid and do not change downstream Klicker files.
+Commit: `fix(routing): recover missed Traefik reloads`.
+
 ### D2 - Reconcile the release boundary
 
 Only after explicit authorization and Devsy `0.0.47` completion, merge its
@@ -137,6 +146,13 @@ Record exact results and remaining publication boundary here.
       tests, build, and the packed-package smoke pass.
 - [x] Public README and repository-onboarding guidance document the
       side-effect-free automation contract without touching Devsy-owned docs.
+- [x] Merged-state Klicker dogfood isolated a missed Traefik file-provider
+      reload: route state, mounted bytes, and upstream reachability were correct,
+      but the router API was empty and every host returned Traefik 404.
+- [x] D1.5 now distinguishes provider load from legitimate application 404,
+      waits for normal hot reload, serializes one Traefik-only restart, and fails
+      closed if exact HTTP/TCP `@file` routers remain absent. The focused
+      53-test route/workspace suite passes.
 - [ ] D2 waits for explicit integration authority and completed `0.0.47` work.
 - [x] D3 packed CLI contents resolve the real Klicker `manage,pwa`,
       `chat,manage,pwa`, and `live-quiz,manage,pwa` unions with a read-only home;
