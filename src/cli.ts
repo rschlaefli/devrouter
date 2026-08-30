@@ -321,6 +321,32 @@ profileCommand
     }),
   );
 
+profileCommand
+  .command("plan")
+  .description("Validate a profile against a repository contract and emit literal bindings")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option(
+    "--profile <name>",
+    "Profile name or comma-separated selection (defaults to configured profile)",
+  )
+  .requiredOption("--contract <path>", "Repository-relative profile plan contract")
+  .option("--output <path>", "Atomically write the JSON plan with mode 0600")
+  .option("--json", "Output stable JSON")
+  .action(
+    withErrorHandling(
+      async (options: {
+        repo?: string;
+        profile?: string;
+        contract: string;
+        output?: string;
+        json?: boolean;
+      }) => {
+        const { runProfilePlanCommand } = await import("./commands/profile");
+        await runProfilePlanCommand(options);
+      },
+    ),
+  );
+
 const appCommand = program
   .command("app")
   .description("Manage app entries and runtime actions from `.devrouter.yml`");
