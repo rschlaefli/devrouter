@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.51] - 2026-08-30
+
+### Added
+
+- `devrouter profile plan --repo <path> [--profile <selection>] --contract
+  <repo-relative-yaml> [--output <path>] [--json]` validates the existing exact
+  profile report against a strict repository-owned version-1 contract and emits
+  deterministic named arrays of literal values.
+- Contracts map selected app identities to consumer-defined bindings, constrain
+  dependencies and managed services to allowed registries, and require an exact
+  managed-process set. Unknown resources, missing mappings, unsupported keys,
+  YAML aliases, path escape, symlinks, and bounded-input violations fail closed.
+- Optional plan output uses the existing fsync-backed atomic writer with mode
+  `0600`. Installed-package smoke now proves matching stdout and file output from
+  a non-Git repository with a non-writable home and no runtime tools.
+
+### Compatibility
+
+- `.devrouter.yml` schema version 1, `profile resolve`, profile selection,
+  managed runtimes, routes, workspaces, and existing commands are unchanged.
+- Binding names and values remain repository-owned data. Devrouter does not
+  interpret, interpolate, template, shell-parse, or execute them and does not
+  start or inspect Docker, DevPod, Devsy, Traefik, or application processes.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.51.md
+
 ## [0.0.50] - 2026-08-30
 
 ### Fixed

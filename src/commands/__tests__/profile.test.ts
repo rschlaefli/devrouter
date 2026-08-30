@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { writeFileAtomically } from "../../core/atomic-file";
 import { printJSON } from "../../core/output";
+import { type ProfilePlanReport, resolveProfilePlan } from "../../core/profile-plan";
 import { type ProfileResolutionReport, resolveProfileReport } from "../../core/profile-resolution";
-import { runProfileResolveCommand } from "../profile";
+import { runProfilePlanCommand, runProfileResolveCommand } from "../profile";
 
 vi.mock("../../core/profile-resolution", () => ({
   resolveProfileReport: vi.fn(),
 }));
+
+vi.mock("../../core/profile-plan", () => ({ resolveProfilePlan: vi.fn() }));
+vi.mock("../../core/atomic-file", () => ({ writeFileAtomically: vi.fn() }));
 
 vi.mock("../../core/output", () => ({
   printJSON: vi.fn(),
@@ -24,6 +29,12 @@ const report: ProfileResolutionReport = {
     services: ["postgres", "redis"],
     processes: ["web"],
   },
+};
+
+const plan: ProfilePlanReport = {
+  ...report,
+  contractPath: "ci/profile-plan.yml",
+  bindings: { filters: ["--filter=api", "--filter=web"] },
 };
 
 afterEach(() => {
@@ -62,5 +73,32 @@ describe("runProfileResolveCommand", () => {
     } finally {
       writeSpy.mockRestore();
     }
+  });
+});
+
+describe("runProfilePlanCommand", () => {
+  it("prints and atomically writes the same stable JSON plan", async () => {
+    vi.mocked(resolveProfilePlan).mockReturnValue(plan);
+
+    await runProfilePlanCommand({
+      repo: "/repo",
+      profile: "manage,pwa",
+      contract: "ci/profile-plan.yml",
+      output: "/tmp/profile-plan.json",
+      json: true,
+    });
+
+    expect(resolveProfilePlan).toHaveBeenCalledWith({
+      repo: "/repo",
+      profile: "manage,pwa",
+      contract: "ci/profile-plan.yml",
+      output: "/tmp/profile-plan.json",
+      json: true,
+    });
+    expect(writeFileAtomically).toHaveBeenCalledWith(
+      "/tmp/profile-plan.json",
+      `${JSON.stringify(plan, null, 2)}\n`,
+    );
+    expect(printJSON).toHaveBeenCalledWith(plan);
   });
 });

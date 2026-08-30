@@ -8,6 +8,8 @@ source_paths:
   - src/core/router.ts
   - src/core/tls.ts
   - src/core/repo-config.ts
+  - src/core/profile-resolution.ts
+  - src/core/profile-plan.ts
   - src/core/workspace*.ts
   - src/core/devpod*.ts
   - src/core/devsy-agent.ts
@@ -30,6 +32,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 | --- | --- | --- |
 | Repository routing intent | Consumer `.devrouter.yml` | Parse strictly through `src/core/repo-config.ts:loadRepoConfig`; never rewrite the committed file for workspace namespacing. |
 | Managed profile intent | Consumer `.devrouter.yml` `managedRuntime` registry and `profiles` map | Keep base services, optional Compose services, and managed process markers explicit; resolve each profile dimension independently. |
+| Automation binding intent | Consumer repository's explicit profile-plan contract | Validate exact selected resources and aggregate named literal arrays; never interpret binding semantics, expand values, execute commands, or control a runtime. |
 | Git checkout and branch | Git | Inspect registered worktrees and refuse ambiguous or dirty destructive targets. |
 | Managed workspace claim | Consumer Git common directory | Reconcile persisted metadata, the exact-path owner record, and both provider registries before atomically claiming one repository-local identity; no machine-global repository registry. |
 | DevPod/Devsy workspace/container | Active workspace runtime provider | Mutate only an exact ID-plus-source owner through `src/core/devpod-mutation.ts` (Devsy dispatch: `src/core/devsy-mutation.ts`). |
@@ -59,6 +62,10 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 - The Traefik dynamic file is canonical for one route generation; JSON is a compatibility mirror. [ADR 0004](../adr/0004-single-artifact-route-state.md) owns recovery behavior.
 - The shared TLS certificate is a machine-global read-modify-write transaction. Every refresh merges the coverage already present under one lock, compacts sibling multi-label hosts into valid wildcard SANs, verifies the generated certificate, and retries once before failing closed. Concurrent worktrees cannot drop each other's hosts, while historical app routes do not grow the certificate one SAN at a time.
 - Managed profile dimensions are independent. The primary service and declared base services remain active, while optional services, managed processes, and routes are selected only by the resolved profile. [ADR 0005](../adr/0005-dependency-aware-devcontainer-profiles.md) owns this boundary.
+- Automation bindings stay repository-owned. Devrouter validates resource
+  policy and emits deterministic literal arrays, while the consumer owns key
+  meaning and command launch. [ADR 0007](../adr/0007-keep-ci-profile-planning-repository-owned.md)
+  owns this boundary.
 - The committed `.devrouter.yml` remains the only supported per-repository Devrouter configuration. Runtime namespacing is an in-memory view produced by `src/core/repo-config.ts:applyWorkspace`.
 
 ## Relationships

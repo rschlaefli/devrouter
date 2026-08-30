@@ -10,3 +10,4 @@ bundle; this index only lists the accepted decisions.
 - [ADR 0004: Make the Traefik file authoritative for route state](./0004-single-artifact-route-state.md)
 - [ADR 0005: Keep devcontainer profile dimensions independent](./0005-dependency-aware-devcontainer-profiles.md)
 - [ADR 0006: Verify Devsy agents in Devrouter-owned state](./0006-devrouter-owned-devsy-agent-acquisition.md)
+- [ADR 0007: Keep CI profile planning repository-owned](./0007-keep-ci-profile-planning-repository-owned.md)

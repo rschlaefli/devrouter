@@ -120,6 +120,12 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Resolve exact profile resources without starting or inspecting a runtime; fail closed on invalid selections or unknown report schemas.",
   },
   {
+    command:
+      "devrouter profile plan --repo <path> [--profile <selection>] --contract <repo-relative-yaml> [--output <path>] [--json]",
+    purpose:
+      "Validate exact profile resources against a repository-owned contract and emit named literal arrays without interpreting them or touching a runtime.",
+  },
+  {
     command: "devrouter stop [path] [--delete] [--json]",
     purpose:
       "Stop the exact checkout workspace runtime and routes; --delete explicitly deletes the ownership-proven runtime without removing the checkout.",
@@ -286,6 +292,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- managedRuntime (optional) registers devcontainer baseServices, profileServices, and managed process markers",
     "- managed profiles may add devcontainerServices and processes independently; with managedRuntime, apps may be omitted for a route-free capability profile",
     "- an omitted optional managed dimension selects nothing; use `*` or a full profile to select every registered service/process; baseServices and the primary service are always retained",
+    "- automation may use a separate strict version-1 contract with `devrouter profile plan`; the contract maps apps to named literal arrays, constrains dependencies and services to allowed registries, requires an exact managed-process set, and remains repository-owned",
+    "- profile plan values are data: Devrouter never interprets binding names, expands values, runs a shell, or starts/inspects a runtime; consumers validate expected keys and pass values literally",
     "- native Dev Container clients continue to use the source configuration's full service set; managed ensure derives an ignored sibling and changes only runServices",
     "",
     "Validation rules to enforce:",

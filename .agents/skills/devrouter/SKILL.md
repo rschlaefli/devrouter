@@ -188,6 +188,27 @@ profiles:
   selective configuration preserves lifecycle fields and changes only
   `runServices`.
 
+## Automation profile plans
+
+Use `devrouter profile resolve --json` when automation only needs exact selected
+resources. Use `devrouter profile plan` when a repository-owned contract must
+bind selected app names to build arguments, readiness URLs, or other literals:
+
+```bash
+devrouter profile plan --repo . --profile <selection> \
+  --contract <repo-relative-yaml> --output <plan.json> --json
+```
+
+The version-1 contract is separate from `.devrouter.yml`. It maps every allowed
+app to named non-empty string arrays, constrains dependencies and managed
+services to allowed sets, and requires an exact managed-process set. All
+resource names must exist in `.devrouter.yml`. The path must be a regular,
+non-symlink file inside the repository. Devrouter emits canonical, deduplicated
+literal arrays and atomically writes mode `0600`; it never interprets binding
+names, expands values, or runs a shell or runtime. Consumers validate expected
+keys and pass values as literal data. Keep separate contracts for workloads
+with different exact process policies.
+
 ## Env var injection
 
 When a host app depends on a TCP Docker service, `devrouter app run` and `devrouter app exec` inject per-dep deterministic vars (where `{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")`):
@@ -268,6 +289,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter setup --yes [--repo .] [--json] [--workspace-runtime <devpod|devsy>]`: first-run machine setup plus structured diagnostics; explicit Devsy selection acquires its verified agent
 - `devrouter ensure [path] [--profile <name>] [--open] [--json]`: canonical startup/reconciliation for primary and linked checkouts; a managed profile selects its independent resource dimensions
 - `devrouter profile resolve --repo <path> [--profile <selection>] [--json]`: resolve exact profile resources for automation without starting or inspecting a runtime
+- `devrouter profile plan --repo <path> [--profile <selection>] --contract <repo-relative-yaml> [--output <path>] [--json]`: validate repository-owned resource policy and emit literal bindings without runtime access
 - `devrouter stop [path] [--delete] [--json]`: stop the exact workspace runtime and remove exact routes; `--delete` explicitly deletes its ownership-proven data without removing the checkout
 - `devrouter exec [path] -- <command...>`: literal one-shot command inside the exact running workspace runtime
 - `devrouter up` / `devrouter down`: start/stop shared Traefik router

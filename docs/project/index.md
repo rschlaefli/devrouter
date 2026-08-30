@@ -4,6 +4,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [CI profile-plan contract and Klicker adoption](./2026-08-30-ci-profile-plan-contract-plan.md) — emit repository-owned literal CI bindings from resolved profiles, release the generic contract, and migrate the existing Klicker Playwright draft.
 - [Side-effect-free CI profile resolution](./2026-08-30-pr-47-ci-profile-resolution-plan.md) — expose exact profile resources to automation without starting or inspecting a runtime in [PR #47](https://github.com/rschlaefli/devrouter/pull/47).
 - [Devsy agent readiness](./2026-08-30-devsy-agent-readiness-plan.md) — acquire and verify the pinned Devsy agent before provider mutation, with explicit setup repair and network-free diagnostics.
 - [Collision-safe parallel workspace identities](./2026-08-28-collision-safe-workspace-identities-plan.md) — preserve existing workspaces while allocating deterministic fallback identities for colliding long branch prefixes.
