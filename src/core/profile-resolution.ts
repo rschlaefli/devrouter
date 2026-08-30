@@ -33,6 +33,34 @@ function selectedManagedResources(
   return sortedUnique(selected ?? []);
 }
 
+function selectedReadiness(
+  config: DevrouterConfig,
+  profileName: string,
+  profile: DevrouterProfile | undefined,
+  routedApps: DevrouterConfig["apps"],
+): string[] {
+  const selectedNames = profileName.split(",");
+  if (selectedNames.length === 1) {
+    return sortedUnique(
+      profile?.readiness ??
+        routedApps.filter((app) => app.protocol === "http").map((app) => app.name),
+    );
+  }
+
+  const readiness = new Set<string>();
+  for (const selectedName of selectedNames) {
+    const selected = resolveProfile(config, selectedName);
+    const selectedApps = applyProfile(config, selected.profile).apps.filter(
+      (app) => app.kind !== "dependency",
+    );
+    const selectedTargets =
+      selected.profile?.readiness ??
+      selectedApps.filter((app) => app.protocol === "http").map((app) => app.name);
+    for (const target of selectedTargets) readiness.add(target);
+  }
+  return sortedUnique(readiness);
+}
+
 export function buildProfileResolutionReport(
   config: DevrouterConfig,
   repoPath: string,
@@ -42,9 +70,7 @@ export function buildProfileResolutionReport(
   const filtered = applyProfile(config, resolved.profile);
   const routedApps = filtered.apps.filter((app) => app.kind !== "dependency");
   const dependencies = filtered.apps.filter((app) => app.kind === "dependency");
-  const readiness =
-    resolved.profile?.readiness ??
-    routedApps.filter((app) => app.protocol === "http").map((app) => app.name);
+  const readiness = selectedReadiness(config, resolved.name, resolved.profile, routedApps);
 
   const managedRuntime = config.managedRuntime;
   const baseServices = sortedUnique(managedRuntime?.devcontainer.baseServices ?? []);

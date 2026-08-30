@@ -120,6 +120,11 @@ describe("buildProfileResolutionReport", () => {
     expect(report.readiness).toEqual(["api", "student"]);
   });
 
+  it("expands omitted readiness independently in a merged selection", () => {
+    const report = buildProfileResolutionReport(config(), "/repo", "manage,pwa");
+    expect(report.readiness).toEqual(["api", "student", "web"]);
+  });
+
   it("canonicalizes merged profile names and keeps route-free resources", () => {
     const left = buildProfileResolutionReport(config(), "/repo", "pwa, ai");
     const right = buildProfileResolutionReport(config(), "/repo", "ai,pwa,ai");
