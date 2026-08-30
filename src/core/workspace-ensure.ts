@@ -46,7 +46,7 @@ import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY } from "./router";
-import { ensureTraefikRoutesLoaded } from "./traefik-route-health";
+import { ensureTraefikRoutesLoaded, ensureTraefikRoutesRemoved } from "./traefik-route-health";
 import {
   comparableWorkspacePath,
   currentBranch,
@@ -289,6 +289,18 @@ function routeInputFromState(route: HostRouteState): HostRouteInput {
     command: route.command,
     workspace: route.workspace,
   };
+}
+
+function routeReferenceKey(route: HostRouteInput): string {
+  return `${route.repoPath}\u0000${route.name}\u0000${route.protocol ?? "http"}`;
+}
+
+function removedRoutesForReplacement(
+  previousRoutes: HostRouteInput[],
+  nextRoutes: HostRouteInput[],
+): HostRouteInput[] {
+  const nextKeys = new Set(nextRoutes.map(routeReferenceKey));
+  return previousRoutes.filter((route) => !nextKeys.has(routeReferenceKey(route)));
 }
 
 function isWildcard(values: string[] | undefined): boolean {
@@ -687,6 +699,7 @@ export async function workspaceEnsure(
     let managedComposeProject: string | undefined;
     let managedContainer: ValidatedWorkspaceContainer | undefined;
     let previousRoutes: HostRouteState[] = [];
+    let candidateRoutes: HostRouteInput[] = [];
     let candidateRoutesPublished = false;
     let transitionPhase: ManagedTransitionPhase = "validation";
     let managedProcessRegistry: string[] = [];
@@ -717,6 +730,9 @@ export async function workspaceEnsure(
         options.profile,
       );
       const managedRuntime = runtime.config.managedRuntime;
+      previousRoutes = listHostRouteState().filter((route) =>
+        sameWorkspacePath(route.repoPath, repoPath),
+      );
       managedRuntimeConfig = managedRuntime ? runtime.config : undefined;
       managedProcessRegistry = managedRuntime?.processes ?? [];
       const desiredProcesses = managedRuntime
@@ -754,9 +770,6 @@ export async function workspaceEnsure(
         ) {
           throw new Error("Managed runtime state contains an unregistered process marker.");
         }
-        previousRoutes = listHostRouteState().filter((route) =>
-          sameWorkspacePath(route.repoPath, repoPath),
-        );
         if (managedPostStart.kind !== "runtime") {
           throw new Error(
             "managedRuntime requires the runtime managed post-start adapter for exact process reconciliation.",
@@ -968,8 +981,13 @@ export async function workspaceEnsure(
         runtime.config,
         target.workspace,
       );
+      candidateRoutes = publication.routes;
       candidateRoutesPublished = true;
       await ensureTraefikRoutesLoaded(publication.routes, routeLoadOptions);
+      await ensureTraefikRoutesRemoved(
+        removedRoutesForReplacement(previousRoutes.map(routeInputFromState), publication.routes),
+        routeLoadOptions,
+      );
       try {
         await waitForHttpRoutes(
           repoPath,
@@ -981,6 +999,7 @@ export async function workspaceEnsure(
           throw error;
         }
         replaceHostRoutesForRepo(repoPath, []);
+        await ensureTraefikRoutesRemoved(candidateRoutes, routeLoadOptions);
         if (!target.hadExactDevpod || recreated) {
           throw error;
         }
@@ -1180,6 +1199,10 @@ export async function workspaceEnsure(
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
             await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
+            await ensureTraefikRoutesRemoved(
+              removedRoutesForReplacement(candidateRoutes, rollbackRoutes),
+              routeLoadOptions,
+            );
           } catch (rollbackError) {
             rollbackErrors.push(
               `routes: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
@@ -1228,6 +1251,10 @@ export async function workspaceEnsure(
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
             await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
+            await ensureTraefikRoutesRemoved(
+              removedRoutesForReplacement(candidateRoutes, rollbackRoutes),
+              routeLoadOptions,
+            );
           } catch (rollbackError) {
             rollbackErrors.push(
               `routes: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
@@ -1246,6 +1273,7 @@ export async function workspaceEnsure(
       if (environmentStarted) {
         try {
           replaceHostRoutesForRepo(repoPath, []);
+          await ensureTraefikRoutesRemoved(candidateRoutes, routeLoadOptions);
         } catch (cleanupError) {
           const original = error instanceof Error ? error.message : String(error);
           const cleanup =

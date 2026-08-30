@@ -14,12 +14,14 @@ const DEFAULT_POLL_INTERVAL_MS = 250;
 const ROUTER_API_PAGE_SIZE = 1_000;
 
 type RouteProtocol = "http" | "tcp";
+type RouteExpectation = "loaded" | "removed";
+type TraefikRouteReference = Pick<HostRouteInput, "name" | "protocol" | "repoPath">;
 
 type RouterApiResult =
   | { ok: true; names: Set<string>; reachedPageLimit: boolean }
   | { ok: false; details: string };
 
-type RouteLoadResult = { ok: true } | { ok: false; missing: string[]; details: string };
+type RouteHealthResult = { ok: true } | { ok: false; routes: string[]; details: string };
 
 export type TraefikRouteLoadOptions = {
   initialTimeoutMs?: number;
@@ -74,8 +76,11 @@ function inspectRouterApi(protocol: RouteProtocol): RouterApiResult {
   };
 }
 
-function inspectExpectedRoutes(routes: HostRouteInput[]): RouteLoadResult {
-  const missing: string[] = [];
+function inspectExpectedRoutes(
+  routes: TraefikRouteReference[],
+  expectation: RouteExpectation,
+): RouteHealthResult {
+  const mismatched: string[] = [];
   const failures: string[] = [];
 
   for (const protocol of ["http", "tcp"] as const) {
@@ -87,36 +92,50 @@ function inspectExpectedRoutes(routes: HostRouteInput[]): RouteLoadResult {
     const result = inspectRouterApi(protocol);
     if (!result.ok) {
       failures.push(result.details);
-      missing.push(...expected);
+      mismatched.push(...expected);
       continue;
     }
-    const absent = expected.filter((name) => !result.names.has(name));
-    if (absent.length > 0 && result.reachedPageLimit) {
+    const unexpected = expected.filter((name) =>
+      expectation === "loaded" ? !result.names.has(name) : result.names.has(name),
+    );
+    const boundedAbsenceIsUncertain =
+      result.reachedPageLimit &&
+      (expectation === "loaded" ? unexpected.length > 0 : unexpected.length === 0);
+    if (boundedAbsenceIsUncertain) {
       failures.push(
         `${protocol.toUpperCase()} router API reached the ${ROUTER_API_PAGE_SIZE}-entry safety limit`,
       );
     }
-    missing.push(...absent);
+    mismatched.push(...unexpected);
+    if (expectation === "removed" && unexpected.length === 0 && result.reachedPageLimit) {
+      mismatched.push(...expected);
+    }
   }
 
-  return missing.length === 0
+  return mismatched.length === 0
     ? { ok: true }
     : {
         ok: false,
-        missing,
-        details: failures.length > 0 ? failures.join("; ") : "router names are absent",
+        routes: mismatched,
+        details:
+          failures.length > 0
+            ? failures.join("; ")
+            : expectation === "loaded"
+              ? "router names are absent"
+              : "router names are still present",
       };
 }
 
 async function waitForExpectedRoutes(
-  routes: HostRouteInput[],
+  routes: TraefikRouteReference[],
+  expectation: RouteExpectation,
   timeoutMs: number,
   pollIntervalMs: number,
-): Promise<RouteLoadResult> {
+): Promise<RouteHealthResult> {
   const deadline = Date.now() + timeoutMs;
-  let result: RouteLoadResult;
+  let result: RouteHealthResult;
   do {
-    result = inspectExpectedRoutes(routes);
+    result = inspectExpectedRoutes(routes, expectation);
     if (result.ok) return result;
     if (Date.now() < deadline) {
       await sleep(Math.min(pollIntervalMs, Math.max(1, deadline - Date.now())));
@@ -125,23 +144,22 @@ async function waitForExpectedRoutes(
   return result;
 }
 
-/**
- * Prove that Traefik loaded the just-published file-provider routers. A normal
- * application may legitimately return HTTP 404, so route readiness alone
- * cannot distinguish it from Traefik's unmatched-route response. If the
- * dashboard API still lacks an expected router after a short grace period,
- * restart only the Devrouter-owned Traefik service once and prove it again.
- */
-export async function ensureTraefikRoutesLoaded(
-  routes: HostRouteInput[],
-  options: TraefikRouteLoadOptions = {},
+async function ensureTraefikRouteExpectation(
+  routes: TraefikRouteReference[],
+  expectation: RouteExpectation,
+  options: TraefikRouteLoadOptions,
 ): Promise<{ restarted: boolean }> {
   if (routes.length === 0) return { restarted: false };
 
   const initialTimeoutMs = options.initialTimeoutMs ?? DEFAULT_INITIAL_TIMEOUT_MS;
   const recoveryTimeoutMs = options.recoveryTimeoutMs ?? DEFAULT_RECOVERY_TIMEOUT_MS;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const initial = await waitForExpectedRoutes(routes, initialTimeoutMs, pollIntervalMs);
+  const initial = await waitForExpectedRoutes(
+    routes,
+    expectation,
+    initialTimeoutMs,
+    pollIntervalMs,
+  );
   if (initial.ok) return { restarted: false };
 
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
@@ -154,16 +172,49 @@ export async function ensureTraefikRoutesLoaded(
       onWait: createStderrWaitReporter("Traefik route reload recovery", "shared router"),
     },
     async () => {
-      const recheck = await waitForExpectedRoutes(routes, 0, pollIntervalMs);
+      const recheck = await waitForExpectedRoutes(routes, expectation, 0, pollIntervalMs);
       if (recheck.ok) return { restarted: false };
 
       restartRouterStack();
-      const recovered = await waitForExpectedRoutes(routes, recoveryTimeoutMs, pollIntervalMs);
+      const recovered = await waitForExpectedRoutes(
+        routes,
+        expectation,
+        recoveryTimeoutMs,
+        pollIntervalMs,
+      );
       if (recovered.ok) return { restarted: true };
 
+      const action = expectation === "loaded" ? "load" : "remove";
       throw new Error(
-        `Traefik did not load file-provider routes after one restart: ${recovered.missing.join(", ")} (${recovered.details}). Inspect: devrouter logs --tail 100`,
+        `Traefik did not ${action} file-provider routes after one restart: ${recovered.routes.join(", ")} (${recovered.details}). Inspect: devrouter logs --tail 100`,
       );
     },
   );
+}
+
+/**
+ * Prove that Traefik loaded the just-published file-provider routers. A normal
+ * application may legitimately return HTTP 404, so route readiness alone
+ * cannot distinguish it from Traefik's unmatched-route response. If the
+ * dashboard API still lacks an expected router after a short grace period,
+ * restart only the Devrouter-owned Traefik service once and prove it again.
+ */
+export async function ensureTraefikRoutesLoaded(
+  routes: TraefikRouteReference[],
+  options: TraefikRouteLoadOptions = {},
+): Promise<{ restarted: boolean }> {
+  return ensureTraefikRouteExpectation(routes, "loaded", options);
+}
+
+/**
+ * Prove that Traefik unloaded file-provider routers removed from the canonical
+ * route generation. Absence is accepted only from a complete bounded API
+ * result. A stale router gets the same serialized restart-once recovery used
+ * for route publication.
+ */
+export async function ensureTraefikRoutesRemoved(
+  routes: TraefikRouteReference[],
+  options: TraefikRouteLoadOptions = {},
+): Promise<{ restarted: boolean }> {
+  return ensureTraefikRouteExpectation(routes, "removed", options);
 }

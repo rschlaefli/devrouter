@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.50] - 2026-08-30
+
+### Fixed
+
+- Exact stop, down, managed profile replacement, and rollback now prove that
+  removed HTTP and TCP `@file` routers disappeared from Traefik's bounded API
+  view. A missed dynamic-file removal gets the existing machine-wide,
+  restart-once recovery and then fails closed instead of reporting a clean
+  runtime while stale routes remain enabled.
+
+### Compatibility
+
+- Route naming, canonical route state, provider ownership, profile selection,
+  and the one-restart recovery budget are unchanged. Successful cleanup now
+  includes live Traefik removal proof.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.50.md
+
 ## [0.0.49] - 2026-08-30
 
 ### Fixed

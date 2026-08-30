@@ -80,17 +80,20 @@ Loopback proxy upstreams are rewritten by `src/core/host-routes.ts:parseUpstream
 
 Route-state failure injection and concurrency coverage live in `src/core/__tests__/host-routes-state.test.ts`. Config/runtime combinations live in `repo-config.test.ts`; generic application and dependency behavior lives in `app-run-exec.test.ts`; Docker-label discovery lives in `routes.test.ts`.
 
-Managed proxy publication does not treat an HTTP response alone as proof that
-Traefik loaded the generated file. An application may legitimately return 404,
-which is indistinguishable from Traefik's unmatched-route 404 at the route URL.
-`src/core/traefik-route-health.ts:ensureTraefikRoutesLoaded` therefore checks the
-exact HTTP and TCP `@file` router names through the localhost Traefik API. It
-requests a bounded 1,000-router view for each protocol so Traefik's default
-100-entry page cannot hide a valid router. An absent router in a full bounded
-response is treated as incomplete proof. The check allows a short hot-reload
-grace period, serializes concurrent recovery, restarts only the Devrouter-owned
-Traefik service once, and fails closed with a log command when the expected
-routers remain absent.
+Managed route replacement does not treat the generated file or an HTTP response
+alone as proof that Traefik applied the new generation. An application may
+legitimately return 404, which is indistinguishable from Traefik's unmatched-
+route 404 at the route URL. `src/core/traefik-route-health.ts` therefore checks
+that exact expected HTTP and TCP `@file` router names are present and exact
+removed names are absent through the localhost Traefik API. Stop and rollback
+do not report successful route cleanup until this removal proof passes.
+
+Both checks request a bounded 1,000-router view for each protocol so Traefik's
+default 100-entry page cannot hide a router. Absence in a full bounded response
+is treated as incomplete proof. The checks allow a short hot-reload grace
+period, serialize concurrent recovery through one machine-wide lock, restart
+only the Devrouter-owned Traefik service once, and fail closed with a log
+command when the expected generation still cannot be proved.
 
 ## Change guidance
 

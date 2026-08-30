@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostRouteInput } from "../host-routes";
 import { restartRouterStack } from "../router";
-import { ensureTraefikRoutesLoaded } from "../traefik-route-health";
+import { ensureTraefikRoutesLoaded, ensureTraefikRoutesRemoved } from "../traefik-route-health";
 
 const { testHome } = vi.hoisted(() => ({
   testHome: `/tmp/devrouter-traefik-health-test-${process.pid}`,
@@ -163,5 +163,80 @@ describe("ensureTraefikRoutesLoaded", () => {
       }),
     ).rejects.toThrow("did not load file-provider routes after one restart");
     expect(restartRouterStack).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ensureTraefikRoutesRemoved", () => {
+  it("accepts a complete API view without the removed router", async () => {
+    mockHttpRouterResponses([[{ name: "other@file" }]]);
+
+    await expect(
+      ensureTraefikRoutesRemoved([route], {
+        initialTimeoutMs: 0,
+        recoveryTimeoutMs: 0,
+      }),
+    ).resolves.toEqual({ restarted: false });
+    expect(restartRouterStack).not.toHaveBeenCalled();
+  });
+
+  it("restarts Traefik once when a removed route remains loaded", async () => {
+    mockHttpRouterResponses([
+      [{ name: "host-repo-chat@file" }],
+      [{ name: "host-repo-chat@file" }],
+      [],
+    ]);
+
+    await expect(
+      ensureTraefikRoutesRemoved([route], {
+        initialTimeoutMs: 0,
+        recoveryTimeoutMs: 0,
+      }),
+    ).resolves.toEqual({ restarted: true });
+    expect(restartRouterStack).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when removal cannot be proved beyond the bounded API page", async () => {
+    mockHttpRouterResponses([
+      Array.from({ length: 1_000 }, (_, index) => ({ name: `other-${index}@file` })),
+    ]);
+
+    await expect(
+      ensureTraefikRoutesRemoved([route], {
+        initialTimeoutMs: 0,
+        recoveryTimeoutMs: 0,
+      }),
+    ).rejects.toThrow("HTTP router API reached the 1000-entry safety limit");
+    expect(restartRouterStack).toHaveBeenCalledOnce();
+  });
+
+  it("fails after one restart when the removed router remains loaded", async () => {
+    mockHttpRouterResponses([[{ name: "host-repo-chat@file" }]]);
+
+    await expect(
+      ensureTraefikRoutesRemoved([route], {
+        initialTimeoutMs: 0,
+        recoveryTimeoutMs: 0,
+      }),
+    ).rejects.toThrow("did not remove file-provider routes after one restart");
+    expect(restartRouterStack).toHaveBeenCalledOnce();
+  });
+
+  it("proves removed HTTP and TCP routers through their separate APIs", async () => {
+    vi.mocked(spawnSync).mockImplementation((_command, args) => {
+      const url = (args as string[]).at(-1);
+      const response = url?.includes("/http/") ? [{ name: "other-http@file" }] : [];
+      return { status: 0, stdout: JSON.stringify(response), stderr: "" } as never;
+    });
+
+    await expect(
+      ensureTraefikRoutesRemoved([route, tcpRoute], {
+        initialTimeoutMs: 0,
+        recoveryTimeoutMs: 0,
+      }),
+    ).resolves.toEqual({ restarted: false });
+    expect(vi.mocked(spawnSync).mock.calls.map((call) => (call[1] as string[]).at(-1))).toEqual([
+      "http://127.0.0.1:8080/api/http/routers?per_page=1000",
+      "http://127.0.0.1:8080/api/tcp/routers?per_page=1000",
+    ]);
   });
 });
