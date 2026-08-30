@@ -1,7 +1,7 @@
 # Devsy runtime resilience 0.0.46 - implementation plan
 
 Date: 2026-08-29. Branch: `rs/devsy-runtime-resilience` at exact `origin/main`
-`ddb7e99` (clean worktree). Target: `main`. PR: pending.
+`ddb7e99` (clean worktree). Target: `main`. PR: #45.
 
 ## Problem
 
@@ -305,3 +305,8 @@ credit-limited today).
   tests across 66 files, build, package installation smoke, and
   `git diff --check`; the Linux-only process-helper test remains skipped on
   macOS. Next: commit the correction and obtain the final-review disposition.
+- 2026-08-30: S6 complete at behavioral head `60de8fd`. The correction review
+  returned READY with all four findings resolved and no new actionable issue.
+  Draft PR #45 targets `main`; GitHub readback confirmed the pushed behavioral
+  head and the plan was renamed with the PR number in this metadata-only
+  follow-up. Exact-head CI remains the PR merge gate.
