@@ -115,6 +115,11 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Canonical startup and proof for an exact primary or linked checkout; atomically publishes routes after readiness.",
   },
   {
+    command: "devrouter profile resolve --repo <path> [--profile <selection>] [--json]",
+    purpose:
+      "Resolve exact profile resources without starting or inspecting a runtime; fail closed on invalid selections or unknown report schemas.",
+  },
+  {
     command: "devrouter stop [path] [--delete] [--json]",
     purpose:
       "Stop the exact checkout workspace runtime and routes; --delete explicitly deletes the ownership-proven runtime without removing the checkout.",

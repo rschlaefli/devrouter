@@ -4,7 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-## [0.0.47] - 2026-08-30
+## [0.0.48] - 2026-08-30
+
+### Added
+
+- `devrouter profile resolve --repo <path> [--profile <selection>] --json`
+  exposes the existing profile semantics as deterministic, side-effect-free
+  automation output. It returns exact apps, dependencies, readiness targets,
+  managed services, and process markers without starting or inspecting a
+  runtime.
 
 ### Fixed
 
@@ -22,6 +30,10 @@ All notable changes to this project are documented in this file.
 - Devrouter leaves Devsy's private cache and desktop app environment unchanged.
   An explicit `DEVSY_AGENT_BINARY` remains authoritative but must match one
   pinned official asset exactly.
+- Managed route publication now proves the exact HTTP and TCP `@file` routers
+  through Traefik's API before declaring a runtime ready. A missed dynamic-file
+  reload gets one serialized Traefik-only restart and then fails closed with
+  the missing router names instead of accepting Traefik's unmatched 404.
 
 ### Compatibility
 
@@ -30,7 +42,7 @@ All notable changes to this project are documented in this file.
 
 ### Agent Adaptation Prompt
 
-Agent adaptation prompt: ./upgrade-prompts/0.0.47.md
+Agent adaptation prompt: ./upgrade-prompts/0.0.48.md
 
 ## [0.0.46] - 2026-08-29
 

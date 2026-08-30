@@ -153,7 +153,14 @@ Record exact results and remaining publication boundary here.
       waits for normal hot reload, serializes one Traefik-only restart, and fails
       closed if exact HTTP/TCP `@file` routers remain absent. The focused
       53-test route/workspace suite passes.
-- [ ] D2 waits for explicit integration authority and completed `0.0.47` work.
+- [x] D2 merged the terminal Devsy branch once without rebasing, preserved both
+      shared documentation contracts, and rolled the unpublished `0.0.47`
+      candidate into release `0.0.48` so the next advertised target is
+      installable.
 - [x] D3 packed CLI contents resolve the real Klicker `manage,pwa`,
       `chat,manage,pwa`, and `live-quiz,manage,pwa` unions with a read-only home;
       full applicable checks pass.
+- [x] The integrated `0.0.48` candidate passes Biome, Knip, typecheck, build,
+      docs policy, knowledge validation, all 821 tests across 70 files, and the
+      packed installed-package smoke. The Linux `/proc` process suite remains
+      skipped on macOS by its existing platform guard.
