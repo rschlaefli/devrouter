@@ -15,14 +15,8 @@ vi.mock("../docker", () => ({
   networkExists: vi.fn(async () => false),
 }));
 
-vi.mock("../devsy-agent", () => ({
-  DEVSY_AGENT_SETUP_COMMAND: "devrouter setup --yes --workspace-runtime devsy",
-  SUPPORTED_DEVSY_VERSION: "1.16.2",
-  DevsyAgentReadinessError: class DevsyAgentReadinessError extends Error {
-    constructor(readonly inspection: { state: string; source: string; reason: string }) {
-      super(inspection.reason);
-    }
-  },
+vi.mock("../devsy-agent", async (importOriginal) => ({
+  ...(await importOriginal()),
   prepareDevsyAgent: vi.fn(async () => ({
     binaryPath: "/managed/devsy-agent",
     source: "managed",
@@ -274,6 +268,24 @@ describe("runSetup", () => {
         "Fix or unset DEVSY_AGENT_BINARY, then run: devrouter setup --yes --workspace-runtime devsy",
     });
     expect(JSON.stringify(agentAction)).not.toContain("/private/operator-agent");
+  });
+
+  it("repairs a stale explicit source by replacing the unsupported Devsy CLI", async () => {
+    vi.mocked(prepareDevsyAgent).mockRejectedValueOnce(
+      new DevsyAgentReadinessError({
+        state: "stale",
+        source: "explicit",
+        reason: "installed Devsy 1.16.2-beta.1 is not supported by this Devrouter release",
+        installedVersion: "1.16.2-beta.1",
+      }),
+    );
+
+    const report = await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "devsy" });
+    const agentAction = report.actions.find((entry) => entry.id === "global.devsy-agent");
+
+    expect(agentAction?.suggestion).toBe(
+      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+    );
   });
 
   it("merges new preferences with the persisted machine config", async () => {

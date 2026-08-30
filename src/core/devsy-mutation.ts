@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   DEVSY_AGENT_SETUP_COMMAND,
   DevsyAgentReadinessError,
+  devsyAgentRepairSuggestion,
   requireReadyDevsyAgent,
 } from "./devsy-agent";
 import {
@@ -235,12 +236,7 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
     agent = requireReadyDevsyAgent();
   } catch (error) {
     if (!(error instanceof DevsyAgentReadinessError)) throw error;
-    const repair =
-      error.inspection.source === "explicit"
-        ? `Fix or unset DEVSY_AGENT_BINARY, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
-        : error.inspection.state === "stale"
-          ? `Install Devsy 1.16.2 for a supported host, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
-          : `Run: ${DEVSY_AGENT_SETUP_COMMAND}`;
+    const repair = devsyAgentRepairSuggestion(error.inspection);
     throw new Error(`${error.message}. ${repair}`);
   }
   return withMutationLockAsync(activity, options.repoPath, async () => {

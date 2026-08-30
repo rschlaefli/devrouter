@@ -2,6 +2,7 @@ import type { SetupAction, SetupActionStatus, SetupReport } from "../types";
 import {
   DEVSY_AGENT_SETUP_COMMAND,
   DevsyAgentReadinessError,
+  devsyAgentRepairSuggestion,
   prepareDevsyAgent,
   SUPPORTED_DEVSY_VERSION,
 } from "./devsy-agent";
@@ -184,16 +185,15 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
           : error instanceof Error
             ? error.message
             : String(error);
-      const explicitOverride =
-        error instanceof DevsyAgentReadinessError && error.inspection.source === "explicit";
       actions.push(
         action("failed", {
           id: "global.devsy-agent",
           summary: "Failed to prepare a verified Devsy agent source.",
           details,
-          suggestion: explicitOverride
-            ? `Fix or unset DEVSY_AGENT_BINARY, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
-            : `Run: ${DEVSY_AGENT_SETUP_COMMAND}`,
+          suggestion:
+            error instanceof DevsyAgentReadinessError
+              ? devsyAgentRepairSuggestion(error.inspection)
+              : `Run: ${DEVSY_AGENT_SETUP_COMMAND}`,
         }),
       );
     }

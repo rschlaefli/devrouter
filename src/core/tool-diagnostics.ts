@@ -3,8 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DiagnosticCheck } from "../types";
 import {
-  DEVSY_AGENT_SETUP_COMMAND,
   type DevsyAgentInspection,
+  devsyAgentRepairSuggestion,
   inspectDevsyAgent,
 } from "./devsy-agent";
 import {
@@ -214,17 +214,12 @@ function devsyAgentCheck(inspection: DevsyAgentInspection): DiagnosticCheck {
       : inspection.state === "stale"
         ? "Devsy agent source is stale for this Devrouter release."
         : "Devsy agent source is invalid.";
-  const repairableBySetup = inspection.source === "managed" && inspection.state !== "stale";
   return {
     id: "global.devsy-agent",
     level: "error",
     summary,
     details: `${details}, ${inspection.reason}`,
-    suggestion: repairableBySetup
-      ? `Run: ${DEVSY_AGENT_SETUP_COMMAND}`
-      : inspection.source === "explicit"
-        ? `Fix or unset DEVSY_AGENT_BINARY, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
-        : `Install Devsy 1.16.2 for a supported host, then run: ${DEVSY_AGENT_SETUP_COMMAND}`,
+    suggestion: devsyAgentRepairSuggestion(inspection),
   };
 }
 

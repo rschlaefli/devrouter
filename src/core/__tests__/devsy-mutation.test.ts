@@ -241,6 +241,11 @@ describe("startDevsyWorkspace", () => {
       "managed",
       "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
     ],
+    [
+      "stale",
+      "explicit",
+      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+    ],
     ["invalid", "managed", "Run: devrouter setup --yes --workspace-runtime devsy"],
     [
       "invalid",

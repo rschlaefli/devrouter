@@ -88,7 +88,18 @@ const DEVSY_AGENT_CACHE_LOCK = path.join(DEVROUTER_HOME, "devsy-agent-cache.lock
 const DEVSY_AGENT_LOCK_WAIT_MS = 1_800_000;
 
 function parseVersion(output: string | undefined): string | undefined {
-  return output?.match(/\bv?(\d+\.\d+\.\d+)\b/)?.[1];
+  return output?.match(
+    /\bv?(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)\b/,
+  )?.[1];
+}
+
+export function devsyAgentRepairSuggestion(inspection: DevsyAgentInspection): string {
+  if (inspection.state === "stale") {
+    return `Install Devsy ${SUPPORTED_DEVSY_VERSION} for a supported host, then run: ${DEVSY_AGENT_SETUP_COMMAND}`;
+  }
+  return inspection.source === "explicit"
+    ? `Fix or unset DEVSY_AGENT_BINARY, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
+    : `Run: ${DEVSY_AGENT_SETUP_COMMAND}`;
 }
 
 function installedVersionOutput(): string | undefined {

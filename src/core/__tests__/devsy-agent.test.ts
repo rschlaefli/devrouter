@@ -7,6 +7,7 @@ import {
   DEVSY_AGENT_ASSETS,
   type DevsyAgentAsset,
   DevsyAgentReadinessError,
+  devsyAgentRepairSuggestion,
   inspectDevsyAgent,
   prepareDevsyAgent,
   requireReadyDevsyAgent,
@@ -98,6 +99,15 @@ describe("Devsy agent manifest", () => {
     ).toMatchObject({ state: "stale", installedVersion: "1.17.0" });
     expect(
       inspectDevsyAgent({
+        versionOutput: "devsy v1.16.2-beta.1",
+        platform: "darwin",
+        arch: "arm64",
+        env: {},
+        cacheRoot: tmpDir,
+      }),
+    ).toMatchObject({ state: "stale", installedVersion: "1.16.2-beta.1" });
+    expect(
+      inspectDevsyAgent({
         versionOutput: "v1.16.2",
         platform: "linux",
         arch: "arm64",
@@ -105,6 +115,22 @@ describe("Devsy agent manifest", () => {
         cacheRoot: tmpDir,
       }),
     ).toMatchObject({ state: "stale" });
+  });
+
+  it.each([
+    ["missing", "managed", "Run: devrouter setup --yes --workspace-runtime devsy"],
+    [
+      "stale",
+      "explicit",
+      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+    ],
+    [
+      "invalid",
+      "explicit",
+      "Fix or unset DEVSY_AGENT_BINARY, then run: devrouter setup --yes --workspace-runtime devsy",
+    ],
+  ] as const)("maps %s %s readiness to an effective repair", (state, source, expected) => {
+    expect(devsyAgentRepairSuggestion({ state, source, reason: "fixture" })).toBe(expected);
   });
 });
 

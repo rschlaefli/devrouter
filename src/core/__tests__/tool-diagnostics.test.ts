@@ -29,8 +29,8 @@ const runtimeState = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../devsy-agent", () => ({
-  DEVSY_AGENT_SETUP_COMMAND: "devrouter setup --yes --workspace-runtime devsy",
+vi.mock("../devsy-agent", async (importOriginal) => ({
+  ...(await importOriginal()),
   inspectDevsyAgent: vi.fn(() => runtimeState.agent),
 }));
 
@@ -212,6 +212,23 @@ describe("buildGlobalToolChecks", () => {
     const check = buildGlobalToolChecks(tmpDir).find((entry) => entry.id === "global.devsy-agent");
     expect(check?.suggestion).toBe(
       "Fix or unset DEVSY_AGENT_BINARY, then run: devrouter setup --yes --workspace-runtime devsy",
+    );
+  });
+
+  it("repairs a stale explicit source by replacing the unsupported Devsy CLI", () => {
+    writePackageJson();
+    runtimeState.resolution = { runtime: "devsy", source: "machine-config" };
+    runtimeState.agent = {
+      state: "stale",
+      source: "explicit",
+      reason: "installed Devsy 1.16.2-beta.1 is not supported by this Devrouter release",
+      installedVersion: "1.16.2-beta.1",
+      asset: { name: "devsy-linux-arm64" },
+    };
+
+    const check = buildGlobalToolChecks(tmpDir).find((entry) => entry.id === "global.devsy-agent");
+    expect(check?.suggestion).toBe(
+      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
     );
   });
 
