@@ -334,6 +334,10 @@ export function startRouterStack(): void {
   runDockerCompose(["up", "-d"]);
 }
 
+export function restartRouterStack(): void {
+  runDockerCompose(["restart", "traefik"]);
+}
+
 export function stopRouterStack(): void {
   runDockerCompose(["down"]);
 }
