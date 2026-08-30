@@ -341,10 +341,22 @@ ownership, and tightly coupled setup/start integration remain with `main`.
   correct; the long-running shared Traefik process did not reload that router,
   so HTTPS returned 404. Restarting shared Traefik was withheld to avoid
   disrupting unrelated tasks. Exact smoke routes and containers were cleaned.
+- 2026-08-30: the second integrated final review found that Devsy telemetry
+  made the diagnostics probe violate the network-free contract. Official
+  Devsy v1.16.2 source defines `DEVSY_DISABLE_TELEMETRY=true` as its supported
+  opt-out. Commit `ff8ea4d` scopes that value to the complete synchronous
+  diagnostics probe and restores any caller value afterward.
+- 2026-08-30: all corrected-head checks pass: docs policy, knowledge, Biome,
+  Knip, typecheck, build, package smoke, and 806 tests across 67 files. A built
+  doctor run with Devsy debug logging and the caller's opt-out set to `false`
+  reported 25 ok, zero warnings, zero errors, and no PostHog request.
+- 2026-08-30: the correction simplifier confirmed that the complete synchronous
+  diagnostics scope is required. Commit `17d8c96` inlines its only single-use
+  helper without changing subprocess coverage or caller restoration. All
+  canonical checks and the built 25/0/0 doctor proof pass on that commit.
 - Current: S0-S5 are complete. The final-review findings are resolved and the
-  final review must now verify only the correction range plus this current
-  Progress record.
+  final reviewer must now verify `17d8c96` plus this current Progress record.
 - Delivery: required local reviewed release branch. Push, PR, merge, npm or
   GitHub publication, cleanup, and deletion remain withheld.
-- Next: complete correction-range final review, then report the exact local
-  head for the separately approved delivery step.
+- Next: complete final review, then report the exact local head for the
+  separately approved delivery step.
