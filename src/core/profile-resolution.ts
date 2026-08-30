@@ -1,4 +1,4 @@
-import type { DevrouterConfig, DevrouterProfile } from "../types";
+import type { DevrouterConfig, DevrouterProfile, DevrouterRoutedApp } from "../types";
 import { applyProfile, loadRepoConfig, resolveProfile, resolveRepoPath } from "./repo-config";
 
 export type ProfileResolutionReport = {
@@ -37,7 +37,7 @@ function selectedReadiness(
   config: DevrouterConfig,
   profileName: string,
   profile: DevrouterProfile | undefined,
-  routedApps: DevrouterConfig["apps"],
+  routedApps: DevrouterRoutedApp[],
 ): string[] {
   const selectedNames = profileName.split(",");
   if (selectedNames.length === 1) {
