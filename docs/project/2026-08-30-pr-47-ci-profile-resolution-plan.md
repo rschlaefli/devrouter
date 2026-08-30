@@ -1,7 +1,8 @@
-# Side-effect-free CI profile resolution plan
+# PR #47 side-effect-free CI profile resolution plan
 
 Date: 2026-08-30. Branch: `rs/ci-profile-resolution` at `origin/main`
-`6f4a96f`. Target: `main`. Pull request: none.
+`6f4a96f`. Target: `main`. Pull request:
+[#47](https://github.com/rschlaefli/devrouter/pull/47).
 
 ## Goal
 
