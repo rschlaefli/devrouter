@@ -117,6 +117,65 @@ apps, dependencies, readiness checks, managed base and profile services, and
 managed process markers. Treat an invalid profile or unknown report schema as a
 hard error; do not silently widen automation to the full profile.
 
+### Bind profiles to repository automation
+
+Keep build-tool and test-runner details outside `.devrouter.yml`. Add a separate
+contract for one automation workload when selected app identities need exact
+repository-owned values:
+
+```yaml
+version: 1
+apps:
+  requireNonEmpty: true
+  mappings:
+    api:
+      bindings:
+        buildArgs: ['--filter=@example/api']
+        readinessUrls: ['http://127.0.0.1:3000/healthz']
+    web:
+      bindings:
+        buildArgs: ['--filter=@example/web', '--filter=@example/shared']
+        readinessUrls: ['http://127.0.0.1:3001']
+dependencies:
+  allowed: []
+managedRuntime:
+  services:
+    allowed: [postgres, redis]
+  processes:
+    exact: [web]
+```
+
+Then resolve and validate the selected profile without touching a runtime:
+
+```bash
+devrouter profile plan \
+  --repo <checkout> \
+  --profile api,web \
+  --contract ci/profile-plan.yml \
+  --output <plan.json> \
+  --json
+```
+
+The contract path must be a regular, non-symlink file inside the repository.
+Every selected app needs a mapping. Dependencies and services must be subsets
+of their `allowed` lists, while selected managed processes must equal `exact`.
+Contract resource names must exist in `.devrouter.yml`. Binding keys start with
+a letter and then use letters, digits, `_`, or `-`. Every value is a non-empty
+literal string. App order is canonical, values preserve each app mapping's
+declaration order, and later
+duplicates are removed.
+
+Input is bounded to 1 MiB, 256 app mappings, 64 distinct binding keys, 4,096
+binding values, and 4,096 characters per literal. YAML aliases, merge keys,
+duplicate keys, unsupported keys, and unsupported contract versions fail closed.
+
+The JSON plan keeps the profile resolver's schema-version-1 fields and adds
+`contractPath` plus `bindings`. `--output` atomically writes that same JSON with
+mode `0600`. Devrouter never gives a binding key semantics and never evaluates,
+interpolates, or executes a value. The consumer must validate its expected keys
+and pass values as literal arguments or data. Use a separate contract when two
+automation workloads require different exact process policies.
+
 ## Configure `.devrouter.yml`
 
 Initialize metadata before adding applications:

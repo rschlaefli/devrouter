@@ -52,6 +52,9 @@ describe("agents-md", () => {
     expect(skillContent).toContain("`ready`, `missing`, `stale`, or `invalid`");
     expect(skillContent).not.toContain("failed Devsy start that reports");
     expect(skillContent).toContain("devrouter ensure [path] [--profile <name>] [--open] [--json]");
+    expect(skillContent).toContain("devrouter profile plan --repo <path>");
+    expect(skillContent).toContain("it never interprets binding");
+    expect(skillContent).toContain("names, expands values");
     expect(skillContent).toContain("devrouter exec [path] -- <command...>");
     expect(skillContent).toContain("devrouter repo inspect --repo . --json");
     expect(skillContent).toContain("devrouter repo devcontainer write --dry-run --json");
@@ -105,6 +108,7 @@ describe("agents-md", () => {
       "Primary or linked devcontainer checkout: `devrouter ensure . --json`",
     );
     expect(content).toContain("consumer images contain no devrouter package or helper");
+    expect(content).toContain("Side-effect-free automation:");
     expect(content).toContain("<!-- /devrouter -->");
     expect(content).toContain("## User notes\n\nKeep this content.");
   });

@@ -43,6 +43,8 @@ PROBE_CWD="$WORK_ROOT/probe-cwd"
 PROBE_DIR="$WORK_ROOT/probes"
 PROFILE_REPO="$WORK_ROOT/profile-repo"
 PROFILE_HOME="$WORK_ROOT/profile-home"
+PROFILE_CONTRACT="$PROFILE_REPO/ci-profile-plan.yml"
+PROFILE_PLAN_OUTPUT="$PROBE_DIR/profile-plan-output.json"
 
 mkdir -p \
   "$INSTALL_ROOT" \
@@ -305,6 +307,36 @@ for (const field of ['env', 'devcontainer', 'devrouter']) {
 NODE
 
 cp "$EXAMPLE_REPO/.devrouter.yml" "$PROFILE_REPO/.devrouter.yml"
+node - "$PROFILE_CONTRACT" <<'NODE'
+const fs = require('node:fs');
+
+const contract = `version: 1
+apps:
+  requireNonEmpty: true
+  mappings:
+    cache:
+      bindings:
+        targets: [cache]
+    db:
+      bindings:
+        targets: [db]
+    web-docker:
+      bindings:
+        targets: [web-docker]
+    web-host:
+      bindings:
+        targets: [web-host]
+dependencies:
+  allowed: []
+managedRuntime:
+  services:
+    allowed: []
+  processes:
+    exact: []
+`;
+
+fs.writeFileSync(process.argv[2], contract, 'utf8');
+NODE
 chmod 0500 "$PROFILE_HOME"
 NODE_BIN="$(command -v node)"
 run_probe profile \
@@ -347,6 +379,36 @@ for (const field of [
   if (!Array.isArray(report.managedRuntime[field])) {
     throw new Error(`profile managedRuntime field is not an array: ${field}`);
   }
+}
+NODE
+
+run_probe profile-plan \
+  env HOME="$PROFILE_HOME" PATH=/usr/bin:/bin \
+  "$NODE_BIN" "$PACKAGE_DIR/dist/devrouter.js" \
+  profile plan --repo "$PROFILE_REPO" --contract ci-profile-plan.yml \
+  --output "$PROFILE_PLAN_OUTPUT" --json
+node - "$PROBE_DIR/profile-plan.txt" "$PROFILE_PLAN_OUTPUT" "$PROFILE_REPO" <<'NODE'
+const fs = require('node:fs');
+
+const [, , stdoutPath, filePath, expectedRepoPath] = process.argv;
+const stdout = JSON.parse(fs.readFileSync(stdoutPath, 'utf8'));
+const file = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+if (JSON.stringify(stdout) !== JSON.stringify(file)) {
+  throw new Error('profile plan stdout and output file differ');
+}
+if (file.schemaVersion !== 1 || file.profile !== 'full') {
+  throw new Error('profile plan identity is invalid');
+}
+if (file.repoPath !== expectedRepoPath || file.contractPath !== 'ci-profile-plan.yml') {
+  throw new Error('profile plan repository or contract path mismatch');
+}
+const expectedTargets = ['cache', 'db', 'web-docker', 'web-host'];
+if (JSON.stringify(file.bindings?.targets) !== JSON.stringify(expectedTargets)) {
+  throw new Error(`profile plan targets mismatch: ${JSON.stringify(file.bindings?.targets)}`);
+}
+if ((fs.statSync(filePath).mode & 0o777) !== 0o600) {
+  throw new Error('profile plan output mode is not 0600');
 }
 NODE
 

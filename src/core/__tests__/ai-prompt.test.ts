@@ -86,6 +86,9 @@ describe("buildOnboardingPrompt", () => {
     expect(prompt).toContain("an omitted optional managed dimension selects nothing");
     expect(prompt).toContain("ignored sibling and changes only runServices");
     expect(prompt).toContain("managed desired/active resources");
+    expect(prompt).toContain("devrouter profile plan --repo <path>");
+    expect(prompt).toContain("profile plan values are data");
+    expect(prompt).toContain("never interprets binding names");
   });
 
   it("documents dependency-only app kind semantics", () => {

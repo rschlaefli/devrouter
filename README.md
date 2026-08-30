@@ -88,6 +88,24 @@ The report contains the canonical selection and exact apps, dependencies,
 readiness checks, managed services, and process markers. Invalid configuration
 or profile input fails before any runtime operation.
 
+Repository automation can bind those app identities to build arguments,
+readiness URLs, or other literal values through a separate repository-owned
+contract:
+
+```bash
+devrouter profile plan \
+  --repo . \
+  --profile manage,pwa \
+  --contract ci/profile-plan.yml \
+  --output /tmp/profile-plan.json \
+  --json
+```
+
+Devrouter validates the selected resources and emits deterministic arrays. It
+does not interpret binding names, expand strings, execute commands, or start a
+runtime. See [Repository onboarding](./docs/REPO_ONBOARDING.md#bind-profiles-to-repository-automation)
+for the version-1 contract.
+
 Use devrouter lifecycle commands for managed environments. Raw DevPod or Devsy
 `up`/`stop`/`delete` calls bypass ownership locks and exact checkout validation.
 Devrouter auto-detects the installed workspace runtime CLI (DevPod or Devsy) and

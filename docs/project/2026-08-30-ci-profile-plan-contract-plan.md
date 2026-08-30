@@ -240,7 +240,7 @@ no-subagent instruction keep every slice in the main session.
   mentioning Klicker-specific values as the generic contract.
 - Check: docs policy, knowledge validation, focused prompt/guidance tests,
   package smoke, full test suite, build, and packed CLI proof against a generic
-  fixture plus the real Klicker contract fixture.
+  fixture. K1 supplies the later proof against Klicker's real consumer contract.
 - Commit: `docs(profile): document CI binding contracts`.
 
 ### D3 - Release Devrouter 0.0.51
@@ -328,7 +328,7 @@ no-subagent instruction keep every slice in the main session.
 
 ## Progress
 
-- Status: active; D0-D1 are complete and D2 is next.
+- Status: active; D0-D2 are complete and D3 is next.
 - Completed: authoritative remote refresh; fresh Devrouter worktree from exact
   `origin/main`; current Devrouter resolver, release process, current Klicker
   adapter, runner policy, and exact-head PR failure logs inspected; plan and
@@ -337,19 +337,34 @@ no-subagent instruction keep every slice in the main session.
   binding aggregation, bounded repository loader, CLI registration, secure
   optional output, focused tests, and ADR 0007. Focused verification passes 18
   tests; Biome, Knip, typecheck, and build also pass under Node 24.
-- Remaining: D2-D3 and K1-K3.
+- Completed: D2 documents the version-1 contract in current manuals, knowledge,
+  generated guidance, and the bundled skill. The packed tarball succeeds from a
+  non-Git fixture with a non-writable home, no runtime tools, matching stdout and
+  mode-`0600` file output. The full Vitest suite passes 840 tests across 71 files;
+  the Linux-only process harness reports its expected macOS skip.
+- Remaining: D3 and K1-K3.
 - Latest evidence: Devrouter baseline is `0/0` against `origin/main` at
   `865fe89`; [PR #5683](https://github.com/uzh-bf/klicker-uzh/pull/5683) is
   mergeable at `b882312524ce4627494ba35c97cfcab43a7882d2` and fails all three
   affected jobs during pnpm installation on the same unclassified optional
   build scripts.
-- Review gates: main-session plan review and D1 correctness, security,
+- Review gates: main-session plan review and D1-D2 correctness, security,
   architecture, and simplification review are complete. The D1 review hardened
   own-property handling against prototype-sensitive resource names, added
   unknown-resource and mapping-limit coverage, and found no runtime-control or
-  shell-evaluation path. Later slice and integrated reviews remain required
-  under the no-subagent execution exception.
+  shell-evaluation path. The D2 review keeps all examples repository-neutral,
+  states consumer ownership explicitly, and proves the installed package rather
+  than the source entry point. Later slice and integrated reviews remain
+  required under the no-subagent execution exception.
 - Required delivery layer: published Devrouter package, merged Klicker source,
   and live public-runner proof when a safe eligible trigger exists.
-- Achieved delivery layer: Devrouter worktree and Klicker draft PR only.
-- Next action: document and package-smoke the generic contract in D2.
+- Achieved delivery layer: complete locally committed D1 plus locally verified
+  D2 documentation/package work; Klicker remains a draft PR.
+- Local verification note: Homebrew Bash 5.3 deadlocked while writing the
+  package smoke's pre-existing first heredoc, before producing any fixture file;
+  macOS system Bash completed the unchanged smoke. The `pnpm test` wrapper ran
+  all 840 Vitest cases, then its nested host `pnpm` resolved 11.24.0 instead of
+  the pinned 11.6.0; the pinned process command was run separately and reached
+  its expected Linux-only skip.
+- Next action: commit D2, prepare the exact 0.0.51 release artifacts, and run
+  the full release gate.
