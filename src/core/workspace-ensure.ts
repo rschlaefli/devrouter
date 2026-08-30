@@ -364,12 +364,11 @@ function isWarmWorkspaceActive(repoPath: string): boolean {
 function hasExactManagedComposeProject(repoPath: string, state: ManagedRuntimeState): boolean {
   try {
     return inspectWorkspaceContainers({
-      filters: [`label=com.docker.compose.project=${state.composeProject}`],
+      composeProject: state.composeProject,
     }).some((container) => {
       const workingDir = container.labels["com.docker.compose.project.working_dir"];
-      return (
-        container.labels["com.docker.compose.project"] === state.composeProject &&
-        Boolean(workingDir && sameWorkspacePath(workingDir, path.join(repoPath, ".devcontainer")))
+      return Boolean(
+        workingDir && sameWorkspacePath(workingDir, path.join(repoPath, ".devcontainer")),
       );
     });
   } catch {

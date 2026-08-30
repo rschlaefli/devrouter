@@ -37,7 +37,7 @@ const SIZE_INSPECT_TEMPLATE = SAFE_INSPECT_TEMPLATE.replace(
 export function inspectWorkspaceContainers(options?: {
   withSize?: boolean;
   ids?: string[];
-  filters?: string[];
+  composeProject?: string;
 }): WorkspaceContainerSnapshot[] {
   let ids = options?.ids;
   if (!ids) {
@@ -46,7 +46,9 @@ export function inspectWorkspaceContainers(options?: {
       [
         "ps",
         "-a",
-        ...(options?.filters ?? []).flatMap((filter) => ["--filter", filter]),
+        ...(options?.composeProject
+          ? ["--filter", `label=com.docker.compose.project=${options.composeProject}`]
+          : []),
         "--format",
         "{{.ID}}",
       ],

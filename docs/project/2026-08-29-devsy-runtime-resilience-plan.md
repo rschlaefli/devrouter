@@ -284,3 +284,11 @@ credit-limited today).
   profile reported ready with zero drift. The final exact stop freed three
   routes; provider state is `Stopped` and exact route count is zero. Next: S6
   commit, full validation, final review, and draft PR.
+- 2026-08-30: S6 pre-review validation complete. The detached-state recovery
+  simplifier removed the generic Docker filter option and a redundant label
+  comparison; the Compose-project query is now the only supported shape and
+  its behavior is covered through the recovery caller. Current-source checks
+  pass: docs policy, knowledge validation, Biome, Knip, typecheck, 765 tests
+  across 66 files, build, package installation smoke, and `git diff --check`.
+  The Linux-only process-helper test remains skipped on macOS. Next: commit
+  the simplification, run integrated final review, and open the draft PR.

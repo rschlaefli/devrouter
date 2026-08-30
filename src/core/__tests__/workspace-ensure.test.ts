@@ -730,9 +730,20 @@ describe("workspaceEnsure", () => {
         return { status: 0, stdout: `${gitDir}\n`, stderr: "" } as never;
       }
       if (command === "docker" && argv[0] === "ps") {
+        const filterIndex = argv.indexOf("--filter");
+        const composeProject =
+          filterIndex >= 0
+            ? argv[filterIndex + 1]?.replace("label=com.docker.compose.project=", "")
+            : undefined;
+        const ids = snapshots
+          .filter(
+            (snapshot) =>
+              !composeProject || snapshot.labels["com.docker.compose.project"] === composeProject,
+          )
+          .map((snapshot) => snapshot.id);
         return {
           status: 0,
-          stdout: `${Object.values(serviceIds).join("\n")}\n`,
+          stdout: ids.length > 0 ? `${ids.join("\n")}\n` : "",
           stderr: "",
         } as never;
       }
