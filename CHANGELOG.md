@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.47] - 2026-08-30
+
+### Fixed
+
+- Explicit Devsy setup now acquires the supported Linux agent into
+  Devrouter-owned machine state, verifies its pinned size and SHA-256 digest,
+  and publishes it atomically. Generic setup and ordinary workspace startup do
+  not download an agent. Direct HTTPS remains primary; a connection failure can
+  fall back to an authenticated GitHub CLI request for the same pinned asset.
+- `devrouter doctor` reports Devsy agent readiness as `ready`, `missing`,
+  `stale`, or `invalid` without network access or filesystem paths. The repair
+  command is `devrouter setup --yes --workspace-runtime devsy`.
+- Devsy workspace startup validates the selected managed or explicit agent
+  before entering the provider queue. Non-ready sources fail before registry or
+  provider mutation, and the verified path is passed only to the CLI child.
+- Devrouter leaves Devsy's private cache and desktop app environment unchanged.
+  An explicit `DEVSY_AGENT_BINARY` remains authoritative but must match one
+  pinned official asset exactly.
+
+### Compatibility
+
+- Workspace identity, profiles, routes, inactivity shutdown, DevPod behavior,
+  Devsy registry visibility, workspaces, and volumes are unchanged.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.47.md
+
 ## [0.0.46] - 2026-08-29
 
 ### Fixed

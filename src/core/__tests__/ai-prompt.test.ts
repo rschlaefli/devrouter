@@ -49,8 +49,11 @@ describe("buildOnboardingPrompt", () => {
     const prompt = buildOnboardingPrompt({ repo: tmpDir });
     const tcpProtocolUnion = SUPPORTED_TCP_PROTOCOLS.map((protocol) => `"${protocol}"`).join(" | ");
     expect(prompt).toContain(
-      "Run `devrouter setup --yes --json` for devrouter-owned machine state; use `devrouter doctor --repo <REPO_PATH> --json` to diagnose missing prerequisites without mutation.",
+      "Run `devrouter setup --yes --json` for devrouter-owned machine state.",
     );
+    expect(prompt).toContain("devrouter setup --yes --workspace-runtime devsy --json");
+    expect(prompt).toContain("`ready`, `missing`, `stale`, or `invalid`");
+    expect(prompt).not.toContain("allow Devsy to download");
     expect(prompt).toContain(
       "devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json",
     );

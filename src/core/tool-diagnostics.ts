@@ -3,6 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DiagnosticCheck } from "../types";
 import {
+  type DevsyAgentInspection,
+  devsyAgentRepairSuggestion,
+  inspectDevsyAgent,
+} from "./devsy-agent";
+import {
   inspectWorkspaceRuntimeConfig,
   readWorkspaceRuntimeConfig,
   resolveWorkspaceRuntimeDetailed,
@@ -14,6 +19,8 @@ type CommandResult = {
   output?: string;
   error?: string;
 };
+
+const DEVSY_DISABLE_TELEMETRY = "DEVSY_DISABLE_TELEMETRY";
 
 function outputFromResult(result: ReturnType<typeof spawnSync>): string | undefined {
   const stdout = typeof result.stdout === "string" ? result.stdout.trim() : "";
@@ -187,7 +194,54 @@ function nodeToolchainCheck(repoPath: string): DiagnosticCheck {
   };
 }
 
+function devsyAgentCheck(inspection: DevsyAgentInspection): DiagnosticCheck {
+  const details = [
+    `state=${inspection.state}`,
+    `source=${inspection.source}`,
+    ...(inspection.installedVersion ? [`version=${inspection.installedVersion}`] : []),
+    ...(inspection.asset ? [`asset=${inspection.asset.name}`] : []),
+  ].join(", ");
+  if (inspection.state === "ready") {
+    return {
+      id: "global.devsy-agent",
+      level: "ok",
+      summary: "Devsy agent source is ready.",
+      details,
+    };
+  }
+
+  const summary =
+    inspection.state === "missing"
+      ? "Managed Devsy agent source is missing."
+      : inspection.state === "stale"
+        ? "Devsy agent source is stale for this Devrouter release."
+        : "Devsy agent source is invalid.";
+  return {
+    id: "global.devsy-agent",
+    level: "error",
+    summary,
+    details: `${details}, ${inspection.reason}`,
+    suggestion: devsyAgentRepairSuggestion(inspection),
+  };
+}
+
 export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
+  // Devsy emits telemetry even for version and registry reads. Diagnostics are
+  // synchronous, so this scopes the inherited opt-out to the complete probe.
+  const previous = process.env[DEVSY_DISABLE_TELEMETRY];
+  process.env[DEVSY_DISABLE_TELEMETRY] = "true";
+  try {
+    return buildGlobalToolChecksWithoutTelemetry(repoPath);
+  } finally {
+    if (previous === undefined) {
+      delete process.env[DEVSY_DISABLE_TELEMETRY];
+    } else {
+      process.env[DEVSY_DISABLE_TELEMETRY] = previous;
+    }
+  }
+}
+
+function buildGlobalToolChecksWithoutTelemetry(repoPath: string): DiagnosticCheck[] {
   const checks: DiagnosticCheck[] = [];
   const compose = runTool("docker", ["compose", "version"]);
   checks.push({
@@ -265,6 +319,14 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
         ? "Install Devsy for devcontainer workspace flows: brew install devsy-org/homebrew-tap/devsy"
         : "Install DevPod for devcontainer workspace flows: brew install devpod",
   });
+
+  if (workspaceRuntime === "devsy") {
+    checks.push(
+      devsyAgentCheck(
+        inspectDevsyAgent({ versionOutput: runtimeTool.ok ? runtimeTool.output : "" }),
+      ),
+    );
+  }
 
   const configProblems = [...configInspection.problems];
   // A Devsy timeout alongside a path-owned DevPod checkout is a valid mixed

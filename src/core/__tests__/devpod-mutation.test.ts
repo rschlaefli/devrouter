@@ -30,7 +30,24 @@ vi.mock("node:child_process", async (importOriginal) => {
     spawnSync: vi.fn(),
   };
 });
-vi.mock("../router", () => ({ DEVROUTER_HOME: paths.home }));
+vi.mock("../devsy-agent", async (importOriginal) => ({
+  ...(await importOriginal()),
+  requireReadyDevsyAgent: vi.fn(() => ({
+    binaryPath: "/tmp/verified-devsy-agent",
+    source: "managed",
+    asset: {
+      name: "devsy-linux-arm64",
+      size: 1,
+      sha256: "digest",
+      url: "https://example.invalid/agent",
+    },
+    changed: false,
+  })),
+}));
+vi.mock("../router", () => ({
+  CACHE_DIR: `${paths.home}/cache`,
+  DEVROUTER_HOME: paths.home,
+}));
 vi.mock("../file-lock", () => ({
   withFileLock: vi.fn(async (_path: string, _options: unknown, operation: () => Promise<unknown>) =>
     operation(),

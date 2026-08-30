@@ -10,6 +10,7 @@ source_paths:
   - src/core/repo-config.ts
   - src/core/workspace*.ts
   - src/core/devpod*.ts
+  - src/core/devsy-agent.ts
   - src/core/host-routes.ts
   - src/core/managed-post-start.ts
   - src/core/managed-runtime*.ts
@@ -32,6 +33,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
 | Git checkout and branch | Git | Inspect registered worktrees and refuse ambiguous or dirty destructive targets. |
 | Managed workspace claim | Consumer Git common directory | Reconcile persisted metadata, the exact-path owner record, and both provider registries before atomically claiming one repository-local identity; no machine-global repository registry. |
 | DevPod/Devsy workspace/container | Active workspace runtime provider | Mutate only an exact ID-plus-source owner through `src/core/devpod-mutation.ts` (Devsy dispatch: `src/core/devsy-mutation.ts`). |
+| Verified Devsy agent source | Devrouter machine state or explicit operator environment | Pin and validate the supported asset before provider mutation; never write Devsy's private cache or the desktop app environment. |
 | Effective managed Dev Container configuration | Devrouter runtime file under the consumer `.devcontainer/` | Generate the ignored, marker-owned sibling from the source configuration; pass it to DevPod before startup and never commit it. |
 | Application startup command | Consumer repository adapter | Supply the runtime helper, then invoke the captured adapter through `src/core/managed-post-start.ts:runManagedPostStart`. |
 | Last successful managed runtime state | Devrouter local managed-runtime state | Persist only exact identity, profile/resource sets, fingerprints, and transition status; never persist environment values or credentials. |
@@ -49,6 +51,10 @@ Devrouter connects repository intent to local runtime and routing systems. It do
   crash leaves either no token or one complete token that can reconcile with
   the owner record.
 - Consumer images contain no devrouter installation or version pin. [ADR 0002](../adr/0002-keep-devrouter-out-of-consumer-images.md) owns the boundary.
+- Devrouter verifies the supported Devsy agent in versioned machine state and
+  injects it only into CLI child processes. Devsy retains ownership of its
+  workspaces, desktop registry view, and private cache. [ADR 0006](../adr/0006-devrouter-owned-devsy-agent-acquisition.md)
+  owns this boundary.
 - Repository lifecycle locks remain outer; workspace runtime provider mutation is serialized machine-wide and revalidated inside that boundary. [ADR 0003](../adr/0003-serialize-devpod-provider-mutations.md) owns the ordering.
 - The Traefik dynamic file is canonical for one route generation; JSON is a compatibility mirror. [ADR 0004](../adr/0004-single-artifact-route-state.md) owns recovery behavior.
 - The shared TLS certificate is a machine-global read-modify-write transaction. Every refresh merges the coverage already present under one lock, compacts sibling multi-label hosts into valid wildcard SANs, verifies the generated certificate, and retries once before failing closed. Concurrent worktrees cannot drop each other's hosts, while historical app routes do not grow the certificate one SAN at a time.

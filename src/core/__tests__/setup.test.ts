@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DevsyAgentReadinessError, prepareDevsyAgent } from "../devsy-agent";
 import { ensureNetwork, isContainerRunning, networkExists } from "../docker";
 import { buildDoctorReport } from "../doctor";
 import { loadRuntimeConfig } from "../repo-config";
@@ -12,6 +13,16 @@ vi.mock("../docker", () => ({
   ensureNetwork: vi.fn(async () => undefined),
   isContainerRunning: vi.fn(async () => false),
   networkExists: vi.fn(async () => false),
+}));
+
+vi.mock("../devsy-agent", async (importOriginal) => ({
+  ...(await importOriginal()),
+  prepareDevsyAgent: vi.fn(async () => ({
+    binaryPath: "/managed/devsy-agent",
+    source: "managed",
+    asset: { name: "devsy-linux-arm64" },
+    changed: true,
+  })),
 }));
 
 vi.mock("../router", () => ({
@@ -64,6 +75,19 @@ beforeEach(() => {
   vi.mocked(networkExists).mockResolvedValue(false);
   vi.mocked(isContainerRunning).mockResolvedValue(false);
   vi.mocked(runTool).mockReturnValue({ ok: true, output: "v1.0.0" });
+  vi.mocked(prepareDevsyAgent).mockResolvedValue({
+    binaryPath: "/managed/devsy-agent",
+    source: "managed",
+    asset: {
+      githubAssetId: 1,
+      name: "devsy-linux-arm64",
+      size: 1,
+      sha256: "digest",
+      url: "https://example.invalid/agent",
+    },
+    changed: true,
+    transport: "https",
+  });
   vi.mocked(installTLS).mockResolvedValue({
     alreadyEnabled: false,
     hosts: ["localhost", "*.localhost"],
@@ -166,6 +190,101 @@ describe("runSetup", () => {
         id: "global.workspace-runtime-config",
         status: "performed",
       }),
+    );
+    expect(prepareDevsyAgent).toHaveBeenCalledOnce();
+    expect(report.actions).toContainEqual(
+      expect.objectContaining({
+        id: "global.devsy-agent",
+        status: "performed",
+      }),
+    );
+  });
+
+  it("prepares Devsy only for an explicit Devsy runtime request", async () => {
+    await runSetup({ repo: "/repo", yes: true });
+    await runSetup({ repo: "/repo", yes: true, devsyInactivityTimeout: "30m" });
+    await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "devpod" });
+
+    expect(prepareDevsyAgent).not.toHaveBeenCalled();
+  });
+
+  it("reports an already verified Devsy source as skipped", async () => {
+    vi.mocked(prepareDevsyAgent).mockResolvedValueOnce({
+      binaryPath: "/managed/devsy-agent",
+      source: "managed",
+      asset: {
+        githubAssetId: 1,
+        name: "devsy-linux-arm64",
+        size: 1,
+        sha256: "digest",
+        url: "https://example.invalid/agent",
+      },
+      changed: false,
+      transport: "existing",
+    });
+
+    const report = await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "devsy" });
+
+    expect(report.actions).toContainEqual(
+      expect.objectContaining({
+        id: "global.devsy-agent",
+        status: "skipped",
+        summary: "Verified the managed Devsy agent source.",
+      }),
+    );
+  });
+
+  it("reports Devsy preparation failure without exposing a cache path", async () => {
+    vi.mocked(prepareDevsyAgent).mockRejectedValueOnce(new Error("network unavailable"));
+
+    const report = await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "devsy" });
+    const agentAction = report.actions.find((entry) => entry.id === "global.devsy-agent");
+
+    expect(agentAction).toMatchObject({
+      status: "failed",
+      details: "network unavailable",
+      suggestion: "Run: devrouter setup --yes --workspace-runtime devsy",
+    });
+    expect(JSON.stringify(agentAction)).not.toContain("/managed");
+  });
+
+  it("requires an invalid explicit override to be fixed before setup can repair it", async () => {
+    vi.mocked(prepareDevsyAgent).mockRejectedValueOnce(
+      new DevsyAgentReadinessError({
+        state: "invalid",
+        source: "explicit",
+        reason: "the selected source has an unexpected digest",
+        binaryPath: "/private/operator-agent",
+      }),
+    );
+
+    const report = await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "devsy" });
+    const agentAction = report.actions.find((entry) => entry.id === "global.devsy-agent");
+
+    expect(agentAction).toMatchObject({
+      status: "failed",
+      details: "state=invalid, source=explicit, the selected source has an unexpected digest",
+      suggestion:
+        "Fix or unset DEVSY_AGENT_BINARY, then run: devrouter setup --yes --workspace-runtime devsy",
+    });
+    expect(JSON.stringify(agentAction)).not.toContain("/private/operator-agent");
+  });
+
+  it("repairs a stale explicit source by replacing the unsupported Devsy CLI", async () => {
+    vi.mocked(prepareDevsyAgent).mockRejectedValueOnce(
+      new DevsyAgentReadinessError({
+        state: "stale",
+        source: "explicit",
+        reason: "installed Devsy 1.16.2-beta.1 is not supported by this Devrouter release",
+        installedVersion: "1.16.2-beta.1",
+      }),
+    );
+
+    const report = await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "devsy" });
+    const agentAction = report.actions.find((entry) => entry.id === "global.devsy-agent");
+
+    expect(agentAction?.suggestion).toBe(
+      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
     );
   });
 
