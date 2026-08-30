@@ -102,6 +102,21 @@ registered dimension. Warm changes preserve the DevPod and volumes, never rerun
 proved. Inspect desired, active, and drift state with `devrouter status` or
 `devrouter doctor`.
 
+Use the side-effect-free resolver when CI or another tool needs the same
+selection without starting or inspecting a runtime:
+
+```bash
+devrouter profile resolve \
+  --repo <checkout> \
+  --profile ai,mcp \
+  --json
+```
+
+The JSON report is deterministic and includes the canonical selection, exact
+apps, dependencies, readiness checks, managed base and profile services, and
+managed process markers. Treat an invalid profile or unknown report schema as a
+hard error; do not silently widen automation to the full profile.
+
 ## Configure `.devrouter.yml`
 
 Initialize metadata before adding applications:
