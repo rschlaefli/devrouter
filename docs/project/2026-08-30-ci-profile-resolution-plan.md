@@ -131,7 +131,8 @@ Record exact results and remaining publication boundary here.
 
 - [x] Existing profile and Devsy tasks reported non-overlapping ownership.
 - [x] Fresh isolated worktree created from exact `origin/main` `6f4a96f`.
-- [ ] D0 plan is committed.
-- [ ] D1 pure command is committed and focused checks pass.
+- [x] D0 plan is committed as `024e984`.
+- [ ] D1 pure command is implemented. Biome, Knip, typecheck, all 777 unit
+      tests, build, and the initial packed-package smoke pass.
 - [ ] D2 waits for explicit integration authority and completed `0.0.47` work.
 - [ ] D3 packed consumer proof and full applicable checks pass.
