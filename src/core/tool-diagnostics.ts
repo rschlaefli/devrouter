@@ -3,6 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DiagnosticCheck } from "../types";
 import {
+  DEVSY_AGENT_SETUP_COMMAND,
+  type DevsyAgentInspection,
+  inspectDevsyAgent,
+} from "./devsy-agent";
+import {
   inspectWorkspaceRuntimeConfig,
   readWorkspaceRuntimeConfig,
   resolveWorkspaceRuntimeDetailed,
@@ -187,6 +192,42 @@ function nodeToolchainCheck(repoPath: string): DiagnosticCheck {
   };
 }
 
+function devsyAgentCheck(inspection: DevsyAgentInspection): DiagnosticCheck {
+  const details = [
+    `state=${inspection.state}`,
+    `source=${inspection.source}`,
+    ...(inspection.installedVersion ? [`version=${inspection.installedVersion}`] : []),
+    ...(inspection.asset ? [`asset=${inspection.asset.name}`] : []),
+  ].join(", ");
+  if (inspection.state === "ready") {
+    return {
+      id: "global.devsy-agent",
+      level: "ok",
+      summary: "Devsy agent source is ready.",
+      details,
+    };
+  }
+
+  const summary =
+    inspection.state === "missing"
+      ? "Managed Devsy agent source is missing."
+      : inspection.state === "stale"
+        ? "Devsy agent source is stale for this Devrouter release."
+        : "Devsy agent source is invalid.";
+  const repairableBySetup = inspection.source === "managed" && inspection.state !== "stale";
+  return {
+    id: "global.devsy-agent",
+    level: "error",
+    summary,
+    details: `${details}, ${inspection.reason}`,
+    suggestion: repairableBySetup
+      ? `Run: ${DEVSY_AGENT_SETUP_COMMAND}`
+      : inspection.source === "explicit"
+        ? `Fix or unset DEVSY_AGENT_BINARY, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
+        : `Install Devsy 1.16.2 for a supported host, then run: ${DEVSY_AGENT_SETUP_COMMAND}`,
+  };
+}
+
 export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
   const checks: DiagnosticCheck[] = [];
   const compose = runTool("docker", ["compose", "version"]);
@@ -265,6 +306,14 @@ export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
         ? "Install Devsy for devcontainer workspace flows: brew install devsy-org/homebrew-tap/devsy"
         : "Install DevPod for devcontainer workspace flows: brew install devpod",
   });
+
+  if (workspaceRuntime === "devsy") {
+    checks.push(
+      devsyAgentCheck(
+        inspectDevsyAgent({ versionOutput: runtimeTool.ok ? runtimeTool.output : "" }),
+      ),
+    );
+  }
 
   const configProblems = [...configInspection.problems];
   // A Devsy timeout alongside a path-owned DevPod checkout is a valid mixed

@@ -1,4 +1,10 @@
 import type { SetupAction, SetupActionStatus, SetupReport } from "../types";
+import {
+  DEVSY_AGENT_SETUP_COMMAND,
+  DevsyAgentReadinessError,
+  prepareDevsyAgent,
+  SUPPORTED_DEVSY_VERSION,
+} from "./devsy-agent";
 import { ensureNetwork, isContainerRunning, networkExists } from "./docker";
 import { buildDoctorReport } from "./doctor";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
@@ -127,13 +133,15 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
     );
   }
 
+  let requestedWorkspaceRuntime: "devpod" | "devsy" | undefined;
   if (options.workspaceRuntime !== undefined || options.devsyInactivityTimeout !== undefined) {
     try {
       const existing = readWorkspaceRuntimeConfig();
+      requestedWorkspaceRuntime = options.workspaceRuntime
+        ? parseWorkspaceRuntime(options.workspaceRuntime)
+        : undefined;
       const next = {
-        runtime: options.workspaceRuntime
-          ? parseWorkspaceRuntime(options.workspaceRuntime)
-          : existing.runtime,
+        runtime: requestedWorkspaceRuntime ?? existing.runtime,
         devsyInactivityTimeout: options.devsyInactivityTimeout ?? existing.devsyInactivityTimeout,
       };
       writeWorkspaceRuntimeConfig(next);
@@ -152,6 +160,40 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
           details: message,
           suggestion:
             "Use: devrouter setup --yes --workspace-runtime <devpod|devsy> [--devsy-inactivity-timeout <duration>]",
+        }),
+      );
+    }
+  }
+
+  if (requestedWorkspaceRuntime === "devsy") {
+    try {
+      const prepared = await prepareDevsyAgent();
+      actions.push(
+        action(prepared.changed ? "performed" : "skipped", {
+          id: "global.devsy-agent",
+          summary: prepared.changed
+            ? `Downloaded and verified ${prepared.asset.name} for Devsy.`
+            : `Verified the ${prepared.source} Devsy agent source.`,
+          details: `version=${SUPPORTED_DEVSY_VERSION}, asset=${prepared.asset.name}, source=${prepared.source}`,
+        }),
+      );
+    } catch (error) {
+      const details =
+        error instanceof DevsyAgentReadinessError
+          ? `state=${error.inspection.state}, source=${error.inspection.source}, ${error.inspection.reason}`
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      const explicitOverride =
+        error instanceof DevsyAgentReadinessError && error.inspection.source === "explicit";
+      actions.push(
+        action("failed", {
+          id: "global.devsy-agent",
+          summary: "Failed to prepare a verified Devsy agent source.",
+          details,
+          suggestion: explicitOverride
+            ? `Fix or unset DEVSY_AGENT_BINARY, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
+            : `Run: ${DEVSY_AGENT_SETUP_COMMAND}`,
         }),
       );
     }

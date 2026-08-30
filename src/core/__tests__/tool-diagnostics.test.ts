@@ -20,6 +20,18 @@ const runtimeState = vi.hoisted(() => ({
   inspection: { exists: false, config: {}, problems: [] as string[] },
   requestedRepoPath: undefined as string | undefined,
   ownershipProblem: undefined as string | undefined,
+  agent: {
+    state: "missing" as "ready" | "missing" | "stale" | "invalid",
+    source: "managed" as "managed" | "explicit",
+    reason: "the selected source is missing",
+    installedVersion: "1.16.2",
+    asset: { name: "devsy-linux-arm64" },
+  },
+}));
+
+vi.mock("../devsy-agent", () => ({
+  DEVSY_AGENT_SETUP_COMMAND: "devrouter setup --yes --workspace-runtime devsy",
+  inspectDevsyAgent: vi.fn(() => runtimeState.agent),
 }));
 
 vi.mock("node:child_process", () => ({
@@ -66,6 +78,13 @@ beforeEach(() => {
   runtimeState.ownershipProblem = undefined;
   runtimeState.config = {};
   runtimeState.inspection = { exists: false, config: {}, problems: [] };
+  runtimeState.agent = {
+    state: "missing",
+    source: "managed",
+    reason: "the selected source is missing",
+    installedVersion: "1.16.2",
+    asset: { name: "devsy-linux-arm64" },
+  };
   spawnSyncMock.mockImplementation((command: string, args: string[]) => {
     const key = `${command} ${args.join(" ")}`;
     if (key === "docker compose version") {
@@ -153,6 +172,58 @@ describe("buildGlobalToolChecks", () => {
     expect(byId.get("global.devpod")?.level).toBe("ok");
     expect(byId.get("global.devpod")?.summary).toBe(
       "Devsy is the active workspace runtime (source: machine-config).",
+    );
+    expect(byId.get("global.devsy-agent")).toMatchObject({
+      level: "error",
+      summary: "Managed Devsy agent source is missing.",
+      suggestion: "Run: devrouter setup --yes --workspace-runtime devsy",
+    });
+    expect(byId.get("global.devsy-agent")?.details).not.toContain("/");
+  });
+
+  it.each([
+    ["ready", "ok", "Devsy agent source is ready."],
+    ["missing", "error", "Managed Devsy agent source is missing."],
+    ["stale", "error", "Devsy agent source is stale for this Devrouter release."],
+    ["invalid", "error", "Devsy agent source is invalid."],
+  ] as const)("reports the Devsy agent %s state without paths", (state, level, summary) => {
+    writePackageJson();
+    runtimeState.resolution = { runtime: "devsy", source: "machine-config" };
+    runtimeState.agent.state = state;
+    runtimeState.agent.reason = `fixture ${state}`;
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      const key = `${command} ${args.join(" ")}`;
+      if (key === "devsy --version") return result(0, "v1.16.2\n");
+      if (key === "pnpm --version") return result(0, "11.6.0\n");
+      return result(1, "", "missing");
+    });
+
+    const check = buildGlobalToolChecks(tmpDir).find((entry) => entry.id === "global.devsy-agent");
+
+    expect(check).toMatchObject({ level, summary });
+    expect(JSON.stringify(check)).not.toContain(tmpDir);
+  });
+
+  it("requires an invalid explicit override to be fixed or unset", () => {
+    writePackageJson();
+    runtimeState.resolution = { runtime: "devsy", source: "machine-config" };
+    runtimeState.agent = {
+      state: "invalid",
+      source: "explicit",
+      reason: "the selected source has an unexpected digest",
+      installedVersion: "1.16.2",
+      asset: { name: "devsy-linux-arm64" },
+    };
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      const key = `${command} ${args.join(" ")}`;
+      if (key === "devsy --version") return result(0, "v1.16.2\n");
+      if (key === "pnpm --version") return result(0, "11.6.0\n");
+      return result(1, "", "missing");
+    });
+
+    const check = buildGlobalToolChecks(tmpDir).find((entry) => entry.id === "global.devsy-agent");
+    expect(check?.suggestion).toBe(
+      "Fix or unset DEVSY_AGENT_BINARY, then run: devrouter setup --yes --workspace-runtime devsy",
     );
   });
 
