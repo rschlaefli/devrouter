@@ -20,6 +20,8 @@ type CommandResult = {
   error?: string;
 };
 
+const DEVSY_DISABLE_TELEMETRY = "DEVSY_DISABLE_TELEMETRY";
+
 function outputFromResult(result: ReturnType<typeof spawnSync>): string | undefined {
   const stdout = typeof result.stdout === "string" ? result.stdout.trim() : "";
   const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
@@ -223,7 +225,27 @@ function devsyAgentCheck(inspection: DevsyAgentInspection): DiagnosticCheck {
   };
 }
 
+function withDevsyTelemetryDisabled<T>(operation: () => T): T {
+  // Devsy emits telemetry even for version and registry reads. Diagnostics are
+  // synchronous, so this scopes the inherited opt-out to the complete probe.
+  const previous = process.env[DEVSY_DISABLE_TELEMETRY];
+  process.env[DEVSY_DISABLE_TELEMETRY] = "true";
+  try {
+    return operation();
+  } finally {
+    if (previous === undefined) {
+      delete process.env[DEVSY_DISABLE_TELEMETRY];
+    } else {
+      process.env[DEVSY_DISABLE_TELEMETRY] = previous;
+    }
+  }
+}
+
 export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
+  return withDevsyTelemetryDisabled(() => buildGlobalToolChecksWithoutTelemetry(repoPath));
+}
+
+function buildGlobalToolChecksWithoutTelemetry(repoPath: string): DiagnosticCheck[] {
   const checks: DiagnosticCheck[] = [];
   const compose = runTool("docker", ["compose", "version"]);
   checks.push({

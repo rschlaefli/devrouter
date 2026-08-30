@@ -108,6 +108,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
 
@@ -179,6 +180,28 @@ describe("buildGlobalToolChecks", () => {
       suggestion: "Run: devrouter setup --yes --workspace-runtime devsy",
     });
     expect(byId.get("global.devsy-agent")?.details).not.toContain("/");
+  });
+
+  it("disables Devsy telemetry only while running diagnostic probes", () => {
+    writePackageJson();
+    runtimeState.resolution = { runtime: "devsy", source: "machine-config" };
+    vi.stubEnv("DEVSY_DISABLE_TELEMETRY", "operator-choice");
+    const observedTelemetryValues: Array<string | undefined> = [];
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      const key = `${command} ${args.join(" ")}`;
+      if (command === "devsy") {
+        observedTelemetryValues.push(process.env.DEVSY_DISABLE_TELEMETRY);
+      }
+      if (key === "devsy --version") return result(0, "v1.16.2\n");
+      if (key === "pnpm --version") return result(0, "11.6.0\n");
+      if (key === "brew --version") return result(0, "Homebrew 4.5.0\n");
+      return result(1, "", "missing");
+    });
+
+    buildGlobalToolChecks(tmpDir);
+
+    expect(observedTelemetryValues).toEqual(["true"]);
+    expect(process.env.DEVSY_DISABLE_TELEMETRY).toBe("operator-choice");
   });
 
   it.each([
