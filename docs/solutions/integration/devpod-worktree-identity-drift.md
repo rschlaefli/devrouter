@@ -39,6 +39,8 @@ checkout or runtime generations to be combined into an apparently healthy enviro
   runtime inputs.
 - A crash between JSON route metadata and Traefik YAML writes could make readers and Traefik act on
   different generations.
+- The canonical route file and mounted container bytes could be correct while Traefik's dynamic
+  router API contained none of the new routers and every host returned Traefik's 404.
 
 ## What Didn't Work
 
@@ -55,6 +57,8 @@ checkout or runtime generations to be combined into an apparently healthy enviro
 - A repository-local lifecycle lock did not serialize DevPod's machine-global ID namespace across
   different repositories.
 - Treating JSON as route authority did not prove which route generation Traefik actually received.
+- Accepting every HTTP 4xx as route readiness preserved legitimate application 404 responses, but
+  also accepted Traefik's unmatched-route 404 when its file provider missed a reload.
 - Treating a non-zero provider exit as proof that nothing started removed
   recovery state even though Devsy had already registered the exact checkout.
 
@@ -135,6 +139,14 @@ replaced through the shared file-and-parent-directory `fsync` helper
 headerless legacy generations from validated JSON, repair stale mirrors, and fail closed on
 corruption (`parseCanonicalState` and `readHostRouteStateLocked` in `src/core/host-routes.ts`).
 
+After managed proxy publication, prove the exact generated HTTP and TCP router names through
+Traefik's localhost API (`src/core/traefik-route-health.ts:31-99`). Allow the normal file-provider
+watch a short grace period. If an expected `@file` router remains absent, serialize recovery through
+one machine-wide lock, recheck after acquiring it, restart only the Devrouter-owned Traefik service
+once, and prove the router set again (`src/core/traefik-route-health.ts:101-159`). Keep the existing
+application HTTP probe afterward, so a legitimate application 404 still counts as reachable while
+Traefik's own unmatched-route 404 cannot mark a managed runtime ready.
+
 Serialize every ownership write or removal through one repository-wide ledger transaction
 (`withWorkspaceOwnershipTransaction` in `src/core/workspace-ownership.ts`). GC holds that same
 transaction across final record, Git, DevPod, and route revalidation; provider deletion; exact route
@@ -154,6 +166,11 @@ second devrouter process from reassigning the ID mid-mutation. Canonical route m
 the exact generation Traefik received, so recovery chooses a complete generation instead of merging
 partial files.
 
+Provider-level router proof separates route loading from application behavior. Concurrent profile
+starts cannot create a restart storm because the recovery lock rechecks after acquisition, while a
+persistently rejected or unreadable dynamic configuration gets one bounded restart and then an
+actionable failure instead of an apparently ready runtime.
+
 ## Prevention
 
 The workspace lifecycle suite rejects foreign HTTP/TCP namespaces before provider or route mutation.
@@ -165,6 +182,11 @@ secret values never enter its state (`scripts/test-devrouter-process.sh`).
 Route failure injection covers JSON failure, both sides of canonical rename, corrupt metadata,
 legacy migration, stale-mirror repair, and real concurrent writers whose canonical metadata and YAML
 retain both routes (`src/core/__tests__/host-routes-state.test.ts`).
+
+The focused provider regression proves the already-loaded path, one-restart recovery, and terminal
+absence (`src/core/__tests__/traefik-route-health.test.ts:69-126`). The workspace regression preserves
+application-level 404 readiness while requiring the missing provider router to trigger recovery
+(`src/core/__tests__/workspace-ensure.test.ts:940-990`).
 
 GC regression tests assert that the ownership transaction encloses DevPod, route, and record
 deletion; a workspace revived after inspection is not mutated; and a busy ledger lock fails only

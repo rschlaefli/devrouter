@@ -301,6 +301,26 @@ repoDevcontainerCommand
     ),
   );
 
+const profileCommand = program
+  .command("profile")
+  .description("Resolve profiles from `.devrouter.yml` without starting a runtime");
+
+profileCommand
+  .command("resolve")
+  .description("Print the exact apps, dependencies, services, and processes for a profile")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option(
+    "--profile <name>",
+    "Profile name or comma-separated selection (defaults to configured profile)",
+  )
+  .option("--json", "Output stable JSON")
+  .action(
+    withErrorHandling(async (options: { repo?: string; profile?: string; json?: boolean }) => {
+      const { runProfileResolveCommand } = await import("./commands/profile");
+      await runProfileResolveCommand(options);
+    }),
+  );
+
 const appCommand = program
   .command("app")
   .description("Manage app entries and runtime actions from `.devrouter.yml`");

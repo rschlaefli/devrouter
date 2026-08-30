@@ -35,10 +35,25 @@ import {
 import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
+import { ensureTraefikRoutesLoaded } from "../traefik-route-health";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
+vi.mock("../devsy-agent", async (importOriginal) => ({
+  ...(await importOriginal()),
+  requireReadyDevsyAgent: vi.fn(() => ({
+    binaryPath: "/tmp/verified-devsy-agent",
+    source: "managed",
+    asset: {
+      name: "devsy-linux-arm64",
+      size: 1,
+      sha256: "digest",
+      url: "https://example.invalid/agent",
+    },
+    changed: false,
+  })),
+}));
 vi.mock("../file-lock", () => ({
   withFileLock: vi.fn(async (_path: string, _options: unknown, operation: () => Promise<unknown>) =>
     operation(),
@@ -82,6 +97,7 @@ vi.mock("../repo-config", () => ({
   resolveRepoPath: vi.fn((repo?: string) => repo ?? process.cwd()),
 }));
 vi.mock("../router", () => ({
+  CACHE_DIR: "/tmp/devrouter-workspace-ensure-test/cache",
   CERT_FILE: "/certs/localhost.pem",
   DEVROUTER_HOME: "/tmp/devrouter-workspace-ensure-test",
   DEVNET_NAME: "devnet",
@@ -90,6 +106,9 @@ vi.mock("../router", () => ({
   ensureRouterFiles: vi.fn(),
   isTLSEnabled: vi.fn(() => true),
   startRouterStack: vi.fn(),
+}));
+vi.mock("../traefik-route-health", () => ({
+  ensureTraefikRoutesLoaded: vi.fn(async () => ({ restarted: false })),
 }));
 vi.mock("../tls", () => ({
   getMkcertRootCAPath: vi.fn(() => "/ca/rootCA.pem"),
@@ -931,6 +950,59 @@ describe("workspaceEnsure", () => {
     expect(events.indexOf("config-write")).toBeLessThan(events.indexOf("devpod-up"));
     expect(events.indexOf("process-stop:local-mcp")).toBeLessThan(events.indexOf("routes:1"));
     expect(events.indexOf("service-stop:redis")).toBeLessThan(events.indexOf("routes:1"));
+  });
+
+  it("proves Traefik file routers before marking a managed runtime ready", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle();
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).resolves.toMatchObject({ profile: "ai" });
+
+    expect(ensureTraefikRoutesLoaded).toHaveBeenCalledWith(
+      [expect.objectContaining({ name: "chat", repoPath: tmpDir })],
+      { initialTimeoutMs: 0, recoveryTimeoutMs: 0 },
+    );
+    expect(writeManagedRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
+  it("rolls back managed routes when Traefik still lacks them after recovery", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    vi.mocked(ensureTraefikRoutesLoaded).mockRejectedValueOnce(
+      new Error("Traefik did not load file-provider routes after one restart"),
+    );
+    mockManagedLifecycle();
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Candidate runtime was rolled back");
+
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, [
+      expect.objectContaining({ name: "chat", upstreamHost: "feature-app" }),
+    ]);
+    expect(ensureTraefikRoutesLoaded).toHaveBeenCalledTimes(2);
+    expect(writeManagedRuntimeState).not.toHaveBeenCalled();
   });
 
   it("rolls back candidate services, processes, and routes after route readiness failure", async () => {

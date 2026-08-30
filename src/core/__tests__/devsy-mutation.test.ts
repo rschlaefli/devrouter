@@ -2,17 +2,22 @@ import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DevsyAgentReadinessError, requireReadyDevsyAgent } from "../devsy-agent";
 import {
   DevsyStartPostconditionError,
   deleteOwnedDevsyWorkspace,
   startDevsyWorkspace,
   stopOwnedDevsyWorkspace,
 } from "../devsy-mutation";
-import { withFileLockSync } from "../file-lock";
+import { withFileLock, withFileLockSync } from "../file-lock";
 
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-devsy-mutation-test" }));
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
+vi.mock("../devsy-agent", async (importOriginal) => ({
+  ...(await importOriginal()),
+  requireReadyDevsyAgent: vi.fn(),
+}));
 vi.mock("../router", () => ({ DEVROUTER_HOME: paths.home }));
 vi.mock("../file-lock", () => ({
   withFileLock: vi.fn(async (_path: string, _options: unknown, operation: () => Promise<unknown>) =>
@@ -26,6 +31,19 @@ vi.mock("../file-lock", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(requireReadyDevsyAgent).mockReturnValue({
+    binaryPath: "/managed/devsy-agent",
+    source: "managed",
+    asset: {
+      githubAssetId: 1,
+      name: "devsy-linux-arm64",
+      size: 1,
+      sha256: "digest",
+      url: "https://example.invalid/agent",
+    },
+    changed: false,
+    transport: "existing",
+  });
   mockDevsyUp();
 });
 
@@ -208,11 +226,88 @@ describe("startDevsyWorkspace", () => {
     const upOptions = upCall?.[2] as { env?: Record<string, string | undefined> } | undefined;
     const upEnv = upOptions?.env ?? {};
     expect(upEnv).toMatchObject({
+      DEVSY_AGENT_BINARY: "/managed/devsy-agent",
       WORKSPACE: "feature",
       DEVROUTER_WORKSPACE: "feature",
       DEVROUTER_GIT_COMMON_DIR: "/repo/.git",
       DEVCONTAINER_COMPOSE_OVERLAY: "docker-compose.devrouter.yml",
     });
+  });
+
+  it.each([
+    ["missing", "managed", "Run: devrouter setup --yes --workspace-runtime devsy"],
+    [
+      "stale",
+      "managed",
+      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+    ],
+    [
+      "stale",
+      "explicit",
+      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+    ],
+    ["invalid", "managed", "Run: devrouter setup --yes --workspace-runtime devsy"],
+    [
+      "invalid",
+      "explicit",
+      "Fix or unset DEVSY_AGENT_BINARY, then run: devrouter setup --yes --workspace-runtime devsy",
+    ],
+  ] as const)("fails before the provider lock and spawn for a %s %s source", async (state, source, suggestion) => {
+    vi.mocked(requireReadyDevsyAgent).mockImplementationOnce(() => {
+      throw new DevsyAgentReadinessError({
+        state,
+        source,
+        reason: `fixture ${state}`,
+        binaryPath: "/private/unverified-agent",
+      });
+    });
+
+    let failure: unknown;
+    try {
+      await startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect((failure as Error).message).toContain(suggestion);
+    expect((failure as Error).message).not.toContain("/private/unverified-agent");
+    expect(withFileLockSync).not.toHaveBeenCalled();
+    expect(withFileLock).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit verified source unchanged in the child environment", async () => {
+    const originalProcessValue = process.env.DEVSY_AGENT_BINARY;
+    vi.mocked(requireReadyDevsyAgent).mockReturnValueOnce({
+      binaryPath: "/operator/devsy-agent",
+      source: "explicit",
+      asset: {
+        githubAssetId: 1,
+        name: "devsy-linux-arm64",
+        size: 1,
+        sha256: "digest",
+        url: "https://example.invalid/agent",
+      },
+      changed: false,
+      transport: "existing",
+    });
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        return listResult();
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    await startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+
+    const upCall = vi
+      .mocked(spawn)
+      .mock.calls.find(([command, args]) => command === "devsy" && (args as string[])[1] === "up");
+    const upOptions = upCall?.[2] as { env?: NodeJS.ProcessEnv } | undefined;
+    expect(upOptions?.env?.DEVSY_AGENT_BINARY).toBe("/operator/devsy-agent");
+    expect(process.env.DEVSY_AGENT_BINARY).toBe(originalProcessValue);
   });
 
   it("passes --recreate and cleans workspace env without a workspace", async () => {
@@ -361,7 +456,7 @@ describe("startDevsyWorkspace", () => {
       failure = error;
     }
 
-    expect((failure as Error).message).toContain("DEVSY_AGENT_BINARY");
+    expect((failure as Error).message).toContain("devrouter setup --yes --workspace-runtime devsy");
     expect(replayed).toContain("inject agent: agent binary not found");
     stderrWrite.mockRestore();
     const upCall = vi
@@ -420,7 +515,7 @@ describe("startDevsyWorkspace", () => {
     try {
       await expect(
         startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" }),
-      ).rejects.toThrow("DEVSY_AGENT_BINARY");
+      ).rejects.toThrow("devrouter setup --yes --workspace-runtime devsy");
     } finally {
       stderrWrite.mockRestore();
     }
@@ -450,7 +545,9 @@ describe("startDevsyWorkspace", () => {
       stderrWrite.mockRestore();
     }
 
-    expect((failure as Error).message).not.toContain("DEVSY_AGENT_BINARY");
+    expect((failure as Error).message).not.toContain(
+      "devrouter setup --yes --workspace-runtime devsy",
+    );
   });
 
   it("carries the remediation through the possibly-started classification", async () => {
@@ -473,7 +570,7 @@ describe("startDevsyWorkspace", () => {
     }
 
     expect(failure).toBeInstanceOf(DevsyStartPostconditionError);
-    expect((failure as Error).message).toContain("DEVSY_AGENT_BINARY");
+    expect((failure as Error).message).toContain("devrouter setup --yes --workspace-runtime devsy");
   });
 
   it("fails closed when ownership cannot be read after a failed start", async () => {

@@ -41,8 +41,17 @@ INSTALL_ROOT="$WORK_ROOT/install"
 PACKAGE_DIR="$INSTALL_ROOT/node_modules/@devrouter/cli"
 PROBE_CWD="$WORK_ROOT/probe-cwd"
 PROBE_DIR="$WORK_ROOT/probes"
+PROFILE_REPO="$WORK_ROOT/profile-repo"
+PROFILE_HOME="$WORK_ROOT/profile-home"
 
-mkdir -p "$INSTALL_ROOT" "$PROBE_CWD" "$PROBE_DIR" "$WORK_ROOT/home" "$WORK_ROOT/npm-cache"
+mkdir -p \
+  "$INSTALL_ROOT" \
+  "$PROBE_CWD" \
+  "$PROBE_DIR" \
+  "$PROFILE_REPO" \
+  "$PROFILE_HOME" \
+  "$WORK_ROOT/home" \
+  "$WORK_ROOT/npm-cache"
 
 PACKAGE_VERSION="$(node - "$PACKAGE_JSON" <<'NODE'
 const fs = require('node:fs');
@@ -291,6 +300,52 @@ for (const field of ['scripts', 'apps', 'services', 'agentGuidance', 'issues']) 
 for (const field of ['env', 'devcontainer', 'devrouter']) {
   if (report[field] === null || typeof report[field] !== 'object' || Array.isArray(report[field])) {
     throw new Error(`inspection JSON field is not an object: ${field}`);
+  }
+}
+NODE
+
+cp "$EXAMPLE_REPO/.devrouter.yml" "$PROFILE_REPO/.devrouter.yml"
+chmod 0500 "$PROFILE_HOME"
+NODE_BIN="$(command -v node)"
+run_probe profile \
+  env HOME="$PROFILE_HOME" PATH=/usr/bin:/bin \
+  "$NODE_BIN" "$PACKAGE_DIR/dist/devrouter.js" \
+  profile resolve --repo "$PROFILE_REPO" --json
+node - "$PROBE_DIR/profile.txt" "$PROFILE_REPO" <<'NODE'
+const fs = require('node:fs');
+
+const [, , outputPath, expectedRepoPath] = process.argv;
+const report = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+
+if (report.schemaVersion !== 1) {
+  throw new Error(`profile schema version mismatch: ${report.schemaVersion}`);
+}
+if (report.repoPath !== expectedRepoPath) {
+  throw new Error(`profile repoPath mismatch: ${report.repoPath}`);
+}
+if (report.profile !== 'full') {
+  throw new Error(`profile name mismatch: ${report.profile}`);
+}
+for (const field of ['apps', 'dependencies', 'readiness']) {
+  if (!Array.isArray(report[field])) {
+    throw new Error(`profile field is not an array: ${field}`);
+  }
+}
+if (
+  report.managedRuntime === null ||
+  typeof report.managedRuntime !== 'object' ||
+  Array.isArray(report.managedRuntime)
+) {
+  throw new Error('profile managedRuntime field is not an object');
+}
+for (const field of [
+  'baseServices',
+  'profileServices',
+  'services',
+  'processes',
+]) {
+  if (!Array.isArray(report.managedRuntime[field])) {
+    throw new Error(`profile managedRuntime field is not an array: ${field}`);
   }
 }
 NODE

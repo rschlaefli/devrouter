@@ -106,6 +106,14 @@ function sanitizeKey(value: string): string {
     .replace(/^-|-$/g, "");
 }
 
+function buildHostRouteRouterKey(routeId: string): string {
+  return `host-${sanitizeKey(routeId)}`;
+}
+
+export function buildHostRouteRouterName(repoPath: string, name: string): string {
+  return `${buildHostRouteRouterKey(buildHostRouteId(repoPath, name))}@file`;
+}
+
 /**
  * Build the Traefik file-provider dynamic document for the given routes. HTTP
  * routes become `http` Host() routers; TCP proxy routes become `tcp` HostSNI()
@@ -138,7 +146,7 @@ export function buildHostRoutesDocument(
   const tlsOptions: Record<string, unknown> = {};
 
   for (const route of routes) {
-    const key = `host-${sanitizeKey(route.id)}`;
+    const key = buildHostRouteRouterKey(route.id);
 
     if (route.protocol === "tcp") {
       const alpn = route.tcpProtocol ? TCP_TLS_ALPN_PROTOCOLS[route.tcpProtocol] : undefined;

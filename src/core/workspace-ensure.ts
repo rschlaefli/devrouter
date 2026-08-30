@@ -46,6 +46,7 @@ import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, TCP_PROTOCOL_REGISTRY } from "./router";
+import { ensureTraefikRoutesLoaded } from "./traefik-route-health";
 import {
   comparableWorkspacePath,
   currentBranch,
@@ -694,6 +695,10 @@ export async function workspaceEnsure(
     let managedConfigWritten = false;
     let managedWorkspaceEnv: { token: string; gitCommonDir: string } | undefined;
     let firstTransitionBaseline: FirstTransitionBaseline | undefined;
+    const routeLoadOptions = {
+      initialTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 3_000),
+      recoveryTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 10_000),
+    };
     try {
       const target = linked ? resolveLinkedTarget(repoPath) : resolvePrimaryTarget(repoPath);
       let devpodId = target.devpodId;
@@ -964,6 +969,7 @@ export async function workspaceEnsure(
         target.workspace,
       );
       candidateRoutesPublished = true;
+      await ensureTraefikRoutesLoaded(publication.routes, routeLoadOptions);
       try {
         await waitForHttpRoutes(
           repoPath,
@@ -987,6 +993,7 @@ export async function workspaceEnsure(
         });
         recreated = true;
         replaceHostRoutesForRepo(repoPath, publication.routes);
+        await ensureTraefikRoutesLoaded(publication.routes, routeLoadOptions);
         await waitForHttpRoutes(
           repoPath,
           apps,
@@ -1170,7 +1177,9 @@ export async function workspaceEnsure(
 
         if (candidateRoutesPublished) {
           try {
-            replaceHostRoutesForRepo(repoPath, previousRoutes.map(routeInputFromState));
+            const rollbackRoutes = previousRoutes.map(routeInputFromState);
+            replaceHostRoutesForRepo(repoPath, rollbackRoutes);
+            await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
           } catch (rollbackError) {
             rollbackErrors.push(
               `routes: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
@@ -1216,7 +1225,9 @@ export async function workspaceEnsure(
         }
         if (candidateRoutesPublished) {
           try {
-            replaceHostRoutesForRepo(repoPath, previousRoutes.map(routeInputFromState));
+            const rollbackRoutes = previousRoutes.map(routeInputFromState);
+            replaceHostRoutesForRepo(repoPath, rollbackRoutes);
+            await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
           } catch (rollbackError) {
             rollbackErrors.push(
               `routes: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,

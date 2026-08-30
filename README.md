@@ -77,6 +77,17 @@ Dev Container clients still see the full source configuration. Check
 `devrouter status` or `devrouter doctor` when you need the desired, active, and
 drift state.
 
+Automation can inspect the same profile contract without touching a workspace,
+Docker, DevPod, Devsy, Traefik, Git, or global state:
+
+```bash
+devrouter profile resolve --repo . --profile manage,pwa --json
+```
+
+The report contains the canonical selection and exact apps, dependencies,
+readiness checks, managed services, and process markers. Invalid configuration
+or profile input fails before any runtime operation.
+
 Use devrouter lifecycle commands for managed environments. Raw DevPod or Devsy
 `up`/`stop`/`delete` calls bypass ownership locks and exact checkout validation.
 Devrouter auto-detects the installed workspace runtime CLI (DevPod or Devsy) and
