@@ -117,6 +117,9 @@ Date: 2026-08-30. Branch: `rs/devsy-agent-preflight` at exact `origin/main`
 - Decision: setup streams into a same-directory private temporary file while
   hashing and counting bytes; only an exact match is fsynced, chmodded, renamed,
   and directory-fsynced. Failed acquisition preserves prior cache state.
+- Decision: direct release HTTPS remains the primary transport. A connection
+  failure may fall back to the authenticated GitHub CLI asset endpoint pinned
+  by immutable asset ID; both transports feed the same size and digest gate.
 
 ## Primitive impact
 
@@ -310,10 +313,20 @@ ownership, and tightly coupled setup/start integration remain with `main`.
 - 2026-08-30: S3 is complete at `5aeec56`. The 22 mutation and 14 acquisition
   tests, typecheck, Biome, and Knip passed; the lifecycle slice review was
   clean. Its test-mock simplification was accepted and verified.
-- Current: S4 is active. ADR 0006, manuals, knowledge, bundled skill, generated
-  guidance, and prompt assertions agree; the 8 focused tests, docs policy,
-  knowledge, Biome, and diff checks pass.
+- 2026-08-30: S4 is complete at `125a7b8`. ADR 0006, manuals, knowledge,
+  bundled skill, generated guidance, and prompt assertions agree; the focused
+  tests, docs policy, knowledge, Biome, and diff checks passed.
+- 2026-08-30: a live setup attempt exposed the machine's direct GitHub release
+  transport failure while authenticated GitHub API access remained healthy.
+  Commit `bb08415` adds a pinned asset-ID GitHub CLI fallback through the same
+  streaming size and digest gate. Its 50 focused tests, typecheck, Biome, docs
+  policy, knowledge validation, build, and the 799-test full suite passed.
+- Current: S5 is active. The built CLI acquired the official arm64 asset with
+  `transport=github-cli`; the Devrouter cache is mode `0700`, 124518562 bytes,
+  and has SHA-256 `31060b96486b5398f2aa3ee0875b2555782a2db0954a799d387be38ed4b4990d`.
+  Network-free doctor reports 25 ok, zero warnings, and zero errors. Devsy's
+  private cache retained its prior mtime and digest; no workspace was started.
 - Delivery: required local reviewed release branch; execution is authorized;
   push, PR, merge, and publication remain withheld.
-- Next: commit S4, then prepare and qualify 0.0.47 through S5 and integrated
-  final review without starting a workspace runtime.
+- Next: commit release artifacts, finish the canonical package checks, then run
+  the integrated final review without starting a workspace runtime.
