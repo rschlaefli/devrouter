@@ -15,6 +15,7 @@ source_paths:
   - src/core/devpod-workspaces.ts
   - src/core/workspace-runtime.ts
   - src/core/devsy-mutation.ts
+  - src/core/devsy-agent.ts
   - src/core/devsy-workspaces.ts
   - src/core/devsy-exec.ts
   - src/core/managed-runtime*.ts
@@ -39,10 +40,13 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
    collides, then persist the checkout token within the same repository-local
    transaction.
 3. Load the in-memory runtime config and reject any managed HTTP or TCP proxy upstream outside the checkout's alias namespace.
-4. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide. Contenders join a fair arrival-order queue, wait up to thirty minutes for the machine-global provider lock, and print one throttled stderr progress line every ten seconds while waiting; a timeout names the queue position or holder PID, the true lock-hold duration when known, and how long the contender waited.
-5. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
-6. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, and verify HTTP readiness.
-7. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
+4. For Devsy, validate the pinned agent source before entering the provider
+   queue. Missing, stale, or invalid sources fail with the exact setup repair;
+   the verified path enters only the copied CLI child environment.
+5. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide. Contenders join a fair arrival-order queue, wait up to thirty minutes for the machine-global provider lock, and print one throttled stderr progress line every ten seconds while waiting; a timeout names the queue position or holder PID, the true lock-hold duration when known, and how long the contender waited.
+6. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
+7. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, and verify HTTP readiness.
+8. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
 
 A provider command can fail after creating recovery state. Devsy startup
 therefore re-reads exact ownership while its machine-global mutation lock is
@@ -147,6 +151,9 @@ workspace with no attributed container is a measured zero, not unknown.
 
 ## Failure rules
 
+- A Devsy start never performs implicit agent acquisition. Use
+  `devrouter setup --yes --workspace-runtime devsy`; doctor checks the resulting
+  readiness state without network access.
 - Ambiguous Git paths, duplicate runtime IDs, owner conflicts, foreign aliases, dirty worktrees, and provider reassignments fail before destructive follow-up.
 - Provider mutation succeeds before route removal; a failed stop/delete retains routes and ownership so the environment does not appear cleanly torn down.
 - Full down removes runtime, routes, worktree, then owner record. Failures stop that sequence and preserve later state.

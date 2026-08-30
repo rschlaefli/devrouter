@@ -26,6 +26,16 @@ in the app. On macOS, the app-bundled CLI lives under
 `PATH` and leave the app running when using that bundled CLI so its local
 daemon handles workspace operations.
 
+Devrouter-launched Devsy workspaces also require one verified Linux agent.
+Prepare it once with `devrouter setup --yes --workspace-runtime devsy`.
+Devrouter stores the supported pinned asset under its own machine cache and
+passes the verified path only to the CLI child that starts the workspace. It
+does not write Devsy's private cache or alter the desktop app environment. An
+explicit `DEVSY_AGENT_BINARY` remains authoritative, but must match a pinned
+official asset exactly. `devrouter doctor` checks readiness without network
+access; a missing, stale, or invalid source stops `ensure` before the Devsy
+mutation queue or provider is touched.
+
 > Use the current devrouter release. The end-to-end onboarding
 > playbook + reference templates + gotchas live in the
 > `devcontainer-onboarding` skill (`.agents/skills/devcontainer-onboarding/`).
@@ -240,7 +250,7 @@ Order matters — `devnet` is `external`, so it must exist before the container
 starts:
 
 ```bash
-devrouter setup --yes
+devrouter setup --yes --workspace-runtime devsy # when Devsy owns this checkout
 devrouter doctor --json
 devrouter ensure .
 ```

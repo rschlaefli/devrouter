@@ -19,6 +19,20 @@ Devsy version authoritative on `PATH`; when using the CLI bundled with the app,
 add `/Applications/Devsy.app/Contents/Resources/bin` to `PATH` and keep the
 app running so CLI automation can use its local daemon.
 
+Prepare Devsy explicitly before the first managed workspace start:
+
+```bash
+devrouter setup --yes --workspace-runtime devsy
+devrouter doctor --json
+```
+
+The explicit runtime selection downloads the matching supported Linux agent
+into Devrouter-owned state, verifies its pinned size and SHA-256 digest, and
+makes later starts network-independent. Generic setup does not download it.
+Doctor reports `ready`, `missing`, `stale`, or `invalid` without network access.
+If `DEVSY_AGENT_BINARY` is set, Devrouter validates that source instead and
+never replaces it.
+
 Quick checks:
 
 ```bash
@@ -30,7 +44,8 @@ mkcert --version
 
 `devrouter setup --yes --json` also checks Docker, Compose, mkcert, the active
 workspace runtime CLI (DevPod or Devsy), and the target repository's Node/pnpm
-toolchain. Missing optional tools become explicit remediation items.
+toolchain. When Devsy is active, it also checks verified agent readiness.
+Missing optional tools become explicit remediation items.
 
 ## Install the CLI
 

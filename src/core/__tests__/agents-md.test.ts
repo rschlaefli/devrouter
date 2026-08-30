@@ -30,6 +30,7 @@ describe("agents-md", () => {
     expect(content).toContain(
       "Primary or linked devcontainer checkout: `devrouter ensure . --json`",
     );
+    expect(content).toContain("devrouter setup --yes --workspace-runtime devsy");
     expect(content).toContain("Host/docker runtime app only:");
     expect(content).toContain(
       "managed post-start adapter must set `waitFor` exactly to `postCreateCommand` or `postStartCommand`",
@@ -47,6 +48,9 @@ describe("agents-md", () => {
     expect(skillContent).toContain("devrouter upgrade <version>");
     expect(skillContent).toContain("devrouter -V");
     expect(skillContent).toContain("devrouter setup --repo . --yes");
+    expect(skillContent).toContain("devrouter setup --yes --workspace-runtime devsy");
+    expect(skillContent).toContain("`ready`, `missing`, `stale`, or `invalid`");
+    expect(skillContent).not.toContain("failed Devsy start that reports");
     expect(skillContent).toContain("devrouter ensure [path] [--profile <name>] [--open] [--json]");
     expect(skillContent).toContain("devrouter exec [path] -- <command...>");
     expect(skillContent).toContain("devrouter repo inspect --repo . --json");

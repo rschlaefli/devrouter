@@ -300,8 +300,20 @@ ownership, and tightly coupled setup/start integration remain with `main`.
   diagnostics without a new product primitive. The configured planning pass
   returned `DONE`; accepted decisions are recorded above.
 - 2026-08-30: the user approved the reviewed S0-S5 execution contract.
-- Current: S0 is active; the approved plan and project index are ready for the
-  first local commit.
+- 2026-08-30: S0-S1 are complete at `d17aa42`. The 14 acquisition tests,
+  typecheck, Biome, and Knip passed; the supply-chain slice review was clean.
+  The simplifier's Low helper extraction was declined because the two explicit
+  gates make the pre-lock fast path and inside-lock race recheck visible.
+- 2026-08-30: S2 is complete at `05c154b`. The 37 focused diagnostics tests,
+  typecheck, Biome, Knip, build, and JSON setup readback passed. Its test-only
+  simplifier finding was accepted and verified.
+- 2026-08-30: S3 is complete at `5aeec56`. The 22 mutation and 14 acquisition
+  tests, typecheck, Biome, and Knip passed; the lifecycle slice review was
+  clean. Its test-mock simplification was accepted and verified.
+- Current: S4 is active. ADR 0006, manuals, knowledge, bundled skill, generated
+  guidance, and prompt assertions agree; the 8 focused tests, docs policy,
+  knowledge, Biome, and diff checks pass.
 - Delivery: required local reviewed release branch; execution is authorized;
   push, PR, merge, and publication remain withheld.
-- Next: commit S0 and execute S1-S5 to the terminal condition.
+- Next: commit S4, then prepare and qualify 0.0.47 through S5 and integrated
+  final review without starting a workspace runtime.
