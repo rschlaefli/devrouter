@@ -225,13 +225,13 @@ function devsyAgentCheck(inspection: DevsyAgentInspection): DiagnosticCheck {
   };
 }
 
-function withDevsyTelemetryDisabled<T>(operation: () => T): T {
+export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
   // Devsy emits telemetry even for version and registry reads. Diagnostics are
   // synchronous, so this scopes the inherited opt-out to the complete probe.
   const previous = process.env[DEVSY_DISABLE_TELEMETRY];
   process.env[DEVSY_DISABLE_TELEMETRY] = "true";
   try {
-    return operation();
+    return buildGlobalToolChecksWithoutTelemetry(repoPath);
   } finally {
     if (previous === undefined) {
       delete process.env[DEVSY_DISABLE_TELEMETRY];
@@ -239,10 +239,6 @@ function withDevsyTelemetryDisabled<T>(operation: () => T): T {
       process.env[DEVSY_DISABLE_TELEMETRY] = previous;
     }
   }
-}
-
-export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
-  return withDevsyTelemetryDisabled(() => buildGlobalToolChecksWithoutTelemetry(repoPath));
 }
 
 function buildGlobalToolChecksWithoutTelemetry(repoPath: string): DiagnosticCheck[] {
