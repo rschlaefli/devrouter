@@ -354,9 +354,11 @@ ownership, and tightly coupled setup/start integration remain with `main`.
   diagnostics scope is required. Commit `17d8c96` inlines its only single-use
   helper without changing subprocess coverage or caller restoration. All
   canonical checks and the built 25/0/0 doctor proof pass on that commit.
-- Current: S0-S5 are complete. The final-review findings are resolved and the
-  final reviewer must now verify `17d8c96` plus this current Progress record.
+- 2026-08-30: the final integrated review passed the exact
+  `6f4a96f..5701dd7` range across all 29 changed paths with no remaining
+  findings. This terminal Progress update changes no reviewed behavior.
+- Current: S0-S5 are complete and all required reviews pass.
 - Delivery: required local reviewed release branch. Push, PR, merge, npm or
   GitHub publication, cleanup, and deletion remain withheld.
-- Next: complete final review, then report the exact local head for the
-  separately approved delivery step.
+- Next: report the exact local head, then wait for separate push and PR
+  authority.
