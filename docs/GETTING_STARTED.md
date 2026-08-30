@@ -29,6 +29,9 @@ devrouter doctor --json
 The explicit runtime selection downloads the matching supported Linux agent
 into Devrouter-owned state, verifies its pinned size and SHA-256 digest, and
 makes later starts network-independent. Generic setup does not download it.
+Direct HTTPS is the primary acquisition path. If that connection fails and an
+authenticated GitHub CLI is available, setup streams the same pinned release
+asset through GitHub's API and reports `transport=github-cli`.
 Doctor reports `ready`, `missing`, `stale`, or `invalid` without network access.
 If `DEVSY_AGENT_BINARY` is set, Devrouter validates that source instead and
 never replaces it.

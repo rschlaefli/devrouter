@@ -174,7 +174,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
           summary: prepared.changed
             ? `Downloaded and verified ${prepared.asset.name} for Devsy.`
             : `Verified the ${prepared.source} Devsy agent source.`,
-          details: `version=${SUPPORTED_DEVSY_VERSION}, asset=${prepared.asset.name}, source=${prepared.source}`,
+          details: `version=${SUPPORTED_DEVSY_VERSION}, asset=${prepared.asset.name}, source=${prepared.source}, transport=${prepared.transport}`,
         }),
       );
     } catch (error) {

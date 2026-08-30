@@ -35,12 +35,14 @@ beforeEach(() => {
     binaryPath: "/managed/devsy-agent",
     source: "managed",
     asset: {
+      githubAssetId: 1,
       name: "devsy-linux-arm64",
       size: 1,
       sha256: "digest",
       url: "https://example.invalid/agent",
     },
     changed: false,
+    transport: "existing",
   });
   mockDevsyUp();
 });
@@ -276,12 +278,14 @@ describe("startDevsyWorkspace", () => {
       binaryPath: "/operator/devsy-agent",
       source: "explicit",
       asset: {
+        githubAssetId: 1,
         name: "devsy-linux-arm64",
         size: 1,
         sha256: "digest",
         url: "https://example.invalid/agent",
       },
       changed: false,
+      transport: "existing",
     });
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];

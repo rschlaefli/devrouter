@@ -85,12 +85,14 @@ beforeEach(() => {
     binaryPath: "/managed/devsy-agent",
     source: "managed",
     asset: {
+      githubAssetId: 1,
       name: "devsy-linux-arm64",
       size: 1,
       sha256: "digest",
       url: "https://example.invalid/agent",
     },
     changed: true,
+    transport: "https",
   });
   vi.mocked(installTLS).mockResolvedValue({
     alreadyEnabled: false,
@@ -217,12 +219,14 @@ describe("runSetup", () => {
       binaryPath: "/managed/devsy-agent",
       source: "managed",
       asset: {
+        githubAssetId: 1,
         name: "devsy-linux-arm64",
         size: 1,
         sha256: "digest",
         url: "https://example.invalid/agent",
       },
       changed: false,
+      transport: "existing",
     });
 
     const report = await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "devsy" });

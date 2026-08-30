@@ -16,6 +16,7 @@ let tmpDir: string;
 
 function fixtureAsset(name: string, contents: Buffer): DevsyAgentAsset {
   return {
+    githubAssetId: 1,
     name,
     size: contents.length,
     sha256: createHash("sha256").update(contents).digest("hex"),
@@ -59,11 +60,13 @@ describe("Devsy agent manifest", () => {
     expect(DEVSY_AGENT_ASSETS).toEqual([
       expect.objectContaining({
         name: "devsy-linux-arm64",
+        githubAssetId: 529_830_010,
         size: 124_518_562,
         sha256: "31060b96486b5398f2aa3ee0875b2555782a2db0954a799d387be38ed4b4990d",
       }),
       expect.objectContaining({
         name: "devsy-linux-amd64",
+        githubAssetId: 529_830_011,
         size: 133_505_186,
         sha256: "4983c52a3536c5a91d1b5f356a1c3428778ebf3f896d9897f60bce3978abc839",
       }),
@@ -171,7 +174,12 @@ describe("prepareDevsyAgent", () => {
       fetcher,
     });
 
-    expect(result).toMatchObject({ source: "managed", asset, changed: true });
+    expect(result).toMatchObject({
+      source: "managed",
+      asset,
+      changed: true,
+      transport: "https",
+    });
     expect(fs.readFileSync(result.binaryPath)).toEqual(contents);
     expect(fs.statSync(result.binaryPath).mode & 0o777).toBe(0o700);
     expect(fetcher).toHaveBeenCalledOnce();
@@ -190,6 +198,7 @@ describe("prepareDevsyAgent", () => {
     await expect(prepareDevsyAgent({ ...options, fetcher })).resolves.toMatchObject({
       binaryPath,
       changed: false,
+      transport: "existing",
     });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -240,6 +249,47 @@ describe("prepareDevsyAgent", () => {
     if (fs.existsSync(path.dirname(binaryPath))) {
       expect(fs.readdirSync(path.dirname(binaryPath))).toEqual([]);
     }
+  });
+
+  it("falls back to the pinned GitHub release asset when direct HTTPS cannot connect", async () => {
+    const contents = Buffer.from("verified fallback agent");
+    const asset = fixtureAsset("test-agent", contents);
+    const fetcher = vi.fn(async () => {
+      throw new Error("connect timeout");
+    });
+    const githubCliDownloader = vi.fn(async (_asset, writeChunk) => {
+      await writeChunk(contents.subarray(0, 7));
+      await writeChunk(contents.subarray(7));
+    });
+
+    const result = await prepareDevsyAgent({
+      ...baseOptions(asset),
+      fetcher,
+      githubCliDownloader,
+    });
+
+    expect(result).toMatchObject({ changed: true, transport: "github-cli" });
+    expect(githubCliDownloader).toHaveBeenCalledWith(asset, expect.any(Function));
+    expect(fs.readFileSync(result.binaryPath)).toEqual(contents);
+  });
+
+  it("reports both acquisition transports when the GitHub CLI fallback fails", async () => {
+    const contents = Buffer.from("verified fallback agent");
+    const asset = fixtureAsset("test-agent", contents);
+
+    await expect(
+      prepareDevsyAgent({
+        ...baseOptions(asset),
+        fetcher: async () => {
+          throw new Error("connect timeout");
+        },
+        githubCliDownloader: async () => {
+          throw new Error("gh authentication unavailable");
+        },
+      }),
+    ).rejects.toThrow(
+      "direct HTTPS download failed: connect timeout; GitHub CLI fallback failed: gh authentication unavailable. Restore direct GitHub release access or install and authenticate gh.",
+    );
   });
 
   it("does not replace or download for an invalid explicit override", async () => {

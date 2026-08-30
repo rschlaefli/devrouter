@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -10,6 +10,7 @@ export const SUPPORTED_DEVSY_VERSION = "1.16.2";
 export const DEVSY_AGENT_SETUP_COMMAND = "devrouter setup --yes --workspace-runtime devsy";
 
 export type DevsyAgentAsset = {
+  githubAssetId: number;
   name: string;
   size: number;
   sha256: string;
@@ -18,12 +19,14 @@ export type DevsyAgentAsset = {
 
 export const DEVSY_AGENT_ASSETS: readonly DevsyAgentAsset[] = [
   {
+    githubAssetId: 529_830_010,
     name: "devsy-linux-arm64",
     size: 124_518_562,
     sha256: "31060b96486b5398f2aa3ee0875b2555782a2db0954a799d387be38ed4b4990d",
     url: "https://github.com/devsy-org/devsy/releases/download/v1.16.2/devsy-linux-arm64",
   },
   {
+    githubAssetId: 529_830_011,
     name: "devsy-linux-amd64",
     size: 133_505_186,
     sha256: "4983c52a3536c5a91d1b5f356a1c3428778ebf3f896d9897f60bce3978abc839",
@@ -48,7 +51,14 @@ export type PreparedDevsyAgent = {
   source: DevsyAgentSource;
   asset: DevsyAgentAsset;
   changed: boolean;
+  transport: "existing" | "https" | "github-cli";
 };
+
+type DevsyAgentChunkWriter = (chunk: Uint8Array) => Promise<void>;
+type GitHubCliDownloader = (
+  asset: DevsyAgentAsset,
+  writeChunk: DevsyAgentChunkWriter,
+) => Promise<void>;
 
 type DevsyAgentOptions = {
   env?: NodeJS.ProcessEnv;
@@ -63,6 +73,7 @@ type DevsyAgentOptions = {
 
 type PrepareDevsyAgentOptions = DevsyAgentOptions & {
   fetcher?: typeof fetch;
+  githubCliDownloader?: GitHubCliDownloader;
   withLock?: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
@@ -220,6 +231,75 @@ async function writeAll(handle: FileHandle, chunk: Uint8Array, position: number)
   }
 }
 
+const GITHUB_CLI_STDERR_TAIL_BYTES = 4096;
+
+function appendBoundedTail(current: Buffer, chunk: Buffer): Buffer {
+  if (chunk.length >= GITHUB_CLI_STDERR_TAIL_BYTES) {
+    return Buffer.from(chunk.subarray(chunk.length - GITHUB_CLI_STDERR_TAIL_BYTES));
+  }
+  const combined = Buffer.concat([current, chunk]);
+  return combined.length > GITHUB_CLI_STDERR_TAIL_BYTES
+    ? combined.subarray(combined.length - GITHUB_CLI_STDERR_TAIL_BYTES)
+    : combined;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function downloadWithGitHubCli(
+  asset: DevsyAgentAsset,
+  writeChunk: DevsyAgentChunkWriter,
+): Promise<void> {
+  const child = spawn(
+    "gh",
+    [
+      "api",
+      `repos/devsy-org/devsy/releases/assets/${asset.githubAssetId}`,
+      "-H",
+      "Accept: application/octet-stream",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  if (!child.stdout || !child.stderr) {
+    child.kill();
+    throw new Error("GitHub CLI fallback did not create output pipes");
+  }
+
+  let stderrTail: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  child.stderr.on("data", (chunk: Buffer | string) => {
+    const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    stderrTail = appendBoundedTail(stderrTail, value);
+  });
+  let spawnError: Error | undefined;
+  const completion = new Promise<number | null>((resolve) => {
+    child.once("error", (error) => {
+      spawnError = error;
+    });
+    child.once("close", (status) => {
+      resolve(status);
+    });
+  });
+
+  try {
+    for await (const chunk of child.stdout) {
+      await writeChunk(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const status = await completion;
+    if (spawnError) throw spawnError;
+    if (status !== 0) {
+      const details = stderrTail.toString("utf-8").trim();
+      throw new Error(
+        `gh api exited with status ${status ?? "unknown"}${details ? `: ${details}` : ""}`,
+      );
+    }
+  } catch (error) {
+    if (child.exitCode === null) child.kill();
+    await completion.catch(() => undefined);
+    throw error;
+  }
+}
+
 function fsyncDirectory(directory: string): void {
   const handle = fs.openSync(directory, "r");
   try {
@@ -233,7 +313,8 @@ async function downloadAndPublish(
   asset: DevsyAgentAsset,
   binaryPath: string,
   fetcher: typeof fetch,
-): Promise<void> {
+  githubCliDownloader: GitHubCliDownloader,
+): Promise<"https" | "github-cli"> {
   const directory = path.dirname(binaryPath);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const temporaryPath = path.join(
@@ -242,26 +323,52 @@ async function downloadAndPublish(
   );
   let handle: FileHandle | undefined;
   try {
-    const response = await fetcher(asset.url);
-    if (!response.ok) {
-      throw new Error(`Devsy agent download failed with HTTP ${response.status}`);
+    let response: Response | undefined;
+    let directFailure: unknown;
+    try {
+      response = await fetcher(asset.url);
+    } catch (error) {
+      directFailure = error;
     }
-    if (!response.body) throw new Error("Devsy agent download returned no response body");
 
     handle = await fs.promises.open(temporaryPath, "wx", 0o600);
-    const reader = response.body.getReader();
     const digest = createHash("sha256");
     let size = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
+    const writeChunk = async (chunk: Uint8Array): Promise<void> => {
+      size += chunk.byteLength;
       if (size > asset.size) {
-        await reader.cancel();
         throw new Error("Devsy agent download exceeded the pinned size");
       }
-      digest.update(value);
-      await writeAll(handle, value, size - value.byteLength);
+      digest.update(chunk);
+      await writeAll(handle as FileHandle, chunk, size - chunk.byteLength);
+    };
+    let transport: "https" | "github-cli";
+    if (response) {
+      if (!response.ok) {
+        throw new Error(`Devsy agent download failed with HTTP ${response.status}`);
+      }
+      if (!response.body) throw new Error("Devsy agent download returned no response body");
+      const reader = response.body.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await writeChunk(value);
+        }
+      } catch (error) {
+        await reader.cancel().catch(() => undefined);
+        throw error;
+      }
+      transport = "https";
+    } else {
+      try {
+        await githubCliDownloader(asset, writeChunk);
+      } catch (fallbackError) {
+        throw new Error(
+          `Devsy agent direct HTTPS download failed: ${errorMessage(directFailure)}; GitHub CLI fallback failed: ${errorMessage(fallbackError)}. Restore direct GitHub release access or install and authenticate gh.`,
+        );
+      }
+      transport = "github-cli";
     }
     if (size !== asset.size) throw new Error("Devsy agent download has an unexpected size");
     if (digest.digest("hex") !== asset.sha256) {
@@ -275,6 +382,7 @@ async function downloadAndPublish(
     handle = undefined;
     await fs.promises.rename(temporaryPath, binaryPath);
     fsyncDirectory(directory);
+    return transport;
   } finally {
     if (handle) await handle.close();
     await fs.promises.rm(temporaryPath, { force: true });
@@ -293,6 +401,7 @@ export async function prepareDevsyAgent(
       source: before.source,
       asset: before.asset,
       changed: false,
+      transport: "existing",
     };
   }
   if (
@@ -328,6 +437,7 @@ export async function prepareDevsyAgent(
         source: current.source,
         asset: current.asset,
         changed: false,
+        transport: "existing",
       };
     }
     if (
@@ -339,7 +449,12 @@ export async function prepareDevsyAgent(
       throw new DevsyAgentReadinessError(current);
     }
 
-    await downloadAndPublish(current.asset, current.binaryPath, options.fetcher ?? fetch);
+    const transport = await downloadAndPublish(
+      current.asset,
+      current.binaryPath,
+      options.fetcher ?? fetch,
+      options.githubCliDownloader ?? downloadWithGitHubCli,
+    );
     const published = inspectDevsyAgent(inspectOptions);
     if (published.state !== "ready" || !published.binaryPath || !published.asset) {
       throw new DevsyAgentReadinessError(published);
@@ -349,6 +464,7 @@ export async function prepareDevsyAgent(
       source: published.source,
       asset: published.asset,
       changed: true,
+      transport,
     };
   });
 }
@@ -363,5 +479,6 @@ export function requireReadyDevsyAgent(options: DevsyAgentOptions = {}): Prepare
     source: inspection.source,
     asset: inspection.asset,
     changed: false,
+    transport: "existing",
   };
 }

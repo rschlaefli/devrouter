@@ -30,7 +30,9 @@ Devrouter-launched Devsy workspaces also require one verified Linux agent.
 Prepare it once with `devrouter setup --yes --workspace-runtime devsy`.
 Devrouter stores the supported pinned asset under its own machine cache and
 passes the verified path only to the CLI child that starts the workspace. It
-does not write Devsy's private cache or alter the desktop app environment. An
+uses direct HTTPS first and can use an authenticated GitHub CLI as a transport
+fallback for the same pinned asset; both paths enforce the same size and digest.
+Devrouter does not write Devsy's private cache or alter the desktop app environment. An
 explicit `DEVSY_AGENT_BINARY` remains authoritative, but must match a pinned
 official asset exactly. `devrouter doctor` checks readiness without network
 access; a missing, stale, or invalid source stops `ensure` before the Devsy
