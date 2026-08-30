@@ -59,6 +59,8 @@ checkout or runtime generations to be combined into an apparently healthy enviro
 - Treating JSON as route authority did not prove which route generation Traefik actually received.
 - Accepting every HTTP 4xx as route readiness preserved legitimate application 404 responses, but
   also accepted Traefik's unmatched-route 404 when its file provider missed a reload.
+- Querying Traefik's router APIs without pagination inspected only the default first 100 entries,
+  so a valid router later in a large shared installation looked absent even after recovery.
 - Treating a non-zero provider exit as proof that nothing started removed
   recovery state even though Devsy had already registered the exact checkout.
 
@@ -140,12 +142,17 @@ headerless legacy generations from validated JSON, repair stale mirrors, and fai
 corruption (`parseCanonicalState` and `readHostRouteStateLocked` in `src/core/host-routes.ts`).
 
 After managed proxy publication, prove the exact generated HTTP and TCP router names through
-Traefik's localhost API (`src/core/traefik-route-health.ts:31-99`). Allow the normal file-provider
+Traefik's localhost API (`src/core/traefik-route-health.ts:34-109`). Allow the normal file-provider
 watch a short grace period. If an expected `@file` router remains absent, serialize recovery through
 one machine-wide lock, recheck after acquiring it, restart only the Devrouter-owned Traefik service
-once, and prove the router set again (`src/core/traefik-route-health.ts:101-159`). Keep the existing
+once, and prove the router set again (`src/core/traefik-route-health.ts:111-169`). Keep the existing
 application HTTP probe afterward, so a legitimate application 404 still counts as reachable while
 Traefik's own unmatched-route 404 cannot mark a managed runtime ready.
+
+Request a bounded 1,000-router view from both protocol APIs. If an expected router is missing while
+the response reaches that bound, report incomplete proof instead of claiming absence. Focused
+coverage places the target beyond Traefik's default first 100 entries and retains the persistent
+absence failure (`src/core/__tests__/traefik-route-health.test.ts`).
 
 Serialize every ownership write or removal through one repository-wide ledger transaction
 (`withWorkspaceOwnershipTransaction` in `src/core/workspace-ownership.ts`). GC holds that same
@@ -183,8 +190,9 @@ Route failure injection covers JSON failure, both sides of canonical rename, cor
 legacy migration, stale-mirror repair, and real concurrent writers whose canonical metadata and YAML
 retain both routes (`src/core/__tests__/host-routes-state.test.ts`).
 
-The focused provider regression proves the already-loaded path, one-restart recovery, and terminal
-absence (`src/core/__tests__/traefik-route-health.test.ts:69-126`). The workspace regression preserves
+The focused provider regression proves exact HTTP and TCP names, a target beyond the default API
+page, bounded-view uncertainty, one-restart recovery, and persistent fail-closed absence
+(`src/core/__tests__/traefik-route-health.test.ts:69-166`). The workspace regression preserves
 application-level 404 readiness while requiring the missing provider router to trigger recovery
 (`src/core/__tests__/workspace-ensure.test.ts:940-990`).
 

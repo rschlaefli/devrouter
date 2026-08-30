@@ -11,10 +11,13 @@ const ROUTER_RELOAD_LOCK_FILE = path.join(DEVROUTER_HOME, "router-reload.lock");
 const DEFAULT_INITIAL_TIMEOUT_MS = 3_000;
 const DEFAULT_RECOVERY_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
+const ROUTER_API_PAGE_SIZE = 1_000;
 
 type RouteProtocol = "http" | "tcp";
 
-type RouterApiResult = { ok: true; names: Set<string> } | { ok: false; details: string };
+type RouterApiResult =
+  | { ok: true; names: Set<string>; reachedPageLimit: boolean }
+  | { ok: false; details: string };
 
 type RouteLoadResult = { ok: true } | { ok: false; missing: string[]; details: string };
 
@@ -37,7 +40,7 @@ function inspectRouterApi(protocol: RouteProtocol): RouterApiResult {
       "--fail",
       "--max-time",
       "2",
-      `${ROUTER_API_BASE}/${protocol}/routers`,
+      `${ROUTER_API_BASE}/${protocol}/routers?per_page=${ROUTER_API_PAGE_SIZE}`,
     ],
     { encoding: "utf-8" },
   );
@@ -60,6 +63,7 @@ function inspectRouterApi(protocol: RouteProtocol): RouterApiResult {
 
   return {
     ok: true,
+    reachedPageLimit: value.length >= ROUTER_API_PAGE_SIZE,
     names: new Set(
       value.flatMap((item) => {
         if (!item || typeof item !== "object") return [];
@@ -86,7 +90,13 @@ function inspectExpectedRoutes(routes: HostRouteInput[]): RouteLoadResult {
       missing.push(...expected);
       continue;
     }
-    missing.push(...expected.filter((name) => !result.names.has(name)));
+    const absent = expected.filter((name) => !result.names.has(name));
+    if (absent.length > 0 && result.reachedPageLimit) {
+      failures.push(
+        `${protocol.toUpperCase()} router API reached the ${ROUTER_API_PAGE_SIZE}-entry safety limit`,
+      );
+    }
+    missing.push(...absent);
   }
 
   return missing.length === 0

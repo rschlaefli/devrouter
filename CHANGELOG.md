@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Managed route proof now requests a bounded 1,000-router view from both the
+  HTTP and TCP Traefik APIs instead of silently inspecting only the default
+  first 100 entries. If an expected router is absent from a full bounded
+  response, readiness remains fail-closed because the API view may be
+  incomplete.
+
 ## [0.0.48] - 2026-08-30
 
 ### Added
