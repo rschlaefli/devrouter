@@ -132,8 +132,9 @@ Record exact results and remaining publication boundary here.
 - [x] Existing profile and Devsy tasks reported non-overlapping ownership.
 - [x] Fresh isolated worktree created from exact `origin/main` `6f4a96f`.
 - [x] D0 plan is committed as `024e984`.
-- [x] D1 pure command is committed as `384e8a3`. Biome, Knip, typecheck, all
-      777 unit tests, build, and the initial packed-package smoke pass.
+- [x] D1 pure command is committed as `384e8a3`, with merged-readiness default
+      expansion corrected in `38d417e`. Biome, Knip, typecheck, all 778 unit
+      tests, build, and the packed-package smoke pass.
 - [ ] D2 waits for explicit integration authority and completed `0.0.47` work.
 - [x] D3 packed CLI contents resolve the real Klicker `manage,pwa`,
       `chat,manage,pwa`, and `live-quiz,manage,pwa` unions with a read-only home;
