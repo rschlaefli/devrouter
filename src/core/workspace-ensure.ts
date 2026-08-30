@@ -806,10 +806,10 @@ export async function workspaceEnsure(
       const currentTarget = (): EnvironmentTarget =>
         target.kind === "linked" ? target : { ...target, devpodId };
 
-      const startAndProveAttachment = (recreate = false): void => {
+      const startAndProveAttachment = async (recreate = false): Promise<void> => {
         const requestedTarget = currentTarget();
         try {
-          devpodId = startDevpodWorkspace({
+          devpodId = await startDevpodWorkspace({
             repoPath,
             devpodId: requestedTarget.devpodId,
             devcontainerPath: managedPlan?.generatedRelativePath,
@@ -833,14 +833,14 @@ export async function workspaceEnsure(
       const preflight = (timeoutMs: number): Promise<ValidatedWorkspaceContainer> =>
         waitForContainerPreflight(repoPath, currentTarget(), upstreamHosts, timeoutMs);
       const recreateAndPreflight = async (): Promise<ValidatedWorkspaceContainer> => {
-        startAndProveAttachment(true);
+        await startAndProveAttachment(true);
         return preflight(options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
       };
 
       let recreated = false;
       let container: ValidatedWorkspaceContainer | undefined;
       try {
-        startAndProveAttachment();
+        await startAndProveAttachment();
       } catch (error) {
         if (managedPlan || !target.hadExactDevpod) {
           throw error;

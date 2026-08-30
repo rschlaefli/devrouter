@@ -69,9 +69,8 @@ at successful lock acquisition. No `DEVSY_AGENT_PATH`, download, or cache logic.
   binary requirement where downloads are blocked. `DEVSY_AGENT_PATH` does not
   exist anywhere in the tree.
 - Limitations: no network documentation for Devsy; local CLI and source
-  evidence only. Vitest `spawnSync` mocks cannot express live `stdio:
-  "inherit"` capture, so diagnostic tests assert spawn options and error text
-  while cross-process tests prove live behavior.
+  evidence only. Diagnostic tests model Buffer-backed child stderr through a
+  stream, while cross-process tests prove live provider behavior.
 
 ## Unclarities / grill pass
 
@@ -292,3 +291,17 @@ credit-limited today).
   across 66 files, build, package installation smoke, and `git diff --check`.
   The Linux-only process-helper test remains skipped on macOS. Next: commit
   the simplification, run integrated final review, and open the draft PR.
+- 2026-08-30: S6 final review first pass found four actionable gaps on
+  `b18a72e`: quiet Devsy stdout no longer protected JSON mode, `spawnSync`
+  dropped Buffer stderr and retained its one-MiB failure ceiling, portable
+  process-birth checks ran every 20 ms, and unreadable Docker state lacked a
+  direct regression. One correction pass replaced Devsy startup with an async
+  child whose stderr is forwarded live while an 8 KiB tail classifies the
+  known acquisition failure; quiet stdout now targets fd 2. Process-birth
+  verification is cached for one second per expected owner while the cheap PID
+  liveness check remains per retry. The Docker-error path now proves no
+  provider start or managed-config write. Current-source checks pass: docs
+  policy, knowledge validation, Biome across 170 files, Knip, typecheck, 769
+  tests across 66 files, build, package installation smoke, and
+  `git diff --check`; the Linux-only process-helper test remains skipped on
+  macOS. Next: commit the correction and obtain the final-review disposition.

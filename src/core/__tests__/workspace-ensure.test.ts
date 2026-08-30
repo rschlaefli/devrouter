@@ -1,7 +1,9 @@
-import { spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DevrouterConfig, HostRouteState, ManagedRuntimeStatus } from "../../types";
 import {
@@ -36,7 +38,7 @@ import { startRouterStack } from "../router";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
-vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../file-lock", () => ({
   withFileLock: vi.fn(async (_path: string, _options: unknown, operation: () => Promise<unknown>) =>
     operation(),
@@ -355,6 +357,7 @@ describe("workspaceEnsure", () => {
     vi.mocked(replaceHostRoutesForRepo).mockReturnValue([]);
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue({ kind: "unmanaged" });
     vi.mocked(runManagedPostStart).mockImplementation(() => undefined);
+    mockDevsyUp();
   });
 
   afterEach(() => {
@@ -373,6 +376,23 @@ describe("workspaceEnsure", () => {
       .mock.calls.filter(
         ([command, args]) => command === "devpod" && (args as string[])[0] === "up",
       );
+  }
+
+  function mockDevsyUp(
+    options: { status?: number; stderr?: string; onStart?: () => void } = {},
+  ): void {
+    vi.mocked(spawn).mockImplementation(() => {
+      options.onStart?.();
+      const child = new EventEmitter() as ChildProcess;
+      const stderr = new PassThrough();
+      Object.assign(child, { stderr });
+      queueMicrotask(() => {
+        if (options.stderr) stderr.write(Buffer.from(options.stderr));
+        stderr.end();
+        child.emit("close", options.status ?? 0, null);
+      });
+      return child;
+    });
   }
 
   function mockLifecycle(
@@ -638,7 +658,9 @@ describe("workspaceEnsure", () => {
     };
   }
 
-  function mockManagedLifecycle(options: { events?: string[]; curlStatus?: number } = {}): {
+  function mockManagedLifecycle(
+    options: { events?: string[]; curlStatus?: number; dockerPsFailureForProject?: string } = {},
+  ): {
     runningServices: Set<string>;
     runningProcesses: Set<string>;
   } {
@@ -735,6 +757,12 @@ describe("workspaceEnsure", () => {
           filterIndex >= 0
             ? argv[filterIndex + 1]?.replace("label=com.docker.compose.project=", "")
             : undefined;
+        if (
+          options.dockerPsFailureForProject &&
+          composeProject === options.dockerPsFailureForProject
+        ) {
+          return { status: 1, stdout: "", stderr: "docker unavailable" } as never;
+        }
         const ids = snapshots
           .filter(
             (snapshot) =>
@@ -809,6 +837,13 @@ describe("workspaceEnsure", () => {
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
     const delegate = vi.mocked(spawnSync).getMockImplementation();
     let startAttempted = false;
+    mockDevsyUp({
+      status: 1,
+      stderr: "agent injection failed",
+      onStart: () => {
+        startAttempted = true;
+      },
+    });
     vi.mocked(spawnSync).mockImplementation((command, args, options) => {
       const argv = (args as string[]) ?? [];
       if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
@@ -821,10 +856,6 @@ describe("workspaceEnsure", () => {
           ),
           stderr: "",
         } as never;
-      }
-      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
-        startAttempted = true;
-        return { status: 1, stdout: "", stderr: "agent injection failed" } as never;
       }
       return delegate?.(command, args, options) as never;
     });
@@ -1028,6 +1059,38 @@ describe("workspaceEnsure", () => {
       }),
     );
     expect(markManagedRuntimeDegraded).not.toHaveBeenCalled();
+  });
+
+  it("keeps degraded state fail-closed when exact project inspection fails", async () => {
+    const events: string[] = [];
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["litellm"],
+        processes: ["app"],
+      },
+    });
+    mockManagedLifecycle({
+      events,
+      dockerPsFailureForProject: "unreadable-project",
+    });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      ...managedPreviousState(),
+      composeProject: "unreadable-project",
+      status: "degraded",
+      transitionPhase: "rollback",
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Managed runtime state is degraded");
+
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(inspectManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
   });
 
   it("rejects a warm ensure when the managed source configuration changed", async () => {

@@ -148,10 +148,10 @@ export function deleteOwnedDevpodWorkspace(
   return result;
 }
 
-export function startDevpodWorkspace(options: DevpodStartOptions): string {
+export async function startDevpodWorkspace(options: DevpodStartOptions): Promise<string> {
   if (resolveWorkspaceRuntimeOrDefault(options.repoPath) === "devsy") {
     try {
-      const result = startDevsyWorkspace({
+      const result = await startDevsyWorkspace({
         repoPath: options.repoPath,
         devsyId: options.devpodId,
         devcontainerPath: options.devcontainerPath,

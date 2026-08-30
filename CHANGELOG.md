@@ -17,8 +17,9 @@ All notable changes to this project are documented in this file.
   remain conservatively live.
 - A failed `devsy workspace up` whose stderr reports the agent-binary
   acquisition failure now appends remediation (allow Devsy to download its
-  agent or set `DEVSY_AGENT_BINARY` to a verified official binary). Captured
-  startup stderr is replayed so quiet runs never hide provider output.
+  agent or set `DEVSY_AGENT_BINARY` to a verified official binary). Startup
+  stderr is streamed to fd 2 while only a bounded diagnostic tail is retained,
+  so quiet runs never hide provider output or corrupt JSON stdout.
 - Detached managed runtime state no longer permanently blocks a checkout after
   its exact Compose project disappears. Devrouter rebaselines from the exact
   currently observed workspace before a provider or Compose-project handoff;

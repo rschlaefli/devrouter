@@ -1,4 +1,6 @@
-import { spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DevsyStartPostconditionError,
@@ -10,9 +12,12 @@ import { withFileLockSync } from "../file-lock";
 
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-devsy-mutation-test" }));
 
-vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../router", () => ({ DEVROUTER_HOME: paths.home }));
 vi.mock("../file-lock", () => ({
+  withFileLock: vi.fn(async (_path: string, _options: unknown, operation: () => Promise<unknown>) =>
+    operation(),
+  ),
   withFileLockSync: vi.fn((_path: string, _options: unknown, operation: () => unknown) =>
     operation(),
   ),
@@ -21,12 +26,31 @@ vi.mock("../file-lock", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockDevsyUp();
 });
 
 const owned = { id: "feature", source: { localFolder: "/repo/feature" } };
 
 function listResult(workspaces: unknown[] = [owned]) {
   return { status: 0, stdout: JSON.stringify(workspaces), stderr: "" } as never;
+}
+
+function mockDevsyUp(options: { status?: number; stderr?: string | Buffer } = {}): void {
+  vi.mocked(spawn).mockImplementation(() => {
+    const child = new EventEmitter() as ChildProcess;
+    const stderr = new PassThrough();
+    Object.assign(child, { stderr });
+    queueMicrotask(() => {
+      if (options.stderr) {
+        stderr.write(
+          Buffer.isBuffer(options.stderr) ? options.stderr : Buffer.from(options.stderr),
+        );
+      }
+      stderr.end();
+      child.emit("close", options.status ?? 0, null);
+    });
+    return child;
+  });
 }
 
 describe("Devsy mutation adapter", () => {
@@ -146,18 +170,16 @@ describe("Devsy mutation adapter", () => {
 });
 
 describe("startDevsyWorkspace", () => {
-  it("starts with a stable id and workspace env, then revalidates ownership", () => {
-    let sawUp = false;
+  it("starts with a stable id and workspace env, then revalidates ownership", async () => {
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
       if (command === "devsy" && argv[0] === "workspace") {
         if (argv[1] === "list") return listResult();
-        if (argv[1] === "up") sawUp = true;
       }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    const id = startDevsyWorkspace({
+    const id = await startDevsyWorkspace({
       repoPath: "/repo/feature",
       devsyId: "feature",
       devcontainerPath: ".devcontainer/devcontainer.devrouter.json",
@@ -165,9 +187,8 @@ describe("startDevsyWorkspace", () => {
     });
 
     expect(id).toBe("feature");
-    expect(sawUp).toBe(true);
     const upCall = vi
-      .mocked(spawnSync)
+      .mocked(spawn)
       .mock.calls.find(([command, args]) => command === "devsy" && (args as string[])[1] === "up");
     expect(upCall?.[1]).toEqual([
       "workspace",
@@ -194,7 +215,7 @@ describe("startDevsyWorkspace", () => {
     });
   });
 
-  it("passes --recreate and cleans workspace env without a workspace", () => {
+  it("passes --recreate and cleans workspace env without a workspace", async () => {
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
       if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
@@ -203,7 +224,7 @@ describe("startDevsyWorkspace", () => {
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    startDevsyWorkspace({
+    await startDevsyWorkspace({
       repoPath: "/repo/feature",
       devsyId: "feature",
       recreate: true,
@@ -211,7 +232,7 @@ describe("startDevsyWorkspace", () => {
     });
 
     const upCall = vi
-      .mocked(spawnSync)
+      .mocked(spawn)
       .mock.calls.find(([command, args]) => command === "devsy" && (args as string[])[1] === "up");
     expect(upCall?.[1]).toEqual([
       "workspace",
@@ -229,9 +250,10 @@ describe("startDevsyWorkspace", () => {
     expect(env).not.toHaveProperty("DEVROUTER_WORKSPACE");
     expect(env).not.toHaveProperty("DEVROUTER_GIT_COMMON_DIR");
     expect(env).not.toHaveProperty("DEVCONTAINER_COMPOSE_OVERLAY");
+    expect((upCall?.[2] as { stdio?: unknown } | undefined)?.stdio).toEqual(["inherit", 2, "pipe"]);
   });
 
-  it("forwards the configured inactivity timeout as a provider option", () => {
+  it("forwards the configured inactivity timeout as a provider option", async () => {
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
       if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
@@ -240,14 +262,14 @@ describe("startDevsyWorkspace", () => {
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    startDevsyWorkspace({
+    await startDevsyWorkspace({
       repoPath: "/repo/feature",
       devsyId: "feature",
       inactivityTimeout: "30m",
     });
 
     const upCall = vi
-      .mocked(spawnSync)
+      .mocked(spawn)
       .mock.calls.find(([command, args]) => command === "devsy" && (args as string[])[1] === "up");
     expect(upCall?.[1]).toEqual([
       "workspace",
@@ -262,7 +284,7 @@ describe("startDevsyWorkspace", () => {
     ]);
   });
 
-  it("fails when the provider does not attach the workspace after startup", () => {
+  it("fails when the provider does not attach the workspace after startup", async () => {
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
       if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
@@ -271,12 +293,13 @@ describe("startDevsyWorkspace", () => {
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    expect(() => startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" })).toThrow(
-      DevsyStartPostconditionError,
-    );
+    await expect(
+      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" }),
+    ).rejects.toThrow(DevsyStartPostconditionError);
   });
 
-  it("reports a failed start as possibly started when exact ownership appears", () => {
+  it("reports a failed start as possibly started when exact ownership appears", async () => {
+    mockDevsyUp({ status: 1, stderr: "inject agent: agent binary not found" });
     let listCalls = 0;
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
@@ -284,32 +307,27 @@ describe("startDevsyWorkspace", () => {
         listCalls += 1;
         return listResult(listCalls === 1 ? [] : [owned]);
       }
-      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
-        return { status: 1, stdout: "", stderr: "inject agent: agent binary not found" } as never;
-      }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    expect(() => startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" })).toThrow(
-      DevsyStartPostconditionError,
-    );
+    await expect(
+      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" }),
+    ).rejects.toThrow(DevsyStartPostconditionError);
   });
 
-  it("keeps an ordinary start error when exact absence is proved", () => {
+  it("keeps an ordinary start error when exact absence is proved", async () => {
+    mockDevsyUp({ status: 1, stderr: "provider failed" });
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
       if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
         return listResult([]);
-      }
-      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
-        return { status: 1, stdout: "", stderr: "provider failed" } as never;
       }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
     let failure: unknown;
     try {
-      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+      await startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
     } catch (error) {
       failure = error;
     }
@@ -318,7 +336,8 @@ describe("startDevsyWorkspace", () => {
     expect((failure as Error).message).toContain("devsy workspace up failed");
   });
 
-  it("appends agent-acquisition remediation only for the known failure", () => {
+  it("appends agent-acquisition remediation only for the known failure", async () => {
+    mockDevsyUp({ status: 1, stderr: "inject agent: agent binary not found" });
     let listCalls = 0;
     const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     let replayed = "";
@@ -332,15 +351,12 @@ describe("startDevsyWorkspace", () => {
         listCalls += 1;
         return listResult(listCalls === 1 ? [] : []);
       }
-      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
-        return { status: 1, stdout: "", stderr: "inject agent: agent binary not found" } as never;
-      }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
     let failure: unknown;
     try {
-      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+      await startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
     } catch (error) {
       failure = error;
     }
@@ -349,7 +365,7 @@ describe("startDevsyWorkspace", () => {
     expect(replayed).toContain("inject agent: agent binary not found");
     stderrWrite.mockRestore();
     const upCall = vi
-      .mocked(spawnSync)
+      .mocked(spawn)
       .mock.calls.find(([command, args]) => command === "devsy" && (args as string[])[1] === "up");
     expect(upCall && (upCall[2] as { stdio?: unknown }).stdio).toEqual([
       "inherit",
@@ -358,7 +374,62 @@ describe("startDevsyWorkspace", () => {
     ]);
   });
 
-  it("keeps the unknown-failure message free of remediation", () => {
+  it("replays Devsy stderr after a successful start", async () => {
+    mockDevsyUp({ stderr: "provider ready\n" });
+    let replayed = "";
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      replayed += String(chunk);
+      return true;
+    });
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        return listResult();
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    try {
+      await startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+    } finally {
+      stderrWrite.mockRestore();
+    }
+
+    expect(replayed).toContain("provider ready");
+  });
+
+  it("forwards verbose stderr while retaining the trailing remediation signal", async () => {
+    const output = Buffer.concat([
+      Buffer.alloc(1_100_000, 0x78),
+      Buffer.from("\ninject agent: agent binary not found\n"),
+    ]);
+    mockDevsyUp({ status: 1, stderr: output });
+    let forwardedBytes = 0;
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      forwardedBytes += Buffer.byteLength(chunk);
+      return true;
+    });
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        return listResult([]);
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    try {
+      await expect(
+        startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" }),
+      ).rejects.toThrow("DEVSY_AGENT_BINARY");
+    } finally {
+      stderrWrite.mockRestore();
+    }
+
+    expect(forwardedBytes).toBe(output.length);
+  });
+
+  it("keeps the unknown-failure message free of remediation", async () => {
+    mockDevsyUp({ status: 1, stderr: "provider failed" });
     let listCalls = 0;
     const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.mocked(spawnSync).mockImplementation((command, args) => {
@@ -367,15 +438,12 @@ describe("startDevsyWorkspace", () => {
         listCalls += 1;
         return listResult(listCalls === 1 ? [] : []);
       }
-      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
-        return { status: 1, stdout: "", stderr: "provider failed" } as never;
-      }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
     let failure: unknown;
     try {
-      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+      await startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
     } catch (error) {
       failure = error;
     } finally {
@@ -385,7 +453,8 @@ describe("startDevsyWorkspace", () => {
     expect((failure as Error).message).not.toContain("DEVSY_AGENT_BINARY");
   });
 
-  it("carries the remediation through the possibly-started classification", () => {
+  it("carries the remediation through the possibly-started classification", async () => {
+    mockDevsyUp({ status: 1, stderr: "inject agent: agent binary not found" });
     let listCalls = 0;
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
@@ -393,15 +462,12 @@ describe("startDevsyWorkspace", () => {
         listCalls += 1;
         return listResult(listCalls === 1 ? [] : [owned]);
       }
-      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
-        return { status: 1, stdout: "", stderr: "inject agent: agent binary not found" } as never;
-      }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
     let failure: unknown;
     try {
-      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+      await startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
     } catch (error) {
       failure = error;
     }
@@ -410,7 +476,8 @@ describe("startDevsyWorkspace", () => {
     expect((failure as Error).message).toContain("DEVSY_AGENT_BINARY");
   });
 
-  it("fails closed when ownership cannot be read after a failed start", () => {
+  it("fails closed when ownership cannot be read after a failed start", async () => {
+    mockDevsyUp({ status: 1, stderr: "provider failed" });
     let listCalls = 0;
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
@@ -420,18 +487,16 @@ describe("startDevsyWorkspace", () => {
           ? listResult([])
           : ({ status: 1, stdout: "", stderr: "registry unavailable" } as never);
       }
-      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
-        return { status: 1, stdout: "", stderr: "provider failed" } as never;
-      }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    expect(() => startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" })).toThrow(
-      DevsyStartPostconditionError,
-    );
+    await expect(
+      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" }),
+    ).rejects.toThrow(DevsyStartPostconditionError);
   });
 
-  it("fails closed when ownership conflicts after a failed start", () => {
+  it("fails closed when ownership conflicts after a failed start", async () => {
+    mockDevsyUp({ status: 1, stderr: "provider failed" });
     let listCalls = 0;
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
@@ -441,14 +506,11 @@ describe("startDevsyWorkspace", () => {
           listCalls === 1 ? [] : [{ id: "feature", source: { localFolder: "/repo/other" } }],
         );
       }
-      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "up") {
-        return { status: 1, stdout: "", stderr: "provider failed" } as never;
-      }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    expect(() => startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" })).toThrow(
-      DevsyStartPostconditionError,
-    );
+    await expect(
+      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" }),
+    ).rejects.toThrow(DevsyStartPostconditionError);
   });
 });

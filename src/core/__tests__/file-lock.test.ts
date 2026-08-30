@@ -1,18 +1,28 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type LockWaitProgress, withFileLockSync } from "../file-lock";
+
+vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
 let tmpDir: string;
 let lockPath: string;
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(spawnSync).mockReturnValue({
+    status: 0,
+    stdout: "Sat Aug 30 00:00:00 2026 node\n",
+    stderr: "",
+  } as never);
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-file-lock-"));
   lockPath = path.join(tmpDir, "test.lock");
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -115,6 +125,26 @@ describe("file lock ownership", () => {
     expect(progress[0].holderHeldMs).toBeDefined();
     expect(progress[0].holderHeldMs).toBeLessThan(10_000);
     expect(progress[progress.length - 1].waitingMs).toBeGreaterThan(progress[0].waitingMs);
+  });
+
+  it("bounds portable process-birth checks while waiting on one live owner", () => {
+    const readFileSync = fs.readFileSync.bind(fs);
+    vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+      if (String(file).startsWith("/proc/")) {
+        throw Object.assign(new Error("procfs unavailable"), { code: "ENOENT" });
+      }
+      return readFileSync(file, ...(args as [never]));
+    }) as typeof fs.readFileSync);
+
+    withFileLockSync(lockPath, { activity: "outer" }, () => {
+      expect(() =>
+        withFileLockSync(lockPath, { activity: "inner", waitMs: 160 }, () => undefined),
+      ).toThrow();
+    });
+
+    const psCalls = vi.mocked(spawnSync).mock.calls.filter(([command]) => command === "ps");
+    expect(psCalls.length).toBeGreaterThan(0);
+    expect(psCalls.length).toBeLessThanOrEqual(4);
   });
 
   it("reports a stable queue position while an earlier fair waiter leads", () => {

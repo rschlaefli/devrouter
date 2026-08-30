@@ -29,6 +29,7 @@ type LockState =
   | { kind: "retry" };
 
 const DEFAULT_WAIT_PROGRESS_INTERVAL_MS = 10_000;
+const PROCESS_BIRTH_RECHECK_INTERVAL_MS = 1_000;
 
 const CANONICAL_OWNER_RE =
   /^[0-9]+:[A-Za-z0-9_-]+:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -41,6 +42,11 @@ type LockOwner = {
 type FairQueueState = {
   leaderPid: number;
   position: number;
+};
+
+type ProcessBirthCheck = {
+  checkedAtMs: number;
+  live: boolean;
 };
 
 function sleepSync(ms: number): void {
@@ -133,18 +139,36 @@ function parseLockRecord(value: string): {
   return { owner: parseLockOwner(trimmed) };
 }
 
-function isLockOwnerLive(owner: LockOwner): boolean {
-  if (!isProcessAlive(owner.pid)) return false;
+function isLockOwnerLive(
+  owner: LockOwner,
+  cache: Map<string, ProcessBirthCheck>,
+  now = Date.now(),
+): boolean {
+  const cacheKey = `${owner.pid}:${owner.processBirth ?? "legacy"}`;
+  if (!isProcessAlive(owner.pid)) {
+    cache.delete(cacheKey);
+    return false;
+  }
   if (!owner.processBirth) return true;
+  const cached = cache.get(cacheKey);
+  if (cached && now - cached.checkedAtMs < PROCESS_BIRTH_RECHECK_INTERVAL_MS) {
+    return cached.live;
+  }
   const currentBirth = processBirthIdentity(owner.pid);
-  return currentBirth === undefined || currentBirth === owner.processBirth;
+  const live = currentBirth === undefined || currentBirth === owner.processBirth;
+  cache.set(cacheKey, { checkedAtMs: now, live });
+  return live;
 }
 
 function sameFile(left: fs.Stats, right: fs.Stats): boolean {
   return left.dev === right.dev && left.ino === right.ino;
 }
 
-function inspectFairQueue(lockPath: string, ownTicketPath: string): FairQueueState {
+function inspectFairQueue(
+  lockPath: string,
+  ownTicketPath: string,
+  livenessCache: Map<string, ProcessBirthCheck>,
+): FairQueueState {
   const directory = path.dirname(lockPath);
   const prefix = `${path.basename(lockPath)}.queue.`;
 
@@ -167,7 +191,7 @@ function inspectFairQueue(lockPath: string, ownTicketPath: string): FairQueueSta
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw error;
     }
-    if (leader && isLockOwnerLive(leader)) {
+    if (leader && isLockOwnerLive(leader, livenessCache)) {
       return { leaderPid: leader.pid, position: position + 1 };
     }
 
@@ -178,7 +202,11 @@ function inspectFairQueue(lockPath: string, ownTicketPath: string): FairQueueSta
   }
 }
 
-function tryReclaimStaleLock(lockPath: string, staleLinkPath: string): LockState {
+function tryReclaimStaleLock(
+  lockPath: string,
+  staleLinkPath: string,
+  livenessCache: Map<string, ProcessBirthCheck>,
+): LockState {
   let fd: number;
   try {
     fd = fs.openSync(lockPath, "r");
@@ -191,7 +219,7 @@ function tryReclaimStaleLock(lockPath: string, staleLinkPath: string): LockState
 
   try {
     const record = parseLockRecord(fs.readFileSync(fd, "utf-8"));
-    if (record.owner && isLockOwnerLive(record.owner)) {
+    if (record.owner && isLockOwnerLive(record.owner, livenessCache)) {
       return { kind: "live", pid: record.owner.pid, acquiredAtMs: record.acquiredAtMs };
     }
 
@@ -249,6 +277,7 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
   const progressIntervalMs = options.progressIntervalMs ?? DEFAULT_WAIT_PROGRESS_INTERVAL_MS;
   let lastProgressAt = waitStartedAt;
   let reclaimAttempts = 0;
+  const livenessCache = new Map<string, ProcessBirthCheck>();
   fs.writeFileSync(candidatePath, `${owner}\n`, {
     encoding: "utf-8",
     flag: "wx",
@@ -262,7 +291,7 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
     for (;;) {
       let queueState: FairQueueState | undefined;
       if (options.fair) {
-        queueState = inspectFairQueue(lockPath, queueTicketPath);
+        queueState = inspectFairQueue(lockPath, queueTicketPath, livenessCache);
       }
 
       if (queueState && queueState.position > 1) {
@@ -299,7 +328,7 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
         }
       }
 
-      const state = tryReclaimStaleLock(lockPath, staleLinkPath);
+      const state = tryReclaimStaleLock(lockPath, staleLinkPath, livenessCache);
       if (state.kind === "reclaimed") {
         continue;
       }
