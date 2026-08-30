@@ -4,6 +4,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Devsy agent readiness](./2026-08-30-devsy-agent-readiness-plan.md) — acquire and verify the pinned Devsy agent before provider mutation, with explicit setup repair and network-free diagnostics.
 - [Collision-safe parallel workspace identities](./2026-08-28-collision-safe-workspace-identities-plan.md) — preserve existing workspaces while allocating deterministic fallback identities for colliding long branch prefixes.
 - [Parallel worktree TLS serialization](./2026-08-28-parallel-worktree-tls-plan.md) — serialize shared certificate refresh and compact historical workspace SAN coverage.
 - [Devsy partial-start recovery](./2026-08-26-pr-40-devsy-partial-start-recovery-plan.md) — keep failed cold Devsy starts canonically stoppable and prepare the 0.0.42 release in [PR #40](https://github.com/rschlaefli/devrouter/pull/40).
