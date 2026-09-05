@@ -8,6 +8,7 @@ import {
   stopOwnedDevpodWorkspace,
 } from "../devpod-mutation";
 import { listDevpodWorkspaces, listDevpodWorkspacesFromSnapshots } from "../devpod-workspaces";
+import { readManagedRuntimeState } from "../managed-runtime-state";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
 import { ensureTraefikRoutesRemoved } from "../traefik-route-health";
@@ -34,6 +35,7 @@ import {
 } from "../workspace-ownership";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("../managed-runtime-state", () => ({ readManagedRuntimeState: vi.fn() }));
 vi.mock("../route-state", () => ({
   listRoutesForWorktreePaths: vi.fn(() => new Map()),
   removeWorkspaceRoutesForWorktree: vi.fn(() => []),
@@ -141,6 +143,7 @@ locked maintenance
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  vi.mocked(readManagedRuntimeState).mockReset();
   stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   vi.mocked(ensureTraefikRoutesRemoved).mockResolvedValue({ restarted: false });
   vi.mocked(resolveWorktreeWorkspace).mockImplementation((_repoPath, branch) =>
@@ -523,6 +526,17 @@ describe("workspaceDown", () => {
 });
 
 describe("workspaceStop", () => {
+  it("preserves routes when retained managed registration disappeared", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(readManagedRuntimeState).mockReturnValue({ status: "degraded" } as never);
+    await expect(workspaceStop("feat-a", { quiet: true })).rejects.toThrow();
+    expect(stopOwnedDevpodWorkspace).toHaveBeenCalledWith("feat-a", "/main/repo-feat-a");
+    expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
+    expect(ensureTraefikRoutesRemoved).not.toHaveBeenCalled();
+  });
+
   it("stops the ledger owner for an exact path despite a colliding branch name", async () => {
     const checkoutA = owner("feature-foo", "/main/repo-a");
     const checkoutB = {

@@ -15,6 +15,8 @@ source_paths:
   - src/core/devpod-workspaces.ts
   - src/core/workspace-runtime.ts
   - src/core/devsy-mutation.ts
+  - src/core/managed-devsy-stop.ts
+  - src/core/devpod-environment.ts
   - src/core/devsy-agent.ts
   - src/core/devsy-workspaces.ts
   - src/core/devsy-exec.ts
@@ -158,6 +160,16 @@ total reads as "little to reclaim" and is the misleading direction here. A
 workspace with no attributed container is a measured zero, not unknown.
 
 ## Failure rules
+
+For retained managed Devsy state, reversible stop proves the complete captured
+Compose population under the workspace and provider locks. Provider and primary
+state must agree. An already-stopped primary skips provider stop; residual
+running service IDs are stopped only after ownership, context, source and
+generated configuration, service hashes and full membership are revalidated.
+Final provider and complete-project stopped proof precedes route cleanup.
+Missing registration or unreadable evidence preserves routes. If provider stop
+fails, eligible residual cleanup may still run, but its original failure remains
+nonzero and routes remain intact. This does not change legacy or delete paths.
 
 - A Devsy start never performs implicit agent acquisition. Use
   `devrouter setup --yes --workspace-runtime devsy`; doctor checks the resulting

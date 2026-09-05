@@ -4,6 +4,8 @@ import { sameWorkspacePath } from "./workspace";
 export type DevsyWorkspace = {
   id: string;
   source: { localFolder: string };
+  /** Provider context supplied by the local registry, when available. */
+  context?: string;
   /** Optional provider activity metadata. */
   lastUsed?: string;
   lastUsedMalformed?: boolean;
@@ -53,6 +55,7 @@ export function listDevsyWorkspaces(): DevsyWorkspace[] {
     const workspace: DevsyWorkspace = {
       id: candidate.id,
       source: { localFolder: source.localFolder },
+      ...(typeof candidate.context === "string" ? { context: candidate.context } : {}),
     };
     if ("lastUsed" in candidate) {
       if (typeof candidate.lastUsed === "string") {

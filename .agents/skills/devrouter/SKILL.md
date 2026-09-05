@@ -136,6 +136,8 @@ profiles:
 - Validation is strict at config load: unknown keys, non-routed `apps`, non-dependency `dependencies`, `readiness` outside the profile's apps, and multiple defaults are rejected.
 - Selection: `devrouter ensure <path> --profile <name>`. Comma-separated selections (`--profile manage,pwa`) merge with deduplication; the canonical name is sorted-unique so order never affects identity or fingerprints. A wildcard member collapses to everything.
 - Managed adapters receive `DEVROUTER_PROFILE` (canonical resolved name) in the post-start env; profile switches replace the owned process group via the fingerprint.
+- Adapters may pass `--prepare-command <command>` to `devrouter-process ensure` for synchronous dependency preparation under the process lock before application launch. Unchanged owned processes skip preparation; preparation participates in default fingerprints and must not daemonize or detach.
+- Exact managed Devsy stop proves the complete retained container population, ownership and configuration before stopping residual services after a stopped primary. Unknown evidence blocks cleanup, and an original provider failure remains an error even if residual cleanup succeeds.
 
 ### Managed devcontainer resources
 

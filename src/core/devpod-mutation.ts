@@ -124,14 +124,15 @@ export function stopOwnedDevpodWorkspace(
   devpodId: string,
   worktreePath: string,
 ): OwnedDevpodMutationResult {
-  if (resolveWorkspaceRuntimeOrDefault(worktreePath) === "devsy") {
-    const result = stopOwnedDevsyWorkspace(devpodId, worktreePath);
+  try {
     resetWorkspaceRuntimeCaches();
-    return result;
+    if (resolveWorkspaceRuntimeOrDefault(worktreePath) === "devsy") {
+      return stopOwnedDevsyWorkspace(devpodId, worktreePath);
+    }
+    return mutateOwnedDevpodWorkspace("stop", devpodId, worktreePath);
+  } finally {
+    resetWorkspaceRuntimeCaches();
   }
-  const result = mutateOwnedDevpodWorkspace("stop", devpodId, worktreePath);
-  resetWorkspaceRuntimeCaches();
-  return result;
 }
 
 export function deleteOwnedDevpodWorkspace(

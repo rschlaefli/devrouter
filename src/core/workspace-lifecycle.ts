@@ -8,6 +8,7 @@ import {
   listDevpodWorkspaces,
   listDevpodWorkspacesFromSnapshots,
 } from "./devpod-workspaces";
+import { readManagedRuntimeState } from "./managed-runtime-state";
 import { resolveRepoPath } from "./repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
 import { ensureTraefikRoutesRemoved } from "./traefik-route-health";
@@ -424,6 +425,16 @@ async function mutateWorkspaceRuntime(
     action === "stop"
       ? stopOwnedDevpodWorkspace(devpodId, resolved.worktreePath)
       : deleteOwnedDevpodWorkspace(devpodId, resolved.worktreePath);
+
+  if (
+    action === "stop" &&
+    mutation.status === "absent" &&
+    readManagedRuntimeState(resolved.worktreePath, resolved.workspace)
+  ) {
+    throw new Error(
+      "Retained managed runtime has no exact provider registration; routes were preserved.",
+    );
+  }
 
   const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
   await ensureTraefikRoutesRemoved(routes);

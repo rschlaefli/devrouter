@@ -3,6 +3,7 @@ import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "../devpod-
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "../devpod-workspaces";
 import { environmentStop } from "../environment-stop";
 import { removeHostRoutesWhere } from "../host-routes";
+import { readManagedRuntimeState } from "../managed-runtime-state";
 import { ensureTraefikRoutesRemoved } from "../traefik-route-health";
 import {
   isLinkedWorktree,
@@ -24,6 +25,7 @@ vi.mock("../devpod-mutation", () => ({
 vi.mock("../host-routes", () => ({
   removeHostRoutesWhere: vi.fn(() => []),
 }));
+vi.mock("../managed-runtime-state", () => ({ readManagedRuntimeState: vi.fn() }));
 
 vi.mock("../traefik-route-health", () => ({
   ensureTraefikRoutesRemoved: vi.fn(async () => ({ restarted: false })),
@@ -49,6 +51,7 @@ vi.mock("../workspace", () => ({
 }));
 
 beforeEach(() => {
+  vi.mocked(readManagedRuntimeState).mockReset();
   vi.mocked(isLinkedWorktree).mockReturnValue(false);
   vi.mocked(ensureTraefikRoutesRemoved).mockResolvedValue({ restarted: false });
   vi.mocked(resolveWorktreeWorkspace).mockReturnValue(undefined);
@@ -62,6 +65,21 @@ afterEach(() => {
 });
 
 describe("environmentStop", () => {
+  it.each([
+    false,
+    true,
+  ])("preserves routes when managed registration disappears (during mutation: %s)", async (duringMutation) => {
+    const candidate = duringMutation ? { id: "repo", source: { localFolder: "/repo" } } : undefined;
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([]);
+    vi.mocked(selectDevpodWorkspace).mockReturnValue(candidate);
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "absent" });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({ status: "degraded" } as never);
+    await expect(environmentStop("/repo")).rejects.toThrow();
+    expect(stopOwnedDevpodWorkspace).toHaveBeenCalledTimes(duringMutation ? 1 : 0);
+    expect(removeHostRoutesWhere).not.toHaveBeenCalled();
+    expect(ensureTraefikRoutesRemoved).not.toHaveBeenCalled();
+  });
+
   it("stops the exact primary DevPod before atomically removing its routes", async () => {
     const events: string[] = [];
     const devpod = { id: "repo", source: { localFolder: "/repo" } };

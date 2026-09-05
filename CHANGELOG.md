@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.53] - 2026-09-05
+
+### Fixed
+
+- Managed process adapters can run an opt-in synchronous `--prepare-command`
+  before launching the application. Preparation shares the process lock and
+  participates in default reuse identity, with process-group cleanup on failure
+  or cancellation. Existing invocations retain their previous fingerprints.
+- Exact managed Devsy stop completes residual service shutdown when the primary
+  container is already stopped. It repeatedly proves retained full container IDs,
+  ownership, configuration and complete project membership before stopping any
+  remaining service. Unknown or changed evidence fails closed; provider failures
+  remain failures even if residual cleanup succeeds.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.53.md
+
 ## [0.0.52] - 2026-09-05
 
 ### Fixed
