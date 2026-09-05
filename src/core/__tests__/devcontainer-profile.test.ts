@@ -305,7 +305,7 @@ describe("managed Dev Container config", () => {
     );
   });
 
-  it("recomputes each retained service hash from its recorded Compose model", () => {
+  it("hashes the resolved model through stdin without reinterpolating environment values", () => {
     const plan = inspectManagedDevcontainerConfig({
       repoPath: tmpDir,
       config: managedConfig,
@@ -313,7 +313,11 @@ describe("managed Dev Container config", () => {
       linked: false,
     });
     const hash = "a".repeat(64);
+    const rendered = JSON.stringify({
+      services: { app: { environment: { EXAMPLE: "test-$VALUE" } } },
+    });
     vi.mocked(spawnSync).mockClear();
+    vi.mocked(spawnSync).mockReturnValueOnce({ status: 0, stdout: rendered } as never);
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,
       stdout: `app ${hash}\n`,
@@ -336,8 +340,8 @@ describe("managed Dev Container config", () => {
         plan.composeDirectory,
         ...plan.composeFiles.flatMap((file) => ["-f", file]),
         "config",
-        "--hash",
-        "app",
+        "--format",
+        "json",
       ],
       expect.objectContaining({
         cwd: plan.composeDirectory,
@@ -350,6 +354,28 @@ describe("managed Dev Container config", () => {
         }),
         stdio: ["ignore", "pipe", "ignore"],
         timeout: 10_000,
+      }),
+    );
+    expect(spawnSync).toHaveBeenLastCalledWith(
+      "docker",
+      [
+        "compose",
+        "--project-name",
+        "fixture",
+        "--project-directory",
+        plan.composeDirectory,
+        "-f",
+        "-",
+        "config",
+        "--no-interpolate",
+        "--hash",
+        "app",
+      ],
+      expect.objectContaining({
+        input: rendered,
+        stdio: ["pipe", "pipe", "ignore"],
+        timeout: 10_000,
+        maxBuffer: 1024 * 1024,
       }),
     );
     expect(fs.existsSync(plan.generatedPath)).toBe(false);
@@ -429,6 +455,10 @@ describe("managed Dev Container config", () => {
     });
     const expectedHash = "a".repeat(64);
     vi.mocked(spawnSync).mockClear();
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 0,
+      stdout: '{"services":{"app":{}}}',
+    } as never);
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,
       stdout: `app ${"b".repeat(64)}\n`,
@@ -455,5 +485,27 @@ describe("managed Dev Container config", () => {
     expect(args).not.toContain("stop");
     expect(spawnOptions).toEqual(expect.objectContaining({ stdio: ["ignore", "pipe", "ignore"] }));
     expect(fs.existsSync(plan.generatedPath)).toBe(false);
+  });
+
+  it.each([
+    { status: 1, stdout: "sensitive-rendered-value" },
+    { status: 0, stdout: "" },
+    { status: 0, stdout: "sensitive-rendered-value", error: new Error("sensitive-error") },
+  ])("rejects failed or incomplete rendering before hashing without exposing output", (rendered) => {
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath: tmpDir,
+      config: managedConfig,
+      profile: { apps: [], devcontainerServices: ["litellm"] },
+      linked: false,
+    });
+    vi.mocked(spawnSync).mockClear();
+    vi.mocked(spawnSync).mockReturnValueOnce(rendered as never);
+    expect(() =>
+      assertManagedContainerConfigUnchanged({
+        plan,
+        containers: [retainedContainer(plan, "a".repeat(64))],
+      }),
+    ).toThrow("Could not verify managed Compose configuration for service 'app'.");
+    expect(spawnSync).toHaveBeenCalledTimes(1);
   });
 });
