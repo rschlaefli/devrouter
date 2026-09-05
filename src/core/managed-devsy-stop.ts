@@ -28,7 +28,12 @@ function sameSet(left: string[], right: string[]): boolean {
 }
 
 function containerIdentity(container: ManagedStopContainerSnapshot): string {
-  return JSON.stringify({ id: container.id, labels: container.labels, mounts: container.mounts });
+  return JSON.stringify({
+    id: container.id,
+    labels: container.labels,
+    // Docker does not preserve mount-array order between inspections.
+    mounts: container.mounts.map((mount) => JSON.stringify(mount)).sort(),
+  });
 }
 
 /** Called only while the canonical caller holds the workspace and provider locks. */

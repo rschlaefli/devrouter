@@ -334,6 +334,29 @@ describe("retained managed Devsy stop", () => {
     containers[0].mounts[0].Source = "/other";
     expect(run).toThrow();
   });
+  it("accepts reordered mounts while retaining every mount identity", () => {
+    containers[0].mounts.push({
+      Type: "volume",
+      Source: "/volumes/dependencies",
+      Destination: "/workspace/node_modules",
+    });
+    mutateOnInspect = () => containers[0].mounts.reverse();
+    expect(run()).toBe(true);
+    expect(stopExactManagedService).toHaveBeenCalledExactlyOnceWith("b".repeat(64), "db", {
+      timeoutMs: 30_000,
+    });
+  });
+  it.each([
+    "Type",
+    "Source",
+    "Destination",
+  ] as const)("rejects changed retained mount %s before stopping services", (field) => {
+    mutateOnInspect = (count) => {
+      if (count === 2) containers[0].mounts[0][field] = "changed";
+    };
+    expect(run).toThrow();
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+  });
   it("accepts retained optional stopped services", () => {
     containers.push(container("blob", false, "c"));
     expect(run()).toBe(true);
