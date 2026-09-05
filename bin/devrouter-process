@@ -10,6 +10,13 @@ Usage:
 
 Options:
   --fingerprint <value>  Runtime identity. Defaults to command, workspace, adapter, and safe allowlisted environment identity.
+                        An explicit fingerprint is caller-owned, including preparation identity.
+  --prepare-command <shell command>
+                        Ensure only: run a nonempty command with bash before a changed/new runtime.
+                        Included byte-for-byte in the default fingerprint; skipped on runtime reuse.
+                        Must run synchronously in the foreground: no daemonizing, detached sessions
+                        or process groups, or other supervision escapes. Cancellation terminates
+                        its original group and reaps the direct child; container init reaps orphans.
   --log <path>           Log file. Defaults to /tmp/devrouter-process-<name>.log.
 
 Environment:
@@ -42,6 +49,7 @@ name=""
 process_match=""
 fingerprint=""
 log_file=""
+prepare_command=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -66,6 +74,13 @@ while [ "$#" -gt 0 ]; do
       [ "$action" = "ensure" ] || die "--log is only valid for ensure."
       require_value "$@"
       log_file="$2"
+      shift 2
+      ;;
+    --prepare-command)
+      [ "$action" = "ensure" ] || die "--prepare-command is only valid for ensure."
+      require_value "$@"
+      [[ "$2" =~ [^[:space:]] ]] || die "--prepare-command requires a nonempty command."
+      prepare_command="$2"
       shift 2
       ;;
     --help|-h)
@@ -151,6 +166,9 @@ if [ -z "$fingerprint" ]; then
     for argument in "$@"; do
       printf 'argv\0%s\0' "$argument"
     done
+    if [ -n "$prepare_command" ]; then
+      printf 'prepare-command\0%s\0' "$prepare_command"
+    fi
     for env_name in "${fingerprint_env_names[@]}"; do
       printf 'environment-name\0%s\0' "$env_name"
       emit_environment_field environment-value "$env_name"
@@ -385,18 +403,87 @@ fi
 unknown_process_exists &&
   die "Found an unowned '$name' process; refusing to start a duplicate or kill it."
 
+preparation_pid=""
+pending_runtime_pid=""
+interrupted=0
+
+# The direct child can still be between fork and setsid when cancellation arrives.
+# Signal both that child and its eventual group, and never wait on a live child.
+stop_preparation_child() {
+  local child="$1"
+  local signal attempt limit
+
+  for signal in TERM KILL; do
+    limit="$term_timeout"
+    [ "$signal" != KILL ] || limit="$kill_timeout"
+    kill -"$signal" -- "-$child" "$child" 2>/dev/null || true
+    for ((attempt = 0; attempt <= limit; attempt += 1)); do
+      if ! process_group_alive "$child" && ! process_alive "$child"; then
+        wait "$child" 2>/dev/null || true
+        return 0
+      fi
+      [ "$attempt" -eq "$limit" ] || sleep 1
+    done
+  done
+  echo "[devrouter-process] Could not terminate preparation/startup group $child." >&2
+  return 1
+}
+
+cleanup_preparation() {
+  local result="$?"
+  # Repeated cancellation must not interrupt group cleanup or release the lock early.
+  trap '' HUP INT TERM
+  if [ -n "$preparation_pid" ]; then
+    stop_preparation_child "$preparation_pid" || result=1
+  fi
+  if [ -n "$pending_runtime_pid" ]; then
+    stop_preparation_child "$pending_runtime_pid" || result=1
+    rm -f "$state_file" "$state_file.tmp.$BASHPID"
+  fi
+  trap - EXIT
+  exit "$result"
+}
+
+if [ -n "$prepare_command" ]; then
+  trap 'interrupted=129' HUP
+  trap 'interrupted=130' INT
+  trap 'interrupted=143' TERM
+  trap cleanup_preparation EXIT
+  echo "[devrouter-process] Preparing '$name'..."
+  env DEVROUTER_PROCESS_NAME="$name" \
+    DEVROUTER_PROCESS_FINGERPRINT="$fingerprint" \
+    setsid bash -c "$prepare_command" 9>&- </dev/null &
+  preparation_pid=$!
+  # A trapped signal interrupts Bash's wait. Record it even if it arrives before
+  # assignment of $!, then enter cleanup with the exact child still recorded.
+  [ "$interrupted" -eq 0 ] || exit "$interrupted"
+  preparation_status=0
+  wait "$preparation_pid" || preparation_status=$?
+  [ "$interrupted" -eq 0 ] || exit "$interrupted"
+  [ "$preparation_status" -eq 0 ] || die "Preparation for '$name' failed (exit $preparation_status)."
+  if process_group_alive "$preparation_pid"; then
+    die "Preparation for '$name' left running children; a synchronous foreground command is required."
+  fi
+  preparation_pid=""
+fi
+
+[ "$interrupted" -eq 0 ] || exit "$interrupted"
 echo "[devrouter-process] Starting '$name' (logs: $log_file)..."
 env DEVROUTER_PROCESS_NAME="$name" \
   DEVROUTER_PROCESS_FINGERPRINT="$fingerprint" \
   setsid "$@" 9>&- >"$log_file" 2>&1 </dev/null &
 pid=$!
 pgid="$pid"
+[ -z "$prepare_command" ] || pending_runtime_pid="$pid"
 
 for attempt in {1..10}; do
+  [ "$interrupted" -eq 0 ] || exit "$interrupted"
   if process_owned "$pid" "$pgid" "$fingerprint"; then
     printf '%s %s %s\n' "$pid" "$pgid" "$fingerprint" >"$state_file.tmp.$BASHPID"
     mv "$state_file.tmp.$BASHPID" "$state_file"
+    [ "$interrupted" -eq 0 ] || exit "$interrupted"
     echo "[devrouter-process] '$name' started (PID $pid)."
+    pending_runtime_pid=""
     exit 0
   fi
   if ! process_alive "$pid"; then
