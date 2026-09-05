@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.52] - 2026-09-05
+
+### Fixed
+
+- Process ownership checks consume complete streams, preventing large process
+  environments from falsely classifying owned processes as foreign.
+- Explicit `ensure --repair` recovers the recorded degraded profile after exact
+  ownership and configuration checks. Retained stopped containers start by ID;
+  provider bootstrap, recreation, adoption, and shared-router restart are skipped.
+- Repair verifies active router rules and service targets so a same-name stale
+  route cannot satisfy candidate or rollback readiness. Failures remain degraded.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.52.md
+
 ## [0.0.51] - 2026-08-30
 
 ### Added
