@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.55] - 2026-09-05
+
+### Fixed
+
+- Managed stop compares retained mount identities independently of Docker array
+  ordering. Identical mounts no longer cause false drift between inspections;
+  changed mount fields, container IDs, labels and service populations still
+  reject cleanup.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.55.md
+
 ## [0.0.54] - 2026-09-05
 
 ### Fixed
