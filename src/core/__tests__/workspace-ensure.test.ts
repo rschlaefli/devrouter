@@ -1371,7 +1371,13 @@ describe("workspaceEnsure", () => {
         throw new Error("adapter failed");
       });
     if (phase === "publication")
-      vi.mocked(ensureTraefikRoutesLoaded).mockRejectedValueOnce(new Error("route failed"));
+      vi.mocked(ensureTraefikRoutesLoaded).mockImplementationOnce(async () => {
+        vi.mocked(listHostRouteState).mockReturnValue([
+          managedPreviousRoute(),
+          { ...managedPreviousRoute(), name: "candidate", host: "candidate.feature.localhost" },
+        ]);
+        throw new Error("route failed");
+      });
     if (phase === "inspection")
       vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
         mode: "managed",
@@ -1387,6 +1393,18 @@ describe("workspaceEnsure", () => {
     expect(markManagedRuntimeDegraded).toHaveBeenCalledWith(state, expect.any(String));
     expect(state.status).toBe("degraded");
     expect(devpodUpCalls()).toHaveLength(0);
+    if (phase === "publication") {
+      const previousRoutes = [
+        expect.objectContaining({ name: "chat", repoPath: tmpDir, upstreamHost: "feature-app" }),
+      ];
+      const routeOptions = expect.objectContaining({ allowRestart: false });
+      expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, previousRoutes);
+      expect(ensureTraefikRoutesLoaded).toHaveBeenLastCalledWith(previousRoutes, routeOptions);
+      expect(ensureTraefikRoutesRemoved).toHaveBeenLastCalledWith(
+        [expect.objectContaining({ name: "candidate", repoPath: tmpDir })],
+        routeOptions,
+      );
+    }
   });
 
   it("rebaselines degraded state after its exact Compose project disappeared", async () => {
