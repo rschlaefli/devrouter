@@ -107,6 +107,13 @@ an unreadable Docker state stays attached and fails closed, no container or
 state is deleted, and any surviving prior-project container still blocks the
 transition.
 
+Explicit `ensure --repair` recovers a retained degraded record using its recorded
+profile and unchanged configuration. It verifies exact provider, workspace and
+container ownership before replay. Stopped primary recovery requires all project
+containers stopped and no checkout routes; it starts only retained Docker IDs,
+never provider bootstrap or Compose creation. The existing container entrypoint
+still runs. Ready is persisted after resource and active route configuration proof.
+
 Use `devrouter status --repo <path> --json` or `devrouter doctor --repo <path>
 --json` to inspect the canonical profile, desired and active resources, exact
 service/process statuses, fingerprints, and values-free drift. A fully stopped

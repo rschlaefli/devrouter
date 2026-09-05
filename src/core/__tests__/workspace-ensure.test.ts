@@ -37,7 +37,11 @@ import {
 import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
-import { ensureTraefikRoutesLoaded, ensureTraefikRoutesRemoved } from "../traefik-route-health";
+import {
+  ensureTraefikRoutesLoaded,
+  ensureTraefikRoutesMatch,
+  ensureTraefikRoutesRemoved,
+} from "../traefik-route-health";
 import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensure";
 import { writeWorkspaceOwnership } from "../workspace-ownership";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
@@ -114,6 +118,7 @@ vi.mock("../router", () => ({
 }));
 vi.mock("../traefik-route-health", () => ({
   ensureTraefikRoutesLoaded: vi.fn(async () => ({ restarted: false })),
+  ensureTraefikRoutesMatch: vi.fn(async () => undefined),
   ensureTraefikRoutesRemoved: vi.fn(async () => ({ restarted: false })),
 }));
 vi.mock("../tls", () => ({
@@ -381,6 +386,7 @@ describe("workspaceEnsure", () => {
     });
     vi.mocked(replaceHostRoutesForRepo).mockReturnValue([]);
     vi.mocked(ensureTraefikRoutesLoaded).mockResolvedValue({ restarted: false });
+    vi.mocked(ensureTraefikRoutesMatch).mockResolvedValue(undefined);
     vi.mocked(ensureTraefikRoutesRemoved).mockResolvedValue({ restarted: false });
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue({ kind: "unmanaged" });
     vi.mocked(runManagedPostStart).mockImplementation(() => undefined);
@@ -692,6 +698,7 @@ describe("workspaceEnsure", () => {
   ): {
     runningServices: Set<string>;
     runningProcesses: Set<string>;
+    snapshots: WorkspaceContainerSnapshot[];
   } {
     const events = options.events ?? [];
     const runningServices = new Set(["app", "postgres", "redis"]);
@@ -827,6 +834,12 @@ describe("workspaceEnsure", () => {
         if (service) runningServices.delete(service);
         return { status: 0, stdout: "", stderr: "" } as never;
       }
+      if (command === "docker" && argv[0] === "start") {
+        for (const [service, id] of Object.entries(serviceIds)) {
+          if (argv.slice(1).includes(id)) runningServices.add(service);
+        }
+        return { status: 0, stdout: "", stderr: "" } as never;
+      }
       if (command === "docker" && argv[0] === "exec") {
         return {
           status: 0,
@@ -845,7 +858,7 @@ describe("workspaceEnsure", () => {
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    return { runningServices, runningProcesses };
+    return { runningServices, runningProcesses, snapshots };
   }
 
   function mockColdManagedDevsyFailure(attachAfterFailure: boolean): void {
@@ -1348,24 +1361,78 @@ describe("workspaceEnsure", () => {
     const { runningServices } = mockRepair();
     runningServices.delete("redis");
     await workspaceEnsure(tmpDir, { repair: true, containerTimeoutMs: 0, httpTimeoutMs: 0 });
-    expect(startExactManagedServices).toHaveBeenCalledWith(
-      expect.objectContaining({ services: ["redis"] }),
-    );
+    expect(spawnSync).toHaveBeenCalledWith("docker", ["start", "redis-id"], expect.any(Object));
+    expect(startExactManagedServices).not.toHaveBeenCalled();
     expect(devpodUpCalls()).toHaveLength(0);
+  });
+
+  it.each([
+    "valid",
+    "routes",
+    "running-service",
+    "foreign-owner",
+    "missing-owner",
+    "hash",
+  ])("repairs a retained stopped primary only with exact unchanged ownership: %s", async (scenario) => {
+    const { runningServices, runningProcesses, snapshots } = mockRepair();
+    runningServices.clear();
+    runningProcesses.clear();
+    if (scenario !== "routes") vi.mocked(listHostRouteState).mockReturnValue([]);
+    if (scenario === "running-service") runningServices.add("redis");
+    if (scenario === "foreign-owner")
+      snapshots[0].labels["com.docker.compose.project.working_dir"] = "/other/.devcontainer";
+    if (scenario === "missing-owner")
+      delete snapshots[0].labels["com.docker.compose.project.working_dir"];
+    if (scenario === "hash")
+      vi.mocked(assertManagedContainerConfigUnchanged).mockImplementation(() => {
+        throw new Error("configuration changed");
+      });
+    const attempt = workspaceEnsure(tmpDir, {
+      repair: true,
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+    if (scenario === "valid") {
+      await expect(attempt).resolves.toMatchObject({ recreated: false });
+      expect(spawnSync).toHaveBeenCalledWith(
+        "docker",
+        ["start", "app-id", "postgres-id", "redis-id"],
+        expect.any(Object),
+      );
+      expect(writeManagedRuntimeState).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "ready", profile: "old" }),
+      );
+    } else {
+      await expect(attempt).rejects.toThrow();
+      expect(
+        vi
+          .mocked(spawnSync)
+          .mock.calls.filter(([cmd, args]) => cmd === "docker" && args?.[0] === "start"),
+      ).toHaveLength(0);
+      expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+    }
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(startExactManagedServices).not.toHaveBeenCalled();
   });
 
   it.each([
     "services",
     "adapter",
     "publication",
+    "route-generation",
     "inspection",
     "state-write",
   ])("retains degraded state when repair fails at %s", async (phase) => {
-    const { state } = mockRepair();
-    if (phase === "services")
-      vi.mocked(startExactManagedServices).mockImplementationOnce(() => {
-        throw new Error("start failed");
+    const { state, runningServices } = mockRepair();
+    if (phase === "services") {
+      runningServices.delete("redis");
+      const original = vi.mocked(spawnSync).getMockImplementation()!;
+      vi.mocked(spawnSync).mockImplementation((command, args, options) => {
+        if (command === "docker" && args?.[0] === "start")
+          return { status: 1, stdout: "", stderr: "start failed" } as never;
+        return original(command, args, options);
       });
+    }
     if (phase === "adapter")
       vi.mocked(runManagedPostStart).mockImplementationOnce(() => {
         throw new Error("adapter failed");
@@ -1378,6 +1445,8 @@ describe("workspaceEnsure", () => {
         ]);
         throw new Error("route failed");
       });
+    if (phase === "route-generation")
+      vi.mocked(ensureTraefikRoutesMatch).mockRejectedValueOnce(new Error("stale generation"));
     if (phase === "inspection")
       vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
         mode: "managed",
@@ -1393,6 +1462,13 @@ describe("workspaceEnsure", () => {
     expect(markManagedRuntimeDegraded).toHaveBeenCalledWith(state, expect.any(String));
     expect(state.status).toBe("degraded");
     expect(devpodUpCalls()).toHaveLength(0);
+    if (phase === "route-generation") {
+      expect(ensureTraefikRoutesMatch).toHaveBeenCalledTimes(2);
+      expect(ensureTraefikRoutesMatch).toHaveBeenLastCalledWith(
+        [expect.objectContaining({ name: "chat", repoPath: tmpDir, upstreamHost: "feature-app" })],
+        expect.objectContaining({ allowRestart: false }),
+      );
+    }
     if (phase === "publication") {
       const previousRoutes = [
         expect.objectContaining({ name: "chat", repoPath: tmpDir, upstreamHost: "feature-app" }),
@@ -1400,6 +1476,7 @@ describe("workspaceEnsure", () => {
       const routeOptions = expect.objectContaining({ allowRestart: false });
       expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, previousRoutes);
       expect(ensureTraefikRoutesLoaded).toHaveBeenLastCalledWith(previousRoutes, routeOptions);
+      expect(ensureTraefikRoutesMatch).toHaveBeenLastCalledWith(previousRoutes, routeOptions);
       expect(ensureTraefikRoutesRemoved).toHaveBeenLastCalledWith(
         [expect.objectContaining({ name: "candidate", repoPath: tmpDir })],
         routeOptions,

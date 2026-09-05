@@ -256,6 +256,11 @@ run_probe help "$DEVROUTER_BIN" --help
 grep -Fq 'Usage: devrouter' "$PROBE_DIR/help.txt" || fail "help probe did not identify devrouter"
 grep -Fq 'workspace' "$PROBE_DIR/help.txt" || fail "help probe omitted workspace command"
 
+run_probe ensure-help "$DEVROUTER_BIN" ensure --help
+grep -Fq -- '--repair' "$PROBE_DIR/ensure-help.txt" || fail "ensure omitted repair option"
+run_probe workspace-ensure-help "$DEVROUTER_BIN" workspace ensure --help
+grep -Fq -- '--repair' "$PROBE_DIR/workspace-ensure-help.txt" || fail "workspace ensure omitted repair option"
+
 run_probe version "$DEVROUTER_BIN" -V --repo "$EXAMPLE_REPO"
 grep -Fq "Installed CLI version: $PACKAGE_VERSION" "$PROBE_DIR/version.txt" || fail "version probe used the wrong package version"
 grep -Fq "Local repo version ($EXAMPLE_REPO/.devrouter.yml):" "$PROBE_DIR/version.txt" || fail "version probe used the wrong repository path"

@@ -49,7 +49,11 @@ import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, DEVROUTER_HOME, TCP_PROTOCOL_REGISTRY } from "./router";
-import { ensureTraefikRoutesLoaded, ensureTraefikRoutesRemoved } from "./traefik-route-health";
+import {
+  ensureTraefikRoutesLoaded,
+  ensureTraefikRoutesMatch,
+  ensureTraefikRoutesRemoved,
+} from "./traefik-route-health";
 import {
   comparableWorkspacePath,
   currentBranch,
@@ -460,6 +464,7 @@ export function validateWorkspaceContainers(
     repoPath: string;
     upstreamHosts: string[];
     target: EnvironmentTarget;
+    allowStopped?: boolean;
   },
 ): ValidatedWorkspaceContainer {
   const appContainers = workspaceAppContainers(containers, options.repoPath);
@@ -472,7 +477,7 @@ export function validateWorkspaceContainers(
   if (options.target.kind === "linked") {
     assertOverlay(appContainer, options.repoPath);
   }
-  assertReady(appContainer, "Workspace app");
+  if (!options.allowStopped) assertReady(appContainer, "Workspace app");
   if (options.target.kind === "linked") {
     const gitCommonDir = options.target.gitCommonDir;
     const gitMount = appContainer.mounts.find(
@@ -762,16 +767,31 @@ function assertRepairBaseline(options: {
   const primary = retained.find(
     (c) => c.labels["com.docker.compose.service"] === plan.primaryService,
   );
-  if (!primary?.state.Running) {
+  if (!primary) throw new Error("Repair cannot identify the retained primary container.");
+  if (
+    !primary.state.Running &&
+    (options.routes.length > 0 ||
+      containers.some(
+        (container) =>
+          container.labels["com.docker.compose.project"] === state.composeProject &&
+          container.state.Running !== false,
+      ))
+  ) {
     throw new Error(
-      "Repair cannot resume a stopped primary without a proven bootstrap-free provider operation.",
+      "Repair of a stopped primary requires all exact project containers stopped and no checkout routes.",
     );
   }
-  validateWorkspaceContainers(containers, { repoPath, target, upstreamHosts: [] });
+  validateWorkspaceContainers(containers, {
+    repoPath,
+    target,
+    upstreamHosts: [],
+    allowStopped: !primary.state.Running,
+  });
   for (const container of containers) {
     if (container.labels["com.docker.compose.project"] !== state.composeProject) continue;
     const service = container.labels["com.docker.compose.service"] ?? "";
     if (
+      typeof container.state.Running !== "boolean" ||
       !hasExactComposeIdentity(container, {
         repoPath,
         service,
@@ -787,7 +807,7 @@ function assertRepairBaseline(options: {
     (m) => m.Type === "bind" && sameWorkspacePath(m.Source, repoPath),
   )?.Destination;
   if (!workspacePath) throw new Error("Repair cannot prove the primary workspace mount.");
-  for (const name of config.managedRuntime?.processes ?? []) {
+  for (const name of primary.state.Running ? (config.managedRuntime?.processes ?? []) : []) {
     if (
       !processes.includes(name) &&
       runManagedProcessAction({
@@ -1076,8 +1096,46 @@ export async function workspaceEnsure(
       }
       if (!container) {
         try {
+          if (options.repair && managedPlan && previousManagedState) {
+            assertRetainedRepairContainers(repoPath, managedPlan, retainedRepairContainers);
+            const primaryService = managedPlan.primaryService;
+            const primary = retainedRepairContainers.find(
+              (entry) => entry.labels["com.docker.compose.service"] === primaryService,
+            );
+            if (!primary) throw new Error("Repair lost its retained primary container.");
+            const stopped = retainedRepairContainers.filter((entry) => !entry.state.Running);
+            for (const entry of stopped) {
+              if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(entry.id))
+                throw new Error("Repair found an invalid retained container ID.");
+            }
+            if (stopped.length > 0) {
+              repairMutationStarted = true;
+              transitionPhase = "service-start";
+              const result = spawnSync("docker", ["start", ...stopped.map((entry) => entry.id)], {
+                encoding: "utf-8",
+                timeout: DEFAULT_READINESS_TIMEOUT_MS,
+                stdio: options.quiet ? ["ignore", 2, "inherit"] : "inherit",
+              });
+              if (result.status !== 0)
+                throw new Error("Could not start retained repair containers.");
+              assertRetainedRepairContainers(repoPath, managedPlan, retainedRepairContainers);
+            }
+            await waitForManagedServices(
+              managedPlan,
+              repoPath,
+              previousManagedState.composeProject,
+              managedPlan.desiredServices,
+              primary.id,
+              options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+            );
+          }
           container = options.repair
-            ? await waitForContainerPreflight(repoPath, currentTarget(), [], 0)
+            ? await waitForContainerPreflight(
+                repoPath,
+                currentTarget(),
+                [],
+                options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+              )
             : await preflight(0);
         } catch (error) {
           if (managedPlan || !target.hadExactDevpod) {
@@ -1124,13 +1182,14 @@ export async function workspaceEnsure(
           assertRetainedRepairContainers(repoPath, managedPlan, retainedRepairContainers);
           repairMutationStarted = true;
         }
-        startExactManagedServices({
-          plan: managedPlan,
-          composeProject: managedComposeProject,
-          services: missingServices,
-          quiet: options.quiet,
-          workspace: managedWorkspaceEnv,
-        });
+        if (!options.repair)
+          startExactManagedServices({
+            plan: managedPlan,
+            composeProject: managedComposeProject,
+            services: missingServices,
+            quiet: options.quiet,
+            workspace: managedWorkspaceEnv,
+          });
         await waitForManagedServices(
           managedPlan,
           repoPath,
@@ -1215,6 +1274,7 @@ export async function workspaceEnsure(
       candidateRoutes = publication.routes;
       candidateRoutesPublished = true;
       await ensureTraefikRoutesLoaded(publication.routes, routeLoadOptions);
+      if (options.repair) await ensureTraefikRoutesMatch(publication.routes, routeLoadOptions);
       await ensureTraefikRoutesRemoved(
         removedRoutesForReplacement(previousRoutes.map(routeInputFromState), publication.routes),
         routeLoadOptions,
@@ -1327,6 +1387,7 @@ export async function workspaceEnsure(
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
             await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
+            await ensureTraefikRoutesMatch(rollbackRoutes, routeLoadOptions);
             await ensureTraefikRoutesRemoved(
               removedRoutesForReplacement(currentRoutes, rollbackRoutes),
               routeLoadOptions,

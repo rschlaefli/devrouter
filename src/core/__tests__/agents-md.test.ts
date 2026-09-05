@@ -51,7 +51,6 @@ describe("agents-md", () => {
     expect(skillContent).toContain("devrouter setup --yes --workspace-runtime devsy");
     expect(skillContent).toContain("`ready`, `missing`, `stale`, or `invalid`");
     expect(skillContent).not.toContain("failed Devsy start that reports");
-    expect(skillContent).toContain("devrouter ensure [path] [--profile <name>] [--open] [--json]");
     expect(skillContent).toContain("devrouter profile plan --repo <path>");
     expect(skillContent).toContain("it never interprets binding");
     expect(skillContent).toContain("names, expands values");

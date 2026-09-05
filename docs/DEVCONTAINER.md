@@ -263,9 +263,10 @@ foreign, corrupt, legacy, ready, or drifted baselines are rejected.
 
 Repair reruns the current repository adapter against the retained runtime. It
 may replace only already-owned process groups whose fingerprints changed and
-may start retained stopped services, including optional services. It does not
-recreate containers, run bootstrap, or adopt resources. A stopped primary
-runtime is rejected because provider startup cannot guarantee a bootstrap-free resume.
+may start retained stopped containers by their exact Docker IDs. For a stopped
+primary, every container in its Compose project must be explicitly stopped and
+no checkout routes may remain. Startup runs the existing container entrypoint;
+provider bootstrap, creation, recreation, and resource adoption are skipped.
 
 If replay fails, owned resources may remain running and the runtime remains
 degraded. Repair restores previous routes when publication fails, but does not rerun
