@@ -1222,7 +1222,7 @@ describe("workspaceEnsure", () => {
     );
     expect(state.status).toBe("degraded");
     expect(events.indexOf("candidate-proof")).toBeLessThan(events.indexOf("state-write"));
-    expect(ensureTraefikRoutesLoaded).toHaveBeenCalledWith(
+    expect(ensureTraefikRoutesMatch).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({ allowRestart: false }),
     );
@@ -1438,7 +1438,7 @@ describe("workspaceEnsure", () => {
         throw new Error("adapter failed");
       });
     if (phase === "publication")
-      vi.mocked(ensureTraefikRoutesLoaded).mockImplementationOnce(async () => {
+      vi.mocked(ensureTraefikRoutesMatch).mockImplementationOnce(async () => {
         vi.mocked(listHostRouteState).mockReturnValue([
           managedPreviousRoute(),
           { ...managedPreviousRoute(), name: "candidate", host: "candidate.feature.localhost" },
@@ -1475,7 +1475,7 @@ describe("workspaceEnsure", () => {
       ];
       const routeOptions = expect.objectContaining({ allowRestart: false });
       expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, previousRoutes);
-      expect(ensureTraefikRoutesLoaded).toHaveBeenLastCalledWith(previousRoutes, routeOptions);
+      expect(ensureTraefikRoutesLoaded).not.toHaveBeenCalled();
       expect(ensureTraefikRoutesMatch).toHaveBeenLastCalledWith(previousRoutes, routeOptions);
       expect(ensureTraefikRoutesRemoved).toHaveBeenLastCalledWith(
         [expect.objectContaining({ name: "candidate", repoPath: tmpDir })],

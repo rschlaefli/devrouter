@@ -1273,8 +1273,8 @@ export async function workspaceEnsure(
       );
       candidateRoutes = publication.routes;
       candidateRoutesPublished = true;
-      await ensureTraefikRoutesLoaded(publication.routes, routeLoadOptions);
       if (options.repair) await ensureTraefikRoutesMatch(publication.routes, routeLoadOptions);
+      else await ensureTraefikRoutesLoaded(publication.routes, routeLoadOptions);
       await ensureTraefikRoutesRemoved(
         removedRoutesForReplacement(previousRoutes.map(routeInputFromState), publication.routes),
         routeLoadOptions,
@@ -1386,7 +1386,6 @@ export async function workspaceEnsure(
               .map(routeInputFromState);
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
-            await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
             await ensureTraefikRoutesMatch(rollbackRoutes, routeLoadOptions);
             await ensureTraefikRoutesRemoved(
               removedRoutesForReplacement(currentRoutes, rollbackRoutes),
