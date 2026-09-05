@@ -417,25 +417,43 @@ export function assertManagedContainerConfigUnchanged(options: {
     const fileArgs = configFiles.flatMap((file) => ["-f", file]);
     const result = (() => {
       try {
-        return spawnSync(
+        const composeArgs = [
+          "compose",
+          "--project-name",
+          composeProject,
+          "--project-directory",
+          workingDirectory,
+        ];
+        const env = managedComposeEnvironment(options.workspace);
+        // Some Compose versions skip env_file resolution in config --hash.
+        // Render first, then hash via stdin without interpolating values again.
+        // The resolved model may contain secrets: never persist or report it.
+        const rendered = spawnSync(
           "docker",
-          [
-            "compose",
-            "--project-name",
-            composeProject,
-            "--project-directory",
-            workingDirectory,
-            ...fileArgs,
-            "config",
-            "--hash",
-            service,
-          ],
+          [...composeArgs, ...fileArgs, "config", "--format", "json"],
           {
             cwd: workingDirectory,
             encoding: "utf-8",
-            env: managedComposeEnvironment(options.workspace),
+            env,
             stdio: ["ignore", "pipe", "ignore"],
             timeout: COMPOSE_HASH_TIMEOUT_MS,
+            maxBuffer: 1024 * 1024,
+          },
+        );
+        if (rendered.status !== 0 || rendered.error || !rendered.stdout?.trim()) {
+          throw new Error("Compose configuration rendering failed.");
+        }
+        return spawnSync(
+          "docker",
+          [...composeArgs, "-f", "-", "config", "--no-interpolate", "--hash", service],
+          {
+            cwd: workingDirectory,
+            encoding: "utf-8",
+            env,
+            input: rendered.stdout,
+            stdio: ["pipe", "pipe", "ignore"],
+            timeout: COMPOSE_HASH_TIMEOUT_MS,
+            maxBuffer: 1024 * 1024,
           },
         );
       } catch {
