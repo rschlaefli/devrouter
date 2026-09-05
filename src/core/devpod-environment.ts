@@ -256,9 +256,6 @@ function inspectManagedStopPopulation(
     return snapshot;
   });
 
-  if (seen.size !== expected.size) {
-    throw new Error("Managed stop Docker inspection returned an incomplete population.");
-  }
   return snapshots;
 }
 
