@@ -64,9 +64,13 @@ export async function replacePublishedProxyRoutes(
   repoPath: string,
   config: DevrouterConfig,
   workspace?: string,
+  options: { prepareInfrastructure?: boolean } = {},
 ): Promise<{ routes: HostRouteInput[]; tlsRefreshed: boolean }> {
   const apps = proxyAppsFromConfig(config);
-  const tlsCoverage = await ensureRouteInfrastructure(apps, { repoPath });
+  const tlsCoverage =
+    options.prepareInfrastructure === false
+      ? { refreshed: false }
+      : await ensureRouteInfrastructure(apps, { repoPath });
 
   const routes = apps.map<HostRouteInput>((app) => {
     const upstream = parseUpstream(app.upstream);

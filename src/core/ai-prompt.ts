@@ -110,7 +110,7 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Write/update devrouter section in the repo's AGENTS.md and install the devrouter skill.",
   },
   {
-    command: "devrouter ensure [path] [--profile <name>] [--open] [--json]",
+    command: "devrouter ensure [path] [--profile <name>] [--repair] [--open] [--json]",
     purpose:
       "Canonical startup and proof for an exact primary or linked checkout; atomically publishes routes after readiness.",
   },
@@ -389,6 +389,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- devrouter repo devcontainer write --repo <REPO_PATH> --yes",
     "- devrouter repo devcontainer verify --repo <REPO_PATH> --json",
     "- Normal primary or linked startup: devrouter ensure <REPO_PATH> --json",
+    "- Degraded recovery: explicit devrouter ensure <REPO_PATH> --repair --json validates the recorded profile and unchanged retained configuration; stopped primary requires all project containers stopped and zero checkout routes. It starts only retained IDs, never provider bootstrap/recreation. Inspect failures before retrying.",
     "- Managed selective startup: devrouter ensure <REPO_PATH> --profile <name> --json",
     "- Container seed/migration: devrouter exec <REPO_PATH> -- <command...>",
     "- Compatibility verification only after ensure: devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json",

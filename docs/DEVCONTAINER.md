@@ -246,6 +246,34 @@ If a transition fails, the previous route set and successful state are kept
 when possible; otherwise status reports the degraded transition so it can be
 inspected before another profile change.
 
+To recover an explicitly recorded degraded managed runtime, use `--repair`:
+
+```bash
+devrouter ensure . --repair
+devrouter workspace ensure . --repair
+```
+
+Repair requires a valid degraded managed-runtime record. When no `--profile` is
+given, it uses that record's canonical profile. Before any provider or process
+mutation, it checks the exact retained baseline: the provider registration and
+workspace, Compose project, retained primary and required containers, selected
+app/service/process sets, source and effective Dev Container hashes, generated
+file ownership and content, and retained container configuration. Missing,
+foreign, corrupt, legacy, ready, or drifted baselines are rejected.
+
+Repair reruns the current repository adapter against the retained runtime. It
+may replace only already-owned process groups whose fingerprints changed and
+may start retained stopped containers by their exact Docker IDs. For a stopped
+primary, every container in its Compose project must be explicitly stopped and
+no checkout routes may remain. Startup runs the existing container entrypoint;
+provider bootstrap, creation, recreation, and resource adoption are skipped.
+
+If replay fails, owned resources may remain running and the runtime remains
+degraded. Repair restores previous routes when publication fails, but does not rerun
+the failed adapter during rollback. It uses existing routing infrastructure and
+never restarts the shared router. Inspect the result before retrying; ready state
+is persisted only after retained resources and routed readiness pass.
+
 ## 5. Bring up routing
 
 Order matters — `devnet` is `external`, so it must exist before the container

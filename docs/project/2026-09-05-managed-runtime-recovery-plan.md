@@ -1,0 +1,81 @@
+# Restore managed local runtimes
+
+## Approval summary
+
+Devrouter can misclassify an owned process as foreign, then retain a degraded runtime record that ordinary ensure cannot repair. Correct the helper and add explicit `ensure --repair` for the recorded profile. Ordinary ensure keeps its existing behavior. A separate Klicker change preserves the container's Python selection through Turbo.
+
+The user consolidated the parallel recovery task here on 2026-09-05, including its approved release and installation. Approval permits implementation, checks, required reviews, local commits, pushing the Devrouter repair branch to origin, a PR to main, squash merge after checks pass, publishing 0.0.52, and installing that published version with npm globally. Live Klicker repair, process cancellation, deletion, shared router restarts, and publication or integration of the separate Klicker correction remain outside this authority.
+
+Repair replays the current repository adapter. It may replace exactly owned process groups and start retained stopped containers and services. Failure can leave owned resources running and cannot restore earlier adapter bytes. Containers, volumes, foreign resources, and unrelated routes must remain intact. No recreation or first-time adoption is permitted. Completion means passing behavioral checks and reviews, releasing Devrouter 0.0.52, and verifying its npm global installation. The separate Klicker correction remains a reviewed local commit.
+
+## Execution details
+
+### Ownership and baseline
+
+Devrouter worktree: `/Users/rschlae/Git/personal/devrouter/trees/rs/fix-managed-process-ownership`, branch `rs/fix-managed-process-ownership`, baseline `93acdcae80be4688bd792ed3256e2e37b5e47ede`, tracks origin/main, initially equal.
+
+Klicker worktree: `/Users/rschlae/Git/klicker/klicker-uzh/trees/rs/fix-devcontainer-python-selection`, branch `rs/fix-devcontainer-python-selection`, baseline `fbc5f4fcc2ffa1c8d25695679823134985c5a8d8`, tracks origin/v3, initially equal. No upstream integration is authorized.
+
+### Delegation Map
+
+| Work | Owner | Acceptance |
+|---|---|---|
+| Helper correction | executor; main integrates existing patch | Linux lifecycle regression fails installed helper and passes corrected helper; foreign-process refusal retained. |
+| Guarded repair | main owns eligibility and rollback; executor implements settled independent command forwarding/tests | Acceptance matrix below passes without weakening ownership. Coupled state decisions stay with main. |
+| Python selection | main; delegation costs more than this one-line correction | Actual Turbo strict-mode process receives UV_PYTHON and changing it changes task hash. |
+| Verification | simplifier and slice-reviewer for substantive Devrouter slice; final-reviewer after integration | Findings dispositioned, focused checks pass, exact diff reviewed. |
+
+### Repair contract
+
+Both ensure aliases expose `--repair`. Under the existing workspace lock, read the persisted record before detachment handling. Only a valid degraded managed record qualifies. Omitted profile uses its recorded canonical profile. Absent, corrupt, legacy, ready, foreign, or unreadable state rejects before any mutation-capable rollback boundary.
+
+Require exact provider registration, workspace, Compose project and retained primary/required containers. Compare canonical profile, all desired app/service/process sets, source/effective Dev Container hashes, and generated-file ownership/content even when stopped. These hashes do not cover all Compose contents or adapter inputs; validate retained container configuration separately. Missing containers or configuration requiring recreation rejects.
+
+Reject unexpected active managed resources before replay. Preserve PID/group/fingerprint guards. Replay current adapter inputs; reuse a process only when its current fingerprint matches. Start only retained exact container IDs with Docker start and revalidate those IDs after startup. A stopped primary qualifies only when every project container is proven stopped and the checkout has no published routes. Docker start runs the retained entrypoint, but never invokes provider up, Compose up, recreation, or devcontainer bootstrap. Configuration hashes and ownership must still match.
+
+Retain degraded persistence while checking the candidate runtime and publishing its routes. Use structured candidate status validation, not prose matching. Verify services, processes, ownership, and route readiness; atomically persist ready last. On every failure retain or restore degraded status. Guarded rollback restores the prior checkout route snapshot and verifies active router rules and service targets, without replaying the adapter again. Failed repair can leave owned resources running; report concrete failures without claiming previous process restoration.
+
+### Acceptance matrix
+
+| Scenario | Required result |
+|---|---|
+| Ordinary ensure and both aliases | Existing degraded rejection and option forwarding remain correct. |
+| Invalid repair baseline | Profile/resource/config drift, foreign generated files, missing containers, unreadable ownership and non-degraded state fail before runtime mutations. |
+| Running or retained stopped runtime | Matching groups retained; changed adapter fingerprints replace only owned groups; container identities preserved; readiness precedes ready persistence. |
+| Failure injection | Startup, adapter, service, route publication, final inspection, and state persistence failures remain degraded; unrelated resources/routes remain untouched. |
+| Concurrency | Repair, ensure and stop retain existing workspace and provider serialization. |
+
+Use existing ensure/status/CLI tests with synthetic fixtures, native formatting/type checks, build and packaging checks. Run container-dependent toolchains in disposable task-owned containers. Reuse already-passing helper and Turbo evidence while their inputs remain unchanged. Review staged content before each local commit. Record the reviewed plan first, then scoped fix commits. Stop only task-owned test runtimes after final verification.
+
+### Separate live boundary
+
+Potential later repair targets are the exact response-example and v3-release workspaces, subject to fresh owner checks. Live commands, helper installation paths, replay effects, and any stopped-runtime startup must be presented after implementation and review. The machine-global queue was blocked by a long-running unrelated bootstrap and subsequently cleared without our intervention; interruption requires separate approval and fresh process identity checks. Queue cancellation and further Rollup diagnosis remain outside this source plan.
+
+## Progress and review provenance
+
+Earlier entries below record the source-only phase and are superseded by the consolidated approval summary above. The other task is archived; its uncommitted worktree is retained as reference. The initial running-primary restriction is replaced by exact-ID startup with the all-stopped and zero-route preconditions. Ordinary ensure remains unchanged. Final review identified that route-name checks alone cannot prove restoration when host or upstream changes; a bounded read-only rule-and-target check is being added for repair publication and rollback.
+
+
+Prepared, uncommitted: four helper pipeline corrections and a large-environment lifecycle regression; one-line Turbo globalEnv correction. Helper suite passes corrected code and fails the installed baseline. Turbo strict-environment and hash proof passes. No local installation or live repair has occurred.
+
+Planner rounds one and two requested changes to recovery. Accepted: explicit repair, pre-detachment eligibility, stopped-state checks, preflight outside rollback, current-adapter replay disclosure, ready-last validation, and retained-container-only startup. The final draft incorporates those constraints. Human approved source implementation, checks, reviews, and local commits on 2026-09-05 with "so proceed fixing that". Optional cross-provider pass is not run because its prerequisite committed review scope is not yet authorized; this limitation does not replace the native planner gate.
+
+Final native planner round: APPROVED. The original reviewer could not be resumed (terminal not_found); a fresh planner using the same native role reviewed the frozen draft and accepted all incorporated constraints. This is technical review, not human execution authority.
+
+Execution decisions: running primary required because neither provider resume contract guarantees no bootstrap/recreation. Retained stopped optional services remain supported. Repair skips provider up and infrastructure setup. Failure restores routes and preserves degraded state without a second adapter replay; it does not invoke ordinary transition rollback that could create a disappeared service. This narrows side effects within the approved bounds.
+
+Helper commit `629ce1d` passes the configured simplifier and slice-reviewer; no findings. Python correction committed locally as `e5483cf736` with existing Turbo and formatter proof. Plan commit `6abc921`. Source-only authority continues; installation/live repair remain withheld.
+
+Integrated verification: 867 unit tests pass with two workers. Formatting, typecheck, Knip, documentation policy, knowledge validation, build, package smoke, and host hygiene/Gitleaks pass. Scoped Opengrep runs 210 rules on eight changed production files with zero findings. The process shell suite passes in a fresh Linux container with init; an earlier container without init retained zombie PIDs and produced a test-environment failure. The first full unit run also hit a /repo fixture collision and contention; the isolated /workspace/devrouter run passes without source workarounds. All task-owned proof containers are stopped and removed. Peer runtimes were not mutated.
+
+Repair implementation committed as `c481b91`; incident lesson as `abfae5e`. Repair simplifier has no required changes; optional test consolidation is declined to retain a focused changed-adapter regression. Slice review and integrated final review are still pending. No PR exists; local commits remain the approved delivery layer.
+
+Slice review found no source defect. Its requested route-restoration coverage is added to the existing publication-failure test; all 72 ensure tests, formatting and typecheck pass. The change is assertion-only and preserves the reviewed production behavior. Integrated final review is the remaining source gate; installation and live recovery remain separately withheld.
+
+Consolidated checks: stopped-primary and failure scenarios pass in the 79-test ensure suite. Linux process helper lifecycle passes. Docker CLI documentation confirms start operates on stopped containers. A values-free read of the existing Traefik named API confirms HTTP/TCP service references are unqualified while names carry the file provider; matching must normalize only that exact same-provider form. Scoped Opengrep reports zero findings across nine changed production files. Live setup, routing smoke and provider smoke remain excluded because they mutate shared routing or peer runtimes; deterministic mocks, Linux process proof, package smoke, and read-only API shape checks cover this release boundary.
+
+Release candidate: implementation `742b6c6`, release metadata `aaf3ead` for 0.0.52. Package smoke installs and exercises the packed CLI, including both repair aliases. Final source checks pass Biome, Knip and TypeScript. All 881 executed unit cases pass across the full run and focused reruns; one pre-existing test is skipped. Full runs hit unrelated 5-second host-exec/concurrency timeouts; each passes unchanged in isolation. The bundled skill's stale embedded copy is synchronized, and its redundant exact command-text assertion is removed while copy equivalence and CLI behavior remain covered. Host pre-commit hygiene and Gitleaks pass; equivalent Biome/Knip run inside the container. Final review waits for the consolidated slice review and simplifier.
+
+A separate source task relayed an additional Klicker failure: dependency builds run inside background Turbo dev while the semantic readiness timer is already counting. Source inspection confirms this sequence; its reported 95-second GraphQL build precedes a roughly one-second auth startup. A read-only side investigation is active in the existing Klicker correction worktree. It does not change this Devrouter release contract. The affected stg-release-ref-promotion checkout and its in-flight stop remain owned by the source task; no duplicate stop or live mutation is authorized here.
+
+Consolidated slice review: no required fixes. Simplifier's redundant name-only repair proof is removed in f52f1cc, and focused ensure/route suites, typecheck, build and package smoke pass. Optional TCP entrypoint/TLS matching remains outside this rule/destination correction; no TCP application readiness is claimed. Task proof container devrouter-consolidated-01a071d3 is stopped and auto-removed, confirmed absent from Docker inventory. No peer runtime was mutated.

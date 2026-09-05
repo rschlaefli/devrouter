@@ -287,7 +287,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter -V [--repo .]`: show installed CLI version, local repo version, and next upgrade target
 - `devrouter upgrade [version] [--repo .]`: list upgrade targets or print target Agent Adaptation Prompt
 - `devrouter setup --yes [--repo .] [--json] [--workspace-runtime <devpod|devsy>]`: first-run machine setup plus structured diagnostics; explicit Devsy selection acquires its verified agent
-- `devrouter ensure [path] [--profile <name>] [--open] [--json]`: canonical startup/reconciliation for primary and linked checkouts; a managed profile selects its independent resource dimensions
+- `devrouter ensure [path] [--profile <name>] [--repair] [--open] [--json]`: canonical startup/reconciliation for primary and linked checkouts; explicit repair uses the recorded degraded profile and unchanged retained configuration
 - `devrouter profile resolve --repo <path> [--profile <selection>] [--json]`: resolve exact profile resources for automation without starting or inspecting a runtime
 - `devrouter profile plan --repo <path> [--profile <selection>] --contract <repo-relative-yaml> [--output <path>] [--json]`: validate repository-owned resource policy and emit literal bindings without runtime access
 - `devrouter stop [path] [--delete] [--json]`: stop the exact workspace runtime and remove exact routes; `--delete` explicitly deletes its ownership-proven data without removing the checkout
@@ -312,7 +312,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter app exec <name> [--shell] [--env <env>] [--workspace <slug>] -- <cmd>`: one-shot command with resolved dep env
 - `devrouter app rm <name> [--keep-config]`: remove app entry (`--keep-config` frees only the live route/hostname, leaves `.devrouter.yml` untouched)
 - `devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]`: create a worktree and start/prove it unless create-only mode is requested
-- `devrouter workspace ensure [path] [--profile <name>] [--open] [--json]`: compatibility alias of `devrouter ensure`
+- `devrouter workspace ensure [path] [--profile <name>] [--repair] [--open] [--json]`: compatibility alias of `devrouter ensure`
 - `devrouter workspace ls [--json]`: list ownership, Git, workspace runtime, route, path, and branch evidence
 - `devrouter workspace cleanup [--repo .] [--inactive-for 30d] [--check-merged] [--measure-size] [--json]`: report-only cleanup evidence and exact guarded suggestions; no `--yes` or apply mode
 - `devrouter workspace stop <workspace|branch>`: stop DevPod and routes; preserve checkout, owner record, and data

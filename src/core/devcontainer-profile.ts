@@ -6,10 +6,13 @@ import YAML from "yaml";
 import type { DevrouterConfig, DevrouterProfile } from "../types";
 import { writeFileAtomically } from "./atomic-file";
 import { readDevcontainerConfig } from "./devcontainer-config";
+import type { WorkspaceContainerSnapshot } from "./devpod-environment";
 import { assertPathWithinRepo } from "./paths";
+import { sameWorkspacePath } from "./workspace";
 
 export const MANAGED_DEVCONTAINER_PATH = ".devcontainer/devcontainer.devrouter.json";
 export const MANAGED_DEVCONTAINER_MARKER = "// devrouter:managed devcontainer profile";
+const COMPOSE_HASH_TIMEOUT_MS = 10_000;
 
 type JsonObject = Record<string, unknown>;
 
@@ -341,6 +344,117 @@ function assertSafeContainerId(containerId: string): void {
   }
 }
 
+function managedComposeEnvironment(workspace?: {
+  token: string;
+  gitCommonDir: string;
+}): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  if (workspace) {
+    env.WORKSPACE = workspace.token;
+    env.DEVROUTER_WORKSPACE = workspace.token;
+    env.DEVROUTER_GIT_COMMON_DIR = workspace.gitCommonDir;
+    env.DEVCONTAINER_COMPOSE_OVERLAY = "docker-compose.devrouter.yml";
+  } else {
+    delete env.WORKSPACE;
+    delete env.DEVROUTER_WORKSPACE;
+    delete env.DEVROUTER_GIT_COMMON_DIR;
+    delete env.DEVCONTAINER_COMPOSE_OVERLAY;
+  }
+  return env;
+}
+
+function assertReadableComposeFile(file: string): void {
+  try {
+    if (!fs.statSync(file).isFile()) throw new Error("not a regular file");
+    fs.accessSync(file, fs.constants.R_OK);
+  } catch {
+    throw new Error("Managed container Compose configuration contains an unreadable file.");
+  }
+}
+
+export function assertManagedContainerConfigUnchanged(options: {
+  plan: ManagedDevcontainerPlan;
+  containers: WorkspaceContainerSnapshot[];
+  workspace?: { token: string; gitCommonDir: string };
+}): void {
+  if (options.containers.length === 0) {
+    throw new Error("Managed container configuration cannot be verified without containers.");
+  }
+
+  for (const container of options.containers) {
+    const project = container.labels["com.docker.compose.project"];
+    const service = container.labels["com.docker.compose.service"];
+    const workingDirectory = container.labels["com.docker.compose.project.working_dir"];
+    const recordedConfigFiles = container.labels["com.docker.compose.project.config_files"];
+    const expectedHash = container.labels["com.docker.compose.config-hash"];
+
+    if (
+      !project ||
+      !service ||
+      !workingDirectory ||
+      !recordedConfigFiles ||
+      !expectedHash ||
+      !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(service) ||
+      !/^[a-f0-9]{64}$/.test(expectedHash)
+    ) {
+      throw new Error("Managed container is missing valid Compose identity and hash labels.");
+    }
+
+    const composeProject = safeComposeProject(project);
+    const configFiles = recordedConfigFiles.split(",").map((file) => file.trim());
+    if (configFiles.some((file) => file.length === 0)) {
+      throw new Error("Managed container has an invalid recorded Compose file list.");
+    }
+    if (
+      options.plan.composeFiles.some(
+        (expected) => !configFiles.some((actual) => sameWorkspacePath(actual, expected)),
+      )
+    ) {
+      throw new Error("Managed container Compose files do not include the managed plan files.");
+    }
+    for (const file of configFiles) assertReadableComposeFile(file);
+
+    const fileArgs = configFiles.flatMap((file) => ["-f", file]);
+    const result = (() => {
+      try {
+        return spawnSync(
+          "docker",
+          [
+            "compose",
+            "--project-name",
+            composeProject,
+            "--project-directory",
+            workingDirectory,
+            ...fileArgs,
+            "config",
+            "--hash",
+            service,
+          ],
+          {
+            cwd: workingDirectory,
+            encoding: "utf-8",
+            env: managedComposeEnvironment(options.workspace),
+            stdio: ["ignore", "pipe", "ignore"],
+            timeout: COMPOSE_HASH_TIMEOUT_MS,
+          },
+        );
+      } catch {
+        throw new Error(`Could not verify managed Compose configuration for service '${service}'.`);
+      }
+    })();
+
+    if (result.status !== 0 || result.error) {
+      throw new Error(`Could not verify managed Compose configuration for service '${service}'.`);
+    }
+
+    const output = typeof result.stdout === "string" ? result.stdout.trim() : "";
+    const match = /^(\S+)\s+([a-f0-9]{64})$/.exec(output);
+    if (!match || match[1] !== service || match[2] !== expectedHash) {
+      throw new Error(`Managed Compose configuration changed for service '${service}'.`);
+    }
+  }
+}
+
 export function startExactManagedServices(options: {
   plan: ManagedDevcontainerPlan;
   composeProject: string;
@@ -358,18 +472,7 @@ export function startExactManagedServices(options: {
   // Mirror the environment DevPod itself receives: linked overlays resolve
   // their bind mounts from these variables, while a primary checkout must see
   // the compose defaults instead of any stale host values.
-  const env = { ...process.env };
-  if (options.workspace) {
-    env.WORKSPACE = options.workspace.token;
-    env.DEVROUTER_WORKSPACE = options.workspace.token;
-    env.DEVROUTER_GIT_COMMON_DIR = options.workspace.gitCommonDir;
-    env.DEVCONTAINER_COMPOSE_OVERLAY = "docker-compose.devrouter.yml";
-  } else {
-    delete env.WORKSPACE;
-    delete env.DEVROUTER_WORKSPACE;
-    delete env.DEVROUTER_GIT_COMMON_DIR;
-    delete env.DEVCONTAINER_COMPOSE_OVERLAY;
-  }
+  const env = managedComposeEnvironment(options.workspace);
   const result = spawnSync(
     "docker",
     [

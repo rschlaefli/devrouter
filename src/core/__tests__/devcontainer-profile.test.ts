@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DevrouterConfig } from "../../types";
 import {
+  assertManagedContainerConfigUnchanged,
   inspectManagedDevcontainerConfig,
   inspectManagedDevcontainerGeneratedConfig,
   MANAGED_DEVCONTAINER_MARKER,
@@ -12,6 +13,7 @@ import {
   removeManagedDevcontainerConfig,
   startExactManagedServices,
 } from "../devcontainer-profile";
+import type { WorkspaceContainerSnapshot } from "../devpod-environment";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
@@ -71,6 +73,26 @@ function setupRepo(): void {
   );
   write(".devcontainer/docker-compose.default.yml", "services: {}\n");
   write(".gitignore", `${MANAGED_DEVCONTAINER_PATH}\n`);
+}
+
+function retainedContainer(
+  plan: ReturnType<typeof inspectManagedDevcontainerConfig>,
+  hash: string,
+  service = plan.primaryService,
+): WorkspaceContainerSnapshot {
+  return {
+    id: `${service}-id`,
+    state: { Running: false },
+    labels: {
+      "com.docker.compose.project": "fixture",
+      "com.docker.compose.service": service,
+      "com.docker.compose.project.working_dir": plan.composeDirectory,
+      "com.docker.compose.project.config_files": plan.composeFiles.join(","),
+      "com.docker.compose.config-hash": hash,
+    },
+    mounts: [],
+    networks: {},
+  };
 }
 
 beforeEach(() => {
@@ -281,5 +303,157 @@ describe("managed Dev Container config", () => {
         }),
       }),
     );
+  });
+
+  it("recomputes each retained service hash from its recorded Compose model", () => {
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath: tmpDir,
+      config: managedConfig,
+      profile: { apps: [], devcontainerServices: ["litellm"] },
+      linked: false,
+    });
+    const hash = "a".repeat(64);
+    vi.mocked(spawnSync).mockClear();
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: `app ${hash}\n`,
+      stderr: "compose diagnostics must stay suppressed",
+    } as never);
+
+    assertManagedContainerConfigUnchanged({
+      plan,
+      containers: [retainedContainer(plan, hash)],
+      workspace: { token: "feature", gitCommonDir: "/repos/sample.git" },
+    });
+
+    expect(spawnSync).toHaveBeenCalledWith(
+      "docker",
+      [
+        "compose",
+        "--project-name",
+        "fixture",
+        "--project-directory",
+        plan.composeDirectory,
+        ...plan.composeFiles.flatMap((file) => ["-f", file]),
+        "config",
+        "--hash",
+        "app",
+      ],
+      expect.objectContaining({
+        cwd: plan.composeDirectory,
+        encoding: "utf-8",
+        env: expect.objectContaining({
+          WORKSPACE: "feature",
+          DEVROUTER_WORKSPACE: "feature",
+          DEVROUTER_GIT_COMMON_DIR: "/repos/sample.git",
+          DEVCONTAINER_COMPOSE_OVERLAY: "docker-compose.devrouter.yml",
+        }),
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 10_000,
+      }),
+    );
+    expect(fs.existsSync(plan.generatedPath)).toBe(false);
+  });
+
+  it("rejects a missing Compose hash label before invoking Docker", () => {
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath: tmpDir,
+      config: managedConfig,
+      profile: { apps: [], devcontainerServices: ["litellm"] },
+      linked: false,
+    });
+    const container = retainedContainer(plan, "a".repeat(64));
+    delete container.labels["com.docker.compose.config-hash"];
+    vi.mocked(spawnSync).mockClear();
+
+    expect(() => assertManagedContainerConfigUnchanged({ plan, containers: [container] })).toThrow(
+      "missing valid Compose identity and hash labels",
+    );
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(fs.existsSync(plan.generatedPath)).toBe(false);
+  });
+
+  it("rejects a recorded Compose model that omits a planned file", () => {
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath: tmpDir,
+      config: managedConfig,
+      profile: { apps: [], devcontainerServices: ["litellm"] },
+      linked: false,
+    });
+    const container = retainedContainer(plan, "a".repeat(64));
+    container.labels["com.docker.compose.project.config_files"] = plan.composeFiles[0];
+    vi.mocked(spawnSync).mockClear();
+
+    expect(() => assertManagedContainerConfigUnchanged({ plan, containers: [container] })).toThrow(
+      "do not include the managed plan files",
+    );
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unreadable recorded Compose file without exposing command output", () => {
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath: tmpDir,
+      config: managedConfig,
+      profile: { apps: [], devcontainerServices: ["litellm"] },
+      linked: false,
+    });
+    const container = retainedContainer(plan, "a".repeat(64));
+    const missingFile = path.join(tmpDir, ".devcontainer/missing-compose.yml");
+    container.labels["com.docker.compose.project.config_files"] = [
+      ...plan.composeFiles,
+      missingFile,
+    ].join(",");
+    vi.mocked(spawnSync).mockClear();
+
+    let error: unknown;
+    try {
+      assertManagedContainerConfigUnchanged({ plan, containers: [container] });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "Managed container Compose configuration contains an unreadable file.",
+    );
+    expect((error as Error).message).not.toContain(missingFile);
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mismatched service hash and suppresses Compose stderr", () => {
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath: tmpDir,
+      config: managedConfig,
+      profile: { apps: [], devcontainerServices: ["litellm"] },
+      linked: false,
+    });
+    const expectedHash = "a".repeat(64);
+    vi.mocked(spawnSync).mockClear();
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: `app ${"b".repeat(64)}\n`,
+      stderr: "secret command stderr",
+    } as never);
+
+    let error: unknown;
+    try {
+      assertManagedContainerConfigUnchanged({
+        plan,
+        containers: [retainedContainer(plan, expectedHash)],
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "Managed Compose configuration changed for service 'app'.",
+    );
+    expect((error as Error).message).not.toContain("secret command stderr");
+    const [, args, spawnOptions] = vi.mocked(spawnSync).mock.calls[0];
+    expect(args).not.toContain("up");
+    expect(args).not.toContain("stop");
+    expect(spawnOptions).toEqual(expect.objectContaining({ stdio: ["ignore", "pipe", "ignore"] }));
+    expect(fs.existsSync(plan.generatedPath)).toBe(false);
   });
 });

@@ -258,6 +258,26 @@ describe("collectManagedRuntimeStatus", () => {
       },
     });
 
+    vi.mocked(readManagedRuntimeState).mockReturnValue({ ...state(), status: "degraded" });
+    const candidate = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["chat"] },
+      candidateState: state(),
+    });
+    expect(candidate.status).toBe("ready");
+    expect(
+      collectManagedRuntimeStatus({
+        repoPath,
+        workspace,
+        config: managedConfig(),
+        profile: "ai",
+        resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["chat"] },
+      }).status,
+    ).toBe("failed-transition");
+
     expect(result).toMatchObject({
       mode: "managed",
       status: "ready",
