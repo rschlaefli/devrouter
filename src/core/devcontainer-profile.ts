@@ -502,13 +502,18 @@ export function startExactManagedServices(options: {
   }
 }
 
-export function stopExactManagedService(containerId: string, service: string): void {
+export function stopExactManagedService(
+  containerId: string,
+  service: string,
+  options?: { timeoutMs: number },
+): void {
   assertSafeContainerId(containerId);
   const result = spawnSync("docker", ["stop", containerId], {
     encoding: "utf-8",
     stdio: "inherit",
+    ...(options ? { timeout: options.timeoutMs } : {}),
   });
-  if (result.status !== 0) {
+  if (result.status !== 0 || result.error) {
     throw new Error(`Could not stop exact managed service '${service}' (${containerId}).`);
   }
 }

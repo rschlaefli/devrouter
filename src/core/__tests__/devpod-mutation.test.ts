@@ -12,11 +12,13 @@ import {
   stopOwnedDevpodWorkspace,
 } from "../devpod-mutation";
 import { withFileLockSync } from "../file-lock";
-import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
+import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
+import { getWorkspaceRegistrySnapshots, resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-global-mutation-test" }));
 const childProcessMocks = vi.hoisted(() => ({ devsySpawn: vi.fn() }));
 const temporaryHomes: string[] = [];
+vi.mock("../managed-devsy-stop", () => ({ stopRetainedManagedDevsyWorkspace: vi.fn() }));
 let previousWorkspaceRuntime: string | undefined;
 
 vi.mock("node:child_process", async (importOriginal) => {
@@ -62,6 +64,7 @@ beforeEach(() => {
   previousWorkspaceRuntime = process.env.DEVROUTER_WORKSPACE_RUNTIME;
   process.env.DEVROUTER_WORKSPACE_RUNTIME = "devpod";
   vi.clearAllMocks();
+  vi.mocked(stopRetainedManagedDevsyWorkspace).mockReset().mockReturnValue(false);
   mockDevsyStart();
   resetWorkspaceRuntimeCaches();
 });
@@ -144,6 +147,31 @@ async function waitForQueueTicket(home: string, pid: number): Promise<void> {
 }
 
 describe("machine-global DevPod mutation boundary", () => {
+  it("refreshes registry evidence before stop and discards it after failure", () => {
+    process.env.DEVROUTER_WORKSPACE_RUNTIME = "devsy";
+    let registryId = "old";
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[1] === "list") {
+        return {
+          status: 0,
+          stdout: JSON.stringify([{ id: registryId, source: { localFolder: "/repo/feature" } }]),
+          stderr: "",
+        } as never;
+      }
+      return { status: command === "devsy" ? 0 : 1, stdout: "", stderr: "" } as never;
+    });
+    expect(getWorkspaceRegistrySnapshots().devsy?.[0].id).toBe("old");
+    registryId = "current";
+    vi.mocked(stopRetainedManagedDevsyWorkspace).mockImplementationOnce(() => {
+      expect(getWorkspaceRegistrySnapshots().devsy?.[0].id).toBe("current");
+      registryId = "after-failure";
+      throw new Error("stop failed");
+    });
+    expect(() => stopOwnedDevpodWorkspace("current", "/repo/feature")).toThrow();
+    expect(getWorkspaceRegistrySnapshots().devsy?.[0].id).toBe("after-failure");
+  });
+
   it("normalizes a possibly-started Devsy failure for workspace rollback", async () => {
     process.env.DEVROUTER_WORKSPACE_RUNTIME = "devsy";
     resetWorkspaceRuntimeCaches();

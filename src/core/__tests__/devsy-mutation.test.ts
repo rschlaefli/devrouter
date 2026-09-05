@@ -10,10 +10,12 @@ import {
   stopOwnedDevsyWorkspace,
 } from "../devsy-mutation";
 import { withFileLock, withFileLockSync } from "../file-lock";
+import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
 
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-devsy-mutation-test" }));
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
+vi.mock("../managed-devsy-stop", () => ({ stopRetainedManagedDevsyWorkspace: vi.fn() }));
 vi.mock("../devsy-agent", async (importOriginal) => ({
   ...(await importOriginal()),
   requireReadyDevsyAgent: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("../file-lock", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(stopRetainedManagedDevsyWorkspace).mockReset().mockReturnValue(false);
   vi.mocked(requireReadyDevsyAgent).mockReturnValue({
     binaryPath: "/managed/devsy-agent",
     source: "managed",
@@ -72,6 +75,41 @@ function mockDevsyUp(options: { status?: number; stderr?: string | Buffer } = {}
 }
 
 describe("Devsy mutation adapter", () => {
+  it("keeps managed proof and provider stop inside the provider lock", () => {
+    let locked = false;
+    vi.mocked(withFileLockSync).mockImplementationOnce((_path, _options, operation) => {
+      locked = true;
+      try {
+        return operation();
+      } finally {
+        locked = false;
+      }
+    });
+    vi.mocked(stopRetainedManagedDevsyWorkspace).mockImplementationOnce((options) => {
+      expect(locked).toBe(true);
+      expect(options).toMatchObject({ repoPath: "/repo/feature", devsyId: "feature" });
+      options.stopProvider();
+      return true;
+    });
+    vi.mocked(spawnSync).mockImplementationOnce((command, args) => {
+      expect(locked).toBe(true);
+      expect([command, args]).toEqual(["devsy", ["workspace", "stop", "feature"]]);
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+    expect(stopOwnedDevsyWorkspace("feature", "/repo/feature")).toEqual({ status: "changed" });
+    expect(spawnSync).toHaveBeenCalledOnce();
+    expect(locked).toBe(false);
+  });
+
+  it("propagates failed managed proof without a legacy fallback", () => {
+    const error = new Error("proof failed");
+    vi.mocked(stopRetainedManagedDevsyWorkspace).mockImplementationOnce(() => {
+      throw error;
+    });
+    expect(() => stopOwnedDevsyWorkspace("feature", "/repo/feature")).toThrow(error);
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
   it("uses one bounded lock path and skips the provider when the owner is absent", () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "[]", stderr: "" } as never);
 

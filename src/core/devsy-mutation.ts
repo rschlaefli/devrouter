@@ -14,6 +14,7 @@ import {
   selectDevsyWorkspace,
 } from "./devsy-workspaces";
 import { createStderrWaitReporter, withFileLock, withFileLockSync } from "./file-lock";
+import { stopRetainedManagedDevsyWorkspace } from "./managed-devsy-stop";
 import { DEVROUTER_HOME } from "./router";
 
 const DEVSY_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devsy-mutation.lock");
@@ -171,6 +172,15 @@ function mutateOwnedDevsyWorkspace(
   worktreePath: string,
 ): OwnedDevsyMutationResult {
   return withMutationLock(`Devsy ${action}`, worktreePath, () => {
+    if (
+      action === "stop" &&
+      stopRetainedManagedDevsyWorkspace({
+        repoPath: worktreePath,
+        devsyId,
+        stopProvider: () => runDevsyAction("stop", devsyId),
+      })
+    )
+      return { status: "changed" };
     const before = inspectExactOwnership(devsyId, worktreePath);
     if (before.status === "absent") return { status: "absent" as const };
 

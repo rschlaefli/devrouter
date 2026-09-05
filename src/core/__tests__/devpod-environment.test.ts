@@ -1,6 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { hasExactComposeIdentity, inspectWorkspaceContainers } from "../devpod-environment";
+import {
+  hasExactComposeIdentity,
+  inspectManagedStopContainers,
+  inspectWorkspaceContainers,
+} from "../devpod-environment";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
@@ -73,6 +77,191 @@ describe("inspectWorkspaceContainers", () => {
     } as never);
 
     expect(() => inspectWorkspaceContainers()).toThrow(/Cannot connect to the Docker daemon/);
+  });
+});
+
+describe("inspectManagedStopContainers", () => {
+  const composeProject = "devsy-project";
+  const runningId = "a".repeat(64);
+  const exitedId = "b".repeat(64);
+  const createdId = "c".repeat(64);
+  const unexpectedId = "d".repeat(64);
+
+  it("returns a stable running and quiescent population with bounded safe inspection", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce(dockerResult(`${runningId}\n${exitedId}\n${createdId}\n`))
+      .mockReturnValueOnce(
+        dockerResult(
+          `${managedSnapshotLine(runningId, composeProject, "running")}
+${managedSnapshotLine(exitedId, composeProject, "exited")}
+${managedSnapshotLine(createdId, composeProject, "created")}
+`,
+        ),
+      )
+      .mockReturnValueOnce(dockerResult(`${runningId}\n${exitedId}\n${createdId}\n`));
+
+    expect(inspectManagedStopContainers(composeProject)).toEqual([
+      expect.objectContaining({
+        id: runningId,
+        state: expect.objectContaining({ Status: "running" }),
+      }),
+      expect.objectContaining({
+        id: exitedId,
+        state: expect.objectContaining({ Status: "exited" }),
+      }),
+      expect.objectContaining({
+        id: createdId,
+        state: expect.objectContaining({ Status: "created" }),
+      }),
+    ]);
+
+    expect(vi.mocked(spawnSync).mock.calls[0][1]).toEqual([
+      "ps",
+      "-a",
+      "--no-trunc",
+      "--filter",
+      `label=com.docker.compose.project=${composeProject}`,
+      "--format",
+      "{{.ID}}",
+    ]);
+    const inspectCall = vi.mocked(spawnSync).mock.calls[1];
+    expect(inspectCall[1]).toEqual([
+      "inspect",
+      "--format",
+      expect.stringContaining('"Paused"'),
+      runningId,
+      exitedId,
+      createdId,
+    ]);
+    expect(inspectCall[2]).toMatchObject({
+      encoding: "utf-8",
+      timeout: expect.any(Number),
+      maxBuffer: expect.any(Number),
+    });
+    expect(String((inspectCall[1] as string[])[2])).not.toContain("Env");
+    expect(String((inspectCall[1] as string[])[2])).not.toContain("Config.Cmd");
+  });
+
+  it("confirms an empty inventory independently without inspecting an empty id list", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce(dockerResult(""))
+      .mockReturnValueOnce(dockerResult("\n"));
+
+    expect(inspectManagedStopContainers(composeProject)).toEqual([]);
+    expect(spawnSync).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(spawnSync).mock.calls.every(([, args]) => !args?.includes("inspect"))).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ["omitted record", `${managedSnapshotLine(runningId, composeProject, "running")}`],
+    [
+      "duplicate record",
+      `${managedSnapshotLine(runningId, composeProject, "running")}
+${managedSnapshotLine(runningId, composeProject, "running")}`,
+    ],
+    [
+      "unexpected record",
+      `${managedSnapshotLine(runningId, composeProject, "running")}
+${managedSnapshotLine(unexpectedId, composeProject, "exited")}`,
+    ],
+  ])("rejects an %s", (_name, inspectedOutput) => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce(dockerResult(`${runningId}\n${exitedId}\n`))
+      .mockReturnValueOnce(dockerResult(inspectedOutput));
+
+    expect(() => inspectManagedStopContainers(composeProject)).toThrow();
+  });
+
+  it.each([
+    ["an invalid listed id", "not-a-full-id", ""],
+    ["malformed JSON", `${runningId}`, "{"],
+    ["a missing state", `${runningId}`, JSON.stringify({ id: runningId })],
+    [
+      "a wrong field type",
+      `${runningId}`,
+      managedSnapshotLine(runningId, composeProject, "running", { state: { Running: "true" } }),
+    ],
+    [
+      "a wrong mount type",
+      `${runningId}`,
+      managedSnapshotLine(runningId, composeProject, "running", { mounts: {} }),
+    ],
+  ])("rejects %s", (_name, listedOutput, inspectedOutput) => {
+    if (listedOutput === "not-a-full-id") {
+      vi.mocked(spawnSync).mockReturnValueOnce(dockerResult(`${listedOutput}\n`));
+    } else {
+      vi.mocked(spawnSync)
+        .mockReturnValueOnce(dockerResult(`${listedOutput}\n`))
+        .mockReturnValueOnce(dockerResult(inspectedOutput));
+    }
+
+    expect(() => inspectManagedStopContainers(composeProject)).toThrow();
+  });
+
+  it.each([
+    ["running with Running false", "running", { Running: false }],
+    ["exited with Running true", "exited", { Running: true }],
+    ["created with Paused true", "created", { Paused: true }],
+    ["created with Restarting true", "created", { Restarting: true }],
+    ["created with Dead true", "created", { Dead: true }],
+    ["an unknown status", "removing", { Running: false }],
+  ])("rejects %s", (_name, status, state) => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce(dockerResult(`${runningId}\n`))
+      .mockReturnValueOnce(
+        dockerResult(managedSnapshotLine(runningId, composeProject, status, { state })),
+      );
+
+    expect(() => inspectManagedStopContainers(composeProject)).toThrow();
+  });
+
+  it("rejects membership changes found by the independent relist", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce(dockerResult(`${runningId}\n`))
+      .mockReturnValueOnce(dockerResult(managedSnapshotLine(runningId, composeProject, "running")))
+      .mockReturnValueOnce(dockerResult(`${unexpectedId}\n`));
+
+    expect(() => inspectManagedStopContainers(composeProject)).toThrow();
+    expect(spawnSync).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects transport failures from listing, inspection, and relisting", () => {
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 0,
+      stdout: "",
+      stderr: "",
+      error: new Error("spawn failed"),
+    } as never);
+    expect(() => inspectManagedStopContainers(composeProject)).toThrow();
+
+    vi.clearAllMocks();
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce(dockerResult(`${runningId}\n`))
+      .mockReturnValueOnce({ status: null, stdout: null, stderr: "" } as never);
+    expect(() => inspectManagedStopContainers(composeProject)).toThrow();
+
+    vi.clearAllMocks();
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce(dockerResult(`${runningId}\n`))
+      .mockReturnValueOnce(dockerResult(managedSnapshotLine(runningId, composeProject, "running")))
+      .mockReturnValueOnce({ status: 1, stdout: "", stderr: "daemon error" } as never);
+    expect(() => inspectManagedStopContainers(composeProject)).toThrow();
+  });
+
+  it("rejects an unsafe or empty Compose project before invoking Docker", () => {
+    for (const project of [
+      "",
+      "../project",
+      "Project",
+      "project name",
+      "project\nname",
+      "project\n",
+    ]) {
+      expect(() => inspectManagedStopContainers(project)).toThrow();
+    }
+    expect(spawnSync).not.toHaveBeenCalled();
   });
 });
 
@@ -154,5 +343,50 @@ function snapshotLine(id: string, sizes?: { sizeRw: number; sizeRootFs: number }
     mounts: [{ Type: "bind", Source: "/repo/trees/feature", Destination: "/workspaces/app" }],
     networks: {},
     ...sizes,
+  });
+}
+
+function dockerResult(stdout: string): never {
+  return { status: 0, stdout, stderr: "" } as never;
+}
+
+function managedSnapshotLine(
+  id: string,
+  composeProject: string,
+  status: string,
+  overrides: {
+    state?: Record<string, unknown>;
+    labels?: Record<string, unknown>;
+    mounts?: unknown;
+    networks?: unknown;
+  } = {},
+): string {
+  return JSON.stringify({
+    id,
+    state: {
+      Status: status,
+      Running: status === "running",
+      Paused: false,
+      Restarting: false,
+      Dead: false,
+      Health: null,
+      ...overrides.state,
+    },
+    labels: {
+      "com.docker.compose.project": composeProject,
+      "com.docker.compose.service": "app",
+      "com.docker.compose.project.working_dir": "/workspaces/example/.devcontainer",
+      "com.docker.compose.project.config_files": "/workspaces/example/.devcontainer/compose.yml",
+      "com.docker.compose.config-hash": "synthetic-hash",
+      ...overrides.labels,
+    },
+    mounts: overrides.mounts ?? [
+      {
+        Type: "bind",
+        Source: "/workspaces/example",
+        Destination: "/workspaces/example",
+      },
+    ],
+    networks: overrides.networks ?? {},
   });
 }

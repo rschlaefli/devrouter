@@ -18,7 +18,7 @@ describe("Devsy workspace adapter", () => {
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,
       stdout: JSON.stringify([
-        { id: "feature", source: { localFolder: "/repo/trees/feature" } },
+        { id: "feature", context: "default", source: { localFolder: "/repo/trees/feature" } },
         {
           id: "legacy",
           source: { localFolder: "/repo/trees/legacy" },
@@ -29,7 +29,7 @@ describe("Devsy workspace adapter", () => {
     } as never);
 
     expect(listDevsyWorkspaces()).toEqual([
-      { id: "feature", source: { localFolder: "/repo/trees/feature" } },
+      { id: "feature", context: "default", source: { localFolder: "/repo/trees/feature" } },
       {
         id: "legacy",
         source: { localFolder: "/repo/trees/legacy" },

@@ -276,6 +276,18 @@ is persisted only after retained resources and routed readiness pass.
 
 ## 5. Bring up routing
 
+For a retained managed Devsy workspace, `devrouter stop .` verifies the complete
+Compose project before removing routes. If the primary container is already
+stopped, it skips Devsy's stop command and stops only the captured running
+service IDs after fresh ownership and configuration checks. Containers and
+volumes remain intact. Missing, replaced, foreign or unreadable members prevent
+cleanup; stopped provider status alone is insufficient.
+
+A failing provider stop remains an error even when independently verified
+residual shutdown succeeds. Routes remain intact on that error; a later stop
+can finish route cleanup after full stopped proof. Do not remove the retained
+runtime record to bypass an ownership or configuration mismatch.
+
 Order matters — `devnet` is `external`, so it must exist before the container
 starts:
 
