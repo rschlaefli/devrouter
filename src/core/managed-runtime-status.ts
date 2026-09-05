@@ -390,6 +390,8 @@ export function collectManagedRuntimeStatus(options: {
   config: DevrouterConfig;
   profile: string;
   resolvedProfile?: DevrouterProfile;
+  /** Inspect a candidate before publishing it to persistent runtime state. */
+  candidateState?: ManagedRuntimeState;
 }): ManagedRuntimeStatus {
   if (!options.config.managedRuntime) {
     return {
@@ -431,7 +433,7 @@ export function collectManagedRuntimeStatus(options: {
   let state: ManagedRuntimeState | undefined;
   let stateReadFailed = false;
   try {
-    state = readManagedRuntimeState(options.repoPath, options.workspace);
+    state = options.candidateState ?? readManagedRuntimeState(options.repoPath, options.workspace);
   } catch {
     stateReadFailed = true;
   }

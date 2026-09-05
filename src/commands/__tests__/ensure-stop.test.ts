@@ -80,6 +80,30 @@ describe("canonical environment commands", () => {
     expect(write).toHaveBeenCalledWith(`${JSON.stringify(result, null, 2)}\n`);
   });
 
+  it("forwards explicit degraded-runtime repair", async () => {
+    const result = {
+      kind: "linked" as const,
+      repoPath: "/repo/trees/feature",
+      workspace: "feature",
+      profile: "ai",
+      devpodId: "feature",
+      urls: ["https://web.feature.localhost"],
+      recreated: false,
+      tlsRefreshed: false,
+    };
+    vi.mocked(workspaceEnsure).mockResolvedValue(result);
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runEnsureCommand({ path: result.repoPath, json: true, repair: true });
+
+    expect(workspaceEnsure).toHaveBeenCalledWith(result.repoPath, {
+      open: undefined,
+      quiet: true,
+      repair: true,
+    });
+    expect(write).toHaveBeenCalledWith(`${JSON.stringify(result, null, 2)}\n`);
+  });
+
   it("stops an exact checkout and prints JSON", async () => {
     const result = {
       kind: "primary" as const,

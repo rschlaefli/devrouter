@@ -4,6 +4,7 @@ import { resolveGitCheckoutPath } from "./environment-path";
 export async function runEnsureCommand(options: {
   path?: string;
   profile?: string;
+  repair?: boolean;
   open?: boolean;
   json?: boolean;
 }): Promise<void> {
@@ -12,6 +13,7 @@ export async function runEnsureCommand(options: {
     open: options.open,
     quiet: Boolean(options.json),
     profile: options.profile,
+    ...(options.repair ? { repair: true } : {}),
   });
   if (options.json) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

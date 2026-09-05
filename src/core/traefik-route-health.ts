@@ -27,6 +27,7 @@ export type TraefikRouteLoadOptions = {
   initialTimeoutMs?: number;
   recoveryTimeoutMs?: number;
   pollIntervalMs?: number;
+  allowRestart?: boolean;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -161,6 +162,10 @@ async function ensureTraefikRouteExpectation(
     pollIntervalMs,
   );
   if (initial.ok) return { restarted: false };
+  if (options.allowRestart === false)
+    throw new Error(
+      "Traefik routes did not reload; shared router restart is disabled for this operation.",
+    );
 
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   return withFileLock(

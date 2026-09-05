@@ -67,6 +67,14 @@ afterEach(() => {
 });
 
 describe("ensureTraefikRoutesLoaded", () => {
+  it("refuses shared restart when repair cannot prove route reload", async () => {
+    mockHttpRouterResponses([[]]);
+    await expect(
+      ensureTraefikRoutesLoaded([route], { initialTimeoutMs: 0, allowRestart: false }),
+    ).rejects.toThrow();
+    expect(restartRouterStack).not.toHaveBeenCalled();
+  });
+
   it("accepts a file-provider router already loaded by Traefik", async () => {
     mockHttpRouterResponses([[{ name: "host-repo-chat@file" }]]);
 
