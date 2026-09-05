@@ -187,9 +187,9 @@ process_owned() {
   [ "$actual_pgid" = "$pgid" ] || return 1
   [ "$pgid" = "$pid" ] || return 1
   tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null |
-    grep -Fqx "DEVROUTER_PROCESS_NAME=$name" || return 1
+    grep -Fx "DEVROUTER_PROCESS_NAME=$name" >/dev/null || return 1
   tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null |
-    grep -Fqx "DEVROUTER_PROCESS_FINGERPRINT=$expected_fingerprint"
+    grep -Fx "DEVROUTER_PROCESS_FINGERPRINT=$expected_fingerprint" >/dev/null
 }
 
 process_group_alive() {
@@ -217,7 +217,7 @@ is_helper_process() {
   local candidate="$1"
 
   [ -r "/proc/$candidate/cmdline" ] || return 1
-  tr '\0' '\n' <"/proc/$candidate/cmdline" 2>/dev/null | grep -Fqx "$0"
+  tr '\0' '\n' <"/proc/$candidate/cmdline" 2>/dev/null | grep -Fx "$0" >/dev/null
 }
 
 marked_process_exists() {
@@ -230,7 +230,7 @@ marked_process_exists() {
     pid="${pid%/environ}"
     process_alive "$pid" || continue
     is_self_or_ancestor "$pid" && continue
-    if tr '\0' '\n' <"$environ" 2>/dev/null | grep -Fqx "DEVROUTER_PROCESS_NAME=$name"; then
+    if tr '\0' '\n' <"$environ" 2>/dev/null | grep -Fx "DEVROUTER_PROCESS_NAME=$name" >/dev/null; then
       return 0
     fi
   done

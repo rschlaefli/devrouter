@@ -130,6 +130,26 @@ managed_pid=""
 stopped_status="$($HELPER status --name "$name" 2>/dev/null || true)"
 grep -Fq '{"name":"'"$name"'","status":"stopped"}' <<<"$stopped_status"
 
+# Matching markers can precede more data than a pipe can buffer. Ownership
+# checks must consume the complete environment before judging pipeline status.
+large_environment="$(printf '%65536s' '' | tr ' ' x)"
+run_helper "large-environment" env -i \
+  "DEVROUTER_PROCESS_NAME=$name" \
+  DEVROUTER_PROCESS_FINGERPRINT=large-environment \
+  "PADDING=$large_environment" /bin/sleep 300
+read -r managed_pid _ _ <"$state_file"
+large_environment_pid="$managed_pid"
+"$HELPER" status --name "$name" >/dev/null
+run_helper "large-environment" env -i \
+  "DEVROUTER_PROCESS_NAME=$name" \
+  DEVROUTER_PROCESS_FINGERPRINT=large-environment \
+  "PADDING=$large_environment" /bin/sleep 300
+read -r managed_pid _ _ <"$state_file"
+[ "$managed_pid" = "$large_environment_pid" ]
+"$HELPER" stop --name "$name" >/dev/null
+managed_pid=""
+unset large_environment
+
 printf '999999 999999 200-1\n' >"$state_file"
 if "$HELPER" status --name "$name" >"$test_dir/drifted-status.json" 2>/dev/null; then
   echo "stale process state was incorrectly reported as healthy" >&2
