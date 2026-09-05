@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.54] - 2026-09-05
+
+### Fixed
+
+- Retained configuration checks resolve Compose service `env_file` values before
+  hashing, avoiding false drift on affected Compose versions. Resolved models
+  stay in bounded process memory and stdin, with diagnostics suppressed and
+  interpolation disabled on the hashing pass. Real hash changes still reject
+  stop and repair before container mutation.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.54.md
+
 ## [0.0.53] - 2026-09-05
 
 ### Fixed
