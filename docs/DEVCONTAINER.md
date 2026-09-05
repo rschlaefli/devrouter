@@ -170,6 +170,16 @@ affect reuse. Secret-like names are rejected and raw values are never written to
 state. Use `--fingerprint <value>` only for a complete caller-owned identity that
 should replace the default fingerprint.
 
+For synchronous dependency preparation, pass `--prepare-command 'command'` to
+the helper's `ensure` action. An unchanged owned runtime skips preparation.
+A changed runtime stops its owned group first, checks for foreign matches,
+then prepares under the same lock before launch. Preparation failures prevent
+launch. The exact preparation command participates in the default fingerprint;
+callers using `--fingerprint` must include preparation changes themselves.
+Preparation must stay in its foreground process group without daemonizing or
+detaching. Cancellation terminates that group before releasing the lock and
+reaps the direct child; container init reaps orphan zombies.
+
 Application environment setup and the exact command remain repository-owned.
 HTTP readiness remains host-side in `ensure`, so applications do not
 need a second route-health policy.
