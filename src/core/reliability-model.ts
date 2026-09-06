@@ -2,6 +2,7 @@ import {
   assertReliabilityState,
   isReliabilityCounter,
   isReliabilityId,
+  RELIABILITY_MAX_ITEMS,
   type ReliabilityConsumer,
   type ReliabilityEffect,
   type ReliabilityEvent,
@@ -300,6 +301,11 @@ function handleRequest(
   if (state.operation.id !== event.operationId) return unchanged(state, "conflict");
 
   const existingConsumer = state.consumers.find((consumer) => consumer.id === event.consumer.id);
+  if (
+    state.requests.length >= RELIABILITY_MAX_ITEMS ||
+    (!existingConsumer && state.consumers.length >= RELIABILITY_MAX_ITEMS)
+  )
+    return unchanged(state, "blocked");
   if (existingConsumer && !sameConsumer(existingConsumer, event.consumer)) {
     return unchanged(state, "conflict");
   }
@@ -443,10 +449,13 @@ function handleObservation(
   );
   if (
     event.observation.observedAtMs > nowMs ||
+    event.observation.observedAtMs < state.observationsAfterMs ||
     (previous !== undefined && previous.observedAtMs >= event.observation.observedAtMs)
   ) {
     return unchanged(state, "stale");
   }
+  if (!previous && state.observations.length >= RELIABILITY_MAX_ITEMS)
+    return unchanged(state, "blocked");
 
   state.observations = state.observations.filter(
     (observation) => observation.capability !== event.observation.capability,
@@ -457,6 +466,8 @@ function handleObservation(
 }
 
 function handleStop(state: ReliabilityState): ReliabilityTransition {
+  if (state.desired === "stopped-by-user" && state.intentRevision > 0)
+    return unchanged(state, "joined");
   const intentRevision = advance(state.intentRevision);
   if (intentRevision === null) return unchanged(state, "blocked");
 
@@ -496,10 +507,7 @@ function handleStopProof(
     state.chargeHeld = true;
     state.phase = "stopping";
   }
-  const changed =
-    previous.workloadsStopped !== state.stopProof.workloadsStopped ||
-    previous.routesRemoved !== state.stopProof.routesRemoved;
-  return transition(state, changed ? "accepted" : "joined");
+  return transition(state, "accepted");
 }
 
 function handlePark(state: ReliabilityState): ReliabilityTransition {
@@ -615,6 +623,7 @@ function handleRecover(
 
   if (state.incident === null) {
     if (state.operation?.status === "NOT_STARTED") return unchanged(state, "blocked");
+    if (state.operation?.id === event.operationId) return unchanged(state, "conflict");
     state.incident = {
       id: event.incidentId,
       correctiveActionsTaken: 0,
@@ -627,6 +636,10 @@ function handleRecover(
     state.operation.status === "COMPLETED" ||
     state.operation.status === "INTERRUPTED"
   ) {
+    const runtimeGeneration = advance(state.runtimeGeneration);
+    if (runtimeGeneration === null) return unchanged(state, "blocked");
+    state.runtimeGeneration = runtimeGeneration;
+    state.observations = [];
     state.operation = { id: event.operationId, status: "NOT_STARTED", exitCode: null };
   }
   state.phase = "recovering";
@@ -647,13 +660,11 @@ function handleRearm(
   return transition(state, "accepted");
 }
 
-export function stepReliability(
+function applyReliabilityEvent(
   state: ReliabilityState,
   event: ReliabilityEvent,
   nowMs: number,
 ): ReliabilityTransition {
-  assertReliabilityState(state);
-  if (!isReliabilityCounter(nowMs)) throw new Error("Invalid reliability clock.");
   assertReliabilityEvent(event);
 
   if (!sameFence(state, event)) return unchanged(state, "stale");
@@ -700,4 +711,19 @@ export function stepReliability(
     case "rearm":
       return handleRearm(next, event);
   }
+}
+
+export function stepReliability(
+  state: ReliabilityState,
+  event: ReliabilityEvent,
+  nowMs: number,
+): ReliabilityTransition {
+  assertReliabilityState(state);
+  if (!isReliabilityCounter(nowMs) || nowMs < state.observationsAfterMs)
+    throw new Error("Invalid reliability clock.");
+  const result = applyReliabilityEvent(state, event, nowMs);
+  if (!sameFence(result.state, event) && result.outcome === "accepted") {
+    result.state.observationsAfterMs = nowMs;
+  }
+  return result;
 }

@@ -9,8 +9,10 @@ It performs no provider, filesystem, process, or router operations. Consumer
 summaries are derived from current required capabilities and observation freshness.
 
 Environment identity, intent revision, runtime generation, and controller epoch
-fence every event. Explicit stop supersedes attachment. Parking requires positive
-workload and route stop evidence before releasing capacity. Missing evidence
+fence every event. Explicit stop supersedes attachment.
+Observation timestamps must also meet the current generation's time floor, so
+relabeling old evidence with a current fence cannot restore readiness.
+Parking requires positive workload and route stop evidence before releasing capacity. Missing evidence
 retains the charge. Persistence acknowledgement must precede a launch request;
 a possibly dispatched operation without authoritative completion is never replayed.
 Incident budgets survive runtime and controller changes.

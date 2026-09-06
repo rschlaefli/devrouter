@@ -52,6 +52,75 @@ const healthy = {
 } as const;
 
 describe("reliability transitions", () => {
+  it("rejects pre-generation observations even when relabeled with the current fence", () => {
+    let state = step(completed(), { type: "observation", observation: healthy }).state;
+    state = step(state, { type: "runtime", nextGeneration: 1 }, 105).state;
+    expect(state.observationsAfterMs).toBe(105);
+    expect(step(state, { type: "observation", observation: healthy }, 106).outcome).toBe("stale");
+    state = step(state, { type: "admission", result: "admitted" }, 106).state;
+    expect(projectReliability(state, "agent", 106).state).not.toBe("READY");
+    state = step(
+      state,
+      { type: "observation", observation: { ...healthy, observedAtMs: 106 } },
+      106,
+    ).state;
+    expect(projectReliability(state, "agent", 106).state).toBe("READY");
+  });
+
+  it("blocks full observation and request collections without mutating state", () => {
+    let state = completed();
+    for (let index = 0; index < 128; index++)
+      state = step(state, {
+        type: "observation",
+        observation: { ...healthy, capability: `cap-${index}` },
+      }).state;
+    expect(step(state, { type: "observation", observation: healthy })).toMatchObject({
+      outcome: "blocked",
+      state,
+      effects: [],
+    });
+    state = completed();
+    for (let index = 1; index < 128; index++)
+      state = step(state, {
+        ...request,
+        mode: "attach",
+        key: `key-${index}`,
+        consumer: { ...consumer, id: `consumer-${index}` },
+      }).state;
+    expect(
+      step(state, {
+        ...request,
+        mode: "attach",
+        key: "overflow",
+        consumer: { ...consumer, id: "overflow" },
+      }),
+    ).toMatchObject({ outcome: "blocked", state, effects: [] });
+  });
+  it("fences old completions across recovery and refuses a reused current operation ID", () => {
+    const state = completed();
+    const recovery = {
+      type: "recover",
+      incidentId: "incident",
+      actionLimit: 2,
+      operationId: "repair",
+    } as const;
+    expect(step(state, { ...recovery, operationId: "op" }).outcome).toBe("conflict");
+    let next = step(state, recovery).state;
+    next = step(next, { type: "dispatch" }).state;
+    const oldCompletion = {
+      ...reliabilityFence(state),
+      type: "completion",
+      operationId: "repair",
+      exitCode: 0,
+    } as const;
+    expect(stepReliability(next, oldCompletion, 100).outcome).toBe("stale");
+    expect(next.operation?.status).toBe("DISPATCH_PENDING");
+  });
+
+  it("joins repeated stop without invalidating outstanding teardown proof", () => {
+    const state = step(completed(), { type: "stop" }).state;
+    expect(step(state, { type: "stop" })).toMatchObject({ state, effects: [], outcome: "joined" });
+  });
   it("keeps consumers independently ready when another requires a failing capability", () => {
     let state = step(completed(), {
       ...request,
@@ -149,6 +218,7 @@ describe("reliability transitions", () => {
     } as const;
     expect(step(state, resume).outcome).toBe("blocked");
     state = step(state, { type: "admission", result: "admitted" }).state;
+    expect(projectReliability(state, "agent", 100).state).toBe("STARTING");
     expect(
       step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).state
         .chargeHeld,
@@ -234,7 +304,9 @@ describe("reliability transitions", () => {
       } as ReliabilityEvent;
       expect(stepReliability(state, event, 100).outcome).toBe("stale");
     }
-    expect(step(state, { type: "observation", observation: healthy }, 99).outcome).toBe("stale");
+    expect(
+      step(state, { type: "observation", observation: { ...healthy, observedAtMs: 101 } }).outcome,
+    ).toBe("stale");
     state = step(state, { type: "observation", observation: healthy }).state;
     expect(projectReliability(state, "agent", 109).state).toBe("READY");
     expect(projectReliability(state, "agent", 110).state).toBe("UNKNOWN");

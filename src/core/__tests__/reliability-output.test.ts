@@ -93,6 +93,7 @@ describe("reliability projection", () => {
   it("requires complete stop proof and released charge to claim parking", () => {
     const state = readyState();
     state.desired = "parked-for-capacity";
+    state.admission = "waiting";
     state.stopProof.workloadsStopped = true;
     expect(projectReliability(state, "consumer", 110).state).toBe("BLOCKED");
     state.stopProof.routesRemoved = true;

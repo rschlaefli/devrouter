@@ -44,6 +44,7 @@ export type ReliabilityIncident = {
 
 export type ReliabilityState = ReliabilityFence & {
   contractVersion: 1;
+  observationsAfterMs: number;
   desired: "running" | "parked-for-capacity" | "stopped-by-user";
   phase: "idle" | "queued" | "starting" | "verifying" | "stable" | "recovering" | "stopping";
   profile: string | null;
@@ -135,6 +136,7 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
   const valid =
     record(value) &&
     value.contractVersion === RELIABILITY_CONTRACT_VERSION &&
+    isReliabilityCounter(value.observationsAfterMs) &&
     isReliabilityId(value.environmentId) &&
     isReliabilityCounter(value.intentRevision) &&
     isReliabilityCounter(value.runtimeGeneration) &&
@@ -223,6 +225,7 @@ export function createReliabilityState(
     controllerEpoch,
     intentRevision: 0,
     runtimeGeneration: 0,
+    observationsAfterMs: 0,
     desired: "stopped-by-user",
     phase: "idle",
     profile: null,

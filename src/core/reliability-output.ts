@@ -19,9 +19,15 @@ export type ReliabilitySummary =
   | "STOPPED"
   | "UNKNOWN";
 
-function fresh(observation: ReliabilityObservation, nowMs: number): boolean {
+function fresh(
+  observation: ReliabilityObservation,
+  nowMs: number,
+  observationsAfterMs: number,
+): boolean {
   return (
-    observation.observedAtMs <= nowMs && nowMs - observation.observedAtMs < observation.validForMs
+    observation.observedAtMs >= observationsAfterMs &&
+    observation.observedAtMs <= nowMs &&
+    nowMs - observation.observedAtMs < observation.validForMs
   );
 }
 
@@ -40,7 +46,13 @@ export function projectReliability(state: ReliabilityState, consumerId: string, 
   if (!consumer) summary = "BLOCKED";
   else if (state.desired === "stopped-by-user") summary = completeStop ? "STOPPED" : "UNKNOWN";
   else if (state.desired === "parked-for-capacity")
-    summary = completeStop ? "PARKED_CAPACITY" : "BLOCKED";
+    summary = completeStop
+      ? "PARKED_CAPACITY"
+      : state.stopProof.workloadsStopped &&
+          state.stopProof.routesRemoved &&
+          state.admission === "admitted"
+        ? "STARTING"
+        : "BLOCKED";
   else if (
     state.operation?.status === "COMPLETION_UNKNOWN" ||
     state.operation?.status === "INTERRUPTED"
@@ -51,14 +63,19 @@ export function projectReliability(state: ReliabilityState, consumerId: string, 
   else if (state.admission === "unknown") summary = "UNKNOWN";
   else if (state.phase === "recovering") summary = "RECOVERING";
   else if (
-    observations.some((entry) => entry && fresh(entry, nowMs) && entry.infrastructure === "failed")
+    observations.some(
+      (entry) =>
+        entry &&
+        fresh(entry, nowMs, state.observationsAfterMs) &&
+        entry.infrastructure === "failed",
+    )
   )
     summary = "BLOCKED";
   else if (
     observations.some(
       (entry) =>
         entry &&
-        fresh(entry, nowMs) &&
+        fresh(entry, nowMs, state.observationsAfterMs) &&
         entry.infrastructure === "healthy" &&
         entry.application === "unready",
     )
@@ -70,7 +87,10 @@ export function projectReliability(state: ReliabilityState, consumerId: string, 
     state.phase !== "stable" ||
     required.length === 0 ||
     observations.some(
-      (entry) => !entry || !fresh(entry, nowMs) || entry.infrastructure === "unknown",
+      (entry) =>
+        !entry ||
+        !fresh(entry, nowMs, state.observationsAfterMs) ||
+        entry.infrastructure === "unknown",
     )
   )
     summary = "UNKNOWN";
@@ -88,13 +108,14 @@ export function projectReliability(state: ReliabilityState, consumerId: string, 
     chargeHeld: state.chargeHeld,
     requiredCapabilities: [...required],
     observedAtMs: nowMs,
+    observationsAfterMs: state.observationsAfterMs,
     capabilities: state.observations.map((entry) => ({
       capability: entry.capability,
       infrastructure: entry.infrastructure,
       application: entry.application,
       observedAtMs: entry.observedAtMs,
       validForMs: entry.validForMs,
-      fresh: fresh(entry, nowMs),
+      fresh: fresh(entry, nowMs, state.observationsAfterMs),
       required: required.includes(entry.capability),
     })),
     operation: state.operation
