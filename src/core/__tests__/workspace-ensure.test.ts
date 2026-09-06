@@ -1730,6 +1730,14 @@ describe("workspaceEnsure", () => {
     expect(runtime.runningProcesses.size).toBe(0);
     expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "litellm"]));
     expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
+    const publishedRoutes =
+      vi.mocked(replaceHostRoutesForRepo).mock.calls.find(([, routes]) => routes.length > 0)?.[1] ??
+      [];
+    if (failure === "http") expect(publishedRoutes.length).toBeGreaterThan(0);
+    expect(ensureTraefikRoutesRemoved).toHaveBeenLastCalledWith(
+      [managedPreviousRoute(), ...publishedRoutes],
+      expect.objectContaining({ allowRestart: false }),
+    );
     if (failure !== "http") return;
     vi.mocked(readManagedRuntimeState).mockReturnValue(state);
     vi.mocked(listHostRouteState).mockReturnValue([]);
