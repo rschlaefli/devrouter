@@ -1,7 +1,7 @@
 # Reliability contract foundation and continuous qualification
 
 ## Approval summary
-Status: approved source-only execution package; implementation in progress.
+Status: delivered locally; source-only package reviewed and verified. Runtime qualification remains pending.
 
 Deliver one shared deterministic reliability contract before changing live lifecycle behavior. It will represent consumer intent, readiness freshness, incident budgets, and uncertain command completion. The immediate benefit is executable acceptance criteria that later lifecycle, admission, and harness changes must satisfy.
 
@@ -78,6 +78,8 @@ Stop and verify exact fixture runtimes after each live session; destructive fixt
 Q identifiers refer to the expanded roadmap's acceptance matrix. Every listed model case remains pending live qualification where applicable. No package claims universal provider or harness support.
 
 ## Progress
+Terminal source-package evidence: final reviewer returned DONE with no findings at 656e381b88319d28bb539dc6669b58c2062a9095 after its correction pass. All 1,008 tests across 75 files pass, including 55 focused reliability tests. Typecheck, Biome, Knip, docs policy, knowledge, build, package smoke, scoped static scan, and commit hooks passed at the applicable unchanged source boundary. Linux process checks skipped on macOS; no live runtime, OOM, provider/harness, or consumer qualification occurred. No push, merge, release, or machine activation occurred. The overall roadmap goal remains incomplete. Next package must wire durable lifecycle adapters and isolated live qualification under a separately reviewed execution boundary.
+
 The integrated final reviewer identified two additional corrections: restore capacity charges when an epoch/runtime change invalidates explicit-stop proof, and persist request mode in idempotency identity. Both are implemented with transition tests; 55 focused tests and typecheck pass. The same final reviewer receives the committed correction. The source package remains pending that verdict.
 
 The simplifier's redundant stop-proof branch was removed. The risk reviewer reproduced operation-identity reuse, pre-generation observation reuse, misleading parked reservation status, and collection overflow exceptions. Corrections now fence each recovery generation, maintain an observation time floor, report reserved parked environments as starting, and return blocked at collection bounds. Repeated stop joins the existing teardown. All 52 focused reliability tests pass; correction review and integrated final review remain pending.
