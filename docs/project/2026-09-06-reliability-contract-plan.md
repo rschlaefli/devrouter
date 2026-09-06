@@ -78,9 +78,15 @@ Stop and verify exact fixture runtimes after each live session; destructive fixt
 Q identifiers refer to the expanded roadmap's acceptance matrix. Every listed model case remains pending live qualification where applicable. No package claims universal provider or harness support.
 
 ## Progress
+The parent integrated the pure model after the executor failed to converge on tests. Native activity showed repeated analysis after a narrowing checkpoint; the parent closed that child, retained its model draft, and completed the corrections and tests. No substitute executor was launched. Integration fixes preserve charges after admission loss, require fresh admission and operation identity on resume, invalidate stop proof across generations, and keep readiness consumer-specific.
+
+The integrated suite passed 1,000 tests. A subsequent consumer-isolation regression and affected tests pass 48 tests across the three reliability suites. Required independent reviews are pending; no runtime or OOM qualification is claimed.
+
 Git capability restored on retry: escalated fetch and creation of the planned worktree succeeded. The implementation branch starts at the verified main baseline above, with no upstream. Protected Git metadata requires escalation; ordinary source writes work within the task worktree. Earlier failures below are historical evidence.
 
 The contract validator and allowlisted consumer projection pass 28 focused tests with Node 24.16.0. The delegated pure lifecycle model is in progress. ADR 0008 records the source-only architecture boundary. No live runtime has been started.
+
+The output-size regression brings focused coverage to 29 tests. Typecheck, Biome, Knip, docs policy, knowledge validation, CLI build, and isolated package smoke pass. A scoped Opengrep scan of the contract and output modules reports zero findings. The full Vitest suite passes 982 tests after escalation: the default sandbox denies `ps`, which prevented the existing macOS lock fixtures from identifying process births. Linux process tests explicitly skip because `/proc` is absent; they are not recorded as passing. These receipts precede model integration.
 
 The user approved the execution package after the initial blocked checkpoint. Approval is settled and must not be requested again for this scope. Live dogfood has not started.
 Expanded roadmap review identified dispatch ambiguity, shared-router policy conflict, operational-policy sequencing, unconditional rebase wording, and missing concrete continuous-test ownership. All accepted for this plan.
