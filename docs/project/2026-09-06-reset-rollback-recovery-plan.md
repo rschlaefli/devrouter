@@ -63,4 +63,12 @@ where runnable. Source tests do not prove the original Chat 502 resolved.
 Planner approved the revised contract on September 6. Unchanged lifecycle
 baseline passes 79 tests under Node 24.16.0. Dependencies are installed from the
 lockfile; no application runtime was started for this source work. Implementation
-and required source reviews remain pending.
+is complete locally. The executor stayed in reasoning without an artifact after
+one narrowing checkpoint; main completed the bounded edit without a second
+executor. Two regression failures were reproduced before the fix. The resulting
+85 lifecycle and 43 guarded-stop tests pass; the complete suite passes 959 tests.
+Typecheck, Biome, documentation policy, knowledge validation, CLI build, and
+isolated package smoke pass. The reset test exercises repair from the produced
+degraded record; unchanged guarded-stop tests cover coherent degraded records
+and retained service cleanup separately. This is not a combined live stop proof.
+Required source reviews and the task-only runtime retry remain pending.

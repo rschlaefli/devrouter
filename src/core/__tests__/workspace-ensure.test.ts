@@ -1655,6 +1655,102 @@ describe("workspaceEnsure", () => {
     );
   });
 
+  it.each([
+    "http",
+    "adapter",
+    "state-write",
+    "route-removal",
+    "population",
+    "generated",
+  ] as const)("retains honest reset recovery after %s failure", async (failure) => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["app"] },
+    });
+    const runtime = mockManagedLifecycle({ curlStatus: 22 });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      ...managedPreviousState(),
+      composeProject: "disappeared-project",
+    });
+    runtime.runningServices.clear();
+    runtime.runningProcesses.clear();
+    if (failure !== "http") {
+      vi.mocked(runManagedPostStart).mockImplementation(() => {
+        if (failure === "state-write")
+          vi.mocked(writeManagedRuntimeState).mockImplementation(() => {
+            throw new Error("state unavailable");
+          });
+        if (failure === "route-removal")
+          vi.mocked(ensureTraefikRoutesRemoved).mockRejectedValue(
+            new Error("route removal unavailable"),
+          );
+        if (failure === "population")
+          runtime.snapshots.splice(
+            runtime.snapshots.findIndex((item) => item.id === "litellm-id"),
+            1,
+          );
+        if (failure === "generated")
+          vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({
+            status: "drifted",
+          });
+        throw new Error("adapter unavailable");
+      });
+    }
+    const delegate = vi.mocked(spawnSync).getMockImplementation();
+    vi.mocked(spawnSync).mockImplementation((command, args, options) => {
+      if (command === "devpod" && (args as string[])[0] === "up") {
+        for (const service of ["app", "postgres", "litellm"]) runtime.runningServices.add(service);
+      }
+      return delegate?.(command, args, options) as never;
+    });
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow(
+      ["state-write", "route-removal", "population", "generated"].includes(failure)
+        ? "Recovery incomplete"
+        : "State is degraded",
+    );
+    if (failure === "population" || failure === "generated") {
+      expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+      return;
+    }
+    if (failure === "state-write") return;
+    const state = vi.mocked(writeManagedRuntimeState).mock.calls.at(-1)?.[0];
+    expect(state).toMatchObject({
+      status: "degraded",
+      profile: "ai",
+      composeProject: "workspace-project",
+      desired: { apps: ["chat"], services: ["litellm"], processes: ["app"] },
+      effectiveConfigSha256: managedPlanFor(["litellm"]).effectiveConfigSha256,
+    });
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledTimes(1);
+    expect(runManagedPostStart).toHaveBeenCalledTimes(1);
+    expect(runtime.runningProcesses.size).toBe(0);
+    expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "litellm"]));
+    expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, []);
+    if (failure !== "http") return;
+    vi.mocked(readManagedRuntimeState).mockReturnValue(state);
+    vi.mocked(listHostRouteState).mockReturnValue([]);
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
+      mode: "managed",
+      status: "ready",
+    } as ManagedRuntimeStatus);
+    const failedProbe = vi.mocked(spawnSync).getMockImplementation();
+    vi.mocked(spawnSync).mockImplementation((command, args, options) =>
+      command === "curl"
+        ? ({ status: 0, stdout: "200", stderr: "" } as never)
+        : command === "devsy"
+          ? ({ status: 0, stdout: "[]", stderr: "" } as never)
+          : (failedProbe?.(command, args, options) as never),
+    );
+    await workspaceEnsure(tmpDir, { repair: true, containerTimeoutMs: 0, httpTimeoutMs: 0 });
+    expect(writeManagedRuntimeState).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: "ready", profile: "ai" }),
+    );
+  });
+
   it("keeps a cold failed DevPod stoppable with the empty baseline config", async () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({
       config: managedRuntimeConfig(),
@@ -1695,6 +1791,7 @@ describe("workspaceEnsure", () => {
     );
     expect(runtime.runningServices).toEqual(new Set(["app", "postgres"]));
     expect(runtime.runningProcesses).toEqual(new Set());
+    expect(runManagedPostStart).toHaveBeenCalledTimes(1);
   });
 
   it("rolls back cold selected services when the bootstrap marker rejects post-start", async () => {
