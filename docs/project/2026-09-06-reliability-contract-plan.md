@@ -78,6 +78,8 @@ Stop and verify exact fixture runtimes after each live session; destructive fixt
 Q identifiers refer to the expanded roadmap's acceptance matrix. Every listed model case remains pending live qualification where applicable. No package claims universal provider or harness support.
 
 ## Progress
+The integrated final reviewer identified two additional corrections: restore capacity charges when an epoch/runtime change invalidates explicit-stop proof, and persist request mode in idempotency identity. Both are implemented with transition tests; 55 focused tests and typecheck pass. The same final reviewer receives the committed correction. The source package remains pending that verdict.
+
 The simplifier's redundant stop-proof branch was removed. The risk reviewer reproduced operation-identity reuse, pre-generation observation reuse, misleading parked reservation status, and collection overflow exceptions. Corrections now fence each recovery generation, maintain an observation time floor, report reserved parked environments as starting, and return blocked at collection bounds. Repeated stop joins the existing teardown. All 52 focused reliability tests pass; correction review and integrated final review remain pending.
 
 The parent integrated the pure model after the executor failed to converge on tests. Native activity showed repeated analysis after a narrowing checkpoint; the parent closed that child, retained its model draft, and completed the corrections and tests. No substitute executor was launched. Integration fixes preserve charges after admission loss, require fresh admission and operation identity on resume, invalidate stop proof across generations, and keep readiness consumer-specific.

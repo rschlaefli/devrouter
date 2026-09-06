@@ -54,6 +54,7 @@ export type ReliabilityState = ReliabilityFence & {
   consumers: ReliabilityConsumer[];
   requests: {
     key: string;
+    mode: "start" | "attach";
     consumerId: string;
     operationId: string;
     profile: string;
@@ -172,6 +173,7 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
     value.requests.every(
       (request) =>
         record(request) &&
+        oneOf(request.mode, ["start", "attach"]) &&
         isReliabilityId(request.consumerId) &&
         isReliabilityId(request.operationId) &&
         isReliabilityId(request.profile) &&

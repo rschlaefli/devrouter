@@ -246,6 +246,7 @@ function handleRequest(
     const consumer = state.consumers.find((candidate) => candidate.id === existing.consumerId);
     if (
       consumer &&
+      existing.mode === event.mode &&
       existing.profile === event.profile &&
       existing.operationId === event.operationId &&
       existing.consumerId === event.consumer.id &&
@@ -280,6 +281,7 @@ function handleRequest(
     state.requests = [
       {
         key: event.key,
+        mode: event.mode,
         consumerId: event.consumer.id,
         operationId: event.operationId,
         profile: event.profile,
@@ -312,6 +314,7 @@ function handleRequest(
   if (!existingConsumer) state.consumers.push(cloneConsumer(event.consumer));
   state.requests.push({
     key: event.key,
+    mode: event.mode,
     consumerId: event.consumer.id,
     operationId: state.operation.id,
     profile: event.profile,
@@ -585,7 +588,7 @@ function handleGenerationChange(
   state.observations = [];
   state.stopProof = { workloadsStopped: false, routesRemoved: false };
   state.operation = setUnknown(state.operation);
-  if (possibleDispatch(state.operation) || state.profile !== null) state.chargeHeld = true;
+  if (state.operation !== null || state.profile !== null) state.chargeHeld = true;
   state.admission = "unknown";
   if (state.desired === "running") {
     state.phase =

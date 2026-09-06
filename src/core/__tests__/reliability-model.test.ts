@@ -52,6 +52,32 @@ const healthy = {
 } as const;
 
 describe("reliability transitions", () => {
+  it.each([
+    "epoch",
+    "runtime",
+  ] as const)("reclaims capacity when %s invalidates explicit-stop proof", (kind) => {
+    let state = step(completed(), { type: "stop" }).state;
+    state = step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).state;
+    expect(state.chargeHeld).toBe(false);
+    const event =
+      kind === "epoch"
+        ? ({ type: "epoch", nextEpoch: 2 } as const)
+        : ({ type: "runtime", nextGeneration: 1 } as const);
+    state = step(state, event).state;
+    expect(state.chargeHeld).toBe(true);
+    expect(state.stopProof).toEqual({ workloadsStopped: false, routesRemoved: false });
+    expect(projectReliability(state, "agent", 100).state).toBe("UNKNOWN");
+  });
+
+  it("treats request mode as part of idempotency identity", () => {
+    const state = started();
+    expect(step(state, { ...request, mode: "attach" })).toMatchObject({
+      outcome: "conflict",
+      state,
+      effects: [],
+    });
+    expect(step(state, request).outcome).toBe("joined");
+  });
   it("rejects pre-generation observations even when relabeled with the current fence", () => {
     let state = step(completed(), { type: "observation", observation: healthy }).state;
     state = step(state, { type: "runtime", nextGeneration: 1 }, 105).state;
@@ -139,7 +165,7 @@ describe("reliability transitions", () => {
   it("does not mutate input or share mutable output state", () => {
     const state = started();
     const before = structuredClone(state);
-    const result = step(state, { ...request, mode: "attach" });
+    const result = step(state, request);
     expect(result.outcome).toBe("joined");
     result.state.consumers[0].requiredCapabilities.push("db");
     expect(state).toEqual(before);
