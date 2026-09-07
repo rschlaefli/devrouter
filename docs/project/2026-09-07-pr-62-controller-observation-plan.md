@@ -1,5 +1,17 @@
 # Controller observation and consumer sessions
 
+PR: [foreground consumer readiness observation](https://github.com/rschlaefli/devrouter/pull/62).
+
+Delivery checkpoint: final review passes at 3fc5aca across all 40 changed paths
+with no actionable findings. Full Vitest passes 1196 cases across 90 files.
+Clean-head packed qualification is recorded in
+/private/tmp/dr-observe-uv9Bsu/receipt.json; its tarball and CLI digests match the
+earlier corrected-source run. The observer is stopped and all six qualification
+behaviors pass with zero unexpected provider calls. CI is pending on the draft.
+Fresh released-CLI status also confirms the exact eLearning canary stopped with
+empty active resources, no drift, and zero exact routes. Later admission, recovery,
+and harness stages remain open under the roadmap goal.
+
 Status: approved execution plan under the reliability roadmap. User-authorized fourth focused planning review passed on 2026-09-07; prior review_deadlock is superseded.
 
 Current continuation: consumer prerequisites are delivered in
