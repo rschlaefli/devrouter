@@ -231,7 +231,9 @@ then prepares under the same lock before launch. Preparation failures prevent
 launch. The exact preparation command participates in the default fingerprint;
 callers using `--fingerprint` must include preparation changes themselves.
 Preparation must stay in its foreground process group without daemonizing or
-detaching. Cancellation terminates that group before releasing the lock and
+detaching. After a successful command exit, the helper allows up to two seconds
+for remaining children to finish naturally before rejecting persistent children.
+Cancellation terminates that group before releasing the lock and
 reaps the direct child; container init reaps orphan zombies.
 
 Application environment setup and the exact command remain repository-owned.
