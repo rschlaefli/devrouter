@@ -2,6 +2,21 @@
 
 Status: user-authorized implementation; integrated review and delivery pending.
 
+Current verification: source commit 434e148 passes all 1123 tests and 25 installed
+synthetic lifecycle scenarios. The latter used Node 26.8.1 and pnpm 11.6.0 and
+explicitly does not qualify live providers or OOM behavior. Slice risk review
+passes the entire committed range. Simplifier's optional result-type reduction
+is deferred; the explicit outcome tags preserve already verified behavior.
+Integrated final source review is active with Volta.
+
+Release metadata prepares 0.0.58. Docs policy, knowledge, Biome, Knip, TypeScript,
+AI prompt tests, build and isolated package smoke pass. Setup and doctor report
+25 checks passing with no warnings/errors; repository inspection and routing
+smoke pass. Routing example services are stopped; ls retains exited-container
+metadata, which is not a running route. The legacy devcontainer smoke requires
+the absent devpod executable; this machine uses Devsy. Live Devsy qualification
+and release publication remain pending. No dependency graph changed.
+
 ## Outcome and authority
 
 Unblock consumers that need a host generator before Compose inspection or need
