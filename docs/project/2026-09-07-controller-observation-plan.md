@@ -378,3 +378,31 @@ constraint, not a product failure. Isolated fixture controllers terminate during
 test cleanup. Native protocol worker completed with 8 focused cases passing.
 Production probe qualification, observation publication fencing, overhead measures,
 full packed two-client qualification and integrated review remain outstanding.
+
+Both durable-session reviews completed. The simplifier proposed two accepted
+behavior-preserving reductions to duplicate parsing and replay. The risk reviewer
+passed the slice with regression gaps for mismatching durability recovery, replay
+boundaries and IPC limits. Those focused tests are being added with the existing
+executor; prior assertions and source evidence remain reusable. The earlier
+"reviews running" notes are historical. Continuous observation is the next slice.
+
+The retained-profile mapper verified current all-or-nothing full-profile repair
+before switching to a requested narrower profile. Main accepts the ordering
+finding, not its recommendation to preserve that blocking behavior as final policy.
+Exact ownership must remain proven; successful startup of dropped processes has
+not been established as necessary. A safe correction remains open and is not
+claimed by the controller package. The consumer remains stopped by its owner.
+
+Durable-session review follow-up complete: executor added divergent post-rename
+snapshot, replay retention/cursor, connection-cap and frame-limit regressions.
+Host run passes 15 store/server cases. Four probe cases also pass. Renew/release
+parser duplication is removed; shared event delivery is combined in the ongoing
+observation integration. These changes preserve the reviewed session contract.
+
+Continuous observation implementation is active. Main owns the monitor, transient
+per-consumer projection, journal publication fence and server integration. Native
+executor Singer (01a07d63-3712-7491-a7b2-5d169cf225fa) owns the production write-free
+collector and focused fixture evidence. Four monitor cases pass for coalescing,
+independent application readiness, stale-session rejection, revision fencing and
+two-batch scheduling; the journal test verifies no manual state writes. No
+production collector or packed continuous-observation acceptance is claimed yet.

@@ -3,6 +3,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { CONTROLLER_FRAME_BYTES } from "../controller-protocol";
 import { runController } from "../controller-server";
 
 const directories: string[] = [];
@@ -144,4 +145,119 @@ it("streams a gap for a replaced store and ends at the watch deadline", async ()
   expect(results.at(-1).kind).toBe("end");
   const snapshot = JSON.parse(fs.readFileSync(path.join(directory, "snapshot.json"), "utf8"));
   expect(snapshot.sessions).toHaveLength(1);
+});
+it("replays valid cursors, accepts the oldest retained boundary, and gaps future or mismatched cursors", async () => {
+  const { controllerRequest } = await import("../controller-client");
+  const { directory } = await fixture();
+  let binding: Record<string, any> = {};
+  await controllerRequest(
+    directory,
+    {
+      method: "observe",
+      path: "/fixture/checkout",
+      session: "one",
+      profile: "web",
+      require: ["runtime"],
+    },
+    (value: any) => {
+      binding = value.result;
+    },
+  );
+
+  const initialResults: any[] = [];
+  await controllerRequest(
+    directory,
+    {
+      method: "watch",
+      ...binding,
+      after: `${binding.epoch}:0`,
+      afterStore: binding.store,
+      timeout: 0,
+    },
+    (value: any) => initialResults.push(value.result),
+  );
+  expect(initialResults.map((result) => result.kind)).toEqual(["snapshot", "event", "end"]);
+  expect(initialResults[1].event.sequence).toBe(1);
+
+  for (let index = 0; index < 256; index += 1) {
+    await controllerRequest(directory, { method: "renew", ...binding }, (value: any) => {
+      binding = value.result;
+    });
+  }
+
+  const boundaryResults: any[] = [];
+  await controllerRequest(
+    directory,
+    {
+      method: "watch",
+      ...binding,
+      after: `${binding.epoch}:1`,
+      afterStore: binding.store,
+      timeout: 0,
+    },
+    (value: any) => boundaryResults.push(value.result),
+  );
+  const retainedEvents = boundaryResults
+    .filter((result) => result.kind === "event")
+    .map((result) => result.event.sequence);
+  expect(boundaryResults[0].kind).toBe("snapshot");
+  expect(retainedEvents[0]).toBe(2);
+  expect(retainedEvents.at(-1)).toBe(257);
+
+  const gapCases = [
+    { after: `${binding.epoch}:258`, afterStore: binding.store },
+    { after: `${binding.epoch + 1}:1`, afterStore: binding.store },
+    { after: `${binding.epoch}:1`, afterStore: "other-store" },
+  ];
+  for (const cursor of gapCases) {
+    const results: any[] = [];
+    await controllerRequest(
+      directory,
+      { method: "watch", ...binding, ...cursor, timeout: 0 },
+      (value: any) => results.push(value.result),
+    );
+    expect(results[0].kind).toBe("gap");
+    expect(results.at(-1).kind).toBe("end");
+  }
+});
+it("rejects connection 33 while 32 controller clients remain active", async () => {
+  const { directory } = await fixture();
+  const clients = Array.from({ length: 32 }, () => connect(directory));
+  try {
+    const handshakes = await Promise.all(
+      clients.map((client) => client.request({ method: "handshake" })),
+    );
+    expect(handshakes.every((result) => result.ok)).toBe(true);
+
+    const rejected = net.createConnection(path.join(directory, "control.sock"));
+    await new Promise<void>((resolve) => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        rejected.destroy();
+        resolve();
+      };
+      rejected.once("error", finish);
+      rejected.once("close", finish);
+    });
+  } finally {
+    for (const client of clients) client.socket.destroy();
+  }
+});
+it("disconnects a client that sends an oversized frame", async () => {
+  const { directory } = await fixture();
+  const socket = net.createConnection(path.join(directory, "control.sock"));
+  await new Promise<void>((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      socket.destroy();
+      resolve();
+    };
+    socket.once("error", finish);
+    socket.once("close", finish);
+    socket.write(Buffer.alloc(CONTROLLER_FRAME_BYTES + 1, 0x78));
+  });
 });

@@ -272,18 +272,14 @@ export function parseControllerRequest(input: unknown): ControllerRequest {
           require: parseRequirements(input.require),
         };
       }
-      case "renew": {
-        const header = parseHeader(input, "renew", ["session", "store", "epoch", "generation"]);
-        return {
-          ...header,
-          session: parseId(input.session),
-          store: parseId(input.store),
-          epoch: parseEpoch(input.epoch),
-          generation: parseId(input.generation),
-        };
-      }
+      case "renew":
       case "release": {
-        const header = parseHeader(input, "release", ["session", "store", "epoch", "generation"]);
+        const header = parseHeader(input, input.method, [
+          "session",
+          "store",
+          "epoch",
+          "generation",
+        ]);
         return {
           ...header,
           session: parseId(input.session),

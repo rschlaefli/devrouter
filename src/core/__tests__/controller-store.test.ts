@@ -87,6 +87,19 @@ describe("controller snapshot durability", () => {
     expect(next.epoch).toBe(2);
     expect(store.read()).toEqual(next);
   });
+  it("rejects a reported post-rename failure when a different valid snapshot is installed", () => {
+    const store = fixture();
+    store.startIncarnation();
+    const broken = new ControllerStore(store.directory, (file, bytes) => {
+      const installed = JSON.parse(bytes) as ControllerSnapshot;
+      installed.revision += 1;
+      writeFileAtomically(file, `${JSON.stringify(installed)}\n`);
+      throw new Error("injected post-rename replacement failure");
+    });
+
+    expect(() => broken.startIncarnation()).toThrow("Controller snapshot commit failed.");
+    expect(store.read()).toMatchObject({ epoch: 2, revision: 3 });
+  });
   it("rejects counter exhaustion without discarding existing state", () => {
     const store = fixture();
     const snapshot = store.startIncarnation();
