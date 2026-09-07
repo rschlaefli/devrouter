@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.57] - 2026-09-07
+
+### Fixed
+
+- Managed lifecycle journals accept comma-separated profile selections. Combined
+  profiles no longer fail with `Invalid reliability event` before reconciliation.
+  Individual identity validation and repository profile resolution remain intact.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.57.md
+
 ## [0.0.56] - 2026-09-07
 
 ### Fixed
