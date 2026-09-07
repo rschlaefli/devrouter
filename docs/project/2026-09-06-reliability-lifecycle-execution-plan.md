@@ -272,16 +272,26 @@ fault and cleanup manifest. The overall reliability roadmap remains incomplete.
 
 ## Progress
 
-Source corrections are committed at 311d1a5. Ordinary ensure repairs retained
-degradation, resolves the implicit full profile, and retains generated configuration
-after uncertain managed provider startup. The complete synthetic installed-CLI matrix
-passes 23 scenarios from that clean source revision. All 1,053 unit tests pass;
-package, typecheck, formatting, Knip, docs/knowledge checks and bounded scanning pass.
-The correction slice reviews are running. Integrated final source review is pending.
+Complete for the approved local source package. Final implementation is
+f49ef002fb04bc89e93f3d1514401ad7027d710b. Ordinary ensure repairs retained degradation,
+resolves implicit full profiles, and preserves generated configuration after uncertain
+managed startup. Execution outcomes persist atomically; proven zero-launch failure
+permits the next operation after worker drainage without stopping the environment.
 
-No publication or live-runtime work is authorized. Linux /proc process tests are
-unavailable on this macOS host. The goal remains active; real-provider, OOM,
-admission/controller and consumer-harness qualification remain later roadmap work.
+The final reviewer passed the complete lifecycle package after one correction.
+All 1,055 unit tests and 24 clean-source installed synthetic scenarios pass.
+Package smoke, typecheck, formatting, Knip, docs/knowledge checks, Gitleaks and
+bounded changed-code scanning pass. Linux /proc helper tests remain skipped on macOS.
+
+This completes the source goal, not the original extended roadmap. No publication,
+live-runtime change or OOM injection occurred. Real-provider recovery, capacity
+admission, parking, controller observation and consumer-harness qualification remain
+later work. The next live qualification requires a named disposable target,
+provisioning location, memory cap and exact fault/cleanup manifest. Remote refresh
+remains unavailable because the SSH agent refused signing; no upstream integration
+or publication was attempted.
+
+
 Historical preparation and review receipts follow.
 
 ### Approved advisor retry, 2026-09-07
@@ -525,3 +535,21 @@ change occurs. All 1,055 unit tests pass, including failure after atomic rename 
 before acknowledgement and zero-launch evidence with a still-active worker group.
 Installed qualification now also runs a successful command after a proven spawn
 failure without stopping the environment. Same-reviewer correction is pending.
+
+### Final correction qualification
+
+The same final reviewer passed complete range
+fa1f2eaa037e430b8c9cdb27dcc2bb6f9ea3f011..f49ef002fb04bc89e93f3d1514401ad7027d710b
+with no remaining findings. The correction retained stop precedence and worker
+ownership while removing unnecessary full-stop requirements for definitive outcomes.
+
+Clean source f49ef002fb04bc89e93f3d1514401ad7027d710b passed all 24 installed scenarios
+on Node v24.16.0, pnpm 11.6.0 and fixture v2. The final tarball SHA-256 is
+`c8d04db88c0c640b3feab38bcd811f1a6ed45e2b4b033ccc04ca7e14ad6e56db`.
+The CLI SHA-256 is
+`175ee6ac0b590b8183677f043b74c71794473fd9a7231f04ff3be557bef875df`.
+The worker SHA-256 is
+`d6adfea40686e4fb93e02e1eb1e4683f98cc177c9c03a679ffb0e83d0129f19d`.
+The temporary synthetic fixture is `qualify-lifecycle-nVNrHI`; the receipt explicitly
+sets live-provider and OOM qualification to false. Subsequent changes only record
+this completion evidence and do not alter the tested executable content.
