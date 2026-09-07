@@ -571,3 +571,32 @@ The worker SHA-256 is
 The temporary synthetic fixture is `qualify-lifecycle-nVNrHI`; the receipt explicitly
 sets live-provider and OOM qualification to false. Subsequent changes only record
 this completion evidence and do not alter the tested executable content.
+
+### Readiness continuation checkpoint, 2026-09-07
+
+Resumed the existing active goal and preserved the in-progress readiness changes.
+Remote refs were refreshed with host permissions after the sandbox denied writing
+Git FETCH_HEAD. The task baseline db893a3 is 19 commits ahead of origin/main,
+with no target integration performed. The isolated eLearning branch is one commit
+ahead of origin/main at e47a0fed; its primary checkout remains untouched.
+
+The readiness implementation passes typecheck, Biome, Knip, documentation policy,
+knowledge validation, build and installed package smoke. All 1,088 existing and
+updated tests pass with host permissions. The sandbox run failed process identity
+checks used by ownership locks; host execution resolves those failures. Linux
+process-helper tests remain skipped on macOS and must be exercised on Linux.
+
+Added and passed an observed HTTP 503 regression proving that application failure
+retains routes and the runtime without recreation. Two additional synthetic tests
+use actual curl and a loopback server to verify media matching, redirect refusal
+and a bounded stalled response. These pass independently; their server is stopped
+after the run. No real consumer runtime or OOM workload was started.
+
+The schema/probe executor completed its assigned paths with passing focused checks.
+Planner Bohr retains the second canary-plan review; no verdict has arrived. The
+frozen draft remains /private/tmp/devrouter-elearning-canary-plan.md and review
+provenance is in the ignored local reviews directory. Do not duplicate this reviewer.
+Before consumer startup, finish that review and remove automatic content seeding
+from the isolated canary preparation path under the reviewed synthetic-data contract.
+Packed lifecycle application-failure qualification, consumer resource verification,
+the learner journey, warm preservation and Linux helper proof remain outstanding.

@@ -229,6 +229,12 @@ export type DevrouterHostRunConfig = {
   portTimeout?: number;
 };
 
+export type DevrouterHttpReadiness = {
+  path: string;
+  statuses?: number[];
+  contentType?: string;
+};
+
 export type DevrouterDockerConfig = {
   service: string;
   internalPort: number;
@@ -278,6 +284,7 @@ export type DevrouterProxyHttpApp = DevrouterRoutedAppBase & {
   protocol: "http";
   runtime: "proxy";
   upstream: string;
+  readiness?: DevrouterHttpReadiness;
 };
 
 // Upstream-only TCP route (e.g. a devcontainer's Postgres/Redis reachable on

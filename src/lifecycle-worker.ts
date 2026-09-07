@@ -31,7 +31,9 @@ process.once("message", async (message: { request: LifecycleWorkerRequest }) => 
         return outcome;
       }
       const ensured = await workspaceEnsure(request.repoPath, request.options);
-      recordLifecycleCompletion(0);
+      recordLifecycleCompletion(
+        ensured.applicationReadiness?.status === "application-error" ? 1 : 0,
+      );
       return ensured;
     });
     result = { ok: true, value };

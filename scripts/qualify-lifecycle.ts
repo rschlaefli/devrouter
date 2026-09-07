@@ -168,6 +168,9 @@ else if (command === 'curl') {
    if(!entries[key]) fail();
    output({...entries[key],name,status:'enabled'});
   }
+ } else if (args.includes('%{http_code}\\t%{content_type}') && url === 'http://fixture.localhost/api/health') {
+  if (!Object.values(document.http?.routers??{}).some(router=>router.rule==='Host('+String.fromCharCode(96)+'fixture.localhost'+String.fromCharCode(96)+')')) fail();
+  process.stdout.write((state.mode === 'application-error' ? '503' : '200')+'\\tapplication/json');
  } else if (args.includes('%{http_code}') && url === 'http://fixture.localhost') {
   if(state.mode === 'readiness-hold') { fs.writeFileSync(file+'.readiness', String(process.pid)); setInterval(()=>{},1000); } else if(Object.values(document.http?.routers??{}).some(router=>router.rule==='Host('+String.fromCharCode(96)+'fixture.localhost'+String.fromCharCode(96)+')')) console.log('200'); else fail();
  } else fail();
@@ -435,6 +438,43 @@ else fail();
       assert.equal(fs.readFileSync(generated, "utf8"), generatedBefore);
       evidence.push(
         "installed ordinary ensure repairs retained degraded state with one adapter run and no provider bootstrap",
+      );
+      fs.writeFileSync(
+        path.join(repo, ".devrouter.yml"),
+        managedConfig.replace(
+          "    upstream: fixture-app:3000\n",
+          "    upstream: fixture-app:3000\n    readiness:\n      path: /api/health\n      contentType: application/json\n",
+        ),
+      );
+      const ready = launch(["ensure", repo, "--json"]);
+      assert.equal(await ready.done, 0, ready.output());
+      assert.equal(JSON.parse(ready.output()).applicationReadiness.status, "ready");
+      const beforeApplicationFailure = JSON.parse(fs.readFileSync(fixture, "utf8"));
+      fs.writeFileSync(
+        fixture,
+        JSON.stringify({ ...beforeApplicationFailure, mode: "application-error" }),
+      );
+      const applicationFailure = launch(["ensure", repo, "--json"]);
+      assert.equal(await applicationFailure.done, 1, applicationFailure.output());
+      const applicationResult = JSON.parse(applicationFailure.output());
+      assert.equal(applicationResult.applicationReadiness.status, "application-error");
+      assert.equal(applicationResult.applicationReadiness.checks[0].status, 503);
+      assert.equal(applicationResult.recreated, false);
+      assert.equal(read().state.operation.status, "COMPLETED");
+      assert.equal(read().state.operation.exitCode, 1);
+      assert.equal(read().state.operation.drained, true);
+      const afterApplicationFailure = JSON.parse(fs.readFileSync(fixture, "utf8"));
+      assert.equal(afterApplicationFailure.starts, beforeApplicationFailure.starts + 1);
+      assert.equal(afterApplicationFailure.running, true);
+      assert.equal(JSON.parse(fs.readFileSync(stateFile, "utf8")).status, "ready");
+      expectExit(["exec", repo, "--", "synthetic"], 0);
+      evidence.push(
+        "installed application failure retains managed infrastructure and routes, records known failure, and permits the next exec",
+      );
+      fs.writeFileSync(path.join(repo, ".devrouter.yml"), managedConfig);
+      fs.writeFileSync(
+        fixture,
+        JSON.stringify({ ...JSON.parse(fs.readFileSync(fixture, "utf8")), mode: "complete" }),
       );
       const neighbour = path.join(root, "neighbour");
       run("git", ["init", "--quiet", neighbour]);

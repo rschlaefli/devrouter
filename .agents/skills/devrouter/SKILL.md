@@ -38,6 +38,11 @@ apps:
 
     # if kind=app and runtime=proxy (protocol http or tcp):
     upstream: 127.0.0.1:3000 # already-running port to route to; no lifecycle/deps
+    # Optional for HTTP proxy apps only:
+    readiness:
+      path: /api/health
+      statuses: [200] # default when omitted; explicit unique 2xx/4xx, no redirects
+      contentType: application/json # optional case-insensitive MIME base type
     # Loopback (127.0.0.1/localhost) -> host.docker.internal (a published host
     # port). A non-loopback name is passed verbatim and resolved over devnet —
     # so a devcontainer container ON devnet (with a network alias) can be fronted
@@ -113,6 +118,14 @@ healthcheck:
 ```
 
 ## Profiles
+
+HTTP app readiness contracts use a same-host absolute path without queries,
+fragments, percent escapes, backslashes or dot segments. Redirects are not followed.
+Without a contract, the root probe remains route liveness rather than semantic
+application proof. A declared contract failure returns a nonzero ensure result
+with `applicationReadiness.status=application-error`; tools and routes remain
+available for application debugging. Do not repair it by clearing caches or
+recreating the provider. Live verification consumes the same contract.
 
 Optional named subsets of routed apps in `.devrouter.yml` so `ensure` can start only what a task needs:
 

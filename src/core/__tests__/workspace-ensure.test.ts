@@ -2356,6 +2356,63 @@ describe("workspaceEnsure", () => {
     expect(devpodUps[1][1]).toContain("--recreate");
   });
 
+  it("retains legacy tooling and routes when a declared application contract remains unverified", async () => {
+    const runtime = loadRuntimeConfig(tmpDir);
+    const app = runtime.config.apps[0];
+    if (app.runtime !== "proxy" || app.protocol !== "http") throw new Error("Missing HTTP app");
+    app.readiness = { path: "/api/health", statuses: [200], contentType: "application/json" };
+    mockLifecycle();
+    const result = await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+    expect(result.applicationReadiness).toMatchObject({
+      status: "application-error",
+      checks: [{ app: "app", ok: false }],
+    });
+    expect(result.recreated).toBe(false);
+    expect(devpodUpCalls()).toHaveLength(1);
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalledWith(tmpDir, []);
+  });
+
+  it("retains the reconciled managed profile after application proof fails", async () => {
+    const config = managedRuntimeConfig();
+    const app = config.apps.find((entry) => entry.name === "chat");
+    if (app?.runtime !== "proxy" || app.protocol !== "http") throw new Error("Missing HTTP app");
+    app.readiness = { path: "/api/health", statuses: [200] };
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config,
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["app"] },
+    });
+    const runtime = mockManagedLifecycle();
+    const result = await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+    expect(result.applicationReadiness?.status).toBe("application-error");
+    expect(runtime.runningProcesses).toEqual(new Set(["app"]));
+    expect(runtime.runningServices).toEqual(new Set(["app", "postgres", "litellm"]));
+    expect(writeManagedRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: "ai", status: "ready" }),
+    );
+    expect(markManagedRuntimeDegraded).not.toHaveBeenCalled();
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalledWith(tmpDir, []);
+  });
+
+  it("retains the runtime and last observed response through the final probe deadline", async () => {
+    const runtime = loadRuntimeConfig(tmpDir);
+    const app = runtime.config.apps[0];
+    if (app.runtime !== "proxy" || app.protocol !== "http") throw new Error("Missing HTTP app");
+    app.readiness = { path: "/api/health", contentType: "application/json" };
+    mockLifecycle({ curlCode: "503\tapplication/json" });
+
+    const result = await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 1200 });
+
+    expect(result.applicationReadiness).toMatchObject({
+      status: "application-error",
+      checks: [{ app: "app", ok: false, status: 503 }],
+    });
+    expect(result.recreated).toBe(false);
+    expect(devpodUpCalls()).toHaveLength(1);
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalledWith(tmpDir, []);
+  });
+
   it("removes the whole route batch when HTTP readiness still fails after recovery", async () => {
     mockLifecycle({ curlStatus: 22, curlCode: "502" });
 

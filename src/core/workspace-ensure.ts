@@ -89,6 +89,10 @@ export type WorkspaceEnsureResult = {
   recreated: boolean;
   tlsRefreshed: boolean;
   managedRuntime?: ManagedRuntimeStatus;
+  applicationReadiness?: {
+    status: "ready" | "application-error";
+    checks: { app: string; ok: boolean; status?: number; checkedAt: string }[];
+  };
 };
 
 type EnvironmentTarget =
@@ -603,16 +607,53 @@ async function waitForHttpRoutes(
   repoPath: string,
   apps: DevrouterProxyApp[],
   timeoutMs: number,
-): Promise<void> {
+): Promise<WorkspaceEnsureResult["applicationReadiness"]> {
   const pending = new Map(
     apps.filter((app) => app.protocol === "http").map((app) => [app.name, app] as const),
   );
   const failures = new Map<string, string>();
+  const checks = new Map<
+    string,
+    NonNullable<WorkspaceEnsureResult["applicationReadiness"]>["checks"][number]
+  >();
   const deadline = Date.now() + timeoutMs;
+  const readiness = (): WorkspaceEnsureResult["applicationReadiness"] =>
+    checks.size
+      ? {
+          status: Array.from(checks.values()).every((check) => check.ok)
+            ? "ready"
+            : "application-error",
+          checks: Array.from(checks.values()),
+        }
+      : undefined;
 
   do {
+    for (const app of apps) {
+      if (app.protocol === "http" && app.readiness) pending.set(app.name, app);
+    }
     for (const [name, app] of pending) {
-      const result = probeHttpRoute(app.host, { repoPath });
+      const remainingMs = deadline - Date.now();
+      if (app.readiness && remainingMs <= 250 && checks.has(name)) continue;
+      const result =
+        app.readiness && remainingMs <= 250
+          ? { ok: false, details: "Application probe deadline reached." }
+          : probeHttpRoute(app.host, {
+              repoPath,
+              ...(app.readiness
+                ? {
+                    readiness: app.readiness,
+                    maxTimeSeconds: Math.min(5, (remainingMs - 250) / 1_000),
+                  }
+                : {}),
+            });
+      if (app.readiness) {
+        checks.set(name, {
+          app: name,
+          ok: result.ok,
+          ...(result.status !== undefined ? { status: result.status } : {}),
+          checkedAt: new Date().toISOString(),
+        });
+      }
       if (result.ok) {
         pending.delete(name);
         failures.delete(name);
@@ -621,12 +662,14 @@ async function waitForHttpRoutes(
       }
     }
     if (pending.size === 0) {
-      return;
+      return readiness();
     }
     if (Date.now() < deadline) {
-      await sleep(POLL_INTERVAL_MS);
+      await sleep(Math.min(POLL_INTERVAL_MS, deadline - Date.now()));
     }
   } while (Date.now() < deadline);
+
+  if (Array.from(pending.values()).every((app) => app.readiness)) return readiness();
 
   throw new Error(
     `HTTP route readiness timed out: ${Array.from(pending.keys())
@@ -1286,8 +1329,9 @@ export async function workspaceEnsure(
         removedRoutesForReplacement(previousRoutes.map(routeInputFromState), publication.routes),
         routeLoadOptions,
       );
+      let applicationReadiness: WorkspaceEnsureResult["applicationReadiness"];
       try {
-        await waitForHttpRoutes(
+        applicationReadiness = await waitForHttpRoutes(
           repoPath,
           apps,
           options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
@@ -1314,7 +1358,7 @@ export async function workspaceEnsure(
         claimLifecycleEffect();
         replaceHostRoutesForRepo(repoPath, publication.routes);
         await ensureTraefikRoutesLoaded(publication.routes, routeLoadOptions);
-        await waitForHttpRoutes(
+        applicationReadiness = await waitForHttpRoutes(
           repoPath,
           apps,
           options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
@@ -1385,6 +1429,7 @@ export async function workspaceEnsure(
         urls,
         recreated,
         tlsRefreshed: publication.tlsRefreshed,
+        ...(applicationReadiness ? { applicationReadiness } : {}),
         ...(managedRuntimeStatus ? { managedRuntime: managedRuntimeStatus } : {}),
       };
     } catch (error) {

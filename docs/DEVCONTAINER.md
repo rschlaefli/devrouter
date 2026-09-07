@@ -52,6 +52,38 @@ rejects missing, earlier, malformed, or unsupported lifecycle ordering before
 provider mutation. Selective managed configuration preserves lifecycle fields
 and changes only `runServices`.
 
+## Application readiness contracts
+
+An HTTP proxy app can declare the application response that `ensure` must verify:
+
+```yaml
+readiness:
+  path: /api/health
+  statuses: [200]
+  contentType: application/json
+```
+
+Without this declaration, the existing root probe checks route liveness and accepts
+responses below 500. It does not prove a database, authenticated journey or other
+application capability. Profile `readiness` selects which apps are checked; each
+app's `readiness` object defines its expected response.
+
+The path stays on the app's configured host. Redirects are never followed. Paths
+cannot contain query strings, fragments, percent escapes, backslashes or dot
+segments. Omitted statuses default to `[200]`; explicit unique lists accept 2xx
+or 4xx responses, never redirects. An expected 401 can verify an authentication
+boundary. Media types match case-insensitively without parameters, so JSON with
+a charset matches `application/json`; other JSON-derived types do not.
+
+For declared contracts, `ensure --json` includes `applicationReadiness` with
+per-app evidence and timestamps. An application failure exits nonzero but keeps
+the reconciled infrastructure, processes and routes available for debugging.
+It does not trigger speculative provider recreation or profile rollback. The
+operation has a known failure result, so subsequent `exec` remains available
+after worker drainage. Managed runtime status describes infrastructure; it is
+not a substitute for fresh application proof. Live verification uses the same
+declared HTTP contract. Neither check replaces a consumer-owned functional test.
+
 ## Interrupted lifecycle commands
 
 `ensure`, `exec`, and `stop` coordinate through a private per-checkout operation
@@ -273,8 +305,10 @@ Switching profiles in an existing workspace is warm and non-destructive. The
 same DevPod and volumes are retained, newly selected services start without
 `--recreate` or `down`, and dropped services or processes stop only after exact
 ownership is proved. `postCreateCommand` does not run again. Routes publish
-last, after service health, process state, and application readiness are proved.
-If a transition fails, the previous route set and successful state are kept
+last, after service health and process state are proved. Application readiness
+then checks the published routes. A declared application contract failure retains
+the reconciled infrastructure and routes. If an infrastructure transition fails,
+the previous route set and successful state are kept
 when possible; otherwise status reports the degraded transition. The next ensure
 attempt repairs retained resources before applying another profile change.
 
@@ -310,7 +344,9 @@ provider bootstrap, creation, recreation, and resource adoption are skipped.
 If replay fails, owned resources may remain running and the runtime remains
 degraded. Repair restores previous routes when publication fails, but does not rerun
 the failed adapter during rollback. It uses existing routing infrastructure and
-never restarts the shared router. Ready state is persisted only after retained resources and routed readiness pass.
+never restarts the shared router. Infrastructure ready state requires retained
+resource and route-generation proof. Declared application failures remain separate
+in the ensure result and do not invalidate that infrastructure state.
 When the exact old Compose project is positively proven absent, ordinary ensure
 uses the existing startup recovery path. Unavailable inspection is never absence.
 

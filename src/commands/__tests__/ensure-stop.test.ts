@@ -14,6 +14,32 @@ afterEach(() => {
 });
 
 describe("canonical environment commands", () => {
+  it("returns application failure as JSON with a nonzero exit while preserving runtime details", async () => {
+    const previousExitCode = process.exitCode;
+    const result = {
+      kind: "primary",
+      repoPath: "/repo",
+      devpodId: "repo",
+      profile: "full",
+      urls: ["https://web.localhost"],
+      recreated: false,
+      tlsRefreshed: false,
+      applicationReadiness: {
+        status: "application-error",
+        checks: [{ app: "web", ok: false, status: 503, checkedAt: "2026-09-07T00:00:00Z" }],
+      },
+    };
+    vi.mocked(superviseLifecycle).mockResolvedValue(result);
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await runEnsureCommand({ path: "/repo", json: true });
+      expect(process.exitCode).toBe(1);
+      expect(JSON.parse(String(write.mock.calls[0][0]))).toEqual(result);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
   it.each([
     {
       result: {

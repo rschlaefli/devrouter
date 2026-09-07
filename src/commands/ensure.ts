@@ -16,6 +16,8 @@ export async function runEnsureCommand(options: {
     profile: options.profile,
     ...(options.repair ? { repair: true } : {}),
   })) as WorkspaceEnsureResult;
+  const applicationFailed = result.applicationReadiness?.status === "application-error";
+  if (applicationFailed) process.exitCode = 1;
   if (options.json) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;
@@ -26,5 +28,7 @@ export async function runEnsureCommand(options: {
       ? `Primary checkout [profile: ${result.profile}]`
       : `Workspace '${result.workspace}' [profile: ${result.profile}]`;
   const routes = result.urls.map((url) => `  ${url}`).join("\n");
-  process.stdout.write(`${label} is ready (${result.devpodId}).\n${routes}${routes ? "\n" : ""}`);
+  process.stdout.write(
+    `${label} ${applicationFailed ? "has available infrastructure but failed its application readiness contract" : "is ready"} (${result.devpodId}).\n${routes}${routes ? "\n" : ""}`,
+  );
 }

@@ -268,6 +268,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "  - docker.composeFiles: string[]",
     "  - optional docker.router: string",
     "- if kind=app and runtime=proxy:",
+    "  - HTTP-only optional readiness: { path: /api/health, statuses: [200], contentType: application/json }; statuses default to [200], explicit lists allow unique 2xx/4xx codes, never redirects. Paths stay on the configured host with no query, fragment, percent escapes, backslash or dot segments. Media types match their case-insensitive base type.",
+    "  - Declared application readiness failures return applicationReadiness.status=application-error and a nonzero ensure exit, while retaining tooling and routes for application fixes; do not reset caches or recreate the provider. Absent readiness means legacy route liveness, not full application readiness.",
     '  - upstream: "host:port" (an already-running port, e.g. a devcontainer published on 127.0.0.1:3000, or a container reachable by name on a shared Docker network such as `derivatives-db:5432`)',
     `  - upstream may use the \`${WORKSPACE_PLACEHOLDER}\` placeholder (e.g. \`${WORKSPACE_PLACEHOLDER}-app:3000\`) to target a per-workspace devcontainer alias; it is substituted with the resolved workspace token at runtime and re-validated. Do NOT put \`${WORKSPACE_PLACEHOLDER}\` in \`host\` (rejected) — the host is auto-namespaced.`,
     "  - managed `devrouter ensure` requires every HTTP/TCP proxy upstream to begin with the exact resolved workspace/project alias prefix before it mutates DevPod or routes",

@@ -262,7 +262,10 @@ async function liveChecks(
   for (const app of apps) {
     try {
       if (app.protocol === "http") {
-        const curl = probeHttpRoute(app.host, { repoPath });
+        const curl = probeHttpRoute(app.host, {
+          repoPath,
+          ...(app.readiness ? { readiness: app.readiness } : {}),
+        });
         routes.push({
           name: app.name,
           host: app.host,
