@@ -47,7 +47,13 @@ actual collector READY to APP_ERROR with independent runtime READY, release,
 stopped resources and journal, and restart invalidation. It records 52 provider
 reads, zero unexpected calls, and a stopped fixture observer. Receipt:
 /private/tmp/dr-observe-dpyevu/receipt.json. The two new real asynchronous curl
-tests also pass. Delayed stop-race and overload qualification remain open.
+tests also pass. The extended packed run also proves a delayed pre-stop sample
+is rejected after manual journal revision advancement; receipt is
+/private/tmp/dr-observe-o5fTao/receipt.json, with 71 provider reads, zero unexpected
+calls and a stopped observer. Package distribution smoke passes. Overload and
+remaining event qualification remain open. Slice simplifier completed; its single
+duplicate replay-filter reduction is applied and all nine socket tests pass.
+The existing native slice risk reviewer remains active on commit 567351b.
 
 Waiting-task coordination: Klicker Runner now launches browsers with the correct
 pnpm verification setting and reports no remaining Devrouter blocker; its publish

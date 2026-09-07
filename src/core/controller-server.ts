@@ -121,12 +121,13 @@ export async function runController(options: {
         request: Extract<ReturnType<typeof parseControllerRequest>, { method: "watch" }>,
         sequence: number,
       ) => {
-        for (const event of snapshot.events.filter(
+        const events = snapshot.events.filter(
           (event) =>
             event.sequence > sequence &&
             event.session === request.session &&
             event.generation === request.generation,
-        ))
+        );
+        for (const event of events)
           send({
             version: 1,
             id: request.id,
@@ -138,6 +139,7 @@ export async function runController(options: {
               event,
             },
           });
+        return events.length;
       };
       let watchQueued = false;
       const watchTimer = setInterval(() => {
@@ -149,15 +151,7 @@ export async function runController(options: {
             if (socket.destroyed) return;
             sessions.tick(monotonic(), Date.now());
             const snapshot = sessions.read();
-            replay(snapshot, subscription.request, subscription.sequence);
-            if (
-              snapshot.events.some(
-                (event) =>
-                  event.sequence > subscription.sequence &&
-                  event.session === subscription.request.session &&
-                  event.generation === subscription.request.generation,
-              )
-            ) {
+            if (replay(snapshot, subscription.request, subscription.sequence)) {
               const current = snapshot.sessions.find(
                 (session) =>
                   session.id === subscription.request.session &&

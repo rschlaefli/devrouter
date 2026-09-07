@@ -76,6 +76,8 @@ async function main() {
   const mutations = path.join(root, "unexpected-provider-call.jsonl");
   const calls = path.join(root, "observations.jsonl");
   const phase = path.join(root, "phase");
+  const held = path.join(root, "held");
+  const releaseProbe = path.join(root, "release-probe");
   fs.writeFileSync(phase, "ready");
   const routerHome = path.join(home, ".config", "devrouter");
   const composeDirectory = path.join(checkout, ".devcontainer");
@@ -170,7 +172,13 @@ fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({provider,operation:ar
 const snapshots=${JSON.stringify(snapshots)};
 if(provider==='devpod' && JSON.stringify(args)===JSON.stringify(['list','--output','json','--skip-pro'])) process.stdout.write('[]');
 else if(provider==='devsy' && JSON.stringify(args)===JSON.stringify(['workspace','list','--result-format','json','--skip-pro'])) process.stdout.write(${JSON.stringify(JSON.stringify([{ id: "fixture", source: { localFolder: checkout } }]))});
-else if(provider==='docker' && JSON.stringify(args)===JSON.stringify(['ps','-a','--no-trunc','--filter','label=com.docker.compose.project=fixture','--format','{{.ID}}'])) process.stdout.write(snapshots.map(x=>x.id).join('\\n'));
+else if(provider==='docker' && JSON.stringify(args)===JSON.stringify(['ps','-a','--no-trunc','--filter','label=com.docker.compose.project=fixture','--format','{{.ID}}'])) {
+  const reply=()=>process.stdout.write(snapshots.map(x=>x.id).join('\\n'));
+  if(phase==='held' && !fs.existsSync(${JSON.stringify(releaseProbe)})) {
+    fs.writeFileSync(${JSON.stringify(held)},'held');
+    const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(releaseProbe)})){clearInterval(timer);reply();}},20);
+  } else reply();
+}
 else if(provider==='docker' && args[0]==='inspect' && args[1]==='--format' && JSON.stringify(args.slice(3))===JSON.stringify(snapshots.map(x=>x.id))) process.stdout.write(snapshots.map(x=>JSON.stringify(phase==='stopped'?{...x,state:{...x.state,Running:false,Status:'exited'}}:x)).join('\\n'));
 else if(provider==='docker' && args[0]==='compose' && args[1]==='--project-name' && args[2]==='fixture' && args[3]==='--project-directory' && args[4]===${JSON.stringify(composeDirectory)} && JSON.stringify(args.slice(5))===JSON.stringify(['-f',${JSON.stringify(composeFile)},'config','--format','json'])) process.stdout.write('{}');
 else if(provider==='docker' && args[0]==='compose' && args[1]==='--project-name' && args[2]==='fixture' && args[3]==='--project-directory' && args[4]===${JSON.stringify(composeDirectory)} && JSON.stringify(args.slice(5,-1))===JSON.stringify(['-f','-','config','--no-interpolate','--hash']) && ['app','db'].includes(args.at(-1))) { process.stdin.resume(); process.stdin.on('end',()=>process.stdout.write(args.at(-1)+' '+'c'.repeat(64))); }
@@ -291,6 +299,18 @@ else { fs.appendFileSync(${JSON.stringify(mutations)},JSON.stringify({provider,a
     );
     assert.equal(command("status").result.sessions.length, 1);
     evidence.push("release retains the other consumer");
+    fs.writeFileSync(phase, "held");
+    const holdDeadline = Date.now() + 8_000;
+    while (!fs.existsSync(held) && Date.now() < holdDeadline)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(fs.existsSync(held), true, "collector did not reach the held probe");
+    journal.revision++;
+    state.desired = "stopped-by-user";
+    state.stopProof = { workloadsStopped: false, routesRemoved: false };
+    writeJournal();
+    fs.writeFileSync(releaseProbe, "release");
+    await untilStatus("two", "UNKNOWN");
+    evidence.push("manual stop revision rejects an in-flight pre-stop production sample");
     journal.revision++;
     state.desired = "stopped-by-user";
     state.phase = "idle";
