@@ -155,6 +155,34 @@ bounded recovery and harness qualification only through their reviewed scopes.
 
 ### Current checkpoint, 2026-09-07
 
+The user explicitly authorized completing the current recovery/readiness/status/
+eLearning package before controller and capacity work: integrate targets as needed,
+finish reviews and CI, merge scoped PRs, publish a patch release and install it
+globally, then dogfood the released CLI. No host OOM, shared VM restart, data deletion
+or paid infrastructure is authorized. Generated-Compose hook work remains a later
+source prerequisite and is excluded from this first release.
+
+Commit 78d33424c64da5046d047690e4196d1c51c7b7cb passes 93 focused shutdown/provider
+tests, typecheck, Biome, Knip, docs/knowledge, build and package smoke. Pinned Node
+24.16.0 and pnpm 11.6.0 installed qualification passes all 25 synthetic cases;
+package digest ed0e8ba44959e396f837da2adbfc39016eec9a5665a13b2ce37b4f32f073394e.
+The sandbox run lacked process identity inspection; the authorized elevated run
+passed. Built and installed CLI stop both succeed with the canary's unactivated
+Compose edit. Exact source-path owner, Devsy Stopped and zero routes were verified.
+Review accepts code and identifies one corrected stale knowledge sentence.
+
+Consumer ownership now uses ignored .devcontainer/.local/preparation on the existing
+workspace bind mount, removing the unactivated volume declaration. Legacy manifest
+migration verifies every owned record before copying and retains the original.
+Real pending-publication recovery preserves exact manifest contents and records.
+The live helper reports expected database/migration readiness; its nine tests pass
+inside tooling. Consumer typecheck and all tests pass: 635 passed, one skipped.
+Preparation reruns once for the new identity and the second warm call reuses its
+stamp. Receipts: /private/tmp/elearning-release-{db-helper-checks,consumer-validation,
+pending-recovery,warm-preparation}.log. Tooling is currently active for the remaining
+browser and release checks; final exact stop is still required.
+
+
 The retained Devsy stop correction removes the live-versus-current Compose service
 hash comparison from shutdown. Exact ownership, profile, source/generated Dev
 Container identity, service population, source mount and repeated container

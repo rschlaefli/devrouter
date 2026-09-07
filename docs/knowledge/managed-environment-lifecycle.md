@@ -166,7 +166,9 @@ For retained managed Devsy state, reversible stop proves the complete captured
 Compose population under the workspace and provider locks. Provider and primary
 state must agree. An already-stopped primary skips provider stop; residual
 running service IDs are stopped only after ownership, context, source and
-generated configuration, service hashes and full membership are revalidated.
+generated configuration, container identities and full membership are revalidated.
+Unapplied Compose service edits do not require matching current service hashes
+for stop; startup retains its service-configuration checks.
 Final provider and complete-project stopped proof precedes route cleanup.
 Missing registration or unreadable evidence preserves routes. If provider stop
 fails, eligible residual cleanup may still run, but its original failure remains
