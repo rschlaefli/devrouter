@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { devpodExec } from "../../core/devpod-exec";
+import { superviseLifecycle } from "../../core/reliability-lifecycle";
 import { parseExecInvocation, runExecCommand } from "../exec";
 
-vi.mock("../../core/devpod-exec", () => ({ devpodExec: vi.fn() }));
+vi.mock("../../core/reliability-lifecycle", () => ({ superviseLifecycle: vi.fn() }));
 vi.mock("../../core/workspace-ownership", () => ({
   resolveGitTopLevel: vi.fn((repoPath: string) => repoPath),
 }));
@@ -14,11 +14,19 @@ afterEach(() => {
 
 describe("runExecCommand", () => {
   it("passes literal argv to the exact checkout and propagates exit status", async () => {
-    vi.mocked(devpodExec).mockResolvedValue(23);
+    vi.mocked(superviseLifecycle).mockResolvedValue({
+      status: "completed",
+      exitCode: 23,
+      transport: { exitCode: 0, signal: null },
+    });
 
     await runExecCommand({ path: "/repo", command: ["node", "-e", "process.exit(23)"] });
 
-    expect(devpodExec).toHaveBeenCalledWith("/repo", ["node", "-e", "process.exit(23)"]);
+    expect(superviseLifecycle).toHaveBeenCalledWith("exec", "/repo", {}, [
+      "node",
+      "-e",
+      "process.exit(23)",
+    ]);
     expect(process.exitCode).toBe(23);
   });
 });

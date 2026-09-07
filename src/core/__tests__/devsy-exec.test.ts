@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { devsyExec } from "../devsy-exec";
+import { devsyExec, devsyExecOutcome } from "../devsy-exec";
 import { listDevsyWorkspaces, selectDevsyWorkspace } from "../devsy-workspaces";
+import type { ExecutionOutcomeError } from "../execution-outcome";
 import { withWorkspaceLifecycleLock } from "../workspace";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
@@ -17,11 +18,11 @@ vi.mock("../workspace", () => ({
   ),
 }));
 
-function mockExecExit(code: number): void {
+function mockExecExit(code: number | null, signal: string | null = null): void {
   const child = new EventEmitter();
   vi.mocked(spawn).mockReturnValue(child as never);
   queueMicrotask(() => {
-    child.emit("close", code, null);
+    child.emit("close", code, signal);
   });
 }
 
@@ -77,5 +78,41 @@ describe("devsyExec", () => {
     queueMicrotask(() => child.emit("error", new Error("ENOENT")));
 
     await expect(devsyExec("/repo", ["pnpm", "seed"])).rejects.toThrow("devsy exec failed");
+  });
+
+  it("keeps a numeric provider result when close also reports a signal", async () => {
+    const workspace = { id: "actual-id", source: { localFolder: "/repo" } };
+    vi.mocked(listDevsyWorkspaces).mockReturnValue([workspace]);
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    mockExecExit(3, "SIGTERM");
+
+    await expect(devsyExecOutcome("/repo", ["pnpm", "seed"])).resolves.toEqual({
+      status: "completed",
+      exitCode: 3,
+      transport: { exitCode: 3, signal: "SIGTERM" },
+    });
+  });
+
+  it("reports missing local completion as unknown instead of exit 1", async () => {
+    const workspace = { id: "actual-id", source: { localFolder: "/repo" } };
+    vi.mocked(listDevsyWorkspaces).mockReturnValue([workspace]);
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    mockExecExit(null, "SIGTERM");
+
+    await expect(devsyExecOutcome("/repo", ["pnpm", "seed"])).resolves.toEqual({
+      status: "completion-unknown",
+      exitCode: null,
+      transport: { exitCode: null, signal: "SIGTERM" },
+    });
+
+    mockExecExit(null);
+    await expect(devsyExec("/repo", ["pnpm", "seed"])).rejects.toMatchObject({
+      name: "ExecutionOutcomeError",
+      outcome: {
+        status: "completion-unknown",
+        exitCode: null,
+        transport: { exitCode: null, signal: null },
+      },
+    } satisfies Partial<ExecutionOutcomeError>);
   });
 });

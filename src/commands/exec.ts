@@ -1,4 +1,5 @@
-import { devpodExec } from "../core/devpod-exec";
+import { type ExecutionOutcome, unwrapExecutionOutcome } from "../core/execution-outcome";
+import { superviseLifecycle } from "../core/reliability-lifecycle";
 import { resolveGitCheckoutPath } from "./environment-path";
 
 export type ExecInvocation = { path?: string; command: string[] };
@@ -21,5 +22,7 @@ export function parseExecInvocation(args: string[]): ExecInvocation {
 
 export async function runExecCommand(options: ExecInvocation): Promise<void> {
   const repoPath = resolveGitCheckoutPath(options.path);
-  process.exitCode = await devpodExec(repoPath, options.command);
+  process.exitCode = unwrapExecutionOutcome(
+    (await superviseLifecycle("exec", repoPath, {}, options.command)) as ExecutionOutcome,
+  );
 }

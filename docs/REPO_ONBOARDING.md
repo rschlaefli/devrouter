@@ -53,6 +53,10 @@ attaches the exact checkout, delivers the matching runtime helper, invokes the
 repository-owned adapter, proves readiness, and publishes routes. The mutating
 `verify --live --yes` form is only a compatibility check after startup.
 
+Declare an [application readiness contract](./DEVCONTAINER.md#application-readiness-contracts)
+when a responding root route is insufficient. A failed declared contract retains
+tools and routes for application debugging and returns a nonzero ensure result.
+
 Consumer images contain no Devrouter package or helper. See
 [Fronting a devcontainer](./DEVCONTAINER.md) for the canonical Compose overlay,
 network aliases, managed process contract, TCP clients, and teardown.

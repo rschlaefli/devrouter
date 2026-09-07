@@ -115,6 +115,17 @@ apps:
     upstream: 127.0.0.1:3000
 `;
 
+function proxyReadinessConfig(options: {
+  path: string;
+  statuses?: unknown;
+  contentType?: string;
+  extra?: string;
+}): string {
+  return `${VALID_PROXY_APP}    readiness:
+      path: ${JSON.stringify(options.path)}
+${options.statuses === undefined ? "" : `      statuses: ${JSON.stringify(options.statuses)}\n`}${options.contentType === undefined ? "" : `      contentType: ${JSON.stringify(options.contentType)}\n`}${options.extra === undefined ? "" : `      ${options.extra}\n`}`;
+}
+
 beforeEach(() => {
   tmpDir = makeTmpDir();
 });
@@ -236,6 +247,105 @@ describe("protocol/runtime combinations", () => {
     expect(app.protocol).toBe("http");
     expect(app.host).toBe("app.localhost");
     expect(app.upstream).toBe("127.0.0.1:3000");
+  });
+
+  it("normalizes proxy HTTP readiness defaults and media types", () => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: "/health", contentType: "Application/JSON" }));
+    const config = loadRepoConfig(tmpDir);
+    const app = config.apps[0] as Extract<DevrouterApp, { runtime: "proxy"; protocol: "http" }>;
+
+    expect(app.readiness).toEqual({
+      path: "/health",
+      statuses: [200],
+      contentType: "application/json",
+    });
+  });
+
+  it("accepts unique 2xx and 4xx readiness statuses", () => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: "/health", statuses: [404, 200] }));
+    const config = loadRepoConfig(tmpDir);
+    const app = config.apps[0] as Extract<DevrouterApp, { runtime: "proxy"; protocol: "http" }>;
+
+    expect(app.readiness?.statuses).toEqual([404, 200]);
+  });
+
+  it("rejects unknown readiness keys and MIME parameters", () => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: "/health", extra: "unknown: true" }));
+    expect(() => loadRepoConfig(tmpDir)).toThrow("unknown is not supported");
+
+    writeConfig(
+      tmpDir,
+      proxyReadinessConfig({ path: "/health", contentType: "application/json; charset=utf-8" }),
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow("token/token form without parameters");
+  });
+
+  it.each([
+    "health",
+    "//health",
+    "/health?ready=1",
+    "/health#ready",
+    "/health\\ready",
+    "/health%2Fready",
+    "/health//ready",
+    "/./health",
+    "/health/../status",
+    "/health\nready",
+    "/héalth",
+  ])("rejects unsafe readiness path %s", (readinessPath) => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: readinessPath }));
+    expect(() => loadRepoConfig(tmpDir)).toThrow("readiness.path");
+  });
+
+  it.each([
+    { statuses: [] },
+    { statuses: [200, 200] },
+    { statuses: [300] },
+    { statuses: [399] },
+    { statuses: [500] },
+    { statuses: [200.5] },
+    { statuses: ["200"] },
+  ])("rejects invalid readiness statuses $statuses", ({ statuses }) => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: "/health", statuses }));
+    expect(() => loadRepoConfig(tmpDir)).toThrow("readiness.statuses");
+  });
+
+  it.each([
+    ["host", "http", "    hostRun:\n      command: node server.js"],
+    ["docker", "http", "    docker:\n      service: web\n      internalPort: 3000"],
+    ["proxy", "tcp", "    tcpProtocol: postgres\n    upstream: app-db:5432"],
+  ])("rejects readiness on %s %s apps", (runtime, protocol, runtimeConfig) => {
+    const protocolLine = protocol === undefined ? "" : `    protocol: ${protocol}\n`;
+    const yaml = `
+version: 1
+apps:
+  - name: app
+    host: app.localhost
+${protocolLine}    runtime: ${runtime}
+${runtimeConfig}
+    readiness:
+      path: /health
+`;
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("readiness is only supported for HTTP proxy apps");
+  });
+
+  it("rejects readiness on dependency apps", () => {
+    writeConfig(
+      tmpDir,
+      `
+version: 1
+apps:
+  - name: redis
+    kind: dependency
+    runtime: docker
+    docker:
+      service: redis
+    readiness:
+      path: /health
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow("readiness is only supported for HTTP proxy apps");
   });
 
   it("rejects proxy without upstream", () => {
@@ -1157,6 +1267,22 @@ apps:
     expect(resolved.name).toBe("everything");
     expect(resolveProfile(config, "ui").name).toBe("ui");
     expect(() => resolveProfile(config, "nope")).toThrow(/Profile 'nope' is not defined/);
+  });
+
+  it("resolves the implicit full profile by its persisted canonical name", () => {
+    const config = {
+      version: 1,
+      apps: [],
+      managedRuntime: {
+        devcontainer: { baseServices: [], profileServices: [] },
+        processes: [],
+      },
+    } as Parameters<typeof resolveProfile>[0];
+    const implicit = resolveProfile(config);
+    expect(resolveProfile(config, implicit.name)).toEqual(implicit);
+    expect(
+      resolveProfile({ ...config, profiles: { ui: { apps: [], default: true } } }, "full"),
+    ).toEqual(implicit);
   });
 
   it("falls back to full behavior when profiles declare no default", () => {

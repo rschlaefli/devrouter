@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.56] - 2026-09-07
+
+### Fixed
+
+- Ordinary managed ensure automatically recovers eligible retained degraded
+  runtimes after exact ownership and configuration proof. Failed startup preserves
+  recovery configuration while runtime absence is unproven.
+- Durable lifecycle workers fence late work after stop and preserve definite
+  command outcomes across transport failures. Unknown arbitrary execution is
+  never silently replayed.
+- Status distinguishes stopped runtime from historical transition failures.
+- Exact retained Devsy stop tolerates unapplied Compose service edits while
+  preserving ownership, membership, mount and container identity checks.
+
+### Added
+
+- HTTP proxy applications may declare bounded same-origin readiness paths,
+  accepted statuses and content type. Application errors retain tools and routes
+  for code repair and produce a nonzero application outcome.
+- A pure reliability state model and installed synthetic lifecycle qualification
+  support later controller and capacity work; these policies are not activated.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.56.md
+
 ## [0.0.55] - 2026-09-05
 
 ### Fixed

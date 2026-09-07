@@ -2,7 +2,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  assertManagedContainerConfigUnchanged,
   inspectManagedDevcontainerConfig,
   inspectManagedDevcontainerGeneratedConfig,
   stopExactManagedService,
@@ -204,7 +203,6 @@ export function stopRetainedManagedDevsyWorkspace(options: {
     ) {
       throw new Error("Managed stop cannot prove the exact primary workspace mount.");
     }
-    assertManagedContainerConfigUnchanged({ plan, containers, workspace: workspaceEnv });
     if (registration().context !== context) {
       throw new Error("Managed stop provider context changed during inspection.");
     }
