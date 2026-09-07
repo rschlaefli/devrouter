@@ -259,6 +259,7 @@ async function liveChecks(
   }
   const checks: DiagnosticCheck[] = [];
   const routes: DevcontainerVerifyEvidence["liveRoutes"] = [];
+  let removeFailedRoutes = false;
   for (const app of apps) {
     try {
       if (app.protocol === "http") {
@@ -266,6 +267,7 @@ async function liveChecks(
           repoPath,
           ...(app.readiness ? { readiness: app.readiness } : {}),
         });
+        if (!curl.ok && !app.readiness) removeFailedRoutes = true;
         routes.push({
           name: app.name,
           host: app.host,
@@ -277,11 +279,15 @@ async function liveChecks(
           level: curl.ok ? "ok" : "error",
           summary: curl.ok
             ? `HTTP proxy route '${app.name}' responded.`
-            : `HTTP proxy route '${app.name}' did not respond.`,
+            : app.readiness
+              ? `Application '${app.name}' did not satisfy its readiness contract.`
+              : `HTTP proxy route '${app.name}' did not respond.`,
           details: curl.ok ? undefined : curl.details,
           suggestion: curl.ok
             ? undefined
-            : "Start the devcontainer app process, then re-run live verification.",
+            : app.readiness
+              ? "Inspect the application health endpoint and logs, then re-run live verification."
+              : "Start the devcontainer app process, then re-run live verification.",
         });
       } else {
         routes.push({
@@ -297,6 +303,7 @@ async function liveChecks(
         });
       }
     } catch (error) {
+      removeFailedRoutes = true;
       const message = error instanceof Error ? error.message : String(error);
       routes.push({
         name: app.name,
@@ -314,7 +321,7 @@ async function liveChecks(
     }
   }
 
-  if (checks.some((check) => check.level === "error")) {
+  if (removeFailedRoutes) {
     replaceHostRoutesForRepo(repoPath, []);
   }
 

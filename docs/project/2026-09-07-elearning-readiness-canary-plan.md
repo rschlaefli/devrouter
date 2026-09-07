@@ -207,3 +207,105 @@ not be started or mutated by this qualification task. eLearning remains the cana
   narrower selection to full. The wrapper remains owned by the coordinating task;
   qualify explicit profile preservation and generic implicit-profile semantics
   separately. Do not patch or start that consumer from this task.
+
+## First live canary evidence
+
+Devrouter readiness slice committed at ce3b002aaf5ec31433d8d535568d54d708b611ed.
+All 1,090 unit tests pass; 210 Opengrep rules on six changed implementation files
+found zero issues. Simplifier Descartes found no justified net reduction. Slice
+reviewer Tesla (01a07bac-3f40-7a70-8f13-db4b1e1053b7) remains active.
+
+The installed package started Devsy workspace rs-reliability-canary, Compose project
+default-rs-101ce. Exact app container 00cdd3063ce928675d8cad9613a779676f8f67c26a7d7fda4bafe34a141b3972
+is bind-mounted to the canary source. Actual limits: app 6442450944 bytes, PostgreSQL
+536870912, Azurite 268435456, each with equal memory-plus-swap; all OOM flags false.
+
+Cold post-create failed on content migration 20260826_090000, which assumes an
+existing technical-information page. Canonical exec initially blocked on incomplete
+lifecycle state. Ordinary tooling ensure recovered the exact runtime without
+recreation and made exec available, but did not complete post-create. Explicit
+canonical preparation revealed the deterministic migration error. The isolated
+consumer fix preserves schema preparation and skips content repair only when both
+courses and course-pages are empty. Existing-content checks are unchanged. No
+database reset, content seed, new migration, or volume deletion occurred. Migrations
+then completed, the preparation stamp was written, and unchanged warm preparation
+reused it. Removed automatic migration retries and added values-free phase errors.
+
+The full profile then passed application readiness with the app running and base
+services healthy. Linux process-helper reconciliation tests passed in this exact
+container, including preparation ordering, cancellation and surviving-child cleanup.
+Real learner fixtures and dynamic-route browser validation remain outstanding.
+Provider startup could report success after failed post-create without rerunning
+that preparation: the canary adapter now makes app preparation explicit and keyed.
+Evidence logs are /private/tmp/elearning-canary-*.log and
+/private/tmp/elearning-linux-helper.log. A bounded warm ensure plus two stop/resume
+cycles is running (session 69926), ending with exact non-destructive stop. Verify
+its result and final provider/route state before claiming lifecycle completion.
+
+### Warm-cycle and source hygiene checkpoint
+
+Session 69926 proved warm full ensure (85.8 seconds), first non-destructive stop
+(23.6 seconds), full resume (18.5 seconds), and second stop (26.0 seconds). Warm and
+resume results report application HTTP 200 and recreated=false. The final resume
+and stop remain running; the intermediate Stopped/zero-route observation is not
+final lifecycle proof. Source typecheck/format and selected consumer tests remain
+pending before consumer commit.
+
+The runtime generated an unrelated payload-types.ts rewrite. It remains uncommitted
+and must be excluded from this package. Automatic approval review rejected git
+restore for that exact file because it lacked trusted evidence of ownership; do
+not bypass the rejection. Preserve the file until ownership is established or the
+user explicitly authorizes restoring it. No consumer source was reset.
+
+### Completed bounded warm run
+
+Session 69926 completed successfully. Second full resume took 22.0 seconds and
+final stop 24.5 seconds. All three ensure results retained full, reported HTTP 200
+application readiness and recreated=false. The receipt is
+/private/tmp/elearning-canary-warm-receipt.json. Final provider and route verification
+is session 70964. Preserve this evidence; do not rerun unchanged cycles merely for
+a commit wrapper. Dynamic learner route, synthetic state preservation, preparation
+transient-child diagnosis, stopped-vs-history reporting and capacity behavior remain
+separate unqualified boundaries.
+
+### Synthetic learner and verification correction
+
+The explicit canary fixture was created transactionally after accepting the
+single migration-owned technical-information bootstrap page. A values-free
+verification confirmed original record identities and creation times before and
+after an additional non-destructive stop/full-resume cycle. The full resume
+reported HTTP 200 and recreated=false. Receipts are
+/private/tmp/elearning-canary-fixture-created.log,
+/private/tmp/elearning-canary-fixture-after-resume.log and
+/private/tmp/elearning-canary-post-fixture-resume.log.
+
+The synthetic launch/session exchange, signed session identity and authenticated
+dynamic unit request passed inside the exact container; no signing values or
+tokens were emitted. Receipt: /private/tmp/elearning-canary-session.log. The
+in-app browser navigated from the unit overview to its synthetic learning block
+and reloaded that block successfully after resume. agent-browser was unavailable
+on PATH, so browser proof used the native browser fallback. This does not claim
+an authenticated browser cookie flow or learner progress persistence.
+
+Tesla completed the readiness slice review with two concerns. The application
+readiness failure in legacy live verification incorrectly removed published
+routes. The scoped correction retains routes on declared readiness failures,
+including transport failure, and preserves cleanup for legacy probe failures
+and thrown infrastructure errors. Nine focused tests, 1,093 unit tests, static
+checks, build and package smoke pass. The first full suite ran inside a sandbox
+that blocked process identity inspection; the host-visible rerun passed. Linux
+process tests skipped on macOS; the earlier exact-container Linux pass remains
+the relevant helper evidence. Installed lifecycle evidence still belongs to the
+previous packed source; package smoke does not replace its 25-scenario proof.
+
+Final exact-path Devsy registration resolves uniquely to rs-reliability-canary.
+Devsy reports Stopped and route output contains no exact source-path entries
+after the final canonical stop. Checkout, volumes, cache and synthetic records
+remain retained. Evidence: /private/tmp/elearning-canary-final-stop.log and
+/private/tmp/elearning-canary-final-routes.json.
+
+Remaining work includes consumer formatting/typecheck and review, the unrelated
+generated payload-types ownership decision, authenticated browser/progress proof,
+preparation transient-child diagnosis, stopped-vs-history reporting, and the
+later controller/admission/recovery/harness stages. No OOM was induced, and no
+capacity qualification, merge, release or deployment is claimed.
