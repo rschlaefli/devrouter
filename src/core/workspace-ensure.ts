@@ -33,6 +33,7 @@ import {
   replaceHostRoutesForRepo,
 } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
+import { runManagedHostPreparation } from "./managed-host-preparation";
 import {
   type ManagedPostStartPlan,
   resolveManagedPostStartPlan,
@@ -47,7 +48,7 @@ import {
 } from "./managed-runtime-state";
 import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-lifecycle";
-import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
+import { loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, DEVROUTER_HOME, TCP_PROTOCOL_REGISTRY } from "./router";
 import {
@@ -767,6 +768,7 @@ function assertRepairBaseline(options: {
   profile: string;
   processes: string[];
   routes: HostRouteState[];
+  verifyRetainedProcesses?: boolean;
   workspace?: { token: string; gitCommonDir: string };
 }): WorkspaceContainerSnapshot[] {
   const { repoPath, target, state, plan, config, profile, processes } = options;
@@ -856,15 +858,14 @@ function assertRepairBaseline(options: {
   )?.Destination;
   if (!workspacePath) throw new Error("Repair cannot prove the primary workspace mount.");
   for (const name of primary.state.Running ? (config.managedRuntime?.processes ?? []) : []) {
-    if (
-      !processes.includes(name) &&
-      runManagedProcessAction({
-        container: { id: primary.id, workspacePath },
-        name,
-        action: "status",
-        quiet: true,
-      }) !== "stopped"
-    ) {
+    if (processes.includes(name) && !options.verifyRetainedProcesses) continue;
+    const processStatus = runManagedProcessAction({
+      container: { id: primary.id, workspacePath },
+      name,
+      action: "status",
+      quiet: true,
+    });
+    if (processStatus !== "stopped" && !(processes.includes(name) && processStatus === "running")) {
       throw new Error(`Repair refuses unexpected or unproven process '${name}'.`);
     }
   }
@@ -1503,27 +1504,29 @@ export async function workspaceEnsure(
           );
         }
         try {
-          const previousAllServices = [
-            managedPlan.primaryService,
-            ...managedPlan.baseServices,
-            ...previousServices,
-          ];
-          claimLifecycleEffect();
-          startExactManagedServices({
-            plan: managedPlan,
-            composeProject: managedComposeProject,
-            services: previousAllServices,
-            quiet: options.quiet,
-            workspace: managedWorkspaceEnv,
-          });
-          await waitForManagedServices(
-            managedPlan,
-            repoPath,
-            managedComposeProject,
-            previousAllServices,
-            managedContainer.id,
-            options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
-          );
+          if (previousManagedState?.status !== "degraded") {
+            const previousAllServices = [
+              managedPlan.primaryService,
+              ...managedPlan.baseServices,
+              ...previousServices,
+            ];
+            claimLifecycleEffect();
+            startExactManagedServices({
+              plan: managedPlan,
+              composeProject: managedComposeProject,
+              services: previousAllServices,
+              quiet: options.quiet,
+              workspace: managedWorkspaceEnv,
+            });
+            await waitForManagedServices(
+              managedPlan,
+              repoPath,
+              managedComposeProject,
+              previousAllServices,
+              managedContainer.id,
+              options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+            );
+          }
         } catch (rollbackError) {
           rollbackErrors.push(
             `services: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
@@ -1534,14 +1537,16 @@ export async function workspaceEnsure(
           if (!managedPostStartPlan) {
             throw new Error("Managed post-start plan disappeared during rollback.");
           }
-          claimLifecycleEffect();
-          runManagedPostStart({
-            plan: managedPostStartPlan,
-            container: managedContainer,
-            quiet: options.quiet,
-            profile: previousManagedState?.profile ?? "full",
-            processes: previousProcesses,
-          });
+          if (previousManagedState?.status !== "degraded") {
+            claimLifecycleEffect();
+            runManagedPostStart({
+              plan: managedPostStartPlan,
+              container: managedContainer,
+              quiet: options.quiet,
+              profile: previousManagedState?.profile ?? "full",
+              processes: previousProcesses,
+            });
+          }
           for (const process of managedProcessRegistry) {
             if (previousProcessSet.has(process)) continue;
             claimLifecycleEffect();
@@ -1612,7 +1617,10 @@ export async function workspaceEnsure(
             );
           }
         }
-        if (rollbackErrors.length > 0 && previousManagedState) {
+        if (
+          previousManagedState &&
+          (rollbackErrors.length > 0 || previousManagedState.status === "degraded")
+        ) {
           try {
             markManagedRuntimeDegraded(previousManagedState, failedPhase);
           } catch (stateError) {
@@ -1625,7 +1633,9 @@ export async function workspaceEnsure(
         const suffix =
           rollbackErrors.length > 0
             ? ` Rollback left degraded drift: ${rollbackErrors.join("; ")}.`
-            : " Candidate runtime was rolled back.";
+            : previousManagedState?.status === "degraded"
+              ? " Candidate resources were reconciled; the retained runtime remains degraded."
+              : " Candidate runtime was rolled back.";
         throw new Error(`${original}${suffix}`);
       }
       if (managedPlan) {
@@ -1691,6 +1701,12 @@ export async function workspaceEnsure(
     }
   };
   return withLifecycleOperationLock(repoPath, async () => {
+    const preparationConfig = loadRepoConfig(repoPath);
+    if (preparationConfig.managedRuntime?.devcontainer.prepareCommand) {
+      claimLifecycleEffect();
+      await runManagedHostPreparation(repoPath, preparationConfig);
+      claimLifecycleEffect();
+    }
     const repairLocked = () => {
       const runtime = resolveWorkspaceRuntimeOrDefault(repoPath);
       fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
@@ -1718,6 +1734,38 @@ export async function workspaceEnsure(
       linked ? workspace : "",
       requestedOptions.profile,
     ).profile;
+    if (desiredProfile !== retained.profile) {
+      const target = resolveRepairTarget(repoPath, linked);
+      const baseline = loadRuntimeConfig(repoPath, linked ? workspace : "", retained.profile);
+      const plan = inspectManagedDevcontainerConfig({
+        repoPath,
+        config: baseline.config,
+        profile: baseline.resolvedProfile,
+        linked,
+      });
+      if (!baseline.config.managedRuntime)
+        throw new Error("Recovery requires the retained managed configuration.");
+      assertRepairBaseline({
+        repoPath,
+        target,
+        state: retained,
+        plan,
+        config: baseline.config,
+        profile: baseline.profile,
+        processes: desiredManagedProcesses(
+          baseline.config.managedRuntime,
+          baseline.resolvedProfile,
+        ),
+        routes: listHostRouteState().filter((route) => sameWorkspacePath(route.repoPath, repoPath)),
+        verifyRetainedProcesses: true,
+        workspace:
+          target.kind === "linked"
+            ? { token: target.workspace, gitCommonDir: target.gitCommonDir }
+            : undefined,
+      });
+      claimLifecycleEffect();
+      return ensureLocked();
+    }
     options = { ...requestedOptions, repair: true, profile: retained.profile, open: false };
     let repaired: WorkspaceEnsureResult;
     try {

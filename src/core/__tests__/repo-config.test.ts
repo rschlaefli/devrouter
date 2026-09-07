@@ -33,6 +33,39 @@ function readConfig(dir: string): string {
   return fs.readFileSync(path.join(dir, ".devrouter.yml"), "utf-8");
 }
 
+describe("managed host preparation argv", () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = makeTmpDir();
+  });
+  afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const config = (prepareCommand: unknown) => ({
+    version: 1,
+    apps: [],
+    managedRuntime: {
+      processes: [],
+      devcontainer: { baseServices: [], profileServices: [], prepareCommand },
+    },
+  });
+  it("preserves literal arguments including empty non-executable arguments", () => {
+    const argv = ["node", "generator script.js", "", "$HOME"];
+    writeConfig(directory, JSON.stringify(config(argv)));
+    expect(loadRepoConfig(directory).managedRuntime?.devcontainer.prepareCommand).toEqual(argv);
+  });
+  it.each([
+    [],
+    "node script",
+    [""],
+    [null],
+    ["node", "a\0b"],
+    Array(65).fill("arg"),
+    ["node", "x".repeat(4097)],
+  ])("rejects invalid or unbounded argv %#", (argv) => {
+    writeConfig(directory, JSON.stringify(config(argv)));
+    expect(() => loadRepoConfig(directory)).toThrow();
+  });
+});
+
 function writeManagedProfileConfig(dir: string, profilesYaml: string): void {
   writeConfig(
     dir,

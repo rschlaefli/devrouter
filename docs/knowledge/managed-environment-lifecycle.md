@@ -100,7 +100,10 @@ unloaded before persisting ready state. It does not recreate the DevPod, remove
 containers, remove volumes, run `postCreateCommand` again, or use a broad
 Compose project command. A failed transition retains the previous routes and
 successful state when possible. A degraded transition is persisted; ordinary ensure
-repairs that recorded profile before applying a differing desired profile. Persisted state remains
+validates its retained ownership before transitioning directly to a differing desired
+profile. Dropped processes need not start first; failed transitions preserve degraded
+state without replaying the broken baseline adapter. Same-profile recovery repairs
+the retained profile. Persisted state remains
 authoritative while any container from its exact Compose project still exists.
 When that exact project has disappeared, Devrouter treats the state as detached
 and rebaselines from the currently observed exact workspace before proceeding.

@@ -185,6 +185,8 @@ export type DevrouterManagedRuntime = {
     baseServices: string[];
     // Complete registry of optional services that profile declarations may select.
     profileServices: string[];
+    // Optional repository-owned preparation command, expressed as literal argv.
+    prepareCommand?: string[];
   };
   // Complete registry of repository-managed process markers.
   processes: string[];

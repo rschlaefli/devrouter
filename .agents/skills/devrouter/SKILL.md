@@ -303,7 +303,8 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter -V [--repo .]`: show installed CLI version, local repo version, and next upgrade target
 - `devrouter upgrade [version] [--repo .]`: list upgrade targets or print target Agent Adaptation Prompt
 - `devrouter setup --yes [--repo .] [--json] [--workspace-runtime <devpod|devsy>]`: first-run machine setup plus structured diagnostics; explicit Devsy selection acquires its verified agent
-- `devrouter ensure [path] [--profile <name>] [--repair] [--open] [--json]`: canonical startup/reconciliation for primary and linked checkouts; automatically repairs retained degraded state before startup; explicit repair uses the recorded profile only
+- `devrouter ensure [path] [--profile <name>] [--repair] [--open] [--json]`: canonical startup/reconciliation for primary and linked checkouts; automatically recovers retained degraded state into the requested profile after ownership proof, without starting dropped processes first; explicit repair uses the recorded profile only
+
 - `devrouter profile resolve --repo <path> [--profile <selection>] [--json]`: resolve exact profile resources for automation without starting or inspecting a runtime
 - `devrouter profile plan --repo <path> [--profile <selection>] --contract <repo-relative-yaml> [--output <path>] [--json]`: validate repository-owned resource policy and emit literal bindings without runtime access
 - `devrouter stop [path] [--delete] [--json]`: stop the exact workspace runtime and remove exact routes; `--delete` explicitly deletes its ownership-proven data without removing the checkout
@@ -334,6 +335,13 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter workspace stop <workspace|branch>`: stop DevPod and routes; preserve checkout, owner record, and data
 - `devrouter workspace down <workspace|branch> [--keep-worktree]`: delete runtime/routes and optionally remove the clean worktree and record
 - `devrouter workspace gc [--json] [--yes]`: report missing owners by default; apply exact eligible cleanup with `--yes`
+
+For host-generated Compose inputs, configure
+`managedRuntime.devcontainer.prepareCommand` as literal argv. Ensure runs it once
+in the checkout root before Compose inspection, under lifecycle serialization,
+with a sixty-second bound. Keep `.devrouter.yml` unchanged and finish in the
+foreground. Diagnostics never execute the hook. Qualify changed mounts separately
+before relying on warm container reuse.
 
 ## Validation workflow
 
