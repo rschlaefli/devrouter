@@ -19,7 +19,7 @@ provider fixtures. They must never reach real Docker, Devsy, DevPod, or Traefik.
 
 Existing explicit commands gain durable interruption bookkeeping. Preserve proven
 application exit codes and the existing nonzero failure convention. This is a
-caller-visible safety change: uncertain prior execution blocks replacement until
+caller-visible safety change: uncertain prior arbitrary command execution blocks replacement until
 positive evidence or explicit stop resolves it. No force-clear or automatic replay
 is introduced. This approval does not enroll consumers in a host controller.
 
@@ -28,6 +28,44 @@ integration, live runtime change, provisioning, or OOM injection is included.
 Capacity admission, parking, controller observation, and harness integration remain
 later roadmap work. Passing this package is source and installed-fixture evidence;
 it does not qualify real-provider reliability or OOM resilience.
+
+## Automatic recovery amendment, 2026-09-07
+
+The user explicitly replaced the degraded-state refusal default: ordinary ensure
+must repair and continue startup without requiring a separate repair command.
+This source amendment is approved by that instruction. No live-provider or OOM
+execution authority is added.
+
+Within the existing lifecycle lock, inspect retained degraded state before normal
+startup mutations. For an existing or unproven-absent exact Compose project, run
+one existing non-destructive repair of the recorded profile, with unchanged
+provider locking, retained ownership checks, and stop fences. Resolve the desired
+profile independently and apply any differing transition only after repair proves
+ready. Keep both stages in the same worker and request; no recursive public call.
+Explicit --repair keeps its current recorded-profile diagnostic behavior.
+
+Preserve the existing positively-proven missing-project recovery path. It may
+rebaseline after exact absence, but an inspection failure never proves absence.
+This preserves current safe startup behavior; it adds no deletion, recreation,
+resource adoption, or volume reset. Do not turn missing evidence into permission.
+
+A new ensure may reconcile a drained interrupted ensure while preserving its
+unknown historical result and deduplication identity. Possibly-active workers,
+unknown arbitrary exec, pending stop, corrupt journals, and history exhaustion
+still require resolution. Never silently replay an arbitrary command. Recovery
+within explicit start intent does not activate capacity-managed automatic recovery.
+
+Repair failure retains diagnostic state and ends the bounded attempt. A failed
+subsequent profile transition rolls back to the successfully repaired baseline.
+Test automatic same/different-profile recovery, interruption reconciliation,
+retention, stop fencing, and unchanged explicit-repair behavior. Main owns these
+coupled lifecycle decisions and final proof; no independent implementation seam.
+
+Planner Schrodinger reviewed this amendment and returned DONE_WITH_CONCERNS.
+Accepted recorded-profile-first repair, narrow ensure-to-ensure reconciliation,
+no arbitrary exec replay, and existing locks/fences. Parent retains the existing
+positive-absence rebaseline behavior rather than adopting the suggested blanket
+missing-resource refusal. Required tests must preserve its exact-absence gate.
 
 ## Contract and implementation decisions
 
@@ -67,7 +105,9 @@ Each operation has a kind (ensure or exec), an immutable request identity, and i
 existing dispatch/completion state. A repeated request identity joins or reports
 that same operation, including after completion; it never launches it again.
 A new operation can replace the current slot only after definite terminal evidence,
-never after completion-unknown or while a claimed worker may remain active.
+never after unknown arbitrary exec or while a claimed worker may remain active.
+The automatic recovery amendment permits a new ensure after interrupted ensure
+only when the previous worker is positively drained.
 Retain bounded request/result tombstones; on exhaustion fail closed instead of
 silently forgetting deduplication history. No unbounded operation registry is added.
 
@@ -372,3 +412,13 @@ corrupt records, and supervisor loss with retained serialization. Its status rem
 partial until the remaining source-plan qualification matrix is covered. The fixture
 uses closed provider executables, an isolated Docker API Unix socket, private
 homes and synthetic data. No real-provider or OOM proof has been performed.
+
+### Interruption correction and recovery steering
+
+Local correction d62efdb preserves original worker ownership on duplicate dispatch
+and records interruption on worker loss without a result. All 1,044 unit tests
+pass; installed fixtures cover fourteen cases, including persistence failures and
+worker loss with a still-active provider group. Linux /proc checks remain skipped.
+The same slice reviewer is checking that correction. Automatic retained repair is
+now the active source amendment; installed qualification and final review remain
+incomplete. No live provider has been touched.
