@@ -155,6 +155,25 @@ bounded recovery and harness qualification only through their reviewed scopes.
 
 ### Current checkpoint, 2026-09-07
 
+Latest verification: installed active canary stop with an unapplied Compose app
+command edit succeeds and removes both routes. The test-owned edit was restored;
+Devsy Stopped and zero exact routes were independently verified. Two isolated
+browser sessions followed the synthetic launch endpoint directly to the unit
+overview; prior ambiguous Unauthorized remains an unsuccessful historical attempt,
+not a diagnosed product regression. Authenticated block navigation shows retained
+100 percent course progress. Both browser sessions are closed.
+
+Consumer corrections are committed at 5a3d83545e5e38621296fc3aa3e286dd3933d0fc;
+authorized target integration is 2f3ffc19563bf2eda222d868bd5ceb96ff5cfc2c, and
+verified simplification is 4d49e07caacc3261f8c663db3b7de4ee53589877. The merge
+introduces only current main's help-page fix and existing deployment-ref changes;
+31 affected tests and typecheck pass. Devrouter's current full suite passes all
+1097 tests, and Linux process-helper tests run and pass inside the isolated
+canary. Consumer correction review and devrouter integrated final review remain
+active. No release, global install or merge has happened yet. First release is
+0.0.56, following confirmed registry and GitHub release version 0.0.55.
+
+
 The user explicitly authorized completing the current recovery/readiness/status/
 eLearning package before controller and capacity work: integrate targets as needed,
 finish reviews and CI, merge scoped PRs, publish a patch release and install it
