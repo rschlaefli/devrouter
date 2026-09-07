@@ -245,17 +245,27 @@ else { fs.appendFileSync(${JSON.stringify(mutations)},JSON.stringify({provider,a
   const evidence: string[] = [];
   const qualificationStartedAt = performance.now();
   let maximumObservedRssKiB = 0;
+  let maximumObservedCpuPercent = 0;
   let rssSamples = 0;
+  const statusWaits: Array<{ session: string; expected: string; elapsedMs: number }> = [];
   async function untilStatus(session: string, expected: string) {
+    const started = performance.now();
     const deadline = Date.now() + 14_000;
     while (Date.now() < deadline) {
       const actual = command("status", "--session", session).result.sessions[0];
       assert.ok(controller?.pid, "fixture observer PID unavailable");
-      const rss = Number(run("ps", ["-o", "rss=", "-p", String(controller.pid)]));
+      const [rss, cpu] = run("ps", ["-o", "rss=", "-o", "%cpu=", "-p", String(controller.pid)])
+        .split(/\s+/)
+        .map(Number);
       assert.ok(Number.isFinite(rss) && rss > 0, "fixture observer memory sample unavailable");
+      assert.ok(Number.isFinite(cpu) && cpu >= 0, "fixture observer CPU sample unavailable");
       maximumObservedRssKiB = Math.max(maximumObservedRssKiB, rss);
+      maximumObservedCpuPercent = Math.max(maximumObservedCpuPercent, cpu);
       rssSamples++;
-      if (actual?.status === expected) return actual;
+      if (actual?.status === expected) {
+        statusWaits.push({ session, expected, elapsedMs: Math.round(performance.now() - started) });
+        return actual;
+      }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     throw new Error(`Expected ${expected} for synthetic ${session}`);
@@ -328,6 +338,9 @@ else { fs.appendFileSync(${JSON.stringify(mutations)},JSON.stringify({provider,a
     writeJournal();
     await untilStatus("two", "STOPPED");
     evidence.push("manual stopped journal and exact stopped resources supersede prior readiness");
+    const eventsBeforeRestart =
+      JSON.parse(fs.readFileSync(path.join(routerHome, "controller", "snapshot.json"), "utf8"))
+        .nextSequence - 1;
     await stop("SIGKILL");
     await start();
     const replacement = command(
@@ -382,7 +395,10 @@ else { fs.appendFileSync(${JSON.stringify(mutations)},JSON.stringify({provider,a
       providerReadCalls: fs.readFileSync(calls, "utf8").trim().split("\n").length,
       elapsedMs: Math.round(performance.now() - qualificationStartedAt),
       maximumObservedRssKiB,
+      maximumObservedCpuPercent,
       rssSamples,
+      statusWaits,
+      eventsBeforeRestart,
     };
     fs.writeFileSync(path.join(root, "receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
     console.log(JSON.stringify({ root, ...receipt }));

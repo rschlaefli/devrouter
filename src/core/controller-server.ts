@@ -151,7 +151,9 @@ export async function runController(options: {
             if (socket.destroyed) return;
             sessions.tick(monotonic(), Date.now());
             const snapshot = sessions.read();
-            if (replay(snapshot, subscription.request, subscription.sequence)) {
+            const oldest = snapshot.events[0]?.sequence ?? snapshot.nextSequence;
+            const gap = subscription.sequence < oldest - 1;
+            if (gap || replay(snapshot, subscription.request, subscription.sequence)) {
               const current = snapshot.sessions.find(
                 (session) =>
                   session.id === subscription.request.session &&
@@ -162,7 +164,7 @@ export async function runController(options: {
                 id: subscription.request.id,
                 ok: true,
                 result: {
-                  kind: "snapshot",
+                  kind: gap ? "gap" : "snapshot",
                   store: snapshot.store,
                   epoch: snapshot.epoch,
                   sequence: snapshot.nextSequence - 1,

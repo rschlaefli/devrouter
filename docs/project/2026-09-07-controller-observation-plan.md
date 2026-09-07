@@ -76,6 +76,26 @@ workspace-layout change is authorized by this coordination.
 
 ## Approval summary
 
+Latest verification on 2026-09-08 closes the observation slice review. Its sole
+finding was broader Compose file membership than the existing lifecycle contract;
+the collector now reuses hasExactComposeIdentity before reading or rendering
+recorded files. Three regressions cover rejection and both supported provider
+feature overlays. The collector suite passes 11 cases. Live event retention loss
+now emits a gap with the current snapshot, and an output-bound regression proves
+disconnecting a slow subscriber preserves responsive status for another client.
+All 11 socket cases pass; the preceding controller suite passed 68 cases before
+these two additions. TypeScript, Biome, Knip and owning documentation checks pass.
+
+Packed qualification of the corrected source passes at
+/private/tmp/dr-observe-DI354D/receipt.json. It records 71 provider reads, eight
+events before restart, zero unexpected provider calls and a stopped observer.
+Maximum sampled RSS is 67152 KiB and ps CPU is 4.4 percent across 46 samples.
+Observed waits include 4324 ms for application failure, 553 ms for invalidating
+the delayed sample and 4629 ms for stopped evidence. These are fixture-specific
+measurements. CI now runs the packed qualifier with a five-minute bound; bundled
+agent guidance and the managed lifecycle knowledge page describe observation.
+Required integrated final review and draft PR delivery remain outstanding.
+
 Add one bounded host observer that notices when an explicitly enrolled development
 environment stops satisfying its declared capabilities after `ensure` exits.
 Compatible consumers share observations and receive bounded events. Losing the

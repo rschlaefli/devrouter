@@ -20,6 +20,7 @@ import {
   resolveComposeReference,
 } from "./devcontainer-profile";
 import {
+  hasExactComposeIdentity,
   SAFE_INSPECT_TEMPLATE,
   type WorkspaceContainerSnapshot,
   workspaceAppContainers,
@@ -216,7 +217,12 @@ export const collectControllerObservation: ControllerObservationCollector = asyn
     const files = recorded.split(",").map((file) => file.trim());
     if (
       files.some((file) => !path.isAbsolute(file)) ||
-      composeFiles.some((file) => !files.includes(file))
+      !hasExactComposeIdentity(container, {
+        repoPath: environment.repoPath,
+        service: container.labels["com.docker.compose.service"] ?? "",
+        composeProject: state.composeProject,
+        composeFiles,
+      })
     )
       throw new Error("Observation Compose membership changed.");
     for (const file of files) recordedFiles.add(file);

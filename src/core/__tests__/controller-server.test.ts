@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { type ControllerObservationCollector, controllerCapability } from "../controller-monitor";
 import { CONTROLLER_FRAME_BYTES } from "../controller-protocol";
 import { runController } from "../controller-server";
+import { ControllerSessions } from "../controller-sessions";
 import { createReliabilityState } from "../reliability-contract";
 import * as operationStore from "../reliability-operation-store";
 
@@ -338,6 +339,105 @@ it("replays valid cursors, accepts the oldest retained boundary, and gaps future
     expect(results.at(-1).kind).toBe("end");
   }
 });
+it("signals a live watch gap when events expire between deliveries", async () => {
+  const { controllerRequest } = await import("../controller-client");
+  let owner: ControllerSessions | undefined;
+  const acquire = ControllerSessions.prototype.acquire;
+  const capture = vi.spyOn(ControllerSessions.prototype, "acquire").mockImplementation(function (
+    this: ControllerSessions,
+    ...args: Parameters<typeof acquire>
+  ) {
+    owner = this;
+    return acquire.apply(this, args);
+  });
+  try {
+    const { directory } = await fixture();
+    let binding: any;
+    await controllerRequest(
+      directory,
+      {
+        method: "observe",
+        path: "/fixture/checkout",
+        session: "one",
+        profile: "web",
+        require: ["runtime"],
+      },
+      (value: any) => {
+        binding = value.result;
+      },
+    );
+    const results: any[] = [];
+    await controllerRequest(
+      directory,
+      { method: "watch", ...binding, timeout: 0 },
+      (value: any) => {
+        results.push(value.result);
+        if (results.length === 1) {
+          // Synchronous durable renewals fill the event window before the next delivery tick.
+          for (let index = 0; index < 257; index++)
+            owner?.renew(binding, Math.floor(performance.now()), Date.now());
+        }
+      },
+    );
+    expect(results.map((value) => value.kind)).toEqual(["snapshot", "gap", "end"]);
+    expect(results[1].sequence).toBeGreaterThan(results[0].sequence + 256);
+    expect(results[1].session.id).toBe("one");
+  } finally {
+    capture.mockRestore();
+  }
+});
+
+it("disconnects a subscriber at the output bound while other clients remain responsive", async () => {
+  const { controllerRequest } = await import("../controller-client");
+  const { directory } = await fixture();
+  let binding: any;
+  await controllerRequest(
+    directory,
+    {
+      method: "observe",
+      path: "/fixture/checkout",
+      session: "one",
+      profile: "web",
+      require: ["runtime"],
+    },
+    (value: any) => {
+      binding = value.result;
+    },
+  );
+  const write = net.Socket.prototype.write;
+  let pressured: net.Socket | undefined;
+  const pressure = vi.spyOn(net.Socket.prototype, "write").mockImplementation(function (
+    this: net.Socket,
+    ...args: Parameters<typeof write>
+  ) {
+    const result = write.apply(this, args);
+    const frame = String(args[0]);
+    if (frame.includes('"kind":"snapshot"') && frame.includes('"session"')) {
+      pressured = this;
+      Object.defineProperty(this, "writableLength", { configurable: true, get: () => 262_144 });
+    }
+    return result;
+  } as typeof write);
+  try {
+    const results: any[] = [];
+    // The initial snapshot is delivered; the terminal frame crosses the fixed queue bound.
+    await expect(
+      controllerRequest(directory, { method: "watch", ...binding, timeout: 0 }, (value: any) =>
+        results.push(value.result),
+      ),
+    ).rejects.toThrow();
+    expect(results[0].kind).toBe("snapshot");
+    expect(pressured?.destroyed).toBe(true);
+    let status: any;
+    await controllerRequest(directory, { method: "status", session: "one" }, (value: any) => {
+      status = value.result;
+    });
+    expect(status.sessions[0].id).toBe("one");
+  } finally {
+    pressure.mockRestore();
+  }
+});
+
 it("rejects connection 33 while 32 controller clients remain active", async () => {
   const { directory } = await fixture();
   const clients = Array.from({ length: 32 }, () => connect(directory));

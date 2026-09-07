@@ -224,3 +224,24 @@ it("reports stopped only when all exact containers and routes are stopped", asyn
   expect((await collect()).stopped).toBe(true);
   expect(observeControllerProcess).not.toHaveBeenCalled();
 });
+
+it("rejects unexpected Compose files before reading or rendering them", async () => {
+  snapshots[0].labels["com.docker.compose.project.config_files"] += ",/fixture/unexpected.yml";
+  await expect(collect()).rejects.toThrow("Observation Compose membership changed.");
+  expect(captureControllerEvidence).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(runControllerProbe).mock.calls.some(([, args]) => args[0] === "compose")).toBe(
+    false,
+  );
+});
+
+it.each([
+  "/fixture/.devpod/agent/contexts/default/workspaces/provider/.docker-compose/docker-compose.devcontainer.containerFeatures-fixture.yml",
+  "/fixture/.devsy/contexts/default/workspaces/provider/agent/.docker-compose/docker-compose.devcontainer.containerFeatures-fixture.yml",
+])("accepts the established provider feature overlay at %s", async (overlay) => {
+  snapshots[0].labels["com.docker.compose.project.config_files"] += `,${overlay}`;
+  expect((await collect()).capabilities[0].application).toBe("verified");
+  expect(captureControllerEvidence).toHaveBeenCalledWith([
+    "/fixture/checkout/.devcontainer/compose.yml",
+    overlay,
+  ]);
+});
