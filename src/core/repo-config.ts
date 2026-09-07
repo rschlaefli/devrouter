@@ -977,18 +977,10 @@ export function resolveProfile(
     return { name: canonicalName, profile: merged };
   };
 
-  if (profileOverride === "full" && !profiles?.full) {
-    return {
-      name: "full",
-      profile: config.managedRuntime
-        ? { apps: ["*"], devcontainerServices: ["*"], processes: ["*"] }
-        : undefined,
-    };
-  }
-  if (profileOverride !== undefined) {
+  if (profileOverride !== undefined && (profileOverride !== "full" || profiles?.full)) {
     return mergeSelection(profileOverride);
   }
-  if (profiles) {
+  if (profiles && profileOverride === undefined) {
     const defaultName = Object.keys(profiles).find((name) => profiles[name].default);
     if (defaultName) {
       return {

@@ -272,12 +272,12 @@ fault and cleanup manifest. The overall reliability roadmap remains incomplete.
 
 ## Progress
 
-Active: automatic degraded-runtime recovery and installed qualification. Source is
-committed at 70f3fef; ordinary ensure repairs retained degradation and reconciles
-drained interrupted startup. Full unit verification passes 1,052 tests. Package
-smoke, typecheck, docs/knowledge checks and bounded changed-code scanning pass.
-The automatic-recovery slice review and managed fixture are still running.
-Final source qualification and integrated review remain incomplete.
+Source corrections are committed at 311d1a5. Ordinary ensure repairs retained
+degradation, resolves the implicit full profile, and retains generated configuration
+after uncertain managed provider startup. The complete synthetic installed-CLI matrix
+passes 23 scenarios from that clean source revision. All 1,053 unit tests pass;
+package, typecheck, formatting, Knip, docs/knowledge checks and bounded scanning pass.
+The correction slice reviews are running. Integrated final source review is pending.
 
 No publication or live-runtime work is authorized. Linux /proc process tests are
 unavailable on this macOS host. The goal remains active; real-provider, OOM,
@@ -472,3 +472,38 @@ Source review and clean-tree qualification remain pending. Remote refresh on thi
 continuation failed because the SSH agent refused signing; the last fetched
 origin/main remains 14 commits behind this task branch with no target-only commits.
 No remote integration or publication has occurred.
+
+### Clean-source installed qualification
+
+`pnpm qualify:lifecycle` passed from clean source
+`311d1a5a6d6aeee9a24878af6a6635f49eba50f9`, using Node v24.16.0,
+pnpm 11.6.0 and fixture version 2. The result scope is
+`installed-cli-synthetic-providers`; live-provider and OOM qualification are false.
+
+| Acceptance | Passing observation |
+| --- | --- |
+| Dispatch and ambiguity | Duplicate IPC and concurrent shared identity launch once; pre/post-persistence failures never replay; unknown completion and corrupt journals preserve uncertainty. |
+| Stop races | Stop before dispatch prevents launch; stop after claim drains it; delayed infrastructure return and cancellation after publication cannot restore stopped routes. |
+| Process loss | Supervisor loss retains serialization; worker loss with a live provider group prevents replacement; exact fixture group drainage permits stop completion. |
+| Outcome provenance | Numeric failure, marker success plus transport signal, EACCES spawn failure and unknown completion remain distinguishable. |
+| Retention and isolation | Ordinary ensure repairs a degraded implicit-full runtime without provider bootstrap; failed managed provider startup retains generated config; exact stop preserves a neighbour's journal and command execution. |
+
+The packed tarball SHA-256 is
+`2d3dc92b271b7c788d83801762a1c28fc1e41705c443dccf09ca381a3c3a3423`.
+The CLI SHA-256 is
+`9f187593e38eea6ecf2d06f74ac1f70fbcfc0e16aadce6ea438f43995cd87f41`.
+The worker SHA-256 is
+`ca980b214dc897ce8ba6cd808a10dbf962176d20859a66c6d1c1b0acc9b2db72`.
+The isolated temporary fixture is `qualify-lifecycle-olQVDD`. Every launched CLI
+completed; deliberate process-loss cases retain ownership until fixture drainage
+is proved. No real provider, shared Docker socket or OOM workload was used.
+
+Opengrep ran 210 applicable rules on the two recovery-correction production files
+with zero findings. Earlier integration scanning covers the other changed production
+files. Linux process-helper validation remains skipped because this host has no /proc.
+
+Correction simplifier completed with one net-reduction suggestion. The implicit-full
+selection now reaches the existing final result rather than duplicating it. All 101
+profile tests pass; existing no-default comment and behavior are preserved. This is
+a behavior-preserving reduction; clean-source installed qualification is rerun after
+its commit because the emitted binary changes.
