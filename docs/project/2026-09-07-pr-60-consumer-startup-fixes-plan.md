@@ -1,13 +1,13 @@
-# Consumer startup reliability fixes
+# Consumer startup reliability fixes — PR 60
 
-Status: user-authorized implementation; integrated review and delivery pending.
+Status: independent reviews pass; [PR 60](https://github.com/rschlaefli/devrouter/pull/60) is open and required CI is running.
 
 Current verification: source commit 434e148 passes all 1123 tests and 25 installed
 synthetic lifecycle scenarios. The latter used Node 26.8.1 and pnpm 11.6.0 and
 explicitly does not qualify live providers or OOM behavior. Slice risk review
 passes the entire committed range. Simplifier's optional result-type reduction
 is deferred; the explicit outcome tags preserve already verified behavior.
-Integrated final source review is active with Volta.
+Integrated final review by Volta passes the source and release metadata at 840afd1 with no findings.
 
 Release metadata prepares 0.0.58. Docs policy, knowledge, Biome, Knip, TypeScript,
 AI prompt tests, build and isolated package smoke pass. Setup and doctor report
