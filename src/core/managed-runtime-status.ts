@@ -527,8 +527,6 @@ export function collectManagedRuntimeStatus(options: {
     !inspection.primaryActive &&
     Object.values(inspection.baseStatuses).every(isStoppedOrMissingResourceStatus) &&
     Object.values(inspection.serviceStatuses).every(isStoppedOrMissingResourceStatus) &&
-    inspection.drift.length === 0 &&
-    routes.drift.length === 0 &&
     activeApps.length === 0;
   const onlyDegradedIncident = state?.status === "degraded" && drift.length === 1;
 
