@@ -966,11 +966,6 @@ export async function workspaceEnsure(
         ) {
           previousManagedState = undefined;
         }
-        if (!options.repair && previousManagedState?.status === "degraded") {
-          throw new Error(
-            "Managed runtime state is degraded; refusing a new profile transition until drift is repaired. Inspect status, then use ensure --repair for the recorded profile.",
-          );
-        }
         if (previousManagedState && previousManagedState.devpodId !== target.devpodId) {
           throw new Error(
             `Managed runtime state names DevPod '${previousManagedState.devpodId}', not the exact target '${target.devpodId ?? "(absent)"}'.`,
@@ -1651,19 +1646,43 @@ export async function workspaceEnsure(
     }
   };
   return withLifecycleOperationLock(repoPath, async () => {
-    if (!options.repair) return ensureLocked();
-    const runtime = resolveWorkspaceRuntimeOrDefault(repoPath);
-    fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
-    return withFileLock(
-      path.join(DEVROUTER_HOME, `${runtime}-mutation.lock`),
-      {
-        activity: "Managed runtime repair",
-        target: repoPath,
-        fair: true,
-        waitMs: 1_800_000,
-        onWait: createStderrWaitReporter("Managed runtime repair", repoPath),
-      },
-      ensureLocked,
-    );
+    const repairLocked = () => {
+      const runtime = resolveWorkspaceRuntimeOrDefault(repoPath);
+      fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
+      return withFileLock(
+        path.join(DEVROUTER_HOME, `${runtime}-mutation.lock`),
+        {
+          activity: "Managed runtime repair",
+          target: repoPath,
+          fair: true,
+          waitMs: 1_800_000,
+          onWait: createStderrWaitReporter("Managed runtime repair", repoPath),
+        },
+        ensureLocked,
+      );
+    };
+    if (options.repair) return repairLocked();
+    const workspace = linked ? readPersistedWorkspace(repoPath) : undefined;
+    const retained = readManagedRuntimeState(repoPath, workspace);
+    if (retained?.status !== "degraded" || !hasExactManagedComposeProject(repoPath, retained))
+      return ensureLocked();
+
+    const requestedOptions = options;
+    const desiredProfile = loadRuntimeConfig(
+      repoPath,
+      linked ? workspace : "",
+      requestedOptions.profile,
+    ).profile;
+    options = { ...requestedOptions, repair: true, profile: retained.profile, open: false };
+    let repaired: WorkspaceEnsureResult;
+    try {
+      repaired = await repairLocked();
+    } finally {
+      options = requestedOptions;
+    }
+    claimLifecycleEffect();
+    if (desiredProfile !== repaired.profile) return ensureLocked();
+    if (options.open) openUrls(repaired.urls);
+    return repaired;
   });
 }

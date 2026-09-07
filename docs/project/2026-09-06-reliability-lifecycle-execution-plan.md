@@ -49,7 +49,7 @@ rebaseline after exact absence, but an inspection failure never proves absence.
 This preserves current safe startup behavior; it adds no deletion, recreation,
 resource adoption, or volume reset. Do not turn missing evidence into permission.
 
-A new ensure may reconcile a drained interrupted ensure while preserving its
+A new ensure may reconcile a drained interrupted or never-dispatched ensure while preserving its
 unknown historical result and deduplication identity. Possibly-active workers,
 unknown arbitrary exec, pending stop, corrupt journals, and history exhaustion
 still require resolution. Never silently replay an arbitrary command. Recovery
@@ -201,7 +201,7 @@ requires them; omit unused proposed files rather than adding scaffolding.
 | Operation persistence and supervision | new `src/core/reliability-operation-store.ts`, new `src/core/reliability-lifecycle.ts`, new `src/core/reliability-worker.ts` |
 | Production mutation and result boundaries | `src/core/devpod-exec.ts`, `src/core/devsy-exec.ts`, new `src/core/execution-outcome.ts`, `src/core/workspace-ensure.ts`, `src/core/environment-stop.ts`, `src/core/workspace-lifecycle.ts`, `src/core/devpod-mutation.ts`, `src/core/devsy-mutation.ts` |
 | Focused tests | `src/commands/__tests__/ensure-stop.test.ts`, `src/commands/__tests__/exec.test.ts`, `src/core/__tests__/devpod-exec.test.ts`, `src/core/__tests__/devsy-exec.test.ts`, `src/core/__tests__/workspace-ensure.test.ts`, `src/core/__tests__/environment-stop.test.ts`, `src/core/__tests__/workspace-lifecycle.test.ts`, new `src/core/__tests__/execution-outcome.test.ts`, new `src/core/__tests__/reliability-operation-store.test.ts`, new `src/core/__tests__/reliability-lifecycle.test.ts`, new `src/core/__tests__/reliability-worker.test.ts` |
-| Installed qualification | new `scripts/qualify-lifecycle.ts`, `scripts/package-smoke.sh` |
+| Installed qualification | new `scripts/qualify-lifecycle.ts`, new `scripts/qualify-managed-recovery.ts`, `scripts/package-smoke.sh` |
 
 Existing atomic-file, runtime-state, ownership, and workspace lock primitives are
 read-only dependencies. No generic subprocess rewrite is
@@ -422,3 +422,11 @@ worker loss with a still-active provider group. Linux /proc checks remain skippe
 The same slice reviewer is checking that correction. Automatic retained repair is
 now the active source amendment; installed qualification and final review remain
 incomplete. No live provider has been touched.
+
+Automatic-recovery implementation now passes the ordinary same-profile repair
+check and fifty focused contract/coordinator/guidance tests. The installed CLI
+passes seventeen synthetic cases, including interrupted startup followed by
+successful ensure without explicit stop. The prior unknown result stays retained.
+A separate test worker owns transition/rollback tests; a fixture worker owns the
+new isolated managed-recovery qualification helper. Main owns production changes.
+Both scopes are synthetic and exclude real providers.

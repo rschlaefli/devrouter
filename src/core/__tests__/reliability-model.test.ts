@@ -392,8 +392,8 @@ describe("manual operation lifecycle", () => {
   function manual() {
     return createReliabilityState("env", 1, "manual");
   }
-  function dispatched() {
-    let state = step(manual(), ensure).state;
+  function dispatched(kind: "ensure" | "exec" = "ensure") {
+    let state = step(manual(), { ...ensure, kind, runtimeRunning: kind === "exec" }).state;
     state = step(state, { type: "dispatch" }).state;
     state = step(state, { type: "dispatch-persisted", operationId: ensure.operationId }).state;
     return step(state, { type: "launched", operationId: ensure.operationId }).state;
@@ -490,8 +490,38 @@ describe("manual operation lifecycle", () => {
     );
     expect(step(state, ensure).outcome).toBe("joined");
   });
-  it("keeps uncertain work blocked until worker drainage and complete explicit-stop proof", () => {
+  it("allows ensure after a positively drained startup that never dispatched", () => {
+    let state = step(manual(), ensure).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    expect(step(state, { ...ensure, key: "next", operationId: "next" }).outcome).toBe("accepted");
+    expect(step(state, ensure).effects).toEqual([]);
+  });
+  it("reconciles a drained interrupted ensure without erasing its result or replaying its identity", () => {
     let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
+    const next = { ...ensure, key: "next", operationId: "next" };
+    expect(step(state, next).outcome).toBe("blocked");
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    expect(step(state, { ...next, kind: "exec", runtimeRunning: true }).outcome).toBe("blocked");
+    const reconciled = step(state, next);
+    expect(reconciled.outcome).toBe("accepted");
+    expect(reconciled.state.operationHistory[0]).toMatchObject({
+      id: ensure.operationId,
+      status: "INTERRUPTED",
+      exitCode: null,
+      drained: true,
+    });
+    const duplicate = step(reconciled.state, ensure);
+    expect(duplicate.outcome).toBe("joined");
+    expect(duplicate.effects).toEqual([]);
+    expect(duplicate.state.operation?.id).toBe("next");
+    state = step(state, { type: "stop" }).state;
+    expect(step(state, next).outcome).toBe("blocked");
+  });
+  it("keeps uncertain exec blocked until worker drainage and complete explicit-stop proof", () => {
+    let state = step(dispatched("exec"), {
+      type: "interrupted",
+      operationId: ensure.operationId,
+    }).state;
     state = step(state, { type: "drained", operationId: ensure.operationId }).state;
     const next = { ...ensure, key: "next", operationId: "next" };
     expect(step(state, next).outcome).toBe("blocked");

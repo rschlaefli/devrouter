@@ -62,8 +62,9 @@ new mutations or restoring routes. Completion requires positive workload and
 route cessation evidence as well as drainage of earlier workers.
 
 A proven application exit code remains the CLI exit code. A lost completion is
-reported as unknown and is never replayed automatically. Use explicit `stop` to
-reconcile an interrupted operation; retry `ensure` only after stop succeeds.
+reported as unknown. A new ensure reconciles an interrupted ensure after positive
+worker drainage while retaining its unknown historical result. Unknown arbitrary
+exec is never replayed; explicit stop reconciles that command uncertainty.
 If stop cannot prove cessation, preserve the operation record and generated
 configuration and investigate the reported provider or worker evidence. Deleting
 bookkeeping cannot prove that earlier work stopped. Corrupt or incompatible
@@ -71,7 +72,7 @@ records fail closed. Operation history is bounded and refuses new dispatch when
 full; it is not silently discarded.
 
 These commands provide manual lifecycle coordination. They do not enroll the
-machine in resource admission, prevent OOM, or enable automatic parking/recovery.
+machine in resource admission, prevent OOM, or enable capacity-managed parking/recovery.
 
 ## How it works: `devnet`
 
@@ -274,15 +275,13 @@ same DevPod and volumes are retained, newly selected services start without
 ownership is proved. `postCreateCommand` does not run again. Routes publish
 last, after service health, process state, and application readiness are proved.
 If a transition fails, the previous route set and successful state are kept
-when possible; otherwise status reports the degraded transition so it can be
-inspected before another profile change.
+when possible; otherwise status reports the degraded transition. The next ensure
+attempt repairs retained resources before applying another profile change.
 
-To recover an explicitly recorded degraded managed runtime, use `--repair`:
-
-```bash
-devrouter ensure . --repair
-devrouter workspace ensure . --repair
-```
+Ordinary `devrouter ensure .` repairs a retained degraded runtime automatically.
+It repairs the recorded profile once, proves readiness, then applies the requested
+profile if different. No separate repair command is needed. The compatibility
+`--repair` option limits the invocation to the recorded-profile repair path.
 
 Repair requires a valid degraded managed-runtime record. When no `--profile` is
 given, it uses that record's canonical profile. Before any provider or process
@@ -302,8 +301,9 @@ provider bootstrap, creation, recreation, and resource adoption are skipped.
 If replay fails, owned resources may remain running and the runtime remains
 degraded. Repair restores previous routes when publication fails, but does not rerun
 the failed adapter during rollback. It uses existing routing infrastructure and
-never restarts the shared router. Inspect the result before retrying; ready state
-is persisted only after retained resources and routed readiness pass.
+never restarts the shared router. Ready state is persisted only after retained resources and routed readiness pass.
+When the exact old Compose project is positively proven absent, ordinary ensure
+uses the existing startup recovery path. Unavailable inspection is never absence.
 
 ## 5. Bring up routing
 

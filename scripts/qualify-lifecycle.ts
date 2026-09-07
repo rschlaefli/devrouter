@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+
+const ownedInvocations = new Set<ChildProcess>();
 
 // All provider invocations resolve to these closed synthetic fixtures. The installed
 // package receives a fresh home and no host environment or provider socket.
@@ -67,6 +69,35 @@ async function main() {
 const fs = require('node:fs');
 const rename = fs.renameSync;
 const sync = fs.fsyncSync;
+const cp = require('node:child_process');
+const fork = cp.fork;
+cp.fork = function(...args) {
+  const child = fork.apply(cp, args);
+  if (process.env.LIFECYCLE_FAULT === 'duplicate-request') {
+    const send = child.send.bind(child);
+    child.send = function(message, callback) {
+      fs.writeFileSync(process.env.LIFECYCLE_FIXTURE+'.duplicate', 'two requests');
+      send(message, callback);
+      return send(message, () => {});
+    };
+  }
+  if (process.env.LIFECYCLE_FAULT === 'before-dispatch') {
+    const on = child.on.bind(child);
+    child.on = function(event, listener) {
+      if (event !== 'message') return on(event, listener);
+      return on(event, message => {
+        if (!message?.ready) return listener(message);
+        const barrier = process.env.LIFECYCLE_FIXTURE+'.ready';
+        const release = barrier+'.release';
+        const watcher = fs.watch(require('node:path').dirname(barrier), () => {
+          if (fs.existsSync(release)) { watcher.close(); listener(message); }
+        });
+        fs.writeFileSync(barrier, String(child.pid));
+      });
+    };
+  }
+  return child;
+};
 let uncertain = false;
 fs.renameSync = function(from, to) {
   if (String(to).includes('/reliability/') && String(to).endsWith('.json')) {
@@ -235,6 +266,8 @@ else fail();
       env: closedEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    ownedInvocations.add(child);
+    child.once("close", () => ownedInvocations.delete(child));
     let output = "";
     child.stdout.on("data", (chunk) => {
       output += chunk;
@@ -284,6 +317,27 @@ else fail();
       assert.equal(read().state.runtimeGeneration, generation);
       assert.equal(read().state.operationHistory.length, 2);
       assert.equal(apiRequests.length, 2);
+      configure("network-hold");
+      const interrupted = launch(["ensure", repo, "--json"]);
+      await watchUntil(`${fixture}.network-barrier`, () =>
+        fs.existsSync(`${fixture}.network-barrier`),
+      );
+      interrupted.child.kill("SIGTERM");
+      assert.equal(await interrupted.done, 1, interrupted.output());
+      assert.equal(read().state.operation.status, "INTERRUPTED");
+      configure("complete");
+      releaseNetwork?.();
+      fs.unlinkSync(`${fixture}.network-barrier`);
+      const recovered = launch(["ensure", repo, "--json"]);
+      assert.equal(await recovered.done, 0, recovered.output());
+      assert.ok(
+        read().state.operationHistory.some(
+          (entry: { status: string }) => entry.status === "INTERRUPTED",
+        ),
+      );
+      evidence.push(
+        "installed ensure reconciles drained interrupted startup without explicit stop or result erasure",
+      );
       expectExit(["stop", repo, "--json"], 0);
       assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
       configure("network-hold");
@@ -315,6 +369,29 @@ else fail();
     }
   }
   await qualifyEnsure();
+  freshHome("duplicate-request-home");
+  configure("complete");
+  closedEnv.NODE_OPTIONS = `--require=${faultPreload}`;
+  closedEnv.LIFECYCLE_FAULT = "duplicate-request";
+  expectExit(["exec", repo, "--", "synthetic"], 0);
+  assert.ok(fs.existsSync(`${fixture}.duplicate`));
+  assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+  assert.equal(read().state.operationHistory.length, 1);
+  evidence.push("duplicate installed IPC request identity executes at most once");
+  freshHome("before-dispatch-home");
+  configure("complete");
+  closedEnv.LIFECYCLE_FAULT = "before-dispatch";
+  const undispatched = launch(["exec", repo, "--", "synthetic"]);
+  await watchUntil(`${fixture}.ready`, () => fs.existsSync(`${fixture}.ready`));
+  closedEnv.NODE_OPTIONS = "";
+  closedEnv.LIFECYCLE_FAULT = "";
+  const stopBeforeDispatch = launch(["stop", repo, "--json"]);
+  await watchUntil(journal, () => read().state.desired === "stopped-by-user");
+  fs.writeFileSync(`${fixture}.ready.release`, "release");
+  assert.equal(await undispatched.done, 1, undispatched.output());
+  assert.equal(await stopBeforeDispatch.done, 0, stopBeforeDispatch.output());
+  assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 0);
+  evidence.push("stop before installed worker dispatch prevents provider launch");
   for (const fault of ["before-persist", "after-persist"]) {
     freshHome(fault);
     configure("complete");
@@ -452,7 +529,23 @@ else fail();
     ),
   );
 }
-main().catch((error) => {
+main().catch(async (error) => {
   console.error(error);
   process.exitCode = 1;
+  await Promise.all(
+    [...ownedInvocations].map(
+      (child) =>
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(() => {
+            console.error(`Fixture child drainage remains unproven: ${child.pid}`);
+            resolve();
+          }, 5_000);
+          child.once("close", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+          if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+        }),
+    ),
+  );
 });

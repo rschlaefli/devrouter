@@ -367,9 +367,14 @@ function handleOperationRequest(
     return unchanged(state, "conflict");
   if (state.operationHistory.length >= RELIABILITY_MAX_ITEMS) return unchanged(state, "blocked");
   const fullyStopped = state.stopProof.workloadsStopped && state.stopProof.routesRemoved;
+  const reconcileEnsure =
+    event.kind === "ensure" &&
+    state.operation?.kind === "ensure" &&
+    ["NOT_STARTED", "INTERRUPTED"].includes(state.operation.status);
   if (
     state.operation &&
-    (!state.operation.drained || (state.operation.status !== "COMPLETED" && !fullyStopped))
+    (!state.operation.drained ||
+      (state.operation.status !== "COMPLETED" && !fullyStopped && !reconcileEnsure))
   )
     return unchanged(state, "blocked");
   if (state.phase === "stopping" || state.desired === "parked-for-capacity")

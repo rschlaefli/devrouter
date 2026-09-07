@@ -105,6 +105,16 @@ function reconcileDrained(record: ReliabilityOperationRecord): void {
   }
   if (processBirthIdentity(worker.pid) === worker.birth || !workerGroupAbsent(worker.pid)) return;
   if (record.state.operation) {
+    const interrupted = stepReliability(
+      record.state,
+      {
+        ...reliabilityFence(record.state),
+        type: "interrupted",
+        operationId: worker.operationId,
+      },
+      Date.now(),
+    );
+    record.state = interrupted.state;
     stepRecord(record, {
       ...reliabilityFence(record.state),
       type: "drained",

@@ -37,7 +37,9 @@ An environment can outlive several ensure or exec operations. Each manual
 operation therefore has its own request identity and bounded completion record.
 Reusing an identity reports the original operation without replay. A different
 operation requires definite completion and worker drainage, or an explicit stop
-with full cessation proof. Exhausted history fails closed. This preserves the
+with full cessation proof. A new ensure may reconcile a drained interrupted ensure
+while preserving its unknown historical result. Unknown arbitrary exec never gains
+that exception. Exhausted history fails closed. This preserves the
 difference between application completion and a worker that can still mutate.
 
 An initial exec may adopt positive evidence of an existing runtime while creating
@@ -53,3 +55,10 @@ worker drainage and runtime cessation are proven. Typed execution results retain
 transport metadata separately, without persisting arguments, output, or environment.
 Installed synthetic tests cover production adapters but do not qualify real-provider
 fault recovery or capacity-managed behavior.
+
+Within explicit start intent, ordinary ensure repairs a retained degraded profile
+before applying the desired profile. This reuses exact ownership checks and locks;
+it never turns missing evidence into authority to adopt or destroy resources.
+A repair failure ends that bounded attempt with retained diagnostics. Stop fences
+both repair and subsequent transition. This behavior removes a separate repair
+command requirement without activating the capacity-managed controller.

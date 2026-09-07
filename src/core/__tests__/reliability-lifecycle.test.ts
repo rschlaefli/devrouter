@@ -358,6 +358,28 @@ describe("reliability lifecycle supervision", () => {
     });
   });
 
+  it("reconciles a proven absent ensure worker while preserving its unknown result", async () => {
+    const { lifecycle, store, identity } = await seedWorkerRequest();
+    fixture.processBirthIdentity.mockReturnValue("proc:replacement");
+    fixture.workerGroupAbsent.mockReturnValue(true);
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "new-request",
+      operationId: "new-operation",
+      workerId: "new-worker",
+    });
+    await lifecycle.superviseLifecycle("ensure", identity.repoPath);
+    const record = store.readReliabilityOperation(identity);
+    expect(record?.worker).toBeNull();
+    expect(record?.state.operationHistory[0]).toMatchObject({
+      id: "operation-id",
+      status: "INTERRUPTED",
+      drained: true,
+      exitCode: null,
+    });
+    expect(record?.state.operation?.id).not.toBe("operation-id");
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps command args, environment, and output out of the persisted record", async () => {
     const { lifecycle, store } = await loadLifecycleModules();
     const repoPath = newCheckout();
