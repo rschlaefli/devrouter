@@ -155,6 +155,28 @@ bounded recovery and harness qualification only through their reviewed scopes.
 
 ### Current checkpoint, 2026-09-07
 
+Consumer risk review returned four accepted findings: malformed nonempty public
+hashes, container-local fixture ownership, concurrent/uncertain fixture
+publication, and preparation reuse without backing-database readiness. Source
+corrections are active in the existing eLearning worktree. Shared browser-safe
+hash validation passes 60 focused tests. Fixture locking verifies the existing
+owned records and current typecheck passes; transaction locking, durable pending
+publication and persistent state still require failure-case qualification.
+Do not activate the new preparation volume over the existing manifest before
+explicitly preserving and verifying that state. No database reset or fixture
+replay is authorized. The database-state helper remains owned by Hume,
+01a07c10-1f81-70e1-b0fe-1a3e166208e6.
+
+The user-approved Klicker dependency handoff adds a Devrouter source prerequisite:
+an explicit repository generator before authoritative Compose inspection on
+fresh/warm ensure. Klicker generator and runtime remain owned by the source task.
+Newton reviewed proposed managedRuntime.devcontainer.prepareCommand literal argv,
+checkout-root cwd, fixed 60-second bound, lifecycle serialization and immutable
+.devrouter.yml authority. Diagnostics remain read-only. Current code confirms
+Compose inspection precedes provider initializeCommand. Hook execution and safe
+warm resource reconciliation are not implemented or released. The broader
+runtime/volume activation authority is unchanged by this source handoff.
+
 Follow-up browser qualification uses the already cached agent-browser 0.36.0 and
 an isolated Chrome session. The browser received the real student-session cookie
 from a short-lived synthetic launch token, with values kept out of transcripts
