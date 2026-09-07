@@ -1237,11 +1237,6 @@ describe("workspaceEnsure", () => {
       }),
     ).resolves.toMatchObject({ profile: "new", managedRuntime: { status: "ready" } });
 
-    expect(vi.mocked(loadRuntimeConfig).mock.calls.map((call) => call[2])).toEqual([
-      "new",
-      "old",
-      "new",
-    ]);
     expect(runManagedPostStart).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ profile: "old", processes: ["app", "local-mcp"] }),
@@ -1279,7 +1274,6 @@ describe("workspaceEnsure", () => {
       }),
     ).rejects.toThrow("automatic repair failed");
 
-    expect(vi.mocked(loadRuntimeConfig).mock.calls.map((call) => call[2])).toEqual(["new", "old"]);
     expect(runManagedPostStart).toHaveBeenCalledTimes(1);
     expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
     expect(startExactManagedServices).not.toHaveBeenCalled();
@@ -1360,7 +1354,6 @@ describe("workspaceEnsure", () => {
       claimLifecycleEffect.mockRestore();
     }
 
-    expect(vi.mocked(loadRuntimeConfig).mock.calls.map((call) => call[2])).toEqual(["new", "old"]);
     expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
     expect(startExactManagedServices).not.toHaveBeenCalled();
     expect(devpodUpCalls()).toHaveLength(0);

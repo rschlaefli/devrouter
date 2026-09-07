@@ -69,8 +69,19 @@ async function main() {
 const fs = require('node:fs');
 const rename = fs.renameSync;
 const sync = fs.fsyncSync;
+if (process.env.LIFECYCLE_FAULT === 'duplicate-identity') {
+  require('node:crypto').randomUUID = () => '00000000-0000-4000-8000-000000000001';
+}
 const cp = require('node:child_process');
 const fork = cp.fork;
+const spawn = cp.spawn;
+cp.spawn = function(command, args, options) {
+  if (process.env.LIFECYCLE_FAULT === 'spawn-failure' && command === 'devpod' && args.includes('ssh')) {
+    fs.chmodSync(require('node:path').join(process.env.PATH.split(':')[0], 'devpod'), 0o600);
+    fs.writeFileSync(process.env.LIFECYCLE_FIXTURE+'.spawn-failure', 'EACCES');
+  }
+  return spawn.call(cp, command, args, options);
+};
 cp.fork = function(...args) {
   const child = fork.apply(cp, args);
   if (process.env.LIFECYCLE_FAULT === 'duplicate-request') {
@@ -369,6 +380,21 @@ else fail();
     }
   }
   await qualifyEnsure();
+  freshHome("spawn-failure-home");
+  configure("complete");
+  closedEnv.NODE_OPTIONS = `--require=${faultPreload}`;
+  closedEnv.LIFECYCLE_FAULT = "spawn-failure";
+  try {
+    expectExit(["exec", repo, "--", "synthetic"], 1);
+    assert.ok(fs.existsSync(`${fixture}.spawn-failure`));
+    assert.equal(read().outcome.status, "not-started");
+    assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 0);
+  } finally {
+    fs.chmodSync(path.join(bin, "devpod"), 0o700);
+    closedEnv.NODE_OPTIONS = "";
+    closedEnv.LIFECYCLE_FAULT = "";
+  }
+  evidence.push("installed provider spawn failure remains distinct from unknown completion");
   freshHome("duplicate-request-home");
   configure("complete");
   closedEnv.NODE_OPTIONS = `--require=${faultPreload}`;
@@ -378,8 +404,26 @@ else fail();
   assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
   assert.equal(read().state.operationHistory.length, 1);
   evidence.push("duplicate installed IPC request identity executes at most once");
+  freshHome("duplicate-identity-home");
+  configure("hold");
+  closedEnv.LIFECYCLE_FAULT = "duplicate-identity";
+  const identityOwner = launch(["exec", repo, "--", "synthetic"]);
+  await watchUntil(`${fixture}.barrier`, () => fs.existsSync(`${fixture}.barrier`));
+  expectExit(["exec", repo, "--", "synthetic"], 1);
+  assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+  closedEnv.NODE_OPTIONS = "";
+  closedEnv.LIFECYCLE_FAULT = "";
+  const identityStop = launch(["stop", repo, "--json"]);
+  assert.equal(await identityOwner.done, 1, identityOwner.output());
+  assert.equal(await identityStop.done, 0, identityStop.output());
+  assert.equal(read().state.operationHistory.length, 1);
+  fs.unlinkSync(`${fixture}.barrier`);
+  evidence.push(
+    "concurrent installed callers sharing request identity launch only one provider command",
+  );
   freshHome("before-dispatch-home");
   configure("complete");
+  closedEnv.NODE_OPTIONS = `--require=${faultPreload}`;
   closedEnv.LIFECYCLE_FAULT = "before-dispatch";
   const undispatched = launch(["exec", repo, "--", "synthetic"]);
   await watchUntil(`${fixture}.ready`, () => fs.existsSync(`${fixture}.ready`));

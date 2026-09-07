@@ -272,14 +272,17 @@ fault and cleanup manifest. The overall reliability roadmap remains incomplete.
 
 ## Progress
 
-Active: durable manual lifecycle integration and installed qualification. Manual
-contract and execution provenance slices are committed and independently reviewed.
-The production coordinator and packaged worker now pass synthetic ensure/exec/stop
-checks, including a concurrent stop barrier and separate transport evidence.
-Remaining: expanded process-loss/publication qualification, integration reviews,
-repository checks, documentation, local commit, and final source review.
-No publication or live-runtime work is authorized. Historical preparation and
-review receipts follow; they do not represent current blockers.
+Active: automatic degraded-runtime recovery and installed qualification. Source is
+committed at 70f3fef; ordinary ensure repairs retained degradation and reconciles
+drained interrupted startup. Full unit verification passes 1,052 tests. Package
+smoke, typecheck, docs/knowledge checks and bounded changed-code scanning pass.
+The automatic-recovery slice review and managed fixture are still running.
+Final source qualification and integrated review remain incomplete.
+
+No publication or live-runtime work is authorized. Linux /proc process tests are
+unavailable on this macOS host. The goal remains active; real-provider, OOM,
+admission/controller and consumer-harness qualification remain later roadmap work.
+Historical preparation and review receipts follow.
 
 ### Approved advisor retry, 2026-09-07
 
@@ -430,3 +433,8 @@ successful ensure without explicit stop. The prior unknown result stays retained
 A separate test worker owns transition/rollback tests; a fixture worker owns the
 new isolated managed-recovery qualification helper. Main owns production changes.
 Both scopes are synthetic and exclude real providers.
+
+The active managed-lifecycle knowledge concept still described degraded state as
+a mandatory refusal. Add `docs/knowledge/managed-environment-lifecycle.md` to the
+documentation manifest and synchronize that owning concept with automatic repair.
+No unrelated concept or new knowledge bundle is introduced.
