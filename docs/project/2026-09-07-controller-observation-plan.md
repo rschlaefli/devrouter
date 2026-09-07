@@ -2,6 +2,61 @@
 
 Status: approved execution plan under the reliability roadmap. User-authorized fourth focused planning review passed on 2026-09-07; prior review_deadlock is superseded.
 
+Current continuation: consumer prerequisites are delivered in
+[startup fixes](https://github.com/rschlaefli/devrouter/pull/60) and
+[preparation child drainage](https://github.com/rschlaefli/devrouter/pull/61).
+Versions 0.0.58 and 0.0.59 are published; both existing global installations
+report 0.0.59 and contain the verified helper. Consumer owner confirms selected
+profile startup and same-process warm reuse, then exact stopped state and zero
+routes. Its remaining browser launch failure belongs to its pnpm workflow.
+
+Controller work resumes on 328bf79, four commits ahead and two behind main at
+4154a148 after remote refresh. Existing changes are preserved; target integration
+is deferred until the observation slice is coherent. The existing main-session
+collector ownership remains in force after the exhausted worker attempts.
+
+On 2026-09-08 the real Linux observation shell passed exact process-identity
+validation and foreign-fingerprint rejection without marker changes. The actual
+observeControllerProcess adapter also passed through its bounded Docker exec
+path. Both fixtures had no network, read-only roots, 128 MiB memory, one CPU and
+64 PIDs; both exited without OOM. Receipts are
+/private/tmp/devrouter-controller-process-proof.log and
+/private/tmp/devrouter-controller-production-probe.log. The focused controller
+suite passes 33 tests across process observation, monitor, probes, server and
+journal fencing. These results qualify the process seam, not the unfinished
+production collector or packed continuous-observation behavior.
+
+Latest continuation: the production collector now invokes the bounded HTTP seam,
+preserves runtime capability during application-contract failure, rejects paused,
+restarting or dead container readiness, and detects container/process incarnation
+changes during sampling. Configuration and retained state parsing reuse captured
+bounded bytes; journal reads reject non-regular files before reading and retain
+their byte bound if a file grows. Six collector regressions and four asynchronous
+HTTP cases pass. The full Vitest suite passes 1166 tests across 89 files; TypeScript,
+changed-file Biome, docs policy and knowledge checks pass. Host process-identity
+access is necessary for the lifecycle lock tests. These checks do not complete
+the package: required reviews and remaining adversarial qualification remain
+outstanding. The subsequent integration wires the production collector into
+the foreground command and verifies resolved Compose hashes twice using bounded
+read-only subprocesses. Resolved configuration stays transient. Eight collector
+cases and six process-probe cases pass; the affected Compose, TLS and HTTP set
+passes 63 tests. The qualification executor was closed after repeated planning
+and rereads continued beyond its narrowing checkpoint without an edit. Main owns
+the harness; no replacement executor is launched. Packed qualification now passes
+actual collector READY to APP_ERROR with independent runtime READY, release,
+stopped resources and journal, and restart invalidation. It records 52 provider
+reads, zero unexpected calls, and a stopped fixture observer. Receipt:
+/private/tmp/dr-observe-dpyevu/receipt.json. The two new real asynchronous curl
+tests also pass. Delayed stop-race and overload qualification remain open.
+
+Waiting-task coordination: Klicker Runner now launches browsers with the correct
+pnpm verification setting and reports no remaining Devrouter blocker; its publish
+dialog failure belongs to application behavior. Klicker Chat Roadmap continues its
+generator source/reviews for new containers and unchanged package inventory.
+Adding a new package-local dependency mount to a retained container remains a
+separate lifecycle design; no replacement, reset, postCreate, data deletion or
+workspace-layout change is authorized by this coordination.
+
 ## Approval summary
 
 Add one bounded host observer that notices when an explicitly enrolled development
@@ -406,3 +461,52 @@ collector and focused fixture evidence. Four monitor cases pass for coalescing,
 independent application readiness, stale-session rejection, revision fencing and
 two-batch scheduling; the journal test verifies no manual state writes. No
 production collector or packed continuous-observation acceptance is claimed yet.
+
+Observation integration checks now cover eight monitor cases, including explicit
+freshness invalidation, proven binding drift, late-failure generation fencing and
+retention of concurrency slots for undrained timed-out probes. Five probe cases
+cover descendant cancellation. Expanded replay regression exposed duplicated
+snapshot payloads overflowing a healthy subscriber; historical events are now
+compact and current projection is sent once per delivery batch. All seven socket
+cases pass after that fix. Production collector remains pending with its existing
+executor; main issued a convergence checkpoint to finish bounded implementation
+or return the exact unresolved decision. No review or release acceptance follows
+from these intermediate tests.
+
+Continuation recovered the existing collector continuity owner Peirce
+(01a07d7d-5850-77d1-9bc2-18a4c2de0954); Singer's terminal transport failure and
+the single replacement are recorded in the local verification receipt. Do not
+start another collector writer. Remote refresh succeeds with scoped host access;
+the task branch is four commits ahead of origin/main with no target drift.
+
+Additional socket integration proof passes: an enrolled application subscriber
+receives READY then APP_ERROR while an independent runtime consumer remains READY.
+The collector is injected, and the manual journal remains unchanged. An unsupported
+watch deadline now fails before a successful snapshot or subscription is emitted.
+All nine socket cases, the preceding 28 focused monitor/probe/journal/socket cases,
+TypeScript and changed-file Biome pass. Production collection, packed continuous
+observation qualification and the observation slice reviews remain outstanding.
+
+Collector continuity attempt closed after the narrowing checkpoint did not
+converge: native activity records show continued source reads without an owned
+implementation artifact. This is a progress-contract failure, not a timeout
+diagnosis. Shutdown is confirmed. Main now owns collector implementation and
+integration; no third executor is launched. Both waiting consumer tasks received
+the user-authorized status update that their prerequisites remain unreleased.
+
+Main added the bounded process observation seam in
+src/core/controller-process-observation.ts. It reads existing markers, rechecks
+Linux process start identity and group ownership, and validates the process-name
+and fingerprint markers. It creates no marker directories or helper locks and
+uses an in-container timeout in addition to the host probe deadline. Three host
+contract cases and shell syntax validation pass. Actual Linux process execution
+and collector integration remain required; mocked transport is not runtime proof.
+The foreground consumer-session manual now records lease and continuity rules;
+docs policy and knowledge checks pass.
+
+User reprioritized the blocking consumer fixes ahead of this package. Controller
+work is parked intact in this worktree. Active source delivery is
+trees/rs/consumer-startup-fixes with its own plan under docs/project, covering host
+preparation before Compose and direct requested-profile recovery. Resume this
+package after the waiting consumer fixes are delivered; do not claim controller
+completion or lose the outstanding collector and qualification work.

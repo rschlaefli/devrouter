@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ControllerEnvironment,
   ControllerEvent,
+  ControllerProjection,
   ControllerSession,
   ControllerSnapshot,
   ControllerStore,
@@ -91,8 +92,17 @@ export class ControllerSessions {
       const ids = new Set(removed.map((s) => s.id));
       next.sessions = next.sessions.filter((s) => !ids.has(s.id));
       this.removeUnused(next);
+    }
+    let expiredEvidence = false;
+    for (const session of next.sessions) {
+      if (!session.observation || monotonic < session.observation.validUntilMs) continue;
+      delete session.observation;
+      this.event(next, session, "invalidated");
+      expiredEvidence = true;
+    }
+    if (removed.length || expiredEvidence) {
       this.commit(next);
-      for (const id of ids) this.leases.delete(id);
+      for (const session of removed) this.leases.delete(session.id);
     }
     this.previousTime = { monotonic, wall };
     return discontinuity;
@@ -135,6 +145,94 @@ export class ControllerSessions {
     this.commit(next);
     this.leases.set(id, monotonic + 30_000);
     return this.binding(session);
+  }
+  publish(
+    bindings: ControllerBinding[],
+    projections: Map<string, ControllerProjection>,
+    monotonic: number,
+    wall: number,
+  ): void {
+    this.tick(monotonic, wall);
+    const next = this.read();
+    let changed = false;
+    for (const binding of bindings) {
+      try {
+        this.validate(binding);
+      } catch {
+        continue;
+      }
+      const session = next.sessions.find((candidate) => candidate.id === binding.session);
+      const projection = projections.get(binding.session);
+      if (
+        !session ||
+        !projection ||
+        projection.sampledAtMs > monotonic ||
+        projection.validUntilMs <= monotonic
+      )
+        continue;
+      const previous = session.observation;
+      session.observation = { ...projection };
+      changed = true;
+      if (
+        !previous ||
+        previous.status !== projection.status ||
+        previous.journalRevision !== projection.journalRevision ||
+        previous.runtimeFingerprint !== projection.runtimeFingerprint
+      )
+        this.event(next, session, "observed");
+    }
+    if (changed) this.commit(next);
+  }
+  invalidate(environmentId: string, bindingChanged = false, expected?: ControllerBinding[]): void {
+    const next = this.read();
+    let changed = false;
+    const affected = next.sessions.filter(
+      (s) =>
+        s.environmentId === environmentId &&
+        (!expected ||
+          expected.some(
+            (binding) =>
+              binding.session === s.id &&
+              binding.generation === s.generation &&
+              binding.store === next.store &&
+              binding.epoch === next.epoch,
+          )),
+    );
+    for (const session of affected) {
+      if (!session.observation && !bindingChanged) continue;
+      delete session.observation;
+      this.event(next, session, "invalidated");
+      changed = true;
+    }
+    if (bindingChanged) {
+      next.sessions = next.sessions.filter((session) => !affected.includes(session));
+      this.removeUnused(next);
+    }
+    if (changed) {
+      this.commit(next);
+      if (bindingChanged)
+        for (const id of this.leases.keys())
+          if (!next.sessions.some((s) => s.id === id)) this.leases.delete(id);
+    }
+  }
+  projection(
+    session: ControllerSession,
+    monotonic: number,
+  ): ControllerSession & { status: string; validForMs: number } {
+    const observation = session.observation;
+    if (
+      !observation ||
+      observation.sampledAtMs > monotonic ||
+      observation.validUntilMs <= monotonic
+    ) {
+      const { observation: _observation, ...binding } = session;
+      return { ...binding, status: "UNKNOWN", validForMs: 0 };
+    }
+    return {
+      ...session,
+      status: observation.status,
+      validForMs: observation.validUntilMs - monotonic,
+    };
   }
   private binding(session: ControllerSession): ControllerBinding {
     return {

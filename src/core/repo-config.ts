@@ -1209,7 +1209,10 @@ export function getRepoConfigPath(repoPath?: string): string {
   return path.join(resolveRepoPath(repoPath), CONFIG_FILE_NAME);
 }
 
-export function loadRepoConfig(repoPath?: string): DevrouterConfig {
+export function loadRepoConfig(
+  repoPath?: string,
+  read = (file: string) => fs.readFileSync(file, "utf-8"),
+): DevrouterConfig {
   const resolvedRepoPath = resolveRepoPath(repoPath);
   const configPath = getRepoConfigPath(resolvedRepoPath);
   if (!fs.existsSync(configPath)) {
@@ -1218,7 +1221,7 @@ export function loadRepoConfig(repoPath?: string): DevrouterConfig {
     );
   }
 
-  const raw = fs.readFileSync(configPath, "utf-8");
+  const raw = read(configPath);
   const parsed = YAML.parse(raw) as DevrouterConfigWithUnknown | null;
   const config = parseConfig(parsed ?? {}, configPath);
 

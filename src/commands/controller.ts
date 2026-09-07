@@ -1,6 +1,7 @@
 import path from "node:path";
 import { resolveControllerBinding } from "../core/controller-binding";
 import { controllerRequest } from "../core/controller-client";
+import { collectControllerObservation } from "../core/controller-observation";
 import { runController } from "../core/controller-server";
 import { DEVROUTER_HOME } from "../core/router";
 
@@ -21,6 +22,7 @@ export async function runControllerCommand(
           directory,
           signal: controller.signal,
           resolve: resolveControllerBinding,
+          collect: collectControllerObservation,
         });
       } finally {
         process.removeListener("SIGINT", stop);

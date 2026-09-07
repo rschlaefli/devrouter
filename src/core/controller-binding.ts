@@ -6,7 +6,7 @@ import type { ControllerResolver } from "./controller-server";
 import { buildProfileResolutionReport } from "./profile-resolution";
 import { loadRepoConfig } from "./repo-config";
 
-function boundedRead(file: string, limit = 65_536): string {
+export function readControllerEvidence(file: string, limit = 65_536): string {
   const fd = fs.openSync(
     file,
     fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
@@ -27,6 +27,32 @@ function digest(value: string) {
 }
 
 const fingerprintKey = randomBytes(32);
+
+export function controllerBindingFingerprint(owner: string, config: string): string {
+  return createHmac("sha256", fingerprintKey)
+    .update(JSON.stringify({ owner, config }))
+    .digest("hex");
+}
+
+/** Capture bounded local files now; publication rechecks bytes without subprocesses. */
+export function captureControllerEvidence(files: string[]): {
+  contents: string[];
+  unchanged: () => boolean;
+} {
+  if (files.length === 0 || files.length > 64 || new Set(files).size !== files.length)
+    throw new Error("Observation evidence file set is invalid.");
+  const contents = files.map((file) => readControllerEvidence(file));
+  return {
+    contents,
+    unchanged: () => {
+      try {
+        return files.every((file, index) => readControllerEvidence(file) === contents[index]);
+      } catch {
+        return false;
+      }
+    },
+  };
+}
 
 export const resolveControllerBinding: ControllerResolver = async (request, signal) => {
   const repoPath = fs.realpathSync(request.path);
@@ -56,11 +82,11 @@ export const resolveControllerBinding: ControllerResolver = async (request, sign
     path.basename(path.dirname(gitDir)) !== "worktrees"
   )
     throw new Error("Controller requires an existing linked checkout.");
-  const workspace = boundedRead(path.join(gitDir, "devrouter-workspace"), 128).trim();
+  const workspace = readControllerEvidence(path.join(gitDir, "devrouter-workspace"), 128).trim();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workspace) || workspace.length > 32)
     throw new Error("Canonical workspace token unavailable.");
   const ownerFile = path.join(commonDir, "devrouter", "workspaces", `${workspace}.json`);
-  const ownerBytes = boundedRead(ownerFile);
+  const ownerBytes = readControllerEvidence(ownerFile);
   const owner = JSON.parse(ownerBytes);
   if (
     owner?.version !== 1 ||
@@ -71,8 +97,8 @@ export const resolveControllerBinding: ControllerResolver = async (request, sign
   )
     throw new Error("Canonical workspace owner unavailable.");
   const configFile = path.join(repoPath, ".devrouter.yml");
-  const configBytes = boundedRead(configFile);
-  const config = loadRepoConfig(repoPath);
+  const configBytes = readControllerEvidence(configFile);
+  const config = loadRepoConfig(repoPath, () => configBytes);
   if (!config.managedRuntime) throw new Error("Controller requires managed configuration.");
   const profile = buildProfileResolutionReport(config, repoPath, request.profile);
   for (const requirement of request.require) {
@@ -123,9 +149,9 @@ export const resolveControllerBinding: ControllerResolver = async (request, sign
   )
     throw new Error("Provider ownership is ambiguous.");
   if (
-    boundedRead(ownerFile) !== ownerBytes ||
-    boundedRead(configFile) !== configBytes ||
-    boundedRead(path.join(gitDir, "devrouter-workspace"), 128).trim() !== workspace
+    readControllerEvidence(ownerFile) !== ownerBytes ||
+    readControllerEvidence(configFile) !== configBytes ||
+    readControllerEvidence(path.join(gitDir, "devrouter-workspace"), 128).trim() !== workspace
   )
     throw new Error("Binding evidence changed during resolution.");
   // The approved snapshot contains only opaque fingerprints and canonical refs.
@@ -137,8 +163,6 @@ export const resolveControllerBinding: ControllerResolver = async (request, sign
     provider: candidates[0].provider,
     providerId: owner.devpodId,
     profile: profile.profile,
-    fingerprint: createHmac("sha256", fingerprintKey)
-      .update(JSON.stringify({ owner: ownerBytes, config: configBytes }))
-      .digest("hex"),
+    fingerprint: controllerBindingFingerprint(ownerBytes, configBytes),
   };
 };

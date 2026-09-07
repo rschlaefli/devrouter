@@ -11,6 +11,7 @@ export function runControllerProbe(
   command: string,
   args: string[],
   signal: AbortSignal,
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string } = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
@@ -18,8 +19,10 @@ export function runControllerProbe(
       return;
     }
     const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+      detached: true,
+      cwd: options.cwd,
+      env: { ...(options.env ?? process.env), GIT_OPTIONAL_LOCKS: "0" },
     });
     let bytes = 0;
     const chunks: Buffer[] = [];
@@ -27,7 +30,15 @@ export function runControllerProbe(
     let finished = false;
     const fail = () => {
       failed = true;
-      child.kill("SIGKILL");
+      // This group was created exclusively for the observer probe. Killing the
+      // group also closes inherited pipes held by probe-owned descendants.
+      if (child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill("SIGKILL");
+        }
+      }
     };
     const timer = setTimeout(fail, 3000);
     signal.addEventListener("abort", fail, { once: true });
@@ -43,8 +54,10 @@ export function runControllerProbe(
       }
       if (stdout) chunks.push(chunk);
     };
-    child.stdout.on("data", (chunk: Buffer) => collect(chunk, true));
-    child.stderr.on("data", (chunk: Buffer) => collect(chunk, false));
+    child.stdout?.on("data", (chunk: Buffer) => collect(chunk, true));
+    child.stderr?.on("data", (chunk: Buffer) => collect(chunk, false));
+    child.stdin?.on("error", fail);
+    if (options.input !== undefined) child.stdin?.end(options.input);
     child.once("error", (error: NodeJS.ErrnoException) => {
       if (finished) return;
       finished = true;

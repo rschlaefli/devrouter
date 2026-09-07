@@ -2,9 +2,12 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { type ControllerObservationCollector, controllerCapability } from "../controller-monitor";
 import { CONTROLLER_FRAME_BYTES } from "../controller-protocol";
 import { runController } from "../controller-server";
+import { createReliabilityState } from "../reliability-contract";
+import * as operationStore from "../reliability-operation-store";
 
 const directories: string[] = [];
 const stops: Array<() => Promise<void>> = [];
@@ -13,7 +16,7 @@ afterEach(async () => {
   for (const directory of directories.splice(0))
     fs.rmSync(directory, { recursive: true, force: true });
 });
-async function fixture() {
+async function fixture(collect?: ControllerObservationCollector) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-")));
   directories.push(directory);
   const abort = new AbortController();
@@ -25,6 +28,7 @@ async function fixture() {
     directory,
     signal: abort.signal,
     onListening: listening,
+    collect,
     resolve: async () => ({
       id: "env",
       repoPath: "/fixture/checkout",
@@ -65,6 +69,97 @@ function connect(directory: string) {
       }),
   };
 }
+it("streams a later application failure while an independent runtime consumer stays ready", async () => {
+  const { controllerRequest } = await import("../controller-client");
+  const state = createReliabilityState("environment", 0, "manual");
+  state.desired = "running";
+  state.phase = "stable";
+  const identity = {
+    repoPath: "/fixture/checkout",
+    workspace: "fixture",
+    provider: "devsy" as const,
+  };
+  const journal: operationStore.ReliabilityOperationRecord = {
+    version: 1,
+    identity,
+    revision: 1,
+    state,
+    worker: null,
+    effectSequence: 0,
+    outcome: null,
+  };
+  const fence = vi
+    .spyOn(operationStore, "withReliabilityObservationFence")
+    .mockImplementation((_identity, _revision, publish) => publish(journal));
+  let applicationReady = true;
+  const collect: ControllerObservationCollector = async (environment) => ({
+    environment,
+    identity,
+    journal,
+    sampledAtMs: Math.floor(performance.now()),
+    runtimeFingerprint: "b".repeat(64),
+    stopped: false,
+    revalidatePersisted: () => true,
+    capabilities: [
+      {
+        capability: "runtime",
+        infrastructure: "healthy",
+        application: "verified",
+        observedAtMs: 0,
+        validForMs: 15000,
+      },
+      {
+        capability: controllerCapability("app:web"),
+        infrastructure: "healthy",
+        application: applicationReady ? "verified" : "unready",
+        observedAtMs: 0,
+        validForMs: 15000,
+      },
+    ],
+  });
+  try {
+    const { directory } = await fixture(collect);
+    let binding: Record<string, unknown> = {};
+    for (const [session, requirement] of [
+      ["application", "app:web"],
+      ["tooling", "runtime"],
+    ]) {
+      await controllerRequest(
+        directory,
+        {
+          method: "observe",
+          path: identity.repoPath,
+          session,
+          profile: "web",
+          require: [requirement],
+        },
+        (value: any) => {
+          if (session === "application") binding = value.result;
+        },
+      );
+    }
+    const statuses: string[] = [];
+    await controllerRequest(
+      directory,
+      { method: "watch", ...binding, timeout: 8 },
+      (value: any) => {
+        if (value.result.kind !== "snapshot") return;
+        statuses.push(value.result.status);
+        if (value.result.status === "READY") applicationReady = false;
+      },
+    );
+    expect(statuses).toContain("READY");
+    expect(statuses).toContain("APP_ERROR");
+    expect(statuses.indexOf("APP_ERROR")).toBeGreaterThan(statuses.indexOf("READY"));
+    await controllerRequest(directory, { method: "status", session: "tooling" }, (value: any) => {
+      expect(value.result.sessions[0].status).toBe("READY");
+    });
+    expect(journal.revision).toBe(1);
+    expect(journal.state.observations).toEqual([]);
+  } finally {
+    fence.mockRestore();
+  }
+}, 12000);
 it("serves two durable consumer bindings and keeps the socket private", async () => {
   const { directory } = await fixture();
   const first = connect(directory);
@@ -110,6 +205,29 @@ it("rejects a second live owner without changing its snapshot", async () => {
     }),
   ).rejects.toThrow();
   expect(fs.readFileSync(path.join(directory, "snapshot.json"))).toEqual(snapshot);
+});
+it("rejects an unsupported watch deadline before emitting a successful snapshot", async () => {
+  const { controllerRequest } = await import("../controller-client");
+  const { directory } = await fixture();
+  let binding: Record<string, unknown> = {};
+  await controllerRequest(
+    directory,
+    {
+      method: "observe",
+      path: "/fixture/checkout",
+      session: "one",
+      profile: "web",
+      require: ["runtime"],
+    },
+    (value: any) => {
+      binding = value.result;
+    },
+  );
+  const emit = vi.fn();
+  await expect(
+    controllerRequest(directory, { method: "watch", ...binding, timeout: 2_147_484 }, emit),
+  ).rejects.toThrow();
+  expect(emit).not.toHaveBeenCalled();
 });
 it("disconnects a client that skips the protocol handshake", async () => {
   const { directory } = await fixture();

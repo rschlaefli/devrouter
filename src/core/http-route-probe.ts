@@ -18,7 +18,14 @@ export type HttpRouteProbeOptions = {
   readiness?: DevrouterHttpReadiness;
 };
 
+export type HttpRouteProbeRunner = (
+  command: string,
+  args: string[],
+  signal: AbortSignal,
+) => Promise<string>;
+
 const DEFAULT_MAX_TIME_SECONDS = 5;
+const CONTROLLER_CURL_MAX_TIME_SECONDS = 2;
 const PARENT_TIMEOUT_PADDING_MS = 250;
 const CONTRACT_MAX_BUFFER = 1024;
 const MIME_TOKEN_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
@@ -37,7 +44,7 @@ export function probeHttpRoute(
   }
 
   if (options.readiness !== undefined) {
-    return probeHttpReadiness(host, options.readiness, maxTimeSeconds, options.repoPath);
+    return probeHttpReadinessSync(host, options.readiness, maxTimeSeconds, options.repoPath);
   }
 
   const tlsEnabled = isTLSEnabled();
@@ -73,7 +80,31 @@ export function probeHttpRoute(
   return { ok, status, details };
 }
 
-function probeHttpReadiness(
+export async function probeHttpReadiness(
+  host: string,
+  readiness: DevrouterHttpReadiness,
+  signal: AbortSignal,
+  runner: HttpRouteProbeRunner,
+  tlsEnabled = isTLSEnabled(),
+): Promise<HttpRouteProbeResult> {
+  const args = buildHttpReadinessCurlArgs(
+    host,
+    readiness,
+    CONTROLLER_CURL_MAX_TIME_SECONDS,
+    tlsEnabled,
+  );
+
+  try {
+    const metadata = await runner("curl", args, signal);
+    if (signal.aborted) throw new Error("HTTP route probe cancelled.");
+    return parseHttpReadinessMetadata(metadata, readiness);
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return transportFailure();
+  }
+}
+
+function probeHttpReadinessSync(
   host: string,
   readiness: DevrouterHttpReadiness,
   maxTimeSeconds: number,
@@ -85,27 +116,10 @@ function probeHttpReadiness(
   }
 
   const tlsEnabled = isTLSEnabled();
-  const url = `${tlsEnabled ? "https" : "http"}://${host}${readiness.path}`;
-  const args = [
-    "--disable",
-    "--globoff",
-    "--silent",
-    "--show-error",
-    "--no-location",
-    "--noproxy",
-    "*",
-    "--output",
-    "/dev/null",
-    "--write-out",
-    "%{http_code}\t%{content_type}",
-    "--max-time",
-    String(maxTimeSeconds),
-  ];
+  const args = buildHttpReadinessCurlArgs(host, readiness, maxTimeSeconds, tlsEnabled);
   if (tlsEnabled) {
     getMkcertRootCAPath({ repoPath });
-    args.push("--cacert", CERT_FILE);
   }
-  args.push(url);
 
   let result: ReturnType<typeof spawnSync>;
   try {
@@ -123,6 +137,40 @@ function probeHttpReadiness(
   }
 
   const metadata = typeof result.stdout === "string" ? result.stdout : "";
+  return parseHttpReadinessMetadata(metadata, readiness);
+}
+
+function buildHttpReadinessCurlArgs(
+  host: string,
+  readiness: DevrouterHttpReadiness,
+  maxTimeSeconds: number,
+  tlsEnabled: boolean,
+): string[] {
+  const url = `${tlsEnabled ? "https" : "http"}://${host}${readiness.path}`;
+  const args = [
+    "--disable",
+    "--globoff",
+    "--silent",
+    "--show-error",
+    "--no-location",
+    "--noproxy",
+    "*",
+    "--output",
+    "/dev/null",
+    "--write-out",
+    "%{http_code}\t%{content_type}",
+    "--max-time",
+    String(maxTimeSeconds),
+  ];
+  if (tlsEnabled) args.push("--cacert", CERT_FILE);
+  args.push(url);
+  return args;
+}
+
+function parseHttpReadinessMetadata(
+  metadata: string,
+  readiness: DevrouterHttpReadiness,
+): HttpRouteProbeResult {
   if (metadata.length > CONTRACT_MAX_BUFFER) {
     return transportFailure();
   }

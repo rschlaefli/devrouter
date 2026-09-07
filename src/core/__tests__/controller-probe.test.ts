@@ -40,3 +40,32 @@ it("rejects excess output", async () => {
     ),
   ).rejects.toThrow();
 });
+it("passes transient stdin and scoped environment without shell evaluation", async () => {
+  const result = await runControllerProbe(
+    process.execPath,
+    [
+      "-e",
+      "let input='';process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',()=>process.stdout.write(JSON.stringify({input,value:process.env.OBSERVATION_FIXTURE,git:process.env.GIT_OPTIONAL_LOCKS})))",
+    ],
+    new AbortController().signal,
+    { input: "literal $(ignored)\n", env: { OBSERVATION_FIXTURE: "fixture" } },
+  );
+  expect(JSON.parse(result)).toEqual({ input: "literal $(ignored)\n", value: "fixture", git: "0" });
+});
+it("cancels probe descendants that inherit output pipes", async () => {
+  const abort = new AbortController();
+  const result = runControllerProbe(
+    process.execPath,
+    [
+      "-e",
+      "require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'inherit'});setInterval(()=>{},1000)",
+    ],
+    abort.signal,
+  );
+  const timer = setTimeout(() => abort.abort(), 150);
+  try {
+    await expect(result).rejects.toThrow();
+  } finally {
+    clearTimeout(timer);
+  }
+}, 2000);

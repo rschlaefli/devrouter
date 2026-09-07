@@ -1,9 +1,14 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { ControllerMonitor, type ControllerObservationCollector } from "./controller-monitor";
 import { parseControllerRequest } from "./controller-protocol";
 import { ControllerSessions } from "./controller-sessions";
-import { type ControllerEnvironment, ControllerStore } from "./controller-store";
+import {
+  type ControllerEnvironment,
+  type ControllerSnapshot,
+  ControllerStore,
+} from "./controller-store";
 import { withFileLock } from "./file-lock";
 
 const FRAME_BYTES = 65_536;
@@ -50,6 +55,7 @@ export async function runController(options: {
   directory: string;
   signal: AbortSignal;
   resolve: ControllerResolver;
+  collect?: ControllerObservationCollector;
   onListening?: () => void;
 }): Promise<void> {
   const socketPath = path.join(options.directory, "control.sock");
@@ -70,6 +76,13 @@ export async function runController(options: {
     let serial = Promise.resolve();
     const monotonic = () => Math.floor(performance.now());
     let fatal: Error | undefined;
+    const monitor = options.collect
+      ? new ControllerMonitor(sessions, options.collect, (operation) => {
+          const pending = serial.then(operation);
+          serial = pending.catch(() => {});
+          return pending;
+        })
+      : undefined;
     const server = net.createServer((socket) => {
       if (sockets.size >= 32) {
         socket.destroy();
@@ -103,26 +116,67 @@ export async function runController(options: {
         }
         if (!socket.write(frame)) queuedFrames++;
       };
+      const replay = (
+        snapshot: ControllerSnapshot,
+        request: Extract<ReturnType<typeof parseControllerRequest>, { method: "watch" }>,
+        sequence: number,
+      ) => {
+        for (const event of snapshot.events.filter(
+          (event) =>
+            event.sequence > sequence &&
+            event.session === request.session &&
+            event.generation === request.generation,
+        ))
+          send({
+            version: 1,
+            id: request.id,
+            ok: true,
+            result: {
+              kind: "event",
+              store: snapshot.store,
+              epoch: snapshot.epoch,
+              event,
+            },
+          });
+      };
+      let watchQueued = false;
       const watchTimer = setInterval(() => {
-        if (!watch || socket.destroyed) return;
+        if (!watch || socket.destroyed || watchQueued) return;
+        watchQueued = true;
         const subscription = watch;
         serial = serial
           .then(() => {
             if (socket.destroyed) return;
             sessions.tick(monotonic(), Date.now());
             const snapshot = sessions.read();
-            for (const event of snapshot.events.filter(
-              (event) =>
-                event.sequence > subscription.sequence &&
-                event.session === subscription.request.session &&
-                event.generation === subscription.request.generation,
-            ))
+            replay(snapshot, subscription.request, subscription.sequence);
+            if (
+              snapshot.events.some(
+                (event) =>
+                  event.sequence > subscription.sequence &&
+                  event.session === subscription.request.session &&
+                  event.generation === subscription.request.generation,
+              )
+            ) {
+              const current = snapshot.sessions.find(
+                (session) =>
+                  session.id === subscription.request.session &&
+                  session.generation === subscription.request.generation,
+              );
               send({
                 version: 1,
                 id: subscription.request.id,
                 ok: true,
-                result: { kind: "event", store: snapshot.store, epoch: snapshot.epoch, event },
+                result: {
+                  kind: "snapshot",
+                  store: snapshot.store,
+                  epoch: snapshot.epoch,
+                  sequence: snapshot.nextSequence - 1,
+                  session: current ? sessions.projection(current, monotonic()) : null,
+                  status: current ? sessions.projection(current, monotonic()).status : "UNKNOWN",
+                },
               });
+            }
             subscription.sequence = snapshot.nextSequence - 1;
             try {
               sessions.validate(subscription.request);
@@ -139,6 +193,9 @@ export async function runController(options: {
           })
           .catch(() => {
             socket.destroy();
+          })
+          .finally(() => {
+            watchQueued = false;
           });
       }, 100);
       socket.on("error", () => socket.destroy());
@@ -235,7 +292,7 @@ export async function runController(options: {
               store: snapshot.store,
               epoch: snapshot.epoch,
               revision: snapshot.revision,
-              sessions: selected.map((s) => ({ ...s, status: "UNKNOWN" })),
+              sessions: selected.map((s) => sessions.projection(s, monotonic())),
               cursor:
                 !request.session && offset + 16 < snapshot.sessions.length
                   ? String(offset + 16)
@@ -243,6 +300,9 @@ export async function runController(options: {
             };
           } else {
             sessions.validate(request);
+            const deadline = monotonic() + request.timeout * 1000;
+            if (!Number.isSafeInteger(deadline) || request.timeout > 2_147_483)
+              throw new Error("Watch deadline exceeds supported bounds.");
             const snapshot = sessions.read();
             const parts = request.after?.match(/^([0-9]+):([0-9]+)$/);
             const epoch = parts ? Number(parts[1]) : undefined;
@@ -266,31 +326,18 @@ export async function runController(options: {
                 store: snapshot.store,
                 epoch: snapshot.epoch,
                 sequence: snapshot.nextSequence - 1,
-                session: current,
-                status: "UNKNOWN",
+                session: current ? sessions.projection(current, monotonic()) : null,
+                status: current ? sessions.projection(current, monotonic()).status : "UNKNOWN",
               },
             });
             if (!gap && sequence !== undefined) {
-              for (const event of snapshot.events.filter(
-                (event) =>
-                  event.sequence > sequence &&
-                  event.session === request.session &&
-                  event.generation === request.generation,
-              ))
-                send({
-                  version: 1,
-                  id: request.id,
-                  ok: true,
-                  result: { kind: "event", store: snapshot.store, epoch: snapshot.epoch, event },
-                });
+              replay(snapshot, request, sequence);
             }
             watch = {
               request,
               sequence: snapshot.nextSequence - 1,
-              deadline: monotonic() + request.timeout * 1000,
+              deadline,
             };
-            if (!Number.isSafeInteger(watch.deadline) || request.timeout > 2_147_483)
-              throw new Error("Watch deadline exceeds supported bounds.");
             return;
           }
           send({ version: 1, id: request.id, ok: true, result });
@@ -313,17 +360,25 @@ export async function runController(options: {
     });
     let finish: () => void = () => {};
     const shutdown = () => {
+      monitor?.stop();
       for (const socket of sockets) socket.destroy();
       server.close(finish);
     };
+    let tickQueued = false;
     const timer = setInterval(() => {
+      if (tickQueued) return;
+      tickQueued = true;
       serial = serial
         .then(() => {
           sessions.tick(monotonic(), Date.now());
+          monitor?.tick();
         })
         .catch(() => {
           fatal = new Error("Controller state unavailable.");
           shutdown();
+        })
+        .finally(() => {
+          tickQueued = false;
         });
     }, 1000);
     try {
@@ -345,6 +400,7 @@ export async function runController(options: {
       if (fatal) throw fatal;
     } finally {
       clearInterval(timer);
+      monitor?.stop();
       options.signal.removeEventListener("abort", shutdown);
       for (const socket of sockets) socket.destroy();
       if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));

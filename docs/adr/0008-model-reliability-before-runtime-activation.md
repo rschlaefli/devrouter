@@ -62,3 +62,36 @@ it never turns missing evidence into authority to adopt or destroy resources.
 A repair failure ends that bounded attempt with retained diagnostics. Stop fences
 both repair and subsequent transition. This behavior removes a separate repair
 command requirement without activating the capacity-managed controller.
+
+## Foreground observation extension
+
+The observation controller has a separate store identity, incarnation epoch and
+consumer generation. These never replace the manual journal's environment,
+intent, runtime or controller fences. Restart discards active observer bindings;
+only explicit acquisition and renewal authorize a consumer session. Session
+release and expiry have no runtime effect. Existing manual commands remain
+independent of observer availability.
+
+The foreground controller owns one private Unix socket and bounded active-reference
+snapshot under the existing Devrouter home. It does not install a service, start
+itself from a client request, claim repository ownership, or become a global
+repository registry. Persistence precedes acknowledgement and event delivery.
+Lost continuity, stale observations and unavailable evidence yield UNKNOWN.
+
+Compatible consumers share bounded read-only probe batches. Runtime and process
+revalidation runs outside the manual journal lock. Publication is serialized,
+then rereads bounded persisted ownership/configuration and the exact manual
+revision while holding that journal lock. It durably commits observer projections
+before releasing the lock and delivers events afterward. Manual stop therefore
+wins against stale publication; external runtime changes after sampling remain
+subject to the next observation and freshness bound.
+
+Configuration fingerprints use an incarnation-local random HMAC key. This binds
+observations to configuration bytes without retaining a public low-entropy hash
+of secret-bearing values. Neither the key nor raw configuration enters the
+snapshot. Runtime output is transient and failures expose fixed classifications.
+
+A timeout cancels only the observer-owned probe group. A batch whose probe has
+not drained retains its concurrency slot. Continuous recovery, capacity admission,
+service-manager enrollment and agent continuation remain separately qualified
+roadmap packages; observation grants none of their mutation authority.

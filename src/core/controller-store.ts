@@ -13,18 +13,35 @@ export type ControllerEnvironment = {
   profile: string;
   fingerprint: string;
 };
+export type ControllerProjection = {
+  status:
+    | "READY"
+    | "APP_ERROR"
+    | "BLOCKED"
+    | "STOPPED"
+    | "STARTING"
+    | "RECOVERING"
+    | "WAITING_CAPACITY"
+    | "PARKED_CAPACITY"
+    | "UNKNOWN";
+  sampledAtMs: number;
+  validUntilMs: number;
+  journalRevision: number;
+  runtimeFingerprint: string;
+};
 export type ControllerSession = {
   id: string;
   environmentId: string;
   generation: string;
   requirements: string[];
   renewedAtMs: number;
+  observation?: ControllerProjection;
 };
 export type ControllerEvent = {
   sequence: number;
   session: string;
   generation: string;
-  kind: "acquired" | "renewed" | "released" | "expired" | "invalidated";
+  kind: "acquired" | "renewed" | "released" | "expired" | "invalidated" | "observed";
 };
 export type ControllerSnapshot = {
   version: 1;
@@ -120,7 +137,14 @@ export function validateControllerSnapshot(value: unknown): asserts value is Con
   const sessions = new Set<string>();
   const usedEnvironments = new Set<string>();
   for (const session of value.sessions) {
-    fields(session, ["id", "environmentId", "generation", "requirements", "renewedAtMs"]);
+    fields(session, [
+      "id",
+      "environmentId",
+      "generation",
+      "requirements",
+      "renewedAtMs",
+      ...(Object.hasOwn(session, "observation") ? ["observation"] : []),
+    ]);
     if (
       !id(session.id) ||
       sessions.has(session.id) ||
@@ -137,6 +161,36 @@ export function validateControllerSnapshot(value: unknown): asserts value is Con
       )
     )
       fail();
+    if (session.observation !== undefined) {
+      const observation = session.observation;
+      fields(observation, [
+        "status",
+        "sampledAtMs",
+        "validUntilMs",
+        "journalRevision",
+        "runtimeFingerprint",
+      ]);
+      if (
+        ![
+          "READY",
+          "APP_ERROR",
+          "BLOCKED",
+          "STOPPED",
+          "STARTING",
+          "RECOVERING",
+          "WAITING_CAPACITY",
+          "PARKED_CAPACITY",
+          "UNKNOWN",
+        ].includes(String(observation.status)) ||
+        !counter(observation.sampledAtMs) ||
+        !counter(observation.validUntilMs) ||
+        observation.validUntilMs < observation.sampledAtMs ||
+        !counter(observation.journalRevision) ||
+        !text(observation.runtimeFingerprint, 128) ||
+        !/^[a-f0-9]{64}$/.test(observation.runtimeFingerprint)
+      )
+        fail();
+    }
     sessions.add(session.id);
     usedEnvironments.add(session.environmentId);
   }
@@ -150,7 +204,9 @@ export function validateControllerSnapshot(value: unknown): asserts value is Con
       event.sequence >= value.nextSequence ||
       !id(event.session) ||
       !id(event.generation) ||
-      !["acquired", "renewed", "released", "expired", "invalidated"].includes(String(event.kind))
+      !["acquired", "renewed", "released", "expired", "invalidated", "observed"].includes(
+        String(event.kind),
+      )
     )
       fail();
     previous = event.sequence;
