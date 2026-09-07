@@ -55,6 +55,17 @@ remaining event qualification remain open. Slice simplifier completed; its singl
 duplicate replay-filter reduction is applied and all nine socket tests pass.
 The existing native slice risk reviewer remains active on commit 567351b.
 
+Integrated origin/main 4154a148 to include the released prepareCommand schema
+and startup fixes; merge f92f7e2 is conflict-free. Integrated validation passes
+1189 tests across 90 files, TypeScript, Biome, Knip, docs policy and knowledge.
+Packed clean-commit qualification passes with the same six behaviors, 71 provider
+reads, zero unexpected calls and stopped observer; receipt:
+/private/tmp/dr-observe-LsDigk/receipt.json. A follow-up instrumented run samples
+maximum observer RSS 67536 KiB across 46 samples over 16629 ms. This small synthetic
+workload is not a fleet-capacity or OOM-protection claim. Two added capacity-limit
+tests prove 128 sessions and 32 environments retain existing bindings when full;
+the existing monitor suite proves bounded concurrent probes. Combined 16 cases pass.
+
 Waiting-task coordination: Klicker Runner now launches browsers with the correct
 pnpm verification setting and reports no remaining Devrouter blocker; its publish
 dialog failure belongs to application behavior. Klicker Chat Roadmap continues its

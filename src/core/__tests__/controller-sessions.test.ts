@@ -87,3 +87,39 @@ it("requires explicit reacquisition after restart, fencing the old epoch", () =>
   expect(() => replacement.release(first, 1, 1001)).toThrow();
   expect(replacement.validate(second).id).toBe("one");
 });
+
+it("rejects excess sessions without evicting or changing acknowledged bindings", () => {
+  const { sessions, store } = fixture();
+  const bindings = Array.from({ length: 128 }, (_, index) =>
+    sessions.acquire(`consumer-${index}`, env, ["runtime"], 0, 1000),
+  );
+  const before = fs.readFileSync(store.file);
+  expect(() => sessions.acquire("overflow", env, ["runtime"], 0, 1000)).toThrow();
+  expect(fs.readFileSync(store.file)).toEqual(before);
+  for (const binding of bindings)
+    expect(sessions.validate(binding).generation).toBe(binding.generation);
+});
+
+it("caps environments while still accepting consumers of an existing environment", () => {
+  const { sessions, store } = fixture();
+  for (let index = 0; index < 32; index++)
+    sessions.acquire(
+      `consumer-${index}`,
+      { ...env, id: `env-${index}`, repoPath: `/fixture/${index}` },
+      ["runtime"],
+      0,
+      1000,
+    );
+  const before = fs.readFileSync(store.file);
+  expect(() => sessions.acquire("overflow", env, ["runtime"], 0, 1000)).toThrow();
+  expect(fs.readFileSync(store.file)).toEqual(before);
+  const shared = sessions.acquire(
+    "shared",
+    { ...env, id: "env-0", repoPath: "/fixture/0" },
+    ["runtime"],
+    0,
+    1000,
+  );
+  expect(sessions.validate(shared).environmentId).toBe("env-0");
+  expect(sessions.read().environments).toHaveLength(32);
+});

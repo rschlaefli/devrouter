@@ -243,10 +243,18 @@ else { fs.appendFileSync(${JSON.stringify(mutations)},JSON.stringify({provider,a
     return JSON.parse(run(node, [cli, "controller", ...args, "--json"], root, env));
   }
   const evidence: string[] = [];
+  const qualificationStartedAt = performance.now();
+  let maximumObservedRssKiB = 0;
+  let rssSamples = 0;
   async function untilStatus(session: string, expected: string) {
     const deadline = Date.now() + 14_000;
     while (Date.now() < deadline) {
       const actual = command("status", "--session", session).result.sessions[0];
+      assert.ok(controller?.pid, "fixture observer PID unavailable");
+      const rss = Number(run("ps", ["-o", "rss=", "-p", String(controller.pid)]));
+      assert.ok(Number.isFinite(rss) && rss > 0, "fixture observer memory sample unavailable");
+      maximumObservedRssKiB = Math.max(maximumObservedRssKiB, rss);
+      rssSamples++;
       if (actual?.status === expected) return actual;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
@@ -372,6 +380,9 @@ else { fs.appendFileSync(${JSON.stringify(mutations)},JSON.stringify({provider,a
       unexpectedProviderCalls: 0,
       continuousObservationQualified: true,
       providerReadCalls: fs.readFileSync(calls, "utf8").trim().split("\n").length,
+      elapsedMs: Math.round(performance.now() - qualificationStartedAt),
+      maximumObservedRssKiB,
+      rssSamples,
     };
     fs.writeFileSync(path.join(root, "receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
     console.log(JSON.stringify({ root, ...receipt }));
