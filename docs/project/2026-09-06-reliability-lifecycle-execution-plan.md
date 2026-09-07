@@ -304,3 +304,10 @@ checks pass on Node 24.16.0. Required simplifier and slice review are next.
 
 OpenCodex readiness returned ready=true on 2026-09-07; configured executor
 dispatch is available for the next settled provenance slice.
+
+Manual contract review found one identity mismatch: capability/pinning payload
+was omitted from manual deduplication. The correction retains and compares the
+full bounded consumer, including historical operations; one regression added.
+Both redundant capacity comparisons identified by the simplifier were removed.
+The same slice reviewer will check the correction; parent retains production
+integration. Durable-record work currently passes seven synthetic filesystem tests.

@@ -454,6 +454,20 @@ describe("manual operation lifecycle", () => {
     });
     expect(step(state, { ...ensure, kind: "exec" }).outcome).toBe("conflict");
   });
+  it("rejects consumer payload drift even after a later operation replaces the slot", () => {
+    let state = drained();
+    state = step(state, { ...ensure, key: "next", operationId: "next" }).state;
+    expect(
+      step(state, {
+        ...ensure,
+        consumer: { ...consumer, requiredCapabilities: ["api", "database"] },
+      }).outcome,
+    ).toBe("conflict");
+    expect(step(state, { ...ensure, consumer: { ...consumer, pinned: true } }).outcome).toBe(
+      "conflict",
+    );
+    expect(step(state, ensure).outcome).toBe("joined");
+  });
   it("requires runtime proof for exec and never overturns explicit stop", () => {
     expect(step(manual(), { ...ensure, kind: "exec" }).outcome).toBe("blocked");
     // A first record can adopt a positively proven existing runtime without starting it.

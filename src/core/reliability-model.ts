@@ -160,7 +160,10 @@ function cloneState(state: ReliabilityState): ReliabilityState {
   return {
     ...state,
     stopProof: { ...state.stopProof },
-    operationHistory: state.operationHistory.map((entry) => ({ ...entry })),
+    operationHistory: state.operationHistory.map((entry) => ({
+      ...entry,
+      consumer: cloneConsumer(entry.consumer),
+    })),
     consumers: state.consumers.map(cloneConsumer),
     requests: state.requests.map((request) => ({ ...request })),
     observations: state.observations.map(cloneObservation),
@@ -356,7 +359,7 @@ function handleOperationRequest(
       previous.id === event.operationId &&
         previous.kind === event.kind &&
         previous.profile === event.profile &&
-        previous.consumerId === event.consumer.id
+        sameConsumer(previous.consumer, event.consumer)
         ? "joined"
         : "conflict",
     );
@@ -407,7 +410,7 @@ function handleOperationRequest(
     ...state.operation,
     key: event.key,
     profile: event.profile,
-    consumerId: event.consumer.id,
+    consumer: cloneConsumer(event.consumer),
   });
   return transition(state, "accepted");
 }
@@ -433,7 +436,7 @@ function handleAdmission(
 
   state.admission = event.result;
   if (event.result === "admitted") {
-    state.chargeHeld = state.executionPolicy === "capacity-managed";
+    state.chargeHeld = true;
   }
   return transition(state, "accepted");
 }
@@ -677,7 +680,7 @@ function handleResume(
   state.phase = "queued";
   state.stopProof = { workloadsStopped: false, routesRemoved: false };
   state.observations = [];
-  state.chargeHeld = state.executionPolicy === "capacity-managed";
+  state.chargeHeld = true;
   state.operation = {
     id: event.operationId,
     kind: "ensure",

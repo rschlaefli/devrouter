@@ -47,7 +47,11 @@ export type ReliabilityIncident = {
 export type ReliabilityState = ReliabilityFence & {
   contractVersion: 2;
   executionPolicy: "manual" | "capacity-managed";
-  operationHistory: (ReliabilityOperation & { key: string; profile: string; consumerId: string })[];
+  operationHistory: (ReliabilityOperation & {
+    key: string;
+    profile: string;
+    consumer: ReliabilityConsumer;
+  })[];
   observationsAfterMs: number;
   desired: "running" | "parked-for-capacity" | "stopped-by-user";
   phase: "idle" | "queued" | "starting" | "verifying" | "stable" | "recovering" | "stopping";
@@ -181,7 +185,13 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
       (entry) =>
         record(entry) &&
         isReliabilityId(entry.profile) &&
-        isReliabilityId(entry.consumerId) &&
+        record(entry.consumer) &&
+        isReliabilityId(entry.consumer.id) &&
+        typeof entry.consumer.pinned === "boolean" &&
+        boundedArray(entry.consumer.requiredCapabilities) &&
+        entry.consumer.requiredCapabilities.every(isReliabilityId) &&
+        new Set(entry.consumer.requiredCapabilities).size ===
+          entry.consumer.requiredCapabilities.length &&
         validOperation(entry),
     ) &&
     isReliabilityCounter(value.observationsAfterMs) &&
