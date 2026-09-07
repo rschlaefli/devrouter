@@ -23,6 +23,7 @@ import {
 } from "../devpod-environment";
 import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspaces";
 import { listHostRouteState, replaceHostRoutesForRepo } from "../host-routes";
+import { runManagedHostPreparation } from "../managed-host-preparation";
 import {
   resolveManagedPostStartPlan,
   runManagedPostStart,
@@ -36,7 +37,7 @@ import {
 } from "../managed-runtime-state";
 import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import * as reliabilityLifecycle from "../reliability-lifecycle";
-import { loadRuntimeConfig } from "../repo-config";
+import { loadRepoConfig, loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
 import {
   ensureTraefikRoutesLoaded,
@@ -103,8 +104,12 @@ vi.mock("../managed-runtime-status", () => ({
 }));
 vi.mock("../docker", () => ({ ensureNetwork: vi.fn(async () => undefined) }));
 vi.mock("../repo-config", () => ({
+  loadRepoConfig: vi.fn(() => ({ version: 1, apps: [] })),
   loadRuntimeConfig: vi.fn(),
   resolveRepoPath: vi.fn((repo?: string) => repo ?? process.cwd()),
+}));
+vi.mock("../managed-host-preparation", () => ({
+  runManagedHostPreparation: vi.fn(async () => {}),
 }));
 vi.mock("../router", () => ({
   CACHE_DIR: "/tmp/devrouter-workspace-ensure-test/cache",
@@ -1198,6 +1203,51 @@ describe("workspaceEnsure", () => {
     );
   }
 
+  it.each([
+    false,
+    true,
+  ])("runs host generation once before Compose inspection (degraded=%s)", async (degraded) => {
+    if (degraded) {
+      mockRepair();
+      mockAutomaticProfileSelection();
+    } else {
+      mockManagedLifecycle();
+      vi.mocked(loadRuntimeConfig).mockReturnValue(managedProfileRuntime("new"));
+    }
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.devcontainer.prepareCommand = ["generator"];
+    vi.mocked(loadRepoConfig).mockReturnValueOnce(config);
+    const generated = path.join(tmpDir, ".devcontainer", "generated.yml");
+    vi.mocked(runManagedHostPreparation).mockImplementationOnce(async () => {
+      fs.writeFileSync(generated, "services: {}\n");
+    });
+    const inspect = vi.mocked(inspectManagedDevcontainerConfig).getMockImplementation()!;
+    vi.mocked(inspectManagedDevcontainerConfig).mockImplementation((options) => {
+      expect(fs.existsSync(generated)).toBe(true);
+      return inspect(options);
+    });
+    await workspaceEnsure(tmpDir, { profile: "new", containerTimeoutMs: 0, httpTimeoutMs: 0 });
+    expect(runManagedHostPreparation).toHaveBeenCalledOnce();
+    expect(runManagedHostPreparation).toHaveBeenCalledWith(tmpDir, config);
+  });
+
+  it("ends before Compose or provider mutation when host preparation fails", async () => {
+    mockRepair();
+    mockAutomaticProfileSelection();
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.devcontainer.prepareCommand = ["generator"];
+    vi.mocked(loadRepoConfig).mockReturnValueOnce(config);
+    vi.mocked(runManagedHostPreparation).mockRejectedValueOnce(
+      new Error("host preparation failed"),
+    );
+    await expect(workspaceEnsure(tmpDir, { profile: "new" })).rejects.toThrow(
+      "host preparation failed",
+    );
+    expect(inspectManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+  });
+
   it("ordinary ensure repairs degraded state without requiring the repair flag", async () => {
     const events: string[] = [];
     mockRepair(events);
@@ -1224,139 +1274,113 @@ describe("workspaceEnsure", () => {
     expect(devpodUpCalls()).toHaveLength(0);
   });
 
-  it("repairs the retained profile before transitioning to a requested profile", async () => {
+  it("recovers directly into the requested profile without starting a failing dropped process", async () => {
     const events: string[] = [];
-    mockRepair(events);
+    const runtime = mockRepair(events);
     mockAutomaticProfileSelection();
-
+    const adapter = vi.mocked(runManagedPostStart).getMockImplementation()!;
+    vi.mocked(runManagedPostStart).mockImplementation((options) => {
+      if (options.processes?.includes("local-mcp")) throw new Error("dropped process cannot start");
+      return adapter(options);
+    });
     await expect(
-      workspaceEnsure(tmpDir, {
-        profile: "new",
-        containerTimeoutMs: 0,
-        httpTimeoutMs: 0,
-      }),
+      workspaceEnsure(tmpDir, { profile: "new", containerTimeoutMs: 0, httpTimeoutMs: 0 }),
     ).resolves.toMatchObject({ profile: "new", managedRuntime: { status: "ready" } });
-
-    expect(runManagedPostStart).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ profile: "old", processes: ["app", "local-mcp"] }),
-    );
-    expect(runManagedPostStart).toHaveBeenNthCalledWith(
-      2,
+    expect(runManagedPostStart).toHaveBeenCalledOnce();
+    expect(runManagedPostStart).toHaveBeenCalledWith(
       expect.objectContaining({ profile: "new", processes: ["app"] }),
     );
-    expect(startExactManagedServices).toHaveBeenCalledWith(
-      expect.objectContaining({ services: ["litellm"] }),
-    );
+    expect(runtime.runningProcesses).toEqual(new Set(["app"]));
     expect(stopExactManagedService).toHaveBeenCalledWith("redis-id", "redis");
-    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
-    expect(writeManagedRuntimeState).toHaveBeenCalledTimes(2);
+    expect(writeManagedRuntimeState).toHaveBeenCalledOnce();
     expect(devpodUpCalls()).toHaveLength(1);
-    expect(events.indexOf("state-write")).toBeLessThan(events.indexOf("devpod-up"));
-    expect(events.indexOf("process-start:app,local-mcp")).toBeLessThan(
-      events.indexOf("process-start:app"),
-    );
   });
 
-  it("does not transition or create when automatic repair fails", async () => {
-    const events: string[] = [];
-    const { state } = mockRepair(events);
+  it("preserves degraded resources without replaying the failed baseline after a requested transition fails", async () => {
+    const { state } = mockRepair();
     mockAutomaticProfileSelection();
-    vi.mocked(runManagedPostStart).mockImplementationOnce(() => {
-      throw new Error("automatic repair failed");
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      throw new Error("requested process failed");
     });
-
     await expect(
-      workspaceEnsure(tmpDir, {
-        profile: "new",
-        containerTimeoutMs: 0,
-        httpTimeoutMs: 0,
-      }),
-    ).rejects.toThrow("automatic repair failed");
-
-    expect(runManagedPostStart).toHaveBeenCalledTimes(1);
-    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
-    expect(startExactManagedServices).not.toHaveBeenCalled();
+      workspaceEnsure(tmpDir, { profile: "new", containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("requested process failed");
+    expect(runManagedPostStart).toHaveBeenCalledOnce();
     expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
-    expect(ensureTraefikRoutesLoaded).not.toHaveBeenCalled();
-    expect(devpodUpCalls()).toHaveLength(0);
     expect(markManagedRuntimeDegraded).toHaveBeenCalledWith(state, "process-start");
   });
 
-  it("rolls a failed requested transition back to the newly repaired baseline", async () => {
-    mockRepair();
+  it("keeps a failed requested route transition degraded without restarting dropped processes", async () => {
+    const { state } = mockRepair();
     mockAutomaticProfileSelection();
-    vi.mocked(ensureTraefikRoutesLoaded).mockRejectedValueOnce(
-      new Error("requested transition route failed"),
-    );
-
+    vi.mocked(ensureTraefikRoutesLoaded).mockRejectedValueOnce(new Error("requested route failed"));
     await expect(
-      workspaceEnsure(tmpDir, {
-        profile: "new",
-        containerTimeoutMs: 0,
-        httpTimeoutMs: 0,
-      }),
-    ).rejects.toThrow("Candidate runtime was rolled back");
-
-    expect(writeManagedDevcontainerConfig).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ desiredProfileServices: ["litellm"] }),
-    );
-    expect(writeManagedDevcontainerConfig).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ desiredProfileServices: ["redis"] }),
-    );
-    expect(startExactManagedServices).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ services: ["litellm"] }),
-    );
-    expect(startExactManagedServices).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ services: ["app", "postgres", "redis"] }),
-    );
-    expect(runManagedPostStart).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ profile: "old", processes: ["app", "local-mcp"] }),
-    );
-    expect(runManagedPostStart).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ profile: "new", processes: ["app"] }),
-    );
-    expect(runManagedPostStart).toHaveBeenNthCalledWith(
-      3,
-      expect.objectContaining({ profile: "old", processes: ["app", "local-mcp"] }),
-    );
-    expect(stopExactManagedService).toHaveBeenNthCalledWith(1, "redis-id", "redis");
-    expect(stopExactManagedService).toHaveBeenNthCalledWith(2, "litellm-id", "litellm");
-    expect(ensureTraefikRoutesLoaded).toHaveBeenCalledTimes(2);
-    expect(markManagedRuntimeDegraded).not.toHaveBeenCalled();
-    expect(devpodUpCalls()).toHaveLength(1);
+      workspaceEnsure(tmpDir, { profile: "new", containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("requested route failed");
+    expect(runManagedPostStart).toHaveBeenCalledOnce();
+    expect(markManagedRuntimeDegraded).toHaveBeenCalledWith(state, "route-publication");
   });
 
-  it("does not start a stale transition after a stop fence between repair and transition", async () => {
-    const events: string[] = [];
-    mockRepair(events);
+  it("honors the stop fence before beginning a requested recovery transition", async () => {
+    mockRepair();
     mockAutomaticProfileSelection();
-    const claimLifecycleEffect = vi.spyOn(reliabilityLifecycle, "claimLifecycleEffect");
-    claimLifecycleEffect.mockImplementation(() => {
-      if (events.includes("state-write")) throw new Error("Lifecycle worker was cancelled.");
+    const claim = vi.spyOn(reliabilityLifecycle, "claimLifecycleEffect").mockImplementation(() => {
+      throw new Error("Lifecycle worker was cancelled.");
     });
-
     try {
       await expect(
-        workspaceEnsure(tmpDir, {
-          profile: "new",
-          containerTimeoutMs: 0,
-          httpTimeoutMs: 0,
-        }),
+        workspaceEnsure(tmpDir, { profile: "new", containerTimeoutMs: 0, httpTimeoutMs: 0 }),
       ).rejects.toThrow("Lifecycle worker was cancelled");
     } finally {
-      claimLifecycleEffect.mockRestore();
+      claim.mockRestore();
     }
-
     expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
-    expect(startExactManagedServices).not.toHaveBeenCalled();
+    expect(runManagedPostStart).not.toHaveBeenCalled();
     expect(devpodUpCalls()).toHaveLength(0);
+  });
+
+  it.each([
+    "services",
+    "adapter",
+    "routes",
+  ])("can retry a requested recovery after %s fails without replaying dropped processes", async (phase) => {
+    mockRepair();
+    mockAutomaticProfileSelection();
+    if (phase === "services")
+      vi.mocked(startExactManagedServices).mockImplementationOnce(() => {
+        throw new Error("injected service failure");
+      });
+    if (phase === "adapter")
+      vi.mocked(runManagedPostStart).mockImplementationOnce(() => {
+        throw new Error("injected adapter failure");
+      });
+    if (phase === "routes")
+      vi.mocked(ensureTraefikRoutesLoaded).mockRejectedValueOnce(
+        new Error("injected route failure"),
+      );
+    await expect(
+      workspaceEnsure(tmpDir, { profile: "new", containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("injected");
+    await expect(
+      workspaceEnsure(tmpDir, { profile: "new", containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).resolves.toMatchObject({ profile: "new" });
+    expect(
+      vi
+        .mocked(runManagedPostStart)
+        .mock.calls.every(([call]) => !call.processes?.includes("local-mcp")),
+    ).toBe(true);
+  });
+
+  it("rejects foreign retained process ownership before requested-profile mutation", async () => {
+    mockRepair();
+    mockAutomaticProfileSelection();
+    vi.mocked(runManagedProcessAction).mockReturnValue("foreign");
+    await expect(
+      workspaceEnsure(tmpDir, { profile: "new", containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("unproven process");
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(runManagedPostStart).not.toHaveBeenCalled();
   });
 
   it("repairs the recorded profile without provider bootstrap and persists ready after candidate proof", async () => {

@@ -75,3 +75,18 @@ Current lifecycle suite passes 91 cases; docs policy and knowledge checks pass.
 The same planner approved the corrected contract on its second pass. Hook ordering
 integration tests are added for ordinary and degraded transitions and early failure;
 their execution awaits the delegated module. This approval is not final source review.
+
+Implementation is complete for host preparation and direct requested-profile
+recovery. Main completed the hook cancellation correction and tests after the
+executor handback. The hook signals its owned group only while the direct child
+is live, with no delayed signal after reaping. Real-process fixture proves literal
+argv/cwd, rejection and config preservation, and timeout cancellation of an
+inherited child. Integration proves one invocation before ordinary/degraded
+Compose inspection and rejection before provider actions.
+
+Validation: all 1112 pre-correction suite tests pass on the host; sandbox failures
+were process-birth permission errors. Final affected set passes 237 tests including
+11 added hook/schema cases. TypeScript, Biome, Knip, docs policy, knowledge, build
+and packed installation smoke pass. Linux process-helper tests skipped on macOS;
+helper source is unchanged from the previously qualified 0.0.57 release. No live
+consumer runtime or data changed. Independent source reviews and delivery remain.

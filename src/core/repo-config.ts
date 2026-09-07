@@ -85,6 +85,8 @@ function assertHostNotTemplated(host: string, label: string): void {
 }
 
 const MAX_COMMAND_LENGTH = 4096;
+const MAX_PREPARE_ARGS = 64;
+const MAX_PREPARE_ARG_BYTES = 4096;
 
 const DEFAULT_HOST_STRATEGY = {
   type: "auto" as const,
@@ -605,6 +607,40 @@ function parseRequiredUniqueStringArray(value: unknown, pathLabel: string): stri
   return parseUniqueStringArray(value, pathLabel);
 }
 
+function parsePrepareCommand(value: unknown, pathLabel: string): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${pathLabel} must be a non-empty array of strings.`);
+  }
+  if (value.length === 0) {
+    throw new Error(`${pathLabel} must be a non-empty array of strings.`);
+  }
+  if (value.length > MAX_PREPARE_ARGS) {
+    throw new Error(`${pathLabel} exceeds the maximum of ${MAX_PREPARE_ARGS} arguments.`);
+  }
+
+  return value.map((item, index) => {
+    if (typeof item !== "string") {
+      throw new Error(`${pathLabel}[${index}] must be a string.`);
+    }
+    if (index === 0 && item.length === 0) {
+      throw new Error(`${pathLabel}[0] must be a non-empty executable.`);
+    }
+    if (item.includes("\0")) {
+      throw new Error(`${pathLabel}[${index}] must not contain null bytes.`);
+    }
+    const byteLength = Buffer.byteLength(item, "utf8");
+    if (byteLength > MAX_PREPARE_ARG_BYTES) {
+      throw new Error(
+        `${pathLabel}[${index}] exceeds the maximum of ${MAX_PREPARE_ARG_BYTES} UTF-8 bytes.`,
+      );
+    }
+    return item;
+  });
+}
+
 function parseManagedRuntime(
   value: unknown,
   configPath: string,
@@ -622,7 +658,7 @@ function parseManagedRuntime(
   );
   ensureAllowedKeys(
     devcontainer,
-    ["baseServices", "profileServices"],
+    ["baseServices", "profileServices", "prepareCommand"],
     `${configPath}.managedRuntime.devcontainer`,
   );
   const baseServices = parseRequiredUniqueStringArray(
@@ -632,6 +668,10 @@ function parseManagedRuntime(
   const profileServices = parseRequiredUniqueStringArray(
     devcontainer.profileServices,
     `${configPath}.managedRuntime.devcontainer.profileServices`,
+  );
+  const prepareCommand = parsePrepareCommand(
+    devcontainer.prepareCommand,
+    `${configPath}.managedRuntime.devcontainer.prepareCommand`,
   );
   const baseSet = new Set(baseServices);
   const overlappingServices = profileServices.filter((service) => baseSet.has(service));
@@ -655,7 +695,11 @@ function parseManagedRuntime(
   }
 
   return {
-    devcontainer: { baseServices, profileServices },
+    devcontainer: {
+      baseServices,
+      profileServices,
+      ...(prepareCommand ? { prepareCommand } : {}),
+    },
     processes,
   };
 }
