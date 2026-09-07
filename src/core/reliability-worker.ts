@@ -174,7 +174,18 @@ export async function runLifecycleWorker(request: LifecycleWorkerRequest): Promi
         try {
           if (request.kind !== "stop") {
             updateReliabilityOperation(request.identity, (record) => {
-              if (record.worker?.id !== request.workerId) return;
+              if (record.worker?.id !== request.workerId || record.worker.pid !== child.pid) return;
+              if (!result) {
+                record.state = stepReliability(
+                  record.state,
+                  {
+                    ...reliabilityFence(record.state),
+                    type: "interrupted",
+                    operationId: request.operationId,
+                  },
+                  Date.now(),
+                ).state;
+              }
               if (child.pid && workerGroupAbsent(child.pid)) {
                 record.state = stepReliability(
                   record.state,

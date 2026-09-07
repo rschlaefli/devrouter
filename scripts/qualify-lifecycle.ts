@@ -56,7 +56,40 @@ async function main() {
     DOCKER_HOST: `unix://${root}/nonexistent.sock`,
     DEVROUTER_WORKSPACE_RUNTIME: "devpod",
     LIFECYCLE_FIXTURE: fixture,
+    NODE_PATH: path.join(prefix, "node_modules"),
+    NODE_OPTIONS: "",
+    LIFECYCLE_FAULT: "",
   };
+  const faultPreload = path.join(root, "fault-preload.cjs");
+  fs.writeFileSync(
+    faultPreload,
+    `
+const fs = require('node:fs');
+const rename = fs.renameSync;
+const sync = fs.fsyncSync;
+let uncertain = false;
+fs.renameSync = function(from, to) {
+  if (String(to).includes('/reliability/') && String(to).endsWith('.json')) {
+    const record = JSON.parse(fs.readFileSync(from, 'utf8'));
+    const mode = process.env.LIFECYCLE_FAULT;
+    if (record.state.operation?.status === 'DISPATCH_PENDING' && !fs.existsSync(process.env.LIFECYCLE_FIXTURE+'.fault')) {
+      fs.writeFileSync(process.env.LIFECYCLE_FIXTURE+'.fault', mode);
+      if (mode === 'before-persist') throw new Error('synthetic pre-rename failure');
+      if (mode === 'after-persist') {
+        rename.call(fs, from, to);
+        uncertain = true;
+        return;
+      }
+    }
+  }
+  return rename.call(fs, from, to);
+};
+fs.fsyncSync = function(fd) {
+  if (uncertain) throw new Error('synthetic durability acknowledgement failure');
+  return sync.call(fs, fd);
+};
+`,
+  );
   const fixtureSource = `#!${node}
 const fs = require('node:fs');
 const path = require('node:path');
@@ -74,13 +107,33 @@ else if (command === 'devsy' && args.join(' ') === 'workspace list --result-form
 else if (command === 'devpod' && args.join(' ') === 'up '+state.repo+' --id fixture --open-ide=false') { state.running=true; write(); }
 else if (command === 'devpod' && args[0] === 'status' && args[1] === 'fixture') { output({id:'fixture',state:state.running?'Running':'Stopped'}); }
 else if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'status' && args[2] === 'fixture') { output({id:'fixture',state:state.running?'Running':'Stopped'}); }
+else if (command === 'curl') {
+ const yaml = require('yaml');
+ const routesFile = path.join(process.env.HOME,'.config/devrouter/traefik/dynamic/host-routes.yml');
+ const document = fs.existsSync(routesFile) ? yaml.parse(fs.readFileSync(routesFile,'utf8')) : {};
+ const url = args.at(-1);
+ const parsedUrl = new URL(url);
+ const parts = parsedUrl.pathname.split('/');
+ const api = parsedUrl.origin === 'http://127.0.0.1:8080' && parts[1] === 'api' && ['http','tcp'].includes(parts[2]) && ['routers','services'].includes(parts[3]) ? [null,parts[2],parts[3],parts[4] ? '/'+parts[4] : parsedUrl.search] : null;
+ if (api) {
+  const entries = document[api[1]]?.[api[2]] ?? {};
+  if(api[3].startsWith('?per_page=')) output(Object.keys(entries).map(name=>({name:name+'@file'})));
+  else {
+   const name=decodeURIComponent(api[3].slice(1)); const key=name.replace(/@file$/,'');
+   if(!entries[key]) fail();
+   output({...entries[key],name,status:'enabled'});
+  }
+ } else if (args.includes('%{http_code}') && url === 'http://fixture.localhost') {
+  if(Object.values(document.http?.routers??{}).some(router=>router.rule==='Host('+String.fromCharCode(96)+'fixture.localhost'+String.fromCharCode(96)+')')) console.log('200'); else fail();
+ } else fail();
+}
 else if (command === 'docker' && args.join(' ') === 'context show') console.log('fixture');
 else if (command === 'docker' && args[0] === 'context' && args[1] === 'inspect' && args[2] === 'fixture') console.log('unix://'+file+'.sock');
 else if (command === 'docker' && args.join(' ') === 'exec '+'a'.repeat(64)+' git -C /workspace rev-parse --show-toplevel') console.log('/workspace');
 else if (command === 'docker' && args.join(' ') === 'compose -f '+process.env.HOME+'/.config/devrouter/compose.yml up -d') { }
 else if (command === 'docker' && args[0] === 'ps' && args.includes('{{.ID}}')) { console.log('a'.repeat(64)); }
 else if (command === 'docker' && args[0] === 'inspect' && args.at(-1) === 'a'.repeat(64) && args[1] === '--format') {
- output({id:'a'.repeat(64),state:{Running:state.running,Status:state.running?'running':'exited',Paused:false,Restarting:false,Dead:false},labels:{'com.docker.compose.project':'fixture','com.docker.compose.service':'app','com.docker.compose.project.working_dir':state.repo+'/.devcontainer','com.docker.compose.project.config_files':state.repo+'/.devcontainer/compose.yml','com.docker.compose.config-hash':'fixture'},mounts:[{Type:'bind',Source:state.repo,Destination:'/workspace'}],networks:{}});
+ output({id:'a'.repeat(64),state:{Running:state.running,Status:state.running?'running':'exited',Paused:false,Restarting:false,Dead:false},labels:{'com.docker.compose.project':'fixture','com.docker.compose.service':'app','com.docker.compose.project.working_dir':state.repo+'/.devcontainer','com.docker.compose.project.config_files':state.repo+'/.devcontainer/compose.yml','com.docker.compose.config-hash':'fixture'},mounts:[{Type:'bind',Source:state.repo,Destination:'/workspace'}],networks:{devnet:{Aliases:["fixture-app"]}}});
 }
 else if ((command === 'devpod' && args[2] === 'ssh' && args[3] === 'fixture') || (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args[4] === 'fixture')) {
  state.launches++; write();
@@ -96,7 +149,7 @@ else if ((command === 'devpod' && args[2] === 'ssh' && args[3] === 'fixture') ||
 else if ((command==='devpod' && args[0]==='stop' && args[1]==='fixture') || (command==='devsy' && args[0]==='workspace' && args[1]==='stop' && args[2]==='fixture')) { state.running=false; write(); }
 else fail();
 `;
-  for (const command of ["docker", "devpod", "devsy", "mkcert"])
+  for (const command of ["docker", "devpod", "devsy", "mkcert", "curl"])
     fs.writeFileSync(path.join(bin, command), fixtureSource, { mode: 0o700 });
   let journal = path.join(
     home,
@@ -198,12 +251,20 @@ else fail();
   async function qualifyEnsure() {
     freshHome("ensure-home");
     configure("complete");
+    fs.writeFileSync(
+      path.join(repo, ".devrouter.yml"),
+      "version: 1\nproject:\n  name: fixture\napps:\n  - name: web\n    runtime: proxy\n    protocol: http\n    host: fixture.localhost\n    upstream: fixture-app:3000\n",
+    );
     const apiRequests: string[] = [];
+    let releaseNetwork: (() => void) | undefined;
     const server = http.createServer((request, response) => {
       apiRequests.push(`${request.method} ${request.url}`);
       if (request.method === "GET" && request.url === "/networks/devnet") {
         response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify({ Name: "devnet" }));
+        if (JSON.parse(fs.readFileSync(fixture, "utf8")).mode === "network-hold") {
+          releaseNetwork = () => response.end(JSON.stringify({ Name: "devnet" }));
+          fs.writeFileSync(`${fixture}.network-barrier`, "entered");
+        } else response.end(JSON.stringify({ Name: "devnet" }));
       } else {
         fs.appendFileSync(`${fixture}.unexpected`, `${request.method} ${request.url}\n`);
         response.writeHead(500);
@@ -223,6 +284,27 @@ else fail();
       assert.equal(read().state.runtimeGeneration, generation);
       assert.equal(read().state.operationHistory.length, 2);
       assert.equal(apiRequests.length, 2);
+      expectExit(["stop", repo, "--json"], 0);
+      assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
+      configure("network-hold");
+      const delayed = launch(["ensure", repo, "--json"]);
+      await watchUntil(`${fixture}.network-barrier`, () =>
+        fs.existsSync(`${fixture}.network-barrier`),
+      );
+      const stopped = launch(["stop", repo, "--json"]);
+      await watchUntil(journal, () => read().state.desired === "stopped-by-user");
+      assert.ok(releaseNetwork);
+      releaseNetwork();
+      assert.equal(await delayed.done, 1, delayed.output());
+      assert.equal(await stopped.done, 0, stopped.output());
+      assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
+      evidence.push(
+        "stop during delayed infrastructure return prevents stale route publication and rollback",
+      );
+      fs.writeFileSync(path.join(repo, ".devrouter.yml"), "version: 1\napps: []\n");
+      evidence.push(
+        "installed route publication and exact route removal use synthetic Traefik proof",
+      );
       evidence.push(
         "successive installed ensure calls preserve generation and reconcile independently",
       );
@@ -233,6 +315,22 @@ else fail();
     }
   }
   await qualifyEnsure();
+  for (const fault of ["before-persist", "after-persist"]) {
+    freshHome(fault);
+    configure("complete");
+    if (fs.existsSync(`${fixture}.fault`)) fs.unlinkSync(`${fixture}.fault`);
+    closedEnv.NODE_OPTIONS = `--require=${faultPreload}`;
+    closedEnv.LIFECYCLE_FAULT = fault;
+    expectExit(["exec", repo, "--", "synthetic"], 1);
+    assert.equal(fs.readFileSync(`${fixture}.fault`, "utf8"), fault);
+    assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 0);
+    closedEnv.NODE_OPTIONS = "";
+    closedEnv.LIFECYCLE_FAULT = "";
+    expectExit(["exec", repo, "--", "synthetic"], 1);
+    assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 0);
+    expectExit(["stop", repo, "--json"], 0);
+    evidence.push(`${fault}: installed dispatch never launches without durable acknowledgement`);
+  }
   async function races() {
     freshHome("race-home");
     configure("hold");
@@ -284,6 +382,39 @@ else fail();
     assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
     evidence.push(
       "supervisor loss retains worker serialization and refuses replacement until drainage",
+    );
+    freshHome("worker-loss-home");
+    fs.unlinkSync(`${fixture}.barrier`);
+    configure("hold");
+    const workerLost = launch(["exec", repo, "--", "synthetic"]);
+    await watchUntil(`${fixture}.barrier`, () => fs.existsSync(`${fixture}.barrier`));
+    const workerOwner = read().worker;
+    const heldProvider = Number(fs.readFileSync(`${fixture}.barrier`, "utf8"));
+    assert.equal(
+      Number(run("ps", ["-o", "ppid=", "-p", String(workerOwner.pid)])),
+      workerLost.child.pid,
+    );
+    assert.equal(Number(run("ps", ["-o", "pgid=", "-p", String(heldProvider)])), workerOwner.pid);
+    const providerBirth = run("ps", ["-o", "lstart=", "-p", String(heldProvider)]);
+    const ownerExited = new Promise<void>((resolve) =>
+      workerLost.child.once("exit", () => resolve()),
+    );
+    // This live child belongs to this invocation, and its held provider remains
+    // in its process group. Killing the worker must not establish full drainage.
+    process.kill(workerOwner.pid, "SIGKILL");
+    await ownerExited;
+    expectExit(["exec", repo, "--", "synthetic"], 1);
+    assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+    assert.equal(read().state.operation.drained, false);
+    assert.equal(run("ps", ["-o", "lstart=", "-p", String(heldProvider)]), providerBirth);
+    assert.equal(Number(run("ps", ["-o", "pgid=", "-p", String(heldProvider)])), workerOwner.pid);
+    process.kill(heldProvider, "SIGTERM");
+    await workerLost.done;
+    expectExit(["stop", repo, "--json"], 0);
+    assert.equal(read().worker, null);
+    assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
+    evidence.push(
+      "worker loss refuses replacement while its verified provider group remains active",
     );
     freshHome("devsy-home");
     closedEnv.DEVROUTER_WORKSPACE_RUNTIME = "devsy";
