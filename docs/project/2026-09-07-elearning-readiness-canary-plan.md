@@ -155,6 +155,32 @@ bounded recovery and harness qualification only through their reviewed scopes.
 
 ### Current checkpoint, 2026-09-07
 
+Follow-up browser qualification uses the already cached agent-browser 0.36.0 and
+an isolated Chrome session. The browser received the real student-session cookie
+from a short-lived synthetic launch token, with values kept out of transcripts
+and files. The session endpoint subsequently displayed Unauthorized; cookie
+metadata proved issuance, and direct authenticated navigation succeeded. The
+initial redirect journey therefore remains a failed/ambiguous first attempt.
+Do not claim a clean first-attempt browser launch flow.
+
+The browser completed the synthetic block through its normal completion control.
+The scoped learner progress query then proved one completed record. After exact
+non-destructive stop/full resume, the record identity, creation time, modification
+time and completion state were unchanged. Reloading the authenticated overview
+still displayed completion. Receipts: /private/tmp/elearning-browser-progress-
+{before,after,stop,resume}.log. The isolated browser was closed; final canonical
+stop is recorded in /private/tmp/elearning-auth-browser-final-stop.log.
+Final source-path registry resolution matched one provider ID. Devsy reports
+Stopped and the final route readback contains zero exact canary routes.
+
+The stopped-state correction is committed at 40104c5, followed by the reviewed
+two-line simplification bcf9516. Its 25 installed synthetic lifecycle cases pass
+on clean source 40104c5, Node 24.16.0 and pnpm 11.6.0; the tarball digest is
+1e033187b3f6e0041c0da99dd32aba2bdffc96c160e1e87525109d39f8849463.
+All 15 focused status tests pass after simplification. The full suite and package
+evidence remain applicable to the behavior-preserving deletion. Risk review is
+still active; no integrated-final review or publication is claimed.
+
 The consumer source is committed at d3ebf87797bbf021c95008db8c302e6f819a33c4.
 Full typecheck and 627 tests pass (one test skips). Godel's independent
 simplifier completed with no justified changes; the trusted native consumer
