@@ -406,6 +406,29 @@ describe("manual operation lifecycle", () => {
     }).state;
     return step(state, { type: "drained", operationId: ensure.operationId }).state;
   }
+  it.each([
+    "ai,chat,manage,live-quiz,email",
+    " manage,ai,manage ",
+  ])("retains combined profile selection through manual dispatch: %s", (profile) => {
+    let state = step(manual(), { ...ensure, profile }).state;
+    expect(state.profile).toBe(profile);
+    expect(state.operationHistory[0].profile).toBe(profile);
+    state = step(state, { type: "dispatch" }).state;
+    expect(state.operation?.status).toBe("DISPATCH_PENDING");
+    expect(step(state, { ...ensure, profile }).outcome).toBe("joined");
+  });
+
+  it.each([
+    "",
+    ",ai",
+    "ai,",
+    "ai,,chat",
+    "ai,../chat",
+    "a".repeat(4097),
+  ])("rejects malformed profile selections before dispatch: %s", (profile) => {
+    expect(() => step(manual(), { ...ensure, profile })).toThrow();
+  });
+
   it("dispatches explicit manual operations without manufacturing host capacity", () => {
     const state = dispatched();
     expect(state.operation?.status).toBe("RUNNING");

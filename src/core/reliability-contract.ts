@@ -129,6 +129,14 @@ export function isReliabilityId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value);
 }
 
+export function isReliabilityProfile(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 4096 &&
+    value.split(",").every((name) => isReliabilityId(name.trim()))
+  );
+}
+
 export function isReliabilityCounter(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
@@ -187,7 +195,7 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
     value.operationHistory.every(
       (entry) =>
         record(entry) &&
-        isReliabilityId(entry.profile) &&
+        isReliabilityProfile(entry.profile) &&
         record(entry.consumer) &&
         isReliabilityId(entry.consumer.id) &&
         typeof entry.consumer.pinned === "boolean" &&
@@ -212,7 +220,7 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
       "recovering",
       "stopping",
     ]) &&
-    (value.profile === null || isReliabilityId(value.profile)) &&
+    (value.profile === null || isReliabilityProfile(value.profile)) &&
     oneOf(value.admission, [
       "admitted",
       "waiting",
@@ -242,7 +250,7 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
         oneOf(request.mode, ["start", "attach"]) &&
         isReliabilityId(request.consumerId) &&
         isReliabilityId(request.operationId) &&
-        isReliabilityId(request.profile) &&
+        isReliabilityProfile(request.profile) &&
         isReliabilityCounter(request.intentRevision) &&
         isReliabilityCounter(intentRevision) &&
         request.intentRevision <= intentRevision,
