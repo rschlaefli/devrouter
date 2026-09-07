@@ -5,14 +5,10 @@ import {
   ExecutionOutcomeError,
   unwrapExecutionOutcome,
 } from "./execution-outcome";
-import { withWorkspaceLifecycleLock } from "./workspace";
+import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-lifecycle";
 
 function ensureGuidance(repoPath: string): string {
   return `Run 'devrouter ensure ${repoPath}' first.`;
-}
-
-function transport(exitCode: number | null, signal: string | null) {
-  return { exitCode, signal };
 }
 
 function devsyUnknownMessage(outcome: ExecutionOutcome): string {
@@ -33,7 +29,7 @@ export async function devsyExecOutcome(
   if (command.length === 0) {
     throw new Error("No command provided. Use `devrouter exec [path] -- <command...>`.");
   }
-  return withWorkspaceLifecycleLock(repoPath, async () => {
+  return withLifecycleOperationLock(repoPath, async () => {
     const workspace = selectDevsyWorkspace(listDevsyWorkspaces(), repoPath);
     if (!workspace) {
       throw new Error(
@@ -48,13 +44,14 @@ export async function devsyExecOutcome(
     return new Promise<ExecutionOutcome>((resolve, reject) => {
       let child: ReturnType<typeof spawn>;
       try {
+        claimLifecycleEffect();
         child = spawn("devsy", args, { stdio: "inherit" });
       } catch (error) {
         reject(
           new ExecutionOutcomeError(`devsy exec failed: ${errorMessage(error)}`, {
             status: "not-started",
             exitCode: null,
-            transport: transport(null, null),
+            transport: { exitCode: null, signal: null },
           }),
         );
         return;
@@ -64,13 +61,13 @@ export async function devsyExecOutcome(
           new ExecutionOutcomeError(`devsy exec failed: ${error.message}`, {
             status: child.pid === undefined ? "not-started" : "completion-unknown",
             exitCode: null,
-            transport: transport(null, null),
+            transport: { exitCode: null, signal: null },
           }),
         ),
       );
       child.once("close", (code, signal) => {
         const signalValue = signal ?? null;
-        const executionTransport = transport(code, signalValue);
+        const executionTransport = { exitCode: code, signal: signalValue };
         if (code === null) {
           resolve({ status: "completion-unknown", exitCode: null, transport: executionTransport });
           return;

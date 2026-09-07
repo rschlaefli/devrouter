@@ -1,4 +1,5 @@
-import { environmentStop } from "../core/environment-stop";
+import type { EnvironmentStopResult } from "../core/environment-stop";
+import { superviseLifecycle } from "../core/reliability-lifecycle";
 import { resolveGitCheckoutPath } from "./environment-path";
 
 export async function runStopCommand(options: {
@@ -7,7 +8,9 @@ export async function runStopCommand(options: {
   delete?: boolean;
 }): Promise<void> {
   const repoPath = resolveGitCheckoutPath(options.path);
-  const result = await environmentStop(repoPath, { delete: options.delete });
+  const result = (await superviseLifecycle("stop", repoPath, {
+    delete: options.delete,
+  })) as EnvironmentStopResult;
   if (options.json) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;

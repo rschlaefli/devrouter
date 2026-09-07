@@ -52,6 +52,27 @@ rejects missing, earlier, malformed, or unsupported lifecycle ordering before
 provider mutation. Selective managed configuration preserves lifecycle fields
 and changes only `runServices`.
 
+## Interrupted lifecycle commands
+
+`ensure`, `exec`, and `stop` coordinate through a private per-checkout operation
+record under `~/.config/devrouter/reliability`. Each invocation owns a packaged
+worker that retains the workspace lock through provider work. Explicit `stop`
+records stopped intent before waiting and prevents earlier workers from claiming
+new mutations or restoring routes. Completion requires positive workload and
+route cessation evidence as well as drainage of earlier workers.
+
+A proven application exit code remains the CLI exit code. A lost completion is
+reported as unknown and is never replayed automatically. Use explicit `stop` to
+reconcile an interrupted operation; retry `ensure` only after stop succeeds.
+If stop cannot prove cessation, preserve the operation record and generated
+configuration and investigate the reported provider or worker evidence. Deleting
+bookkeeping cannot prove that earlier work stopped. Corrupt or incompatible
+records fail closed. Operation history is bounded and refuses new dispatch when
+full; it is not silently discarded.
+
+These commands provide manual lifecycle coordination. They do not enroll the
+machine in resource admission, prevent OOM, or enable automatic parking/recovery.
+
 ## How it works: `devnet`
 
 devrouter's Traefik runs in Docker on a shared external bridge network,

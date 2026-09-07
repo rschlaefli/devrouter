@@ -5,6 +5,7 @@ import type { HostRouteState } from "../types";
 import { createStderrWaitReporter, withFileLock } from "./file-lock";
 import type { HostRouteInput } from "./host-routes";
 import { buildHostRouteId, buildHostRouteRouterName, buildHostRoutesDocument } from "./host-routes";
+import { claimLifecycleEffect } from "./reliability-context";
 import { DEVROUTER_HOME, restartRouterStack } from "./router";
 
 const ROUTER_API_BASE = "http://127.0.0.1:8080/api";
@@ -397,6 +398,7 @@ async function ensureTraefikRouteExpectation(
       const recheck = await waitForExpectedRoutes(routes, expectation, 0, pollIntervalMs);
       if (recheck.ok) return { restarted: false };
 
+      claimLifecycleEffect();
       restartRouterStack();
       const recovered = await waitForExpectedRoutes(
         routes,

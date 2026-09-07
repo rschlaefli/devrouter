@@ -14,6 +14,7 @@ import {
   stopOwnedDevsyWorkspace,
 } from "./devsy-mutation";
 import { createStderrWaitReporter, withFileLockSync } from "./file-lock";
+import { claimLifecycleEffect } from "./reliability-context";
 import { DEVROUTER_HOME } from "./router";
 import {
   readWorkspaceRuntimeConfig,
@@ -65,6 +66,7 @@ function runDevpodAction(action: "stop" | "delete", devpodId: string, force = fa
     action === "delete"
       ? [action, devpodId, ...(force ? ["--force"] : []), "--ignore-not-found"]
       : [action, devpodId];
+  claimLifecycleEffect();
   const result = spawnSync("devpod", args, { encoding: "utf-8" });
   if (result.status !== 0) {
     throw new Error(
@@ -213,6 +215,8 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
       delete env.DEVROUTER_GIT_COMMON_DIR;
       delete env.DEVCONTAINER_COMPOSE_OVERLAY;
     }
+
+    claimLifecycleEffect();
 
     const result = spawnSync("devpod", args, {
       stdio: options.quiet ? ["inherit", 2, "inherit"] : "inherit",

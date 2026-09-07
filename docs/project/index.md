@@ -4,6 +4,8 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Interruption-safe lifecycle integration](./2026-09-06-reliability-lifecycle-execution-plan.md) — connect manual ensure, exec, and stop to durable operation records and qualify the installed CLI with synthetic providers. Source implementation approved; real-provider/OOM qualification remains separate.
+
 - [Reliability contract foundation](./2026-09-06-reliability-contract-plan.md) — model intent, readiness, admission, and uncertain dispatch before live controller activation.
 - [CI profile-plan contract and Klicker adoption](./2026-08-30-ci-profile-plan-contract-plan.md) — emit repository-owned literal CI bindings from resolved profiles, release the generic contract, and migrate the existing Klicker Playwright draft.
 - [Side-effect-free CI profile resolution](./2026-08-30-pr-47-ci-profile-resolution-plan.md) — expose exact profile resources to automation without starting or inspecting a runtime in [PR #47](https://github.com/rschlaefli/devrouter/pull/47).

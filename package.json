@@ -28,6 +28,7 @@
     "dev": "tsx src/cli.ts",
     "test": "vitest run && pnpm test:process",
     "test:package": "./scripts/package-smoke.sh",
+    "qualify:lifecycle": "node --import tsx scripts/qualify-lifecycle.ts",
     "test:process": "bash scripts/test-devrouter-process.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",

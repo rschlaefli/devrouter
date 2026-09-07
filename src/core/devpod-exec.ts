@@ -8,7 +8,7 @@ import {
   ExecutionOutcomeError,
   unwrapExecutionOutcome,
 } from "./execution-outcome";
-import { withWorkspaceLifecycleLock } from "./workspace";
+import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-lifecycle";
 import { resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
 
 const DEVPOD_MISSING_EXIT_STATUS_DIAGNOSTIC = Buffer.from(
@@ -58,24 +58,8 @@ function resolveWorkspaceDirectory(repoPath: string): string {
   }
 }
 
-function transport(exitCode: number | null, signal: string | null) {
-  return { exitCode, signal };
-}
-
 function notStartedOutcome(): ExecutionOutcome {
-  return { status: "not-started", exitCode: null, transport: transport(null, null) };
-}
-
-function completedOutcome(
-  exitCode: number,
-  transportExitCode: number | null,
-  signal: string | null,
-) {
-  return {
-    status: "completed" as const,
-    exitCode,
-    transport: transport(transportExitCode, signal),
-  };
+  return { status: "not-started", exitCode: null, transport: { exitCode: null, signal: null } };
 }
 
 function devpodUnknownMessage(outcome: ExecutionOutcome): string {
@@ -99,7 +83,7 @@ export async function devpodExecOutcome(
   if (command.length === 0) {
     throw new Error("No command provided. Use `devrouter exec [path] -- <command...>`.");
   }
-  return withWorkspaceLifecycleLock(repoPath, async () => {
+  return withLifecycleOperationLock(repoPath, async () => {
     const devpod = selectDevpodWorkspace(listDevpodWorkspaces(repoPath), repoPath);
     if (!devpod) {
       throw new Error(`No exact DevPod exists for '${repoPath}'. ${ensureGuidance(repoPath)}`);
@@ -255,6 +239,7 @@ export async function devpodExecOutcome(
 
       let child: ReturnType<typeof spawn>;
       try {
+        claimLifecycleEffect();
         child = spawn("devpod", args, { stdio: ["inherit", "inherit", "pipe"] });
       } catch (error) {
         settled = true;
@@ -279,7 +264,11 @@ export async function devpodExecOutcome(
             `devpod ssh failed: ${error.message}`,
             child.pid === undefined
               ? notStartedOutcome()
-              : { status: "completion-unknown", exitCode: null, transport: transport(null, null) },
+              : {
+                  status: "completion-unknown",
+                  exitCode: null,
+                  transport: { exitCode: null, signal: null },
+                },
           ),
         );
       });
@@ -287,11 +276,11 @@ export async function devpodExecOutcome(
         if (settled) return;
         settled = true;
         const signalValue = signal ?? null;
-        const executionTransport = transport(code, signalValue);
+        const executionTransport = { exitCode: code, signal: signalValue };
         consumePending();
         if (remoteStatus !== undefined) {
           forwardAfterStatus(Buffer.alloc(0), true);
-          resolve(completedOutcome(remoteStatus, code, signalValue));
+          resolve({ status: "completed", exitCode: remoteStatus, transport: executionTransport });
           return;
         }
         if (readingStatus) {

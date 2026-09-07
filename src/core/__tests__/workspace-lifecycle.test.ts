@@ -9,6 +9,7 @@ import {
 } from "../devpod-mutation";
 import { listDevpodWorkspaces, listDevpodWorkspacesFromSnapshots } from "../devpod-workspaces";
 import { readManagedRuntimeState } from "../managed-runtime-state";
+import { superviseLifecycle } from "../reliability-lifecycle";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
 import { ensureTraefikRoutesRemoved } from "../traefik-route-health";
@@ -33,6 +34,16 @@ import {
   listWorkspaceOwnership,
   removeWorkspaceOwnership,
 } from "../workspace-ownership";
+
+vi.mock("../reliability-lifecycle", () => ({
+  claimLifecycleEffect: vi.fn(),
+  withLifecycleOperationLock: (repo: string, operation: () => Promise<unknown>) =>
+    withWorkspaceLifecycleLock(repo, operation),
+  superviseLifecycle: vi.fn(async (kind: string, repo: string, options: { open?: boolean }) => {
+    if (kind === "ensure") return workspaceEnsure(repo, options);
+    throw new Error("Unexpected supervisor fixture call");
+  }),
+}));
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../managed-runtime-state", () => ({ readManagedRuntimeState: vi.fn() }));
@@ -526,12 +537,22 @@ describe("workspaceDown", () => {
 });
 
 describe("workspaceStop", () => {
+  it("resolves the alias then delegates stop intent to the supervisor", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(superviseLifecycle).mockResolvedValueOnce({ stopped: true, freedRoutes: 0 });
+    await workspaceStop("feat-a", { quiet: true });
+    expect(superviseLifecycle).toHaveBeenCalledWith("stop", "/main/repo-feat-a", { quiet: true });
+    expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
+  });
+
   it("preserves routes when retained managed registration disappeared", async () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
     vi.mocked(readManagedRuntimeState).mockReturnValue({ status: "degraded" } as never);
-    await expect(workspaceStop("feat-a", { quiet: true })).rejects.toThrow();
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true })).rejects.toThrow();
     expect(stopOwnedDevpodWorkspace).toHaveBeenCalledWith("feat-a", "/main/repo-feat-a");
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
     expect(ensureTraefikRoutesRemoved).not.toHaveBeenCalled();
@@ -634,7 +655,7 @@ branch refs/heads/feature-foo
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    await workspaceStop("feat-a", { quiet: true });
+    await workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true });
 
     expect(events).toEqual(["stop", "routes", "proof"]);
     expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
@@ -658,7 +679,7 @@ branch refs/heads/feature-foo
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    await expect(workspaceStop("feat-a")).rejects.toThrow("devpod stop failed");
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a")).rejects.toThrow("devpod stop failed");
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
   });
 
@@ -681,7 +702,9 @@ branch refs/heads/feature-foo
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    await expect(workspaceStop("feat-a")).rejects.toThrow("ownership conflicts");
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a")).rejects.toThrow(
+      "ownership conflicts",
+    );
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
   });
 });

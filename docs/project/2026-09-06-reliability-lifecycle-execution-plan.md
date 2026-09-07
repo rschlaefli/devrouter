@@ -232,17 +232,14 @@ fault and cleanup manifest. The overall reliability roadmap remains incomplete.
 
 ## Progress
 
-Active: manual operation contract. Route: main; architecture and lifecycle seams
-are coupled. Acceptance: focused reliability contract/model/projection tests and
-typecheck, followed by committed simplifier and slice review. The execution
-provenance slice remains assigned to the configured executor after contract freeze.
-Remaining: durable production integration, installed synthetic qualification,
-independent final review, and source-only closeout. No publication or live-runtime
-work is authorized.
-
-The source foundation passed 1,008 tests and independent review before this
-package. Those results do not verify future integration. The permission retry
-and planner challenge are recorded below; no implementation has begun.
+Active: durable manual lifecycle integration and installed qualification. Manual
+contract and execution provenance slices are committed and independently reviewed.
+The production coordinator and packaged worker now pass synthetic ensure/exec/stop
+checks, including a concurrent stop barrier and separate transport evidence.
+Remaining: expanded process-loss/publication qualification, integration reviews,
+repository checks, documentation, local commit, and final source review.
+No publication or live-runtime work is authorized. Historical preparation and
+review receipts follow; they do not represent current blockers.
 
 ### Approved advisor retry, 2026-09-07
 
@@ -320,3 +317,58 @@ missing Devsy completion is typed unknown. The parent reviewed streaming bounds
 and changed post-spawn errors to unknown rather than not-started. 29 focused
 provider tests and typecheck pass. Provider execution was mocked; installed and
 real-provider qualification remain outstanding.
+
+Implementation dependency: export the existing processBirthIdentity helper from
+`src/core/file-lock.ts` without changing its behavior. The worker needs the same
+portable process-incarnation proof as lifecycle locks; reusing it avoids a second
+identity algorithm. This adds that exact file to the manifest and preserves the
+existing file-lock test suite as its verification. No lock semantics change.
+
+The route publication seam also requires `src/core/route-publication.ts`: claim the
+final publication after asynchronous infrastructure preparation, so stop fences
+that write independently. Linked identity is claimed with the existing resolver
+before opening a journal, avoiding first-use collision identity drift. Worker
+identity is journaled only after its owned IPC readiness handshake and before
+dispatch. A pre-handshake crash therefore cannot leave an unresolvable PID-less
+worker reservation. No request reaches a worker before this durable boundary.
+
+Installed dirty-tree fixtures now pass exit preservation, marker-plus-signal,
+unknown-completion replay refusal, full stop, concurrent stop during execution,
+successive Devsy exec, and corrupt-journal refusal. The journal retains a bounded
+current typed outcome with separate transport metadata, never arguments/output.
+`src/core/traefik-route-health.ts` also needs an effect claim immediately before
+its delayed restart, so stale readiness recovery cannot mutate shared routing.
+These findings broaden only the exact mutation-claim manifest, not authority.
+
+Full-suite integration exposed import cycles when low-level mutation modules
+loaded the entire lifecycle coordinator. New `src/core/reliability-context.ts`
+holds only the worker-installed synchronous claim callback; it imports no runtime
+modules. Mutation helpers use this leaf, preserving their existing dependency
+boundary and avoiding unrelated test/configuration dependencies.
+
+Add `package.json`'s `qualify:lifecycle` script for the approved qualification
+invocation, making it discoverable to users and Knip. No dependency changes.
+
+Generated skill distribution has an embedded copy in `src/core/agents-md.ts`;
+update the same recovery guidance there. Its existing `agents-md.test.ts` failed
+because the two copies diverged. Replace incidental prose-pinning assertions
+with generation, sentinel, idempotency, and user-content preservation checks.
+These two exact files join the guidance manifest; no new distribution system.
+
+### Integrated manual lifecycle slice evidence
+
+Source integration now includes private bounded journaling, worker-owned locking,
+pre-dispatch persistence, effect fencing, exact stop proof, and workspace aliases.
+Seven coordinator tests and seven journal tests pass. The full unit run passed
+1,037 tests and found one stale embedded guidance copy; that copy was synchronized
+and all eight guidance tests pass. The final identity recheck passes 41 affected
+coordinator/alias tests. Biome, Knip, typecheck, docs policy, knowledge validation,
+build and installed package smoke pass. Linux process-helper tests are skipped on
+macOS because `/proc` is unavailable; that acceptance gap remains explicit.
+
+Installed dirty-tree qualification proves nine behaviors, including successive
+ensure and exec, marker/signal precedence, unknown replay refusal, concurrent stop,
+corrupt records, and supervisor loss with retained serialization. Its status remains
+partial until the remaining source-plan qualification matrix is covered. The fixture
+uses closed provider executables, an isolated Docker API Unix socket, private
+homes and synthetic data. No real-provider or OOM proof has been performed.

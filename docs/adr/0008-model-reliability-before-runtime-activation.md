@@ -1,6 +1,6 @@
 # ADR 0008: Model reliability before runtime activation
 
-Status: accepted for the source contract; runtime activation remains proposed.
+Status: accepted for the source contract and manual lifecycle integration; capacity-managed activation remains proposed.
 
 Devrouter represents desired intent, observed readiness, admission, consumers,
 operation completion, and incident budgets independently. A pure transition
@@ -18,9 +18,9 @@ a possibly dispatched operation without authoritative completion is never replay
 Incident budgets survive runtime and controller changes.
 
 This contract makes lifecycle races executable before adapters acquire mutation
-authority. Existing CLI behavior and outputs do not consume it yet. Future
-adapters must prove durable dispatch ordering, ownership, resource accounting,
-and live recovery independently; model tests cannot establish these properties.
+authority. Manual CLI adapters consume the version-2 extension below. Resource accounting
+and live recovery require separate qualification; model tests cannot establish
+these properties.
 Machine enrollment, automatic recovery, and operational thresholds require later
 decisions and qualification. A single combined status would hide uncertainty,
 while activating a controller now would give an unqualified model live effects.
@@ -44,3 +44,12 @@ An initial exec may adopt positive evidence of an existing runtime while creatin
 its first manual record. It never starts that runtime or overrides recorded stop
 intent. Runtime adapters, installed qualification, and real-provider proof remain
 separate obligations; this extension alone does not activate runtime integration.
+
+The manual CLI journals bounded dispatch and worker incarnation under the existing
+Devrouter home. Its worker owns lifecycle serialization and claims provider and
+route effects against the current intent immediately before mutation. Stop intent
+precedes waiting; preexisting claims remain potentially in flight until exact
+worker drainage and runtime cessation are proven. Typed execution results retain
+transport metadata separately, without persisting arguments, output, or environment.
+Installed synthetic tests cover production adapters but do not qualify real-provider
+fault recovery or capacity-managed behavior.

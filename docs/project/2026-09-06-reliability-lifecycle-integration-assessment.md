@@ -1,6 +1,10 @@
 # Lifecycle integration and qualification readiness
 
-Status: investigation complete; next execution package is not yet approved.
+Status: historical baseline assessment; manual lifecycle source integration is approved and in progress under the [execution plan](./2026-09-06-reliability-lifecycle-execution-plan.md).
+
+The findings below describe the pre-integration baseline. Current implementation
+and qualification evidence belongs to the execution plan; real-provider and OOM
+qualification remain pending.
 
 The reliability foundation is locally reviewed, but normal commands still use
 the existing lifecycle paths. Agents do not yet receive enforced admission,

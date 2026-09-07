@@ -100,6 +100,7 @@ if (prompts.length === 0) {
 const required = new Set([
   ...binTargets.map(normalizeMember),
   'package/dist/devrouter.js',
+  'package/dist/devrouter-lifecycle-worker.js',
   ...prompts.map((prompt) => `package/upgrade-prompts/${prompt}`),
 ]);
 
@@ -199,7 +200,7 @@ done <"$REQUIRED_MEMBERS"
 
 while IFS= read -r member; do
   case "$member" in
-    package/bin/*|package/dist/*) assert_tar_executable "$member" ;;
+    package/bin/*|package/dist/devrouter.js) assert_tar_executable "$member" ;;
   esac
 done <"$REQUIRED_MEMBERS"
 

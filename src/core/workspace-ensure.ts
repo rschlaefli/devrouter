@@ -46,6 +46,7 @@ import {
   writeManagedRuntimeState,
 } from "./managed-runtime-state";
 import { collectManagedRuntimeStatus } from "./managed-runtime-status";
+import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-lifecycle";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, DEVROUTER_HOME, TCP_PROTOCOL_REGISTRY } from "./router";
@@ -60,7 +61,6 @@ import {
   isLinkedWorktree,
   readPersistedWorkspace,
   sameWorkspacePath,
-  withWorkspaceLifecycleLock,
   wsFromBranch,
 } from "./workspace";
 import {
@@ -263,7 +263,10 @@ function stopDroppedManagedServices(
       );
     }
     const match = matches[0];
-    if (match?.state.Running) stopExactManagedService(match.id, service);
+    if (match?.state.Running) {
+      claimLifecycleEffect();
+      stopExactManagedService(match.id, service);
+    }
   }
 }
 
@@ -349,6 +352,7 @@ function restorePreviousManagedConfig(options: {
       "The previous managed Dev Container configuration fingerprint no longer matches the current source.",
     );
   }
+  claimLifecycleEffect();
   writeManagedDevcontainerConfig(restoredPlan);
 }
 
@@ -367,6 +371,7 @@ function restoreFirstTransitionManagedConfig(options: {
     },
     linked: options.linked,
   });
+  claimLifecycleEffect();
   writeManagedDevcontainerConfig(restoredPlan);
 }
 
@@ -630,7 +635,7 @@ async function waitForHttpRoutes(
   );
 }
 
-function resolveLinkedTarget(repoPath: string): EnvironmentTarget {
+export function resolveLinkedTarget(repoPath: string): EnvironmentTarget {
   const snapshots = getWorkspaceRegistrySnapshots();
   const providerWorkspaces = [
     ...(snapshots.devpod ?? []),
@@ -1045,6 +1050,7 @@ export async function workspaceEnsure(
         });
       }
       if (managedPlan && !options.repair) {
+        claimLifecycleEffect();
         writeManagedDevcontainerConfig(managedPlan);
         managedConfigWritten = true;
       }
@@ -1111,6 +1117,7 @@ export async function workspaceEnsure(
             if (stopped.length > 0) {
               repairMutationStarted = true;
               transitionPhase = "service-start";
+              claimLifecycleEffect();
               const result = spawnSync("docker", ["start", ...stopped.map((entry) => entry.id)], {
                 encoding: "utf-8",
                 timeout: DEFAULT_READINESS_TIMEOUT_MS,
@@ -1182,7 +1189,8 @@ export async function workspaceEnsure(
           assertRetainedRepairContainers(repoPath, managedPlan, retainedRepairContainers);
           repairMutationStarted = true;
         }
-        if (!options.repair)
+        if (!options.repair) {
+          claimLifecycleEffect();
           startExactManagedServices({
             plan: managedPlan,
             composeProject: managedComposeProject,
@@ -1190,6 +1198,7 @@ export async function workspaceEnsure(
             quiet: options.quiet,
             workspace: managedWorkspaceEnv,
           });
+        }
         await waitForManagedServices(
           managedPlan,
           repoPath,
@@ -1205,6 +1214,7 @@ export async function workspaceEnsure(
       if (options.repair && managedPlan)
         assertRetainedRepairContainers(repoPath, managedPlan, retainedRepairContainers);
       transitionPhase = "process-start";
+      claimLifecycleEffect();
       runManagedPostStart({
         plan: managedPostStart,
         container,
@@ -1231,6 +1241,7 @@ export async function workspaceEnsure(
             }
             continue;
           }
+          claimLifecycleEffect();
           runManagedProcessAction({
             container,
             name: process,
@@ -1265,6 +1276,7 @@ export async function workspaceEnsure(
       }
 
       transitionPhase = "route-publication";
+      claimLifecycleEffect();
       const publication = await replacePublishedProxyRoutes(
         repoPath,
         runtime.config,
@@ -1289,12 +1301,14 @@ export async function workspaceEnsure(
         if (managedPlan) {
           throw error;
         }
+        claimLifecycleEffect();
         replaceHostRoutesForRepo(repoPath, []);
         await ensureTraefikRoutesRemoved(candidateRoutes, routeLoadOptions);
         if (!target.hadExactDevpod || recreated) {
           throw error;
         }
         const recoveredContainer = await recreateAndPreflight();
+        claimLifecycleEffect();
         runManagedPostStart({
           plan: managedPostStart,
           container: recoveredContainer,
@@ -1302,6 +1316,7 @@ export async function workspaceEnsure(
           profile: runtime.profile,
         });
         recreated = true;
+        claimLifecycleEffect();
         replaceHostRoutesForRepo(repoPath, publication.routes);
         await ensureTraefikRoutesLoaded(publication.routes, routeLoadOptions);
         await waitForHttpRoutes(
@@ -1343,7 +1358,10 @@ export async function workspaceEnsure(
           status: "ready",
           updatedAt: new Date().toISOString(),
         };
-        if (!options.repair) writeManagedRuntimeState(candidateState);
+        if (!options.repair) {
+          claimLifecycleEffect();
+          writeManagedRuntimeState(candidateState);
+        }
       }
       const managedRuntimeStatus = managedPlan
         ? collectManagedRuntimeStatus({
@@ -1360,6 +1378,7 @@ export async function workspaceEnsure(
         resolveRepairTarget(repoPath, linked);
         if (managedRuntimeStatus?.status !== "ready")
           throw new Error("Repaired candidate runtime did not pass final readiness validation.");
+        claimLifecycleEffect();
         writeManagedRuntimeState(candidateState);
       }
       return {
@@ -1385,6 +1404,7 @@ export async function workspaceEnsure(
               .filter((route) => sameWorkspacePath(route.repoPath, repoPath))
               .map(routeInputFromState);
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
+            claimLifecycleEffect();
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
             await ensureTraefikRoutesMatch(rollbackRoutes, routeLoadOptions);
             await ensureTraefikRoutesRemoved(
@@ -1448,6 +1468,7 @@ export async function workspaceEnsure(
             ...managedPlan.baseServices,
             ...previousServices,
           ];
+          claimLifecycleEffect();
           startExactManagedServices({
             plan: managedPlan,
             composeProject: managedComposeProject,
@@ -1473,6 +1494,7 @@ export async function workspaceEnsure(
           if (!managedPostStartPlan) {
             throw new Error("Managed post-start plan disappeared during rollback.");
           }
+          claimLifecycleEffect();
           runManagedPostStart({
             plan: managedPostStartPlan,
             container: managedContainer,
@@ -1482,6 +1504,7 @@ export async function workspaceEnsure(
           });
           for (const process of managedProcessRegistry) {
             if (previousProcessSet.has(process)) continue;
+            claimLifecycleEffect();
             runManagedProcessAction({
               container: managedContainer,
               name: process,
@@ -1509,7 +1532,10 @@ export async function workspaceEnsure(
             if (matches.length > 1) {
               throw new Error(`service '${service}' has multiple exact containers`);
             }
-            if (matches[0]?.state.Running) stopExactManagedService(matches[0].id, service);
+            if (matches[0]?.state.Running) {
+              claimLifecycleEffect();
+              stopExactManagedService(matches[0].id, service);
+            }
           }
           assertDroppedManagedServicesStopped(
             {
@@ -1533,6 +1559,7 @@ export async function workspaceEnsure(
         if (candidateRoutesPublished) {
           try {
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
+            claimLifecycleEffect();
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
             await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
             await ensureTraefikRoutesRemoved(
@@ -1574,6 +1601,7 @@ export async function workspaceEnsure(
                 previousState: previousManagedState,
               });
             } else if (!environmentStarted) {
+              claimLifecycleEffect();
               removeManagedDevcontainerConfig(managedPlan);
             }
           } catch (rollbackError) {
@@ -1585,6 +1613,7 @@ export async function workspaceEnsure(
         if (candidateRoutesPublished) {
           try {
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
+            claimLifecycleEffect();
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
             await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
             await ensureTraefikRoutesRemoved(
@@ -1608,6 +1637,7 @@ export async function workspaceEnsure(
       }
       if (environmentStarted) {
         try {
+          claimLifecycleEffect();
           replaceHostRoutesForRepo(repoPath, []);
           await ensureTraefikRoutesRemoved(candidateRoutes, routeLoadOptions);
         } catch (cleanupError) {
@@ -1620,7 +1650,7 @@ export async function workspaceEnsure(
       throw error;
     }
   };
-  return withWorkspaceLifecycleLock(repoPath, async () => {
+  return withLifecycleOperationLock(repoPath, async () => {
     if (!options.repair) return ensureLocked();
     const runtime = resolveWorkspaceRuntimeOrDefault(repoPath);
     fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
