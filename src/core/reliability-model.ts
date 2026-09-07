@@ -2,6 +2,7 @@ import {
   assertReliabilityState,
   isReliabilityCounter,
   isReliabilityId,
+  isReliabilityProfile,
   RELIABILITY_MAX_ITEMS,
   type ReliabilityConsumer,
   type ReliabilityEffect,
@@ -74,7 +75,7 @@ function assertReliabilityEvent(value: unknown): asserts value is ReliabilityEve
         oneOf(value.mode, ["start", "attach"] as const) &&
         isReliabilityId(value.key) &&
         isReliabilityId(value.operationId) &&
-        isReliabilityId(value.profile) &&
+        isReliabilityProfile(value.profile) &&
         isConsumer(value.consumer);
       break;
     case "operation-request":
@@ -82,7 +83,7 @@ function assertReliabilityEvent(value: unknown): asserts value is ReliabilityEve
         oneOf(value.kind, ["ensure", "exec"] as const) &&
         isReliabilityId(value.key) &&
         isReliabilityId(value.operationId) &&
-        isReliabilityId(value.profile) &&
+        isReliabilityProfile(value.profile) &&
         isConsumer(value.consumer) &&
         typeof value.runtimeRunning === "boolean";
       break;
