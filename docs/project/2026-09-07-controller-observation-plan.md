@@ -347,3 +347,34 @@ Round 4 with the same planner returned DONE / VERDICT APPROVED: session generati
 and store fencing, external sampling, persisted publication fencing and acceptance
 are consistent. Prior deadlock is historical. Continue implementation under the
 existing roadmap authority without another proceed gate.
+
+Execution resumed after explicit acceptance of the recommended controller workflow.
+The first slice retains main ownership of persistence, session lifecycle and server
+integration because they share durability and IPC fences. Native executor Goodall
+(01a07d40-534e-7100-9c9c-3d40c8deaaff) owns the disjoint strict protocol parser and
+its focused tests. Store and session tests currently pass 13 cases. Socket wiring,
+canonical binding resolution, replay/watch and production observation remain
+incomplete; these tests do not establish an available CLI or readiness observation.
+No runtime has been started. The goal tool still carries the superseded blocked
+status and exposes no resume operation; execution continues under user approval.
+
+A separate bounded read-only source investigation examines the reported 0.0.57
+retained-full recovery before a requested manage,live-quiz transition. The consumer
+owner confirmed canonical stop, empty resource membership, no drift and zero
+routes. Its fixture startup message is a catch-all, not an authentication diagnosis.
+No consumer checkout or runtime changes belong to this investigation.
+
+Durable-session slice now includes strict protocol parsing, private socket ownership,
+canonical linked binding resolution, an epoch-fenced store, explicit leases, bounded
+client/watch transport and CLI registration. Status remains UNKNOWN until the next
+observation slice. Config fingerprints use an incarnation-local random HMAC key so
+persisted fingerprints cannot expose low-entropy configuration values through a
+public unkeyed digest; restart already invalidates every binding. No key is stored.
+
+Validation before slice review: 1133 tests across 84 files pass, including 28 new
+controller cases; TypeScript, Biome, Knip, docs policy and build pass. Socket tests
+require host process-birth access; sandbox ps denial is recorded as an environment
+constraint, not a product failure. Isolated fixture controllers terminate during
+test cleanup. Native protocol worker completed with 8 focused cases passing.
+Production probe qualification, observation publication fencing, overhead measures,
+full packed two-client qualification and integrated review remain outstanding.
