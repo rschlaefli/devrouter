@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.59] - 2026-09-07
+
+### Fixed
+
+- After successful managed process preparation, allow a bounded natural drain
+  for short-lived children before application startup. Persistent children still
+  fail preparation and use the existing owned-group cleanup.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.59.md
+
 ## [0.0.58] - 2026-09-07
 
 ### Fixed
