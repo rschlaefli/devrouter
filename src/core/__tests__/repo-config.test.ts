@@ -1159,6 +1159,22 @@ apps:
     expect(() => resolveProfile(config, "nope")).toThrow(/Profile 'nope' is not defined/);
   });
 
+  it("resolves the implicit full profile by its persisted canonical name", () => {
+    const config = {
+      version: 1,
+      apps: [],
+      managedRuntime: {
+        devcontainer: { baseServices: [], profileServices: [] },
+        processes: [],
+      },
+    } as Parameters<typeof resolveProfile>[0];
+    const implicit = resolveProfile(config);
+    expect(resolveProfile(config, implicit.name)).toEqual(implicit);
+    expect(
+      resolveProfile({ ...config, profiles: { ui: { apps: [], default: true } } }, "full"),
+    ).toEqual(implicit);
+  });
+
   it("falls back to full behavior when profiles declare no default", () => {
     writeProfileConfig(
       tmpDir,

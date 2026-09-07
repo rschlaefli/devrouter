@@ -283,6 +283,10 @@ It repairs the recorded profile once, proves readiness, then applies the request
 profile if different. No separate repair command is needed. The compatibility
 `--repair` option limits the invocation to the recorded-profile repair path.
 
+If a degraded runtime remains after `managedRuntime` is removed from the repository
+configuration, restore that configuration before recovery. Devrouter retains the
+runtime and its generated configuration until it can prove a safe transition.
+
 Repair requires a valid degraded managed-runtime record. When no `--profile` is
 given, it uses that record's canonical profile. Before any provider or process
 mutation, it checks the exact retained baseline: the provider registration and

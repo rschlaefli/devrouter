@@ -201,7 +201,7 @@ requires them; omit unused proposed files rather than adding scaffolding.
 | Operation persistence and supervision | new `src/core/reliability-operation-store.ts`, new `src/core/reliability-lifecycle.ts`, new `src/core/reliability-worker.ts` |
 | Production mutation and result boundaries | `src/core/devpod-exec.ts`, `src/core/devsy-exec.ts`, new `src/core/execution-outcome.ts`, `src/core/workspace-ensure.ts`, `src/core/environment-stop.ts`, `src/core/workspace-lifecycle.ts`, `src/core/devpod-mutation.ts`, `src/core/devsy-mutation.ts` |
 | Focused tests | `src/commands/__tests__/ensure-stop.test.ts`, `src/commands/__tests__/exec.test.ts`, `src/core/__tests__/devpod-exec.test.ts`, `src/core/__tests__/devsy-exec.test.ts`, `src/core/__tests__/workspace-ensure.test.ts`, `src/core/__tests__/environment-stop.test.ts`, `src/core/__tests__/workspace-lifecycle.test.ts`, new `src/core/__tests__/execution-outcome.test.ts`, new `src/core/__tests__/reliability-operation-store.test.ts`, new `src/core/__tests__/reliability-lifecycle.test.ts`, new `src/core/__tests__/reliability-worker.test.ts` |
-| Installed qualification | new `scripts/qualify-lifecycle.ts`, new `scripts/qualify-managed-recovery.ts`, `scripts/package-smoke.sh` |
+| Installed qualification | new `scripts/qualify-lifecycle.ts`, `scripts/package-smoke.sh` |
 
 Existing atomic-file, runtime-state, ownership, and workspace lock primitives are
 read-only dependencies. No generic subprocess rewrite is
@@ -438,3 +438,37 @@ The active managed-lifecycle knowledge concept still described degraded state as
 a mandatory refusal. Add `docs/knowledge/managed-environment-lifecycle.md` to the
 documentation manifest and synchronize that owning concept with automatic repair.
 No unrelated concept or new knowledge bundle is introduced.
+
+The managed-fixture executor was stopped after a narrowing checkpoint still yielded
+only read-only discovery and no artifact. Main resumed the fixture in the existing
+qualification script; the proposed separate helper is omitted. Native activity
+was live, so this is a progress-contract fallback, not a provider-availability claim.
+
+Installed managed recovery exposed a canonical-profile round-trip bug: implicit
+full startup was persisted as `full`, but repair rejected that name when no profile
+was declared. Add `src/core/repo-config.ts` and its existing test file to this
+amendment's exact source manifest. Resolve the implicit full profile by name while
+preserving explicitly declared profiles; this enables recorded-profile repair.
+The installed no-profile fixture is the regression, supplemented by resolver
+round-trip coverage. No new configuration file, dependency or runtime authority.
+
+Installed qualification also reproduced native DevPod partial-start configuration
+loss. When managed startup returns nonzero, the provider now invalidates cached
+observations and reports a possibly-started result so rollback retains generated
+configuration. Unmanaged startup behavior remains unchanged. Installed qualification
+proves retention and independent neighbour execution before and after exact stop.
+All 1,053 unit tests pass; Linux process-helper checks remain skipped on macOS.
+
+The automatic-recovery slice reviewer completed 89ebad9..70f3fef with no blocking
+findings. Accepted both minor documentation clarifications: never-dispatched ensure
+reconciliation and retained degraded state after managedRuntime configuration removal.
+The implicit full-profile and native partial-start corrections were found by installed
+qualification after that immutable range and require their own source review.
+
+The installed synthetic matrix now passes 23 scenarios, including a deterministic
+stop after route publication while readiness is in flight. The fixture reports
+its own passed scope explicitly and never claims live-provider or OOM qualification.
+Source review and clean-tree qualification remain pending. Remote refresh on this
+continuation failed because the SSH agent refused signing; the last fetched
+origin/main remains 14 commits behind this task branch with no target-only commits.
+No remote integration or publication has occurred.

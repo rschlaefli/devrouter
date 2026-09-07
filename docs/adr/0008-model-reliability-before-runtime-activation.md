@@ -37,7 +37,7 @@ An environment can outlive several ensure or exec operations. Each manual
 operation therefore has its own request identity and bounded completion record.
 Reusing an identity reports the original operation without replay. A different
 operation requires definite completion and worker drainage, or an explicit stop
-with full cessation proof. A new ensure may reconcile a drained interrupted ensure
+with full cessation proof. A new ensure may reconcile a drained interrupted or never-dispatched ensure
 while preserving its unknown historical result. Unknown arbitrary exec never gains
 that exception. Exhausted history fails closed. This preserves the
 difference between application completion and a worker that can still mutate.

@@ -223,7 +223,11 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
       env,
     });
     if (result.status !== 0) {
-      throw new Error(`devpod up failed for '${devpodId ?? options.repoPath}'.`);
+      resetWorkspaceRuntimeCaches();
+      const message = `devpod up failed for '${devpodId ?? options.repoPath}'.`;
+      // A failed provider command may still consume the managed configuration.
+      if (options.devcontainerPath) throw new DevpodStartPostconditionError(message);
+      throw new Error(message);
     }
 
     try {

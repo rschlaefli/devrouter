@@ -977,6 +977,14 @@ export function resolveProfile(
     return { name: canonicalName, profile: merged };
   };
 
+  if (profileOverride === "full" && !profiles?.full) {
+    return {
+      name: "full",
+      profile: config.managedRuntime
+        ? { apps: ["*"], devcontainerServices: ["*"], processes: ["*"] }
+        : undefined,
+    };
+  }
   if (profileOverride !== undefined) {
     return mergeSelection(profileOverride);
   }

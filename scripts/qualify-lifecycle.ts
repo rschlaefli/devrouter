@@ -12,6 +12,7 @@ const ownedInvocations = new Set<ChildProcess>();
 // package receives a fresh home and no host environment or provider socket.
 async function main() {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "qualify-lifecycle-")));
+  console.error(`Synthetic qualification artifacts: ${root}`);
   const source = process.cwd();
   const bin = path.join(root, "bin");
   const home = path.join(root, "home");
@@ -138,17 +139,19 @@ const path = require('node:path');
 const file = process.env.LIFECYCLE_FIXTURE;
 const state = JSON.parse(fs.readFileSync(file, 'utf8'));
 const command = path.basename(process.argv[1]);
+const workspaceId = state.workspaceId ?? 'fixture';
+const containerId = state.containerId ?? 'a'.repeat(64);
 const args = process.argv.slice(2);
 const output = value => process.stdout.write(JSON.stringify(value) + '\\n');
 const fail = () => { fs.appendFileSync(file + '.unexpected', JSON.stringify({command,args})+'\\n'); process.exit(90); };
 const write = () => fs.writeFileSync(file, JSON.stringify(state));
 if (command === 'devpod' && args[0] === 'version') { console.log('fixture'); }
 else if (command === 'devsy' && args[0] === '--version') { console.log('fixture'); }
-else if (command === 'devpod' && args.join(' ') === 'list --output json --skip-pro') { output(state.provider === 'devpod' ? [{id:'fixture',source:{localFolder:state.repo}}] : []); }
-else if (command === 'devsy' && args.join(' ') === 'workspace list --result-format json --skip-pro') { output(state.provider === 'devsy' ? [{id:'fixture',source:{localFolder:state.repo}}] : []); }
-else if (command === 'devpod' && args.join(' ') === 'up '+state.repo+' --id fixture --open-ide=false') { state.running=true; write(); }
-else if (command === 'devpod' && args[0] === 'status' && args[1] === 'fixture') { output({id:'fixture',state:state.running?'Running':'Stopped'}); }
-else if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'status' && args[2] === 'fixture') { output({id:'fixture',state:state.running?'Running':'Stopped'}); }
+else if (command === 'devpod' && args.join(' ') === 'list --output json --skip-pro') { output(state.provider === 'devpod' ? [{id:workspaceId,source:{localFolder:state.repo}}] : []); }
+else if (command === 'devsy' && args.join(' ') === 'workspace list --result-format json --skip-pro') { output(state.provider === 'devsy' ? [{id:workspaceId,source:{localFolder:state.repo}}] : []); }
+else if (command === 'devpod' && [ 'up '+state.repo+' --id fixture --open-ide=false', 'up '+state.repo+' --id fixture --devcontainer-path .devcontainer/devcontainer.devrouter.json --open-ide=false' ].includes(args.join(' '))) { state.running=true; state.starts=(state.starts??0)+1; write(); if(state.mode === 'start-failure') process.exit(1); }
+else if (command === 'devpod' && args[0] === 'status' && args[1] === workspaceId) { output({id:workspaceId,state:state.running?'Running':'Stopped'}); }
+else if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'status' && args[2] === workspaceId) { output({id:workspaceId,state:state.running?'Running':'Stopped'}); }
 else if (command === 'curl') {
  const yaml = require('yaml');
  const routesFile = path.join(process.env.HOME,'.config/devrouter/traefik/dynamic/host-routes.yml');
@@ -166,18 +169,23 @@ else if (command === 'curl') {
    output({...entries[key],name,status:'enabled'});
   }
  } else if (args.includes('%{http_code}') && url === 'http://fixture.localhost') {
-  if(Object.values(document.http?.routers??{}).some(router=>router.rule==='Host('+String.fromCharCode(96)+'fixture.localhost'+String.fromCharCode(96)+')')) console.log('200'); else fail();
+  if(state.mode === 'readiness-hold') { fs.writeFileSync(file+'.readiness', String(process.pid)); setInterval(()=>{},1000); } else if(Object.values(document.http?.routers??{}).some(router=>router.rule==='Host('+String.fromCharCode(96)+'fixture.localhost'+String.fromCharCode(96)+')')) console.log('200'); else fail();
  } else fail();
 }
 else if (command === 'docker' && args.join(' ') === 'context show') console.log('fixture');
 else if (command === 'docker' && args[0] === 'context' && args[1] === 'inspect' && args[2] === 'fixture') console.log('unix://'+file+'.sock');
-else if (command === 'docker' && args.join(' ') === 'exec '+'a'.repeat(64)+' git -C /workspace rev-parse --show-toplevel') console.log('/workspace');
+else if (command === 'docker' && args.join(' ') === 'exec '+containerId+' git -C /workspace rev-parse --show-toplevel') console.log('/workspace');
 else if (command === 'docker' && args.join(' ') === 'compose -f '+process.env.HOME+'/.config/devrouter/compose.yml up -d') { }
-else if (command === 'docker' && args[0] === 'ps' && args.includes('{{.ID}}')) { console.log('a'.repeat(64)); }
-else if (command === 'docker' && args[0] === 'inspect' && args.at(-1) === 'a'.repeat(64) && args[1] === '--format') {
- output({id:'a'.repeat(64),state:{Running:state.running,Status:state.running?'running':'exited',Paused:false,Restarting:false,Dead:false},labels:{'com.docker.compose.project':'fixture','com.docker.compose.service':'app','com.docker.compose.project.working_dir':state.repo+'/.devcontainer','com.docker.compose.project.config_files':state.repo+'/.devcontainer/compose.yml','com.docker.compose.config-hash':'fixture'},mounts:[{Type:'bind',Source:state.repo,Destination:'/workspace'}],networks:{devnet:{Aliases:["fixture-app"]}}});
+else if (command === 'docker' && args[0] === 'compose' && args.includes('--services') && args.includes('--no-env-resolution')) console.log('app');
+else if (command === 'docker' && args[0] === 'compose' && args.includes('--hash') && args.at(-1) === 'app') { fs.readFileSync(0); console.log('app '+'0'.repeat(64)); }
+else if (command === 'docker' && args[0] === 'compose' && args.includes('config') && args.includes('--format') && args.at(-1) === 'json') output({services:{app:{image:'synthetic'}}});
+else if (command === 'docker' && args[0] === 'exec' && args[1] === '-i' && args[2] === containerId && args[3] === 'sh') { fs.readFileSync(0); state.deliveries=(state.deliveries??0)+1; write(); }
+else if (command === 'docker' && args[0] === 'exec' && args.includes(containerId) && args.includes('DEVROUTER_PROCESS_SET=') && args.includes('.devcontainer/post-start.sh')) { state.adapters=(state.adapters??0)+1; write(); }
+else if (command === 'docker' && args[0] === 'ps' && args.includes('{{.ID}}')) { console.log(containerId); }
+else if (command === 'docker' && args[0] === 'inspect' && args.at(-1) === containerId && args[1] === '--format') {
+ output({id:containerId,state:{Running:state.running,Status:state.running?'running':'exited',Paused:false,Restarting:false,Dead:false},labels:{'com.docker.compose.project':'fixture','com.docker.compose.service':'app','com.docker.compose.project.working_dir':state.repo+'/.devcontainer','com.docker.compose.project.config_files':state.repo+'/.devcontainer/compose.yml','com.docker.compose.config-hash':'0'.repeat(64)},mounts:[{Type:'bind',Source:state.repo,Destination:'/workspace'}],networks:{devnet:{Aliases:["fixture-app"]}}});
 }
-else if ((command === 'devpod' && args[2] === 'ssh' && args[3] === 'fixture') || (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args[4] === 'fixture')) {
+else if ((command === 'devpod' && args[2] === 'ssh' && args[3] === workspaceId) || (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args[4] === workspaceId)) {
  state.launches++; write();
  if (state.mode === 'hold') { fs.writeFileSync(file+'.barrier', String(process.pid)); setInterval(()=>{}, 1000); }
  else if (state.mode === 'unknown') process.kill(process.pid, 'SIGKILL');
@@ -188,7 +196,7 @@ else if ((command === 'devpod' && args[2] === 'ssh' && args[3] === 'fixture') ||
   process.stderr.write(marker+String(state.exitCode)+'\\n', () => { if(state.mode==='marker-signal') process.kill(process.pid,'SIGKILL'); });
  } else process.exit(state.exitCode);
 }
-else if ((command==='devpod' && args[0]==='stop' && args[1]==='fixture') || (command==='devsy' && args[0]==='workspace' && args[1]==='stop' && args[2]==='fixture')) { state.running=false; write(); }
+else if ((command==='devpod' && args[0]==='stop' && args[1]===workspaceId) || (command==='devsy' && args[0]==='workspace' && args[1]==='stop' && args[2]===workspaceId)) { state.running=false; write(); }
 else fail();
 `;
   for (const command of ["docker", "devpod", "devsy", "mkcert", "curl"])
@@ -366,6 +374,125 @@ else fail();
       evidence.push(
         "stop during delayed infrastructure return prevents stale route publication and rollback",
       );
+      configure("readiness-hold");
+      const published = launch(["ensure", repo, "--json"]);
+      await watchUntil(`${fixture}.readiness`, () => fs.existsSync(`${fixture}.readiness`));
+      const stopPublished = launch(["stop", repo, "--json"]);
+      await watchUntil(journal, () => read().state.desired === "stopped-by-user");
+      assert.equal(await published.done, 1, published.output());
+      assert.equal(await stopPublished.done, 0, stopPublished.output());
+      assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
+      evidence.push(
+        "stop after route publication drains readiness work and prevents stale rollback restoration",
+      );
+      freshHome("managed-home");
+      configure("complete");
+      const managedConfig =
+        fs.readFileSync(path.join(repo, ".devrouter.yml"), "utf8") +
+        "managedRuntime:\n  devcontainer:\n    baseServices: []\n    profileServices: []\n  processes: []\n";
+      fs.writeFileSync(path.join(repo, ".devrouter.yml"), managedConfig);
+      fs.mkdirSync(path.join(repo, ".devcontainer"));
+      fs.writeFileSync(
+        path.join(repo, ".gitignore"),
+        ".devcontainer/devcontainer.devrouter.json\n",
+      );
+      fs.writeFileSync(
+        path.join(repo, ".devcontainer/compose.yml"),
+        "services:\n  app:\n    image: synthetic\n",
+      );
+      fs.writeFileSync(
+        path.join(repo, ".devcontainer/devcontainer.json"),
+        JSON.stringify({
+          dockerComposeFile: "compose.yml",
+          service: "app",
+          runServices: ["app"],
+          workspaceFolder: "/workspace",
+        }),
+      );
+      fs.writeFileSync(
+        path.join(repo, ".devcontainer/post-start.sh"),
+        '# devrouter:managed devcontainer\n: "$DEVROUTER_PROCESS_HELPER"\n',
+      );
+      const managed = launch(["ensure", repo, "--json"]);
+      assert.equal(await managed.done, 0, managed.output());
+      const stateDirectory = path.join(closedEnv.HOME, ".config/devrouter/managed-runtime");
+      const stateName = fs.readdirSync(stateDirectory).find((name) => name.endsWith(".json"));
+      assert.ok(stateName);
+      const stateFile = path.join(stateDirectory, stateName);
+      const managedState = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+      assert.equal(managedState.status, "ready");
+      managedState.status = "degraded";
+      fs.writeFileSync(stateFile, JSON.stringify(managedState));
+      const beforeRepair = JSON.parse(fs.readFileSync(fixture, "utf8"));
+      const generated = path.join(repo, ".devcontainer/devcontainer.devrouter.json");
+      const generatedBefore = fs.readFileSync(generated, "utf8");
+      const repaired = launch(["ensure", repo, "--json"]);
+      assert.equal(await repaired.done, 0, repaired.output());
+      const afterRepair = JSON.parse(fs.readFileSync(fixture, "utf8"));
+      assert.equal(afterRepair.adapters, beforeRepair.adapters + 1);
+      assert.equal(afterRepair.starts, beforeRepair.starts);
+      assert.equal(JSON.parse(fs.readFileSync(stateFile, "utf8")).status, "ready");
+      assert.equal(fs.readFileSync(generated, "utf8"), generatedBefore);
+      evidence.push(
+        "installed ordinary ensure repairs retained degraded state with one adapter run and no provider bootstrap",
+      );
+      const neighbour = path.join(root, "neighbour");
+      run("git", ["init", "--quiet", neighbour]);
+      fs.writeFileSync(path.join(neighbour, ".devrouter.yml"), "version: 1\napps: []\n");
+      const neighbourFixture = path.join(root, "neighbour-fixture.json");
+      fs.writeFileSync(
+        neighbourFixture,
+        JSON.stringify({
+          mode: "complete",
+          exitCode: 0,
+          provider: "devpod",
+          repo: neighbour,
+          workspaceId: "neighbour",
+          containerId: "b".repeat(64),
+          running: true,
+          launches: 0,
+        }),
+      );
+      const neighbourExec = () => {
+        const result = spawnSync(node, [cli, "exec", neighbour, "--", "synthetic"], {
+          cwd: neighbour,
+          env: { ...closedEnv, LIFECYCLE_FIXTURE: neighbourFixture },
+          encoding: "utf8",
+          timeout: 20_000,
+        });
+        assert.equal(result.status, 0, result.stderr);
+      };
+      neighbourExec();
+      const neighbourJournal = path.join(
+        closedEnv.HOME,
+        ".config/devrouter/reliability",
+        `${createHash("sha256").update(neighbour).digest("hex")}.json`,
+      );
+      const neighbourBefore = fs.readFileSync(neighbourJournal, "utf8");
+      expectExit(["stop", repo, "--json"], 0);
+      assert.equal(fs.readFileSync(neighbourJournal, "utf8"), neighbourBefore);
+      assert.equal(JSON.parse(fs.readFileSync(neighbourFixture, "utf8")).running, true);
+      neighbourExec();
+      assert.equal(JSON.parse(fs.readFileSync(neighbourFixture, "utf8")).launches, 2);
+      assert.ok(!fs.existsSync(`${neighbourFixture}.unexpected`));
+      evidence.push(
+        "exact workspace stop preserves a neighbouring runtime and its independent operation journal",
+      );
+      freshHome("partial-start-home");
+      configure("start-failure");
+      const partialStart = launch(["ensure", repo, "--json"]);
+      assert.equal(await partialStart.done, 1, partialStart.output());
+      assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).running, true);
+      assert.ok(
+        fs.existsSync(generated),
+        "partial provider start must retain generated configuration",
+      );
+      evidence.push(
+        "failed provider startup retains managed configuration while its runtime may exist",
+      );
+      configure("complete");
+      expectExit(["stop", repo, "--json"], 0);
+      fs.unlinkSync(path.join(repo, ".devcontainer/post-start.sh"));
       fs.writeFileSync(path.join(repo, ".devrouter.yml"), "version: 1\napps: []\n");
       evidence.push(
         "installed route publication and exact route removal use synthetic Traefik proof",
@@ -556,13 +683,16 @@ else fail();
   console.log(
     JSON.stringify(
       {
-        status: "partial",
+        status: "passed",
+        scope: "installed-cli-synthetic-providers",
+        liveProviderQualified: false,
+        oomQualified: false,
         root,
         sourceRevision,
         dirty,
         node: process.version,
         pnpm: run("pnpm", ["--version"]),
-        fixtureVersion: 1,
+        fixtureVersion: 2,
         tarballSha256: digest(tarball),
         cliSha256: digest(cli),
         workerSha256: digest(worker),
