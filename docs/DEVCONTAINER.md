@@ -240,6 +240,16 @@ need a second route-health policy.
 
 ## Select only the capabilities a task needs
 
+Repositories that generate Compose inputs on the host can declare
+`managedRuntime.devcontainer.prepareCommand` as a literal argument array, for
+example `["node", ".devcontainer/prepare.mjs"]`. Each `ensure` invokes it once
+from the checkout root, under lifecycle serialization, before inspecting Compose.
+The command has a sixty-second deadline, runs without implicit shell expansion,
+and must finish in the foreground. Its output is suppressed. Failure or a change
+to `.devrouter.yml` prevents startup; the changed file is preserved for correction.
+Diagnostics never invoke the command. Generated-input preparation does not by
+itself establish that changed mounts were applied to an existing container.
+
 The source `devcontainer.json` remains the native, full environment. A normal
 Dev Container client uses its declared `runServices` and can start every
 service the repository provides. The managed `devrouter ensure` path can use a
@@ -323,8 +333,11 @@ that result atomically and waits for the old worker to drain. Unknown arbitrary
 command completion still requires explicit reconciliation and is never replayed.
 
 Ordinary `devrouter ensure .` repairs a retained degraded runtime automatically.
-It repairs the recorded profile once, proves readiness, then applies the requested
-profile if different. No separate repair command is needed. The compatibility
+For the recorded profile it repairs retained resources and proves readiness.
+For a different requested profile it proves the retained ownership baseline, then
+starts the requested resources directly. A failing process that the new profile
+drops does not have to start first. Failed transitions retain degraded state and
+do not replay the broken baseline adapter. No separate repair command is needed. The compatibility
 `--repair` option limits the invocation to the recorded-profile repair path.
 
 If a degraded runtime remains after `managedRuntime` is removed from the repository

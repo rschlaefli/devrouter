@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.58] - 2026-09-07
+
+### Fixed
+
+- A degraded retained environment can transition directly to a different requested
+  profile after exact ownership checks, without restarting failed processes that
+  the requested profile excludes. Failed transitions retain degraded evidence and
+  data without replaying the failed baseline.
+
+### Added
+
+- Optional `managedRuntime.devcontainer.prepareCommand` runs literal host argv
+  once before Compose inspection under lifecycle serialization and stop fencing.
+  The foreground command has a sixty-second bound and must preserve `.devrouter.yml`.
+  This prepares generated inputs; it does not reconcile changed retained mounts.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.58.md
+
 ## [0.0.57] - 2026-09-07
 
 ### Fixed
