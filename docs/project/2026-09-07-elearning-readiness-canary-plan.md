@@ -153,6 +153,43 @@ bounded recovery and harness qualification only through their reviewed scopes.
 
 ## Progress
 
+### Current checkpoint, 2026-09-07
+
+The consumer source is committed at d3ebf87797bbf021c95008db8c302e6f819a33c4.
+Full typecheck and 627 tests pass (one test skips). Godel's independent
+simplifier completed with no justified changes; the trusted native consumer
+risk reviewer remains active. Earlier paragraphs below are chronological
+evidence, including failures subsequently corrected.
+
+A fresh installed-tool cycle resumed the exact canary in tooling mode without
+recreation. Changed migration inputs invalidated the preparation stamp;
+preparation completed and retained the synthetic fixture. The next unchanged
+preparation reused its stamp. Full ensure then returned HTTP 200 application
+readiness, reused the same container, and started the managed app successfully.
+The surviving-child incident reported from another consumer did not reproduce;
+the existing ownership guard remains unchanged.
+
+The first session-check invocation referenced a nonexistent container script.
+The corrected invocation passed the verified host script through canonical exec;
+launch/session exchange, session identity and the authenticated dynamic unit all
+passed. Both outcomes remain recorded. No browser authentication or progress
+persistence proof is implied by this HTTP journey.
+
+Canonical stop freed both canary routes. Exact-path provider registration matched
+only rs-reliability-canary; Devsy workspace status reports Stopped and the exact
+route count is zero. Source, volumes, preparation cache and synthetic records are
+retained. Receipts: /private/tmp/elearning-readiness-followup-{ensure,preparation,
+warm,full,session,session-rerun,stop}.log and the corresponding routes.json.
+
+The stopped-state reporting correction gives positively stopped resources
+precedence over an old degraded transition while retaining incident metadata.
+Active resources, unavailable inspection and ownership conflicts remain
+non-stopped. All 1,097 unit tests, typecheck, formatting, docs policy, knowledge
+and Knip pass. Linux process tests skip on macOS; earlier exact-container checks
+remain the relevant helper evidence. This correction still requires its committed
+review and package qualification. Controller, admission, OOM and harness work
+remain incomplete under the active roadmap goal.
+
 The trusted planner approved the frozen execution draft in round 3 with no
 remaining findings. Review provenance is in the local reviews directory. The
 existing lifecycle package remains draft PR #58. No eLearning runtime has started.
@@ -309,3 +346,70 @@ generated payload-types ownership decision, authenticated browser/progress proof
 preparation transient-child diagnosis, stopped-vs-history reporting, and the
 later controller/admission/recovery/harness stages. No OOM was induced, and no
 capacity qualification, merge, release or deployment is claimed.
+
+### Consumer hardening and generated-type diagnosis
+
+The consumer canary verifier now checks the four owned record identities,
+publication state, course/module/unit relationships, learner identity and route
+consistency. It passed against the existing synthetic records. Focused formatting,
+ESLint and preparation shell syntax checks pass. The owning devcontainer manual
+now describes explicit content seeding, retained preparation/cache, bounded
+profiles and memory, and the unreleased readiness dependency.
+
+Executor Aquinas added four migration behavior tests. Main removed the obsolete
+technical-info branch from the older schema-deferral test; its replacement proves
+schema preparation before Local API access, empty-database early return, content
+repair for either nonempty collection and propagated count failure. The first
+test fixture lacked Payload collections configuration; the same-child correction
+supplied it. All nine coupled tests pass in the exact tooling container.
+Receipts: /private/tmp/elearning-consumer-final-regressions.log and
+/private/tmp/elearning-consumer-final-focused-lint.log.
+
+Full consumer typecheck fails with seven errors after startup regenerates
+payload-types.ts. Installed Payload 3.74.0 starts generation asynchronously when
+NODE_ENV is not production and typescript.autoGenerate is not false. Its
+configToJSONSchema fieldIsRequired explicitly treats admin.condition fields as
+optional; both affected source fields have admin conditions. This explains the
+generated optional Course.urlHash and CoursePage.content declarations and the
+downstream type errors. The generated file remains preserved and excluded from
+task staging. Do not hide the failure by suppressing checks or restoring generated
+types without resolving the source/type contract. Evidence:
+/private/tmp/elearning-consumer-typecheck-format.log,
+/private/tmp/elearning-type-generation-detail.log and
+/private/tmp/elearning-consumer-focused-lint.log.
+
+Fresh consumer fetch finds five commits on origin/main beyond the canary baseline,
+including a technical-info utility/help migration fix. The task has one local
+commit and no upstream; no integration was performed. Review the overlapping
+utility change before an explicitly authorized integration. Consumer changes are
+still uncommitted pending the type-contract resolution and package review.
+Canonical tooling stop completed. Exact Devsy status reports Stopped and the
+final route query reports zero entries with the canary's exact path prefix.
+All runtime data and source changes remain retained.
+
+### Consumer type contract resolved and committed
+
+Consumer commit d3ebf87797bbf021c95008db8c302e6f819a33c4 includes retained
+preparation, profiles, fixture qualification and the type-contract correction.
+The generated declarations are intentionally included now: they match installed
+Payload generation. Absent rich text is handled without dereference, and missing
+public course hashes are rejected before export queue or import data operations.
+No declarations were forced back to required fields and no type checks were
+suppressed. The earlier restore rejection was respected; this is a source fix
+with the existing generated artifact, not a destructive restore.
+
+Full container typecheck passes. Full consumer tests report 627 passed, zero
+failed and one skipped. Changed-file ESLint, formatting, shell syntax, staged
+diff check and Gitleaks pass. The converter executor could not access the exact
+worktree and made no changes; main implemented and tested that bounded fix.
+Evidence: /private/tmp/elearning-type-contract-checks-final.log,
+/private/tmp/elearning-type-contract-format-tests.log,
+/private/tmp/elearning-full-consumer-tests.log and
+/private/tmp/elearning-consumer-lint-final.log.
+
+Consumer worktree is clean. Exact canary status is Stopped and route count is
+zero after the final tooling stop. Independent simplifier and trusted native
+slice-risk review are active on e47a0fed..d3ebf877. The generic risk-review route
+preserves the internal-source boundary instead of sending it to an external
+hosted provider. Publication and integrated final review remain outstanding,
+alongside the broader recovery/capacity/harness qualification stages.

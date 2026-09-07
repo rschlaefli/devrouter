@@ -312,6 +312,11 @@ the previous route set and successful state are kept
 when possible; otherwise status reports the degraded transition. The next ensure
 attempt repairs retained resources before applying another profile change.
 
+After exact inspection proves the runtime stopped and its routes absent, status
+reports `stopped` even if the last transition degraded. The retained drift and
+transition phase describe that incident. Unavailable inspection or conflicting
+ownership never counts as stopped proof.
+
 A proven command result or a failure that proves the command never launched does
 not require stopping the environment before the next command. Devrouter retains
 that result atomically and waits for the old worker to drain. Unknown arbitrary

@@ -74,6 +74,10 @@ function isReadyResourceStatus(status: ManagedRuntimeResourceStatus): boolean {
   return status === "running" || status === "healthy";
 }
 
+function isStoppedOrMissingResourceStatus(status: ManagedRuntimeResourceStatus): boolean {
+  return status === "stopped" || status === "missing";
+}
+
 function exactRoutes(
   repoPath: string,
   workspace?: string,
@@ -519,6 +523,15 @@ export function collectManagedRuntimeStatus(options: {
     drift.push("one or more active processes are outside the selected profile");
   }
 
+  const positivelyStopped =
+    !inspection.primaryActive &&
+    Object.values(inspection.baseStatuses).every(isStoppedOrMissingResourceStatus) &&
+    Object.values(inspection.serviceStatuses).every(isStoppedOrMissingResourceStatus) &&
+    inspection.drift.length === 0 &&
+    routes.drift.length === 0 &&
+    activeApps.length === 0;
+  const onlyDegradedIncident = state?.status === "degraded" && drift.length === 1;
+
   const requiredServicesReady = desiredServices.every((service) =>
     isReadyResourceStatus(inspection.serviceStatuses[service] ?? "missing"),
   );
@@ -537,15 +550,17 @@ export function collectManagedRuntimeStatus(options: {
     !drift.length;
 
   const status =
-    state?.status === "degraded"
-      ? "failed-transition"
-      : drift.length > 0
-        ? "drifted"
-        : ready
-          ? "ready"
-          : anyActive
-            ? "starting"
-            : "stopped";
+    positivelyStopped && onlyDegradedIncident
+      ? "stopped"
+      : state?.status === "degraded"
+        ? "failed-transition"
+        : drift.length > 0
+          ? "drifted"
+          : ready
+            ? "ready"
+            : anyActive
+              ? "starting"
+              : "stopped";
 
   const active = {
     apps: activeApps,
