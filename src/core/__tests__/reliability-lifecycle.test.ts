@@ -119,7 +119,7 @@ async function loadLifecycleModules() {
   return { contract, lifecycle, model, store };
 }
 
-async function seedWorkerRequest() {
+async function seedWorkerRequest(kind: "ensure" | "exec" = "ensure") {
   const { contract, lifecycle, model, store } = await loadLifecycleModules();
   const identity: ReliabilityIdentity = {
     repoPath: newCheckout(),
@@ -130,7 +130,7 @@ async function seedWorkerRequest() {
     const event: ReliabilityEvent = {
       ...contract.reliabilityFence(record.state),
       type: "operation-request",
-      kind: "ensure",
+      kind,
       key: "request-key",
       operationId: "operation-id",
       profile: "full",
@@ -166,7 +166,7 @@ async function seedWorkerRequest() {
   const record = store.readReliabilityOperation(identity);
   if (!record) throw new Error("Synthetic worker fixture was not persisted.");
   const request: LifecycleWorkerRequest = {
-    kind: "ensure",
+    kind,
     repoPath: identity.repoPath,
     identity,
     requestId: "request-key",
@@ -296,6 +296,96 @@ describe("reliability lifecycle supervision", () => {
     ).resolves.toBe("completed");
 
     expect(store.readReliabilityOperation(identity)).toMatchObject({ effectSequence: 1 });
+  });
+
+  it("retains a definitive result when acknowledgement fails after the atomic outcome write", async () => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedWorkerRequest("exec");
+    await expect(
+      lifecycle.executeLifecycleWorker(request, async () => {
+        const rename = fs.renameSync;
+        const sync = fs.fsyncSync;
+        let renamed = false;
+        const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+          rename(from, to);
+          if (String(to) === store.reliabilityOperationPath(identity)) renamed = true;
+        });
+        const syncSpy = vi.spyOn(fs, "fsyncSync").mockImplementation((descriptor) => {
+          if (renamed) throw new Error("synthetic lost acknowledgement");
+          sync(descriptor);
+        });
+        try {
+          lifecycle.recordLifecycleOutcome({
+            status: "completed",
+            exitCode: 7,
+            transport: { exitCode: 0, signal: null },
+          });
+        } finally {
+          renameSpy.mockRestore();
+          syncSpy.mockRestore();
+        }
+      }),
+    ).rejects.toThrow("synthetic lost acknowledgement");
+    expect(store.readReliabilityOperation(identity)).toMatchObject({
+      outcome: { status: "completed", exitCode: 7 },
+      state: { operation: { status: "COMPLETED", exitCode: 7, drained: false } },
+    });
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "next-request",
+      operationId: "next-operation",
+      workerId: "next-worker",
+    });
+    await expect(lifecycle.superviseLifecycle("ensure", identity.repoPath)).resolves.toEqual({
+      ok: true,
+    });
+    expect(store.readReliabilityOperation(identity)?.state.operationHistory[0]).toMatchObject({
+      status: "COMPLETED",
+      exitCode: 7,
+      drained: true,
+    });
+  });
+
+  it("preserves zero-launch evidence without releasing an undrained worker", async () => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity, model, contract } =
+      await seedWorkerRequest("exec");
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      lifecycle.recordLifecycleOutcome({
+        status: "not-started",
+        exitCode: null,
+        transport: { exitCode: null, signal: null },
+      });
+      const record = store.readReliabilityOperation(identity);
+      expect(record?.state.operation).toMatchObject({
+        status: "NOT_LAUNCHED",
+        drained: false,
+        exitCode: null,
+      });
+      if (!record) throw new Error("missing fixture");
+      expect(
+        model.stepReliability(
+          record.state,
+          { ...contract.reliabilityFence(record.state), type: "dispatch" },
+          Date.now(),
+        ).outcome,
+      ).toBe("stale");
+    });
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "next-request",
+      operationId: "next-operation",
+      workerId: "next-worker",
+    });
+    fixture.workerGroupAbsent.mockReturnValue(false);
+    await expect(lifecycle.superviseLifecycle("ensure", identity.repoPath)).rejects.toThrow();
+    fixture.workerGroupAbsent.mockReturnValue(true);
+    await expect(lifecycle.superviseLifecycle("ensure", identity.repoPath)).resolves.toEqual({
+      ok: true,
+    });
+    expect(store.readReliabilityOperation(identity)?.state.operationHistory[0]).toMatchObject({
+      status: "NOT_LAUNCHED",
+      exitCode: null,
+      drained: true,
+    });
   });
 
   it("increments effectSequence for a matching worker claim", async () => {

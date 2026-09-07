@@ -278,6 +278,11 @@ If a transition fails, the previous route set and successful state are kept
 when possible; otherwise status reports the degraded transition. The next ensure
 attempt repairs retained resources before applying another profile change.
 
+A proven command result or a failure that proves the command never launched does
+not require stopping the environment before the next command. Devrouter retains
+that result atomically and waits for the old worker to drain. Unknown arbitrary
+command completion still requires explicit reconciliation and is never replayed.
+
 Ordinary `devrouter ensure .` repairs a retained degraded runtime automatically.
 It repairs the recorded profile once, proves readiness, then applies the requested
 profile if different. No separate repair command is needed. The compatibility

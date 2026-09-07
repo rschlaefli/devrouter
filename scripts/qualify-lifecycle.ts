@@ -521,6 +521,12 @@ else fail();
     closedEnv.NODE_OPTIONS = "";
     closedEnv.LIFECYCLE_FAULT = "";
   }
+  expectExit(["exec", repo, "--", "synthetic"], 0);
+  assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+  assert.equal(read().state.operationHistory[0].status, "NOT_LAUNCHED");
+  evidence.push(
+    "proven provider spawn failure permits a subsequent command without stopping the runtime",
+  );
   evidence.push("installed provider spawn failure remains distinct from unknown completion");
   freshHome("duplicate-request-home");
   configure("complete");
@@ -574,10 +580,15 @@ else fail();
     assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 0);
     closedEnv.NODE_OPTIONS = "";
     closedEnv.LIFECYCLE_FAULT = "";
-    expectExit(["exec", repo, "--", "synthetic"], 1);
-    assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 0);
+    expectExit(["exec", repo, "--", "synthetic"], fault === "before-persist" ? 0 : 1);
+    assert.equal(
+      JSON.parse(fs.readFileSync(fixture, "utf8")).launches,
+      fault === "before-persist" ? 1 : 0,
+    );
     expectExit(["stop", repo, "--json"], 0);
-    evidence.push(`${fault}: installed dispatch never launches without durable acknowledgement`);
+    evidence.push(
+      `${fault}: no unacknowledged launch; only proven pre-dispatch failure permits a new command`,
+    );
   }
   async function races() {
     freshHome("race-home");

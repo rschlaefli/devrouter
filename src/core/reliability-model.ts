@@ -107,6 +107,7 @@ function assertReliabilityEvent(value: unknown): asserts value is ReliabilityEve
     case "dispatch-persisted":
     case "launched":
     case "interrupted":
+    case "not-started":
       valid = isReliabilityId(value.operationId);
       break;
     case "completion":
@@ -232,7 +233,7 @@ function possibleDispatch(operation: ReliabilityOperation | null): boolean {
 
 function pendingCommand(operation: ReliabilityOperation | null): boolean {
   return (
-    operation !== null && operation.status !== "COMPLETED" && operation.status !== "INTERRUPTED"
+    operation !== null && !["COMPLETED", "NOT_LAUNCHED", "INTERRUPTED"].includes(operation.status)
   );
 }
 
@@ -245,7 +246,7 @@ function updateRunningPhase(state: ReliabilityState): void {
   if (
     state.desired !== "running" ||
     state.phase === "recovering" ||
-    (state.operation !== null && state.operation.status !== "COMPLETED")
+    (state.operation !== null && !["COMPLETED", "NOT_LAUNCHED"].includes(state.operation.status))
   ) {
     return;
   }
@@ -374,7 +375,9 @@ function handleOperationRequest(
   if (
     state.operation &&
     (!state.operation.drained ||
-      (state.operation.status !== "COMPLETED" && !fullyStopped && !reconcileEnsure))
+      (!["COMPLETED", "NOT_LAUNCHED", "NOT_STARTED"].includes(state.operation.status) &&
+        !fullyStopped &&
+        !reconcileEnsure))
   )
     return unchanged(state, "blocked");
   if (state.phase === "stopping" || state.desired === "parked-for-capacity")
@@ -523,7 +526,8 @@ function handleCompletion(
       ? unchanged(state, "joined")
       : unchanged(state, "conflict");
   }
-  if (state.operation.status === "NOT_STARTED") return unchanged(state, "stale");
+  if (["NOT_STARTED", "NOT_LAUNCHED"].includes(state.operation.status))
+    return unchanged(state, "stale");
 
   state.operation = { ...state.operation, status: "COMPLETED", exitCode: event.exitCode };
   if (state.desired === "running") state.phase = "verifying";
@@ -839,6 +843,13 @@ function applyReliabilityEvent(
       return handleDispatchPersisted(next, event);
     case "launched":
       return handleLaunched(next, event);
+    case "not-started":
+      if (next.executionPolicy !== "manual" || next.operation?.kind !== "exec")
+        return unchanged(next, "blocked");
+      if (next.operation.id !== event.operationId || next.operation.status !== "RUNNING")
+        return unchanged(next, "stale");
+      next.operation = { ...next.operation, status: "NOT_LAUNCHED", exitCode: null };
+      return transition(next, "accepted");
     case "completion":
       return handleCompletion(next, event);
     case "interrupted":

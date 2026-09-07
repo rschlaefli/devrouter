@@ -507,3 +507,21 @@ selection now reaches the existing final result rather than duplicating it. All 
 profile tests pass; existing no-default comment and behavior are preserved. This is
 a behavior-preserving reduction; clean-source installed qualification is rerun after
 its commit because the emitted binary changes.
+
+### Integrated final review correction
+
+Final reviewer Godel found one medium issue: typed execution outcome and lifecycle
+completion were separate writes, and a proven zero-launch failure was treated as
+unknown completion. Both could needlessly require full stop before more work.
+The correction writes outcome and matching transition in one journal transaction.
+A manual exec with proven zero launch records NOT_LAUNCHED with no fabricated exit
+code. It cannot dispatch again and permits a different operation only after positive
+worker drainage. A never-dispatched drained operation is likewise safe to replace.
+Unknown completion retains its explicit-stop gate; pending stop still wins.
+
+This extends the existing unreleased version-2 operation enum and manual-only event
+within the approved contract source manifest. No live record migration or provider
+change occurs. All 1,055 unit tests pass, including failure after atomic rename but
+before acknowledgement and zero-launch evidence with a still-active worker group.
+Installed qualification now also runs a successful command after a proven spawn
+failure without stopping the environment. Same-reviewer correction is pending.

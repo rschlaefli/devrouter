@@ -267,12 +267,24 @@ export function recordLifecycleOutcome(outcome: ExecutionOutcome): void {
   const request = activeWorker;
   if (request?.kind !== "exec") return;
   updateReliabilityOperation(request.identity, (record) => {
-    if (record.state.operation?.id !== request.operationId) return;
+    if (!matchesFence(record, request.fence) || record.state.operation?.id !== request.operationId)
+      return;
+    const event: ReliabilityEvent =
+      outcome.status === "completed" && outcome.exitCode !== null
+        ? {
+            ...request.fence,
+            type: "completion",
+            operationId: request.operationId,
+            exitCode: outcome.exitCode,
+          }
+        : {
+            ...request.fence,
+            type: outcome.status === "not-started" ? "not-started" : "interrupted",
+            operationId: request.operationId,
+          };
+    stepRecord(record, event);
     record.outcome = { ...outcome, operationId: request.operationId };
   });
-  if (outcome.status === "completed" && outcome.exitCode !== null)
-    recordLifecycleCompletion(outcome.exitCode);
-  else recordLifecycleUnknown();
 }
 
 export function recordLifecycleCompletion(exitCode: number): void {

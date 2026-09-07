@@ -33,6 +33,7 @@ export type ReliabilityOperation = {
     | "DISPATCH_RECORDED"
     | "RUNNING"
     | "COMPLETED"
+    | "NOT_LAUNCHED"
     | "INTERRUPTED"
     | "COMPLETION_UNKNOWN";
   exitCode: number | null;
@@ -108,6 +109,7 @@ export type ReliabilityEvent = ReliabilityFence &
     | { type: "dispatch-persisted"; operationId: string }
     | { type: "launched"; operationId: string }
     | { type: "completion"; operationId: string; exitCode: number }
+    | { type: "not-started"; operationId: string }
     | { type: "interrupted"; operationId: string }
     | { type: "observation"; observation: ReliabilityObservation }
     | { type: "stop-proof"; workloadsStopped: boolean; routesRemoved: boolean }
@@ -162,6 +164,7 @@ function validOperation(value: unknown): boolean {
       "DISPATCH_RECORDED",
       "RUNNING",
       "COMPLETED",
+      "NOT_LAUNCHED",
       "INTERRUPTED",
       "COMPLETION_UNKNOWN",
     ]) &&
