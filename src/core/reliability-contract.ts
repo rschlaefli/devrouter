@@ -1,4 +1,4 @@
-export const RELIABILITY_CONTRACT_VERSION = 1;
+export const RELIABILITY_CONTRACT_VERSION = 2;
 export const RELIABILITY_MAX_ITEMS = 128;
 export const RELIABILITY_MAX_OUTPUT_BYTES = 32_768;
 
@@ -25,6 +25,8 @@ export type ReliabilityObservation = {
 
 export type ReliabilityOperation = {
   id: string;
+  kind: "ensure" | "exec";
+  drained: boolean;
   status:
     | "NOT_STARTED"
     | "DISPATCH_PENDING"
@@ -43,12 +45,14 @@ export type ReliabilityIncident = {
 };
 
 export type ReliabilityState = ReliabilityFence & {
-  contractVersion: 1;
+  contractVersion: 2;
+  executionPolicy: "manual" | "capacity-managed";
+  operationHistory: (ReliabilityOperation & { key: string; profile: string; consumerId: string })[];
   observationsAfterMs: number;
   desired: "running" | "parked-for-capacity" | "stopped-by-user";
   phase: "idle" | "queued" | "starting" | "verifying" | "stable" | "recovering" | "stopping";
   profile: string | null;
-  admission: "admitted" | "waiting" | "unknown" | "denied-unadmittable";
+  admission: "admitted" | "waiting" | "unknown" | "denied-unadmittable" | "not-applicable";
   chargeHeld: boolean;
   stopProof: { workloadsStopped: boolean; routesRemoved: boolean };
   consumers: ReliabilityConsumer[];
@@ -81,6 +85,16 @@ export type ReliabilityEvent = ReliabilityFence &
         profile: string;
         consumer: ReliabilityConsumer;
       }
+    | {
+        type: "operation-request";
+        kind: "ensure" | "exec";
+        key: string;
+        operationId: string;
+        profile: string;
+        consumer: ReliabilityConsumer;
+        runtimeRunning: boolean;
+      }
+    | { type: "drained"; operationId: string }
     | { type: "release"; consumerId: string }
     | { type: "stop" }
     | { type: "park" }
@@ -132,11 +146,44 @@ function uniqueIds(values: unknown[], key: string): boolean {
   );
 }
 
+function validOperation(value: unknown): boolean {
+  return (
+    record(value) &&
+    isReliabilityId(value.id) &&
+    oneOf(value.kind, ["ensure", "exec"]) &&
+    typeof value.drained === "boolean" &&
+    oneOf(value.status, [
+      "NOT_STARTED",
+      "DISPATCH_PENDING",
+      "DISPATCH_RECORDED",
+      "RUNNING",
+      "COMPLETED",
+      "INTERRUPTED",
+      "COMPLETION_UNKNOWN",
+    ]) &&
+    (value.status === "COMPLETED" ? isReliabilityCounter(value.exitCode) : value.exitCode === null)
+  );
+}
+
 export function assertReliabilityState(value: unknown): asserts value is ReliabilityState {
   const intentRevision = record(value) ? value.intentRevision : undefined;
   const valid =
     record(value) &&
     value.contractVersion === RELIABILITY_CONTRACT_VERSION &&
+    oneOf(value.executionPolicy, ["manual", "capacity-managed"]) &&
+    (value.executionPolicy === "manual"
+      ? value.admission === "not-applicable" && value.chargeHeld === false
+      : value.admission !== "not-applicable") &&
+    boundedArray(value.operationHistory) &&
+    uniqueIds(value.operationHistory, "key") &&
+    uniqueIds(value.operationHistory, "id") &&
+    value.operationHistory.every(
+      (entry) =>
+        record(entry) &&
+        isReliabilityId(entry.profile) &&
+        isReliabilityId(entry.consumerId) &&
+        validOperation(entry),
+    ) &&
     isReliabilityCounter(value.observationsAfterMs) &&
     isReliabilityId(value.environmentId) &&
     isReliabilityCounter(value.intentRevision) &&
@@ -153,7 +200,13 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
       "stopping",
     ]) &&
     (value.profile === null || isReliabilityId(value.profile)) &&
-    oneOf(value.admission, ["admitted", "waiting", "unknown", "denied-unadmittable"]) &&
+    oneOf(value.admission, [
+      "admitted",
+      "waiting",
+      "unknown",
+      "denied-unadmittable",
+      "not-applicable",
+    ]) &&
     typeof value.chargeHeld === "boolean" &&
     record(value.stopProof) &&
     typeof value.stopProof.workloadsStopped === "boolean" &&
@@ -191,22 +244,9 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
         isReliabilityCounter(observation.observedAtMs) &&
         isReliabilityCounter(observation.validForMs),
     ) &&
-    (value.operation === null ||
-      (record(value.operation) &&
-        isReliabilityId(value.operation.id) &&
-        oneOf(value.operation.status, [
-          "NOT_STARTED",
-          "DISPATCH_PENDING",
-          "DISPATCH_RECORDED",
-          "RUNNING",
-          "COMPLETED",
-          "INTERRUPTED",
-          "COMPLETION_UNKNOWN",
-        ]) &&
-        (value.operation.exitCode === null || isReliabilityCounter(value.operation.exitCode)) &&
-        (value.operation.status === "COMPLETED"
-          ? value.operation.exitCode !== null
-          : value.operation.exitCode === null))) &&
+    (value.operation === null || validOperation(value.operation)) &&
+    (value.executionPolicy !== "manual" ||
+      (value.desired !== "parked-for-capacity" && value.incident === null)) &&
     (value.incident === null ||
       (record(value.incident) &&
         isReliabilityId(value.incident.id) &&
@@ -220,9 +260,12 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
 export function createReliabilityState(
   environmentId: string,
   controllerEpoch: number,
+  executionPolicy: ReliabilityState["executionPolicy"] = "capacity-managed",
 ): ReliabilityState {
   const state: ReliabilityState = {
     contractVersion: RELIABILITY_CONTRACT_VERSION,
+    executionPolicy,
+    operationHistory: [],
     environmentId,
     controllerEpoch,
     intentRevision: 0,
@@ -231,7 +274,7 @@ export function createReliabilityState(
     desired: "stopped-by-user",
     phase: "idle",
     profile: null,
-    admission: "unknown",
+    admission: executionPolicy === "manual" ? "not-applicable" : "unknown",
     chargeHeld: false,
     stopProof: { workloadsStopped: false, routesRemoved: false },
     consumers: [],

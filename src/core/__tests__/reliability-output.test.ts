@@ -86,7 +86,16 @@ describe("reliability projection", () => {
     "COMPLETION_UNKNOWN",
     "INTERRUPTED",
   ] as const)("does not hide %s behind healthy observations", (status) => {
-    const state = { ...readyState(), operation: { id: "operation", status, exitCode: null } };
+    const state = {
+      ...readyState(),
+      operation: {
+        id: "operation",
+        kind: "ensure" as const,
+        drained: false,
+        status,
+        exitCode: null,
+      },
+    };
     expect(projectReliability(state, "consumer", 110).state).toBe("BLOCKED");
   });
 
@@ -125,7 +134,14 @@ describe("reliability projection", () => {
     const state = {
       ...readyState(),
       token: secret,
-      operation: { id: "operation", status: "COMPLETED" as const, exitCode: 17, argv: [secret] },
+      operation: {
+        id: "operation",
+        kind: "ensure" as const,
+        drained: true,
+        status: "COMPLETED" as const,
+        exitCode: 17,
+        argv: [secret],
+      },
       incident: { id: "incident", correctiveActionsTaken: 1, actionLimit: 2, rawError: secret },
     };
     Object.assign(state.observations[0], { payload: secret });

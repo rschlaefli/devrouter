@@ -24,3 +24,23 @@ and live recovery independently; model tests cannot establish these properties.
 Machine enrollment, automatic recovery, and operational thresholds require later
 decisions and qualification. A single combined status would hide uncertainty,
 while activating a controller now would give an unqualified model live effects.
+
+## Manual lifecycle integration extension
+
+Contract version 2 distinguishes immutable manual execution authority from
+capacity-managed admission. Manual commands do not claim measured capacity or a
+host reservation; their capacity projection is unmanaged. Existing admission,
+parking, and automatic-recovery gates remain exclusive to capacity-managed state.
+Unknown contract versions are rejected rather than silently migrated.
+
+An environment can outlive several ensure or exec operations. Each manual
+operation therefore has its own request identity and bounded completion record.
+Reusing an identity reports the original operation without replay. A different
+operation requires definite completion and worker drainage, or an explicit stop
+with full cessation proof. Exhausted history fails closed. This preserves the
+difference between application completion and a worker that can still mutate.
+
+An initial exec may adopt positive evidence of an existing runtime while creating
+its first manual record. It never starts that runtime or overrides recorded stop
+intent. Runtime adapters, installed qualification, and real-provider proof remain
+separate obligations; this extension alone does not activate runtime integration.

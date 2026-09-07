@@ -38,7 +38,10 @@ export function projectReliability(state: ReliabilityState, consumerId: string, 
   const consumer = state.consumers.find((entry) => entry.id === consumerId);
   const required = consumer?.requiredCapabilities ?? [];
   const completeStop =
-    state.stopProof.workloadsStopped && state.stopProof.routesRemoved && !state.chargeHeld;
+    state.stopProof.workloadsStopped &&
+    state.stopProof.routesRemoved &&
+    !state.chargeHeld &&
+    (state.executionPolicy !== "manual" || !state.operation || state.operation.drained);
   const observations = required.map((capability) =>
     state.observations.find((entry) => entry.capability === capability),
   );
@@ -98,7 +101,9 @@ export function projectReliability(state: ReliabilityState, consumerId: string, 
   else summary = "READY";
 
   return {
-    contractVersion: 1 as const,
+    contractVersion: state.contractVersion,
+    executionPolicy: state.executionPolicy,
+    capacity: state.executionPolicy === "manual" ? "unmanaged" : state.admission,
     ...reliabilityFence(state),
     consumerId,
     state: summary,

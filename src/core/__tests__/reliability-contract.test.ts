@@ -20,7 +20,7 @@ describe("reliability state contract", () => {
   });
 
   it.each([
-    { contractVersion: 2 },
+    { contractVersion: 1 },
     { intentRevision: -1 },
     { controllerEpoch: Number.MAX_SAFE_INTEGER + 1 },
     { runtimeGeneration: NaN },
@@ -58,6 +58,18 @@ describe("reliability state contract", () => {
   ])("rejects invalid state %j", (override) => {
     expect(() =>
       assertReliabilityState({ ...createReliabilityState("environment-1", 1), ...override }),
+    ).toThrow();
+  });
+
+  it("keeps manual authority separate from capacity-managed state", () => {
+    const state = createReliabilityState("environment-1", 1, "manual");
+    expect(state.executionPolicy).toBe("manual");
+    expect(state.admission).toBe("not-applicable");
+    expect(() => assertReliabilityState({ ...state, admission: "admitted" })).toThrow();
+    expect(() => assertReliabilityState({ ...state, chargeHeld: true })).toThrow();
+    expect(() => assertReliabilityState({ ...state, desired: "parked-for-capacity" })).toThrow();
+    expect(() =>
+      assertReliabilityState({ ...state, executionPolicy: "capacity-managed" }),
     ).toThrow();
   });
 

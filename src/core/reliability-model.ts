@@ -77,6 +77,18 @@ function assertReliabilityEvent(value: unknown): asserts value is ReliabilityEve
         isReliabilityId(value.profile) &&
         isConsumer(value.consumer);
       break;
+    case "operation-request":
+      valid =
+        oneOf(value.kind, ["ensure", "exec"] as const) &&
+        isReliabilityId(value.key) &&
+        isReliabilityId(value.operationId) &&
+        isReliabilityId(value.profile) &&
+        isConsumer(value.consumer) &&
+        typeof value.runtimeRunning === "boolean";
+      break;
+    case "drained":
+      valid = isReliabilityId(value.operationId);
+      break;
     case "release":
       valid = isReliabilityId(value.consumerId);
       break;
@@ -148,6 +160,7 @@ function cloneState(state: ReliabilityState): ReliabilityState {
   return {
     ...state,
     stopProof: { ...state.stopProof },
+    operationHistory: state.operationHistory.map((entry) => ({ ...entry })),
     consumers: state.consumers.map(cloneConsumer),
     requests: state.requests.map((request) => ({ ...request })),
     observations: state.observations.map(cloneObservation),
@@ -241,6 +254,8 @@ function handleRequest(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "request" }>,
 ): ReliabilityTransition {
+  if (state.executionPolicy === "manual" && event.mode === "start")
+    return unchanged(state, "blocked");
   const existing = state.requests.find((request) => request.key === event.key);
   if (existing) {
     const consumer = state.consumers.find((candidate) => candidate.id === existing.consumerId);
@@ -289,7 +304,13 @@ function handleRequest(
       },
     ];
     state.observations = [];
-    state.operation = { id: event.operationId, status: "NOT_STARTED", exitCode: null };
+    state.operation = {
+      id: event.operationId,
+      kind: "ensure",
+      drained: false,
+      status: "NOT_STARTED",
+      exitCode: null,
+    };
     return transition(state, "accepted", [effect(state, "request-admission", event.operationId)]);
   }
 
@@ -323,11 +344,80 @@ function handleRequest(
   return transition(state, "accepted");
 }
 
+function handleOperationRequest(
+  state: ReliabilityState,
+  event: Extract<ReliabilityEvent, { type: "operation-request" }>,
+): ReliabilityTransition {
+  if (state.executionPolicy !== "manual") return unchanged(state, "blocked");
+  const previous = state.operationHistory.find((entry) => entry.key === event.key);
+  if (previous)
+    return unchanged(
+      state,
+      previous.id === event.operationId &&
+        previous.kind === event.kind &&
+        previous.profile === event.profile &&
+        previous.consumerId === event.consumer.id
+        ? "joined"
+        : "conflict",
+    );
+  if (state.operationHistory.some((entry) => entry.id === event.operationId))
+    return unchanged(state, "conflict");
+  if (state.operationHistory.length >= RELIABILITY_MAX_ITEMS) return unchanged(state, "blocked");
+  const fullyStopped = state.stopProof.workloadsStopped && state.stopProof.routesRemoved;
+  if (
+    state.operation &&
+    (!state.operation.drained || (state.operation.status !== "COMPLETED" && !fullyStopped))
+  )
+    return unchanged(state, "blocked");
+  if (state.phase === "stopping" || state.desired === "parked-for-capacity")
+    return unchanged(state, "blocked");
+  if (
+    event.kind === "exec" &&
+    (!event.runtimeRunning || (state.desired !== "running" && state.intentRevision !== 0))
+  )
+    return unchanged(state, "blocked");
+  if (state.desired !== "running") {
+    const revision = advance(state.intentRevision);
+    if (revision === null) return unchanged(state, "blocked");
+    state.intentRevision = revision;
+  }
+  state.desired = "running";
+  state.phase = "queued";
+  state.profile = event.profile;
+  state.stopProof = { workloadsStopped: false, routesRemoved: false };
+  state.consumers = [cloneConsumer(event.consumer)];
+  state.requests = [
+    {
+      key: event.key,
+      mode: "attach",
+      consumerId: event.consumer.id,
+      operationId: event.operationId,
+      profile: event.profile,
+      intentRevision: state.intentRevision,
+    },
+  ];
+  state.operation = {
+    id: event.operationId,
+    kind: event.kind,
+    drained: false,
+    status: "NOT_STARTED",
+    exitCode: null,
+  };
+  state.operationHistory.push({
+    ...state.operation,
+    key: event.key,
+    profile: event.profile,
+    consumerId: event.consumer.id,
+  });
+  return transition(state, "accepted");
+}
+
 function handleAdmission(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "admission" }>,
 ): ReliabilityTransition {
   if (
+    state.executionPolicy === "manual" ||
     (state.desired !== "running" && state.desired !== "parked-for-capacity") ||
     state.requests.length === 0
   ) {
@@ -343,16 +433,17 @@ function handleAdmission(
 
   state.admission = event.result;
   if (event.result === "admitted") {
-    state.chargeHeld = true;
+    state.chargeHeld = state.executionPolicy === "capacity-managed";
   }
   return transition(state, "accepted");
 }
 
 function handleDispatch(state: ReliabilityState): ReliabilityTransition {
-  if (state.operation?.status !== "NOT_STARTED") return unchanged(state, "stale");
+  if (state.operation?.drained || state.operation?.status !== "NOT_STARTED")
+    return unchanged(state, "stale");
   if (
     state.desired !== "running" ||
-    state.admission !== "admitted" ||
+    (state.executionPolicy === "capacity-managed" && state.admission !== "admitted") ||
     state.consumers.length === 0
   ) {
     return unchanged(state, "blocked");
@@ -370,10 +461,15 @@ function handleDispatchPersisted(
 ): ReliabilityTransition {
   if (!state.operation || state.operation.id !== event.operationId)
     return unchanged(state, "stale");
-  if (state.operation.status !== "DISPATCH_PENDING") return unchanged(state, "stale");
-  if (state.desired !== "running" || state.admission !== "admitted" || !state.chargeHeld) {
+  if (state.operation.drained || state.operation.status !== "DISPATCH_PENDING")
+    return unchanged(state, "stale");
+  if (
+    state.desired !== "running" ||
+    (state.executionPolicy === "capacity-managed" &&
+      (state.admission !== "admitted" || !state.chargeHeld))
+  ) {
     state.operation = setUnknown(state.operation);
-    state.chargeHeld = true;
+    state.chargeHeld = state.executionPolicy === "capacity-managed";
     return transition(state, "blocked");
   }
   if (
@@ -400,10 +496,11 @@ function handleLaunched(
 ): ReliabilityTransition {
   if (!state.operation || state.operation.id !== event.operationId)
     return unchanged(state, "stale");
-  if (state.operation.status !== "DISPATCH_RECORDED") return unchanged(state, "stale");
+  if (state.operation.drained || state.operation.status !== "DISPATCH_RECORDED")
+    return unchanged(state, "stale");
   state.operation = { ...state.operation, status: "RUNNING", exitCode: null };
   state.phase = state.phase === "recovering" ? "recovering" : "verifying";
-  state.chargeHeld = true;
+  state.chargeHeld = state.executionPolicy === "capacity-managed";
   return transition(state, "accepted");
 }
 
@@ -479,7 +576,7 @@ function handleStop(state: ReliabilityState): ReliabilityTransition {
   state.desired = "stopped-by-user";
   state.phase = "stopping";
   state.profile = null;
-  state.admission = "unknown";
+  state.admission = state.executionPolicy === "manual" ? "not-applicable" : "unknown";
   state.stopProof = { workloadsStopped: false, routesRemoved: false };
   state.requests = [];
   state.observations = [];
@@ -492,6 +589,14 @@ function handleStopProof(
   event: Extract<ReliabilityEvent, { type: "stop-proof" }>,
 ): ReliabilityTransition {
   if (state.desired === "running") return unchanged(state, "stale");
+  if (
+    state.executionPolicy === "manual" &&
+    state.operation &&
+    !state.operation.drained &&
+    event.workloadsStopped &&
+    event.routesRemoved
+  )
+    return unchanged(state, "blocked");
   const previous = { ...state.stopProof };
   if (
     previous.workloadsStopped === event.workloadsStopped &&
@@ -505,15 +610,21 @@ function handleStopProof(
   if (state.stopProof.workloadsStopped && state.stopProof.routesRemoved) {
     state.chargeHeld = false;
     state.phase = "idle";
-    state.admission = state.desired === "stopped-by-user" ? "unknown" : "waiting";
+    state.admission =
+      state.executionPolicy === "manual"
+        ? "not-applicable"
+        : state.desired === "stopped-by-user"
+          ? "unknown"
+          : "waiting";
   } else {
-    state.chargeHeld = true;
+    state.chargeHeld = state.executionPolicy === "capacity-managed";
     state.phase = "stopping";
   }
   return transition(state, "accepted");
 }
 
 function handlePark(state: ReliabilityState): ReliabilityTransition {
+  if (state.executionPolicy === "manual") return unchanged(state, "blocked");
   if (state.desired === "parked-for-capacity") return unchanged(state, "joined");
   if (state.desired !== "running") return unchanged(state, "blocked");
   if (state.consumers.some((consumer) => consumer.pinned)) return unchanged(state, "blocked");
@@ -538,6 +649,7 @@ function handleResume(
   event: Extract<ReliabilityEvent, { type: "resume" }>,
 ): ReliabilityTransition {
   if (
+    state.executionPolicy === "manual" ||
     state.desired !== "parked-for-capacity" ||
     !event.pressureDwellSatisfied ||
     !state.stopProof.workloadsStopped ||
@@ -565,8 +677,14 @@ function handleResume(
   state.phase = "queued";
   state.stopProof = { workloadsStopped: false, routesRemoved: false };
   state.observations = [];
-  state.chargeHeld = true;
-  state.operation = { id: event.operationId, status: "NOT_STARTED", exitCode: null };
+  state.chargeHeld = state.executionPolicy === "capacity-managed";
+  state.operation = {
+    id: event.operationId,
+    kind: "ensure",
+    drained: false,
+    status: "NOT_STARTED",
+    exitCode: null,
+  };
   state.requests = state.requests.map((request) => ({
     ...request,
     operationId: event.operationId,
@@ -588,8 +706,9 @@ function handleGenerationChange(
   state.observations = [];
   state.stopProof = { workloadsStopped: false, routesRemoved: false };
   state.operation = setUnknown(state.operation);
-  if (state.operation !== null || state.profile !== null) state.chargeHeld = true;
-  state.admission = "unknown";
+  if (state.operation !== null || state.profile !== null)
+    state.chargeHeld = state.executionPolicy === "capacity-managed";
+  state.admission = state.executionPolicy === "manual" ? "not-applicable" : "unknown";
   if (state.desired === "running") {
     state.phase =
       state.phase === "recovering" || state.operation?.status === "COMPLETION_UNKNOWN"
@@ -603,7 +722,8 @@ function handleRecover(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "recover" }>,
 ): ReliabilityTransition {
-  if (state.desired !== "running") return unchanged(state, "blocked");
+  if (state.executionPolicy === "manual" || state.desired !== "running")
+    return unchanged(state, "blocked");
   if (possibleDispatch(state.operation)) return unchanged(state, "blocked");
 
   if (state.incident !== null && state.incident.id !== event.incidentId) {
@@ -643,7 +763,13 @@ function handleRecover(
     if (runtimeGeneration === null) return unchanged(state, "blocked");
     state.runtimeGeneration = runtimeGeneration;
     state.observations = [];
-    state.operation = { id: event.operationId, status: "NOT_STARTED", exitCode: null };
+    state.operation = {
+      id: event.operationId,
+      kind: "ensure",
+      drained: false,
+      status: "NOT_STARTED",
+      exitCode: null,
+    };
   }
   state.phase = "recovering";
   return transition(state, "accepted");
@@ -674,6 +800,14 @@ function applyReliabilityEvent(
 
   const next = cloneState(state);
   switch (event.type) {
+    case "operation-request":
+      return handleOperationRequest(next, event);
+    case "drained":
+      if (!next.operation || next.operation.id !== event.operationId)
+        return unchanged(state, "stale");
+      if (next.operation.drained) return unchanged(state, "joined");
+      next.operation.drained = true;
+      return transition(next, "accepted");
     case "request":
       return handleRequest(next, event);
     case "release": {
@@ -725,6 +859,16 @@ export function stepReliability(
   if (!isReliabilityCounter(nowMs) || nowMs < state.observationsAfterMs)
     throw new Error("Invalid reliability clock.");
   const result = applyReliabilityEvent(state, event, nowMs);
+  if (
+    result.outcome === "accepted" &&
+    result.state.executionPolicy === "manual" &&
+    result.state.operation
+  ) {
+    const operation = result.state.operation;
+    result.state.operationHistory = result.state.operationHistory.map((entry) =>
+      entry.id === operation.id ? { ...entry, ...operation } : entry,
+    );
+  }
   if (!sameFence(result.state, event) && result.outcome === "accepted") {
     result.state.observationsAfterMs = nowMs;
   }

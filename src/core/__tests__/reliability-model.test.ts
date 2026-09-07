@@ -378,3 +378,156 @@ describe("reliability transitions", () => {
     expect(() => step(started(), { type: "unsupported" } as unknown as Input)).toThrow();
   });
 });
+
+describe("manual operation lifecycle", () => {
+  const ensure = {
+    type: "operation-request",
+    kind: "ensure",
+    key: "manual-1",
+    operationId: "manual-op-1",
+    profile: "web",
+    consumer,
+    runtimeRunning: false,
+  } as const;
+  function manual() {
+    return createReliabilityState("env", 1, "manual");
+  }
+  function dispatched() {
+    let state = step(manual(), ensure).state;
+    state = step(state, { type: "dispatch" }).state;
+    state = step(state, { type: "dispatch-persisted", operationId: ensure.operationId }).state;
+    return step(state, { type: "launched", operationId: ensure.operationId }).state;
+  }
+  function drained() {
+    const state = step(dispatched(), {
+      type: "completion",
+      operationId: ensure.operationId,
+      exitCode: 0,
+    }).state;
+    return step(state, { type: "drained", operationId: ensure.operationId }).state;
+  }
+  it("dispatches explicit manual operations without manufacturing host capacity", () => {
+    const state = dispatched();
+    expect(state.operation?.status).toBe("RUNNING");
+    expect(state.admission).toBe("not-applicable");
+    expect(state.chargeHeld).toBe(false);
+    expect(projectReliability(state, consumer.id, 100).capacity).toBe("unmanaged");
+    expect(step(state, { type: "admission", result: "admitted" }).outcome).toBe("blocked");
+    expect(step(drained(), { type: "park" }).outcome).toBe("blocked");
+    expect(
+      step(drained(), {
+        type: "recover",
+        operationId: "repair",
+        incidentId: "incident",
+        actionLimit: 1,
+      }).outcome,
+    ).toBe("blocked");
+  });
+  it.each([
+    "ensure",
+    "exec",
+  ] as const)("permits successive %s after completion and worker drainage", (kind) => {
+    let state = drained();
+    const next = {
+      ...ensure,
+      kind,
+      key: "manual-2",
+      operationId: "manual-op-2",
+      runtimeRunning: true,
+    };
+    const beforeDrain = step(dispatched(), {
+      type: "completion",
+      operationId: ensure.operationId,
+      exitCode: 0,
+    }).state;
+    expect(step(beforeDrain, next).outcome).toBe("blocked");
+    const revision = state.intentRevision;
+    state = step(state, next).state;
+    expect(state.operation?.id).toBe(next.operationId);
+    expect(state.intentRevision).toBe(revision);
+    expect(state.runtimeGeneration).toBe(0);
+    expect(step(state, ensure)).toMatchObject({ outcome: "joined", effects: [], state });
+    expect(state.operationHistory[0]).toMatchObject({
+      status: "COMPLETED",
+      exitCode: 0,
+      drained: true,
+    });
+    expect(step(state, { ...ensure, kind: "exec" }).outcome).toBe("conflict");
+  });
+  it("requires runtime proof for exec and never overturns explicit stop", () => {
+    expect(step(manual(), { ...ensure, kind: "exec" }).outcome).toBe("blocked");
+    // A first record can adopt a positively proven existing runtime without starting it.
+    expect(step(manual(), { ...ensure, kind: "exec", runtimeRunning: true }).outcome).toBe(
+      "accepted",
+    );
+    let state = step(drained(), { type: "stop" }).state;
+    state = step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).state;
+    expect(
+      step(state, {
+        ...ensure,
+        key: "exec",
+        operationId: "exec",
+        kind: "exec",
+        runtimeRunning: true,
+      }).outcome,
+    ).toBe("blocked");
+    expect(step(state, { ...ensure, key: "resume", operationId: "resume" }).outcome).toBe(
+      "accepted",
+    );
+    expect(step(state, ensure).outcome).toBe("joined");
+  });
+  it("keeps uncertain work blocked until worker drainage and complete explicit-stop proof", () => {
+    let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    const next = { ...ensure, key: "next", operationId: "next" };
+    expect(step(state, next).outcome).toBe("blocked");
+    state = step(state, { type: "stop" }).state;
+    state = step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: false }).state;
+    expect(state.chargeHeld).toBe(false);
+    expect(step(state, next).outcome).toBe("blocked");
+    state = step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).state;
+    expect(step(state, next).outcome).toBe("accepted");
+  });
+  it("fences late effects and does not equate stopped workloads with a drained worker", () => {
+    const old = dispatched();
+    let state = step(old, { type: "stop" }).state;
+    expect(
+      stepReliability(
+        state,
+        {
+          ...reliabilityFence(old),
+          type: "completion",
+          operationId: ensure.operationId,
+          exitCode: 0,
+        },
+        100,
+      ).outcome,
+    ).toBe("stale");
+    expect(
+      step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).outcome,
+    ).toBe("blocked");
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    state = step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).state;
+    expect(projectReliability(state, consumer.id, 100).state).toBe("STOPPED");
+    expect(state.operation?.status).toBe("COMPLETION_UNKNOWN");
+  });
+  it("cannot dispatch a drained operation or erase duplicate history at the bound", () => {
+    let state = step(manual(), ensure).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    expect(step(state, { type: "dispatch" }).effects).toEqual([]);
+    state = manual();
+    for (let index = 0; index < 128; index++) {
+      const operationId = `op-${index}`;
+      state = step(state, { ...ensure, key: `request-${index}`, operationId }).state;
+      state = step(state, { type: "dispatch" }).state;
+      state = step(state, { type: "dispatch-persisted", operationId }).state;
+      state = step(state, { type: "completion", operationId, exitCode: 0 }).state;
+      state = step(state, { type: "drained", operationId }).state;
+    }
+    expect(state.operationHistory).toHaveLength(128);
+    expect(step(state, ensure).outcome).toBe("blocked");
+    expect(step(state, { ...ensure, key: "request-0", operationId: "op-0" }).outcome).toBe(
+      "joined",
+    );
+  });
+});

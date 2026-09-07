@@ -292,3 +292,15 @@ is part of the proposed approval scope, not authority already granted.
 Final planner result: DONE, ready to present for source implementation approval.
 Documentation policy and knowledge validation pass. No source files changed and
 no runtime or installed-fixture qualification was run during plan preparation.
+
+### Manual operation contract implementation
+
+Version 2 now distinguishes manual execution from measured admission and retains
+bounded operation results across successive calls. New operation dispatch requires
+worker drainage; explicit stop still requires workload and route proof. Initial
+exec may adopt an already-running exact runtime when no prior intent exists.
+The focused suite passes 63 tests (8 added); TypeScript and changed-file Biome
+checks pass on Node 24.16.0. Required simplifier and slice review are next.
+
+OpenCodex readiness returned ready=true on 2026-09-07; configured executor
+dispatch is available for the next settled provenance slice.
