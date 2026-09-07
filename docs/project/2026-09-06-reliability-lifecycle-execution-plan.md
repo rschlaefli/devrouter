@@ -311,3 +311,12 @@ full bounded consumer, including historical operations; one regression added.
 Both redundant capacity comparisons identified by the simplifier were removed.
 The same slice reviewer will check the correction; parent retains production
 integration. Durable-record work currently passes seven synthetic filesystem tests.
+
+### Execution provenance implementation
+
+The configured executor supplied outcome-returning provider adapters while retaining
+numeric wrappers. DevPod remote markers survive later signal/transport loss;
+missing Devsy completion is typed unknown. The parent reviewed streaming bounds
+and changed post-spawn errors to unknown rather than not-started. 29 focused
+provider tests and typecheck pass. Provider execution was mocked; installed and
+real-provider qualification remain outstanding.
