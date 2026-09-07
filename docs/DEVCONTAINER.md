@@ -364,6 +364,11 @@ service IDs after fresh ownership and configuration checks. Containers and
 volumes remain intact. Missing, replaced, foreign or unreadable members prevent
 cleanup; stopped provider status alone is insufficient.
 
+Unapplied Compose service edits do not require matching live service hashes to
+stop retained containers. Stop still verifies the recorded profile, Compose file
+identity, complete service population, exact workspace mount and stable container
+identities. Startup retains its configuration checks before reusing containers.
+
 A failing provider stop remains an error even when independently verified
 residual shutdown succeeds. Routes remain intact on that error; a later stop
 can finish route cleanup after full stopped proof. Do not remove the retained

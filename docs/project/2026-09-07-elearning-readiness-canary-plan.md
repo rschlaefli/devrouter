@@ -155,6 +155,31 @@ bounded recovery and harness qualification only through their reviewed scopes.
 
 ### Current checkpoint, 2026-09-07
 
+The retained Devsy stop correction removes the live-versus-current Compose service
+hash comparison from shutdown. Exact ownership, profile, source/generated Dev
+Container identity, service population, source mount and repeated container
+identity checks remain. This specifically permits unapplied Compose service edits;
+it does not yet make stop independent of removed profiles or edited Dev Container
+JSON. Main owns this narrow correction because the shutdown proof is tightly
+coupled. The focused retained-stop suite passes all 43 tests, including the changed
+hash case and existing foreign/replaced-container and mount-change cases.
+
+Review-correction dogfood found that installed canonical stop rejects an
+unactivated Compose volume declaration with `Managed Compose configuration
+changed for service 'app'`. Main temporarily removed only its own three-line
+preparation-volume declaration, stopped the original runtime canonically, and
+restored the source declaration. Exact source-path registration, provider Stopped
+and zero routes were then verified. No raw provider mutation or data deletion
+occurred. Configuration-independent retained stop is an additional prerequisite
+for safe generated Compose changes. Receipts:
+/private/tmp/elearning-review-correction-final-stop.log and
+/private/tmp/elearning-review-correction-stop-restored-config.log.
+
+The new fixture verifier successfully waited for a test-owned preparation lock
+and then verified the original records. Its PostgreSQL transaction capability is
+runtime checked and current typecheck passes. Crash recovery and pending-state
+qualification remain outstanding; consumer corrections remain uncommitted.
+
 Consumer risk review returned four accepted findings: malformed nonempty public
 hashes, container-local fixture ownership, concurrent/uncertain fixture
 publication, and preparation reuse without backing-database readiness. Source

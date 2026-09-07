@@ -307,12 +307,15 @@ describe("retained managed Devsy stop", () => {
     vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({ status: "drifted" });
     expect(run).toThrow();
   });
-  it("requires unchanged service configuration hashes before mutation", () => {
+  it("stops retained containers when an unapplied Compose edit changes service hashes", () => {
     vi.mocked(assertManagedContainerConfigUnchanged).mockImplementation(() => {
       throw new Error("drift");
     });
-    expect(run).toThrow();
-    expect(stopExactManagedService).not.toHaveBeenCalled();
+    expect(run()).toBe(true);
+    expect(assertManagedContainerConfigUnchanged).not.toHaveBeenCalled();
+    expect(stopExactManagedService).toHaveBeenCalledExactlyOnceWith("b".repeat(64), "db", {
+      timeoutMs: 30_000,
+    });
   });
   it.each([
     "missing",
