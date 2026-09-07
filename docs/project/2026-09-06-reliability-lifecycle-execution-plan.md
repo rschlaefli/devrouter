@@ -272,6 +272,24 @@ fault and cleanup manifest. The overall reliability roadmap remains incomplete.
 
 ## Progress
 
+Delivery update, 2026-09-07: the user's revised repository instructions authorize
+ordinary task-branch pushes and draft PR delivery. The reviewed package is now
+[draft PR #58](https://github.com/rschlaefli/devrouter/pull/58), targeting main.
+CI [run 34111935696](https://github.com/rschlaefli/devrouter/actions/runs/34111935696)
+passes on 0edbe60af42d9927c68158f84c778ef598981ee4; publishing was skipped.
+The branch-history Gitleaks scan passes. Remote fetch and task-branch push now
+succeed with scoped sandbox escalation. No merge, release or machine enrollment
+has occurred. These current facts supersede the historical delivery restrictions
+and SSH failure recorded below.
+
+The active roadmap goal continues with eLearning at
+`/Users/rschlae/Git/tc/elearning/trees/rs/reliability-canary`, on branch
+`rs/reliability-canary` from fc0e48825cfc81591e725d2927f5293dbdc3d44b.
+The isolated checkout is created, but no canary runtime has started. Source-path
+doctor reports Devsy 1.16.2 and its verified ARM64 agent ready, Docker 29.4.0,
+and Compose 5.1.2. Consumer readiness, synthetic data, preparation and resource
+caps are under the next planning review; no OOM resilience claim is added.
+
 Complete for the approved local source package. Final implementation is
 f49ef002fb04bc89e93f3d1514401ad7027d710b. Ordinary ensure repairs retained degradation,
 resolves implicit full profiles, and preserves generated configuration after uncertain
