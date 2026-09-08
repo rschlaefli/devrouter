@@ -755,3 +755,17 @@ outside the transaction. All 45 journal/lifecycle tests, typecheck, Knip and Bio
 pass, including fresh renewal, stale-sample revocation, unchanged reservation and
 controller replacement. This internal function is not yet called by the controller
 queue. Production collector identity and heartbeat scheduling remain open.
+
+Controller authority and downgrade prevention committed as 3504d91. Queue ticks
+now pass controller identity during initial admission and renew running operations
+even when no queued entries remain. Refused renewal reports authority-unavailable
+without relaunch or charge retirement. Scheduling those ticks from the production
+controller remains open. Gauss completed both pagination corrections; main verified
+their tests and diff. Partial oversized chunks report gaps, and a page budget that
+cannot advance an empty-chunk cursor throws rather than returning an endless cursor.
+All 37 focused queue/worker tests pass. Integrated source verification passes
+1,334 tests across 98 files in 14.85s; receipt:
+/private/tmp/devrouter-capacity-renewal-tests.log. The Linux helper remains skipped
+on macOS, not newly qualified. Typecheck, Knip, Biome, docs policy and knowledge pass.
+Correctness review of the new integration and corrections remains required before
+delivery. No live environment or operator policy was activated.

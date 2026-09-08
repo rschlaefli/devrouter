@@ -192,7 +192,23 @@ describe("worker dispatch acknowledgement", () => {
     const page = output.readPage({ sequence: 0, offset: 0 }, bound);
     expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(bound);
     expect(page.sequence).toEqual({ sequence: 9, offset: 0 });
+    expect(() => output.readPage(page.sequence, bound)).toThrow(
+      "Output page byte bound is too small.",
+    );
     expect(output.readPage(page.sequence).sequence).toEqual({ sequence: 10, offset: 0 });
+  });
+
+  it("reports a gap when a cursor enters the retained tail of an oversized chunk", () => {
+    const output = new LifecycleOutput();
+    const discarded = Buffer.from("discarded prefix");
+    const retained = Buffer.alloc(262_144, 0x80);
+    output.append("stdout", Buffer.concat([discarded, retained]));
+
+    const page = output.readPage({ sequence: 1, offset: 0 }, 1_024);
+    expect(page.gap).toBe(true);
+    expect(Buffer.from(page.chunks[0]!.data, "base64")).toEqual(
+      retained.subarray(0, page.sequence.offset),
+    );
   });
 
   it("preserves a UTF8 codepoint split across separate append calls", () => {

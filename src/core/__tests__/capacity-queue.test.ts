@@ -10,6 +10,7 @@ const fixture = vi.hoisted(() => ({
   retireQueuedLifecycle: vi.fn(),
   runLifecycleWorker: vi.fn(),
   readCapacityPolicy: vi.fn(),
+  renewLifecycleCapacity: vi.fn(),
 }));
 
 vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.readCapacityPolicy }));
@@ -17,6 +18,7 @@ vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.readCapacityP
 vi.mock("../reliability-lifecycle", () => ({
   admitLifecycleCapacity: fixture.admitLifecycleCapacity,
   retireQueuedLifecycle: fixture.retireQueuedLifecycle,
+  renewLifecycleCapacity: fixture.renewLifecycleCapacity,
 }));
 
 vi.mock("../reliability-worker", async (importOriginal) => ({
@@ -110,7 +112,10 @@ type QueueScheduling = {
   queueLifetimeSeconds: number;
 };
 
-function queue(scheduling?: QueueScheduling): CapacityQueue {
+function queue(
+  scheduling?: QueueScheduling,
+  controller?: { store: string; epoch: number },
+): CapacityQueue {
   fixture.readCapacityPolicy.mockReturnValue({
     revision: 1,
     admissions: "enabled",
@@ -127,6 +132,7 @@ function queue(scheduling?: QueueScheduling): CapacityQueue {
     directory: "/tmp/capacity-queue-test",
     policyRevision: 1,
     collect: fixture.collect,
+    controller,
   });
 }
 
@@ -136,9 +142,36 @@ afterEach(() => {
   fixture.collect.mockReset();
   fixture.retireQueuedLifecycle.mockReset();
   fixture.runLifecycleWorker.mockReset();
+  fixture.renewLifecycleCapacity.mockReset();
 });
 
 describe("CapacityQueue", () => {
+  it("renews running operations without queued work and never relaunches them", async () => {
+    const controller = { store: "controller-store", epoch: 1 };
+    const queued = queue(undefined, controller);
+    const worker = deferred<{ ok: true }>();
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({ admitted: true });
+    fixture.runLifecycleWorker.mockReturnValue(worker.promise);
+    fixture.renewLifecycleCapacity.mockReturnValue(true);
+    queued.enqueue(request("running"), reservation("running", "environment-running", ["domain-a"]));
+    await queued.tick();
+    expect(fixture.admitLifecycleCapacity.mock.calls[0]?.at(-1)).toEqual(controller);
+    await queued.tick();
+    expect(fixture.renewLifecycleCapacity).toHaveBeenCalledOnce();
+    expect(queued.observe("running")).toMatchObject({ phase: "running", reason: null });
+    fixture.renewLifecycleCapacity.mockReturnValue(false);
+    await queued.tick();
+    expect(queued.observe("running")).toMatchObject({
+      phase: "running",
+      reason: "authority-unavailable",
+    });
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledOnce();
+    expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
+    worker.resolve({ ok: true });
+    await queued.wait("running", 1000);
+  });
+
   it("uses operator domain budgets and sample age for admission", async () => {
     const queued = queue();
     const operatorBudgets = { "domain-a": { ...budgets["domain-a"], capacityBytes: 500 } };
@@ -164,6 +197,7 @@ describe("CapacityQueue", () => {
       expect.any(Number),
       7000,
       "/tmp/capacity-queue-test",
+      undefined,
     );
     expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
   });

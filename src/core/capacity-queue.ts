@@ -2,7 +2,12 @@ import { isDeepStrictEqual } from "node:util";
 import type { CapacityDomainSample } from "./capacity-accounting";
 import { readCapacityPolicy } from "./capacity-policy";
 import type { CapacityReservation } from "./capacity-store";
-import { admitLifecycleCapacity, retireQueuedLifecycle } from "./reliability-lifecycle";
+import {
+  admitLifecycleCapacity,
+  renewLifecycleCapacity,
+  retireQueuedLifecycle,
+} from "./reliability-lifecycle";
+import type { CapacityControllerIdentity } from "./reliability-operation-store";
 import {
   LifecycleOutput,
   type LifecycleWorkerRequest,
@@ -32,6 +37,7 @@ export class CapacityQueue {
     private options: {
       directory: string;
       policyRevision: number;
+      controller?: CapacityControllerIdentity;
       collect: () => Promise<Record<string, CapacityDomainSample>>;
     },
   ) {
@@ -160,7 +166,9 @@ export class CapacityQueue {
       }
       if (
         ![...this.entries.values()].some(
-          (entry) => entry.phase === "queued" && performance.now() < entry.expiresAt,
+          (entry) =>
+            (entry.phase === "queued" && performance.now() < entry.expiresAt) ||
+            (entry.phase === "running" && this.options.controller !== undefined),
         )
       )
         return;
@@ -178,6 +186,24 @@ export class CapacityQueue {
       const policyBytes = JSON.stringify(policy);
       const samples = await this.options.collect();
       if (this.closed) return;
+      if (this.options.controller) {
+        for (const entry of this.entries.values()) {
+          if (entry.phase !== "running") continue;
+          try {
+            entry.reason = renewLifecycleCapacity(
+              entry.request,
+              policy,
+              samples,
+              this.options.controller,
+              this.options.directory,
+            )
+              ? null
+              : "authority-unavailable";
+          } catch {
+            entry.reason = "authority-unavailable";
+          }
+        }
+      }
       const waitingDomains = new Set<string>();
       for (const entry of this.entries.values()) {
         if (entry.phase !== "queued") continue;
@@ -203,6 +229,7 @@ export class CapacityQueue {
             Date.now(),
             policy.scheduling.maxSampleAgeSeconds * 1000,
             this.options.directory,
+            this.options.controller,
           );
         } catch {
           try {

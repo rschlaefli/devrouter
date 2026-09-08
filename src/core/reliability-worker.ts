@@ -64,11 +64,15 @@ export class LifecycleOutput {
   private bytes = 0;
   private sequence = 0;
   private droppedThrough = 0;
+  private partialSequences = new Set<number>();
 
   append(stream: "stdout" | "stderr", data: Buffer): void {
     const limit = OUTPUT_BUFFER_LIMIT;
     const sequence = ++this.sequence;
-    if (data.byteLength > limit) this.droppedThrough = sequence;
+    if (data.byteLength > limit) {
+      this.droppedThrough = sequence;
+      this.partialSequences.add(sequence);
+    }
     const kept = Buffer.from(data.subarray(-limit));
     this.chunks.push({ stream, data: kept, sequence });
     this.bytes += kept.byteLength;
@@ -77,6 +81,7 @@ export class LifecycleOutput {
       if (!removed) break;
       this.bytes -= removed.data.byteLength;
       this.droppedThrough = Math.max(this.droppedThrough, removed.sequence);
+      this.partialSequences.delete(removed.sequence);
     }
   }
 
@@ -110,12 +115,17 @@ export class LifecycleOutput {
       throw new Error("Invalid output cursor.");
     if (!Number.isSafeInteger(maxJsonBytes) || maxJsonBytes <= 0)
       throw new Error("Invalid output page byte bound.");
+    const cursorHasPartialChunk =
+      cursorChunk !== undefined &&
+      this.partialSequences.has(cursor.sequence) &&
+      cursor.offset < cursorChunk.data.byteLength;
 
     let page: LifecycleOutputPage = {
       encoding: "base64",
       gap:
         cursor.sequence < this.droppedThrough ||
-        (cursor.sequence > 0 && cursor.sequence <= this.droppedThrough && !cursorChunk),
+        (cursor.sequence > 0 && cursor.sequence <= this.droppedThrough && !cursorChunk) ||
+        cursorHasPartialChunk,
       sequence: cursor,
       chunks: [],
     };
@@ -127,7 +137,11 @@ export class LifecycleOutput {
       let offset = chunk.sequence === cursor.sequence ? cursor.offset : 0;
       if (offset >= chunk.data.byteLength) {
         const nextPage = { ...page, sequence: { sequence: chunk.sequence, offset } };
-        if (outputPageBytes(nextPage) > maxJsonBytes) return page;
+        if (outputPageBytes(nextPage) > maxJsonBytes) {
+          if (page.sequence.sequence === cursor.sequence && page.sequence.offset === cursor.offset)
+            throw new Error("Output page byte bound is too small.");
+          return page;
+        }
         page = nextPage;
         continue;
       }
@@ -156,7 +170,8 @@ export class LifecycleOutput {
           } else high = midpoint - 1;
         }
         if (!best) {
-          if (page.chunks.length === 0) throw new Error("Output page byte bound is too small.");
+          if (page.sequence.sequence === cursor.sequence && page.sequence.offset === cursor.offset)
+            throw new Error("Output page byte bound is too small.");
           return page;
         }
         page = best;
