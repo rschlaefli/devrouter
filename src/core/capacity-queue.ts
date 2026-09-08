@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { CapacityDomainSample } from "./capacity-accounting";
 import { readCapacityPolicy } from "./capacity-policy";
+import type { CapacityAdmissionContext } from "./capacity-request";
 import type { CapacityReservation } from "./capacity-store";
 import {
   admitLifecycleCapacity,
@@ -17,6 +18,7 @@ import {
 type Entry = {
   request: LifecycleWorkerRequest;
   reservation: CapacityReservation;
+  admission?: CapacityAdmissionContext;
   phase: "queued" | "running" | "terminal";
   reason: string | null;
   expiresAt: number;
@@ -59,7 +61,11 @@ export class CapacityQueue {
       throw new Error("Capacity queue policy exceeds supported bounds.");
   }
 
-  enqueue(request: LifecycleWorkerRequest, reservation: CapacityReservation): string {
+  enqueue(
+    request: LifecycleWorkerRequest,
+    reservation: CapacityReservation,
+    admission?: CapacityAdmissionContext,
+  ): string {
     if (this.closed) throw new Error("Capacity queue is closed.");
     if (request.kind === "stop" || request.operationId !== reservation.operationId)
       throw new Error("Capacity queue requires prepared non-stop intent.");
@@ -75,7 +81,8 @@ export class CapacityQueue {
         existing.phase === "terminal" ? { ...request, command: undefined } : request;
       if (
         !isDeepStrictEqual(existingRequest, incomingRequest) ||
-        !isDeepStrictEqual(existing.reservation, reservation)
+        !isDeepStrictEqual(existing.reservation, reservation) ||
+        !isDeepStrictEqual(existing.admission, admission)
       )
         throw new Error("Operation reference belongs to another accepted request.");
       return request.operationId;
@@ -103,6 +110,7 @@ export class CapacityQueue {
     this.entries.set(request.operationId, {
       request: payload,
       reservation: structuredClone(reservation),
+      ...(admission ? { admission: structuredClone(admission) } : {}),
       phase: "queued",
       reason: null,
       expiresAt: performance.now() + this.limits.lifetimeMs,
@@ -241,6 +249,7 @@ export class CapacityQueue {
             policy.scheduling.maxSampleAgeSeconds * 1000,
             this.options.directory,
             this.options.controller,
+            entry.admission,
           );
         } catch {
           try {

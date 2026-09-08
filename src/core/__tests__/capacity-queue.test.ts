@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CapacityDomainBudget, CapacityDomainSample } from "../capacity-accounting";
 import { CapacityQueue } from "../capacity-queue";
+import type { CapacityAdmissionContext } from "../capacity-request";
 import type { CapacityReservation } from "../capacity-store";
 import type { LifecycleWorkerRequest } from "../reliability-worker";
 
@@ -146,6 +147,36 @@ afterEach(() => {
 });
 
 describe("CapacityQueue", () => {
+  it("retains reviewed admission metadata independently of caller mutation", async () => {
+    const queued = queue();
+    const prepared = request("metadata");
+    const charge = reservation("metadata", prepared.fence.environmentId, ["domain-a"]);
+    const context: CapacityAdmissionContext = {
+      estimates: { version: 1, profiles: {} },
+      enrollment: {
+        repoPath: prepared.repoPath,
+        gitCommonDir: `${prepared.repoPath}/.git`,
+        workspace: "",
+        provider: "devsy",
+        providerId: "synthetic",
+        hostDomain: "domain-a",
+        runtimeDomain: "domain-b",
+        profiles: ["full"],
+        estimatesDigest: "a".repeat(64),
+        defaultOperation: { hostIncrementBytes: 1, runtimeIncrementBytes: 1 },
+      },
+    };
+    const original = structuredClone(context);
+    queued.enqueue(prepared, charge, context);
+    context.enrollment.estimatesDigest = "b".repeat(64);
+    expect(() => queued.enqueue(prepared, charge, context)).toThrow("another accepted request");
+    expect(queued.enqueue(prepared, charge, original)).toBe(prepared.operationId);
+    fixture.admitLifecycleCapacity.mockReturnValue({ admitted: false, reason: "capacity" });
+    fixture.collect.mockResolvedValue(samples);
+    await queued.tick();
+    expect(fixture.admitLifecycleCapacity.mock.calls[0]?.[8]).toEqual(original);
+    queued.close();
+  });
   it("renews running operations without queued work and never relaunches them", async () => {
     const controller = { store: "controller-store", epoch: 1 };
     const queued = queue(undefined, controller);
@@ -156,7 +187,7 @@ describe("CapacityQueue", () => {
     fixture.renewLifecycleCapacity.mockReturnValue(true);
     queued.enqueue(request("running"), reservation("running", "environment-running", ["domain-a"]));
     await queued.tick();
-    expect(fixture.admitLifecycleCapacity.mock.calls[0]?.at(-1)).toEqual(controller);
+    expect(fixture.admitLifecycleCapacity.mock.calls[0]?.[7]).toEqual(controller);
     await queued.tick();
     expect(fixture.renewLifecycleCapacity).toHaveBeenCalledOnce();
     expect(queued.observe("running")).toMatchObject({ phase: "running", reason: null });
@@ -197,6 +228,7 @@ describe("CapacityQueue", () => {
       expect.any(Number),
       7000,
       "/tmp/capacity-queue-test",
+      undefined,
       undefined,
     );
     expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();

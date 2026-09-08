@@ -23,6 +23,7 @@ const fixture = vi.hoisted(() => ({
   root: "",
   enroll: vi.fn(),
   runLifecycleWorker: vi.fn(),
+  runningContainer: vi.fn(),
 }));
 
 vi.mock("../router", async (importOriginal) => {
@@ -41,6 +42,11 @@ vi.mock("../router", async (importOriginal) => {
 
 vi.mock("../capacity-enrollment", () => ({
   enrollCapacityLifecycle: fixture.enroll,
+}));
+
+vi.mock("../devpod-environment", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../devpod-environment")>()),
+  resolveRunningWorkspaceContainer: fixture.runningContainer,
 }));
 
 vi.mock("../reliability-worker", async (importOriginal) => ({
@@ -204,8 +210,186 @@ function watchRequest(
 }
 
 beforeEach(() => {
+  fixture.runningContainer.mockReset();
   fs.rmSync(fixture.root, { recursive: true, force: true });
   fs.mkdirSync(fixture.root, { mode: 0o700 });
+});
+
+it.each([
+  "exit0",
+  "exit1",
+  "missing-outcome",
+  "undrained",
+  "startup",
+  "heavy",
+  "excess",
+])("reconciles exec charges only with settled predecessor and definite drained completion (%s)", async (mode) => {
+  const directory = path.join(fixture.root, "controller");
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const current = environment(fs.mkdtempSync(path.join(fixture.root, "exec-")), "c");
+  const enrollment = policyEnrollment(current);
+  const identity: ReliabilityIdentity = {
+    repoPath: current.repoPath,
+    workspace: current.workspace,
+    provider: current.provider,
+  };
+  seedStopped(identity, durableEnrollment(current));
+  const operatorPolicy = policy([enrollment]);
+  fs.writeFileSync(path.join(directory, "capacity-policy.json"), JSON.stringify(operatorPolicy), {
+    mode: 0o600,
+  });
+  fs.writeFileSync(
+    path.join(current.repoPath, ".devrouter.yml"),
+    JSON.stringify({ version: 1, apps: [], capacity: estimates }),
+  );
+  const incarnation = new ControllerStore(directory).startIncarnation();
+  const controller = { store: incarnation.store, epoch: incarnation.epoch };
+  fixture.enroll.mockResolvedValue({ environment: current, enrollment, estimates });
+  fixture.runningContainer.mockReturnValue({ id: "synthetic-running-container" });
+  const launches: LifecycleWorkerRequest[] = [];
+  fixture.runLifecycleWorker.mockImplementation(async (request: LifecycleWorkerRequest) => {
+    launches.push(request);
+    return { status: "completed" };
+  });
+  const active = createCapacityController({
+    directory,
+    controller: { ...controller, directory, consumeStartup: () => {} },
+    collect: async () => ({ host: sample(Date.now()), runtime: sample(Date.now()) }),
+  });
+  const binding = {
+    version: 1 as const,
+    id: "synthetic-submit",
+    method: "operation-submit" as const,
+    session: "synthetic-session",
+    ...controller,
+    generation: "synthetic-generation",
+  };
+  const store = new CapacityStore(directory);
+  try {
+    await active.submit(
+      { ...binding, requestId: "prepare", kind: "ensure" },
+      current,
+      new AbortController().signal,
+    );
+    await active.tick();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(launches).toHaveLength(1);
+    // Synthetic worker proof; the launch mock itself never establishes completion.
+    updateReliabilityOperation(identity, (record) => {
+      const operation = {
+        ...record.state.operation!,
+        status: "COMPLETED" as const,
+        exitCode: 0,
+        drained: true,
+      };
+      record.state.operation = operation;
+      record.state.operationHistory = record.state.operationHistory.map((entry) =>
+        entry.id === operation.id ? { ...entry, ...operation } : entry,
+      );
+      record.activeProfile = "full";
+      record.preparation = {
+        operationId: operation.id,
+        profile: "full",
+        fence: reliabilityFence(record.state),
+      };
+    });
+    await active.tick();
+    expect(store.read().reservations[0]).toMatchObject({
+      totals: { host: 10, runtime: 10 },
+      startup: false,
+      heavy: false,
+    });
+
+    const retainedPredecessor = ["startup", "heavy", "excess"].includes(mode);
+    if (retainedPredecessor) {
+      const snapshot = store.read();
+      const prior = snapshot.reservations[0];
+      const budgets = Object.fromEntries(
+        Object.entries(operatorPolicy.domains).map(([name, domain]) => [name, domain]),
+      );
+      const now = Date.now();
+      expect(
+        store.reserve(
+          {
+            ...prior,
+            startup: mode === "startup",
+            heavy: mode === "heavy",
+            totals: { host: mode === "excess" ? 12 : 10, runtime: 10 },
+          },
+          budgets,
+          { host: sample(now), runtime: sample(now) },
+          now,
+          15000,
+          {
+            revision: snapshot.revision,
+            operationId: prior.operationId,
+            reservationId: prior.reservationId,
+          },
+          snapshot.revision,
+        ).admitted,
+      ).toBe(true);
+      updateReliabilityOperation(identity, (record) => {
+        record.preparation = null;
+      });
+    }
+    await active.submit(
+      { ...binding, requestId: "exec", kind: "exec", command: ["synthetic-command"] },
+      current,
+      new AbortController().signal,
+    );
+    await active.tick();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(launches).toHaveLength(2);
+    expect(launches[1].kind).toBe("exec");
+    const admitted = readReliabilityOperation(identity)!;
+    const reservation = store.read().reservations[0];
+    expect(reservation).toMatchObject({
+      operationId: launches[1].operationId,
+      heavy: true,
+      totals: { host: mode === "excess" ? 12 : 11, runtime: 11 },
+    });
+    if (retainedPredecessor) expect(admitted.capacity?.execSteady).toBeUndefined();
+    else
+      expect(admitted.capacity?.execSteady).toEqual({
+        profile: "full",
+        estimatesDigest,
+        fence: launches[1].fence,
+        totals: { host: 10, runtime: 10 },
+      });
+
+    updateReliabilityOperation(identity, (record) => {
+      const exitCode = mode === "exit1" ? 1 : 0;
+      const operation = {
+        ...record.state.operation!,
+        status: "COMPLETED" as const,
+        exitCode,
+        drained: mode !== "undrained",
+      };
+      record.state.operation = operation;
+      record.state.operationHistory = record.state.operationHistory.map((entry) =>
+        entry.id === operation.id ? { ...entry, ...operation } : entry,
+      );
+      if (mode !== "missing-outcome")
+        record.outcome = {
+          operationId: operation.id,
+          status: "completed",
+          exitCode,
+          transport: { exitCode: 0, signal: null },
+        };
+    });
+    await active.tick();
+    if (mode === "exit0" || mode === "exit1") {
+      expect(store.read().reservations[0]).toMatchObject({
+        totals: { host: 10, runtime: 10 },
+        startup: false,
+        heavy: false,
+      });
+      expect(readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+    } else expect(store.read().reservations[0]).toEqual(reservation);
+    expect(launches).toHaveLength(2);
+  } finally {
+    active.close();
+  }
 });
 
 afterAll(() => {

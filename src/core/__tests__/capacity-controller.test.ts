@@ -335,6 +335,7 @@ it.each([
   expect(fixture.enqueue).toHaveBeenCalledWith(
     prepared,
     expect.objectContaining({ operationId: "accepted", policyRevision: 1, totals: { host: 1 } }),
+    { estimates: {}, enrollment: {} },
   );
 });
 

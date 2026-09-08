@@ -82,10 +82,10 @@ export function createCapacityController(options: {
         const record = readReliabilityOperation(identity);
         if (
           !record?.capacity ||
-          !record.preparation ||
+          (!record.preparation && !record.capacity.execSteady) ||
           record.worker ||
           !record.state.operation?.drained ||
-          record.state.operation.kind !== "ensure"
+          !["ensure", "exec"].includes(record.state.operation.kind)
         )
           continue;
         const bytes = readControllerEvidence(path.join(enrollment.repoPath, ".devrouter.yml"));
@@ -131,11 +131,7 @@ export function createCapacityController(options: {
       };
       const record = readReliabilityOperation(identity);
       if (!record) throw new Error("Capacity lifecycle journal unavailable.");
-      if (
-        record.preparation &&
-        record.state.operation?.kind === "ensure" &&
-        record.state.operation.drained
-      )
+      if ((record.preparation || record.capacity?.execSteady) && record.state.operation?.drained)
         settlePreparedLifecycleCapacity({
           identity,
           controller,
@@ -179,12 +175,16 @@ export function createCapacityController(options: {
         throw new Error("Operation request conflicts with its accepted payload.");
       if (prepared.request) {
         try {
-          queue.enqueue(prepared.request, {
-            ...charge,
-            operationId: prepared.operationId,
-            reservationId: randomUUID(),
-            policyRevision: current.revision,
-          });
+          queue.enqueue(
+            prepared.request,
+            {
+              ...charge,
+              operationId: prepared.operationId,
+              reservationId: randomUUID(),
+              policyRevision: current.revision,
+            },
+            { estimates: resolved.estimates, enrollment: resolved.enrollment },
+          );
           acceptedPayloads.set(prepared.operationId, signature);
           for (const id of acceptedPayloads.keys()) {
             if (!queue.observePage(id)) acceptedPayloads.delete(id);

@@ -37,6 +37,13 @@ export type CapacityEnrollmentBinding = {
 
 export type CapacityControllerIdentity = { store: string; epoch: number };
 
+export type CapacityExecSteady = {
+  profile: string;
+  estimatesDigest: string;
+  fence: ReliabilityFence;
+  totals: Record<string, number>;
+};
+
 export type ReliabilityPreparationReceipt = {
   operationId: string;
   profile: string;
@@ -67,6 +74,7 @@ export type ReliabilityOperationRecord = {
     policyRevision: number;
     validUntilMs: number;
     controller?: CapacityControllerIdentity;
+    execSteady?: CapacityExecSteady;
   } | null;
   preparation?: ReliabilityPreparationReceipt | null;
   phaseSettlement?: CapacityPhaseSettlement | null;
@@ -245,6 +253,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
         "policyRevision",
         "validUntilMs",
         "controller",
+        "execSteady",
       ]);
       if (capacity.controller !== undefined) {
         keys(capacity.controller, ["store", "epoch"]);
@@ -390,6 +399,40 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
       throw new Error("Preparation receipt does not match a completed ensure operation.");
   }
   validateCapacityPhaseSettlement(record, state, record.enrollment);
+  const execSteady = record.capacity?.execSteady;
+  if (execSteady !== undefined) {
+    const enrollment = record.enrollment;
+    if (record.version !== 2 || !enrollment || state.executionPolicy !== "capacity-managed")
+      throw new Error("Exec steady receipt requires durable capacity enrollment.");
+    exactKeys(
+      execSteady,
+      ["profile", "estimatesDigest", "fence", "totals"],
+      "Invalid exec steady receipt fields.",
+    );
+    exactKeys(
+      execSteady.fence,
+      ["environmentId", "intentRevision", "runtimeGeneration", "controllerEpoch"],
+      "Invalid exec steady receipt fence.",
+    );
+    if (
+      !isReliabilityProfile(execSteady.profile) ||
+      typeof execSteady.estimatesDigest !== "string" ||
+      !/^[0-9a-f]{64}$/.test(execSteady.estimatesDigest) ||
+      execSteady.estimatesDigest !== enrollment.estimatesDigest ||
+      execSteady.fence.environmentId !== state.environmentId ||
+      !isReliabilityCounter(execSteady.fence.intentRevision) ||
+      !isReliabilityCounter(execSteady.fence.runtimeGeneration) ||
+      !isReliabilityCounter(execSteady.fence.controllerEpoch)
+    )
+      throw new Error("Invalid exec steady receipt.");
+    exactKeys(
+      execSteady.totals,
+      [enrollment.hostDomain, enrollment.runtimeDomain],
+      "Exec steady receipt domains do not match enrollment.",
+    );
+    if (!Object.values(execSteady.totals).every(isReliabilityCounter))
+      throw new Error("Invalid exec steady receipt totals.");
+  }
   if (state.operation) {
     const current = state.operationHistory.find((entry) => entry.id === state.operation?.id);
     if (

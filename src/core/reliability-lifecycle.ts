@@ -11,7 +11,7 @@ import {
   type CapacityPolicyEnrollment,
   readCapacityPolicy,
 } from "./capacity-policy";
-import { capacitySteadyCharge } from "./capacity-request";
+import { type CapacityAdmissionContext, capacitySteadyCharge } from "./capacity-request";
 import {
   type CapacityReservation,
   CapacitySnapshotChangedError,
@@ -38,6 +38,7 @@ import { stepReliability } from "./reliability-model";
 import {
   assertCapacityEffect,
   type CapacityControllerIdentity,
+  type CapacityExecSteady,
   type CapacityPhaseSettlement,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
@@ -297,7 +298,7 @@ function assertCurrentCapacityController(
     throw new Error("Capacity controller incarnation changed.");
 }
 
-/** Reduce reconciled preparation charges only after the exact worker has drained. */
+/** Reduce completed phase charges only after the exact worker has drained. */
 export function settlePreparedLifecycleCapacity(input: {
   identity: ReliabilityIdentity;
   controller: CapacityControllerIdentity;
@@ -312,7 +313,6 @@ export function settlePreparedLifecycleCapacity(input: {
     const pending = updateReliabilityOperation(input.identity, (record) => {
       assertCurrentCapacityController(input.controller, directory);
       const operation = record.state.operation;
-      const preparation = record.preparation;
       const binding = record.capacity;
       if (
         !binding ||
@@ -320,13 +320,8 @@ export function settlePreparedLifecycleCapacity(input: {
         record.worker ||
         record.state.desired !== "running" ||
         record.state.phase === "stopping" ||
-        operation?.kind !== "ensure" ||
-        operation.status !== "COMPLETED" ||
+        operation?.status !== "COMPLETED" ||
         !operation.drained ||
-        !preparation ||
-        preparation.operationId !== operation.id ||
-        !matchesFence(record, preparation.fence) ||
-        record.activeProfile !== preparation.profile ||
         record.enrollment.estimatesDigest !== input.enrollment.estimatesDigest ||
         record.enrollment.hostDomain !== input.enrollment.hostDomain ||
         record.enrollment.runtimeDomain !== input.enrollment.runtimeDomain ||
@@ -334,15 +329,40 @@ export function settlePreparedLifecycleCapacity(input: {
         record.enrollment.policyRevision !== binding.policyRevision
       )
         return null;
+      const proof = operation.kind === "ensure" ? record.preparation : binding.execSteady;
+      if (
+        !proof ||
+        !matchesFence(record, proof.fence) ||
+        record.activeProfile !== proof.profile ||
+        record.state.profile !== proof.profile
+      )
+        return null;
+      if (operation.kind === "ensure") {
+        if (record.preparation?.operationId !== operation.id) return null;
+      } else if (operation.kind === "exec") {
+        if (
+          record.outcome?.operationId !== operation.id ||
+          record.outcome.status !== "completed" ||
+          record.outcome.exitCode === null ||
+          record.outcome.exitCode !== operation.exitCode ||
+          binding.execSteady?.estimatesDigest !== input.enrollment.estimatesDigest
+        )
+          return null;
+      } else return null;
       const target: CapacityReservation = {
         ...capacitySteadyCharge(input.estimates, input.enrollment, {
           environmentId: record.state.environmentId,
-          profile: preparation.profile,
+          profile: proof.profile,
         }),
         operationId: operation.id,
         reservationId: binding.reservationId,
         policyRevision: binding.policyRevision,
       };
+      if (
+        operation.kind === "exec" &&
+        !isDeepStrictEqual(target.totals, binding.execSteady?.totals)
+      )
+        return null;
       const retained = snapshot.reservations.find(
         (entry) => entry.environmentId === target.environmentId,
       );
@@ -356,7 +376,7 @@ export function settlePreparedLifecycleCapacity(input: {
       if (!record.phaseSettlement && isDeepStrictEqual(retained, target)) return null;
       const marker: CapacityPhaseSettlement = {
         id: binding.reservationId,
-        fence: { ...preparation.fence },
+        fence: { ...proof.fence },
         target,
         estimatesDigest: input.enrollment.estimatesDigest,
       };
@@ -406,10 +426,12 @@ export function admitLifecycleCapacity(
   maxSampleAgeMs: number,
   directory = path.join(DEVROUTER_HOME, "controller"),
   controller?: CapacityControllerIdentity,
+  admission?: CapacityAdmissionContext,
 ) {
   if (request.kind === "stop") throw new Error("Stop never requires capacity admission.");
   const capacity = new CapacityStore(directory);
   const snapshot = capacity.read();
+  let execSteady: CapacityExecSteady | undefined;
   const previous = updateReliabilityOperation(request.identity, (record) => {
     if (record.phaseSettlement) throw new Error("Capacity phase settlement is pending.");
     if (record.state.executionPolicy === "capacity-managed")
@@ -459,6 +481,43 @@ export function admitLifecycleCapacity(
       );
       if (!earlier?.drained) throw new Error("Earlier capacity worker drainage is not proven.");
     }
+    if (request.kind === "exec" && admission) {
+      const { estimates, enrollment } = admission;
+      const profile = request.options.profile;
+      if (
+        !profile ||
+        !record.enrollment ||
+        record.enrollment.policyRevision !== reservation.policyRevision ||
+        record.enrollment.estimatesDigest !== enrollment.estimatesDigest ||
+        record.enrollment.hostDomain !== enrollment.hostDomain ||
+        record.enrollment.runtimeDomain !== enrollment.runtimeDomain ||
+        record.activeProfile !== profile
+      )
+        throw new Error("Exec settlement estimates do not match durable enrollment.");
+      const totals = capacitySteadyCharge(estimates, enrollment, {
+        environmentId: record.state.environmentId,
+        profile,
+      }).totals;
+      const receipt: CapacityExecSteady = {
+        profile,
+        estimatesDigest: enrollment.estimatesDigest,
+        fence: { ...request.fence },
+        totals,
+      };
+      if (binding.operationId === request.operationId) {
+        if (binding.execSteady && !isDeepStrictEqual(binding.execSteady, receipt))
+          throw new Error("Repeated exec settlement proof changed.");
+        execSteady = binding.execSteady;
+      } else if (
+        !retained.startup &&
+        !retained.heavy &&
+        isDeepStrictEqual(retained.totals, totals)
+      ) {
+        execSteady = receipt;
+      }
+    } else if (binding.operationId === request.operationId && binding.execSteady) {
+      throw new Error("Repeated exec admission requires its reviewed estimates.");
+    }
     // A retry must also pass fresh all-domain admission before renewing authority.
     binding.validUntilMs = 0;
     return {
@@ -484,6 +543,7 @@ export function admitLifecycleCapacity(
         reservationId: reservation.reservationId,
         policyRevision: reservation.policyRevision,
         ...(controller ? { controller } : {}),
+        ...(execSteady ? { execSteady } : {}),
         validUntilMs:
           Math.min(...Object.values(samples).map((sample) => sample.sampledAtMs)) + maxSampleAgeMs,
       },
@@ -623,6 +683,7 @@ export function bindLifecycleCapacity(
     policyRevision: number;
     validUntilMs: number;
     controller?: CapacityControllerIdentity;
+    execSteady?: CapacityExecSteady;
   },
   directory = path.join(DEVROUTER_HOME, "controller"),
 ): void {

@@ -8,6 +8,7 @@ import { reliabilityFence } from "../reliability-contract";
 import { stepReliability } from "../reliability-model";
 import {
   assertCapacityEffect,
+  type CapacityExecSteady,
   type CapacityPhaseSettlement,
   enrollStoppedLifecycle,
   listReliabilityOperations,
@@ -181,6 +182,100 @@ describe("durable reliability records", () => {
   function journalDirectory(): string {
     return path.join(fixture.root, "reliability");
   }
+
+  function execSteadyRecord() {
+    const stopped = stoppedRecord();
+    enrollStoppedLifecycle(identity, stopped.revision, enrollment);
+    updateReliabilityOperation(identity, (record) => {
+      record.capacity = {
+        reservationId: "exec-reservation",
+        operationId: "exec-operation",
+        workerId: "exec-worker",
+        policyRevision: 1,
+        validUntilMs: 0,
+        execSteady: {
+          profile: "full",
+          estimatesDigest: enrollment.estimatesDigest,
+          fence: reliabilityFence(record.state),
+          totals: { host: 0, guest: Number.MAX_SAFE_INTEGER },
+        },
+      };
+    });
+    return readReliabilityOperation(identity)!;
+  }
+
+  it("round-trips exec steady receipts after a stop supersedes their fence", () => {
+    const before = execSteadyRecord();
+    const receipt = before.capacity!.execSteady!;
+    updateReliabilityOperation(identity, (record) => {
+      const stopped = stepReliability(
+        record.state,
+        { ...reliabilityFence(record.state), type: "stop" },
+        200,
+      );
+      expect(stopped.outcome).toBe("accepted");
+      record.state = stopped.state;
+    });
+    const after = readReliabilityOperation(identity)!;
+    expect(after.state.intentRevision).toBeGreaterThan(receipt.fence.intentRevision);
+    expect(after.capacity!.execSteady).toEqual(receipt);
+    updateReliabilityOperation(identity, (record) => {
+      delete record.capacity!.execSteady;
+    });
+    expect(readReliabilityOperation(identity)!.capacity!.execSteady).toBeUndefined();
+  });
+
+  it.each([
+    ["empty profile", { profile: "" }],
+    ["uppercase digest", { estimatesDigest: "A".repeat(64) }],
+    ["different digest", { estimatesDigest: "b".repeat(64) }],
+    ["missing domain", { totals: { host: 0 } }],
+    ["foreign domain", { totals: { host: 0, other: 1 } }],
+    ["negative total", { totals: { host: -1, guest: 0 } }],
+    ["fractional total", { totals: { host: 0.5, guest: 0 } }],
+    ["unsafe total", { totals: { host: Number.MAX_SAFE_INTEGER + 1, guest: 0 } }],
+    ["null receipt", null],
+    ["extra field", { operationId: "extra" }],
+  ])("rejects exec steady receipt with %s without changing the journal", (_label, changes) => {
+    const before = execSteadyRecord();
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.capacity!.execSteady = (
+          changes === null ? null : { ...record.capacity!.execSteady, ...changes }
+        ) as CapacityExecSteady;
+      }),
+    ).toThrow();
+    expect(readReliabilityOperation(identity)).toEqual(before);
+  });
+
+  it.each([
+    { environmentId: "other-environment" },
+    { intentRevision: -1 },
+    { runtimeGeneration: 0.5 },
+    { controllerEpoch: Number.MAX_SAFE_INTEGER + 1 },
+    { extra: 1 },
+  ])("rejects an invalid exec steady fence (%j)", (changes) => {
+    const before = execSteadyRecord();
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        Object.assign(record.capacity!.execSteady!.fence, changes);
+      }),
+    ).toThrow();
+    expect(readReliabilityOperation(identity)).toEqual(before);
+  });
+
+  it("rejects an exec steady receipt without durable managed enrollment", () => {
+    const before = execSteadyRecord();
+    const unowned = { ...identity, repoPath: path.join(identity.repoPath, "unowned") };
+    expect(() =>
+      updateReliabilityOperation(unowned, (record) => {
+        record.version = 2;
+        record.capacity = structuredClone(before.capacity);
+        record.capacity!.execSteady!.fence = reliabilityFence(record.state);
+      }),
+    ).toThrow("durable capacity enrollment");
+    expect(readReliabilityOperation(unowned)).toBeUndefined();
+  });
 
   function extraIdentity(provider: ReliabilityIdentity["provider"]): ReliabilityIdentity {
     const target = {

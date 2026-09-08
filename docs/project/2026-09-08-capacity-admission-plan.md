@@ -987,3 +987,39 @@ only decreasing totals/slots, no absent-row insertion. All 13 store tests and fu
 typecheck pass. Journal proof/marker and scheduler integration remain pending before
 this primitive may release any production charge. Gauss is checking the smallest
 honest packed admission tracer route without executable synthetic policy options.
+
+Preparation settlement is implemented through e79d37f (controller scheduling).
+74fc052 persists operation-bound preparation receipts; 4639690 adds strict pending
+settlement state and the revision-fenced reduction transaction. Scheduler ticks
+and follow-up submissions now reconcile eligible completed ensure operations.
+The integration fixture proves the next queued startup launches once after durable
+preparation and drainage, while promise completion alone retains the charge.
+Replacement-controller reconciliation reduces proven preparation without replaying
+lost payloads. Exec settlement and inherited-allocation eligibility remain open.
+
+Verification: 1,388 tests across 100 files passed with two workers at 4639690;
+/private/tmp/devrouter-phase-settlement-bounded-tests.log is the producing receipt.
+The default-parallel run had three controller timeouts; both affected files passed
+all 26 tests with one worker. At e79d37f, all 92 affected tests, typecheck, Knip,
+Biome and hooks pass; /private/tmp/devrouter-phase-scheduler-affected-tests.log.
+Simplification reviews are complete, with the literal-false reduction applied.
+Independent correctness review remains with Singer; no final readiness is claimed.
+
+The other-host consumer stale-record/recreation report is assigned to Erdos for
+bounded source investigation. The requesting evaluation task retains runtime and
+browser ownership. Its requested task ID was unavailable to the local messaging
+tool, so no update was delivered. No other-host runtime or global installation
+was changed. Main retains integration; Tesla is resolving the remaining exec
+settlement seam. Telemetry, canonical CLI integration, packed capacity qualification,
+bounded recovery, harness integration and eLearning proof remain unfinished.
+
+Exec settlement now carries pinned estimate context through the internal queue,
+derives eligibility from an exact slot-free steady predecessor, and persists the
+receipt with admission binding. Same-operation retries preserve its receipt.
+Definite command exit 0 or 1 plus drainage can reduce to steady; absent outcomes,
+undrained work and inherited startup/heavy/excess charges retain allocations.
+The coordinator integration cases use synthetic enrollment, running-container
+lookup, worker launches, completion evidence and samples; stores and journals are
+real. All 1,421 source tests pass with two workers, plus typecheck, Knip and Biome.
+Receipt: /private/tmp/devrouter-exec-settlement-full-tests.log. Independent review
+and packed capacity qualification remain required before delivery.

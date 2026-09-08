@@ -1,6 +1,11 @@
 import type { CapacityEstimates } from "../types";
 import type { CapacityCharge } from "./capacity-accounting";
 import type { CapacityPolicyEnrollment } from "./capacity-policy";
+export type CapacityAdmissionContext = {
+  estimates: CapacityEstimates;
+  enrollment: CapacityPolicyEnrollment;
+};
+
 import { capacityEstimatesDigest } from "./repo-config";
 
 function sum(left: number, right: number): number {
