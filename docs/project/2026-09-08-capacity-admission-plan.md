@@ -833,3 +833,25 @@ one close on shutdown. Typecheck, Knip, focused Biome and diff whitespace checks
 pass. Remote refresh confirms the branch is 22 commits ahead of origin/main with
 no missing target commits. The scheduler slice is ready for commit and scoped
 review; production collector and CLI integration remain incomplete.
+
+Scheduler committed as 7923b29. Singer completed a5793a4..30fc075 and confirmed
+the downgrade, output-gap, pagination-progress and incarnation-renewal corrections.
+One convergence finding remains: managed submission cannot reconcile intent lost
+before dispatch after controller loss. Do not call reconcileDrained unconditionally:
+an accepted live queued request also has NOT_STARTED status and no worker. Recovery
+must establish controller/payload absence and fence the predecessor before retiring
+its positively undispatched intent. Existing uncertain work retains its charges.
+Singer now reviews 30fc075..7923b29 for IPC/coordinator/scheduler correctness.
+
+Lovelace completed simplification of that ten-path range. Main verified the sole
+suggestion: every waiter callback synchronously removes itself, so finish can
+iterate the Set without copying and clearing it first. All 24 queue tests and
+focused Biome pass after that reduction. Gauss owns a new coordinator integration
+test with real queue, journal and reservation behavior and synthetic provider/worker
+boundaries. This does not replace the required packed real-worker tracer.
+
+Source inspection confirms activeProfile is currently initialized only to null.
+Successful preparation must record the reconciled active profile before managed
+exec can construct its charge. Phase-specific settlement, replacement-controller
+recovery, qualified collection and canonical CLI routing remain required. No
+runtime or operator policy was changed during these checks.

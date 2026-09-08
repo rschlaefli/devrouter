@@ -298,9 +298,7 @@ export class CapacityQueue {
   }
 
   private finish(entry: Entry): void {
-    const waiters = [...entry.waiters];
-    entry.waiters.clear();
-    for (const notify of waiters) notify();
+    for (const notify of entry.waiters) notify();
   }
 
   private retire(entry: Entry, reason: string): void {
