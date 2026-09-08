@@ -73,6 +73,7 @@ export type ReliabilityOperationRecord = {
     workerId: string;
     policyRevision: number;
     validUntilMs: number;
+    snapshotRevision?: number;
     controller?: CapacityControllerIdentity;
     execSteady?: CapacityExecSteady;
   } | null;
@@ -252,6 +253,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
         "workerId",
         "policyRevision",
         "validUntilMs",
+        "snapshotRevision",
         "controller",
         "execSteady",
       ]);
@@ -272,7 +274,9 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
         !isReliabilityId(capacity.workerId) ||
         !Number.isSafeInteger(capacity.policyRevision) ||
         capacity.policyRevision < 1 ||
-        !isReliabilityCounter(capacity.validUntilMs))
+        !isReliabilityCounter(capacity.validUntilMs) ||
+        (capacity.snapshotRevision !== undefined &&
+          (!isReliabilityCounter(capacity.snapshotRevision) || capacity.snapshotRevision < 1)))
     )
       throw new Error("Invalid capacity authority binding.");
   }
@@ -486,7 +490,6 @@ export function assertCapacityEffect(
   workerId: string,
   nowMs: number,
   directory = path.join(DEVROUTER_HOME, "controller"),
-  expectedCapacityRevision?: number,
 ): void {
   if (record.version === 1) return;
   const binding = record.capacity;
@@ -508,8 +511,8 @@ export function assertCapacityEffect(
       throw new Error("Capacity controller incarnation changed.");
   }
   const snapshot = new CapacityStore(directory).read();
-  if (expectedCapacityRevision !== undefined && snapshot.revision !== expectedCapacityRevision)
-    throw new Error("Capacity snapshot changed during renewal.");
+  if (binding.snapshotRevision === undefined || snapshot.revision !== binding.snapshotRevision)
+    throw new Error("Capacity snapshot authority is absent or stale.");
   const reservation = snapshot.reservations.find(
     (entry) => entry.reservationId === binding.reservationId,
   );

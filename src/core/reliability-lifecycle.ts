@@ -569,6 +569,7 @@ export function admitLifecycleCapacity(
       {
         reservationId: reservation.reservationId,
         policyRevision: reservation.policyRevision,
+        snapshotRevision: decision.revision,
         ...(controller ? { controller } : {}),
         ...(execSteady ? { execSteady } : {}),
         validUntilMs:
@@ -659,11 +660,12 @@ export function renewLifecycleCapacity(
         ).admitted
       )
         return false;
+      binding.snapshotRevision = snapshot.revision;
       binding.validUntilMs =
         Math.min(
           ...Object.keys(reservation.totals).map((domain) => samples[domain]?.sampledAtMs ?? 0),
         ) + maxAge;
-      assertCapacityEffect(record, request.workerId, nowMs, directory, snapshot.revision);
+      assertCapacityEffect(record, request.workerId, nowMs, directory);
       return true;
     } catch {
       binding.validUntilMs = 0;
@@ -710,6 +712,7 @@ export function bindLifecycleCapacity(
     reservationId: string;
     policyRevision: number;
     validUntilMs: number;
+    snapshotRevision: number;
     controller?: CapacityControllerIdentity;
     execSteady?: CapacityExecSteady;
   },

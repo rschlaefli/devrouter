@@ -814,6 +814,7 @@ describe("durable reliability records", () => {
         workerId: "worker",
         policyRevision: 1,
         validUntilMs: 115,
+        snapshotRevision: store.read().revision,
       };
     });
     updateReliabilityOperation(identity, (current) =>
@@ -829,6 +830,25 @@ describe("durable reliability records", () => {
         ),
       ).toThrow("absent or stale");
     }
+    const legacy = readReliabilityOperation(identity)!;
+    delete legacy.capacity!.snapshotRevision;
+    updateReliabilityOperation(identity, (record) => {
+      delete record.capacity!.snapshotRevision;
+    });
+    expect(readReliabilityOperation(identity)?.capacity?.snapshotRevision).toBeUndefined();
+    expect(() => assertCapacityEffect(legacy, "worker", 100, directory)).toThrow(
+      "snapshot authority",
+    );
+    for (const revision of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() =>
+        updateReliabilityOperation(identity, (record) => {
+          record.capacity!.snapshotRevision = revision;
+        }),
+      ).toThrow("Invalid capacity authority binding");
+    }
+    updateReliabilityOperation(identity, (record) => {
+      record.capacity!.snapshotRevision = store.read().revision;
+    });
     const current = readReliabilityOperation(identity)!;
     current.capacity!.policyRevision++;
     expect(() => assertCapacityEffect(current, "worker", 100, directory)).toThrow("does not match");

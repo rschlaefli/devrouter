@@ -99,6 +99,7 @@ it.each([
       reservationId: "reservation",
       policyRevision: 1,
       validUntilMs: 200,
+      snapshotRevision: 1,
     }),
   ).toThrow("intent changed");
   expect(fixture.reserve).not.toHaveBeenCalled();

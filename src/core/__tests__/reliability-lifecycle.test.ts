@@ -185,6 +185,88 @@ async function seedWorkerRequest(kind: "ensure" | "exec" = "ensure") {
   return { contract, identity, lifecycle, model, request, store };
 }
 
+async function seedCapacityWorkerRequest() {
+  const seeded = await seedWorkerRequest();
+  const { CapacityStore } = await import("../capacity-store");
+  const { ControllerStore } = await import("../controller-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const directory = path.join(DEVROUTER_HOME, "controller");
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const controller = new ControllerStore(directory).startIncarnation();
+  const capacities = new CapacityStore(directory);
+  const now = Date.now();
+  const budgets = {
+    host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 2, heavySlots: 2 },
+  };
+  const samples = {
+    host: {
+      sampledAtMs: now,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    },
+  };
+  const reservation = {
+    environmentId: seeded.request.fence.environmentId,
+    operationId: seeded.request.operationId,
+    reservationId: "claim-reservation",
+    policyRevision: 1,
+    totals: { host: 1 },
+    startup: true,
+    heavy: true,
+  };
+  const admission = capacities.reserve(
+    reservation,
+    budgets,
+    samples,
+    now,
+    60_000,
+    undefined,
+    capacities.read().revision,
+  );
+  if (!admission.admitted) throw new Error("Synthetic admission failed.");
+  const enrollment = {
+    policyRevision: 1,
+    gitCommonDir: "/tmp/synthetic-common",
+    providerId: "synthetic-provider",
+    hostDomain: "host",
+    runtimeDomain: "guest",
+    endpoint: "/tmp/synthetic-docker.sock",
+    daemonId: "synthetic-daemon",
+    estimatesDigest: "a".repeat(64),
+  };
+  seeded.store.updateReliabilityOperation(seeded.identity, (record) => {
+    record.version = 2;
+    record.enrollment = enrollment;
+    record.activeProfile = "full";
+    record.state.executionPolicy = "capacity-managed";
+    record.state.admission = "admitted";
+    record.state.chargeHeld = true;
+    record.capacity = {
+      reservationId: reservation.reservationId,
+      operationId: seeded.request.operationId,
+      workerId: seeded.request.workerId,
+      policyRevision: 1,
+      validUntilMs: now + 60_000,
+      snapshotRevision: admission.revision,
+      controller: { store: controller.store, epoch: controller.epoch },
+    };
+  });
+  const policy = {
+    revision: 1,
+    admissions: "enabled",
+    scheduling: { maxSampleAgeSeconds: 60 },
+    domains: {
+      ...budgets,
+      guest: { kind: "runtime", endpoint: enrollment.endpoint, daemonId: enrollment.daemonId },
+    },
+    enrollments: [{ ...enrollment, ...seeded.identity, profiles: ["full"] }],
+  } as unknown as import("../capacity-policy").CapacityPolicy;
+  fixture.readCapacityPolicy.mockReturnValue(policy);
+  return { ...seeded, capacities, controller, directory, reservation, policy, samples, now };
+}
+
 async function seedStopRequest() {
   const { contract, lifecycle, model, store } = await loadLifecycleModules();
   const identity: ReliabilityIdentity = {
@@ -554,11 +636,13 @@ it.each([
     capacities.read().revision,
   );
   expect(admission.admitted).toBe(true);
+  if (!admission.admitted) throw new Error("Synthetic admission failed.");
   if (stopped) lifecycle.prepareLifecycleOperation("stop", request.repoPath);
   const bind = () =>
     lifecycle.bindLifecycleCapacity(request, {
       reservationId: "reserved",
       policyRevision: 1,
+      snapshotRevision: admission.revision,
       validUntilMs: now + 15_000,
     });
   if (stopped) expect(bind).toThrow("intent changed");
@@ -569,6 +653,7 @@ it.each([
       capacity: { workerId: request.workerId },
     });
   }
+  expect(capacities.read().reservations).toHaveLength(1);
   expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
 });
 
@@ -802,6 +887,7 @@ it("retires queued intent durably without allowing it to dispatch again", async 
     lifecycle.bindLifecycleCapacity(request, {
       reservationId: "unused",
       policyRevision: 1,
+      snapshotRevision: 1,
       validUntilMs: Date.now() + 15_000,
     }),
   ).toThrow("intent changed");
@@ -985,6 +1071,148 @@ describe("reliability lifecycle supervision", () => {
 
     release();
     await expect(pending).resolves.toEqual({ stopped: true });
+  });
+
+  it.each([
+    true,
+    false,
+  ])("retains charged claims across durable revocation (claim first: %s)", async (claimFirst) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity, capacities } = await seedCapacityWorkerRequest();
+    const charged = capacities.read();
+    let effects = 0;
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      const initialSequence = store.readReliabilityOperation(identity)!.effectSequence;
+      if (claimFirst) lifecycle.claimLifecycleEffect();
+      store.updateReliabilityOperation(identity, (record) => {
+        record.capacity!.validUntilMs = 0;
+      });
+      expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+      if (claimFirst) effects++;
+      expect(() => {
+        lifecycle.claimLifecycleEffect();
+        effects++;
+      }).toThrow("absent or stale");
+      expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(
+        initialSequence + (claimFirst ? 1 : 0),
+      );
+      expect(effects).toBe(claimFirst ? 1 : 0);
+      expect(capacities.read()).toEqual(charged);
+    });
+    expect(capacities.read()).toEqual(charged);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("does not acknowledge or release charges on interrupted fencing (published: %s)", async (published) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity, capacities } = await seedCapacityWorkerRequest();
+    const charged = capacities.read();
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      const rename = fs.renameSync;
+      const sync = fs.fsyncSync;
+      let renamed = false;
+      let acknowledged = false;
+      const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+        if (String(to) === store.reliabilityOperationPath(identity) && !published)
+          throw new Error("synthetic fencing interruption");
+        rename(from, to);
+        if (String(to) === store.reliabilityOperationPath(identity)) renamed = true;
+      });
+      const syncSpy = vi.spyOn(fs, "fsyncSync").mockImplementation((descriptor) => {
+        if (renamed) throw new Error("synthetic fencing interruption");
+        sync(descriptor);
+      });
+      try {
+        expect(() => {
+          store.updateReliabilityOperation(identity, (record) => {
+            record.capacity!.validUntilMs = 0;
+          });
+          acknowledged = true;
+        }).toThrow("synthetic fencing interruption");
+      } finally {
+        renameSpy.mockRestore();
+        syncSpy.mockRestore();
+      }
+      expect(acknowledged).toBe(false);
+      const sequence = store.readReliabilityOperation(identity)!.effectSequence;
+      if (published) {
+        expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+        expect(() => lifecycle.claimLifecycleEffect()).toThrow("absent or stale");
+        expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(sequence);
+      } else {
+        expect(() => lifecycle.claimLifecycleEffect()).not.toThrow();
+        expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(sequence + 1);
+      }
+      expect(capacities.read()).toEqual(charged);
+      store.updateReliabilityOperation(identity, (record) => {
+        record.capacity!.validUntilMs = 0;
+      });
+      expect(() => lifecycle.claimLifecycleEffect()).toThrow("absent or stale");
+    });
+    expect(capacities.read()).toEqual(charged);
+  });
+
+  it("requires fresh renewal after a competing snapshot revision before another effect claim", async () => {
+    setProcessConnected(true);
+    const {
+      lifecycle,
+      request,
+      store,
+      identity,
+      capacities,
+      controller,
+      directory,
+      reservation,
+      policy,
+      samples,
+      now,
+    } = await seedCapacityWorkerRequest();
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      const old = store.readReliabilityOperation(identity)!;
+      const sequence = old.effectSequence;
+      const competing = capacities.reserve(
+        {
+          ...reservation,
+          environmentId: "competing-environment",
+          operationId: "competing-operation",
+          reservationId: "competing-reservation",
+        },
+        policy.domains,
+        samples,
+        now,
+        60_000,
+        undefined,
+        capacities.read().revision,
+      );
+      expect(competing.admitted).toBe(true);
+      let effects = 0;
+      expect(() => {
+        lifecycle.claimLifecycleEffect();
+        effects++;
+      }).toThrow("snapshot authority");
+      expect(effects).toBe(0);
+      expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(sequence);
+      expect(capacities.read().reservations).toHaveLength(2);
+      expect(
+        lifecycle.renewLifecycleCapacity(request, policy, samples, controller, directory, now),
+      ).toBe(true);
+      expect(store.readReliabilityOperation(identity)?.capacity?.snapshotRevision).toBe(
+        capacities.read().revision,
+      );
+      lifecycle.claimLifecycleEffect();
+      effects++;
+      expect(effects).toBe(1);
+      expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(sequence + 1);
+      expect(() => store.assertCapacityEffect(old, request.workerId, now, directory)).toThrow(
+        "snapshot authority",
+      );
+      expect(() => store.assertCapacityEffect(old, "replacement-worker", now, directory)).toThrow(
+        "absent or stale",
+      );
+      expect(capacities.read().reservations).toHaveLength(2);
+    });
   });
 
   it("does not let a stale worker claim increment effectSequence", async () => {
