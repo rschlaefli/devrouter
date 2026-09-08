@@ -383,3 +383,39 @@ The slice is ready to commit for independent review, not ready for publication,
 controller activation or capacity-protection claims. Main owns the remaining
 server/protocol integration, telemetry and policy qualification, renewal, phase
 settlement and packed real-worker tracer.
+
+Committed the prepared-intent/reservation/queue slice as fea5a46. Reused the existing
+risk reviewer and simplifier for f66b780..fea5a46; supplied producing verification
+to the simplifier after NEEDS_CONTEXT. Both reviews remain pending. Main separately
+added lifecycle-operation-status.ts for durable current/history projection:
+queued intent has no terminal outcome, drained possible launch remains unknown,
+and completed nonzero exit codes remain definitive. Eleven focused projection
+tests and typecheck pass. This new source is outside the immutable review range
+and is not wired into controller IPC yet.
+
+Added read-only operation-status IPC using the existing store/epoch/session/
+generation validation. The server resolves identity from the validated session's
+environment; callers cannot supply a different checkout path. A synthetic real
+Unix-socket test proves retained nonzero result lookup and stale-generation
+rejection before journal access. All 31 affected server/protocol/projection tests
+and typecheck pass. This query does not submit or replay commands. Command
+admission, policy enrollment and telemetry remain unwired; the committed prior
+slice's independent reviews retain their immutable range.
+
+Original risk route terminated with provider400 insufficient credits. Native
+same-provider retry cannot fix exhausted credits; one trusted generic-continuity
+Luna/max reviewer Singer 01a08000-91f1-7ba1-9fd4-f2d0fa5da7ce now owns the same
+immutable risk review. Simplifier completed: main verified and applied its sole
+recommendation, consolidating refused/exception queue topology tests into two
+independently reported parameterized cases with shared completion assertions.
+Added operation-status parser tests for complete binding, bounded operation ID
+and rejection of caller-supplied checkout paths. All 18 queue/protocol tests pass.
+No risk-review approval is claimed while Singer remains active.
+
+Integrated source validation now passes 1,267 Vitest tests across 97 files.
+The build and isolated packed CLI smoke both pass; packed validation installed
+only into its temporary fixture and did not update the machine CLI. Linux
+process-helper tests still skip on macOS. Updated the owning devcontainer manual
+with the read-only operation-status contract. These results verify distribution
+and source regression, not the still-unwired capacity launch path. Singer remains
+the sole active risk reviewer for the prior committed slice.

@@ -21,7 +21,14 @@ function hasControlCharacter(value: string): boolean {
   );
 }
 
-type ControllerMethod = "handshake" | "observe" | "renew" | "release" | "status" | "watch";
+type ControllerMethod =
+  | "handshake"
+  | "observe"
+  | "renew"
+  | "release"
+  | "status"
+  | "watch"
+  | "operation-status";
 
 export type ControllerHandshakeRequest = {
   version: 1;
@@ -81,6 +88,7 @@ export type ControllerWatchRequest = {
 };
 
 export type ControllerRequest =
+  | (Omit<ControllerRenewRequest, "method"> & { method: "operation-status"; operationId: string })
   | ControllerHandshakeRequest
   | ControllerObserveRequest
   | ControllerRenewRequest
@@ -286,6 +294,23 @@ export function parseControllerRequest(input: unknown): ControllerRequest {
           store: parseId(input.store),
           epoch: parseEpoch(input.epoch),
           generation: parseId(input.generation),
+        };
+      }
+      case "operation-status": {
+        const header = parseHeader(input, "operation-status", [
+          "session",
+          "store",
+          "epoch",
+          "generation",
+          "operationId",
+        ]);
+        return {
+          ...header,
+          session: parseId(input.session),
+          store: parseId(input.store),
+          epoch: parseEpoch(input.epoch),
+          generation: parseId(input.generation),
+          operationId: parseId(input.operationId),
         };
       }
       case "status": {

@@ -10,6 +10,7 @@ import {
   ControllerStore,
 } from "./controller-store";
 import { withFileLock } from "./file-lock";
+import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
 
 const FRAME_BYTES = 65_536;
 function privateDirectory(directory: string) {
@@ -293,6 +294,23 @@ export async function runController(options: {
                 !request.session && offset + 16 < snapshot.sessions.length
                   ? String(offset + 16)
                   : null,
+            };
+          } else if (request.method === "operation-status") {
+            const session = sessions.validate(request);
+            const environment = sessions
+              .read()
+              .environments.find((entry) => entry.id === session.environmentId);
+            if (!environment) throw new Error("Session environment is unavailable.");
+            result = {
+              operation:
+                readLifecycleOperationStatus(
+                  {
+                    repoPath: environment.repoPath,
+                    workspace: environment.workspace || null,
+                    provider: environment.provider,
+                  },
+                  request.operationId,
+                ) ?? null,
             };
           } else {
             sessions.validate(request);

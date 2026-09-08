@@ -70,6 +70,55 @@ function connect(directory: string) {
       }),
   };
 }
+it("queries durable operation history only through a valid session binding", async () => {
+  const { directory } = await fixture();
+  const client = connect(directory);
+  await client.request({ method: "handshake" });
+  const acquired = await client.request({
+    method: "observe",
+    path: "/fixture/checkout",
+    session: "reader",
+    profile: "web",
+    require: ["runtime"],
+  });
+  const read = vi.spyOn(operationStore, "readReliabilityOperation").mockReturnValue({
+    state: {
+      operation: null,
+      operationHistory: [
+        { id: "previous", kind: "exec", drained: true, status: "COMPLETED", exitCode: 7 },
+      ],
+    },
+  } as unknown as operationStore.ReliabilityOperationRecord);
+  try {
+    const result = await client.request({
+      ...acquired.result,
+      method: "operation-status",
+      operationId: "previous",
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      result: { operation: { operationId: "previous", outcome: "COMPLETED", exitCode: 7 } },
+    });
+    expect(read).toHaveBeenCalledWith({
+      repoPath: "/fixture/checkout",
+      workspace: "fixture",
+      provider: "devsy",
+    });
+    read.mockClear();
+    const rejected = await client.request({
+      ...acquired.result,
+      method: "operation-status",
+      operationId: "previous",
+      generation: "stale-generation",
+    });
+    expect(rejected.ok).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+  } finally {
+    read.mockRestore();
+    client.socket.destroy();
+  }
+});
+
 it("streams a later application failure while an independent runtime consumer stays ready", async () => {
   const { controllerRequest } = await import("../controller-client");
   const state = createReliabilityState("environment", 0, "manual");

@@ -21,6 +21,25 @@ function expectInvalid(value: unknown): void {
 }
 
 describe("parseControllerRequest", () => {
+  it("requires a bounded operation ID and complete session binding for operation status", () => {
+    const valid = request("operation-status", {
+      session: BASE_IDS.session,
+      store: BASE_IDS.store,
+      epoch: 1,
+      generation: BASE_IDS.generation,
+      operationId: "operation-1",
+    });
+    expect(parseControllerRequest(valid)).toEqual(valid);
+    for (const field of ["session", "store", "epoch", "generation", "operationId"]) {
+      const missing = { ...valid };
+      delete missing[field];
+      expectInvalid(missing);
+    }
+    expectInvalid({ ...valid, operationId: "../other" });
+    expectInvalid({ ...valid, operationId: "x".repeat(129) });
+    expectInvalid({ ...valid, path: "/another/checkout" });
+  });
+
   it("parses every protocol method into its discriminated shape", () => {
     const requests: unknown[] = [
       request("handshake"),

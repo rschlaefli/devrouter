@@ -126,90 +126,41 @@ afterEach(() => {
 });
 
 describe("CapacityQueue", () => {
-  it("blocks overlapping followers behind a refused head while dispatching unrelated domains", async () => {
+  it.each([
+    "memory",
+    "admission-unavailable",
+  ] as const)("blocks overlapping followers on %s while dispatching unrelated domains", async (reason) => {
     const queued = queue();
     const worker = deferred<unknown>();
-    const decisions = new Map<string, { admitted: boolean; domain?: string; reason?: string }>([
-      ["head", { admitted: false, domain: "domain-a", reason: "memory" }],
-      ["overlap", { admitted: true }],
-      ["unrelated", { admitted: true }],
-    ]);
     const launched: string[] = [];
     fixture.collect.mockResolvedValue(samples);
-    fixture.admitLifecycleCapacity.mockImplementation((item: LifecycleWorkerRequest) =>
-      decisions.get(item.operationId),
-    );
+    fixture.admitLifecycleCapacity.mockImplementation((item: LifecycleWorkerRequest) => {
+      if (item.operationId !== "head") return { admitted: true };
+      if (reason === "admission-unavailable") throw new Error("journal unavailable");
+      return { admitted: false, domain: "domain-a", reason: "memory" };
+    });
     fixture.runLifecycleWorker.mockImplementation(async (item: LifecycleWorkerRequest) => {
       launched.push(item.operationId);
       await worker.promise;
       return { ok: true };
     });
-
     queued.enqueue(request("head"), reservation("head", "environment-head", ["domain-a"]));
     queued.enqueue(request("overlap"), reservation("overlap", "environment-overlap", ["domain-a"]));
     queued.enqueue(
       request("unrelated"),
       reservation("unrelated", "environment-unrelated", ["domain-b"]),
     );
-
     await queued.tick();
-
     expect(
       fixture.admitLifecycleCapacity.mock.calls.map(
         ([item]) => (item as LifecycleWorkerRequest).operationId,
       ),
     ).toEqual(["head", "unrelated"]);
     expect(launched).toEqual(["unrelated"]);
-    expect(queued.observe("head")?.reason).toBe("memory");
-    expect(queued.observe("overlap")?.phase).toBe("queued");
-    expect(queued.observe("overlap")?.reason).toBeNull();
-
+    expect(queued.observe("head")).toMatchObject({ phase: "queued", reason });
+    expect(queued.observe("overlap")).toMatchObject({ phase: "queued", reason: null });
     worker.resolve({ ok: true });
     await expect(queued.wait("unrelated", 1_000)).resolves.toBe(true);
-  });
-
-  it("blocks overlapping followers after admission uncertainty while dispatching unrelated domains", async () => {
-    const queued = queue();
-    const launched: string[] = [];
-    fixture.collect.mockResolvedValue(samples);
-    fixture.admitLifecycleCapacity.mockImplementation((item: LifecycleWorkerRequest) => {
-      if (item.operationId === "uncertain") throw new Error("journal unavailable");
-      return { admitted: true };
-    });
-    fixture.runLifecycleWorker.mockImplementation(async (item: LifecycleWorkerRequest) => {
-      launched.push(item.operationId);
-      return { ok: true };
-    });
-
-    queued.enqueue(
-      request("uncertain"),
-      reservation("uncertain", "environment-uncertain", ["domain-a"]),
-    );
-    queued.enqueue(
-      request("uncertain-overlap"),
-      reservation("uncertain-overlap", "environment-uncertain-overlap", ["domain-a"]),
-    );
-    queued.enqueue(
-      request("uncertain-unrelated"),
-      reservation("uncertain-unrelated", "environment-uncertain-unrelated", ["domain-b"]),
-    );
-
-    await queued.tick();
-
-    expect(
-      fixture.admitLifecycleCapacity.mock.calls.map(
-        ([item]) => (item as LifecycleWorkerRequest).operationId,
-      ),
-    ).toEqual(["uncertain", "uncertain-unrelated"]);
-    expect(launched).toEqual(["uncertain-unrelated"]);
-    expect(queued.observe("uncertain")).toMatchObject({
-      phase: "queued",
-      reason: "admission-unavailable",
-    });
-    expect(queued.observe("uncertain-overlap")).toMatchObject({
-      phase: "queued",
-      reason: null,
-    });
   });
 
   it("does not abort or relaunch an accepted worker after caller timeout", async () => {
