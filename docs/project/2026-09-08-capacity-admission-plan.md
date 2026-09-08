@@ -814,3 +814,22 @@ until ownership returns and source checks pass. Runtime activation remains absen
 
 Gauss returned DONE, fixed the indentation and passed focused tests/typecheck/Biome.
 Ownership of the queue correction is back with main for integration and commit.
+
+Coordinator/removable waits committed as 20fd72e. Main is wiring server coordinator
+ownership: createOperations receives the durable store/epoch under the existing
+owner lock; at most one asynchronous tick runs while session/status work remains
+responsive; close executes once on shutdown or startup cleanup. Factory and direct
+operations cannot both own the same controller. Existing 14 server tests, typecheck,
+Knip and Biome pass before the new lifecycle regression. Gauss owns that added test
+in controller-server.test.ts; a parent read during active editing encountered an
+incomplete transform and the same child is finishing it. Server changes remain
+uncommitted pending this producing test. CLI runtime still has no capacity collector
+or factory configured, so no live capacity activation is implied.
+
+Scheduler lifecycle regression completed by Gauss and independently verified by
+main: all 15 controller-server tests pass, including identity binding, responsive
+status during a pending tick, no overlapping tick at the next cadence, and exactly
+one close on shutdown. Typecheck, Knip, focused Biome and diff whitespace checks
+pass. Remote refresh confirms the branch is 22 commits ahead of origin/main with
+no missing target commits. The scheduler slice is ready for commit and scoped
+review; production collector and CLI integration remain incomplete.

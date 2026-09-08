@@ -20,6 +20,7 @@ afterEach(async () => {
 async function fixture(
   collect?: ControllerObservationCollector,
   operations?: ControllerOperations,
+  createOperations?: (controller: { store: string; epoch: number }) => ControllerOperations,
 ) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-")));
   directories.push(directory);
@@ -34,6 +35,7 @@ async function fixture(
     onListening: listening,
     collect,
     operations,
+    createOperations,
     resolve: async () => ({
       id: "env",
       repoPath: "/fixture/checkout",
@@ -51,6 +53,15 @@ async function fixture(
   });
   return { directory, run, abort };
 }
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolveValue) => {
+    resolve = resolveValue;
+  });
+  return { promise, resolve };
+}
+
 function connect(directory: string) {
   const socket = net.createConnection(path.join(directory, "control.sock"));
   let pending: ((value: any) => void) | undefined;
@@ -74,6 +85,52 @@ function connect(directory: string) {
       }),
   };
 }
+
+it("creates managed operations from the handshake identity and closes them once", async () => {
+  const tickEntered = deferred<void>();
+  const releaseTick = deferred<void>();
+  const tick = vi.fn(async () => {
+    tickEntered.resolve();
+    await releaseTick.promise;
+  });
+  const close = vi.fn();
+  const createOperations = vi.fn(
+    (_controller: { store: string; epoch: number }): ControllerOperations => ({
+      submit: vi.fn(),
+      watch: vi.fn(),
+      tick,
+      close,
+    }),
+  );
+  const { directory, abort, run } = await fixture(undefined, undefined, createOperations);
+  const client = connect(directory);
+  try {
+    const handshake = await client.request({ method: "handshake" });
+    expect(handshake).toMatchObject({
+      ok: true,
+      result: { store: expect.any(String), epoch: expect.any(Number) },
+    });
+    expect(createOperations).toHaveBeenCalledOnce();
+    expect(createOperations).toHaveBeenCalledWith({
+      store: handshake.result.store,
+      epoch: handshake.result.epoch,
+    });
+
+    await tickEntered.promise;
+    expect(tick).toHaveBeenCalledOnce();
+    expect(await client.request({ method: "status" })).toMatchObject({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    expect(tick).toHaveBeenCalledOnce();
+
+    releaseTick.resolve();
+    abort.abort();
+    await run;
+    expect(close).toHaveBeenCalledOnce();
+  } finally {
+    client.socket.destroy();
+  }
+});
+
 it("queries durable operation history only through a valid session binding", async () => {
   const { directory } = await fixture();
   const client = connect(directory);
