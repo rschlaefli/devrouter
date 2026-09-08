@@ -1341,3 +1341,17 @@ slice, then this collector slice. The injected sample collector still lacks a
 cancellation contract. Qualified host/guest telemetry, complete production CLI
 activation and live capacity acceptance remain pending. No live runtime or policy
 was changed.
+
+### Sample collector shutdown contract
+
+Observed-pool store review passes with no findings. Commit cc0960c forwards the
+controller lifetime AbortSignal to the injected sample collector. The callback
+contract requires cooperative cancellation and drainage. A regression verifies
+abort, drainage, then tick rejection, with no persistence or launch after close.
+All 48 controller unit/integration tests pass, plus typecheck, Biome, Knip and
+hooks. Receipt: /private/tmp/devrouter-capacity-collector-cancel-tests.log.
+The existing collector reviewer has this narrow delta. Prior simplification
+remains applicable to the unchanged collector structure; forwarding the signal
+adds no complexity requiring a separate pass. The three-second bound applies to
+pool probes, not forced interruption of arbitrary callback code. Production
+telemetry qualification and activation remain pending; no runtime was changed.
