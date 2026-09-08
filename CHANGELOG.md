@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep manual ensure and exec usable after 128 settled operations by retiring
+  bounded completed history under a fresh lifecycle fence. Preserve uncertain
+  work and reject delayed requests from the retired fence.
+
 ## [0.0.60] - 2026-09-08
 
 ### Fixed
