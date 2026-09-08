@@ -266,6 +266,7 @@ export class CapacityQueue {
         }
         if (performance.now() >= entry.expiresAt) {
           this.retire(entry, "queue-expired");
+          if (entry.phase === "queued") for (const domain of domains) waitingDomains.add(domain);
           continue;
         }
         entry.phase = "running";

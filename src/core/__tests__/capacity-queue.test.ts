@@ -660,6 +660,41 @@ describe("CapacityQueue", () => {
     });
   });
 
+  it("keeps an expired unretired head ahead of overlapping work", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    const queued = queue({ maxQueuedTotal: 3, maxQueuedPerDomain: 2, queueLifetimeSeconds: 1 });
+    fixture.collect.mockResolvedValue(samples);
+    fixture.retireQueuedLifecycle.mockImplementation(() => {
+      throw new Error("Journal unavailable");
+    });
+    fixture.admitLifecycleCapacity.mockImplementation(() => {
+      now.mockReturnValue(1_000);
+      return { admitted: true };
+    });
+    fixture.runLifecycleWorker.mockResolvedValue({ ok: true });
+    queued.enqueue(request("head"), reservation("head", "environment-head", ["domain-a"]));
+    now.mockReturnValue(500);
+    queued.enqueue(
+      request("follower"),
+      reservation("follower", "environment-follower", ["domain-a"]),
+    );
+    queued.enqueue(
+      request("independent"),
+      reservation("independent", "environment-independent", ["domain-b"]),
+    );
+    await queued.tick();
+    expect(queued.observe("head")).toMatchObject({
+      phase: "queued",
+      reason: "retirement-unproven",
+    });
+    expect(queued.observe("follower")).toMatchObject({ phase: "queued" });
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledWith(
+      expect.objectContaining({ operationId: "independent" }),
+      expect.anything(),
+    );
+  });
+
   it("honors lower scheduling limits and rejects unsupported bounds", async () => {
     const now = vi.spyOn(performance, "now").mockReturnValue(0);
     const queued = queue({ maxQueuedTotal: 2, maxQueuedPerDomain: 1, queueLifetimeSeconds: 1 });

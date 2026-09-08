@@ -895,3 +895,13 @@ canonical enrollment and worker launch are mocked. The prior 99-file/1,355-test
 passing evidence remains applicable; the sole previously failing integration
 test now passes. This is not the packed real-worker launch tracer. Correctness
 review of 30fc075..7923b29 remains with Singer.
+
+Coordinator integration committed as f588bda. Singer completed the IPC/coordinator
+review with restart convergence still open and one accepted FIFO correction:
+post-admission expiry with unproven retirement must keep its domains blocked for
+later entries in that tick. Main added that guard and a regression showing the
+overlapping follower remains queued while independent-domain work can launch.
+All 25 queue tests, typecheck and focused Biome pass. Singer now reviews the
+prepared-profile/history correction and integration fixture at 2fa7ce6..f588bda.
+Gauss owns the existing packed manual lifecycle qualifier, using only its closed
+synthetic provider environment. No production collector or live activation exists.
