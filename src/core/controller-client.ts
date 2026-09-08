@@ -21,7 +21,9 @@ export async function controllerRequest(
     let completed = false;
     const handshakeId = randomUUID();
     const timeout =
-      request.method === "watch" ? Math.min(request.timeout + 5, 2_147_483) * 1000 : 5000;
+      request.method === "watch" || request.method === "operation-watch"
+        ? Math.min(request.timeout + 5, 2_147_483) * 1000
+        : 5000;
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new Error("Controller response deadline exceeded."));

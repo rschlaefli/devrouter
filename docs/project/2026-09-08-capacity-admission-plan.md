@@ -769,3 +769,18 @@ All 37 focused queue/worker tests pass. Integrated source verification passes
 on macOS, not newly qualified. Typecheck, Knip, Biome, docs policy and knowledge pass.
 Correctness review of the new integration and corrections remains required before
 delivery. No live environment or operator policy was activated.
+
+Queue renewal/pagination committed as 30fc075. Singer owns combined correctness
+review a5793a4..30fc075; Lovelace completed simplification with no worthwhile
+reduction, reusing the earlier managed-preparation result.
+
+Controller operation IPC is in progress. Gauss owns strict operation-submit/watch
+parsing and protocol tests. Main owns the server callback seam and client deadline.
+Submit requires stable request ID and complete current session binding; exec argv
+is bounded and ensure forbids it. Watches are bounded to 30 seconds with explicit
+output cursor. Server validates the canonical session before invoking an operation
+handler, then awaits outside the serialized session queue. A socket regression
+proves status remains responsive while watching and stale submission never invokes
+the handler. All 14 server tests and 12 protocol tests pass; typecheck, Knip and
+focused Biome pass. The CLI controller supplies no operation handler yet, so this
+is a tested integration seam, not executable capacity submission or live proof.

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { ControllerMonitor, type ControllerObservationCollector } from "./controller-monitor";
-import { parseControllerRequest } from "./controller-protocol";
+import { type ControllerRequest, parseControllerRequest } from "./controller-protocol";
 import { ControllerSessions } from "./controller-sessions";
 import {
   type ControllerEnvironment,
@@ -52,12 +52,26 @@ export type ControllerResolver = (
   request: { path: string; profile: string; require: string[] },
   signal: AbortSignal,
 ) => Promise<ControllerEnvironment>;
+
+export type ControllerOperations = {
+  submit: (
+    request: Extract<ControllerRequest, { method: "operation-submit" }>,
+    environment: ControllerEnvironment,
+    signal: AbortSignal,
+  ) => Promise<unknown>;
+  watch: (
+    request: Extract<ControllerRequest, { method: "operation-watch" }>,
+    environment: ControllerEnvironment,
+    signal: AbortSignal,
+  ) => Promise<unknown>;
+};
 export async function runController(options: {
   directory: string;
   signal: AbortSignal;
   resolve: ControllerResolver;
   collect?: ControllerObservationCollector;
   onListening?: () => void;
+  operations?: ControllerOperations;
 }): Promise<void> {
   const socketPath = path.join(options.directory, "control.sock");
   if (Buffer.byteLength(socketPath) > 103) throw new Error("Controller socket path is too long.");
@@ -230,6 +244,67 @@ export async function runController(options: {
         }
         if (handshake && request.method === "handshake") {
           socket.destroy();
+          return;
+        }
+        if (request.method === "operation-submit" || request.method === "operation-watch") {
+          const operationRequest = request;
+          const abort = new AbortController();
+          const cancel = () => abort.abort();
+          socket.once("close", cancel);
+          options.signal.addEventListener("abort", cancel, { once: true });
+          const timeout =
+            operationRequest.method === "operation-watch"
+              ? operationRequest.timeout * 1000 + 1000
+              : 3000;
+          let deadline: ReturnType<typeof setTimeout> | undefined;
+          let environment: ControllerEnvironment;
+          const validate = serial.then(() => {
+            sessions.tick(monotonic(), Date.now());
+            const session = sessions.validate(operationRequest);
+            const bound = sessions
+              .read()
+              .environments.find((entry) => entry.id === session.environmentId);
+            if (!bound || !options.operations) throw new Error("Managed operations unavailable.");
+            environment = bound;
+          });
+          serial = validate.catch(() => {});
+          void validate
+            .then(async () => {
+              if (abort.signal.aborted || socket.destroyed)
+                throw new Error("Operation client detached.");
+              const operations = options.operations;
+              if (!operations) throw new Error("Managed operations unavailable.");
+              const handler =
+                operationRequest.method === "operation-submit"
+                  ? operations.submit(operationRequest, environment, abort.signal)
+                  : operations.watch(operationRequest, environment, abort.signal);
+              const result = await Promise.race([
+                handler,
+                new Promise<never>((_resolve, reject) => {
+                  deadline = setTimeout(() => {
+                    cancel();
+                    reject(new Error("Operation response deadline exceeded."));
+                  }, timeout);
+                }),
+              ]);
+              if (!socket.destroyed)
+                send({ version: 1, id: operationRequest.id, ok: true, result });
+            })
+            .catch(() => {
+              if (!socket.destroyed)
+                send({
+                  version: 1,
+                  id: operationRequest.id,
+                  ok: false,
+                  error: "request-unavailable",
+                });
+            })
+            .finally(() => {
+              clearTimeout(deadline);
+              socket.removeListener("close", cancel);
+              options.signal.removeEventListener("abort", cancel);
+              pending = false;
+            });
           return;
         }
         const task = async () => {

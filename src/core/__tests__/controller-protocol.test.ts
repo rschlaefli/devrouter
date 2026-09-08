@@ -207,4 +207,92 @@ describe("parseControllerRequest", () => {
       }),
     );
   });
+
+  it("parses bounded operation submit requests for ensure and exec", () => {
+    const ensure = request("operation-submit", {
+      session: BASE_IDS.session,
+      store: BASE_IDS.store,
+      epoch: 1,
+      generation: BASE_IDS.generation,
+      requestId: "stable-request-1",
+      kind: "ensure",
+      operation: "web",
+    });
+    expect(parseControllerRequest(ensure)).toEqual(ensure);
+
+    const exec = request("operation-submit", {
+      session: BASE_IDS.session,
+      store: BASE_IDS.store,
+      epoch: 1,
+      generation: BASE_IDS.generation,
+      requestId: "stable-request-2",
+      kind: "exec",
+      command: ["devrouter", "exec", "--", "echo", "hello"],
+    });
+    expect(parseControllerRequest(exec)).toEqual(exec);
+  });
+
+  it("parses operation watches with a bounded output cursor", () => {
+    const watch = request("operation-watch", {
+      session: BASE_IDS.session,
+      store: BASE_IDS.store,
+      epoch: 2,
+      generation: BASE_IDS.generation,
+      operationId: "operation-1",
+      timeout: 30,
+      output: { sequence: 4, offset: 12 },
+    });
+    expect(parseControllerRequest(watch)).toEqual(watch);
+    expect(
+      parseControllerRequest({
+        ...watch,
+        timeout: 0,
+        output: { sequence: 0, offset: 0 },
+      }),
+    ).toEqual({ ...watch, timeout: 0, output: { sequence: 0, offset: 0 } });
+  });
+
+  it("rejects invalid operation submit and watch fields", () => {
+    const common = {
+      session: BASE_IDS.session,
+      store: BASE_IDS.store,
+      epoch: 1,
+      generation: BASE_IDS.generation,
+      requestId: "stable-request",
+      kind: "exec",
+    };
+    const validExec = request("operation-submit", {
+      ...common,
+      command: ["devrouter"],
+    });
+    expectInvalid({ ...validExec, command: [] });
+    expectInvalid({ ...validExec, command: [""] });
+    expectInvalid({ ...validExec, command: ["devrouter", "bad\u0000arg"] });
+    expectInvalid({
+      ...validExec,
+      command: Array.from({ length: 129 }, () => "arg"),
+    });
+    expectInvalid({ ...validExec, kind: "ensure", command: undefined });
+    expectInvalid({ ...validExec, kind: "ensure" });
+    expectInvalid({ ...validExec, requestId: "" });
+    expectInvalid({ ...validExec, extra: true });
+    expectInvalid({ ...validExec, command: ["x".repeat(32_768)] });
+
+    const validWatch = request("operation-watch", {
+      session: BASE_IDS.session,
+      store: BASE_IDS.store,
+      epoch: 1,
+      generation: BASE_IDS.generation,
+      operationId: "operation-1",
+      timeout: 5,
+      output: { sequence: 1, offset: 2 },
+    });
+    expectInvalid({ ...validWatch, timeout: -1 });
+    expectInvalid({ ...validWatch, timeout: 31 });
+    expectInvalid({ ...validWatch, timeout: 1.5 });
+    expectInvalid({ ...validWatch, output: { sequence: -1, offset: 0 } });
+    expectInvalid({ ...validWatch, output: { sequence: 0, offset: Number.MAX_SAFE_INTEGER + 1 } });
+    expectInvalid({ ...validWatch, output: { sequence: 0, offset: 0, extra: true } });
+    expectInvalid({ ...validWatch, extra: true });
+  });
 });

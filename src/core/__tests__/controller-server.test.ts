@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { type ControllerObservationCollector, controllerCapability } from "../controller-monitor";
 import { CONTROLLER_FRAME_BYTES } from "../controller-protocol";
-import { runController } from "../controller-server";
+import { type ControllerOperations, runController } from "../controller-server";
 import { ControllerSessions } from "../controller-sessions";
 import { createReliabilityState } from "../reliability-contract";
 import * as operationStore from "../reliability-operation-store";
@@ -17,7 +17,10 @@ afterEach(async () => {
   for (const directory of directories.splice(0))
     fs.rmSync(directory, { recursive: true, force: true });
 });
-async function fixture(collect?: ControllerObservationCollector) {
+async function fixture(
+  collect?: ControllerObservationCollector,
+  operations?: ControllerOperations,
+) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-")));
   directories.push(directory);
   const abort = new AbortController();
@@ -30,6 +33,7 @@ async function fixture(collect?: ControllerObservationCollector) {
     signal: abort.signal,
     onListening: listening,
     collect,
+    operations,
     resolve: async () => ({
       id: "env",
       repoPath: "/fixture/checkout",
@@ -169,6 +173,76 @@ it("reconnects through a fresh session to retained operation history without lau
   } finally {
     mutate.mockRestore();
     read.mockRestore();
+    second.socket.destroy();
+  }
+});
+
+it("keeps status responsive during an operation watch and binds submission to its session", async () => {
+  let finishWatch: (value: unknown) => void = () => {};
+  let enteredWatch: () => void = () => {};
+  const entered = new Promise<void>((resolve) => {
+    enteredWatch = resolve;
+  });
+  const operations: ControllerOperations = {
+    submit: vi.fn(async () => ({ operationId: "accepted", phase: "queued" })),
+    watch: vi.fn(async () => {
+      enteredWatch();
+      return new Promise((resolve) => {
+        finishWatch = resolve;
+      });
+    }),
+  };
+  const { directory } = await fixture(undefined, operations);
+  const first = connect(directory);
+  const second = connect(directory);
+  try {
+    await first.request({ method: "handshake" });
+    await second.request({ method: "handshake" });
+    const acquired = await first.request({
+      method: "observe",
+      path: "/fixture/checkout",
+      session: "operator",
+      profile: "web",
+      require: ["runtime"],
+    });
+    const submitted = await first.request({
+      ...acquired.result,
+      method: "operation-submit",
+      requestId: "durable-request",
+      kind: "ensure",
+    });
+    expect(submitted).toMatchObject({
+      ok: true,
+      result: { operationId: "accepted", phase: "queued" },
+    });
+    expect(operations.submit).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "durable-request" }),
+      expect.objectContaining({ repoPath: "/fixture/checkout", providerId: "provider" }),
+      expect.any(AbortSignal),
+    );
+    const watched = first.request({
+      ...acquired.result,
+      method: "operation-watch",
+      operationId: "accepted",
+      timeout: 30,
+    });
+    await entered;
+    expect(await second.request({ method: "status" })).toMatchObject({ ok: true });
+    finishWatch({ operationId: "accepted", phase: "queued" });
+    expect(await watched).toMatchObject({ ok: true, result: { operationId: "accepted" } });
+    expect(
+      await first.request({
+        ...acquired.result,
+        generation: "stale",
+        method: "operation-submit",
+        requestId: "other",
+        kind: "ensure",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(operations.submit).toHaveBeenCalledOnce();
+  } finally {
+    finishWatch({});
+    first.socket.destroy();
     second.socket.destroy();
   }
 });
