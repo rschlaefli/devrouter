@@ -119,6 +119,60 @@ it("queries durable operation history only through a valid session binding", asy
   }
 });
 
+it("reconnects through a fresh session to retained operation history without launching work", async () => {
+  const { directory } = await fixture();
+  const first = connect(directory);
+  await first.request({ method: "handshake" });
+  const acquired = await first.request({
+    method: "observe",
+    path: "/fixture/checkout",
+    session: "original",
+    profile: "web",
+    require: ["runtime"],
+  });
+  await first.request({ ...acquired.result, method: "release" });
+  first.socket.destroy();
+  const second = connect(directory);
+  await second.request({ method: "handshake" });
+  const reconnected = await second.request({
+    method: "observe",
+    path: "/fixture/checkout",
+    session: "replacement",
+    profile: "web",
+    require: ["runtime"],
+  });
+  const read = vi.spyOn(operationStore, "readReliabilityOperation").mockReturnValue({
+    state: {
+      operation: null,
+      operationHistory: [
+        { id: "retained-command", kind: "exec", drained: true, status: "COMPLETED", exitCode: 3 },
+      ],
+    },
+  } as unknown as operationStore.ReliabilityOperationRecord);
+  const mutate = vi.spyOn(operationStore, "updateReliabilityOperation");
+  try {
+    const result = await second.request({
+      ...reconnected.result,
+      method: "operation-status",
+      operationId: "retained-command",
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      result: { operation: { operationId: "retained-command", outcome: "COMPLETED", exitCode: 3 } },
+    });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledWith({
+      repoPath: "/fixture/checkout",
+      workspace: "fixture",
+      provider: "devsy",
+    });
+  } finally {
+    mutate.mockRestore();
+    read.mockRestore();
+    second.socket.destroy();
+  }
+});
+
 it("streams a later application failure while an independent runtime consumer stays ready", async () => {
   const { controllerRequest } = await import("../controller-client");
   const state = createReliabilityState("environment", 0, "manual");

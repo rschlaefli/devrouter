@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { CapacityDomainSample } from "./capacity-accounting";
 import { readCapacityPolicy } from "./capacity-policy";
 import type { CapacityReservation } from "./capacity-store";
@@ -61,12 +62,15 @@ export class CapacityQueue {
       throw new Error("Capacity request belongs to another policy revision.");
     const existing = this.entries.get(request.operationId);
     if (existing) {
+      const existingRequest =
+        existing.phase === "terminal"
+          ? { ...existing.request, command: undefined }
+          : existing.request;
+      const incomingRequest =
+        existing.phase === "terminal" ? { ...request, command: undefined } : request;
       if (
-        existing.request.requestId !== request.requestId ||
-        existing.request.workerId !== request.workerId ||
-        existing.request.repoPath !== request.repoPath ||
-        existing.reservation.reservationId !== reservation.reservationId ||
-        existing.reservation.environmentId !== reservation.environmentId
+        !isDeepStrictEqual(existingRequest, incomingRequest) ||
+        !isDeepStrictEqual(existing.reservation, reservation)
       )
         throw new Error("Operation reference belongs to another accepted request.");
       return request.operationId;
@@ -113,6 +117,18 @@ export class CapacityQueue {
     const entry = this.entries.get(operationId);
     return entry
       ? { operationId, phase: entry.phase, reason: entry.reason, output: entry.output.read() }
+      : undefined;
+  }
+
+  observePage(operationId: string, cursor?: Parameters<LifecycleOutput["readPage"]>[0]) {
+    const entry = this.entries.get(operationId);
+    return entry
+      ? {
+          operationId,
+          phase: entry.phase,
+          reason: entry.reason,
+          output: entry.output.readPage(cursor),
+        }
       : undefined;
   }
 

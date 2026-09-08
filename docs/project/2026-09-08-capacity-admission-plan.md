@@ -723,3 +723,18 @@ tests pass, including policy disappearance and pause during resolution; typechec
 Biome and Knip pass. Gauss owns the separate queue duplicate-conflict and output-page
 integration. Renewable controller authority and production IPC remain next; no
 machine policy activation or live runtime mutation occurred.
+
+Queue reconnect/output integration completed by Gauss and accepted by main after
+diff inspection and independent checks. Retained requests and reservations compare
+structurally; changed argv, charge totals or fences cannot replace accepted work.
+Terminal duplicate observation never replays discarded argv. observePage exposes
+bounded base64 output without changing the existing observe method.
+All 19 queue tests, typecheck, Knip and Biome pass.
+
+Main added a socket-level continuity regression: release the original session,
+acquire a replacement canonical binding, then read a retained command result with
+zero journal mutations. All 13 controller-server tests pass with host process
+identity visibility. The sandbox attempt failed before startup because the owner
+lock could not inspect process identity; no application failure was inferred.
+These isolated tests stop their controller sockets. Production operation-submit,
+renewable authority and the two-client capacity tracer remain unimplemented.

@@ -287,6 +287,84 @@ describe("CapacityQueue", () => {
     await expect(queued.wait("accepted", 1_000)).resolves.toBe(true);
   });
 
+  it("rejects changed retained payloads without replacing the queued entry", async () => {
+    const queued = queue();
+    const original = request("duplicate");
+    const originalReservation = reservation("duplicate", "environment-duplicate", ["domain-a"]);
+    queued.enqueue(original, originalReservation);
+    const before = queued.observe("duplicate");
+
+    expect(() =>
+      queued.enqueue({ ...original, command: ["devrouter", "changed"] }, originalReservation),
+    ).toThrow(/another accepted request/);
+    expect(() =>
+      queued.enqueue(original, { ...originalReservation, totals: { "domain-a": 101 } }),
+    ).toThrow(/another accepted request/);
+    expect(() =>
+      queued.enqueue(
+        { ...original, fence: { ...original.fence, intentRevision: 2 } },
+        originalReservation,
+      ),
+    ).toThrow(/another accepted request/);
+    expect(queued.observe("duplicate")).toEqual(before);
+
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({ admitted: true });
+    fixture.runLifecycleWorker.mockResolvedValue({ ok: true });
+    await queued.tick();
+    await expect(queued.wait("duplicate", 1_000)).resolves.toBe(true);
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("joins an identical retained payload and launches it once", async () => {
+    const queued = queue();
+    const first = request("identical");
+    const firstReservation = reservation("identical", "environment-identical", ["domain-a"]);
+    expect(queued.enqueue(first, firstReservation)).toBe("identical");
+    expect(
+      queued.enqueue(
+        request("identical"),
+        reservation("identical", "environment-identical", ["domain-a"]),
+      ),
+    ).toBe("identical");
+
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({ admitted: true });
+    fixture.runLifecycleWorker.mockResolvedValue({ ok: true });
+    await queued.tick();
+    await expect(queued.wait("identical", 1_000)).resolves.toBe(true);
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a stable terminal duplicate without replaying discarded command payload", async () => {
+    const queued = queue();
+    const original = request("terminal-duplicate", "environment-terminal-duplicate", [
+      "devrouter",
+      "original",
+    ]);
+    const originalReservation = reservation(
+      "terminal-duplicate",
+      "environment-terminal-duplicate",
+      ["domain-a"],
+    );
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({ admitted: true });
+    fixture.runLifecycleWorker.mockResolvedValue({ ok: true });
+
+    queued.enqueue(original, originalReservation);
+    await queued.tick();
+    await expect(queued.wait("terminal-duplicate", 1_000)).resolves.toBe(true);
+    expect(queued.observe("terminal-duplicate")).toMatchObject({ phase: "terminal" });
+
+    expect(
+      queued.enqueue(
+        { ...original, command: ["devrouter", "changed-after-terminal"] },
+        originalReservation,
+      ),
+    ).toBe("terminal-duplicate");
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
+  });
+
   it("enforces command payload and retained output bounds", async () => {
     const queued = queue();
     const oversized = request("oversized", "environment-oversized", ["x".repeat(65_537)]);
@@ -316,6 +394,49 @@ describe("CapacityQueue", () => {
     expect(output?.gap).toBe(true);
     expect(output?.chunks).toHaveLength(1);
     expect(output?.chunks[0]?.data.byteLength).toBe(262_144);
+  });
+
+  it("exposes bounded base64 pages with supervised stream bytes", async () => {
+    const queued = queue();
+    const stdout = Buffer.from("stdout: 😀\\n\\u0000", "utf8");
+    const stderr = Buffer.from("stderr: \\n\\t", "utf8");
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({ admitted: true });
+    fixture.runLifecycleWorker.mockImplementation(
+      async (
+        item: LifecycleWorkerRequest,
+        supervision: {
+          output: { append: (stream: "stdout" | "stderr", data: Buffer) => void };
+        },
+      ) => {
+        if (item.operationId === "paged") {
+          supervision.output.append("stdout", stdout);
+          supervision.output.append("stderr", stderr);
+        } else {
+          supervision.output.append("stdout", Buffer.alloc(100_000, 0x61));
+        }
+        return { ok: true };
+      },
+    );
+
+    queued.enqueue(request("paged"), reservation("paged", "environment-paged", ["domain-a"]));
+    queued.enqueue(request("bounded"), reservation("bounded", "environment-bounded", ["domain-b"]));
+    await queued.tick();
+    await expect(queued.wait("paged", 1_000)).resolves.toBe(true);
+    await expect(queued.wait("bounded", 1_000)).resolves.toBe(true);
+
+    const page = queued.observePage("paged");
+    expect(page).toMatchObject({ phase: "terminal", reason: null });
+    expect(page?.output.gap).toBe(false);
+    expect(page?.output.chunks).toHaveLength(2);
+    expect(Buffer.from(page!.output.chunks[0]!.data, "base64")).toEqual(stdout);
+    expect(Buffer.from(page!.output.chunks[1]!.data, "base64")).toEqual(stderr);
+
+    const boundedPage = queued.observePage("bounded");
+    expect(Buffer.byteLength(JSON.stringify(boundedPage?.output), "utf8")).toBeLessThan(64 * 1024);
+    expect(
+      boundedPage?.output.chunks.every((chunk) => /^[A-Za-z0-9+/]*={0,2}$/.test(chunk.data)),
+    ).toBe(true);
   });
 
   it("reports a rejected worker as terminal with worker-unavailable reason", async () => {
