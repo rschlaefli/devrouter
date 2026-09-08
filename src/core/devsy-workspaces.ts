@@ -3,7 +3,8 @@ import { sameWorkspacePath } from "./workspace";
 
 export type DevsyWorkspace = {
   id: string;
-  source: { localFolder: string };
+  source: { localFolder: string; container?: string };
+  uid?: string;
   /** Provider context supplied by the local registry, when available. */
   context?: string;
   /** Optional provider activity metadata. */
@@ -48,13 +49,23 @@ export function listDevsyWorkspaces(): DevsyWorkspace[] {
 
   return parsed.map((entry) => {
     const candidate = entry as Partial<DevsyWorkspace> & Record<string, unknown>;
-    const source = candidate.source as { localFolder?: unknown } | undefined;
+    const source = candidate.source as { localFolder?: unknown; container?: unknown } | undefined;
     if (typeof candidate.id !== "string" || !source || typeof source.localFolder !== "string") {
       throw new Error("devsy workspace list returned a workspace without id/source.localFolder.");
     }
+    if (
+      (candidate.uid !== undefined && typeof candidate.uid !== "string") ||
+      (source.container !== undefined && typeof source.container !== "string")
+    ) {
+      throw new Error("Devsy workspace list returned invalid provider identity.");
+    }
     const workspace: DevsyWorkspace = {
       id: candidate.id,
-      source: { localFolder: source.localFolder },
+      source: {
+        localFolder: source.localFolder,
+        ...(typeof source.container === "string" ? { container: source.container } : {}),
+      },
+      ...(typeof candidate.uid === "string" ? { uid: candidate.uid } : {}),
       ...(typeof candidate.context === "string" ? { context: candidate.context } : {}),
     };
     if ("lastUsed" in candidate) {

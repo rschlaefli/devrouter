@@ -43,6 +43,46 @@ describe("Devsy workspace adapter", () => {
     );
   });
 
+  it("projects provider UID and explicit source-container identity without other registry data", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify([
+        {
+          id: "fixture",
+          uid: "1234567890123456",
+          source: {
+            localFolder: "/synthetic/repo",
+            container: "a".repeat(64),
+            env: { SYNTHETIC_PRIVATE: "excluded" },
+          },
+          cliOptions: { idLabels: ["excluded"] },
+        },
+      ]),
+      stderr: "",
+    } as never);
+    expect(listDevsyWorkspaces()).toEqual([
+      {
+        id: "fixture",
+        uid: "1234567890123456",
+        source: { localFolder: "/synthetic/repo", container: "a".repeat(64) },
+      },
+    ]);
+  });
+
+  it.each([
+    { uid: 7 },
+    { source: { localFolder: "/synthetic/repo", container: [] } },
+  ])("rejects malformed provider identity projection", (override) => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify([
+        { id: "fixture", source: { localFolder: "/synthetic/repo" }, ...override },
+      ]),
+      stderr: "",
+    } as never);
+    expect(listDevsyWorkspaces).toThrow(Error);
+  });
+
   it("fails closed on provider errors and malformed output", () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 1, stdout: "", stderr: "boom" } as never);
     expect(() => listDevsyWorkspaces()).toThrow(/devsy workspace list failed/);

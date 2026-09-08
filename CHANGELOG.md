@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Record exact stop ownership before application readiness for managed Devsy
+  environments using local Unix Docker endpoints. Stop can then tolerate changed
+  or missing repository configuration while preserving containers and volumes.
+  Other recognized Docker transports retain legacy stop behavior with a notice;
+  invalid retained ownership never falls back. Startup now requires complete
+  project ownership before application launch, reports capture failures as
+  startup errors, and reports progress while waiting for the provider lock.
 - Keep manual ensure and exec usable after 128 settled operations by retiring
   bounded completed history under a fresh lifecycle fence. Preserve uncertain
   work and reject delayed requests from the retired fence.

@@ -30,6 +30,7 @@
     "test:package": "./scripts/package-smoke.sh",
     "qualify:lifecycle": "node --import tsx scripts/qualify-lifecycle.ts",
     "qualify:controller": "node --import tsx scripts/qualify-controller.ts",
+    "qualify:stop-drift": "node --import tsx scripts/qualify-config-drift-stop.ts",
     "test:process": "bash scripts/test-devrouter-process.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",

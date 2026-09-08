@@ -57,7 +57,7 @@ function failedStartMayHaveAttached(devsyId: string | undefined, repoPath: strin
   }
 }
 
-function withMutationLock<T>(activity: string, target: string, operation: () => T): T {
+export function withMutationLock<T>(activity: string, target: string, operation: () => T): T {
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   return withFileLockSync(
     DEVSY_MUTATION_LOCK_FILE,
@@ -72,7 +72,7 @@ function withMutationLock<T>(activity: string, target: string, operation: () => 
   );
 }
 
-function withMutationLockAsync<T>(
+export function withMutationLockAsync<T>(
   activity: string,
   target: string,
   operation: () => Promise<T>,
