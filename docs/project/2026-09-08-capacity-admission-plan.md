@@ -1954,9 +1954,9 @@ runtime changed during integration.
 
 ### Canonical client preparation
 
-Explorer Pauli verified a client slice independent of host accounting. Executor
-Beauvoir owns controller-client.ts and its focused synthetic socket tests; main
-owns integration and contract decisions. The adapter submits once, follows an
+Explorer Pauli verified a client slice independent of host accounting. Main took
+over the two-file client patch after executor Beauvoir continued inspection rather
+than completing the focused correction pass. The adapter submits once, follows an
 accepted operation through bounded watches, and resumes by operation ID without
 argv or another submission. Timeout or transport loss after acknowledgement keeps
 the accepted identity and reports pending or uncertain state. Initial response
@@ -1969,3 +1969,15 @@ slice introduces no persistence or runtime activation. Canonical command wiring,
 production collectors and useful recovery after initial acknowledgement loss
 still require integration; a standalone adapter does not complete admission.
 The host-budget decision has been surfaced to the user and remains unanswered.
+
+Main corrected named-operation versus generated-ID semantics, restored generic
+watch completion, forwarded every output page through a callback, drained terminal
+output, and bounded watch requests with a monotonic caller deadline. Initial
+acknowledgement retains its existing separate five-second transport bound.
+Post-acknowledgement timeout returns the accepted ID without replay or cancellation.
+The socket timer carries its cause so sub-millisecond timer rounding cannot turn
+caller expiry into an unrelated continuity error. All 47 affected client, server
+and controller integration tests pass; TypeScript, Biome and Knip pass. The new
+client test file contains nine synthetic socket cases. Independent review remains
+required before accepting this client slice; no canonical command or collector
+is wired by this change.
