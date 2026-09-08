@@ -6,9 +6,267 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { build } from "tsup";
+import { processBirthIdentity } from "../src/core/file-lock";
 import { createReliabilityState, reliabilityFence } from "../src/core/reliability-contract";
 import { stepReliability } from "../src/core/reliability-model";
+import { workerGroupAbsent } from "../src/core/reliability-worker";
 import { capacityEstimatesDigest } from "../src/core/repo-config";
+
+type ProcessRow = { pid: number; pgid: number };
+type OwnedProcess = { label: string; pid: number; birth: string };
+type OwnedGroup = { leader: OwnedProcess; members: OwnedProcess[]; groupId: number };
+type OwnedGroupInspection = {
+  groupAbsent: boolean;
+  leaderPresent: boolean;
+  liveMembers: OwnedProcess[];
+};
+type ChildExit = { code: number | null; signal: NodeJS.Signals | null };
+type GroupDrainProof = {
+  groupId: number;
+  leaderPid: number;
+  leaderBirth: string;
+  leaderGoneBeforeSignal: boolean;
+  signalScope: "group" | "members" | "none";
+  termSent: boolean;
+  killSent: boolean;
+  groupAbsent: boolean;
+  members: Array<{ label: string; pid: number; birth: string }>;
+};
+
+const GROUP_TERM_TIMEOUT_MS = 2_000;
+const GROUP_KILL_TIMEOUT_MS = 2_000;
+const GROUP_POLL_INTERVAL_MS = 25;
+
+function processTable(): ProcessRow[] {
+  const result = spawnSync("ps", ["-axo", "pid=,pgid="], { encoding: "utf8", timeout: 2_000 });
+  if (result.status !== 0) throw new Error("Could not inspect synthetic process-group metadata.");
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const fields = line.split(/\s+/);
+      const pid = Number(fields.shift());
+      const pgid = Number(fields.shift());
+      if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(pgid) || pgid <= 0)
+        throw new Error("Invalid synthetic process-group metadata.");
+      return { pid, pgid };
+    });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readOwnedWorker(
+  reliabilityDirectory: string,
+  entry: { name: string; repo: string },
+): OwnedProcess | undefined {
+  const recordPath = path.join(
+    reliabilityDirectory,
+    `${createHash("sha256").update(entry.repo).digest("hex")}.json`,
+  );
+  const record = JSON.parse(fs.readFileSync(recordPath, "utf8")) as {
+    identity?: { repoPath?: string };
+    worker?: { pid?: number; birth?: string } | null;
+  };
+  if (record.identity?.repoPath !== entry.repo)
+    throw new Error(`Worker record is not fixture-owned.`);
+  if (!record.worker) return undefined;
+  if (
+    !Number.isInteger(record.worker.pid) ||
+    (record.worker.pid as number) <= 0 ||
+    typeof record.worker.birth !== "string" ||
+    record.worker.birth.length === 0
+  )
+    throw new Error(`Fixture worker record for '${entry.name}' has no valid PID birth identity.`);
+  return {
+    label: `worker:${entry.name}`,
+    pid: record.worker.pid as number,
+    birth: record.worker.birth,
+  };
+}
+
+function captureOwnedGroup(
+  reliabilityDirectory: string,
+  fixture: string,
+  entry: { name: string; repo: string },
+): OwnedGroup {
+  const leader = readOwnedWorker(reliabilityDirectory, entry);
+  if (!leader) throw new Error(`Fixture worker for '${entry.name}' was not persisted.`);
+  assert.equal(
+    processBirthIdentity(leader.pid),
+    leader.birth,
+    `Fixture worker '${entry.name}' changed incarnation before cleanup proof.`,
+  );
+  const rows = processTable();
+  const leaderRow = rows.find((row) => row.pid === leader.pid);
+  assert.ok(leaderRow, `Fixture worker '${entry.name}' is missing from the process table.`);
+  assert.equal(
+    leaderRow.pgid,
+    leader.pid,
+    `Fixture worker '${entry.name}' did not create its own process group.`,
+  );
+  const launchPath = `${fixture}.launch-${entry.name}`;
+  const launch = JSON.parse(fs.readFileSync(launchPath, "utf8")) as { pid?: number };
+  if (!Number.isInteger(launch.pid) || (launch.pid as number) <= 0)
+    throw new Error(`Fixture provider '${entry.name}' launch marker has no valid PID.`);
+  const providerBirth = processBirthIdentity(launch.pid as number);
+  if (!providerBirth) throw new Error(`Fixture provider '${entry.name}' has no birth identity.`);
+  assert.equal(
+    processBirthIdentity(launch.pid as number),
+    providerBirth,
+    `Fixture provider '${entry.name}' changed incarnation before cleanup proof.`,
+  );
+  const providerRow = rows.find((row) => row.pid === launch.pid);
+  assert.ok(providerRow, `Fixture provider '${entry.name}' is missing from the process table.`);
+  assert.equal(
+    providerRow.pgid,
+    leader.pid,
+    `Fixture provider '${entry.name}' is outside its worker process group.`,
+  );
+  return {
+    leader,
+    groupId: leader.pid,
+    members: [
+      leader,
+      { label: `provider:${entry.name}`, pid: launch.pid as number, birth: providerBirth },
+    ],
+  };
+}
+
+function inspectOwnedGroup(group: OwnedGroup): OwnedGroupInspection {
+  const rows = processTable();
+  const groupMembers = rows.filter((row) => row.pgid === group.groupId);
+  const expected = new Map(group.members.map((member) => [member.pid, member]));
+  for (const member of groupMembers) {
+    const owned = expected.get(member.pid);
+    if (!owned)
+      throw new Error(`Refusing to signal fixture process group ${group.groupId}: unknown member.`);
+    const birth = processBirthIdentity(member.pid);
+    if (birth === undefined) {
+      try {
+        process.kill(member.pid, 0);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") continue;
+        throw error;
+      }
+    }
+    if (birth !== owned.birth)
+      throw new Error(
+        `Refusing to signal fixture process group ${group.groupId}: member identity changed.`,
+      );
+  }
+
+  const liveMembers = group.members.filter((member) => {
+    const birth = processBirthIdentity(member.pid);
+    if (birth !== undefined && birth !== member.birth)
+      throw new Error(`Refusing to signal fixture process '${member.label}': identity changed.`);
+    return birth === member.birth;
+  });
+  const groupAbsent = workerGroupAbsent(group.groupId);
+
+  if (!groupAbsent && groupMembers.length === 0)
+    throw new Error(`Fixture process-group liveness has no inspectable members.`);
+
+  const leaderPresent =
+    !groupAbsent &&
+    groupMembers.some((member) => member.pid === group.leader.pid) &&
+    liveMembers.some((member) => member.pid === group.leader.pid);
+  if (leaderPresent && !liveMembers.some((member) => member.pid === group.leader.pid))
+    throw new Error(
+      `Refusing to signal fixture process group ${group.groupId}: leader identity is unproven.`,
+    );
+  return { groupAbsent, leaderPresent, liveMembers };
+}
+
+async function drainOwnedGroup(group: OwnedGroup): Promise<GroupDrainProof> {
+  let termSent = false;
+  let killSent = false;
+  let signalScope: GroupDrainProof["signalScope"] = "none";
+  const signalOwned = (signal: NodeJS.Signals): GroupDrainProof["signalScope"] => {
+    const inspection = inspectOwnedGroup(group);
+    if (inspection.groupAbsent && inspection.liveMembers.length === 0) return "none";
+    if (inspection.leaderPresent) {
+      process.kill(-group.groupId, signal);
+      return "group";
+    }
+    let signalled = false;
+    for (const member of inspection.liveMembers) {
+      if (processBirthIdentity(member.pid) !== member.birth)
+        throw new Error(`Refusing to signal fixture process '${member.label}': identity changed.`);
+      process.kill(member.pid, signal);
+      signalled = true;
+    }
+    if (!signalled)
+      throw new Error(`Fixture process-group leader is gone and no owned member remains.`);
+    return "members";
+  };
+  const before = inspectOwnedGroup(group);
+  if (!before.groupAbsent || before.liveMembers.length > 0) {
+    signalScope = signalOwned("SIGTERM");
+    termSent = signalScope !== "none";
+  }
+  let inspection = inspectOwnedGroup(group);
+  const termDeadline = Date.now() + GROUP_TERM_TIMEOUT_MS;
+  while (
+    (!inspection.groupAbsent || inspection.liveMembers.length > 0) &&
+    Date.now() < termDeadline
+  ) {
+    await sleep(GROUP_POLL_INTERVAL_MS);
+    inspection = inspectOwnedGroup(group);
+  }
+  if (!inspection.groupAbsent || inspection.liveMembers.length > 0) {
+    signalScope = signalOwned("SIGKILL");
+    killSent = signalScope !== "none";
+    inspection = inspectOwnedGroup(group);
+    const killDeadline = Date.now() + GROUP_KILL_TIMEOUT_MS;
+    while (
+      (!inspection.groupAbsent || inspection.liveMembers.length > 0) &&
+      Date.now() < killDeadline
+    ) {
+      await sleep(GROUP_POLL_INTERVAL_MS);
+      inspection = inspectOwnedGroup(group);
+    }
+  }
+  if (!inspection.groupAbsent || inspection.liveMembers.length > 0)
+    throw new Error(`Fixture-owned process group ${group.groupId} did not drain.`);
+  return {
+    groupId: group.groupId,
+    leaderPid: group.leader.pid,
+    leaderBirth: group.leader.birth,
+    leaderGoneBeforeSignal: !before.leaderPresent,
+    signalScope,
+    termSent,
+    killSent,
+    groupAbsent: true,
+    members: group.members.map(({ label, pid, birth }) => ({ label, pid, birth })),
+  };
+}
+
+function waitForChildClose(child: ChildProcess, timeoutMs = 5_000): Promise<ChildExit> {
+  if (child.exitCode !== null || child.signalCode !== null)
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.removeListener("close", onClose);
+      reject(new Error("Synthetic controller did not exit within the bounded cleanup window."));
+    }, timeoutMs);
+    const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    };
+    child.once("close", onClose);
+  });
+}
+
+async function terminateController(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+): Promise<ChildExit> {
+  if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+  return waitForChildClose(child);
+}
 
 async function main() {
   const root = fs.mkdtempSync(path.join(fs.realpathSync("/tmp"), "dr-cap-"));
@@ -308,6 +566,9 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
     api.listen(endpoint, resolve);
   });
   let child: ChildProcess | undefined;
+  const groups: OwnedGroup[] = [];
+  let receipt: object | undefined;
+  const faultControllerExit = process.argv.includes("--fault-controller-exit");
   const sockets: net.Socket[] = [];
   const waitFor = (predicate: () => boolean, label: string, timeout = 20_000) =>
     new Promise<void>((resolve, reject) => {
@@ -423,6 +684,11 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
       () => fs.existsSync(`${fixture}.launch-one`),
       "first real worker provider launch",
     );
+    groups.push(captureOwnedGroup(path.join(router, "reliability"), fixture, entries[0]));
+    if (faultControllerExit) {
+      await terminateController(child, "SIGKILL");
+      throw new Error("Injected synthetic controller exit while provider is held.");
+    }
     const pending = await clients[1].request({
       method: "operation-watch",
       ...bindings[1],
@@ -481,7 +747,7 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
     assert.equal(secondLaunch.snapshot.pools.length, 1);
     assert.ok(!fs.existsSync(`${fixture}.unexpected`));
     assert.equal(sha(fs.readFileSync(worker)), workerDigest);
-    const receipt = {
+    receipt = {
       sourceRevision,
       dirty,
       tarballSha256: sha(fs.readFileSync(tarball)),
@@ -494,26 +760,31 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
       boundary:
         "Fixture-injected coordinator bundle and actual installed lifecycle worker; not ordinary CLI capacity activation or live runtime/OOM proof.",
     };
-    const receiptPath = path.join(root, "receipt.json");
-    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
-    console.log(receiptPath);
   } finally {
     for (const socket of sockets) socket.destroy();
-    if (child && child.exitCode === null) {
-      const owned = child;
-      const stopped = new Promise<void>((resolve) => {
-        const force = setTimeout(() => owned.kill("SIGKILL"), 5_000);
-        owned.once("close", () => {
-          clearTimeout(force);
-          resolve();
-        });
-      });
-      owned.kill("SIGTERM");
-      await stopped;
+    const cleanup: GroupDrainProof[] = [];
+    try {
+      if (child) {
+        try {
+          await terminateController(child, "SIGTERM");
+        } catch {
+          await terminateController(child, "SIGKILL");
+        }
+      }
+      for (const group of groups) cleanup.push(await drainOwnedGroup(group));
+      fs.writeFileSync(
+        path.join(root, "cleanup.json"),
+        `${JSON.stringify({ faultControllerExit, groups: cleanup }, null, 2)}\n`,
+      );
+    } finally {
+      api.closeAllConnections();
+      await new Promise<void>((resolve) => api.close(() => resolve()));
     }
-    api.closeAllConnections();
-    await new Promise<void>((resolve) => api.close(() => resolve()));
   }
+  assert.ok(receipt);
+  const receiptPath = path.join(root, "receipt.json");
+  fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+  console.log(receiptPath);
 }
 main().catch((error) => {
   console.error(error);
