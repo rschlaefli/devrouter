@@ -457,3 +457,48 @@ and fractional/boundary tests now exercise policy-supplied values; all 31 affect
 queue/policy tests pass. This keeps one authority for scheduling and budgets.
 Policy-backed source remains uncommitted while validation completes; no policy
 file or consumer runtime has been modified.
+
+Committed policy-backed queue construction as 6c67fc0. Main added
+resolveCapacityEnrollment using existing canonical linked-checkout/provider
+resolution, Git common-directory identity, exact enrollment matching, enrolled
+profile and reviewed estimate digest. Seven focused adapter-boundary tests pass
+for matching and mismatched provider, provider ID, workspace, Git common directory,
+profile and digest. These mock the established ownership probes; they do not prove
+live ownership or dispatch. Source is not wired to canonical ensure/exec yet.
+
+Started the existing packed lifecycle qualifier on this source tree with its closed
+synthetic provider executables, isolated home and nonexistent Docker socket.
+Session 11299 remains running; output is retained at
+/private/tmp/devrouter-capacity-lifecycle-qualification.log and fixture artifacts at
+/private/var/folders/24/j7k2mlqn42l_dhq64jpqslxh0000gp/T/qualify-lifecycle-JQ4ntb.
+Use the same process handle; do not launch a duplicate. No producing qualification
+result exists yet. This tests manual lifecycle compatibility, not the still-unwired
+capacity queue launch path. Enrollment source typecheck passes.
+
+Packed lifecycle qualifier session 11299 completed successfully. Its 25 producing
+evidence entries cover installed manual ensure/exec/stop, automatic degraded-state
+repair, application failure with retained tooling, duplicate IPC, stop-before-
+dispatch, persistence failures, supervisor/worker loss and Devsy successive results.
+Tarball SHA256 f556089822747484b55dae2752332958c4c69cef937116675228dc37b7a4eb5b;
+CLI SHA256 b3f8ece589f3035fbb0d564b9d70109efd7f3dc5f763c1eadd83614903bb7e6d;
+worker SHA256 c6eddf5f06bcb7a17836b1092134785c81f897d53ba319af6d9c88388738acfb.
+Reuse this isolated packed manual-lifecycle evidence while its exercised source
+is unchanged. It does not establish capacity-controlled launch, Linux process
+helper behavior or current eLearning runtime qualification.
+
+Enrollment resolution now repeats the existing canonical binding proof and checks
+configuration bytes before returning, rejecting changed ownership during its
+asynchronous probes. Eight focused enrollment cases pass, including the provider
+replacement race. This is bounded read-only identity resolution, not a substitute
+for the final pre-effect fence or real telemetry qualification.
+
+Linux process-helper regression now passed in the exact isolated Docker fixture
+devrouter-capacity-linux-helper-20260908 using the existing local
+default-rs-101ce-app:latest image. The run used read-only source/root filesystem,
+no network, dropped capabilities, 256 MiB memory/swap limit, one CPU, 128 PID limit
+and 64 MiB temporary storage. The producing script printed reconciliation tests
+passed; exact container state is exited, exitCode 0, OOMKilled false. Log:
+/private/tmp/devrouter-capacity-linux-helper.log. The stopped fixture is retained;
+no deletion, shared VM restart, live consumer mutation or host OOM was performed.
+This closes Linux helper regression evidence only, not capacity admission or OOM
+protection qualification.
