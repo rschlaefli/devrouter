@@ -48,7 +48,7 @@ function processTable(): ProcessRow[] {
       const fields = line.split(/\s+/);
       const pid = Number(fields.shift());
       const pgid = Number(fields.shift());
-      if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(pgid) || pgid <= 0)
+      if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(pgid) || pgid < 0)
         throw new Error("Invalid synthetic process-group metadata.");
       return { pid, pgid };
     });
