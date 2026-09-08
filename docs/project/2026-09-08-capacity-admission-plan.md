@@ -1572,3 +1572,41 @@ pnpm_config_verify_deps_before_run=warn setting; no dependency directory was
 replaced and no persistent package-manager configuration changed. Linux CI used
 its clean frozen-lockfile install. Production host telemetry and admission remain
 unqualified; no live policy or runtime was changed.
+
+### Host accounting consultation and consumer stop diagnosis
+
+Authentication recovered and the configured frontier consultation completed using
+only the public conceptual problem with file/shell tools disabled. Its report is
+/private/tmp/devrouter-public-host-accounting-consultation.txt. Native planner
+methodology review narrows the conclusion: this investigation has not qualified
+an equivalent supported method; it does not prove that no method exists.
+
+Two independent gaps remain. Non-VM host physical usage lacks a qualified
+conservative bound. The operator's hostChargeCeilingBytes is numerically validated
+but not established as an enforced physical host ceiling by OrbStack's guest
+memory setting. The vendor describes the allowance for containers and machines:
+https://docs.orbstack.dev/settings . Dynamic guest memory release is documented at
+https://docs.orbstack.dev/efficiency ; neither page supplies a bound including all
+host backing and VMM/helper overhead. Pool identity/lifetime and useful positive
+admission margin also require qualification. Elevated access or empirical margins
+alone do not prove counter semantics. Do not replace the approved reservation
+model with current occupancy plus headroom, which omits reserved future growth.
+There is no concrete alternative contract ready for a user decision.
+
+Separately, exact values-free consumer evidence rules out the history limit in
+the reported stop incident: history has 21 entries, desired is stopped-by-user,
+phase is stopping, no worker remains, the interrupted ensure is drained, and both
+stop proofs are false. The released managed-stop path rejects source/effective
+fingerprint, resource or generated-config drift before provider/container work.
+The generic error does not identify the failing predicate. No qualifying supported
+non-destructive recovery was found in the bounded release source review. A changed
+Compose identity still needs trusted provider-to-runtime ownership evidence;
+matching checkout labels alone cannot grant adoption authority. Requested exact
+failing predicates, provider-resolved container identity and old-project inventory.
+No consumer runtime, journal, ownership or configuration was changed.
+
+Manual history rollover was independently integrated at 4891590 with explicit
+manual-only guards. All 89 affected tests pass, independent review has no findings,
+and Linux CI passes including both packed qualifiers:
+https://github.com/rschlaefli/devrouter/actions/runs/34257017092 . Publishing was
+disabled. This fix does not resolve the independently diagnosed stop incident.
