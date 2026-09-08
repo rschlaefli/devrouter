@@ -143,6 +143,13 @@ function validate(value: unknown): asserts value is Snapshot {
   }
 }
 
+function serializeSnapshot(snapshot: Snapshot): string {
+  const contents = `${JSON.stringify(snapshot)}\n`;
+  if (Buffer.byteLength(contents) > MAX_BYTES)
+    throw new Error("Capacity reservation snapshot exceeds byte limit.");
+  return contents;
+}
+
 /** One short all-domain transaction; lifecycle and provider locks stay outside it. */
 export class CapacityStore {
   private file: string;
@@ -205,7 +212,7 @@ export class CapacityStore {
         if (index >= 0) snapshot.reservations.splice(index, 1);
         snapshot.revision++;
         validate(snapshot);
-        writeFileAtomically(this.file, `${JSON.stringify(snapshot)}\n`);
+        writeFileAtomically(this.file, serializeSnapshot(snapshot));
         return { settled: index >= 0, revision: snapshot.revision };
       },
     );
@@ -250,7 +257,7 @@ export class CapacityStore {
         if (pool) pools.splice(index, 1);
         snapshot.revision++;
         validate(snapshot);
-        writeFileAtomically(this.file, `${JSON.stringify(snapshot)}\n`);
+        writeFileAtomically(this.file, serializeSnapshot(snapshot));
         return { settled: !!pool, revision: snapshot.revision };
       },
     );
@@ -294,7 +301,7 @@ export class CapacityStore {
         snapshot.reservations[index] = structuredClone(target);
         snapshot.revision++;
         validate(snapshot);
-        writeFileAtomically(this.file, `${JSON.stringify(snapshot)}\n`);
+        writeFileAtomically(this.file, serializeSnapshot(snapshot));
       },
     );
   }
@@ -406,10 +413,7 @@ export class CapacityStore {
           snapshot.reservations[snapshot.reservations.indexOf(existing)] = structuredClone(request);
         else snapshot.reservations.push(structuredClone(request));
         validate(snapshot);
-        const contents = `${JSON.stringify(snapshot)}\n`;
-        if (Buffer.byteLength(contents) > MAX_BYTES)
-          throw new Error("Capacity reservation snapshot exceeds byte limit.");
-        writeFileAtomically(this.file, contents);
+        writeFileAtomically(this.file, serializeSnapshot(snapshot));
         return { admitted: true as const, revision: snapshot.revision, joined: false };
       },
     );

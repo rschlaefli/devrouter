@@ -547,3 +547,46 @@ it.each(
   );
   expect(() => store.read()).toThrow(Error);
 });
+
+function nearLimitSnapshot(maxBytes: number) {
+  const reservations = Array.from({ length: 32 }, (_, index) => ({
+    ...poolRequest(`synthetic-${index}`),
+    totals: { initial: 0 } as Record<string, number>,
+  }));
+  const snapshot = { version: 1, revision: 9, reservations };
+  let remaining = maxBytes - Buffer.byteLength(`${JSON.stringify(snapshot)}\n`);
+  let index = 0;
+  while (remaining > 133) {
+    reservations[Math.floor(index / 255)].totals[`domain-${index}`.padEnd(128, "x")] = 0;
+    remaining -= 133; // A 128-character key, JSON punctuation, and a zero value.
+    index++;
+  }
+  if (remaining >= 6) {
+    reservations[Math.floor(index / 255)].totals["d".repeat(remaining - 5)] = 0;
+  } else {
+    reservations[0].environmentId += "x".repeat(remaining);
+  }
+  return snapshot;
+}
+
+it.each([
+  "pool",
+  "environment",
+  "phase",
+] as const)("preserves a readable maximum-size snapshot when %s settlement would grow revision 9 to 10", (settlement) => {
+  const { directory, store } = fixture();
+  const file = path.join(directory, "capacity-reservations.json");
+  const snapshot = nearLimitSnapshot(1_048_576);
+  const contents = `${JSON.stringify(snapshot)}\n`;
+  expect(Buffer.byteLength(contents)).toBe(1_048_576);
+  fs.writeFileSync(file, contents, { mode: 0o600 });
+  expect(store.read()).toEqual(snapshot);
+  const settle = () => {
+    if (settlement === "pool") return store.settlePoolAfterCessation(poolIdentity, 9);
+    if (settlement === "environment") return store.settleEnvironmentAfterStop("absent", 9);
+    return store.reduceAfterPhase(snapshot.reservations[0], 9);
+  };
+  expect(settle).toThrow(Error);
+  expect(fs.readFileSync(file, "utf8")).toBe(contents);
+  expect(store.read()).toEqual(snapshot);
+});
