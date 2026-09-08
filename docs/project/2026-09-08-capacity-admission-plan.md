@@ -1253,3 +1253,21 @@ then returns an unchanged join or persists the atomic update. All 42 store and
 accounting tests pass unchanged, with typecheck, Biome and Knip passing. Receipt:
 /private/tmp/devrouter-capacity-pool-simplify-tests.log. The correctness reviewer
 is still running and has received this narrow follow-up; retain that owner.
+
+### Controller pool admission integration
+
+Commit 8b3e9c8 derives the requested pool from current operator policy and carries
+it into the atomic pre-dispatch reservation. Admission verifies the durable
+policy revision, daemon, endpoint and host/runtime bindings. The generic internal
+helpers remain usable with synthetic inputs. Integration tests inspect the
+persisted pool at the launch callback, count launches, retain the pool after a
+synthetic environment stop, and verify host-budget denial leaves the store intact.
+The fixture ceiling is 60 within host admissible 90, leaving 30 for simultaneous
+steady/startup estimates; an additional shared byte rejects that combination.
+
+All 93 affected tests pass with two workers; typecheck, Biome, Knip and commit
+hooks pass. Receipt: /private/tmp/devrouter-capacity-pool-controller-tests.log.
+Simplifier reports no worthwhile reduction. The existing independent store review
+remains running; its owner has been asked once for status without interruption.
+Controller integration requires the subsequent correctness pass. Collector
+reconciliation of other active/unenrolled pools and live qualification remain open.
