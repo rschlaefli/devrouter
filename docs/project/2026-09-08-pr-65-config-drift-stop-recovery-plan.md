@@ -1,4 +1,4 @@
-# Stop retained environments after configuration changes
+# Stop retained environments after configuration changes — PR #65
 
 ## Approval summary
 
@@ -375,5 +375,6 @@ Its three low-severity follow-ups are dispositioned as follows:
   container deletion still requires exact separate approval. This does not block
   the reviewed package and does not claim automatic orphan reconciliation.
 
-Required Linux CI remains pending draft publication. The production range remains
+Draft PR #65 is published: https://github.com/rschlaefli/devrouter/pull/65 .
+Required Linux CI remains pending. The production range remains
 ee2d842; subsequent changes are evidence and test-isolation metadata only.
