@@ -1951,3 +1951,21 @@ the session quota limit before inspecting source; it supplies no review evidence
 Whole-package final review and the declared-budget versus measured-host decision
 remain open. The capacity branch is unpublished; no machine policy or consumer
 runtime changed during integration.
+
+### Canonical client preparation
+
+Explorer Pauli verified a client slice independent of host accounting. Executor
+Beauvoir owns controller-client.ts and its focused synthetic socket tests; main
+owns integration and contract decisions. The adapter submits once, follows an
+accepted operation through bounded watches, and resumes by operation ID without
+argv or another submission. Timeout or transport loss after acknowledgement keeps
+the accepted identity and reports pending or uncertain state. Initial response
+loss preserves the request ID as an explicit uncertainty; it never invents an
+operation ID or automatically replays a command.
+
+Acceptance covers one submission, bounded pending return, same-ID reconnection,
+output cursors and gaps, and malformed or mismatched response rejection. This
+slice introduces no persistence or runtime activation. Canonical command wiring,
+production collectors and useful recovery after initial acknowledgement loss
+still require integration; a standalone adapter does not complete admission.
+The host-budget decision has been surfaced to the user and remains unanswered.
