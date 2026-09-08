@@ -1789,3 +1789,41 @@ The receipt's operationId is the queue head; durableJournalPhase refers to the
 second queued request. Both are queued, but these fields are not one identity.
 This remains fixture evidence, not production host accounting or ordinary CLI
 capacity activation. Review and source delivery of this correction remain pending.
+
+### Released 0.0.61 eLearning acceptance, 2026-09-08
+
+Main verified the published v0.0.61 GitHub release and the installed Volta CLI.
+The release worktree and merged main have identical content. The secondary
+/opt/homebrew/bin/devrouter installation still reports 0.0.60; callers must
+resolve their executable before attributing behavior to this release.
+
+The released CLI resumed the exact retained eLearning canary, recovered its
+helper-owned stopped application through ordinary ensure, and returned HTTP 200
+readiness without recreation. Node 22.21.0 and pnpm 10.30.0 remained available
+through exec while the application was stopped. Preparation stamp modification
+time remained 1788792632 before and after recovery. The fixture verifier reported
+retained record identities before recovery, after recovery, and after a complete
+stop/resume cycle. All starts reused the same application container.
+
+A fresh isolated browser exchanged a short-lived synthetic launch cookie for a
+development student session. The exchange returned to the exact workspace origin.
+The owned synthetic-block path retained authenticated status 200 and visible 100%
+completion after reload and hydration. This closes the previous premature reload
+check. It qualifies development session exchange, not production access-gated or
+iframe launch behavior. Token values remained in subprocess memory and stdin;
+no browser authentication state was saved, and the isolated browser was closed.
+
+Final exact checkout: /Users/rschlae/Git/tc/elearning/trees/rs/reliability-canary.
+Fresh Devsy list matched that source path uniquely to rs-reliability-canary;
+workspace status reported Stopped and exact route readback counted zero routes.
+The final stop freed two routes and preserved runtime data. Sanitized summary:
+/private/tmp/devrouter-0.0.61-elearning-receipt.json. Producing receipts share
+/private/tmp/devrouter-0.0.61-elearning- with ensure.log, warm.log, tooling.log,
+recovery.log, retained-after-recovery.log, resume.log,
+retained-after-resume.log, final-stop.log and final-provider.json suffixes.
+
+Klicker Runner and AI Infra Portfolio were notified of the verified release and
+legacy-baseline limitations. No other task runtime was changed. The roadmap goal
+remains active: live capacity admission, bounded controller recovery and harness
+integration remain incomplete. Main owns the host-guarantee decision; explorer
+Linnaeus owns the bounded synchronous claim/revocation assertion audit.
