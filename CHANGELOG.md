@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.61] - 2026-09-08
+
 ### Fixed
 
 - Record exact stop ownership before application readiness for managed Devsy
@@ -16,6 +18,10 @@ All notable changes to this project are documented in this file.
 - Keep manual ensure and exec usable after 128 settled operations by retiring
   bounded completed history under a fresh lifecycle fence. Preserve uncertain
   work and reject delayed requests from the retired fence.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.61.md
 
 ## [0.0.60] - 2026-09-08
 
