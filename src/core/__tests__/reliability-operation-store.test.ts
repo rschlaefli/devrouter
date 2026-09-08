@@ -9,6 +9,7 @@ import { stepReliability } from "../reliability-model";
 import {
   assertCapacityEffect,
   enrollStoppedLifecycle,
+  listReliabilityOperations,
   type ReliabilityIdentity,
   readReliabilityOperation,
   reliabilityOperationPath,
@@ -56,8 +57,8 @@ describe("durable reliability records", () => {
     estimatesDigest: "a".repeat(64),
   };
 
-  function stoppedRecord() {
-    updateReliabilityOperation(identity, (record) => {
+  function stoppedRecord(target: ReliabilityIdentity = identity) {
+    updateReliabilityOperation(target, (record) => {
       record.state = stepReliability(
         record.state,
         { ...reliabilityFence(record.state), type: "stop" },
@@ -74,8 +75,126 @@ describe("durable reliability records", () => {
         100,
       ).state;
     });
-    return readReliabilityOperation(identity)!;
+    return readReliabilityOperation(target)!;
   }
+
+  function journalDirectory(): string {
+    return path.join(fixture.root, "reliability");
+  }
+
+  function extraIdentity(provider: ReliabilityIdentity["provider"]): ReliabilityIdentity {
+    const target = {
+      repoPath: fs.mkdtempSync(path.join(os.tmpdir(), "reliability-enumeration-checkout-")),
+      workspace: null,
+      provider,
+    } satisfies ReliabilityIdentity;
+    checkouts.push(target.repoPath);
+    return target;
+  }
+
+  function resetJournalDirectory(): void {
+    fs.rmSync(journalDirectory(), { recursive: true, force: true });
+  }
+
+  function writeKnownSidecars(file: string): void {
+    const uuid = "11111111-1111-4111-8111-111111111111";
+    const lock = `${file}.lock`;
+    const options = { mode: 0o600 } as const;
+    fs.writeFileSync(lock, "", options);
+    fs.writeFileSync(`${lock}.${process.pid}.${uuid}.candidate`, "", options);
+    fs.writeFileSync(`${lock}.queue.1234567890123.0000000001.${uuid}.candidate`, "", options);
+    fs.writeFileSync(
+      path.join(journalDirectory(), `.${path.basename(file)}.${process.pid}.${uuid}.tmp`),
+      "",
+      options,
+    );
+  }
+
+  it("returns no records when the reliability directory is absent", () => {
+    resetJournalDirectory();
+    expect(listReliabilityOperations()).toEqual([]);
+  });
+
+  it("lists mixed manual and enrolled journals while ignoring known lock sidecars", () => {
+    resetJournalDirectory();
+    updateReliabilityOperation(identity, () => undefined);
+    const enrolledIdentity = extraIdentity("devpod");
+    const before = stoppedRecord(enrolledIdentity);
+    enrollStoppedLifecycle(enrolledIdentity, before.revision, enrollment);
+    writeKnownSidecars(reliabilityOperationPath(identity));
+    writeKnownSidecars(reliabilityOperationPath(enrolledIdentity));
+
+    const records = listReliabilityOperations();
+    expect(records).toHaveLength(2);
+    const manual = records.find((record) => record.identity.repoPath === identity.repoPath);
+    const enrolled = records.find(
+      (record) => record.identity.repoPath === enrolledIdentity.repoPath,
+    );
+    expect(manual?.version).toBe(1);
+    expect(manual?.enrollment).toBeUndefined();
+    expect(enrolled).toMatchObject({
+      version: 2,
+      enrollment,
+      capacity: null,
+    });
+  });
+
+  it("rejects corrupt journals without returning partial results", () => {
+    resetJournalDirectory();
+    updateReliabilityOperation(identity, () => undefined);
+    fs.writeFileSync(reliabilityOperationPath(identity), "{", { mode: 0o600 });
+    expect(() => listReliabilityOperations()).toThrow();
+  });
+
+  it("rejects symlinked journal entries", () => {
+    resetJournalDirectory();
+    updateReliabilityOperation(identity, () => undefined);
+    const file = reliabilityOperationPath(identity);
+    fs.unlinkSync(file);
+    fs.symlinkSync("/tmp/synthetic-missing-reliability-journal", file);
+    expect(() => listReliabilityOperations()).toThrow("symlink");
+  });
+
+  it("rejects non-private journal files and directories", () => {
+    resetJournalDirectory();
+    updateReliabilityOperation(identity, () => undefined);
+    const file = reliabilityOperationPath(identity);
+    fs.chmodSync(file, 0o644);
+    expect(() => listReliabilityOperations()).toThrow("bounded private file");
+    fs.chmodSync(file, 0o600);
+    fs.chmodSync(journalDirectory(), 0o755);
+    expect(() => listReliabilityOperations()).toThrow("not private");
+    fs.chmodSync(journalDirectory(), 0o700);
+  });
+
+  it("rejects a journal filename that does not match its identity hash", () => {
+    resetJournalDirectory();
+    updateReliabilityOperation(identity, () => undefined);
+    const file = reliabilityOperationPath(identity);
+    const wrong = path.join(journalDirectory(), `${"0".repeat(64)}.json`);
+    fs.renameSync(file, wrong);
+    expect(() => listReliabilityOperations()).toThrow("filename does not match");
+  });
+
+  it("rejects more than the bounded journal count", () => {
+    resetJournalDirectory();
+    fs.mkdirSync(journalDirectory(), { mode: 0o700 });
+    for (let index = 0; index <= 256; index += 1) {
+      const name = `${index.toString(16).padStart(64, "0")}.json`;
+      fs.writeFileSync(path.join(journalDirectory(), name), "{}\n", { mode: 0o600 });
+    }
+    expect(() => listReliabilityOperations()).toThrow("journal limit");
+  });
+
+  it("rejects more than the bounded directory entry count", () => {
+    resetJournalDirectory();
+    fs.mkdirSync(journalDirectory(), { mode: 0o700 });
+    for (let index = 0; index <= 512; index += 1) {
+      const name = `${index.toString(16).padStart(64, "0")}.json.lock`;
+      fs.writeFileSync(path.join(journalDirectory(), name), "", { mode: 0o600 });
+    }
+    expect(() => listReliabilityOperations()).toThrow("entry limit");
+  });
 
   it("persists enrollment independently of reservation and session lifetime", () => {
     const before = stoppedRecord();

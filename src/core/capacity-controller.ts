@@ -5,24 +5,57 @@ import { enrollCapacityLifecycle } from "./capacity-enrollment";
 import { readCapacityPolicy } from "./capacity-policy";
 import { CapacityQueue } from "./capacity-queue";
 import { capacityRequest } from "./capacity-request";
-import type { ControllerOperations } from "./controller-server";
+import type { ControllerOperations, ControllerStartup } from "./controller-server";
+import { ControllerStore } from "./controller-store";
 import { resolveRunningWorkspaceContainer } from "./devpod-environment";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
+import { reliabilityFence } from "./reliability-contract";
 import { prepareManagedLifecycleOperation, retireQueuedLifecycle } from "./reliability-lifecycle";
+import { stepReliability } from "./reliability-model";
 import {
-  type CapacityControllerIdentity,
+  listReliabilityOperations,
   readReliabilityOperation,
+  updateReliabilityOperation,
 } from "./reliability-operation-store";
 
 /** Own transient requests independently of client connections within one controller incarnation. */
 export function createCapacityController(options: {
   directory: string;
-  controller: CapacityControllerIdentity;
+  controller: ControllerStartup;
   collect: () => Promise<Record<string, CapacityDomainSample>>;
 }): ControllerOperations & { tick: () => Promise<void>; close: () => void } {
+  options.controller.consumeStartup(options.directory);
   const policy = readCapacityPolicy(options.directory);
   if (policy?.admissions !== "enabled") throw new Error("Capacity policy is not enabled.");
-  const queue = new CapacityQueue({ ...options, policyRevision: policy.revision });
+  // The server invokes this factory under its owner lock, before accepting requests.
+  for (const prior of listReliabilityOperations()) {
+    if (!prior.enrollment) continue;
+    updateReliabilityOperation(prior.identity, (record) => {
+      const current = new ControllerStore(options.directory).read();
+      if (current?.store !== options.controller.store || current.epoch !== options.controller.epoch)
+        throw new Error("Capacity controller incarnation changed during startup.");
+      if (!record.enrollment || record.state.executionPolicy !== "capacity-managed")
+        throw new Error("Capacity enrollment changed during startup.");
+      if (record.capacity) record.capacity.validUntilMs = 0;
+      const operation = record.state.operation;
+      if (record.worker || !operation || operation.drained || operation.status !== "NOT_STARTED")
+        return;
+      const transition = stepReliability(
+        record.state,
+        {
+          ...reliabilityFence(record.state),
+          type: "drained",
+          operationId: operation.id,
+        },
+        Date.now(),
+      );
+      if (transition.outcome !== "accepted")
+        throw new Error("Undispatched startup reconciliation was not accepted.");
+      record.state = transition.state;
+    });
+  }
+  const controller = { store: options.controller.store, epoch: options.controller.epoch };
+  const queue = new CapacityQueue({ ...options, controller, policyRevision: policy.revision });
   const payloadKey = randomBytes(32);
   const acceptedPayloads = new Map<string, string>();
   const lifetime = new AbortController();
@@ -63,7 +96,7 @@ export function createCapacityController(options: {
       });
       const prepared = prepareManagedLifecycleOperation({
         identity,
-        controller: options.controller,
+        controller,
         policyRevision: current.revision,
         requestId: request.requestId,
         kind: request.kind,

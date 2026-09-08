@@ -5,7 +5,11 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { type ControllerObservationCollector, controllerCapability } from "../controller-monitor";
 import { CONTROLLER_FRAME_BYTES } from "../controller-protocol";
-import { type ControllerOperations, runController } from "../controller-server";
+import {
+  type ControllerOperations,
+  type ControllerStartup,
+  runController,
+} from "../controller-server";
 import { ControllerSessions } from "../controller-sessions";
 import { createReliabilityState } from "../reliability-contract";
 import * as operationStore from "../reliability-operation-store";
@@ -20,7 +24,7 @@ afterEach(async () => {
 async function fixture(
   collect?: ControllerObservationCollector,
   operations?: ControllerOperations,
-  createOperations?: (controller: { store: string; epoch: number }) => ControllerOperations,
+  createOperations?: (controller: ControllerStartup) => ControllerOperations,
 ) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-")));
   directories.push(directory);
@@ -114,6 +118,8 @@ it("creates managed operations from the handshake identity and closes them once"
     expect(createOperations).toHaveBeenCalledWith({
       store: handshake.result.store,
       epoch: handshake.result.epoch,
+      directory,
+      consumeStartup: expect.any(Function),
     });
 
     await tickEntered.promise;
@@ -129,6 +135,34 @@ it("creates managed operations from the handshake identity and closes them once"
   } finally {
     client.socket.destroy();
   }
+});
+
+it.each([
+  false,
+  true,
+])("expires startup authority after its factory returns (consumed: %s)", async (consume) => {
+  let startup!: ControllerStartup;
+  await fixture(undefined, undefined, (value) => {
+    startup = value;
+    if (consume) {
+      value.consumeStartup(value.directory);
+      expect(() => value.consumeStartup(value.directory)).toThrow();
+    }
+    return { submit: vi.fn(), watch: vi.fn() };
+  });
+  expect(() => startup.consumeStartup(startup.directory)).toThrow();
+});
+
+it("expires startup authority when the factory throws", async () => {
+  let startup!: ControllerStartup;
+  await expect(
+    fixture(undefined, undefined, (value) => {
+      startup = value;
+      value.consumeStartup(value.directory);
+      throw new Error("Synthetic initialization failure");
+    }),
+  ).rejects.toThrow("Synthetic initialization failure");
+  expect(() => startup.consumeStartup(startup.directory)).toThrow();
 });
 
 it("queries durable operation history only through a valid session binding", async () => {

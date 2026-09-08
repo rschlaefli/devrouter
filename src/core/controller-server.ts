@@ -67,6 +67,13 @@ export type ControllerOperations = {
     signal: AbortSignal,
   ) => Promise<unknown>;
 };
+
+export type ControllerStartup = {
+  directory: string;
+  store: string;
+  epoch: number;
+  consumeStartup: (directory: string) => void;
+};
 export async function runController(options: {
   directory: string;
   signal: AbortSignal;
@@ -74,7 +81,7 @@ export async function runController(options: {
   collect?: ControllerObservationCollector;
   onListening?: () => void;
   operations?: ControllerOperations;
-  createOperations?: (controller: { store: string; epoch: number }) => ControllerOperations;
+  createOperations?: (controller: ControllerStartup) => ControllerOperations;
 }): Promise<void> {
   if (options.operations && options.createOperations)
     throw new Error("Controller operations have multiple owners.");
@@ -93,9 +100,23 @@ export async function runController(options: {
     if (validateOwnedFile(socketPath, true)) fs.unlinkSync(socketPath);
     const sessions = new ControllerSessions(new ControllerStore(options.directory));
     const incarnation = sessions.read();
-    const operations =
-      options.createOperations?.({ store: incarnation.store, epoch: incarnation.epoch }) ??
-      options.operations;
+    let startupAvailable = true;
+    let operations: ControllerOperations | undefined;
+    try {
+      operations =
+        options.createOperations?.({
+          directory: options.directory,
+          store: incarnation.store,
+          epoch: incarnation.epoch,
+          consumeStartup: (directory) => {
+            if (!startupAvailable || directory !== options.directory)
+              throw new Error("Controller startup authority is unavailable.");
+            startupAvailable = false;
+          },
+        }) ?? options.operations;
+    } finally {
+      startupAvailable = false;
+    }
     const sockets = new Set<net.Socket>();
     let serial = Promise.resolve();
     const monotonic = () => Math.floor(performance.now());

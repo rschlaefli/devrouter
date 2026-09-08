@@ -14,8 +14,12 @@ const fixture = vi.hoisted(() => ({
   retire: vi.fn(),
   charge: vi.fn(),
   enqueue: vi.fn(),
+  list: vi.fn(),
 }));
-vi.mock("../reliability-operation-store", () => ({ readReliabilityOperation: fixture.journal }));
+vi.mock("../reliability-operation-store", () => ({
+  readReliabilityOperation: fixture.journal,
+  listReliabilityOperations: fixture.list,
+}));
 vi.mock("../reliability-lifecycle", () => ({
   prepareManagedLifecycleOperation: fixture.prepare,
   retireQueuedLifecycle: fixture.retire,
@@ -36,6 +40,7 @@ vi.mock("../capacity-queue", () => ({
 beforeEach(() => {
   vi.resetAllMocks();
   fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled" });
+  fixture.list.mockReturnValue([]);
 });
 const environment = {
   id: "env",
@@ -57,7 +62,12 @@ const binding = {
 function controller() {
   return createCapacityController({
     directory: "/tmp/synthetic-controller",
-    controller: { store: "store", epoch: 1 },
+    controller: {
+      directory: "/tmp/synthetic-controller",
+      store: "store",
+      epoch: 1,
+      consumeStartup: () => {},
+    },
     collect: async () => ({}),
   });
 }

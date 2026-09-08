@@ -56,6 +56,14 @@ export type ReliabilityOperationRecord = {
 };
 
 const MAX_RECORD_BYTES = 1_048_576;
+const MAX_RELIABILITY_JOURNALS = 256;
+const MAX_RELIABILITY_DIRECTORY_ENTRIES = MAX_RELIABILITY_JOURNALS * 2;
+const MAX_RELIABILITY_ENUMERATION_MS = 2_000;
+const RELIABILITY_JOURNAL_NAME_RE = /^([0-9a-f]{64})\.json$/;
+const RELIABILITY_LOCK_NAME_RE =
+  /^[0-9a-f]{64}\.json\.lock(?:\.[0-9]+\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.candidate(?:\.stale)?|\.queue\.[0-9]+\.[0-9]+\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.candidate)?)?$/;
+const RELIABILITY_ATOMIC_TEMP_NAME_RE =
+  /^\.[0-9a-f]{64}\.json\.[0-9]+\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
 
 function identityKey(identity: ReliabilityIdentity): string {
   if (
@@ -317,6 +325,14 @@ export function readReliabilityOperation(
   identity: ReliabilityIdentity,
 ): ReliabilityOperationRecord | undefined {
   const file = reliabilityOperationPath(identity);
+  const parsed = readBoundedPrivateJson(file, "Reliability record");
+  if (parsed === undefined) return undefined;
+  const record = parsed as ReliabilityOperationRecord;
+  validate(record, identity);
+  return record;
+}
+
+function readBoundedPrivateJson(file: string, label: string): unknown | undefined {
   let descriptor: number;
   try {
     descriptor = fs.openSync(
@@ -329,20 +345,105 @@ export function readReliabilityOperation(
   }
   try {
     const stat = fs.fstatSync(descriptor);
-    if (!stat.isFile() || stat.size > MAX_RECORD_BYTES || (stat.mode & 0o077) !== 0) {
-      throw new Error("Reliability record is not a bounded private file.");
+    if (
+      !stat.isFile() ||
+      stat.uid !== process.getuid?.() ||
+      stat.size > MAX_RECORD_BYTES ||
+      (stat.mode & 0o077) !== 0
+    ) {
+      throw new Error(`${label} is not a bounded private file.`);
     }
     const bytes = Buffer.alloc(MAX_RECORD_BYTES + 1);
     const count = fs.readSync(descriptor, bytes, 0, bytes.length, 0);
-    if (count > MAX_RECORD_BYTES) throw new Error("Reliability record exceeds its byte limit.");
-    const record = JSON.parse(
-      bytes.subarray(0, count).toString("utf8"),
-    ) as ReliabilityOperationRecord;
-    validate(record, identity);
-    return record;
+    if (count > MAX_RECORD_BYTES) throw new Error(`${label} exceeds its byte limit.`);
+    return JSON.parse(bytes.subarray(0, count).toString("utf8"));
   } finally {
     fs.closeSync(descriptor);
   }
+}
+
+function assertReliabilityEnumerationTime(startedAtMs: number): void {
+  if (performance.now() - startedAtMs > MAX_RELIABILITY_ENUMERATION_MS)
+    throw new Error("Reliability journal enumeration exceeded its time limit.");
+}
+
+function reliabilityDirectory(): string {
+  return path.join(DEVROUTER_HOME, "reliability");
+}
+
+function journalIdentity(value: unknown): ReliabilityIdentity {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Reliability journal identity is invalid.");
+  const identity = (value as { identity?: unknown }).identity;
+  if (!identity || typeof identity !== "object" || Array.isArray(identity))
+    throw new Error("Reliability journal identity is invalid.");
+  return identity as ReliabilityIdentity;
+}
+
+/** Read every validated private journal without consulting controller policy or runtime state. */
+export function listReliabilityOperations(): ReliabilityOperationRecord[] {
+  const startedAtMs = performance.now();
+  const directory = reliabilityDirectory();
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  if (!stat.isDirectory() || stat.isSymbolicLink())
+    throw new Error("Reliability journal directory is unsafe.");
+  if (stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0)
+    throw new Error("Reliability journal directory is not private.");
+
+  const entries: fs.Dirent[] = [];
+  const handle = fs.opendirSync(directory);
+  try {
+    for (;;) {
+      assertReliabilityEnumerationTime(startedAtMs);
+      const entry = handle.readSync();
+      if (!entry) break;
+      entries.push(entry);
+      if (entries.length > MAX_RELIABILITY_DIRECTORY_ENTRIES)
+        throw new Error("Reliability journal directory exceeds its entry limit.");
+    }
+  } finally {
+    handle.closeSync();
+  }
+
+  const journals: Array<{ name: string; key: string }> = [];
+  for (const entry of entries) {
+    assertReliabilityEnumerationTime(startedAtMs);
+    if (entry.isSymbolicLink())
+      throw new Error("Reliability journal directory contains a symlink.");
+    if (!entry.isFile())
+      throw new Error("Reliability journal directory contains an unsupported entry.");
+    if (
+      RELIABILITY_LOCK_NAME_RE.test(entry.name) ||
+      RELIABILITY_ATOMIC_TEMP_NAME_RE.test(entry.name)
+    )
+      continue;
+    const match = RELIABILITY_JOURNAL_NAME_RE.exec(entry.name);
+    if (!match) throw new Error("Reliability journal directory contains an unsupported entry.");
+    journals.push({ name: entry.name, key: match[1] });
+  }
+  if (journals.length > MAX_RELIABILITY_JOURNALS)
+    throw new Error("Reliability journal directory exceeds its journal limit.");
+  journals.sort((left, right) => left.name.localeCompare(right.name));
+
+  const records: ReliabilityOperationRecord[] = [];
+  for (const journal of journals) {
+    assertReliabilityEnumerationTime(startedAtMs);
+    const file = path.join(directory, journal.name);
+    const identity = journalIdentity(readBoundedPrivateJson(file, "Reliability journal"));
+    if (identityKey(identity) !== journal.key)
+      throw new Error("Reliability journal filename does not match its identity.");
+    const record = readReliabilityOperation(identity);
+    if (!record) throw new Error("Reliability journal disappeared during enumeration.");
+    records.push(record);
+    assertReliabilityEnumerationTime(startedAtMs);
+  }
+  return records;
 }
 
 function persist(record: ReliabilityOperationRecord): void {

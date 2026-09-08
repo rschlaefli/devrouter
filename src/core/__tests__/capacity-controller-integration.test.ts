@@ -262,7 +262,7 @@ it("admits one enrolled environment and keeps a competing queued wait isolated",
 
   const active = createCapacityController({
     directory: controllerDirectory,
-    controller: controllerIdentity,
+    controller: { ...controllerIdentity, directory: controllerDirectory, consumeStartup: () => {} },
     collect: async () => ({ host: sample(now), runtime: sample(now) }),
   });
   const firstSubmitted = (await active.submit(
@@ -360,4 +360,70 @@ it("admits one enrolled environment and keeps a competing queued wait isolated",
   });
   expect(new CapacityStore(controllerDirectory).read().reservations).toEqual(reservations);
   active.close();
+  updateReliabilityOperation(secondIdentity, (record) => {
+    // Model a persisted dispatch whose delivery result was lost with the controller.
+    const operation = {
+      ...record.state.operation!,
+      status: "DISPATCH_RECORDED" as const,
+      drained: false,
+    };
+    record.state.operation = operation;
+    record.state.operationHistory = record.state.operationHistory.map((entry) =>
+      entry.id === operation.id ? { ...entry, ...operation } : entry,
+    );
+    record.worker = {
+      id: "uncertain-worker",
+      operationId: operation.id,
+      pid: 123456,
+      birth: "proc:synthetic",
+    };
+  });
+  const uncertain = readReliabilityOperation(secondIdentity)!;
+  const replacement = new ControllerStore(controllerDirectory).startIncarnation();
+  const restarted = createCapacityController({
+    directory: controllerDirectory,
+    controller: {
+      directory: controllerDirectory,
+      store: replacement.store,
+      epoch: replacement.epoch,
+      consumeStartup: () => {},
+    },
+    collect: async () => ({ host: sample(Date.now()), runtime: sample(Date.now()) }),
+  });
+  const reconciled = readReliabilityOperation(firstIdentity);
+  expect(reconciled?.state.operation).toMatchObject({
+    id: firstOperation.operationId,
+    status: "NOT_STARTED",
+    drained: true,
+  });
+  expect(reconciled?.capacity?.validUntilMs).toBe(0);
+  const retainedUncertainty = readReliabilityOperation(secondIdentity)!;
+  expect(retainedUncertainty.worker).toEqual(uncertain.worker);
+  expect(retainedUncertainty.state).toEqual(uncertain.state);
+  expect(new CapacityStore(controllerDirectory).read().reservations).toEqual(reservations);
+  const reconnected = await restarted.submit(
+    {
+      version: 1,
+      id: "reconnect-one",
+      method: "operation-submit",
+      session: "replacement-session",
+      store: replacement.store,
+      epoch: replacement.epoch,
+      generation: "replacement-generation",
+      requestId: "request-one",
+      kind: "ensure",
+    },
+    first,
+    new AbortController().signal,
+  );
+  expect(reconnected).toMatchObject({
+    operation: {
+      operationId: firstOperation.operationId,
+      phase: "terminal",
+      outcome: "NOT_STARTED",
+    },
+  });
+  await restarted.tick();
+  expect(launches).toHaveLength(1);
+  restarted.close();
 });

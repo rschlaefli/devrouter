@@ -940,3 +940,34 @@ simplification: use the existing lifetime abort signal instead of a duplicate
 closed flag. All nine coordinator tests and focused Biome pass. Gauss continues
 the journal enumeration helper and its bounded filesystem regressions; leave that
 worker-owned edit separate until it returns verification and ownership.
+
+Startup reconciliation is now implemented in the controller factory before queue
+creation. It revalidates the persisted incarnation inside each journal transaction,
+revokes capacity bindings, and retires only undrained NOT_STARTED operations with
+no recorded worker. Reservations and uncertain dispatched work remain untouched.
+Tesla's design check required a one-use startup capability: the server supplies it
+under its owner lock and expires it when the synchronous factory returns or throws.
+Factory recovery consumes it before journal enumeration. Server tests cover reuse
+and callback-expiry rejection; the integration fixture covers lost payload retirement,
+unchanged reservations and reconnect returning the original terminal NOT_STARTED ID.
+All 27 controller/server/integration tests pass; this is not packed restart proof.
+
+Gauss delivered bounded private journal enumeration and 25 passing filesystem
+tests. Main added the missing file-owner check during inspection and requested one
+same-owner correction for known atomic-writer temporary sidecars, which can remain
+after a crash and must not force manual cleanup. Unknown entries and symlinks still
+fail validation. Startup changes remain uncommitted pending that correction,
+broader crash-boundary regressions and independent correctness review.
+
+Gauss completed the atomic-temp correction; enumeration recognizes only the
+existing writer's exact temporary filename pattern as an ignored regular sidecar.
+It neither reads nor deletes these files. Main verified the resulting helper and
+expanded startup proof: uncertain dispatched worker/state remain unchanged, failed
+factory initialization consumes its startup capability, and reconnect never
+recreates a retired payload. Integrated source verification passes all 1,369 tests
+across 100 files in 17.91s; receipt:
+/private/tmp/devrouter-capacity-startup-tests.log. Full Biome, typecheck, Knip,
+docs policy and knowledge checks pass. Source is ready for a committed bounded
+correctness review, not for production capacity activation. Packed startup recovery,
+phase settlement, telemetry, canonical CLI integration and eLearning qualification
+remain required under the existing roadmap goal.
