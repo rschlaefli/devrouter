@@ -1271,3 +1271,13 @@ Simplifier reports no worthwhile reduction. The existing independent store revie
 remains running; its owner has been asked once for status without interruption.
 Controller integration requires the subsequent correctness pass. Collector
 reconciliation of other active/unenrolled pools and live qualification remain open.
+
+Integrated verification at 80d4603 passes all 1536 tests across 103 files with two
+workers in 37.55 seconds. Build and isolated packed CLI smoke pass. Receipts:
+/private/tmp/devrouter-capacity-integrated-pools-tests.log and
+/private/tmp/devrouter-capacity-integrated-pools-package.log. The packed source
+still carries branch baseline version 0.0.59; this is source-distribution proof,
+not a new published release. The installed 0.0.60 release is unaffected.
+
+The existing reviewer confirmed active review, with no live command or capability
+blocker. Preserve this non-terminal review; passing checks do not replace its verdict.
