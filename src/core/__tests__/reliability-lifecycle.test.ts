@@ -19,6 +19,12 @@ const fixture = vi.hoisted(() => ({
   listHostRouteState: vi.fn(),
   readManagedRuntimeState: vi.fn(),
   withWorkspaceLifecycleLock: vi.fn(),
+  readCapacityPolicy: vi.fn(),
+}));
+
+vi.mock("../capacity-policy", async (original) => ({
+  ...(await original<typeof import("../capacity-policy")>()),
+  readCapacityPolicy: fixture.readCapacityPolicy,
 }));
 
 vi.mock("../router", async () => {
@@ -335,6 +341,12 @@ it("accepts managed intent once and reconnects without returning another worker 
   };
   const exec = lifecycle.prepareManagedLifecycleOperation(execInput);
   expect(exec.request?.command).toEqual(execInput.command);
+  const { ControllerStore } = await import("../controller-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const directory = path.join(DEVROUTER_HOME, "controller");
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const controllerStore = new ControllerStore(directory);
+  const controller = controllerStore.startIncarnation();
   const now = Date.now();
   expect(
     lifecycle.admitLifecycleCapacity(
@@ -360,9 +372,86 @@ it("accepts managed intent once and reconnects without returning another worker 
       },
       now,
       15_000,
+      directory,
+      { store: controller.store, epoch: controller.epoch },
     ).admitted,
   ).toBe(true);
   const admitted = store.readReliabilityOperation(identity)!;
+  expect(() => store.assertCapacityEffect(admitted, exec.request!.workerId, now)).not.toThrow();
+  const policy = {
+    revision: 1,
+    admissions: "enabled",
+    scheduling: { maxSampleAgeSeconds: 15 },
+    domains: {
+      host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 },
+      guest: {
+        kind: "runtime",
+        endpoint: admitted.enrollment!.endpoint,
+        daemonId: admitted.enrollment!.daemonId,
+      },
+    },
+    enrollments: [{ ...admitted.enrollment, ...identity, profiles: ["full"] }],
+  } as unknown as import("../capacity-policy").CapacityPolicy;
+  fixture.readCapacityPolicy.mockReturnValue(policy);
+  const samples = {
+    host: {
+      sampledAtMs: now + 1000,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    },
+  };
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 1000,
+    ),
+  ).toBe(true);
+  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(now + 16_000);
+  const { CapacityStore } = await import("../capacity-store");
+  const reservations = new CapacityStore(directory).read();
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 20_000,
+    ),
+  ).toBe(false);
+  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+  expect(new CapacityStore(directory).read()).toEqual(reservations);
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 1000,
+    ),
+  ).toBe(true);
+  controllerStore.startIncarnation();
+  expect(() => store.assertCapacityEffect(admitted, exec.request!.workerId, now)).toThrow(
+    "incarnation",
+  );
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 1000,
+    ),
+  ).toBe(false);
+  expect(new CapacityStore(directory).read()).toEqual(reservations);
   expect(admitted.state).toMatchObject({ admission: "admitted", chargeHeld: true });
   expect(
     model.stepReliability(

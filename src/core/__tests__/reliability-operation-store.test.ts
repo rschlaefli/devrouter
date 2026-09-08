@@ -93,7 +93,7 @@ describe("durable reliability records", () => {
       updateReliabilityOperation(identity, (record) => {
         delete record.enrollment;
       }),
-    ).toThrow("requires durable");
+    ).toThrow();
     expect(() =>
       updateReliabilityOperation(identity, (record) => {
         record.state.executionPolicy = "manual";
@@ -106,6 +106,27 @@ describe("durable reliability records", () => {
         daemonId: "replacement",
       }),
     ).toThrow("different capacity enrollment");
+  });
+
+  it("rejects an atomic enrollment downgrade without changing durable bytes", () => {
+    const initial = stoppedRecord();
+    enrollStoppedLifecycle(identity, initial.revision, enrollment);
+    const before = fs.readFileSync(reliabilityOperationPath(identity), "utf8");
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.version = 1;
+        delete record.enrollment;
+        delete record.activeProfile;
+        delete record.capacity;
+        record.state.executionPolicy = "manual";
+        record.state.admission = "not-applicable";
+        record.state.chargeHeld = false;
+      }),
+    ).toThrow();
+    expect(fs.readFileSync(reliabilityOperationPath(identity), "utf8")).toBe(before);
+    expect(() =>
+      assertCapacityEffect(readReliabilityOperation(identity)!, "worker", 100),
+    ).toThrow();
   });
 
   it.each([

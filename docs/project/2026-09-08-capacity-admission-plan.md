@@ -738,3 +738,20 @@ identity visibility. The sandbox attempt failed before startup because the owner
 lock could not inspect process identity; no application failure was inferred.
 These isolated tests stop their controller sockets. Production operation-submit,
 renewable authority and the two-client capacity tracer remain unimplemented.
+
+Singer completed eef1130..a5793a4: repeated-stop fencing is correct; prior five
+findings remain closed. New findings are combined enrollment downgrade, missing
+oversized-chunk gap, and unchanged paging cursor under an insufficient empty-chunk
+budget. Main owns the journal correction; Gauss owns the two output corrections.
+
+Main added transaction-level monotonic version/enrollment checks. A combined update
+that erases enrollment and switches all fields to manual is rejected with unchanged
+durable bytes. Managed capacity bindings now retain controller store/epoch identity;
+effect claims reject a replacement controller. Renewal rechecks exact request/fence,
+operator policy/enrollment, runtime endpoint/daemon, reservation and fresh domain
+samples under the short journal transaction. It extends only effect validity and
+never releases charges; invalid evidence persists revocation. Collection remains
+outside the transaction. All 45 journal/lifecycle tests, typecheck, Knip and Biome
+pass, including fresh renewal, stale-sample revocation, unchanged reservation and
+controller replacement. This internal function is not yet called by the controller
+queue. Production collector identity and heartbeat scheduling remain open.

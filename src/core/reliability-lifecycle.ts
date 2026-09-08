@@ -1,5 +1,10 @@
 import path from "node:path";
-import type { CapacityDomainBudget, CapacityDomainSample } from "./capacity-accounting";
+import {
+  type CapacityDomainBudget,
+  type CapacityDomainSample,
+  evaluateCapacity,
+} from "./capacity-accounting";
+import { type CapacityPolicy, readCapacityPolicy } from "./capacity-policy";
 import {
   type CapacityReservation,
   CapacitySnapshotChangedError,
@@ -24,6 +29,7 @@ import {
 import { stepReliability } from "./reliability-model";
 import {
   assertCapacityEffect,
+  type CapacityControllerIdentity,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   updateReliabilityOperation,
@@ -288,6 +294,7 @@ export function admitLifecycleCapacity(
   nowMs: number,
   maxSampleAgeMs: number,
   directory = path.join(DEVROUTER_HOME, "controller"),
+  controller?: CapacityControllerIdentity,
 ) {
   if (request.kind === "stop") throw new Error("Stop never requires capacity admission.");
   const capacity = new CapacityStore(directory);
@@ -361,6 +368,7 @@ export function admitLifecycleCapacity(
       {
         reservationId: reservation.reservationId,
         policyRevision: reservation.policyRevision,
+        ...(controller ? { controller } : {}),
         validUntilMs:
           Math.min(...Object.values(samples).map((sample) => sample.sampledAtMs)) + maxSampleAgeMs,
       },
@@ -368,6 +376,97 @@ export function admitLifecycleCapacity(
     );
   }
   return decision;
+}
+
+/** Renew local effect authority from fresh evidence without releasing retained charges. */
+export function renewLifecycleCapacity(
+  request: LifecycleWorkerRequest,
+  policy: CapacityPolicy,
+  samples: Record<string, CapacityDomainSample>,
+  controller: CapacityControllerIdentity,
+  directory = path.join(DEVROUTER_HOME, "controller"),
+  nowMs = Date.now(),
+): boolean {
+  return updateReliabilityOperation(request.identity, (record) => {
+    const binding = record.capacity;
+    if (
+      !matchesFence(record, request.fence) ||
+      !binding ||
+      binding.operationId !== request.operationId ||
+      binding.workerId !== request.workerId ||
+      binding.controller?.store !== controller.store ||
+      binding.controller?.epoch !== controller.epoch
+    )
+      throw new Error("Capacity renewal no longer owns this operation.");
+    binding.validUntilMs = 0;
+    try {
+      if (
+        record.state.executionPolicy !== "capacity-managed" ||
+        record.state.operation?.id !== request.operationId ||
+        record.state.operation.drained ||
+        record.state.desired !== "running" ||
+        policy.admissions !== "enabled" ||
+        policy.revision !== binding.policyRevision ||
+        JSON.stringify(readCapacityPolicy(directory)) !== JSON.stringify(policy)
+      )
+        return false;
+      const enrolled = record.enrollment;
+      const runtime = enrolled && policy.domains[enrolled.runtimeDomain];
+      const enrollment = policy.enrollments.find(
+        (entry) =>
+          entry.repoPath === record.identity.repoPath &&
+          entry.workspace === record.identity.workspace &&
+          entry.provider === record.identity.provider &&
+          entry.providerId === enrolled?.providerId &&
+          entry.gitCommonDir === enrolled.gitCommonDir &&
+          entry.estimatesDigest === enrolled.estimatesDigest &&
+          entry.hostDomain === enrolled.hostDomain &&
+          entry.runtimeDomain === enrolled.runtimeDomain &&
+          entry.profiles.includes(record.state.profile ?? ""),
+      );
+      if (
+        !enrolled ||
+        enrolled.policyRevision !== policy.revision ||
+        !enrollment ||
+        runtime?.kind !== "runtime" ||
+        runtime.endpoint !== enrolled.endpoint ||
+        runtime.daemonId !== enrolled.daemonId
+      )
+        return false;
+      const snapshot = new CapacityStore(directory).read();
+      const reservation = snapshot.reservations.find(
+        (entry) => entry.reservationId === binding.reservationId,
+      );
+      if (
+        !reservation ||
+        reservation.environmentId !== record.state.environmentId ||
+        reservation.operationId !== request.operationId ||
+        reservation.policyRevision !== policy.revision
+      )
+        return false;
+      const maxAge = policy.scheduling.maxSampleAgeSeconds * 1000;
+      if (
+        !evaluateCapacity(
+          policy.domains,
+          samples,
+          snapshot.reservations,
+          reservation,
+          nowMs,
+          maxAge,
+        ).admitted
+      )
+        return false;
+      binding.validUntilMs =
+        Math.min(
+          ...Object.keys(reservation.totals).map((domain) => samples[domain]?.sampledAtMs ?? 0),
+        ) + maxAge;
+      assertCapacityEffect(record, request.workerId, nowMs, directory);
+      return true;
+    } catch {
+      binding.validUntilMs = 0;
+      return false;
+    }
+  });
 }
 
 /** Retire only positively undispatched intent, retaining all runtime charges. */
@@ -404,7 +503,12 @@ export function retireQueuedLifecycle(
 /** Bind an already-persisted reservation without holding the scheduler lock. */
 export function bindLifecycleCapacity(
   request: LifecycleWorkerRequest,
-  binding: { reservationId: string; policyRevision: number; validUntilMs: number },
+  binding: {
+    reservationId: string;
+    policyRevision: number;
+    validUntilMs: number;
+    controller?: CapacityControllerIdentity;
+  },
   directory = path.join(DEVROUTER_HOME, "controller"),
 ): void {
   if (request.kind === "stop") throw new Error("Stop never requires capacity admission.");

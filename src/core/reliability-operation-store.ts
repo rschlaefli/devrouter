@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { writeFileAtomically } from "./atomic-file";
 import { CapacityStore } from "./capacity-store";
+import { ControllerStore } from "./controller-store";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { withFileLockSync } from "./file-lock";
 import {
@@ -31,6 +33,8 @@ export type CapacityEnrollmentBinding = {
   estimatesDigest: string;
 };
 
+export type CapacityControllerIdentity = { store: string; epoch: number };
+
 export type ReliabilityOperationRecord = {
   version: 1 | 2;
   identity: ReliabilityIdentity;
@@ -47,6 +51,7 @@ export type ReliabilityOperationRecord = {
     workerId: string;
     policyRevision: number;
     validUntilMs: number;
+    controller?: CapacityControllerIdentity;
   } | null;
 };
 
@@ -113,7 +118,17 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
         "workerId",
         "policyRevision",
         "validUntilMs",
+        "controller",
       ]);
+      if (capacity.controller !== undefined) {
+        keys(capacity.controller, ["store", "epoch"]);
+        if (
+          !isReliabilityId(capacity.controller.store) ||
+          !isReliabilityCounter(capacity.controller.epoch) ||
+          capacity.controller.epoch < 1
+        )
+          throw new Error("Invalid capacity controller identity.");
+      }
     }
     if (
       capacity !== null &&
@@ -276,6 +291,16 @@ export function assertCapacityEffect(
     binding.validUntilMs <= nowMs
   )
     throw new Error("Capacity effect authority is absent or stale.");
+  if (record.state.executionPolicy === "capacity-managed") {
+    const controller = new ControllerStore(directory).read();
+    if (
+      !binding.controller ||
+      !controller ||
+      controller.store !== binding.controller.store ||
+      controller.epoch !== binding.controller.epoch
+    )
+      throw new Error("Capacity controller incarnation changed.");
+  }
   const reservation = new CapacityStore(directory)
     .read()
     .reservations.find((entry) => entry.reservationId === binding.reservationId);
@@ -366,10 +391,17 @@ export function updateReliabilityOperation<T>(
     };
     if (record.revision === Number.MAX_SAFE_INTEGER)
       throw new Error("Reliability record revision is exhausted.");
+    const previousVersion = record.version;
+    const previousEnrollment = record.enrollment && { ...record.enrollment };
     const result = operation(record);
     if (result && typeof (result as { then?: unknown }).then === "function") {
       throw new Error("Reliability record updates must be synchronous.");
     }
+    if (
+      record.version < previousVersion ||
+      (previousEnrollment && !isDeepStrictEqual(record.enrollment, previousEnrollment))
+    )
+      throw new Error("Durable capacity enrollment cannot be downgraded or replaced.");
     validate(record, identity);
     record.revision += 1;
     persist(record);
