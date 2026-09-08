@@ -173,10 +173,6 @@ function inspectOwnedGroup(group: OwnedGroup): OwnedGroupInspection {
     !groupAbsent &&
     groupMembers.some((member) => member.pid === group.leader.pid) &&
     liveMembers.some((member) => member.pid === group.leader.pid);
-  if (leaderPresent && !liveMembers.some((member) => member.pid === group.leader.pid))
-    throw new Error(
-      `Refusing to signal fixture process group ${group.groupId}: leader identity is unproven.`,
-    );
   return { groupAbsent, leaderPresent, liveMembers };
 }
 
@@ -514,9 +510,10 @@ else fail();
   fs.writeFileSync(
     entry,
     `// Observe IPC results without replacing the installed worker or its lifecycle.
+import {processBirthIdentity} from ${JSON.stringify(path.join(source, "src/core/file-lock"))};
 const childProcess = require('node:child_process');
 const fork = childProcess.fork;
-childProcess.fork = (...args) => { const child = fork(...args); child.on('message', message => { console.error(JSON.stringify({workerMessage:message})); if(message.ok===false)require('node:fs').writeFileSync(${JSON.stringify(`${fixture}.worker-error`)},message.message); }); return child; };
+childProcess.fork = (...args) => { const child = fork(...args); require('node:fs').appendFileSync(${JSON.stringify(`${fixture}.workers`)}, JSON.stringify({pid:child.pid,birth:processBirthIdentity(child.pid)})+'\\n'); child.on('message', message => { console.error(JSON.stringify({workerMessage:message})); if(message.ok===false)require('node:fs').writeFileSync(${JSON.stringify(`${fixture}.worker-error`)},message.message); }); return child; };
 import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/commands/controller"))};\nimport {createCapacityController} from ${JSON.stringify(path.join(source, "src/core/capacity-controller"))};\nvoid runControllerCommand('run',{},undefined,{createOperations:controller=>{
   const operations=createCapacityController({directory:controller.directory,controller,collect:async signal=>{if(signal.aborted)throw new Error('cancelled');const sample={sampledAtMs:Date.now(),pressure:'normal' as const,unmanagedBytes:0,sharedBytes:0,ownedBytes:{}};return {host:sample,runtime:sample}}});
   const watch=operations.watch;
@@ -642,6 +639,33 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
         }),
     };
   }
+  function collectFixtureGroups() {
+    if (fs.existsSync(`${fixture}.workers`)) {
+      for (const line of fs.readFileSync(`${fixture}.workers`, "utf8").trim().split("\n")) {
+        const recorded = JSON.parse(line) as { pid: number; birth: string };
+        if (!Number.isInteger(recorded.pid) || recorded.pid <= 0 || !recorded.birth)
+          throw new Error("Fixture fork did not record a valid worker identity.");
+        if (groups.some((group) => group.groupId === recorded.pid)) continue;
+        if (workerGroupAbsent(recorded.pid)) continue;
+        if (processBirthIdentity(recorded.pid) !== recorded.birth)
+          throw new Error("Cannot recover fixture group ownership after leader loss.");
+        const members = processTable()
+          .filter((row) => row.pgid === recorded.pid)
+          .map((row) => {
+            const birth = processBirthIdentity(row.pid);
+            if (!birth) throw new Error("Fixture group changed while collecting cleanup identity.");
+            return { label: "fixture-child", pid: row.pid, birth };
+          });
+        if (!members.some((member) => member.pid === recorded.pid))
+          throw new Error("Recorded fixture worker is not its process-group leader.");
+        groups.push({
+          groupId: recorded.pid,
+          leader: { ...recorded, label: "fixture-worker" },
+          members,
+        });
+      }
+    }
+  }
   try {
     const log = fs.openSync(path.join(root, "controller.log"), "w", 0o600);
     child = spawn(node, [bundled], { env, stdio: ["ignore", log, log] });
@@ -684,6 +708,10 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
       () => fs.existsSync(`${fixture}.launch-one`),
       "first real worker provider launch",
     );
+    if (process.argv.includes("--fault-before-capture")) {
+      await terminateController(child, "SIGKILL");
+      throw new Error("Injected synthetic controller exit before ownership capture.");
+    }
     groups.push(captureOwnedGroup(path.join(router, "reliability"), fixture, entries[0]));
     if (faultControllerExit) {
       await terminateController(child, "SIGKILL");
@@ -771,6 +799,7 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
           await terminateController(child, "SIGKILL");
         }
       }
+      collectFixtureGroups();
       for (const group of groups) cleanup.push(await drainOwnedGroup(group));
       fs.writeFileSync(
         path.join(root, "cleanup.json"),
