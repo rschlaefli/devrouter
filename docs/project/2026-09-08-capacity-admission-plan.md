@@ -1281,3 +1281,24 @@ not a new published release. The installed 0.0.60 release is unaffected.
 
 The existing reviewer confirmed active review, with no live command or capability
 blocker. Preserve this non-terminal review; passing checks do not replace its verdict.
+
+### Review correction and canary state
+
+The store reviewer found one P2: a settlement can increase serialized revision
+length beyond the 1 MiB read limit. Verified and fixed in e9dbdc3 by sharing bounded
+serialization across all reservation writes. Three schema-valid boundary tests
+cover pool, environment and phase settlement at revision 9 to 10, checking that
+rejection preserves the exact prior readable file. All 39 store tests, typecheck,
+Biome, Knip and commit hooks pass. Receipt:
+/private/tmp/devrouter-capacity-settlement-size-tests.log. The reviewer owns narrow
+closure after its running controller integration pass; correction simplification
+is also pending.
+
+Fresh read-only eLearning proof with installed CLI 0.0.60 confirms the exact
+/Users/rschlae/Git/tc/elearning/trees/rs/reliability-canary checkout remains stopped,
+workspace/provider ID rs-reliability-canary, profile full, empty active resources,
+no drift and zero exact routes. Devsy reports Stopped. Receipts are
+/private/tmp/devrouter-elearning-pool-checkpoint-{status,provider,routes}.json.
+No runtime was started or changed. The old source baseline remains intentionally
+retained: eight commits ahead and 32 behind origin/main, with its tracking branch
+gone. This is runtime-state evidence, not acceptance of latest application source.
