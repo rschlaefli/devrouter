@@ -449,6 +449,29 @@ export function admitLifecycleCapacity(
       reservation.environmentId !== record.state.environmentId
     )
       throw new Error("Lifecycle intent changed while waiting for capacity.");
+    if (admission?.pool) {
+      const policy = readCapacityPolicy(directory);
+      const { pool, enrollment } = admission;
+      const runtime = policy?.domains[pool.runtimeDomain];
+      if (
+        policy?.admissions !== "enabled" ||
+        policy.revision !== reservation.policyRevision ||
+        runtime?.kind !== "runtime" ||
+        policy.domains[pool.hostDomain]?.kind !== "host" ||
+        runtime.daemonId !== pool.daemonId ||
+        runtime.hostDomain !== pool.hostDomain ||
+        runtime.hostChargeCeilingBytes !== pool.hostChargeCeilingBytes ||
+        enrollment.runtimeDomain !== pool.runtimeDomain ||
+        enrollment.hostDomain !== pool.hostDomain ||
+        !record.enrollment ||
+        record.enrollment.policyRevision !== policy.revision ||
+        record.enrollment.runtimeDomain !== pool.runtimeDomain ||
+        record.enrollment.hostDomain !== pool.hostDomain ||
+        record.enrollment.daemonId !== pool.daemonId ||
+        record.enrollment.endpoint !== runtime.endpoint
+      )
+        throw new Error("Capacity pool does not match durable policy enrollment.");
+    }
     const binding = record.capacity;
     if (!binding) {
       record.version = 2;
@@ -538,6 +561,7 @@ export function admitLifecycleCapacity(
     maxSampleAgeMs,
     previous,
     snapshot.revision,
+    admission?.pool,
   );
   if (decision.admitted) {
     bindLifecycleCapacity(

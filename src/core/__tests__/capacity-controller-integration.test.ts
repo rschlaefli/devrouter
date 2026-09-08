@@ -136,7 +136,7 @@ function policy(enrollments: CapacityPolicyEnrollment[]): CapacityPolicy {
         endpoint: "/tmp/synthetic-runtime.sock",
         daemonId: "synthetic-daemon",
         hostDomain: "host",
-        hostChargeCeilingBytes: 90,
+        hostChargeCeilingBytes: 60,
         capacityBytes: 100,
         protectedHeadroomBytes: 10,
         startupSlots: 1,
@@ -403,6 +403,8 @@ it.each([
   "uncertain",
   "prepared",
   "restart",
+  "host-denied",
+  "daemon-mismatch",
 ])("keeps queued work isolated and settles preparation (%s)", async (mode) => {
   const controllerDirectory = path.join(fixture.root, "controller");
   fs.mkdirSync(controllerDirectory, { recursive: true, mode: 0o700 });
@@ -424,7 +426,10 @@ it.each([
     workspace: second.workspace,
     provider: second.provider,
   };
-  seedStopped(firstIdentity, durableEnrollment(first));
+  seedStopped(firstIdentity, {
+    ...durableEnrollment(first),
+    ...(mode === "daemon-mismatch" ? { daemonId: "different-synthetic-daemon" } : {}),
+  });
   seedStopped(secondIdentity, durableEnrollment(second));
 
   fs.writeFileSync(
@@ -450,6 +455,18 @@ it.each([
   );
   fixture.runLifecycleWorker.mockImplementation(
     async (request: LifecycleWorkerRequest, supervision: { signal: AbortSignal }) => {
+      const persisted = new CapacityStore(controllerDirectory).read();
+      expect(persisted.pools).toEqual([
+        {
+          daemonId: "synthetic-daemon",
+          runtimeDomain: "runtime",
+          hostDomain: "host",
+          hostChargeCeilingBytes: 60,
+        },
+      ]);
+      expect(
+        persisted.reservations.some((entry) => entry.operationId === request.operationId),
+      ).toBe(true);
       launches.push({ request, signal: supervision.signal });
       await workerDone.promise;
       return { status: "completed" };
@@ -459,7 +476,10 @@ it.each([
   const active = createCapacityController({
     directory: controllerDirectory,
     controller: { ...controllerIdentity, directory: controllerDirectory, consumeStartup: () => {} },
-    collect: async () => ({ host: sample(now), runtime: sample(now) }),
+    collect: async () => ({
+      host: { ...sample(now), sharedBytes: mode === "host-denied" ? 1 : 0 },
+      runtime: sample(now),
+    }),
   });
   const firstSubmitted = (await active.submit(
     {
@@ -496,6 +516,14 @@ it.each([
   expect(firstOperation.phase).toBe("queued");
   expect(secondOperation.phase).toBe("queued");
 
+  if (mode === "daemon-mismatch") {
+    const before = new CapacityStore(controllerDirectory).read();
+    await active.tick();
+    expect(launches).toHaveLength(0);
+    expect(new CapacityStore(controllerDirectory).read()).toEqual(before);
+    active.close();
+    return;
+  }
   await active.tick();
   expect(launches).toHaveLength(1);
   expect(launches[0]?.request.operationId).toBe(firstOperation.operationId);
@@ -603,6 +631,22 @@ it.each([
       restarted.close();
       return;
     }
+    if (mode === "host-denied") {
+      const { settlePreparedLifecycleCapacity } = await import("../reliability-lifecycle");
+      settlePreparedLifecycleCapacity({
+        identity: firstIdentity,
+        controller: controllerIdentity,
+        estimates,
+        enrollment: firstEnrollment,
+        directory: controllerDirectory,
+      });
+      const before = new CapacityStore(controllerDirectory).read();
+      await active.tick();
+      expect(launches).toHaveLength(1);
+      expect(new CapacityStore(controllerDirectory).read()).toEqual(before);
+      active.close();
+      return;
+    }
     await active.tick();
     expect(launches).toHaveLength(2);
     expect(launches[1]?.request.operationId).toBe(secondOperation.operationId);
@@ -615,6 +659,16 @@ it.each([
       expect.objectContaining({ operationId: secondOperation.operationId, startup: true }),
     ]);
     active.close();
+    // Synthetic full stop proof revokes journal authority before low-level environment settlement.
+    seedStopped(firstIdentity, durableEnrollment(first));
+    const store = new CapacityStore(controllerDirectory);
+    const beforeStop = store.read();
+    store.settleEnvironmentAfterStop(
+      readReliabilityOperation(firstIdentity)!.state.environmentId,
+      beforeStop.revision,
+    );
+    expect(store.read().pools).toEqual(beforeStop.pools);
+    expect(store.read().reservations).toHaveLength(1);
     return;
   }
   active.close();

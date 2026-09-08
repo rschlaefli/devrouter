@@ -45,9 +45,21 @@ vi.mock("../capacity-queue", () => ({
 }));
 beforeEach(() => {
   vi.resetAllMocks();
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [] });
+  fixture.policy.mockReturnValue({
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [submissionEnrollment],
+    domains: { host: { kind: "host" }, runtime: submissionRuntime },
+  });
   fixture.list.mockReturnValue([]);
 });
+const submissionEnrollment = { hostDomain: "host", runtimeDomain: "runtime" };
+const submissionRuntime = {
+  kind: "runtime",
+  daemonId: "synthetic.daemon",
+  hostDomain: "host",
+  hostChargeCeilingBytes: 60,
+};
 const environment = {
   id: "env",
   repoPath: "/fixture",
@@ -278,7 +290,7 @@ it("cancels in-flight enrollment when its owning controller closes", async () =>
   fixture.enroll.mockImplementation(async (_policy, _request, signal) => {
     enrollmentSignal = signal;
     await held;
-    return { environment, estimates: {}, enrollment: {} };
+    return { environment, estimates: {}, enrollment: submissionEnrollment };
   });
   const active = controller();
   const pending = active.submit(
@@ -298,7 +310,7 @@ it("cancels in-flight enrollment when its owning controller closes", async () =>
 it("does not prepare work if policy changes while enrollment resolves", async () => {
   fixture.enroll.mockImplementation(async () => {
     fixture.policy.mockReturnValue({ revision: 1, admissions: "paused" });
-    return { environment, estimates: {}, enrollment: {} };
+    return { environment, estimates: {}, enrollment: submissionEnrollment };
   });
   await expect(
     controller().submit(
@@ -315,7 +327,11 @@ it.each([
   false,
   true,
 ])("owns a newly prepared request or retires a rejected enqueue (%s)", async (reject) => {
-  fixture.enroll.mockResolvedValue({ environment, estimates: {}, enrollment: {} });
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
   fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
   fixture.charge.mockReturnValue({
     environmentId: "env",
@@ -347,12 +363,25 @@ it.each([
   expect(fixture.enqueue).toHaveBeenCalledWith(
     prepared,
     expect.objectContaining({ operationId: "accepted", policyRevision: 1, totals: { host: 1 } }),
-    { estimates: {}, enrollment: {} },
+    {
+      estimates: {},
+      enrollment: submissionEnrollment,
+      pool: {
+        daemonId: "synthetic.daemon",
+        hostDomain: "host",
+        runtimeDomain: "runtime",
+        hostChargeCeilingBytes: 60,
+      },
+    },
   );
 });
 
 it("does not enqueue a second payload when durable preparation joins", async () => {
-  fixture.enroll.mockResolvedValue({ environment, estimates: {}, enrollment: {} });
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
   fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
   fixture.charge.mockReturnValue({
     environmentId: "env",
@@ -373,7 +402,11 @@ it("does not enqueue a second payload when durable preparation joins", async () 
 });
 
 it("rejects conflicting repeated operation metadata while the accepted payload is retained", async () => {
-  fixture.enroll.mockResolvedValue({ environment, estimates: {}, enrollment: {} });
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
   fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
   fixture.charge.mockReturnValue({ environmentId: "env", totals: { host: 1 } });
   fixture.prepare
@@ -393,4 +426,41 @@ it("rejects conflicting repeated operation metadata while the accepted payload i
     active.submit({ ...request, operation: "large" }, environment, new AbortController().signal),
   ).rejects.toThrow("conflicts");
   expect(fixture.enqueue).toHaveBeenCalledOnce();
+});
+
+it.each([
+  "host",
+  "runtime",
+  "enrollment",
+])("refuses mismatched policy pool binding %s before preparation", async (mismatch) => {
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: {
+      ...submissionEnrollment,
+      ...(mismatch === "enrollment" ? { hostDomain: "other" } : {}),
+    },
+  });
+  fixture.policy.mockReturnValue({
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [submissionEnrollment],
+    domains: {
+      host: { kind: "host" },
+      runtime: {
+        ...submissionRuntime,
+        ...(mismatch === "host" ? { hostDomain: "other" } : {}),
+        ...(mismatch === "runtime" ? { kind: "host" } : {}),
+      },
+    },
+  });
+  await expect(
+    controller().submit(
+      { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
+      environment,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(Error);
+  expect(fixture.prepare).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
 });

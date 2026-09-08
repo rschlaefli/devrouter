@@ -126,6 +126,20 @@ export function createCapacityController(options: {
         throw new Error("Capacity submission binding changed.");
       if (!isDeepStrictEqual(readCapacityPolicy(options.directory), current))
         throw new Error("Capacity submission policy changed during resolution.");
+      const runtime = current.domains[resolved.enrollment.runtimeDomain];
+      if (
+        runtime?.kind !== "runtime" ||
+        runtime.hostDomain !== resolved.enrollment.hostDomain ||
+        current.domains[runtime.hostDomain]?.kind !== "host" ||
+        !current.enrollments.some((entry) => isDeepStrictEqual(entry, resolved.enrollment))
+      )
+        throw new Error("Capacity pool does not match policy enrollment.");
+      const pool = {
+        daemonId: runtime.daemonId,
+        runtimeDomain: resolved.enrollment.runtimeDomain,
+        hostDomain: runtime.hostDomain,
+        hostChargeCeilingBytes: runtime.hostChargeCeilingBytes,
+      };
       const identity = {
         repoPath: environment.repoPath,
         workspace: environment.workspace || null,
@@ -185,7 +199,7 @@ export function createCapacityController(options: {
               reservationId: randomUUID(),
               policyRevision: current.revision,
             },
-            { estimates: resolved.estimates, enrollment: resolved.enrollment },
+            { estimates: resolved.estimates, enrollment: resolved.enrollment, pool },
           );
           acceptedPayloads.set(prepared.operationId, signature);
           for (const id of acceptedPayloads.keys()) {

@@ -1,9 +1,11 @@
 import type { CapacityEstimates } from "../types";
 import type { CapacityCharge } from "./capacity-accounting";
 import type { CapacityPolicyEnrollment } from "./capacity-policy";
+import type { CapacityPoolReservation } from "./capacity-store";
 export type CapacityAdmissionContext = {
   estimates: CapacityEstimates;
   enrollment: CapacityPolicyEnrollment;
+  pool?: CapacityPoolReservation;
 };
 
 import { capacityEstimatesDigest } from "./repo-config";
