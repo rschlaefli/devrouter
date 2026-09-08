@@ -1854,6 +1854,50 @@ pass. Producing logs: /private/tmp/devrouter-renewal-race-regression.log and
 /private/tmp/devrouter-renewal-race-fixed-host.log.
 
 Simplifier Darwin returned DONE with no findings for 810b702..17b19e7. Slice
-reviewer Euclid owns the same immutable three-file range; its result is pending.
+reviewer Euclid returned DONE for the same immutable three-file range. Main
+verified the rejection path and accepts the narrow revalidation result. The
+residual interval between validation read and journal commit remains outside
+this correction; neither review establishes complete cross-file atomicity.
 The ordinary CLI integration and host-guarantee decision remain open. No capacity
 policy or consumer runtime changed during this correction.
+
+### Persisted effect-claim revision correction
+
+Planner Hegel returned DONE for the existing claim-authority requirement. Main
+accepts the plan: persist capacity.snapshotRevision from the admission decision,
+refresh it only through evaluated renewal, and compare it with a fresh bounded
+snapshot at every synchronous effect claim. Existing version-2 bindings without
+this field remain readable but cannot authorize effects. Their charges remain
+retained. Manual version-1 records and the stop exemption remain unchanged.
+
+Main owns this coupled journal/schema correction and its ordering regressions.
+The revision is global, so unrelated capacity mutations can invalidate a binding;
+fresh renewal restores authority after evaluation. This conservative behavior is
+already part of the approved global-revision contract. It does not establish
+atomic cross-file publication or promise retroactive cancellation of accepted
+claims. The separate host-budget guarantee remains undecided.
+
+The working correction passes 100 lifecycle/store/retired-intent tests and 91
+controller/queue/worker tests. TypeScript and focused Biome checks pass. New tests
+exercise actual claim-before-revocation and revocation-before-claim ordering,
+publication-boundary fault injection with no acknowledgement or charge release,
+and stale revision rejection followed by evaluated renewal. Publication failure
+injection is not host power-loss or OOM evidence. Existing bindings without a
+revision remain readable; invalid revisions fail validation. Source review and
+broader validation remain pending before this correction is accepted.
+
+The effect-claim source correction is committed as 65f1a57. All 1,576 unit tests
+pass with two workers; focused controller coverage and commit hooks also pass.
+Simplifier Erdos returned DONE with no findings. Slice reviewer Dalton owns the
+complete five-file range d8d6776..65f1a57 and remains pending.
+
+The packed qualification passed with actual installed lifecycle workers and
+fixture-injected coordinator/providers. Stale telemetry produced zero launches;
+fresh telemetry launched each provider once, preserved the second queued operation
+ID, and retained work after watcher disconnect. Preparation settlement passed and
+the tracked process group was absent at cleanup. Evidence:
+/private/tmp/dr-cap-bAp7ug/receipt.json and cleanup.json; producing log:
+/private/tmp/devrouter-claim-revision-packed.log. The receipt marks dirty=true
+because this plan was pending; source was committed and unchanged. A clean-tree
+packed qualification remains required for final source delivery. This is not
+ordinary CLI capacity activation, live runtime or OOM protection evidence.
