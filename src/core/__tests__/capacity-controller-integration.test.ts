@@ -1,6 +1,7 @@
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
-import { afterAll, beforeEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { CapacityEstimates } from "../../types";
 import type { CapacityDomainSample } from "../capacity-accounting";
 import { createCapacityController } from "../capacity-controller";
@@ -100,7 +101,7 @@ function durableEnrollment(current: ReturnType<typeof environment>): CapacityEnr
     providerId: current.providerId,
     hostDomain: "host",
     runtimeDomain: "runtime",
-    endpoint: "/tmp/synthetic-runtime.sock",
+    endpoint: path.join(fixture.root, "d.sock"),
     daemonId: "synthetic-daemon",
     estimatesDigest,
   };
@@ -133,7 +134,7 @@ function policy(enrollments: CapacityPolicyEnrollment[]): CapacityPolicy {
       runtime: {
         kind: "runtime",
         adapter: "orbstack-local-v1",
-        endpoint: "/tmp/synthetic-runtime.sock",
+        endpoint: path.join(fixture.root, "d.sock"),
         daemonId: "synthetic-daemon",
         hostDomain: "host",
         hostChargeCeilingBytes: 60,
@@ -209,10 +210,30 @@ function watchRequest(
   };
 }
 
-beforeEach(() => {
+const servers: http.Server[] = [];
+async function serveInfo(endpoint: string, respond: http.RequestListener) {
+  const server = http.createServer(respond);
+  servers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(endpoint, resolve);
+  });
+}
+afterEach(async () => {
+  for (const server of servers.splice(0)) {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+beforeEach(async () => {
   fixture.runningContainer.mockReset();
   fs.rmSync(fixture.root, { recursive: true, force: true });
   fs.mkdirSync(fixture.root, { mode: 0o700 });
+  await serveInfo(path.join(fixture.root, "d.sock"), (request, response) => {
+    expect(request.method).toBe("GET");
+    expect(request.url).toBe("/info");
+    response.end(JSON.stringify({ ID: "synthetic-daemon", MemTotal: 100 }));
+  });
 });
 
 it.each([
@@ -520,7 +541,16 @@ it.each([
     const before = new CapacityStore(controllerDirectory).read();
     await active.tick();
     expect(launches).toHaveLength(0);
-    expect(new CapacityStore(controllerDirectory).read()).toEqual(before);
+    const after = new CapacityStore(controllerDirectory).read();
+    expect(after.reservations).toEqual(before.reservations);
+    expect(after.pools).toEqual([
+      {
+        daemonId: "synthetic-daemon",
+        runtimeDomain: "runtime",
+        hostDomain: "host",
+        hostChargeCeilingBytes: 60,
+      },
+    ]);
     active.close();
     return;
   }
@@ -738,4 +768,125 @@ it.each([
   await restarted.tick();
   expect(launches).toHaveLength(1);
   restarted.close();
+});
+
+it.each([
+  "launch",
+  "denied",
+  "snapshot-race",
+  "policy-drift",
+  "epoch-drift",
+] as const)("persists real socket evidence for an unenrolled pool before dispatch (%s)", async (mode) => {
+  const directory = path.join(fixture.root, "controller");
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const current = environment(fs.mkdtempSync(path.join(fixture.root, "observed-")), "d");
+  const enrollment = policyEnrollment(current);
+  const identity = {
+    repoPath: current.repoPath,
+    workspace: current.workspace,
+    provider: current.provider,
+  };
+  seedStopped(identity, durableEnrollment(current));
+  const operatorPolicy = policy([enrollment]);
+  const extra = {
+    ...operatorPolicy.domains.runtime,
+    kind: "runtime" as const,
+    adapter: "orbstack-local-v1" as const,
+    hostDomain: "host",
+    endpoint: path.join(fixture.root, "u.sock"),
+    daemonId: "unenrolled-daemon",
+    hostChargeCeilingBytes: mode === "denied" ? 11 : 10,
+  };
+  operatorPolicy.domains.unenrolled = extra;
+  fs.writeFileSync(path.join(directory, "capacity-policy.json"), JSON.stringify(operatorPolicy), {
+    mode: 0o600,
+  });
+  const store = new CapacityStore(directory);
+  await serveInfo(extra.endpoint, (_request, response) => {
+    if (mode === "snapshot-race")
+      store.settlePoolAfterCessation(
+        { daemonId: extra.daemonId, hostDomain: "host", runtimeDomain: "unenrolled" },
+        store.read().revision,
+      );
+    if (mode === "policy-drift")
+      fs.writeFileSync(
+        path.join(directory, "capacity-policy.json"),
+        JSON.stringify({ ...operatorPolicy, revision: 2 }),
+      );
+    if (mode === "epoch-drift") new ControllerStore(directory).startIncarnation();
+    response.end(JSON.stringify({ ID: extra.daemonId, MemTotal: 100 }));
+  });
+  const incarnation = new ControllerStore(directory).startIncarnation();
+  fixture.enroll.mockResolvedValue({ environment: current, enrollment, estimates });
+  fixture.runLifecycleWorker.mockReset();
+  const launchSnapshots: ReturnType<CapacityStore["read"]>[] = [];
+  fixture.runLifecycleWorker.mockImplementation(async () => {
+    launchSnapshots.push(store.read());
+    return { status: "completed" };
+  });
+  const active = createCapacityController({
+    directory,
+    controller: {
+      directory,
+      store: incarnation.store,
+      epoch: incarnation.epoch,
+      consumeStartup: () => {},
+    },
+    collect: async () => ({
+      host: sample(Date.now()),
+      runtime: sample(Date.now()),
+      unenrolled: sample(Date.now()),
+    }),
+  });
+  try {
+    await active.submit(
+      {
+        version: 1,
+        id: "submit",
+        method: "operation-submit",
+        session: "session",
+        store: incarnation.store,
+        epoch: incarnation.epoch,
+        generation: "generation",
+        requestId: "observed-pool",
+        kind: "ensure",
+      },
+      current,
+      new AbortController().signal,
+    );
+    if (mode === "snapshot-race" || mode === "policy-drift" || mode === "epoch-drift") {
+      await expect(active.tick()).rejects.toThrow(Error);
+      expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+      expect(store.read()).toEqual({
+        version: 1,
+        revision: mode === "snapshot-race" ? 1 : 0,
+        reservations: [],
+      });
+    } else {
+      await active.tick();
+      const snapshot = store.read();
+      expect(snapshot.pools).toHaveLength(2);
+      expect(new CapacityStore(directory).read()).toEqual(snapshot);
+      if (mode === "launch") {
+        expect(fixture.runLifecycleWorker).toHaveBeenCalledOnce();
+        expect(launchSnapshots[0].pools).toHaveLength(2);
+        expect(launchSnapshots[0].pools).toContainEqual({
+          daemonId: extra.daemonId,
+          hostDomain: "host",
+          runtimeDomain: "unenrolled",
+          hostChargeCeilingBytes: 10,
+        });
+        expect(launchSnapshots[0].reservations[0].operationId).toBe(
+          fixture.runLifecycleWorker.mock.calls[0][0].operationId,
+        );
+      } else {
+        expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+        expect(snapshot.reservations).toEqual([]);
+        await active.tick();
+        expect(store.read()).toEqual(snapshot);
+      }
+    }
+  } finally {
+    active.close();
+  }
 });

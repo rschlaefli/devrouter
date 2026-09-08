@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createCapacityController } from "../capacity-controller";
 
 const fixture = vi.hoisted(() => ({
@@ -18,6 +18,23 @@ const fixture = vi.hoisted(() => ({
   charge: vi.fn(),
   enqueue: vi.fn(),
   list: vi.fn(),
+  info: vi.fn(),
+  snapshot: vi.fn(),
+  merge: vi.fn(),
+  incarnation: vi.fn(),
+  collection: vi.fn(),
+}));
+vi.mock("../capacity-docker-probe", () => ({ readDockerCapacityInfo: fixture.info }));
+vi.mock("../capacity-store", () => ({
+  CapacityStore: class {
+    read = fixture.snapshot;
+    mergeObservedPools = fixture.merge;
+  },
+}));
+vi.mock("../controller-store", () => ({
+  ControllerStore: class {
+    read = fixture.incarnation;
+  },
 }));
 vi.mock("../reliability-operation-store", () => ({
   readReliabilityOperation: fixture.journal,
@@ -36,6 +53,9 @@ vi.mock("../capacity-enrollment", () => ({ enrollCapacityLifecycle: fixture.enro
 vi.mock("../lifecycle-operation-status", () => ({ readLifecycleOperationStatus: fixture.status }));
 vi.mock("../capacity-queue", () => ({
   CapacityQueue: class {
+    constructor(options: { collect: () => Promise<unknown> }) {
+      fixture.collection.mockImplementation(options.collect);
+    }
     observePage = fixture.page;
     wait = fixture.wait;
     close = fixture.close;
@@ -52,7 +72,12 @@ beforeEach(() => {
     domains: { host: { kind: "host" }, runtime: submissionRuntime },
   });
   fixture.list.mockReturnValue([]);
+  fixture.incarnation.mockReturnValue({ store: "store", epoch: 1 });
+  fixture.snapshot.mockReturnValue({ revision: 7, reservations: [], pools: [] });
+  fixture.merge.mockReturnValue({ changed: true, revision: 8 });
+  fixture.info.mockResolvedValue({ ID: "synthetic.daemon", MemTotal: 100 });
 });
+afterEach(() => vi.useRealTimers());
 const submissionEnrollment = { hostDomain: "host", runtimeDomain: "runtime" };
 const submissionRuntime = {
   kind: "runtime",
@@ -77,7 +102,11 @@ const binding = {
   epoch: 1,
   generation: "generation",
 };
-function controller() {
+function controller(
+  collect: () => Promise<
+    Record<string, import("../capacity-accounting").CapacityDomainSample>
+  > = async () => ({}),
+) {
   return createCapacityController({
     directory: "/tmp/synthetic-controller",
     controller: {
@@ -86,7 +115,7 @@ function controller() {
       epoch: 1,
       consumeStartup: () => {},
     },
-    collect: async () => ({}),
+    collect,
   });
 }
 
@@ -463,4 +492,137 @@ it.each([
   ).rejects.toThrow(Error);
   expect(fixture.prepare).not.toHaveBeenCalled();
   expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+const collectedSample = {
+  sampledAtMs: 100,
+  pressure: "normal" as const,
+  unmanagedBytes: 4,
+  sharedBytes: 3,
+  ownedBytes: {},
+};
+function collectionPolicy(count = 1) {
+  const domains: Record<string, unknown> = {
+    host: { kind: "host" },
+    independent: { kind: "host" },
+  };
+  for (let i = 0; i < count; i++)
+    domains[`runtime-${i}`] = {
+      ...submissionRuntime,
+      endpoint: `/synthetic-${i}.sock`,
+      daemonId: `daemon-${i}`,
+      hostDomain: i === 0 ? "host" : "independent",
+    };
+  const policy = { revision: 1, admissions: "enabled", enrollments: [], domains };
+  fixture.policy.mockReturnValue(policy);
+  return policy;
+}
+
+it("retains successful pool observations while isolating unknown host and runtime evidence", async () => {
+  collectionPolicy(2);
+  fixture.info.mockImplementation(async (endpoint) => ({
+    ID: endpoint === "/synthetic-0.sock" ? "foreign" : "daemon-1",
+    MemTotal: 100,
+  }));
+  const samples = {
+    host: collectedSample,
+    independent: collectedSample,
+    "runtime-0": collectedSample,
+    "runtime-1": collectedSample,
+  };
+  controller(async () => samples);
+  const result = await fixture.collection();
+  expect(result.host).toEqual({ ...collectedSample, pressure: "unknown" });
+  expect(result["runtime-0"].pressure).toBe("unknown");
+  expect(result.independent).toEqual(collectedSample);
+  expect(result["runtime-1"]).toEqual(collectedSample);
+  expect(samples.host.pressure).toBe("normal");
+  expect(fixture.merge).toHaveBeenCalledWith(
+    [
+      {
+        daemonId: "daemon-1",
+        runtimeDomain: "runtime-1",
+        hostDomain: "independent",
+        hostChargeCeilingBytes: 60,
+      },
+    ],
+    7,
+  );
+});
+
+it.each([
+  "policy",
+  "epoch",
+  "store",
+])("rejects %s drift during collection before persistence", async (field) => {
+  const initial = collectionPolicy();
+  fixture.info.mockImplementation(async () => {
+    if (field === "policy") fixture.policy.mockReturnValue({ ...initial, revision: 2 });
+    else
+      fixture.incarnation.mockReturnValue({
+        store: field === "store" ? "other" : "store",
+        epoch: field === "epoch" ? 2 : 1,
+      });
+    return { ID: "daemon-0", MemTotal: 100 };
+  });
+  controller();
+  await expect(fixture.collection()).rejects.toThrow(Error);
+  expect(fixture.merge).not.toHaveBeenCalled();
+});
+
+it("rechecks authority after the supplied sample collector awaits", async () => {
+  collectionPolicy();
+  fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
+  controller(async () => {
+    fixture.incarnation.mockReturnValue({ store: "store", epoch: 2 });
+    return {};
+  });
+  await expect(fixture.collection()).rejects.toThrow(Error);
+  expect(fixture.merge).not.toHaveBeenCalled();
+});
+
+it.each(["close", "timeout"])("bounds four in-flight probes and drains on %s", async (mode) => {
+  vi.useFakeTimers();
+  collectionPolicy(8);
+  const signals: AbortSignal[] = [];
+  let activeProbes = 0;
+  let drained = 0;
+  fixture.info.mockImplementation(
+    (_endpoint, signal: AbortSignal) =>
+      new Promise((_resolve, reject) => {
+        signals.push(signal);
+        activeProbes++;
+        signal.addEventListener(
+          "abort",
+          () => {
+            activeProbes--;
+            drained++;
+            reject(new Error("synthetic abort"));
+          },
+          { once: true },
+        );
+      }),
+  );
+  const samples = vi.fn(async () => ({ host: collectedSample, independent: collectedSample }));
+  const active = controller(samples);
+  const pending = fixture.collection();
+  const completion =
+    mode === "close"
+      ? expect(pending).rejects.toThrow(Error)
+      : expect(pending).resolves.toMatchObject({
+          host: { pressure: "unknown" },
+          independent: { pressure: "unknown" },
+        });
+  expect(activeProbes).toBe(4);
+  if (mode === "close") active.close();
+  else await vi.advanceTimersByTimeAsync(3000);
+  await completion;
+  expect(signals).toHaveLength(4);
+  expect(signals.every((signal) => signal.aborted)).toBe(true);
+  expect(drained).toBe(4);
+  expect(activeProbes).toBe(0);
+  if (mode === "close") {
+    expect(samples).not.toHaveBeenCalled();
+    expect(fixture.merge).not.toHaveBeenCalled();
+  } else expect(fixture.merge).toHaveBeenCalledWith([], 7);
 });

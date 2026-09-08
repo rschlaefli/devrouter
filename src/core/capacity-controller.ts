@@ -2,10 +2,12 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { CapacityDomainSample } from "./capacity-accounting";
+import { readDockerCapacityInfo } from "./capacity-docker-probe";
 import { enrollCapacityLifecycle } from "./capacity-enrollment";
 import { readCapacityPolicy } from "./capacity-policy";
 import { CapacityQueue } from "./capacity-queue";
 import { capacityRequest } from "./capacity-request";
+import { type CapacityPoolReservation, CapacityStore } from "./capacity-store";
 import { readControllerEvidence } from "./controller-binding";
 import type { ControllerOperations, ControllerStartup } from "./controller-server";
 import { ControllerStore } from "./controller-store";
@@ -29,6 +31,7 @@ import { loadRepoConfig } from "./repo-config";
 export function createCapacityController(options: {
   directory: string;
   controller: ControllerStartup;
+  // Host samples exclude VM usage covered by pool ceilings; sharedBytes excludes those ceilings.
   collect: () => Promise<Record<string, CapacityDomainSample>>;
 }): ControllerOperations & { tick: () => Promise<void>; close: () => void } {
   options.controller.consumeStartup(options.directory);
@@ -62,10 +65,76 @@ export function createCapacityController(options: {
     });
   }
   const controller = { store: options.controller.store, epoch: options.controller.epoch };
-  const queue = new CapacityQueue({ ...options, controller, policyRevision: policy.revision });
+  const lifetime = new AbortController();
+  const collect = async (): Promise<Record<string, CapacityDomainSample>> => {
+    const assertCurrent = () => {
+      const current = new ControllerStore(options.directory).read();
+      if (
+        lifetime.signal.aborted ||
+        current?.store !== controller.store ||
+        current.epoch !== controller.epoch ||
+        !isDeepStrictEqual(readCapacityPolicy(options.directory), policy)
+      )
+        throw new Error("Capacity collection authority changed.");
+    };
+    assertCurrent();
+    const store = new CapacityStore(options.directory);
+    const revision = store.read().revision;
+    const runtimes = Object.entries(policy.domains).filter((entry) => entry[1].kind === "runtime");
+    const observed: CapacityPoolReservation[] = [];
+    const unknown = new Set<string>();
+    const cancellation = new AbortController();
+    const signal = AbortSignal.any([lifetime.signal, cancellation.signal]);
+    const deadline = performance.now() + 3000;
+    const timer = setTimeout(() => cancellation.abort(), 3000);
+    let next = 0;
+    try {
+      await Promise.allSettled(
+        Array.from({ length: Math.min(4, runtimes.length) }, async () => {
+          while (next < runtimes.length) {
+            const [runtimeDomain, runtime] = runtimes[next++];
+            if (runtime.kind !== "runtime") continue;
+            try {
+              if (signal.aborted || performance.now() >= deadline)
+                throw new Error("Pool observation expired.");
+              const info = await readDockerCapacityInfo(runtime.endpoint, signal);
+              if (signal.aborted || performance.now() >= deadline || info.ID !== runtime.daemonId)
+                throw new Error("Pool observation unavailable.");
+              observed.push({
+                daemonId: runtime.daemonId,
+                runtimeDomain,
+                hostDomain: runtime.hostDomain,
+                hostChargeCeilingBytes: runtime.hostChargeCeilingBytes,
+              });
+            } catch {
+              unknown.add(runtime.hostDomain);
+              unknown.add(runtimeDomain);
+            }
+          }
+        }),
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    assertCurrent();
+    // The injected collector has no cancellation contract; do not start it during pool shutdown.
+    const samples = structuredClone(await options.collect());
+    assertCurrent();
+    // The revision predates observation, so a concurrent cessation cannot be undone by stale evidence.
+    store.mergeObservedPools(observed, revision);
+    for (const domain of unknown) {
+      if (samples[domain]) samples[domain] = { ...samples[domain], pressure: "unknown" };
+    }
+    return samples;
+  };
+  const queue = new CapacityQueue({
+    ...options,
+    collect,
+    controller,
+    policyRevision: policy.revision,
+  });
   const payloadKey = randomBytes(32);
   const acceptedPayloads = new Map<string, string>();
-  const lifetime = new AbortController();
   const settlePreparations = (): void => {
     if (lifetime.signal.aborted) return;
     try {
