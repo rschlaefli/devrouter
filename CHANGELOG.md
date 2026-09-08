@@ -4,6 +4,76 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.59] - 2026-09-07
+
+### Fixed
+
+- After successful managed process preparation, allow a bounded natural drain
+  for short-lived children before application startup. Persistent children still
+  fail preparation and use the existing owned-group cleanup.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.59.md
+
+## [0.0.58] - 2026-09-07
+
+### Fixed
+
+- A degraded retained environment can transition directly to a different requested
+  profile after exact ownership checks, without restarting failed processes that
+  the requested profile excludes. Failed transitions retain degraded evidence and
+  data without replaying the failed baseline.
+
+### Added
+
+- Optional `managedRuntime.devcontainer.prepareCommand` runs literal host argv
+  once before Compose inspection under lifecycle serialization and stop fencing.
+  The foreground command has a sixty-second bound and must preserve `.devrouter.yml`.
+  This prepares generated inputs; it does not reconcile changed retained mounts.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.58.md
+
+## [0.0.57] - 2026-09-07
+
+### Fixed
+
+- Managed lifecycle journals accept comma-separated profile selections. Combined
+  profiles no longer fail with `Invalid reliability event` before reconciliation.
+  Individual identity validation and repository profile resolution remain intact.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.57.md
+
+## [0.0.56] - 2026-09-07
+
+### Fixed
+
+- Ordinary managed ensure automatically recovers eligible retained degraded
+  runtimes after exact ownership and configuration proof. Failed startup preserves
+  recovery configuration while runtime absence is unproven.
+- Durable lifecycle workers fence late work after stop and preserve definite
+  command outcomes across transport failures. Unknown arbitrary execution is
+  never silently replayed.
+- Status distinguishes stopped runtime from historical transition failures.
+- Exact retained Devsy stop tolerates unapplied Compose service edits while
+  preserving ownership, membership, mount and container identity checks.
+
+### Added
+
+- HTTP proxy applications may declare bounded same-origin readiness paths,
+  accepted statuses and content type. Application errors retain tools and routes
+  for code repair and produce a nonzero application outcome.
+- A pure reliability state model and installed synthetic lifecycle qualification
+  support later controller and capacity work; these policies are not activated.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.56.md
+
 ## [0.0.55] - 2026-09-05
 
 ### Fixed

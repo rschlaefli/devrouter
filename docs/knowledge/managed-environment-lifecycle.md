@@ -23,6 +23,9 @@ source_paths:
   - src/core/managed-runtime*.ts
   - src/core/status.ts
   - src/core/doctor.ts
+  - src/core/controller-monitor.ts
+  - src/core/controller-observation.ts
+  - src/core/controller-sessions.ts
 ---
 
 # Managed environment lifecycle
@@ -99,8 +102,11 @@ proves both that selected routers loaded and that routers dropped by the profile
 unloaded before persisting ready state. It does not recreate the DevPod, remove
 containers, remove volumes, run `postCreateCommand` again, or use a broad
 Compose project command. A failed transition retains the previous routes and
-successful state when possible; a degraded transition is persisted for inspection and blocks another managed
-profile transition until the drift is resolved. Persisted state remains
+successful state when possible. A degraded transition is persisted; ordinary ensure
+validates its retained ownership before transitioning directly to a differing desired
+profile. Dropped processes need not start first; failed transitions preserve degraded
+state without replaying the broken baseline adapter. Same-profile recovery repairs
+the retained profile. Persisted state remains
 authoritative while any container from its exact Compose project still exists.
 When that exact project has disappeared, Devrouter treats the state as detached
 and rebaselines from the currently observed exact workspace before proceeding.
@@ -118,8 +124,9 @@ ownership checks. Incomplete candidate proof or failed cleanup is reported
 explicitly instead of claiming recovery. An empty rollback process baseline
 does not invoke the repository startup adapter.
 
-Explicit `ensure --repair` recovers a retained degraded record using its recorded
-profile and unchanged configuration. It verifies exact provider, workspace and
+Ordinary ensure automatically recovers a retained degraded record using its recorded
+profile and unchanged configuration. Explicit `ensure --repair` limits the invocation
+to this repair stage. It verifies exact provider, workspace and
 container ownership before replay. Stopped primary recovery requires all project
 containers stopped and no checkout routes; it starts only retained Docker IDs,
 never provider bootstrap or Compose creation. The existing container entrypoint
@@ -130,6 +137,21 @@ Use `devrouter status --repo <path> --json` or `devrouter doctor --repo <path>
 service/process statuses, fingerprints, and values-free drift. A fully stopped
 exact runtime is a normal stopped state, not evidence that another workspace's
 resources may be reclaimed.
+
+## Continuous observation
+
+The foreground controller observes explicitly enrolled managed linked checkouts.
+Independent consumer leases share bounded probes while retaining separate runtime
+and application requirements. Runtime readiness can remain verified when an
+application fails its HTTP contract. Missing, stale, or conflicting evidence is
+UNKNOWN. Publication revalidates checkout ownership, configuration, session
+generation, and the manual operation journal revision; observation never changes
+that journal or starts, repairs, or stops a runtime.
+
+See [foreground consumer sessions](../DEVCONTAINER.md#foreground-consumer-sessions)
+for enrollment, lease renewal, restart handling, and event continuity. Releasing
+the last consumer preserves application data and runtime state; the caller still
+owns the normal exact-stop lifecycle.
 
 ## Stop, delete, and inspect
 
@@ -174,7 +196,9 @@ For retained managed Devsy state, reversible stop proves the complete captured
 Compose population under the workspace and provider locks. Provider and primary
 state must agree. An already-stopped primary skips provider stop; residual
 running service IDs are stopped only after ownership, context, source and
-generated configuration, service hashes and full membership are revalidated.
+generated configuration, container identities and full membership are revalidated.
+Unapplied Compose service edits do not require matching current service hashes
+for stop; startup retains its service-configuration checks.
 Final provider and complete-project stopped proof precedes route cleanup.
 Missing registration or unreadable evidence preserves routes. If provider stop
 fails, eligible residual cleanup may still run, but its original failure remains

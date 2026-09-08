@@ -113,12 +113,13 @@ function validateState(value: unknown, repoPath: string, workspace?: string): Ma
 export function readManagedRuntimeState(
   repoPath: string,
   workspace?: string,
+  read = (file: string) => fs.readFileSync(file, "utf-8"),
 ): ManagedRuntimeState | undefined {
   const statePath = managedRuntimeStatePath(repoPath, workspace);
   if (!fs.existsSync(statePath)) return undefined;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+    parsed = JSON.parse(read(statePath));
   } catch (error) {
     throw new Error(`Could not parse managed runtime state: ${String(error)}`);
   }

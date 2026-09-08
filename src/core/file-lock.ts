@@ -65,7 +65,7 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-function processBirthIdentity(pid: number): string | undefined {
+export function processBirthIdentity(pid: number): string | undefined {
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf-8");
     const commandEnd = stat.lastIndexOf(")");

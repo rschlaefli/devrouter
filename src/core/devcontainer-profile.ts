@@ -64,7 +64,7 @@ function stringArray(value: unknown, label: string): string[] {
   return result;
 }
 
-function resolveComposeReference(value: string, linked: boolean): string {
+export function resolveComposeReference(value: string, linked: boolean): string {
   return value.replace(
     /\$\{localEnv:([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}/g,
     (_match, name: string, fallback?: string) => {
@@ -344,7 +344,7 @@ function assertSafeContainerId(containerId: string): void {
   }
 }
 
-function managedComposeEnvironment(workspace?: {
+export function managedComposeEnvironment(workspace?: {
   token: string;
   gitCommonDir: string;
 }): NodeJS.ProcessEnv {

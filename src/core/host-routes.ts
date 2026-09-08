@@ -293,10 +293,12 @@ function writeRouteGeneration(routes: HostRouteState[], tlsEnabled: boolean): vo
   writeFileAtomically(TRAEFIK_HOST_ROUTES_FILE, renderCanonicalState(routes, tlsEnabled));
 }
 
-function readCompatibilityState(): HostRouteState[] {
+function readCompatibilityState(
+  read = (file: string) => fs.readFileSync(file, "utf-8"),
+): HostRouteState[] {
   let raw: string;
   try {
-    raw = fs.readFileSync(HOST_ROUTES_STATE_FILE, "utf-8");
+    raw = read(HOST_ROUTES_STATE_FILE);
   } catch (error) {
     throw new Error(
       `Could not read the compatibility host-route state: ${(error as Error).message}`,
@@ -441,15 +443,17 @@ function readHostRouteStateLocked(): HostRouteState[] {
  * this boundary so an inspection cannot create runtime state or migrate an
  * older generation as a side effect.
  */
-export function readHostRouteStateReadOnly(): HostRouteState[] {
+export function readHostRouteStateReadOnly(
+  read = (file: string) => fs.readFileSync(file, "utf-8"),
+): HostRouteState[] {
   if (!fs.existsSync(TRAEFIK_HOST_ROUTES_FILE)) {
     if (!fs.existsSync(HOST_ROUTES_STATE_FILE)) {
       return [];
     }
-    return readCompatibilityState();
+    return readCompatibilityState(read);
   }
 
-  const raw = fs.readFileSync(TRAEFIK_HOST_ROUTES_FILE, "utf-8");
+  const raw = read(TRAEFIK_HOST_ROUTES_FILE);
   const canonical = parseCanonicalState(raw);
   if (canonical.kind === "legacy") {
     if (!fs.existsSync(HOST_ROUTES_STATE_FILE)) {
@@ -457,7 +461,7 @@ export function readHostRouteStateReadOnly(): HostRouteState[] {
         "Headerless host-route document requires a valid compatibility state file for inspection.",
       );
     }
-    return readCompatibilityState();
+    return readCompatibilityState(read);
   }
   return canonical.metadata.routes;
 }

@@ -8,6 +8,7 @@ import type {
   DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
   DevrouterHostHttpApp,
+  DevrouterHttpReadiness,
   DevrouterManagedRuntime,
   DevrouterProfile,
 } from "../types";
@@ -84,6 +85,8 @@ function assertHostNotTemplated(host: string, label: string): void {
 }
 
 const MAX_COMMAND_LENGTH = 4096;
+const MAX_PREPARE_ARGS = 64;
+const MAX_PREPARE_ARG_BYTES = 4096;
 
 const DEFAULT_HOST_STRATEGY = {
   type: "auto" as const,
@@ -275,6 +278,94 @@ function parseDependencyDockerConfig(
   };
 }
 
+const MAX_READINESS_PATH_LENGTH = 512;
+const MIME_TOKEN_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+function parseHttpReadinessPath(value: unknown, pathLabel: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${pathLabel} must be a non-empty string.`);
+  }
+  if (value.length > MAX_READINESS_PATH_LENGTH) {
+    throw new Error(
+      `${pathLabel} exceeds maximum length of ${MAX_READINESS_PATH_LENGTH} characters.`,
+    );
+  }
+  if (!/^[\x20-\x7E]+$/.test(value)) {
+    throw new Error(`${pathLabel} must contain only printable ASCII characters.`);
+  }
+  if (!value.startsWith("/") || value.includes("//")) {
+    throw new Error(`${pathLabel} must be an absolute path with a single leading slash.`);
+  }
+  if (/[?#\\%]/.test(value)) {
+    throw new Error(
+      `${pathLabel} must not contain query, fragment, backslash, or percent characters.`,
+    );
+  }
+  if (value.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw new Error(`${pathLabel} must not contain dot segments.`);
+  }
+  return value;
+}
+
+function parseHttpReadinessStatuses(value: unknown, pathLabel: string): number[] {
+  if (value === undefined) {
+    return [200];
+  }
+  if (!Array.isArray(value) || value.length < 1 || value.length > 32) {
+    throw new Error(`${pathLabel} must contain between 1 and 32 status codes.`);
+  }
+
+  const seen = new Set<number>();
+  return value.map((entry, index) => {
+    if (typeof entry !== "number" || !Number.isInteger(entry)) {
+      throw new Error(`${pathLabel}[${index}] must be an integer HTTP status code.`);
+    }
+    if (!((entry >= 200 && entry <= 299) || (entry >= 400 && entry <= 499))) {
+      throw new Error(`${pathLabel}[${index}] must be a 2xx or 4xx status code.`);
+    }
+    if (seen.has(entry)) {
+      throw new Error(`${pathLabel} contains duplicate status code '${entry}'.`);
+    }
+    seen.add(entry);
+    return entry;
+  });
+}
+
+function parseHttpReadinessContentType(value: unknown, pathLabel: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${pathLabel} must be a non-empty MIME type.`);
+  }
+  const contentType = value.trim().toLowerCase();
+  const separator = contentType.indexOf("/");
+  if (
+    separator <= 0 ||
+    separator === contentType.length - 1 ||
+    contentType.indexOf("/", separator + 1) !== -1 ||
+    !MIME_TOKEN_RE.test(contentType.slice(0, separator)) ||
+    !MIME_TOKEN_RE.test(contentType.slice(separator + 1))
+  ) {
+    throw new Error(`${pathLabel} must be a MIME type in token/token form without parameters.`);
+  }
+  return contentType;
+}
+
+function parseHttpReadiness(value: unknown, pathLabel: string): DevrouterHttpReadiness {
+  const readiness = ensureObject(value, pathLabel);
+  ensureAllowedKeys(readiness, ["path", "statuses", "contentType"], pathLabel);
+
+  const result: DevrouterHttpReadiness = {
+    path: parseHttpReadinessPath(readiness.path, `${pathLabel}.path`),
+    statuses: parseHttpReadinessStatuses(readiness.statuses, `${pathLabel}.statuses`),
+  };
+  if (readiness.contentType !== undefined) {
+    result.contentType = parseHttpReadinessContentType(
+      readiness.contentType,
+      `${pathLabel}.contentType`,
+    );
+  }
+  return result;
+}
+
 function parseHostOrThrow(value: unknown, pathLabel: string): string {
   const host = toStringOrThrow(value, pathLabel).toLowerCase();
   assertHostNotTemplated(host, pathLabel);
@@ -305,6 +396,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
       "tcpProtocol",
       "upstream",
       "dependencies",
+      "readiness",
     ],
     pathLabel,
   );
@@ -329,6 +421,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     }
     if (objectValue.hostRun !== undefined) {
       throw new Error(`${pathLabel}.hostRun is not supported when kind=dependency.`);
+    }
+    if (objectValue.readiness !== undefined) {
+      throw new Error(`${pathLabel}.readiness is only supported for HTTP proxy apps.`);
     }
 
     const runtime = toStringOrThrow(objectValue.runtime, `${pathLabel}.runtime`);
@@ -357,6 +452,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     throw new Error(`${pathLabel}.runtime must be one of: ${SUPPORTED_RUNTIMES.join(", ")}.`);
   }
   if (runtime === "host") {
+    if (objectValue.readiness !== undefined) {
+      throw new Error(`${pathLabel}.readiness is only supported for HTTP proxy apps.`);
+    }
     if (!runtimeSupportsProtocol("host", protocol)) {
       throw new Error(`${pathLabel}: host runtime currently supports only protocol=http.`);
     }
@@ -399,6 +497,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
   }
 
   if (runtime === "docker") {
+    if (objectValue.readiness !== undefined) {
+      throw new Error(`${pathLabel}.readiness is only supported for HTTP proxy apps.`);
+    }
     const docker = parseDockerConfig(objectValue.docker, `${pathLabel}.docker`);
 
     if (protocol === "http") {
@@ -450,6 +551,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     assertUpstreamSpec(upstream, `${pathLabel}.upstream`);
 
     if (protocol === "tcp") {
+      if (objectValue.readiness !== undefined) {
+        throw new Error(`${pathLabel}.readiness is only supported for HTTP proxy apps.`);
+      }
       const tcpProtocol = toStringOrThrow(objectValue.tcpProtocol, `${pathLabel}.tcpProtocol`);
       if (!isSupportedTcpProtocol(tcpProtocol)) {
         throw new Error(
@@ -475,6 +579,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
       runtime: "proxy",
       dependencies,
       upstream,
+      ...(objectValue.readiness !== undefined
+        ? { readiness: parseHttpReadiness(objectValue.readiness, `${pathLabel}.readiness`) }
+        : {}),
     };
   }
 
@@ -500,6 +607,40 @@ function parseRequiredUniqueStringArray(value: unknown, pathLabel: string): stri
   return parseUniqueStringArray(value, pathLabel);
 }
 
+function parsePrepareCommand(value: unknown, pathLabel: string): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${pathLabel} must be a non-empty array of strings.`);
+  }
+  if (value.length === 0) {
+    throw new Error(`${pathLabel} must be a non-empty array of strings.`);
+  }
+  if (value.length > MAX_PREPARE_ARGS) {
+    throw new Error(`${pathLabel} exceeds the maximum of ${MAX_PREPARE_ARGS} arguments.`);
+  }
+
+  return value.map((item, index) => {
+    if (typeof item !== "string") {
+      throw new Error(`${pathLabel}[${index}] must be a string.`);
+    }
+    if (index === 0 && item.length === 0) {
+      throw new Error(`${pathLabel}[0] must be a non-empty executable.`);
+    }
+    if (item.includes("\0")) {
+      throw new Error(`${pathLabel}[${index}] must not contain null bytes.`);
+    }
+    const byteLength = Buffer.byteLength(item, "utf8");
+    if (byteLength > MAX_PREPARE_ARG_BYTES) {
+      throw new Error(
+        `${pathLabel}[${index}] exceeds the maximum of ${MAX_PREPARE_ARG_BYTES} UTF-8 bytes.`,
+      );
+    }
+    return item;
+  });
+}
+
 function parseManagedRuntime(
   value: unknown,
   configPath: string,
@@ -517,7 +658,7 @@ function parseManagedRuntime(
   );
   ensureAllowedKeys(
     devcontainer,
-    ["baseServices", "profileServices"],
+    ["baseServices", "profileServices", "prepareCommand"],
     `${configPath}.managedRuntime.devcontainer`,
   );
   const baseServices = parseRequiredUniqueStringArray(
@@ -527,6 +668,10 @@ function parseManagedRuntime(
   const profileServices = parseRequiredUniqueStringArray(
     devcontainer.profileServices,
     `${configPath}.managedRuntime.devcontainer.profileServices`,
+  );
+  const prepareCommand = parsePrepareCommand(
+    devcontainer.prepareCommand,
+    `${configPath}.managedRuntime.devcontainer.prepareCommand`,
   );
   const baseSet = new Set(baseServices);
   const overlappingServices = profileServices.filter((service) => baseSet.has(service));
@@ -550,7 +695,11 @@ function parseManagedRuntime(
   }
 
   return {
-    devcontainer: { baseServices, profileServices },
+    devcontainer: {
+      baseServices,
+      profileServices,
+      ...(prepareCommand ? { prepareCommand } : {}),
+    },
     processes,
   };
 }
@@ -977,10 +1126,10 @@ export function resolveProfile(
     return { name: canonicalName, profile: merged };
   };
 
-  if (profileOverride !== undefined) {
+  if (profileOverride !== undefined && (profileOverride !== "full" || profiles?.full)) {
     return mergeSelection(profileOverride);
   }
-  if (profiles) {
+  if (profiles && profileOverride === undefined) {
     const defaultName = Object.keys(profiles).find((name) => profiles[name].default);
     if (defaultName) {
       return {
@@ -1104,7 +1253,10 @@ export function getRepoConfigPath(repoPath?: string): string {
   return path.join(resolveRepoPath(repoPath), CONFIG_FILE_NAME);
 }
 
-export function loadRepoConfig(repoPath?: string): DevrouterConfig {
+export function loadRepoConfig(
+  repoPath?: string,
+  read = (file: string) => fs.readFileSync(file, "utf-8"),
+): DevrouterConfig {
   const resolvedRepoPath = resolveRepoPath(repoPath);
   const configPath = getRepoConfigPath(resolvedRepoPath);
   if (!fs.existsSync(configPath)) {
@@ -1113,7 +1265,7 @@ export function loadRepoConfig(repoPath?: string): DevrouterConfig {
     );
   }
 
-  const raw = fs.readFileSync(configPath, "utf-8");
+  const raw = read(configPath);
   const parsed = YAML.parse(raw) as DevrouterConfigWithUnknown | null;
   const config = parseConfig(parsed ?? {}, configPath);
 

@@ -3,8 +3,9 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveRunningWorkspaceContainer } from "../devpod-environment";
-import { devpodExec, quotePosixArg } from "../devpod-exec";
+import { devpodExec, devpodExecOutcome, quotePosixArg } from "../devpod-exec";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "../devpod-workspaces";
+import type { ExecutionOutcomeError } from "../execution-outcome";
 import { withWorkspaceLifecycleLock } from "../workspace";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
@@ -24,7 +25,11 @@ vi.mock("../devpod-environment", () => ({ resolveRunningWorkspaceContainer: vi.f
 const STATUS_MARKER = "__DEVROUTER_EXIT_fixed-uuid__:";
 let previousWorkspaceRuntime: string | undefined;
 
-function mockExecExit(code: number, stderr: string | Buffer[] = `${STATUS_MARKER}${code}\n`): void {
+function mockExecExit(
+  code: number | null,
+  stderr: string | Buffer[] = `${STATUS_MARKER}${code}\n`,
+  signal: string | null = null,
+): void {
   const child = new EventEmitter() as EventEmitter & {
     stderr: PassThrough;
   };
@@ -37,7 +42,7 @@ function mockExecExit(code: number, stderr: string | Buffer[] = `${STATUS_MARKER
       child.stderr.write(stderr);
     }
     child.stderr.end();
-    child.emit("close", code, null);
+    child.emit("close", code, signal);
   });
 }
 
@@ -251,6 +256,89 @@ describe("devpodExec", () => {
 
     await expect(devpodExec("/repo", ["sh", "-lc", "exit 7"])).resolves.toBe(7);
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("retains a proven remote result when transport closes by signal", async () => {
+    const workspace = { id: "repo", source: { localFolder: "/repo" } };
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([workspace]);
+    vi.mocked(selectDevpodWorkspace).mockReturnValue(workspace);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: '{"id":"repo","state":"Running"}',
+      stderr: "",
+    } as never);
+    mockExecExit(null, `${STATUS_MARKER}255\n`, "SIGTERM");
+
+    await expect(devpodExecOutcome("/repo", ["sh", "-lc", "exit 255"])).resolves.toEqual({
+      status: "completed",
+      exitCode: 255,
+      transport: { exitCode: null, signal: "SIGTERM" },
+    });
+  });
+
+  it("keeps an out-of-range marker unknown and preserves its transport result", async () => {
+    const workspace = { id: "repo", source: { localFolder: "/repo" } };
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([workspace]);
+    vi.mocked(selectDevpodWorkspace).mockReturnValue(workspace);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: '{"id":"repo","state":"Running"}',
+      stderr: "",
+    } as never);
+    const writes: Buffer[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      writes.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      return true;
+    });
+    mockExecExit(1, `${STATUS_MARKER}256\n`);
+
+    await expect(devpodExecOutcome("/repo", ["sh", "-lc", "exit 256"])).resolves.toEqual({
+      status: "completion-unknown",
+      exitCode: null,
+      transport: { exitCode: 1, signal: null },
+    });
+    expect(Buffer.concat(writes)).toEqual(Buffer.from(`${STATUS_MARKER}256\n`));
+  });
+
+  it("classifies a DevPod spawn failure as a typed not-started outcome", async () => {
+    const workspace = { id: "repo", source: { localFolder: "/repo" } };
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([workspace]);
+    vi.mocked(selectDevpodWorkspace).mockReturnValue(workspace);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: '{"id":"repo","state":"Running"}',
+      stderr: "",
+    } as never);
+    const child = new EventEmitter() as EventEmitter & { stderr: PassThrough };
+    child.stderr = new PassThrough();
+    vi.mocked(spawn).mockReturnValue(child as never);
+    queueMicrotask(() => child.emit("error", new Error("ENOENT")));
+
+    await expect(devpodExecOutcome("/repo", ["pnpm", "seed"])).rejects.toMatchObject({
+      name: "ExecutionOutcomeError",
+      outcome: {
+        status: "not-started",
+        exitCode: null,
+        transport: { exitCode: null, signal: null },
+      },
+    } satisfies Partial<ExecutionOutcomeError>);
+  });
+
+  it("does not classify a transport error after spawn as safe to replay", async () => {
+    const workspace = { id: "repo", source: { localFolder: "/repo" } };
+    vi.mocked(listDevpodWorkspaces).mockReturnValue([workspace]);
+    vi.mocked(selectDevpodWorkspace).mockReturnValue(workspace);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: '{"id":"repo","state":"Running"}',
+      stderr: "",
+    } as never);
+    const child = Object.assign(new EventEmitter(), { stderr: new PassThrough(), pid: 123 });
+    vi.mocked(spawn).mockReturnValue(child as never);
+    queueMicrotask(() => child.emit("error", new Error("fixture transport failure")));
+    await expect(devpodExecOutcome("/repo", ["synthetic"])).rejects.toMatchObject({
+      outcome: { status: "completion-unknown", exitCode: null },
+    });
   });
 
   it("preserves the same diagnostic when it came from command stderr", async () => {

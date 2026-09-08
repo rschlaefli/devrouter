@@ -6,6 +6,7 @@ const pkg = JSON.parse(readFileSync("./package.json", "utf-8"));
 export default defineConfig({
   entry: {
     devrouter: "src/cli.ts",
+    "devrouter-lifecycle-worker": "src/lifecycle-worker.ts",
   },
   format: ["cjs"],
   target: "node22",

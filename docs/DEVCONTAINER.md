@@ -52,6 +52,90 @@ rejects missing, earlier, malformed, or unsupported lifecycle ordering before
 provider mutation. Selective managed configuration preserves lifecycle fields
 and changes only `runServices`.
 
+## Application readiness contracts
+
+An HTTP proxy app can declare the application response that `ensure` must verify:
+
+```yaml
+readiness:
+  path: /api/health
+  statuses: [200]
+  contentType: application/json
+```
+
+Without this declaration, the existing root probe checks route liveness and accepts
+responses below 500. It does not prove a database, authenticated journey or other
+application capability. Profile `readiness` selects which apps are checked; each
+app's `readiness` object defines its expected response.
+
+The path stays on the app's configured host. Redirects are never followed. Paths
+cannot contain query strings, fragments, percent escapes, backslashes or dot
+segments. Omitted statuses default to `[200]`; explicit unique lists accept 2xx
+or 4xx responses, never redirects. An expected 401 can verify an authentication
+boundary. Media types match case-insensitively without parameters, so JSON with
+a charset matches `application/json`; other JSON-derived types do not.
+
+For declared contracts, `ensure --json` includes `applicationReadiness` with
+per-app evidence and timestamps. An application failure exits nonzero but keeps
+the reconciled infrastructure, processes and routes available for debugging.
+It does not trigger speculative provider recreation or profile rollback. The
+operation has a known failure result, so subsequent `exec` remains available
+after worker drainage. Managed runtime status describes infrastructure; it is
+not a substitute for fresh application proof. Live verification uses the same
+declared HTTP contract. Neither check replaces a consumer-owned functional test.
+
+## Interrupted lifecycle commands
+
+`ensure`, `exec`, and `stop` coordinate through a private per-checkout operation
+record under `~/.config/devrouter/reliability`. Each invocation owns a packaged
+worker that retains the workspace lock through provider work. Explicit `stop`
+records stopped intent before waiting and prevents earlier workers from claiming
+new mutations or restoring routes. Completion requires positive workload and
+route cessation evidence as well as drainage of earlier workers.
+
+A proven application exit code remains the CLI exit code. A lost completion is
+reported as unknown. A new ensure reconciles an interrupted ensure after positive
+worker drainage while retaining its unknown historical result. Unknown arbitrary
+exec is never replayed; explicit stop reconciles that command uncertainty.
+If stop cannot prove cessation, preserve the operation record and generated
+configuration and investigate the reported provider or worker evidence. Deleting
+bookkeeping cannot prove that earlier work stopped. Corrupt or incompatible
+records fail closed. Operation history is bounded and refuses new dispatch when
+full; it is not silently discarded.
+
+These commands provide manual lifecycle coordination. They do not enroll the
+machine in resource admission, prevent OOM, or enable capacity-managed parking/recovery.
+
+## Foreground consumer sessions
+
+`devrouter controller run` owns a private local socket and durable session snapshot
+under `~/.config/devrouter/controller`. Start it explicitly in a separate terminal.
+Clients never start an observer implicitly. Session enrollment requires an existing
+managed linked checkout with consistent Git ownership and provider registration.
+
+```sh
+devrouter controller observe /absolute/path/to/worktree \
+  --session engineering --profile full --require runtime --json
+devrouter controller status --session engineering --json
+```
+
+Keep the returned `store`, `epoch`, and `generation` with the session ID. Supply
+all four to `controller renew`, `controller release`, and `controller watch`.
+Renew every ten seconds; the lease lasts thirty seconds. Watching and status reads
+do not renew it. `app:<name>` requirements need an application in the selected
+profile with an explicit HTTP readiness contract.
+
+Treat `UNKNOWN`, expired evidence, disconnection, and lost event continuity as
+unverified readiness. Reacquire after observer restart; old bindings cannot renew
+or release a replacement session. Watch reconnection uses `--after <epoch>:<sequence>`
+and `--after-store <store>` for bounded replay. A gap requires accepting the current
+snapshot instead of relying on retained events as fresh readiness evidence.
+
+Releasing a session, letting its lease expire, or stopping the foreground observer
+leaves application runtimes and data intact. Continue using explicit `ensure`,
+`exec`, and `stop` for lifecycle actions. Consumer sessions grant no automatic
+recovery, capacity admission, or agent-command replay authority.
+
 ## How it works: `devnet`
 
 devrouter's Traefik runs in Docker on a shared external bridge network,
@@ -177,7 +261,9 @@ then prepares under the same lock before launch. Preparation failures prevent
 launch. The exact preparation command participates in the default fingerprint;
 callers using `--fingerprint` must include preparation changes themselves.
 Preparation must stay in its foreground process group without daemonizing or
-detaching. Cancellation terminates that group before releasing the lock and
+detaching. After a successful command exit, the helper allows up to two seconds
+for remaining children to finish naturally before rejecting persistent children.
+Cancellation terminates that group before releasing the lock and
 reaps the direct child; container init reaps orphan zombies.
 
 Application environment setup and the exact command remain repository-owned.
@@ -185,6 +271,16 @@ HTTP readiness remains host-side in `ensure`, so applications do not
 need a second route-health policy.
 
 ## Select only the capabilities a task needs
+
+Repositories that generate Compose inputs on the host can declare
+`managedRuntime.devcontainer.prepareCommand` as a literal argument array, for
+example `["node", ".devcontainer/prepare.mjs"]`. Each `ensure` invokes it once
+from the checkout root, under lifecycle serialization, before inspecting Compose.
+The command has a sixty-second deadline, runs without implicit shell expansion,
+and must finish in the foreground. Its output is suppressed. Failure or a change
+to `.devrouter.yml` prevents startup; the changed file is preserved for correction.
+Diagnostics never invoke the command. Generated-input preparation does not by
+itself establish that changed mounts were applied to an existing container.
 
 The source `devcontainer.json` remains the native, full environment. A normal
 Dev Container client uses its declared `runServices` and can start every
@@ -251,17 +347,34 @@ Switching profiles in an existing workspace is warm and non-destructive. The
 same DevPod and volumes are retained, newly selected services start without
 `--recreate` or `down`, and dropped services or processes stop only after exact
 ownership is proved. `postCreateCommand` does not run again. Routes publish
-last, after service health, process state, and application readiness are proved.
-If a transition fails, the previous route set and successful state are kept
-when possible; otherwise status reports the degraded transition so it can be
-inspected before another profile change.
+last, after service health and process state are proved. Application readiness
+then checks the published routes. A declared application contract failure retains
+the reconciled infrastructure and routes. If an infrastructure transition fails,
+the previous route set and successful state are kept
+when possible; otherwise status reports the degraded transition. The next ensure
+attempt repairs retained resources before applying another profile change.
 
-To recover an explicitly recorded degraded managed runtime, use `--repair`:
+After exact inspection proves the runtime stopped and its routes absent, status
+reports `stopped` even if the last transition degraded. The retained drift and
+transition phase describe that incident. Unavailable inspection or conflicting
+ownership never counts as stopped proof.
 
-```bash
-devrouter ensure . --repair
-devrouter workspace ensure . --repair
-```
+A proven command result or a failure that proves the command never launched does
+not require stopping the environment before the next command. Devrouter retains
+that result atomically and waits for the old worker to drain. Unknown arbitrary
+command completion still requires explicit reconciliation and is never replayed.
+
+Ordinary `devrouter ensure .` repairs a retained degraded runtime automatically.
+For the recorded profile it repairs retained resources and proves readiness.
+For a different requested profile it proves the retained ownership baseline, then
+starts the requested resources directly. A failing process that the new profile
+drops does not have to start first. Failed transitions retain degraded state and
+do not replay the broken baseline adapter. No separate repair command is needed. The compatibility
+`--repair` option limits the invocation to the recorded-profile repair path.
+
+If a degraded runtime remains after `managedRuntime` is removed from the repository
+configuration, restore that configuration before recovery. Devrouter retains the
+runtime and its generated configuration until it can prove a safe transition.
 
 Repair requires a valid degraded managed-runtime record. When no `--profile` is
 given, it uses that record's canonical profile. Before any provider or process
@@ -281,8 +394,11 @@ provider bootstrap, creation, recreation, and resource adoption are skipped.
 If replay fails, owned resources may remain running and the runtime remains
 degraded. Repair restores previous routes when publication fails, but does not rerun
 the failed adapter during rollback. It uses existing routing infrastructure and
-never restarts the shared router. Inspect the result before retrying; ready state
-is persisted only after retained resources and routed readiness pass.
+never restarts the shared router. Infrastructure ready state requires retained
+resource and route-generation proof. Declared application failures remain separate
+in the ensure result and do not invalidate that infrastructure state.
+When the exact old Compose project is positively proven absent, ordinary ensure
+uses the existing startup recovery path. Unavailable inspection is never absence.
 
 ## 5. Bring up routing
 
@@ -292,6 +408,11 @@ stopped, it skips Devsy's stop command and stops only the captured running
 service IDs after fresh ownership and configuration checks. Containers and
 volumes remain intact. Missing, replaced, foreign or unreadable members prevent
 cleanup; stopped provider status alone is insufficient.
+
+Unapplied Compose service edits do not require matching live service hashes to
+stop retained containers. Stop still verifies the recorded profile, Compose file
+identity, complete service population, exact workspace mount and stable container
+identities. Startup retains its configuration checks before reusing containers.
 
 A failing provider stop remains an error even when independently verified
 residual shutdown succeeds. Routes remain intact on that error; a later stop

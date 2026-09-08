@@ -9,6 +9,11 @@ import {
   listDevpodWorkspacesFromSnapshots,
 } from "./devpod-workspaces";
 import { readManagedRuntimeState } from "./managed-runtime-state";
+import {
+  claimLifecycleEffect,
+  superviseLifecycle,
+  withLifecycleOperationLock,
+} from "./reliability-lifecycle";
 import { resolveRepoPath } from "./repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
 import { ensureTraefikRoutesRemoved } from "./traefik-route-health";
@@ -16,11 +21,10 @@ import {
   isLinkedWorktree,
   resolveWorktreeWorkspace,
   sameWorkspacePath,
-  withWorkspaceLifecycleLock,
   workspaceIdentityCandidates,
   wsFromBranch,
 } from "./workspace";
-import { workspaceEnsure } from "./workspace-ensure";
+import type { WorkspaceEnsureResult } from "./workspace-ensure";
 import {
   type DevpodOwnerStatus,
   type GitWorktree,
@@ -345,7 +349,9 @@ export async function workspaceUp(
     return;
   }
 
-  const ensured = await workspaceEnsure(worktreePath, { open: opts.open });
+  const ensured = (await superviseLifecycle("ensure", worktreePath, {
+    open: opts.open,
+  })) as WorkspaceEnsureResult;
   if (ensured.urls.length > 0) {
     process.stdout.write(
       `\nWorkspace '${ensured.workspace}' routes:\n${ensured.urls.map((url) => `  ${url}`).join("\n")}\n`,
@@ -421,6 +427,7 @@ async function mutateWorkspaceRuntime(
   const devpods = listDevpodWorkspaces(resolved.worktreePath);
   assertDevpodTargetSafe(resolved, worktrees, devpods);
   const devpodId = resolved.record?.devpodId ?? resolved.workspace;
+  claimLifecycleEffect();
   const mutation =
     action === "stop"
       ? stopOwnedDevpodWorkspace(devpodId, resolved.worktreePath)
@@ -460,17 +467,23 @@ async function runWorkspaceLifecycle(
   const worktrees = identifyGitWorktrees(mainRepo);
   const records = listWorkspaceOwnership(mainRepo);
   const resolved = resolveWorkspaceTarget(mainRepo, target, worktrees, records);
+  if (action === "stop") {
+    const stopped = (await superviseLifecycle("stop", resolved.worktreePath, {
+      quiet: opts.quiet,
+    })) as import("./environment-stop").EnvironmentStopResult;
+    return {
+      workspace: resolved.workspace,
+      devpodId: stopped.devpodId,
+      freedRoutes: stopped.freedRoutes,
+      providerChanged: stopped.stopped,
+    };
+  }
   const operation = async (): Promise<WorkspaceLifecycleResult> => {
     const removeWorktree = action === "down" && !opts.keepWorktree;
     if (removeWorktree) {
       assertFullDownPreflight(mainRepo, resolved);
     }
-    const result = await mutateWorkspaceRuntime(
-      action === "stop" ? "stop" : "delete",
-      resolved,
-      worktrees,
-      opts.quiet,
-    );
+    const result = await mutateWorkspaceRuntime("delete", resolved, worktrees, opts.quiet);
 
     if (removeWorktree) {
       if (
@@ -498,7 +511,7 @@ async function runWorkspaceLifecycle(
   };
 
   return resolved.worktree && !resolved.worktree.prunable && fs.existsSync(resolved.worktreePath)
-    ? withWorkspaceLifecycleLock(resolved.worktreePath, operation)
+    ? withLifecycleOperationLock(resolved.worktreePath, operation)
     : operation();
 }
 
@@ -508,7 +521,7 @@ async function mutateWorkspaceOwnedPath(
   opts: { quiet?: boolean; repoPath?: string } = {},
 ): Promise<WorkspaceLifecycleResult> {
   const mainRepo = resolveRepoPath(opts.repoPath);
-  return withWorkspaceLifecycleLock(worktreePath, async () => {
+  return withLifecycleOperationLock(worktreePath, async () => {
     const worktrees = identifyGitWorktrees(mainRepo);
     const records = listWorkspaceOwnership(mainRepo);
     const record = oneRecordMatch(

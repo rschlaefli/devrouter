@@ -185,6 +185,8 @@ export type DevrouterManagedRuntime = {
     baseServices: string[];
     // Complete registry of optional services that profile declarations may select.
     profileServices: string[];
+    // Optional repository-owned preparation command, expressed as literal argv.
+    prepareCommand?: string[];
   };
   // Complete registry of repository-managed process markers.
   processes: string[];
@@ -227,6 +229,12 @@ export type DevrouterHostRunConfig = {
   cwd: string;
   strategy: DevrouterHostStrategy;
   portTimeout?: number;
+};
+
+export type DevrouterHttpReadiness = {
+  path: string;
+  statuses?: number[];
+  contentType?: string;
 };
 
 export type DevrouterDockerConfig = {
@@ -278,6 +286,7 @@ export type DevrouterProxyHttpApp = DevrouterRoutedAppBase & {
   protocol: "http";
   runtime: "proxy";
   upstream: string;
+  readiness?: DevrouterHttpReadiness;
 };
 
 // Upstream-only TCP route (e.g. a devcontainer's Postgres/Redis reachable on

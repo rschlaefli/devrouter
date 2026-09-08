@@ -15,6 +15,7 @@ import {
 } from "./devsy-workspaces";
 import { createStderrWaitReporter, withFileLock, withFileLockSync } from "./file-lock";
 import { stopRetainedManagedDevsyWorkspace } from "./managed-devsy-stop";
+import { claimLifecycleEffect } from "./reliability-context";
 import { DEVROUTER_HOME } from "./router";
 
 const DEVSY_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devsy-mutation.lock");
@@ -112,6 +113,7 @@ function runDevsyUp(
   quiet: boolean,
 ): Promise<DevsyUpResult> {
   return new Promise((resolve) => {
+    claimLifecycleEffect();
     const child = spawn("devsy", args, {
       stdio: ["inherit", quiet ? 2 : "inherit", "pipe"],
       env,
@@ -152,6 +154,7 @@ function runDevsyAction(action: "stop" | "delete", devsyId: string, force = fals
     action === "delete"
       ? ["delete", devsyId, ...(force ? ["--force"] : []), "--ignore-not-found"]
       : ["stop", devsyId];
+  claimLifecycleEffect();
   const result = spawnSync("devsy", ["workspace", ...args], { encoding: "utf-8" });
   if (result.status !== 0) {
     throw new Error(
