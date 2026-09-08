@@ -1208,3 +1208,12 @@ only. It adds no authority to create/start/stop VM pools, install services or
 activate machine policy. The qualified host non-VM accounting method remains an
 investigation prerequisite; no speculative telemetry alternative is offered for
 approval. Existing source/review work and isolated canary authority remain valid.
+
+Integrated source checkpoint at 2b35c0e: all 1506 tests across103 files pass with
+two workers in31.29seconds. Biome, typecheck, Knip, build and isolated package
+smoke pass. Producing receipts:
+/private/tmp/devrouter-capacity-integrated-probes-full-tests.log and
+/private/tmp/devrouter-capacity-integrated-probes-package.log. This is full source
+and distribution verification, not live admission or host/guest accounting proof.
+The user-facing VM reservation-lifetime clarification remains pending; no answer
+was inferred from an automatic goal continuation and no policy semantics changed.
