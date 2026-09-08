@@ -424,7 +424,27 @@ it("accepts managed intent once and reconnects without returning another worker 
   ).toBe(true);
   expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(now + 16_000);
   const { CapacityStore } = await import("../capacity-store");
-  const reservations = new CapacityStore(directory).read();
+  const capacities = new CapacityStore(directory);
+  const readCapacity = CapacityStore.prototype.read;
+  vi.spyOn(CapacityStore.prototype, "read").mockImplementationOnce(function (
+    this: InstanceType<typeof CapacityStore>,
+  ) {
+    const snapshot = readCapacity.call(this);
+    capacities.settleEnvironmentAfterStop("competing-environment", snapshot.revision);
+    return snapshot;
+  });
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 1000,
+    ),
+  ).toBe(false);
+  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+  const reservations = capacities.read();
   expect(
     lifecycle.renewLifecycleCapacity(
       exec.request!,

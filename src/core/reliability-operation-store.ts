@@ -486,6 +486,7 @@ export function assertCapacityEffect(
   workerId: string,
   nowMs: number,
   directory = path.join(DEVROUTER_HOME, "controller"),
+  expectedCapacityRevision?: number,
 ): void {
   if (record.version === 1) return;
   const binding = record.capacity;
@@ -506,9 +507,12 @@ export function assertCapacityEffect(
     )
       throw new Error("Capacity controller incarnation changed.");
   }
-  const reservation = new CapacityStore(directory)
-    .read()
-    .reservations.find((entry) => entry.reservationId === binding.reservationId);
+  const snapshot = new CapacityStore(directory).read();
+  if (expectedCapacityRevision !== undefined && snapshot.revision !== expectedCapacityRevision)
+    throw new Error("Capacity snapshot changed during renewal.");
+  const reservation = snapshot.reservations.find(
+    (entry) => entry.reservationId === binding.reservationId,
+  );
   if (
     !reservation ||
     reservation.environmentId !== record.state.environmentId ||

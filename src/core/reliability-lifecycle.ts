@@ -663,7 +663,7 @@ export function renewLifecycleCapacity(
         Math.min(
           ...Object.keys(reservation.totals).map((domain) => samples[domain]?.sampledAtMs ?? 0),
         ) + maxAge;
-      assertCapacityEffect(record, request.workerId, nowMs, directory);
+      assertCapacityEffect(record, request.workerId, nowMs, directory, snapshot.revision);
       return true;
     } catch {
       binding.validUntilMs = 0;
