@@ -9,6 +9,7 @@ export async function runControllerCommand(
   method: string,
   options: Record<string, unknown>,
   repo?: string,
+  dependencies: Pick<Parameters<typeof runController>[0], "createOperations"> = {},
 ): Promise<void> {
   const directory = path.join(DEVROUTER_HOME, "controller");
   try {
@@ -23,6 +24,9 @@ export async function runControllerCommand(
           signal: controller.signal,
           resolve: resolveControllerBinding,
           collect: collectControllerObservation,
+          ...(dependencies.createOperations
+            ? { createOperations: dependencies.createOperations }
+            : {}),
         });
       } finally {
         process.removeListener("SIGINT", stop);
