@@ -150,7 +150,7 @@ profiles:
 - Selection: `devrouter ensure <path> --profile <name>`. Comma-separated selections (`--profile manage,pwa`) merge with deduplication; the canonical name is sorted-unique so order never affects identity or fingerprints. A wildcard member collapses to everything.
 - Managed adapters receive `DEVROUTER_PROFILE` (canonical resolved name) in the post-start env; profile switches replace the owned process group via the fingerprint.
 - Adapters may pass `--prepare-command <command>` to `devrouter-process ensure` for synchronous dependency preparation under the process lock before application launch. Unchanged owned processes skip preparation; preparation participates in default fingerprints and must not daemonize or detach.
-- Exact managed Devsy stop proves the complete retained container population, ownership and configuration before stopping residual services after a stopped primary. Unknown evidence blocks cleanup, and an original provider failure remains an error even if residual cleanup succeeds.
+- Managed Devsy startup on a supported local Unix Docker endpoint captures exact stop ownership before application readiness. With that baseline, canonical stop tolerates changed or missing repository configuration while preserving containers and volumes. Older records without a baseline retain configuration-dependent stop; installing a new CLI does not create historical ownership proof. Invalid or changed ownership never falls back. Do not replay a destructive bootstrap hook to obtain a baseline.
 
 ### Managed devcontainer resources
 
