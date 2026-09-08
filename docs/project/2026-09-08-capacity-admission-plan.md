@@ -1066,3 +1066,12 @@ Producing receipts: /private/tmp/devrouter-release60-canary-{ensure,warm,stop}.j
 /private/tmp/devrouter-release60-canary-provider-status.json. Fresh authenticated
 browser progress and application-failure/recovery qualification were not run in
 this checkpoint; earlier 0.0.56 acceptance remains historical evidence only.
+
+Producer-contract cross-check found Devsy forwards ordinary command exit 1 as
+transport exit 1. Settlement now requires transport equality for Devsy and zero
+transport status for marker-based DevPod, while retaining the no-signal and
+command-exit-0/1 bounds. The integration fixture now reflects real Devsy output;
+45 affected tests and typecheck pass. Receipt:
+/private/tmp/devrouter-capacity-provider-settlement-tests.log. Prior correction
+review covered synthetic transport-zero evidence; this delta needs its own
+same-reviewer check.

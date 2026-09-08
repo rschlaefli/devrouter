@@ -344,7 +344,8 @@ export function settlePreparedLifecycleCapacity(input: {
           record.outcome?.operationId !== operation.id ||
           record.outcome.status !== "completed" ||
           (record.outcome.exitCode !== 0 && record.outcome.exitCode !== 1) ||
-          record.outcome.transport.exitCode !== 0 ||
+          record.outcome.transport.exitCode !==
+            (record.identity.provider === "devsy" ? record.outcome.exitCode : 0) ||
           record.outcome.transport.signal !== null ||
           record.outcome.exitCode !== operation.exitCode ||
           binding.execSteady?.estimatesDigest !== input.enrollment.estimatesDigest

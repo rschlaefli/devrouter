@@ -375,7 +375,7 @@ it.each([
           status: "completed",
           exitCode,
           transport: {
-            exitCode: mode === "signal" ? null : mode === "transport-error" ? 1 : 0,
+            exitCode: mode === "signal" ? null : mode === "transport-error" ? 1 : exitCode,
             signal: mode === "signal" ? "SIGTERM" : null,
           },
         };
