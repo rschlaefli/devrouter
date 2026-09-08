@@ -1417,3 +1417,39 @@ rs-reliability-canary. Receipts:
 and /private/tmp/devrouter-elearning-released-recovery-tooling.log. Helper PID and
 warm reuse observations are in this producing command's tool output. No shared VM
 restart, data deletion, host OOM induction or machine-policy activation occurred.
+
+
+### Fresh development browser session qualification
+
+Released CLI 0.0.60 resumed the retained eLearning canary on source ad71415e,
+without recreation, and returned HTTP 200 readiness. A fresh isolated
+agent-browser session verified both configured public origins match the exact
+workspace hostname. The earlier proposed redirect-host mismatch is unsupported
+for this runtime.
+
+Opening the synthetic content path with a launch query did not bootstrap a
+session: the development access gate uses its default disabled state. The content
+rendered and the query remained. This attempt is not authentication evidence.
+A subsequent direct session exchange used a two-minute synthetic launch cookie,
+kept in subprocess memory and delivered over stdin. Its first navigation reached
+the intended workspace content path without an authentication query or Unauthorized
+response. The browser session-token endpoint returned HTTP 200; its token body
+was not read or recorded. Navigation to the owned synthetic block succeeded and
+showed the retained 100% completion display. Reload preserved the block path and
+returned authenticated session status 200 again, but an immediate completion
+text check returned false. That check did not wait for hydration, so fresh
+completion persistence across reload remains unqualified. No progress reset or
+fixture creation was performed.
+
+This proves development session exchange and authenticated block navigation and
+reload. It does not prove the production access-gated/iframe launch journey,
+explain the original historical Unauthorized response, or replace the earlier
+record-identity retention evidence. Browser closure succeeded. Ensure receipt:
+/private/tmp/elearning-browser-qualification-ensure.json. Browser observations
+come from the producing tool output; no token-bearing browser state was saved.
+Canonical stop waited behind a positively live shared provider-lock owner and
+then completed without bypass or restart. It freed two routes. Fresh Devsy
+status reports rs-reliability-canary Stopped, and route readback contains zero
+exact canary routes. Receipts share the prefix
+/private/tmp/elearning-browser-qualification- with stop.json, provider.json and
+routes.json suffixes. Runtime data and the source checkout remain retained.
