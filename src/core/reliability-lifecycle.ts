@@ -631,6 +631,7 @@ export function renewLifecycleCapacity(
           reservation,
           nowMs,
           maxAge,
+          snapshot.pools,
         ).admitted
       )
         return false;

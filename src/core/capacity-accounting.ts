@@ -40,6 +40,7 @@ export function evaluateCapacity(
   requested: CapacityCharge,
   nowMs: number,
   maxSampleAgeMs: number,
+  pools: ReadonlyArray<{ hostDomain: string; hostChargeCeilingBytes: number }> = [],
 ): CapacityDecision {
   if (!bytes(nowMs) || !bytes(maxSampleAgeMs)) throw new Error("Invalid capacity sample clock.");
   for (const domain of Object.keys(requested.totals).sort()) {
@@ -92,6 +93,12 @@ export function evaluateCapacity(
     // BigInt keeps a sum of individually valid byte values from losing precision.
     let used = BigInt(sample.unmanagedBytes) + BigInt(sample.sharedBytes);
     for (const total of totals.values()) used += BigInt(total);
+    // Pool ceilings are independent of environment identities and consume no slots.
+    for (const pool of pools) {
+      if (pool.hostDomain !== domain) continue;
+      if (!bytes(pool.hostChargeCeilingBytes)) return fail("unknown");
+      used += BigInt(pool.hostChargeCeilingBytes);
+    }
     if (used > BigInt(budget.capacityBytes) - BigInt(budget.protectedHeadroomBytes))
       return fail("memory");
     const existing = charges.find((charge) => charge.environmentId === requested.environmentId);

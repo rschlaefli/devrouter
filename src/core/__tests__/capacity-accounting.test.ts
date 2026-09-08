@@ -102,3 +102,64 @@ it("does not round overflowing sums into admissible budgets", () => {
     ),
   ).toEqual({ admitted: false, domain: "guest", reason: "memory" });
 });
+
+it("charges pool ceilings only to their hosts and independently from environment slots", () => {
+  const pools = [
+    { hostDomain: "host", hostChargeCeilingBytes: 60 },
+    { hostDomain: "other-host", hostChargeCeilingBytes: 90 },
+  ];
+  const pending = { ...request, totals: { host: 30 } };
+  expect(
+    evaluateCapacity(
+      { host: budget },
+      { host: { ...sample, unmanagedBytes: 0, sharedBytes: 0 } },
+      [],
+      pending,
+      1000,
+      15_000,
+      pools,
+    ),
+  ).toEqual({ admitted: true });
+  expect(
+    evaluateCapacity(
+      { host: budget },
+      { host: { ...sample, unmanagedBytes: 0, sharedBytes: 0 } },
+      [],
+      { ...pending, totals: { host: 31 } },
+      1000,
+      15_000,
+      pools,
+    ),
+  ).toEqual({ admitted: false, domain: "host", reason: "memory" });
+});
+
+it("sums durable pool ceilings without rounding at the safe integer boundary", () => {
+  const huge = { ...budget, capacityBytes: Number.MAX_SAFE_INTEGER, protectedHeadroomBytes: 0 };
+  const pools = [
+    { hostDomain: "host", hostChargeCeilingBytes: Number.MAX_SAFE_INTEGER - 1 },
+    { hostDomain: "host", hostChargeCeilingBytes: 1 },
+  ];
+  const samples = { host: { ...sample, unmanagedBytes: 0, sharedBytes: 0 } };
+  expect(
+    evaluateCapacity(
+      { host: huge },
+      samples,
+      [],
+      { ...request, totals: { host: 0 } },
+      1000,
+      15_000,
+      pools,
+    ),
+  ).toEqual({ admitted: true });
+  expect(
+    evaluateCapacity(
+      { host: huge },
+      samples,
+      [],
+      { ...request, totals: { host: 1 } },
+      1000,
+      15_000,
+      pools,
+    ),
+  ).toEqual({ admitted: false, domain: "host", reason: "memory" });
+});

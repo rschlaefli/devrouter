@@ -14,7 +14,18 @@ export type CapacityReservation = CapacityCharge & {
   reservationId: string;
   policyRevision: number;
 };
-type Snapshot = { version: 1; revision: number; reservations: CapacityReservation[] };
+export type CapacityPoolReservation = {
+  daemonId: string;
+  runtimeDomain: string;
+  hostDomain: string;
+  hostChargeCeilingBytes: number;
+};
+type Snapshot = {
+  version: 1;
+  revision: number;
+  reservations: CapacityReservation[];
+  pools?: CapacityPoolReservation[];
+};
 const MAX_BYTES = 1_048_576;
 
 export class CapacitySnapshotChangedError extends Error {
@@ -49,8 +60,37 @@ function object(value: unknown, fields: string[]): asserts value is Record<strin
 function id(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
 }
+function validatePools(value: unknown): asserts value is CapacityPoolReservation[] {
+  if (!Array.isArray(value) || value.length > 256) throw new Error("Invalid capacity pools.");
+  const daemons = new Set<string>();
+  const runtimes = new Set<string>();
+  for (const pool of value) {
+    object(pool, ["daemonId", "runtimeDomain", "hostDomain", "hostChargeCeilingBytes"]);
+    if (
+      typeof pool.daemonId !== "string" ||
+      pool.daemonId.length === 0 ||
+      pool.daemonId.length > 256 ||
+      pool.daemonId !== pool.daemonId.trim() ||
+      [...pool.daemonId].some(
+        (character) => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
+      ) ||
+      !id(pool.runtimeDomain) ||
+      !id(pool.hostDomain) ||
+      pool.runtimeDomain === pool.hostDomain ||
+      !Number.isSafeInteger(pool.hostChargeCeilingBytes) ||
+      Number(pool.hostChargeCeilingBytes) <= 0 ||
+      daemons.has(pool.daemonId) ||
+      runtimes.has(pool.runtimeDomain)
+    )
+      throw new Error("Invalid capacity pool identity or ceiling.");
+    daemons.add(pool.daemonId);
+    runtimes.add(pool.runtimeDomain);
+  }
+}
 function validate(value: unknown): asserts value is Snapshot {
-  object(value, ["version", "revision", "reservations"]);
+  const hasPools = !!value && typeof value === "object" && Object.hasOwn(value, "pools");
+  object(value, ["version", "revision", "reservations", ...(hasPools ? ["pools"] : [])]);
+  if (hasPools) validatePools(value.pools);
   if (
     value.version !== 1 ||
     !Number.isSafeInteger(value.revision) ||
@@ -171,6 +211,51 @@ export class CapacityStore {
     );
   }
 
+  /**
+   * Caller must revoke pool launch authority and prove exact VM cessation first.
+   * Container or environment cessation alone never permits releasing this ceiling.
+   */
+  settlePoolAfterCessation(
+    identity: Pick<CapacityPoolReservation, "daemonId" | "runtimeDomain" | "hostDomain">,
+    expectedRevision: number,
+  ): { settled: boolean; revision: number } {
+    object(identity, ["daemonId", "runtimeDomain", "hostDomain"]);
+    validatePools([{ ...identity, hostChargeCeilingBytes: 1 }]);
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+      throw new Error("Invalid capacity settlement revision.");
+    assertPrivateDirectory(this.directory);
+    return withFileLockSync(
+      `${this.file}.lock`,
+      { activity: "capacity pool settlement", waitMs: 100 },
+      () => {
+        const snapshot = this.read();
+        if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
+        const pools = snapshot.pools ?? [];
+        const index = pools.findIndex((pool) => pool.daemonId === identity.daemonId);
+        const pool = pools[index];
+        if (
+          (pool &&
+            (pool.hostDomain !== identity.hostDomain ||
+              pool.runtimeDomain !== identity.runtimeDomain)) ||
+          pools.some(
+            (entry) =>
+              entry.runtimeDomain === identity.runtimeDomain &&
+              entry.daemonId !== identity.daemonId,
+          ) ||
+          snapshot.reservations.some((entry) => Object.hasOwn(entry.totals, identity.runtimeDomain))
+        )
+          throw new Error("Capacity pool cessation identity remains bound.");
+        if (snapshot.revision === Number.MAX_SAFE_INTEGER)
+          throw new Error("Capacity reservation revision exhausted.");
+        if (pool) pools.splice(index, 1);
+        snapshot.revision++;
+        validate(snapshot);
+        writeFileAtomically(this.file, `${JSON.stringify(snapshot)}\n`);
+        return { settled: !!pool, revision: snapshot.revision };
+      },
+    );
+  }
+
   /** Caller persists phase proof and revokes authority before reducing this exact row. */
   reduceAfterPhase(target: CapacityReservation, expectedRevision: number): void {
     validate({ version: 1, revision: 0, reservations: [target] });
@@ -224,8 +309,17 @@ export class CapacityStore {
     // The snapshot revision fences changes made since that proof was collected.
     previous: { revision: number; reservationId: string; operationId: string } | undefined,
     expectedRevision: number,
+    requestedPool?: CapacityPoolReservation,
   ) {
     validate({ version: 1, revision: 0, reservations: [request] });
+    if (requestedPool !== undefined) {
+      validatePools([requestedPool]);
+      if (
+        !Object.hasOwn(request.totals, requestedPool.hostDomain) ||
+        !Object.hasOwn(request.totals, requestedPool.runtimeDomain)
+      )
+        throw new Error("Capacity pool request lacks its bound domains.");
+    }
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
       throw new Error("Invalid capacity expected revision.");
     assertPrivateDirectory(this.directory);
@@ -235,6 +329,26 @@ export class CapacityStore {
       () => {
         const snapshot = this.read();
         if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
+        const pools = structuredClone(snapshot.pools ?? []);
+        let poolChanged = false;
+        if (requestedPool !== undefined) {
+          const retained = pools.find((pool) => pool.daemonId === requestedPool.daemonId);
+          if (retained) {
+            if (
+              retained.hostDomain !== requestedPool.hostDomain ||
+              retained.runtimeDomain !== requestedPool.runtimeDomain
+            )
+              throw new Error("Capacity pool binding changed.");
+            if (requestedPool.hostChargeCeilingBytes > retained.hostChargeCeilingBytes) {
+              retained.hostChargeCeilingBytes = requestedPool.hostChargeCeilingBytes;
+              poolChanged = true;
+            }
+          } else {
+            pools.push(structuredClone(requestedPool));
+            poolChanged = true;
+          }
+          validatePools(pools);
+        }
         const existing = snapshot.reservations.find(
           (entry) => entry.environmentId === request.environmentId,
         );
@@ -278,9 +392,11 @@ export class CapacityStore {
             request,
             nowMs,
             maxSampleAgeMs,
+            pools,
           );
           if (!decision.admitted) return decision;
-          return { admitted: true as const, revision: snapshot.revision, joined: true };
+          if (!poolChanged)
+            return { admitted: true as const, revision: snapshot.revision, joined: true };
         }
         const decision = evaluateCapacity(
           budgets,
@@ -289,11 +405,13 @@ export class CapacityStore {
           request,
           nowMs,
           maxSampleAgeMs,
+          pools,
         );
         if (!decision.admitted) return decision;
         if (snapshot.revision === Number.MAX_SAFE_INTEGER)
           throw new Error("Capacity reservation revision exhausted.");
         snapshot.revision++;
+        if (poolChanged) snapshot.pools = pools;
         if (existing)
           snapshot.reservations[snapshot.reservations.indexOf(existing)] = structuredClone(request);
         else snapshot.reservations.push(structuredClone(request));
