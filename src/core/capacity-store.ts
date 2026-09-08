@@ -214,6 +214,15 @@ export class CapacityStore {
             )
           )
             throw new Error("Environment retains an earlier capacity reservation.");
+          const decision = evaluateCapacity(
+            budgets,
+            samples,
+            snapshot.reservations,
+            request,
+            nowMs,
+            maxSampleAgeMs,
+          );
+          if (!decision.admitted) return decision;
           return { admitted: true as const, revision: snapshot.revision, joined: true };
         }
         const decision = evaluateCapacity(

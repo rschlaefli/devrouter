@@ -9,13 +9,19 @@ import {
   runLifecycleWorker,
 } from "../reliability-worker";
 
-const fixture = vi.hoisted(() => ({ fork: vi.fn(), update: vi.fn(), read: vi.fn() }));
+const fixture = vi.hoisted(() => ({
+  fork: vi.fn(),
+  update: vi.fn(),
+  read: vi.fn(),
+  capacity: vi.fn(),
+}));
 vi.mock("node:child_process", () => ({ fork: fixture.fork }));
 vi.mock("node:fs", () => ({ default: { existsSync: () => true } }));
 vi.mock("../file-lock", () => ({ processBirthIdentity: () => "proc:123" }));
 vi.mock("../reliability-operation-store", () => ({
   updateReliabilityOperation: fixture.update,
   readReliabilityOperation: fixture.read,
+  assertCapacityEffect: fixture.capacity,
 }));
 
 function prepared() {
@@ -80,6 +86,7 @@ function prepared() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fixture.capacity.mockReset();
   vi.spyOn(process, "kill").mockImplementation(() => {
     throw Object.assign(new Error("absent"), { code: "ESRCH" });
   });
@@ -88,6 +95,21 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("worker dispatch acknowledgement", () => {
+  it.each([
+    1, 2,
+  ])("never sends work after capacity validation fails at boundary %s", async (boundary) => {
+    const setup = prepared();
+    let claims = 0;
+    fixture.capacity.mockImplementation(() => {
+      if (++claims === boundary) throw new Error("capacity authority revoked");
+    });
+    const pending = runLifecycleWorker(setup.request);
+    setup.child.emit("message", { ready: true });
+    expect(setup.child.send).not.toHaveBeenCalled();
+    setup.close();
+    await expect(pending).rejects.toThrow("capacity authority revoked");
+  });
+
   it("drains controller-owned output without adding per-worker process signal listeners", async () => {
     const setup = prepared();
     const signal = new AbortController();

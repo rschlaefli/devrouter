@@ -199,6 +199,10 @@ export class CapacityQueue {
           for (const domain of domains) waitingDomains.add(domain);
           continue;
         }
+        if (performance.now() >= entry.expiresAt) {
+          this.retire(entry, "queue-expired");
+          continue;
+        }
         entry.phase = "running";
         entry.reason = null;
         void runLifecycleWorker(entry.request, { signal: entry.abort.signal, output: entry.output })

@@ -6,6 +6,7 @@ import { processBirthIdentity } from "./file-lock";
 import { type ReliabilityFence, reliabilityFence } from "./reliability-contract";
 import { stepReliability } from "./reliability-model";
 import {
+  assertCapacityEffect,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   readReliabilityOperation,
@@ -170,6 +171,7 @@ export async function runLifecycleWorker(
                 ) {
                   throw new Error("Lifecycle intent changed before dispatch.");
                 }
+                assertCapacityEffect(record, request.workerId, Date.now());
                 record.worker = {
                   id: request.workerId,
                   operationId: request.operationId,
@@ -186,6 +188,7 @@ export async function runLifecycleWorker(
                 record.state = transition.state;
               });
               updateReliabilityOperation(request.identity, (record) => {
+                assertCapacityEffect(record, request.workerId, Date.now());
                 const transition = stepReliability(
                   record.state,
                   {

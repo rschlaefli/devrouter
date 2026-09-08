@@ -357,6 +357,34 @@ describe("CapacityQueue", () => {
     });
   });
 
+  it("retires after admission if the deadline passes before worker dispatch", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    const queued = queue({ maxQueuedTotal: 1, maxQueuedPerDomain: 1, queueLifetimeSeconds: 1 });
+    fixture.collect.mockResolvedValue(samples);
+    fixture.retireQueuedLifecycle.mockReturnValue(undefined);
+    fixture.admitLifecycleCapacity.mockImplementation(() => {
+      now.mockReturnValue(1_000);
+      return { admitted: true };
+    });
+    fixture.runLifecycleWorker.mockResolvedValue({ ok: true });
+
+    queued.enqueue(
+      request("admission-raced"),
+      reservation("admission-raced", "environment-admission-raced", ["domain-a"]),
+    );
+    await queued.tick();
+
+    expect(fixture.admitLifecycleCapacity).toHaveBeenCalledTimes(1);
+    expect(fixture.retireQueuedLifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({ operationId: "admission-raced" }),
+    );
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(queued.observe("admission-raced")).toMatchObject({
+      phase: "terminal",
+      reason: "queue-expired",
+    });
+  });
+
   it("honors lower scheduling limits and rejects unsupported bounds", async () => {
     const now = vi.spyOn(performance, "now").mockReturnValue(0);
     const queued = queue({ maxQueuedTotal: 2, maxQueuedPerDomain: 1, queueLifetimeSeconds: 1 });

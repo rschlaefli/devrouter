@@ -502,3 +502,36 @@ passed; exact container state is exited, exitCode 0, OOMKilled false. Log:
 no deletion, shared VM restart, live consumer mutation or host OOM was performed.
 This closes Linux helper regression evidence only, not capacity admission or OOM
 protection qualification.
+
+Committed enrollment resolution and qualification receipts as 6255f5c. Main added
+capacity effect validation at both supervisor dispatch journal transactions,
+before dispatch registration and before dispatch-persisted acknowledgement. Two
+negative worker cases prove revoked authority at either boundary prevents IPC
+work delivery. All 32 worker/lifecycle tests pass. This changes supervisor source,
+so packed worker qualification must be rerun for the changed dispatch boundary;
+earlier Linux helper evidence remains applicable because its source is unchanged.
+
+The repeated packed qualification completed with status passed and 25 synthetic
+lifecycle evidence entries. Receipt:
+/private/tmp/devrouter-capacity-dispatch-qualification.log; artifacts:
+/private/var/folders/24/j7k2mlqn42l_dhq64jpqslxh0000gp/T/qualify-lifecycle-xS4uQq.
+Its tarball SHA256 is b398f953a850844dd60c035e15933468993a1a6109da90cd85b35f8688f9f882;
+CLI SHA256 is 452e71ebe984f2236085fa02c53037b006c40164d3744ef193d395aa7fedc638.
+This verifies the supervisor change with synthetic providers, not live capacity
+dispatch or OOM protection.
+
+The fallback slice reviewer completed the frozen f66b780..fea5a46 range with five
+findings. Main verified the findings against current source. Exact reservation
+joins now run fresh all-domain admission, with stale, pressured and unknown sample
+regressions preserving the retained snapshot. Gauss added a monotonic deadline
+check after admission and before dispatch, with a regression proving no worker
+launch after expiry. The affected store, queue, worker and lifecycle suites now
+have 54 passing cases in aggregate. Typecheck, Biome and Knip pass.
+
+Three findings remain open under main ownership: released reservations leave a
+stale version-2 journal binding; stop racing reserve/bind can orphan a replacement
+charge; and stop-superseded queue entries cannot retire through their stale fence.
+Singer retains read-only ownership of the requested settlement-protocol
+clarification. Resolve these with crash-window and stop/resume regressions before
+controller dispatch integration or capacity activation. Preserve version-2
+capacity enforcement and retained charges whenever cessation is unproven.

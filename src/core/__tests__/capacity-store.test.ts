@@ -42,7 +42,7 @@ it("retains all-domain charges across restart and joins without duplicating them
   });
   const restarted = new CapacityStore(directory);
   expect(restarted.read().reservations).toEqual([request]);
-  expect(restarted.reserve(request, budgets, samples, 1000, 15)).toMatchObject({
+  expect(restarted.reserve(request, budgets, samples, 100, 15)).toMatchObject({
     admitted: true,
     joined: true,
   });
@@ -54,6 +54,37 @@ it("retains all-domain charges across restart and joins without duplicating them
   };
   expect(restarted.reserve(second, budgets, samples, 100, 15).admitted).toBe(false);
   expect(restarted.read().reservations).toEqual([request]);
+});
+
+it.each([
+  "stale",
+  "pressured",
+  "unknown",
+] as const)("requires fresh admission when joining after interrupted publication (%s)", (condition) => {
+  const { directory, store } = fixture();
+  const budgets = { host: budget, guest: budget };
+  const samples = { host: sample, guest: sample };
+  expect(store.reserve(request, budgets, samples, 100, 15).admitted).toBe(true);
+  const before = store.read();
+  const restarted = new CapacityStore(directory);
+  expect(
+    restarted.reserve(
+      request,
+      budgets,
+      {
+        ...samples,
+        guest: { ...sample, sampledAtMs: condition === "stale" ? 1000 : 100 },
+        host: { ...sample, pressure: condition === "stale" ? "normal" : condition },
+      },
+      condition === "stale" ? 1000 : 100,
+      15,
+    ),
+  ).toMatchObject({
+    admitted: false,
+    domain: "host",
+    reason: condition === "pressured" ? "pressure" : condition,
+  });
+  expect(restarted.read()).toEqual(before);
 });
 
 it("persists no partial reservation when one domain refuses admission", () => {
