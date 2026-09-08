@@ -1037,3 +1037,20 @@ The telemetry mapping confirms the production collector and canonical CLI wiring
 are still absent. Exact daemon-bound memory collection, Compose sibling ownership,
 macOS pressure and once-per-host VM ceiling accounting remain pending. Existing
 synthetic samples do not establish live capacity admission or OOM protection.
+
+Singer's correction review closes both findings at cbba98b, with no remaining
+actionable issue in the reviewed range. The startup sidecar bound is an explicit
+bounded-availability contract, not a data-integrity defect; no broad cleanup or
+partial journal enumeration was added.
+
+Patch release 0.0.60 is delivered through PR 63, merged as
+9be6df2d0abd797017a39d657e1aaa319d062e00. PR CI 34227733108 and release publication
+34228101211 pass. Registry version and integrity were read back, and both existing
+global installations report 0.0.60. The isolated routing smoke passes; its three
+services are stopped, zero fixture routes run, and retained Docker metadata/data
+remain. Legacy DevPod smoke is unavailable because this machine has Devsy only.
+The released eLearning ensure is queued behind another provider operation; live
+canary qualification is not yet complete. Receipts are under
+/private/tmp/devrouter-release60-*. The initial broad Compose project override
+failed shared-router discovery; the successful wrapper scopes isolation to the
+exact routing example and preserves shared-router discovery.
