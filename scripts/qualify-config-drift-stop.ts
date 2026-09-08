@@ -28,6 +28,7 @@ const evidence: Record<string, unknown> = {
   cli,
   cliSha256: createHash("sha256").update(fs.readFileSync(cli)).digest("hex"),
   configurationDriftStop: false,
+  tmpfsMount: false,
   retainedData: false,
   finalStopped: false,
 };
@@ -85,6 +86,7 @@ try {
   const composeFile = path.join(fixture, ".devcontainer/docker-compose.yml");
   const compose = parse(fs.readFileSync(composeFile, "utf-8"));
   compose.services.app.mem_limit = "512m";
+  compose.services.app.tmpfs = ["/qualification-tmpfs:size=16m"];
   compose.services.postgres.mem_limit = "256m";
   compose.services.app.volumes.push("qualification-state:/qualification-state");
   compose.volumes["qualification-state"] = {};
@@ -108,6 +110,15 @@ try {
   assert.equal(initial.kind, "primary");
   assert.equal(typeof initial.devpodId, "string");
   providerId = initial.devpodId;
+  dev(
+    "exec",
+    fixture,
+    "--",
+    "node",
+    "-e",
+    "require('node:assert/strict').ok(require('node:fs').readFileSync('/proc/mounts','utf8').split('\\n').some(line => { const fields = line.split(' '); return fields[1] === '/qualification-tmpfs' && fields[2] === 'tmpfs'; }))",
+  );
+  evidence.tmpfsMount = true;
   dev(
     "exec",
     fixture,
@@ -188,7 +199,11 @@ try {
     );
   }
   evidence.passed =
-    !failure && evidence.configurationDriftStop && evidence.retainedData && evidence.finalStopped;
+    !failure &&
+    evidence.tmpfsMount &&
+    evidence.configurationDriftStop &&
+    evidence.retainedData &&
+    evidence.finalStopped;
   fs.writeFileSync(
     path.join(fixture, "qualification.json"),
     `${JSON.stringify(evidence, null, 2)}\n`,
