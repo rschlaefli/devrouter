@@ -1023,3 +1023,17 @@ lookup, worker launches, completion evidence and samples; stores and journals ar
 real. All 1,421 source tests pass with two workers, plus typecheck, Knip and Biome.
 Receipt: /private/tmp/devrouter-exec-settlement-full-tests.log. Independent review
 and packed capacity qualification remain required before delivery.
+
+Review correction: transient settlement policy reads now retain charges and allow
+queue policy handling to continue. Exec settlement requires command exit 0/1,
+transport exit 0 and no signal; exit 2, signalled and failed-transport outcomes
+retain the heavy charge. All 62 affected lifecycle/controller/integration tests
+pass with two workers; receipt:
+/private/tmp/devrouter-capacity-review-corrections-tests.log. Worker typecheck and
+Biome pass. The earlier extra worker suite exited unexpectedly; the bounded main
+rerun passes. Independent correction review remains with Singer.
+
+The telemetry mapping confirms the production collector and canonical CLI wiring
+are still absent. Exact daemon-bound memory collection, Compose sibling ownership,
+macOS pressure and once-per-host VM ceiling accounting remain pending. Existing
+synthetic samples do not establish live capacity admission or OOM protection.

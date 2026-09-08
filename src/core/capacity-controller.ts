@@ -67,11 +67,13 @@ export function createCapacityController(options: {
   const acceptedPayloads = new Map<string, string>();
   const lifetime = new AbortController();
   const settlePreparations = (): void => {
-    if (
-      lifetime.signal.aborted ||
-      !isDeepStrictEqual(readCapacityPolicy(options.directory), policy)
-    )
+    if (lifetime.signal.aborted) return;
+    try {
+      if (!isDeepStrictEqual(readCapacityPolicy(options.directory), policy)) return;
+    } catch {
+      // Settlement retains charges; the queue still applies its own policy checks.
       return;
+    }
     for (const enrollment of policy.enrollments) {
       try {
         const identity = {

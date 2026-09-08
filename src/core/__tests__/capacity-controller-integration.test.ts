@@ -218,6 +218,9 @@ beforeEach(() => {
 it.each([
   "exit0",
   "exit1",
+  "exit2",
+  "signal",
+  "transport-error",
   "missing-outcome",
   "undrained",
   "startup",
@@ -355,7 +358,7 @@ it.each([
       });
 
     updateReliabilityOperation(identity, (record) => {
-      const exitCode = mode === "exit1" ? 1 : 0;
+      const exitCode = mode === "exit2" ? 2 : mode === "exit1" ? 1 : 0;
       const operation = {
         ...record.state.operation!,
         status: "COMPLETED" as const,
@@ -371,7 +374,10 @@ it.each([
           operationId: operation.id,
           status: "completed",
           exitCode,
-          transport: { exitCode: 0, signal: null },
+          transport: {
+            exitCode: mode === "signal" ? null : mode === "transport-error" ? 1 : 0,
+            signal: mode === "signal" ? "SIGTERM" : null,
+          },
         };
     });
     await active.tick();

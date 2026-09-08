@@ -182,6 +182,18 @@ it("continues settling independent enrollments after one enrollment fails", asyn
   expect(fixture.tick).toHaveBeenCalledOnce();
 });
 
+it("continues queue handling when settlement cannot read the policy", async () => {
+  const active = controller();
+  fixture.policy.mockImplementation(() => {
+    throw new Error("transient policy read failure");
+  });
+  fixture.tick.mockResolvedValue(undefined);
+  await expect(active.tick()).resolves.toBeUndefined();
+  expect(fixture.settle).not.toHaveBeenCalled();
+  expect(fixture.journal).not.toHaveBeenCalled();
+  expect(fixture.tick).toHaveBeenCalledOnce();
+});
+
 it("skips preparation settlement after the controller closes", async () => {
   const enrollment = policyEnrollment("/fixture");
   fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
