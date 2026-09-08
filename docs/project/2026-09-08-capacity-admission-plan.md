@@ -1610,3 +1610,65 @@ manual-only guards. All 89 affected tests pass, independent review has no findin
 and Linux CI passes including both packed qualifiers:
 https://github.com/rschlaefli/devrouter/actions/runs/34257017092 . Publishing was
 disabled. This fix does not resolve the independently diagnosed stop incident.
+
+### Provider identity investigation for stop recovery
+
+Pinned Devsy v1.16.2 source provides a concrete candidate ownership link that
+devrouter's current sanitized registry/container snapshots omit. The provider
+workspace has a UID. `pkg/devcontainer/run.go:GetRunnerIDFromWorkspace` uses that
+UID when its length is 16 or 40, otherwise the workspace ID. The default lookup
+label is `dev.containers.id`, defined in `pkg/config/labels.go` and selected by
+`pkg/devcontainer/config/build.go:GetIDLabels`. This is source evidence, not
+qualification of the waiting consumer's actual runtime.
+
+The Docker driver can instead use `source.container` or custom ID labels.
+`pkg/client/clientimplementation/workspace_client.go:agentWorkspaceCommand`
+constructs the ordinary agent command with empty CLI options, while the Docker
+driver takes an explicit container override from the workspace source. A recovery
+proof must validate the exact registered source and context, preserve UID across
+revalidation, and account for these alternatives rather than assuming defaults.
+The upstream Docker helper selects the first non-removing label match; devrouter
+must require uniqueness before granting stop authority.
+
+Devsy's own Compose stop is not independent of configuration drift:
+`pkg/devcontainer/compose.go:stopDockerCompose` loads substituted configuration
+and current Compose arguments. Therefore proving the primary container does not
+alone establish a safe or complete provider stop. Recovery still needs an exact
+service population, a stable configuration-independent stop target set, and
+positive cessation and route-removal proof. Neither labels alone nor an empty
+old project authorizes adopting a replacement project.
+
+Source: https://github.com/devsy-org/devsy/tree/v1.16.2 . The bounded investigation
+used the public tagged source downloaded to
+`/private/tmp/devrouter-devsy-v1.16.2-source`; it read no consumer secrets and
+changed no runtime, journal, provider record, or policy. Main owns the recovery
+design; the existing native investigator owns the provider binding trace and the
+existing native planner owns its contract review.
+
+The native investigator and planner completed this pass. A baseline-backed
+stop-only path is feasible without changing the approved data or ownership
+boundary. Capture the previously validated primary service, complete required
+and allowed service sets, Compose directory/file identities, provider provenance,
+and registry/daemon identity during successful preparation. On configuration
+drift, validate that durable baseline, freeze the complete exact container ID set,
+and stop those IDs under the existing locks and lifecycle fence. Revalidate
+before effects and before publishing complete cessation. Never regenerate the
+baseline from the drifted configuration or infer an allowed service set from the
+same live labels being checked.
+
+Legacy recovery needs an equivalent retained configuration artifact matching the
+saved digest when the record lacks this baseline. Positive old-project absence
+does not replace that membership proof. Devsy clears CLI options when persisting
+agent workspace metadata (`pkg/agent/agent.go`), so absent saved custom ID labels
+do not prove historical override absence. `workspace_result.json` can supply a
+previous container ID, but it may be stale and requires live cross-checking.
+The full provider registry/result payloads are not values-free; inspection must
+project only the required identity fields without exposing configuration values.
+
+Required acceptance covers changed or deleted configuration, duplicate UID
+matches, selector overrides, foreign same-project containers, retained old-project
+members, population replacement during stop, and data-preserving successful stop.
+The waiting consumer still lacks its original complete membership baseline and
+exact provider/daemon binding evidence. No automatic adoption or recovered-runtime
+claim follows from this source investigation. Documentation policy, knowledge
+validation and diff whitespace checks pass for this record update.
