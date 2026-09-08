@@ -1355,3 +1355,21 @@ remains applicable to the unchanged collector structure; forwarding the signal
 adds no complexity requiring a separate pass. The three-second bound applies to
 pool probes, not forced interruption of arbitrary callback code. Production
 telemetry qualification and activation remain pending; no runtime was changed.
+
+Integrated collection checkpoint at 164286f: all 1559 tests across 103 files pass
+with two workers in 32.96 seconds. Build and isolated package smoke pass. Receipts:
+/private/tmp/devrouter-capacity-collected-pools-full-tests.log and
+/private/tmp/devrouter-capacity-collected-pools-package.log. This remains branch
+source/distribution evidence, not production capacity activation.
+
+Public documentation lookup through Context7 and direct official pages confirms
+OrbStack Docker and Linux machines share one VM/kernel:
+https://docs.orbstack.dev/architecture . The global memory limit covers containers
+and machines: https://docs.orbstack.dev/settings . Therefore a Docker daemon ID
+alone must not be presented as independently verified VM identity for multiple
+engines sharing that VM. Single-pool qualification still needs an exact endpoint
+and VM binding. The checked pages describe limits and memory release, but do not
+establish a supported current host physical-memory measurement API. This bounded
+lookup did not qualify non-VM subtraction or prove that no such API exists.
+No configuration, runtime or policy was changed; the independent collector review
+remains non-terminal.
