@@ -20,6 +20,8 @@ const fixture = vi.hoisted(() => ({
   readManagedRuntimeState: vi.fn(),
   proveRetainedManagedStop: vi.fn(),
   withWorkspaceLifecycleLock: vi.fn(),
+  isLinkedWorktree: vi.fn(),
+  resolveLinkedTarget: vi.fn(),
 }));
 
 vi.mock("../router", async () => {
@@ -67,14 +69,14 @@ vi.mock("../reliability-worker", () => ({
 
 vi.mock("../workspace", () => ({
   comparableWorkspacePath: (repoPath: string) => repoPath,
-  isLinkedWorktree: () => false,
+  isLinkedWorktree: fixture.isLinkedWorktree,
   readPersistedWorkspace: () => undefined,
   resolveWorktreeWorkspace: () => undefined,
   sameWorkspacePath: (left: string, right: string) => left === right,
   withWorkspaceLifecycleLock: fixture.withWorkspaceLifecycleLock,
 }));
 
-vi.mock("../workspace-ensure", () => ({ resolveLinkedTarget: vi.fn() }));
+vi.mock("../workspace-ensure", () => ({ resolveLinkedTarget: fixture.resolveLinkedTarget }));
 vi.mock("../workspace-runtime", () => ({ resolveWorkspaceRuntimeOrDefault: () => "devsy" }));
 
 const originalConnectedDescriptor = Object.getOwnPropertyDescriptor(process, "connected");
@@ -217,6 +219,7 @@ async function seedStopRequest() {
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  fixture.isLinkedWorktree.mockReturnValue(false);
   fixture.newLifecycleIds.mockReturnValue({
     requestId: "request-key",
     operationId: "operation-id",
@@ -247,6 +250,18 @@ afterAll(() => {
 });
 
 describe("reliability lifecycle supervision", () => {
+  it("rejects stop before allocating identity or dispatching for an unclaimed linked checkout", async () => {
+    fixture.isLinkedWorktree.mockReturnValue(true);
+    const lifecycle = await import("../reliability-lifecycle");
+    await expect(
+      lifecycle.superviseLifecycle("stop", "/synthetic/unclaimed-checkout"),
+    ).rejects.toThrow();
+    expect(fixture.resolveLinkedTarget).not.toHaveBeenCalled();
+    expect(fixture.newLifecycleIds).not.toHaveBeenCalled();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(fixture.inspectWorkspaceContainers).not.toHaveBeenCalled();
+  });
+
   it("persists history rollover and its new fence before invoking the next worker", async () => {
     const { identity, lifecycle, store } = await seedWorkerRequest();
     const { contract, model } = await loadLifecycleModules();

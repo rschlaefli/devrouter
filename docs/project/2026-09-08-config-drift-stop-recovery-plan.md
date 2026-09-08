@@ -228,3 +228,46 @@ Remaining roadmap obligations from Office: expose proposed container replacement
 before mutation, isolate host ports, distinguish intentional cancellation from
 unexplained completion loss without inventing command certainty, and route host-only
 checks explicitly. No fix or live acceptance is claimed for these obligations.
+
+### Integrated qualification
+
+Implementation commit 33601b0 is integrated with the user-merged history fix at
+29aefd85059287509d452134a0d7b86830768fdf. Integration avoids qualifying against the
+known exhausted-history defect; the 67 affected model/lifecycle tests pass.
+Transport correction passed independent focused tests, typecheck, Biome, Knip,
+documentation checks and commit hooks. Simplifier Bohr found no justified net
+reductions. Slice risk reviewer Halley remains active
+(`01a0826d-dace-7fd3-9e8e-d1aae279d012`); final review remains pending.
+
+The packed candidate passed the isolated real-Devsy qualifier. Exact fixture:
+`/var/folders/24/j7k2mlqn42l_dhq64jpqslxh0000gp/T/devrouter-stop-drift-wopc0x`.
+It stopped after repository/generated configuration was renamed away, resumed
+with the named-volume marker intact, then passed repeated canonical stop and
+provider Stopped/zero-route checks. The producer exited zero and its receipt
+sets configurationDriftStop, retainedData, finalStopped and passed to true.
+Receipt: the fixture's `qualification.json`; command log:
+`/private/tmp/devrouter-stop-live-qualification.log`. Readback also confirms idle,
+stopped-by-user, no worker, and both cessation and route-removal proofs.
+The fixture and volumes are retained; no deletion is authorized or performed.
+This qualifies the isolated Unix-endpoint case, not eLearning or autonomous recovery.
+
+eLearning qualification subsequently passed against its retained source baseline
+ad71415e7b7441dcc4013c8ce89c75acaf386728 (eight commits ahead and 44 behind current
+main; no source integration attempted). Startup and warm ensure reported no
+recreation, retained synthetic records verified before and after stop/resume,
+and final exact provider status is Stopped with zero canary routes. Receipts:
+`/private/tmp/devrouter-stop-elearning-29aefd/`. No records were seeded or reset.
+The canary's existing memory limits remained in place. Browser acceptance from
+the earlier release is not claimed as newly rerun here.
+
+The packed synthetic lifecycle qualifier also exited zero with its scenario
+receipt in `/private/tmp/devrouter-stop-integrated-lifecycle-qualification.log`.
+Halley's risk review found one consequential test gap: stop-dispatch must reject
+a linked checkout without persisted identity before allocation or worker launch.
+Main added that case and verified all 16 lifecycle-supervision tests and typecheck.
+No production code changed for this review correction. Final review remains pending.
+
+Final integrated unit verification passes 1,277 tests in 91 suites with two
+workers outside the sandbox. Typecheck, Biome, Knip, docs policy, knowledge and
+diff checks pass. The unchanged packed executable digest matches the live fixture
+and synthetic qualifier receipts despite documentation/test-only follow-up edits.
