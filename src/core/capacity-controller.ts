@@ -293,9 +293,13 @@ export function createCapacityController(options: {
       if (before.phase !== "terminal" && queue.observePage(request.operationId))
         await queue.wait(request.operationId, request.timeout * 1000, signal);
       if (signal.aborted) throw new Error("Capacity watch cancelled.");
+      const operation = readLifecycleOperationStatus(identity, request.operationId) ?? null;
+      const queued = queue.observePage(request.operationId, request.output);
+      if (operation?.phase === "queued" && queued?.phase === "queued")
+        operation.reason = queued.reason;
       return {
-        operation: readLifecycleOperationStatus(identity, request.operationId) ?? null,
-        output: queue.observePage(request.operationId, request.output)?.output ?? null,
+        operation,
+        output: queued?.output ?? null,
       };
     },
     tick: () => {

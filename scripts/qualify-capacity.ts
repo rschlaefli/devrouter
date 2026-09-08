@@ -419,7 +419,24 @@ async function main() {
   });
   const endpoint = path.join(root, "docker.sock");
   const fixture = path.join(root, "provider.json");
+  const telemetry = path.join(root, "capacity-telemetry.json");
+  const normalSample = {
+    pressure: "normal" as const,
+    unmanagedBytes: 0,
+    sharedBytes: 0,
+    ownedBytes: {},
+  };
+  const writeTelemetry = (phase: "stale" | "fresh", sampledAtMs: number) => {
+    const temporary = `${telemetry}.tmp`;
+    fs.writeFileSync(
+      temporary,
+      JSON.stringify({ phase, sample: { ...normalSample, sampledAtMs } }),
+      { mode: 0o600 },
+    );
+    fs.renameSync(temporary, telemetry);
+  };
   fs.writeFileSync(fixture, JSON.stringify(entries));
+  writeTelemetry("stale", Date.now() - 16_000);
   const budget = { capacityBytes: 100, protectedHeadroomBytes: 10, startupSlots: 1, heavySlots: 1 };
   fs.writeFileSync(
     path.join(directory, "capacity-policy.json"),
@@ -515,7 +532,7 @@ const childProcess = require('node:child_process');
 const fork = childProcess.fork;
 childProcess.fork = (...args) => { const child = fork(...args); require('node:fs').appendFileSync(${JSON.stringify(`${fixture}.workers`)}, JSON.stringify({pid:child.pid,birth:processBirthIdentity(child.pid)})+'\\n'); child.on('message', message => { console.error(JSON.stringify({workerMessage:message})); if(message.ok===false)require('node:fs').writeFileSync(${JSON.stringify(`${fixture}.worker-error`)},message.message); }); return child; };
 import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/commands/controller"))};\nimport {createCapacityController} from ${JSON.stringify(path.join(source, "src/core/capacity-controller"))};\nvoid runControllerCommand('run',{},undefined,{createOperations:controller=>{
-  const operations=createCapacityController({directory:controller.directory,controller,collect:async signal=>{if(signal.aborted)throw new Error('cancelled');const sample={sampledAtMs:Date.now(),pressure:'normal' as const,unmanagedBytes:0,sharedBytes:0,ownedBytes:{}};return {host:sample,runtime:sample}}});
+  const operations=createCapacityController({directory:controller.directory,controller,collect:async signal=>{if(signal.aborted)throw new Error('cancelled');const telemetry=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(telemetry)},'utf8'));const sample=telemetry.phase==='fresh'?{...telemetry.sample,sampledAtMs:Date.now()}:telemetry.sample;require('node:fs').appendFileSync(${JSON.stringify(`${fixture}.telemetry-observations`)},JSON.stringify({phase:telemetry.phase,sampledAtMs:sample.sampledAtMs})+'\\n');return {host:sample,runtime:sample}}});
   const watch=operations.watch;
   operations.watch=async (request,environment,signal)=>{
     if(request.timeout!==30)return watch(request,environment,signal);
@@ -591,16 +608,16 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
       }, timeout);
       check();
     });
+  type Result = {
+    store: string;
+    epoch: number;
+    generation: string;
+    operation: { operationId: string; phase: string; reason: string | null };
+  };
   function connect() {
     const socket = net.createConnection(path.join(directory, "control.sock"));
     sockets.push(socket);
     let buffer = "";
-    type Result = {
-      store: string;
-      epoch: number;
-      generation: string;
-      operation: { operationId: string; phase: string };
-    };
     let deliver: ((value: { ok: boolean; result: Result }) => void) | undefined;
     socket.on("error", () => {});
     socket.on("data", (chunk) => {
@@ -704,6 +721,72 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
       requestId: "second",
       kind: "ensure",
     });
+    assert.equal(first.operation.phase, "queued");
+    assert.equal(second.operation.phase, "queued");
+    await waitFor(() => {
+      if (!fs.existsSync(`${fixture}.telemetry-observations`)) return false;
+      const observations = fs
+        .readFileSync(`${fixture}.telemetry-observations`, "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { phase: string });
+      const current = JSON.parse(fs.readFileSync(fixture, "utf8")) as Array<{ starts: number }>;
+      return (
+        observations.some((observation) => observation.phase === "stale") &&
+        current.every((entry) => entry.starts === 0) &&
+        !fs.existsSync(`${fixture}.launch-one`) &&
+        !fs.existsSync(`${fixture}.launch-two`)
+      );
+    }, "stale telemetry held both provider launches");
+    let stalePending: Result | undefined;
+    const staleDeadline = Date.now() + 5_000;
+    while (Date.now() < staleDeadline) {
+      const pending = await clients[0].request({
+        method: "operation-watch",
+        ...bindings[0],
+        operationId: first.operation.operationId,
+        timeout: 1,
+      });
+      if (
+        pending.operation.operationId === first.operation.operationId &&
+        pending.operation.phase === "queued" &&
+        pending.operation.reason === "stale"
+      ) {
+        stalePending = pending;
+        break;
+      }
+    }
+    assert.ok(stalePending, "Coordinator never reported stale telemetry for the queued operation.");
+    assert.equal(stalePending.operation.phase, "queued");
+    assert.equal(stalePending.operation.reason, "stale");
+    assert.equal(stalePending.operation.operationId, first.operation.operationId);
+    const staleEntries = JSON.parse(fs.readFileSync(fixture, "utf8")) as Array<{
+      starts: number;
+    }>;
+    assert.deepEqual(
+      staleEntries.map((entry) => entry.starts),
+      [0, 0],
+      "Stale telemetry must not start a provider before fresh evidence.",
+    );
+    assert.equal(fs.existsSync(`${fixture}.launch-one`), false);
+    assert.equal(fs.existsSync(`${fixture}.launch-two`), false);
+    const queued = JSON.parse(
+      fs.readFileSync(path.join(router, "reliability", `${sha(entries[1].repo)}.json`), "utf8"),
+    );
+    assert.equal(queued.state.operation.id, second.operation.operationId);
+    assert.equal(queued.state.phase, "queued");
+    assert.equal(queued.state.admission, "waiting");
+    writeTelemetry("fresh", 0);
+    await waitFor(() => {
+      if (!fs.existsSync(`${fixture}.telemetry-observations`)) return false;
+      return fs
+        .readFileSync(`${fixture}.telemetry-observations`, "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .some((line) => (JSON.parse(line) as { phase: string }).phase === "fresh");
+    }, "fresh telemetry collection");
     await waitFor(
       () => fs.existsSync(`${fixture}.launch-one`),
       "first real worker provider launch",
@@ -725,12 +808,6 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
     });
     assert.equal(pending.operation.phase, "queued");
     assert.equal(pending.operation.operationId, second.operation.operationId);
-    const queued = JSON.parse(
-      fs.readFileSync(path.join(router, "reliability", `${sha(entries[1].repo)}.json`), "utf8"),
-    );
-    assert.equal(queued.state.operation.id, second.operation.operationId);
-    assert.equal(queued.state.phase, "queued");
-    assert.equal(queued.state.admission, "waiting");
     const waiting = clients[0]
       .request({
         method: "operation-watch",
@@ -782,6 +859,21 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
       fixtureBundleSha256: sha(fs.readFileSync(bundled)),
       installedWorkerSha256: workerDigest,
       launches: [1, 1],
+      staleTelemetry: {
+        description:
+          "Stale host/runtime telemetry kept both submissions queued, with zero provider starts and one durable queued operation ID returned by the coordinator.",
+        providerStartsBeforeFresh: [0, 0],
+        headOperationId: stalePending.operation.operationId,
+        headReason: stalePending.operation.reason,
+        headCoordinatorPhase: stalePending.operation.phase,
+        secondOperationId: queued.state.operation.id,
+        secondDurableJournalPhase: queued.state.phase,
+      },
+      freshTelemetry: {
+        description:
+          "Fresh host/runtime telemetry resumed the durable queued operation and preserved exactly one launch per provider.",
+        providerStartsAfterFresh: final.map((entry: { starts: number }) => entry.starts),
+      },
       secondQueuedIdPreserved: true,
       disconnectedWatcherDidNotCancel: true,
       positivePreparationSettlement: true,

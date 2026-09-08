@@ -1672,3 +1672,120 @@ The waiting consumer still lacks its original complete membership baseline and
 exact provider/daemon binding evidence. No automatic adoption or recovered-runtime
 claim follows from this source investigation. Documentation policy, knowledge
 validation and diff whitespace checks pass for this record update.
+
+
+### Recovery delivery and capacity decision checkpoint
+
+The user merged the manual history rollover fix as PR #64 at
+7d2fcba38a716afce54a67d9a861fa5b2850e6a3. This capacity branch already carries its
+manual-only guard at 4891590; no managed retry semantics were relaxed. Earlier
+statements that PR #64 is unmerged are historical. The consumer confirmed exec
+progress with the preserved fixed CLI build; the global release remains 0.0.60.
+
+The independent configuration-drift stop package reached its reviewed CI-green
+draft terminal condition as PR #65 at 78ed2bafe3a72024beea61f063eec3326f1ce8bd:
+https://github.com/rschlaefli/devrouter/pull/65 . Required Linux CI passes at
+https://github.com/rschlaefli/devrouter/actions/runs/34272980491 . Its corrected
+packed CLI passed isolated real Devsy tmpfs verification, stop after configuration
+removal, retained-volume resume and final exact Stopped/zero-route proof.
+PR #65 is not merged or released and is not integrated into this capacity branch.
+Its new baseline does not retroactively establish missing legacy ownership.
+
+Main owns the next capacity architecture decision. The configured Claude advisor
+completed a bounded decision memo from the existing evidence: identify a useful
+remaining source tranche under the approved contract, or at most two concrete
+policy alternatives with changed guarantees and measured eLearning acceptance.
+The consultation does not repeat host counter discovery. It may not substitute
+current occupancy plus headroom for reserved future growth, invent a qualified
+OrbStack host ceiling, activate machine policy, or label a controller that always
+waits on unknown telemetry as successful admission. The prior investigation
+established no equivalent supported method; it did not prove none can exist.
+No runtime or machine configuration changes accompany this checkpoint.
+
+### Capacity decision requiring a changed guarantee
+
+Main verified the advisor's integration findings. Ordinary controller startup has
+no capacity operations factory, and the packed qualifier injects synthetic host
+and runtime samples. Ordinary enrolled ensure/exec cannot bypass admission:
+`prepareLifecycleOperation` rejects non-manual execution before intent creation.
+The missing client submission path therefore blocks enrolled work rather than
+silently running it. Internal reservation and worker tests do not qualify these
+missing production seams. The qualifier's receipt explicitly excludes ordinary
+CLI activation and live runtime/OOM proof.
+
+Main rejects defining completion as an unactivated engine or adding tests merely
+to preserve missing integration. The approved outcome remains useful admission
+through canonical ensure/exec, followed by bounded recovery and harness work.
+
+Proposed decision, not approved: use an explicitly declared host allowance for
+non-pool workloads, declared pool growth budgets, and a fresh live pressure gate.
+Reserve the full pool budget before dispatch; retain independent guest-domain
+accounting and operation increments. This changes the host guarantee from
+qualified physical-memory accounting to enforcement of reviewed declared budgets.
+Neither a declared VM budget nor a positive integer validates a hard host ceiling.
+Unmanaged growth beyond the allowance, underestimated VM overhead and a late
+pressure signal can still exhaust memory. Do not call this complete OOM protection.
+
+If approved, main owns the revised contract and reviewed implementation plan,
+including production collectors, canonical submission/watch, and useful pending
+diagnostics. Pilot acceptance must exercise ordinary eLearning commands: one
+startup admitted, a competing request retained under one durable queued ID,
+capacity settlement allowing that request to proceed once, stale/pressured samples
+preventing new dispatch, and exact stop with retained data and zero routes. Never
+induce pressure or host OOM to test the gate; inject those samples in isolated
+fixtures. Numeric policy and activation remain a separately reviewable step.
+Use an explicit scoped configuration directory; do not repurpose HOME.
+
+The alternative is to retain the original measured-host contract and leave live
+capacity activation incomplete until a suitable accounting and ceiling mechanism
+is qualified. This is a real design choice, not approval to stop the roadmap or
+to ship an always-unknown admission path as a reliability improvement.
+
+The advisor's proposed source-only terminal condition is not adopted. No new
+host-counter investigation, capacity policy activation, or consumer runtime
+mutation was performed for this decision.
+
+### Independent packed stale-telemetry qualification
+
+Main retains the host-budget decision and synchronous-claim coverage audit.
+Executor Lagrange owns only `scripts/qualify-capacity.ts`: extend the existing
+normal fixture run to prove stale samples keep both requests queued without
+provider launch, then fresh samples allow the same requests to proceed once.
+This is existing admission-contract verification, not approval of the proposed
+host-budget interpretation. Main owns the producing run and integration.
+
+Current coverage includes durable worker/reservation/expiry checks in
+`reliability-operation-store.test.ts`, changed/stale retry rejection in
+`reliability-lifecycle.test.ts`, and preparation, restart, host-denial and
+daemon-mismatch scenarios in `capacity-controller-integration.test.ts`.
+The four requested claim/revocation orderings are not established by these
+test names or the current packed receipt; they remain an explicit verification
+gap until assertions at the synchronous effect seam prove them. Do not equate
+stop-settlement crash coverage with a crash during revocation fencing.
+
+The Office owner corrected its supplementary report. Prior app identity,
+operation ID, timestamp and executable/build are unknown; unsupported historical
+identifiers are discarded. The retained report places the port-10013 replacement
+incident outside the sandbox and records `Lifecycle worker completion is unknown`.
+It is separate from the sandbox process-identity error and does not establish
+that PR #65 fixes replacement preflight or cancellation diagnostics. No Office
+reproduction, source change or runtime mutation accompanies this reconciliation.
+
+The executor returned BLOCKED after implementing the fixture: controller watch
+discarded the queue's reason. Main verified and corrected that projection only
+when both the durable operation and transient queue remain queued; terminal
+outcomes remain journal-owned. Twenty focused controller integration tests pass.
+The initial packed run failed because it expected the second FIFO request to
+have a stale reason, although the scheduler stops evaluation at the denied head.
+Main corrected the assertion to inspect the head's stale reason while checking
+both providers remain unstarted and the second operation retains its journal ID.
+
+The corrected packed run passed in session 71332. Evidence is retained at
+`/private/tmp/dr-cap-HZl7Tf/receipt.json` and `cleanup.json`; producing log:
+`/private/tmp/devrouter-capacity-stale-qualification-2.log`. This proves injected
+stale telemetry prevents provider launch, fresh telemetry resumes work, each
+provider launches once, and disconnected watching does not cancel queued work.
+The receipt's operationId is the queue head; durableJournalPhase refers to the
+second queued request. Both are queued, but these fields are not one identity.
+This remains fixture evidence, not production host accounting or ordinary CLI
+capacity activation. Review and source delivery of this correction remain pending.
