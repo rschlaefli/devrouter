@@ -44,6 +44,38 @@ afterAll(() => {
 });
 
 describe("durable reliability records", () => {
+  it("persists a settled v2 record with null capacity but rejects it as effect authority", () => {
+    updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = null;
+    });
+
+    const record = readReliabilityOperation(identity);
+    expect(record).toMatchObject({ version: 2, capacity: null });
+    expect(() =>
+      assertCapacityEffect(record!, "worker", 100, path.join(fixture.root, "controller")),
+    ).toThrow("absent or stale");
+  });
+
+  it("rejects missing or undefined capacity on a v2 journal", () => {
+    updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = null;
+    });
+
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.capacity = undefined;
+      }),
+    ).toThrow("Invalid capacity authority binding");
+
+    const file = reliabilityOperationPath(identity);
+    const persisted = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    delete persisted.capacity;
+    fs.writeFileSync(file, `${JSON.stringify(persisted)}\n`);
+    expect(() => readReliabilityOperation(identity)).toThrow("Invalid capacity authority binding");
+  });
+
   it("binds capacity effects to the durable operation, worker and unexpired reservation", () => {
     updateReliabilityOperation(identity, (record) => {
       record.state = stepReliability(

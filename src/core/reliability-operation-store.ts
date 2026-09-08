@@ -34,7 +34,7 @@ export type ReliabilityOperationRecord = {
     workerId: string;
     policyRevision: number;
     validUntilMs: number;
-  };
+  } | null;
 };
 
 const MAX_RECORD_BYTES = 1_048_576;
@@ -92,15 +92,24 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
   }
   if (record.version === 2) {
     const capacity = record.capacity;
-    keys(capacity, ["reservationId", "operationId", "workerId", "policyRevision", "validUntilMs"]);
+    if (capacity === undefined) throw new Error("Invalid capacity authority binding.");
+    if (capacity !== null) {
+      keys(capacity, [
+        "reservationId",
+        "operationId",
+        "workerId",
+        "policyRevision",
+        "validUntilMs",
+      ]);
+    }
     if (
-      !capacity ||
-      !isReliabilityId(capacity.reservationId) ||
-      !isReliabilityId(capacity.operationId) ||
-      !isReliabilityId(capacity.workerId) ||
-      !Number.isSafeInteger(capacity.policyRevision) ||
-      capacity.policyRevision < 1 ||
-      !isReliabilityCounter(capacity.validUntilMs)
+      capacity !== null &&
+      (!isReliabilityId(capacity.reservationId) ||
+        !isReliabilityId(capacity.operationId) ||
+        !isReliabilityId(capacity.workerId) ||
+        !Number.isSafeInteger(capacity.policyRevision) ||
+        capacity.policyRevision < 1 ||
+        !isReliabilityCounter(capacity.validUntilMs))
     )
       throw new Error("Invalid capacity authority binding.");
   }

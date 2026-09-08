@@ -151,6 +151,18 @@ export function prepareLifecycleOperation(
     kind === "exec" ? Boolean(resolveRunningWorkspaceContainer(repoPath)) : false;
   updateReliabilityOperation(identity, (record) => {
     reconcileDrained(record);
+    if (
+      record.version === 2 &&
+      record.capacity?.validUntilMs === 0 &&
+      !record.worker &&
+      record.state.stopProof.workloadsStopped &&
+      record.state.stopProof.routesRemoved
+    ) {
+      const retained = new CapacityStore(path.join(DEVROUTER_HOME, "controller"))
+        .read()
+        .reservations.some((entry) => entry.environmentId === record.state.environmentId);
+      if (!retained) record.capacity = null;
+    }
     if (kind === "stop") {
       stepRecord(record, { ...reliabilityFence(record.state), type: "stop" });
     } else {
@@ -520,6 +532,19 @@ export function proveLifecycleStopped(): void {
     }
     return undefined;
   });
-  if (settlement)
+  if (settlement) {
     new CapacityStore(path.join(DEVROUTER_HOME, "controller")).releaseAfterStop(settlement);
+    updateReliabilityOperation(request.identity, (record) => {
+      if (
+        !matchesFence(record, request.fence) ||
+        record.worker ||
+        record.capacity?.reservationId !== settlement.reservationId ||
+        record.capacity.operationId !== settlement.operationId ||
+        record.capacity.policyRevision !== settlement.policyRevision ||
+        record.capacity.validUntilMs !== 0
+      )
+        throw new Error("Capacity settlement was superseded before journal confirmation.");
+      record.capacity = null;
+    });
+  }
 }

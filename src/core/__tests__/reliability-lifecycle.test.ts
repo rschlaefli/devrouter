@@ -765,9 +765,13 @@ describe("reliability lifecycle supervision", () => {
   });
 
   it.each([
-    false,
-    true,
-  ])("settles capacity only after exact routes and workloads stop (routes remain: %s)", async (routesRemain) => {
+    { routesRemain: false, crashAfterRelease: false },
+    { routesRemain: true, crashAfterRelease: false },
+    { routesRemain: false, crashAfterRelease: true },
+  ])("settles capacity after stop and reconciles released bindings ($routesRemain, $crashAfterRelease)", async ({
+    routesRemain,
+    crashAfterRelease,
+  }) => {
     setProcessConnected(true);
     const { lifecycle, request, store, identity } = await seedStopRequest();
     const { CapacityStore } = await import("../capacity-store");
@@ -808,17 +812,69 @@ describe("reliability lifecycle supervision", () => {
       };
     });
     if (routesRemain) fixture.listHostRouteState.mockReturnValue([{ repoPath: identity.repoPath }]);
+    if (crashAfterRelease) {
+      const release = CapacityStore.prototype.releaseAfterStop;
+      vi.spyOn(CapacityStore.prototype, "releaseAfterStop").mockImplementationOnce(function (
+        this: InstanceType<typeof CapacityStore>,
+        expected,
+      ) {
+        release.call(this, expected);
+        throw new Error("synthetic crash after release");
+      });
+    }
     const stopped = lifecycle.executeLifecycleWorker(request, async () =>
       lifecycle.proveLifecycleStopped(),
     );
     if (routesRemain) await expect(stopped).rejects.toThrow("routes remain");
+    else if (crashAfterRelease)
+      await expect(stopped).rejects.toThrow("synthetic crash after release");
     else await expect(stopped).resolves.toBeUndefined();
     expect(
       reservations.read().reservations.filter((entry) => entry.environmentId === environmentId),
     ).toHaveLength(routesRemain ? 1 : 0);
     expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(
-      routesRemain ? 1000 : 0,
+      routesRemain ? 1000 : crashAfterRelease ? 0 : undefined,
     );
+    if (!routesRemain) {
+      expect(store.readReliabilityOperation(identity)).toMatchObject({
+        version: 2,
+        capacity: crashAfterRelease ? expect.objectContaining({ validUntilMs: 0 }) : null,
+      });
+      fixture.newLifecycleIds.mockReturnValue({
+        requestId: "after-stop-request",
+        operationId: "after-stop-operation",
+        workerId: "after-stop-worker",
+      });
+      const next = lifecycle.prepareLifecycleOperation("ensure", request.repoPath);
+      expect(() =>
+        store.assertCapacityEffect(
+          store.readReliabilityOperation(identity)!,
+          next.workerId,
+          Date.now(),
+        ),
+      ).toThrow("absent or stale");
+      const now = Date.now();
+      expect(
+        lifecycle.admitLifecycleCapacity(
+          next,
+          {
+            environmentId,
+            operationId: next.operationId,
+            reservationId: "after-stop",
+            policyRevision: 1,
+            totals: { host: 1 },
+            startup: true,
+            heavy: false,
+          },
+          {
+            host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 },
+          },
+          { host: { ...sample, sampledAtMs: now } },
+          now,
+          15_000,
+        ).admitted,
+      ).toBe(true);
+    }
   });
 
   it.each([

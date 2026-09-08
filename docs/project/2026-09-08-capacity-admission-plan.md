@@ -545,3 +545,16 @@ failures stay queued. The retirement path never releases capacity charges or
 changes newer intent. All 37 affected queue/lifecycle tests pass, along with
 TypeScript, Biome and Knip. Reservation settlement and its crash windows remain
 open; Singer's requested clarification is still pending.
+
+The released-binding defect now has a source correction. Version-2 journals
+support explicit null capacity after settlement; missing capacity remains invalid,
+and null never grants effect authority or restores version-1 behavior. After exact
+stop proof and reservation release, a fenced journal confirmation clears the old
+binding. Preparation reconciles a crash between release and confirmation only
+while full stop proof remains present, no worker remains, authority is revoked,
+and no environment reservation remains. Stop/resume then obtains a fresh binding.
+The 23 lifecycle cases include successful stop/resume, incomplete-route proof and
+an injected crash after release. The executor's 11 persistence cases pass, including
+null authority denial and malformed version-2 rejection. Main verified its diff.
+The late reserve/bind race is still open; this correction does not claim to fence
+delayed reservation publication or complete capacity admission qualification.
