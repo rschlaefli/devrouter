@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  inspectDockerCapacityContainer,
   listDockerCapacityContainers,
   readDockerCapacityInfo,
   readDockerCapacityMemory,
@@ -155,3 +156,55 @@ it("times out a response that never completes", async () => {
   respond = () => {};
   await expect(readDockerCapacityInfo(endpoint, signal())).rejects.toThrow(Error);
 }, 5000);
+
+function ownedContainer() {
+  return {
+    Id: id,
+    State: { Status: "exited", Running: false, Paused: false, Restarting: false, Dead: false },
+    Config: {
+      Env: ["SYNTHETIC_SECRET=not-returned"],
+      Labels: {
+        "com.docker.compose.project": "synthetic-project",
+        "com.docker.compose.service": "db",
+        "com.docker.compose.project.working_dir": "/fixture/.devcontainer",
+        "com.docker.compose.project.config_files": "/fixture/.devcontainer/compose.yml",
+        "com.docker.compose.config-hash": "synthetic-hash",
+        unrelated: "not-returned",
+      },
+    },
+    Mounts: [
+      { Type: "volume", Source: "/synthetic/volume", Destination: "/data", Other: "not-returned" },
+    ],
+  };
+}
+
+it("returns stopped ownership evidence without environment or unrelated metadata", async () => {
+  const value = ownedContainer();
+  respond = (_request, response) => response.end(JSON.stringify(value));
+  const result = await inspectDockerCapacityContainer(endpoint, id, "synthetic-project", signal());
+  expect(result.id).toBe(id);
+  expect(result.state.Running).toBe(false);
+  expect(result.labels["com.docker.compose.service"]).toBe("db");
+  expect(result.mounts).toEqual([
+    { Type: "volume", Source: "/synthetic/volume", Destination: "/data" },
+  ]);
+  expect(JSON.stringify(result)).not.toContain("not-returned");
+  expect(requests).toEqual([{ method: "GET", url: `/containers/${id}/json` }]);
+});
+
+it.each([
+  "id",
+  "project",
+  "state",
+  "mount",
+])("rejects mismatched or malformed ownership evidence (%s)", async (mode) => {
+  const value = ownedContainer();
+  if (mode === "id") value.Id = "b".repeat(64);
+  if (mode === "project") value.Config.Labels["com.docker.compose.project"] = "foreign";
+  if (mode === "state") value.State.Running = true;
+  if (mode === "mount") (value.Mounts[0] as unknown as Record<string, unknown>).Source = null;
+  respond = (_request, response) => response.end(JSON.stringify(value));
+  await expect(
+    inspectDockerCapacityContainer(endpoint, id, "synthetic-project", signal()),
+  ).rejects.toThrow(Error);
+});

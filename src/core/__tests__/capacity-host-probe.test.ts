@@ -23,8 +23,8 @@ it.each([
     pressure,
   });
   expect(probe.mock.calls).toEqual([
-    ["/usr/sbin/sysctl", ["-n", "hw.memsize"], signal],
-    ["/usr/sbin/sysctl", ["-n", "kern.memorystatus_vm_pressure_level"], signal],
+    ["/usr/sbin/sysctl", ["-n", "hw.memsize"], expect.any(AbortSignal)],
+    ["/usr/sbin/sysctl", ["-n", "kern.memorystatus_vm_pressure_level"], expect.any(AbortSignal)],
   ]);
 });
 
@@ -101,4 +101,27 @@ it("omits underlying probe errors and output", async () => {
   const error = await result.catch((rejection: Error) => rejection);
   expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).not.toContain("synthetic-private-output");
+});
+
+it("aborts and drains the sibling before reporting a failed snapshot", async () => {
+  let siblingDrained = false;
+  const probe = vi.fn<typeof runControllerProbe>().mockImplementation((_command, args, signal) => {
+    if (args[1] === "hw.memsize") return Promise.reject(new Error("synthetic failure"));
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener(
+        "abort",
+        () => {
+          queueMicrotask(() => {
+            siblingDrained = true;
+            reject(new Error("synthetic cancellation"));
+          });
+        },
+        { once: true },
+      );
+    });
+  });
+  await expect(
+    readCapacityHostSnapshot(new AbortController().signal, { platform: "darwin", probe }),
+  ).rejects.toThrow(Error);
+  expect(siblingDrained).toBe(true);
 });

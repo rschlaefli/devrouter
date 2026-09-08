@@ -22,10 +22,23 @@ export async function readCapacityHostSnapshot(
     if ((dependencies.platform ?? process.platform) !== "darwin" || signal.aborted)
       throw new Error("Host probe unavailable.");
     const probe = dependencies.probe ?? runControllerProbe;
-    const [memory, level] = await Promise.all([
-      probe("/usr/sbin/sysctl", ["-n", "hw.memsize"], signal),
-      probe("/usr/sbin/sysctl", ["-n", "kern.memorystatus_vm_pressure_level"], signal),
-    ]);
+    const cancellation = new AbortController();
+    const probeSignal = AbortSignal.any([signal, cancellation.signal]);
+    const results = await Promise.allSettled(
+      ["hw.memsize", "kern.memorystatus_vm_pressure_level"].map((name) =>
+        Promise.resolve()
+          .then(() => probe("/usr/sbin/sysctl", ["-n", name], probeSignal))
+          .catch((error: unknown) => {
+            cancellation.abort();
+            throw error;
+          }),
+      ),
+    );
+    const [memoryResult, levelResult] = results;
+    if (memoryResult.status !== "fulfilled" || levelResult.status !== "fulfilled")
+      throw new Error("Host probe unavailable.");
+    const memory = memoryResult.value;
+    const level = levelResult.value;
     if (signal.aborted) throw new Error("Host probe cancelled.");
     const physicalBytes = counter(memory);
     if (physicalBytes === 0) throw new Error("Invalid physical memory.");

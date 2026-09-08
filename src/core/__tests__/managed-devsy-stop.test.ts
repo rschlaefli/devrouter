@@ -14,6 +14,7 @@ import {
   inspectDevsyWorkspaceOwnership,
   listDevsyWorkspaces,
 } from "../devsy-workspaces";
+import { proveManagedComposePopulation } from "../managed-compose-population";
 import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "../managed-runtime-state";
 import { loadRuntimeConfig } from "../repo-config";
@@ -76,11 +77,11 @@ function container(service: string, running: boolean, digit: string) {
   return {
     id: digit.repeat(64),
     state: {
-      Status: running ? "running" : "exited",
+      Status: (running ? "running" : "exited") as "running" | "exited",
       Running: running,
-      Paused: false,
-      Restarting: false,
-      Dead: false,
+      Paused: false as const,
+      Restarting: false as const,
+      Dead: false as const,
     },
     labels: {
       "com.docker.compose.project": "owned-project",
@@ -415,5 +416,68 @@ describe("retained managed Devsy stop", () => {
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
     expect(run()).toBe(false);
     expect(inspectManagedStopContainers).not.toHaveBeenCalled();
+  });
+});
+
+describe("read-only managed Compose population proof", () => {
+  function prove() {
+    return proveManagedComposePopulation({
+      plan,
+      repoPath,
+      composeProject: state.composeProject,
+      providerRoot: root,
+      featureDirectory: path.join(
+        root,
+        "contexts",
+        context,
+        "workspaces",
+        devsyId,
+        "agent",
+        ".docker-compose",
+      ),
+      containers,
+    });
+  }
+
+  it("retains stopped optional siblings without mutating or probing the provider", () => {
+    containers.push(container("blob", false, "c"));
+    const before = structuredClone(containers);
+    expect(prove()).toBe(containers[0]);
+    expect(containers).toEqual(before);
+    expect(inspectManagedStopContainers).not.toHaveBeenCalled();
+    expect(listDevsyWorkspaces).not.toHaveBeenCalled();
+    expect(stopProvider).not.toHaveBeenCalled();
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "foreign",
+    "duplicate",
+    "missing",
+    "project",
+    "workdir",
+    "mount",
+  ])("rejects %s ownership evidence", (mode) => {
+    if (mode === "foreign") containers.push(container("foreign", false, "c"));
+    if (mode === "duplicate") containers.push(container("db", false, "c"));
+    if (mode === "missing") containers.pop();
+    if (mode === "project") containers[0].labels["com.docker.compose.project"] = "foreign";
+    if (mode === "workdir")
+      containers[0].labels["com.docker.compose.project.working_dir"] = "/foreign";
+    if (mode === "mount") containers[0].mounts.push({ ...containers[0].mounts[0] });
+    expect(prove).toThrow(Error);
+    expect(stopProvider).not.toHaveBeenCalled();
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+  });
+
+  it("requires provider feature files to resolve under the explicit provider root", () => {
+    const file = featureFile();
+    containers[0].labels["com.docker.compose.project.config_files"] += `,${file}`;
+    expect(prove()).toBe(containers[0]);
+    fs.unlinkSync(file);
+    const outside = path.join(root, "outside.yml");
+    fs.writeFileSync(outside, "services: {}\n");
+    fs.symlinkSync(outside, file);
+    expect(prove).toThrow(Error);
   });
 });

@@ -1129,3 +1129,20 @@ containers. It verifies service membership, duplicate/missing services, ordered
 Compose files, provider features and the primary workspace bind mount. The next
 source step extracts that read-only population validation for collector reuse;
 project label matching alone and app-container-only attribution are insufficient.
+
+Collector ownership seam is implemented: managed Compose population validation
+is extracted from managed Devsy stop with existing membership, ordered config,
+feature-realpath and primary-bind checks retained. Stop continuity/quiescence and
+provider operations remain in the caller. The endpoint-bound Docker inspection
+projects only existing validator-approved labels/state/mounts and rejects ID or
+project mismatches; environment values are not returned. A read-only inspection
+of the exact stopped eLearning container passes; receipt:
+/private/tmp/devrouter-capacity-inspect-probe-live.log.
+
+Host review found fail-fast Promise.all could leave a sibling probe running.
+The snapshot now aborts siblings on failure and waits for both bounded probes to
+settle. The regression checks sibling drainage before the caller observes failure.
+All 129 affected raw-probe, Docker-inspection and managed-stop tests pass, plus
+typecheck and Knip. Receipt:
+/private/tmp/devrouter-capacity-population-host-tests.log. This integrated slice
+still needs independent review and does not activate capacity admission.

@@ -1,5 +1,9 @@
 import http from "node:http";
 import path from "node:path";
+import {
+  type ManagedStopContainerSnapshot,
+  validateManagedStopSnapshot,
+} from "./devpod-environment";
 
 const MAX_BYTES = 1_048_576;
 const MAX_CONTAINERS = 256;
@@ -127,4 +131,36 @@ export async function readDockerCapacityMemory(
   const memory = value.memory_stats;
   if (!counter(memory.usage) || !counter(memory.limit)) throw failure();
   return { usage: memory.usage, limit: memory.limit };
+}
+
+/** Return only the ownership evidence accepted by managed lifecycle validation. */
+export async function inspectDockerCapacityContainer(
+  endpoint: string,
+  containerId: string,
+  composeProject: string,
+  signal: AbortSignal,
+): Promise<ManagedStopContainerSnapshot> {
+  if (
+    typeof containerId !== "string" ||
+    !CONTAINER_ID.test(containerId) ||
+    typeof composeProject !== "string" ||
+    !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,255}$/.test(composeProject)
+  )
+    throw failure();
+  try {
+    const value = await request(endpoint, `/containers/${containerId}/json`, signal);
+    if (!object(value) || value.Id !== containerId || !object(value.Config)) throw failure();
+    return validateManagedStopSnapshot(
+      {
+        id: value.Id,
+        state: value.State,
+        labels: value.Config.Labels,
+        mounts: value.Mounts,
+        networks: {},
+      },
+      composeProject,
+    );
+  } catch {
+    throw failure();
+  }
 }
