@@ -1188,7 +1188,7 @@ non-VM measurement method. Additional footprint output is not physical byte
 accounting: sys_footprint exceeds physical RAM, so it cannot be subtracted from
 ordinary resident usage. No machine policy or runtime change was made.
 
-### Pending decision: runtime-pool host reservation lifetime
+### Approved decision: runtime-pool host reservation lifetime
 
 Native planner Ampere approves this complete currently actionable decision
 frontier. Recommendation: reserve a runtime pool's host ceiling before startup,
@@ -1201,7 +1201,8 @@ Alternative: reserve every configured pool permanently and reject policies whose
 combined ceilings exceed host admissible capacity, including the current fixture.
 The recommendation preserves that parser compatibility while requiring pooled
 reservation lifecycle proof before dispatch. The approved plan previously defined
-deduplication but not reservation lifetime; this clarification awaits the user.
+deduplication but not reservation lifetime. The user approved activity-based
+reservations with “then its fine” on 2026-09-08.
 
 Approval settles accounting semantics and related in-scope source implementation
 only. It adds no authority to create/start/stop VM pools, install services or
@@ -1217,3 +1218,11 @@ smoke pass. Producing receipts:
 and distribution verification, not live admission or host/guest accounting proof.
 The user-facing VM reservation-lifetime clarification remains pending; no answer
 was inferred from an automatic goal continuation and no policy semantics changed.
+
+Continuation after user approval: the reservation lifetime is settled as above.
+Main owns collector qualification and integration; executor Gauss owns mapping
+the smallest source slice for pool lifetime accounting. Acceptance must cover
+running unenrolled pools, pending startup, uncertain liveness, deduplication, and
+release only with positive VM cessation proof. The existing parser remains
+compatible. Remote refresh shows this branch 49 commits ahead and one release
+commit behind origin/main; integration is deferred until readiness requires it.
