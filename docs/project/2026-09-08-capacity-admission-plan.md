@@ -1828,3 +1828,32 @@ legacy-baseline limitations. No other task runtime was changed. The roadmap goal
 remains active: live capacity admission, bounded controller recovery and harness
 integration remain incomplete. Main owns the host-guarantee decision; explorer
 Linnaeus owns the bounded synchronous claim/revocation assertion audit.
+
+### Renewal snapshot race correction
+
+Explorer Linnaeus returned DONE_WITH_CONCERNS. Existing tests establish stale
+fence rejection, stop-before-binding rejection, admission revision checks, and
+atomic-write acknowledgement boundaries. They do not establish the complete
+four-ordering claim/revocation contract or a crash after effect claim before an
+external mutation. The explorer identified a separate renewal snapshot gap.
+
+Main reproduced that gap by returning a capacity snapshot after a competing
+settlement advances the live revision. Renewal incorrectly returned true. The
+regression failed at the success assertion before the source correction.
+Commit 17b19e7 passes the evaluated revision into the existing fresh capacity
+validation read. Revision mismatch rejects renewal and persists validUntilMs=0;
+other effect callers retain their existing behavior. This is a bounded fresh-read
+revision check, not an atomic cross-file compare-and-swap or the missing complete
+claim/revocation proof.
+
+All 111 tests across reliability-lifecycle, reliability-operation-store and
+capacity-controller-integration pass outside the sandbox. The earlier broader
+sandbox run failed process-identity lock discovery; the focused lifecycle
+regression itself passed there. Biome, TypeScript, Knip and commit secret guards
+pass. Producing logs: /private/tmp/devrouter-renewal-race-regression.log and
+/private/tmp/devrouter-renewal-race-fixed-host.log.
+
+Simplifier Darwin returned DONE with no findings for 810b702..17b19e7. Slice
+reviewer Euclid owns the same immutable three-file range; its result is pending.
+The ordinary CLI integration and host-guarantee decision remain open. No capacity
+policy or consumer runtime changed during this correction.
