@@ -322,11 +322,7 @@ export function retireQueuedLifecycle(
       throw new Error("Queued operation absence is not proven.");
     }
     if (supersededOnly) return false;
-    if (
-      record.worker ||
-      record.state.operation?.id !== request.operationId ||
-      !["NOT_STARTED", "NOT_LAUNCHED"].includes(record.state.operation.status)
-    )
+    if (record.worker || !["NOT_STARTED", "NOT_LAUNCHED"].includes(record.state.operation.status))
       throw new Error("Queued operation absence is not proven.");
     if (record.capacity) record.capacity.validUntilMs = 0;
     stepRecord(record, { ...request.fence, type: "drained", operationId: request.operationId });

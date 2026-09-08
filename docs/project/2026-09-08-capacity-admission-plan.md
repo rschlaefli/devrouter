@@ -584,3 +584,31 @@ regression preserving stopping state and withholding full stop proof on exhausti
 The combined correction still requires independent review and a fresh packed
 lifecycle qualification because settlement ordering changed. Controller capacity
 dispatch, real telemetry, phase settlement and consumer qualification remain open.
+
+Committed the revision-fenced settlement as 50201d5. Independent correction review
+resumed with Singer and simplification with Lovelace on immutable
+6207d85..50201d5275023223823aff73d441264cb073002f, covering all nine changed paths.
+Read-only git diff/show permission was clarified after the simplifier requested
+it. Neither review has produced an accepted completion yet.
+
+Fresh packed lifecycle qualification runs in session 30585; continue that handle.
+Log: /private/tmp/devrouter-capacity-settlement-qualification.log. Isolated fixture:
+/private/var/folders/24/j7k2mlqn42l_dhq64jpqslxh0000gp/T/qualify-lifecycle-osdrBp.
+The producing result remains pending. Reuse the 79 passing focused cases and
+source checks while their source and contracts remain unchanged.
+
+Packed qualification session 30585 completed with status passed, 25 producing
+evidence entries, sourceRevision 50201d5275023223823aff73d441264cb073002f and
+dirty=false. Tarball SHA256:
+fdc93f85e10454616401db2aa57fa79f752dec0ee0848925933c1dd000e8a3a2;
+CLI SHA256: 8c2ae1e5c2658a75c680372d20c6a2c3fd845d315b382bbe4deb6c42704ba9bc;
+worker SHA256: 987c6bcbdb1ddc4381ae8aa0445230595fb7be90f9978921a36e11aeefb79d27.
+Its boundary remains installed CLI with synthetic providers, not capacity launch,
+live consumer qualification or OOM protection.
+
+Lovelace's simplifier completed with one verified reduction: remove the duplicate
+operation-ID condition after the preceding branch has already returned or thrown
+for mismatched IDs. Main applied it; all 41 affected queue/lifecycle tests and
+typecheck pass, and Biome applied only required formatting. No repeat packed run
+is needed for this behavior-preserving deletion. Singer's independent correctness
+review remains pending on the committed correction range.
