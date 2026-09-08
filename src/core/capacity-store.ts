@@ -385,18 +385,6 @@ export class CapacityStore {
             )
           )
             throw new Error("Environment retains an earlier capacity reservation.");
-          const decision = evaluateCapacity(
-            budgets,
-            samples,
-            snapshot.reservations,
-            request,
-            nowMs,
-            maxSampleAgeMs,
-            pools,
-          );
-          if (!decision.admitted) return decision;
-          if (!poolChanged)
-            return { admitted: true as const, revision: snapshot.revision, joined: true };
         }
         const decision = evaluateCapacity(
           budgets,
@@ -408,6 +396,8 @@ export class CapacityStore {
           pools,
         );
         if (!decision.admitted) return decision;
+        if (!previous && existing && !poolChanged)
+          return { admitted: true as const, revision: snapshot.revision, joined: true };
         if (snapshot.revision === Number.MAX_SAFE_INTEGER)
           throw new Error("Capacity reservation revision exhausted.");
         snapshot.revision++;
