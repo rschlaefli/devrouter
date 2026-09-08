@@ -1,4 +1,5 @@
 import path from "node:path";
+import { CapacityStore } from "./capacity-store";
 import {
   inspectManagedStopContainers,
   inspectWorkspaceContainers,
@@ -16,6 +17,7 @@ import {
 } from "./reliability-contract";
 import { stepReliability } from "./reliability-model";
 import {
+  assertCapacityEffect,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   updateReliabilityOperation,
@@ -26,6 +28,7 @@ import {
   runLifecycleWorker,
   workerGroupAbsent,
 } from "./reliability-worker";
+import { DEVROUTER_HOME } from "./router";
 import {
   comparableWorkspacePath,
   isLinkedWorktree,
@@ -65,6 +68,7 @@ function claimActiveLifecycleEffect(): void {
     ) {
       throw new Error("Lifecycle intent superseded this worker.");
     }
+    if (worker.kind !== "stop") assertCapacityEffect(record, worker.workerId, Date.now());
     if (record.effectSequence === Number.MAX_SAFE_INTEGER)
       throw new Error("Lifecycle effect sequence exhausted.");
     record.effectSequence += 1;
@@ -339,7 +343,7 @@ export function proveLifecycleStopped(): void {
     sameWorkspacePath(route.repoPath, request.repoPath),
   );
   if (routes.length) throw new Error("Workspace routes remain published after stop.");
-  updateReliabilityOperation(request.identity, (record) => {
+  const settlement = updateReliabilityOperation(request.identity, (record) => {
     if (!matchesFence(record, request.fence) || record.worker)
       throw new Error("Stop proof was superseded or an earlier worker remains.");
     stepRecord(record, {
@@ -348,5 +352,17 @@ export function proveLifecycleStopped(): void {
       workloadsStopped: true,
       routesRemoved: true,
     });
+    if (record.version === 2 && record.capacity) {
+      record.capacity.validUntilMs = 0;
+      return {
+        environmentId: record.state.environmentId,
+        operationId: record.capacity.operationId,
+        reservationId: record.capacity.reservationId,
+        policyRevision: record.capacity.policyRevision,
+      };
+    }
+    return undefined;
   });
+  if (settlement)
+    new CapacityStore(path.join(DEVROUTER_HOME, "controller")).releaseAfterStop(settlement);
 }

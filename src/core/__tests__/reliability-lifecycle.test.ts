@@ -420,6 +420,60 @@ describe("reliability lifecycle supervision", () => {
   });
 
   it.each([
+    false,
+    true,
+  ])("settles capacity only after exact routes and workloads stop (routes remain: %s)", async (routesRemain) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    const { CapacityStore } = await import("../capacity-store");
+    const { DEVROUTER_HOME } = await import("../router");
+    const reservations = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+    const environmentId = store.readReliabilityOperation(identity)!.state.environmentId;
+    const sample = {
+      sampledAtMs: 100,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    };
+    reservations.reserve(
+      {
+        environmentId,
+        operationId: "previous",
+        reservationId: "reservation",
+        policyRevision: 1,
+        totals: { host: 1 },
+        startup: true,
+        heavy: false,
+      },
+      { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+      { host: sample },
+      100,
+      15,
+    );
+    store.updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = {
+        reservationId: "reservation",
+        operationId: "previous",
+        workerId: "previous-worker",
+        policyRevision: 1,
+        validUntilMs: 1000,
+      };
+    });
+    if (routesRemain) fixture.listHostRouteState.mockReturnValue([{ repoPath: identity.repoPath }]);
+    const stopped = lifecycle.executeLifecycleWorker(request, async () =>
+      lifecycle.proveLifecycleStopped(),
+    );
+    if (routesRemain) await expect(stopped).rejects.toThrow("routes remain");
+    else await expect(stopped).resolves.toBeUndefined();
+    expect(reservations.read().reservations).toHaveLength(routesRemain ? 1 : 0);
+    expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(
+      routesRemain ? 1000 : 0,
+    );
+  });
+
+  it.each([
     {
       label: "the recorded worker incarnation is still live",
       birth: "proc:worker",

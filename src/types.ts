@@ -80,6 +80,34 @@ export type ManagedRuntimeStatus = {
   transitionPhase?: string;
 };
 
+export type CapacityDimensionEstimate = {
+  steadyBytes: number;
+  startupTotalBytes: number;
+};
+
+export type CapacityOperationEstimate = {
+  hostIncrementBytes: number;
+  runtimeIncrementBytes: number;
+};
+
+export type CapacityTransitionEstimate = {
+  hostTotalBytes: number;
+  runtimeTotalBytes: number;
+};
+
+export type CapacityEstimates = {
+  version: 1;
+  profiles: Record<
+    string,
+    {
+      host: CapacityDimensionEstimate;
+      runtime: CapacityDimensionEstimate;
+      operations: Record<string, CapacityOperationEstimate>;
+    }
+  >;
+  transitions?: Record<string, Record<string, CapacityTransitionEstimate>>;
+};
+
 export type RouterInsights = {
   httpRoutingReady: boolean;
   tcpRoutingReady: boolean;
@@ -176,6 +204,7 @@ export type DevrouterConfig = {
   };
   managedRuntime?: DevrouterManagedRuntime;
   profiles?: Record<string, DevrouterProfile>;
+  capacity?: CapacityEstimates;
   apps: DevrouterApp[];
 };
 

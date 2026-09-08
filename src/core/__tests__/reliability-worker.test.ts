@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createReliabilityState, reliabilityFence } from "../reliability-contract";
 import { stepReliability } from "../reliability-model";
 import type { ReliabilityOperationRecord } from "../reliability-operation-store";
-import { type LifecycleWorkerRequest, runLifecycleWorker } from "../reliability-worker";
+import {
+  LifecycleOutput,
+  type LifecycleWorkerRequest,
+  runLifecycleWorker,
+} from "../reliability-worker";
 
 const fixture = vi.hoisted(() => ({ fork: vi.fn(), update: vi.fn(), read: vi.fn() }));
 vi.mock("node:child_process", () => ({ fork: fixture.fork }));
@@ -48,6 +52,8 @@ function prepared() {
   });
   fixture.read.mockImplementation(() => record);
   const child = Object.assign(new EventEmitter(), {
+    stdout: new EventEmitter(),
+    stderr: new EventEmitter(),
     pid: 123,
     exitCode: null as number | null,
     signalCode: null as string | null,
@@ -82,6 +88,54 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("worker dispatch acknowledgement", () => {
+  it("drains controller-owned output without adding per-worker process signal listeners", async () => {
+    const setup = prepared();
+    const signal = new AbortController();
+    const output = new LifecycleOutput();
+    const interruptListeners = process.listenerCount("SIGINT");
+    const terminateListeners = process.listenerCount("SIGTERM");
+    const pending = runLifecycleWorker(setup.request, { signal: signal.signal, output });
+    expect(process.listenerCount("SIGINT")).toBe(interruptListeners);
+    expect(process.listenerCount("SIGTERM")).toBe(terminateListeners);
+    setup.child.emit("message", { ready: true });
+    setup.child.stdout.emit("data", Buffer.from("out"));
+    setup.child.stderr.emit("data", Buffer.from("err"));
+    expect(output.read().chunks.map(({ stream, data }) => [stream, data.toString()])).toEqual([
+      ["stdout", "out"],
+      ["stderr", "err"],
+    ]);
+    setup.child.emit("message", { ok: true, value: 0 });
+    setup.close();
+    await expect(pending).resolves.toBe(0);
+    expect(setup.child.stdout.listenerCount("data")).toBe(0);
+    expect(setup.child.stderr.listenerCount("data")).toBe(0);
+  });
+
+  it("reports bounded output loss while retaining independent output buffers", () => {
+    const output = new LifecycleOutput();
+    const other = new LifecycleOutput();
+    for (let index = 0; index < 80; index++) output.append("stdout", Buffer.alloc(8192, index));
+    const read = output.read();
+    expect(read.gap).toBe(true);
+    expect(read.chunks.reduce((sum, chunk) => sum + chunk.data.length, 0)).toBeLessThanOrEqual(
+      262_144,
+    );
+    expect(output.read(read.sequence)).toEqual({ gap: false, sequence: read.sequence, chunks: [] });
+    expect(other.read()).toEqual({ gap: false, sequence: 0, chunks: [] });
+  });
+
+  it("does not fork an already-cancelled supervised request", async () => {
+    const setup = prepared();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      runLifecycleWorker(setup.request, {
+        signal: controller.signal,
+        output: new LifecycleOutput(),
+      }),
+    ).rejects.toThrow("cancelled before dispatch");
+    expect(fixture.fork).not.toHaveBeenCalled();
+  });
   it("launches once after both durable dispatch boundaries and ignores repeated readiness", async () => {
     const setup = prepared();
     setup.child.send.mockImplementation((_message, callback) => {

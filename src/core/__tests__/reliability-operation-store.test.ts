@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileAtomically } from "../atomic-file";
+import { CapacityStore } from "../capacity-store";
+import { reliabilityFence } from "../reliability-contract";
+import { stepReliability } from "../reliability-model";
 import {
+  assertCapacityEffect,
   type ReliabilityIdentity,
   readReliabilityOperation,
   reliabilityOperationPath,
@@ -40,6 +44,76 @@ afterAll(() => {
 });
 
 describe("durable reliability records", () => {
+  it("binds capacity effects to the durable operation, worker and unexpired reservation", () => {
+    updateReliabilityOperation(identity, (record) => {
+      record.state = stepReliability(
+        record.state,
+        {
+          ...reliabilityFence(record.state),
+          type: "operation-request",
+          kind: "ensure",
+          key: "key",
+          operationId: "operation",
+          profile: "full",
+          runtimeRunning: false,
+          consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+        },
+        100,
+      ).state;
+    });
+    const record = readReliabilityOperation(identity)!;
+    const directory = path.join(fixture.root, "controller");
+    const store = new CapacityStore(directory);
+    const sample = {
+      sampledAtMs: 100,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    };
+    store.reserve(
+      {
+        environmentId: record.state.environmentId,
+        operationId: "operation",
+        reservationId: "reservation",
+        policyRevision: 1,
+        totals: { host: 1 },
+        startup: true,
+        heavy: false,
+      },
+      { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+      { host: sample },
+      100,
+      15,
+    );
+    updateReliabilityOperation(identity, (current) => {
+      current.version = 2;
+      current.capacity = {
+        reservationId: "reservation",
+        operationId: "operation",
+        workerId: "worker",
+        policyRevision: 1,
+        validUntilMs: 115,
+      };
+    });
+    updateReliabilityOperation(identity, (current) =>
+      assertCapacityEffect(current, "worker", 100, directory),
+    );
+    for (const [worker, now] of [
+      ["other", 100],
+      ["worker", 115],
+    ] as const) {
+      expect(() =>
+        updateReliabilityOperation(identity, (current) =>
+          assertCapacityEffect(current, worker, now, directory),
+        ),
+      ).toThrow("absent or stale");
+    }
+    const current = readReliabilityOperation(identity)!;
+    current.capacity!.policyRevision++;
+    expect(() => assertCapacityEffect(current, "worker", 100, directory)).toThrow("does not match");
+    expect(store.read().reservations).toHaveLength(1);
+  });
   it("writes private bounded manual state and refuses mismatched provider ownership", () => {
     expect(readReliabilityOperation(identity)).toBeUndefined();
     updateReliabilityOperation(identity, () => undefined);

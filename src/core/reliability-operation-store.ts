@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomically } from "./atomic-file";
+import { CapacityStore } from "./capacity-store";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { withFileLockSync } from "./file-lock";
 import {
@@ -20,13 +21,20 @@ export type ReliabilityIdentity = {
 };
 
 export type ReliabilityOperationRecord = {
-  version: 1;
+  version: 1 | 2;
   identity: ReliabilityIdentity;
   revision: number;
   state: ReliabilityState;
   worker: { id: string; operationId: string; pid: number; birth: string } | null;
   effectSequence: number;
   outcome: (ExecutionOutcome & { operationId: string }) | null;
+  capacity?: {
+    reservationId: string;
+    operationId: string;
+    workerId: string;
+    policyRevision: number;
+    validUntilMs: number;
+  };
 };
 
 const MAX_RECORD_BYTES = 1_048_576;
@@ -61,10 +69,19 @@ function keys(value: unknown, expected: string[]): void {
 }
 
 function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdentity): void {
-  keys(record, ["version", "identity", "revision", "state", "worker", "effectSequence", "outcome"]);
+  keys(record, [
+    "version",
+    "identity",
+    "revision",
+    "state",
+    "worker",
+    "effectSequence",
+    "outcome",
+    ...(record.version === 2 ? ["capacity"] : []),
+  ]);
   keys(record.identity, ["repoPath", "workspace", "provider"]);
   if (
-    record.version !== 1 ||
+    (record.version !== 1 && record.version !== 2) ||
     record.identity.repoPath !== identity.repoPath ||
     record.identity.workspace !== identity.workspace ||
     record.identity.provider !== identity.provider ||
@@ -72,6 +89,20 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     !isReliabilityCounter(record.effectSequence)
   ) {
     throw new Error("Reliability record has invalid version, ownership, or counters.");
+  }
+  if (record.version === 2) {
+    const capacity = record.capacity;
+    keys(capacity, ["reservationId", "operationId", "workerId", "policyRevision", "validUntilMs"]);
+    if (
+      !capacity ||
+      !isReliabilityId(capacity.reservationId) ||
+      !isReliabilityId(capacity.operationId) ||
+      !isReliabilityId(capacity.workerId) ||
+      !Number.isSafeInteger(capacity.policyRevision) ||
+      capacity.policyRevision < 1 ||
+      !isReliabilityCounter(capacity.validUntilMs)
+    )
+      throw new Error("Invalid capacity authority binding.");
   }
   const state = record.state;
   assertReliabilityState(state);
@@ -156,6 +187,34 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
       throw new Error("Reliability worker identity is invalid.");
     }
   }
+}
+
+/** Called inside the journal transaction, before accepting a lifecycle effect. */
+export function assertCapacityEffect(
+  record: ReliabilityOperationRecord,
+  workerId: string,
+  nowMs: number,
+  directory = path.join(DEVROUTER_HOME, "controller"),
+): void {
+  if (record.version === 1) return;
+  const binding = record.capacity;
+  if (
+    !binding ||
+    binding.workerId !== workerId ||
+    binding.operationId !== record.state.operation?.id ||
+    binding.validUntilMs <= nowMs
+  )
+    throw new Error("Capacity effect authority is absent or stale.");
+  const reservation = new CapacityStore(directory)
+    .read()
+    .reservations.find((entry) => entry.reservationId === binding.reservationId);
+  if (
+    !reservation ||
+    reservation.environmentId !== record.state.environmentId ||
+    reservation.operationId !== binding.operationId ||
+    reservation.policyRevision !== binding.policyRevision
+  )
+    throw new Error("Capacity effect reservation does not match lifecycle intent.");
 }
 
 export function readReliabilityOperation(

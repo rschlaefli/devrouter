@@ -32,6 +32,44 @@ export type LifecycleWorkerRequest = {
 
 export type LifecycleWorkerResult = { ok: true; value: unknown } | { ok: false; message: string };
 
+export type LifecycleSupervision = {
+  signal: AbortSignal;
+  output: LifecycleOutput;
+};
+
+/** Transient output for controller-owned commands; client reads never pause pipes. */
+export class LifecycleOutput {
+  private chunks: { stream: "stdout" | "stderr"; data: Buffer; sequence: number }[] = [];
+  private bytes = 0;
+  private sequence = 0;
+  private droppedThrough = 0;
+
+  append(stream: "stdout" | "stderr", data: Buffer): void {
+    const limit = 262_144;
+    const sequence = ++this.sequence;
+    if (data.byteLength > limit) this.droppedThrough = sequence;
+    const kept = Buffer.from(data.subarray(-limit));
+    this.chunks.push({ stream, data: kept, sequence });
+    this.bytes += kept.byteLength;
+    while (this.bytes > limit || this.chunks.length > 64) {
+      const removed = this.chunks.shift();
+      if (!removed) break;
+      this.bytes -= removed.data.byteLength;
+      this.droppedThrough = Math.max(this.droppedThrough, removed.sequence);
+    }
+  }
+
+  read(afterSequence = 0) {
+    return {
+      gap: afterSequence < this.droppedThrough,
+      sequence: this.sequence,
+      chunks: this.chunks
+        .filter((chunk) => chunk.sequence > afterSequence)
+        .map((chunk) => ({ ...chunk, data: Buffer.from(chunk.data) })),
+    };
+  }
+}
+
 function sameFence(record: ReliabilityOperationRecord, fence: ReliabilityFence): boolean {
   return Object.entries(reliabilityFence(record.state)).every(
     ([key, value]) => value === fence[key as keyof ReliabilityFence],
@@ -56,7 +94,12 @@ function signalOwnedGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
-export async function runLifecycleWorker(request: LifecycleWorkerRequest): Promise<unknown> {
+export async function runLifecycleWorker(
+  request: LifecycleWorkerRequest,
+  supervision?: LifecycleSupervision,
+): Promise<unknown> {
+  if (supervision?.signal.aborted)
+    throw new Error("Lifecycle invocation was cancelled before dispatch.");
   if (process.platform === "win32")
     throw new Error("Lifecycle workers require POSIX process-group ownership.");
   const workerPath = path.join(__dirname, "devrouter-lifecycle-worker.js");
@@ -64,7 +107,9 @@ export async function runLifecycleWorker(request: LifecycleWorkerRequest): Promi
     throw new Error("The packaged lifecycle worker is missing; rebuild the CLI.");
   const child = fork(workerPath, [], {
     detached: true,
-    stdio: ["inherit", "inherit", "inherit", "ipc"],
+    stdio: supervision
+      ? ["ignore", "pipe", "pipe", "ipc"]
+      : ["inherit", "inherit", "inherit", "ipc"],
     execArgv: [],
   });
   let ready = false;
@@ -90,8 +135,17 @@ export async function runLifecycleWorker(request: LifecycleWorkerRequest): Promi
     }, 2_000);
   };
   const onSignal = () => cancel();
-  process.once("SIGINT", onSignal);
-  process.once("SIGTERM", onSignal);
+  const stdout = (data: Buffer) => supervision?.output.append("stdout", data);
+  const stderr = (data: Buffer) => supervision?.output.append("stderr", data);
+  if (supervision) {
+    child.stdout?.on("data", stdout);
+    child.stderr?.on("data", stderr);
+    supervision.signal.addEventListener("abort", onSignal, { once: true });
+    if (supervision.signal.aborted) cancel();
+  } else {
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
+  }
 
   try {
     return await new Promise<unknown>((resolve, reject) => {
@@ -218,6 +272,9 @@ export async function runLifecycleWorker(request: LifecycleWorkerRequest): Promi
     if (forceTimer) clearTimeout(forceTimer);
     process.removeListener("SIGINT", onSignal);
     process.removeListener("SIGTERM", onSignal);
+    supervision?.signal.removeEventListener("abort", onSignal);
+    child.stdout?.removeListener("data", stdout);
+    child.stderr?.removeListener("data", stderr);
   }
 }
 

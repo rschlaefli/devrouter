@@ -193,3 +193,65 @@ consultation is running under /private/tmp/devrouter-capacity-advisor-20260908.
 with main corrections recorded in the private review report. Source implementation
 continues under existing user authority. Live enrollment and package merge/release
 remain separate boundaries.
+
+Source progress: main added capacity-accounting.ts and four focused behavioral
+checks; all pass on Node 24.17.0. These checks cover pure accounting only, not
+guarded launches. Native executor Gauss 01a07f99-9834-7ff1-9ea4-fd771e6fef02 owns
+capacity-policy.ts, repository estimate schema, shared types and schema tests.
+Next integrate strict schemas, durable reservations and the first packed launch
+tracer before any readiness claim. No live runtime was touched in this phase.
+
+Main extended the existing worker supervisor with optional controller-owned piped
+output, bounded independent buffers with loss reporting, abort-signal cancellation
+and no per-worker process signal handlers. Manual inherited stdio remains default.
+Thirteen accounting/worker checks pass on Node 24.17.0. Integration is pending.
+Full typecheck caught fixture typing (corrected) and the executor's in-progress
+per-profile schema transition; rerun after the executor completes. The exact
+executor remains active. Main asked it to confirm accidental primary src/types.ts
+edits before restoring only its owned duplicate; preserve other primary changes.
+
+Executor delivered schema implementation; main independently passed 163 focused
+tests and full typechecking. One correction remains with the same executor for
+canonical combined enrollment profiles and duplicate transition-source aliases.
+Main added capacity-request.ts; three tests verify startup/transition totals,
+conservative unknown operations and reviewed-default/digest checks. This remains
+pre-dispatch source work, not evidence of actual admission enforcement.
+
+The executor confirmed accidental primary src/types.ts additions. Automatic
+approval review rejected git restore because it discards uncommitted changes and
+did not accept worker authorship as authorization. Primary remains untouched;
+cleanup is pending explicit approval and does not block task-worktree development.
+
+User approved primary cleanup ("then its fine"); main restored only the confirmed
+src/types.ts duplicate. Other primary untracked files remain preserved. Executor
+correction completed: combined enrollment profile aliases and duplicate transition
+source aliases now receive explicit validation.
+
+CapacityStore now persists all-domain reservations under the existing short file
+lock and atomic writer. Three filesystem tests prove restart retention, idempotent
+join, no partial-domain publication and rejection of unproven charge reduction.
+All 171 focused tests pass; full typecheck passes. Filesystem tests initially could
+not obtain process identity inside the sandbox; authorized host execution passed.
+Store join acknowledges retained charge only; it never authorizes effects or
+substitutes for fresh pre-effect validation. No release/settlement path exists yet.
+Remaining critical path: bind store reservations to journal intent and workers,
+implement positive-proof settlement and controller queue, then packed real dispatch
+qualification. Current additions remain uncommitted pending integration checks and
+the required independent implementation reviews.
+
+The existing synchronous lifecycle effect claim now invokes assertCapacityEffect
+inside its journal transaction for version-2 records. These records require a
+capacity binding to reservation/operation/worker/policy and an expiry; legacy
+version-1 records retain manual compatibility. Stop bypasses the additional check.
+No production conversion or enrollment path is enabled yet. The model's existing
+manual operation mechanics remain until controller request integration is complete;
+this is an effect fence extension, not a capacity-managed readiness claim.
+Twenty-eight focused journal/lifecycle/worker tests and typecheck pass. Reservation
+renewal, controller epoch handling, positive-proof settlement and packed launch
+qualification remain pending before integrated review or publication.
+
+Complete stop proof now revokes the journal binding before a separate short
+capacity transaction releases the matching reservation. Failed route proof retains
+both binding and charge. Fifteen focused lifecycle/store tests pass, as do typecheck
+and Knip. This implements the release half of the first waiting-start tracer;
+controller queuing, launch and renewal remain to be connected.
