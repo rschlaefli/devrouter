@@ -1169,3 +1169,21 @@ no memory-usage field. Exact helper RSS and aggregate phys_footprint differ, so
 RSS subtraction is not adopted for non-VM host accounting. These bounded reads
 created no dump and changed no runtime. A qualified host/VM accounting method and
 guest pressure interpretation remain necessary before admission activation.
+
+Sampler review is complete. The proposed P2 global-response budget is rejected
+against the scoped contract: sanitized returned snapshots are capped at 1 MiB;
+up to four raw responses each have their own 1 MiB bound, plus decoded objects.
+This is not a 1 MiB process-memory claim. Reviewer closes the finding with no
+remaining issue. Simplification removes a duplicate rejection scan after
+allSettled: each failed worker already aborts, and the following check rejects
+after drainage. All 12 sampler tests pass unchanged; receipt:
+/private/tmp/devrouter-capacity-population-simplify-tests.log.
+
+A proposed aggregate host-ceiling policy check is held without source edits.
+Existing acceptance declares ceilings 800 and 700 on a host with admissible900;
+only the first runtime is enrolled. Configured-versus-active VM ceiling charging
+requires contract interpretation before changing that valid policy fixture.
+A native planner owns this decision frontier together with the unresolved host
+non-VM measurement method. Additional footprint output is not physical byte
+accounting: sys_footprint exceeds physical RAM, so it cannot be subtracted from
+ordinary resident usage. No machine policy or runtime change was made.

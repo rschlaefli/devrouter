@@ -62,11 +62,7 @@ export async function readDockerCapacityPopulation(
         throw error;
       }
     };
-    const results = await Promise.allSettled(
-      Array.from({ length: Math.min(4, before.length) }, inspect),
-    );
-    if (results.some((result) => result.status === "rejected"))
-      throw new Error("Inspection failed.");
+    await Promise.allSettled(Array.from({ length: Math.min(4, before.length) }, inspect));
     check();
     const after = (
       await listDockerCapacityContainers(endpoint, cancellation.signal, composeProject)
