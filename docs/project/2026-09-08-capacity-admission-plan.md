@@ -1302,3 +1302,21 @@ no drift and zero exact routes. Devsy reports Stopped. Receipts are
 No runtime was started or changed. The old source baseline remains intentionally
 retained: eight commits ahead and 32 behind origin/main, with its tracking branch
 gone. This is runtime-state evidence, not acceptance of latest application source.
+
+### Observed VM pool persistence
+
+Commit 2de6822 adds a revision-fenced store transaction for positively observed VM
+pools, independent of environment enrollment. It preserves maximum ceilings,
+immutable bindings and environment rows, retains charges on empty observations,
+and persists overbudget facts so later admission rejects new work. A stale
+observation cannot revive a pool released after that observation's revision.
+Reservation and observation transactions reuse the same bounded merge semantics.
+
+All 52 affected tests pass with two workers, plus typecheck, Biome, Knip and commit
+hooks. Receipt: /private/tmp/devrouter-capacity-observed-pool-tests.log.
+Simplification is running. Correctness review follows the existing owner's
+controller pass and byte-limit correction closure. Production collector wiring
+must still inspect all configured pools, fence policy/controller changes after
+probes, persist observations before returning samples, and treat unknown liveness
+as unknown. Host accounting and CLI activation remain unqualified; no live policy
+or runtime was changed.
