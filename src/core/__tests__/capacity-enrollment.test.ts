@@ -11,7 +11,9 @@ const fixture = vi.hoisted(() => ({
   digest: vi.fn(),
   journal: vi.fn(),
   enroll: vi.fn(),
+  policy: vi.fn(),
 }));
+vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.policy }));
 vi.mock("../reliability-operation-store", () => ({
   readReliabilityOperation: fixture.journal,
   enrollStoppedLifecycle: fixture.enroll,
@@ -85,6 +87,8 @@ it.each([
   "paused",
   "journal-missing",
   "cancelled",
+  "policy-changed",
+  "policy-missing",
 ] as const)("converts only canonical enabled enrollment with an existing journal (%s)", async (condition) => {
   const common = fs.realpathSync(os.tmpdir());
   const environment = {
@@ -111,6 +115,12 @@ it.each([
     enrollments: [enrollment],
     domains: { guest: runtime },
   } as unknown as CapacityPolicy;
+  fixture.policy.mockReturnValue(policy);
+  if (condition === "policy-missing") fixture.policy.mockReturnValue(undefined);
+  if (condition === "policy-changed")
+    fixture.policy
+      .mockReturnValueOnce(policy)
+      .mockReturnValueOnce({ ...policy, admissions: "paused" });
   fixture.resolve.mockResolvedValue(environment);
   fixture.probe.mockResolvedValue(common);
   fixture.config.mockReturnValue({ capacity: { version: 1 } });

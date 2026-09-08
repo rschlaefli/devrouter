@@ -710,3 +710,16 @@ Full source verification completed: 1,324 tests across 98 files pass in 14.46s.
 The process-helper script explicitly skipped on macOS because Linux /proc is
 unavailable; its unchanged helper retains the earlier isolated Linux receipt.
 Docs policy, knowledge and diff whitespace checks pass. No live runtime touched.
+
+Managed preparation committed as 592e616. Lovelace's dedicated simplification
+pass on a5793a4..592e616 completed with no worthwhile reduction. Singer still owns
+the eef1130..a5793a4 correctness pass; a single convergence message confines it to
+that immutable range. Later managed preparation requires its own correctness pass.
+
+Main closed the asynchronous enrollment-policy gap: compare the private operator
+policy before ownership resolution and again immediately before conversion. Removed
+or paused policy cannot convert a journal using an earlier object. All 14 enrollment
+tests pass, including policy disappearance and pause during resolution; typecheck,
+Biome and Knip pass. Gauss owns the separate queue duplicate-conflict and output-page
+integration. Renewable controller authority and production IPC remain next; no
+machine policy activation or live runtime mutation occurred.

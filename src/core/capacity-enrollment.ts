@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { CapacityPolicy } from "./capacity-policy";
+import { type CapacityPolicy, readCapacityPolicy } from "./capacity-policy";
 import { readControllerEvidence, resolveControllerBinding } from "./controller-binding";
 import { runControllerProbe } from "./controller-probe";
 import { enrollStoppedLifecycle, readReliabilityOperation } from "./reliability-operation-store";
 import { capacityEstimatesDigest, loadRepoConfig } from "./repo-config";
+import { DEVROUTER_HOME } from "./router";
 
 /** Match operator enrollment only after existing canonical provider ownership proof. */
 export async function resolveCapacityEnrollment(
@@ -51,7 +52,14 @@ export async function enrollCapacityLifecycle(
   policy: CapacityPolicy,
   request: { path: string; profile: string; require: string[] },
   signal: AbortSignal,
+  directory = path.join(DEVROUTER_HOME, "controller"),
 ) {
+  const expectedPolicy = JSON.stringify(policy);
+  if (
+    policy.admissions !== "enabled" ||
+    JSON.stringify(readCapacityPolicy(directory)) !== expectedPolicy
+  )
+    throw new Error("Capacity enrollment policy is not current and enabled.");
   const resolved = await resolveCapacityEnrollment(policy, request, signal);
   const { environment, enrollment } = resolved;
   const runtime = policy.domains[enrollment.runtimeDomain];
@@ -65,6 +73,8 @@ export async function enrollCapacityLifecycle(
   const record = readReliabilityOperation(identity);
   if (!record) throw new Error("Capacity enrollment requires an existing stopped journal.");
   if (signal.aborted) throw new Error("Capacity enrollment resolution was cancelled.");
+  if (JSON.stringify(readCapacityPolicy(directory)) !== expectedPolicy)
+    throw new Error("Capacity enrollment policy changed during resolution.");
   enrollStoppedLifecycle(identity, record.revision, {
     policyRevision: policy.revision,
     gitCommonDir: enrollment.gitCommonDir,
