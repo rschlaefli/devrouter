@@ -612,3 +612,44 @@ for mismatched IDs. Main applied it; all 41 affected queue/lifecycle tests and
 typecheck pass, and Biome applied only required formatting. No repeat packed run
 is needed for this behavior-preserving deletion. Singer's independent correctness
 review remains pending on the committed correction range.
+
+Integrated source verification at eef1130 passed all 1,304 tests across 98 files
+in 14.68 seconds. Receipt: /private/tmp/devrouter-capacity-integrated-tests.log.
+Repository docs policy, knowledge validation and Biome (238 files) pass as well.
+The retired planner handle returned not_found; native planner Tesla
+01a08045-666c-75f0-ab9c-f5c0248c4402 owns a bounded read-only mapping of the next
+approved controller admission tracer, including stopped enrollment conversion,
+request identity, transient payload custody and reconnect behavior. Singer retains
+the ongoing correction review. Neither pending pass expands live authority.
+
+Tesla completed the integration mapping with REVISE: wiring the queue alone would
+omit durable enrollment, stable acceptance identity, renewable effect authority,
+session-independent reconnect and frame-bounded output. Main accepts those existing
+contract requirements. Implement in that order before the packed two-client
+admission tracer. Keep synthetic telemetry injectable only through internal test
+dependencies; executable operator policy must never select fixture telemetry.
+
+Gauss owns a separate bounded output-pagination change in LifecycleOutput and its
+tests. Acceptance requires encoded JSON pages below the IPC frame budget, monotonic
+cursors and explicit eviction gaps without disk persistence or pipe backpressure.
+Main retains enrollment and controller integration because their authority checks
+cross ownership resolution, journal conversion and request preparation.
+
+Main implemented the first enrollment boundary in source: a version-2 journal can
+retain canonical enrollment identity independently of its nullable reservation.
+Conversion consumes a matching journal revision and requires stopped idle state,
+complete workload/route proof, no worker/reservation and drained operation history.
+Managed records require enrollment and cannot switch back to manual execution.
+The adapter resolves canonical operator policy evidence before invoking conversion.
+No command or controller dispatch calls the new adapter yet; authority renewal,
+request identity and managed operation preparation remain pending integration.
+All 16 persistence tests and 38 enrollment/lifecycle/retired-intent compatibility
+cases pass; typecheck passes. Changes remain uncommitted pending adapter tests and
+review. Output pagination remains with Gauss; Singer's correction review is ongoing.
+
+Enrollment adapter tests now pass all 12 cases, including disabled admissions,
+missing journal and cancelled ownership resolution with zero conversion calls.
+The journal's provider/daemon identity validation matches operator policy bounded
+strings, including punctuation; all 16 persistence tests pass with that fixture.
+Knip, Biome and typecheck pass for the enrollment work. Gauss is correcting output
+pagination to preserve bytes across split UTF-8 pipe chunks before main acceptance.

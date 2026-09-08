@@ -8,6 +8,7 @@ import { reliabilityFence } from "../reliability-contract";
 import { stepReliability } from "../reliability-model";
 import {
   assertCapacityEffect,
+  enrollStoppedLifecycle,
   type ReliabilityIdentity,
   readReliabilityOperation,
   reliabilityOperationPath,
@@ -44,6 +45,109 @@ afterAll(() => {
 });
 
 describe("durable reliability records", () => {
+  const enrollment = {
+    policyRevision: 1,
+    gitCommonDir: "/tmp/synthetic-common",
+    providerId: "synthetic-provider",
+    hostDomain: "host",
+    runtimeDomain: "guest",
+    endpoint: "/tmp/synthetic-docker.sock",
+    daemonId: "synthetic:daemon",
+    estimatesDigest: "a".repeat(64),
+  };
+
+  function stoppedRecord() {
+    updateReliabilityOperation(identity, (record) => {
+      record.state = stepReliability(
+        record.state,
+        { ...reliabilityFence(record.state), type: "stop" },
+        100,
+      ).state;
+      record.state = stepReliability(
+        record.state,
+        {
+          ...reliabilityFence(record.state),
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        },
+        100,
+      ).state;
+    });
+    return readReliabilityOperation(identity)!;
+  }
+
+  it("persists enrollment independently of reservation and session lifetime", () => {
+    const before = stoppedRecord();
+    enrollStoppedLifecycle(identity, before.revision, enrollment);
+    const converted = readReliabilityOperation(identity)!;
+    expect(converted).toMatchObject({
+      version: 2,
+      enrollment,
+      capacity: null,
+      activeProfile: null,
+      state: { executionPolicy: "capacity-managed", desired: "stopped-by-user" },
+    });
+    expect(() => assertCapacityEffect(converted, "worker", 100)).toThrow("absent or stale");
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        delete record.enrollment;
+      }),
+    ).toThrow("requires durable");
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.state.executionPolicy = "manual";
+      }),
+    ).toThrow();
+    expect(readReliabilityOperation(identity)!.enrollment).toEqual(enrollment);
+    expect(() =>
+      enrollStoppedLifecycle(identity, converted.revision, {
+        ...enrollment,
+        daemonId: "replacement",
+      }),
+    ).toThrow("different capacity enrollment");
+  });
+
+  it.each([
+    "no-proof",
+    "routes",
+    "worker",
+    "revision",
+  ] as const)("rejects enrollment with incomplete or changed evidence (%s)", (condition) => {
+    if (condition === "no-proof") updateReliabilityOperation(identity, () => undefined);
+    else stoppedRecord();
+    if (condition === "routes")
+      updateReliabilityOperation(identity, (record) => {
+        record.state.stopProof.routesRemoved = false;
+      });
+    if (condition === "worker")
+      updateReliabilityOperation(identity, (record) => {
+        record.state.operation = {
+          id: "operation",
+          kind: "ensure",
+          status: "NOT_STARTED",
+          drained: true,
+          exitCode: null,
+        };
+        record.state.operationHistory.push({
+          ...record.state.operation,
+          key: "request",
+          profile: "full",
+          consumer: { id: "synthetic", requiredCapabilities: [], pinned: false },
+        });
+        record.worker = { id: "worker", operationId: "operation", pid: 123, birth: "proc:123" };
+      });
+    const before = readReliabilityOperation(identity)!;
+    expect(() =>
+      enrollStoppedLifecycle(
+        identity,
+        before.revision + (condition === "revision" ? 1 : 0),
+        enrollment,
+      ),
+    ).toThrow();
+    expect(readReliabilityOperation(identity)).toEqual(before);
+  });
+
   it("persists a settled v2 record with null capacity but rejects it as effect authority", () => {
     updateReliabilityOperation(identity, (record) => {
       record.version = 2;

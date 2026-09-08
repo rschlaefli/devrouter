@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
-import { resolveCapacityEnrollment } from "../capacity-enrollment";
+import { enrollCapacityLifecycle, resolveCapacityEnrollment } from "../capacity-enrollment";
 import type { CapacityPolicy } from "../capacity-policy";
 
 const fixture = vi.hoisted(() => ({
@@ -9,6 +9,12 @@ const fixture = vi.hoisted(() => ({
   probe: vi.fn(),
   config: vi.fn(),
   digest: vi.fn(),
+  journal: vi.fn(),
+  enroll: vi.fn(),
+}));
+vi.mock("../reliability-operation-store", () => ({
+  readReliabilityOperation: fixture.journal,
+  enrollStoppedLifecycle: fixture.enroll,
 }));
 vi.mock("../controller-binding", () => ({
   resolveControllerBinding: fixture.resolve,
@@ -72,4 +78,73 @@ it.each([
   if (difference === "match")
     await expect(resolve).resolves.toMatchObject({ environment, enrollment: changed });
   else await expect(resolve).rejects.toThrow();
+});
+
+it.each([
+  "match",
+  "paused",
+  "journal-missing",
+  "cancelled",
+] as const)("converts only canonical enabled enrollment with an existing journal (%s)", async (condition) => {
+  const common = fs.realpathSync(os.tmpdir());
+  const environment = {
+    id: "environment",
+    repoPath: "/fixture/checkout",
+    workspace: "fixture",
+    provider: "devsy" as const,
+    providerId: "provider",
+    profile: "full",
+    fingerprint: "fingerprint",
+  };
+  const enrollment = {
+    ...environment,
+    gitCommonDir: common,
+    profiles: ["full"],
+    estimatesDigest: "a".repeat(64),
+    hostDomain: "host",
+    runtimeDomain: "guest",
+  };
+  const runtime = { kind: "runtime", endpoint: "/tmp/synthetic.sock", daemonId: "daemon" };
+  const policy = {
+    revision: 7,
+    admissions: condition === "paused" ? "paused" : "enabled",
+    enrollments: [enrollment],
+    domains: { guest: runtime },
+  } as unknown as CapacityPolicy;
+  fixture.resolve.mockResolvedValue(environment);
+  fixture.probe.mockResolvedValue(common);
+  fixture.config.mockReturnValue({ capacity: { version: 1 } });
+  fixture.digest.mockReturnValue(enrollment.estimatesDigest);
+  fixture.journal.mockReturnValue(condition === "journal-missing" ? undefined : { revision: 19 });
+  const abort = new AbortController();
+  if (condition === "cancelled") abort.abort();
+  const result = enrollCapacityLifecycle(
+    policy,
+    { path: environment.repoPath, profile: "full", require: [] },
+    abort.signal,
+  );
+  if (condition === "match") {
+    await expect(result).resolves.toMatchObject({ environment });
+    expect(fixture.enroll).toHaveBeenCalledWith(
+      {
+        repoPath: environment.repoPath,
+        workspace: environment.workspace,
+        provider: environment.provider,
+      },
+      19,
+      {
+        policyRevision: 7,
+        gitCommonDir: common,
+        providerId: "provider",
+        hostDomain: "host",
+        runtimeDomain: "guest",
+        endpoint: runtime.endpoint,
+        daemonId: runtime.daemonId,
+        estimatesDigest: enrollment.estimatesDigest,
+      },
+    );
+  } else {
+    await expect(result).rejects.toThrow();
+    expect(fixture.enroll).not.toHaveBeenCalled();
+  }
 });

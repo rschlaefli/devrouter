@@ -20,6 +20,17 @@ export type ReliabilityIdentity = {
   provider: "devpod" | "devsy";
 };
 
+export type CapacityEnrollmentBinding = {
+  policyRevision: number;
+  gitCommonDir: string;
+  providerId: string;
+  hostDomain: string;
+  runtimeDomain: string;
+  endpoint: string;
+  daemonId: string;
+  estimatesDigest: string;
+};
+
 export type ReliabilityOperationRecord = {
   version: 1 | 2;
   identity: ReliabilityIdentity;
@@ -28,6 +39,8 @@ export type ReliabilityOperationRecord = {
   worker: { id: string; operationId: string; pid: number; birth: string } | null;
   effectSequence: number;
   outcome: (ExecutionOutcome & { operationId: string }) | null;
+  enrollment?: CapacityEnrollmentBinding;
+  activeProfile?: string | null;
   capacity?: {
     reservationId: string;
     operationId: string;
@@ -77,7 +90,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     "worker",
     "effectSequence",
     "outcome",
-    ...(record.version === 2 ? ["capacity"] : []),
+    ...(record.version === 2 ? ["capacity", "enrollment", "activeProfile"] : []),
   ]);
   keys(record.identity, ["repoPath", "workspace", "provider"]);
   if (
@@ -115,8 +128,57 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
   }
   const state = record.state;
   assertReliabilityState(state);
-  if (state.environmentId !== identityKey(identity) || state.executionPolicy !== "manual") {
-    throw new Error("Reliability record does not grant manual authority for this workspace.");
+  if (state.environmentId !== identityKey(identity)) {
+    throw new Error("Reliability record does not match this workspace.");
+  }
+  if (record.enrollment !== undefined) {
+    const enrollment = record.enrollment;
+    keys(enrollment, [
+      "policyRevision",
+      "gitCommonDir",
+      "providerId",
+      "hostDomain",
+      "runtimeDomain",
+      "endpoint",
+      "daemonId",
+      "estimatesDigest",
+    ]);
+    const absolute = (value: unknown): value is string =>
+      typeof value === "string" &&
+      value.length <= 4096 &&
+      !value.includes("\0") &&
+      path.isAbsolute(value) &&
+      path.resolve(value) === value;
+    const providerIdentity = (value: unknown): value is string =>
+      typeof value === "string" &&
+      value.length > 0 &&
+      value.length <= 256 &&
+      value.trim() === value &&
+      ![...value].some(
+        (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+      );
+    if (
+      record.version !== 2 ||
+      state.executionPolicy !== "capacity-managed" ||
+      !Number.isSafeInteger(enrollment.policyRevision) ||
+      enrollment.policyRevision < 1 ||
+      !absolute(enrollment.gitCommonDir) ||
+      !absolute(enrollment.endpoint) ||
+      !providerIdentity(enrollment.providerId) ||
+      !providerIdentity(enrollment.daemonId) ||
+      !isReliabilityId(enrollment.hostDomain) ||
+      !isReliabilityId(enrollment.runtimeDomain) ||
+      enrollment.hostDomain === enrollment.runtimeDomain ||
+      typeof enrollment.estimatesDigest !== "string" ||
+      !/^[0-9a-f]{64}$/.test(enrollment.estimatesDigest) ||
+      (record.activeProfile !== null &&
+        (typeof record.activeProfile !== "string" ||
+          record.activeProfile.length > 256 ||
+          !/^[a-z0-9,-]+$/.test(record.activeProfile)))
+    )
+      throw new Error("Invalid durable capacity enrollment.");
+  } else if (state.executionPolicy !== "manual" || record.activeProfile !== undefined) {
+    throw new Error("Managed lifecycle requires durable capacity enrollment.");
   }
   keys(state, [
     "contractVersion",
@@ -312,6 +374,44 @@ export function updateReliabilityOperation<T>(
     record.revision += 1;
     persist(record);
     return result;
+  });
+}
+
+/** Caller supplies canonical operator enrollment; conversion consumes prior exact stop proof. */
+export function enrollStoppedLifecycle(
+  identity: ReliabilityIdentity,
+  expectedRevision: number,
+  enrollment: CapacityEnrollmentBinding,
+): void {
+  updateReliabilityOperation(identity, (record) => {
+    if (record.revision !== expectedRevision)
+      throw new Error("Enrollment journal revision changed.");
+    if (record.enrollment) {
+      if (
+        Object.entries(record.enrollment).some(
+          ([key, value]) => enrollment[key as keyof CapacityEnrollmentBinding] !== value,
+        )
+      )
+        throw new Error("Lifecycle already has a different capacity enrollment.");
+      return;
+    }
+    if (
+      record.worker ||
+      record.capacity ||
+      record.state.desired !== "stopped-by-user" ||
+      record.state.phase !== "idle" ||
+      !record.state.stopProof.workloadsStopped ||
+      !record.state.stopProof.routesRemoved ||
+      (record.state.operation && !record.state.operation.drained) ||
+      record.state.operationHistory.some((operation) => !operation.drained)
+    )
+      throw new Error("Capacity enrollment requires stopped and drained proof.");
+    record.version = 2;
+    record.capacity = null;
+    record.enrollment = structuredClone(enrollment);
+    record.activeProfile = null;
+    record.state.executionPolicy = "capacity-managed";
+    record.state.admission = "unknown";
   });
 }
 

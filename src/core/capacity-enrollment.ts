@@ -3,6 +3,7 @@ import path from "node:path";
 import type { CapacityPolicy } from "./capacity-policy";
 import { readControllerEvidence, resolveControllerBinding } from "./controller-binding";
 import { runControllerProbe } from "./controller-probe";
+import { enrollStoppedLifecycle, readReliabilityOperation } from "./reliability-operation-store";
 import { capacityEstimatesDigest, loadRepoConfig } from "./repo-config";
 
 /** Match operator enrollment only after existing canonical provider ownership proof. */
@@ -43,4 +44,36 @@ export async function resolveCapacityEnrollment(
     throw new Error("Capacity enrollment evidence changed during resolution.");
   if (signal.aborted) throw new Error("Capacity enrollment resolution was cancelled.");
   return { environment, enrollment, estimates };
+}
+
+/** Resolve operator-owned enrollment before consuming the journal's stopped conversion proof. */
+export async function enrollCapacityLifecycle(
+  policy: CapacityPolicy,
+  request: { path: string; profile: string; require: string[] },
+  signal: AbortSignal,
+) {
+  const resolved = await resolveCapacityEnrollment(policy, request, signal);
+  const { environment, enrollment } = resolved;
+  const runtime = policy.domains[enrollment.runtimeDomain];
+  if (policy.admissions !== "enabled" || runtime?.kind !== "runtime")
+    throw new Error("Capacity enrollment policy is not enabled.");
+  const identity = {
+    repoPath: environment.repoPath,
+    workspace: environment.workspace || null,
+    provider: environment.provider,
+  };
+  const record = readReliabilityOperation(identity);
+  if (!record) throw new Error("Capacity enrollment requires an existing stopped journal.");
+  if (signal.aborted) throw new Error("Capacity enrollment resolution was cancelled.");
+  enrollStoppedLifecycle(identity, record.revision, {
+    policyRevision: policy.revision,
+    gitCommonDir: enrollment.gitCommonDir,
+    providerId: enrollment.providerId,
+    hostDomain: enrollment.hostDomain,
+    runtimeDomain: enrollment.runtimeDomain,
+    endpoint: runtime.endpoint,
+    daemonId: runtime.daemonId,
+    estimatesDigest: enrollment.estimatesDigest,
+  });
+  return resolved;
 }
