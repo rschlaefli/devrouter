@@ -1919,3 +1919,34 @@ Main will integrate the released main baseline once before capacity delivery so
 the package includes the already-delivered stop recovery and version artifacts.
 The host-guarantee choice remains pending and prevents live admission activation;
 no machine-policy or consumer-runtime changes accompany source integration.
+
+### Released stop recovery integrated
+
+Merge bccecc7526809200920814f3d94f5ff9a325a838 integrates released main
+a89f3797b0c6ad76027d3d27ff8012ef42b36abb into the capacity branch. Retained
+baseline proof runs under the provider lock and shares the existing journal-first
+capacity revocation and settlement sequence. The generic population helper keeps
+its providerRoot argument for capacity callers. Manual history rollover remains
+separate from the bounded managed history contract.
+
+The integrated suite passed 1,644 tests across 105 files. Main then restored the
+upstream unclaimed-checkout stop regression omitted during conflict resolution
+and extended capacity settlement coverage to retained baselines. All 47 lifecycle
+tests pass on the committed tree. TypeScript, Biome, Knip, documentation policy,
+knowledge validation and commit hooks pass. The restored and expanded tests do
+not change production source from the full-suite run.
+
+Clean packed qualification at this merge passed: stale samples caused zero
+provider starts; fresh samples launched each provider once; the queued operation
+identity and disconnected watcher behavior survived; preparation settlement
+passed. The tracked process group is absent. Receipts are
+/private/tmp/dr-cap-eScDYt/receipt.json and cleanup.json, with producing log
+/private/tmp/devrouter-capacity-integrated-packed.log. This fixture uses the
+installed worker but does not qualify ordinary CLI admission or live OOM safety.
+
+Simplifier Rawls returned DONE with no findings. Slice reviewer Gibbs owns the
+integration correctness review and remains pending. Claude review terminated at
+the session quota limit before inspecting source; it supplies no review evidence.
+Whole-package final review and the declared-budget versus measured-host decision
+remain open. The capacity branch is unpublished; no machine policy or consumer
+runtime changed during integration.
