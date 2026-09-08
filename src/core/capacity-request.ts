@@ -10,6 +10,28 @@ function sum(left: number, right: number): number {
   return total;
 }
 
+/** Resolve the reviewed steady allocation; callers must independently prove settlement. */
+export function capacitySteadyCharge(
+  estimates: CapacityEstimates,
+  enrollment: CapacityPolicyEnrollment,
+  request: { environmentId: string; profile: string },
+): CapacityCharge {
+  if (capacityEstimatesDigest(estimates) !== enrollment.estimatesDigest)
+    throw new Error("Capacity estimates changed since enrollment.");
+  const profile = estimates.profiles[request.profile];
+  if (!enrollment.profiles.includes(request.profile) || !profile)
+    throw new Error("Steady capacity profile is not enrolled.");
+  return {
+    environmentId: request.environmentId,
+    totals: {
+      [enrollment.hostDomain]: profile.host.steadyBytes,
+      [enrollment.runtimeDomain]: profile.runtime.steadyBytes,
+    },
+    startup: false,
+    heavy: false,
+  };
+}
+
 /** Resolve reviewed totals; this grants neither enrollment nor launch authority. */
 export function capacityRequest(
   estimates: CapacityEstimates,

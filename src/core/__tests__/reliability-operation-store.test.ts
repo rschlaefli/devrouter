@@ -11,6 +11,8 @@ import {
   enrollStoppedLifecycle,
   listReliabilityOperations,
   type ReliabilityIdentity,
+  type ReliabilityOperationRecord,
+  type ReliabilityPreparationReceipt,
   readReliabilityOperation,
   reliabilityOperationPath,
   updateReliabilityOperation,
@@ -74,6 +76,61 @@ describe("durable reliability records", () => {
         },
         100,
       ).state;
+    });
+    return readReliabilityOperation(target)!;
+  }
+
+  function preparationReceipt(
+    record: ReliabilityOperationRecord,
+    operationId = "prepared-operation",
+    profile = "full",
+  ): ReliabilityPreparationReceipt {
+    return {
+      operationId,
+      profile,
+      fence: {
+        ...reliabilityFence(record.state),
+        intentRevision: 7,
+        runtimeGeneration: 3,
+        controllerEpoch: 4,
+      },
+    };
+  }
+
+  function completedPreparationRecord(target: ReliabilityIdentity = identity) {
+    const before = stoppedRecord(target);
+    enrollStoppedLifecycle(target, before.revision, enrollment);
+    updateReliabilityOperation(target, (record) => {
+      const prepared = {
+        id: "prepared-operation",
+        kind: "ensure",
+        drained: true,
+        status: "COMPLETED",
+        exitCode: 0,
+        key: "prepared-key",
+        profile: "full",
+        consumer: { id: "synthetic", requiredCapabilities: [], pinned: false },
+      } satisfies ReliabilityOperationRecord["state"]["operationHistory"][number];
+      const current = {
+        id: "current-operation",
+        kind: "exec",
+        drained: true,
+        status: "COMPLETED",
+        exitCode: 0,
+        key: "current-key",
+        profile: "full",
+        consumer: { id: "synthetic-current", requiredCapabilities: [], pinned: false },
+      } satisfies ReliabilityOperationRecord["state"]["operationHistory"][number];
+      record.state.operationHistory.push(prepared, current);
+      record.state.operation = {
+        id: current.id,
+        kind: current.kind,
+        drained: current.drained,
+        status: current.status,
+        exitCode: current.exitCode,
+      };
+      record.activeProfile = "full";
+      record.preparation = preparationReceipt(record, prepared.id, prepared.profile);
     });
     return readReliabilityOperation(target)!;
   }
@@ -299,6 +356,120 @@ describe("durable reliability records", () => {
     expect(() =>
       assertCapacityEffect(record!, "worker", 100, path.join(fixture.root, "controller")),
     ).toThrow("absent or stale");
+  });
+
+  it("persists a completed preparation receipt independently of the current operation", () => {
+    const record = completedPreparationRecord();
+    expect(record).toMatchObject({
+      version: 2,
+      preparation: {
+        operationId: "prepared-operation",
+        profile: "full",
+        fence: {
+          environmentId: record.state.environmentId,
+          intentRevision: 7,
+          runtimeGeneration: 3,
+          controllerEpoch: 4,
+        },
+      },
+      state: { operation: { id: "current-operation", kind: "exec" } },
+    });
+
+    updateReliabilityOperation(identity, (current) => {
+      current.preparation = null;
+    });
+    expect(readReliabilityOperation(identity)?.preparation).toBeNull();
+  });
+
+  it.each([
+    [
+      "malformed profile",
+      (receipt: ReliabilityPreparationReceipt) => ({ ...receipt, profile: "" }),
+    ],
+    [
+      "malformed fence",
+      (receipt: ReliabilityPreparationReceipt) => ({
+        ...receipt,
+        fence: { ...receipt.fence, runtimeGeneration: -1 },
+      }),
+    ],
+    [
+      "wrong environment",
+      (receipt: ReliabilityPreparationReceipt) => ({
+        ...receipt,
+        fence: { ...receipt.fence, environmentId: "f".repeat(64) },
+      }),
+    ],
+    [
+      "missing history",
+      (receipt: ReliabilityPreparationReceipt) => ({
+        ...receipt,
+        operationId: "missing-operation",
+      }),
+    ],
+  ] as const)("rejects a %s preparation receipt", (_label, alter) => {
+    completedPreparationRecord();
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.preparation = alter(record.preparation!);
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a nonnull preparation receipt without durable enrollment", () => {
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        const operation = {
+          id: "unowned-operation",
+          kind: "ensure" as const,
+          drained: true,
+          status: "COMPLETED" as const,
+          exitCode: 0,
+          key: "unowned-key",
+          profile: "full",
+          consumer: { id: "synthetic", requiredCapabilities: [], pinned: false },
+        };
+        record.version = 2;
+        record.capacity = null;
+        record.state.operationHistory.push(operation);
+        record.state.operation = {
+          id: operation.id,
+          kind: operation.kind,
+          drained: operation.drained,
+          status: operation.status,
+          exitCode: operation.exitCode,
+        };
+        record.preparation = {
+          operationId: operation.id,
+          profile: operation.profile,
+          fence: reliabilityFence(record.state),
+        };
+      }),
+    ).toThrow("durable capacity enrollment");
+  });
+
+  it("rejects a nonnull preparation receipt on a version1 record", () => {
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        const operation = {
+          id: "manual-prepared",
+          kind: "ensure" as const,
+          drained: true,
+          status: "COMPLETED" as const,
+          exitCode: 0,
+          key: "manual-key",
+          profile: "full",
+          consumer: { id: "synthetic", requiredCapabilities: [], pinned: false },
+        };
+        record.state.operationHistory.push(operation);
+        record.state.operation = { ...operation };
+        record.preparation = {
+          operationId: operation.id,
+          profile: operation.profile,
+          fence: reliabilityFence(record.state),
+        };
+      }),
+    ).toThrow("unsupported fields");
   });
 
   it("rejects missing or undefined capacity on a v2 journal", () => {

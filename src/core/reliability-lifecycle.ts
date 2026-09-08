@@ -679,6 +679,11 @@ export function recordLifecycleCompletion(exitCode: number, preparedProfile?: st
         throw new Error("Prepared profile does not match the active lifecycle worker.");
       // Application failure does not invalidate successfully reconciled tooling.
       record.activeProfile = preparedProfile;
+      record.preparation = {
+        operationId: request.operationId,
+        profile: preparedProfile,
+        fence: { ...request.fence },
+      };
     }
     stepRecord(record, {
       ...request.fence,
@@ -761,7 +766,10 @@ export function proveLifecycleStopped(): void {
       )
         throw new Error("Capacity settlement was superseded before journal confirmation.");
       record.capacity = null;
-      if (record.enrollment) record.activeProfile = null;
+      if (record.enrollment) {
+        record.activeProfile = null;
+        record.preparation = null;
+      }
       stepRecord(record, {
         ...request.fence,
         type: "stop-proof",

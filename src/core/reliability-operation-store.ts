@@ -12,6 +12,8 @@ import {
   createReliabilityState,
   isReliabilityCounter,
   isReliabilityId,
+  isReliabilityProfile,
+  type ReliabilityFence,
   type ReliabilityState,
 } from "./reliability-contract";
 import { DEVROUTER_HOME } from "./router";
@@ -35,6 +37,12 @@ export type CapacityEnrollmentBinding = {
 
 export type CapacityControllerIdentity = { store: string; epoch: number };
 
+export type ReliabilityPreparationReceipt = {
+  operationId: string;
+  profile: string;
+  fence: ReliabilityFence;
+};
+
 export type ReliabilityOperationRecord = {
   version: 1 | 2;
   identity: ReliabilityIdentity;
@@ -53,6 +61,7 @@ export type ReliabilityOperationRecord = {
     validUntilMs: number;
     controller?: CapacityControllerIdentity;
   } | null;
+  preparation?: ReliabilityPreparationReceipt | null;
 };
 
 const MAX_RECORD_BYTES = 1_048_576;
@@ -103,7 +112,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     "worker",
     "effectSequence",
     "outcome",
-    ...(record.version === 2 ? ["capacity", "enrollment", "activeProfile"] : []),
+    ...(record.version === 2 ? ["capacity", "enrollment", "activeProfile", "preparation"] : []),
   ]);
   keys(record.identity, ["repoPath", "workspace", "provider"]);
   if (
@@ -236,6 +245,41 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     keys(entry, ["key", "mode", "consumerId", "operationId", "profile", "intentRevision"]);
   for (const entry of state.observations)
     keys(entry, ["capability", "infrastructure", "application", "observedAtMs", "validForMs"]);
+  if (record.preparation !== undefined && record.preparation !== null) {
+    if (
+      record.version !== 2 ||
+      record.enrollment === undefined ||
+      state.executionPolicy !== "capacity-managed"
+    )
+      throw new Error("Preparation receipt requires durable capacity enrollment.");
+    const preparation = record.preparation;
+    keys(preparation, ["operationId", "profile", "fence"]);
+    keys(preparation.fence, [
+      "environmentId",
+      "intentRevision",
+      "runtimeGeneration",
+      "controllerEpoch",
+    ]);
+    if (
+      !isReliabilityId(preparation.operationId) ||
+      !isReliabilityProfile(preparation.profile) ||
+      !isReliabilityId(preparation.fence.environmentId) ||
+      preparation.fence.environmentId !== state.environmentId ||
+      !isReliabilityCounter(preparation.fence.intentRevision) ||
+      !isReliabilityCounter(preparation.fence.runtimeGeneration) ||
+      !isReliabilityCounter(preparation.fence.controllerEpoch)
+    )
+      throw new Error("Invalid preparation receipt.");
+    const preparedOperation = state.operationHistory.find(
+      (entry) => entry.id === preparation.operationId,
+    );
+    if (
+      preparedOperation?.kind !== "ensure" ||
+      preparedOperation.profile !== preparation.profile ||
+      preparedOperation.status !== "COMPLETED"
+    )
+      throw new Error("Preparation receipt does not match a completed ensure operation.");
+  }
   if (state.operation) {
     const current = state.operationHistory.find((entry) => entry.id === state.operation?.id);
     if (

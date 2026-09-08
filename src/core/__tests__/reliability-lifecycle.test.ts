@@ -1077,6 +1077,11 @@ describe("reliability lifecycle supervision", () => {
     });
     expect(store.readReliabilityOperation(identity)).toMatchObject({
       activeProfile: "full",
+      preparation: {
+        operationId: request.operationId,
+        profile: "full",
+        fence: request.fence,
+      },
       state: { operation: { status: "COMPLETED", exitCode } },
     });
   });

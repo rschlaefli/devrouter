@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import type { CapacityEstimates } from "../../types";
 import type { CapacityPolicyEnrollment } from "../capacity-policy";
-import { capacityRequest } from "../capacity-request";
+import { capacityRequest, capacitySteadyCharge } from "../capacity-request";
 import { capacityEstimatesDigest } from "../repo-config";
 
 const estimates: CapacityEstimates = {
@@ -31,6 +31,22 @@ const enrollment: CapacityPolicyEnrollment = {
   estimatesDigest: capacityEstimatesDigest(estimates),
   defaultOperation: { hostIncrementBytes: 10, runtimeIncrementBytes: 20 },
 };
+
+it("resolves only reviewed enrolled steady allocations", () => {
+  const request = { environmentId: "one", profile: "small" };
+  expect(capacitySteadyCharge(estimates, enrollment, request)).toEqual({
+    environmentId: "one",
+    totals: { host: 10, guest: 30 },
+    startup: false,
+    heavy: false,
+  });
+  expect(() =>
+    capacitySteadyCharge(estimates, { ...enrollment, estimatesDigest: "0".repeat(64) }, request),
+  ).toThrow();
+  expect(() =>
+    capacitySteadyCharge(estimates, { ...enrollment, profiles: ["full"] }, request),
+  ).toThrow();
+});
 
 it("uses startup totals and retains the source allocation during profile expansion", () => {
   const request = { environmentId: "one", profile: "full", kind: "ensure" as const };
