@@ -1320,3 +1320,24 @@ must still inspect all configured pools, fence policy/controller changes after
 probes, persist observations before returning samples, and treat unknown liveness
 as unknown. Host accounting and CLI activation remain unqualified; no live policy
 or runtime was changed.
+
+### All-pool collection before dispatch
+
+The prior controller admission review passed and the reviewer closed the
+serialized-byte-limit finding. Commit 5f25db3 now probes all configured runtime
+domains, including pools without enrolled environments, before returning samples
+for admission. It limits probes to four concurrent requests and a three-second
+pool-probe deadline, drains on shutdown, validates daemon identity, persists
+positive observations under the captured snapshot revision, and marks unknown
+host/runtime samples unknown. Policy and controller identity are rechecked after
+asynchronous work. Host samples must exclude VM usage already covered by ceilings.
+
+All 119 affected tests pass with two workers; typecheck, Biome, Knip and hooks pass.
+Receipt: /private/tmp/devrouter-capacity-pool-collection-tests.log. A real isolated
+Unix-socket fixture proves unenrolled-pool persistence before the launch callback,
+host-budget denial, and stale policy/epoch/snapshot rejection without dispatch.
+Simplification is running; the independent reviewer first owns the observed-store
+slice, then this collector slice. The injected sample collector still lacks a
+cancellation contract. Qualified host/guest telemetry, complete production CLI
+activation and live capacity acceptance remain pending. No live runtime or policy
+was changed.
