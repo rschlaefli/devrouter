@@ -242,6 +242,52 @@ afterAll(() => {
 });
 
 describe("reliability lifecycle supervision", () => {
+  it("persists history rollover and its new fence before invoking the next worker", async () => {
+    const { identity, lifecycle, store } = await seedWorkerRequest();
+    const { contract, model } = await loadLifecycleModules();
+    store.updateReliabilityOperation(identity, (record) => {
+      for (const event of [
+        { type: "completion", operationId: "operation-id", exitCode: 0 },
+        { type: "drained", operationId: "operation-id" },
+      ] as const) {
+        record.state = model.stepReliability(
+          record.state,
+          { ...contract.reliabilityFence(record.state), ...event },
+          100,
+        ).state;
+      }
+      const current = record.state.operationHistory[0];
+      record.state.operationHistory = [
+        ...Array.from({ length: 127 }, (_, index) => ({
+          ...current,
+          id: `old-${index}`,
+          key: `key-${index}`,
+        })),
+        current,
+      ];
+      record.worker = null;
+    });
+    const before = store.readReliabilityOperation(identity)!;
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "next-key",
+      operationId: "next-operation",
+      workerId: "next-worker",
+    });
+    fixture.runLifecycleWorker.mockImplementation(async (request: LifecycleWorkerRequest) => {
+      const persisted = store.readReliabilityOperation(identity)!;
+      expect(persisted.revision).toBe(before.revision + 1);
+      expect(persisted.state.intentRevision).toBe(before.state.intentRevision + 1);
+      expect(request.fence).toEqual(contract.reliabilityFence(persisted.state));
+      expect(persisted.state.operation?.id).toBe("next-operation");
+      expect(persisted.state.operationHistory).toHaveLength(128);
+      expect(persisted.state.operationHistory.some((entry) => entry.id === "old-0")).toBe(false);
+      expect(persisted.state.operationHistory.some((entry) => entry.id === "operation-id")).toBe(
+        true,
+      );
+    });
+    await lifecycle.superviseLifecycle("ensure", identity.repoPath, {});
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledOnce();
+  });
   it("persists explicit stop intent before the worker supervisor waits", async () => {
     const { lifecycle, store } = await loadLifecycleModules();
     const repoPath = newCheckout();
