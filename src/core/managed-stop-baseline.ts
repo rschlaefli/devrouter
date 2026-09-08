@@ -180,7 +180,7 @@ export function validateManagedStopBaseline(
         const mount = record(item, ["Type", "Source", "Destination"]);
         return {
           Type: text(mount.Type),
-          Source: absolute(mount.Source),
+          Source: mount.Type === "tmpfs" && mount.Source === "" ? "" : absolute(mount.Source),
           Destination: absolute(mount.Destination),
         };
       }),

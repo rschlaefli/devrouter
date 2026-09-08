@@ -271,3 +271,20 @@ Final integrated unit verification passes 1,277 tests in 91 suites with two
 workers outside the sandbox. Typecheck, Biome, Knip, docs policy, knowledge and
 diff checks pass. The unchanged packed executable digest matches the live fixture
 and synthetic qualifier receipts despite documentation/test-only follow-up edits.
+
+
+### Source-less tmpfs compatibility correction
+
+While final review of a22eb1d remained running, main reproduced a baseline
+capture failure for a source-less tmpfs mount. The pinned Devsy source supports
+such mounts, while the new validator required an absolute source for every mount.
+A focused regression failed at that validator before any stop effect.
+
+The correction accepts an empty source only when the mount type is tmpfs.
+Bind and volume mounts retain absolute-source validation. The capture/readback/
+exact-stop regression and negative bind/volume cases pass; all 74 affected
+recovery and Docker-inspection tests pass, along with typecheck and Biome.
+Main owns this bounded correction because it is coupled to final integration.
+The current reviewer examines the prior immutable range; this change must be
+included in its correction pass before delivery. Earlier live evidence still
+covers its original inputs, but does not prove tmpfs behavior in a real runtime.

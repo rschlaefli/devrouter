@@ -179,6 +179,22 @@ describe("retained stop ownership", () => {
     expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(state);
   });
 
+  it("retains source-less tmpfs mounts through capture and exact stop", () => {
+    containers[0].mounts.push({ Type: "tmpfs", Source: "", Destination: "/run/synthetic" });
+    persist();
+    expect(readManagedRuntimeState(state.repoPath)).toEqual(state);
+    stopFromManagedBaseline(state);
+    expect(containers.every((container) => !container.state.Running)).toBe(true);
+    expect(docker.stopPinnedManagedContainer).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["bind", "volume"])("rejects a source-less %s mount before capture", (Type) => {
+    containers[0].mounts.push({ Type, Source: "", Destination: "/run/synthetic" });
+    expect(() => persist()).toThrow(Error);
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+    expect(readManagedRuntimeState(state.repoPath)).toBeUndefined();
+  });
+
   it("rejects endpoint drift between capability selection and locked capture", () => {
     expect(() =>
       captureManagedStopBaseline(state, plan, containers[0].id, "unix:///different.sock"),
