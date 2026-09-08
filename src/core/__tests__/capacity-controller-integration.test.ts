@@ -304,9 +304,6 @@ it.each([
     if (retainedPredecessor) {
       const snapshot = store.read();
       const prior = snapshot.reservations[0];
-      const budgets = Object.fromEntries(
-        Object.entries(operatorPolicy.domains).map(([name, domain]) => [name, domain]),
-      );
       const now = Date.now();
       expect(
         store.reserve(
@@ -316,7 +313,7 @@ it.each([
             heavy: mode === "heavy",
             totals: { host: mode === "excess" ? 12 : 10, runtime: 10 },
           },
-          budgets,
+          operatorPolicy.domains,
           { host: sample(now), runtime: sample(now) },
           now,
           15000,
