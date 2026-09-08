@@ -1187,3 +1187,24 @@ A native planner owns this decision frontier together with the unresolved host
 non-VM measurement method. Additional footprint output is not physical byte
 accounting: sys_footprint exceeds physical RAM, so it cannot be subtracted from
 ordinary resident usage. No machine policy or runtime change was made.
+
+### Pending decision: runtime-pool host reservation lifetime
+
+Native planner Ampere approves this complete currently actionable decision
+frontier. Recommendation: reserve a runtime pool's host ceiling before startup,
+charge running or possibly-live pools once, and release only after positive VM
+cessation proof. Configuration declares eligibility; it does not permanently
+reserve memory. Running pools count even without enrolled workloads. Stopping
+containers alone does not release the VM reservation.
+
+Alternative: reserve every configured pool permanently and reject policies whose
+combined ceilings exceed host admissible capacity, including the current fixture.
+The recommendation preserves that parser compatibility while requiring pooled
+reservation lifecycle proof before dispatch. The approved plan previously defined
+deduplication but not reservation lifetime; this clarification awaits the user.
+
+Approval settles accounting semantics and related in-scope source implementation
+only. It adds no authority to create/start/stop VM pools, install services or
+activate machine policy. The qualified host non-VM accounting method remains an
+investigation prerequisite; no speculative telemetry alternative is offered for
+approval. Existing source/review work and isolated canary authority remain valid.
