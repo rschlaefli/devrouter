@@ -115,6 +115,15 @@ an unreadable Docker state stays attached and fails closed, no container or
 state is deleted, and any surviving prior-project container still blocks the
 transition.
 
+After an external reset, saved ready state is not a healthy rollback target.
+If recreation fails after the exact candidate and its complete selected service
+population are proved, the reconciler retains the candidate configuration and
+matching degraded record, stops its processes, and removes unusable checkout
+routes. Repair can then replay the selected profile; stop retains its existing
+ownership checks. Incomplete candidate proof or failed cleanup is reported
+explicitly instead of claiming recovery. An empty rollback process baseline
+does not invoke the repository startup adapter.
+
 Ordinary ensure automatically recovers a retained degraded record using its recorded
 profile and unchanged configuration. Explicit `ensure --repair` limits the invocation
 to this repair stage. It verifies exact provider, workspace and

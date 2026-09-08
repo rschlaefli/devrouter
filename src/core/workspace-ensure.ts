@@ -962,6 +962,8 @@ export async function workspaceEnsure(
     let managedConfigWritten = false;
     let managedWorkspaceEnv: { token: string; gitCommonDir: string } | undefined;
     let firstTransitionBaseline: FirstTransitionBaseline | undefined;
+    let detachedState: ManagedRuntimeState | undefined;
+    let resetCandidateState: ManagedRuntimeState | undefined;
     const routeLoadOptions = {
       initialTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 3_000),
       recoveryTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 10_000),
@@ -1008,6 +1010,7 @@ export async function workspaceEnsure(
           previousManagedState &&
           !hasExactManagedComposeProject(repoPath, previousManagedState)
         ) {
+          detachedState = previousManagedState;
           previousManagedState = undefined;
         }
         if (previousManagedState && previousManagedState.devpodId !== target.devpodId) {
@@ -1248,6 +1251,25 @@ export async function workspaceEnsure(
         );
         container = await preflight(options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
         managedContainer = container;
+        if (detachedState && devpodId) {
+          resetCandidateState = {
+            version: 1,
+            repoPath,
+            ...(target.workspace !== undefined ? { workspace: target.workspace } : {}),
+            devpodId,
+            composeProject: managedComposeProject,
+            profile: runtime.profile,
+            desired: {
+              apps: apps.map((app) => app.name).sort(),
+              services: [...managedPlan.desiredProfileServices].sort(),
+              processes: [...desiredProcesses].sort(),
+            },
+            sourceConfigSha256: managedPlan.sourceConfigSha256,
+            effectiveConfigSha256: managedPlan.effectiveConfigSha256,
+            status: "degraded",
+            updatedAt: new Date().toISOString(),
+          };
+        }
       }
 
       if (options.repair && managedPlan)
@@ -1434,6 +1456,84 @@ export async function workspaceEnsure(
         ...(managedRuntimeStatus ? { managedRuntime: managedRuntimeStatus } : {}),
       };
     } catch (error) {
+      if (detachedState) {
+        const failures: string[] = [];
+        const resetWorkspace = detachedState.workspace;
+        // Routes from the deleted generation are not a healthy rollback target.
+        try {
+          const routes = listHostRouteState().filter((route) =>
+            sameWorkspacePath(route.repoPath, repoPath),
+          );
+          if (routes.some((route) => route.workspace !== resetWorkspace)) {
+            throw new Error("Reset recovery found a foreign workspace route.");
+          }
+          claimLifecycleEffect();
+          replaceHostRoutesForRepo(repoPath, []);
+          await ensureTraefikRoutesRemoved([...routes, ...candidateRoutes], {
+            ...routeLoadOptions,
+            allowRestart: false,
+          });
+        } catch (cleanupError) {
+          failures.push(
+            `routes: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+          );
+        }
+        if (managedContainer) {
+          for (const name of managedProcessRegistry) {
+            try {
+              claimLifecycleEffect();
+              runManagedProcessAction({
+                container: managedContainer,
+                name,
+                action: "stop",
+                quiet: options.quiet,
+              });
+            } catch (cleanupError) {
+              failures.push(
+                `process '${name}': ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+              );
+            }
+          }
+        }
+        if (resetCandidateState && managedPlan && managedContainer && managedComposeProject) {
+          try {
+            await waitForManagedServices(
+              managedPlan,
+              repoPath,
+              managedComposeProject,
+              managedPlan.desiredServices,
+              managedContainer.id,
+              0,
+            );
+            assertManagedContainerConfigUnchanged({
+              plan: managedPlan,
+              containers: inspectWorkspaceContainers({ composeProject: managedComposeProject }),
+              workspace: managedWorkspaceEnv,
+            });
+            if (inspectManagedDevcontainerGeneratedConfig(managedPlan).status !== "valid") {
+              throw new Error("Reset candidate configuration changed before recovery persistence.");
+            }
+            claimLifecycleEffect();
+            writeManagedRuntimeState({
+              ...resetCandidateState,
+              transitionPhase,
+              updatedAt: new Date().toISOString(),
+            });
+          } catch (stateError) {
+            failures.push(
+              `state: ${stateError instanceof Error ? stateError.message : String(stateError)}`,
+            );
+          }
+        } else {
+          failures.push(
+            "candidate ownership and complete service population were not proved; recovery state was not replaced",
+          );
+        }
+        const original = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `${original} Reset candidate retained for recovery.${failures.length ? ` Recovery incomplete: ${failures.join("; ")}.` : " State is degraded."}`,
+        );
+      }
       if (options.repair && !repairMutationStarted) throw error;
       if (options.repair && repairMutationStarted && previousManagedState && managedPlan) {
         const failures: string[] = [];
@@ -1537,7 +1637,7 @@ export async function workspaceEnsure(
           if (!managedPostStartPlan) {
             throw new Error("Managed post-start plan disappeared during rollback.");
           }
-          if (previousManagedState?.status !== "degraded") {
+          if (previousProcesses.length > 0 && previousManagedState?.status !== "degraded") {
             claimLifecycleEffect();
             runManagedPostStart({
               plan: managedPostStartPlan,
