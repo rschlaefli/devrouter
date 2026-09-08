@@ -1944,8 +1944,9 @@ passed. The tracked process group is absent. Receipts are
 /private/tmp/devrouter-capacity-integrated-packed.log. This fixture uses the
 installed worker but does not qualify ordinary CLI admission or live OOM safety.
 
-Simplifier Rawls returned DONE with no findings. Slice reviewer Gibbs owns the
-integration correctness review and remains pending. Claude review terminated at
+Simplifier Rawls and slice reviewer Gibbs returned DONE with no findings. Main
+verified the reviewed settlement ordering and retained-baseline dispatch against
+the integrated source. These verdicts cover integration only. Claude review terminated at
 the session quota limit before inspecting source; it supplies no review evidence.
 Whole-package final review and the declared-budget versus measured-host decision
 remain open. The capacity branch is unpublished; no machine policy or consumer
