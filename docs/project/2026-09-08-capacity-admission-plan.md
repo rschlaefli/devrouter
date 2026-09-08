@@ -1392,3 +1392,28 @@ between kernel_task and user processes are not fully deduplicated. Those totals
 are not direct current physical RAM usage. This is a semantic diagnosis, not a
 qualified replacement measurement. The pending bounded consultation approval and
 live host/guest telemetry qualification remain unresolved.
+
+### Released CLI application-stop recovery dogfood
+
+Released devrouter 0.0.60 resumed the exact retained eLearning canary without
+recreation and reached HTTP 200. Before startup, host pressure was normal and
+guest MemAvailable was 24761848 kB; the adapter enforced its existing 6 GiB app
+limit. The canary baseline and config were unchanged.
+
+Using canonical exec, the managed process helper stopped only app. Node v22.21.0
+and pnpm 10.30.0 remained available while app status was stopped. Ordinary ensure
+then restored HTTP 200, ready runtime and no drift without explicit repair. The
+same retained container was used; app PID changed from 278 to 881. A subsequent
+warm ensure reported the existing matching PID 881 and skipped preparation.
+This proves recovery after a controlled app stop, not abrupt crash/OOM recovery,
+authenticated browser progress or capacity admission.
+
+Canonical stop completed, freed two routes, and preserved runtime data. Fresh
+Devsy state is Stopped; status has empty active resources and no drift; exact
+canary route count is zero. Target remains
+/Users/rschlae/Git/tc/elearning/trees/rs/reliability-canary, provider/workspace
+rs-reliability-canary. Receipts:
+/private/tmp/devrouter-elearning-released-recovery-{start,ensure,warm,stop,provider,final-status,final-routes}.json
+and /private/tmp/devrouter-elearning-released-recovery-tooling.log. Helper PID and
+warm reuse observations are in this producing command's tool output. No shared VM
+restart, data deletion, host OOM induction or machine-policy activation occurred.
