@@ -881,3 +881,17 @@ to the stricter journal enrollment boundary. Receipt:
 knowledge and focused Biome pass. The same worker owns the fixture correction.
 Profile/history changes await integration verification and scoped review before
 delivery. No packed/live capacity or OOM qualification is claimed.
+
+Profile/history correction committed as 4530f42; simplifier found no worthwhile
+reduction. Gauss returned the coordinator integration test and main independently
+passed it, then aligned the synthetic enrollment endpoint with its policy and
+added durable reservation assertions. The strengthened test passes: the first
+operation owns both domain totals, a repeated scheduler tick does not relaunch,
+the competing operation keeps its durable queued ID, cancelling a wait does not
+cancel accepted work, and mock completion cannot release retained charges or
+fabricate a terminal journal outcome. Real coordinator, queue, policy parser,
+preparation/admission, journal and CapacityStore run against isolated files;
+canonical enrollment and worker launch are mocked. The prior 99-file/1,355-test
+passing evidence remains applicable; the sole previously failing integration
+test now passes. This is not the packed real-worker launch tracer. Correctness
+review of 30fc075..7923b29 remains with Singer.
