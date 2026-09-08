@@ -1549,3 +1549,26 @@ with surviving descendants still refuses signaling and withholds success; this
 case is not qualified. Check, Knip, typecheck and hooks pass. The successful
 normal tracer is now wired into CI with a five-minute bound. Linux CI proof is
 still pending; neither fixtures nor this wiring activate production capacity.
+
+### Integrated Linux qualification
+
+Merged the released main baseline 9be6df2 into the capacity branch at 1985185.
+All 1561 unit tests across 104 files pass locally; macOS skips the Linux /proc
+process-script checks. The first Linux run passed all earlier stages and exposed
+PGID zero in kernel process metadata. Correction 2443195 accepts those inventory
+rows while preserving positive exact worker-group identity for signaling; the
+existing reviewer confirms the authority boundary is unchanged.
+
+Linux verification-only CI passes on 2443195:
+https://github.com/rschlaefli/devrouter/actions/runs/34254357128 . This includes
+tests, build, package smoke, controller qualification and capacity qualification.
+Publishing was explicitly disabled and the publish job was skipped. Prior failed
+run: https://github.com/rschlaefli/devrouter/actions/runs/34253958369 .
+
+Local pnpm's default dependency check attempted a node_modules reinstall after
+release metadata integration and refused without a TTY. Existing installed-tool
+checks passed directly. The correction commit ran every hook with the command-local
+pnpm_config_verify_deps_before_run=warn setting; no dependency directory was
+replaced and no persistent package-manager configuration changed. Linux CI used
+its clean frozen-lockfile install. Production host telemetry and admission remain
+unqualified; no live policy or runtime was changed.
