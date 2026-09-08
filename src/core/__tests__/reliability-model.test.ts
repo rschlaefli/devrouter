@@ -593,24 +593,145 @@ describe("manual operation lifecycle", () => {
     expect(projectReliability(state, consumer.id, 100).state).toBe("STOPPED");
     expect(state.operation?.status).toBe("COMPLETION_UNKNOWN");
   });
-  it("cannot dispatch a drained operation or erase duplicate history at the bound", () => {
-    let state = step(manual(), ensure).state;
-    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
-    expect(step(state, { type: "dispatch" }).effects).toEqual([]);
-    state = manual();
+  function finish(state: ReliabilityState) {
+    const operationId = state.operation!.id;
+    state = step(state, { type: "dispatch" }).state;
+    state = step(state, { type: "dispatch-persisted", operationId }).state;
+    state = step(state, { type: "completion", operationId, exitCode: 0 }).state;
+    return step(state, { type: "drained", operationId }).state;
+  }
+  function fullHistory() {
+    let state = manual();
     for (let index = 0; index < 128; index++) {
-      const operationId = `op-${index}`;
-      state = step(state, { ...ensure, key: `request-${index}`, operationId }).state;
-      state = step(state, { type: "dispatch" }).state;
-      state = step(state, { type: "dispatch-persisted", operationId }).state;
-      state = step(state, { type: "completion", operationId, exitCode: 0 }).state;
-      state = step(state, { type: "drained", operationId }).state;
+      state = finish(
+        step(state, { ...ensure, key: `request-${index}`, operationId: `op-${index}` }).state,
+      );
     }
-    expect(state.operationHistory).toHaveLength(128);
-    expect(step(state, ensure).outcome).toBe("blocked");
-    expect(step(state, { ...ensure, key: "request-0", operationId: "op-0" }).outcome).toBe(
+    return state;
+  }
+  it("cannot dispatch a drained operation", () => {
+    const state = step(step(manual(), ensure).state, {
+      type: "drained",
+      operationId: ensure.operationId,
+    }).state;
+    expect(step(state, { type: "dispatch" }).effects).toEqual([]);
+  });
+  it("accepts more than 256 completed cycles with bounded history across stop and resume", () => {
+    let state = manual();
+    for (let index = 0; index < 300; index++) {
+      if (index > 0 && index % 70 === 0) {
+        state = step(state, { type: "stop" }).state;
+        state = step(state, {
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        }).state;
+      }
+      const before = state;
+      const accepted = step(state, {
+        ...ensure,
+        kind: index % 2 ? "exec" : "ensure",
+        runtimeRunning: true,
+        key: `request-${index}`,
+        operationId: `op-${index}`,
+      });
+      expect(accepted.outcome).toBe("accepted");
+      expect(accepted.state.intentRevision).toBe(
+        before.intentRevision + (before.desired !== "running" || index >= 128 ? 1 : 0),
+      );
+      state = finish(accepted.state);
+      expect(state.operation?.status).toBe("COMPLETED");
+      expect(state.operation?.drained).toBe(true);
+      expect(state.operationHistory).toHaveLength(Math.min(index + 1, 128));
+    }
+    expect(state.operationHistory[0].id).toBe("op-172");
+  });
+  it("checks retained duplicates and conflicts before rollover and fences old events", () => {
+    const full = fullHistory();
+    const retained = { ...ensure, key: "request-127", operationId: "op-127" };
+    expect(step(full, retained)).toEqual({ state: full, outcome: "joined", effects: [] });
+    expect(step(full, { ...retained, profile: "other" })).toEqual({
+      state: full,
+      outcome: "conflict",
+      effects: [],
+    });
+    expect(step(full, { ...retained, key: "new-key" }).outcome).toBe("conflict");
+    const state = step(full, ensure).state;
+    expect(state.operationHistory.some((entry) => entry.id === "op-0")).toBe(false);
+    expect(step(state, retained).outcome).toBe("joined");
+    for (const event of [
+      { ...ensure, key: "request-0", operationId: "op-0" },
+      { type: "completion", operationId: "op-0", exitCode: 0 },
+      { type: "drained", operationId: "op-0" },
+    ] as Input[]) {
+      expect(
+        stepReliability(state, { ...reliabilityFence(full), ...event } as ReliabilityEvent, 100),
+      ).toEqual({ state, outcome: "stale", effects: [] });
+    }
+  });
+  it("retires only the oldest settled drained noncurrent entry", () => {
+    const full = fullHistory();
+    full.operationHistory[0] = {
+      ...full.operationHistory[0],
+      status: "COMPLETION_UNKNOWN",
+      exitCode: null,
+    };
+    full.operationHistory[1].drained = false;
+    const accepted = step(full, ensure);
+    expect(accepted.outcome).toBe("accepted");
+    expect(accepted.state.operationHistory.slice(0, 2)).toEqual(full.operationHistory.slice(0, 2));
+    expect(accepted.state.operationHistory.some((entry) => entry.id === "op-2")).toBe(false);
+    expect(accepted.state.operationHistory.some((entry) => entry.id === "op-127")).toBe(true);
+    for (const entry of full.operationHistory.slice(0, -1)) {
+      entry.status = "COMPLETION_UNKNOWN";
+      entry.exitCode = null;
+    }
+    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+  });
+  it.each([
+    "INTERRUPTED",
+    "COMPLETION_UNKNOWN",
+    "NOT_STARTED",
+  ] as const)("does not roll over a current %s operation even after drainage", (status) => {
+    const full = fullHistory();
+    full.operation = { ...full.operation!, status, exitCode: null };
+    full.operationHistory[127] = { ...full.operationHistory[127], ...full.operation };
+    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+  });
+  it("requires current drainage and preserves state when the counter is exhausted", () => {
+    const full = fullHistory();
+    full.operation!.drained = false;
+    full.operationHistory[127].drained = false;
+    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+    full.operation!.drained = true;
+    full.operationHistory[127].drained = true;
+    full.intentRevision = Number.MAX_SAFE_INTEGER;
+    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+    expect(step(full, { ...ensure, key: "request-127", operationId: "op-127" }).outcome).toBe(
       "joined",
     );
+  });
+  it("permits rollover with no current operation or a drained not-launched operation", () => {
+    for (const absent of [false, true]) {
+      const full = fullHistory();
+      full.operationHistory[0] = {
+        ...full.operationHistory[0],
+        status: "NOT_LAUNCHED",
+        exitCode: null,
+      };
+      full.operation = absent
+        ? null
+        : { ...full.operation!, status: "NOT_LAUNCHED", exitCode: null };
+      if (full.operation)
+        full.operationHistory[127] = { ...full.operationHistory[127], ...full.operation };
+      expect(step(full, ensure).outcome).toBe("accepted");
+    }
+  });
+  it("does not enable rollover for capacity-managed operations", () => {
+    const full = fullHistory();
+    full.executionPolicy = "capacity-managed";
+    full.admission = "waiting";
+    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
   });
 });
 

@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Allow continued manual lifecycle operations after the bounded history fills by
+  retiring only settled, drained records and advancing the intent fence. Retain
+  uncertain history and keep capacity-managed history exhaustion fail-closed.
+
 ## [0.0.60] - 2026-09-08
 
 ### Fixed

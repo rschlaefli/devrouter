@@ -39,8 +39,12 @@ Reusing an identity reports the original operation without replay. A different
 operation requires definite completion and worker drainage, or an explicit stop
 with full cessation proof. A new ensure may reconcile a drained interrupted or never-dispatched ensure
 while preserving its unknown historical result. Unknown arbitrary exec never gains
-that exception. Exhausted history fails closed. This preserves the
-difference between application completion and a worker that can still mutate.
+that exception. At the history bound, manual admission may retire only the oldest
+completed or not-launched, drained, noncurrent record. Retirement, advancement of
+the intent fence, and admission occur atomically. Uncertain records remain retained;
+if no record qualifies, admission remains blocked. Capacity-managed history remains
+fail-closed because its request identities are externally retryable. This preserves
+the difference between application completion and a worker that can still mutate.
 
 An initial exec may adopt positive evidence of an existing runtime while creating
 its first manual record. It never starts that runtime or overrides recorded stop

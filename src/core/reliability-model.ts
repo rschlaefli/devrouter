@@ -366,7 +366,8 @@ function handleOperationRequest(
     );
   if (state.operationHistory.some((entry) => entry.id === event.operationId))
     return unchanged(state, "conflict");
-  if (state.operationHistory.length >= RELIABILITY_MAX_ITEMS) return unchanged(state, "blocked");
+  if (state.executionPolicy !== "manual" && state.operationHistory.length >= RELIABILITY_MAX_ITEMS)
+    return unchanged(state, "blocked");
   const fullyStopped = state.stopProof.workloadsStopped && state.stopProof.routesRemoved;
   const reconcileEnsure =
     event.kind === "ensure" &&
@@ -387,11 +388,30 @@ function handleOperationRequest(
     (!event.runtimeRunning || (state.desired !== "running" && state.intentRevision !== 0))
   )
     return unchanged(state, "blocked");
-  if (state.desired !== "running") {
+  const rollover =
+    state.executionPolicy === "manual" && state.operationHistory.length >= RELIABILITY_MAX_ITEMS;
+  let retired = -1;
+  if (rollover) {
+    if (
+      state.operation &&
+      (!state.operation.drained || !["COMPLETED", "NOT_LAUNCHED"].includes(state.operation.status))
+    )
+      return unchanged(state, "blocked");
+    retired = state.operationHistory.findIndex(
+      (entry) =>
+        entry.id !== state.operation?.id &&
+        entry.drained &&
+        ["COMPLETED", "NOT_LAUNCHED"].includes(entry.status),
+    );
+    if (retired === -1) return unchanged(state, "blocked");
+  }
+  if (state.desired !== "running" || rollover) {
     const revision = advance(state.intentRevision);
     if (revision === null) return unchanged(state, "blocked");
     state.intentRevision = revision;
   }
+  // Retiring a deduplication entry requires a fresh fence for every accepted replacement.
+  if (rollover) state.operationHistory.splice(retired, 1);
   state.desired = "running";
   state.phase = "queued";
   state.profile = event.profile;
