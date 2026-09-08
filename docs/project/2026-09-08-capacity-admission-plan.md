@@ -1093,3 +1093,39 @@ pressure enum mapping are not adopted. Apple kern_memorystatus_notify.c converts
 the internal pressure level to dispatch flags in the sysctl handler; the compiled
 adapter must use that exposed contract. No host-accounting or policy activation
 is justified by the raw Docker proof. Independent probe review remains pending.
+
+Independent Docker-probe review passes at ce2879e with no actionable findings;
+simplification finds no worthwhile reduction. Provider-aware exec settlement at
+b23c968 also passes its same-reviewer correction check.
+
+Telemetry investigation: OrbStack documentation says Docker and Linux machines
+share a kernel, and memory_mib limits their combined use. The installed orb top
+exposes interactive engine memory but no machine-readable CLI flag. Reading the
+configured limit alone is not measured VM residency or guest overhead. Sources:
+https://docs.orbstack.dev/architecture and https://docs.orbstack.dev/settings.
+The read-only monitor was exited normally; no workload was stopped through it.
+
+Apple's sysctl handler converts internal pressure levels to dispatch flags.
+bsd/sys/event_private.h defines normal=1, warning=2 and critical=4. The raw host
+probe must follow those flags; normal pressure does not replace byte accounting.
+Sources: apple-oss-distributions/xnu bsd/kern/kern_memorystatus_notify.c and
+bsd/sys/event_private.h. A trusted executor owns the bounded raw host probe while
+main retains the unresolved non-VM/guest-overhead accounting contract. Complete
+workspace-population mapping stays with its existing explorer; a wait timeout is
+not completion or loss of ownership. No admission policy was activated.
+
+Raw host probe implemented: fixed bounded sysctl reads return validated physical
+bytes and dispatch-pressure interpretation, with injected dependencies confined to
+internal tests. Live read reports 68719476736 physical bytes and normal pressure;
+no workload or memory pressure was generated. All 45 combined host/Docker probe
+tests pass; assertions verify failures and upstream-output suppression without
+pinning human error prose. Typecheck/Biome pass. Receipt:
+/private/tmp/devrouter-capacity-host-probe-live.log. Host/VM byte accounting and
+admission remain unwired; this is raw measurement evidence only.
+
+Ownership mapping is complete: managed-devsy-stop's private prove function joins
+source/profile/generated-config identity with all stopped-inclusive project
+containers. It verifies service membership, duplicate/missing services, ordered
+Compose files, provider features and the primary workspace bind mount. The next
+source step extracts that read-only population validation for collector reuse;
+project label matching alone and app-container-only attribution are insufficient.
