@@ -1373,3 +1373,22 @@ establish a supported current host physical-memory measurement API. This bounded
 lookup did not qualify non-VM subtraction or prove that no such API exists.
 No configuration, runtime or policy was changed; the independent collector review
 remains non-terminal.
+
+### Collector review closure
+
+Independent review of the all-pool collector plus cc0960c is complete. The proposed
+post-check authority race is rejected after contract verification and reviewer
+agreement: observations retain positive physical facts, never grant launch
+permission, and pre-observation snapshot CAS prevents revival after cessation.
+Policy/epoch changes retain possibly-live charges; admission and effect claims
+separately revalidate launch authority. A check inside the capacity lock would
+only relocate the cross-store race and require forbidden lock coupling to remove
+it. No actionable collector finding remains; no source correction was necessary.
+The cooperative cancellation follow-up is accepted by the same reviewer.
+
+The local footprint(1) manual further explains why the earlier host subtraction
+was rejected: Dirty includes compressed/swapped memory, and wired mappings shared
+between kernel_task and user processes are not fully deduplicated. Those totals
+are not direct current physical RAM usage. This is a semantic diagnosis, not a
+qualified replacement measurement. The pending bounded consultation approval and
+live host/guest telemetry qualification remain unresolved.
