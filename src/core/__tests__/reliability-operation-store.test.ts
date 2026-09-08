@@ -8,6 +8,7 @@ import {
   readReliabilityOperation,
   reliabilityOperationPath,
   updateReliabilityOperation,
+  withReliabilityObservationFence,
 } from "../reliability-operation-store";
 
 const fixture = vi.hoisted(() => ({ root: "" }));
@@ -131,4 +132,16 @@ describe("durable reliability records", () => {
     expect(() => updateReliabilityOperation(other, async () => undefined)).toThrow();
     expect(readReliabilityOperation(other)).toBeUndefined();
   });
+});
+
+it("fences observation publication without changing manual state", () => {
+  expect(() => withReliabilityObservationFence(identity, 0, () => undefined)).toThrow();
+  updateReliabilityOperation(identity, () => undefined);
+  const bytes = fs.readFileSync(reliabilityOperationPath(identity));
+  const publish = vi.fn(() => "published");
+  expect(withReliabilityObservationFence(identity, 1, publish)).toBe("published");
+  expect(fs.readFileSync(reliabilityOperationPath(identity))).toEqual(bytes);
+  updateReliabilityOperation(identity, () => undefined);
+  expect(() => withReliabilityObservationFence(identity, 1, publish)).toThrow();
+  expect(publish).toHaveBeenCalledTimes(1);
 });

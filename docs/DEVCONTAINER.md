@@ -106,6 +106,36 @@ full; it is not silently discarded.
 These commands provide manual lifecycle coordination. They do not enroll the
 machine in resource admission, prevent OOM, or enable capacity-managed parking/recovery.
 
+## Foreground consumer sessions
+
+`devrouter controller run` owns a private local socket and durable session snapshot
+under `~/.config/devrouter/controller`. Start it explicitly in a separate terminal.
+Clients never start an observer implicitly. Session enrollment requires an existing
+managed linked checkout with consistent Git ownership and provider registration.
+
+```sh
+devrouter controller observe /absolute/path/to/worktree \
+  --session engineering --profile full --require runtime --json
+devrouter controller status --session engineering --json
+```
+
+Keep the returned `store`, `epoch`, and `generation` with the session ID. Supply
+all four to `controller renew`, `controller release`, and `controller watch`.
+Renew every ten seconds; the lease lasts thirty seconds. Watching and status reads
+do not renew it. `app:<name>` requirements need an application in the selected
+profile with an explicit HTTP readiness contract.
+
+Treat `UNKNOWN`, expired evidence, disconnection, and lost event continuity as
+unverified readiness. Reacquire after observer restart; old bindings cannot renew
+or release a replacement session. Watch reconnection uses `--after <epoch>:<sequence>`
+and `--after-store <store>` for bounded replay. A gap requires accepting the current
+snapshot instead of relying on retained events as fresh readiness evidence.
+
+Releasing a session, letting its lease expire, or stopping the foreground observer
+leaves application runtimes and data intact. Continue using explicit `ensure`,
+`exec`, and `stop` for lifecycle actions. Consumer sessions grant no automatic
+recovery, capacity admission, or agent-command replay authority.
+
 ## How it works: `devnet`
 
 devrouter's Traefik runs in Docker on a shared external bridge network,

@@ -164,7 +164,10 @@ export function readReliabilityOperation(
   const file = reliabilityOperationPath(identity);
   let descriptor: number;
   try {
-    descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    descriptor = fs.openSync(
+      file,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+    );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
@@ -174,7 +177,12 @@ export function readReliabilityOperation(
     if (!stat.isFile() || stat.size > MAX_RECORD_BYTES || (stat.mode & 0o077) !== 0) {
       throw new Error("Reliability record is not a bounded private file.");
     }
-    const record = JSON.parse(fs.readFileSync(descriptor, "utf8")) as ReliabilityOperationRecord;
+    const bytes = Buffer.alloc(MAX_RECORD_BYTES + 1);
+    const count = fs.readSync(descriptor, bytes, 0, bytes.length, 0);
+    if (count > MAX_RECORD_BYTES) throw new Error("Reliability record exceeds its byte limit.");
+    const record = JSON.parse(
+      bytes.subarray(0, count).toString("utf8"),
+    ) as ReliabilityOperationRecord;
     validate(record, identity);
     return record;
   } finally {
@@ -235,6 +243,28 @@ export function updateReliabilityOperation<T>(
     validate(record, identity);
     record.revision += 1;
     persist(record);
+    return result;
+  });
+}
+
+/** Coordinate an observer publication against manual intent without updating it. */
+export function withReliabilityObservationFence<T>(
+  identity: ReliabilityIdentity,
+  expectedRevision: number,
+  publish: (record: ReliabilityOperationRecord) => T,
+): T {
+  const file = reliabilityOperationPath(identity);
+  // Missing state remains unknown; observation never initializes manual intent.
+  const before = readReliabilityOperation(identity);
+  if (!before || before.revision !== expectedRevision)
+    throw new Error("Reliability observation fence changed or is absent.");
+  return withFileLockSync(`${file}.lock`, { activity: "observer publication", waitMs: 100 }, () => {
+    const current = readReliabilityOperation(identity);
+    if (!current || current.revision !== expectedRevision)
+      throw new Error("Reliability observation fence changed or is absent.");
+    const result = publish(current);
+    if (result && typeof (result as { then?: unknown }).then === "function")
+      throw new Error("Observer publication must be synchronous.");
     return result;
   });
 }

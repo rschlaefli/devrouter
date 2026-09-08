@@ -23,6 +23,9 @@ source_paths:
   - src/core/managed-runtime*.ts
   - src/core/status.ts
   - src/core/doctor.ts
+  - src/core/controller-monitor.ts
+  - src/core/controller-observation.ts
+  - src/core/controller-sessions.ts
 ---
 
 # Managed environment lifecycle
@@ -125,6 +128,21 @@ Use `devrouter status --repo <path> --json` or `devrouter doctor --repo <path>
 service/process statuses, fingerprints, and values-free drift. A fully stopped
 exact runtime is a normal stopped state, not evidence that another workspace's
 resources may be reclaimed.
+
+## Continuous observation
+
+The foreground controller observes explicitly enrolled managed linked checkouts.
+Independent consumer leases share bounded probes while retaining separate runtime
+and application requirements. Runtime readiness can remain verified when an
+application fails its HTTP contract. Missing, stale, or conflicting evidence is
+UNKNOWN. Publication revalidates checkout ownership, configuration, session
+generation, and the manual operation journal revision; observation never changes
+that journal or starts, repairs, or stops a runtime.
+
+See [foreground consumer sessions](../DEVCONTAINER.md#foreground-consumer-sessions)
+for enrollment, lease renewal, restart handling, and event continuity. Releasing
+the last consumer preserves application data and runtime state; the caller still
+owns the normal exact-stop lifecycle.
 
 ## Stop, delete, and inspect
 

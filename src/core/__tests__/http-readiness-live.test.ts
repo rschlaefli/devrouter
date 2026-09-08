@@ -1,7 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { probeHttpRoute } from "../http-route-probe";
+import { runControllerProbe } from "../controller-probe";
+import { probeHttpReadiness, probeHttpRoute } from "../http-route-probe";
 
 vi.mock("../router", () => ({ CERT_FILE: "/unused", isTLSEnabled: () => false }));
 vi.mock("../tls", () => ({ getMkcertRootCAPath: vi.fn() }));
@@ -48,6 +49,33 @@ afterAll(async () => {
 });
 
 describe("HTTP readiness with real curl", () => {
+  it("uses the asynchronous controller probe against actual HTTP responses", async () => {
+    const probe = (path: string) =>
+      probeHttpReadiness(
+        host,
+        { path, contentType: "application/json" },
+        new AbortController().signal,
+        runControllerProbe,
+      );
+    await expect(probe("/healthy")).resolves.toMatchObject({ ok: true, status: 200 });
+    await expect(probe("/html")).resolves.toMatchObject({
+      ok: false,
+      classification: "application-contract",
+    });
+    await expect(probe("/redirect")).resolves.toMatchObject({ ok: false, status: 302 });
+  });
+
+  it("cancels a connected controller probe without waiting for the HTTP deadline", async () => {
+    const abort = new AbortController();
+    const pending = probeHttpReadiness(host, { path: "/slow" }, abort.signal, runControllerProbe);
+    const timer = setTimeout(() => abort.abort(), 50);
+    try {
+      await expect(pending).rejects.toThrow();
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
   it("requires the declared media type and does not follow redirects", () => {
     const probe = (path: string) =>
       probeHttpRoute(host, { readiness: { path, contentType: "application/json" } });

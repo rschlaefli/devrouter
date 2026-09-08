@@ -294,12 +294,12 @@ export function setTLSEnabled(enabled: boolean): void {
   fs.writeFileSync(TRAEFIK_DYNAMIC_BASE_FILE, renderTraefikBaseDynamicYml(enabled), "utf-8");
 }
 
-export function isTLSConfigured(): boolean {
+export function isTLSConfigured(read = (file: string) => fs.readFileSync(file, "utf-8")): boolean {
   if (!fs.existsSync(TRAEFIK_DYNAMIC_BASE_FILE)) {
     return false;
   }
 
-  const content = fs.readFileSync(TRAEFIK_DYNAMIC_BASE_FILE, "utf-8");
+  const content = read(TRAEFIK_DYNAMIC_BASE_FILE);
   return content.includes("certificates:") && content.includes("/certs/localhost.pem");
 }
 
@@ -307,8 +307,8 @@ export function areTLSCertsPresent(): boolean {
   return fs.existsSync(CERT_FILE) && fs.existsSync(CERT_KEY_FILE);
 }
 
-export function isTLSEnabled(): boolean {
-  return areTLSCertsPresent() && isTLSConfigured();
+export function isTLSEnabled(read?: (file: string) => string): boolean {
+  return areTLSCertsPresent() && isTLSConfigured(read);
 }
 
 export function getRouterFileLayout(): { required: string[]; missing: string[] } {

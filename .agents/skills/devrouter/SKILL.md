@@ -343,6 +343,22 @@ with a sixty-second bound. Keep `.devrouter.yml` unchanged and finish in the
 foreground. Diagnostics never execute the hook. Qualify changed mounts separately
 before relying on warm container reuse.
 
+## Observing consumer readiness
+
+For ongoing readiness, explicitly start `devrouter controller run`, then enroll
+the managed linked checkout with `controller observe --session <id> --profile
+<profile> --require runtime`. Use `--require app:<name>` for an application with
+an explicit HTTP readiness contract. Keep the returned store, epoch, generation,
+and session ID for renew, release, and watch requests. Renew every ten seconds;
+status and watch do not renew the thirty-second lease.
+
+Treat UNKNOWN, stale evidence, disconnection, or event gaps as unverified
+readiness. Reacquire after observer restart. A failing application can coexist
+with ready tooling; choose requirements for the actual work. Continue using
+`ensure`, `exec`, and `stop` for lifecycle actions: observation does not authorize
+automatic recovery, capacity admission, or command replay. Releasing observation
+preserves the runtime, so still stop the exact environment after runtime work.
+
 ## Validation workflow
 
 For devcontainer onboarding:
