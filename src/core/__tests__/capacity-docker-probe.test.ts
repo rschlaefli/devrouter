@@ -208,3 +208,24 @@ it.each([
     inspectDockerCapacityContainer(endpoint, id, "synthetic-project", signal()),
   ).rejects.toThrow(Error);
 });
+
+it("encodes an optional exact Compose project filter", async () => {
+  respond = (_request, response) => response.end("[]");
+  await expect(
+    listDockerCapacityContainers(endpoint, signal(), "synthetic-project"),
+  ).resolves.toEqual([]);
+  const url = new URL(requests[0].url!, "http://fixture");
+  expect(url.pathname).toBe("/containers/json");
+  expect(url.searchParams.get("all")).toBe("true");
+  expect(JSON.parse(url.searchParams.get("filters")!)).toEqual({
+    label: ["com.docker.compose.project=synthetic-project"],
+  });
+});
+it.each([
+  "",
+  "../other",
+  "project&all=false",
+])("rejects invalid project filter %s before HTTP", async (project) => {
+  await expect(listDockerCapacityContainers(endpoint, signal(), project)).rejects.toThrow(Error);
+  expect(requests).toEqual([]);
+});

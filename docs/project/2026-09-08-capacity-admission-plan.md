@@ -1146,3 +1146,26 @@ All 129 affected raw-probe, Docker-inspection and managed-stop tests pass, plus
 typecheck and Knip. Receipt:
 /private/tmp/devrouter-capacity-population-host-tests.log. This integrated slice
 still needs independent review and does not activate capacity admission.
+
+Integrated ownership/inspection and host-drain review passes at 8c33608 with no
+actionable findings; simplification found no worthwhile reduction.
+
+The new raw Docker population sampler pins expected daemon and project, performs
+before/after daemon and population reads, bounds concurrent inspection to four,
+limits total returned snapshots to 1 MiB and cancels/drains on failures within a
+three-second overall deadline. All 118 affected tests pass with two workers;
+worker typecheck/Biome and main Knip pass. Receipt:
+/private/tmp/devrouter-capacity-population-sampler-tests.log.
+
+A real read-only composition against the exact stopped eLearning canary passed
+source/generated configuration matching, stable socket population and shared
+ownership validation for all three containers. Provider state is stopped and no
+container runs. Receipt: /private/tmp/devrouter-capacity-owned-population-live.log.
+No capacity policy or runtime was changed. Independent sampler review is pending.
+
+Further telemetry evidence: guest-wide /proc/meminfo is readable from the running
+devrouter-owned router, but /proc/pressure/memory is absent. OrbStack info exposes
+no memory-usage field. Exact helper RSS and aggregate phys_footprint differ, so
+RSS subtraction is not adopted for non-VM host accounting. These bounded reads
+created no dump and changed no runtime. A qualified host/VM accounting method and
+guest pressure interpretation remain necessary before admission activation.

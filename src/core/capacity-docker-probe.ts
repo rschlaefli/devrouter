@@ -99,8 +99,19 @@ export async function readDockerCapacityInfo(
 export async function listDockerCapacityContainers(
   endpoint: string,
   signal: AbortSignal,
+  composeProject?: string,
 ): Promise<Array<{ id: string; state: string }>> {
-  const value = await request(endpoint, "/containers/json?all=true", signal);
+  if (
+    composeProject !== undefined &&
+    (typeof composeProject !== "string" ||
+      !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,255}$/.test(composeProject))
+  )
+    throw failure();
+  const filter =
+    composeProject === undefined
+      ? ""
+      : `&filters=${encodeURIComponent(JSON.stringify({ label: [`com.docker.compose.project=${composeProject}`] }))}`;
+  const value = await request(endpoint, `/containers/json?all=true${filter}`, signal);
   if (!Array.isArray(value) || value.length > MAX_CONTAINERS) throw failure();
   const ids = new Set<string>();
   return value.map((entry: unknown) => {
