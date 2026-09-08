@@ -971,3 +971,19 @@ docs policy and knowledge checks pass. Source is ready for a committed bounded
 correctness review, not for production capacity activation. Packed startup recovery,
 phase settlement, telemetry, canonical CLI integration and eLearning qualification
 remain required under the existing roadmap goal.
+
+Startup package committed as 49d188f. Simplification found no worthwhile reduction;
+Singer retains independent correctness review. Main added the direct factory
+regression that a consumed startup capability rejects before policy or journal
+inspection; all ten coordinator tests pass.
+
+Tesla completed the phase-settlement design: operation-bound preparation proof and
+a durable pending marker in the existing journal must fence exact-row reduction.
+Successful exec cannot discharge inherited uncertain startup allocations. Stop
+supersedes pending phase settlement; crashes require idempotent confirmation without
+row resurrection or command replay. Main added the unwired CapacityStore reduction
+primitive: global revision and exact predecessor identity, identical domain set,
+only decreasing totals/slots, no absent-row insertion. All 13 store tests and full
+typecheck pass. Journal proof/marker and scheduler integration remain pending before
+this primitive may release any production charge. Gauss is checking the smallest
+honest packed admission tracer route without executable synthetic policy options.

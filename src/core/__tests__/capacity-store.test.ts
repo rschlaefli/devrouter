@@ -36,6 +36,43 @@ const request: CapacityReservation = {
   heavy: false,
 };
 
+it("reduces only the exact retained phase and never resurrects a stopped row", () => {
+  const { store } = fixture();
+  expect(
+    store.reserve(
+      request,
+      { host: budget, guest: budget },
+      { host: sample, guest: sample },
+      100,
+      15,
+      undefined,
+      0,
+    ).admitted,
+  ).toBe(true);
+  const target = { ...request, totals: { host: 10, guest: 20 }, startup: false };
+  const before = store.read();
+  expect(() => store.reduceAfterPhase(target, 0)).toThrow(CapacitySnapshotChangedError);
+  expect(() =>
+    store.reduceAfterPhase({ ...target, operationId: "different" }, before.revision),
+  ).toThrow();
+  expect(() =>
+    store.reduceAfterPhase({ ...target, totals: { host: 21, guest: 20 } }, before.revision),
+  ).toThrow();
+  expect(() =>
+    store.reduceAfterPhase({ ...target, totals: { host: 10 } }, before.revision),
+  ).toThrow();
+  expect(() => store.reduceAfterPhase({ ...target, heavy: true }, before.revision)).toThrow();
+  expect(store.read()).toEqual(before);
+  store.reduceAfterPhase(target, before.revision);
+  expect(store.read().reservations).toEqual([target]);
+  store.reduceAfterPhase(target, store.read().revision);
+  expect(store.read().reservations).toEqual([target]);
+  store.settleEnvironmentAfterStop(request.environmentId, store.read().revision);
+  const stopped = store.read();
+  expect(() => store.reduceAfterPhase(target, stopped.revision)).toThrow();
+  expect(store.read()).toEqual(stopped);
+});
+
 it("retains all-domain charges across restart and joins without duplicating them", () => {
   const { directory, store } = fixture();
   const budgets = { host: budget, guest: budget };

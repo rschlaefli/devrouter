@@ -71,6 +71,26 @@ function controller() {
     collect: async () => ({}),
   });
 }
+it("rejects consumed startup authority before inspecting journals or policy", () => {
+  const consumeStartup = vi.fn(() => {
+    throw new Error("Startup already consumed");
+  });
+  expect(() =>
+    createCapacityController({
+      directory: "/tmp/synthetic-controller",
+      controller: {
+        directory: "/tmp/synthetic-controller",
+        store: "store",
+        epoch: 1,
+        consumeStartup,
+      },
+      collect: async () => ({}),
+    }),
+  ).toThrow("Startup already consumed");
+  expect(fixture.list).not.toHaveBeenCalled();
+  expect(fixture.policy).not.toHaveBeenCalled();
+});
+
 it("reads terminal journal results after transient queue output is absent", async () => {
   const operation = {
     operationId: "retained",

@@ -171,6 +171,49 @@ export class CapacityStore {
     );
   }
 
+  /** Caller persists phase proof and revokes authority before reducing this exact row. */
+  reduceAfterPhase(target: CapacityReservation, expectedRevision: number): void {
+    validate({ version: 1, revision: 0, reservations: [target] });
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+      throw new Error("Invalid capacity settlement revision.");
+    assertPrivateDirectory(this.directory);
+    withFileLockSync(
+      `${this.file}.lock`,
+      { activity: "capacity phase settlement", waitMs: 100 },
+      () => {
+        const snapshot = this.read();
+        if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
+        const index = snapshot.reservations.findIndex(
+          (entry) => entry.environmentId === target.environmentId,
+        );
+        const current = snapshot.reservations[index];
+        if (
+          !current ||
+          current.reservationId !== target.reservationId ||
+          current.operationId !== target.operationId ||
+          current.policyRevision !== target.policyRevision
+        )
+          throw new Error("Capacity phase settlement predecessor changed.");
+        if (
+          Object.keys(current.totals).length !== Object.keys(target.totals).length ||
+          Object.entries(target.totals).some(
+            ([domain, bytes]) =>
+              !Object.hasOwn(current.totals, domain) || bytes > current.totals[domain],
+          ) ||
+          (target.startup && !current.startup) ||
+          (target.heavy && !current.heavy)
+        )
+          throw new Error("Capacity phase settlement cannot acquire resources.");
+        if (snapshot.revision === Number.MAX_SAFE_INTEGER)
+          throw new Error("Capacity reservation revision exhausted.");
+        snapshot.reservations[index] = structuredClone(target);
+        snapshot.revision++;
+        validate(snapshot);
+        writeFileAtomically(this.file, `${JSON.stringify(snapshot)}\n`);
+      },
+    );
+  }
+
   reserve(
     request: CapacityReservation,
     budgets: Record<string, CapacityDomainBudget>,
