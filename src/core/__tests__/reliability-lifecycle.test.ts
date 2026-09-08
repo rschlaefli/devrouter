@@ -32,7 +32,7 @@ vi.mock("../router", async (importOriginal) => {
   const root = actualFs.mkdtempSync(actualPath.join(actualOs.tmpdir(), "reliability-lifecycle-"));
   actualFs.chmodSync(root, 0o700);
   fixture.roots.push(root);
-  return { ...actual, DEVROUTER_HOME: root };
+  return { DEVROUTER_HOME: root, TCP_PROTOCOL_REGISTRY: actual.TCP_PROTOCOL_REGISTRY };
 });
 
 vi.mock("../devpod-environment", () => ({

@@ -355,3 +355,25 @@ removal, retained-volume data after resume, repeated final exact stop, Devsy
 Stopped, and zero fixture routes. The fixture and data are retained. No eLearning
 or other task runtime was changed. The single follow-up final review remains
 running against the immutable ee2d842 range; this entry changes evidence only.
+
+
+### Final review closure
+
+The configured Claude correction pass completed DONE_WITH_CONCERNS with an
+explicit ready-for-draft verdict and no blocking defects. All six initial
+findings are closed through corrections or the documented contract dispositions.
+Its three low-severity follow-ups are dispositioned as follows:
+
+- Fresh live evidence: already closed by the ee2d842 packed qualifier and receipt
+  above, committed in 0167f56 after the review's immutable snapshot.
+- Test isolation: narrow the lifecycle fixture's router mock to its temporary
+  DEVROUTER_HOME and the immutable TCP protocol registry; derived real-home paths
+  remain unavailable rather than being silently inherited. Recheck this suite.
+- Operator diagnostics: retain as follow-up work. Population-proof errors should
+  identify the offending service/container and explain an ownership-preserving
+  inspection path. Do not adopt the suggested blanket removal remedy: data or
+  container deletion still requires exact separate approval. This does not block
+  the reviewed package and does not claim automatic orphan reconciliation.
+
+Required Linux CI remains pending draft publication. The production range remains
+ee2d842; subsequent changes are evidence and test-isolation metadata only.
