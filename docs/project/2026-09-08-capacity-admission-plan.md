@@ -1075,3 +1075,21 @@ command-exit-0/1 bounds. The integration fixture now reflects real Devsy output;
 /private/tmp/devrouter-capacity-provider-settlement-tests.log. Prior correction
 review covered synthetic transport-zero evidence; this delta needs its own
 same-reviewer check.
+
+Raw Docker collector slice: explicit Unix socket GET probes now return minimal
+info, container state and raw memory usage with a three-second request deadline,
+1 MiB response cap, 256-container bound, cancellation and values-free errors.
+They do not infer ownership, pressure, overhead or admission. All 23 Unix HTTP
+fixture tests, typecheck, Biome and Knip pass. A read-only live probe listed 161
+containers and read shared-router memory with unchanged daemon identity before
+and after; no runtime was started or changed. Receipts:
+/private/tmp/devrouter-capacity-docker-probe-{tests,live}.log.
+
+The configured advisor completed using the advertised gemini-3.8-flash-high ID
+and an inline generic manifest after display-name/effort and headless file-read
+failures. Its host/guest overhead gaps are accepted. Its guessed baseline,
+project-label-only attribution, hard-limit substitution and direct internal
+pressure enum mapping are not adopted. Apple kern_memorystatus_notify.c converts
+the internal pressure level to dispatch flags in the sysctl handler; the compiled
+adapter must use that exposed contract. No host-accounting or policy activation
+is justified by the raw Docker proof. Independent probe review remains pending.
