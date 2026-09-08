@@ -1530,3 +1530,22 @@ host and guest telemetry, production admission wiring, bounded autonomous recove
 capacity parking and resume, and an enforcing harness still need acceptance.
 Synthetic admission receipts do not satisfy those live contracts. The last
 verified eLearning runtime state remains stopped with zero exact routes.
+
+### Packed tracer cleanup review closure
+
+Cleanup is committed through 98edfe5. The held-provider controller-exit fault
+exits nonzero, suppresses the success receipt and proves the fixture group absent
+in /private/tmp/dr-cap-apggLm/cleanup.json. A second fault fails before ordinary
+ownership capture; synchronous fork-time PID/birth recording lets cleanup recover
+and drain that exact group. Its proof is /private/tmp/dr-cap-CmiLxz/cleanup.json;
+the producing command uses --fault-before-capture, while the older receipt field
+faultControllerExit describes only --fault-controller-exit. Normal qualification
+passes again in /private/tmp/dr-cap-NP7hmu/receipt.json. All recorded PIDs from the
+first four attempts were positively absent on subsequent targeted checks.
+
+The independent reviewer closes the late-capture finding. Simplification removed
+one unreachable guard. Simultaneous disappearance of an uncaptured worker leader
+with surviving descendants still refuses signaling and withholds success; this
+case is not qualified. Check, Knip, typecheck and hooks pass. The successful
+normal tracer is now wired into CI with a five-minute bound. Linux CI proof is
+still pending; neither fixtures nor this wiring activate production capacity.

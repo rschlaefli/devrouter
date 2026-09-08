@@ -35,6 +35,8 @@ jobs:
       - run: pnpm test:package
       - run: pnpm qualify:controller
         timeout-minutes: 5
+      - run: pnpm qualify:capacity
+        timeout-minutes: 5
 
   publish:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
