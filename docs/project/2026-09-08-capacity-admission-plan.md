@@ -255,3 +255,131 @@ capacity transaction releases the matching reservation. Failed route proof retai
 both binding and charge. Fifteen focused lifecycle/store tests pass, as do typecheck
 and Knip. This implements the release half of the first waiting-start tracer;
 controller queuing, launch and renewal remain to be connected.
+
+prepareLifecycleOperation now exposes durable intent creation separately from
+worker dispatch while superviseLifecycle preserves existing immediate behavior.
+bindLifecycleCapacity checks current intent and the already-persisted reservation
+under the journal transaction before recording a version-2 binding. Stop between
+preparation and binding rejects the stale request without launching a worker.
+The original committed-range risk review is still running; its owner received a
+bounded convergence request. Do not replace it merely for an observation timeout.
+
+Fifteen focused lifecycle cases pass, including stop-between-prepare-and-bind.
+The expanded tests exposed shared fixture capacity state: stop cases ignored a
+rejected setup reservation after another test occupied a startup slot. Each case
+now clears only its owned synthetic controller state and asserts setup admission
+before testing settlement. Full typecheck passes. No live controller admission
+or consumer mutation has been enabled by these changes.
+
+The committed-range risk reviewer completed with concerns. Main accepts the
+reservation expansion finding as an integration blocker: accounting permits
+same-environment growth, while the store currently rejects reservation replacement.
+Before controller dispatch is connected, main owns an atomic expansion contract
+that evaluates every domain and preserves existing charges until positive
+settlement proof. Acceptance must cover ensure followed by exec, profile changes
+whose requested totals are below retained startup charges, and rejected expansion
+leaving the original reservation unchanged. Binding identity alone must never
+substitute for admission of the requested operation's resource totals.
+
+The masked policy counterfactual finding is already addressed in f66b780 with valid
+synthetic IDs and passing counterfactual checks. The reviewer confirmed the current
+all-domain accounting, stop revocation-before-release ordering, legacy record
+compatibility, and bounded worker-output seams. These findings do not establish
+controller integration or live capacity protection.
+
+Main added an explicit predecessor-fenced reservation replacement primitive.
+Replacement requires the caller to revoke the prior journal and prove worker
+drainage; snapshot revision and predecessor IDs reject stale attempts. The store
+evaluates fresh samples across the union of retained and requested domains and
+persists maximum per-domain totals and retained slots atomically. Refused growth
+leaves the prior snapshot intact. Five store cases cover restart retention, exec
+growth, omitted domains, stale predecessor, refused growth, stale samples and
+smaller transition totals. All 27 focused accounting/request/store/lifecycle tests
+pass; full typecheck and diff whitespace checks pass. This primitive has no
+controller caller yet. Journal revocation/drainage integration and pre-effect
+resource validation remain required before the review concern is closed.
+
+Main connected prepared lifecycle intent to store admission through
+admitLifecycleCapacity. It checks current intent and absence of a registered worker,
+requires the previous operation's recorded drainage, revokes its binding durably,
+then attempts predecessor-fenced expansion outside the journal lock. Successful
+admission binds the new operation; refusal retains the old charge with revoked
+authority. Two additional synthetic lifecycle cases exercise admitted and refused
+exec growth after a positively never-dispatched predecessor. All 22 lifecycle/store
+tests and full typecheck pass. These cases do not prove real worker cessation or
+controller queuing. Controller dispatch, repeated-request handling, phase settlement,
+renewal, and packed real-worker qualification remain pending.
+
+Main added capacity-queue.ts as an unwired production-path prototype: bounded
+transient payloads and output, per-domain FIFO, fresh collected samples before
+admission, controller-owned worker supervision, and independent bounded caller
+waits. Typecheck passes; behavior tests remain with executor Gauss. Executor
+Hypatia 01a07fd5-bfeb-7ca1-b1e4-99d6ad939694 owns additional lifecycle negative-path
+tests. Both write only their assigned test files. Main retains queue/server source
+ownership. Queue lifetime, shutdown journal reconciliation, reconnect projection,
+idempotent admission retry and dispatch error handling are unfinished. Do not wire
+this prototype into the live server or claim qualification before these contracts
+and the packed launch tracer are complete.
+
+Main added same-operation admission retry validation: identity and retained totals
+must match; upward requirements under the same operation are rejected. Renewal
+revokes the binding before fresh all-domain evaluation, preserving charge on
+refusal. Queue admission exceptions now retain a machine-readable reason and
+block only overlapping domains, while unrelated requests can progress. Duplicate
+queue operation IDs must match accepted request/worker/environment/reservation
+identity. Typecheck passed before the final duplicate-identity guard; focused
+regression results remain pending with the existing executors. Remote fetch
+succeeded through authorized host execution after sandbox FETCH_HEAD denial.
+
+Queue lifetime now uses a 900-second monotonic deadline. Expiry and controller
+close invoke retireQueuedLifecycle, which requires matching intent, no registered
+worker and positive NOT_STARTED/NOT_LAUNCHED journal state before marking drainage
+and revoking the binding. Runtime reservations remain retained. Unproven retirement
+keeps an explicit reason and cannot fall through to dispatch after expiry. Source
+typecheck passes. Negative lifecycle and queue behavior tests are still owned by
+the same executors; their waits remain nonterminal. These are source primitives,
+not integrated controller qualification or release evidence.
+
+Main's focused run overlapped the executor's in-progress lifecycle file and found
+three duplicated retry tests failing at first admission with stale effect authority.
+The same executor owns deduplication and consistent fixture clocks, then the
+original negative-path acceptance cases. This run is failed evidence (24 passed,
+3 failed), not a passing regression claim. Do not change production expiry checks
+to accommodate historical synthetic timestamps.
+
+Gauss delivered eight queue behavioral tests; main independently reproduced all
+eight passing. They cover mocked admission and worker supervision, not real
+launches. Main added optional operator scheduling limits bounded by 64 total,
+32 per domain and 900 seconds; lower configured limits are honored. Gauss owns
+the final focused policy-bound tests. Full typecheck passes. Hypatia's ongoing
+fixture correction reduced the observed lifecycle failures to one duplicate
+historical-clock test; its corrected retry case passes. Await the completed
+test artifact before accepting that suite. No server wiring or runtime changed.
+
+The broad Vitest run passed 1,246 tests and exposed one valid new queue boundary
+finding: fractional seconds became an integer after millisecond conversion. Main
+fixed seconds validation; all nine queue tests and 18 current lifecycle tests now
+pass together. Gauss completed its test ownership. Knip and typecheck pass.
+The separately invoked process-helper script skipped because macOS lacks Linux
+/proc; Linux execution remains required evidence. Repository formatting currently
+reports one extra blank line in Hypatia's in-progress test file. Its original
+negative-path tests and final completion are still pending; do not commit over
+the active owner or claim the implementation review gates complete.
+
+Main tightened admission and binding to require NOT_STARTED and not-drained
+current intent. Three isolated regression cases prove drained, completed and
+dispatch-recorded intent cannot acquire/rebind capacity; no reservation transaction
+or effect check is reached. These cases pass, as do the existing 27 queue/lifecycle
+cases and typecheck. Hypatia's same live handle remains nonterminal after a bounded
+convergence request; its test-file ownership remains preserved. This checkpoint
+does not close the pending integration or review requirements.
+
+Hypatia returned terminal DONE_WITH_CONCERNS and released its test file. Main
+completed queued-retirement, possibly-dispatched retirement rejection and missing
+drainage retention tests; the independent guard test also covers an active worker.
+All 34 queue/lifecycle/guard tests pass. Repository formatting, Knip and full
+typecheck pass. The existing stop-between-prepare-and-bind test remains applicable.
+The slice is ready to commit for independent review, not ready for publication,
+controller activation or capacity-protection claims. Main owns the remaining
+server/protocol integration, telemetry and policy qualification, renewal, phase
+settlement and packed real-worker tracer.

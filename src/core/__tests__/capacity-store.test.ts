@@ -74,3 +74,66 @@ it("refuses mutation of an existing reservation without settlement proof", () =>
   ).toThrow("retains an earlier");
   expect(store.read().reservations).toEqual([request]);
 });
+
+it("admits exec growth atomically while retaining startup charges and omitted domains", () => {
+  const { directory, store } = fixture();
+  const budgets = { host: budget, guest: budget };
+  const samples = { host: sample, guest: sample };
+  expect(store.reserve(request, budgets, samples, 100, 15).admitted).toBe(true);
+  const previous = {
+    revision: store.read().revision,
+    reservationId: request.reservationId,
+    operationId: request.operationId,
+  };
+  const exec = {
+    ...request,
+    operationId: "exec-one",
+    reservationId: "exec-reservation",
+    totals: { guest: 70 },
+    startup: false,
+    heavy: true,
+  };
+  expect(store.reserve(exec, budgets, samples, 100, 15, previous)).toMatchObject({
+    admitted: true,
+    joined: false,
+  });
+  expect(new CapacityStore(directory).read().reservations).toEqual([
+    { ...exec, totals: { host: 20, guest: 70 }, startup: true },
+  ]);
+  expect(() => store.reserve(exec, budgets, samples, 100, 15, previous)).toThrow(
+    "predecessor changed",
+  );
+});
+
+it("keeps the prior snapshot on refused expansion and retains larger charges on transition", () => {
+  const { store } = fixture();
+  const budgets = { host: budget, guest: budget };
+  const samples = { host: sample, guest: sample };
+  expect(store.reserve(request, budgets, samples, 100, 15).admitted).toBe(true);
+  const before = store.read();
+  const previous = {
+    revision: before.revision,
+    reservationId: request.reservationId,
+    operationId: request.operationId,
+  };
+  const next = { ...request, operationId: "next", reservationId: "next-reservation" };
+  expect(
+    store.reserve(
+      { ...next, totals: { host: 30, guest: 91 } },
+      budgets,
+      samples,
+      100,
+      15,
+      previous,
+    ),
+  ).toMatchObject({ admitted: false, domain: "guest", reason: "memory" });
+  expect(store.read()).toEqual(before);
+  expect(
+    store.reserve({ ...next, totals: { host: 1, guest: 1 } }, budgets, samples, 120, 15, previous),
+  ).toMatchObject({ admitted: false, reason: "stale" });
+  expect(store.read()).toEqual(before);
+  expect(
+    store.reserve({ ...next, totals: { host: 1, guest: 1 } }, budgets, samples, 100, 15, previous),
+  ).toMatchObject({ admitted: true });
+  expect(store.read().reservations).toEqual([next]);
+});

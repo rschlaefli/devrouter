@@ -1,5 +1,6 @@
 import path from "node:path";
-import { CapacityStore } from "./capacity-store";
+import type { CapacityDomainBudget, CapacityDomainSample } from "./capacity-accounting";
+import { type CapacityReservation, CapacityStore } from "./capacity-store";
 import {
   inspectManagedStopContainers,
   inspectWorkspaceContainers,
@@ -128,12 +129,13 @@ function reconcileDrained(record: ReliabilityOperationRecord): void {
   }
 }
 
-export async function superviseLifecycle(
+/** Persist intent before the controller waits for admission; no worker is launched. */
+export function prepareLifecycleOperation(
   kind: LifecycleWorkerRequest["kind"],
   repoPath: string,
   options: LifecycleWorkerRequest["options"] = {},
   command?: string[],
-): Promise<unknown> {
+): LifecycleWorkerRequest {
   repoPath = comparableWorkspacePath(repoPath);
   if (isLinkedWorktree(repoPath) && !readPersistedWorkspace(repoPath)) {
     resolveLinkedTarget(repoPath);
@@ -170,7 +172,7 @@ export async function superviseLifecycle(
     }
     fence = reliabilityFence(record.state);
   });
-  return runLifecycleWorker({
+  return {
     kind,
     repoPath,
     identity,
@@ -178,6 +180,141 @@ export async function superviseLifecycle(
     fence,
     options,
     ...(command ? { command } : {}),
+  };
+}
+
+export async function superviseLifecycle(
+  kind: LifecycleWorkerRequest["kind"],
+  repoPath: string,
+  options: LifecycleWorkerRequest["options"] = {},
+  command?: string[],
+): Promise<unknown> {
+  return runLifecycleWorker(prepareLifecycleOperation(kind, repoPath, options, command));
+}
+
+/** Admit a prepared operation; journal transactions never surround capacity transactions. */
+export function admitLifecycleCapacity(
+  request: LifecycleWorkerRequest,
+  reservation: CapacityReservation,
+  budgets: Record<string, CapacityDomainBudget>,
+  samples: Record<string, CapacityDomainSample>,
+  nowMs: number,
+  maxSampleAgeMs: number,
+  directory = path.join(DEVROUTER_HOME, "controller"),
+) {
+  if (request.kind === "stop") throw new Error("Stop never requires capacity admission.");
+  const capacity = new CapacityStore(directory);
+  const snapshot = capacity.read();
+  const previous = updateReliabilityOperation(request.identity, (record) => {
+    if (
+      !matchesFence(record, request.fence) ||
+      record.worker ||
+      record.state.operation?.id !== request.operationId ||
+      record.state.operation.status !== "NOT_STARTED" ||
+      record.state.operation.drained ||
+      reservation.operationId !== request.operationId ||
+      reservation.environmentId !== record.state.environmentId
+    )
+      throw new Error("Lifecycle intent changed while waiting for capacity.");
+    const binding = record.capacity;
+    if (!binding) return undefined;
+    const retained = snapshot.reservations.find(
+      (entry) => entry.reservationId === binding.reservationId,
+    );
+    if (
+      !retained ||
+      retained.environmentId !== reservation.environmentId ||
+      retained.operationId !== binding.operationId ||
+      retained.policyRevision !== binding.policyRevision
+    )
+      throw new Error("Earlier capacity reservation does not match lifecycle intent.");
+    if (binding.operationId === request.operationId) {
+      if (
+        binding.workerId !== request.workerId ||
+        binding.reservationId !== reservation.reservationId ||
+        binding.policyRevision !== reservation.policyRevision ||
+        Object.entries(reservation.totals).some(
+          ([domain, bytes]) =>
+            !Object.hasOwn(retained.totals, domain) || bytes > retained.totals[domain],
+        ) ||
+        (reservation.startup && !retained.startup) ||
+        (reservation.heavy && !retained.heavy)
+      )
+        throw new Error("Repeated capacity request changed its admitted requirements.");
+    } else {
+      const earlier = record.state.operationHistory.find(
+        (operation) => operation.id === binding.operationId,
+      );
+      if (!earlier?.drained) throw new Error("Earlier capacity worker drainage is not proven.");
+    }
+    // A retry must also pass fresh all-domain admission before renewing authority.
+    binding.validUntilMs = 0;
+    return {
+      revision: snapshot.revision,
+      operationId: binding.operationId,
+      reservationId: binding.reservationId,
+    };
+  });
+  const decision = capacity.reserve(reservation, budgets, samples, nowMs, maxSampleAgeMs, previous);
+  if (decision.admitted) {
+    bindLifecycleCapacity(
+      request,
+      {
+        reservationId: reservation.reservationId,
+        policyRevision: reservation.policyRevision,
+        validUntilMs:
+          Math.min(...Object.values(samples).map((sample) => sample.sampledAtMs)) + maxSampleAgeMs,
+      },
+      directory,
+    );
+  }
+  return decision;
+}
+
+/** Retire only positively undispatched intent, retaining all runtime charges. */
+export function retireQueuedLifecycle(request: LifecycleWorkerRequest): void {
+  updateReliabilityOperation(request.identity, (record) => {
+    if (
+      !matchesFence(record, request.fence) ||
+      record.worker ||
+      record.state.operation?.id !== request.operationId ||
+      !["NOT_STARTED", "NOT_LAUNCHED"].includes(record.state.operation.status)
+    )
+      throw new Error("Queued operation absence is not proven.");
+    if (record.capacity) record.capacity.validUntilMs = 0;
+    stepRecord(record, { ...request.fence, type: "drained", operationId: request.operationId });
+  });
+}
+
+/** Bind an already-persisted reservation without holding the scheduler lock. */
+export function bindLifecycleCapacity(
+  request: LifecycleWorkerRequest,
+  binding: { reservationId: string; policyRevision: number; validUntilMs: number },
+  directory = path.join(DEVROUTER_HOME, "controller"),
+): void {
+  if (request.kind === "stop") throw new Error("Stop never requires capacity admission.");
+  updateReliabilityOperation(request.identity, (record) => {
+    if (
+      !matchesFence(record, request.fence) ||
+      record.worker ||
+      record.state.operation?.id !== request.operationId ||
+      record.state.operation.status !== "NOT_STARTED" ||
+      record.state.operation.drained
+    )
+      throw new Error("Lifecycle intent changed while waiting for capacity.");
+    const previous = record.capacity;
+    if (
+      previous &&
+      previous.validUntilMs !== 0 &&
+      (previous.operationId !== request.operationId ||
+        previous.workerId !== request.workerId ||
+        previous.reservationId !== binding.reservationId ||
+        previous.policyRevision !== binding.policyRevision)
+    )
+      throw new Error("Lifecycle retains an earlier capacity binding.");
+    record.version = 2;
+    record.capacity = { ...binding, operationId: request.operationId, workerId: request.workerId };
+    assertCapacityEffect(record, request.workerId, Date.now(), directory);
   });
 }
 

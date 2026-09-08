@@ -159,6 +159,9 @@ export class CapacityStore {
     samples: Record<string, CapacityDomainSample>,
     nowMs: number,
     maxSampleAgeMs: number,
+    // Replacement requires prior journal revocation and positive worker drainage.
+    // The snapshot revision fences changes made since that proof was collected.
+    previous?: { revision: number; reservationId: string; operationId: string },
   ) {
     validate({ version: 1, revision: 0, reservations: [request] });
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
@@ -178,7 +181,27 @@ export class CapacityStore {
         const existing = snapshot.reservations.find(
           (entry) => entry.environmentId === request.environmentId,
         );
-        if (existing) {
+        if (previous) {
+          if (
+            snapshot.revision !== previous.revision ||
+            !existing ||
+            existing.reservationId !== previous.reservationId ||
+            existing.operationId !== previous.operationId ||
+            existing.policyRevision !== request.policyRevision
+          )
+            throw new Error("Capacity expansion predecessor changed.");
+          // Rebinding does not establish cessation of retained runtime resources.
+          // Keep every domain and slot until a separate settlement proves release.
+          const totals = { ...existing.totals };
+          for (const [domain, bytes] of Object.entries(request.totals))
+            totals[domain] = Math.max(totals[domain] ?? 0, bytes);
+          request = {
+            ...request,
+            totals,
+            startup: existing.startup || request.startup,
+            heavy: existing.heavy || request.heavy,
+          };
+        } else if (existing) {
           if (
             existing.reservationId !== request.reservationId ||
             existing.operationId !== request.operationId ||
@@ -205,7 +228,9 @@ export class CapacityStore {
         if (snapshot.revision === Number.MAX_SAFE_INTEGER)
           throw new Error("Capacity reservation revision exhausted.");
         snapshot.revision++;
-        snapshot.reservations.push(structuredClone(request));
+        if (existing)
+          snapshot.reservations[snapshot.reservations.indexOf(existing)] = structuredClone(request);
+        else snapshot.reservations.push(structuredClone(request));
         validate(snapshot);
         const contents = `${JSON.stringify(snapshot)}\n`;
         if (Buffer.byteLength(contents) > MAX_BYTES)
