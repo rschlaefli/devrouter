@@ -138,10 +138,6 @@ function parseCanonicalAbsolutePath(value: unknown, label: string): string {
   return parsed;
 }
 
-function parseUnixSocketPath(value: unknown, label: string): string {
-  return parseCanonicalAbsolutePath(value, label);
-}
-
 function parseDomainId(value: unknown, label: string): string {
   const id = parseBoundedString(value, label, 64);
   if (!DOMAIN_ID_RE.test(id)) {
@@ -253,7 +249,7 @@ function parseDomain(value: unknown, domainId: string): CapacityPolicyDomain {
     if (adapter !== "orbstack-local-v1") {
       throw new Error(`${label}.adapter must be 'orbstack-local-v1'.`);
     }
-    const endpoint = parseUnixSocketPath(domain.endpoint, `${label}.endpoint`);
+    const endpoint = parseCanonicalAbsolutePath(domain.endpoint, `${label}.endpoint`);
     const daemonId = parseBoundedString(domain.daemonId, `${label}.daemonId`);
     const hostDomain = parseDomainId(domain.hostDomain, `${label}.hostDomain`);
     const hostChargeCeilingBytes = parsePositiveInteger(
@@ -505,9 +501,6 @@ export function parseCapacityPolicy(value: unknown): CapacityPolicy {
   const domains: Record<string, CapacityPolicyDomain> = {};
   for (const [domainId, domainValue] of domainEntries) {
     const parsedId = parseDomainId(domainId, "capacity policy.domains key");
-    if (Object.hasOwn(domains, parsedId)) {
-      throw new Error(`capacity policy.domains contains duplicate '${parsedId}'.`);
-    }
     domains[parsedId] = parseDomain(domainValue, parsedId);
   }
   validateDomainReferences(domains);

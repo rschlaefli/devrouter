@@ -133,9 +133,9 @@ describe("parseCapacityPolicy", () => {
         ...policy,
         domains: {
           ...policy.domains,
-          otherHost: { ...policy.domains.host },
+          "other-host": { ...policy.domains.host },
         },
-        enrollments: [{ ...policy.enrollments[0], hostDomain: "otherHost" }],
+        enrollments: [{ ...policy.enrollments[0], hostDomain: "other-host" }],
       }),
     ],
     [
@@ -144,7 +144,7 @@ describe("parseCapacityPolicy", () => {
         ...policy,
         domains: {
           ...policy.domains,
-          runtimeB: { ...policy.domains.runtimeB, daemonId: "daemon-a" },
+          "runtime-b": { ...policy.domains["runtime-b"], daemonId: "daemon-a" },
         },
       }),
     ],
@@ -157,6 +157,18 @@ describe("parseCapacityPolicy", () => {
     ],
   ])("rejects %s", (_case, mutate) => {
     expect(() => parseCapacityPolicy(mutate(validPolicy()))).toThrow();
+    if (_case === "mismatched host binding") {
+      const corrected = mutate(validPolicy()) as CapacityPolicy;
+      corrected.enrollments[0].hostDomain = "host";
+      expect(() => parseCapacityPolicy(corrected)).not.toThrow();
+    }
+    if (_case === "daemon alias collision") {
+      const corrected = mutate(validPolicy()) as CapacityPolicy;
+      const runtime = corrected.domains["runtime-b"];
+      if (runtime.kind !== "runtime") throw new Error("Invalid test fixture");
+      runtime.daemonId = "daemon-b";
+      expect(() => parseCapacityPolicy(corrected)).not.toThrow();
+    }
   });
 
   it("rejects non-safe numbers, unsupported adapters, and non-canonical paths", () => {
