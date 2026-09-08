@@ -1506,3 +1506,27 @@ positive stop proof. That is not yet the confirmed consumer cause. The scoped
 manual-only history rollover fix is owned in branch rs/lifecycle-history-rollover,
 worktree trees/rs/lifecycle-history-rollover, with its own dated plan based on
 released main. Preserve this capacity package's managed retry semantics.
+
+### Manual history fix delivery and remaining qualification gates
+
+The separate manual history fix is published as draft PR #64:
+https://github.com/rschlaefli/devrouter/pull/64 . Head 7924fe8 passes independent
+risk, simplification and final review. Final review required amending ADR 0008
+to preserve the manual-only rollover boundary. Required CI passes at
+https://github.com/rschlaefli/devrouter/actions/runs/34251252963 after one rerun
+of an unchanged controller cursor test that exceeded its five-second limit.
+The successful run includes unit tests, build, package smoke and controller
+qualification. It is not merged or released. Integration into this capacity
+branch must keep an explicit manual-only rollover guard.
+
+The packed capacity tracer's independent review found incomplete cleanup when
+its controller exits with a held synthetic provider. Zeno owns the bounded
+identity-checked process-group correction and fault proof; Singer owns correction
+review. Cleanup must inspect only process IDs and group IDs globally, never
+collect host-wide command arguments. No production runtime or policy is involved.
+
+The parent roadmap remains larger than these source packages: useful qualified
+host and guest telemetry, production admission wiring, bounded autonomous recovery,
+capacity parking and resume, and an enforcing harness still need acceptance.
+Synthetic admission receipts do not satisfy those live contracts. The last
+verified eLearning runtime state remains stopped with zero exact routes.
