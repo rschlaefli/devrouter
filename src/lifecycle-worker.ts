@@ -33,6 +33,7 @@ process.once("message", async (message: { request: LifecycleWorkerRequest }) => 
       const ensured = await workspaceEnsure(request.repoPath, request.options);
       recordLifecycleCompletion(
         ensured.applicationReadiness?.status === "application-error" ? 1 : 0,
+        ensured.managedRuntime?.status === "ready" ? ensured.profile : undefined,
       );
       return ensured;
     });

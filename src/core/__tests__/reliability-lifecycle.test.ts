@@ -1029,6 +1029,75 @@ describe("reliability lifecycle supervision", () => {
     expect(store.readReliabilityOperation(identity)).toMatchObject({ effectSequence: 1 });
   });
 
+  it.each([
+    0, 1,
+  ])("retains a prepared profile independently of application exit %s", async (exitCode) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedWorkerRequest();
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      // Isolate completion bookkeeping after the worker's existing launch claim.
+      store.updateReliabilityOperation(identity, (record) => {
+        record.version = 2;
+        record.state.executionPolicy = "capacity-managed";
+        record.state.admission = "admitted";
+        record.state.chargeHeld = true;
+        record.capacity = null;
+        record.activeProfile = null;
+        record.enrollment = {
+          policyRevision: 1,
+          gitCommonDir: "/tmp/synthetic-common",
+          providerId: "synthetic-provider",
+          hostDomain: "host",
+          runtimeDomain: "guest",
+          endpoint: "/tmp/synthetic-docker.sock",
+          daemonId: "synthetic-daemon",
+          estimatesDigest: "a".repeat(64),
+        };
+      });
+      expect(() => lifecycle.recordLifecycleCompletion(exitCode, "other")).toThrow();
+      expect(store.readReliabilityOperation(identity)?.activeProfile).toBeNull();
+      lifecycle.recordLifecycleCompletion(exitCode, "full");
+    });
+    expect(store.readReliabilityOperation(identity)).toMatchObject({
+      activeProfile: "full",
+      state: { operation: { status: "COMPLETED", exitCode } },
+    });
+  });
+
+  it.each([
+    false,
+    true,
+  ])("clears the active profile only after complete stop proof (%s)", async (routesRemain) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    store.updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.state.executionPolicy = "capacity-managed";
+      record.state.admission = "unknown";
+      record.capacity = null;
+      record.activeProfile = "full";
+      record.enrollment = {
+        policyRevision: 1,
+        gitCommonDir: "/tmp/synthetic-common",
+        providerId: "synthetic-provider",
+        hostDomain: "host",
+        runtimeDomain: "guest",
+        endpoint: "/tmp/synthetic-docker.sock",
+        daemonId: "synthetic-daemon",
+        estimatesDigest: "a".repeat(64),
+      };
+    });
+    if (routesRemain) fixture.listHostRouteState.mockReturnValue([{ repoPath: identity.repoPath }]);
+    const stopped = lifecycle.executeLifecycleWorker(request, async () =>
+      lifecycle.proveLifecycleStopped(),
+    );
+    if (routesRemain) await expect(stopped).rejects.toThrow("routes remain");
+    else await expect(stopped).resolves.toBeUndefined();
+    expect(store.readReliabilityOperation(identity)?.activeProfile).toBe(
+      routesRemain ? "full" : null,
+    );
+  });
+
   it("keeps stop unproven when workload inspection cannot provide proof", async () => {
     setProcessConnected(true);
     const { lifecycle, request, store, identity } = await seedStopRequest();

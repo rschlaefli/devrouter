@@ -863,3 +863,21 @@ continues to return the same operation ID. All 28 lifecycle tests and focused
 Biome pass. This protects the recovery distinction; it does not resolve restart
 payload loss. Keep the existing Gauss integration-test owner and Singer correctness
 review owner through their current nonterminal runs.
+
+Main connected prepared-profile evidence from the ensure worker's final ready
+managed-runtime result to completion bookkeeping. Matching worker/operation/profile
+proof records activeProfile even when application readiness fails; full stop proof
+clears it only after capacity settlement. This does not release startup excess.
+The new test exposed an existing managed-transition defect: stepReliability synced
+operationHistory only for manual execution, causing managed completion to fail
+journal validation. Accepted transitions now synchronize retained operation history
+for both policies. All 79 focused lifecycle/model tests pass, including prepared
+profile retention for application exits 0 and 1 and retention across failed stop.
+
+Broad source verification passed 1,355 tests across 99 files; the sole failure is
+Gauss's in-progress integration fixture passing unsupported policy enrollment fields
+to the stricter journal enrollment boundary. Receipt:
+/private/tmp/devrouter-capacity-profile-tests.log. Typecheck, Knip, docs policy,
+knowledge and focused Biome pass. The same worker owns the fixture correction.
+Profile/history changes await integration verification and scoped review before
+delivery. No packed/live capacity or OOM qualification is claimed.

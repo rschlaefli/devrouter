@@ -885,11 +885,7 @@ export function stepReliability(
   if (!isReliabilityCounter(nowMs) || nowMs < state.observationsAfterMs)
     throw new Error("Invalid reliability clock.");
   const result = applyReliabilityEvent(state, event, nowMs);
-  if (
-    result.outcome === "accepted" &&
-    result.state.executionPolicy === "manual" &&
-    result.state.operation
-  ) {
+  if (result.outcome === "accepted" && result.state.operation) {
     const operation = result.state.operation;
     result.state.operationHistory = result.state.operationHistory.map((entry) =>
       entry.id === operation.id ? { ...entry, ...operation } : entry,

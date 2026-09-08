@@ -649,11 +649,22 @@ export function recordLifecycleOutcome(outcome: ExecutionOutcome): void {
   });
 }
 
-export function recordLifecycleCompletion(exitCode: number): void {
+export function recordLifecycleCompletion(exitCode: number, preparedProfile?: string): void {
   const request = activeWorker;
   if (!request || request.kind === "stop") return;
   updateReliabilityOperation(request.identity, (record) => {
     if (!matchesFence(record, request.fence)) return;
+    if (preparedProfile !== undefined && record.enrollment) {
+      if (
+        request.kind !== "ensure" ||
+        record.worker?.id !== request.workerId ||
+        record.state.operation?.id !== request.operationId ||
+        record.state.profile !== preparedProfile
+      )
+        throw new Error("Prepared profile does not match the active lifecycle worker.");
+      // Application failure does not invalidate successfully reconciled tooling.
+      record.activeProfile = preparedProfile;
+    }
     stepRecord(record, {
       ...request.fence,
       type: "completion",
@@ -735,6 +746,7 @@ export function proveLifecycleStopped(): void {
       )
         throw new Error("Capacity settlement was superseded before journal confirmation.");
       record.capacity = null;
+      if (record.enrollment) record.activeProfile = null;
       stepRecord(record, {
         ...request.fence,
         type: "stop-proof",
