@@ -558,3 +558,29 @@ an injected crash after release. The executor's 11 persistence cases pass, inclu
 null authority denial and malformed version-2 rejection. Main verified its diff.
 The late reserve/bind race is still open; this correction does not claim to fence
 delayed reservation publication or complete capacity admission qualification.
+
+The reviewer endorsed global snapshot revision fencing instead of a revocation
+sidecar, conditional on mandatory revision checks, monotonic writes, and deferred
+stop finalization. Main is integrating that protocol. Lifecycle admission reads
+the capacity revision before journal validation, establishes unbound version-2
+enforcement before initial reservation, and supplies that revision to the atomic
+reservation transaction. Stop revokes authority while remaining stopping, then
+settles the exact environment with a revision check and publishes full stop proof
+only after settlement. Settlement increments the revision even for an absent row.
+Only snapshot contention retries, at most three attempts; other failures propagate.
+
+The crash-after-release test now requires stop finalization retry before admission,
+superseding the earlier test that exposed full stop proof before settlement.
+Initial late-publication and already-published unbound-reservation regressions pass
+in the lifecycle suite. Mandatory store revision checks and final integrated
+verification are still being completed. No live policy or runtime was activated.
+
+Mandatory revision integration is complete. All 26 lifecycle, 23 real-lock
+store/persistence and 30 queue/worker/retired-intent cases pass. TypeScript, Biome,
+Knip and diff whitespace checks pass. The store rejects omitted revisions before
+mutation; predecessor identity checks remain separate from snapshot revision
+checks. Stop retries only the typed snapshot-conflict error, with a three-attempt
+regression preserving stopping state and withholding full stop proof on exhaustion.
+The combined correction still requires independent review and a fresh packed
+lifecycle qualification because settlement ordering changed. Controller capacity
+dispatch, real telemetry, phase settlement and consumer qualification remain open.

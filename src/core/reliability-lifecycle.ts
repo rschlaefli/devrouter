@@ -1,6 +1,10 @@
 import path from "node:path";
 import type { CapacityDomainBudget, CapacityDomainSample } from "./capacity-accounting";
-import { type CapacityReservation, CapacityStore } from "./capacity-store";
+import {
+  type CapacityReservation,
+  CapacitySnapshotChangedError,
+  CapacityStore,
+} from "./capacity-store";
 import {
   inspectManagedStopContainers,
   inspectWorkspaceContainers,
@@ -229,7 +233,11 @@ export function admitLifecycleCapacity(
     )
       throw new Error("Lifecycle intent changed while waiting for capacity.");
     const binding = record.capacity;
-    if (!binding) return undefined;
+    if (!binding) {
+      record.version = 2;
+      record.capacity = null;
+      return undefined;
+    }
     const retained = snapshot.reservations.find(
       (entry) => entry.reservationId === binding.reservationId,
     );
@@ -267,7 +275,15 @@ export function admitLifecycleCapacity(
       reservationId: binding.reservationId,
     };
   });
-  const decision = capacity.reserve(reservation, budgets, samples, nowMs, maxSampleAgeMs, previous);
+  const decision = capacity.reserve(
+    reservation,
+    budgets,
+    samples,
+    nowMs,
+    maxSampleAgeMs,
+    previous,
+    snapshot.revision,
+  );
   if (decision.admitted) {
     bindLifecycleCapacity(
       request,
@@ -515,36 +531,43 @@ export function proveLifecycleStopped(): void {
   const settlement = updateReliabilityOperation(request.identity, (record) => {
     if (!matchesFence(record, request.fence) || record.worker)
       throw new Error("Stop proof was superseded or an earlier worker remains.");
+    if (record.version === 2) {
+      if (record.capacity) record.capacity.validUntilMs = 0;
+      return record.state.environmentId;
+    }
     stepRecord(record, {
       ...request.fence,
       type: "stop-proof",
       workloadsStopped: true,
       routesRemoved: true,
     });
-    if (record.version === 2 && record.capacity) {
-      record.capacity.validUntilMs = 0;
-      return {
-        environmentId: record.state.environmentId,
-        operationId: record.capacity.operationId,
-        reservationId: record.capacity.reservationId,
-        policyRevision: record.capacity.policyRevision,
-      };
-    }
     return undefined;
   });
   if (settlement) {
-    new CapacityStore(path.join(DEVROUTER_HOME, "controller")).releaseAfterStop(settlement);
+    const capacity = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+    for (let attempt = 0; ; attempt++) {
+      try {
+        capacity.settleEnvironmentAfterStop(settlement, capacity.read().revision);
+        break;
+      } catch (error) {
+        if (!(error instanceof CapacitySnapshotChangedError) || attempt >= 2) throw error;
+      }
+    }
     updateReliabilityOperation(request.identity, (record) => {
       if (
         !matchesFence(record, request.fence) ||
         record.worker ||
-        record.capacity?.reservationId !== settlement.reservationId ||
-        record.capacity.operationId !== settlement.operationId ||
-        record.capacity.policyRevision !== settlement.policyRevision ||
-        record.capacity.validUntilMs !== 0
+        record.state.environmentId !== settlement ||
+        (record.capacity && record.capacity.validUntilMs !== 0)
       )
         throw new Error("Capacity settlement was superseded before journal confirmation.");
       record.capacity = null;
+      stepRecord(record, {
+        ...request.fence,
+        type: "stop-proof",
+        workloadsStopped: true,
+        routesRemoved: true,
+      });
     });
   }
 }

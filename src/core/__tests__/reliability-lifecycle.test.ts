@@ -258,7 +258,8 @@ it.each([
   const request = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
   const record = store.readReliabilityOperation(request.identity)!;
   const now = Date.now();
-  const admission = new CapacityStore(path.join(DEVROUTER_HOME, "controller")).reserve(
+  const capacities = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+  const admission = capacities.reserve(
     {
       environmentId: record.state.environmentId,
       operationId: request.operationId,
@@ -280,6 +281,8 @@ it.each([
     },
     now,
     15_000,
+    undefined,
+    capacities.read().revision,
   );
   expect(admission.admitted).toBe(true);
   if (stopped) lifecycle.prepareLifecycleOperation("stop", request.repoPath);
@@ -463,6 +466,57 @@ it("freshly re-admits the same request but revokes stale or changed retries", as
   ).toThrow("Repeated capacity request changed its admitted requirements.");
   expect(capacities.read()).toEqual(beforeChangedRequirements);
   expect(store.readReliabilityOperation(request.identity)!.capacity?.validUntilMs).toBe(0);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("fences an initial reservation when stop settles before publication", async () => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const { CapacityStore } = await import("../capacity-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const capacities = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+  const request = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  const environmentId = store.readReliabilityOperation(request.identity)!.state.environmentId;
+  const reserve = CapacityStore.prototype.reserve;
+  vi.spyOn(CapacityStore.prototype, "reserve").mockImplementationOnce(function (
+    this: InstanceType<typeof CapacityStore>,
+    ...args
+  ) {
+    expect(store.readReliabilityOperation(request.identity)).toMatchObject({
+      version: 2,
+      capacity: null,
+    });
+    lifecycle.prepareLifecycleOperation("stop", request.repoPath);
+    capacities.settleEnvironmentAfterStop(environmentId, capacities.read().revision);
+    return reserve.apply(this, args);
+  });
+  const now = Date.now();
+  expect(() =>
+    lifecycle.admitLifecycleCapacity(
+      request,
+      {
+        environmentId,
+        operationId: request.operationId,
+        reservationId: "late",
+        policyRevision: 1,
+        totals: { host: 1 },
+        startup: true,
+        heavy: false,
+      },
+      { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+      {
+        host: {
+          sampledAtMs: now,
+          pressure: "normal",
+          unmanagedBytes: 0,
+          sharedBytes: 0,
+          ownedBytes: {},
+        },
+      },
+      now,
+      15_000,
+    ),
+  ).toThrow("Capacity snapshot changed");
+  expect(capacities.read().reservations).toEqual([]);
   expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
 });
 
@@ -764,13 +818,40 @@ describe("reliability lifecycle supervision", () => {
     });
   });
 
+  it("bounds settlement contention without publishing stop proof", async () => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    const { CapacityStore, CapacitySnapshotChangedError } = await import("../capacity-store");
+    store.updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = null;
+    });
+    const settle = vi
+      .spyOn(CapacityStore.prototype, "settleEnvironmentAfterStop")
+      .mockImplementation(() => {
+        throw new CapacitySnapshotChangedError();
+      });
+    await expect(
+      lifecycle.executeLifecycleWorker(request, async () => {
+        lifecycle.proveLifecycleStopped();
+      }),
+    ).rejects.toThrow("Capacity snapshot changed");
+    expect(settle).toHaveBeenCalledTimes(3);
+    expect(store.readReliabilityOperation(identity)?.state).toMatchObject({
+      phase: "stopping",
+      stopProof: { workloadsStopped: false, routesRemoved: false },
+    });
+  });
+
   it.each([
-    { routesRemain: false, crashAfterRelease: false },
-    { routesRemain: true, crashAfterRelease: false },
-    { routesRemain: false, crashAfterRelease: true },
-  ])("settles capacity after stop and reconciles released bindings ($routesRemain, $crashAfterRelease)", async ({
+    { routesRemain: false, crashAfterRelease: false, unbound: false },
+    { routesRemain: true, crashAfterRelease: false, unbound: false },
+    { routesRemain: false, crashAfterRelease: true, unbound: false },
+    { routesRemain: false, crashAfterRelease: false, unbound: true },
+  ])("settles capacity after stop and reconciles released bindings ($routesRemain, $crashAfterRelease, $unbound)", async ({
     routesRemain,
     crashAfterRelease,
+    unbound,
   }) => {
     setProcessConnected(true);
     const { lifecycle, request, store, identity } = await seedStopRequest();
@@ -799,6 +880,8 @@ describe("reliability lifecycle supervision", () => {
       { host: sample },
       100,
       15,
+      undefined,
+      reservations.read().revision,
     );
     expect(admission.admitted).toBe(true);
     store.updateReliabilityOperation(identity, (record) => {
@@ -812,33 +895,43 @@ describe("reliability lifecycle supervision", () => {
       };
     });
     if (routesRemain) fixture.listHostRouteState.mockReturnValue([{ repoPath: identity.repoPath }]);
-    if (crashAfterRelease) {
-      const release = CapacityStore.prototype.releaseAfterStop;
-      vi.spyOn(CapacityStore.prototype, "releaseAfterStop").mockImplementationOnce(function (
-        this: InstanceType<typeof CapacityStore>,
-        expected,
-      ) {
-        release.call(this, expected);
-        throw new Error("synthetic crash after release");
+    if (unbound)
+      store.updateReliabilityOperation(identity, (record) => {
+        record.capacity = null;
       });
+    if (crashAfterRelease) {
+      const release = CapacityStore.prototype.settleEnvironmentAfterStop;
+      vi.spyOn(CapacityStore.prototype, "settleEnvironmentAfterStop").mockImplementationOnce(
+        function (this: InstanceType<typeof CapacityStore>, expected, revision) {
+          release.call(this, expected, revision);
+          throw new Error("synthetic crash after release");
+        },
+      );
     }
-    const stopped = lifecycle.executeLifecycleWorker(request, async () =>
-      lifecycle.proveLifecycleStopped(),
-    );
+    const stopped = lifecycle.executeLifecycleWorker(request, async () => {
+      if (crashAfterRelease) {
+        expect(() => lifecycle.proveLifecycleStopped()).toThrow("synthetic crash after release");
+        expect(store.readReliabilityOperation(identity)?.state).toMatchObject({
+          phase: "stopping",
+          stopProof: { workloadsStopped: false, routesRemoved: false },
+        });
+        expect(reservations.read().reservations).toHaveLength(0);
+        expect(() => lifecycle.prepareLifecycleOperation("ensure", request.repoPath)).toThrow();
+      }
+      lifecycle.proveLifecycleStopped();
+    });
     if (routesRemain) await expect(stopped).rejects.toThrow("routes remain");
-    else if (crashAfterRelease)
-      await expect(stopped).rejects.toThrow("synthetic crash after release");
     else await expect(stopped).resolves.toBeUndefined();
     expect(
       reservations.read().reservations.filter((entry) => entry.environmentId === environmentId),
     ).toHaveLength(routesRemain ? 1 : 0);
     expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(
-      routesRemain ? 1000 : crashAfterRelease ? 0 : undefined,
+      routesRemain ? 1000 : undefined,
     );
     if (!routesRemain) {
       expect(store.readReliabilityOperation(identity)).toMatchObject({
         version: 2,
-        capacity: crashAfterRelease ? expect.objectContaining({ validUntilMs: 0 }) : null,
+        capacity: null,
       });
       fixture.newLifecycleIds.mockReturnValue({
         requestId: "after-stop-request",

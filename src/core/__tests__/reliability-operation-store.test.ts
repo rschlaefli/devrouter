@@ -103,6 +103,7 @@ describe("durable reliability records", () => {
       sharedBytes: 0,
       ownedBytes: {},
     };
+    const expectedRevision = store.read().revision;
     store.reserve(
       {
         environmentId: record.state.environmentId,
@@ -117,6 +118,8 @@ describe("durable reliability records", () => {
       { host: sample },
       100,
       15,
+      undefined,
+      expectedRevision,
     );
     updateReliabilityOperation(identity, (current) => {
       current.version = 2;

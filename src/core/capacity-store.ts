@@ -17,6 +17,25 @@ export type CapacityReservation = CapacityCharge & {
 type Snapshot = { version: 1; revision: number; reservations: CapacityReservation[] };
 const MAX_BYTES = 1_048_576;
 
+export class CapacitySnapshotChangedError extends Error {
+  constructor() {
+    super("Capacity snapshot changed.");
+    this.name = "CapacitySnapshotChangedError";
+  }
+}
+
+function assertPrivateDirectory(directoryPath: string): void {
+  fs.mkdirSync(directoryPath, { recursive: true, mode: 0o700 });
+  const directory = fs.lstatSync(directoryPath);
+  if (
+    !directory.isDirectory() ||
+    directory.isSymbolicLink() ||
+    directory.uid !== process.getuid?.() ||
+    (directory.mode & 0o077) !== 0
+  )
+    throw new Error("Capacity reservation directory is not private.");
+}
+
 function object(value: unknown, fields: string[]): asserts value is Record<string, unknown> {
   if (
     !value ||
@@ -120,35 +139,34 @@ export class CapacityStore {
     }
   }
 
-  /** Caller must durably revoke effects and establish full stop proof first. */
-  releaseAfterStop(
-    expected: Pick<
-      CapacityReservation,
-      "environmentId" | "operationId" | "reservationId" | "policyRevision"
-    >,
-  ): boolean {
+  /**
+   * Caller must revoke journal authority and prove exact physical cessation first.
+   * An absent reservation still advances the revision to fence that proof.
+   */
+  settleEnvironmentAfterStop(
+    environmentId: string,
+    expectedRevision: number,
+  ): { settled: boolean; revision: number } {
+    if (!id(environmentId)) throw new Error("Invalid capacity environment ID.");
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+      throw new Error("Invalid capacity settlement revision.");
+    assertPrivateDirectory(this.directory);
     return withFileLockSync(
       `${this.file}.lock`,
       { activity: "capacity settlement", waitMs: 100 },
       () => {
         const snapshot = this.read();
-        const index = snapshot.reservations.findIndex(
-          (entry) => entry.reservationId === expected.reservationId,
-        );
-        if (index < 0) return false;
-        const reservation = snapshot.reservations[index];
-        if (
-          reservation.environmentId !== expected.environmentId ||
-          reservation.operationId !== expected.operationId ||
-          reservation.policyRevision !== expected.policyRevision
-        )
-          throw new Error("Capacity settlement identity changed.");
+        if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
         if (snapshot.revision === Number.MAX_SAFE_INTEGER)
           throw new Error("Capacity reservation revision exhausted.");
-        snapshot.reservations.splice(index, 1);
+        const index = snapshot.reservations.findIndex(
+          (entry) => entry.environmentId === environmentId,
+        );
+        if (index >= 0) snapshot.reservations.splice(index, 1);
         snapshot.revision++;
+        validate(snapshot);
         writeFileAtomically(this.file, `${JSON.stringify(snapshot)}\n`);
-        return true;
+        return { settled: index >= 0, revision: snapshot.revision };
       },
     );
   }
@@ -161,23 +179,19 @@ export class CapacityStore {
     maxSampleAgeMs: number,
     // Replacement requires prior journal revocation and positive worker drainage.
     // The snapshot revision fences changes made since that proof was collected.
-    previous?: { revision: number; reservationId: string; operationId: string },
+    previous: { revision: number; reservationId: string; operationId: string } | undefined,
+    expectedRevision: number,
   ) {
     validate({ version: 1, revision: 0, reservations: [request] });
-    fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    const directory = fs.lstatSync(this.directory);
-    if (
-      !directory.isDirectory() ||
-      directory.isSymbolicLink() ||
-      directory.uid !== process.getuid?.() ||
-      (directory.mode & 0o077) !== 0
-    )
-      throw new Error("Capacity reservation directory is not private.");
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+      throw new Error("Invalid capacity expected revision.");
+    assertPrivateDirectory(this.directory);
     return withFileLockSync(
       `${this.file}.lock`,
       { activity: "capacity reservation", waitMs: 100 },
       () => {
         const snapshot = this.read();
+        if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
         const existing = snapshot.reservations.find(
           (entry) => entry.environmentId === request.environmentId,
         );
