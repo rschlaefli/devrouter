@@ -1054,3 +1054,15 @@ canary qualification is not yet complete. Receipts are under
 /private/tmp/devrouter-release60-*. The initial broad Compose project override
 failed shared-router discovery; the successful wrapper scopes isolation to the
 exact routing example and preserves shared-router discovery.
+
+Released 0.0.60 canary checkpoint: the queued ensure completed after provider-lock
+handoff. Declared application health returned 200. The existing synthetic fixture
+verifier passed with retained records. A second ensure reused container 00cdd306
+and app PID 279, with health still ready. Canonical stop then completed; Devsy
+workspace status reports Stopped, managed state has empty active resources and no
+drift, and the exact route query reports zero. The consumer checkout stays clean.
+Producing receipts: /private/tmp/devrouter-release60-canary-{ensure,warm,stop}.json,
+/private/tmp/devrouter-release60-canary-data.log and
+/private/tmp/devrouter-release60-canary-provider-status.json. Fresh authenticated
+browser progress and application-failure/recovery qualification were not run in
+this checkpoint; earlier 0.0.56 acceptance remains historical evidence only.
