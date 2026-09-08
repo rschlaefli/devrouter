@@ -89,10 +89,21 @@ function parseDockerLines(stdout: string): string[] {
   return lines;
 }
 
-function runManagedStopDocker(args: string[]): string {
-  const result = spawnSync("docker", args, {
+function runManagedStopDocker(
+  args: string[],
+  endpoint?: string,
+  timeoutMs = MANAGED_STOP_DOCKER_TIMEOUT_MS,
+): string {
+  if (endpoint !== undefined) assertManagedStopEndpoint(endpoint);
+  const env = { ...process.env };
+  if (endpoint !== undefined) {
+    delete env.DOCKER_CONTEXT;
+    delete env.DOCKER_HOST;
+  }
+  const result = spawnSync("docker", endpoint ? ["--host", endpoint, ...args] : args, {
+    ...(endpoint ? { env } : {}),
     encoding: "utf-8",
-    timeout: MANAGED_STOP_DOCKER_TIMEOUT_MS,
+    timeout: timeoutMs,
     maxBuffer: MANAGED_STOP_DOCKER_MAX_BUFFER,
   });
   if (result.error || result.status !== 0) {
@@ -104,17 +115,21 @@ function runManagedStopDocker(args: string[]): string {
   return result.stdout;
 }
 
-function listManagedStopContainerIds(composeProject: string): string[] {
-  const stdout = runManagedStopDocker([
-    "ps",
-    "-a",
-    "--no-trunc",
-    "--filter",
-    `label=${MANAGED_STOP_COMPOSE_LABEL}=${composeProject}`,
-    "--format",
-    "{{.ID}}",
-  ]);
+function listManagedStopContainerIds(composeProject: string, endpoint?: string): string[] {
+  const stdout = runManagedStopDocker(
+    [
+      "ps",
+      "-a",
+      "--no-trunc",
+      "--filter",
+      `label=${MANAGED_STOP_COMPOSE_LABEL}=${composeProject}`,
+      "--format",
+      "{{.ID}}",
+    ],
+    endpoint,
+  );
   const ids = parseDockerLines(stdout);
+  if (ids.length > 256) throw new Error("Managed stop population exceeds its bound.");
   ids.forEach(assertFullContainerId);
   assertUniqueContainerIds(ids);
   return ids;
@@ -227,13 +242,12 @@ function validateManagedStopSnapshot(
 function inspectManagedStopPopulation(
   ids: string[],
   composeProject: string,
+  endpoint?: string,
 ): ManagedStopContainerSnapshot[] {
-  const stdout = runManagedStopDocker([
-    "inspect",
-    "--format",
-    MANAGED_STOP_INSPECT_TEMPLATE,
-    ...ids,
-  ]);
+  const stdout = runManagedStopDocker(
+    ["inspect", "--format", MANAGED_STOP_INSPECT_TEMPLATE, ...ids],
+    endpoint,
+  );
   const lines = parseDockerLines(stdout);
   if (lines.length !== ids.length) {
     throw new Error("Managed stop Docker inspection returned an incomplete population.");
@@ -271,6 +285,7 @@ function requireSameContainerPopulation(expected: string[], actual: string[]): v
 
 export function inspectManagedStopContainers(
   composeProject: string,
+  endpoint?: string,
 ): ManagedStopContainerSnapshot[] {
   if (
     typeof composeProject !== "string" ||
@@ -281,15 +296,15 @@ export function inspectManagedStopContainers(
     throw new Error("Managed stop Docker inspection requires a safe Compose project.");
   }
 
-  const listedIds = listManagedStopContainerIds(composeProject);
+  const listedIds = listManagedStopContainerIds(composeProject, endpoint);
   if (listedIds.length === 0) {
-    const confirmedIds = listManagedStopContainerIds(composeProject);
+    const confirmedIds = listManagedStopContainerIds(composeProject, endpoint);
     requireSameContainerPopulation(listedIds, confirmedIds);
     return [];
   }
 
-  const snapshots = inspectManagedStopPopulation(listedIds, composeProject);
-  const confirmedIds = listManagedStopContainerIds(composeProject);
+  const snapshots = inspectManagedStopPopulation(listedIds, composeProject, endpoint);
+  const confirmedIds = listManagedStopContainerIds(composeProject, endpoint);
   requireSameContainerPopulation(listedIds, confirmedIds);
   return snapshots;
 }
@@ -428,4 +443,135 @@ export function resolveRunningWorkspaceContainer(repoPath: string): {
     throw new Error(`Workspace app container no longer mounts '${repoPath}'.`);
   }
   return { id: container.id, workspacePath: repoMount.Destination };
+}
+
+/** Recognized remote transports retain legacy lifecycle behavior without a stop baseline. */
+export function supportsManagedStopBaseline(endpoint: string): boolean {
+  if (
+    !endpoint ||
+    endpoint.length > 4096 ||
+    endpoint.trim() !== endpoint ||
+    [...endpoint].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+  ) {
+    throw new Error("Docker endpoint is malformed.");
+  }
+  if (endpoint.startsWith("unix://")) {
+    if (
+      !endpoint.startsWith("unix:///") ||
+      endpoint.length === 8 ||
+      path.normalize(endpoint.slice(7)) !== endpoint.slice(7)
+    ) {
+      throw new Error("Docker endpoint is malformed.");
+    }
+    return true;
+  }
+  if (/\s/.test(endpoint)) throw new Error("Docker endpoint is malformed.");
+  if (/^npipe:\/\/\/\/\.\/pipe\/[a-zA-Z0-9_.-]+$/.test(endpoint)) return false;
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new Error("Docker endpoint is malformed.");
+  }
+  if (
+    (url.protocol !== "tcp:" && url.protocol !== "ssh:") ||
+    !url.hostname ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    (url.protocol === "tcp:" && (url.username || (url.pathname && url.pathname !== "/"))) ||
+    (url.port && (!/^\d+$/.test(url.port) || Number(url.port) < 1 || Number(url.port) > 65535))
+  ) {
+    throw new Error("Docker endpoint is malformed or unsupported.");
+  }
+  return false;
+}
+
+function assertManagedStopEndpoint(endpoint: string): void {
+  if (!supportsManagedStopBaseline(endpoint)) {
+    throw new Error("Managed stop requires an exact local Docker endpoint.");
+  }
+}
+
+function parseManagedStopJson(output: string): unknown {
+  try {
+    return JSON.parse(output);
+  } catch {
+    throw new Error("Managed stop Docker response is malformed.");
+  }
+}
+
+export function resolveManagedStopEndpoint(): string {
+  const endpoint =
+    process.env.DOCKER_HOST && !process.env.DOCKER_CONTEXT
+      ? process.env.DOCKER_HOST
+      : parseManagedStopJson(
+          runManagedStopDocker([
+            "context",
+            "inspect",
+            "--format",
+            "{{json .Endpoints.docker.Host}}",
+          ]),
+        );
+  if (typeof endpoint !== "string") throw new Error("Docker endpoint is unavailable.");
+  supportsManagedStopBaseline(endpoint);
+  return endpoint;
+}
+
+export function inspectManagedStopDaemon(endpoint: string): string {
+  const value: unknown = parseManagedStopJson(
+    runManagedStopDocker(["info", "--format", "{{json .ID}}"], endpoint),
+  );
+  if (
+    typeof value !== "string" ||
+    !value.length ||
+    value.length > 256 ||
+    /\s/.test(value) ||
+    [...value].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+  ) {
+    throw new Error("Docker daemon identity is unavailable.");
+  }
+  return value;
+}
+
+export function inspectManagedStopRunnerId(endpoint: string, containerId: string): string {
+  assertFullContainerId(containerId);
+  const value: unknown = parseManagedStopJson(
+    runManagedStopDocker(
+      ["inspect", "--format", '{{json (index .Config.Labels "dev.containers.id")}}', containerId],
+      endpoint,
+    ),
+  );
+  if (typeof value !== "string" || value.length > 4096)
+    throw new Error("Provider container binding is unavailable.");
+  return value;
+}
+
+export function inspectManagedStopWorkspaceIds(
+  endpoint: string,
+  composeDirectory: string,
+): string[] {
+  const ids = parseDockerLines(
+    runManagedStopDocker(
+      [
+        "ps",
+        "-a",
+        "--no-trunc",
+        "--filter",
+        `label=com.docker.compose.project.working_dir=${composeDirectory}`,
+        "--format",
+        "{{.ID}}",
+      ],
+      endpoint,
+    ),
+  );
+  if (ids.length > 256) throw new Error("Managed stop population exceeds its bound.");
+  ids.forEach(assertFullContainerId);
+  assertUniqueContainerIds(ids);
+  return ids;
+}
+
+export function stopPinnedManagedContainer(endpoint: string, containerId: string): void {
+  assertFullContainerId(containerId);
+  runManagedStopDocker(["stop", containerId], endpoint, 30_000);
 }

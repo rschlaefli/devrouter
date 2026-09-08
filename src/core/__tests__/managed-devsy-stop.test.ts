@@ -198,6 +198,16 @@ describe("retained managed Devsy stop", () => {
     expect(run()).toBe(true);
     expect(stopExactManagedService).toHaveBeenCalledTimes(1);
   });
+  it("retains legacy provider stop on a non-Unix transport without a baseline", () => {
+    vi.stubEnv("DOCKER_CONTEXT", "synthetic-remote");
+    vi.stubEnv("DOCKER_HOST", "tcp://synthetic.example:2376");
+    provider = "running";
+    containers[0].state.Running = true;
+    expect(run()).toBe(true);
+    expect(stopProvider).toHaveBeenCalledTimes(1);
+    expect(containers.every((container) => !container.state.Running)).toBe(true);
+  });
+
   it("stops the running provider once before residual cleanup", () => {
     provider = "running";
     containers[0] = container("app", true, "a");

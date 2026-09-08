@@ -18,6 +18,7 @@ const fixture = vi.hoisted(() => ({
   resolveRunningWorkspaceContainer: vi.fn(),
   listHostRouteState: vi.fn(),
   readManagedRuntimeState: vi.fn(),
+  proveRetainedManagedStop: vi.fn(),
   withWorkspaceLifecycleLock: vi.fn(),
 }));
 
@@ -52,6 +53,10 @@ vi.mock("../host-routes", () => ({ listHostRouteState: fixture.listHostRouteStat
 
 vi.mock("../managed-runtime-state", () => ({
   readManagedRuntimeState: fixture.readManagedRuntimeState,
+}));
+
+vi.mock("../managed-stop-recovery", () => ({
+  proveRetainedManagedStop: fixture.proveRetainedManagedStop,
 }));
 
 vi.mock("../reliability-worker", () => ({
@@ -416,6 +421,41 @@ describe("reliability lifecycle supervision", () => {
 
     expect(store.readReliabilityOperation(identity)).toMatchObject({
       state: { stopProof: { workloadsStopped: false, routesRemoved: false } },
+    });
+  });
+
+  it.each([
+    "complete",
+    "changed",
+    "running",
+    "routes",
+  ])("requires retained proof through canonical %s settlement", async (outcome) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    const retained = { repoPath: identity.repoPath, stopBaseline: { version: 1 } };
+    fixture.readManagedRuntimeState.mockReturnValue(retained);
+    fixture.proveRetainedManagedStop.mockReturnValue([defaultContainer(identity.repoPath)]);
+    const operation = lifecycle.executeLifecycleWorker(request, async () => {
+      if (outcome === "changed")
+        fixture.proveRetainedManagedStop.mockImplementation(() => {
+          throw new Error("Synthetic population drift");
+        });
+      if (outcome === "running")
+        fixture.proveRetainedManagedStop.mockReturnValue([
+          { ...defaultContainer(identity.repoPath), state: { Running: true } },
+        ]);
+      if (outcome === "routes")
+        fixture.listHostRouteState.mockReturnValue([{ repoPath: identity.repoPath }]);
+      lifecycle.proveLifecycleStopped();
+    });
+    if (outcome === "complete") await expect(operation).resolves.toBeUndefined();
+    else await expect(operation).rejects.toThrow(Error);
+    expect(fixture.proveRetainedManagedStop).toHaveBeenCalledTimes(2);
+    expect(fixture.inspectWorkspaceContainers).not.toHaveBeenCalled();
+    expect(fixture.inspectManagedStopContainers).not.toHaveBeenCalled();
+    expect(store.readReliabilityOperation(identity)?.state.stopProof).toEqual({
+      workloadsStopped: outcome === "complete",
+      routesRemoved: outcome === "complete",
     });
   });
 

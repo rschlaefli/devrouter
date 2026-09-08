@@ -36,6 +36,7 @@ import {
   writeManagedRuntimeState,
 } from "../managed-runtime-state";
 import { collectManagedRuntimeStatus } from "../managed-runtime-status";
+import { captureManagedStopBaseline, proveRetainedManagedStop } from "../managed-stop-recovery";
 import * as reliabilityLifecycle from "../reliability-lifecycle";
 import { loadRepoConfig, loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
@@ -98,6 +99,10 @@ vi.mock("../managed-runtime-state", () => ({
   readManagedRuntimeState: vi.fn(() => undefined),
   writeManagedRuntimeState: vi.fn(),
   markManagedRuntimeDegraded: vi.fn(),
+}));
+vi.mock("../managed-stop-recovery", () => ({
+  captureManagedStopBaseline: vi.fn(),
+  proveRetainedManagedStop: vi.fn(() => []),
 }));
 vi.mock("../managed-runtime-status", () => ({
   collectManagedRuntimeStatus: vi.fn(() => undefined),
@@ -908,6 +913,167 @@ describe("workspaceEnsure", () => {
       return delegate?.(command, args, options) as never;
     });
   }
+
+  function mockDevsyCapture(events: string[], endpoint: unknown = "unix:///synthetic/docker.sock") {
+    mockManagedLifecycle({ events });
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: managedRuntimeConfig(),
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["app"] },
+    });
+    const delegate = vi.mocked(spawnSync).getMockImplementation()!;
+    vi.mocked(spawnSync).mockImplementation((command, args, options) => {
+      const argv = args as string[];
+      if (command === "docker" && argv[0] === "context" && argv[1] === "inspect")
+        return { status: 0, stdout: JSON.stringify(endpoint), stderr: "" } as never;
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list")
+        return delegate("devpod", ["list"], options);
+      if (command === "devpod" && argv[0] === "list")
+        return { status: 0, stdout: "[]", stderr: "" } as never;
+      return delegate(command, args, options);
+    });
+    vi.stubEnv("DEVROUTER_WORKSPACE_RUNTIME", "devsy");
+    vi.stubEnv("DOCKER_CONTEXT", "synthetic");
+    resetWorkspaceRuntimeCaches();
+    vi.mocked(captureManagedStopBaseline).mockImplementation((state, plan) => ({
+      version: 1,
+      provider: "devsy",
+      context: "default",
+      providerId: state.devpodId,
+      uid: "fixture-uid",
+      sourcePath: state.repoPath,
+      sourceContainer: "",
+      endpoint: "unix:///synthetic/docker.sock",
+      daemonId: "fixture-daemon",
+      sourceConfigSha256: state.sourceConfigSha256,
+      effectiveConfigSha256: state.effectiveConfigSha256,
+      project: state.composeProject,
+      primaryService: plan.primaryService,
+      requiredServices: plan.desiredServices,
+      allowedServices: plan.nativeRunServices,
+      composeDirectory: plan.composeDirectory,
+      composeFiles: plan.composeFiles,
+      featureDirectory: "/synthetic/features",
+      containers: [],
+    }));
+  }
+
+  it.each([
+    "tcp://synthetic.example:2376",
+    "ssh://fixture@synthetic.example",
+    "npipe:////./pipe/docker_engine",
+  ])("preserves legacy ensure for %s with a notice and no early capture", async (endpoint) => {
+    mockDevsyCapture([], endpoint);
+    const notice = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      await expect(
+        workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      ).resolves.toMatchObject({ devpodId: "feature" });
+      expect(captureManagedStopBaseline).not.toHaveBeenCalled();
+      expect(proveRetainedManagedStop).not.toHaveBeenCalled();
+      expect(writeManagedRuntimeState).toHaveBeenCalledTimes(1);
+      expect(writeManagedRuntimeState).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "ready" }),
+      );
+      expect(writeManagedRuntimeState).not.toHaveBeenCalledWith(
+        expect.objectContaining({ stopBaseline: expect.anything() }),
+      );
+      expect(notice).toHaveBeenCalled();
+    } finally {
+      notice.mockRestore();
+    }
+  });
+
+  it.each([
+    null,
+    "not-an-endpoint",
+    "tcp://",
+    "unix://relative",
+    "https://synthetic.example",
+  ])("does not downgrade invalid endpoint evidence %s to legacy capture", async (endpoint) => {
+    mockDevsyCapture([], endpoint);
+    const notice = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      await expect(
+        workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      ).rejects.toThrow(Error);
+      expect(captureManagedStopBaseline).not.toHaveBeenCalled();
+      expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+      expect(notice).not.toHaveBeenCalled();
+    } finally {
+      notice.mockRestore();
+    }
+  });
+
+  it("rejects unavailable endpoint evidence instead of issuing a legacy notice", async () => {
+    mockDevsyCapture([]);
+    const delegate = vi.mocked(spawnSync).getMockImplementation()!;
+    vi.mocked(spawnSync).mockImplementation((command, args, options) => {
+      const argv = args as string[];
+      return command === "docker" && argv[0] === "context"
+        ? ({ status: 1, stdout: "", stderr: "" } as never)
+        : delegate(command, args, options);
+    });
+    const notice = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      await expect(
+        workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      ).rejects.toThrow(Error);
+      expect(captureManagedStopBaseline).not.toHaveBeenCalled();
+      expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+      expect(notice).not.toHaveBeenCalled();
+    } finally {
+      notice.mockRestore();
+    }
+  });
+
+  it("persists degraded stop ownership before an application adapter failure", async () => {
+    const events: string[] = [];
+    mockDevsyCapture(events);
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      expect(writeManagedRuntimeState).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "degraded", stopBaseline: expect.any(Object) }),
+      );
+      throw new Error("Synthetic adapter failure");
+    });
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow(Error);
+    expect(captureManagedStopBaseline).toHaveBeenCalledTimes(1);
+    expect(writeManagedRuntimeState).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
+  it("does not invoke the adapter when ownership persistence fails", async () => {
+    mockDevsyCapture([]);
+    vi.mocked(writeManagedRuntimeState).mockImplementation(() => {
+      throw new Error("Synthetic disk failure");
+    });
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow(Error);
+    expect(captureManagedStopBaseline).toHaveBeenCalledTimes(1);
+    // Rollback can replay a previously proven adapter; the new profile must never launch.
+    expect(runManagedPostStart).not.toHaveBeenCalledWith(
+      expect.objectContaining({ profile: "ai" }),
+    );
+    expect(writeManagedRuntimeState).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
+  it("carries the captured ownership through final readiness under the provider lock", async () => {
+    mockDevsyCapture([]);
+    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+    const captured = vi.mocked(writeManagedRuntimeState).mock.calls[0][0];
+    expect(captured.status).toBe("degraded");
+    expect(proveRetainedManagedStop).toHaveBeenCalledWith(captured);
+    expect(writeManagedRuntimeState).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: "ready", stopBaseline: captured.stopBaseline }),
+    );
+  });
 
   it("reconciles selected services and processes without recreating the primary container", async () => {
     const events: string[] = [];

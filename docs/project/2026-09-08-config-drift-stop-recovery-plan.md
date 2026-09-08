@@ -143,3 +143,88 @@ five suites; the environment-stop suite could not load jsonc-parser from the old
 primary checkout's dependencies. Install the task's frozen lockfile before using
 that suite as baseline evidence. No implementation or runtime mutation has occurred
 in this worktree yet.
+
+The isolated frozen-lockfile install completed; an optional cpu-features native
+build failed on host Node 26.8.1, but installation exited successfully. All 194
+baseline tests across the six affected suites subsequently passed. Baseline log:
+`/private/tmp/devrouter-config-drift-baseline-tests-installed.log`.
+
+Implementation is in progress with the same executor. Main owns the separate
+`scripts/qualify-config-drift-stop.ts` runner and its package script. It uses an
+isolated copy of the existing example, bounded container memory, temporary
+configuration renames, a named-volume marker and canonical ensure/stop/exec.
+It restores configuration for cleanup and retains the fixture and volumes.
+Qualification failure cannot become a pass merely because cleanup succeeds.
+Typecheck, script formatting, unused-code checks and diff whitespace checks pass;
+the live runner has not executed. Do not treat this as runtime qualification.
+No application runtime was started or changed during this implementation checkpoint.
+
+Main independently ran the current seven affected suites: 221 tests passed,
+including 27 retained-stop recovery cases. The producing log is
+`/private/tmp/devrouter-stop-recovery-current-tests.log`. These tests establish
+the tested synthetic ownership and cessation behavior; they do not yet prove
+the complete startup-to-stop path with a real provider. The executor remains
+responsible for completing capture and lifecycle seam coverage.
+
+Main corrected the qualification runner so a configuration-restoration error
+does not skip the exact runtime stop attempt. Repeated cleanup stops now each
+require a structured stopped result. Formatting, typecheck and diff whitespace
+checks passed after this change. Live qualification remains pending.
+
+The executor returned with the implementation and focused seam tests complete,
+but identified a compatibility defect: capture unconditionally rejects non-Unix
+Docker transports. Main has not accepted that limitation as the final contract.
+The configured Claude CLI advisor is examining the connection identity boundary
+before correction and integration. No runtime qualification or review gate has
+passed for this implementation yet.
+
+Main's complete host test run passed all 1,243 tests in 91 suites with two workers:
+`/private/tmp/devrouter-stop-recovery-full-tests-host.log`. The preceding sandbox
+run failed process-identity lock checks; those failures did not reproduce outside
+the sandbox. This evidence does not qualify non-Unix connection compatibility.
+
+The transport advisor returned DONE_WITH_CONCERNS. Main accepts preserving
+legacy startup on recognized non-Unix transports with an explicit capability
+notice. New baseline recovery in this slice requires a local Unix Docker endpoint;
+other transports remain an explicit roadmap gap. Unknown or malformed connection
+evidence must not silently become fallback, and a present baseline never falls back.
+This host resolves to the OrbStack Unix socket. The executor owns one focused
+compatibility correction pass. The advisor's claimed Docker environment precedence
+is unverified and is not adopted.
+
+### Incoming consumer incidents
+
+The Klicker KB/KG/Generation owner reported exec failing before child launch.
+Read-only metadata proves journal revision 1232 has 128 history entries, no worker,
+stable running intent, and a completed, drained latest exec. The released handler
+rejects requests at that exact history bound. The separate
+[manual history rollover fix](https://github.com/rschlaefli/devrouter/pull/64)
+has a passing required check and remains open. Main returned the diagnosis; no
+consumer runtime, data, journal or lease was changed. Delivery of that fix is
+independent of configuration-drift stop recovery.
+
+The user merged the history fix at 7d2fcba38a716afce54a67d9a861fa5b2850e6a3.
+Main verified identical source trees, rebuilt the history worktree CLI and passed
+package smoke. A read-only in-memory transition against the affected journal
+accepted the next operation, advanced its fence and preserved uncertain history.
+The consumer owner then reported canonical exec of `true` exiting zero with no
+runtime restart or journal edits. Preserve that history worktree's built CLI and
+sibling artifacts while its container checks use them. The global CLI is unchanged.
+
+Process-helper tests skip on this macOS host because Linux /proc is unavailable;
+the Linux-specific checks remain a CI requirement, not a local passing claim.
+
+The AI Infra Portfolio coordinator supplied Office verification evidence. Its
+execution owner retains custody; this task performs no Office runtime or source
+changes. Sandbox process-identity failure cleared with host escalation. A retained
+workspace occupied the default Azurite port. Applying an alternate port coincided
+with container replacement; Compose reconciliation is a hypothesis pending the
+internal decision trace. An intentional stop during preparation preceded unknown
+worker completion; a later accepted-baseline startup and full build passed.
+The container check command includes a host-only installed-CLI profile-plan test,
+so its split execution remains with the Office owner.
+
+Remaining roadmap obligations from Office: expose proposed container replacement
+before mutation, isolate host ports, distinguish intentional cancellation from
+unexplained completion loss without inventing command certainty, and route host-only
+checks explicitly. No fix or live acceptance is claimed for these obligations.

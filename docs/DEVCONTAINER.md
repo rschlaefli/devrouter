@@ -402,14 +402,24 @@ uses the existing startup recovery path. Unavailable inspection is never absence
 
 ## 5. Bring up routing
 
-For a retained managed Devsy workspace, `devrouter stop .` verifies the complete
-Compose project before removing routes. If the primary container is already
+For a managed Devsy workspace prepared through a local Unix Docker endpoint
+with a retained stop baseline, `devrouter stop .`
+revalidates the recorded provider, Docker daemon and complete container population
+before stopping the exact container IDs and removing routes. The baseline is
+recorded after infrastructure preparation, before application readiness, so an
+application failure does not prevent shutdown. Repository and generated
+configuration may change or disappear without invalidating this stop path.
+Containers and volumes remain intact. Missing, replaced, foreign or unreadable
+members prevent successful stop proof; stopped provider status alone is insufficient.
+
+For a retained workspace without a stop baseline, stop uses its configuration-based
+ownership checks. If the primary container is already
 stopped, it skips Devsy's stop command and stops only the captured running
 service IDs after fresh ownership and configuration checks. Containers and
 volumes remain intact. Missing, replaced, foreign or unreadable members prevent
 cleanup; stopped provider status alone is insufficient.
 
-Unapplied Compose service edits do not require matching live service hashes to
+On that legacy path, unapplied Compose service edits do not require matching live service hashes to
 stop retained containers. Stop still verifies the recorded profile, Compose file
 identity, complete service population, exact workspace mount and stable container
 identities. Startup retains its configuration checks before reusing containers.
@@ -418,6 +428,7 @@ A failing provider stop remains an error even when independently verified
 residual shutdown succeeds. Routes remain intact on that error; a later stop
 can finish route cleanup after full stopped proof. Do not remove the retained
 runtime record to bypass an ownership or configuration mismatch.
+A present invalid stop baseline is an error and never falls back to legacy checks.
 
 Order matters — `devnet` is `external`, so it must exist before the container
 starts:

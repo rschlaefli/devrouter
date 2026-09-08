@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   hasExactComposeIdentity,
   inspectManagedStopContainers,
+  inspectManagedStopDaemon,
+  inspectManagedStopRunnerId,
   inspectWorkspaceContainers,
+  resolveManagedStopEndpoint,
+  stopPinnedManagedContainer,
+  supportsManagedStopBaseline,
 } from "../devpod-environment";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
@@ -390,3 +395,122 @@ function managedSnapshotLine(
     networks: overrides.networks ?? {},
   });
 }
+
+describe("pinned managed stop Docker operations", () => {
+  it("pins every population request despite ambient Docker selection", () => {
+    vi.stubEnv("DOCKER_CONTEXT", "other");
+    vi.stubEnv("DOCKER_HOST", "unix:///other.sock");
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "", stderr: "" } as never);
+    try {
+      expect(inspectManagedStopContainers("fixture", "unix:///synthetic.sock")).toEqual([]);
+      expect(spawnSync).toHaveBeenCalledTimes(2);
+      for (const call of vi.mocked(spawnSync).mock.calls) {
+        expect(call[1]?.slice(0, 2)).toEqual(["--host", "unix:///synthetic.sock"]);
+        const options = call[2] as { env: NodeJS.ProcessEnv };
+        expect(options.env.DOCKER_CONTEXT).toBeUndefined();
+        expect(options.env.DOCKER_HOST).toBeUndefined();
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reads only the daemon and runner identifiers and stops one exact ID", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify("synthetic-daemon"),
+        stderr: "",
+      } as never)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify("synthetic-runner"),
+        stderr: "",
+      } as never)
+      .mockReturnValueOnce({ status: 0, stdout: "", stderr: "" } as never);
+    expect(inspectManagedStopDaemon("unix:///synthetic.sock")).toBe("synthetic-daemon");
+    expect(inspectManagedStopRunnerId("unix:///synthetic.sock", "a".repeat(64))).toBe(
+      "synthetic-runner",
+    );
+    stopPinnedManagedContainer("unix:///synthetic.sock", "a".repeat(64));
+    expect(spawnSync).toHaveBeenLastCalledWith(
+      "docker",
+      ["--host", "unix:///synthetic.sock", "stop", "a".repeat(64)],
+      expect.objectContaining({ timeout: 30_000 }),
+    );
+    expect(() => stopPinnedManagedContainer("unix:///synthetic.sock", "short-id")).toThrow(Error);
+    expect(spawnSync).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects unavailable daemon evidence without exposing provider output", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: "synthetic-private-output",
+      stderr: "",
+    } as never);
+    let failure: unknown;
+    try {
+      inspectManagedStopDaemon("unix:///synthetic.sock");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).not.toContain("synthetic-private-output");
+  });
+
+  it.each([
+    "tcp://synthetic.example:2376",
+    "ssh://fixture@synthetic.example",
+    "npipe:////./pipe/docker_engine",
+  ])("recognizes %s without enabling pinned local operations", (endpoint) => {
+    vi.stubEnv("DOCKER_CONTEXT", "");
+    vi.stubEnv("DOCKER_HOST", endpoint);
+    try {
+      expect(resolveManagedStopEndpoint()).toBe(endpoint);
+      expect(supportsManagedStopBaseline(endpoint)).toBe(false);
+      expect(() => inspectManagedStopDaemon(endpoint)).toThrow(Error);
+      expect(spawnSync).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([
+    "",
+    "tcp://",
+    "tcp://host:99999",
+    "tcp://host:abc",
+    "unknown://host",
+    "unix://relative",
+    "ssh://",
+    "tcp://host\n",
+  ])("rejects malformed endpoint %j", (endpoint) => {
+    expect(() => supportsManagedStopBaseline(endpoint)).toThrow(Error);
+  });
+
+  it("does not fall back to DOCKER_HOST when selected context evidence is unavailable", () => {
+    vi.stubEnv("DOCKER_CONTEXT", "synthetic");
+    vi.stubEnv("DOCKER_HOST", "tcp://synthetic.example:2376");
+    vi.mocked(spawnSync).mockReturnValue({ status: 1, stdout: "", stderr: "" } as never);
+    try {
+      expect(resolveManagedStopEndpoint).toThrow(Error);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("resolves the selected endpoint once before pinning", () => {
+    vi.stubEnv("DOCKER_CONTEXT", "synthetic");
+    vi.stubEnv("DOCKER_HOST", "tcp://ignored.example:2376");
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify("unix:///synthetic.sock"),
+      stderr: "",
+    } as never);
+    try {
+      expect(resolveManagedStopEndpoint()).toBe("unix:///synthetic.sock");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
