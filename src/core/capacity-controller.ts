@@ -26,11 +26,10 @@ export function createCapacityController(options: {
   const payloadKey = randomBytes(32);
   const acceptedPayloads = new Map<string, string>();
   const lifetime = new AbortController();
-  let closed = false;
   return {
     async submit(request, environment, signal) {
       signal = AbortSignal.any([signal, lifetime.signal]);
-      if (closed || signal.aborted) throw new Error("Capacity submission unavailable.");
+      if (signal.aborted) throw new Error("Capacity submission unavailable.");
       const current = readCapacityPolicy(options.directory);
       if (current?.admissions !== "enabled" || !isDeepStrictEqual(current, policy))
         throw new Error("Capacity controller policy changed.");
@@ -44,7 +43,7 @@ export function createCapacityController(options: {
         signal,
         options.directory,
       );
-      if (!isDeepStrictEqual(resolved.environment, environment) || closed || signal.aborted)
+      if (!isDeepStrictEqual(resolved.environment, environment) || signal.aborted)
         throw new Error("Capacity submission binding changed.");
       if (!isDeepStrictEqual(readCapacityPolicy(options.directory), current))
         throw new Error("Capacity submission policy changed during resolution.");
@@ -109,7 +108,7 @@ export function createCapacityController(options: {
       return { operation: readLifecycleOperationStatus(identity, prepared.operationId) ?? null };
     },
     async watch(request, environment, signal) {
-      if (closed || signal.aborted) throw new Error("Capacity watch unavailable.");
+      if (lifetime.signal.aborted || signal.aborted) throw new Error("Capacity watch unavailable.");
       const identity = {
         repoPath: environment.repoPath,
         workspace: environment.workspace || null,
@@ -127,7 +126,6 @@ export function createCapacityController(options: {
     },
     tick: () => queue.tick(),
     close() {
-      closed = true;
       lifetime.abort();
       queue.close();
       acceptedPayloads.clear();

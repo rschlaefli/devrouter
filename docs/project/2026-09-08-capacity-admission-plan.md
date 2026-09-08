@@ -932,3 +932,11 @@ controller identity checks inside managed acceptance/admission transactions and
 before reservation writes. Focused regressions cover close during enrollment and
 stale identity rejection without journal or reservation mutation. Startup recovery
 is not wired yet; these are prerequisites, not restart qualification.
+
+Lifetime fencing committed as cb76fd7 after 42 focused tests, typecheck, Knip,
+Biome and commit hooks passed. Singer closed the prepared-profile/history and FIFO
+findings; restart convergence remains open. Main applied Lovelace's sole lifetime
+simplification: use the existing lifetime abort signal instead of a duplicate
+closed flag. All nine coordinator tests and focused Biome pass. Gauss continues
+the journal enumeration helper and its bounded filesystem regressions; leave that
+worker-owned edit separate until it returns verification and ownership.
