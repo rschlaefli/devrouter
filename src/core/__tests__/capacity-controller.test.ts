@@ -103,7 +103,9 @@ const binding = {
   generation: "generation",
 };
 function controller(
-  collect: () => Promise<
+  collect: (
+    signal: AbortSignal,
+  ) => Promise<
     Record<string, import("../capacity-accounting").CapacityDomainSample>
   > = async () => ({}),
 ) {
@@ -625,4 +627,55 @@ it.each(["close", "timeout"])("bounds four in-flight probes and drains on %s", a
     expect(samples).not.toHaveBeenCalled();
     expect(fixture.merge).not.toHaveBeenCalled();
   } else expect(fixture.merge).toHaveBeenCalledWith([], 7);
+});
+
+it("drains a cooperative sample collector on close before tick rejects", async () => {
+  collectionPolicy();
+  fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
+  let started!: (signal: AbortSignal) => void;
+  const collecting = new Promise<AbortSignal>((resolve) => {
+    started = resolve;
+  });
+  let finishDrain!: () => void;
+  const drain = new Promise<void>((resolve) => {
+    finishDrain = resolve;
+  });
+  const events: string[] = [];
+  const launch = vi.fn();
+  fixture.tick.mockImplementation(async () => {
+    await fixture.collection();
+    launch();
+  });
+  const active = controller(
+    (signal) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            events.push("aborted");
+            void drain.then(() => {
+              events.push("drained");
+              reject(new Error("synthetic collector cancelled"));
+            });
+          },
+          { once: true },
+        );
+        started(signal);
+      }),
+  );
+  const pending = active.tick().catch((error: unknown) => {
+    events.push("tick-rejected");
+    throw error;
+  });
+  const completion = expect(pending).rejects.toThrow(Error);
+  const signal = await collecting;
+  expect(signal.aborted).toBe(false);
+  active.close();
+  expect(signal.aborted).toBe(true);
+  expect(events).toEqual(["aborted"]);
+  finishDrain();
+  await completion;
+  expect(events).toEqual(["aborted", "drained", "tick-rejected"]);
+  expect(fixture.merge).not.toHaveBeenCalled();
+  expect(launch).not.toHaveBeenCalled();
 });

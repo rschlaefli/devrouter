@@ -32,7 +32,8 @@ export function createCapacityController(options: {
   directory: string;
   controller: ControllerStartup;
   // Host samples exclude VM usage covered by pool ceilings; sharedBytes excludes those ceilings.
-  collect: () => Promise<Record<string, CapacityDomainSample>>;
+  // Collectors must cooperate with abort by draining their work and rejecting.
+  collect: (signal: AbortSignal) => Promise<Record<string, CapacityDomainSample>>;
 }): ControllerOperations & { tick: () => Promise<void>; close: () => void } {
   options.controller.consumeStartup(options.directory);
   const policy = readCapacityPolicy(options.directory);
@@ -117,8 +118,7 @@ export function createCapacityController(options: {
       clearTimeout(timer);
     }
     assertCurrent();
-    // The injected collector has no cancellation contract; do not start it during pool shutdown.
-    const samples = structuredClone(await options.collect());
+    const samples = structuredClone(await options.collect(lifetime.signal));
     assertCurrent();
     // The revision predates observation, so a concurrent cessation cannot be undone by stale evidence.
     store.mergeObservedPools(observed, revision);
