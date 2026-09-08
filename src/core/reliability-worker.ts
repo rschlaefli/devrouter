@@ -134,25 +134,24 @@ export class LifecycleOutput {
       while (offset < chunk.data.byteLength) {
         let low = offset + 1;
         let high = chunk.data.byteLength;
-        let best: { cursor: LifecycleOutputCursor; chunk: LifecycleOutputPageChunk } | undefined;
+        let best: LifecycleOutputPage | undefined;
         while (low <= high) {
           const midpoint = Math.floor((low + high) / 2);
-          const candidate = {
-            cursor: { sequence: chunk.sequence, offset: midpoint },
-            chunk: {
-              stream: chunk.stream,
-              data: chunk.data.subarray(offset, midpoint).toString("base64"),
-              sequence: chunk.sequence,
-            },
-          };
           const candidatePage: LifecycleOutputPage = {
             encoding: "base64",
             gap: page.gap,
-            sequence: candidate.cursor,
-            chunks: [...page.chunks, candidate.chunk],
+            sequence: { sequence: chunk.sequence, offset: midpoint },
+            chunks: [
+              ...page.chunks,
+              {
+                stream: chunk.stream,
+                data: chunk.data.subarray(offset, midpoint).toString("base64"),
+                sequence: chunk.sequence,
+              },
+            ],
           };
           if (outputPageBytes(candidatePage) <= maxJsonBytes) {
-            best = candidate;
+            best = candidatePage;
             low = midpoint + 1;
           } else high = midpoint - 1;
         }
@@ -160,13 +159,8 @@ export class LifecycleOutput {
           if (page.chunks.length === 0) throw new Error("Output page byte bound is too small.");
           return page;
         }
-        page = {
-          encoding: "base64",
-          gap: page.gap,
-          sequence: best.cursor,
-          chunks: [...page.chunks, best.chunk],
-        };
-        offset = best.cursor.offset;
+        page = best;
+        offset = best.sequence.offset;
       }
     }
     return page;

@@ -818,6 +818,48 @@ describe("reliability lifecycle supervision", () => {
     });
   });
 
+  it("fences a repeated completed stop before its capacity settlement window", async () => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    const { contract, model } = await loadLifecycleModules();
+    const { CapacityStore } = await import("../capacity-store");
+    store.updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = null;
+      record.state = model.stepReliability(
+        record.state,
+        {
+          ...contract.reliabilityFence(record.state),
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        },
+        2,
+      ).state;
+    });
+    const repeated = lifecycle.prepareLifecycleOperation("stop", identity.repoPath);
+    expect(repeated.fence.intentRevision).toBeGreaterThan(request.fence.intentRevision);
+    const settle = CapacityStore.prototype.settleEnvironmentAfterStop;
+    const intercepted = vi
+      .spyOn(CapacityStore.prototype, "settleEnvironmentAfterStop")
+      .mockImplementationOnce(function (this: InstanceType<typeof CapacityStore>, id, revision) {
+        expect(store.readReliabilityOperation(identity)?.state.phase).toBe("stopping");
+        expect(() => lifecycle.prepareLifecycleOperation("ensure", identity.repoPath)).toThrow(
+          "Lifecycle transition is blocked",
+        );
+        return settle.call(this, id, revision);
+      });
+    await lifecycle.executeLifecycleWorker(repeated, async () => {
+      lifecycle.proveLifecycleStopped();
+    });
+    expect(intercepted).toHaveBeenCalledOnce();
+    expect(store.readReliabilityOperation(identity)?.state).toMatchObject({
+      phase: "idle",
+      stopProof: { workloadsStopped: true, routesRemoved: true },
+    });
+    expect(() => lifecycle.prepareLifecycleOperation("ensure", identity.repoPath)).not.toThrow();
+  });
+
   it("bounds settlement contention without publishing stop proof", async () => {
     setProcessConnected(true);
     const { lifecycle, request, store, identity } = await seedStopRequest();

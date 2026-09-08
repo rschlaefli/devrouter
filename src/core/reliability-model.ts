@@ -579,7 +579,7 @@ function handleObservation(
 }
 
 function handleStop(state: ReliabilityState): ReliabilityTransition {
-  if (state.desired === "stopped-by-user" && state.intentRevision > 0)
+  if (state.desired === "stopped-by-user" && state.phase === "stopping")
     return unchanged(state, "joined");
   const intentRevision = advance(state.intentRevision);
   if (intentRevision === null) return unchanged(state, "blocked");

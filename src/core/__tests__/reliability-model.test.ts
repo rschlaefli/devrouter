@@ -147,6 +147,21 @@ describe("reliability transitions", () => {
     const state = step(completed(), { type: "stop" }).state;
     expect(step(state, { type: "stop" })).toMatchObject({ state, effects: [], outcome: "joined" });
   });
+  it("re-fences a repeated stop after full settlement before allowing ensure", () => {
+    let state = step(completed(), { type: "stop" }).state;
+    state = step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).state;
+    expect(state.phase).toBe("idle");
+    expect(state.stopProof).toEqual({ workloadsStopped: true, routesRemoved: true });
+
+    const repeated = step(state, { type: "stop" });
+    expect(repeated.outcome).toBe("accepted");
+    expect(repeated.state.intentRevision).toBe(state.intentRevision + 1);
+    expect(repeated.state.phase).toBe("stopping");
+    expect(repeated.state.stopProof).toEqual({ workloadsStopped: false, routesRemoved: false });
+    expect(
+      step(repeated.state, { ...request, key: "after-stop", operationId: "after-stop" }).outcome,
+    ).toBe("blocked");
+  });
   it("keeps consumers independently ready when another requires a failing capability", () => {
     let state = step(completed(), {
       ...request,

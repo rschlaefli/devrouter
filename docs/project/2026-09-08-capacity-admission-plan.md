@@ -662,3 +662,17 @@ pass. The transient output buffer remains bounded and is never persisted. These
 pages are not yet exposed by controller IPC; durable request identity, renewable
 authority and managed dispatch remain the next integration steps. Singer retains
 the pending independent settlement-correction review; no review pass is claimed.
+
+Singer completed the settlement correction review: all five original findings
+are resolved. A new repeated-stop race was verified: after completed stop, the
+reducer joined the old idle fence while settlement could remove a newer start's
+reservation. Gauss changed repeated stop to join only an in-progress stopping
+phase. Main added the settlement-window regression, which first failed against
+the old fence. Completed stop now enters a fresh stopping fence; concurrent start
+is rejected during settlement and accepted after completion. All 87 affected
+model/lifecycle/worker tests pass, as do typecheck, Biome and Knip.
+
+Lovelace reviewed enrollment and output pagination at eef1130..48f4521 and found
+one behavior-preserving reduction: retain the already-measured candidate output
+page instead of reconstructing it. Main applied it and reused pagination tests.
+The new stop correction and enrollment/output slice still need correctness review.
