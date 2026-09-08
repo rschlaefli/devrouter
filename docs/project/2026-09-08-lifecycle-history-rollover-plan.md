@@ -82,3 +82,8 @@ rollover condition: that branch removes the released handler's leading manual
 policy guard. Its externally retryable managed request IDs must not inherit
 manual history retirement. This is an integration requirement, not behavior
 present in the released-main fix.
+
+Final review identified ADR 0008's stale unconditional history-exhaustion rule.
+Amended its manual lifecycle extension to document settled-record retirement,
+atomic fence advancement, retained uncertainty, and unchanged capacity-managed
+admission. This records the approved contract without expanding runtime authority.
