@@ -1453,3 +1453,56 @@ status reports rs-reliability-canary Stopped, and route readback contains zero
 exact canary routes. Receipts share the prefix
 /private/tmp/elearning-browser-qualification- with stop.json, provider.json and
 routes.json suffixes. Runtime data and the source checkout remain retained.
+
+
+### Host-accounting candidate rejection and packed tracer ownership
+
+Native planner confirms that a qualified upper bound on non-VM usage would be
+arithmetically sufficient, but useful admission remains required. Counting all
+occupied host RAM and adding the retained 35 GiB pool ceiling conservatively
+duplicates VM occupancy. A fresh raw vm_stat sample exposed only 331104256 free
+page bytes, leaving a 37249859584-byte deficit against that ceiling even before
+headroom and other charges. This counterexample rejects that candidate for this
+host's availability; it does not qualify vm_stat semantics as a production probe.
+The query-only memory_pressure percentage is not substituted for physical bytes.
+
+A bounded vmmap summary of the exact OrbStack Helper succeeded without a memory
+dump. Its mapped resident total was 3.1G and physical footprint 24.0G. Neither
+the footprint nor the difference establishes subtractable VM physical occupancy.
+Even assuming all mapped resident bytes qualified would not close the observed
+admission deficit. The planner rejects footprint subtraction; tighter qualified
+host accounting remains unavailable. No policy or runtime was changed.
+
+Executor Gauss owns the next independent source tranche: an internal operations
+factory seam in the controller command and a packed capacity integration tracer.
+It must execute the installed lifecycle worker against closed synthetic providers,
+prove reservation-before-launch, retain a disconnected client's queued operation,
+and launch the second request once after positive settlement. Synthetic telemetry
+must remain internal to the qualifier, with no executable policy or CLI selector.
+The resulting evidence cannot claim normal installed CLI capacity activation;
+that still requires the qualified production collector and default factory.
+
+
+### Packed tracer producing evidence and independent review
+
+Executor commit f4d2dcbc6ffa578da9c4d9616fcd2073a65256dd adds the internal
+controller operations factory seam and pnpm qualify:capacity. Its producing run
+passed with the actual installed lifecycle worker: each synthetic environment
+launched once; the second kept its durable queued operation ID; watcher disconnect
+did not cancel it; positive preparation settlement allowed its later launch.
+Receipt: /private/tmp/dr-cap-Z7D48e/receipt.json. The receipt labels the producing
+source c776d8a dirty=true and records tarball, fixture bundle and installed-worker
+digests. The subsequent commit contains that source; it is not new runtime proof.
+Twenty focused tests, typecheck, Biome, Knip and hooks pass. Independent risk review
+and simplification are active on the four committed paths. No normal installed
+CLI capacity activation or live OOM qualification is claimed.
+
+A separately reported v0.0.60 consumer error occurs before ensure recovery:
+Lifecycle transition is blocked. Its task ID remains unreachable through the app,
+so no diagnosis message was delivered and the exact journal state is unavailable.
+Pure-source reproduction independently confirms a manual history lifetime defect:
+after 128 completed/drained operations, a new request is blocked before and after
+positive stop proof. That is not yet the confirmed consumer cause. The scoped
+manual-only history rollover fix is owned in branch rs/lifecycle-history-rollover,
+worktree trees/rs/lifecycle-history-rollover, with its own dated plan based on
+released main. Preserve this capacity package's managed retry semantics.
