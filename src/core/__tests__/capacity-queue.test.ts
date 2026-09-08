@@ -9,7 +9,10 @@ const fixture = vi.hoisted(() => ({
   collect: vi.fn(),
   retireQueuedLifecycle: vi.fn(),
   runLifecycleWorker: vi.fn(),
+  readCapacityPolicy: vi.fn(),
 }));
+
+vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.readCapacityPolicy }));
 
 vi.mock("../reliability-lifecycle", () => ({
   admitLifecycleCapacity: fixture.admitLifecycleCapacity,
@@ -108,12 +111,22 @@ type QueueScheduling = {
 };
 
 function queue(scheduling?: QueueScheduling): CapacityQueue {
+  fixture.readCapacityPolicy.mockReturnValue({
+    revision: 1,
+    admissions: "enabled",
+    domains: budgets,
+    scheduling: {
+      maxSampleAgeSeconds: 15,
+      maxQueuedTotal: 64,
+      maxQueuedPerDomain: 32,
+      queueLifetimeSeconds: 900,
+      ...scheduling,
+    },
+  });
   return new CapacityQueue({
     directory: "/tmp/capacity-queue-test",
-    budgets,
-    maxSampleAgeMs: 60_000,
+    policyRevision: 1,
     collect: fixture.collect,
-    scheduling,
   });
 }
 
@@ -126,6 +139,59 @@ afterEach(() => {
 });
 
 describe("CapacityQueue", () => {
+  it("uses operator domain budgets and sample age for admission", async () => {
+    const queued = queue();
+    const operatorBudgets = { "domain-a": { ...budgets["domain-a"], capacityBytes: 500 } };
+    fixture.readCapacityPolicy.mockReturnValue({
+      revision: 1,
+      admissions: "enabled",
+      domains: operatorBudgets,
+      scheduling: { maxSampleAgeSeconds: 7 },
+    });
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({
+      admitted: false,
+      domain: "domain-a",
+      reason: "memory",
+    });
+    queued.enqueue(request("pending"), reservation("pending", "environment-pending", ["domain-a"]));
+    await queued.tick();
+    expect(fixture.admitLifecycleCapacity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      operatorBudgets,
+      samples,
+      expect.any(Number),
+      7000,
+      "/tmp/capacity-queue-test",
+    );
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "paused",
+    "removed",
+    "revised",
+  ])("does not dispatch if policy is %s during sampling", async (change) => {
+    const queued = queue();
+    fixture.collect.mockImplementation(async () => {
+      fixture.readCapacityPolicy.mockReturnValue(
+        change === "removed"
+          ? undefined
+          : {
+              revision: change === "revised" ? 2 : 1,
+              admissions: change === "paused" ? "paused" : "enabled",
+            },
+      );
+      return samples;
+    });
+    queued.enqueue(request("pending"), reservation("pending", "environment-pending", ["domain-a"]));
+    await queued.tick();
+    expect(queued.observe("pending")).toMatchObject({ phase: "queued", reason: "policy-changed" });
+    expect(fixture.admitLifecycleCapacity).not.toHaveBeenCalled();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
   it.each([
     "memory",
     "admission-unavailable",

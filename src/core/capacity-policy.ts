@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 const MAX_DOMAINS = 256;
@@ -5,6 +6,53 @@ const MAX_ENROLLMENTS = 256;
 const MAX_PROFILES_PER_ENROLLMENT = 64;
 const MAX_STRING_LENGTH = 256;
 const MAX_PATH_LENGTH = 4096;
+
+/** Missing policy means no enrollment; malformed or unsafe policy never does. */
+export function readCapacityPolicy(directory: string): CapacityPolicy | undefined {
+  const absolute = path.resolve(directory);
+  let current = path.parse(absolute).root;
+  for (const part of absolute.slice(current.length).split(path.sep)) {
+    current = path.join(current, part);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink())
+      throw new Error("Unsafe capacity policy directory.");
+    if (current === absolute && (stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0))
+      throw new Error("Capacity policy directory is not private.");
+  }
+  let descriptor: number;
+  try {
+    descriptor = fs.openSync(
+      path.join(absolute, "capacity-policy.json"),
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  try {
+    const stat = fs.fstatSync(descriptor);
+    const limit = 1_048_576;
+    if (
+      !stat.isFile() ||
+      stat.uid !== process.getuid?.() ||
+      (stat.mode & 0o077) !== 0 ||
+      stat.size > limit
+    )
+      throw new Error("Capacity policy is not a bounded private file.");
+    const bytes = Buffer.alloc(limit + 1);
+    const count = fs.readSync(descriptor, bytes, 0, bytes.length, 0);
+    if (count > limit) throw new Error("Capacity policy exceeds byte limit.");
+    return parseCapacityPolicy(JSON.parse(bytes.subarray(0, count).toString("utf8")));
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
 
 const DOMAIN_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const PROFILE_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -331,6 +379,16 @@ function parseScheduling(value: unknown): CapacityPolicyScheduling {
 
   if (result.clientWaitSeconds > result.maxClientWaitSeconds) {
     throw new Error(`${label}.clientWaitSeconds must not exceed maxClientWaitSeconds.`);
+  }
+  if (
+    result.maxQueuedTotal > 64 ||
+    result.maxQueuedPerDomain > 32 ||
+    result.queueLifetimeSeconds > 900 ||
+    result.maxClientWaitSeconds > 900 ||
+    result.watchSeconds > 30 ||
+    result.maxSampleAgeSeconds > 15
+  ) {
+    throw new Error(`${label} exceeds supported controller bounds.`);
   }
   if (result.queueLifetimeSeconds < result.maxClientWaitSeconds) {
     throw new Error(`${label}.queueLifetimeSeconds must cover maxClientWaitSeconds.`);

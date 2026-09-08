@@ -1,4 +1,5 @@
-import type { CapacityDomainBudget, CapacityDomainSample } from "./capacity-accounting";
+import type { CapacityDomainSample } from "./capacity-accounting";
+import { readCapacityPolicy } from "./capacity-policy";
 import type { CapacityReservation } from "./capacity-store";
 import { admitLifecycleCapacity, retireQueuedLifecycle } from "./reliability-lifecycle";
 import {
@@ -29,23 +30,21 @@ export class CapacityQueue {
   constructor(
     private options: {
       directory: string;
-      budgets: Record<string, CapacityDomainBudget>;
-      maxSampleAgeMs: number;
+      policyRevision: number;
       collect: () => Promise<Record<string, CapacityDomainSample>>;
-      scheduling?: {
-        maxQueuedTotal: number;
-        maxQueuedPerDomain: number;
-        queueLifetimeSeconds: number;
-      };
     },
   ) {
+    const policy = readCapacityPolicy(options.directory);
+    if (!policy || policy.revision !== options.policyRevision)
+      throw new Error("Capacity queue requires its operator policy revision.");
+    const scheduling = policy.scheduling;
     this.limits = {
-      total: options.scheduling?.maxQueuedTotal ?? 64,
-      perDomain: options.scheduling?.maxQueuedPerDomain ?? 32,
-      lifetimeMs: (options.scheduling?.queueLifetimeSeconds ?? 900) * 1000,
+      total: scheduling.maxQueuedTotal,
+      perDomain: scheduling.maxQueuedPerDomain,
+      lifetimeMs: scheduling.queueLifetimeSeconds * 1000,
     };
     if (
-      !Number.isSafeInteger(options.scheduling?.queueLifetimeSeconds ?? 900) ||
+      !Number.isSafeInteger(scheduling.queueLifetimeSeconds) ||
       Object.values(this.limits).some((value) => !Number.isSafeInteger(value) || value < 1) ||
       this.limits.total > 64 ||
       this.limits.perDomain > 32 ||
@@ -58,6 +57,8 @@ export class CapacityQueue {
     if (this.closed) throw new Error("Capacity queue is closed.");
     if (request.kind === "stop" || request.operationId !== reservation.operationId)
       throw new Error("Capacity queue requires prepared non-stop intent.");
+    if (reservation.policyRevision !== this.options.policyRevision)
+      throw new Error("Capacity request belongs to another policy revision.");
     const existing = this.entries.get(request.operationId);
     if (existing) {
       if (
@@ -147,6 +148,18 @@ export class CapacityQueue {
         )
       )
         return;
+      let policy: ReturnType<typeof readCapacityPolicy>;
+      try {
+        policy = readCapacityPolicy(this.options.directory);
+      } catch {
+        this.pause("policy-unavailable");
+        return;
+      }
+      if (policy?.admissions !== "enabled" || policy.revision !== this.options.policyRevision) {
+        this.pause("policy-unavailable");
+        return;
+      }
+      const policyBytes = JSON.stringify(policy);
       const samples = await this.options.collect();
       if (this.closed) return;
       const waitingDomains = new Set<string>();
@@ -162,13 +175,17 @@ export class CapacityQueue {
         }
         let decision: ReturnType<typeof admitLifecycleCapacity>;
         try {
+          if (JSON.stringify(readCapacityPolicy(this.options.directory)) !== policyBytes) {
+            this.pause("policy-changed");
+            return;
+          }
           decision = admitLifecycleCapacity(
             entry.request,
             entry.reservation,
-            this.options.budgets,
+            policy.domains,
             samples,
             Date.now(),
-            this.options.maxSampleAgeMs,
+            policy.scheduling.maxSampleAgeSeconds * 1000,
             this.options.directory,
           );
         } catch {
@@ -205,6 +222,10 @@ export class CapacityQueue {
       entry.abort.abort();
       if (entry.phase === "queued") this.retire(entry, "controller-stopped");
     }
+  }
+
+  private pause(reason: string): void {
+    for (const entry of this.entries.values()) if (entry.phase === "queued") entry.reason = reason;
   }
 
   private retire(entry: Entry, reason: string): void {

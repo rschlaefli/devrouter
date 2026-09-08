@@ -1,5 +1,8 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { type CapacityPolicy, parseCapacityPolicy } from "../capacity-policy";
+import { type CapacityPolicy, parseCapacityPolicy, readCapacityPolicy } from "../capacity-policy";
 
 function validPolicy(): CapacityPolicy {
   return {
@@ -71,6 +74,41 @@ function validPolicy(): CapacityPolicy {
 }
 
 describe("parseCapacityPolicy", () => {
+  it.each([
+    ["maxQueuedTotal", 65],
+    ["maxQueuedPerDomain", 33],
+    ["queueLifetimeSeconds", 901],
+    ["maxClientWaitSeconds", 901],
+    ["watchSeconds", 31],
+    ["maxSampleAgeSeconds", 16],
+  ] as const)("rejects %s beyond the controller's supported bound", (field, value) => {
+    const policy = validPolicy();
+    policy.scheduling[field] = value;
+    expect(() => parseCapacityPolicy(policy)).toThrow("supported controller bounds");
+  });
+
+  it("reads private operator policy and distinguishes absence from invalid authority", () => {
+    const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "capacity-policy-")));
+    const file = path.join(directory, "capacity-policy.json");
+    try {
+      expect(readCapacityPolicy(directory)).toBeUndefined();
+      fs.writeFileSync(file, JSON.stringify(validPolicy()), { mode: 0o600 });
+      expect(readCapacityPolicy(directory)).toEqual(parseCapacityPolicy(validPolicy()));
+      fs.chmodSync(file, 0o644);
+      expect(() => readCapacityPolicy(directory)).toThrow("private file");
+      fs.chmodSync(file, 0o600);
+      fs.writeFileSync(file, "not-json");
+      expect(() => readCapacityPolicy(directory)).toThrow();
+      fs.writeFileSync(file, " ".repeat(1_048_577));
+      expect(() => readCapacityPolicy(directory)).toThrow("private file");
+      fs.unlinkSync(file);
+      fs.symlinkSync(path.join(directory, "absent"), file);
+      expect(() => readCapacityPolicy(directory)).toThrow();
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("accepts named host and independent runtime domains with a qualified zero host increment", () => {
     const policy = parseCapacityPolicy(validPolicy());
 

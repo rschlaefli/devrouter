@@ -419,3 +419,41 @@ process-helper tests still skip on macOS. Updated the owning devcontainer manual
 with the read-only operation-status contract. These results verify distribution
 and source regression, not the still-unwired capacity launch path. Singer remains
 the sole active risk reviewer for the prior committed slice.
+
+Committed read-only operation-status IPC and the verified test simplification as
+5fe1e2a. Main added bounded readCapacityPolicy to the existing policy module:
+missing file/directory returns absent, while malformed, non-private or symlinked
+policy remains an error rather than disabling enrollment. Files open nonblocking
+without following symlinks; parsing retains the strict policy schema. Twelve policy
+tests and typecheck pass. The reader is not activated by controller startup yet;
+no real machine policy has been created or changed.
+
+Aligned policy validation with implemented controller bounds: at most 64 total
+queued entries, 32 per domain, 900-second queue/caller limits, 30-second watches
+and 15-second sample age. Six policy counterfactuals prevent accepting limits
+that the queue or evidence contract cannot honor. All 27 policy/queue tests pass.
+The same risk-review handle remains nonterminal; main sent one bounded convergence
+request without widening its immutable scope or treating a timeout as completion.
+
+Queue ticks now require enabled private policy at their configured revision, then
+reread the complete policy before each admission after telemetry collection.
+Policy changes during sampling leave requests queued without admission or launch;
+missing/invalid initial policy also preserves queued work. Three asynchronous
+sampling cases cover pause, removal and revision changes. All 30 policy/queue tests
+and typecheck pass. The queue still needs enrollment/domain binding and real
+telemetry integration before server activation; revision equality alone does not
+establish those missing proofs.
+
+Removed caller-supplied budgets and sample-age overrides from CapacityQueue.
+Admission now uses domain budgets and maximum sample age directly from the
+validated operator policy read for that tick, with the existing post-collection
+policy equality check. A focused case proves lower operator capacity and shorter
+sample age reach admission. All 31 queue/policy tests pass. Enrollment identity
+and endpoint telemetry qualification remain separate required integration work.
+
+Queue construction now obtains total/per-domain/lifetime limits from the matching
+operator policy rather than optional caller overrides. The existing lower-limit
+and fractional/boundary tests now exercise policy-supplied values; all 31 affected
+queue/policy tests pass. This keeps one authority for scheduling and budgets.
+Policy-backed source remains uncommitted while validation completes; no policy
+file or consumer runtime has been modified.
