@@ -784,3 +784,33 @@ proves status remains responsive while watching and stale submission never invok
 the handler. All 14 server tests and 12 protocol tests pass; typecheck, Knip and
 focused Biome pass. The CLI controller supplies no operation handler yet, so this
 is a tested integration seam, not executable capacity submission or live proof.
+
+IPC seam committed as b8502b3. Main is implementing capacity-controller.ts and its
+tests: canonical enrollment resolution, reviewed charge construction, durable
+preparation before queue ownership, positive unstarted retirement on enqueue failure,
+and journal-backed watch results after output eviction. Seven focused coordinator
+tests pass; these mock the dependency seams and are not a producing launch tracer.
+Transient keyed payload digests reject conflicting retained duplicate metadata
+without persisting argv. Runtime scheduler wiring, active-profile settlement,
+consumer capability mapping, admission-time ownership revalidation, and restart
+payload-loss reconciliation remain unresolved integration work.
+
+Gauss owns cancellation cleanup in queue waits. Initial abort/terminal tests pass,
+but main found that pending Promise reactions retain cancelled-watch closures until
+worker completion. Gauss is replacing those reactions with removable subscribers;
+continue the same child 01a07f99-9834-7ff1-9ea4-fd771e6fef02. Coordinator and queue
+changes remain uncommitted pending that correction and integrated verification.
+No live consumer or machine policy was activated.
+
+Coordinator now rechecks policy after asynchronous enrollment resolution; eight
+focused coordinator tests pass. Queue wait correction uses removable subscribers
+rather than retained Promise reactions. Main inspected the implementation and
+verified all 24 queue tests, including repeated cancellation/timeout cleanup.
+Integrated verification passes all 1,350 tests across 99 files in 15.01s, with log
+/private/tmp/devrouter-capacity-coordinator-tests.log. Linux-only helper skipped
+on macOS. Gauss still owns terminal cleanup/check completion; parent reported one
+remaining indentation issue in capacity-queue.ts. Keep these changes uncommitted
+until ownership returns and source checks pass. Runtime activation remains absent.
+
+Gauss returned DONE, fixed the indentation and passed focused tests/typecheck/Biome.
+Ownership of the queue correction is back with main for integration and commit.

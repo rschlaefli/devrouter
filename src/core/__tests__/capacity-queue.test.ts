@@ -321,6 +321,102 @@ describe("CapacityQueue", () => {
     await expect(queued.wait("accepted", 1_000)).resolves.toBe(true);
   });
 
+  it("returns immediately for a terminal operation", async () => {
+    const queued = queue();
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({ admitted: true });
+    fixture.runLifecycleWorker.mockResolvedValue({ ok: true });
+    queued.enqueue(
+      request("terminal-wait"),
+      reservation("terminal-wait", "environment-terminal-wait", ["domain-a"]),
+    );
+    await queued.tick();
+    await expect(queued.wait("terminal-wait", 0)).resolves.toBe(true);
+  });
+
+  it("cancels only the caller wait while the accepted worker continues once", async () => {
+    const queued = queue();
+    const worker = deferred<unknown>();
+    let workerSignal: AbortSignal | undefined;
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({ admitted: true });
+    fixture.runLifecycleWorker.mockImplementation(
+      async (_item: LifecycleWorkerRequest, supervision: { signal: AbortSignal }) => {
+        workerSignal = supervision.signal;
+        await worker.promise;
+        return { ok: true };
+      },
+    );
+    queued.enqueue(
+      request("cancelled-wait"),
+      reservation("cancelled-wait", "environment-cancelled-wait", ["domain-a"]),
+    );
+    await queued.tick();
+
+    const controller = new AbortController();
+    const wait = queued.wait("cancelled-wait", 10_000, controller.signal);
+    controller.abort();
+    await expect(wait).rejects.toThrow("Capacity wait was cancelled.");
+    expect(workerSignal?.aborted).toBe(false);
+    expect(queued.observe("cancelled-wait")?.phase).toBe("running");
+
+    worker.resolve({ ok: true });
+    await expect(queued.wait("cancelled-wait", 1_000)).resolves.toBe(true);
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans up repeated timed-out and cancelled wait subscriptions", async () => {
+    const queued = queue();
+    const worker = deferred<unknown>();
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({ admitted: true });
+    fixture.runLifecycleWorker.mockImplementation(async () => {
+      await worker.promise;
+      return { ok: true };
+    });
+    queued.enqueue(
+      request("wait-cleanup"),
+      reservation("wait-cleanup", "environment-wait-cleanup", ["domain-a"]),
+    );
+    await queued.tick();
+
+    const timeoutController = new AbortController();
+    const timeoutRemove = vi.spyOn(timeoutController.signal, "removeEventListener");
+    for (let index = 0; index < 32; index++) {
+      await expect(queued.wait("wait-cleanup", 0, timeoutController.signal)).resolves.toBe(false);
+    }
+    expect(timeoutRemove).toHaveBeenCalledTimes(32);
+
+    for (let index = 0; index < 32; index++) {
+      const abortController = new AbortController();
+      const abortRemove = vi.spyOn(abortController.signal, "removeEventListener");
+      const pending = queued.wait("wait-cleanup", 10_000, abortController.signal);
+      abortController.abort();
+      await expect(pending).rejects.toThrow("Capacity wait was cancelled.");
+      expect(abortController.signal.aborted).toBe(true);
+      expect(abortRemove).toHaveBeenCalledTimes(1);
+    }
+
+    worker.resolve({ ok: true });
+    await expect(queued.wait("wait-cleanup", 1_000)).resolves.toBe(true);
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a preaborted wait without changing the queued operation", async () => {
+    const queued = queue();
+    queued.enqueue(
+      request("preaborted-wait"),
+      reservation("preaborted-wait", "environment-preaborted-wait", ["domain-a"]),
+    );
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(queued.wait("preaborted-wait", 10_000, controller.signal)).rejects.toThrow(
+      "Capacity wait was cancelled.",
+    );
+    expect(queued.observe("preaborted-wait")).toMatchObject({ phase: "queued", reason: null });
+  });
+
   it("rejects changed retained payloads without replacing the queued entry", async () => {
     const queued = queue();
     const original = request("duplicate");

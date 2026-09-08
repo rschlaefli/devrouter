@@ -22,8 +22,7 @@ type Entry = {
   expiresAt: number;
   output: LifecycleOutput;
   abort: AbortController;
-  finished: Promise<void>;
-  finish: () => void;
+  waiters: Set<() => void>;
 };
 
 /** Owns transient payload and supervision independently of connected callers. */
@@ -96,10 +95,6 @@ export class CapacityQueue {
     const payload = structuredClone(request);
     if (Buffer.byteLength(JSON.stringify(payload)) > 65_536)
       throw new Error("Capacity request payload exceeds byte limit.");
-    let finish!: () => void;
-    const finished = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
     // Terminal state remains authoritative in the operation journal after eviction.
     for (const [id, entry] of this.entries) {
       if (this.entries.size < 64) break;
@@ -113,8 +108,7 @@ export class CapacityQueue {
       expiresAt: performance.now() + this.limits.lifetimeMs,
       output: new LifecycleOutput(),
       abort: new AbortController(),
-      finished,
-      finish,
+      waiters: new Set(),
     });
     return request.operationId;
   }
@@ -138,22 +132,39 @@ export class CapacityQueue {
       : undefined;
   }
 
-  async wait(operationId: string, timeoutMs: number): Promise<boolean> {
+  async wait(operationId: string, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 900_000)
       throw new Error("Invalid capacity caller wait.");
     const entry = this.entries.get(operationId);
     if (!entry) throw new Error("Operation is no longer in the transient queue.");
+    if (signal?.aborted) throw new Error("Capacity wait was cancelled.");
+    if (entry.phase === "terminal") return true;
+
     let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        entry.finished.then(() => true),
-        new Promise<boolean>((resolve) => {
-          timer = setTimeout(() => resolve(false), timeoutMs);
-        }),
-      ]);
-    } finally {
-      clearTimeout(timer);
-    }
+    return await new Promise<boolean>((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        clearTimeout(timer);
+        entry.waiters.delete(onFinished);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const settle = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback();
+      };
+      const onFinished = () => settle(() => resolve(true));
+      const onAbort = () => settle(() => reject(new Error("Capacity wait was cancelled.")));
+
+      entry.waiters.add(onFinished);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      timer = setTimeout(() => settle(() => resolve(false)), timeoutMs);
+    });
   }
 
   async tick(): Promise<void> {
@@ -237,7 +248,7 @@ export class CapacityQueue {
               entry.reason = "intent-superseded";
               entry.phase = "terminal";
               entry.request.command = undefined;
-              entry.finish();
+              this.finish(entry);
               continue;
             }
           } catch {
@@ -266,7 +277,7 @@ export class CapacityQueue {
           .finally(() => {
             entry.phase = "terminal";
             entry.request.command = undefined;
-            entry.finish();
+            this.finish(entry);
           });
       }
     } finally {
@@ -286,13 +297,19 @@ export class CapacityQueue {
     for (const entry of this.entries.values()) if (entry.phase === "queued") entry.reason = reason;
   }
 
+  private finish(entry: Entry): void {
+    const waiters = [...entry.waiters];
+    entry.waiters.clear();
+    for (const notify of waiters) notify();
+  }
+
   private retire(entry: Entry, reason: string): void {
     try {
       retireQueuedLifecycle(entry.request);
       entry.reason = reason;
       entry.phase = "terminal";
       entry.request.command = undefined;
-      entry.finish();
+      this.finish(entry);
     } catch {
       entry.reason = "retirement-unproven";
     }
