@@ -1226,3 +1226,30 @@ running unenrolled pools, pending startup, uncertain liveness, deduplication, an
 release only with positive VM cessation proof. The existing parser remains
 compatible. Remote refresh shows this branch 49 commits ahead and one release
 commit behind origin/main; integration is deferred until readiness requires it.
+
+### Durable VM pool reservation source slice
+
+Commit d1d445f adds optional bounded pool records to the existing private capacity
+snapshot. The store reserves the requested ceiling atomically with environment
+admission, retains the highest ceiling and exact daemon/domain binding, and keeps
+pool charges across environment stop and phase settlement. Explicit VM cessation
+settlement requires caller-proven cessation, revoked launch authority, matching
+snapshot revision, and absence of reservations in that runtime domain. Existing
+snapshots remain readable. Renewal includes retained pool charges.
+
+All 87 affected tests pass with two workers. Typecheck, Biome, Knip and commit hooks
+pass. Receipt: /private/tmp/devrouter-capacity-pool-tests.log. Independent review
+and simplification are running against d00eb5e..d1d445f. Collector reconciliation,
+production admission wiring and positive VM cessation collection remain pending.
+No live capacity policy or runtime was changed.
+
+Automatic approval review rejected the configured Claude frontier consultation
+because it would send repository files to that provider without destination-specific
+authorization. A bounded user approval request is pending; no consultation ran.
+The source slice continues independently. Host non-VM accounting remains unqualified.
+
+Simplifier advice is applied in 14c5d82: reserve evaluates the same request once,
+then returns an unchanged join or persists the atomic update. All 42 store and
+accounting tests pass unchanged, with typecheck, Biome and Knip passing. Receipt:
+/private/tmp/devrouter-capacity-pool-simplify-tests.log. The correctness reviewer
+is still running and has received this narrow follow-up; retain that owner.
