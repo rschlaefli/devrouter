@@ -4,8 +4,9 @@ import {
   inspectWorkspaceContainers,
   resolveRunningWorkspaceContainer,
 } from "./devpod-environment";
+import { withMutationLock as withDevsyMutationLock } from "./devsy-mutation";
 import type { ExecutionOutcome } from "./execution-outcome";
-import { processBirthIdentity, withFileLockSync } from "./file-lock";
+import { processBirthIdentity } from "./file-lock";
 import { listHostRouteState } from "./host-routes";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
 import { proveRetainedManagedStop } from "./managed-stop-recovery";
@@ -27,7 +28,6 @@ import {
   runLifecycleWorker,
   workerGroupAbsent,
 } from "./reliability-worker";
-import { DEVROUTER_HOME } from "./router";
 import {
   comparableWorkspacePath,
   isLinkedWorktree,
@@ -239,10 +239,8 @@ export async function executeLifecycleWorker<T>(
         );
         if (retained?.stopBaseline) {
           stopBaselineState = retained;
-          withFileLockSync(
-            path.join(DEVROUTER_HOME, "devsy-mutation.lock"),
-            { activity: "Verify retained stop", waitMs: 1_800_000, fair: true },
-            () => proveRetainedManagedStop(retained),
+          withDevsyMutationLock("Verify retained stop", request.repoPath, () =>
+            proveRetainedManagedStop(retained),
           );
         } else {
           const containers = inspectWorkspaceContainers();
@@ -373,14 +371,6 @@ export function proveLifecycleStopped(): void {
     });
   };
   if (stopBaselineState)
-    withFileLockSync(
-      path.join(DEVROUTER_HOME, "devsy-mutation.lock"),
-      {
-        activity: "Settle retained stop",
-        waitMs: 1_800_000,
-        fair: true,
-      },
-      settle,
-    );
+    withDevsyMutationLock("Settle retained stop", stopBaselineState.repoPath, settle);
   else settle();
 }

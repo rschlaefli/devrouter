@@ -195,6 +195,15 @@ describe("retained stop ownership", () => {
     expect(readManagedRuntimeState(state.repoPath)).toBeUndefined();
   });
 
+  it("accepts unchanged mount identities in a different persisted order", () => {
+    containers[0].mounts.push({ Type: "tmpfs", Source: "", Destination: "/run/synthetic" });
+    persist();
+    state.stopBaseline!.containers[0].mounts.reverse();
+    writeManagedRuntimeState(state);
+    stopFromManagedBaseline(state);
+    expect(containers.every((container) => !container.state.Running)).toBe(true);
+  });
+
   it("rejects endpoint drift between capability selection and locked capture", () => {
     expect(() =>
       captureManagedStopBaseline(state, plan, containers[0].id, "unix:///different.sock"),

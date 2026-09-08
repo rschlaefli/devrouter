@@ -52,6 +52,16 @@ function registration(state: ManagedRuntimeState) {
   };
 }
 
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function orderedMounts(mounts: ManagedStopBaseline["containers"][number]["mounts"]) {
+  return mounts
+    .map((mount) => ({ ...mount }))
+    .sort((a, b) => compareText(JSON.stringify(a), JSON.stringify(b)));
+}
+
 function identity(container: ReturnType<typeof inspectManagedStopContainers>[number]) {
   return {
     id: container.id,
@@ -59,9 +69,7 @@ function identity(container: ReturnType<typeof inspectManagedStopContainers>[num
     configFiles: (container.labels["com.docker.compose.project.config_files"] ?? "")
       .split(",")
       .map((file) => file.trim()),
-    mounts: container.mounts
-      .map((mount) => ({ ...mount }))
-      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    mounts: orderedMounts(container.mounts),
   };
 }
 
@@ -77,8 +85,10 @@ function prove(state: ManagedRuntimeState, baseline: ManagedStopBaseline) {
   if (inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId)
     throw new Error("Stop daemon changed.");
   const containers = inspectManagedStopContainers(baseline.project, baseline.endpoint);
-  const expected = [...baseline.containers].sort((a, b) => a.id.localeCompare(b.id));
-  const observed = containers.map(identity).sort((a, b) => a.id.localeCompare(b.id));
+  const expected = baseline.containers
+    .map((container) => ({ ...container, mounts: orderedMounts(container.mounts) }))
+    .sort((a, b) => compareText(a.id, b.id));
+  const observed = containers.map(identity).sort((a, b) => compareText(a.id, b.id));
   if (
     !isDeepStrictEqual(expected, observed) ||
     containers.some(

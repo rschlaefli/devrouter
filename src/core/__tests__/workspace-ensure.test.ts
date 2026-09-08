@@ -1028,6 +1028,23 @@ describe("workspaceEnsure", () => {
     }
   });
 
+  it("does not launch the selected application or publish readiness when capture rejects ownership", async () => {
+    mockDevsyCapture([]);
+    const cause = new Error("Synthetic population mismatch");
+    vi.mocked(captureManagedStopBaseline).mockImplementation(() => {
+      throw cause;
+    });
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow(Error);
+    expect(runManagedPostStart).not.toHaveBeenCalledWith(
+      expect.objectContaining({ profile: "ai" }),
+    );
+    expect(writeManagedRuntimeState).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
   it("persists degraded stop ownership before an application adapter failure", async () => {
     const events: string[] = [];
     mockDevsyCapture(events);

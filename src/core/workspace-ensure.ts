@@ -27,6 +27,7 @@ import {
 } from "./devpod-environment";
 import { DevpodStartPostconditionError, startDevpodWorkspace } from "./devpod-mutation";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
+import { withMutationLockAsync as withDevsyMutationLock } from "./devsy-mutation";
 import { createStderrWaitReporter, withFileLock } from "./file-lock";
 import {
   type HostRouteInput,
@@ -1285,12 +1286,19 @@ export async function workspaceEnsure(
                 transitionPhase: "process-start",
                 updatedAt: new Date().toISOString(),
               };
-              state.stopBaseline = captureManagedStopBaseline(
-                state,
-                capturePlan,
-                capturePrimaryId,
-                captureEndpoint,
-              );
+              try {
+                state.stopBaseline = captureManagedStopBaseline(
+                  state,
+                  capturePlan,
+                  capturePrimaryId,
+                  captureEndpoint,
+                );
+              } catch (cause) {
+                throw new Error(
+                  `Managed startup cannot verify retained container ownership. New application startup and route publication have not proceeded. ${cause instanceof Error ? cause.message : String(cause)}`,
+                  { cause },
+                );
+              }
               claimLifecycleEffect();
               writeManagedRuntimeState(state);
               capturedStopState = state;
@@ -1298,15 +1306,8 @@ export async function workspaceEnsure(
             // Repair already holds this same provider lock beneath the workspace lock.
             if (options.repair) capture();
             else
-              await withFileLock(
-                path.join(DEVROUTER_HOME, "devsy-mutation.lock"),
-                {
-                  activity: "Capture managed stop ownership",
-                  target: repoPath,
-                  fair: true,
-                  waitMs: 1_800_000,
-                },
-                async () => capture(),
+              await withDevsyMutationLock("Capture managed stop ownership", repoPath, async () =>
+                capture(),
               );
           }
         }
@@ -1492,15 +1493,8 @@ export async function workspaceEnsure(
             writeManagedRuntimeState(candidateState as ManagedRuntimeState);
           };
           if (capturedStopState)
-            await withFileLock(
-              path.join(DEVROUTER_HOME, "devsy-mutation.lock"),
-              {
-                activity: "Publish managed runtime state",
-                target: repoPath,
-                fair: true,
-                waitMs: 1_800_000,
-              },
-              async () => persist(),
+            await withDevsyMutationLock("Publish managed runtime state", repoPath, async () =>
+              persist(),
             );
           else persist();
         }

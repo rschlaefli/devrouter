@@ -24,14 +24,15 @@ const fixture = vi.hoisted(() => ({
   resolveLinkedTarget: vi.fn(),
 }));
 
-vi.mock("../router", async () => {
+vi.mock("../router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../router")>();
   const actualFs = await import("node:fs");
   const actualOs = await import("node:os");
   const actualPath = await import("node:path");
   const root = actualFs.mkdtempSync(actualPath.join(actualOs.tmpdir(), "reliability-lifecycle-"));
   actualFs.chmodSync(root, 0o700);
   fixture.roots.push(root);
-  return { DEVROUTER_HOME: root };
+  return { ...actual, DEVROUTER_HOME: root };
 });
 
 vi.mock("../devpod-environment", () => ({

@@ -302,3 +302,41 @@ Final cleanup performs repeated exact stops and checks provider Stopped and zero
 fixture routes. The fixture and its volumes remain retained; eLearning and other
 tasks' runtimes were not touched. Final review of the prior range remains live;
 the correction and qualifier update require its follow-up review before delivery.
+
+
+### Final review disposition
+
+Claude final review completed with findings on 7d2fcba..a22eb1d. Main owns one
+integrated correction pass. The tmpfs finding is closed by 973cf4d and the packed
+live receipt committed with 86f0f8b. The remaining accepted findings are provider
+lock progress, locale-dependent mount ordering, and missing ensure capture-failure
+coverage. Reuse the existing provider lock helpers with their throttled wait
+reporter; normalize both retained and observed mounts with code-unit ordering.
+Remove the duplicate stop test whose transport environment variables did not
+exercise a transport decision; the ensure transport seam retains that coverage.
+
+Main keeps the approved ownership boundary on capture failure: unsupported known
+transport is a capability limitation, whereas failed population proof is unknown
+ownership. Do not silently downgrade the latter to legacy operation, adopt
+leftover/foreign containers, or delete them. Startup must remain unverified until
+that identity is resolved. This follows the binding contract requiring complete
+proof before application readiness; it does not introduce a new mutation policy.
+An ensure-context error preserves the underlying diagnostic, manuals disclose
+the precondition, and a regression asserts no selected-application launch or
+ready-state publication after capture rejection. Automatic reconciliation of
+ambiguous project members remains outside this package's ownership authority.
+
+The advisory request to prove registration and daemon identity only once is
+rejected: the approved contract explicitly requires revalidation before each
+effect and final settlement. Cooperating locks cannot exclude external Docker
+changes. The full rechecks and existing changed-population tests remain.
+
+
+Review corrections pass all 1,281 unit tests in 91 suites, including 204 focused
+lifecycle/recovery tests. Typecheck, Biome, Knip, documentation policy, knowledge
+and diff checks pass. Rebuilt package smoke passes. The lifecycle fixture now
+partially mocks router constants because reuse of the existing provider helper
+loads its ordinary configuration dependencies; no production test hook was added.
+The final correction pass must review the complete integrated range and the new
+provider-helper import boundary. Earlier real-provider receipts remain evidence
+for their named builds, not fresh live proof of this correction build.

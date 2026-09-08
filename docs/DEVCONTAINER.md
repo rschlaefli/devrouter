@@ -412,6 +412,13 @@ configuration may change or disappear without invalidating this stop path.
 Containers and volumes remain intact. Missing, replaced, foreign or unreadable
 members prevent successful stop proof; stopped provider status alone is insufficient.
 
+Startup requires this complete ownership proof before launching the selected
+application and publishing its routes. Unexpected project members, including
+leftover one-off containers or removed services, leave startup unverified; they
+are never silently adopted or deleted. The error identifies the failed startup
+proof. Recognized non-Unix transports retain the legacy capability path; unknown
+ownership on a supported endpoint does not trigger that fallback.
+
 For a retained workspace without a stop baseline, stop uses its configuration-based
 ownership checks. If the primary container is already
 stopped, it skips Devsy's stop command and stops only the captured running
