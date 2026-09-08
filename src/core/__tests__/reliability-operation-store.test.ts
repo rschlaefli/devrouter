@@ -8,6 +8,7 @@ import { reliabilityFence } from "../reliability-contract";
 import { stepReliability } from "../reliability-model";
 import {
   assertCapacityEffect,
+  type CapacityPhaseSettlement,
   enrollStoppedLifecycle,
   listReliabilityOperations,
   type ReliabilityIdentity,
@@ -133,6 +134,48 @@ describe("durable reliability records", () => {
       record.preparation = preparationReceipt(record, prepared.id, prepared.profile);
     });
     return readReliabilityOperation(target)!;
+  }
+
+  function phaseSettlement(record: ReliabilityOperationRecord): CapacityPhaseSettlement {
+    if (!record.capacity || !record.enrollment)
+      throw new Error("Fixture requires capacity enrollment and binding.");
+    return {
+      id: "phase-settlement",
+      fence: {
+        environmentId: record.state.environmentId,
+        intentRevision: 1,
+        runtimeGeneration: 1,
+        controllerEpoch: 1,
+      },
+      target: {
+        environmentId: record.state.environmentId,
+        operationId: record.capacity.operationId,
+        reservationId: record.capacity.reservationId,
+        policyRevision: record.capacity.policyRevision,
+        totals: {
+          [record.enrollment.hostDomain]: 0,
+          [record.enrollment.runtimeDomain]: 1,
+        },
+        startup: false,
+        heavy: false,
+      },
+      estimatesDigest: record.enrollment.estimatesDigest,
+    };
+  }
+
+  function phaseSettledRecord(): ReliabilityOperationRecord {
+    const record = completedPreparationRecord();
+    updateReliabilityOperation(identity, (current) => {
+      current.capacity = {
+        reservationId: "settlement-reservation",
+        operationId: "prepared-operation",
+        workerId: "settlement-worker",
+        policyRevision: 1,
+        validUntilMs: 0,
+      };
+      current.phaseSettlement = phaseSettlement(current);
+    });
+    return record;
   }
 
   function journalDirectory(): string {
@@ -379,6 +422,138 @@ describe("durable reliability records", () => {
       current.preparation = null;
     });
     expect(readReliabilityOperation(identity)?.preparation).toBeNull();
+  });
+
+  it("persists a phase settlement independently of the current fence and operation", () => {
+    const initial = completedPreparationRecord();
+    updateReliabilityOperation(identity, (current) => {
+      current.capacity = {
+        reservationId: "settlement-reservation",
+        operationId: "prepared-operation",
+        workerId: "settlement-worker",
+        policyRevision: 1,
+        validUntilMs: 0,
+      };
+      current.phaseSettlement = phaseSettlement(current);
+    });
+
+    const record = readReliabilityOperation(identity)!;
+    expect(record.phaseSettlement).toEqual({
+      id: "phase-settlement",
+      fence: {
+        environmentId: initial.state.environmentId,
+        intentRevision: 1,
+        runtimeGeneration: 1,
+        controllerEpoch: 1,
+      },
+      target: {
+        environmentId: initial.state.environmentId,
+        operationId: "prepared-operation",
+        reservationId: "settlement-reservation",
+        policyRevision: 1,
+        totals: { host: 0, guest: 1 },
+        startup: false,
+        heavy: false,
+      },
+      estimatesDigest: enrollment.estimatesDigest,
+    });
+  });
+
+  it("accepts an absent or null phase settlement on an enrolled v2 journal", () => {
+    completedPreparationRecord();
+    expect(readReliabilityOperation(identity)?.phaseSettlement).toBeUndefined();
+    updateReliabilityOperation(identity, (record) => {
+      record.phaseSettlement = null;
+    });
+    expect(readReliabilityOperation(identity)?.phaseSettlement).toBeNull();
+  });
+
+  it.each([
+    [
+      "unsafe target total",
+      (settlement: CapacityPhaseSettlement) => ({
+        ...settlement,
+        target: { ...settlement.target, totals: { host: Number.MAX_SAFE_INTEGER + 1, guest: 1 } },
+      }),
+    ],
+    [
+      "startup target",
+      (settlement: CapacityPhaseSettlement) => ({
+        ...settlement,
+        target: { ...settlement.target, startup: true },
+      }),
+    ],
+    [
+      "wrong enrolled domains",
+      (settlement: CapacityPhaseSettlement) => ({
+        ...settlement,
+        target: { ...settlement.target, totals: { host: 1, other: 1 } },
+      }),
+    ],
+    [
+      "digest mismatch",
+      (settlement: CapacityPhaseSettlement) => ({
+        ...settlement,
+        estimatesDigest: "b".repeat(64),
+      }),
+    ],
+    [
+      "unsettled capacity binding",
+      (settlement: CapacityPhaseSettlement) => ({
+        ...settlement,
+        target: { ...settlement.target },
+      }),
+    ],
+  ] as const)("rejects a %s phase settlement", (_label, alter) => {
+    phaseSettledRecord();
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        if (_label === "unsettled capacity binding") record.capacity!.validUntilMs = 1;
+        record.phaseSettlement = alter(record.phaseSettlement!);
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a phase settlement without durable enrollment", () => {
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.version = 2;
+        record.capacity = {
+          reservationId: "settlement-reservation",
+          operationId: "settlement-operation",
+          workerId: "settlement-worker",
+          policyRevision: 1,
+          validUntilMs: 0,
+        };
+        record.phaseSettlement = {
+          id: "phase-settlement",
+          fence: {
+            environmentId: record.state.environmentId,
+            intentRevision: 1,
+            runtimeGeneration: 1,
+            controllerEpoch: 1,
+          },
+          target: {
+            environmentId: record.state.environmentId,
+            operationId: "settlement-operation",
+            reservationId: "settlement-reservation",
+            policyRevision: 1,
+            totals: { host: 0, guest: 1 },
+            startup: false,
+            heavy: false,
+          },
+          estimatesDigest: enrollment.estimatesDigest,
+        };
+      }),
+    ).toThrow("durable capacity enrollment");
+  });
+
+  it("rejects a phase settlement field on a version1 journal", () => {
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.phaseSettlement = null;
+      }),
+    ).toThrow("unsupported fields");
   });
 
   it.each([

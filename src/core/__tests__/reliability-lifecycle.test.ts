@@ -27,14 +27,15 @@ vi.mock("../capacity-policy", async (original) => ({
   readCapacityPolicy: fixture.readCapacityPolicy,
 }));
 
-vi.mock("../router", async () => {
+vi.mock("../router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../router")>();
   const actualFs = await import("node:fs");
   const actualOs = await import("node:os");
   const actualPath = await import("node:path");
   const root = actualFs.mkdtempSync(actualPath.join(actualOs.tmpdir(), "reliability-lifecycle-"));
   actualFs.chmodSync(root, 0o700);
   fixture.roots.push(root);
-  return { DEVROUTER_HOME: root };
+  return { ...actual, DEVROUTER_HOME: root };
 });
 
 vi.mock("../devpod-environment", () => ({
@@ -1051,6 +1052,17 @@ describe("reliability lifecycle supervision", () => {
   ])("retains a prepared profile independently of application exit %s", async (exitCode) => {
     setProcessConnected(true);
     const { lifecycle, request, store, identity } = await seedWorkerRequest();
+    const { capacityEstimatesDigest } = await import("../repo-config");
+    const estimates = {
+      version: 1 as const,
+      profiles: {
+        full: {
+          host: { steadyBytes: 10, startupTotalBytes: 30 },
+          runtime: { steadyBytes: 20, startupTotalBytes: 60 },
+          operations: {},
+        },
+      },
+    };
     await lifecycle.executeLifecycleWorker(request, async () => {
       // Isolate completion bookkeeping after the worker's existing launch claim.
       store.updateReliabilityOperation(identity, (record) => {
@@ -1068,7 +1080,7 @@ describe("reliability lifecycle supervision", () => {
           runtimeDomain: "guest",
           endpoint: "/tmp/synthetic-docker.sock",
           daemonId: "synthetic-daemon",
-          estimatesDigest: "a".repeat(64),
+          estimatesDigest: capacityEstimatesDigest(estimates),
         };
       });
       expect(() => lifecycle.recordLifecycleCompletion(exitCode, "other")).toThrow();
@@ -1084,6 +1096,139 @@ describe("reliability lifecycle supervision", () => {
       },
       state: { operation: { status: "COMPLETED", exitCode } },
     });
+    const { ControllerStore } = await import("../controller-store");
+    const { CapacityStore, CapacitySnapshotChangedError } = await import("../capacity-store");
+    const { DEVROUTER_HOME } = await import("../router");
+    const directory = path.join(DEVROUTER_HOME, "controller");
+    const controller = new ControllerStore(directory).startIncarnation();
+    fs.chmodSync(directory, 0o700);
+    const enrollment = {
+      repoPath: identity.repoPath,
+      gitCommonDir: "/tmp/synthetic-common",
+      workspace: "",
+      provider: identity.provider,
+      providerId: "synthetic-provider",
+      hostDomain: "host",
+      runtimeDomain: "guest",
+      profiles: ["full"],
+      estimatesDigest: capacityEstimatesDigest(estimates),
+      defaultOperation: { hostIncrementBytes: 1, runtimeIncrementBytes: 1 },
+    };
+    store.updateReliabilityOperation(identity, (record) => {
+      record.capacity = {
+        reservationId: "prepared-reservation",
+        operationId: request.operationId,
+        workerId: request.workerId,
+        policyRevision: 1,
+        validUntilMs: Date.now() + 1000,
+        controller: { store: controller.store, epoch: controller.epoch },
+      };
+    });
+    const reservation = {
+      environmentId: request.fence.environmentId,
+      operationId: request.operationId,
+      reservationId: "prepared-reservation",
+      policyRevision: 1,
+      totals: { host: 30, guest: 60 },
+      startup: true,
+      heavy: false,
+    };
+    fs.writeFileSync(
+      path.join(directory, "capacity-reservations.json"),
+      JSON.stringify({ version: 1, revision: 1, reservations: [reservation] }),
+      { mode: 0o600 },
+    );
+    const settlement = { identity, controller, estimates, enrollment, directory };
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(false);
+    expect(new CapacityStore(directory).read().reservations).toEqual([reservation]);
+    store.updateReliabilityOperation(identity, (record) => {
+      record.worker = null;
+      record.state.operation!.drained = true;
+      record.state.operationHistory.forEach((operation) => {
+        operation.drained = true;
+      });
+    });
+    const preparation = store.readReliabilityOperation(identity)!.preparation!;
+    store.updateReliabilityOperation(identity, (record) => {
+      record.preparation = null;
+    });
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(false);
+    expect(new CapacityStore(directory).read().reservations).toEqual([reservation]);
+    store.updateReliabilityOperation(identity, (record) => {
+      record.preparation = preparation;
+    });
+    const reduce = CapacityStore.prototype.reduceAfterPhase;
+    const crash = vi
+      .spyOn(CapacityStore.prototype, "reduceAfterPhase")
+      .mockImplementationOnce(function (
+        this: InstanceType<typeof CapacityStore>,
+        target,
+        revision,
+      ) {
+        reduce.call(this, target, revision);
+        throw new Error("synthetic crash after reduction");
+      });
+    expect(() => lifecycle.settlePreparedLifecycleCapacity(settlement)).toThrow("synthetic crash");
+    expect(store.readReliabilityOperation(identity)?.phaseSettlement).not.toBeNull();
+    expect(() =>
+      lifecycle.prepareManagedLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 1,
+        requestId: "replacement-operation",
+        kind: "ensure",
+        profile: "full",
+        consumer: { id: "synthetic", requiredCapabilities: [], pinned: false },
+        runtimeRunning: true,
+      }),
+    ).toThrow("settlement is pending");
+    crash.mockRestore();
+    const replacement = new ControllerStore(directory).startIncarnation();
+    expect(() => lifecycle.settlePreparedLifecycleCapacity(settlement)).toThrow(
+      "incarnation changed",
+    );
+    settlement.controller = replacement;
+    const conflict = vi
+      .spyOn(CapacityStore.prototype, "reduceAfterPhase")
+      .mockImplementationOnce(() => {
+        throw new CapacitySnapshotChangedError();
+      });
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(true);
+    expect(conflict).toHaveBeenCalledTimes(2);
+    conflict.mockRestore();
+    expect(new CapacityStore(directory).read().reservations).toEqual([
+      { ...reservation, totals: { host: 10, guest: 20 }, startup: false },
+    ]);
+    expect(store.readReliabilityOperation(identity)).toMatchObject({
+      phaseSettlement: null,
+      capacity: { validUntilMs: 0 },
+    });
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(false);
+    const capacity = new CapacityStore(directory);
+    fs.writeFileSync(
+      path.join(directory, "capacity-reservations.json"),
+      JSON.stringify({
+        version: 1,
+        revision: capacity.read().revision + 1,
+        reservations: [reservation],
+      }),
+      { mode: 0o600 },
+    );
+    const stopRace = vi
+      .spyOn(CapacityStore.prototype, "reduceAfterPhase")
+      .mockImplementationOnce(function (
+        this: InstanceType<typeof CapacityStore>,
+        target,
+        revision,
+      ) {
+        lifecycle.prepareLifecycleOperation("stop", identity.repoPath);
+        this.settleEnvironmentAfterStop(target.environmentId, this.read().revision);
+        reduce.call(this, target, revision);
+      });
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(false);
+    expect(capacity.read().reservations).toEqual([]);
+    expect(store.readReliabilityOperation(identity)?.state.desired).toBe("stopped-by-user");
+    stopRace.mockRestore();
   });
 
   it.each([

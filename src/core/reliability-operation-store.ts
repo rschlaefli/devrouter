@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { writeFileAtomically } from "./atomic-file";
-import { CapacityStore } from "./capacity-store";
+import { type CapacityReservation, CapacityStore } from "./capacity-store";
 import { ControllerStore } from "./controller-store";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { withFileLockSync } from "./file-lock";
@@ -43,6 +43,13 @@ export type ReliabilityPreparationReceipt = {
   fence: ReliabilityFence;
 };
 
+export type CapacityPhaseSettlement = {
+  id: string;
+  fence: ReliabilityFence;
+  target: CapacityReservation;
+  estimatesDigest: string;
+};
+
 export type ReliabilityOperationRecord = {
   version: 1 | 2;
   identity: ReliabilityIdentity;
@@ -62,6 +69,7 @@ export type ReliabilityOperationRecord = {
     controller?: CapacityControllerIdentity;
   } | null;
   preparation?: ReliabilityPreparationReceipt | null;
+  phaseSettlement?: CapacityPhaseSettlement | null;
 };
 
 const MAX_RECORD_BYTES = 1_048_576;
@@ -103,6 +111,107 @@ function keys(value: unknown, expected: string[]): void {
   }
 }
 
+function exactKeys(value: unknown, expected: string[], message: string): void {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== expected.length ||
+    Object.keys(value).some((key) => !expected.includes(key))
+  ) {
+    throw new Error(message);
+  }
+}
+
+function validateCapacityPhaseSettlement(
+  record: ReliabilityOperationRecord,
+  state: ReliabilityState,
+  enrollment: CapacityEnrollmentBinding | undefined,
+): void {
+  const settlement = record.phaseSettlement;
+  if (settlement === undefined || settlement === null) return;
+  if (record.version !== 2 || !enrollment || state.executionPolicy !== "capacity-managed")
+    throw new Error("Phase settlement requires durable capacity enrollment.");
+
+  exactKeys(
+    settlement,
+    ["id", "fence", "target", "estimatesDigest"],
+    "Invalid capacity phase settlement fields.",
+  );
+  exactKeys(
+    settlement.fence,
+    ["environmentId", "intentRevision", "runtimeGeneration", "controllerEpoch"],
+    "Invalid capacity phase settlement fence.",
+  );
+  exactKeys(
+    settlement.target,
+    [
+      "environmentId",
+      "operationId",
+      "reservationId",
+      "policyRevision",
+      "totals",
+      "startup",
+      "heavy",
+    ],
+    "Invalid capacity phase settlement target fields.",
+  );
+
+  const target = settlement.target;
+  const totals = target.totals;
+  if (
+    !isReliabilityId(settlement.id) ||
+    !isReliabilityId(settlement.fence.environmentId) ||
+    settlement.fence.environmentId !== state.environmentId ||
+    !isReliabilityCounter(settlement.fence.intentRevision) ||
+    !isReliabilityCounter(settlement.fence.runtimeGeneration) ||
+    !isReliabilityCounter(settlement.fence.controllerEpoch) ||
+    !isReliabilityId(target.environmentId) ||
+    target.environmentId !== state.environmentId ||
+    !isReliabilityId(target.operationId) ||
+    !isReliabilityId(target.reservationId) ||
+    !Number.isSafeInteger(target.policyRevision) ||
+    target.policyRevision < 1 ||
+    typeof target.startup !== "boolean" ||
+    target.startup ||
+    typeof target.heavy !== "boolean" ||
+    target.heavy ||
+    typeof settlement.estimatesDigest !== "string" ||
+    !/^[0-9a-f]{64}$/.test(settlement.estimatesDigest)
+  )
+    throw new Error("Invalid capacity phase settlement.");
+
+  if (
+    !totals ||
+    typeof totals !== "object" ||
+    Array.isArray(totals) ||
+    Object.keys(totals).length < 1 ||
+    Object.keys(totals).length > 256 ||
+    Object.entries(totals).some(
+      ([domain, bytes]) => !isReliabilityId(domain) || !Number.isSafeInteger(bytes) || bytes < 0,
+    )
+  )
+    throw new Error("Invalid capacity phase settlement totals.");
+
+  const capacity = record.capacity;
+  if (
+    capacity?.validUntilMs !== 0 ||
+    target.operationId !== capacity?.operationId ||
+    target.reservationId !== capacity?.reservationId ||
+    target.policyRevision !== capacity?.policyRevision ||
+    settlement.estimatesDigest !== enrollment.estimatesDigest
+  )
+    throw new Error("Capacity phase settlement does not match durable capacity authority.");
+
+  const targetDomains = Object.keys(totals);
+  if (
+    targetDomains.length !== 2 ||
+    !targetDomains.includes(enrollment.hostDomain) ||
+    !targetDomains.includes(enrollment.runtimeDomain)
+  )
+    throw new Error("Capacity phase settlement domains do not match enrollment.");
+}
+
 function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdentity): void {
   keys(record, [
     "version",
@@ -112,7 +221,9 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     "worker",
     "effectSequence",
     "outcome",
-    ...(record.version === 2 ? ["capacity", "enrollment", "activeProfile", "preparation"] : []),
+    ...(record.version === 2
+      ? ["capacity", "enrollment", "activeProfile", "preparation", "phaseSettlement"]
+      : []),
   ]);
   keys(record.identity, ["repoPath", "workspace", "provider"]);
   if (
@@ -280,6 +391,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     )
       throw new Error("Preparation receipt does not match a completed ensure operation.");
   }
+  validateCapacityPhaseSettlement(record, state, record.enrollment);
   if (state.operation) {
     const current = state.operationHistory.find((entry) => entry.id === state.operation?.id);
     if (

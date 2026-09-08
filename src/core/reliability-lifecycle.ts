@@ -1,10 +1,17 @@
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import type { CapacityEstimates } from "../types";
 import {
   type CapacityDomainBudget,
   type CapacityDomainSample,
   evaluateCapacity,
 } from "./capacity-accounting";
-import { type CapacityPolicy, readCapacityPolicy } from "./capacity-policy";
+import {
+  type CapacityPolicy,
+  type CapacityPolicyEnrollment,
+  readCapacityPolicy,
+} from "./capacity-policy";
+import { capacitySteadyCharge } from "./capacity-request";
 import {
   type CapacityReservation,
   CapacitySnapshotChangedError,
@@ -31,6 +38,7 @@ import { stepReliability } from "./reliability-model";
 import {
   assertCapacityEffect,
   type CapacityControllerIdentity,
+  type CapacityPhaseSettlement,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   updateReliabilityOperation,
@@ -241,6 +249,7 @@ export function prepareManagedLifecycleOperation(input: {
     )
       throw new Error("Managed operation requires current durable enrollment.");
     const previous = record.state.operationHistory.find((entry) => entry.key === input.requestId);
+    if (record.phaseSettlement) throw new Error("Capacity phase settlement is pending.");
     const operationId = previous?.id ?? ids.operationId;
     const transition = stepReliability(
       record.state,
@@ -288,6 +297,96 @@ function assertCurrentCapacityController(
     throw new Error("Capacity controller incarnation changed.");
 }
 
+/** Reduce reconciled preparation charges only after the exact worker has drained. */
+export function settlePreparedLifecycleCapacity(input: {
+  identity: ReliabilityIdentity;
+  controller: CapacityControllerIdentity;
+  estimates: CapacityEstimates;
+  enrollment: CapacityPolicyEnrollment;
+  directory?: string;
+}): boolean {
+  const directory = input.directory ?? path.join(DEVROUTER_HOME, "controller");
+  const store = new CapacityStore(directory);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const snapshot = store.read();
+    const pending = updateReliabilityOperation(input.identity, (record) => {
+      assertCurrentCapacityController(input.controller, directory);
+      const operation = record.state.operation;
+      const preparation = record.preparation;
+      const binding = record.capacity;
+      if (
+        !binding ||
+        !record.enrollment ||
+        record.worker ||
+        record.state.desired !== "running" ||
+        record.state.phase === "stopping" ||
+        operation?.kind !== "ensure" ||
+        operation.status !== "COMPLETED" ||
+        !operation.drained ||
+        !preparation ||
+        preparation.operationId !== operation.id ||
+        !matchesFence(record, preparation.fence) ||
+        record.activeProfile !== preparation.profile ||
+        record.enrollment.estimatesDigest !== input.enrollment.estimatesDigest ||
+        record.enrollment.hostDomain !== input.enrollment.hostDomain ||
+        record.enrollment.runtimeDomain !== input.enrollment.runtimeDomain ||
+        binding.operationId !== operation.id ||
+        record.enrollment.policyRevision !== binding.policyRevision
+      )
+        return null;
+      const target: CapacityReservation = {
+        ...capacitySteadyCharge(input.estimates, input.enrollment, {
+          environmentId: record.state.environmentId,
+          profile: preparation.profile,
+        }),
+        operationId: operation.id,
+        reservationId: binding.reservationId,
+        policyRevision: binding.policyRevision,
+      };
+      const retained = snapshot.reservations.find(
+        (entry) => entry.environmentId === target.environmentId,
+      );
+      if (
+        !retained ||
+        retained.reservationId !== target.reservationId ||
+        retained.operationId !== target.operationId ||
+        retained.policyRevision !== target.policyRevision
+      )
+        return null;
+      if (!record.phaseSettlement && isDeepStrictEqual(retained, target)) return null;
+      const marker: CapacityPhaseSettlement = {
+        id: binding.reservationId,
+        fence: { ...preparation.fence },
+        target,
+        estimatesDigest: input.enrollment.estimatesDigest,
+      };
+      if (record.phaseSettlement && !isDeepStrictEqual(record.phaseSettlement, marker))
+        throw new Error("Capacity phase settlement proof changed.");
+      binding.validUntilMs = 0;
+      record.phaseSettlement = marker;
+      return marker;
+    });
+    if (!pending) return false;
+    try {
+      store.reduceAfterPhase(pending.target, snapshot.revision);
+    } catch (error) {
+      if (error instanceof CapacitySnapshotChangedError) continue;
+      throw error;
+    }
+    return updateReliabilityOperation(input.identity, (record) => {
+      assertCurrentCapacityController(input.controller, directory);
+      if (
+        !matchesFence(record, pending.fence) ||
+        !isDeepStrictEqual(record.phaseSettlement, pending)
+      )
+        return false;
+      record.phaseSettlement = null;
+      return true;
+    });
+  }
+  return false;
+}
+
 export async function superviseLifecycle(
   kind: LifecycleWorkerRequest["kind"],
   repoPath: string,
@@ -312,6 +411,7 @@ export function admitLifecycleCapacity(
   const capacity = new CapacityStore(directory);
   const snapshot = capacity.read();
   const previous = updateReliabilityOperation(request.identity, (record) => {
+    if (record.phaseSettlement) throw new Error("Capacity phase settlement is pending.");
     if (record.state.executionPolicy === "capacity-managed")
       assertCurrentCapacityController(controller, directory);
     if (
@@ -767,6 +867,7 @@ export function proveLifecycleStopped(): void {
         throw new Error("Capacity settlement was superseded before journal confirmation.");
       record.capacity = null;
       if (record.enrollment) {
+        record.phaseSettlement = null;
         record.activeProfile = null;
         record.preparation = null;
       }
