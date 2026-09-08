@@ -22,7 +22,8 @@ Incomplete ownership or population remains an explicit recovery boundary.
 ## Execution details
 
 - Worktree: `trees/rs/reset-rollback-recovery`; branch `rs/reset-rollback-recovery`.
-- Base: `e8f7549`, matching refreshed `origin/main`; no upstream integration.
+- Initial base: `e8f7549`. Integration commit `cfaa82a` includes target
+  `0db64c1` and preserves current automatic repair and lifecycle effect fencing.
 - Package: one full-path regression fix; no new schema or command surface.
 - Documentation: update the managed environment lifecycle knowledge page only
   where recovery semantics change. No release artifacts or new architecture.
@@ -71,4 +72,28 @@ Typecheck, Biome, documentation policy, knowledge validation, CLI build, and
 isolated package smoke pass. The reset test exercises repair from the produced
 degraded record; unchanged guarded-stop tests cover coherent degraded records
 and retained service cleanup separately. This is not a combined live stop proof.
-Required source reviews and the task-only runtime retry remain pending.
+This paragraph records the original pre-integration checks.
+
+On September 8, the existing PR #56 was integrated with current main at `0db64c1`
+to address the reported stale-record failure after exact provider recreation.
+Conflicts preserve automatic repair and restrict rollback adapter execution to
+nonempty, nondegraded prior process sets. New reset cleanup and persistence
+mutations use current lifecycle claims. The integrated source passes 1,202 tests;
+after adding these claims, all 143 affected ensure/stop tests pass. Typecheck,
+Biome, Knip, documentation policy and knowledge validation pass. Build and package
+smoke also pass after the final source changes.
+
+The installed packed lifecycle qualifier passes at clean `cfaa82a` with tarball
+SHA256 `0e9238349d16f36bf8884c9f6fd74ebf17db24d2e97d0644880a2feac0a1efaf`.
+Producing receipts are `/private/tmp/devrouter-reset-current-full-tests.log`,
+`/private/tmp/devrouter-reset-fenced-tests.log`,
+`/private/tmp/devrouter-reset-fenced-package.log`, and
+`/private/tmp/devrouter-reset-fenced-lifecycle-qualification.log`.
+This uses closed synthetic providers: live-provider recovery, OOM resilience and
+the original Chat 502 remain unverified. The evaluation task retains its other-host
+runtime and browser ownership; this work performed no other-host mutation.
+
+Integrated final review found no correctness, ownership, data-integrity or
+architecture blocker. Its sole low-severity finding was stale plan provenance,
+addressed by this update. The source result is ready for branch delivery and CI;
+runtime acceptance and any release remain separate evidence boundaries.
