@@ -319,6 +319,14 @@ it("accepts managed intent once and reconnects without returning another worker 
   expect(lifecycle.prepareManagedLifecycleOperation(input)).toEqual({
     operationId: accepted.operationId,
   });
+  expect(() =>
+    lifecycle.prepareManagedLifecycleOperation({ ...input, requestId: "competing-request" }),
+  ).toThrow("blocked");
+  expect(store.readReliabilityOperation(identity)?.state.operation).toMatchObject({
+    id: accepted.operationId,
+    status: "NOT_STARTED",
+    drained: false,
+  });
   expect(() => lifecycle.prepareManagedLifecycleOperation({ ...input, profile: "other" })).toThrow(
     "conflict",
   );

@@ -855,3 +855,11 @@ Successful preparation must record the reconciled active profile before managed
 exec can construct its charge. Phase-specific settlement, replacement-controller
 recovery, qualified collection and canonical CLI routing remain required. No
 runtime or operator policy was changed during these checks.
+
+Queue simplification committed as c89fb12 with all hooks passing. Main strengthened
+the existing managed-intent regression: a distinct competing request is blocked
+without retiring the still-live queued predecessor, while duplicate acceptance
+continues to return the same operation ID. All 28 lifecycle tests and focused
+Biome pass. This protects the recovery distinction; it does not resolve restart
+payload loss. Keep the existing Gauss integration-test owner and Singer correctness
+review owner through their current nonterminal runs.
