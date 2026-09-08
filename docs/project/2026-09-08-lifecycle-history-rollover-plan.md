@@ -68,4 +68,17 @@ Rollback is an ordinary source revert; never restore a prior journal snapshot.
 
 2026-09-08: reproduced the released history limit; accepted native planner's
 manual-only rollover contract. Created the isolated worktree from released main.
-Implementation is active. No correction, review pass, PR or release is claimed yet.
+Implementation is committed at 9a346ad. All 63 focused tests and 1212 full
+unit tests pass, together with typecheck, Biome, Knip, documentation policy,
+knowledge validation, build and isolated package smoke. The first full-suite
+attempt lacked sandbox process identity access; the host-visible rerun passed.
+Receipts: /private/tmp/devrouter-history-rollover-full-tests-host.log and
+/private/tmp/devrouter-history-rollover-package.log. Native simplification and
+independent risk review pass with no actionable findings. Integrated final
+review and draft PR delivery remain pending. No new release is claimed.
+
+When integrating this fix into the capacity branch, retain an explicit manual-only
+rollover condition: that branch removes the released handler's leading manual
+policy guard. Its externally retryable managed request IDs must not inherit
+manual history retirement. This is an integration requirement, not behavior
+present in the released-main fix.
