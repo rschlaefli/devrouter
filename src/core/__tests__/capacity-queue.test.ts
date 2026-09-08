@@ -229,6 +229,30 @@ describe("CapacityQueue", () => {
     await expect(queued.wait("unrelated", 1_000)).resolves.toBe(true);
   });
 
+  it("retires a proven superseded head and admits its overlapping follower", async () => {
+    const queued = queue();
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockImplementation((item: LifecycleWorkerRequest) => {
+      if (item.operationId === "head") throw new Error("intent changed");
+      return { admitted: true };
+    });
+    fixture.retireQueuedLifecycle.mockReturnValue(true);
+    fixture.runLifecycleWorker.mockResolvedValue({ ok: true });
+    queued.enqueue(request("head"), reservation("head", "environment-head", ["domain-a"]));
+    queued.enqueue(request("next"), reservation("next", "environment-next", ["domain-a"]));
+    await queued.tick();
+    expect(fixture.retireQueuedLifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({ operationId: "head" }),
+      true,
+    );
+    expect(queued.observe("head")).toMatchObject({
+      phase: "terminal",
+      reason: "intent-superseded",
+    });
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
+    expect(fixture.runLifecycleWorker.mock.calls[0][0].operationId).toBe("next");
+  });
+
   it("does not abort or relaunch an accepted worker after caller timeout", async () => {
     const queued = queue();
     const worker = deferred<unknown>();

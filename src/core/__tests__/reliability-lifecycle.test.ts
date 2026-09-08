@@ -492,6 +492,26 @@ it("retains potentially dispatched intent when queued retirement cannot prove ab
   expect(store.readReliabilityOperation(identity)).toEqual(before);
 });
 
+it("retires stop-superseded undispatched intent without changing the newer intent", async () => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const request = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  expect(lifecycle.retireQueuedLifecycle(request, true)).toBe(false);
+  expect(store.readReliabilityOperation(request.identity)?.state.operation?.drained).toBe(false);
+  lifecycle.prepareLifecycleOperation("stop", request.repoPath);
+  const before = store.readReliabilityOperation(request.identity)!;
+  expect(before.state.operation).toMatchObject({
+    id: request.operationId,
+    status: "NOT_STARTED",
+    drained: true,
+  });
+  expect(lifecycle.retireQueuedLifecycle(request, true)).toBe(true);
+  const after = store.readReliabilityOperation(request.identity)!;
+  expect(after.state).toEqual(before.state);
+  expect(after.capacity).toEqual(before.capacity);
+  expect(after.worker).toEqual(before.worker);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
 it("keeps prior capacity authority when replacement lacks drainage proof", async () => {
   const { lifecycle, store } = await loadLifecycleModules();
   const { CapacityStore } = await import("../capacity-store");

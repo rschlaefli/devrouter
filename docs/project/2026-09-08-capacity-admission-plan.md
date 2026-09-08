@@ -535,3 +535,13 @@ Singer retains read-only ownership of the requested settlement-protocol
 clarification. Resolve these with crash-window and stop/resume regressions before
 controller dispatch integration or capacity activation. Preserve version-2
 capacity enforcement and retained charges whenever cessation is unproven.
+
+Main corrected stop-superseded queue retirement. The journal can acknowledge a
+superseded operation only when its current or retained history proves it drained
+without dispatch and no worker belongs to that operation. Admission errors check
+this proof before retaining an uncertain queue head. Proven supersession retires
+the payload and allows overlapping followers to proceed; ordinary admission
+failures stay queued. The retirement path never releases capacity charges or
+changes newer intent. All 37 affected queue/lifecycle tests pass, along with
+TypeScript, Biome and Knip. Reservation settlement and its crash windows remain
+open; Singer's requested clarification is still pending.

@@ -189,6 +189,17 @@ export class CapacityQueue {
             this.options.directory,
           );
         } catch {
+          try {
+            if (retireQueuedLifecycle(entry.request, true)) {
+              entry.reason = "intent-superseded";
+              entry.phase = "terminal";
+              entry.request.command = undefined;
+              entry.finish();
+              continue;
+            }
+          } catch {
+            // Retain uncertainty when supersession cannot prove dispatch absence.
+          }
           // An uncertain journal or reservation blocks this domain, not unrelated work.
           entry.reason = "admission-unavailable";
           for (const domain of domains) waitingDomains.add(domain);

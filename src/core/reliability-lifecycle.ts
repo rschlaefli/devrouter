@@ -272,10 +272,29 @@ export function admitLifecycleCapacity(
 }
 
 /** Retire only positively undispatched intent, retaining all runtime charges. */
-export function retireQueuedLifecycle(request: LifecycleWorkerRequest): void {
-  updateReliabilityOperation(request.identity, (record) => {
+export function retireQueuedLifecycle(
+  request: LifecycleWorkerRequest,
+  supersededOnly = false,
+): boolean {
+  return updateReliabilityOperation(request.identity, (record) => {
     if (
       !matchesFence(record, request.fence) ||
+      record.state.operation?.id !== request.operationId
+    ) {
+      const operation =
+        record.state.operation?.id === request.operationId
+          ? record.state.operation
+          : record.state.operationHistory.find((entry) => entry.id === request.operationId);
+      if (
+        operation?.drained &&
+        ["NOT_STARTED", "NOT_LAUNCHED"].includes(operation.status) &&
+        record.worker?.operationId !== request.operationId
+      )
+        return true;
+      throw new Error("Queued operation absence is not proven.");
+    }
+    if (supersededOnly) return false;
+    if (
       record.worker ||
       record.state.operation?.id !== request.operationId ||
       !["NOT_STARTED", "NOT_LAUNCHED"].includes(record.state.operation.status)
@@ -283,6 +302,7 @@ export function retireQueuedLifecycle(request: LifecycleWorkerRequest): void {
       throw new Error("Queued operation absence is not proven.");
     if (record.capacity) record.capacity.validUntilMs = 0;
     stepRecord(record, { ...request.fence, type: "drained", operationId: request.operationId });
+    return true;
   });
 }
 
