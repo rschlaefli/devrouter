@@ -172,10 +172,8 @@ function validateCapacityPhaseSettlement(
     !isReliabilityId(target.reservationId) ||
     !Number.isSafeInteger(target.policyRevision) ||
     target.policyRevision < 1 ||
-    typeof target.startup !== "boolean" ||
-    target.startup ||
-    typeof target.heavy !== "boolean" ||
-    target.heavy ||
+    target.startup !== false ||
+    target.heavy !== false ||
     typeof settlement.estimatesDigest !== "string" ||
     !/^[0-9a-f]{64}$/.test(settlement.estimatesDigest)
   )

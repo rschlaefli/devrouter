@@ -1,22 +1,29 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { CapacityDomainSample } from "./capacity-accounting";
 import { enrollCapacityLifecycle } from "./capacity-enrollment";
 import { readCapacityPolicy } from "./capacity-policy";
 import { CapacityQueue } from "./capacity-queue";
 import { capacityRequest } from "./capacity-request";
+import { readControllerEvidence } from "./controller-binding";
 import type { ControllerOperations, ControllerStartup } from "./controller-server";
 import { ControllerStore } from "./controller-store";
 import { resolveRunningWorkspaceContainer } from "./devpod-environment";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
 import { reliabilityFence } from "./reliability-contract";
-import { prepareManagedLifecycleOperation, retireQueuedLifecycle } from "./reliability-lifecycle";
+import {
+  prepareManagedLifecycleOperation,
+  retireQueuedLifecycle,
+  settlePreparedLifecycleCapacity,
+} from "./reliability-lifecycle";
 import { stepReliability } from "./reliability-model";
 import {
   listReliabilityOperations,
   readReliabilityOperation,
   updateReliabilityOperation,
 } from "./reliability-operation-store";
+import { loadRepoConfig } from "./repo-config";
 
 /** Own transient requests independently of client connections within one controller incarnation. */
 export function createCapacityController(options: {
@@ -59,6 +66,43 @@ export function createCapacityController(options: {
   const payloadKey = randomBytes(32);
   const acceptedPayloads = new Map<string, string>();
   const lifetime = new AbortController();
+  const settlePreparations = (): void => {
+    if (
+      lifetime.signal.aborted ||
+      !isDeepStrictEqual(readCapacityPolicy(options.directory), policy)
+    )
+      return;
+    for (const enrollment of policy.enrollments) {
+      try {
+        const identity = {
+          repoPath: enrollment.repoPath,
+          workspace: enrollment.workspace || null,
+          provider: enrollment.provider,
+        };
+        const record = readReliabilityOperation(identity);
+        if (
+          !record?.capacity ||
+          !record.preparation ||
+          record.worker ||
+          !record.state.operation?.drained ||
+          record.state.operation.kind !== "ensure"
+        )
+          continue;
+        const bytes = readControllerEvidence(path.join(enrollment.repoPath, ".devrouter.yml"));
+        const estimates = loadRepoConfig(enrollment.repoPath, () => bytes).capacity;
+        if (!estimates) continue;
+        settlePreparedLifecycleCapacity({
+          identity,
+          controller,
+          estimates,
+          enrollment,
+          directory: options.directory,
+        });
+      } catch {
+        // Retain uncertain charges; another environment can still reconcile and queue.
+      }
+    }
+  };
   return {
     async submit(request, environment, signal) {
       signal = AbortSignal.any([signal, lifetime.signal]);
@@ -87,6 +131,18 @@ export function createCapacityController(options: {
       };
       const record = readReliabilityOperation(identity);
       if (!record) throw new Error("Capacity lifecycle journal unavailable.");
+      if (
+        record.preparation &&
+        record.state.operation?.kind === "ensure" &&
+        record.state.operation.drained
+      )
+        settlePreparedLifecycleCapacity({
+          identity,
+          controller,
+          estimates: resolved.estimates,
+          enrollment: resolved.enrollment,
+          directory: options.directory,
+        });
       const charge = capacityRequest(resolved.estimates, resolved.enrollment, {
         environmentId: record.state.environmentId,
         profile: environment.profile,
@@ -157,7 +213,10 @@ export function createCapacityController(options: {
         output: queue.observePage(request.operationId, request.output)?.output ?? null,
       };
     },
-    tick: () => queue.tick(),
+    tick: () => {
+      settlePreparations();
+      return queue.tick();
+    },
     close() {
       lifetime.abort();
       queue.close();

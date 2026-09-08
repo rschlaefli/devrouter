@@ -12,6 +12,9 @@ const fixture = vi.hoisted(() => ({
   journal: vi.fn(),
   prepare: vi.fn(),
   retire: vi.fn(),
+  settle: vi.fn(),
+  evidence: vi.fn(),
+  config: vi.fn(),
   charge: vi.fn(),
   enqueue: vi.fn(),
   list: vi.fn(),
@@ -23,7 +26,10 @@ vi.mock("../reliability-operation-store", () => ({
 vi.mock("../reliability-lifecycle", () => ({
   prepareManagedLifecycleOperation: fixture.prepare,
   retireQueuedLifecycle: fixture.retire,
+  settlePreparedLifecycleCapacity: fixture.settle,
 }));
+vi.mock("../controller-binding", () => ({ readControllerEvidence: fixture.evidence }));
+vi.mock("../repo-config", () => ({ loadRepoConfig: fixture.config }));
 vi.mock("../capacity-request", () => ({ capacityRequest: fixture.charge }));
 vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.policy }));
 vi.mock("../capacity-enrollment", () => ({ enrollCapacityLifecycle: fixture.enroll }));
@@ -39,7 +45,7 @@ vi.mock("../capacity-queue", () => ({
 }));
 beforeEach(() => {
   vi.resetAllMocks();
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled" });
+  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [] });
   fixture.list.mockReturnValue([]);
 });
 const environment = {
@@ -71,6 +77,124 @@ function controller() {
     collect: async () => ({}),
   });
 }
+
+function policyEnrollment(repoPath: string) {
+  return { repoPath, workspace: null, provider: "devsy" as const };
+}
+
+function preparedRecord(overrides: { worker?: unknown; drained?: boolean } = {}) {
+  return {
+    capacity: {
+      reservationId: "reservation",
+      operationId: "operation",
+      validUntilMs: 0,
+    },
+    preparation: { operationId: "operation" },
+    worker: overrides.worker ?? null,
+    state: {
+      operation: {
+        kind: "ensure",
+        drained: overrides.drained ?? true,
+        status: "COMPLETED",
+      },
+    },
+  };
+}
+
+it("settles a completed drained ensure before queue tick", async () => {
+  const enrollment = policyEnrollment("/fixture");
+  const estimates = { host: { steadyBytes: 1 } };
+  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
+  fixture.journal.mockReturnValue(preparedRecord());
+  fixture.evidence.mockReturnValue(Buffer.from("synthetic"));
+  fixture.config.mockReturnValue({ capacity: estimates });
+
+  const active = controller();
+  await active.tick();
+
+  expect(fixture.settle).toHaveBeenCalledWith({
+    identity: { repoPath: "/fixture", workspace: null, provider: "devsy" },
+    controller: { store: "store", epoch: 1 },
+    estimates,
+    enrollment,
+    directory: "/tmp/synthetic-controller",
+  });
+  expect(fixture.settle.mock.invocationCallOrder[0]).toBeLessThan(
+    fixture.tick.mock.invocationCallOrder[0],
+  );
+  expect(fixture.tick).toHaveBeenCalledOnce();
+});
+
+it.each([
+  ["worker", { worker: { id: "worker" } }],
+  ["undrained", { drained: false }],
+] as const)("does not settle an ensure with %s evidence", async (_label, overrides) => {
+  const enrollment = policyEnrollment("/fixture");
+  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
+  fixture.journal.mockReturnValue(preparedRecord(overrides));
+
+  const active = controller();
+  await active.tick();
+
+  expect(fixture.settle).not.toHaveBeenCalled();
+  expect(fixture.tick).toHaveBeenCalledOnce();
+});
+
+it("skips preparation settlement when the operator policy changes", async () => {
+  const initial = {
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [policyEnrollment("/fixture")],
+  };
+  fixture.policy
+    .mockReturnValueOnce(initial)
+    .mockReturnValue({ revision: 2, admissions: "enabled", enrollments: initial.enrollments });
+
+  const active = controller();
+  await active.tick();
+
+  expect(fixture.journal).not.toHaveBeenCalled();
+  expect(fixture.settle).not.toHaveBeenCalled();
+  expect(fixture.tick).toHaveBeenCalledOnce();
+});
+
+it("continues settling independent enrollments after one enrollment fails", async () => {
+  const bad = policyEnrollment("/bad");
+  const good = policyEnrollment("/good");
+  const estimates = { guest: { steadyBytes: 2 } };
+  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [bad, good] });
+  fixture.journal.mockImplementation((target: { repoPath: string }) => {
+    if (target.repoPath === bad.repoPath) throw new Error("bad enrollment");
+    return preparedRecord();
+  });
+  fixture.evidence.mockReturnValue(Buffer.from("synthetic"));
+  fixture.config.mockReturnValue({ capacity: estimates });
+
+  const active = controller();
+  await active.tick();
+
+  expect(fixture.settle).toHaveBeenCalledOnce();
+  expect(fixture.settle).toHaveBeenCalledWith(
+    expect.objectContaining({
+      identity: { repoPath: "/good", workspace: null, provider: "devsy" },
+    }),
+  );
+  expect(fixture.tick).toHaveBeenCalledOnce();
+});
+
+it("skips preparation settlement after the controller closes", async () => {
+  const enrollment = policyEnrollment("/fixture");
+  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
+  fixture.journal.mockReturnValue(preparedRecord());
+
+  const active = controller();
+  active.close();
+  await active.tick();
+
+  expect(fixture.close).toHaveBeenCalledOnce();
+  expect(fixture.settle).not.toHaveBeenCalled();
+});
+
 it("rejects consumed startup authority before inspecting journals or policy", () => {
   const consumeStartup = vi.fn(() => {
     throw new Error("Startup already consumed");

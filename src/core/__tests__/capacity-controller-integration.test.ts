@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterAll, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, expect, it, vi } from "vitest";
 import type { CapacityEstimates } from "../../types";
 import type { CapacityDomainSample } from "../capacity-accounting";
 import { createCapacityController } from "../capacity-controller";
@@ -203,11 +203,20 @@ function watchRequest(
   };
 }
 
+beforeEach(() => {
+  fs.rmSync(fixture.root, { recursive: true, force: true });
+  fs.mkdirSync(fixture.root, { mode: 0o700 });
+});
+
 afterAll(() => {
   if (fixture.root) fs.rmSync(fixture.root, { recursive: true, force: true });
 });
 
-it("admits one enrolled environment and keeps a competing queued wait isolated", async () => {
+it.each([
+  "uncertain",
+  "prepared",
+  "restart",
+])("keeps queued work isolated and settles preparation (%s)", async (mode) => {
   const controllerDirectory = path.join(fixture.root, "controller");
   fs.mkdirSync(controllerDirectory, { recursive: true, mode: 0o700 });
   fs.chmodSync(controllerDirectory, 0o700);
@@ -359,6 +368,68 @@ it("admits one enrolled environment and keeps a competing queued wait isolated",
     phase: "queued",
   });
   expect(new CapacityStore(controllerDirectory).read().reservations).toEqual(reservations);
+  if (mode !== "uncertain") {
+    fs.writeFileSync(
+      path.join(first.repoPath, ".devrouter.yml"),
+      JSON.stringify({ version: 1, apps: [], capacity: estimates }),
+    );
+    updateReliabilityOperation(firstIdentity, (record) => {
+      const completion = {
+        ...record.state.operation!,
+        status: "COMPLETED" as const,
+        drained: true,
+        exitCode: 1,
+      };
+      record.state.operation = completion;
+      record.state.operationHistory = record.state.operationHistory.map((entry) =>
+        entry.id === completion.id ? { ...entry, ...completion } : entry,
+      );
+      record.activeProfile = "full";
+      record.preparation = {
+        operationId: completion.id,
+        profile: "full",
+        fence: reliabilityFence(record.state),
+      };
+    });
+    if (mode === "restart") {
+      active.close();
+      const replacement = new ControllerStore(controllerDirectory).startIncarnation();
+      const restarted = createCapacityController({
+        directory: controllerDirectory,
+        controller: {
+          directory: controllerDirectory,
+          store: replacement.store,
+          epoch: replacement.epoch,
+          consumeStartup: () => {},
+        },
+        collect: async () => ({ host: sample(Date.now()), runtime: sample(Date.now()) }),
+      });
+      await restarted.tick();
+      expect(new CapacityStore(controllerDirectory).read().reservations).toEqual([
+        expect.objectContaining({
+          operationId: firstOperation.operationId,
+          totals: { host: 10, runtime: 10 },
+          startup: false,
+        }),
+      ]);
+      expect(launches).toHaveLength(1);
+      restarted.close();
+      return;
+    }
+    await active.tick();
+    expect(launches).toHaveLength(2);
+    expect(launches[1]?.request.operationId).toBe(secondOperation.operationId);
+    expect(new CapacityStore(controllerDirectory).read().reservations).toEqual([
+      expect.objectContaining({
+        operationId: firstOperation.operationId,
+        totals: { host: 10, runtime: 10 },
+        startup: false,
+      }),
+      expect.objectContaining({ operationId: secondOperation.operationId, startup: true }),
+    ]);
+    active.close();
+    return;
+  }
   active.close();
   updateReliabilityOperation(secondIdentity, (record) => {
     // Model a persisted dispatch whose delivery result was lost with the controller.
