@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.60] - 2026-09-08
+
+### Fixed
+
+- Preserve a coherent degraded replacement record after external runtime reset
+  and failed recreation, only after exact ownership, complete service population
+  and unchanged configuration proof. Retain data and remove unusable routes.
+- Preserve lifecycle fencing during reset cleanup and skip startup adapters for
+  empty rollback process sets.
+
+### Added
+
+- Foreground controller observation with independent infrastructure/application
+  readiness, durable session fencing and bounded event subscriptions. Observation
+  does not perform capacity admission or autonomous recovery.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.60.md
+
 ## [0.0.59] - 2026-09-07
 
 ### Fixed
