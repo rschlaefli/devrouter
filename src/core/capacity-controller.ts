@@ -25,9 +25,11 @@ export function createCapacityController(options: {
   const queue = new CapacityQueue({ ...options, policyRevision: policy.revision });
   const payloadKey = randomBytes(32);
   const acceptedPayloads = new Map<string, string>();
+  const lifetime = new AbortController();
   let closed = false;
   return {
     async submit(request, environment, signal) {
+      signal = AbortSignal.any([signal, lifetime.signal]);
       if (closed || signal.aborted) throw new Error("Capacity submission unavailable.");
       const current = readCapacityPolicy(options.directory);
       if (current?.admissions !== "enabled" || !isDeepStrictEqual(current, policy))
@@ -62,6 +64,7 @@ export function createCapacityController(options: {
       });
       const prepared = prepareManagedLifecycleOperation({
         identity,
+        controller: options.controller,
         policyRevision: current.revision,
         requestId: request.requestId,
         kind: request.kind,
@@ -125,6 +128,7 @@ export function createCapacityController(options: {
     tick: () => queue.tick(),
     close() {
       closed = true;
+      lifetime.abort();
       queue.close();
       acceptedPayloads.clear();
     },

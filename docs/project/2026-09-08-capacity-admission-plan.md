@@ -905,3 +905,30 @@ All 25 queue tests, typecheck and focused Biome pass. Singer now reviews the
 prepared-profile/history correction and integration fixture at 2fa7ce6..f588bda.
 Gauss owns the existing packed manual lifecycle qualifier, using only its closed
 synthetic provider environment. No production collector or live activation exists.
+
+FIFO correction committed as ac03681. The packed lifecycle qualifier passed at
+clean f588bdae2f251424f4e036b87f83dc7cf616a327 with Node 24.17.0 and pnpm 11.6.0.
+Receipt: /private/tmp/devrouter-capacity-profile-lifecycle-qualification.log.
+Tarball SHA256: c975b76137848ebb341ce0472e91d75dce508a45b22576e302b44bf24744f242.
+The producing run uses the installed CLI and closed synthetic providers; its
+liveProviderQualified and oomQualified flags are both false. Reuse this evidence
+for unchanged worker/manual behavior; the subsequent FIFO guard has its own
+25-test queue evidence. Native planner Tesla owns the bounded restart reconciliation
+design, including predecessor asynchronous work and the pre-handshake worker gap.
+Singer retains profile/history and FIFO correctness review. No replacement owners
+were created and neither pending review is treated as a pass.
+
+Tesla completed the bounded restart design: startup-only journal reconciliation
+under the existing controller owner lock can retire proven-undispatched lost
+payloads without a new durable acceptance field, after current-incarnation and
+factory-lifetime fencing is connected. Never run that reconciliation on submission.
+Revoke bindings, retain all reservations and definitive results, and leave
+worker-bearing/dispatched uncertainty untouched. Main owns lifetime/reconciliation;
+Gauss owns bounded read-only enumeration of existing private reliability journals,
+including enrolled journals removed from current policy.
+
+Main added factory lifetime cancellation to enrollment and current persisted
+controller identity checks inside managed acceptance/admission transactions and
+before reservation writes. Focused regressions cover close during enrollment and
+stale identity rejection without journal or reservation mutation. Startup recovery
+is not wired yet; these are prerequisites, not restart qualification.

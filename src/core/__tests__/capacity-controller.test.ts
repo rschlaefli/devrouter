@@ -103,6 +103,32 @@ it("does not begin enrollment after operator policy is paused", async () => {
   expect(fixture.enroll).not.toHaveBeenCalled();
 });
 
+it("cancels in-flight enrollment when its owning controller closes", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let enrollmentSignal: AbortSignal | undefined;
+  fixture.enroll.mockImplementation(async (_policy, _request, signal) => {
+    enrollmentSignal = signal;
+    await held;
+    return { environment, estimates: {}, enrollment: {} };
+  });
+  const active = controller();
+  const pending = active.submit(
+    { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
+    environment,
+    new AbortController().signal,
+  );
+  expect(enrollmentSignal?.aborted).toBe(false);
+  active.close();
+  expect(enrollmentSignal?.aborted).toBe(true);
+  release();
+  await expect(pending).rejects.toThrow();
+  expect(fixture.prepare).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
 it("does not prepare work if policy changes while enrollment resolves", async () => {
   fixture.enroll.mockImplementation(async () => {
     fixture.policy.mockReturnValue({ revision: 1, admissions: "paused" });

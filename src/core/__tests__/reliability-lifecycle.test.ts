@@ -289,8 +289,15 @@ it("accepts managed intent once and reconnects without returning another worker 
     daemonId: "synthetic-daemon",
     estimatesDigest: "a".repeat(64),
   });
+  const { ControllerStore } = await import("../controller-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const directory = path.join(DEVROUTER_HOME, "controller");
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const controllerStore = new ControllerStore(directory);
+  const controller = controllerStore.startIncarnation();
   const input = {
     identity,
+    controller: { store: controller.store, epoch: controller.epoch },
     policyRevision: 1,
     requestId: "durable-request",
     kind: "ensure" as const,
@@ -349,12 +356,6 @@ it("accepts managed intent once and reconnects without returning another worker 
   };
   const exec = lifecycle.prepareManagedLifecycleOperation(execInput);
   expect(exec.request?.command).toEqual(execInput.command);
-  const { ControllerStore } = await import("../controller-store");
-  const { DEVROUTER_HOME } = await import("../router");
-  const directory = path.join(DEVROUTER_HOME, "controller");
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const controllerStore = new ControllerStore(directory);
-  const controller = controllerStore.startIncarnation();
   const now = Date.now();
   expect(
     lifecycle.admitLifecycleCapacity(
@@ -468,12 +469,28 @@ it("accepts managed intent once and reconnects without returning another worker 
       now,
     ).outcome,
   ).toBe("accepted");
-  expect(
+  const beforeStaleAcceptance = store.readReliabilityOperation(identity);
+  expect(() =>
     lifecycle.prepareManagedLifecycleOperation({
       ...execInput,
       command: ["replacement-not-executed"],
     }),
-  ).toEqual({ operationId: exec.operationId });
+  ).toThrow("incarnation");
+  expect(store.readReliabilityOperation(identity)).toEqual(beforeStaleAcceptance);
+  expect(() =>
+    lifecycle.admitLifecycleCapacity(
+      exec.request!,
+      reservations.reservations[0],
+      { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+      samples,
+      now,
+      15_000,
+      directory,
+      controller,
+    ),
+  ).toThrow("incarnation");
+  expect(store.readReliabilityOperation(identity)).toEqual(beforeStaleAcceptance);
+  expect(new CapacityStore(directory).read()).toEqual(reservations);
   const saved = fs.readFileSync(store.reliabilityOperationPath(identity), "utf8");
   expect(saved).not.toContain("synthetic-transient-payload");
   expect(saved).not.toContain("replacement-not-executed");

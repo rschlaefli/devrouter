@@ -10,6 +10,7 @@ import {
   CapacitySnapshotChangedError,
   CapacityStore,
 } from "./capacity-store";
+import { ControllerStore } from "./controller-store";
 import {
   inspectManagedStopContainers,
   inspectWorkspaceContainers,
@@ -211,6 +212,7 @@ export function prepareLifecycleOperation(
 /** Accept once under the journal lock; reconnecting requests receive no launch payload. */
 export function prepareManagedLifecycleOperation(input: {
   identity: ReliabilityIdentity;
+  controller: CapacityControllerIdentity;
   policyRevision: number;
   requestId: string;
   kind: "ensure" | "exec";
@@ -231,6 +233,7 @@ export function prepareManagedLifecycleOperation(input: {
     throw new Error("Managed operation input exceeds its byte limit.");
   const ids = newLifecycleIds();
   return updateReliabilityOperation(input.identity, (record) => {
+    assertCurrentCapacityController(input.controller);
     if (
       record.version !== 2 ||
       record.state.executionPolicy !== "capacity-managed" ||
@@ -276,6 +279,15 @@ export function prepareManagedLifecycleOperation(input: {
   });
 }
 
+function assertCurrentCapacityController(
+  expected: CapacityControllerIdentity | undefined,
+  directory = path.join(DEVROUTER_HOME, "controller"),
+): void {
+  const current = new ControllerStore(directory).read();
+  if (!expected || current?.store !== expected.store || current.epoch !== expected.epoch)
+    throw new Error("Capacity controller incarnation changed.");
+}
+
 export async function superviseLifecycle(
   kind: LifecycleWorkerRequest["kind"],
   repoPath: string,
@@ -300,6 +312,8 @@ export function admitLifecycleCapacity(
   const capacity = new CapacityStore(directory);
   const snapshot = capacity.read();
   const previous = updateReliabilityOperation(request.identity, (record) => {
+    if (record.state.executionPolicy === "capacity-managed")
+      assertCurrentCapacityController(controller, directory);
     if (
       !matchesFence(record, request.fence) ||
       record.worker ||
@@ -353,6 +367,7 @@ export function admitLifecycleCapacity(
       reservationId: binding.reservationId,
     };
   });
+  if (controller) assertCurrentCapacityController(controller, directory);
   const decision = capacity.reserve(
     reservation,
     budgets,
