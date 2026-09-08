@@ -143,6 +143,32 @@ function validate(value: unknown): asserts value is Snapshot {
   }
 }
 
+function mergePools(
+  pools: CapacityPoolReservation[],
+  incoming: CapacityPoolReservation[],
+): boolean {
+  let changed = false;
+  for (const requested of incoming) {
+    const retained = pools.find((pool) => pool.daemonId === requested.daemonId);
+    if (retained) {
+      if (
+        retained.hostDomain !== requested.hostDomain ||
+        retained.runtimeDomain !== requested.runtimeDomain
+      )
+        throw new Error("Capacity pool binding changed.");
+      if (requested.hostChargeCeilingBytes > retained.hostChargeCeilingBytes) {
+        retained.hostChargeCeilingBytes = requested.hostChargeCeilingBytes;
+        changed = true;
+      }
+    } else {
+      pools.push(structuredClone(requested));
+      changed = true;
+    }
+  }
+  validatePools(pools);
+  return changed;
+}
+
 function serializeSnapshot(snapshot: Snapshot): string {
   const contents = `${JSON.stringify(snapshot)}\n`;
   if (Buffer.byteLength(contents) > MAX_BYTES)
@@ -214,6 +240,34 @@ export class CapacityStore {
         validate(snapshot);
         writeFileAtomically(this.file, serializeSnapshot(snapshot));
         return { settled: index >= 0, revision: snapshot.revision };
+      },
+    );
+  }
+
+  /** Retain positively observed pools even when their charge already exceeds admission budgets. */
+  mergeObservedPools(
+    pools: CapacityPoolReservation[],
+    expectedRevision: number,
+  ): { changed: boolean; revision: number } {
+    validatePools(pools);
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+      throw new Error("Invalid capacity expected revision.");
+    assertPrivateDirectory(this.directory);
+    return withFileLockSync(
+      `${this.file}.lock`,
+      { activity: "capacity pool observation", waitMs: 100 },
+      () => {
+        const snapshot = this.read();
+        if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
+        const merged = structuredClone(snapshot.pools ?? []);
+        if (!mergePools(merged, pools)) return { changed: false, revision: snapshot.revision };
+        if (snapshot.revision === Number.MAX_SAFE_INTEGER)
+          throw new Error("Capacity reservation revision exhausted.");
+        snapshot.pools = merged;
+        snapshot.revision++;
+        validate(snapshot);
+        writeFileAtomically(this.file, serializeSnapshot(snapshot));
+        return { changed: true, revision: snapshot.revision };
       },
     );
   }
@@ -337,25 +391,7 @@ export class CapacityStore {
         const snapshot = this.read();
         if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
         const pools = structuredClone(snapshot.pools ?? []);
-        let poolChanged = false;
-        if (requestedPool !== undefined) {
-          const retained = pools.find((pool) => pool.daemonId === requestedPool.daemonId);
-          if (retained) {
-            if (
-              retained.hostDomain !== requestedPool.hostDomain ||
-              retained.runtimeDomain !== requestedPool.runtimeDomain
-            )
-              throw new Error("Capacity pool binding changed.");
-            if (requestedPool.hostChargeCeilingBytes > retained.hostChargeCeilingBytes) {
-              retained.hostChargeCeilingBytes = requestedPool.hostChargeCeilingBytes;
-              poolChanged = true;
-            }
-          } else {
-            pools.push(structuredClone(requestedPool));
-            poolChanged = true;
-          }
-          validatePools(pools);
-        }
+        const poolChanged = mergePools(pools, requestedPool === undefined ? [] : [requestedPool]);
         const existing = snapshot.reservations.find(
           (entry) => entry.environmentId === request.environmentId,
         );

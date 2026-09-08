@@ -590,3 +590,93 @@ it.each([
   expect(fs.readFileSync(file, "utf8")).toBe(contents);
   expect(store.read()).toEqual(snapshot);
 });
+
+it("persists an observed unenrolled pool across restart even above admission budget", () => {
+  const { directory, store } = fixture();
+  const observed = { ...pool, hostChargeCeilingBytes: 101 };
+  expect(store.mergeObservedPools([observed], 0)).toEqual({ changed: true, revision: 1 });
+  const restarted = new CapacityStore(directory);
+  const before = restarted.read();
+  expect(before.reservations).toEqual([]);
+  expect(before.pools).toEqual([observed]);
+  expect(reservePool(restarted, "one")).toMatchObject({ admitted: false, reason: "memory" });
+  expect(restarted.read()).toEqual(before);
+});
+
+it("merges observations without changing environments or lowering retained ceilings", () => {
+  const { store } = fixture();
+  expect(reservePool(store, "one").admitted).toBe(true);
+  const before = store.read();
+  expect(store.mergeObservedPools([], before.revision)).toEqual({
+    changed: false,
+    revision: before.revision,
+  });
+  expect(
+    store.mergeObservedPools([{ ...pool, hostChargeCeilingBytes: 20 }], before.revision).changed,
+  ).toBe(false);
+  const raised = { ...pool, hostChargeCeilingBytes: 80 };
+  expect(store.mergeObservedPools([raised], before.revision)).toEqual({
+    changed: true,
+    revision: before.revision + 1,
+  });
+  expect(store.read().reservations).toEqual(before.reservations);
+  expect(store.read().pools).toEqual([raised]);
+});
+
+it.each([
+  "hostDomain",
+  "runtimeDomain",
+] as const)("rejects observed %s rebinding without partial persistence", (field) => {
+  const { store } = fixture();
+  store.mergeObservedPools([pool], 0);
+  const before = store.read();
+  const other = { ...pool, daemonId: "other", runtimeDomain: "other-runtime" };
+  expect(() =>
+    store.mergeObservedPools([other, { ...pool, [field]: "changed" }], before.revision),
+  ).toThrow(Error);
+  expect(store.read()).toEqual(before);
+});
+
+it("does not revive a ceased pool from stale observations, including empty ones", () => {
+  const { store } = fixture();
+  store.mergeObservedPools([pool], 0);
+  const observedRevision = store.read().revision;
+  store.settlePoolAfterCessation(poolIdentity, observedRevision);
+  const ceased = store.read();
+  for (const observations of [[pool], []]) {
+    expect(() => store.mergeObservedPools(observations, observedRevision)).toThrow(
+      CapacitySnapshotChangedError,
+    );
+    expect(store.read()).toEqual(ceased);
+  }
+});
+
+it("rejects duplicate and unbounded observation input without writing", () => {
+  const { store } = fixture();
+  const before = store.read();
+  for (const observations of [
+    [pool, pool],
+    [pool, { ...pool, daemonId: "alias" }],
+    [{ ...pool, extra: true }],
+    [{ ...pool, hostChargeCeilingBytes: -1 }],
+    Array.from({ length: 257 }, (_, i) => ({
+      ...pool,
+      daemonId: `daemon-${i}`,
+      runtimeDomain: `runtime-${i}`,
+    })),
+  ]) {
+    expect(() => store.mergeObservedPools(observations, before.revision)).toThrow(Error);
+    expect(store.read()).toEqual(before);
+  }
+});
+
+it("preserves the prior file if observed pools exceed the snapshot byte bound", () => {
+  const { directory, store } = fixture();
+  const file = path.join(directory, "capacity-reservations.json");
+  const snapshot = nearLimitSnapshot(1_048_576);
+  const contents = `${JSON.stringify(snapshot)}\n`;
+  fs.writeFileSync(file, contents, { mode: 0o600 });
+  expect(() => store.mergeObservedPools([pool], 9)).toThrow(Error);
+  expect(fs.readFileSync(file, "utf8")).toBe(contents);
+  expect(store.read()).toEqual(snapshot);
+});
