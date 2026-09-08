@@ -38,6 +38,26 @@ export type LifecycleSupervision = {
   output: LifecycleOutput;
 };
 
+const OUTPUT_BUFFER_LIMIT = 262_144;
+const DEFAULT_OUTPUT_PAGE_BYTES = 48 * 1024;
+
+export type LifecycleOutputCursor = { sequence: number; offset: number };
+export type LifecycleOutputPageChunk = {
+  stream: "stdout" | "stderr";
+  data: string;
+  sequence: number;
+};
+export type LifecycleOutputPage = {
+  encoding: "base64";
+  gap: boolean;
+  sequence: LifecycleOutputCursor;
+  chunks: LifecycleOutputPageChunk[];
+};
+
+function outputPageBytes(page: LifecycleOutputPage): number {
+  return Buffer.byteLength(JSON.stringify(page), "utf8");
+}
+
 /** Transient output for controller-owned commands; client reads never pause pipes. */
 export class LifecycleOutput {
   private chunks: { stream: "stdout" | "stderr"; data: Buffer; sequence: number }[] = [];
@@ -46,7 +66,7 @@ export class LifecycleOutput {
   private droppedThrough = 0;
 
   append(stream: "stdout" | "stderr", data: Buffer): void {
-    const limit = 262_144;
+    const limit = OUTPUT_BUFFER_LIMIT;
     const sequence = ++this.sequence;
     if (data.byteLength > limit) this.droppedThrough = sequence;
     const kept = Buffer.from(data.subarray(-limit));
@@ -68,6 +88,88 @@ export class LifecycleOutput {
         .filter((chunk) => chunk.sequence > afterSequence)
         .map((chunk) => ({ ...chunk, data: Buffer.from(chunk.data) })),
     };
+  }
+
+  /** Return a JSON-safe base64 page; the cursor offset counts raw bytes in one output chunk. */
+  readPage(
+    after: LifecycleOutputCursor = { sequence: 0, offset: 0 },
+    maxJsonBytes = DEFAULT_OUTPUT_PAGE_BYTES,
+  ): LifecycleOutputPage {
+    const cursor = { ...after };
+    if (
+      !Number.isSafeInteger(cursor.sequence) ||
+      cursor.sequence < 0 ||
+      !Number.isSafeInteger(cursor.offset) ||
+      cursor.offset < 0 ||
+      cursor.sequence > this.sequence ||
+      (cursor.sequence === 0 && cursor.offset !== 0)
+    )
+      throw new Error("Invalid output cursor.");
+    const cursorChunk = this.chunks.find((chunk) => chunk.sequence === cursor.sequence);
+    if (cursorChunk && cursor.offset > cursorChunk.data.byteLength)
+      throw new Error("Invalid output cursor.");
+    if (!Number.isSafeInteger(maxJsonBytes) || maxJsonBytes <= 0)
+      throw new Error("Invalid output page byte bound.");
+
+    let page: LifecycleOutputPage = {
+      encoding: "base64",
+      gap:
+        cursor.sequence < this.droppedThrough ||
+        (cursor.sequence > 0 && cursor.sequence <= this.droppedThrough && !cursorChunk),
+      sequence: cursor,
+      chunks: [],
+    };
+    if (outputPageBytes(page) > maxJsonBytes)
+      throw new Error("Output page byte bound is too small.");
+
+    for (const chunk of this.chunks) {
+      if (chunk.sequence < cursor.sequence) continue;
+      let offset = chunk.sequence === cursor.sequence ? cursor.offset : 0;
+      if (offset >= chunk.data.byteLength) {
+        const nextPage = { ...page, sequence: { sequence: chunk.sequence, offset } };
+        if (outputPageBytes(nextPage) > maxJsonBytes) return page;
+        page = nextPage;
+        continue;
+      }
+      while (offset < chunk.data.byteLength) {
+        let low = offset + 1;
+        let high = chunk.data.byteLength;
+        let best: { cursor: LifecycleOutputCursor; chunk: LifecycleOutputPageChunk } | undefined;
+        while (low <= high) {
+          const midpoint = Math.floor((low + high) / 2);
+          const candidate = {
+            cursor: { sequence: chunk.sequence, offset: midpoint },
+            chunk: {
+              stream: chunk.stream,
+              data: chunk.data.subarray(offset, midpoint).toString("base64"),
+              sequence: chunk.sequence,
+            },
+          };
+          const candidatePage: LifecycleOutputPage = {
+            encoding: "base64",
+            gap: page.gap,
+            sequence: candidate.cursor,
+            chunks: [...page.chunks, candidate.chunk],
+          };
+          if (outputPageBytes(candidatePage) <= maxJsonBytes) {
+            best = candidate;
+            low = midpoint + 1;
+          } else high = midpoint - 1;
+        }
+        if (!best) {
+          if (page.chunks.length === 0) throw new Error("Output page byte bound is too small.");
+          return page;
+        }
+        page = {
+          encoding: "base64",
+          gap: page.gap,
+          sequence: best.cursor,
+          chunks: [...page.chunks, best.chunk],
+        };
+        offset = best.cursor.offset;
+      }
+    }
+    return page;
   }
 }
 

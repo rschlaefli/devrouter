@@ -146,6 +146,119 @@ describe("worker dispatch acknowledgement", () => {
     expect(other.read()).toEqual({ gap: false, sequence: 0, chunks: [] });
   });
 
+  it("pages UTF8 and JSON-escaped output within the requested byte bound", () => {
+    const output = new LifecycleOutput();
+    const value = 'Grüße "quoted" \\ slash\n'.repeat(200);
+    output.append("stdout", Buffer.from(value, "utf8"));
+    const bytes = Buffer.byteLength(value, "utf8");
+    const maxJsonBytes = 512;
+    expect(Buffer.byteLength(JSON.stringify(output.readPage()), "utf8")).toBeLessThan(64 * 1024);
+    let cursor = { sequence: 0, offset: 0 };
+    let collected = Buffer.alloc(0);
+    let pages = 0;
+
+    while (cursor.offset < bytes) {
+      const page = output.readPage(cursor, maxJsonBytes);
+      expect(Buffer.byteLength(JSON.stringify(page), "utf8")).toBeLessThanOrEqual(maxJsonBytes);
+      expect(page.encoding).toBe("base64");
+      expect(page.gap).toBe(false);
+      expect(page.sequence.sequence).toBe(1);
+      expect(page.sequence.offset).toBeGreaterThan(cursor.offset);
+      expect(page.sequence.offset).toBeLessThanOrEqual(bytes);
+      collected = Buffer.concat([
+        collected,
+        ...page.chunks.map((chunk) => Buffer.from(chunk.data, "base64")),
+      ]);
+      cursor = page.sequence;
+      pages++;
+    }
+
+    expect(pages).toBeGreaterThan(1);
+    expect(collected).toEqual(Buffer.from(value, "utf8"));
+    expect(cursor.offset).toBe(bytes);
+    expect(() => output.readPage({ sequence: 2, offset: 0 }, maxJsonBytes)).toThrow(
+      "Invalid output cursor.",
+    );
+    expect(() => output.readPage({ sequence: 1, offset: bytes + 1 }, maxJsonBytes)).toThrow(
+      "Invalid output cursor.",
+    );
+  });
+
+  it("keeps empty-chunk cursor advancement within the page byte bound", () => {
+    const output = new LifecycleOutput();
+    const bound = Buffer.byteLength(JSON.stringify(output.readPage()));
+    for (let index = 0; index < 10; index++) output.append("stdout", Buffer.alloc(0));
+
+    const page = output.readPage({ sequence: 0, offset: 0 }, bound);
+    expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(bound);
+    expect(page.sequence).toEqual({ sequence: 9, offset: 0 });
+    expect(output.readPage(page.sequence).sequence).toEqual({ sequence: 10, offset: 0 });
+  });
+
+  it("preserves a UTF8 codepoint split across separate append calls", () => {
+    const output = new LifecycleOutput();
+    const emoji = Buffer.from("🙂", "utf8");
+    const expected = Buffer.concat([Buffer.from("before:"), emoji, Buffer.from(":after")]);
+    output.append("stdout", Buffer.concat([Buffer.from("before:"), emoji.subarray(0, 2)]));
+    output.append("stdout", Buffer.concat([emoji.subarray(2), Buffer.from(":after")]));
+
+    let cursor = { sequence: 0, offset: 0 };
+    let collected = Buffer.alloc(0);
+    for (let pages = 0; pages < 100; pages++) {
+      const page = output.readPage(cursor, 192);
+      expect(Buffer.byteLength(JSON.stringify(page), "utf8")).toBeLessThanOrEqual(192);
+      collected = Buffer.concat([
+        collected,
+        ...page.chunks.map((chunk) => Buffer.from(chunk.data, "base64")),
+      ]);
+      if (page.chunks.length === 0) break;
+      const next = page.sequence;
+      expect(
+        next.sequence > cursor.sequence ||
+          (next.sequence === cursor.sequence && next.offset > cursor.offset),
+      ).toBe(true);
+      cursor = next;
+    }
+
+    expect(collected).toEqual(expected);
+  });
+
+  it("continues from a consumed evicted sequence and reports a gap for older cursors", () => {
+    const output = new LifecycleOutput();
+    output.append("stdout", Buffer.from("first"));
+    const consumed = output.readPage({ sequence: 0, offset: 0 }, 256);
+    expect(consumed.sequence).toEqual({ sequence: 1, offset: 5 });
+
+    for (let index = 2; index <= 65; index++)
+      output.append("stdout", Buffer.from(`chunk-${index}`));
+
+    const continued = output.readPage(consumed.sequence, 256);
+    expect(continued.gap).toBe(true);
+    expect(continued.chunks[0]).toMatchObject({
+      sequence: 2,
+      data: Buffer.from("chunk-2").toString("base64"),
+    });
+
+    const stale = output.readPage({ sequence: 0, offset: 0 }, 256);
+    expect(stale.gap).toBe(true);
+    expect(stale.chunks[0]).toMatchObject({
+      sequence: 2,
+      data: Buffer.from("chunk-2").toString("base64"),
+    });
+  });
+
+  it("reports a gap when a partial cursor points into an evicted chunk", () => {
+    const output = new LifecycleOutput();
+    output.append("stdout", Buffer.from("0123456789"));
+    const partialCursor = { sequence: 1, offset: 3 };
+    for (let index = 2; index <= 65; index++)
+      output.append("stdout", Buffer.from(`chunk-${index}`));
+
+    const page = output.readPage(partialCursor, 256);
+    expect(page.gap).toBe(true);
+    expect(page.chunks[0]).toMatchObject({ sequence: 2 });
+  });
+
   it("does not fork an already-cancelled supervised request", async () => {
     const setup = prepared();
     const controller = new AbortController();

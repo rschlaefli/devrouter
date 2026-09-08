@@ -653,3 +653,12 @@ The journal's provider/daemon identity validation matches operator policy bounde
 strings, including punctuation; all 16 persistence tests pass with that fixture.
 Knip, Biome and typecheck pass for the enrollment work. Gauss is correcting output
 pagination to preserve bytes across split UTF-8 pipe chunks before main acceptance.
+
+Enrollment is committed as c255537. Main accepted Gauss's output pagination after
+verifying base64 byte preservation and conservative eviction-gap reporting. Main
+also fixed empty-chunk cursor advancement to respect the encoded page bound.
+All 31 worker/queue tests, typecheck, focused Biome, Knip and diff whitespace checks
+pass. The transient output buffer remains bounded and is never persisted. These
+pages are not yet exposed by controller IPC; durable request identity, renewable
+authority and managed dispatch remain the next integration steps. Singer retains
+the pending independent settlement-correction review; no review pass is claimed.
