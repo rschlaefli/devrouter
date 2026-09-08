@@ -1794,8 +1794,9 @@ capacity activation. Review and source delivery of this correction remain pendin
 
 Main verified the published v0.0.61 GitHub release and the installed Volta CLI.
 The release worktree and merged main have identical content. The secondary
-/opt/homebrew/bin/devrouter installation still reports 0.0.60; callers must
-resolve their executable before attributing behavior to this release.
+/opt/homebrew/bin/devrouter installation initially reported 0.0.60. After proving
+no active worker used that prefix, main updated its existing package under the
+approved global-install authority. Both absolute executables now report 0.0.61.
 
 The released CLI resumed the exact retained eLearning canary, recovered its
 helper-owned stopped application through ordinary ensure, and returned HTTP 200
