@@ -1983,7 +1983,9 @@ required before accepting this client slice; no canonical command or collector
 is wired by this change.
 
 Client source and focused tests are committed at e801932. Simplifier Kierkegaard
-returned DONE with no findings; slice reviewer Raman remains active on that commit.
+and slice reviewer Raman returned DONE with no findings on that commit. Main
+verified their conclusions against the submit-once, watch-only reconnect and
+output-delivery ordering in source; the client slice is accepted.
 Main also replaced raw submission in the existing controller responsiveness test
 with the new adapter. The real server, private socket and session binding now
 prove a pending submission and same-ID terminal reconnect, including nonzero exit
