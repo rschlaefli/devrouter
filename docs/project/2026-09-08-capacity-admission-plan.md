@@ -1981,3 +1981,11 @@ and controller integration tests pass; TypeScript, Biome and Knip pass. The new
 client test file contains nine synthetic socket cases. Independent review remains
 required before accepting this client slice; no canonical command or collector
 is wired by this change.
+
+Client source and focused tests are committed at e801932. Simplifier Kierkegaard
+returned DONE with no findings; slice reviewer Raman remains active on that commit.
+Main also replaced raw submission in the existing controller responsiveness test
+with the new adapter. The real server, private socket and session binding now
+prove a pending submission and same-ID terminal reconnect, including nonzero exit
+status and one submission. That focused test and typecheck pass. Its operation
+handlers remain synthetic; it is not live provider or ordinary CLI activation proof.

@@ -269,13 +269,23 @@ it("reconnects through a fresh session to retained operation history without lau
 });
 
 it("keeps status responsive during an operation watch and binds submission to its session", async () => {
+  const { submitControllerOperation, followControllerOperation } = await import(
+    "../controller-client"
+  );
+  const queued = {
+    operationId: "accepted",
+    phase: "queued",
+    outcome: null,
+    reason: null,
+    exitCode: null,
+  };
   let finishWatch: (value: unknown) => void = () => {};
   let enteredWatch: () => void = () => {};
   const entered = new Promise<void>((resolve) => {
     enteredWatch = resolve;
   });
   const operations: ControllerOperations = {
-    submit: vi.fn(async () => ({ operationId: "accepted", phase: "queued" })),
+    submit: vi.fn(async () => ({ operation: queued })),
     watch: vi.fn(async () => {
       enteredWatch();
       return new Promise((resolve) => {
@@ -296,15 +306,19 @@ it("keeps status responsive during an operation watch and binds submission to it
       profile: "web",
       require: ["runtime"],
     });
-    const submitted = await first.request({
-      ...acquired.result,
-      method: "operation-submit",
-      requestId: "durable-request",
-      kind: "ensure",
-    });
+    const submitted = await submitControllerOperation(
+      directory,
+      {
+        ...acquired.result,
+        requestId: "durable-request",
+        kind: "ensure",
+      },
+      { waitSeconds: 0 },
+    );
     expect(submitted).toMatchObject({
-      ok: true,
-      result: { operationId: "accepted", phase: "queued" },
+      status: "pending",
+      operationId: "accepted",
+      operation: { phase: "queued" },
     });
     expect(operations.submit).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: "durable-request" }),
@@ -321,6 +335,20 @@ it("keeps status responsive during an operation watch and binds submission to it
     expect(await second.request({ method: "status" })).toMatchObject({ ok: true });
     finishWatch({ operationId: "accepted", phase: "queued" });
     expect(await watched).toMatchObject({ ok: true, result: { operationId: "accepted" } });
+    vi.mocked(operations.watch).mockResolvedValue({
+      operation: { ...queued, phase: "terminal", outcome: "COMPLETED", exitCode: 7 },
+      output: null,
+    });
+    expect(
+      await followControllerOperation(
+        directory,
+        {
+          ...acquired.result,
+          operationId: submitted.operationId,
+        },
+        { waitSeconds: 1 },
+      ),
+    ).toMatchObject({ status: "terminal", operation: { exitCode: 7 } });
     expect(
       await first.request({
         ...acquired.result,
