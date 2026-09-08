@@ -676,3 +676,37 @@ Lovelace reviewed enrollment and output pagination at eef1130..48f4521 and found
 one behavior-preserving reduction: retain the already-measured candidate output
 page instead of reconstructing it. Main applied it and reused pagination tests.
 The new stop correction and enrollment/output slice still need correctness review.
+
+Repeated-stop correction and pagination simplification committed as a5793a4.
+Singer owns the new exact eef1130..a5793a4 correctness review, including enrollment,
+pagination and stop fencing. Packed lifecycle qualification completed successfully
+at clean source a5793a4194034cd65797fda84c6e8e1bd361cf40. Producing log:
+/private/tmp/devrouter-capacity-repeated-stop-qualification.log. Tarball SHA256:
+0fd4179dd68c1b5ac844f01713932f9999936f49ffba16efcc0f9cad4c2d5349.
+This is synthetic-provider CLI proof, not live capacity dispatch or OOM protection.
+
+Managed operation preparation is now in progress, uncommitted. Main owns the
+journal adapter and integration tests; Gauss owns pure reducer admission reset
+and its tests. The adapter validates durable enrollment policy revision, accepts
+one stable request key under the journal lock, and returns no second worker payload
+for reconnect. Raw argv stays transient; changed argv on a reconnect is never
+substituted into the accepted command. Manual command entry cannot bypass managed
+enrollment. Initial 72 model/lifecycle tests, typecheck and Knip pass; Gauss's
+additional reducer tests remain pending. No controller IPC caller exists yet.
+
+Gauss completed three managed reducer regressions: pending ensure cannot dispatch,
+duplicate acceptance emits no second admission effect, and a subsequent exec resets
+admission while preserving retained charge. Main verified the new reducer diff and
+extended the journal test through accepted exec and real reservation binding.
+Binding now marks managed admission only after validating the persisted reservation.
+All 90 affected model/lifecycle/queue tests, typecheck, Knip and focused Biome pass.
+Full source tests are running with receipt
+/private/tmp/devrouter-capacity-managed-preparation-tests.log.
+The adapter remains internal: current policy/ownership revalidation, transient
+duplicate payload conflict detection, controller epoch authority renewal and IPC
+dispatch integration are still required before activating managed execution.
+
+Full source verification completed: 1,324 tests across 98 files pass in 14.46s.
+The process-helper script explicitly skipped on macOS because Linux /proc is
+unavailable; its unchanged helper retains the earlier isolated Linux receipt.
+Docs policy, knowledge and diff whitespace checks pass. No live runtime touched.

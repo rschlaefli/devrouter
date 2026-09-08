@@ -16,6 +16,7 @@ import { listHostRouteState } from "./host-routes";
 import { readManagedRuntimeState } from "./managed-runtime-state";
 import { claimLifecycleEffect, installLifecycleEffectClaim } from "./reliability-context";
 import {
+  type ReliabilityConsumer,
   type ReliabilityEvent,
   type ReliabilityFence,
   reliabilityFence,
@@ -154,6 +155,8 @@ export function prepareLifecycleOperation(
   const runtimeRunning =
     kind === "exec" ? Boolean(resolveRunningWorkspaceContainer(repoPath)) : false;
   updateReliabilityOperation(identity, (record) => {
+    if (kind !== "stop" && record.state.executionPolicy !== "manual")
+      throw new Error("Enrolled lifecycle operations require controller admission.");
     reconcileDrained(record);
     if (
       record.version === 2 &&
@@ -197,6 +200,74 @@ export function prepareLifecycleOperation(
     options,
     ...(command ? { command } : {}),
   };
+}
+
+/** Accept once under the journal lock; reconnecting requests receive no launch payload. */
+export function prepareManagedLifecycleOperation(input: {
+  identity: ReliabilityIdentity;
+  policyRevision: number;
+  requestId: string;
+  kind: "ensure" | "exec";
+  profile: string;
+  consumer: ReliabilityConsumer;
+  runtimeRunning: boolean;
+  command?: string[];
+}): { operationId: string; request?: LifecycleWorkerRequest } {
+  if (
+    input.kind === "exec"
+      ? !Array.isArray(input.command) ||
+        input.command.length === 0 ||
+        input.command.some((arg) => typeof arg !== "string" || arg.includes("\0"))
+      : input.command !== undefined
+  )
+    throw new Error("Invalid managed operation command.");
+  if (Buffer.byteLength(JSON.stringify(input)) > 32_768)
+    throw new Error("Managed operation input exceeds its byte limit.");
+  const ids = newLifecycleIds();
+  return updateReliabilityOperation(input.identity, (record) => {
+    if (
+      record.version !== 2 ||
+      record.state.executionPolicy !== "capacity-managed" ||
+      record.enrollment?.policyRevision !== input.policyRevision
+    )
+      throw new Error("Managed operation requires current durable enrollment.");
+    const previous = record.state.operationHistory.find((entry) => entry.key === input.requestId);
+    const operationId = previous?.id ?? ids.operationId;
+    const transition = stepReliability(
+      record.state,
+      {
+        ...reliabilityFence(record.state),
+        type: "operation-request",
+        kind: input.kind,
+        key: input.requestId,
+        operationId,
+        profile: input.profile,
+        consumer: input.consumer,
+        runtimeRunning: input.runtimeRunning,
+      },
+      Date.now(),
+    );
+    if (transition.outcome === "joined") return { operationId };
+    if (transition.outcome !== "accepted")
+      throw new Error(`Managed lifecycle transition is ${transition.outcome}.`);
+    if (record.worker) throw new Error("An earlier lifecycle worker remains undrained.");
+    record.state = transition.state;
+    record.outcome = null;
+    return {
+      operationId,
+      request: {
+        ...ids,
+        requestId: input.requestId,
+        operationId,
+        kind: input.kind,
+        repoPath: input.identity.repoPath,
+        identity: { ...input.identity },
+        fence: reliabilityFence(record.state),
+        options: { profile: input.profile, quiet: true },
+        ...(input.command ? { command: [...input.command] } : {}),
+      },
+    };
+  });
 }
 
 export async function superviseLifecycle(
@@ -359,6 +430,8 @@ export function bindLifecycleCapacity(
     record.version = 2;
     record.capacity = { ...binding, operationId: request.operationId, workerId: request.workerId };
     assertCapacityEffect(record, request.workerId, Date.now(), directory);
+    if (record.state.executionPolicy === "capacity-managed")
+      stepRecord(record, { ...request.fence, type: "admission", result: "admitted" });
   });
 }
 

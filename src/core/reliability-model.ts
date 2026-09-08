@@ -353,7 +353,6 @@ function handleOperationRequest(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "operation-request" }>,
 ): ReliabilityTransition {
-  if (state.executionPolicy !== "manual") return unchanged(state, "blocked");
   const previous = state.operationHistory.find((entry) => entry.key === event.key);
   if (previous)
     return unchanged(
@@ -396,6 +395,7 @@ function handleOperationRequest(
   state.desired = "running";
   state.phase = "queued";
   state.profile = event.profile;
+  if (state.executionPolicy === "capacity-managed") state.admission = "waiting";
   state.stopProof = { workloadsStopped: false, routesRemoved: false };
   state.consumers = [cloneConsumer(event.consumer)];
   state.requests = [
@@ -421,7 +421,13 @@ function handleOperationRequest(
     profile: event.profile,
     consumer: cloneConsumer(event.consumer),
   });
-  return transition(state, "accepted");
+  return transition(
+    state,
+    "accepted",
+    state.executionPolicy === "capacity-managed"
+      ? [effect(state, "request-admission", event.operationId)]
+      : [],
+  );
 }
 
 function handleAdmission(

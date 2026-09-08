@@ -248,6 +248,140 @@ it("persists an operation reference without dispatch and lets stop supersede it"
   expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
 });
 
+it("accepts managed intent once and reconnects without returning another worker payload", async () => {
+  const { lifecycle, store, contract, model } = await loadLifecycleModules();
+  const identity: ReliabilityIdentity = {
+    repoPath: newCheckout(),
+    workspace: null,
+    provider: "devsy",
+  };
+  store.updateReliabilityOperation(identity, (record) => {
+    record.state = model.stepReliability(
+      record.state,
+      { ...contract.reliabilityFence(record.state), type: "stop" },
+      1,
+    ).state;
+    record.state = model.stepReliability(
+      record.state,
+      {
+        ...contract.reliabilityFence(record.state),
+        type: "stop-proof",
+        workloadsStopped: true,
+        routesRemoved: true,
+      },
+      2,
+    ).state;
+  });
+  const before = store.readReliabilityOperation(identity)!;
+  store.enrollStoppedLifecycle(identity, before.revision, {
+    policyRevision: 1,
+    gitCommonDir: "/tmp/synthetic-common",
+    providerId: "synthetic-provider",
+    hostDomain: "host",
+    runtimeDomain: "guest",
+    endpoint: "/tmp/synthetic-docker.sock",
+    daemonId: "synthetic-daemon",
+    estimatesDigest: "a".repeat(64),
+  });
+  const input = {
+    identity,
+    policyRevision: 1,
+    requestId: "durable-request",
+    kind: "ensure" as const,
+    profile: "full",
+    consumer: { id: "agent", requiredCapabilities: [], pinned: false },
+    runtimeRunning: false,
+  };
+  expect(() => lifecycle.prepareManagedLifecycleOperation({ ...input, policyRevision: 2 })).toThrow(
+    "enrollment",
+  );
+  expect(() => lifecycle.prepareLifecycleOperation("ensure", identity.repoPath)).toThrow(
+    "controller admission",
+  );
+  const accepted = lifecycle.prepareManagedLifecycleOperation(input);
+  expect(accepted.request).toMatchObject({ requestId: input.requestId });
+  expect(store.readReliabilityOperation(identity)?.state).toMatchObject({
+    admission: "waiting",
+    phase: "queued",
+    operation: { id: accepted.operationId, status: "NOT_STARTED" },
+  });
+  fixture.newLifecycleIds.mockReturnValue({
+    requestId: "unused-request",
+    operationId: "unused-operation",
+    workerId: "unused-worker",
+  });
+  expect(lifecycle.prepareManagedLifecycleOperation(input)).toEqual({
+    operationId: accepted.operationId,
+  });
+  expect(() => lifecycle.prepareManagedLifecycleOperation({ ...input, profile: "other" })).toThrow(
+    "conflict",
+  );
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  expect(store.readReliabilityOperation(identity)?.state.operationHistory).toHaveLength(1);
+  store.updateReliabilityOperation(identity, (record) => {
+    const completed = { status: "COMPLETED" as const, drained: true, exitCode: 0 };
+    record.state.operation = { ...record.state.operation!, ...completed };
+    record.state.operationHistory = record.state.operationHistory.map((entry) => ({
+      ...entry,
+      ...completed,
+    }));
+  });
+  const execInput = {
+    ...input,
+    kind: "exec" as const,
+    requestId: "exec-request",
+    runtimeRunning: true,
+    command: ["synthetic-transient-payload"],
+  };
+  const exec = lifecycle.prepareManagedLifecycleOperation(execInput);
+  expect(exec.request?.command).toEqual(execInput.command);
+  const now = Date.now();
+  expect(
+    lifecycle.admitLifecycleCapacity(
+      exec.request!,
+      {
+        environmentId: exec.request!.fence.environmentId,
+        operationId: exec.operationId,
+        reservationId: "managed-reservation",
+        policyRevision: 1,
+        totals: { host: 1 },
+        startup: false,
+        heavy: true,
+      },
+      { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+      {
+        host: {
+          sampledAtMs: now,
+          pressure: "normal",
+          unmanagedBytes: 0,
+          sharedBytes: 0,
+          ownedBytes: {},
+        },
+      },
+      now,
+      15_000,
+    ).admitted,
+  ).toBe(true);
+  const admitted = store.readReliabilityOperation(identity)!;
+  expect(admitted.state).toMatchObject({ admission: "admitted", chargeHeld: true });
+  expect(
+    model.stepReliability(
+      admitted.state,
+      { ...contract.reliabilityFence(admitted.state), type: "dispatch" },
+      now,
+    ).outcome,
+  ).toBe("accepted");
+  expect(
+    lifecycle.prepareManagedLifecycleOperation({
+      ...execInput,
+      command: ["replacement-not-executed"],
+    }),
+  ).toEqual({ operationId: exec.operationId });
+  const saved = fs.readFileSync(store.reliabilityOperationPath(identity), "utf8");
+  expect(saved).not.toContain("synthetic-transient-payload");
+  expect(saved).not.toContain("replacement-not-executed");
+});
+
 it.each([
   false,
   true,
