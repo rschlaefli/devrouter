@@ -20,11 +20,14 @@ import {
 import {
   hasExactComposeIdentity,
   inspectWorkspaceContainers,
+  resolveManagedStopEndpoint,
+  supportsManagedStopBaseline,
   type WorkspaceContainerSnapshot,
   workspaceAppContainers,
 } from "./devpod-environment";
 import { DevpodStartPostconditionError, startDevpodWorkspace } from "./devpod-mutation";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
+import { withMutationLockAsync as withDevsyMutationLock } from "./devsy-mutation";
 import { createStderrWaitReporter, withFileLock } from "./file-lock";
 import {
   type HostRouteInput,
@@ -47,6 +50,7 @@ import {
   writeManagedRuntimeState,
 } from "./managed-runtime-state";
 import { collectManagedRuntimeStatus } from "./managed-runtime-status";
+import { captureManagedStopBaseline, proveRetainedManagedStop } from "./managed-stop-recovery";
 import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-lifecycle";
 import { loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
@@ -964,6 +968,7 @@ export async function workspaceEnsure(
     let firstTransitionBaseline: FirstTransitionBaseline | undefined;
     let detachedState: ManagedRuntimeState | undefined;
     let resetCandidateState: ManagedRuntimeState | undefined;
+    let capturedStopState: ManagedRuntimeState | undefined;
     const routeLoadOptions = {
       initialTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 3_000),
       recoveryTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 10_000),
@@ -1251,6 +1256,61 @@ export async function workspaceEnsure(
         );
         container = await preflight(options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
         managedContainer = container;
+        if (devpodId && resolveWorkspaceRuntimeOrDefault(repoPath) === "devsy") {
+          const captureEndpoint = resolveManagedStopEndpoint();
+          if (!supportsManagedStopBaseline(captureEndpoint)) {
+            process.stderr.write(
+              "Notice: this Docker transport uses legacy managed stop; configuration-drift recovery requires a local Unix endpoint.\n",
+            );
+          } else {
+            const capturePlan = managedPlan;
+            const captureProject = managedComposeProject;
+            const captureId = devpodId;
+            const capturePrimaryId = container.id;
+            const capture = () => {
+              const state: ManagedRuntimeState = {
+                version: 1,
+                repoPath,
+                ...(target.workspace !== undefined ? { workspace: target.workspace } : {}),
+                devpodId: captureId,
+                composeProject: captureProject,
+                profile: runtime.profile,
+                desired: {
+                  apps: apps.map((app) => app.name).sort(),
+                  services: [...capturePlan.desiredProfileServices].sort(),
+                  processes: [...desiredProcesses].sort(),
+                },
+                sourceConfigSha256: capturePlan.sourceConfigSha256,
+                effectiveConfigSha256: capturePlan.effectiveConfigSha256,
+                status: "degraded",
+                transitionPhase: "process-start",
+                updatedAt: new Date().toISOString(),
+              };
+              try {
+                state.stopBaseline = captureManagedStopBaseline(
+                  state,
+                  capturePlan,
+                  capturePrimaryId,
+                  captureEndpoint,
+                );
+              } catch (cause) {
+                throw new Error(
+                  `Managed startup cannot verify retained container ownership. New application startup and route publication have not proceeded. ${cause instanceof Error ? cause.message : String(cause)}`,
+                  { cause },
+                );
+              }
+              claimLifecycleEffect();
+              writeManagedRuntimeState(state);
+              capturedStopState = state;
+            };
+            // Repair already holds this same provider lock beneath the workspace lock.
+            if (options.repair) capture();
+            else
+              await withDevsyMutationLock("Capture managed stop ownership", repoPath, async () =>
+                capture(),
+              );
+          }
+        }
         if (detachedState && devpodId) {
           resetCandidateState = {
             version: 1,
@@ -1266,6 +1326,9 @@ export async function workspaceEnsure(
             },
             sourceConfigSha256: managedPlan.sourceConfigSha256,
             effectiveConfigSha256: managedPlan.effectiveConfigSha256,
+            ...(capturedStopState?.stopBaseline
+              ? { stopBaseline: capturedStopState.stopBaseline }
+              : {}),
             status: "degraded",
             updatedAt: new Date().toISOString(),
           };
@@ -1417,12 +1480,23 @@ export async function workspaceEnsure(
           },
           sourceConfigSha256: managedPlan.sourceConfigSha256,
           effectiveConfigSha256: managedPlan.effectiveConfigSha256,
+          ...(capturedStopState?.stopBaseline
+            ? { stopBaseline: capturedStopState.stopBaseline }
+            : {}),
           status: "ready",
           updatedAt: new Date().toISOString(),
         };
         if (!options.repair) {
-          claimLifecycleEffect();
-          writeManagedRuntimeState(candidateState);
+          const persist = () => {
+            if (capturedStopState) proveRetainedManagedStop(capturedStopState);
+            claimLifecycleEffect();
+            writeManagedRuntimeState(candidateState as ManagedRuntimeState);
+          };
+          if (capturedStopState)
+            await withDevsyMutationLock("Publish managed runtime state", repoPath, async () =>
+              persist(),
+            );
+          else persist();
         }
       }
       const managedRuntimeStatus = managedPlan
@@ -1440,6 +1514,7 @@ export async function workspaceEnsure(
         resolveRepairTarget(repoPath, linked);
         if (managedRuntimeStatus?.status !== "ready")
           throw new Error("Repaired candidate runtime did not pass final readiness validation.");
+        if (capturedStopState) proveRetainedManagedStop(capturedStopState);
         claimLifecycleEffect();
         writeManagedRuntimeState(candidateState);
       }
@@ -1559,7 +1634,7 @@ export async function workspaceEnsure(
           }
         }
         try {
-          markManagedRuntimeDegraded(previousManagedState, transitionPhase);
+          markManagedRuntimeDegraded(capturedStopState ?? previousManagedState, transitionPhase);
         } catch (stateError) {
           failures.push(
             `state: ${stateError instanceof Error ? stateError.message : String(stateError)}`,
@@ -1722,7 +1797,7 @@ export async function workspaceEnsure(
           (rollbackErrors.length > 0 || previousManagedState.status === "degraded")
         ) {
           try {
-            markManagedRuntimeDegraded(previousManagedState, failedPhase);
+            markManagedRuntimeDegraded(capturedStopState ?? previousManagedState, failedPhase);
           } catch (stateError) {
             rollbackErrors.push(
               `state: ${stateError instanceof Error ? stateError.message : String(stateError)}`,

@@ -18,8 +18,11 @@ const fixture = vi.hoisted(() => ({
   resolveRunningWorkspaceContainer: vi.fn(),
   listHostRouteState: vi.fn(),
   readManagedRuntimeState: vi.fn(),
+  proveRetainedManagedStop: vi.fn(),
   withWorkspaceLifecycleLock: vi.fn(),
   readCapacityPolicy: vi.fn(),
+  isLinkedWorktree: vi.fn(),
+  resolveLinkedTarget: vi.fn(),
 }));
 
 vi.mock("../capacity-policy", async (original) => ({
@@ -61,6 +64,10 @@ vi.mock("../managed-runtime-state", () => ({
   readManagedRuntimeState: fixture.readManagedRuntimeState,
 }));
 
+vi.mock("../managed-stop-recovery", () => ({
+  proveRetainedManagedStop: fixture.proveRetainedManagedStop,
+}));
+
 vi.mock("../reliability-worker", () => ({
   newLifecycleIds: fixture.newLifecycleIds,
   runLifecycleWorker: fixture.runLifecycleWorker,
@@ -69,14 +76,14 @@ vi.mock("../reliability-worker", () => ({
 
 vi.mock("../workspace", () => ({
   comparableWorkspacePath: (repoPath: string) => repoPath,
-  isLinkedWorktree: () => false,
+  isLinkedWorktree: fixture.isLinkedWorktree,
   readPersistedWorkspace: () => undefined,
   resolveWorktreeWorkspace: () => undefined,
   sameWorkspacePath: (left: string, right: string) => left === right,
   withWorkspaceLifecycleLock: fixture.withWorkspaceLifecycleLock,
 }));
 
-vi.mock("../workspace-ensure", () => ({ resolveLinkedTarget: vi.fn() }));
+vi.mock("../workspace-ensure", () => ({ resolveLinkedTarget: fixture.resolveLinkedTarget }));
 vi.mock("../workspace-runtime", () => ({ resolveWorkspaceRuntimeOrDefault: () => "devsy" }));
 
 const originalConnectedDescriptor = Object.getOwnPropertyDescriptor(process, "connected");
@@ -303,6 +310,7 @@ beforeEach(() => {
     fs.rmSync(path.join(root, "controller"), { recursive: true, force: true });
   vi.resetModules();
   vi.clearAllMocks();
+  fixture.isLinkedWorktree.mockReturnValue(false);
   fixture.newLifecycleIds.mockReturnValue({
     requestId: "request-key",
     operationId: "operation-id",
@@ -996,6 +1004,18 @@ afterAll(() => {
 });
 
 describe("reliability lifecycle supervision", () => {
+  it("rejects stop before allocating identity or dispatching for an unclaimed linked checkout", async () => {
+    fixture.isLinkedWorktree.mockReturnValue(true);
+    const lifecycle = await import("../reliability-lifecycle");
+    await expect(
+      lifecycle.superviseLifecycle("stop", "/synthetic/unclaimed-checkout"),
+    ).rejects.toThrow();
+    expect(fixture.resolveLinkedTarget).not.toHaveBeenCalled();
+    expect(fixture.newLifecycleIds).not.toHaveBeenCalled();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(fixture.inspectWorkspaceContainers).not.toHaveBeenCalled();
+  });
+
   it("persists history rollover and its new fence before invoking the next worker", async () => {
     const { identity, lifecycle, store } = await seedWorkerRequest();
     const { contract, model } = await loadLifecycleModules();
@@ -1646,15 +1666,21 @@ describe("reliability lifecycle supervision", () => {
     });
   });
 
-  it.each([
-    { routesRemain: false, crashAfterRelease: false, unbound: false },
-    { routesRemain: true, crashAfterRelease: false, unbound: false },
-    { routesRemain: false, crashAfterRelease: true, unbound: false },
-    { routesRemain: false, crashAfterRelease: false, unbound: true },
-  ])("settles capacity after stop and reconciles released bindings ($routesRemain, $crashAfterRelease, $unbound)", async ({
+  it.each(
+    [
+      { routesRemain: false, crashAfterRelease: false, unbound: false },
+      { routesRemain: true, crashAfterRelease: false, unbound: false },
+      { routesRemain: false, crashAfterRelease: true, unbound: false },
+      { routesRemain: false, crashAfterRelease: false, unbound: true },
+    ].flatMap((scenario) => [
+      { ...scenario, retainedBaseline: false },
+      { ...scenario, retainedBaseline: true },
+    ]),
+  )("settles capacity after stop and reconciles released bindings ($routesRemain, $crashAfterRelease, $unbound, $retainedBaseline)", async ({
     routesRemain,
     crashAfterRelease,
     unbound,
+    retainedBaseline,
   }) => {
     setProcessConnected(true);
     const { lifecycle, request, store, identity } = await seedStopRequest();
@@ -1662,6 +1688,13 @@ describe("reliability lifecycle supervision", () => {
     const { DEVROUTER_HOME } = await import("../router");
     const reservations = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
     const environmentId = store.readReliabilityOperation(identity)!.state.environmentId;
+    if (retainedBaseline) {
+      fixture.readManagedRuntimeState.mockReturnValue({
+        repoPath: identity.repoPath,
+        stopBaseline: { version: 1 },
+      });
+      fixture.proveRetainedManagedStop.mockReturnValue([defaultContainer(identity.repoPath)]);
+    }
     const sample = {
       sampledAtMs: 100,
       pressure: "normal" as const,
@@ -1771,6 +1804,41 @@ describe("reliability lifecycle supervision", () => {
         ).admitted,
       ).toBe(true);
     }
+  });
+
+  it.each([
+    "complete",
+    "changed",
+    "running",
+    "routes",
+  ])("requires retained proof through canonical %s settlement", async (outcome) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    const retained = { repoPath: identity.repoPath, stopBaseline: { version: 1 } };
+    fixture.readManagedRuntimeState.mockReturnValue(retained);
+    fixture.proveRetainedManagedStop.mockReturnValue([defaultContainer(identity.repoPath)]);
+    const operation = lifecycle.executeLifecycleWorker(request, async () => {
+      if (outcome === "changed")
+        fixture.proveRetainedManagedStop.mockImplementation(() => {
+          throw new Error("Synthetic population drift");
+        });
+      if (outcome === "running")
+        fixture.proveRetainedManagedStop.mockReturnValue([
+          { ...defaultContainer(identity.repoPath), state: { Running: true } },
+        ]);
+      if (outcome === "routes")
+        fixture.listHostRouteState.mockReturnValue([{ repoPath: identity.repoPath }]);
+      lifecycle.proveLifecycleStopped();
+    });
+    if (outcome === "complete") await expect(operation).resolves.toBeUndefined();
+    else await expect(operation).rejects.toThrow(Error);
+    expect(fixture.proveRetainedManagedStop).toHaveBeenCalledTimes(2);
+    expect(fixture.inspectWorkspaceContainers).not.toHaveBeenCalled();
+    expect(fixture.inspectManagedStopContainers).not.toHaveBeenCalled();
+    expect(store.readReliabilityOperation(identity)?.state.stopProof).toEqual({
+      workloadsStopped: outcome === "complete",
+      routesRemoved: outcome === "complete",
+    });
   });
 
   it.each([

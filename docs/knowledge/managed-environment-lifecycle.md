@@ -192,7 +192,14 @@ workspace with no attributed container is a measured zero, not unknown.
 
 ## Failure rules
 
-For retained managed Devsy state, reversible stop proves the complete captured
+Managed Devsy preparation through a local Unix Docker endpoint records stop ownership before application readiness.
+When that baseline is present, stop verifies the recorded provider, pinned daemon,
+exact container IDs and complete membership without reading mutable repository
+configuration. Each stop effect claims the current lifecycle fence. Final
+settlement revalidates the same baseline and requires zero exact routes. A present
+invalid baseline never falls back or grants ownership of replacement containers.
+
+For retained managed Devsy state without that baseline, reversible stop proves the complete captured
 Compose population under the workspace and provider locks. Provider and primary
 state must agree. An already-stopped primary skips provider stop; residual
 running service IDs are stopped only after ownership, context, source and

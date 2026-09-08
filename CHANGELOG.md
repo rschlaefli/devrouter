@@ -4,11 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.61] - 2026-09-08
+
 ### Fixed
 
-- Allow continued manual lifecycle operations after the bounded history fills by
-  retiring only settled, drained records and advancing the intent fence. Retain
-  uncertain history and keep capacity-managed history exhaustion fail-closed.
+- Record exact stop ownership before application readiness for managed Devsy
+  environments using local Unix Docker endpoints. Stop can then tolerate changed
+  or missing repository configuration while preserving containers and volumes.
+  Other recognized Docker transports retain legacy stop behavior with a notice;
+  invalid retained ownership never falls back. Startup now requires complete
+  project ownership before application launch, reports capture failures as
+  startup errors, and reports progress while waiting for the provider lock.
+- Keep manual ensure and exec usable after 128 settled operations by retiring
+  bounded completed history under a fresh lifecycle fence. Preserve uncertain
+  work and reject delayed requests from the retired fence.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.61.md
 
 ## [0.0.60] - 2026-09-08
 

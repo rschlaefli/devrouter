@@ -16,6 +16,7 @@ import {
 } from "./devsy-workspaces";
 import { proveManagedComposePopulation } from "./managed-compose-population";
 import { readManagedRuntimeState } from "./managed-runtime-state";
+import { stopFromManagedBaseline } from "./managed-stop-recovery";
 import { loadRuntimeConfig } from "./repo-config";
 import { proxyAppsFromConfig } from "./route-publication";
 import { isLinkedWorktree, resolveWorktreeWorkspace, sameWorkspacePath } from "./workspace";
@@ -49,6 +50,10 @@ export function stopRetainedManagedDevsyWorkspace(options: {
   const state = retainedState;
   if (state.devpodId !== devsyId || (linked && !workspace)) {
     throw new Error("Managed stop requires the exact retained workspace identity.");
+  }
+  if (state.stopBaseline) {
+    stopFromManagedBaseline(state);
+    return true;
   }
   const workspaceEnv = workspace
     ? { token: workspace, gitCommonDir: resolveGitCommonDir(repoPath) }
@@ -138,30 +143,26 @@ export function stopRetainedManagedDevsyWorkspace(options: {
       plan,
       repoPath,
       composeProject: state.composeProject,
-      providerRoot: devsyRoot,
       featureDirectory,
+      providerRoot: devsyRoot,
       containers,
     });
-    for (const container of containers) {
-      if (previous) {
-        const retained = previous.find((entry) => entry.id === container.id);
-        if (
-          !retained ||
-          containerIdentity(retained) !== containerIdentity(container) ||
-          (!retained.state.Running && container.state.Running)
-        ) {
-          throw new Error("Managed stop container identity or quiescent state changed.");
-        }
-      }
-    }
     if (
       previous &&
-      !sameSet(
+      (!sameSet(
         previous.map((c) => c.id),
         containers.map((c) => c.id),
-      )
+      ) ||
+        containers.some((container) => {
+          const retained = previous.find((entry) => entry.id === container.id);
+          return (
+            !retained ||
+            containerIdentity(retained) !== containerIdentity(container) ||
+            (!retained.state.Running && container.state.Running)
+          );
+        }))
     ) {
-      throw new Error("Managed stop cannot prove the complete retained service population.");
+      throw new Error("Managed stop container identity or quiescent state changed.");
     }
     if (registration().context !== context) {
       throw new Error("Managed stop provider context changed during inspection.");

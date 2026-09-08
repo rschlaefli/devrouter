@@ -23,10 +23,12 @@ import {
   inspectWorkspaceContainers,
   resolveRunningWorkspaceContainer,
 } from "./devpod-environment";
+import { withMutationLock as withDevsyMutationLock } from "./devsy-mutation";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { processBirthIdentity } from "./file-lock";
 import { listHostRouteState } from "./host-routes";
-import { readManagedRuntimeState } from "./managed-runtime-state";
+import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
+import { proveRetainedManagedStop } from "./managed-stop-recovery";
 import { claimLifecycleEffect, installLifecycleEffectClaim } from "./reliability-context";
 import {
   type ReliabilityConsumer,
@@ -68,6 +70,7 @@ let activeWorker: LifecycleWorkerRequest | undefined;
 let cancelled = false;
 let lockHeld = false;
 let stopProjects: string[] = [];
+let stopBaselineState: ManagedRuntimeState | undefined;
 
 function matchesFence(record: ReliabilityOperationRecord, fence: ReliabilityFence): boolean {
   return Object.entries(reliabilityFence(record.state)).every(
@@ -159,6 +162,7 @@ export function prepareLifecycleOperation(
 ): LifecycleWorkerRequest {
   repoPath = comparableWorkspacePath(repoPath);
   if (isLinkedWorktree(repoPath) && !readPersistedWorkspace(repoPath)) {
+    if (kind === "stop") throw new Error("Stop requires the existing linked workspace identity.");
     resolveLinkedTarget(repoPath);
   }
   const identity: ReliabilityIdentity = {
@@ -798,24 +802,31 @@ export async function executeLifecycleWorker<T>(
             throw new Error("Earlier worker cessation is not proven; stop remains pending.");
           await new Promise((resolve) => setTimeout(resolve, 50));
         }
-        const containers = inspectWorkspaceContainers();
-        const owned = containers.filter((container) =>
-          sameWorkspacePath(
-            container.labels["com.docker.compose.project.working_dir"] ?? "",
-            path.join(request.repoPath, ".devcontainer"),
-          ),
-        );
-        const projects = owned.map((container) => container.labels["com.docker.compose.project"]);
-        if (projects.some((project) => !project))
-          throw new Error("Workspace stop population has incomplete identity.");
         const retained = readManagedRuntimeState(
           request.repoPath,
           request.identity.workspace ?? undefined,
         );
-        stopProjects = [
-          ...new Set([...projects, ...(retained ? [retained.composeProject] : [])]),
-        ] as string[];
-        for (const project of stopProjects) inspectManagedStopContainers(project);
+        if (retained?.stopBaseline) {
+          stopBaselineState = retained;
+          withDevsyMutationLock("Verify retained stop", request.repoPath, () =>
+            proveRetainedManagedStop(retained),
+          );
+        } else {
+          const containers = inspectWorkspaceContainers();
+          const owned = containers.filter((container) =>
+            sameWorkspacePath(
+              container.labels["com.docker.compose.project.working_dir"] ?? "",
+              path.join(request.repoPath, ".devcontainer"),
+            ),
+          );
+          const projects = owned.map((container) => container.labels["com.docker.compose.project"]);
+          if (projects.some((project) => !project))
+            throw new Error("Workspace stop population has incomplete identity.");
+          stopProjects = [
+            ...new Set([...projects, ...(retained ? [retained.composeProject] : [])]),
+          ] as string[];
+          for (const project of stopProjects) inspectManagedStopContainers(project);
+        }
       } else {
         updateReliabilityOperation(request.identity, (record) => {
           stepRecord(record, {
@@ -899,69 +910,46 @@ export function proveLifecycleStopped(): void {
   const request = activeWorker;
   if (request?.kind !== "stop")
     throw new Error("Full stop proof requires an explicit stop worker.");
-  claimLifecycleEffect();
-  for (const project of stopProjects) {
-    const containers = inspectManagedStopContainers(project);
-    if (containers.some((container) => container.state.Running))
-      throw new Error("Workspace workloads remain running after stop.");
-  }
-  const remaining = inspectWorkspaceContainers().filter((container) =>
-    sameWorkspacePath(
-      container.labels["com.docker.compose.project.working_dir"] ?? "",
-      path.join(request.repoPath, ".devcontainer"),
-    ),
-  );
-  if (
-    remaining.some(
-      (container) =>
-        container.state.Running ||
-        !stopProjects.includes(container.labels["com.docker.compose.project"] ?? ""),
-    )
-  ) {
-    throw new Error("Workspace population changed during stop proof.");
-  }
-  const routes = listHostRouteState().filter((route) =>
-    sameWorkspacePath(route.repoPath, request.repoPath),
-  );
-  if (routes.length) throw new Error("Workspace routes remain published after stop.");
-  const settlement = updateReliabilityOperation(request.identity, (record) => {
-    if (!matchesFence(record, request.fence) || record.worker)
-      throw new Error("Stop proof was superseded or an earlier worker remains.");
-    if (record.version === 2) {
-      if (record.capacity) record.capacity.validUntilMs = 0;
-      return record.state.environmentId;
-    }
-    stepRecord(record, {
-      ...request.fence,
-      type: "stop-proof",
-      workloadsStopped: true,
-      routesRemoved: true,
-    });
-    return undefined;
-  });
-  if (settlement) {
-    const capacity = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
-    for (let attempt = 0; ; attempt++) {
-      try {
-        capacity.settleEnvironmentAfterStop(settlement, capacity.read().revision);
-        break;
-      } catch (error) {
-        if (!(error instanceof CapacitySnapshotChangedError) || attempt >= 2) throw error;
+  const settle = () => {
+    claimLifecycleEffect();
+    if (stopBaselineState) {
+      if (
+        proveRetainedManagedStop(stopBaselineState).some((container) => container.state.Running)
+      ) {
+        throw new Error("Retained workspace workloads remain running.");
+      }
+    } else {
+      for (const project of stopProjects) {
+        const containers = inspectManagedStopContainers(project);
+        if (containers.some((container) => container.state.Running))
+          throw new Error("Workspace workloads remain running after stop.");
+      }
+      const remaining = inspectWorkspaceContainers().filter((container) =>
+        sameWorkspacePath(
+          container.labels["com.docker.compose.project.working_dir"] ?? "",
+          path.join(request.repoPath, ".devcontainer"),
+        ),
+      );
+      if (
+        remaining.some(
+          (container) =>
+            container.state.Running ||
+            !stopProjects.includes(container.labels["com.docker.compose.project"] ?? ""),
+        )
+      ) {
+        throw new Error("Workspace population changed during stop proof.");
       }
     }
-    updateReliabilityOperation(request.identity, (record) => {
-      if (
-        !matchesFence(record, request.fence) ||
-        record.worker ||
-        record.state.environmentId !== settlement ||
-        (record.capacity && record.capacity.validUntilMs !== 0)
-      )
-        throw new Error("Capacity settlement was superseded before journal confirmation.");
-      record.capacity = null;
-      if (record.enrollment) {
-        record.phaseSettlement = null;
-        record.activeProfile = null;
-        record.preparation = null;
+    const routes = listHostRouteState().filter((route) =>
+      sameWorkspacePath(route.repoPath, request.repoPath),
+    );
+    if (routes.length) throw new Error("Workspace routes remain published after stop.");
+    const settlement = updateReliabilityOperation(request.identity, (record) => {
+      if (!matchesFence(record, request.fence) || record.worker)
+        throw new Error("Stop proof was superseded or an earlier worker remains.");
+      if (record.version === 2) {
+        if (record.capacity) record.capacity.validUntilMs = 0;
+        return record.state.environmentId;
       }
       stepRecord(record, {
         ...request.fence,
@@ -969,6 +957,42 @@ export function proveLifecycleStopped(): void {
         workloadsStopped: true,
         routesRemoved: true,
       });
+      return undefined;
     });
-  }
+    if (settlement) {
+      const capacity = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          capacity.settleEnvironmentAfterStop(settlement, capacity.read().revision);
+          break;
+        } catch (error) {
+          if (!(error instanceof CapacitySnapshotChangedError) || attempt >= 2) throw error;
+        }
+      }
+      updateReliabilityOperation(request.identity, (record) => {
+        if (
+          !matchesFence(record, request.fence) ||
+          record.worker ||
+          record.state.environmentId !== settlement ||
+          (record.capacity && record.capacity.validUntilMs !== 0)
+        )
+          throw new Error("Capacity settlement was superseded before journal confirmation.");
+        record.capacity = null;
+        if (record.enrollment) {
+          record.phaseSettlement = null;
+          record.activeProfile = null;
+          record.preparation = null;
+        }
+        stepRecord(record, {
+          ...request.fence,
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        });
+      });
+    }
+  };
+  if (stopBaselineState)
+    withDevsyMutationLock("Settle retained stop", stopBaselineState.repoPath, settle);
+  else settle();
 }
