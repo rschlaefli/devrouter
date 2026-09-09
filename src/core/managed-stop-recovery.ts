@@ -13,6 +13,7 @@ import {
   stopPinnedManagedContainer,
 } from "./devpod-environment";
 import { listDevpodWorkspacesRaw } from "./devpod-registry";
+import { proveLocalDockerSelection } from "./devsy-exec-proof";
 import { inspectDevsyWorkspaceOwnership, listDevsyWorkspaces } from "./devsy-workspaces";
 import { proveManagedComposePopulation } from "./managed-compose-population";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
@@ -50,7 +51,24 @@ function registration(state: ManagedRuntimeState) {
       throw new Error("Stop workspace identity changed.");
     resolveGitCommonDir(state.repoPath);
   } else if (state.workspace !== undefined) throw new Error("Stop checkout identity changed.");
-  const value = owner.workspace;
+  return identityOf(owner.workspace);
+}
+
+/** Devsy uses the workspace ID for legacy UIDs, otherwise its 16/40-byte UID. */
+function managedRunnerId(uid: string | undefined, providerId: string): string {
+  if (uid === undefined) {
+    return providerId;
+  }
+  const bytes = Buffer.byteLength(uid);
+  return bytes === 16 || bytes === 40 ? uid : providerId;
+}
+
+function identityOf(value: {
+  context?: string;
+  id: string;
+  uid?: string;
+  source: { localFolder: string; container?: string };
+}) {
   return {
     context: value.context ?? "",
     providerId: value.id,
@@ -248,6 +266,89 @@ function absentRegistrationIdentity(state: ManagedRuntimeState) {
   return { record, gitCommonDir: resolveGitCommonDir(state.repoPath) };
 }
 
+function replacementObservation(state: ManagedRuntimeState) {
+  resetWorkspaceRuntimeCaches();
+  if (resolveWorkspaceRuntimeOrDefault(state.repoPath) !== "devsy")
+    throw new Error("Stop provider changed.");
+  if (!state.workspace || !isLinkedWorktree(state.repoPath))
+    throw new Error("Replacement stop requires a linked workspace.");
+  const record = readWorkspaceOwnership(state.repoPath, state.workspace);
+  if (
+    !record ||
+    record.workspace !== state.workspace ||
+    record.devpodId !== state.devpodId ||
+    !sameWorkspacePath(record.worktreePath, state.repoPath) ||
+    resolveWorktreeWorkspace(state.repoPath) !== state.workspace ||
+    inspectWorkspaceOwnership(record, listGitWorktrees(state.repoPath), undefined).ownerStatus !==
+      "present"
+  )
+    throw new Error("Replacement stop workspace ownership changed.");
+  const owner = inspectDevsyWorkspaceOwnership(
+    listDevsyWorkspaces(),
+    state.devpodId,
+    state.repoPath,
+  );
+  if (owner.status !== "owned")
+    throw new Error("Replacement stop requires one exact provider registration.");
+  if (
+    listDevpodWorkspacesRaw({ allowMissingExecutable: true }).some(
+      (entry) =>
+        entry.id === state.devpodId || sameWorkspacePath(entry.source.localFolder, state.repoPath),
+    )
+  )
+    throw new Error("Replacement stop requires no competing provider registration.");
+  proveLocalDockerSelection(owner.workspace);
+  return owner.workspace;
+}
+
+/** Prove an exact replaced registration has no workload on the pinned daemon. */
+function proveReplacementStopAbsence(
+  state: ManagedRuntimeState,
+  baseline: ManagedStopBaseline,
+  replacement: { uid?: string },
+): void {
+  const observation = () => {
+    const workspace = replacementObservation(state);
+    if (workspace.uid !== replacement.uid)
+      throw new Error("Replacement stop registration changed during inspection.");
+    if (resolveManagedStopEndpoint() !== baseline.endpoint)
+      throw new Error("Stop endpoint changed.");
+    if (inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId)
+      throw new Error("Stop daemon changed.");
+    return workspace;
+  };
+  const before = observation();
+  if (!isDeepStrictEqual(readManagedRuntimeState(state.repoPath, state.workspace), state))
+    throw new Error("Retained stop generation changed.");
+  assertManagedStopContainersAbsent(
+    baseline.endpoint,
+    baseline.containers.map((container) => container.id),
+  );
+  const oldRunner = managedRunnerId(baseline.uid, baseline.providerId);
+  const newRunner = managedRunnerId(before.uid, baseline.providerId);
+  const runners = oldRunner === newRunner ? [oldRunner] : [oldRunner, newRunner];
+  const assertEmptyPopulation = () => {
+    if (
+      inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0 ||
+      inspectManagedStopWorkspaceIds(baseline.endpoint, baseline.composeDirectory).length !== 0 ||
+      runners.some((id) => inspectProviderRunnerContainers(baseline.endpoint, id).length !== 0)
+    )
+      throw new Error("Replacement stop observed a remaining workspace population.");
+  };
+  assertEmptyPopulation();
+  const after = observation();
+  if (
+    after.uid !== before.uid ||
+    !isDeepStrictEqual(readManagedRuntimeState(state.repoPath, state.workspace), state)
+  )
+    throw new Error("Replacement stop authority changed during inspection.");
+  assertManagedStopContainersAbsent(
+    baseline.endpoint,
+    baseline.containers.map((container) => container.id),
+  );
+  assertEmptyPopulation();
+}
+
 /** Caller holds the workspace and provider locks. No current config is used as historical evidence. */
 export function proveManagedStop(state: ManagedRuntimeState): ManagedStopProof {
   const baseline = validateManagedStopBaseline(state.stopBaseline, state);
@@ -256,6 +357,22 @@ export function proveManagedStop(state: ManagedRuntimeState): ManagedStopProof {
     state.devpodId,
     state.repoPath,
   );
+  if (owner.status === "owned") {
+    const identityKeys = ["context", "providerId", "uid", "sourcePath", "sourceContainer"] as const;
+    const current = identityOf(owner.workspace);
+    const changed = identityKeys.filter((key) => baseline[key] !== current[key]);
+    if (
+      changed.length === 1 &&
+      changed[0] === "uid" &&
+      !baseline.sourceContainer &&
+      !current.sourceContainer &&
+      state.workspace !== undefined &&
+      isLinkedWorktree(state.repoPath)
+    ) {
+      proveReplacementStopAbsence(state, baseline, { uid: current.uid || undefined });
+      return { status: "proven-absent", containers: [] };
+    }
+  }
   if (owner.status !== "absent")
     return { status: "retained", containers: proveRetainedManagedStop(state) };
   if (baseline.sourceContainer) throw new Error("Absent stop cannot prove a source container.");
