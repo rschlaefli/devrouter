@@ -8,6 +8,8 @@ import {
   listDevpodWorkspacesFromSnapshots,
 } from "./devpod-workspaces";
 import { readHostRouteStateReadOnly } from "./host-routes";
+import type { NetworkCapacityReport } from "./network-capacity";
+import { inspectNetworkCapacity } from "./network-diagnostics";
 import { resolveRepoPath } from "./repo-config";
 import { comparableWorkspacePath, sameWorkspacePath } from "./workspace";
 import {
@@ -130,6 +132,7 @@ export type WorkspaceCleanupReport = {
   checkMerged: boolean;
   measureSize: boolean;
   workspaces: WorkspaceCleanupRow[];
+  networkCapacity?: NetworkCapacityReport;
 };
 
 export type WorkspaceCleanupOptions = {
@@ -154,6 +157,7 @@ export type WorkspaceCleanupIntegrationEvidence = {
 };
 
 export type WorkspaceCleanupDependencies = {
+  inspectNetworkCapacity?: () => NetworkCapacityReport;
   listOwnership?: (repoPath: string) => WorkspaceOwnershipRecord[];
   listWorktrees?: (repoPath: string) => GitWorktree[];
   listDevpods?: () => DevpodWorkspace[];
@@ -1165,5 +1169,6 @@ export function buildWorkspaceCleanupReport(
     checkMerged: Boolean(options.checkMerged),
     measureSize,
     workspaces: rows,
+    networkCapacity: (dependencies.inspectNetworkCapacity ?? inspectNetworkCapacity)(),
   };
 }

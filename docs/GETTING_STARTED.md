@@ -33,6 +33,13 @@ Direct HTTPS is the primary acquisition path. If that connection fails and an
 authenticated GitHub CLI is available, setup streams the same pinned release
 asset through GitHub's API and reports `transport=github-cli`.
 Doctor reports `ready`, `missing`, `stale`, or `invalid` without network access.
+
+Doctor also reads bounded Docker network metadata. Its network-capacity check
+distinguishes occupied default address pools from allocation readiness, which
+also needs LAN, VPN and guest route evidence. `workspace cleanup --json` includes
+the same report with active endpoint and retained-container counts. These reads
+do not allocate or delete networks. A stopped workspace can retain its subnet;
+zero active endpoints is not proof that a network is safe to remove.
 If `DEVSY_AGENT_BINARY` is set, Devrouter validates that source instead and
 never replaces it.
 

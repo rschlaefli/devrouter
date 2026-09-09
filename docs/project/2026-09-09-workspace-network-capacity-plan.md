@@ -85,9 +85,9 @@ Sources: [Docker networking](https://docs.docker.com/engine/network/),
 | Network allocation | Create | One daemon-scoped subnet claim with exact workspace ownership, pending/attached/uncertain state and conservative reconciliation | Both provider adapters; Docker remains authoritative for actual network existence |
 | Workspace cleanup report | Extend | Separate active endpoints, retained references and proven ownership; recommendations remain read-only | Existing cleanup commands, no new apply or prune mode |
 
-A durable allocation record and operator policy establish a long-lived ownership
-contract. After approval, record this trade-off in the next available ADR, linked
-from this plan, without duplicating existing workspace ownership or memory rules.
+[ADR 0009](../adr/0009-preserve-compose-network-ownership.md) records the accepted
+network ownership and reservation trade-off. Existing workspace and memory
+ownership remain authoritative for their respective contracts.
 
 ### Allocation and compatibility contract
 
@@ -330,3 +330,41 @@ Execution resumes from `1397bdd`, with zero target drift. Repository CI uses nat
 Node/pnpm for this CLI and there is no root devcontainer configuration; checks run
 with that repository-native toolchain without creating a runtime. No policy
 activation, runtime start/stop or deletion is authorized or performed.
+
+#### Execution checkpoint
+
+Approved plan committed as `1c14b20`; the task still tracks `origin/main` at
+`1397bdd` with no target drift at the execution refresh. Dependencies installed
+from the lockfile offline with lifecycle scripts disabled; no package definitions
+changed. Native CLI checks require no managed runtime in this repository.
+
+Executor Locke (`01a0865c-48e1-70c2-8807-b7d48e82cc6a`) owns the diagnostic
+collector/model, focused tests and Docker error guidance. Main owns doctor/cleanup
+integration, ADR 0009, provider pinning decisions and subsequent review. The
+executor is active; continue the same owner, not a replacement. A narrowing
+checkpoint directs it to stop discovery and produce the bounded module/API.
+
+Baseline verification passed: 45 tests across doctor, cleanup and Docker error
+guidance; documentation policy, knowledge validation and whitespace checks.
+These precede new diagnostic implementation and are not feature acceptance.
+
+Source-only Devsy inspection found that explicit provider options can persist in
+the exact workspace. Invocation-only daemon pinning is not yet qualified; evidence
+is in `_local/network-provider-evidence.md`. Do not compensate with shared provider
+configuration writes. This does not block the independent diagnostic slice.
+
+2026-09-09 continuation: branch remains one plan commit ahead of main `1397bdd`.
+Existing Devrouter owner now works on `rs/absent-runtime-stop` from the same base,
+with stop-recovery edits in mutation wrappers and lifecycle settlement. It confirms
+additive diagnostics do not overlap; reconcile those wrappers before slice 2.
+Lock order remains workspace, provider, then short network allocation lock.
+
+Diagnostic implementation is in progress: bounded pinned Docker inventory, pure
+IPv4 report, additive doctor and cleanup output, and address-pool error guidance.
+69 focused tests pass across inventory, capacity, integration, doctor, cleanup and
+error guidance. Typecheck, Biome, Knip, documentation and knowledge checks pass.
+This is synthetic diagnostic proof only. Route collection remains unknown and no
+provider allocation preflight or mutation integration is claimed complete.
+Executor Locke completed its bounded model/tests; main verified and integrated
+that result. Explorer James owns the remaining source-only endpoint-binding
+question. No live network or runtime commands were issued during implementation.
