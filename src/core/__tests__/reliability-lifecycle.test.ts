@@ -62,7 +62,8 @@ vi.mock("../managed-stop-recovery", () => ({
   proveRetainedManagedStop: fixture.proveRetainedManagedStop,
 }));
 
-vi.mock("../reliability-worker", () => ({
+vi.mock("../reliability-worker", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../reliability-worker")>()),
   newLifecycleIds: fixture.newLifecycleIds,
   runLifecycleWorker: fixture.runLifecycleWorker,
   workerGroupAbsent: fixture.workerGroupAbsent,
@@ -240,6 +241,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   restoreProcessConnected();
   vi.restoreAllMocks();
   vi.resetModules();
@@ -263,7 +265,7 @@ describe("reliability lifecycle supervision", () => {
     expect(fixture.inspectWorkspaceContainers).not.toHaveBeenCalled();
   });
 
-  it("persists history rollover and its new fence before invoking the next worker", async () => {
+  it("passes the original fence and journal snapshot to atomic worker admission", async () => {
     const { identity, lifecycle, store } = await seedWorkerRequest();
     const { contract, model } = await loadLifecycleModules();
     store.updateReliabilityOperation(identity, (record) => {
@@ -296,19 +298,137 @@ describe("reliability lifecycle supervision", () => {
     });
     fixture.runLifecycleWorker.mockImplementation(async (request: LifecycleWorkerRequest) => {
       const persisted = store.readReliabilityOperation(identity)!;
-      expect(persisted.revision).toBe(before.revision + 1);
-      expect(persisted.state.intentRevision).toBe(before.state.intentRevision + 1);
-      expect(request.fence).toEqual(contract.reliabilityFence(persisted.state));
-      expect(persisted.state.operation?.id).toBe("next-operation");
-      expect(persisted.state.operationHistory).toHaveLength(128);
-      expect(persisted.state.operationHistory.some((entry) => entry.id === "old-0")).toBe(false);
-      expect(persisted.state.operationHistory.some((entry) => entry.id === "operation-id")).toBe(
-        true,
-      );
+      expect(persisted).toEqual(before);
+      expect(request.fence).toEqual(contract.reliabilityFence(before.state));
+      expect(request.admission?.expectedRevision).toBe(before.revision);
+      expect(request.operationId).toBe("next-operation");
     });
     await lifecycle.superviseLifecycle("ensure", identity.repoPath, {});
     expect(fixture.runLifecycleWorker).toHaveBeenCalledOnce();
   });
+  it("waits without journal writes, then refreshes proof and preserves literal argv", async () => {
+    const { lifecycle, store, identity, contract, model } = await seedWorkerRequest("exec");
+    vi.useFakeTimers();
+    const progress = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    fixture.processBirthIdentity.mockReturnValue("proc:worker");
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "next",
+      operationId: "next",
+      workerId: "next",
+    });
+    const before = store.readReliabilityOperation(identity);
+    const argv = ["synthetic", "literal ; $(ignored)"];
+    const pending = lifecycle.superviseLifecycle("exec", identity.repoPath, {}, argv);
+    argv.push("later mutation");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(store.readReliabilityOperation(identity)).toEqual(before);
+    expect(fixture.resolveRunningWorkspaceContainer).not.toHaveBeenCalled();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(progress).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(9500);
+    expect(progress).toHaveBeenCalledTimes(2);
+    const emitted = progress.mock.calls.map(([value]) => String(value)).join("");
+    expect(emitted).toContain("next");
+    for (const arg of argv) expect(emitted).not.toContain(arg);
+    store.updateReliabilityOperation(identity, (record) => {
+      for (const event of [
+        { type: "completion", operationId: "operation-id", exitCode: 7 },
+        { type: "drained", operationId: "operation-id" },
+      ] as const)
+        record.state = model.stepReliability(
+          record.state,
+          { ...contract.reliabilityFence(record.state), ...event },
+          100,
+        ).state;
+      record.worker = null;
+    });
+    fixture.resolveRunningWorkspaceContainer.mockReturnValue({ id: "fresh" });
+    await vi.advanceTimersByTimeAsync(250);
+    await pending;
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledOnce();
+    expect(fixture.runLifecycleWorker.mock.calls[0][0]).toMatchObject({
+      command: ["synthetic", "literal ; $(ignored)"],
+      admission: { runtimeRunning: true },
+    });
+    expect(fixture.newLifecycleIds).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "SIGINT",
+    "SIGTERM",
+    "timeout",
+    "stop",
+  ] as const)("never admits a waiting exec after %s", async (ending) => {
+    const { lifecycle, store, identity, contract, model } = await seedWorkerRequest("exec");
+    vi.useFakeTimers();
+    vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    fixture.processBirthIdentity.mockReturnValue("proc:worker");
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "next",
+      operationId: "next",
+      workerId: "next",
+    });
+    const before = store.readReliabilityOperation(identity);
+    const listeners = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
+    const pending = lifecycle.superviseLifecycle("exec", identity.repoPath, {}, ["synthetic"]);
+    const rejection = expect(pending).rejects.toThrow();
+    if (ending === "stop")
+      store.updateReliabilityOperation(identity, (record) => {
+        record.state = model.stepReliability(
+          record.state,
+          { ...contract.reliabilityFence(record.state), type: "stop" },
+          100,
+        ).state;
+      });
+    else if (ending === "timeout") vi.setSystemTime(Date.now() + 30 * 60 * 1000);
+    else process.emit(ending);
+    await vi.advanceTimersByTimeAsync(250);
+    await rejection;
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(fixture.resolveRunningWorkspaceContainer).not.toHaveBeenCalled();
+    expect(store.readReliabilityOperation(identity)?.worker).toEqual(before?.worker);
+    if (ending !== "stop") expect(store.readReliabilityOperation(identity)).toEqual(before);
+    expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(listeners);
+  });
+
+  it("retries only admission contention with the same IDs and fresh runtime proof", async () => {
+    const { lifecycle } = await loadLifecycleModules();
+    const { LifecycleWorkerAdmissionBusyError } = await import("../reliability-worker");
+    vi.useFakeTimers();
+    fixture.resolveRunningWorkspaceContainer.mockReturnValue({ id: "fresh" });
+    fixture.runLifecycleWorker
+      .mockRejectedValueOnce(new LifecycleWorkerAdmissionBusyError())
+      .mockResolvedValueOnce(7);
+    const pending = lifecycle.superviseLifecycle("exec", newCheckout(), {}, ["synthetic"]);
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(pending).resolves.toBe(7);
+    expect(fixture.newLifecycleIds).toHaveBeenCalledOnce();
+    expect(fixture.resolveRunningWorkspaceContainer).toHaveBeenCalledTimes(2);
+    expect(fixture.runLifecycleWorker.mock.calls[0][0]).toEqual(
+      fixture.runLifecycleWorker.mock.calls[1][0],
+    );
+  });
+
+  it.each([
+    undefined,
+    "proc:replacement",
+  ])("preserves a surviving group with uncertain birth %s", async (birth) => {
+    const { lifecycle, store, identity } = await seedWorkerRequest("exec");
+    fixture.processBirthIdentity.mockReturnValue(birth);
+    fixture.workerGroupAbsent.mockReturnValue(false);
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "next",
+      operationId: "next",
+      workerId: "next",
+    });
+    const before = store.readReliabilityOperation(identity);
+    await expect(
+      lifecycle.superviseLifecycle("exec", identity.repoPath, {}, ["synthetic"]),
+    ).rejects.toThrow();
+    expect(store.readReliabilityOperation(identity)).toEqual(before);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
   it("persists explicit stop intent before the worker supervisor waits", async () => {
     const { lifecycle, store } = await loadLifecycleModules();
     const repoPath = newCheckout();
@@ -568,7 +688,10 @@ describe("reliability lifecycle supervision", () => {
       drained: true,
       exitCode: null,
     });
-    expect(record?.state.operation?.id).not.toBe("operation-id");
+    expect(fixture.runLifecycleWorker.mock.calls[0][0]).toMatchObject({
+      operationId: "new-operation",
+      admission: { expectedRevision: record?.revision },
+    });
     expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
   });
 

@@ -13,10 +13,16 @@ import {
 import type { LifecycleWorkerRequest, LifecycleWorkerResult } from "./core/reliability-worker";
 import { workspaceEnsure } from "./core/workspace-ensure";
 
-process.on("SIGTERM", cancelLifecycleWorker);
-process.on("SIGINT", cancelLifecycleWorker);
-process.on("disconnect", cancelLifecycleWorker);
+let started = false;
+function cancel(): void {
+  cancelLifecycleWorker();
+  if (!started && process.connected) process.disconnect();
+}
+process.on("SIGTERM", cancel);
+process.on("SIGINT", cancel);
+process.on("disconnect", cancel);
 process.once("message", async (message: { request: LifecycleWorkerRequest }) => {
+  started = true;
   let result: LifecycleWorkerResult;
   try {
     const request = message.request;

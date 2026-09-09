@@ -900,7 +900,10 @@ function applyReliabilityEvent(
     case "not-started":
       if (next.executionPolicy !== "manual" || next.operation?.kind !== "exec")
         return unchanged(next, "blocked");
-      if (next.operation.id !== event.operationId || next.operation.status !== "RUNNING")
+      if (
+        next.operation.id !== event.operationId ||
+        !["RUNNING", "DISPATCH_RECORDED"].includes(next.operation.status)
+      )
         return unchanged(next, "stale");
       next.operation = { ...next.operation, status: "NOT_LAUNCHED", exitCode: null };
       return transition(next, "accepted");

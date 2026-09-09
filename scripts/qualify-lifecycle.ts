@@ -197,7 +197,19 @@ else if (command === 'docker' && args[0] === 'inspect' && args.at(-1) === contai
 }
 else if ((command === 'devpod' && args[2] === 'ssh' && args[3] === workspaceId) || (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args[4] === workspaceId)) {
  state.launches++; write();
- if (state.mode === 'hold') { fs.writeFileSync(file+'.barrier', String(process.pid)); setInterval(()=>{}, 1000); }
+ if (state.mode === 'release-hold') {
+  fs.writeFileSync(file+'.barrier', String(process.pid));
+  const watcher = fs.watch(path.dirname(file), () => {
+   if (!fs.existsSync(file+'.release')) return;
+   watcher.close();
+   if (command === 'devpod') {
+    const marker = args[args.indexOf('--command')+1].match(/(__DEVROUTER_EXIT_[A-Za-z0-9-]+__:)/)?.[1];
+    if (!marker) fail();
+    process.stderr.write(marker+String(state.exitCode)+'\\n');
+   } else process.exit(state.exitCode);
+  });
+ }
+ else if (state.mode === 'hold') { fs.writeFileSync(file+'.barrier', String(process.pid)); setInterval(()=>{}, 1000); }
  else if (state.mode === 'unknown') process.kill(process.pid, 'SIGKILL');
  else if (command === 'devpod') {
   const wrapped = args[args.indexOf('--command')+1];
@@ -676,6 +688,85 @@ else fail();
   evidence.push(
     "concurrent installed callers sharing request identity launch only one provider command",
   );
+  closedEnv.NODE_OPTIONS = "";
+  closedEnv.LIFECYCLE_FAULT = "";
+  freshHome("busy-success-home");
+  configure("release-hold", 7);
+  const firstBusy = launch(["exec", repo, "--", "synthetic"]);
+  await watchUntil(`${fixture}.barrier`, () => fs.existsSync(`${fixture}.barrier`));
+  const secondBusy = launch(["exec", repo, "--", "synthetic"]);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Waiting caller did not report busy state")),
+      15_000,
+    );
+    secondBusy.child.stderr.on("data", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    secondBusy.child.once("close", () => {
+      clearTimeout(timer);
+      reject(new Error(secondBusy.output()));
+    });
+  });
+  assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+  const released = JSON.parse(fs.readFileSync(fixture, "utf8"));
+  fs.writeFileSync(fixture, JSON.stringify({ ...released, mode: "complete", exitCode: 0 }));
+  fs.writeFileSync(`${fixture}.release`, "release");
+  assert.equal(await firstBusy.done, 7, firstBusy.output());
+  assert.equal(await secondBusy.done, 0, secondBusy.output());
+  assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 2);
+  assert.equal(read().state.operationHistory.length, 2);
+  assert.ok(
+    read().state.operationHistory.every(
+      (entry: { status: string; drained: boolean }) =>
+        entry.status === "COMPLETED" && entry.drained,
+    ),
+  );
+  fs.unlinkSync(`${fixture}.barrier`);
+  fs.unlinkSync(`${fixture}.release`);
+  evidence.push(
+    "overlapping installed exec waits without stopping healthy work, preserves both exits and launches each command once",
+  );
+  for (const ending of ["cancel", "stop"]) {
+    freshHome(`busy-${ending}-home`);
+    configure("release-hold", 7);
+    const active = launch(["exec", repo, "--", "synthetic"]);
+    await watchUntil(`${fixture}.barrier`, () => fs.existsSync(`${fixture}.barrier`));
+    const waiting = launch(["exec", repo, "--", "synthetic"]);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("Waiting caller did not report busy state")),
+        15_000,
+      );
+      waiting.child.stderr.once("data", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      waiting.child.once("close", () => {
+        clearTimeout(timer);
+        reject(new Error(waiting.output()));
+      });
+    });
+    assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+    if (ending === "cancel") {
+      waiting.child.kill("SIGTERM");
+      assert.notEqual(await waiting.done, 0, waiting.output());
+      assert.equal(active.child.exitCode, null);
+      fs.writeFileSync(`${fixture}.release`, "release");
+      assert.equal(await active.done, 7, active.output());
+      fs.unlinkSync(`${fixture}.release`);
+    } else {
+      const stopping = launch(["stop", repo, "--json"]);
+      assert.equal(await stopping.done, 0, stopping.output());
+      assert.notEqual(await waiting.done, 0, waiting.output());
+      assert.notEqual(await active.done, 0, active.output());
+      assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
+    }
+    assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+    fs.unlinkSync(`${fixture}.barrier`);
+    evidence.push(`installed busy exec ${ending} prevents waiter dispatch without replay`);
+  }
   freshHome("before-dispatch-home");
   configure("complete");
   closedEnv.NODE_OPTIONS = `--require=${faultPreload}`;
