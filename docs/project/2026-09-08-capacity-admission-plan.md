@@ -2154,3 +2154,39 @@ blocking a consumer, on rs/absent-runtime-stop from current main. Capacity work
 remains owned here and resumes with production ownership resolution and factory
 wiring after that bounded recovery fix. No capacity source was released or live
 policy activated. This checkpoint is not completion of the admission package.
+
+### Retained population collector integration
+
+Source commit de3a07d connects provider enrollment, durable runtime ownership,
+complete retained container identity and daemon-wide residual detection to the
+reviewed memory collector. Provider bindings and journal generations are checked
+before sampling and again before publication. A stopped absent population needs
+positive stopped proof. The current resolver requires a validated Devsy retained
+baseline; cold, partial and missing-baseline populations remain unfinished. The
+ordinary controller command still does not activate this collector.
+
+Verification passed 86 focused tests across Docker probes, population proof,
+ownership resolver, runtime sampler and collector composition. TypeScript, Biome,
+Knip and all commit hooks passed. The package-manager auto-install check attempted
+to replace the modules directory and aborted without a TTY; using the installed
+dependencies with pnpm_config_verify_deps_before_run=false allowed normal checks
+and hooks without reinstalling or changing configuration.
+
+Simplifier Schrodinger identified a discarded normalized return value. Main
+removed that transformation, preserving identity validation and input immutability;
+31 affected tests, TypeScript and Knip pass. Slice reviewer Euclid is reviewing
+2919b1d..de3a07d; its result remains pending. This is not final package review.
+
+Networking release v0.0.65 is present on origin/main at b5324f9. The existing
+networking task reported successful release CI and publication, then was archived.
+Main closed its remaining downloaded-package synthetic qualification using
+scripts/qualify-network-package.cjs from that release and the owner's retained
+registry installation. Result: networkPackageQualification=passed, dockerCalls=16,
+retainedContainerInspections=1, mutations=0. Artifacts remain under
+/private/tmp/devrouter-network-0065-final-qualification. No network edits, machine
+policy changes or live runtime actions occurred during this continuation.
+
+Next: finish correctness review, then prove cold/partial startup ownership and
+reservation renewal before enabling the production controller factory and
+canonical command integration. Reuse the unaffected release and fixture evidence.
+The native goal is active; earlier blocked-goal notes are historical.

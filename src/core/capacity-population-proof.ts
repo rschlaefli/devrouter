@@ -92,7 +92,7 @@ export function proveManagedCapacityPopulation(options: {
   composeProject: string;
   daemonId: string;
   endpoint: string;
-}): ManagedStopContainerSnapshot[] {
+}): void {
   const { containers, baseline, repoPath, composeProject, daemonId, endpoint } = options;
 
   if (
@@ -148,12 +148,4 @@ export function proveManagedCapacityPopulation(options: {
   if (expectedPrimaryMounts.length !== 1 || observedPrimaryMounts.length !== 1) {
     throw new Error("Capacity population does not prove the exact primary workspace mount.");
   }
-
-  const normalized = structuredClone(containers).sort((left, right) =>
-    compareText(left.id, right.id),
-  );
-  for (const container of normalized) {
-    container.mounts = sortedMounts(container.mounts);
-  }
-  return normalized;
 }

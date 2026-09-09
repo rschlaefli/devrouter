@@ -115,22 +115,11 @@ function prove(
 }
 
 describe("proveManagedCapacityPopulation", () => {
-  it("accepts an exact retained population including stopped containers and normalizes order", () => {
+  it("accepts an exact retained population including stopped containers without mutating input", () => {
     const observed = population();
     const before = structuredClone(observed);
 
-    const result = prove(observed);
-
-    expect(result.map((container) => container.id)).toEqual([appId, databaseId]);
-    expect(result[0].mounts).toEqual(
-      [mount("tmpfs", "", "/run/synthetic"), mount("bind", repoPath, "/workspaces/app")].sort(
-        (left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)),
-      ),
-    );
-    expect(result[0].labels["com.docker.compose.project.config_files"]).toBe(
-      composeFiles.join(","),
-    );
-    expect(result[1].state.Status).toBe("exited");
+    expect(() => prove(observed)).not.toThrow();
     expect(observed).toEqual(before);
   });
 
