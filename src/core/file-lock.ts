@@ -263,7 +263,9 @@ function tryReclaimStaleLock(
 function acquireFileLock(lockPath: string, options: FileLockOptions): string {
   const processBirth = processBirthIdentity(process.pid);
   if (!processBirth) {
-    throw new Error(`could not determine process identity for ${options.activity} lock`);
+    throw new Error(
+      `could not determine process identity for ${options.activity} lock: process inspection may be unavailable or sandbox-denied; run the canonical command in a permitted host context`,
+    );
   }
   const ownerId = randomUUID();
   const owner = `${process.pid}:${Buffer.from(processBirth).toString("base64url")}:${ownerId}`;

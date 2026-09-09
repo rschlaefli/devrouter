@@ -52,9 +52,9 @@ let lockHeld = false;
 let stopProjects: string[] = [];
 let stopBaselineState: ManagedRuntimeState | undefined;
 
-const BUSY_EXEC_WAIT_MS = 30 * 60 * 1000;
-const BUSY_EXEC_POLL_MS = 250;
-const BUSY_EXEC_PROGRESS_MS = 10_000;
+const BUSY_LIFECYCLE_WAIT_MS = 30 * 60 * 1000;
+const BUSY_LIFECYCLE_POLL_MS = 250;
+const BUSY_LIFECYCLE_PROGRESS_MS = 10_000;
 
 function matchesFence(record: ReliabilityOperationRecord, fence: ReliabilityFence): boolean {
   return Object.entries(reliabilityFence(record.state)).every(
@@ -136,9 +136,13 @@ function reconcileDrained(record: ReliabilityOperationRecord): void {
   }
 }
 
-function reportBusyExecWait(operationId: string, waitedMs: number): void {
+function reportBusyLifecycleWait(
+  kind: "ensure" | "exec",
+  operationId: string,
+  waitedMs: number,
+): void {
   process.stderr.write(
-    `Lifecycle exec ${operationId} is waiting for the existing worker (${Math.ceil(waitedMs / 1000)}s).\n`,
+    `Lifecycle ${kind} ${operationId} is waiting for the existing worker (${Math.ceil(waitedMs / 1000)}s).\n`,
   );
 }
 
@@ -184,16 +188,16 @@ export async function superviseLifecycle(
   const initial =
     readReliabilityOperation(identity) ?? updateReliabilityOperation(identity, (record) => record);
   const expectedFence = reliabilityFence(initial.state);
-  const deadline = Date.now() + BUSY_EXEC_WAIT_MS;
+  const deadline = Date.now() + BUSY_LIFECYCLE_WAIT_MS;
   const cancellation = { requested: false };
   const removeSignals = installLifecycleWaitSignals(cancellation);
   let lastProgress = -Infinity;
   const assertWaiting = () => {
     if (cancellation.requested)
-      throw new Error(`Lifecycle exec ${ids.operationId} cancelled before dispatch.`);
+      throw new Error(`Lifecycle ${kind} ${ids.operationId} cancelled before dispatch.`);
     if (Date.now() >= deadline)
       throw new Error(
-        `Lifecycle exec ${ids.operationId} admission timed out; command was not launched.`,
+        `Lifecycle ${kind} ${ids.operationId} admission timed out; command was not launched.`,
       );
   };
   try {
@@ -223,15 +227,17 @@ export async function superviseLifecycle(
             throw new Error(
               "Existing lifecycle worker identity or completion is uncertain; preserve its evidence.",
             );
-          if (kind !== "exec")
-            throw new Error("A lifecycle worker is active; wait for its completion before ensure.");
           const now = Date.now();
-          if (now - lastProgress >= BUSY_EXEC_PROGRESS_MS) {
-            reportBusyExecWait(ids.operationId, now - (deadline - BUSY_EXEC_WAIT_MS));
+          if (now - lastProgress >= BUSY_LIFECYCLE_PROGRESS_MS) {
+            reportBusyLifecycleWait(
+              kind,
+              ids.operationId,
+              now - (deadline - BUSY_LIFECYCLE_WAIT_MS),
+            );
             lastProgress = now;
           }
           await new Promise((resolve) =>
-            setTimeout(resolve, Math.min(BUSY_EXEC_POLL_MS, deadline - now)),
+            setTimeout(resolve, Math.min(BUSY_LIFECYCLE_POLL_MS, deadline - now)),
           );
           continue;
         }
@@ -279,9 +285,9 @@ export async function superviseLifecycle(
           assertWaiting,
         );
       } catch (error) {
-        if (!(error instanceof LifecycleWorkerAdmissionBusyError) || kind !== "exec") throw error;
+        if (!(error instanceof LifecycleWorkerAdmissionBusyError)) throw error;
         assertWaiting();
-        await new Promise((resolve) => setTimeout(resolve, BUSY_EXEC_POLL_MS));
+        await new Promise((resolve) => setTimeout(resolve, BUSY_LIFECYCLE_POLL_MS));
       }
     }
   } finally {

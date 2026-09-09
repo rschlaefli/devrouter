@@ -94,7 +94,7 @@ new mutations or restoring routes. Completion requires positive workload and
 route cessation evidence as well as drainage of earlier workers.
 
 When another positively identified lifecycle worker is active on the same checkout,
-`exec` waits asynchronously for up to thirty minutes and reports progress on stderr.
+`ensure` and `exec` wait asynchronously for up to thirty minutes and reports progress on stderr.
 Commands remain serial; waiting does not promise FIFO ordering or a persistent
 queue. The waiting invocation keeps its request identity and refreshes runtime
 proof before admission. Cancellation or timeout before admission leaves the running
