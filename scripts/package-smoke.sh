@@ -420,5 +420,7 @@ if ((fs.statSync(filePath).mode & 0o777) !== 0o600) {
 }
 NODE
 
+node "$ROOT_DIR/scripts/qualify-network-package.cjs" "$PACKAGE_DIR" "$WORK_ROOT"
+
 echo "Installed package verified from temporary cwd: $PROBE_CWD"
 echo "Package smoke passed; temporary artifacts will be removed on exit."

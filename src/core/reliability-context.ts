@@ -1,3 +1,5 @@
+import { assertNetworkEffectAllowed } from "./network-effect-scope";
+
 let claim: (() => void) | undefined;
 
 export function installLifecycleEffectClaim(callback: () => void): void {
@@ -7,4 +9,5 @@ export function installLifecycleEffectClaim(callback: () => void): void {
 
 export function claimLifecycleEffect(): void {
   claim?.();
+  assertNetworkEffectAllowed();
 }

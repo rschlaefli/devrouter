@@ -37,6 +37,7 @@ import {
 } from "../managed-runtime-state";
 import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { captureManagedStopBaseline, proveRetainedManagedStop } from "../managed-stop-recovery";
+import { inspectLegacyNetworkCapacity } from "../network-diagnostics";
 import * as reliabilityLifecycle from "../reliability-lifecycle";
 import { loadRepoConfig, loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
@@ -49,6 +50,7 @@ import { validateWorkspaceContainers, workspaceEnsure } from "../workspace-ensur
 import { writeWorkspaceOwnership } from "../workspace-ownership";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
+vi.mock("../network-diagnostics", () => ({ inspectLegacyNetworkCapacity: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../devsy-agent", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -356,6 +358,7 @@ describe("workspaceEnsure", () => {
   let gitDir: string;
 
   beforeEach(() => {
+    vi.mocked(inspectLegacyNetworkCapacity).mockReset();
     vi.stubEnv("DEVROUTER_WORKSPACE_RUNTIME", "devpod");
     resetWorkspaceRuntimeCaches();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-ensure-"));
@@ -913,6 +916,53 @@ describe("workspaceEnsure", () => {
       return delegate?.(command, args, options) as never;
     });
   }
+
+  it.each([
+    true,
+    false,
+  ])("keeps cold legacy dispatch advisory when exhaustion is %s", async (exhausted) => {
+    mockColdManagedDevsyFailure(false);
+    const read = vi.mocked(spawnSync).getMockImplementation()!;
+    vi.mocked(spawnSync).mockImplementation((command, args, options) =>
+      command === "devpod" && args?.[0] === "list"
+        ? ({ status: 0, stdout: "[]", stderr: "" } as never)
+        : read(command, args, options),
+    );
+    const order: string[] = [];
+    vi.mocked(inspectLegacyNetworkCapacity).mockImplementation(() => {
+      order.push("network-advisory");
+      return exhausted ? ({} as never) : undefined;
+    });
+    const providerSpawn = vi.mocked(spawn).getMockImplementation()!;
+    vi.mocked(spawn).mockImplementation((...args) => {
+      order.push("provider-start");
+      return providerSpawn(...args);
+    });
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const notice = vi.spyOn(process.stderr, "write").mockImplementation(() => {
+      if (!order.includes("provider-start")) order.push("stderr");
+      return true;
+    });
+    try {
+      await expect(
+        workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      ).rejects.toThrow();
+      expect(order).toEqual(
+        exhausted
+          ? ["network-advisory", "stderr", "provider-start"]
+          : ["network-advisory", "provider-start"],
+      );
+      expect(stdout).not.toHaveBeenCalled();
+      expect(inspectLegacyNetworkCapacity).toHaveBeenCalledWith({
+        provider: "devsy",
+        providerId: "feature",
+        repoPath: tmpDir,
+      });
+    } finally {
+      notice.mockRestore();
+      stdout.mockRestore();
+    }
+  });
 
   function mockDevsyCapture(events: string[], endpoint: unknown = "unix:///synthetic/docker.sock") {
     mockManagedLifecycle({ events });

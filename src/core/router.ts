@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { withDockerFailureGuidance } from "./docker-error-guidance";
+import { networkDockerOptions } from "./network-effect-scope";
 
 export const DEVNET_NAME = "devnet";
 export const ROUTER_CONTAINER_NAME = "devrouter-traefik";
@@ -319,6 +320,7 @@ export function getRouterFileLayout(): { required: string[]; missing: string[] }
 
 export function runDockerCompose(args: string[]): void {
   const result = spawnSync("docker", ["compose", "-f", COMPOSE_FILE, ...args], {
+    ...networkDockerOptions(),
     encoding: "utf-8",
   });
 

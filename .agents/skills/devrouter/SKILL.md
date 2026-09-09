@@ -241,6 +241,16 @@ Config-level `envMap` on dependency references aliases per-dep vars to app-expec
 
 ## Workspace isolation (parallel git worktrees / agents)
 
+For exhausted address pools, inspect `doctor --json` before proposing changes.
+Only an operator-owned `network-policy.json` under Devrouter home grants pools
+and daemon authority. New eligible linked Compose workspaces default to `/26`;
+`managedRuntime.network.prefixLength` accepts 24, 25 or 26 within policy, and
+`endpointUpperBound` declares lifecycle demand. Operator approval is required
+before activating policy or changing live Docker/provider settings. Unknown
+routes block allocation; OrbStack remains diagnostics-only until guest routes
+are qualified. Stop retains subnet claims, and zero active endpoints do not
+prove cleanup safety.
+
 Run several worktrees of one repo in parallel without host/route collisions. A **workspace token** spans the workspace-runtime id, devrouter routes, `${WORKSPACE}` proxy upstreams, and devcontainer aliases.
 
 - **Identity**: each managed linked worktree stores a local token in Git metadata plus a durable owner record in the repository's Git common directory. The record survives linked-worktree removal and binds the exact path to its workspace-runtime ID. First use reconciles persisted metadata, the exact-path owner record, and both DevPod and Devsy registries. It reuses an established agreement, keeps the readable sanitized branch/path slug when free, or claims a deterministic hash-suffixed fallback on collision before provider or route mutation. Later flags or `DEVROUTER_WORKSPACE` may repeat the identity but cannot rename it. Unreadable or conflicting evidence fails closed. The primary checkout remains non-namespaced.

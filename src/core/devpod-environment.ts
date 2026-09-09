@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { networkDockerOptions } from "./network-effect-scope";
 import { sameWorkspacePath } from "./workspace";
 
 export type WorkspaceContainerSnapshot = {
@@ -101,7 +102,7 @@ function runManagedStopDocker(
     delete env.DOCKER_HOST;
   }
   const result = spawnSync("docker", endpoint ? ["--host", endpoint, ...args] : args, {
-    ...(endpoint ? { env } : {}),
+    ...(endpoint ? { env } : networkDockerOptions()),
     encoding: "utf-8",
     timeout: timeoutMs,
     maxBuffer: MANAGED_STOP_DOCKER_MAX_BUFFER,
@@ -327,7 +328,7 @@ export function inspectWorkspaceContainers(options?: {
         "--format",
         "{{.ID}}",
       ],
-      { encoding: "utf-8" },
+      { encoding: "utf-8", ...networkDockerOptions() },
     );
     if (listed.status !== 0) {
       // `listed.error` carries the spawn failure itself (ENOENT when the docker
@@ -348,7 +349,7 @@ export function inspectWorkspaceContainers(options?: {
   const inspected = spawnSync(
     "docker",
     ["inspect", ...(options?.withSize ? ["--size"] : []), "--format", template, ...ids],
-    { encoding: "utf-8" },
+    { encoding: "utf-8", ...networkDockerOptions() },
   );
   if (inspected.status !== 0) {
     throw new Error(
