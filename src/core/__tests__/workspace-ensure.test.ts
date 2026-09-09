@@ -938,12 +938,21 @@ describe("workspaceEnsure", () => {
       order.push("provider-start");
       return providerSpawn(...args);
     });
-    const notice = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const notice = vi.spyOn(process.stderr, "write").mockImplementation(() => {
+      if (!order.includes("provider-start")) order.push("stderr");
+      return true;
+    });
     try {
       await expect(
         workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
       ).rejects.toThrow();
-      expect(order).toEqual(["network-advisory", "provider-start"]);
+      expect(order).toEqual(
+        exhausted
+          ? ["network-advisory", "stderr", "provider-start"]
+          : ["network-advisory", "provider-start"],
+      );
+      expect(stdout).not.toHaveBeenCalled();
       expect(inspectLegacyNetworkCapacity).toHaveBeenCalledWith({
         provider: "devsy",
         providerId: "feature",
@@ -951,6 +960,7 @@ describe("workspaceEnsure", () => {
       });
     } finally {
       notice.mockRestore();
+      stdout.mockRestore();
     }
   });
 

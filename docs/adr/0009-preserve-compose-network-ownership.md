@@ -1,6 +1,6 @@
 # ADR 0009: Preserve Compose network ownership while reserving workspace subnets
 
-Status: accepted design; implementation in progress.
+Status: accepted; source implemented and synthetically qualified. Live provider qualification and activation remain separate.
 
 New managed linked-workspace networks may use explicit subnets from an opt-in,
 operator-owned policy bound to the Docker daemon. Compose continues to create
