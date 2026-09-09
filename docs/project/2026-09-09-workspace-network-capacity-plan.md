@@ -664,7 +664,8 @@ change caused pnpm to attempt a dependency reinstall; tests use the existing
 installed tools with per-command automatic installation disabled. Dependency
 versions and lockfile are unchanged.
 
-Executor Euler owns subprocess provider fixtures and packed qualification.
+Executor Euler initially owned subprocess provider fixtures and packed qualification;
+after terminal failure without an artifact, main completed both under the failed-worker rule.
 Main owns guidance updates, acceptance review and final package integration.
 The persistent-binding approval is already recorded and needs no renewed ruling.
 No live policy, provider binding, container, network or runtime changed.
@@ -677,7 +678,7 @@ No live policy, provider binding, container, network or runtime changed.
 | Endpoint headroom and route safety | Capacity/Compose tests cover `/26` headroom, full service union, replicas and explicit bounds; route and connected-bridge tests retain VPN, host, wider and foreign-interface conflicts | No live endpoint-limit experiment; OrbStack guest routes are unknown and allocation is blocked |
 | Retained ownership and failure recovery | Claim, recovery and flow tests cover all retained containers, uncertain outcomes, worker settlement, compare-and-swap fences, atomic write failure and binding-only partial starts | Binding-only effects require exact operator repair; no automatic provider or network deletion exists |
 | Compatibility and stop/resume | Flow tests reuse the exact network, including after policy removal, and reject a changed prefix; config/Compose tests preserve native files, legacy and explicit-IPAM boundaries; integrated stop tests preserve released baseline/absence behavior | Installed-provider and complete real-runtime stop/resume remain unproven |
-| Provider and distribution qualification | Existing provider-definition tests and tagged source establish supported option semantics; subprocess and packed qualification are in progress | Final review and source delivery remain pending until this row has fresh counters |
+| Provider and distribution qualification | Existing provider-definition tests and tagged source establish supported option semantics; closed subprocess tests cover start/reuse/failure and persisted-claim stop/delete; packed diagnostics prove 16 reads and zero mutations | Final review correction and draft delivery remain pending |
 
 The source package intentionally cannot increase this OrbStack host's usable
 capacity yet. It provides diagnostics and the guarded allocator, while live pool
@@ -725,3 +726,29 @@ Remote main `f5828dc` includes released lifecycle waiting and release metadata.
 A three-way merge preview has no conflict markers. Keep the previously integrated
 baseline; target movement alone does not require another merge. Final review and
 draft publication are still pending. No live allocation or recovery is claimed.
+
+
+### Integrated final review corrections
+
+The independent Claude Opus 5 medium final review covered all 78 changed paths
+at `511b8d9`. It found no allocation-safety defect. Main accepted five findings:
+bound policy pools to the allocator's 4096-candidate limit; avoid a warning for
+absent-policy, complete, positively unoccupied inventory; exercise persisted-claim
+stop/delete through both real wrappers with closed fake providers; remove a
+duplicate CIDR guard; and document concrete read-only reconciliation evidence.
+Unknown or malformed inventory still warns; an `ok` legacy capacity diagnostic
+is not route-safety or managed-allocation approval.
+
+Main rejected the proposed test that bans the word “prune” in guidance. It pins
+prose, violates the repository's behavior-testing rule, and rejects safe advice
+such as “do not prune”. Closed executable fixtures reject actual unexpected effects.
+
+The correction suite passes 116 files and 1533 tests. Both provider stop/delete
+tests read an actual persisted claim, perform fresh provider/daemon inspection,
+assert exact argv and cleared ambient selectors, and preserve the claim afterward.
+Tagged source confirms the inherited context/provider flags: Devsy `v1.16.2`
+workspace stop/delete load both options; DevPod `v0.6.15` `cmd/flags/flags.go`
+registers both persistent options and `cmd/stop.go`/`cmd/delete.go` load them.
+This is source and synthetic proof, not installed-provider runtime proof.
+Typecheck, Biome, Knip, docs-policy and knowledge checks pass. The final review's
+single correction pass remains pending. Live activation remains separately gated.

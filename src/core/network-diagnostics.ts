@@ -1,5 +1,9 @@
 import type { DiagnosticCheck } from "../types";
-import { collectNetworkCapacityReport, type NetworkCapacityReport } from "./network-capacity";
+import {
+  collectNetworkCapacityReport,
+  type NetworkCapacityReport,
+  parseIPv4Cidr,
+} from "./network-capacity";
 import { type NetworkClaim, readNetworkClaims } from "./network-claims";
 import { collectDockerNetworkInventory } from "./network-inventory";
 import { readNetworkPolicy } from "./network-policy";
@@ -54,15 +58,26 @@ export function networkCapacityCheck(report: NetworkCapacityInspection): Diagnos
       network.retainedReferences > 0,
   ).length;
   const managed = report.managedPolicy;
+  const legacyAvailable =
+    managed?.policy.status === "absent" &&
+    report.evidence.inventory === "complete" &&
+    report.networks.every((network) =>
+      network.ipv4Subnets.every((subnet) => parseIPv4Cidr(subnet) !== undefined),
+    ) &&
+    report.pools.some((pool) =>
+      pool.candidates.some((candidate) => candidate.overlappingNetworkIds.length === 0),
+    );
   const managedDetails = managed
     ? ` Managed policy: ${managed.policy.status}; /${managed.policy.requestedPrefixLength} capacity: ${managed.configuredPolicyCapacity.status}; claims: ${managed.claims.reserved} reserved, ${managed.claims.attached} attached, ${managed.claims.uncertain} uncertain.`
     : "";
   return {
     id: "global.network-capacity",
-    level: "warn",
+    level: legacyAvailable ? "ok" : "warn",
     summary: exhausted
       ? "Docker default address pools are exhausted for new networks."
-      : "Network allocation readiness requires complete route and capacity evidence.",
+      : legacyAvailable
+        ? "Docker default pools have unoccupied capacity; managed allocation is not configured."
+        : "Network allocation readiness requires complete route and capacity evidence.",
     details: `${report.pools.length} pool(s); ${retained} network(s) have no active endpoints but retain container references. Allocation readiness: ${report.allocation.status}.${managedDetails}`,
     suggestion: exhausted
       ? "Existing network reuse can continue. Review operator-approved route-safe pools or exact ownership-aware recovery. Stop and worktree removal do not release subnets; do not prune automatically."

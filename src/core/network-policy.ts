@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { MAX_CANDIDATE_BLOCKS } from "./network-capacity";
 import { DEVROUTER_HOME } from "./router";
 
 export const NETWORK_POLICY_VERSION = 1 as const;
@@ -72,6 +73,13 @@ export function parseNetworkPolicy(value: unknown): NetworkPolicy {
   const endpointReserve = parseEndpointReserve(objectValue.endpointReserve);
   const parsedPools = pools.map((cidr) => parsePrivateCidr(cidr));
   const parsedExclusions = exclusions.map((cidr) => parsePrivateCidr(cidr));
+
+  const minimumPoolPrefix = Math.max(...allowedPrefixes) - Math.log2(MAX_CANDIDATE_BLOCKS);
+  if (parsedPools.some((pool) => pool.prefixLength < minimumPoolPrefix)) {
+    throw new NetworkPolicyValidationError(
+      `network policy pools must have prefix /${minimumPoolPrefix} or longer for the permitted allocation sizes (at most ${MAX_CANDIDATE_BLOCKS} candidates per pool)`,
+    );
+  }
 
   assertDisjoint(parsedPools, "network policy contains overlapping pools");
   assertDisjoint(parsedExclusions, "network policy contains overlapping exclusions");

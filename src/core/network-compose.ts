@@ -722,9 +722,6 @@ function parseIpv4Cidr(value: unknown): { prefixLength?: number; canonical?: str
   if (network !== address) {
     return undefined;
   }
-  if (network !== address) {
-    return undefined;
-  }
   const canonical = [
     Math.floor(network / 2 ** 24),
     Math.floor(network / 2 ** 16) % 256,

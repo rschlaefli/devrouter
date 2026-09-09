@@ -169,7 +169,7 @@ type ParsedIPv4Cidr = {
 
 const DEFAULT_PREFIX_LENGTH: NetworkCapacityPrefixLength = 24;
 const DEFAULT_ENDPOINT_RESERVE = 8;
-const MAX_CANDIDATE_BLOCKS = 4096;
+export const MAX_CANDIDATE_BLOCKS = 4096;
 
 /** Returns a canonical IPv4 CIDR, or undefined for IPv6/invalid input. */
 export function parseIPv4Cidr(value: string): string | undefined {

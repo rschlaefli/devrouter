@@ -187,7 +187,9 @@ machine pools, exclusions or daemon identity.
 
 The machine policy has version `1`, a required `daemonId`, canonical private IPv4
 `pools`, `exclusions` within those pools, `allowedPrefixes`, and an optional
-`endpointReserve`. Pool selection is operator-specific: no subnet is universally
+`endpointReserve`. Each pool must fit at most 4096 candidates at the longest
+permitted prefix: `/26` requires pools of `/14` or longer. Oversized pools are
+rejected during policy validation. Pool selection is operator-specific: no subnet is universally
 safe across Docker, LAN and VPN routes. Complete route and daemon evidence is
 required before allocation. Local Linux qualification checks that the Docker
 socket belongs to a daemon in the caller's network namespace. OrbStack and other
@@ -202,6 +204,28 @@ reconciliation; ensure does not silently rebind, recreate or resize the network.
 Stopping retains its subnet and claim. Removing policy does not remove those
 records or grant cleanup authority. Zero active endpoints does not mean a
 network is unused: stopped containers can retain references.
+
+For a reconciliation failure, first run `devrouter doctor --repo <exact-checkout>`
+for read-only capacity and policy diagnostics. Retained claims live under
+`$DEVROUTER_HOME/networks/<sha256-of-daemon-id>.json`, or
+`~/.config/devrouter/networks/` with the default home. Inspect the matching owner
+record locally for its state, subnet, provider ID, provider context, endpoint,
+daemon ID and operation fence. Keep local paths and identifiers out of shared
+reports. Do not edit or remove the claim file to bypass a failure.
+
+On a later `ensure`, automatic reservation reconciliation releases metadata only
+for an unattached claim whose earlier operation has settled and cannot have further
+effects. It requires exact retained workspace ownership, the saved provider and
+qualified definition, a valid policy for the saved daemon, absent provider
+registration and local endpoint binding, complete inventory proving no overlapping
+network, and no workspace containers. The current operation must still hold its
+fence immediately before release. This does not delete provider or Docker resources.
+An attached claim, missing retained network, surviving binding, or unavailable
+evidence requires an operator decision; there is no force-reconcile command.
+Preserve those records and request repair approval naming the exact workspace,
+claim and affected resources. Provider or endpoint drift requires restoring the
+qualified configuration or separately approving a supported repair; `ensure`
+never treats drift as permission to move the workspace.
 
 The generated network overlay must be ignored by Git. Native Compose and Dev
 Container files remain unchanged. Explicit default-network names, IPAM, custom

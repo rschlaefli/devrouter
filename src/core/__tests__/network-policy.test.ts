@@ -49,6 +49,20 @@ describe("parseNetworkPolicy", () => {
     });
   });
 
+  it.each([24, 25, 26] as const)("bounds pools at 4096 candidates for /%s", (prefix) => {
+    const minimum = prefix - 12;
+    expect(
+      parseNetworkPolicy(
+        policy({ pools: [`10.0.0.0/${minimum}`], exclusions: [], allowedPrefixes: [prefix] }),
+      ).pools,
+    ).toHaveLength(1);
+    expect(() =>
+      parseNetworkPolicy(
+        policy({ pools: [`10.0.0.0/${minimum - 1}`], exclusions: [], allowedPrefixes: [prefix] }),
+      ),
+    ).toThrow();
+  });
+
   it("allows an explicit empty exclusions array", () => {
     expect(parseNetworkPolicy({ ...policy(), exclusions: [] }).exclusions).toEqual([]);
     const withoutExclusions = { ...policy() };

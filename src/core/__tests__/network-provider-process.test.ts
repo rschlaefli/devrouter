@@ -1,13 +1,24 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MANAGED_DEVCONTAINER_MARKER, type ManagedDevcontainerPlan } from "../devcontainer-profile";
-import { startDevpodWorkspace } from "../devpod-mutation";
-import { startDevsyWorkspace } from "../devsy-mutation";
+import {
+  deleteOwnedDevpodWorkspace,
+  startDevpodWorkspace,
+  stopOwnedDevpodWorkspace,
+} from "../devpod-mutation";
+import {
+  deleteOwnedDevsyWorkspace,
+  startDevsyWorkspace,
+  stopOwnedDevsyWorkspace,
+} from "../devsy-mutation";
+import { findOwnedNetworkClaim, networkOwnerKey } from "../network-claim-lookup";
 import { prepareNetworkComposeFiles } from "../network-compose-files";
 import type { PreparedNetworkStart } from "../network-provider-binding";
+import { qualifyNetworkProviderDefinition } from "../network-provider-inspect";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 const state = vi.hoisted(() => ({
@@ -29,6 +40,29 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(state.home, { recursive: true, force: true });
 });
+
+function definition(provider: string) {
+  return {
+    name: "docker",
+    agent: {
+      local: true,
+      docker: {
+        path: "${DOCKER_PATH}",
+        builder: "${DOCKER_BUILDER}",
+        install: false,
+        ...(provider === "devsy" ? { elevation: "${DOCKER_ELEVATION}" } : {}),
+        env: { DOCKER_HOST: "${DOCKER_HOST}" },
+      },
+    },
+    options: { DOCKER_HOST: { global: true }, DOCKER_PATH: { default: "docker" } },
+    exec: {
+      command:
+        provider === "devsy"
+          ? '"${DEVSY}" internal sh -c "${COMMAND}"'
+          : '"${DEVPOD}" helper sh -c "${COMMAND}"',
+    },
+  };
+}
 
 function fixture() {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "network-provider-fixture-")));
@@ -54,7 +88,24 @@ const record = value => fs.appendFileSync(${JSON.stringify(receipt)}, JSON.strin
 const option = key => argv[argv.indexOf(key)+1];
 const up = provider === 'devsy' ? argv[0] === 'workspace' && argv[1] === 'up' : argv[0] === 'up';
 const list = provider === 'devsy' ? argv[0] === 'workspace' && argv[1] === 'list' : argv[0] === 'list';
-if (list) { record({provider, action:'list'}); process.stdout.write(fs.readFileSync(${JSON.stringify(registry)})); }
+const action = provider === 'devsy' ? argv[1] : argv[0];
+if (argv[0] === 'context' && argv[1] === 'list') process.stdout.write(JSON.stringify([{name:'synthetic-context', default:true}]));
+else if (argv[0] === 'version' || argv[0] === '--version') process.stdout.write(provider === 'devsy' ? '1.16.2' : '0.6.15');
+else if (argv[0] === 'provider' && argv[1] === 'list') process.stdout.write(JSON.stringify({docker:{config: ${JSON.stringify({ devsy: definition("devsy"), devpod: definition("devpod") })}[provider], state:{options:{}}}}));
+else if (provider === 'docker') {
+  assert.deepEqual(argv, ['--host', 'unix:///tmp/provider.sock', 'info', '--format', '{{json .ID}}']);
+  assert.equal(process.env.DOCKER_CONTEXT, undefined);
+  assert.equal(process.env.DOCKER_HOST, undefined);
+  record({provider, action:'identity'}); process.stdout.write('"daemon"');
+}
+else if (action === 'stop' || action === 'delete') {
+  assert.deepEqual(argv, [...(provider === 'devsy' ? ['workspace'] : []), action, 'synthetic', ...(action === 'delete' ? ['--ignore-not-found'] : []), '--context', 'synthetic-context', '--provider', 'docker']);
+  assert.equal(process.env.DOCKER_CONTEXT, undefined);
+  assert.equal(process.env.DOCKER_HOST, undefined);
+  record({provider, action});
+  if (action === 'delete') fs.writeFileSync(${JSON.stringify(registry)}, '[]');
+}
+else if (list) { record({provider, action:'list'}); process.stdout.write(fs.readFileSync(${JSON.stringify(registry)})); }
 else if (up) {
   record({provider, action:'up'});
   assert.equal(option('--provider'), 'docker');
@@ -77,7 +128,7 @@ else if (up) {
   if (process.env.NETWORK_FIXTURE_FAIL === 'attachment') fs.writeFileSync(${JSON.stringify(registry)}, '[]');
 } else { record({provider, action:'unexpected'}); process.exit(97); }
 `;
-  for (const provider of ["devsy", "devpod"])
+  for (const provider of ["devsy", "devpod", "docker"])
     fs.writeFileSync(path.join(bin, provider), executable, { mode: 0o700 });
   fs.writeFileSync(
     path.join(bin, "git"),
@@ -102,10 +153,72 @@ else if (up) {
   const generated = prepareNetworkComposeFiles(native, "10.88.0.0/26");
   generated.write();
   fs.writeFileSync(path.join(compose, "managed.json"), generated.plan.contents);
-  return { repo, compose, receipt, native };
+  return { repo, compose, receipt, registry, native };
 }
 
 describe("real provider subprocess contract with closed synthetic executables", () => {
+  it.each([
+    "devsy",
+    "devpod",
+  ] as const)("pins %s stop and delete to a persisted claim", (provider) => {
+    const f = fixture();
+    vi.stubEnv("DEVROUTER_WORKSPACE_RUNTIME", provider);
+    resetWorkspaceRuntimeCaches();
+    const claim = {
+      ownerKey: networkOwnerKey(f.repo),
+      provider,
+      providerId: "synthetic",
+      providerContext: "synthetic-context",
+      definitionSha256: qualifyNetworkProviderDefinition(definition(provider), provider),
+      endpoint: "unix:///tmp/provider.sock",
+      daemonId: "daemon",
+      configFingerprint: "fingerprint",
+      subnet: "10.88.0.0/26",
+      prefix: 26,
+      operationId: "operation",
+      workerId: "worker",
+      state: "attached",
+      networkId: "network",
+      fence: {
+        environmentId: "environment",
+        intentRevision: 1,
+        runtimeGeneration: 1,
+        controllerEpoch: 1,
+      },
+    };
+    const root = path.join(state.home, "networks");
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(
+      path.join(root, `${createHash("sha256").update("daemon").digest("hex")}.json`),
+      JSON.stringify({ version: 1, daemonId: "daemon", claims: [claim] }),
+      { mode: 0o600 },
+    );
+    fs.writeFileSync(
+      f.registry,
+      JSON.stringify([
+        {
+          id: "synthetic",
+          source: { localFolder: f.repo },
+          provider: { name: "docker", options: { DOCKER_HOST: { value: claim.endpoint } } },
+        },
+      ]),
+    );
+    const stop = provider === "devsy" ? stopOwnedDevsyWorkspace : stopOwnedDevpodWorkspace;
+    const remove = provider === "devsy" ? deleteOwnedDevsyWorkspace : deleteOwnedDevpodWorkspace;
+    expect(stop("synthetic", f.repo).status).toBe("changed");
+    expect(findOwnedNetworkClaim(f.repo)).toEqual(claim);
+    expect(remove("synthetic", f.repo).status).toBe("changed");
+    expect(findOwnedNetworkClaim(f.repo)).toEqual(claim);
+    const rows = fs
+      .readFileSync(f.receipt, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(rows.filter((row) => row.action === "stop")).toHaveLength(1);
+    expect(rows.filter((row) => row.action === "delete")).toHaveLength(1);
+    expect(rows.filter((row) => row.action === "identity")).toHaveLength(2);
+    expect(rows.filter((row) => row.action === "unexpected")).toHaveLength(0);
+  });
   it.each([
     "devsy",
     "devpod",
