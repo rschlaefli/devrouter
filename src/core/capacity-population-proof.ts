@@ -1,6 +1,8 @@
+import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { ManagedStopContainerSnapshot } from "./devpod-environment";
 import type { ManagedStopBaseline } from "./managed-stop-baseline";
+import type { CapacityStartupWitness } from "./reliability-operation-store";
 
 const MAX_POPULATION = 256;
 
@@ -147,5 +149,77 @@ export function proveManagedCapacityPopulation(options: {
   );
   if (expectedPrimaryMounts.length !== 1 || observedPrimaryMounts.length !== 1) {
     throw new Error("Capacity population does not prove the exact primary workspace mount.");
+  }
+}
+
+function withinRepo(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+  );
+}
+
+/**
+ * Prove a startup generation observed under an intent-bound witness. Every
+ * container is either an exact retained member (by ID, already identity-proven
+ * at witness publication) or a proven target-generation member: its service is
+ * an allowed startup service, its configuration provenance equals the
+ * witnessed Compose paths, and only the primary may carry the workspace bind
+ * mount. A missing desired service means incomplete startup, never incomplete
+ * enumeration, but the primary is required for the bounded initial contract.
+ */
+export function proveWitnessedCapacityPopulation(options: {
+  containers: ManagedStopContainerSnapshot[];
+  witness: CapacityStartupWitness;
+  repoPath: string;
+  composeProject: string;
+}): void {
+  const { containers, witness, repoPath, composeProject } = options;
+  if (containers.length > MAX_POPULATION) {
+    throw new Error("Capacity witnessed population exceeds its bounded size.");
+  }
+  const retained = new Set(witness.retainedContainerIds);
+  const services = new Set<string>();
+  let primaryObserved = false;
+  for (const container of containers) {
+    if (
+      label(container, "com.docker.compose.project") !== composeProject ||
+      !withinRepo(label(container, "com.docker.compose.project.working_dir"), repoPath)
+    ) {
+      throw new Error("Capacity witnessed population contains foreign Compose ownership.");
+    }
+    const service = label(container, "com.docker.compose.service");
+    if (services.has(service)) {
+      throw new Error("Capacity witnessed population contains duplicate container attribution.");
+    }
+    services.add(service);
+    if (retained.has(container.id)) {
+      if (service === witness.primaryService) primaryObserved = true;
+      continue;
+    }
+    if (!witness.startupServices.includes(service)) {
+      throw new Error("Capacity witnessed population contains an unknown startup service.");
+    }
+    const configuration = configFiles(label(container, "com.docker.compose.project.config_files"));
+    if (!isDeepStrictEqual(configuration, witness.composeFiles)) {
+      throw new Error("Capacity witnessed population has foreign configuration provenance.");
+    }
+    const workspaceMounts = container.mounts.filter(
+      (mount) => mount.Type === "bind" && mount.Source === repoPath,
+    );
+    if (service === witness.primaryService) {
+      if (workspaceMounts.length !== 1) {
+        throw new Error(
+          "Capacity witnessed population does not prove the primary workspace mount.",
+        );
+      }
+      primaryObserved = true;
+    } else if (workspaceMounts.length > 0) {
+      throw new Error("Capacity witnessed population contains a foreign workspace mount.");
+    }
+  }
+  if (!primaryObserved) {
+    throw new Error("Capacity witnessed population is missing the primary container.");
   }
 }

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { proveManagedCapacityPopulation } from "../capacity-population-proof";
+import {
+  proveManagedCapacityPopulation,
+  proveWitnessedCapacityPopulation,
+} from "../capacity-population-proof";
 import type { ManagedStopContainerSnapshot } from "../devpod-environment";
 import type { ManagedStopBaseline } from "../managed-stop-baseline";
+import type { CapacityStartupWitness } from "../reliability-operation-store";
 
 const repoPath = "/synthetic/repo";
 const composeProject = "synthetic-project";
@@ -114,6 +118,70 @@ function prove(
   });
 }
 
+const witness: CapacityStartupWitness = {
+  operationId: "synthetic-operation",
+  fence: {} as CapacityStartupWitness["fence"],
+  provider: {
+    id: "synthetic-provider",
+    context: "default",
+    uid: "generation",
+    sourceContainer: appId,
+  },
+  profile: "full",
+  sourceConfigSha256: "c".repeat(64),
+  effectiveConfigSha256: "d".repeat(64),
+  composeFiles,
+  primaryService: "app",
+  startupServices: ["app", "db"],
+  retainedContainerIds: [],
+};
+
+function witnessedContainer(
+  id: string,
+  service: string,
+  mounts: ManagedStopContainerSnapshot["mounts"],
+  files: string[] = composeFiles,
+): ManagedStopContainerSnapshot {
+  return {
+    id,
+    state: {
+      Status: "running",
+      Running: true,
+      Paused: false,
+      Restarting: false,
+      Dead: false,
+    },
+    labels: {
+      "com.docker.compose.project": composeProject,
+      "com.docker.compose.service": service,
+      "com.docker.compose.project.working_dir": composeDirectory,
+      "com.docker.compose.project.config_files": files.join(","),
+    },
+    mounts,
+    networks: {},
+  };
+}
+
+function witnessedPopulation() {
+  return [
+    witnessedContainer(appId, "app", [mount("bind", repoPath, "/workspaces/app")]),
+    witnessedContainer(databaseId, "db", [mount("volume", "/synthetic/volume/db", "/var/lib/db")]),
+  ];
+}
+
+function proveWitnessed(
+  containers = witnessedPopulation(),
+  overrides: Partial<Parameters<typeof proveWitnessedCapacityPopulation>[0]> = {},
+) {
+  return proveWitnessedCapacityPopulation({
+    containers,
+    witness,
+    repoPath,
+    composeProject,
+    ...overrides,
+  });
+}
+
 describe("proveManagedCapacityPopulation", () => {
   it("accepts an exact retained population including stopped containers without mutating input", () => {
     const observed = population();
@@ -188,5 +256,63 @@ describe("proveManagedCapacityPopulation", () => {
     const observed = population();
     observed[0].mounts.push(mount("bind", repoPath, "/workspaces/other"));
     expect(() => prove(observed)).toThrow();
+  });
+});
+
+describe("proveWitnessedCapacityPopulation", () => {
+  it("accepts a full target-generation startup population", () => {
+    expect(() => proveWitnessed()).not.toThrow();
+  });
+
+  it("accepts a retained member by ID even when its configuration differs", () => {
+    const observed = witnessedPopulation();
+    observed[1].labels["com.docker.compose.project.config_files"] =
+      `${composeDirectory}/changed.yml`;
+    expect(() =>
+      proveWitnessed(observed, {
+        witness: { ...witness, retainedContainerIds: [databaseId] },
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects an unknown startup service", () => {
+    const observed = witnessedPopulation();
+    observed[1].labels["com.docker.compose.service"] = "cache";
+    expect(() => proveWitnessed(observed)).toThrow();
+  });
+
+  it("rejects foreign configuration provenance on a new container", () => {
+    const observed = witnessedPopulation();
+    observed[1].labels["com.docker.compose.project.config_files"] =
+      `${composeDirectory}/changed.yml`;
+    expect(() => proveWitnessed(observed)).toThrow();
+  });
+
+  it("rejects duplicate service attribution", () => {
+    const observed = witnessedPopulation();
+    observed[1].labels["com.docker.compose.service"] = "app";
+    expect(() => proveWitnessed(observed)).toThrow();
+  });
+
+  it("rejects a population missing the primary container", () => {
+    expect(() => proveWitnessed(witnessedPopulation().slice(1))).toThrow();
+  });
+
+  it("rejects a foreign Compose project", () => {
+    const observed = witnessedPopulation();
+    observed[0].labels["com.docker.compose.project"] = "other-project";
+    expect(() => proveWitnessed(observed)).toThrow();
+  });
+
+  it("rejects a workspace bind mount on a non-primary container", () => {
+    const observed = witnessedPopulation();
+    observed[1].mounts.push(mount("bind", repoPath, "/workspaces/db"));
+    expect(() => proveWitnessed(observed)).toThrow();
+  });
+
+  it("rejects a working directory outside the repository", () => {
+    const observed = witnessedPopulation();
+    observed[0].labels["com.docker.compose.project.working_dir"] = "/synthetic/other";
+    expect(() => proveWitnessed(observed)).toThrow();
   });
 });

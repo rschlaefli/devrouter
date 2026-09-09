@@ -4,7 +4,10 @@ import { readDockerCapacityPopulation } from "./capacity-docker-population";
 import { readDockerCapacityOwnershipIndex } from "./capacity-docker-probe";
 import { resolveCapacityEnrollment } from "./capacity-enrollment";
 import type { CapacityPolicy } from "./capacity-policy";
-import { proveManagedCapacityPopulation } from "./capacity-population-proof";
+import {
+  proveManagedCapacityPopulation,
+  proveWitnessedCapacityPopulation,
+} from "./capacity-population-proof";
 import type { CapacityOwnedPopulation } from "./capacity-runtime-probe";
 import { readControllerEvidence } from "./controller-binding";
 import { runControllerProbe } from "./controller-probe";
@@ -166,18 +169,32 @@ export async function resolveCapacityOwnership(
           dependencies.managed(enrollment.repoPath, enrollment.workspace || undefined, (file) =>
             readControllerEvidence(file, 1_048_576),
           );
+        const witness = record.startupWitness ?? null;
         const state = readState();
         if (
           !state ||
           state.devpodId !== enrollment.providerId ||
-          !state.stopBaseline ||
-          state.stopBaseline.provider !== enrollment.provider ||
-          state.stopBaseline.context !== entry.generation.context ||
-          state.stopBaseline.uid !== entry.generation.uid ||
-          state.stopBaseline.sourceContainer !== entry.generation.sourceContainer ||
-          state.stopBaseline.endpoint !== `unix://${domain.endpoint}` ||
-          state.stopBaseline.daemonId !== domain.daemonId ||
           projects.has(state.composeProject)
+        )
+          throw new Error("Capacity population lacks current managed runtime identity.");
+        const baseline = state.stopBaseline;
+        if (witness) {
+          if (
+            witness.provider.id !== enrollment.providerId ||
+            witness.provider.context !== entry.generation.context ||
+            witness.provider.uid !== entry.generation.uid ||
+            witness.provider.sourceContainer !== entry.generation.sourceContainer ||
+            !enrollment.profiles.includes(witness.profile)
+          )
+            throw new Error("Capacity witnessed startup generation changed.");
+        } else if (
+          !baseline ||
+          baseline.provider !== enrollment.provider ||
+          baseline.context !== entry.generation.context ||
+          baseline.uid !== entry.generation.uid ||
+          baseline.sourceContainer !== entry.generation.sourceContainer ||
+          baseline.endpoint !== `unix://${domain.endpoint}` ||
+          baseline.daemonId !== domain.daemonId
         )
           throw new Error("Capacity population lacks an exact retained runtime baseline.");
         const evidence = { record, state };
@@ -204,12 +221,21 @@ export async function resolveCapacityOwnership(
         if (containers.length === 0) {
           // This zero observation does not settle or release any reservation. The stable
           // daemon index below must also exclude residual workspace containers.
-          if (!stopped && !undispatched)
+          if (!witness && !stopped && !undispatched)
             throw new Error("Absent capacity population lacks stopped or undispatched proof.");
+        } else if (witness) {
+          proveWitnessedCapacityPopulation({
+            containers,
+            witness,
+            repoPath: enrollment.repoPath,
+            composeProject: state.composeProject,
+          });
         } else {
+          if (!baseline)
+            throw new Error("Capacity population lacks an exact retained runtime baseline.");
           proveManagedCapacityPopulation({
             containers,
-            baseline: state.stopBaseline,
+            baseline,
             repoPath: enrollment.repoPath,
             composeProject: state.composeProject,
             daemonId: domain.daemonId,

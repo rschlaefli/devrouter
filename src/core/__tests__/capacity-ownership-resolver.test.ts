@@ -5,9 +5,30 @@ import type { CapacityPolicy } from "../capacity-policy";
 import { runControllerProbe } from "../controller-probe";
 import type { ManagedStopContainerSnapshot } from "../devpod-environment";
 import type { ManagedRuntimeState } from "../managed-runtime-state";
-import type { ReliabilityOperationRecord } from "../reliability-operation-store";
+import type {
+  CapacityStartupWitness,
+  ReliabilityOperationRecord,
+} from "../reliability-operation-store";
 
 vi.mock("../controller-probe", () => ({ runControllerProbe: vi.fn() }));
+
+const witnessFiles = ["/synthetic/checkout/.devcontainer/compose.yml"];
+
+function witness(overrides: Partial<CapacityStartupWitness> = {}): CapacityStartupWitness {
+  return {
+    operationId: "witnessed-operation",
+    fence: {} as CapacityStartupWitness["fence"],
+    provider: { id: "synthetic", context: "default", uid: "generation", sourceContainer: "" },
+    profile: "full",
+    sourceConfigSha256: "a".repeat(64),
+    effectiveConfigSha256: "b".repeat(64),
+    composeFiles: witnessFiles,
+    primaryService: "app",
+    startupServices: ["app"],
+    retainedContainerIds: [],
+    ...overrides,
+  };
+}
 
 function fixture() {
   const repoPath = "/synthetic/checkout";
@@ -327,4 +348,88 @@ it.each([
       providerGeneration: undefined,
     }),
   ).rejects.toThrow();
+});
+
+it("proves an empty population from a cold startup witness without stop evidence", async () => {
+  const f = fixture();
+  f.record.startupWitness = witness();
+  f.record.state.stopProof.workloadsStopped = false;
+  f.record.state.stopProof.routesRemoved = false;
+  const resolver = await f.resolve();
+  expect(await resolver.proveOwned(f.cancellation.signal)).toEqual([
+    { environmentId: f.id, containers: [] },
+  ]);
+  await resolver.revalidate();
+});
+
+it("samples a witnessed startup population as owned", async () => {
+  const f = fixture();
+  const id = "c".repeat(64);
+  const mounts = [{ Type: "bind", Source: "/synthetic/checkout", Destination: "/workspace" }];
+  f.record.startupWitness = witness();
+  const container: ManagedStopContainerSnapshot = {
+    id,
+    mounts,
+    labels: {
+      "com.docker.compose.project": "project",
+      "com.docker.compose.project.working_dir": "/synthetic/checkout/.devcontainer",
+      "com.docker.compose.service": "app",
+      "com.docker.compose.project.config_files": witnessFiles.join(","),
+    },
+    networks: {},
+    state: { Status: "running", Running: true, Paused: false, Restarting: false, Dead: false },
+  };
+  const resolver = await resolveCapacityOwnership(f.policy, "guest", f.cancellation.signal, {
+    ...f.dependencies,
+    population: async () => [container],
+    index: async () => [
+      {
+        id,
+        project: "project",
+        workingDirectory: "/synthetic/checkout/.devcontainer",
+        bindSources: ["/synthetic/checkout"],
+      },
+    ],
+  });
+  expect(await resolver.proveOwned(f.cancellation.signal)).toEqual([
+    { environmentId: f.id, containers: [container] },
+  ]);
+  await resolver.revalidate();
+});
+
+it("rejects a witness bound to a replaced provider generation", async () => {
+  const f = fixture();
+  f.record.startupWitness = witness({
+    provider: { id: "synthetic", context: "default", uid: "replacement", sourceContainer: "" },
+  });
+  const resolver = await f.resolve();
+  await expect(resolver.proveOwned(f.cancellation.signal)).rejects.toThrow(
+    "Capacity witnessed startup generation changed.",
+  );
+});
+
+it("rejects a witnessed population without its primary container", async () => {
+  const f = fixture();
+  const id = "d".repeat(64);
+  f.record.startupWitness = witness({ startupServices: ["app", "db"] });
+  const secondary: ManagedStopContainerSnapshot = {
+    id,
+    mounts: [{ Type: "volume", Source: "/synthetic/volume", Destination: "/data" }],
+    labels: {
+      "com.docker.compose.project": "project",
+      "com.docker.compose.project.working_dir": "/synthetic/checkout/.devcontainer",
+      "com.docker.compose.service": "db",
+      "com.docker.compose.project.config_files": witnessFiles.join(","),
+    },
+    networks: {},
+    state: { Status: "running", Running: true, Paused: false, Restarting: false, Dead: false },
+  };
+  const resolver = await resolveCapacityOwnership(f.policy, "guest", f.cancellation.signal, {
+    ...f.dependencies,
+    population: async () => [secondary],
+    index: async () => [],
+  });
+  await expect(resolver.proveOwned(f.cancellation.signal)).rejects.toThrow(
+    "Capacity witnessed population is missing the primary container.",
+  );
 });
