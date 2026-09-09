@@ -14,23 +14,25 @@ vi.mock("../reliability-operation-store", () => ({
   readReliabilityOperation: fixture.read,
 }));
 
-function prepared() {
+function prepared(admit = false) {
   const identity = { repoPath: "/synthetic", workspace: null, provider: "devpod" as const };
   const initial = createReliabilityState("synthetic", 0, "manual");
-  const state = stepReliability(
-    initial,
-    {
-      ...reliabilityFence(initial),
-      type: "operation-request",
-      kind: "exec",
-      key: "request",
-      operationId: "operation",
-      profile: "full",
-      runtimeRunning: true,
-      consumer: { id: "manual", requiredCapabilities: [], pinned: false },
-    },
-    0,
-  ).state;
+  const state = admit
+    ? stepReliability(
+        initial,
+        {
+          ...reliabilityFence(initial),
+          type: "operation-request",
+          kind: "exec",
+          key: "request",
+          operationId: "operation",
+          profile: "full",
+          runtimeRunning: true,
+          consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+        },
+        0,
+      ).state
+    : initial;
   let record: ReliabilityOperationRecord = {
     version: 1,
     identity,
@@ -64,6 +66,12 @@ function prepared() {
     fence: reliabilityFence(state),
     options: {},
     command: ["synthetic"],
+    admission: {
+      expectedRevision: 0,
+      profile: "full",
+      runtimeRunning: true,
+      consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+    },
   };
   const close = () => {
     child.exitCode = 0;
@@ -110,7 +118,7 @@ describe("worker dispatch acknowledgement", () => {
   });
 
   it("admits and rolls history atomically with worker registration before launch", async () => {
-    const setup = prepared();
+    const setup = prepared(true);
     const record = setup.record();
     for (const event of [
       { type: "dispatch" },
@@ -208,7 +216,7 @@ describe("worker dispatch acknowledgement", () => {
     });
     fixture.fork.mockReturnValue(duplicate);
     const rejected = runLifecycleWorker(setup.request);
-    const rejection = expect(rejected).rejects.toThrow("Lifecycle intent changed before dispatch");
+    const rejection = expect(rejected).rejects.toThrow("conflicts with an existing operation");
     await ready(duplicate);
     duplicate.exitCode = 0;
     duplicate.emit("close", 0, null);

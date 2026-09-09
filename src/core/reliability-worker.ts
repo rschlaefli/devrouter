@@ -153,45 +153,39 @@ export async function runLifecycleWorker(
               if (!birth) throw new Error("Could not prove lifecycle worker incarnation.");
               updateReliabilityOperation(request.identity, (record) => {
                 beforeAdmission?.();
-                if (request.admission) {
-                  if (hasDuplicateOperation(record, request.requestId, request.operationId))
-                    throw new Error(
-                      "Lifecycle operation request conflicts with an existing operation.",
-                    );
-                  if (!sameFence(record, request.fence))
-                    throw new Error("Lifecycle intent changed before dispatch.");
-                  if (record.worker || record.revision !== request.admission.expectedRevision) {
-                    throw new LifecycleWorkerAdmissionBusyError();
-                  }
-                  const admitted = stepReliability(
-                    record.state,
-                    {
-                      ...request.fence,
-                      type: "operation-request",
-                      kind: request.kind === "exec" ? "exec" : "ensure",
-                      key: request.requestId,
-                      operationId: request.operationId,
-                      profile: request.admission.profile,
-                      consumer: request.admission.consumer,
-                      runtimeRunning: request.admission.runtimeRunning,
-                      ...(request.admission.recoverInterruptedEnsure
-                        ? { recoverInterruptedEnsure: true }
-                        : {}),
-                    },
-                    Date.now(),
+                if (!request.admission)
+                  throw new Error("Lifecycle operation admission is required.");
+                if (hasDuplicateOperation(record, request.requestId, request.operationId))
+                  throw new Error(
+                    "Lifecycle operation request conflicts with an existing operation.",
                   );
-                  if (admitted.outcome !== "accepted")
-                    throw new Error(`Lifecycle admission is ${admitted.outcome}.`);
-                  record.state = admitted.state;
-                  record.outcome = null;
-                  request.fence = reliabilityFence(record.state);
-                } else if (
-                  !sameFence(record, request.fence) ||
-                  record.worker ||
-                  record.state.operation?.id !== request.operationId
-                ) {
+                if (!sameFence(record, request.fence))
                   throw new Error("Lifecycle intent changed before dispatch.");
+                if (record.worker || record.revision !== request.admission.expectedRevision) {
+                  throw new LifecycleWorkerAdmissionBusyError();
                 }
+                const admitted = stepReliability(
+                  record.state,
+                  {
+                    ...request.fence,
+                    type: "operation-request",
+                    kind: request.kind === "exec" ? "exec" : "ensure",
+                    key: request.requestId,
+                    operationId: request.operationId,
+                    profile: request.admission.profile,
+                    consumer: request.admission.consumer,
+                    runtimeRunning: request.admission.runtimeRunning,
+                    ...(request.admission.recoverInterruptedEnsure
+                      ? { recoverInterruptedEnsure: true }
+                      : {}),
+                  },
+                  Date.now(),
+                );
+                if (admitted.outcome !== "accepted")
+                  throw new Error(`Lifecycle admission is ${admitted.outcome}.`);
+                record.state = admitted.state;
+                record.outcome = null;
+                request.fence = reliabilityFence(record.state);
                 record.worker = {
                   id: request.workerId,
                   operationId: request.operationId,
