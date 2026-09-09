@@ -246,12 +246,7 @@ function validateStartupWitness(
 ): void {
   const witness = record.startupWitness;
   if (witness === undefined || witness === null) return;
-  if (
-    record.version !== 2 ||
-    !enrollment ||
-    state.executionPolicy !== "capacity-managed" ||
-    state.operation === null
-  )
+  if (record.version !== 2 || !enrollment || state.executionPolicy !== "capacity-managed")
     throw new Error("Startup witness requires current durable managed intent.");
   exactKeys(
     witness,
@@ -297,15 +292,10 @@ function validateStartupWitness(
   const fence = witness.fence;
   if (
     !isReliabilityId(witness.operationId) ||
-    witness.operationId !== state.operation.id ||
     !isReliabilityId(fence.environmentId) ||
-    fence.environmentId !== state.environmentId ||
     !isReliabilityCounter(fence.intentRevision) ||
-    fence.intentRevision !== state.intentRevision ||
     !isReliabilityCounter(fence.runtimeGeneration) ||
-    fence.runtimeGeneration !== state.runtimeGeneration ||
     !isReliabilityCounter(fence.controllerEpoch) ||
-    fence.controllerEpoch !== state.controllerEpoch ||
     !isReliabilityProfile(witness.profile) ||
     !digest(witness.sourceConfigSha256) ||
     !digest(witness.effectiveConfigSha256) ||
@@ -905,6 +895,8 @@ export function publishStartupWitness(
         !isDeepStrictEqual(record.startupWitness.fence, witness.fence))
     )
       throw new Error("Startup witness already exists for a different generation.");
+    if (!record.state.operation || record.state.operation.id !== witness.operationId)
+      throw new Error("Startup witness requires the current durable managed intent.");
     record.startupWitness = structuredClone(witness);
   });
 }

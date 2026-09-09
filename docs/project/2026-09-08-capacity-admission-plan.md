@@ -2206,3 +2206,60 @@ allow running workers through that branch. Its three cases cover undispatched,
 worker-present and already-dispatched records. This change still needs slice
 review. Partial container creation after dispatch remains unavailable and needs
 an exact generation-proof design before factory activation.
+
+### Startup-generation witness amendment (slices A–D)
+
+Slice A, commit 034d225, added the durable intent-bound capacity startup witness
+to the reliability journal: bounded strict validation, fenced publication that
+never replaces a witness from a different generation, and drift-refusing
+clearing. Slice B, commit 6c51219, added witnessed population proof and resolver
+integration: every observed container is an exact retained member by ID or a
+proven target-generation member with witnessed Compose provenance; duplicate
+services, foreign projects, foreign mounts or configuration, and working
+directories outside the repository reject; the primary container is required and
+primary-less populations stay unknown by explicit bounded-contract decision.
+Slice C, commit b20c9a1, ordered the lifecycle: the queued-preparation seam
+publishes the witness before admission and retires the queued intent when
+publication fails; a newly accepted operation-request supersedes the prior
+in-transaction witness; the final strict baseline capture clears the active
+operation's witness only after successful persistence; renewal now tolerates an
+unknown collection sample only when it is local to the witnessed runtime domain
+and every other domain admits, while stale, pressured, and foreign-domain
+unknowns still block; assertCapacityEffect checks remain untouched.
+
+During integrated fixtures a record-poisoning defect surfaced: validation
+required the witness fence to equal the live fence on every journal write, so
+any later effect made the record unwritable. Validation now enforces witness
+shape, bounds, provider identity, and managed enrollment, while live-fence and
+current-operation binding stay at publication and superseded witnesses are
+cleared at preparation, replaced after capture, and treated as inert accounting
+evidence elsewhere. The full suite passes 2031 tests in 136 files; TypeScript,
+Biome and Knip are clean; journal-backed suites run with real file locks.
+
+Slice D adds the integrated controller fixtures: a cold baseline-free queued
+absence publishes its witness before admission, admits from complete positive
+evidence, retains authority through an unknown sample local to the witnessed
+runtime domain, and renews on fresh evidence; witness publication failure
+retires the queued intent without launching a worker. Retained resume, foreign
+residual, partial failure and disconnect/renewal behavior remain covered by the
+existing resolver, queue, collector and lifecycle fixtures. Factory activation,
+canonical CLI wiring and whole-package review remain the next unfinished work.
+
+Independent slice review returned DONE_WITH_CONCERNS and its findings are
+addressed in this commit: the committed range is now verified Biome-clean with
+exit-code evidence, and a regression guard asserts that a pressured witnessed
+runtime-domain sample still blocks renewal. The reviewer found no authority
+leak, stale-witness reuse, foreign-residual bypass, duplicate-service bypass,
+or residual record-poisoning case.
+
+Dogfood evidence for released v0.0.66 from the Doc Query consumer thread: the
+replacement-registration stop fix is verified in the field (canonical stop
+returned stopped=true); one ensure hang was diagnosed as an application-level
+stale Turbopack snapshot and resolved with a scoped stop plus removal of the
+auth app's .next cache, after which ensure reported ready with the full route
+set. The consumer reported one new product gap for the roadmap backlog: status
+reports drifted with "managed route state could not be inspected" while ensure
+JSON reports ready, and ls returns thousands of stale-worktree route entries
+with nine missing workspace owners; route-state inspection appears to choke on
+stale route-table scale. This is a non-blocking status/ls scalability finding,
+not part of the capacity amendment.

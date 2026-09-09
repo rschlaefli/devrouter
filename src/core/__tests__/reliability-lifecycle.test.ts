@@ -736,7 +736,20 @@ it("renews authority with an unknown sample local to the witnessed runtime domai
     seeded.lifecycle.renewLifecycleCapacity(
       seeded.request,
       seeded.policy,
-      { ...samples, guest: { ...guestUnknown, sampledAtMs: seeded.now - 120_000 } },
+      {
+        ...samples,
+        guest: { ...samples.guest, sampledAtMs: seeded.now - 120_000, pressure: "unknown" },
+      },
+      seeded.controller,
+      seeded.directory,
+      seeded.now,
+    ),
+  ).toBe(false);
+  expect(
+    seeded.lifecycle.renewLifecycleCapacity(
+      seeded.request,
+      seeded.policy,
+      { ...samples, guest: { ...samples.guest, pressure: "pressured" } },
       seeded.controller,
       seeded.directory,
       seeded.now,

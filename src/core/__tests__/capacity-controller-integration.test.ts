@@ -13,6 +13,7 @@ import { stepReliability } from "../reliability-model";
 import {
   type CapacityEnrollmentBinding,
   enrollStoppedLifecycle,
+  publishStartupWitness,
   type ReliabilityIdentity,
   readReliabilityOperation,
   updateReliabilityOperation,
@@ -23,6 +24,7 @@ import { capacityEstimatesDigest } from "../repo-config";
 const fixture = vi.hoisted(() => ({
   root: "",
   enroll: vi.fn(),
+  publishWitness: vi.fn(),
   runLifecycleWorker: vi.fn(),
   runningContainer: vi.fn(),
 }));
@@ -43,6 +45,10 @@ vi.mock("../router", async (importOriginal) => {
 
 vi.mock("../capacity-enrollment", () => ({
   enrollCapacityLifecycle: fixture.enroll,
+}));
+
+vi.mock("../capacity-startup-witness", () => ({
+  publishQueuedStartupWitness: fixture.publishWitness,
 }));
 
 vi.mock("../devpod-environment", async (importOriginal) => ({
@@ -227,6 +233,36 @@ afterEach(async () => {
 });
 beforeEach(async () => {
   fixture.runningContainer.mockReset();
+  fixture.publishWitness.mockReset();
+  fixture.publishWitness.mockImplementation(
+    async (input: {
+      identity: ReliabilityIdentity;
+      providerId: string;
+      operationId: string;
+      fence: ReturnType<typeof reliabilityFence>;
+      profile: string;
+    }) => {
+      // Publish a real journal witness so controller integration exercises the
+      // actual fenced publication and validation rules, not a silent stub.
+      publishStartupWitness(input.identity, {
+        operationId: input.operationId,
+        fence: input.fence,
+        provider: {
+          id: input.providerId,
+          context: "default",
+          uid: "generation",
+          sourceContainer: "container",
+        },
+        profile: input.profile,
+        sourceConfigSha256: "b".repeat(64),
+        effectiveConfigSha256: "c".repeat(64),
+        composeFiles: [path.join(input.identity.repoPath, ".devcontainer", "compose.yml")],
+        primaryService: "app",
+        startupServices: ["app"],
+        retainedContainerIds: [],
+      });
+    },
+  );
   fs.rmSync(fixture.root, { recursive: true, force: true });
   fs.mkdirSync(fixture.root, { mode: 0o700 });
   await serveInfo(path.join(fixture.root, "d.sock"), (request, response) => {
@@ -411,6 +447,153 @@ it.each([
       expect(readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
     } else expect(store.read().reservations[0]).toEqual(reservation);
     expect(launches).toHaveLength(2);
+  } finally {
+    active.close();
+  }
+});
+
+it("admits a cold witnessed ensure and retains authority through unknown witnessed collection", async () => {
+  const directory = path.join(fixture.root, "controller");
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const current = environment(fs.mkdtempSync(path.join(fixture.root, "cold-")), "cold");
+  const enrollment = policyEnrollment(current);
+  const identity: ReliabilityIdentity = {
+    repoPath: current.repoPath,
+    workspace: current.workspace,
+    provider: current.provider,
+  };
+  seedStopped(identity, durableEnrollment(current));
+  fs.writeFileSync(
+    path.join(directory, "capacity-policy.json"),
+    JSON.stringify(policy([enrollment])),
+    { mode: 0o600 },
+  );
+  fs.writeFileSync(
+    path.join(current.repoPath, ".devrouter.yml"),
+    JSON.stringify({ version: 1, apps: [], capacity: estimates }),
+  );
+  const incarnation = new ControllerStore(directory).startIncarnation();
+  const controller = { store: incarnation.store, epoch: incarnation.epoch };
+  fixture.enroll.mockResolvedValue({ environment: current, enrollment, estimates });
+  fixture.runningContainer.mockReturnValue(undefined);
+  const launches: LifecycleWorkerRequest[] = [];
+  fixture.runLifecycleWorker.mockImplementation(async (request: LifecycleWorkerRequest) => {
+    launches.push(request);
+    return { status: "completed" };
+  });
+  let witnessedDomainUnknown = false;
+  const active = createCapacityController({
+    directory,
+    controller: { ...controller, directory, consumeStartup: () => {} },
+    collect: async () => ({
+      host: sample(Date.now()),
+      runtime: witnessedDomainUnknown
+        ? {
+            sampledAtMs: Date.now(),
+            pressure: "unknown",
+            unmanagedBytes: 0,
+            sharedBytes: 0,
+            ownedBytes: {},
+          }
+        : sample(Date.now()),
+    }),
+  });
+  const store = new CapacityStore(directory);
+  try {
+    await active.submit(
+      {
+        ...{
+          version: 1,
+          id: "cold-submit",
+          method: "operation-submit",
+          session: "synthetic-session",
+          store: controller.store,
+          epoch: controller.epoch,
+          generation: "synthetic-generation",
+        },
+        requestId: "cold-ensure",
+        kind: "ensure",
+      },
+      current,
+      new AbortController().signal,
+    );
+    const queued = readReliabilityOperation(identity)!;
+    expect(queued.startupWitness).toMatchObject({
+      operationId: queued.state.operation!.id,
+      profile: "full",
+      provider: { id: current.providerId },
+    });
+    await active.tick();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(launches).toHaveLength(1);
+    expect(store.read().reservations).toHaveLength(1);
+    witnessedDomainUnknown = true;
+    await active.tick();
+    const running = readReliabilityOperation(identity)!;
+    expect(running.capacity?.validUntilMs ?? 0).toBeGreaterThan(Date.now());
+    expect(running.startupWitness).not.toBeNull();
+    witnessedDomainUnknown = false;
+    await active.tick();
+    expect(readReliabilityOperation(identity)!.capacity?.validUntilMs).toBeGreaterThan(Date.now());
+  } finally {
+    active.close();
+  }
+});
+
+it("retires the queued ensure when startup witness publication fails", async () => {
+  const directory = path.join(fixture.root, "controller");
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const current = environment(fs.mkdtempSync(path.join(fixture.root, "retire-")), "retire");
+  const enrollment = policyEnrollment(current);
+  const identity: ReliabilityIdentity = {
+    repoPath: current.repoPath,
+    workspace: current.workspace,
+    provider: current.provider,
+  };
+  seedStopped(identity, durableEnrollment(current));
+  fs.writeFileSync(
+    path.join(directory, "capacity-policy.json"),
+    JSON.stringify(policy([enrollment])),
+    { mode: 0o600 },
+  );
+  fs.writeFileSync(
+    path.join(current.repoPath, ".devrouter.yml"),
+    JSON.stringify({ version: 1, apps: [], capacity: estimates }),
+  );
+  const incarnation = new ControllerStore(directory).startIncarnation();
+  const controller = { store: incarnation.store, epoch: incarnation.epoch };
+  fixture.enroll.mockResolvedValue({ environment: current, enrollment, estimates });
+  fixture.publishWitness.mockRejectedValue(new Error("witness unavailable"));
+  fixture.runLifecycleWorker.mockClear();
+  const active = createCapacityController({
+    directory,
+    controller: { ...controller, directory, consumeStartup: () => {} },
+    collect: async () => ({ host: sample(Date.now()), runtime: sample(Date.now()) }),
+  });
+  try {
+    await expect(
+      active.submit(
+        {
+          version: 1,
+          id: "retire-submit",
+          method: "operation-submit",
+          session: "synthetic-session",
+          store: controller.store,
+          epoch: controller.epoch,
+          generation: "synthetic-generation",
+          requestId: "retire-ensure",
+          kind: "ensure",
+        },
+        current,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("witness unavailable");
+    const retired = readReliabilityOperation(identity)!;
+    expect(retired.state.operation).toMatchObject({ drained: true });
+    expect(retired.worker).toBeNull();
+    await active.tick();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
   } finally {
     active.close();
   }
