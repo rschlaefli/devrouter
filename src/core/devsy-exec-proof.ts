@@ -33,7 +33,8 @@ export type DevsyExecProof = {
   workspacePath: string;
 };
 
-function proveLocalDockerSelection(workspace: DevsyWorkspace): string {
+/** Shared local plain-Docker selection proof for retained exec and absence recovery. */
+export function proveLocalDockerSelection(workspace: DevsyWorkspace): string {
   const name = workspace.providerName;
   const context = workspace.context;
   if (
