@@ -7,6 +7,7 @@ vi.mock("../devpod-environment", () => ({
   inspectManagedStopContainers: vi.fn(),
   inspectManagedStopDaemon: vi.fn(),
   inspectManagedStopRunnerId: vi.fn(),
+  inspectProviderRunnerContainers: vi.fn(),
   inspectWorkspaceContainers: vi.fn(),
   resolveManagedStopEndpoint: vi.fn(),
   supportsManagedStopBaseline: vi.fn(),
@@ -50,6 +51,7 @@ beforeEach(() => {
   vi.mocked(environment.inspectWorkspaceContainers).mockReturnValue([container]);
   vi.mocked(environment.inspectManagedStopContainers).mockReturnValue([container as never]);
   vi.mocked(environment.inspectManagedStopRunnerId).mockReturnValue(workspace.uid);
+  vi.mocked(environment.inspectProviderRunnerContainers).mockReturnValue([container.id]);
   vi.mocked(environment.workspaceAppContainers).mockImplementation((containers) => containers);
 });
 describe("retained exec identity", () => {
@@ -87,6 +89,13 @@ describe("retained exec identity", () => {
       vi.mocked(environment.inspectManagedStopContainers).mockReturnValue([changed as never]);
     }
     expect(() => revalidateDevsyExecProof("/fixture", proof)).toThrow();
+  });
+  it("rejects another container sharing the provider runner label", () => {
+    vi.mocked(environment.inspectProviderRunnerContainers).mockReturnValue([
+      container.id,
+      "b".repeat(64),
+    ]);
+    expect(() => captureDevsyExecProof("/fixture")).toThrow();
   });
   it("rejects ambiguous registration and nonrunning or ambiguous primaries", () => {
     vi.mocked(registry.inspectDevsyWorkspaceOwnership).mockReturnValue({

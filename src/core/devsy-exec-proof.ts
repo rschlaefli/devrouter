@@ -3,6 +3,7 @@ import {
   inspectManagedStopContainers,
   inspectManagedStopDaemon,
   inspectManagedStopRunnerId,
+  inspectProviderRunnerContainers,
   inspectWorkspaceContainers,
   resolveManagedStopEndpoint,
   supportsManagedStopBaseline,
@@ -65,6 +66,9 @@ export function captureDevsyExecProof(repoPath: string): DevsyExecProof {
     throw new Error("Retained exec requires one exact source mount.");
   const uidBytes = Buffer.byteLength(workspace.uid);
   const runner = uidBytes === 16 || uidBytes === 40 ? workspace.uid : workspace.id;
+  const runnerContainers = inspectProviderRunnerContainers(endpoint, runner);
+  if (runnerContainers.length !== 1 || runnerContainers[0] !== candidate.id)
+    throw new Error("Retained exec runner does not select the exact primary container.");
   if (
     inspectManagedStopRunnerId(endpoint, candidate.id) !== runner ||
     inspectManagedStopDaemon(endpoint) !== daemon
