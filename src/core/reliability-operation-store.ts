@@ -15,6 +15,7 @@ import {
   isReliabilityProfile,
   type ReliabilityFence,
   type ReliabilityState,
+  reliabilityFence,
 } from "./reliability-contract";
 import { DEVROUTER_HOME } from "./router";
 
@@ -57,6 +58,24 @@ export type CapacityPhaseSettlement = {
   estimatesDigest: string;
 };
 
+/**
+ * Intent-bound accounting evidence for a prepared startup generation. It proves
+ * capacity ownership for population collection only: never stopped state,
+ * readiness, settlement, or permission to mutate the workspace.
+ */
+export type CapacityStartupWitness = {
+  operationId: string;
+  fence: ReliabilityFence;
+  provider: { id: string; context: string; uid: string; sourceContainer: string };
+  profile: string;
+  sourceConfigSha256: string;
+  effectiveConfigSha256: string;
+  composeFiles: string[];
+  primaryService: string;
+  startupServices: string[];
+  retainedContainerIds: string[];
+};
+
 export type ReliabilityOperationRecord = {
   version: 1 | 2;
   identity: ReliabilityIdentity;
@@ -79,6 +98,7 @@ export type ReliabilityOperationRecord = {
   } | null;
   preparation?: ReliabilityPreparationReceipt | null;
   phaseSettlement?: CapacityPhaseSettlement | null;
+  startupWitness?: CapacityStartupWitness | null;
 };
 
 const MAX_RECORD_BYTES = 1_048_576;
@@ -219,6 +239,104 @@ function validateCapacityPhaseSettlement(
     throw new Error("Capacity phase settlement domains do not match enrollment.");
 }
 
+function validateStartupWitness(
+  record: ReliabilityOperationRecord,
+  state: ReliabilityState,
+  enrollment: CapacityEnrollmentBinding | undefined,
+): void {
+  const witness = record.startupWitness;
+  if (witness === undefined || witness === null) return;
+  if (
+    record.version !== 2 ||
+    !enrollment ||
+    state.executionPolicy !== "capacity-managed" ||
+    state.operation === null
+  )
+    throw new Error("Startup witness requires current durable managed intent.");
+  exactKeys(
+    witness,
+    [
+      "operationId",
+      "fence",
+      "provider",
+      "profile",
+      "sourceConfigSha256",
+      "effectiveConfigSha256",
+      "composeFiles",
+      "primaryService",
+      "startupServices",
+      "retainedContainerIds",
+    ],
+    "Invalid capacity startup witness fields.",
+  );
+  exactKeys(
+    witness.fence,
+    ["environmentId", "intentRevision", "runtimeGeneration", "controllerEpoch"],
+    "Invalid capacity startup witness fence.",
+  );
+  exactKeys(
+    witness.provider,
+    ["id", "context", "uid", "sourceContainer"],
+    "Invalid capacity startup witness provider fields.",
+  );
+  const digest = (value: unknown): value is string =>
+    typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+  const boundedText = (value: unknown): value is string =>
+    typeof value === "string" &&
+    value.length <= 256 &&
+    ![...value].some(
+      (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+    );
+  const absolutePath = (value: unknown): value is string =>
+    typeof value === "string" &&
+    value.length <= 4096 &&
+    !value.includes("\0") &&
+    path.isAbsolute(value) &&
+    path.resolve(value) === value;
+  const unique = (values: string[]): boolean => new Set(values).size === values.length;
+  const fence = witness.fence;
+  if (
+    !isReliabilityId(witness.operationId) ||
+    witness.operationId !== state.operation.id ||
+    !isReliabilityId(fence.environmentId) ||
+    fence.environmentId !== state.environmentId ||
+    !isReliabilityCounter(fence.intentRevision) ||
+    fence.intentRevision !== state.intentRevision ||
+    !isReliabilityCounter(fence.runtimeGeneration) ||
+    fence.runtimeGeneration !== state.runtimeGeneration ||
+    !isReliabilityCounter(fence.controllerEpoch) ||
+    fence.controllerEpoch !== state.controllerEpoch ||
+    !isReliabilityProfile(witness.profile) ||
+    !digest(witness.sourceConfigSha256) ||
+    !digest(witness.effectiveConfigSha256) ||
+    !boundedText(witness.provider.id) ||
+    witness.provider.id.trim() !== witness.provider.id ||
+    witness.provider.id === "" ||
+    witness.provider.id !== enrollment.providerId ||
+    !boundedText(witness.provider.context) ||
+    !boundedText(witness.provider.uid) ||
+    !boundedText(witness.provider.sourceContainer) ||
+    !Array.isArray(witness.composeFiles) ||
+    witness.composeFiles.length < 1 ||
+    witness.composeFiles.length > 16 ||
+    !witness.composeFiles.every(absolutePath) ||
+    !unique(witness.composeFiles) ||
+    !Array.isArray(witness.startupServices) ||
+    witness.startupServices.length < 1 ||
+    witness.startupServices.length > 64 ||
+    !witness.startupServices.every((service) => isReliabilityId(service) && service.length <= 64) ||
+    !unique(witness.startupServices) ||
+    !isReliabilityId(witness.primaryService) ||
+    witness.primaryService.length > 64 ||
+    !witness.startupServices.includes(witness.primaryService) ||
+    !Array.isArray(witness.retainedContainerIds) ||
+    witness.retainedContainerIds.length > 256 ||
+    !witness.retainedContainerIds.every(digest) ||
+    !unique(witness.retainedContainerIds)
+  )
+    throw new Error("Invalid capacity startup witness.");
+}
+
 function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdentity): void {
   keys(record, [
     "version",
@@ -229,7 +347,14 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     "effectSequence",
     "outcome",
     ...(record.version === 2
-      ? ["capacity", "enrollment", "activeProfile", "preparation", "phaseSettlement"]
+      ? [
+          "capacity",
+          "enrollment",
+          "activeProfile",
+          "preparation",
+          "phaseSettlement",
+          "startupWitness",
+        ]
       : []),
   ]);
   keys(record.identity, ["repoPath", "workspace", "provider"]);
@@ -403,6 +528,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
       throw new Error("Preparation receipt does not match a completed ensure operation.");
   }
   validateCapacityPhaseSettlement(record, state, record.enrollment);
+  validateStartupWitness(record, state, record.enrollment);
   const execSteady = record.capacity?.execSteady;
   if (execSteady !== undefined) {
     const enrollment = record.enrollment;
@@ -749,6 +875,51 @@ export function enrollStoppedLifecycle(
     record.activeProfile = null;
     record.state.executionPolicy = "capacity-managed";
     record.state.admission = "unknown";
+  });
+}
+
+/**
+ * Publish the bounded startup witness inside the journal transaction. The
+ * caller constructs the full evidence beforehand; this writer accepts the
+ * witness only while the live fence still matches the bound one and never
+ * replaces a witness bound to a different fence or operation.
+ */
+export function publishStartupWitness(
+  identity: ReliabilityIdentity,
+  witness: CapacityStartupWitness,
+): void {
+  updateReliabilityOperation(identity, (record) => {
+    if (record.version !== 2)
+      throw new Error("Startup witness requires durable capacity enrollment.");
+    const live = reliabilityFence(record.state);
+    if (
+      Object.entries(witness.fence).some(
+        ([key, value]) => value !== live[key as keyof ReliabilityFence],
+      )
+    )
+      throw new Error("Startup witness publication fence changed.");
+    if (
+      record.startupWitness &&
+      !isDeepStrictEqual(record.startupWitness, witness) &&
+      (record.startupWitness.operationId !== witness.operationId ||
+        !isDeepStrictEqual(record.startupWitness.fence, witness.fence))
+    )
+      throw new Error("Startup witness already exists for a different generation.");
+    record.startupWitness = structuredClone(witness);
+  });
+}
+
+/**
+ * Clear a superseded witness without leaving a stale generation behind. A
+ * different live fence is a failure, not an opportunity to forget evidence.
+ */
+export function clearStartupWitness(identity: ReliabilityIdentity, fence: ReliabilityFence): void {
+  updateReliabilityOperation(identity, (record) => {
+    if (record.startupWitness === undefined || record.startupWitness === null) return;
+    const live = reliabilityFence(record.state);
+    if (Object.entries(fence).some(([key, value]) => value !== live[key as keyof ReliabilityFence]))
+      throw new Error("Startup witness clearing fence changed.");
+    record.startupWitness = null;
   });
 }
 

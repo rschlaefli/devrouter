@@ -10,8 +10,11 @@ import {
   assertCapacityEffect,
   type CapacityExecSteady,
   type CapacityPhaseSettlement,
+  type CapacityStartupWitness,
+  clearStartupWitness,
   enrollStoppedLifecycle,
   listReliabilityOperations,
+  publishStartupWitness,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   type ReliabilityPreparationReceipt,
@@ -945,6 +948,172 @@ describe("durable reliability records", () => {
     const other = { ...identity, repoPath: path.join(identity.repoPath, "other") };
     expect(() => updateReliabilityOperation(other, async () => undefined)).toThrow();
     expect(readReliabilityOperation(other)).toBeUndefined();
+  });
+  +describe("capacity startup witness", () => {
+    function queuedManagedRecord() {
+      const before = stoppedRecord();
+      enrollStoppedLifecycle(identity, before.revision, enrollment);
+      updateReliabilityOperation(identity, (record) => {
+        record.state = stepReliability(
+          record.state,
+          {
+            ...reliabilityFence(record.state),
+            type: "operation-request",
+            kind: "ensure",
+            key: "startup-key",
+            operationId: "startup-operation",
+            profile: "full",
+            runtimeRunning: false,
+            consumer: { id: "synthetic", requiredCapabilities: [], pinned: false },
+          },
+          100,
+        ).state;
+      });
+      return readReliabilityOperation(identity)!;
+    }
+
+    function witness(record: ReliabilityOperationRecord): CapacityStartupWitness {
+      return {
+        operationId: record.state.operation!.id,
+        fence: reliabilityFence(record.state),
+        provider: {
+          id: enrollment.providerId,
+          context: "default",
+          uid: "1234567890123456",
+          sourceContainer: "",
+        },
+        profile: "full",
+        sourceConfigSha256: "b".repeat(64),
+        effectiveConfigSha256: "c".repeat(64),
+        composeFiles: ["/synthetic/repo/.devcontainer/compose.yml"],
+        primaryService: "app",
+        startupServices: ["app", "db"],
+        retainedContainerIds: [],
+      };
+    }
+
+    it("publishes a bounded witness on queued managed intent and round-trips it", () => {
+      const record = queuedManagedRecord();
+      publishStartupWitness(identity, witness(record));
+      const stored = readReliabilityOperation(identity)!;
+      expect(stored.startupWitness).toEqual(witness(record));
+      publishStartupWitness(identity, witness(record));
+    });
+
+    it("rejects a witness whose fence no longer matches live intent", () => {
+      const record = queuedManagedRecord();
+      const stale = {
+        ...witness(record),
+        fence: { ...reliabilityFence(record.state), intentRevision: 99 },
+      };
+      expect(() => publishStartupWitness(identity, stale)).toThrow("fence changed");
+      expect(readReliabilityOperation(identity)?.startupWitness ?? null).toBeNull();
+    });
+
+    it("rejects replacing a witness bound to a different generation", () => {
+      const record = queuedManagedRecord();
+      publishStartupWitness(identity, witness(record));
+      const competing = { ...witness(record), operationId: "competing-operation" };
+      expect(() => publishStartupWitness(identity, competing)).toThrow("different generation");
+      expect(readReliabilityOperation(identity)?.startupWitness?.operationId).toBe(
+        "startup-operation",
+      );
+    });
+
+    it("rejects malformed witnesses before persistence", () => {
+      const record = queuedManagedRecord();
+      const base = witness(record);
+      const cases: Array<[string, CapacityStartupWitness]> = [
+        ["provider-id", { ...base, provider: { ...base.provider, id: "other-provider" } }],
+        ["digest", { ...base, sourceConfigSha256: "not-a-digest" }],
+        ["primary-missing", { ...base, startupServices: ["db"] }],
+        ["duplicate-services", { ...base, startupServices: ["app", "app"] }],
+        ["retained-count", { ...base, retainedContainerIds: Array(257).fill("d".repeat(64)) }],
+        ["relative-compose", { ...base, composeFiles: ["relative/compose.yml"] }],
+        ["operation-mismatch", { ...base, operationId: "other-operation" }],
+      ];
+      for (const [name, candidate] of cases) {
+        expect(() => publishStartupWitness(identity, candidate), name).toThrow();
+      }
+      expect(readReliabilityOperation(identity)?.startupWitness ?? null).toBeNull();
+    });
+
+    it("rejects a witness without a current operation", () => {
+      const before = stoppedRecord();
+      enrollStoppedLifecycle(identity, before.revision, enrollment);
+      const enrolled = readReliabilityOperation(identity)!;
+      const floating: CapacityStartupWitness = {
+        operationId: "startup-operation",
+        fence: reliabilityFence(enrolled.state),
+        provider: {
+          id: enrollment.providerId,
+          context: "default",
+          uid: "",
+          sourceContainer: "",
+        },
+        profile: "full",
+        sourceConfigSha256: "b".repeat(64),
+        effectiveConfigSha256: "c".repeat(64),
+        composeFiles: ["/synthetic/repo/.devcontainer/compose.yml"],
+        primaryService: "app",
+        startupServices: ["app"],
+        retainedContainerIds: [],
+      };
+      expect(() => publishStartupWitness(identity, floating)).toThrow();
+      expect(readReliabilityOperation(identity)?.startupWitness ?? null).toBeNull();
+    });
+
+    it("clears a superseded witness and refuses fence drift while clearing", () => {
+      const record = queuedManagedRecord();
+      publishStartupWitness(identity, witness(record));
+      clearStartupWitness(identity, reliabilityFence(readReliabilityOperation(identity)!.state));
+      expect(readReliabilityOperation(identity)?.startupWitness ?? null).toBeNull();
+      clearStartupWitness(identity, {
+        ...reliabilityFence(readReliabilityOperation(identity)!.state),
+        intentRevision: 999,
+      });
+      publishStartupWitness(identity, witness(readReliabilityOperation(identity)!));
+      expect(() =>
+        clearStartupWitness(identity, {
+          ...reliabilityFence(readReliabilityOperation(identity)!.state),
+          intentRevision: 999,
+        }),
+      ).toThrow("clearing fence changed");
+      expect(readReliabilityOperation(identity)?.startupWitness).not.toBeNull();
+    });
+
+    it("rejects a witness field on a version1 manual journal", () => {
+      updateReliabilityOperation(identity, (record) => {
+        record.state.operationHistory.push({
+          id: "op",
+          kind: "exec",
+          drained: false,
+          status: "NOT_STARTED",
+          exitCode: null,
+          key: "key",
+          profile: "full",
+          consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+        });
+        record.state.operation = {
+          id: "op",
+          kind: "exec",
+          drained: false,
+          status: "NOT_STARTED",
+          exitCode: null,
+        };
+      });
+      const manual = readReliabilityOperation(identity)!;
+      const candidate = {
+        ...witness(manual),
+        provider: { id: enrollment.providerId, context: "", uid: "", sourceContainer: "" },
+        operationId: "op",
+      };
+      expect(() =>
+        updateReliabilityOperation(identity, (record) => {
+          record.startupWitness = candidate;
+        }),
+      ).toThrow();
+    });
   });
 });
 
