@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
   provider: "devsy" as "devsy" | "devpod",
   daemon: "daemon",
   policyPresent: true,
+  networkPresent: true,
 }));
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn(() => ({ status: 0 })) }));
 vi.mock("../network-claim-lookup", () => ({
@@ -78,19 +79,20 @@ vi.mock("../network-inventory", () => ({
     endpoint: "unix:///tmp/synthetic.sock",
     daemonId: state.daemon,
     pools: [],
-    networks: state.registration
-      ? [
-          {
-            id: "a".repeat(64),
-            driver: "bridge",
-            subnets: [state.subnet],
-            composeProject: "synthetic",
-            composeNetwork: "default",
-            retainedContainerIds: ["b".repeat(64)],
-            activeEndpoints: 1,
-          },
-        ]
-      : [],
+    networks:
+      state.registration && state.networkPresent
+        ? [
+            {
+              id: "a".repeat(64),
+              driver: "bridge",
+              subnets: [state.subnet],
+              composeProject: "synthetic",
+              composeNetwork: "default",
+              retainedContainerIds: ["b".repeat(64)],
+              activeEndpoints: 1,
+            },
+          ]
+        : [],
     reasons: [],
   }),
 }));
@@ -172,6 +174,7 @@ beforeEach(() => {
     events: [],
     daemon: "daemon",
     policyPresent: true,
+    networkPresent: true,
     provider: "devsy",
   });
   state.root = fs.mkdtempSync(path.join(os.tmpdir(), "network-flow-"));
@@ -272,6 +275,18 @@ describe("managed network preparation and recovery", () => {
     expect(() => resumed.prepare("synthetic")).toThrow();
     expect(state.saved).toBe(retained);
     expect(reserveNetworkClaim).toHaveBeenCalledTimes(1);
+  });
+  it("retains the attached claim when its network disappears before resume", () => {
+    const first = fixture();
+    first.providerStart();
+    first.session.prove("synthetic", "b".repeat(64));
+    const retained = state.saved;
+    state.networkPresent = false;
+    const resumed = fixture();
+    expect(() => resumed.session.prepare("synthetic")).toThrow();
+    expect(state.saved).toBe(retained);
+    expect(reserveNetworkClaim).toHaveBeenCalledTimes(1);
+    expect(state.registration).toBe(true);
   });
   it("withholds attachment when a foreign route appears after provider startup", () => {
     const f = fixture();
