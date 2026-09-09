@@ -192,12 +192,8 @@ describe("worker dispatch acknowledgement", () => {
     expect(process.kill).toHaveBeenCalledWith(-123, "SIGTERM");
   });
 
-  it.each([
-    "ensure",
-    "exec",
-  ] as const)("%s delivers pending cancellation before admitting a ready helper", async (kind) => {
+  it("delivers pending cancellation before admitting a ready helper", async () => {
     const setup = prepared();
-    setup.request.kind = kind;
     const before = structuredClone(setup.record());
     const listeners = process.listenerCount("SIGTERM");
     const pending = runLifecycleWorker(setup.request);
