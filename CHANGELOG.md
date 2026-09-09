@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.63] - 2026-09-09
+
+### Fixed
+
+- Wait for healthy lifecycle workers before canonical tooling execution without
+  restarting the retained runtime or replaying uncertain commands.
+- Complete stop for a linked Devsy workspace whose saved baseline proves its
+  registration and original containers absent. Revalidate exact ownership and
+  daemon identity, remove only its routes, and preserve retained history.
+  Accept Docker's single empty line only with the exact missing-container error;
+  tolerate an uninstalled competing DevPod executable only for spawn ENOENT.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.63.md
+
 ## [0.0.62] - 2026-09-09
 
 ### Fixed
