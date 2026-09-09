@@ -439,6 +439,12 @@ on retries, and permits ordinary ensure after stop settles. Partial absence,
 unknown evidence, primary checkouts and records without baselines do not use this
 recovery path.
 
+The absent-runtime stop path requires provider selection to remain Devsy. If a
+missing registration makes a mixed-provider machine resolve the checkout to DevPod,
+this package does not override that selection or migrate its lifecycle identity.
+Use the existing explicit runtime selection only when Devsy is the intended
+provider; provider selection changes remain outside this recovery proof.
+
 Startup requires this complete ownership proof before launching the selected
 application and publishing its routes. Unexpected project members, including
 leftover one-off containers or removed services, leave startup unverified; they

@@ -8,11 +8,16 @@ import {
   stopOwnedDevpodWorkspace,
 } from "../devpod-mutation";
 import { listDevpodWorkspaces, listDevpodWorkspacesFromSnapshots } from "../devpod-workspaces";
+import { withMutationLock as withDevsyMutationLock } from "../devsy-mutation";
 import { readManagedRuntimeState } from "../managed-runtime-state";
 import { proveManagedStop } from "../managed-stop-recovery";
 import { superviseLifecycle } from "../reliability-lifecycle";
 import { loadRuntimeConfig } from "../repo-config";
-import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
+import {
+  listRoutesForWorktreePath,
+  listRoutesForWorktreePaths,
+  removeWorkspaceRoutesForWorktree,
+} from "../route-state";
 import { ensureTraefikRoutesRemoved } from "../traefik-route-health";
 import {
   resolveWorktreeWorkspace,
@@ -48,7 +53,7 @@ vi.mock("../reliability-lifecycle", () => ({
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 vi.mock("../devsy-mutation", () => ({
-  withMutationLock: (_a: string, _b: string, operation: () => unknown) => operation(),
+  withMutationLock: vi.fn((_a: string, _b: string, operation: () => unknown) => operation()),
 }));
 vi.mock("../managed-stop-recovery", () => ({
   proveManagedStop: vi.fn(() => ({ status: "proven-absent", containers: [] })),
@@ -166,6 +171,14 @@ locked maintenance
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  vi.mocked(removeWorkspaceRoutesForWorktree).mockReset().mockReturnValue([]);
+  vi.mocked(listRoutesForWorktreePath).mockReset().mockReturnValue([]);
+  vi.mocked(proveManagedStop)
+    .mockReset()
+    .mockReturnValue({ status: "proven-absent", containers: [] });
+  vi.mocked(withDevsyMutationLock)
+    .mockReset()
+    .mockImplementation((_a, _b, operation) => operation());
   vi.mocked(readManagedRuntimeState).mockReset();
   stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   vi.mocked(ensureTraefikRoutesRemoved).mockResolvedValue({ restarted: false });
@@ -580,6 +593,24 @@ describe("workspaceStop", () => {
       stopBaseline: { version: 1 },
       desired: { apps: ["web"] },
     } as never);
+    let locked = false;
+    vi.mocked(withDevsyMutationLock).mockImplementation((_a, _b, operation) => {
+      locked = true;
+      try {
+        return operation();
+      } finally {
+        locked = false;
+      }
+    });
+    vi.mocked(proveManagedStop).mockImplementation(() => {
+      expect(locked).toBe(true);
+      return { status: "proven-absent", containers: [] };
+    });
+    vi.mocked(removeWorkspaceRoutesForWorktree).mockImplementation(() => {
+      expect(locked).toBe(true);
+      expect(proveManagedStop).toHaveBeenCalled();
+      return [];
+    });
     vi.mocked(ensureTraefikRoutesRemoved).mockRejectedValueOnce(new Error("unload failed"));
     await expect(workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true })).rejects.toThrow(
       "unload failed",
@@ -593,6 +624,27 @@ describe("workspaceStop", () => {
       { repoPath: "/main/repo-feat-a", name: "web", protocol: "tcp" },
     ]);
     expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("preserves routes outside the retained desired set", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "proven-absent" });
+    vi.mocked(proveManagedStop).mockReturnValue({ status: "proven-absent", containers: [] });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      repoPath: "/main/repo-feat-a",
+      stopBaseline: { version: 1 },
+      desired: { apps: ["web"] },
+    } as never);
+    vi.mocked(listRoutesForWorktreePath).mockReturnValue([
+      { repoPath: "/main/repo-feat-a", workspace: "feat-a", name: "unrecorded" },
+    ] as never);
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true })).rejects.toThrow(
+      "outside the retained desired set",
+    );
+    expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
+    expect(ensureTraefikRoutesRemoved).not.toHaveBeenCalled();
   });
 
   it("stops the ledger owner for an exact path despite a colliding branch name", async () => {

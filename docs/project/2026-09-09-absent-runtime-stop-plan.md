@@ -117,3 +117,23 @@ sandbox prevented from reading its own process identity. A scoped host rerun pas
 all 13 provider-mutation tests. Source checks use the existing shared Node/pnpm
 installation because this repository has no root devcontainer or service dependency
 for these tests. No consumer runtime has been modified by this package.
+
+The absent-runtime stop path requires provider selection to remain Devsy. If a
+missing registration makes a mixed-provider machine resolve the checkout to DevPod,
+this package does not override that selection or migrate its lifecycle identity.
+Use the existing explicit runtime selection only when Devsy is the intended
+provider; provider selection changes remain outside this recovery proof.
+
+### Slice review disposition
+
+The slice reviewer found that missing registration can make a mixed-provider
+machine select DevPod. Verified as a retained selection boundary: recovery requires
+Devsy selection and does not override the provider or migrate lifecycle identity.
+The manual now states that limitation. A provider-selection recovery design remains
+separate; this package makes no universal mixed-fleet recovery claim.
+
+Accepted the test gap: regression checks now assert provider-lock ownership during
+proof and route removal, and reject routes outside the saved desired app set before
+cleanup. All36 workspace-lifecycle tests and typecheck pass after those additions.
+Full1354-test evidence and packed lifecycle qualification on clean d8a81d3 remain
+applicable because this follow-up changes tests and scope documentation only.
