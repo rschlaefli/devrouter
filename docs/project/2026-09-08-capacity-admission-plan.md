@@ -2252,6 +2252,10 @@ runtime-domain sample still blocks renewal. The reviewer found no authority
 leak, stale-witness reuse, foreign-residual bypass, duplicate-service bypass,
 or residual record-poisoning case.
 
+The dedicated simplifier pass is deferred: three dispatch attempts returned
+route rate limits (429). The simplifier gate is not a correctness or readiness
+gate; it will run when the route recovers.
+
 Dogfood evidence for released v0.0.66 from the Doc Query consumer thread: the
 replacement-registration stop fix is verified in the field (canonical stop
 returned stopped=true); one ensure hang was diagnosed as an application-level
