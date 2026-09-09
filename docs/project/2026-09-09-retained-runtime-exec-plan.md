@@ -89,3 +89,14 @@ plain docker command; it never redirects custom commands or an Apple provider.
 Capture and revalidation repeat this qualification. Unsupported recovery stays
 blocked while ordinary exec behavior is unchanged. Configuration is never written
 or returned in error output. Final review must include this provider-data boundary.
+
+
+Final source at 6f1a37f passes 1297 unit tests in 92 files and clean packed CLI
+qualification (dirty=false), including retained tooling access and no replay.
+TypeScript, Biome, Knip, documentation policy, knowledge, package distribution smoke
+and hooks pass. Simplifier finds no useful reduction. Slice reviewer verifies the
+provider correction; main closes its schema-spelling question against Devsy 1.16.2
+ProviderConfig JSON tags and SaveProviderConfig JSON serialization. Advisor's
+runtime-alignment finding is resolved by qualification, without changing provider
+configuration. Synthetic receipts and reviews are in docs/project/_local/reviews.
+Integrated final review and draft PR/CI are the remaining delivery steps.
