@@ -601,10 +601,7 @@ function hasExactManagedStopMissingObjectError(stderr: unknown, id: string): boo
     : stderr.endsWith("\n")
       ? stderr.slice(0, -1)
       : stderr;
-  return (
-    /^error: no such object: [0-9a-f]{64}$/i.test(line) &&
-    line.toLowerCase() === `error: no such object: ${id}`
-  );
+  return line.toLowerCase() === `error: no such object: ${id}`;
 }
 
 export function assertManagedStopContainersAbsent(endpoint: string, ids: string[]): void {
