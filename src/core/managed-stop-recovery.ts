@@ -232,7 +232,10 @@ function absentRegistrationIdentity(state: ManagedRuntimeState) {
       "present"
   )
     throw new Error("Absent stop workspace ownership changed.");
-  for (const entries of [listDevsyWorkspaces(), listDevpodWorkspacesRaw()]) {
+  for (const entries of [
+    listDevsyWorkspaces(),
+    listDevpodWorkspacesRaw({ allowMissingExecutable: true }),
+  ]) {
     if (
       entries.some(
         (entry) =>

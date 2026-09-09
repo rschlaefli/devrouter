@@ -137,3 +137,18 @@ proof and route removal, and reject routes outside the saved desired app set bef
 cleanup. All36 workspace-lifecycle tests and typecheck pass after those additions.
 Full1354-test evidence and packed lifecycle qualification on clean d8a81d3 remain
 applicable because this follow-up changes tests and scope documentation only.
+
+### Canary correction: optional competing executable
+
+The first reviewed consumer stop waited for the existing provider lock, then failed
+because raw competing DevPod enumeration required an uninstalled executable even
+with explicit Devsy selection. No ensure followed. The consumer owner preserved
+source integration and runtime records. This is failed live qualification, not
+successful recovery.
+
+The correction permits only a spawn ENOENT for the optional competing DevPod
+executable, matching the existing installed-provider registry model. Ordinary
+DevPod callers remain strict; permission, timeout, command failure and malformed
+registry responses are not absence. All pinned saved-runtime, ownership, generation
+and live-route checks remain required. The62 affected tests and typecheck pass.
+A focused continuation of the integrated review precedes a new consumer attempt.

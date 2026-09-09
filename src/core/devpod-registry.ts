@@ -12,13 +12,21 @@ export type DevpodWorkspace = {
 /**
  * Raw DevPod registry read without any workspace-runtime dispatch. Runtime
  * resolution imports this leaf directly so it can inspect both registries
- * without a circular dependency on the dispatching adapter.
+ * without a circular dependency on the dispatching adapter. Optional competing-provider
+ * inspection may ignore an uninstalled CLI; an installed but unreadable registry still fails.
  */
-export function listDevpodWorkspacesRaw(): DevpodWorkspace[] {
+export function listDevpodWorkspacesRaw(
+  options: { allowMissingExecutable?: boolean } = {},
+): DevpodWorkspace[] {
   const result = spawnSync("devpod", ["list", "--output", "json", "--skip-pro"], {
     encoding: "utf-8",
   });
-  if (result.status !== 0) {
+  if (
+    options.allowMissingExecutable &&
+    (result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
+  )
+    return [];
+  if (result.error || result.status !== 0) {
     const details = [result.error?.message, result.stdout, result.stderr]
       .filter(Boolean)
       .join("\n")

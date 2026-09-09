@@ -432,7 +432,9 @@ members prevent successful stop proof; stopped provider status alone is insuffic
 For a ledger-owned linked checkout whose registration has disappeared, a valid
 saved baseline also allows stop when every saved container is positively absent
 on the same daemon. Both provider registries must remain clear of that exact ID
-and path, Git ownership must remain present, and project, directory and runner
+and path among installed providers. An uninstalled competing DevPod executable
+is optional; permission, transport and registry errors remain failures. Git
+ownership must remain present, and project, directory and runner
 populations must be empty. This performs no provider or container mutation. It
 preserves the baseline and interrupted history, verifies live route removal even
 on retries, and permits ordinary ensure after stop settles. Partial absence,

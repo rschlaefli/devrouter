@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagedDevcontainerPlan } from "../devcontainer-profile";
 import * as docker from "../devpod-environment";
+import { listDevpodWorkspacesRaw } from "../devpod-registry";
 import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
 import {
   type ManagedRuntimeState,
@@ -53,7 +54,9 @@ vi.mock("../devsy-workspaces", async (original) => ({
   ...(await original<typeof import("../devsy-workspaces")>()),
   listDevsyWorkspaces: () => (fixture.missing ? [] : [fixture.owner]),
 }));
-vi.mock("../devpod-registry", () => ({ listDevpodWorkspacesRaw: () => fixture.competitors }));
+vi.mock("../devpod-registry", () => ({
+  listDevpodWorkspacesRaw: vi.fn(() => fixture.competitors),
+}));
 vi.mock("../workspace-runtime", () => ({
   resetWorkspaceRuntimeCaches: vi.fn(),
   resolveWorkspaceRuntimeOrDefault: () => fixture.provider,
@@ -106,6 +109,7 @@ beforeEach(() => {
   fixture.competitors = [];
   fixture.ownership = "present";
   vi.mocked(docker.inspectProviderRunnerContainers).mockReturnValue([]);
+  vi.mocked(listDevpodWorkspacesRaw).mockImplementation(() => fixture.competitors);
   state = {
     version: 1,
     repoPath: "/synthetic/repo",
@@ -366,6 +370,7 @@ describe("baseline-backed missing registration", () => {
     absent();
     expect(proveManagedStop(state)).toEqual({ status: "proven-absent", containers: [] });
     expect(stopFromManagedBaseline(state)).toBe("proven-absent");
+    expect(listDevpodWorkspacesRaw).toHaveBeenCalledWith({ allowMissingExecutable: true });
     expect(docker.assertManagedStopContainersAbsent).toHaveBeenCalledWith(
       endpoint,
       state.stopBaseline!.containers.map((c) => c.id),
