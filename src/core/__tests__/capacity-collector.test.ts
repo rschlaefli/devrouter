@@ -54,3 +54,54 @@ it("rejects cancellation rather than publishing partial domains", async () => {
   await expect(collectCapacityDomains(policy, cancellation.signal, dependencies)).rejects.toThrow();
   expect(ownership).not.toHaveBeenCalled();
 });
+
+it("bounds provider resolution and retains usable independent domains after timeout", async () => {
+  vi.useFakeTimers();
+  try {
+    const policy = {
+      domains: { guest: { kind: "runtime" }, host: { kind: "host" } },
+    } as unknown as CapacityPolicy;
+    const sample = {
+      sampledAtMs: Date.now(),
+      pressure: "normal" as const,
+      unmanagedBytes: 10,
+      sharedBytes: 0,
+      ownedBytes: {},
+    };
+    let drained = false;
+    const runtime = vi.fn();
+    const dependencies = {
+      ownership: vi.fn(
+        (_policy: CapacityPolicy, _id: string, signal: AbortSignal) =>
+          new Promise<
+            Awaited<
+              ReturnType<typeof import("../capacity-ownership-resolver").resolveCapacityOwnership>
+            >
+          >((_resolve, reject) =>
+            signal.addEventListener(
+              "abort",
+              () => {
+                drained = true;
+                reject(new Error("cancelled"));
+              },
+              { once: true },
+            ),
+          ),
+      ),
+      host: vi.fn(async () => {
+        expect(drained).toBe(true);
+        return sample;
+      }),
+      runtime,
+    };
+    const pending = collectCapacityDomains(policy, new AbortController().signal, dependencies);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await pending;
+    expect(result.guest.pressure).toBe("unknown");
+    expect(result.host).toEqual(sample);
+    expect(runtime).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
