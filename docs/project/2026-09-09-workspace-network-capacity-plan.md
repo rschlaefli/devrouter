@@ -467,3 +467,175 @@ coordination, integration and final proof. Binding, precedence and minimum
 recovery extend slice 2; restart and configuration-preservation faults extend
 slice 3. This creates no new user task or PR boundary. Carry the accepted text into
 the durable execution plan before dependent implementation.
+
+### Allocation execution checkpoint
+
+Diagnostic corrections committed as `0c3ad91`. Risk reviewer closed the three
+accepted findings; minor IPv6-pool and malformed-IPv6 coverage follow-ups are now
+implemented and await the next slice verification. Simplification removed 35 net
+lines without changing the report contract.
+
+User approved the scoped persistent-binding amendment. Policy parser passes 18
+synthetic tests. New repository network requests reject pool/daemon authority.
+Provider start callbacks now prepare network state under the existing provider
+lock, pass the exact endpoint option only for managed allocation, and preserve
+uncertain claims after provider failures. These callbacks are not connected to
+live ensure yet. Stop-path edits remain withheld pending peer coordination.
+Existing owner published its stop-only changes as draft
+[PR #70: absent runtime stop recovery](https://github.com/rschlaefli/devrouter/pull/70),
+head `c221b50`, not merged. This branch does not depend on that unmerged change.
+
+Executor Raman owns pure Compose eligibility/demand/overlay. Executor Lorentz
+owns fenced claim persistence and synthetic cross-process races. Main owns policy
+and lifecycle integration, provider qualification, route evidence and final proof.
+Linux route fixtures exist; virtualized route evidence remains unknown. No source
+helper constitutes real-provider qualification. All real-network effects remain
+outside authority; no network policy or provider setting has been activated.
+
+### Persistent binding continuation checkpoint
+
+Remote refresh: branch has three commits ahead and zero behind `origin/main`;
+ongoing allocation edits remain uncommitted. User approval of persistent binding
+remains active. The existing owner accepts an optional scoped effect guard after
+the lifecycle fence claim, with no recursion, reverse locks, or leakage outside
+ensure. Proven-absent stops and baseline-pinned retained stops must bypass current
+provider configuration. Exact provider-effect stop guards remain to be connected.
+
+Main added explicit Docker provider and provider context selection, local-only
+persisted endpoint proof, qualified Docker elevation/install shape, scoped
+child-process environment helpers, Compose file preparation, and draft network
+session integration. None of this is connected to workspace ensure yet. The
+network session draft still needs exact connected-bridge proof, all-container
+ownership postconditions, policy drift/exclusion handling, source fingerprint
+coverage, cleanup guards, and end-to-end synthetic fixture proof before activation
+in source. Do not mistake typecheck for completion or publish this draft.
+
+Raman completed the pure Compose model and 13 tests; main verified those tests
+and two generated-file preservation/tampering cases. Provider evidence/binding
+checks pass nine tests. Scoped environment and existing post-start/container
+checks pass 70 tests. The process-lock test passes outside the sandbox with
+fake providers; sandbox process identity failure is an environment limitation.
+Lorentz retains claim-store ownership until terminal completion. No real runtime
+was started, stopped, migrated or deleted. No policy or live binding was written.
+
+A failing test assertion exposed inherited environment credentials in tool output.
+The user was notified to rotate the affected credential, without repeating it.
+The temporary log was redacted and no such data belongs in Git artifacts.
+Keep future failing assertion output values-free.
+
+### Ensure integration checkpoint
+
+Both executors completed and were closed. Main independently verified the eight
+claim tests, including the synthetic multi-process race. The allocator session is
+now connected to managed ensure; the prior “not connected” checkpoint is historical.
+Generic provider effects check saved context/definition/daemon at the actual effect
+boundary. Retained baseline callbacks keep their pre-existing pinned authority and
+do not acquire current-binding gates. The owner approved this separation.
+
+The integration uses AsyncLocalStorage and explicit child environment options,
+not ambient process.env mutation. Existing ensure/provider tests pass 154 cases.
+Pure network checks passed 81 cases before the latest connected-route and policy
+drift changes; those affected checks must be reused or rerun by content. One
+additional synthetic Linux procfs fixture qualifies local dockerd/socket/network
+namespace correspondence; unreadable or virtualized evidence stays unknown.
+
+Remaining mandatory source work: add full opted-in ensure/provider fixture proof
+with actual overlay parsing, prove no-effect recovery and binding-only failure,
+finish retained endpoint demand and race/route revalidation, make claimed state
+visible in diagnostics, update owning manuals/ADR, simplify and review the complete
+slice, then package verification and final review before ordinary push/draft PR.
+No runtime experiment, live policy activation, package installation into active
+toolchain, deletion, merge or release is authorized by this checkpoint.
+
+### Flow-fixture continuation
+
+The preceding goal turn made source progress. Seven new managed-network flow
+fixtures pass: both provider argument paths consume the actual generated overlay;
+reservation precedes effective configuration; binding-only failure is retained;
+new route conflict blocks dispatch; resume reuses the exact subnet/network;
+post-start route conflict prevents attachment; daemon replacement blocks later
+effects. These use synthetic provider evidence and are not real provider execution.
+Three effect-scope tests include detached continuation rejection after ensure exits.
+Typecheck and diff checks pass. Cross-daemon lookup now uses a bounded no-follow
+read and suppresses malformed-file content in error output.
+
+Fresh remote signal: the lifecycle owner's stop-recovery package is merged into
+`origin/main` at `611ddbf`. Network branch is three ahead and one behind. The
+changes overlap mutation wrappers, environment inspection and tests; integrate
+once after a coherent scoped commit, preserving historical baseline recovery.
+No integration or protected-branch write has happened in this checkpoint.
+
+OrbStack read-only qualification discovery: installed `orbctl docker --help`
+exposes migration and volume extensions, not a Docker VM route command; `orbctl run`
+targets Linux machines and cannot be assumed to inspect the Docker daemon namespace.
+Do not run a default machine command as guest-route evidence. A candidate isolated
+probe uses a separately approved disposable container on Docker's host network,
+with a pinned already-present image containing `ip`, read-only filesystem, dropped
+capabilities, no mounts, no ports and static bounded route/interface reads. Its
+creation is a runtime experiment and remains unauthorized here. Before proposing
+exact execution, qualify OrbStack host-network semantics from official docs and
+Docker inspect evidence, name image digest, container name, daemon endpoint,
+read-only commands and exact removal effect; compare guest evidence with bounded
+macOS host route/interface snapshots. Never use another task's runtime as the probe.
+
+Official documentation retrieved through Context7 confirms the candidate premise:
+[OrbStack host networking](https://docs.orbstack.dev/docker/host-networking) says
+host-network containers share the host network namespace; the
+[architecture](https://docs.orbstack.dev/architecture) places Docker Engine in
+the OrbStack VM and forwards its socket to macOS. This supports designing a probe;
+it does not prove the installed version/image/namespace or authorize its creation.
+
+### Retained identity and diagnostics continuation
+
+Main corrected a concrete resume defect: exact Compose ownership now includes the
+derived network overlay before retained-container proof. The flow fixtures use the
+real Compose identity predicate instead of an unconditional stub. Removing managed
+repository configuration, requesting unqualified repair, or retaining an unresolved
+claim cannot bypass the claim before host preparation. Malformed YAML diagnostics
+are values-free. Connected-route exemption now matches the actual bridge type,
+gateway and prefix as well as Docker network identity. Scoped Dockerode and router
+Compose calls retain the saved endpoint without changing ambient selectors.
+
+Focused verification: 119 configuration/ensure/file tests passed; seven flow tests
+passed with real Compose identity; ten bridge/route tests passed; two Docker client
+tests passed. A broad focused run passed 280 cases but could not run nine process-
+identity/serialization cases inside the sandbox. The affected process suites passed
+all 22 cases outside the sandbox with synthetic providers and temporary state.
+After the final fixture correction, the bridge/flow/client group passed 16 cases.
+These are source tests, not runtime or installed-provider proof.
+
+Executor Franklin owns only the pure policy/claim diagnostic report and its tests;
+main owns its caller integration. This is ordinary source delegation, not review.
+The refreshed baseline remains `origin/main` at `611ddbf`; the task branch is
+three ahead and one behind with uncommitted allocation changes. Main still must
+complete executable no-effect reconciliation, full provider/ensure qualification,
+diagnostic integration, target integration and the required review/delivery gates.
+The goal remains active. No live policy, binding, network or runtime changed.
+
+No-effect recovery is now connected before ensure preparation. Under the retained
+provider lock it requires a new current lifecycle worker, drained historical
+operation, exact ownership and matching policy/daemon, no workspace-local provider
+binding or registration, no overlapping Docker network and no owned containers.
+It releases reservation metadata only through the existing claim-store compare
+and swap. Binding-only failures still retain their claims. Seven recovery fixtures
+and the existing ensure/lifecycle group passed 123 cases; a further current-worker
+settlement fixture passes. The prior pending-recovery note is historical.
+
+Doctor and cleanup now include pure policy diagnostics and preserve an unreadable
+claim store as unknown. Adapter integration passed 45 existing tests plus two new
+failure/structured-capacity fixtures. The network suite passed 125 tests before
+the recovery addition. Typecheck and repository formatting pass after recovery.
+Full source tests, build and Knip are running; executor Franklin remains active
+until its terminal result is independently accepted. Target integration remains
+pending; peer reports release source at `7de37e6` with no network changes, and owns
+the active-worker ensure follow-up and its retained runtime verification.
+
+Full source validation passed: 114 Vitest files, 1,461 tests. Linux process-helper
+tests explicitly skip on this macOS host. Build, Knip, formatting, docs-policy,
+knowledge validation and isolated packed-CLI smoke pass. The diagnostics executor
+returned terminal DONE after fixing its final type error; main verified typecheck
+and the focused report/adapter tests. No review gate is implied by executor success.
+The refreshed target is `7de37e663715288189fe384f082c38335502ba8d`; this branch is
+three ahead and two behind before its allocation commit. The next gate is the
+parallel simplifier and risk reviewer on the immutable allocation slice, then
+source integration and full provider/package qualification before final review.

@@ -162,6 +162,46 @@ network — **no host port**. devrouter demuxes by hostname: `Host()` for HTTP,
 `HostSNI()` (TLS SNI) for TCP. So N apps + their databases all share `:443` /
 `:5432` / `:6379`, separated by hostname.
 
+### Managed workspace network allocation
+
+New linked Compose workspaces can reserve a private default-network subnet from
+an operator-owned `network-policy.json` under the Devrouter home directory.
+Without that policy, allocation keeps its existing behavior. Existing provider
+registrations and custom networks remain unchanged when a policy is added.
+Compose continues to own network creation; Devrouter never pre-creates an external
+replacement for the private default network. Shared `devnet` remains external.
+
+Eligible allocations default to `/26`. The policy can permit `/25` and `/24`
+requests through `managedRuntime.network.prefixLength` in `.devrouter.yml`.
+A `/26` provides 53 endpoints after network, broadcast, gateway and the default
+eight-address reserve. Admission includes the full service/profile union and
+recreation headroom. `managedRuntime.network.endpointUpperBound` declares a
+full-lifecycle bound when replicas or other endpoint demand cannot be derived;
+it cannot reduce an observed lower bound. Repository configuration cannot choose
+machine pools, exclusions or daemon identity.
+
+The machine policy has version `1`, a required `daemonId`, canonical private IPv4
+`pools`, `exclusions` within those pools, `allowedPrefixes`, and an optional
+`endpointReserve`. Pool selection is operator-specific: no subnet is universally
+safe across Docker, LAN and VPN routes. Complete route and daemon evidence is
+required before allocation. Local Linux qualification checks that the Docker
+socket belongs to a daemon in the caller's network namespace. OrbStack and other
+virtualized contexts remain diagnostics-only until guest-route evidence is
+qualified. A host socket alone does not establish route visibility.
+
+The qualified Devsy and DevPod startup paths persist the exact Docker endpoint
+only in the newly allocated workspace's provider options. Later effects verify
+the saved provider context, definition and daemon. Endpoint drift, an uncertain
+start, a missing retained network, or a changed requested prefix requires
+reconciliation; ensure does not silently rebind, recreate or resize the network.
+Stopping retains its subnet and claim. Removing policy does not remove those
+records or grant cleanup authority. Zero active endpoints does not mean a
+network is unused: stopped containers can retain references.
+
+The generated network overlay must be ignored by Git. Native Compose and Dev
+Container files remain unchanged. Explicit default-network names, IPAM, custom
+drivers and multiple private networks are outside managed allocation support.
+
 ## 1. Join the devcontainer services to `devnet`
 
 In `.devcontainer/docker-compose.yml`, attach each routable service to the

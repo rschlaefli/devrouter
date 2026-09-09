@@ -180,6 +180,10 @@ export type DevrouterConfig = {
 };
 
 export type DevrouterManagedRuntime = {
+  network?: {
+    prefixLength?: 24 | 25 | 26;
+    endpointUpperBound?: number;
+  };
   devcontainer: {
     // Services that remain active for every managed profile.
     baseServices: string[];

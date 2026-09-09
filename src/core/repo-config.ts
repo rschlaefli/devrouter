@@ -650,7 +650,39 @@ function parseManagedRuntime(
   }
 
   const managedRuntime = ensureObject(value, `${configPath}.managedRuntime`);
-  ensureAllowedKeys(managedRuntime, ["devcontainer", "processes"], `${configPath}.managedRuntime`);
+  ensureAllowedKeys(
+    managedRuntime,
+    ["devcontainer", "processes", "network"],
+    `${configPath}.managedRuntime`,
+  );
+  let network: DevrouterManagedRuntime["network"];
+  if (managedRuntime.network !== undefined) {
+    const value = ensureObject(managedRuntime.network, `${configPath}.managedRuntime.network`);
+    ensureAllowedKeys(
+      value,
+      ["prefixLength", "endpointUpperBound"],
+      `${configPath}.managedRuntime.network`,
+    );
+    if (value.prefixLength !== undefined && ![24, 25, 26].includes(value.prefixLength as number))
+      throw new Error("managedRuntime.network.prefixLength must be 24, 25 or 26.");
+    if (
+      value.endpointUpperBound !== undefined &&
+      (!Number.isSafeInteger(value.endpointUpperBound) ||
+        (value.endpointUpperBound as number) < 1 ||
+        (value.endpointUpperBound as number) > 253)
+    )
+      throw new Error(
+        "managedRuntime.network.endpointUpperBound must be an integer from 1 to 253.",
+      );
+    network = {
+      ...(value.prefixLength !== undefined
+        ? { prefixLength: value.prefixLength as 24 | 25 | 26 }
+        : {}),
+      ...(value.endpointUpperBound !== undefined
+        ? { endpointUpperBound: value.endpointUpperBound as number }
+        : {}),
+    };
+  }
 
   const devcontainer = ensureObject(
     managedRuntime.devcontainer,
@@ -695,6 +727,7 @@ function parseManagedRuntime(
   }
 
   return {
+    ...(network ? { network } : {}),
     devcontainer: {
       baseServices,
       profileServices,

@@ -7,6 +7,7 @@ import type { DevrouterConfig, DevrouterProfile } from "../types";
 import { writeFileAtomically } from "./atomic-file";
 import { readDevcontainerConfig } from "./devcontainer-config";
 import type { WorkspaceContainerSnapshot } from "./devpod-environment";
+import { networkDockerEnvironment, networkDockerOptions } from "./network-effect-scope";
 import { assertPathWithinRepo } from "./paths";
 import { sameWorkspacePath } from "./workspace";
 
@@ -348,7 +349,7 @@ export function managedComposeEnvironment(workspace?: {
   token: string;
   gitCommonDir: string;
 }): NodeJS.ProcessEnv {
-  const env = { ...process.env };
+  const env = { ...networkDockerEnvironment() };
   if (workspace) {
     env.WORKSPACE = workspace.token;
     env.DEVROUTER_WORKSPACE = workspace.token;
@@ -527,6 +528,7 @@ export function stopExactManagedService(
 ): void {
   assertSafeContainerId(containerId);
   const result = spawnSync("docker", ["stop", containerId], {
+    ...networkDockerOptions(),
     encoding: "utf-8",
     stdio: "inherit",
     ...(options ? { timeout: options.timeoutMs } : {}),

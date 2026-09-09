@@ -226,6 +226,60 @@ describe("Devsy mutation adapter", () => {
 });
 
 describe("startDevsyWorkspace", () => {
+  it("prepares a pinned allocation before dispatch and retains an uncertain failure", async () => {
+    vi.mocked(spawnSync).mockReturnValue(listResult());
+    const retainUncertain = vi.fn();
+    const binding = {
+      provider: "devsy" as const,
+      providerId: "feature",
+      endpoint: "unix:///tmp/synthetic.sock",
+      daemonId: "daemon",
+      definitionSha256: "a".repeat(64),
+      providerContext: "default",
+    };
+    const prepareNetwork = vi.fn(() => {
+      expect(spawn).not.toHaveBeenCalled();
+      return {
+        binding,
+        evidence: {
+          ...binding,
+          versionQualified: true,
+          providerName: "docker",
+          dockerPath: "docker",
+          persistedEndpoint: null,
+          persistedContext: null,
+          registration: "absent" as const,
+        },
+        firstAllocation: true,
+        devcontainerPath: ".devcontainer/network.json",
+        retainUncertain,
+      };
+    });
+    mockDevsyUp({ status: 1 });
+    await expect(
+      startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature", prepareNetwork }),
+    ).rejects.toThrow(DevsyStartPostconditionError);
+    expect(prepareNetwork).toHaveBeenCalledWith("feature");
+    expect(retainUncertain).toHaveBeenCalledOnce();
+    const args = vi.mocked(spawn).mock.calls[0][1] as string[];
+    expect(args).toContain("DOCKER_HOST=unix:///tmp/synthetic.sock");
+    expect(args).toContain(".devcontainer/network.json");
+  });
+
+  it("does not dispatch when reservation preparation fails", async () => {
+    vi.mocked(spawnSync).mockReturnValue(listResult());
+    await expect(
+      startDevsyWorkspace({
+        repoPath: "/repo/feature",
+        devsyId: "feature",
+        prepareNetwork: () => {
+          throw new Error("synthetic capacity failure");
+        },
+      }),
+    ).rejects.toThrow();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("starts with a stable id and workspace env, then revalidates ownership", async () => {
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];

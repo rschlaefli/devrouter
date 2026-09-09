@@ -295,7 +295,8 @@ function buildReport(
   const networks = parsedNetworks.map(({ network, subnets }) =>
     buildNetworkReport(network, subnets, inventory.status),
   );
-  const pools = inventory.pools.map((pool) =>
+  const ipv4Pools = inventory.pools.filter((pool) => !isIPv6Cidr(pool.base));
+  const pools = ipv4Pools.map((pool) =>
     buildPoolReport(
       pool,
       request,
@@ -305,12 +306,13 @@ function buildReport(
       routeEvidenceUnknown || malformedRouteEvidence,
     ),
   );
-  const parsedPools = inventory.pools.map((pool) => parseCidr(pool.base));
+  const parsedPools = ipv4Pools.map((pool) => parseCidr(pool.base));
   const overlappingPools = parsedPools.some(
     (pool, index) =>
       pool && parsedPools.slice(index + 1).some((other) => other && overlaps(pool, other)),
   );
   const unknownEvidence =
+    ipv4Pools.length === 0 ||
     inventory.status === "unknown" ||
     networkEvidenceUnknown ||
     containerEvidenceUnknown ||
@@ -335,7 +337,7 @@ function buildReport(
     ...(pools.some((pool) => pool.status === "endpoint-insufficient")
       ? ["endpoint demand exceeds one or more candidate prefixes"]
       : []),
-    ...(inventory.pools.length === 0 ? ["no configured Docker address pools were observed"] : []),
+    ...(ipv4Pools.length === 0 ? ["no configured Docker IPv4 address pools were observed"] : []),
   ];
   const freeBlockCount = overlappingPools ? "unknown" : summarizeFreeBlocks(pools);
 

@@ -51,6 +51,13 @@ import {
 } from "./managed-runtime-state";
 import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { captureManagedStopBaseline, proveRetainedManagedStop } from "./managed-stop-recovery";
+import { networkDockerOptions, withNetworkEffectGuard } from "./network-effect-scope";
+import {
+  assertRetainedNetworkConfiguration,
+  createManagedNetworkSession,
+  type ManagedNetworkSession,
+} from "./network-managed";
+import { recoverUnattachedNetworkReservation } from "./network-recovery";
 import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-lifecycle";
 import { loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
@@ -556,7 +563,7 @@ async function waitForContainerPreflight(
         const workspaceEnv = spawnSync(
           "docker",
           ["exec", appContainer.id, "printenv", "WORKSPACE"],
-          { encoding: "utf-8" },
+          { encoding: "utf-8", ...networkDockerOptions() },
         );
         if (workspaceEnv.status !== 0 || workspaceEnv.stdout.trim() !== target.workspace) {
           throw new Error(
@@ -566,7 +573,7 @@ async function waitForContainerPreflight(
         const devrouterWorkspaceEnv = spawnSync(
           "docker",
           ["exec", appContainer.id, "printenv", "DEVROUTER_WORKSPACE"],
-          { encoding: "utf-8" },
+          { encoding: "utf-8", ...networkDockerOptions() },
         );
         if (
           devrouterWorkspaceEnv.status !== 0 ||
@@ -588,7 +595,7 @@ async function waitForContainerPreflight(
           "rev-parse",
           "--show-toplevel",
         ],
-        { encoding: "utf-8" },
+        { encoding: "utf-8", ...networkDockerOptions() },
       );
       if (
         gitCheck.status !== 0 ||
@@ -948,7 +955,9 @@ export async function workspaceEnsure(
     }
   }
 
-  const ensureLocked = async (): Promise<WorkspaceEnsureResult> => {
+  let network: ManagedNetworkSession | undefined;
+  const ensureNetworkLocked = async (): Promise<WorkspaceEnsureResult> => {
+    network = undefined;
     let repairMutationStarted = false;
     let retainedRepairContainers: WorkspaceContainerSnapshot[] = [];
     let environmentStarted = false;
@@ -1096,7 +1105,27 @@ export async function workspaceEnsure(
           workspace: managedWorkspaceEnv,
         });
       }
-      if (managedPlan && !options.repair) {
+      if (managedPlan) {
+        network = createManagedNetworkSession({
+          repoPath,
+          provider: resolveWorkspaceRuntimeOrDefault(repoPath),
+          workspace: managedWorkspaceEnv,
+          hadExactProvider: target.hadExactDevpod,
+          request: managedRuntime?.network,
+          plan: () => managedPlan as ManagedDevcontainerPlan,
+          replacePlan: (next) => {
+            managedPlan = next;
+            claimLifecycleEffect();
+            writeManagedDevcontainerConfig(next);
+            managedConfigWritten = true;
+          },
+        });
+        if (network && options.repair)
+          throw new Error(
+            "Claimed network repair requires exact retained-network reconciliation; automatic repair is unavailable.",
+          );
+      }
+      if (managedPlan && !options.repair && !network) {
         claimLifecycleEffect();
         writeManagedDevcontainerConfig(managedPlan);
         managedConfigWritten = true;
@@ -1112,6 +1141,7 @@ export async function workspaceEnsure(
             repoPath,
             devpodId: requestedTarget.devpodId,
             devcontainerPath: managedPlan?.generatedRelativePath,
+            ...(network ? { prepareNetwork: network.prepare } : {}),
             recreate,
             quiet: options.quiet,
             ...(requestedTarget.kind === "linked"
@@ -1166,6 +1196,7 @@ export async function workspaceEnsure(
               transitionPhase = "service-start";
               claimLifecycleEffect();
               const result = spawnSync("docker", ["start", ...stopped.map((entry) => entry.id)], {
+                ...networkDockerOptions(),
                 encoding: "utf-8",
                 timeout: DEFAULT_READINESS_TIMEOUT_MS,
                 stdio: options.quiet ? ["ignore", 2, "inherit"] : "inherit",
@@ -1216,6 +1247,7 @@ export async function workspaceEnsure(
           );
         }
 
+        network?.prove(managedComposeProject, container.id);
         const missingServices: string[] = [];
         for (const service of managedPlan.desiredServices) {
           const matches = exactWorkspaceServiceContainers(
@@ -1531,6 +1563,11 @@ export async function workspaceEnsure(
         ...(managedRuntimeStatus ? { managedRuntime: managedRuntimeStatus } : {}),
       };
     } catch (error) {
+      if (network?.retained()) {
+        throw new Error(
+          `Network-bound transition did not reach readiness. Retain runtime, binding and claim for exact repair. ${error instanceof Error ? error.message : "Unknown failure."}`,
+        );
+      }
       if (detachedState) {
         const failures: string[] = [];
         const resetWorkspace = detachedState.workspace;
@@ -1875,8 +1912,21 @@ export async function workspaceEnsure(
       throw error;
     }
   };
+  const ensureLocked = (): Promise<WorkspaceEnsureResult> =>
+    withNetworkEffectGuard(
+      () => network?.guard(),
+      ensureNetworkLocked,
+      () => network?.endpoint,
+    );
   return withLifecycleOperationLock(repoPath, async () => {
     const preparationConfig = loadRepoConfig(repoPath);
+    if (!options.repair)
+      recoverUnattachedNetworkReservation(repoPath, Boolean(preparationConfig.managedRuntime));
+    assertRetainedNetworkConfiguration({
+      repoPath,
+      managedRuntime: Boolean(preparationConfig.managedRuntime),
+      repair: Boolean(options.repair),
+    });
     if (preparationConfig.managedRuntime?.devcontainer.prepareCommand) {
       claimLifecycleEffect();
       await runManagedHostPreparation(repoPath, preparationConfig);

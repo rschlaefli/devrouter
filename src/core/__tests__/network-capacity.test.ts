@@ -105,10 +105,27 @@ describe("collectNetworkCapacityReport", () => {
   it("keeps IPv6 evidence separate from occupied IPv4 capacity", () => {
     const network = occupiedNetwork("10.0.0.0/24");
     network.subnets.push("fd00::/64");
-    const report = collect(request(), inventory({ networks: [network] }));
+    const report = collect(
+      request(),
+      inventory({
+        networks: [network],
+        pools: [
+          { base: "10.0.0.0/24", size: 24 },
+          { base: "fd00::/8", size: 64 },
+        ],
+      }),
+    );
     expect(report.allocation.status).toBe("exhausted");
     expect(report.networks[0].ipv6Subnets).toEqual(["fd00::/64"]);
     expect(report.networks[0].ipv4Subnets).toEqual(["10.0.0.0/24"]);
+  });
+
+  it.each(["fd00::/129", "fdxx::/64"])("keeps malformed IPv6 %s unknown", (subnet) => {
+    const network = occupiedNetwork("10.0.0.0/24");
+    network.subnets.push(subnet);
+    expect(collect(request(), inventory({ networks: [network] })).allocation.status).toBe(
+      "unknown",
+    );
   });
 
   it("does not double count overlapping pool declarations", () => {

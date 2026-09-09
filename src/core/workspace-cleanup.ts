@@ -8,7 +8,7 @@ import {
   listDevpodWorkspacesFromSnapshots,
 } from "./devpod-workspaces";
 import { readHostRouteStateReadOnly } from "./host-routes";
-import type { NetworkCapacityReport } from "./network-capacity";
+import type { NetworkCapacityInspection } from "./network-diagnostics";
 import { inspectNetworkCapacity } from "./network-diagnostics";
 import { resolveRepoPath } from "./repo-config";
 import { comparableWorkspacePath, sameWorkspacePath } from "./workspace";
@@ -132,7 +132,7 @@ export type WorkspaceCleanupReport = {
   checkMerged: boolean;
   measureSize: boolean;
   workspaces: WorkspaceCleanupRow[];
-  networkCapacity?: NetworkCapacityReport;
+  networkCapacity?: NetworkCapacityInspection;
 };
 
 export type WorkspaceCleanupOptions = {
@@ -157,7 +157,7 @@ export type WorkspaceCleanupIntegrationEvidence = {
 };
 
 export type WorkspaceCleanupDependencies = {
-  inspectNetworkCapacity?: () => NetworkCapacityReport;
+  inspectNetworkCapacity?: () => NetworkCapacityInspection;
   listOwnership?: (repoPath: string) => WorkspaceOwnershipRecord[];
   listWorktrees?: (repoPath: string) => GitWorktree[];
   listDevpods?: () => DevpodWorkspace[];
