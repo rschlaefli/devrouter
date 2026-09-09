@@ -2,6 +2,7 @@ import { type ChildProcess, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import type { DevsyExecProof } from "./devsy-exec-proof";
 import { processBirthIdentity } from "./file-lock";
 import { type ReliabilityFence, reliabilityFence } from "./reliability-contract";
 import { stepReliability } from "./reliability-model";
@@ -21,6 +22,7 @@ export type LifecycleWorkerRequest = {
   workerId: string;
   fence: ReliabilityFence;
   command?: string[];
+  retainedExecProof?: DevsyExecProof;
   options: {
     profile?: string;
     repair?: boolean;

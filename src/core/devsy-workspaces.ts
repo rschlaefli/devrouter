@@ -5,6 +5,9 @@ export type DevsyWorkspace = {
   id: string;
   source: { localFolder: string; container?: string };
   uid?: string;
+  /** Allowlisted runtime selection metadata; other provider options are not retained. */
+  providerName?: string;
+  dockerPathOption?: string;
   /** Provider context supplied by the local registry, when available. */
   context?: string;
   /** Optional provider activity metadata. */
@@ -68,6 +71,12 @@ export function listDevsyWorkspaces(): DevsyWorkspace[] {
       ...(typeof candidate.uid === "string" ? { uid: candidate.uid } : {}),
       ...(typeof candidate.context === "string" ? { context: candidate.context } : {}),
     };
+    const provider = candidate.provider as
+      | { name?: unknown; options?: { DOCKER_PATH?: { value?: unknown } } }
+      | undefined;
+    if (provider && typeof provider.name === "string") workspace.providerName = provider.name;
+    if (typeof provider?.options?.DOCKER_PATH?.value === "string")
+      workspace.dockerPathOption = provider.options.DOCKER_PATH.value;
     if ("lastUsed" in candidate) {
       if (typeof candidate.lastUsed === "string") {
         workspace.lastUsed = candidate.lastUsed;

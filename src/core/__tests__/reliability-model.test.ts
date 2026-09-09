@@ -540,6 +540,74 @@ describe("manual operation lifecycle", () => {
     state = step(state, { type: "stop" }).state;
     expect(step(state, next).outcome).toBe("blocked");
   });
+  it("admits proved tooling after drained interrupted ensure and preserves its result", () => {
+    let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
+    const exec = {
+      ...ensure,
+      kind: "exec" as const,
+      key: "tool",
+      operationId: "tool",
+      runtimeRunning: true,
+      recoverInterruptedEnsure: true,
+    };
+    expect(step(state, exec).outcome).toBe("blocked");
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    expect(step(state, { ...exec, runtimeRunning: false }).outcome).toBe("blocked");
+    expect(step(state, { ...exec, recoverInterruptedEnsure: false }).outcome).toBe("blocked");
+    const result = step(state, exec);
+    expect(result.outcome).toBe("accepted");
+    expect(result.state.operationHistory[0]).toMatchObject({
+      id: ensure.operationId,
+      status: "INTERRUPTED",
+      drained: true,
+      exitCode: null,
+    });
+    expect(step(result.state, ensure).effects).toEqual([]);
+    expect(step(step(state, { type: "stop" }).state, exec).outcome).toBe("blocked");
+    let unknown = step(dispatched("exec"), {
+      type: "interrupted",
+      operationId: ensure.operationId,
+    }).state;
+    unknown = step(unknown, { type: "drained", operationId: ensure.operationId }).state;
+    expect(step(unknown, exec).outcome).toBe("blocked");
+  });
+  it.each([
+    "not-started",
+    "completion",
+  ] as const)("requires fresh proof after recovery exec %s until preparation completes", (outcome) => {
+    let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    const exec = {
+      ...ensure,
+      kind: "exec" as const,
+      key: "tool",
+      operationId: "tool",
+      runtimeRunning: true,
+      recoverInterruptedEnsure: true,
+    };
+    state = step(state, exec).state;
+    state = step(state, { type: "dispatch" }).state;
+    state = step(state, { type: "dispatch-persisted", operationId: "tool" }).state;
+    state = step(state, { type: "launched", operationId: "tool" }).state;
+    state = step(
+      state,
+      outcome === "completion"
+        ? { type: "completion", operationId: "tool", exitCode: 7 }
+        : { type: "not-started", operationId: "tool" },
+    ).state;
+    state = step(state, { type: "drained", operationId: "tool" }).state;
+    const retry = { ...exec, key: "retry", operationId: "retry" };
+    expect(step(state, { ...retry, recoverInterruptedEnsure: false }).outcome).toBe("blocked");
+    expect(step(state, retry).outcome).toBe("accepted");
+    expect(step(state, exec).outcome).toBe("joined");
+    state = step(state, { ...ensure, key: "prepare", operationId: "prepare" }).state;
+    state = step(state, { type: "dispatch" }).state;
+    state = step(state, { type: "dispatch-persisted", operationId: "prepare" }).state;
+    state = step(state, { type: "launched", operationId: "prepare" }).state;
+    state = step(state, { type: "completion", operationId: "prepare", exitCode: 0 }).state;
+    state = step(state, { type: "drained", operationId: "prepare" }).state;
+    expect(step(state, { ...retry, recoverInterruptedEnsure: false }).outcome).toBe("accepted");
+  });
   it("keeps uncertain exec blocked until worker drainage and complete explicit-stop proof", () => {
     let state = step(dispatched("exec"), {
       type: "interrupted",
@@ -630,6 +698,26 @@ describe("manual operation lifecycle", () => {
       expect(state.operationHistory).toHaveLength(Math.min(index + 1, 128));
     }
     expect(state.operationHistory[0].id).toBe("op-172");
+  });
+  it("does not resurrect interrupted preparation when settled tooling history rolls over", () => {
+    let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    state = finish(step(state, { ...ensure, key: "prepared", operationId: "prepared" }).state);
+    for (let index = 0; index < 256; index++) {
+      const result = step(state, {
+        ...ensure,
+        kind: "exec",
+        key: `tool-${index}`,
+        operationId: `tool-${index}`,
+        runtimeRunning: true,
+      });
+      expect(result.outcome).toBe("accepted");
+      state = finish(result.state);
+    }
+    expect(state.operationHistory.find((entry) => entry.id === "prepared")?.status).toBe(
+      "COMPLETED",
+    );
+    expect(step(state, ensure).outcome).toBe("joined");
   });
   it("checks retained duplicates and conflicts before rollover and fences old events", () => {
     const full = fullHistory();

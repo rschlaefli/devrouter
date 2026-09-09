@@ -1,4 +1,5 @@
 import { devpodExecOutcome } from "./core/devpod-exec";
+import { devsyExecOutcome } from "./core/devsy-exec";
 import { environmentStop } from "./core/environment-stop";
 import { ExecutionOutcomeError } from "./core/execution-outcome";
 import {
@@ -26,7 +27,13 @@ process.once("message", async (message: { request: LifecycleWorkerRequest }) => 
         return stopped;
       }
       if (request.kind === "exec") {
-        const outcome = await devpodExecOutcome(request.repoPath, request.command ?? []);
+        const outcome = request.retainedExecProof
+          ? await devsyExecOutcome(
+              request.repoPath,
+              request.command ?? [],
+              request.retainedExecProof,
+            )
+          : await devpodExecOutcome(request.repoPath, request.command ?? []);
         recordLifecycleOutcome(outcome);
         return outcome;
       }

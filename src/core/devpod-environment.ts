@@ -547,6 +547,29 @@ export function inspectManagedStopRunnerId(endpoint: string, containerId: string
   return value;
 }
 
+export function inspectProviderRunnerContainers(endpoint: string, runnerId: string): string[] {
+  if (!runnerId || runnerId.length > 4096 || /[\r\n\0]/.test(runnerId))
+    throw new Error("Provider runner identity is malformed.");
+  const ids = parseDockerLines(
+    runManagedStopDocker(
+      [
+        "ps",
+        "-a",
+        "--no-trunc",
+        "--filter",
+        `label=dev.containers.id=${runnerId}`,
+        "--format",
+        "{{.ID}}",
+      ],
+      endpoint,
+    ),
+  );
+  if (ids.length > 256) throw new Error("Provider runner population exceeds its bound.");
+  ids.forEach(assertFullContainerId);
+  assertUniqueContainerIds(ids);
+  return ids;
+}
+
 export function inspectManagedStopWorkspaceIds(
   endpoint: string,
   composeDirectory: string,

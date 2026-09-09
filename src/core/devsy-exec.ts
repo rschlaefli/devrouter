@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { type DevsyExecProof, revalidateDevsyExecProof } from "./devsy-exec-proof";
+import { withMutationLock } from "./devsy-mutation";
 import { listDevsyWorkspaces, selectDevsyWorkspace } from "./devsy-workspaces";
 import {
   type ExecutionOutcome,
@@ -25,6 +27,7 @@ function errorMessage(error: unknown): string {
 export async function devsyExecOutcome(
   repoPath: string,
   command: string[],
+  retainedProof?: DevsyExecProof,
 ): Promise<ExecutionOutcome> {
   if (command.length === 0) {
     throw new Error("No command provided. Use `devrouter exec [path] -- <command...>`.");
@@ -39,13 +42,28 @@ export async function devsyExecOutcome(
 
     // Devsy resolves the workspace folder and remote user itself and forwards
     // the remote exit code as its own, so no status-marker wrapping is needed.
-    const args = ["workspace", "exec", "--result-format", "plain", workspace.id, "--", ...command];
+    const args = [
+      "workspace",
+      "exec",
+      "--result-format",
+      "plain",
+      ...(retainedProof ? ["--context", retainedProof.context] : []),
+      retainedProof?.id ?? workspace.id,
+      "--",
+      ...command,
+    ];
 
     return new Promise<ExecutionOutcome>((resolve, reject) => {
       let child: ReturnType<typeof spawn>;
       try {
-        claimLifecycleEffect();
-        child = spawn("devsy", args, { stdio: "inherit" });
+        const launch = () => {
+          if (retainedProof) revalidateDevsyExecProof(repoPath, retainedProof);
+          claimLifecycleEffect();
+          return spawn("devsy", args, { stdio: "inherit" });
+        };
+        child = retainedProof
+          ? withMutationLock("Execute retained workspace", repoPath, launch)
+          : launch();
       } catch (error) {
         reject(
           new ExecutionOutcomeError(`devsy exec failed: ${errorMessage(error)}`, {

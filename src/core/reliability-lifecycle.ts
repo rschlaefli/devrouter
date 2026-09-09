@@ -4,6 +4,7 @@ import {
   inspectWorkspaceContainers,
   resolveRunningWorkspaceContainer,
 } from "./devpod-environment";
+import { captureDevsyExecProof, type DevsyExecProof } from "./devsy-exec-proof";
 import { withMutationLock as withDevsyMutationLock } from "./devsy-mutation";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { processBirthIdentity } from "./file-lock";
@@ -16,7 +17,7 @@ import {
   type ReliabilityFence,
   reliabilityFence,
 } from "./reliability-contract";
-import { stepReliability } from "./reliability-model";
+import { canExecAfterInterruptedEnsure, stepReliability } from "./reliability-model";
 import {
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
@@ -147,8 +148,23 @@ export async function superviseLifecycle(
   let fence!: ReliabilityFence;
   const runtimeRunning =
     kind === "exec" ? Boolean(resolveRunningWorkspaceContainer(repoPath)) : false;
+  const previous =
+    kind === "exec" && identity.provider === "devsy"
+      ? updateReliabilityOperation(identity, (record) => {
+          reconcileDrained(record);
+          return record;
+        })
+      : undefined;
+  let retainedExecProof: DevsyExecProof | undefined;
+  if (previous && !previous.worker && canExecAfterInterruptedEnsure(previous.state)) {
+    retainedExecProof = withDevsyMutationLock("Prove retained exec", repoPath, () =>
+      captureDevsyExecProof(repoPath),
+    );
+  }
   updateReliabilityOperation(identity, (record) => {
     reconcileDrained(record);
+    if (retainedExecProof && record.state.operation?.id !== previous?.state.operation?.id)
+      throw new Error("Lifecycle operation changed during retained exec proof.");
     if (kind === "stop") {
       stepRecord(record, { ...reliabilityFence(record.state), type: "stop" });
     } else {
@@ -166,6 +182,7 @@ export async function superviseLifecycle(
         profile: options.profile ?? record.state.profile ?? "full",
         consumer: { id: "manual-cli", requiredCapabilities: [], pinned: false },
         runtimeRunning,
+        ...(retainedExecProof ? { recoverInterruptedEnsure: true } : {}),
       });
     }
     fence = reliabilityFence(record.state);
@@ -178,6 +195,7 @@ export async function superviseLifecycle(
     fence,
     options,
     ...(command ? { command } : {}),
+    ...(retainedExecProof ? { retainedExecProof } : {}),
   });
 }
 
