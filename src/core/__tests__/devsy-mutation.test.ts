@@ -75,6 +75,15 @@ function mockDevsyUp(options: { status?: number; stderr?: string | Buffer } = {}
 }
 
 describe("Devsy mutation adapter", () => {
+  it("reports proven absence without a provider mutation", () => {
+    vi.mocked(stopRetainedManagedDevsyWorkspace).mockReturnValue("proven-absent");
+    expect(stopOwnedDevsyWorkspace("feature", "/repo/feature")).toEqual({
+      status: "proven-absent",
+    });
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("keeps managed proof and provider stop inside the provider lock", () => {
     let locked = false;
     vi.mocked(withFileLockSync).mockImplementationOnce((_path, _options, operation) => {

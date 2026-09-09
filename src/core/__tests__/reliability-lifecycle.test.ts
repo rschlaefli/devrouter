@@ -19,6 +19,8 @@ const fixture = vi.hoisted(() => ({
   listHostRouteState: vi.fn(),
   readManagedRuntimeState: vi.fn(),
   proveRetainedManagedStop: vi.fn(),
+  absent: false,
+  assertRoutesRemoved: vi.fn(),
   withWorkspaceLifecycleLock: vi.fn(),
   isLinkedWorktree: vi.fn(),
   resolveLinkedTarget: vi.fn(),
@@ -58,8 +60,15 @@ vi.mock("../managed-runtime-state", () => ({
   readManagedRuntimeState: fixture.readManagedRuntimeState,
 }));
 
+vi.mock("../traefik-route-health", () => ({
+  assertTraefikRoutesRemoved: fixture.assertRoutesRemoved,
+}));
 vi.mock("../managed-stop-recovery", () => ({
-  proveRetainedManagedStop: fixture.proveRetainedManagedStop,
+  managedStopRouteReferences: () => [],
+  proveManagedStop: (...args: unknown[]) => ({
+    status: fixture.absent ? "proven-absent" : "retained",
+    containers: fixture.proveRetainedManagedStop(...args),
+  }),
 }));
 
 vi.mock("../reliability-worker", async (importOriginal) => ({
@@ -219,6 +228,8 @@ async function seedStopRequest() {
 }
 
 beforeEach(() => {
+  fixture.absent = false;
+  fixture.assertRoutesRemoved.mockReset();
   vi.resetModules();
   vi.clearAllMocks();
   fixture.isLinkedWorktree.mockReturnValue(false);
@@ -638,6 +649,55 @@ describe("reliability lifecycle supervision", () => {
     expect(store.readReliabilityOperation(identity)?.state.stopProof).toEqual({
       workloadsStopped: outcome === "complete",
       routesRemoved: outcome === "complete",
+    });
+  });
+
+  it.each([
+    false,
+    true,
+  ])("settles proven absence only after live route proof (failure=%s)", async (failure) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    fixture.absent = true;
+    fixture.readManagedRuntimeState.mockReturnValue({
+      repoPath: identity.repoPath,
+      stopBaseline: { version: 1 },
+    });
+    fixture.proveRetainedManagedStop.mockReturnValue([]);
+    if (failure)
+      fixture.assertRoutesRemoved.mockImplementation(() => {
+        throw new Error("live routes remain");
+      });
+    const result = lifecycle.executeLifecycleWorker(request, async () =>
+      lifecycle.proveLifecycleStopped(),
+    );
+    if (failure) await expect(result).rejects.toThrow("live routes remain");
+    else await expect(result).resolves.toBeUndefined();
+    if (!failure) {
+      const settled = store.readReliabilityOperation(identity)!.state;
+      expect(settled.phase).toBe("idle");
+      const { stepReliability } = await import("../reliability-model");
+      const { reliabilityFence } = await import("../reliability-contract");
+      const next = stepReliability(
+        settled,
+        {
+          ...reliabilityFence(settled),
+          type: "operation-request",
+          kind: "ensure",
+          key: "retry-ensure",
+          operationId: "retry-ensure",
+          profile: "web",
+          consumer: { id: "manual-cli", requiredCapabilities: [], pinned: false },
+          runtimeRunning: false,
+        },
+        2,
+      );
+      expect(next.outcome).toBe("accepted");
+    }
+    expect(fixture.proveRetainedManagedStop).toHaveBeenCalledTimes(2);
+    expect(store.readReliabilityOperation(identity)?.state.stopProof).toEqual({
+      workloadsStopped: !failure,
+      routesRemoved: !failure,
     });
   });
 

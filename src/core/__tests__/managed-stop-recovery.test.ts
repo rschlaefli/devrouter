@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagedDevcontainerPlan } from "../devcontainer-profile";
 import * as docker from "../devpod-environment";
+import { listDevpodWorkspacesRaw } from "../devpod-registry";
 import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
 import {
   type ManagedRuntimeState,
@@ -13,6 +14,7 @@ import {
 } from "../managed-runtime-state";
 import {
   captureManagedStopBaseline,
+  proveManagedStop,
   proveRetainedManagedStop,
   stopFromManagedBaseline,
 } from "../managed-stop-recovery";
@@ -29,6 +31,9 @@ const fixture = vi.hoisted(() => ({
   token: "feature" as string | undefined,
   claim: vi.fn(),
   provider: "devsy",
+  missing: false,
+  competitors: [] as Array<{ id: string; source: { localFolder: string } }>,
+  ownership: "present",
 }));
 vi.mock("../router", () => ({
   get DEVROUTER_HOME() {
@@ -36,6 +41,8 @@ vi.mock("../router", () => ({
   },
 }));
 vi.mock("../devpod-environment", () => ({
+  assertManagedStopContainersAbsent: vi.fn(),
+  inspectProviderRunnerContainers: vi.fn(),
   inspectManagedStopContainers: vi.fn(),
   inspectManagedStopDaemon: vi.fn(),
   inspectManagedStopRunnerId: vi.fn(),
@@ -45,7 +52,10 @@ vi.mock("../devpod-environment", () => ({
 }));
 vi.mock("../devsy-workspaces", async (original) => ({
   ...(await original<typeof import("../devsy-workspaces")>()),
-  listDevsyWorkspaces: () => [fixture.owner],
+  listDevsyWorkspaces: () => (fixture.missing ? [] : [fixture.owner]),
+}));
+vi.mock("../devpod-registry", () => ({
+  listDevpodWorkspacesRaw: vi.fn(() => fixture.competitors),
 }));
 vi.mock("../workspace-runtime", () => ({
   resetWorkspaceRuntimeCaches: vi.fn(),
@@ -58,7 +68,13 @@ vi.mock("../workspace", () => ({
 }));
 vi.mock("../workspace-ownership", () => ({
   resolveGitCommonDir: () => "/synthetic/common",
-  readWorkspaceOwnership: () => ({ devpodId: "fixture", worktreePath: "/synthetic/repo" }),
+  listGitWorktrees: () => [],
+  inspectWorkspaceOwnership: () => ({ ownerStatus: fixture.ownership }),
+  readWorkspaceOwnership: () => ({
+    workspace: "feature",
+    devpodId: "fixture",
+    worktreePath: "/synthetic/repo",
+  }),
 }));
 vi.mock("../reliability-context", () => ({ claimLifecycleEffect: fixture.claim }));
 vi.mock("../route-publication", () => ({ proxyAppsFromConfig: vi.fn() }));
@@ -89,6 +105,11 @@ beforeEach(() => {
   fixture.linked = false;
   fixture.token = "feature";
   fixture.provider = "devsy";
+  fixture.missing = false;
+  fixture.competitors = [];
+  fixture.ownership = "present";
+  vi.mocked(docker.inspectProviderRunnerContainers).mockReturnValue([]);
+  vi.mocked(listDevpodWorkspacesRaw).mockImplementation(() => fixture.competitors);
   state = {
     version: 1,
     repoPath: "/synthetic/repo",
@@ -333,5 +354,100 @@ describe("retained stop ownership", () => {
     ).toThrow(Error);
     expect(fs.readFileSync(file, "utf8")).toBe(bytes);
     expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+});
+
+describe("baseline-backed missing registration", () => {
+  function absent() {
+    fixture.linked = true;
+    state.workspace = "feature";
+    persist();
+    fixture.missing = true;
+    containers = [];
+    vi.mocked(docker.inspectManagedStopWorkspaceIds).mockReturnValue([]);
+  }
+  it("proves absence without provider or container effects and retains the baseline", () => {
+    absent();
+    expect(proveManagedStop(state)).toEqual({ status: "proven-absent", containers: [] });
+    expect(stopFromManagedBaseline(state)).toBe("proven-absent");
+    expect(listDevpodWorkspacesRaw).toHaveBeenCalledWith({ allowMissingExecutable: true });
+    expect(docker.assertManagedStopContainersAbsent).toHaveBeenCalledWith(
+      endpoint,
+      state.stopBaseline!.containers.map((c) => c.id),
+    );
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+    expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(state);
+  });
+  it.each([
+    "owner",
+    "token",
+    "competitor-id",
+    "competitor-path",
+    "runner",
+    "directory",
+    "daemon",
+    "saved-id",
+  ])("rejects %s uncertainty", (failure) => {
+    absent();
+    if (failure === "owner") fixture.ownership = "locked";
+    if (failure === "token") fixture.token = "other";
+    if (failure === "competitor-id")
+      fixture.competitors = [{ id: state.devpodId, source: { localFolder: "/other" } }];
+    if (failure === "competitor-path")
+      fixture.competitors = [{ id: "other", source: { localFolder: state.repoPath } }];
+    if (failure === "runner")
+      vi.mocked(docker.inspectProviderRunnerContainers).mockReturnValue(["e".repeat(64)]);
+    if (failure === "directory")
+      vi.mocked(docker.inspectManagedStopWorkspaceIds).mockReturnValue(["e".repeat(64)]);
+    if (failure === "daemon") vi.mocked(docker.inspectManagedStopDaemon).mockReturnValue("other");
+    if (failure === "saved-id")
+      vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+        throw new Error("exists");
+      });
+    expect(() => proveManagedStop(state)).toThrow();
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+  it.each([
+    "short",
+    "x".repeat(16),
+    "x".repeat(40),
+    "é".repeat(8),
+  ])("uses saved UID bytes for runner identity (%s)", (uid) => {
+    fixture.owner.uid = uid;
+    vi.mocked(docker.inspectManagedStopRunnerId).mockReturnValue(
+      Buffer.byteLength(uid) === 16 || Buffer.byteLength(uid) === 40 ? uid : "fixture",
+    );
+    absent();
+    proveManagedStop(state);
+    expect(docker.inspectProviderRunnerContainers).toHaveBeenCalledWith(
+      endpoint,
+      Buffer.byteLength(uid) === 16 || Buffer.byteLength(uid) === 40 ? uid : "fixture",
+    );
+  });
+  it("rejects primary checkout recovery", () => {
+    persist();
+    fixture.missing = true;
+    expect(() => proveManagedStop(state)).toThrow();
+  });
+  it("rejects a retained generation changed during collection", () => {
+    absent();
+    vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+      writeManagedRuntimeState({ ...state, updatedAt: "2026-09-09T00:00:00Z" });
+    });
+    expect(() => proveManagedStop(state)).toThrow();
+  });
+  it("rejects a daemon changed during collection", () => {
+    absent();
+    vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+      vi.mocked(docker.inspectManagedStopDaemon).mockReturnValue("changed");
+    });
+    expect(() => proveManagedStop(state)).toThrow();
+  });
+  it("rejects a registration appearing during inspection", () => {
+    absent();
+    vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+      fixture.missing = false;
+    });
+    expect(() => proveManagedStop(state)).toThrow();
   });
 });

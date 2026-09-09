@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  assertManagedStopContainersAbsent,
   hasExactComposeIdentity,
   inspectManagedStopContainers,
   inspectManagedStopDaemon,
@@ -397,6 +398,118 @@ function managedSnapshotLine(
 }
 
 describe("pinned managed stop Docker operations", () => {
+  describe("assertManagedStopContainersAbsent", () => {
+    const endpoint = "unix:///synthetic.sock";
+    const firstId = "a".repeat(64);
+    const secondId = "b".repeat(64);
+
+    it("pins each exact ID and accepts only an exact missing-object response", () => {
+      vi.stubEnv("DOCKER_CONTEXT", "other");
+      vi.stubEnv("DOCKER_HOST", "unix:///other.sock");
+      vi.mocked(spawnSync)
+        .mockReturnValueOnce({
+          status: 1,
+          stdout: "",
+          stderr: `Error: No such object: ${firstId}\n`,
+          error: undefined,
+          signal: null,
+        } as never)
+        .mockReturnValueOnce({
+          status: 1,
+          stdout: "",
+          stderr: `error: no such object: ${secondId}`,
+          error: undefined,
+          signal: null,
+        } as never);
+      try {
+        expect(assertManagedStopContainersAbsent(endpoint, [firstId, secondId])).toBeUndefined();
+        expect(spawnSync).toHaveBeenCalledTimes(2);
+        const [command, args, options] = vi.mocked(spawnSync).mock.calls[0];
+        expect(command).toBe("docker");
+        expect(args).toEqual(["--host", endpoint, "inspect", "--format", "{{.Id}}", firstId]);
+        expect(options?.encoding).toBe("utf-8");
+        expect(options?.timeout).toBe(5_000);
+        expect(options?.maxBuffer).toBe(1024 * 1024);
+        expect(Object.hasOwn(options?.env ?? {}, "DOCKER_CONTEXT")).toBe(false);
+        expect(Object.hasOwn(options?.env ?? {}, "DOCKER_HOST")).toBe(false);
+        expect(vi.mocked(spawnSync).mock.calls[1][1]).toEqual([
+          "--host",
+          endpoint,
+          "inspect",
+          "--format",
+          "{{.Id}}",
+          secondId,
+        ]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it.each(["", "\n", "\r\n"])("accepts the missing-object output terminator %j", (stdout) => {
+      vi.mocked(spawnSync).mockReturnValueOnce({
+        status: 1,
+        stdout,
+        stderr: `error: no such object: ${firstId}\n`,
+      } as never);
+      expect(() => assertManagedStopContainersAbsent(endpoint, [firstId])).not.toThrow();
+    });
+    it.each([" ", "\n\n", "unexpected\n"])("rejects unrelated stdout %j", (stdout) => {
+      vi.mocked(spawnSync).mockReturnValueOnce({
+        status: 1,
+        stdout,
+        stderr: `error: no such object: ${firstId}\n`,
+      } as never);
+      expect(() => assertManagedStopContainersAbsent(endpoint, [firstId])).toThrow();
+    });
+
+    it.each([
+      ["empty ids", [] as string[]],
+      ["duplicate ids", [firstId, firstId]],
+      ["short id", ["a"]],
+      ["uppercase id", ["A".repeat(64)]],
+      ["too many ids", Array.from({ length: 257 }, () => firstId)],
+    ])("rejects %s before invoking Docker", (_name, ids) => {
+      expect(() => assertManagedStopContainersAbsent(endpoint, ids)).toThrow();
+      expect(spawnSync).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["an existing stopped container", { status: 0, stdout: `${firstId}\n`, stderr: "" }],
+      [
+        "a nonempty stdout response",
+        { status: 1, stdout: `${firstId}\n`, stderr: `error: no such object: ${firstId}` },
+      ],
+      ["a wrong-ID error", { status: 1, stdout: "", stderr: `error: no such object: ${secondId}` }],
+      ["a permission error", { status: 1, stdout: "", stderr: "permission denied\n" }],
+      [
+        "mixed stderr output",
+        { status: 1, stdout: "", stderr: `error: no such object: ${firstId}\nextra\n` },
+      ],
+      [
+        "a non-missing exit status",
+        { status: 2, stdout: "", stderr: `error: no such object: ${firstId}` },
+      ],
+      [
+        "a spawn error",
+        { status: null, stdout: null, stderr: null, error: new Error("spawn failed") },
+      ],
+      ["a signal", { status: null, stdout: null, stderr: "", signal: "SIGTERM" }],
+      [
+        "a timeout result",
+        {
+          status: null,
+          stdout: null,
+          stderr: "",
+          error: new Error("ETIMEDOUT"),
+          signal: "SIGTERM",
+        },
+      ],
+    ] as const)("rejects %s", (_name, result) => {
+      vi.mocked(spawnSync).mockReturnValueOnce(result as never);
+      expect(() => assertManagedStopContainersAbsent(endpoint, [firstId])).toThrow();
+    });
+  });
+
   it("pins every population request despite ambient Docker selection", () => {
     vi.stubEnv("DOCKER_CONTEXT", "other");
     vi.stubEnv("DOCKER_HOST", "unix:///other.sock");

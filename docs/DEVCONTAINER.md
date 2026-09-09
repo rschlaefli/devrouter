@@ -429,6 +429,24 @@ configuration may change or disappear without invalidating this stop path.
 Containers and volumes remain intact. Missing, replaced, foreign or unreadable
 members prevent successful stop proof; stopped provider status alone is insufficient.
 
+For a ledger-owned linked checkout whose registration has disappeared, a valid
+saved baseline also allows stop when every saved container is positively absent
+on the same daemon. Both provider registries must remain clear of that exact ID
+and path among installed providers. An uninstalled competing DevPod executable
+is optional; permission, transport and registry errors remain failures. Git
+ownership must remain present, and project, directory and runner
+populations must be empty. This performs no provider or container mutation. It
+preserves the baseline and interrupted history, verifies live route removal even
+on retries, and permits ordinary ensure after stop settles. Partial absence,
+unknown evidence, primary checkouts and records without baselines do not use this
+recovery path.
+
+The absent-runtime stop path requires provider selection to remain Devsy. If a
+missing registration makes a mixed-provider machine resolve the checkout to DevPod,
+this package does not override that selection or migrate its lifecycle identity.
+Use the existing explicit runtime selection only when Devsy is the intended
+provider; provider selection changes remain outside this recovery proof.
+
 Startup requires this complete ownership proof before launching the selected
 application and publishing its routes. Unexpected project members, including
 leftover one-off containers or removed services, leave startup unverified; they

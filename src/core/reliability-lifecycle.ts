@@ -10,7 +10,7 @@ import type { ExecutionOutcome } from "./execution-outcome";
 import { processBirthIdentity } from "./file-lock";
 import { listHostRouteState } from "./host-routes";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
-import { proveRetainedManagedStop } from "./managed-stop-recovery";
+import { managedStopRouteReferences, proveManagedStop } from "./managed-stop-recovery";
 import { claimLifecycleEffect, installLifecycleEffectClaim } from "./reliability-context";
 import {
   type ReliabilityEvent,
@@ -32,6 +32,7 @@ import {
   runLifecycleWorker,
   workerGroupAbsent,
 } from "./reliability-worker";
+import { assertTraefikRoutesRemoved } from "./traefik-route-health";
 import {
   comparableWorkspacePath,
   isLinkedWorktree,
@@ -347,7 +348,7 @@ export async function executeLifecycleWorker<T>(
         if (retained?.stopBaseline) {
           stopBaselineState = retained;
           withDevsyMutationLock("Verify retained stop", request.repoPath, () =>
-            proveRetainedManagedStop(retained),
+            proveManagedStop(retained),
           );
         } else {
           const containers = inspectWorkspaceContainers();
@@ -435,11 +436,11 @@ export function proveLifecycleStopped(): void {
   const settle = () => {
     claimLifecycleEffect();
     if (stopBaselineState) {
-      if (
-        proveRetainedManagedStop(stopBaselineState).some((container) => container.state.Running)
-      ) {
+      const proof = proveManagedStop(stopBaselineState);
+      if (proof.containers.some((container) => container.state.Running))
         throw new Error("Retained workspace workloads remain running.");
-      }
+      if (proof.status === "proven-absent")
+        assertTraefikRoutesRemoved(managedStopRouteReferences(stopBaselineState));
     } else {
       for (const project of stopProjects) {
         const containers = inspectManagedStopContainers(project);

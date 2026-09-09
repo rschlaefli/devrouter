@@ -29,7 +29,10 @@ const DEVPOD_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devpod-mutation.loc
  */
 const DEVPOD_MUTATION_WAIT_MS = 1_800_000;
 
-export type OwnedDevpodMutationResult = { status: "changed" } | { status: "absent" };
+export type OwnedDevpodMutationResult =
+  | { status: "changed" }
+  | { status: "absent" }
+  | { status: "proven-absent" };
 
 export type DevpodStartOptions = {
   repoPath: string;

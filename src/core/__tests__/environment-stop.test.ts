@@ -186,7 +186,7 @@ describe("environmentStop", () => {
     expect(deleteOwnedDevpodWorkspace).toHaveBeenCalledWith("repo", "/repo");
   });
 
-  it("delegates ledger-owned linked checkouts to the fail-closed workspace lifecycle", async () => {
+  it.each([false, true])("delegates ledger-owned linked checkouts (absent=%s)", async (absent) => {
     vi.mocked(isLinkedWorktree).mockReturnValue(true);
     vi.mocked(resolveWorktreeWorkspace).mockReturnValue("feature");
     vi.mocked(listWorkspaceOwnership).mockReturnValue([
@@ -212,7 +212,8 @@ describe("environmentStop", () => {
     vi.mocked(workspaceStopOwnedPath).mockResolvedValue({
       devpodId: "feature",
       freedRoutes: 1,
-      providerChanged: true,
+      providerChanged: !absent,
+      ...(absent ? { runtimeAbsent: true } : {}),
       workspace: "feature",
     });
 
