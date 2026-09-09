@@ -2060,3 +2060,19 @@ and knowledge checks pass. Policy/store receipt:
 Main corrected the invalid-adapter diagnostic and added explicit-zero roundtrip
 coverage to the executor patch. No controller factory or canonical command wiring
 is claimed by this slice. Independent committed-slice review is next.
+
+Read-only live host qualification of 6597b94 succeeds: physical memory is
+68,719,476,736 bytes, current pressure reports pressured, and a policy capacity
+one byte above physical memory is rejected. These transient in-memory test
+policies are not written or activated. No workload was started or pressure
+induced. Simplifier Godel returns DONE with no useful net simplification;
+correctness reviewer Pauli returns DONE with no actionable findings. Main verified
+the reviewed allowance arithmetic, legacy guard and timestamp ordering against
+source. These reviews accept only 6597b94, not the unfinished admission package.
+
+Goal bookkeeping still reports the existing roadmap goal as blocked. Creating a
+replacement is rejected because the original goal remains unfinished; available
+goal tools cannot resume it. Do not mark it complete to bypass that restriction.
+Source work can continue, but automatic goal continuation needs the application's
+resume control. Production guest accounting and ordinary command integration
+remain the next source work; the host mapping is not useful live admission alone.
