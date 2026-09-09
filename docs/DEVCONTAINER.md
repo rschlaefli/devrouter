@@ -93,6 +93,15 @@ records stopped intent before waiting and prevents earlier workers from claiming
 new mutations or restoring routes. Completion requires positive workload and
 route cessation evidence as well as drainage of earlier workers.
 
+When another positively identified lifecycle worker is active on the same checkout,
+`exec` waits asynchronously for up to thirty minutes and reports progress on stderr.
+Commands remain serial; waiting does not promise FIFO ordering or a persistent
+queue. The waiting invocation keeps its request identity and refreshes runtime
+proof before admission. Cancellation or timeout before admission leaves the running
+command untouched. An intervening stop or other lifecycle fence change cancels
+admission, even if the environment subsequently resumes. Uncertain completion or
+unavailable worker identity does not grant permission to launch another command.
+
 A proven application exit code remains the CLI exit code. A lost completion is
 reported as unknown. A new ensure reconciles an interrupted ensure after positive
 worker drainage while retaining its unknown historical result. Unknown arbitrary
