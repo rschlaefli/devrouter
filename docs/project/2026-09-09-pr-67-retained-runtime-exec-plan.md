@@ -1,6 +1,6 @@
 # Restore tooling access after interrupted preparation
 
-Status: approved reliability source scope; bounded planner review accepted with target correction.
+Status: reviewed draft PR #67 (retained tooling recovery); CI pending.
 Owner: main. Branch: rs/retained-runtime-exec. Target: main at a89f379.
 
 ## Outcome and authority
@@ -118,3 +118,11 @@ original request deduplication. Main inspected this narrow correction against th
 reviewer's recommendation; no further reviewer is required for this settled fix.
 Clean packed qualification at d74f71c passed; this history-only follow-up reuses
 that runtime evidence and adds the targeted rollover sequence.
+
+
+Draft PR: https://github.com/rschlaefli/devrouter/pull/67, target main.
+Final implementation 4a1d33a passes all 1300 tests in 92 files, including the
+256-command rollover regression. Review findings are resolved; static checks and
+hooks pass. The clean d74f71c packed qualification is reused for unchanged runtime
+behavior, with final model checks covering history retention. No live consumer
+runtime, data, routes, machine policy, release or global installation changed.
