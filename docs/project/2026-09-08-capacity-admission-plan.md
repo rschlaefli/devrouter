@@ -1,6 +1,7 @@
 # Capacity admission execution plan
 
-Status: approved source sequence; native plan hardening APPROVED on round 3.
+Status: approved source sequence; declared host-budget amendment approved on 2026-09-09.
+The amendment below supersedes historical statements that the host choice is pending.
 Owner: main. Branch: rs/capacity-admission. Target: main.
 Baseline: 0db64c1a89e58d67b71e9686e849f41db6c721a7.
 
@@ -16,6 +17,47 @@ The user authorized source work, isolated fixtures and eLearning start/work/stop
 Machine policy activation requires measured, reviewable contents and bounded
 approval. No service installation, data deletion, host OOM, shared VM restart,
 paid infrastructure, automatic preemption or uncertain-command replay.
+
+## Approved declared host-budget amendment
+
+The user approved declared host/VM budgets plus fresh memory-pressure checks on
+2026-09-09. This supersedes the proposed choice recorded later in Progress.
+Admission enforces reviewed declared budgets; it does not establish physical host
+usage or a hard OrbStack host-memory ceiling and does not promise OOM protection.
+Unmanaged growth, underestimated VM overhead and delayed pressure remain limitations.
+
+Use `macos-declared-v1` with required nonnegative safe-integer
+`unmanagedAllowanceBytes`; no default is inferred. Reject this field on the legacy
+`macos-host-v1` adapter. An explicit zero needs review just like any other allowance.
+Legacy measured-host policies remain readable for existing records and fixtures;
+production activation must reject them before startup journal reconciliation and
+never reinterpret them as declared-budget policies.
+Charge each VM pool's full declared growth budget once through durable pool
+reservations. Host estimates cover only work outside those pools. Guest workloads
+remain independently accounted in their runtime domain. Validate host capacity
+against physical memory, preserve protected headroom, and require fresh normal
+pressure. Missing, stale or contradictory observations cannot authorize dispatch.
+
+Main owns policy semantics, collectors, canonical command integration and final
+proof. A bounded executor owns settled schema changes and behavioral tests after
+planner review. Reuse the existing host probe, Docker population/identity probes,
+reservation engine and accepted-operation client. Do not repeat host-counter
+research or replace retained growth reservations with current occupancy.
+
+Implement and verify the host schema and sample mapping first, then production
+runtime accounting and controller factory wiring, then ordinary ensure/exec
+submission and reconnection. Verify guest pressure and complete population
+accounting before enabling that factory; a synthetic collector cannot qualify it.
+Commands must preserve exact enrollment, stop authority, pending identity, output
+and nonzero outcomes. An unavailable controller never permits manual fallback for
+an enrolled runtime. A lost exec acknowledgement never authorizes replay.
+
+Acceptance uses isolated fixtures for pressure, stale evidence and races, followed
+by ordinary eLearning commands under a separately reviewed numeric machine policy.
+Prove one admitted startup, one stable queued request, settlement and one dispatch,
+retained data, and exact stopped runtime with zero routes. Reuse unchanged reviews
+and checks. Numeric limits and live activation remain a concrete approval boundary;
+this source amendment neither installs a service nor changes machine policy.
 
 ## Binding contracts
 
@@ -1991,3 +2033,30 @@ with the new adapter. The real server, private socket and session binding now
 prove a pending submission and same-ID terminal reconnect, including nonzero exit
 status and one submission. That focused test and typecheck pass. Its operation
 handlers remain synthetic; it is not live provider or ordinary CLI activation proof.
+
+### Declared-budget amendment review and execution
+
+Planner Laplace completed a bounded read-only review at 38da086. Main accepted
+its four corrections: non-overlapping host charges, discriminated adapter
+compatibility, explicit physical-memory rejection with collection-start freshness,
+and independent retained VM-pool lifetime. Existing pool storage deduplicates
+daemon identities and retains the highest budget; no storage format change is
+needed. Existing source reviews remain applicable to unchanged reservation and
+client behavior. Executor Hume owns only policy parsing and its focused tests;
+main owns host mapping, documentation and subsequent integration. The planner's
+all-main ownership suggestion does not override this bounded delegation.
+
+The earlier unanswered-choice entries are historical: the user approved declared
+budgets. Numeric live policy remains unapproved. Guest-wide pressure/accounting
+qualification remains an implementation prerequisite, not evidence supplied by
+the host-contract change. No machine policy or runtime was changed.
+
+The host schema and mapping slice is implemented. Policy tests pass 23 cases;
+host probe/accounting/request tests pass 38 cases; retained-pool store tests pass
+46 cases. The store tests require host process-birth access and initially failed
+inside the sandbox before passing outside it. TypeScript, Biome, Knip, docs policy
+and knowledge checks pass. Policy/store receipt:
+/private/tmp/devrouter-declared-budget-policy-store-tests.log.
+Main corrected the invalid-adapter diagnostic and added explicit-zero roundtrip
+coverage to the executor patch. No controller factory or canonical command wiring
+is claimed by this slice. Independent committed-slice review is next.

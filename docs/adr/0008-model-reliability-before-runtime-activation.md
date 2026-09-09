@@ -99,3 +99,28 @@ A timeout cancels only the observer-owned probe group. A batch whose probe has
 not drained retains its concurrency slot. Continuous recovery, capacity admission,
 service-manager enrollment and agent continuation remain separately qualified
 roadmap packages; observation grants none of their mutation authority.
+
+## Declared host-budget admission
+
+The source contract accepts an explicit `macos-declared-v1` host policy with a
+required `unmanagedAllowanceBytes`. This is a reviewed allowance for non-pool
+workloads, not a measurement of current host occupancy. The host charge combines
+that allowance, each retained VM pool's full declared growth budget once, and
+environment reservations for additional host-only work. Guest container memory
+and VM overhead already included in the pool budget must not be added again.
+Runtime-domain accounting remains independent. Existing estimates need review
+against these categories before activation.
+
+Host capacity may not exceed observed physical memory. Fresh normal pressure is
+also required; collection-start timestamps prevent delayed samples from obtaining
+a new freshness window. Neither normal pressure nor a declared growth budget proves
+an enforced physical VM ceiling. Unmanaged growth, underestimated overhead and
+delayed pressure can still exhaust memory. This contract does not claim complete
+OOM protection.
+
+Legacy `macos-host-v1` policies remain readable but cannot acquire declared-budget
+semantics implicitly. Production activation must reject that adapter before
+reconciling journals. Stopping an environment does not release a retained VM pool;
+only exact fenced pool-cessation proof permits that release. Numeric machine
+policy and live activation remain separately reviewed actions. Host mapping alone
+does not qualify production guest accounting or canonical command integration.

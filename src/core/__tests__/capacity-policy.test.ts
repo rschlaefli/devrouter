@@ -73,6 +73,20 @@ function validPolicy(): CapacityPolicy {
   };
 }
 
+function declaredPolicy(unmanagedAllowanceBytes = 100): CapacityPolicy {
+  const policy = validPolicy();
+  policy.domains.host = {
+    kind: "host",
+    adapter: "macos-declared-v1",
+    capacityBytes: 1_000,
+    protectedHeadroomBytes: 100,
+    unmanagedAllowanceBytes,
+    startupSlots: 1,
+    heavySlots: 1,
+  };
+  return policy;
+}
+
 describe("parseCapacityPolicy", () => {
   it.each([
     ["maxQueuedTotal", 65],
@@ -114,6 +128,62 @@ describe("parseCapacityPolicy", () => {
 
     expect(policy.domains["runtime-b"]).toMatchObject({ hostDomain: "host" });
     expect(policy.enrollments[0].defaultOperation.hostIncrementBytes).toBe(0);
+  });
+
+  it.each([
+    0, 100,
+  ])("round-trips a declared host domain with explicit allowance %s", (allowance) => {
+    const policy = declaredPolicy(allowance);
+
+    expect(parseCapacityPolicy(policy)).toEqual(policy);
+  });
+
+  it("requires a nonnegative safe integer allowance for declared hosts", () => {
+    const policy = declaredPolicy();
+    const host = policy.domains.host;
+    if (host.adapter !== "macos-declared-v1") throw new Error("Invalid test fixture");
+
+    for (const allowance of [-1, -0, Number.MAX_SAFE_INTEGER + 1]) {
+      host.unmanagedAllowanceBytes = allowance;
+      expect(() => parseCapacityPolicy(policy)).toThrow(/unmanagedAllowanceBytes/);
+    }
+
+    const hostWithoutAllowance = { ...host };
+    delete (hostWithoutAllowance as Partial<typeof hostWithoutAllowance>).unmanagedAllowanceBytes;
+    expect(() =>
+      parseCapacityPolicy({
+        ...policy,
+        domains: { ...policy.domains, host: hostWithoutAllowance },
+      }),
+    ).toThrow(/unmanagedAllowanceBytes/);
+  });
+
+  it("rejects an allowance on the legacy host adapter", () => {
+    const policy = validPolicy();
+
+    expect(() =>
+      parseCapacityPolicy({
+        ...policy,
+        domains: {
+          ...policy.domains,
+          host: { ...policy.domains.host, unmanagedAllowanceBytes: 0 },
+        },
+      }),
+    ).toThrow(/only supported for adapter/);
+  });
+
+  it("allows an allowance at the available boundary and reserves it from runtime budgets", () => {
+    const atBoundary = declaredPolicy(900);
+    atBoundary.domains = { host: atBoundary.domains.host };
+    atBoundary.enrollments = [];
+    expect(() => parseCapacityPolicy(atBoundary)).not.toThrow();
+
+    const beyondBoundary = declaredPolicy(901);
+    beyondBoundary.domains = { host: beyondBoundary.domains.host };
+    beyondBoundary.enrollments = [];
+    expect(() => parseCapacityPolicy(beyondBoundary)).toThrow(/unmanagedAllowanceBytes/);
+
+    expect(() => parseCapacityPolicy(declaredPolicy(101))).toThrow(/hostChargeCeilingBytes/);
   });
 
   it("canonicalizes enrollment profile combinations and rejects aliases", () => {

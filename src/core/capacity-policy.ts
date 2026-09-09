@@ -70,14 +70,24 @@ export type CapacityPolicyScheduling = {
   maxSampleAgeSeconds: number;
 };
 
-export type CapacityHostDomain = {
-  kind: "host";
-  adapter: "macos-host-v1";
-  capacityBytes: number;
-  protectedHeadroomBytes: number;
-  startupSlots: number;
-  heavySlots: number;
-};
+export type CapacityHostDomain =
+  | {
+      kind: "host";
+      adapter: "macos-host-v1";
+      capacityBytes: number;
+      protectedHeadroomBytes: number;
+      startupSlots: number;
+      heavySlots: number;
+    }
+  | {
+      kind: "host";
+      adapter: "macos-declared-v1";
+      capacityBytes: number;
+      protectedHeadroomBytes: number;
+      unmanagedAllowanceBytes: number;
+      startupSlots: number;
+      heavySlots: number;
+    };
 
 export type CapacityRuntimeDomain = {
   kind: "runtime";
@@ -251,12 +261,20 @@ function parseDomain(value: unknown, domainId: string): CapacityPolicyDomain {
   if (kind === "host") {
     ensureAllowedKeys(
       domain,
-      ["kind", "adapter", "capacityBytes", "protectedHeadroomBytes", "startupSlots", "heavySlots"],
+      [
+        "kind",
+        "adapter",
+        "capacityBytes",
+        "protectedHeadroomBytes",
+        "unmanagedAllowanceBytes",
+        "startupSlots",
+        "heavySlots",
+      ],
       label,
     );
     const adapter = parseBoundedString(domain.adapter, `${label}.adapter`);
-    if (adapter !== "macos-host-v1") {
-      throw new Error(`${label}.adapter must be 'macos-host-v1'.`);
+    if (adapter !== "macos-host-v1" && adapter !== "macos-declared-v1") {
+      throw new Error(`${label}.adapter must be 'macos-host-v1' or 'macos-declared-v1'.`);
     }
     const capacityBytes = parsePositiveInteger(domain.capacityBytes, `${label}.capacityBytes`);
     const protectedHeadroomBytes = parsePositiveInteger(
@@ -266,13 +284,43 @@ function parseDomain(value: unknown, domainId: string): CapacityPolicyDomain {
     if (protectedHeadroomBytes >= capacityBytes) {
       throw new Error(`${label}.protectedHeadroomBytes must be less than capacityBytes.`);
     }
+    const startupSlots = parsePositiveInteger(domain.startupSlots, `${label}.startupSlots`);
+    const heavySlots = parsePositiveInteger(domain.heavySlots, `${label}.heavySlots`);
+
+    if (adapter === "macos-host-v1") {
+      if (Object.hasOwn(domain, "unmanagedAllowanceBytes")) {
+        throw new Error(
+          `${label}.unmanagedAllowanceBytes is only supported for adapter 'macos-declared-v1'.`,
+        );
+      }
+      return {
+        kind: "host",
+        adapter: "macos-host-v1",
+        capacityBytes,
+        protectedHeadroomBytes,
+        startupSlots,
+        heavySlots,
+      };
+    }
+
+    const unmanagedAllowanceBytes = parseSafeInteger(
+      domain.unmanagedAllowanceBytes,
+      `${label}.unmanagedAllowanceBytes`,
+      0,
+    );
+    if (unmanagedAllowanceBytes > capacityBytes - protectedHeadroomBytes) {
+      throw new Error(
+        `${label}.unmanagedAllowanceBytes must not exceed capacityBytes minus protectedHeadroomBytes.`,
+      );
+    }
     return {
       kind: "host",
-      adapter: "macos-host-v1",
+      adapter: "macos-declared-v1",
       capacityBytes,
       protectedHeadroomBytes,
-      startupSlots: parsePositiveInteger(domain.startupSlots, `${label}.startupSlots`),
-      heavySlots: parsePositiveInteger(domain.heavySlots, `${label}.heavySlots`),
+      unmanagedAllowanceBytes,
+      startupSlots,
+      heavySlots,
     };
   }
 
@@ -431,7 +479,10 @@ function validateDomainReferences(domains: Record<string, CapacityPolicyDomain>)
         `domains.${domainId}.hostDomain must reference a host domain, not '${domain.hostDomain}'.`,
       );
     }
-    const admissibleHostBytes = hostDomain.capacityBytes - hostDomain.protectedHeadroomBytes;
+    const unmanagedAllowanceBytes =
+      hostDomain.adapter === "macos-declared-v1" ? hostDomain.unmanagedAllowanceBytes : 0;
+    const admissibleHostBytes =
+      hostDomain.capacityBytes - hostDomain.protectedHeadroomBytes - unmanagedAllowanceBytes;
     if (domain.hostChargeCeilingBytes > admissibleHostBytes) {
       throw new Error(
         `domains.${domainId}.hostChargeCeilingBytes exceeds admissible capacity of host domain '${domain.hostDomain}'.`,

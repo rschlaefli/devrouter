@@ -1,9 +1,33 @@
+import type { CapacityDomainSample } from "./capacity-accounting";
+import type { CapacityHostDomain } from "./capacity-policy";
 import { runControllerProbe } from "./controller-probe";
 
 export type CapacityHostSnapshot = {
   physicalBytes: number;
   pressure: "normal" | "pressured" | "unknown";
 };
+
+/** Pool budgets and host-only reservations are added separately by admission. */
+export async function collectDeclaredHostCapacity(
+  domain: CapacityHostDomain,
+  signal: AbortSignal,
+  dependencies: Parameters<typeof readCapacityHostSnapshot>[1] = {},
+): Promise<CapacityDomainSample> {
+  if (domain.adapter !== "macos-declared-v1")
+    throw new Error("Production host admission requires an explicit declared-budget policy.");
+  // Use the beginning of collection so delayed evidence never gains a fresh lease.
+  const sampledAtMs = Date.now();
+  const snapshot = await readCapacityHostSnapshot(signal, dependencies);
+  if (domain.capacityBytes > snapshot.physicalBytes)
+    throw new Error("Declared host capacity exceeds physical memory.");
+  return {
+    sampledAtMs,
+    pressure: snapshot.pressure,
+    unmanagedBytes: domain.unmanagedAllowanceBytes,
+    sharedBytes: 0,
+    ownedBytes: {},
+  };
+}
 
 function counter(output: string): number {
   const text = output.trim();
