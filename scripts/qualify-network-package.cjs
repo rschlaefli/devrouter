@@ -62,6 +62,7 @@ assert(result.stdout.trim(), result.stderr);
 const report = JSON.parse(result.stdout);
 assert.equal(report.checks.filter((check) => check.id === "global.network-capacity").length, 1);
 assert.equal(report.checks.find((check) => check.id === "global.network-capacity").level, "warn");
+assert(!fs.existsSync(`${receipt}.unexpected`), "Unexpected Docker command or endpoint");
 const calls = fs
   .readFileSync(receipt, "utf8")
   .trim()
