@@ -58,8 +58,11 @@ only profile can publish no route. `*` selects the complete registry for that
 dimension. Profiles without `managedRuntime` retain the app-only behavior.
 
 The effective managed configuration is an ignored, marker-owned sibling beside
-the source file. It changes only `runServices` and keeps relative paths resolved
-from the same directory. Warm profile transitions retain the exact DevPod and
+the source file. Profile selection changes `runServices` and keeps relative paths
+resolved from the same directory. Opt-in managed network allocation also appends
+an ignored Compose overlay; the native configuration remains unchanged. See the
+[network allocation contract](../DEVCONTAINER.md#managed-workspace-network-allocation)
+for eligibility, endpoint demand and operator policy. Warm profile transitions retain the exact DevPod and
 volumes, use no recreate or broad Compose down, and publish routes only after
 the selected service, process, and readiness proofs pass. Status and doctor
 expose desired, active, and drift state without environment values.

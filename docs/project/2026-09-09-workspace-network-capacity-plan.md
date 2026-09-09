@@ -639,3 +639,47 @@ The refreshed target is `7de37e663715288189fe384f082c38335502ba8d`; this branch 
 three ahead and two behind before its allocation commit. The next gate is the
 parallel simplifier and risk reviewer on the immutable allocation slice, then
 source integration and full provider/package qualification before final review.
+
+### Integrated qualification checkpoint
+
+Allocation committed as `c225610`; simplification committed as `fbca948` removes
+163 net lines without changing behavior. The risk reviewer returned DONE with
+no reportable findings on all 57 slice paths. Its reviewed boundaries include
+reservation races, fenced settlement, retained-container ownership, provider
+binding before effects, route exemption and conservative recovery. Review evidence
+is in `_local/reviews/2026-09-09-network-capacity-slice-2.md`.
+
+Target integration committed as `eb28ae7`, incorporating released main
+`7de37e663715288189fe384f082c38335502ba8d` to preserve current lifecycle recovery.
+The merge has no conflicts. Baseline-pinned stop and proven-absent stop remain
+identical to the target. The existing Devrouter owner retains all unmerged memory
+and lifecycle work and received a coordination update. Primary checkout artifacts
+and other worktrees remain untouched.
+
+Integrated verification passes 178 focused tests and all 1,515 Vitest tests.
+Typecheck, Biome, Knip, docs-policy, knowledge and commit hooks pass. The Linux
+process-helper suite skips on macOS; Node 26.8.1 differs from pinned 24.16.0.
+These limitations remain for final delivery. The target's version-only manifest
+change caused pnpm to attempt a dependency reinstall; tests use the existing
+installed tools with per-command automatic installation disabled. Dependency
+versions and lockfile are unchanged.
+
+Executor Euler owns subprocess provider fixtures and packed qualification.
+Main owns guidance updates, acceptance review and final package integration.
+The persistent-binding approval is already recorded and needs no renewed ruling.
+No live policy, provider binding, container, network or runtime changed.
+
+### Acceptance evidence map
+
+| Accepted behavior | Source proof | Remaining boundary |
+| --- | --- | --- |
+| Concurrent claims and exhausted pools | `network-claims.test.ts` uses real competing processes for the final block across both provider identities; capacity tests cover the thirty occupied bases, fragments and larger prefixes | Synthetic daemon inventory; external non-cooperating Docker mutations remain subject to Docker rejection and postcondition proof |
+| Endpoint headroom and route safety | Capacity/Compose tests cover `/26` headroom, full service union, replicas and explicit bounds; route and connected-bridge tests retain VPN, host, wider and foreign-interface conflicts | No live endpoint-limit experiment; OrbStack guest routes are unknown and allocation is blocked |
+| Retained ownership and failure recovery | Claim, recovery and flow tests cover all retained containers, uncertain outcomes, worker settlement, compare-and-swap fences, atomic write failure and binding-only partial starts | Binding-only effects require exact operator repair; no automatic provider or network deletion exists |
+| Compatibility and stop/resume | Flow tests reuse the exact network, including after policy removal, and reject a changed prefix; config/Compose tests preserve native files, legacy and explicit-IPAM boundaries; integrated stop tests preserve released baseline/absence behavior | Installed-provider and complete real-runtime stop/resume remain unproven |
+| Provider and distribution qualification | Existing provider-definition tests and tagged source establish supported option semantics; subprocess and packed qualification are in progress | Final review and source delivery remain pending until this row has fresh counters |
+
+The source package intentionally cannot increase this OrbStack host's usable
+capacity yet. It provides diagnostics and the guarded allocator, while live pool
+selection and guest-route qualification remain separate operator decisions.
+No shared host configuration, runtime migration or cleanup is part of delivery.

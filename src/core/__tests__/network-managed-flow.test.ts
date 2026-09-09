@@ -22,6 +22,7 @@ const state = vi.hoisted(() => ({
   events: [] as string[],
   provider: "devsy" as "devsy" | "devpod",
   daemon: "daemon",
+  policyPresent: true,
 }));
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn(() => ({ status: 0 })) }));
 vi.mock("../network-claim-lookup", () => ({
@@ -29,17 +30,20 @@ vi.mock("../network-claim-lookup", () => ({
   networkOwnerKey: () => "owner",
 }));
 vi.mock("../network-policy", () => ({
-  readNetworkPolicy: () => ({
-    status: "valid",
-    policy: {
-      version: 1,
-      daemonId: "daemon",
-      pools: ["10.88.0.0/24"],
-      exclusions: [],
-      allowedPrefixes: [24, 25, 26],
-      endpointReserve: 8,
-    },
-  }),
+  readNetworkPolicy: () =>
+    state.policyPresent
+      ? {
+          status: "valid",
+          policy: {
+            version: 1,
+            daemonId: "daemon",
+            pools: ["10.88.0.0/24"],
+            exclusions: [],
+            allowedPrefixes: [24, 25, 26],
+            endpointReserve: 8,
+          },
+        }
+      : { status: "absent", path: "/synthetic-policy" },
 }));
 vi.mock("../network-lifecycle", () => ({
   readNetworkOperationAuthority: () => ({
@@ -167,6 +171,7 @@ beforeEach(() => {
     routes: [],
     events: [],
     daemon: "daemon",
+    policyPresent: true,
     provider: "devsy",
   });
   state.root = fs.mkdtempSync(path.join(os.tmpdir(), "network-flow-"));
@@ -240,6 +245,32 @@ describe("managed network preparation and recovery", () => {
     resumed.providerStart();
     resumed.session.prove("synthetic", "b".repeat(64));
     expect(state.saved).toMatchObject({ subnet, networkId, state: "attached" });
+    expect(reserveNetworkClaim).toHaveBeenCalledTimes(1);
+  });
+  it("resumes the attached network after policy removal without selecting a new subnet", () => {
+    const first = fixture();
+    first.providerStart();
+    first.session.prove("synthetic", "b".repeat(64));
+    const retained = { subnet: state.saved?.subnet, networkId: state.saved?.networkId };
+    state.policyPresent = false;
+    const resumed = fixture();
+    resumed.providerStart();
+    resumed.session.prove("synthetic", "b".repeat(64));
+    expect(state.saved).toMatchObject({ ...retained, state: "attached" });
+    expect(reserveNetworkClaim).toHaveBeenCalledTimes(1);
+  });
+  it("rejects a changed prefix before provider startup and preserves the claim", () => {
+    const first = fixture();
+    first.providerStart();
+    first.session.prove("synthetic", "b".repeat(64));
+    const retained = state.saved;
+    const resumed = createManagedNetworkSession({
+      ...first.input,
+      hadExactProvider: true,
+      request: { prefixLength: 25 },
+    })!;
+    expect(() => resumed.prepare("synthetic")).toThrow();
+    expect(state.saved).toBe(retained);
     expect(reserveNetworkClaim).toHaveBeenCalledTimes(1);
   });
   it("withholds attachment when a foreign route appears after provider startup", () => {
