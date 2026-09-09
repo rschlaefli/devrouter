@@ -112,7 +112,6 @@ describe("Compose network demand", () => {
       helperEndpoints: 2,
       retainedEndpoints: 4,
       recreationSurge: 3,
-      capacity: { prefixLength: 26 },
     });
 
     expect(result.status).toBe("known");
@@ -122,28 +121,6 @@ describe("Compose network demand", () => {
     expect(result.observed.recreationSurge).toBe(3);
     expect(result.lowerBound).toBe(14);
     expect(result.upperBound).toBe(14);
-    expect(result.capacity).toMatchObject({
-      availableEndpoints: 53,
-      requiredEndpoints: 14,
-      status: "fit",
-    });
-  });
-
-  it("counts exact /26 headroom at 53 endpoints and rejects one over", () => {
-    const base = {
-      compose: { services: {} },
-      capacity: { prefixLength: 26 },
-    };
-    const fit = deriveComposeNetworkDemand({ ...base, retainedEndpoints: 53 });
-    const over = deriveComposeNetworkDemand({ ...base, retainedEndpoints: 54 });
-
-    expect(fit.capacity).toMatchObject({ availableEndpoints: 53, headroom: 0, status: "fit" });
-    expect(over.capacity).toMatchObject({
-      availableEndpoints: 53,
-      headroom: -1,
-      status: "insufficient",
-    });
-    expect(over.reasons.map(({ code }) => code)).toContain("insufficient-endpoint-headroom");
   });
 
   it("keeps dynamic or malformed replicas unknown without a safe bound", () => {
@@ -214,7 +191,6 @@ describe("Compose network overlay and effective config", () => {
       dockerComposeFile: ["compose.yml", ".devcontainer/network.overlay.yml"],
     });
     expect(result.config).not.toBe(nativeConfig);
-    expect(result.config?.runServices).not.toBe(nativeConfig.runServices);
     expect(nativeConfig.dockerComposeFile).toEqual(["compose.yml"]);
   });
 

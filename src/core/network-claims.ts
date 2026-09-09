@@ -268,22 +268,19 @@ export function transitionNetworkClaim(
     }
     assertExpected(current, input.expected);
 
+    let next: NetworkClaim;
     if (input.nextState === "attached") {
       if (current.state !== "reserved") {
         throw claimError("compare-and-swap-failed", "only a reserved claim can become attached");
       }
       const networkId = exactAttachedNetworkId(input.attachedProof, current);
-      const next: NetworkClaim = { ...current, state: "attached", networkId };
-      const claims = document.claims.slice();
-      claims[index] = next;
-      persistDocument(store, { ...document, claims });
-      return cloneClaim(next);
+      next = { ...current, state: "attached", networkId };
+    } else {
+      if (current.state === "attached") {
+        throw claimError("compare-and-swap-failed", "an attached claim cannot become uncertain");
+      }
+      next = { ...current, state: "uncertain" };
     }
-
-    if (current.state === "attached") {
-      throw claimError("compare-and-swap-failed", "an attached claim cannot become uncertain");
-    }
-    const next: NetworkClaim = { ...current, state: "uncertain" };
     const claims = document.claims.slice();
     claims[index] = next;
     persistDocument(store, { ...document, claims });

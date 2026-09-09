@@ -53,12 +53,6 @@ export interface ComposeEndpointUpperBound {
   semantics: string;
 }
 
-export interface ComposeNetworkCapacityInput {
-  prefixLength?: unknown;
-  subnet?: unknown;
-  endpointReserve?: unknown;
-}
-
 export interface ComposeNetworkDemandInput extends ComposeNetworkEligibilityInput {
   targetNetwork?: string;
   helperEndpoints?: unknown;
@@ -67,18 +61,6 @@ export interface ComposeNetworkDemandInput extends ComposeNetworkEligibilityInpu
   staticReservations?: unknown;
   endpointUpperBound?: unknown;
   endpointUpperBoundSemantics?: unknown;
-  capacity?: ComposeNetworkCapacityInput;
-}
-
-export interface ComposeNetworkDemandCapacity {
-  status: "fit" | "insufficient" | "unknown";
-  prefixLength?: number;
-  totalAddresses?: number;
-  usableAddresses?: number;
-  endpointReserve?: number;
-  availableEndpoints?: number;
-  requiredEndpoints?: number;
-  headroom?: number;
 }
 
 export interface ComposeNetworkDemand {
@@ -96,7 +78,6 @@ export interface ComposeNetworkDemand {
   };
   serviceEndpointsByService: Record<string, number>;
   replicasByService: Record<string, number>;
-  capacity?: ComposeNetworkDemandCapacity;
   reasons: ComposeNetworkReason[];
 }
 
@@ -718,13 +699,6 @@ function parseUpperBound(
   return { value, known: true, explicit: true };
 }
 
-function parsePrefix(value: unknown): number | undefined {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 32) {
-    return undefined;
-  }
-  return value;
-}
-
 function parseIpv4Cidr(value: unknown): { prefixLength?: number; canonical?: string } | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -758,94 +732,6 @@ function parseIpv4Cidr(value: unknown): { prefixLength?: number; canonical?: str
     network % 256,
   ].join(".");
   return { prefixLength, canonical: `${canonical}/${prefixLength}` };
-}
-
-function deriveCapacity(
-  input: ComposeNetworkDemandInput,
-  requiredEndpoints: number | undefined,
-  demandKnown: boolean,
-  reasons: ComposeNetworkReason[],
-): ComposeNetworkDemandCapacity | undefined {
-  const capacity = input.capacity;
-  if (capacity === undefined) {
-    return undefined;
-  }
-  if (!isRecord(capacity)) {
-    addReason(
-      reasons,
-      reason("malformed-capacity", "Network capacity metadata must be an object."),
-    );
-    return { status: "unknown" };
-  }
-
-  let prefixLength: number | undefined;
-  if (capacity.prefixLength !== undefined) {
-    prefixLength = parsePrefix(capacity.prefixLength);
-    if (prefixLength === undefined) {
-      addReason(
-        reasons,
-        reason("malformed-prefix", "Network prefix length must be an integer from 0 through 32."),
-      );
-    }
-  }
-  if (capacity.subnet !== undefined) {
-    const parsedSubnet = parseIpv4Cidr(capacity.subnet);
-    if (parsedSubnet === undefined) {
-      addReason(
-        reasons,
-        reason("malformed-subnet", "Network capacity subnet must be a canonical IPv4 CIDR."),
-      );
-    } else if (prefixLength !== undefined && prefixLength !== parsedSubnet.prefixLength) {
-      addReason(
-        reasons,
-        reason("conflicting-prefix", "Network capacity prefix and subnet prefix disagree."),
-      );
-    } else {
-      prefixLength = parsedSubnet.prefixLength;
-    }
-  }
-  if (prefixLength === undefined) {
-    return { status: "unknown" };
-  }
-
-  const reserve =
-    capacity.endpointReserve === undefined
-      ? { value: 8, known: true }
-      : parseCount(capacity.endpointReserve, "endpointReserve", reasons);
-  if (!reserve.known) {
-    return { status: "unknown", prefixLength };
-  }
-
-  const totalAddresses = 2 ** (32 - prefixLength);
-  const usableAddresses = Math.max(0, totalAddresses - 3);
-  const availableEndpoints = Math.max(0, usableAddresses - reserve.value);
-  const result: ComposeNetworkDemandCapacity = {
-    status:
-      !demandKnown || requiredEndpoints === undefined
-        ? "unknown"
-        : requiredEndpoints <= availableEndpoints
-          ? "fit"
-          : "insufficient",
-    prefixLength,
-    totalAddresses,
-    usableAddresses,
-    endpointReserve: reserve.value,
-    availableEndpoints,
-    requiredEndpoints,
-  };
-  if (requiredEndpoints !== undefined) {
-    result.headroom = availableEndpoints - requiredEndpoints;
-    if (result.status === "insufficient") {
-      addReason(
-        reasons,
-        reason(
-          "insufficient-endpoint-headroom",
-          `Network demand needs ${requiredEndpoints} endpoints but only ${availableEndpoints} are available.`,
-        ),
-      );
-    }
-  }
-  return result;
 }
 
 export function deriveComposeNetworkDemand(input: ComposeNetworkDemandInput): ComposeNetworkDemand {
@@ -954,12 +840,6 @@ export function deriveComposeNetworkDemand(input: ComposeNetworkDemandInput): Co
     upperBoundSource = "known";
   }
 
-  const capacity = deriveCapacity(input, calculatedUpperBound, demandKnown, reasons);
-  const hasCapacityUncertainty = capacity?.status === "unknown";
-  if (hasCapacityUncertainty && input.capacity !== undefined) {
-    demandKnown = false;
-  }
-
   return {
     status: demandKnown ? "known" : "unknown",
     targetNetwork,
@@ -975,7 +855,6 @@ export function deriveComposeNetworkDemand(input: ComposeNetworkDemandInput): Co
     },
     serviceEndpointsByService,
     replicasByService,
-    capacity,
     reasons,
   };
 }
@@ -1004,20 +883,6 @@ export function deriveComposeNetworkOverlay(subnet: unknown): ComposeNetworkOver
     },
     reasons: [],
   };
-}
-
-function cloneJsonValue<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map((item) => cloneJsonValue(item)) as T;
-  }
-  if (isRecord(value)) {
-    const clone: JsonRecord = {};
-    for (const [key, item] of Object.entries(value)) {
-      clone[key] = cloneJsonValue(item);
-    }
-    return clone as T;
-  }
-  return value;
 }
 
 export function extendDockerComposeFile<T extends JsonRecord>(
@@ -1067,8 +932,7 @@ export function extendDockerComposeFile<T extends JsonRecord>(
     };
   }
 
-  const config = cloneJsonValue(nativeConfig) as T & { dockerComposeFile: string[] };
-  config.dockerComposeFile = dockerComposeFile;
+  const config = { ...nativeConfig, dockerComposeFile };
   return { status: "ready", config, reasons: [] };
 }
 
