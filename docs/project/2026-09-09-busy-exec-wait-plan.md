@@ -60,7 +60,7 @@ and affected manual. Explorer Ohm maps remaining regression seams.
 The baseline packed regression reproduced the active-worker rejection. Main completed
 atomic admission and asynchronous waiting after the executor returned a partial patch.
 The advisor initially hit a session limit and was retried after its stated reset time;
-that same consultation is still running. No reset credit or configuration change occurred.
+the consultation is now complete. No reset credit or configuration change occurred.
 
 Focused verification passes 35 tests covering waiting without journal mutation, copied
 argv, fresh proof, timeout, signals, stop fencing, admission contention, uncertain birth,
@@ -81,3 +81,19 @@ is reviewing 048c395 with the narrow 902a781 follow-up supplied. The original ad
 retry remains running without a terminal response. No replacement reviewer is started.
 Integrated final review, CI and draft PR delivery remain open. Main owns integration.
 No live consumer runtime was touched. The same roadmap goal remains active.
+
+## Review correction checkpoint
+
+The slice review confirms the atomic-admission contract. Its request for progress
+privacy and throttling coverage is addressed in 8e5fbea. The suggested drainage of
+an exact-birth process based only on an absent process group is rejected: that evidence
+does not prove process death, so the existing ownership guard is preserved.
+
+The advisor identified a valid abort window after durable admission and before IPC.
+Correction c82512a preserves the final cancellation check and records a proven pre-send
+abort as NOT_LAUNCHED. It allows later tooling while retaining conservative interruption
+for uncertain persistence or sends. All 1314 tests in 92 files pass, including 92 focused
+lifecycle/model tests. The committed packed qualification is running for this correction.
+The integrated final reviewer is active; confirm its covered revision before accepting it.
+Draft PR and CI delivery remain pending these results. No further user approval is needed
+for the authorized source-package sequence.
