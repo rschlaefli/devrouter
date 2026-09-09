@@ -2256,6 +2256,18 @@ The dedicated simplifier pass is deferred: three dispatch attempts returned
 route rate limits (429). The simplifier gate is not a correctness or readiness
 gate; it will run when the route recovers.
 
+Integrated final review (independent fresh-context reviewer, native Claude route
+unavailable on a hard session limit) returned DONE_WITH_CONCERNS with zero
+blockers: all contract items verified on the integrated head, the main
+integration is disjoint from the amendment files, and the plan receipts agree
+with the code. Minor findings, accepted as recorded: witnessed-domain renewal
+tolerance also covers structural unknown causes reachable only via
+reservation-store corruption; two pre-existing five-second controller test
+timeouts remain load-flaky outside this range; and a negligible fail-closed
+window exists between the fence read and witness clearing under the worker
+lock. The amendment is ready for PR review; factory activation, canonical CLI
+wiring and whole-package activation remain separate unfinished work.
+
 Dogfood evidence for released v0.0.66 from the Doc Query consumer thread: the
 replacement-registration stop fix is verified in the field (canonical stop
 returned stopped=true); one ensure hang was diagnosed as an application-level
