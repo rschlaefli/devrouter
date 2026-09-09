@@ -416,7 +416,11 @@ it.each([
 });
 
 it("publishes the queued startup witness before enqueueing an ensure", async () => {
-  const policyEnrollmentWithProvider = { ...submissionEnrollment, providerId: "provider" };
+  const policyEnrollmentWithProvider = {
+    ...submissionEnrollment,
+    provider: "devsy" as const,
+    providerId: "provider",
+  };
   fixture.policy.mockReturnValue({
     revision: 1,
     admissions: "enabled",
@@ -455,6 +459,7 @@ it("publishes the queued startup witness before enqueueing an ensure", async () 
   expect(fixture.witness).toHaveBeenCalledWith(
     expect.objectContaining({
       identity: { repoPath: "/fixture", workspace: "fixture", provider: "devsy" },
+      provider: "devsy",
       providerId: "provider",
       operationId: "accepted",
       profile: "full",

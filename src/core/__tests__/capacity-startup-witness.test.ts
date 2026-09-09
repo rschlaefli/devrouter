@@ -67,6 +67,7 @@ it("binds the queued witness to generation, request profile, plan, and retained 
   await expect(
     publishQueuedStartupWitness({
       identity,
+      provider: "devsy",
       providerId: "synthetic-provider",
       operationId: "operation-1",
       fence,
@@ -103,6 +104,7 @@ it("binds the queued witness to generation, request profile, plan, and retained 
 it("publishes an empty retained list for a cold environment", async () => {
   await publishQueuedStartupWitness({
     identity,
+    provider: "devsy",
     providerId: "synthetic-provider",
     operationId: "operation-2",
     fence,
@@ -110,4 +112,20 @@ it("publishes an empty retained list for a cold environment", async () => {
     signal: new AbortController().signal,
   });
   expect(fixture.publish.mock.calls[0]?.[1]).toMatchObject({ retainedContainerIds: [] });
+});
+
+it("publishes Devpod witnesses without reading retained Devsy generation", async () => {
+  await publishQueuedStartupWitness({
+    identity,
+    provider: "devpod",
+    providerId: "synthetic-provider",
+    operationId: "operation-3",
+    fence,
+    profile: "full",
+    signal: new AbortController().signal,
+  });
+  expect(fixture.generation).not.toHaveBeenCalled();
+  expect(fixture.publish.mock.calls[0]?.[1]).toMatchObject({
+    provider: { id: "synthetic-provider", context: "", uid: "", sourceContainer: "" },
+  });
 });

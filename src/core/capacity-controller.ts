@@ -249,6 +249,7 @@ export function createCapacityController(options: {
         try {
           await publishQueuedStartupWitness({
             identity,
+            provider: resolved.enrollment.provider,
             providerId: resolved.enrollment.providerId,
             operationId: prepared.operationId,
             fence: prepared.request.fence,

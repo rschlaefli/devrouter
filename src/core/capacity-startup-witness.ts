@@ -18,20 +18,23 @@ import { isLinkedWorktree } from "./workspace";
  * growing startup population before the worker mutates anything. Publication
  * revalidates the fence inside the journal; a failure must retire the queued
  * intent instead of letting a worker mutate an unwitnessed population.
+ * Retained Devsy generation is a Devsy-only ownership concept, so Devsy
+ * providers bind it while Devpod providers publish empty generation strings
+ * instead of failing admission on a registry they do not participate in.
  */
 export async function publishQueuedStartupWitness(input: {
   identity: ReliabilityIdentity;
+  provider: "devsy" | "devpod";
   providerId: string;
   operationId: string;
   fence: ReliabilityFence;
   profile: string;
   signal: AbortSignal;
 }): Promise<void> {
-  const generation = await readProviderGeneration(
-    input.identity.repoPath,
-    input.providerId,
-    input.signal,
-  );
+  const generation =
+    input.provider === "devsy"
+      ? await readProviderGeneration(input.identity.repoPath, input.providerId, input.signal)
+      : { context: "", uid: "", sourceContainer: "" };
   const runtime = loadRuntimeConfig(
     input.identity.repoPath,
     input.identity.workspace ?? "",
