@@ -81,12 +81,20 @@ function fixture() {
     devpodId: "synthetic",
     composeProject: "project",
     stopBaseline: {
+      context: "default",
+      uid: "generation",
+      sourceContainer: "",
       provider: "devsy",
       endpoint: `unix://${domain.endpoint}`,
       daemonId: domain.daemonId,
     },
   } as ManagedRuntimeState;
   const dependencies = {
+    providerGeneration: vi.fn(async () => ({
+      context: "default",
+      uid: "generation",
+      sourceContainer: "",
+    })),
     resolve: vi.fn(async () => structuredClone(binding)) as unknown as ReturnType<
       typeof vi.fn<typeof import("../capacity-enrollment").resolveCapacityEnrollment>
     >,
@@ -241,4 +249,26 @@ it("samples a retained running population without treating a profile change as f
     { environmentId: f.id, containers: [container] },
   ]);
   await resolver.revalidate();
+});
+
+it.each([
+  "context",
+  "uid",
+  "sourceContainer",
+] as const)("rejects retained provider %s drift", async (field) => {
+  const f = fixture();
+  f.state.stopBaseline![field] = "foreign";
+  const resolver = await f.resolve();
+  await expect(resolver.proveOwned(f.cancellation.signal)).rejects.toThrow();
+});
+it("revalidates provider generation before publishing memory evidence", async () => {
+  const f = fixture();
+  const resolver = await f.resolve();
+  await resolver.proveOwned(f.cancellation.signal);
+  f.dependencies.providerGeneration.mockResolvedValue({
+    context: "default",
+    uid: "replacement",
+    sourceContainer: "",
+  });
+  await expect(resolver.revalidate()).rejects.toThrow();
 });

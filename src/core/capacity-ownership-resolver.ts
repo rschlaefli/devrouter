@@ -7,8 +7,39 @@ import type { CapacityPolicy } from "./capacity-policy";
 import { proveManagedCapacityPopulation } from "./capacity-population-proof";
 import type { CapacityOwnedPopulation } from "./capacity-runtime-probe";
 import { readControllerEvidence } from "./controller-binding";
+import { runControllerProbe } from "./controller-probe";
 import { readManagedRuntimeState } from "./managed-runtime-state";
 import { readReliabilityOperation } from "./reliability-operation-store";
+
+/** The retained Devsy generation is stronger evidence than its reusable workspace ID. */
+async function readProviderGeneration(repoPath: string, providerId: string, signal: AbortSignal) {
+  const entries: unknown = JSON.parse(
+    await runControllerProbe(
+      "devsy",
+      ["workspace", "list", "--result-format", "json", "--skip-pro"],
+      signal,
+    ),
+  );
+  if (!Array.isArray(entries)) throw new Error("Capacity provider generation is unavailable.");
+  const matches = entries.filter(
+    (entry) => entry?.id === providerId || entry?.source?.localFolder === repoPath,
+  );
+  if (
+    matches.length !== 1 ||
+    matches[0]?.id !== providerId ||
+    matches[0]?.source?.localFolder !== repoPath
+  )
+    throw new Error("Capacity provider generation is ambiguous.");
+  const entry = matches[0];
+  const generation = {
+    context: entry.context ?? "",
+    uid: entry.uid ?? "",
+    sourceContainer: entry.source.container ?? "",
+  };
+  if (Object.values(generation).some((value) => typeof value !== "string" || value.length > 4096))
+    throw new Error("Capacity provider generation is malformed.");
+  return generation;
+}
 
 /** Bind providers outside the sampler deadline; revalidate them before publishing its result. */
 export async function resolveCapacityOwnership(
@@ -17,6 +48,7 @@ export async function resolveCapacityOwnership(
   signal: AbortSignal,
   dependencies = {
     resolve: resolveCapacityEnrollment,
+    providerGeneration: readProviderGeneration,
     journal: readReliabilityOperation,
     managed: readManagedRuntimeState,
     population: readDockerCapacityPopulation,
@@ -33,6 +65,7 @@ export async function resolveCapacityOwnership(
     enrollment: CapacityPolicy["enrollments"][number];
     request: { path: string; profile: string; require: string[] };
     binding: Awaited<ReturnType<typeof resolveCapacityEnrollment>>;
+    generation: Awaited<ReturnType<typeof readProviderGeneration>>;
     evidence?: {
       record: ReturnType<typeof readReliabilityOperation>;
       state: ReturnType<typeof readManagedRuntimeState>;
@@ -49,7 +82,15 @@ export async function resolveCapacityOwnership(
     check();
     if (!isDeepStrictEqual(binding.enrollment, enrollment))
       throw new Error("Capacity ownership enrollment changed.");
-    bindings.push({ enrollment, request, binding });
+    if (enrollment.provider !== "devsy")
+      throw new Error("Capacity retained generation requires Devsy ownership.");
+    const generation = await dependencies.providerGeneration(
+      enrollment.repoPath,
+      enrollment.providerId,
+      signal,
+    );
+    check();
+    bindings.push({ enrollment, request, binding, generation });
   }
   return {
     revalidate: async () => {
@@ -57,7 +98,16 @@ export async function resolveCapacityOwnership(
         check();
         const current = await dependencies.resolve(policy, entry.request, signal);
         check();
-        if (!isDeepStrictEqual(current, entry.binding))
+        const generation = await dependencies.providerGeneration(
+          entry.enrollment.repoPath,
+          entry.enrollment.providerId,
+          signal,
+        );
+        check();
+        if (
+          !isDeepStrictEqual(current, entry.binding) ||
+          !isDeepStrictEqual(generation, entry.generation)
+        )
           throw new Error("Capacity provider ownership changed during collection.");
         if (
           !entry.evidence ||
@@ -122,6 +172,9 @@ export async function resolveCapacityOwnership(
           state.devpodId !== enrollment.providerId ||
           !state.stopBaseline ||
           state.stopBaseline.provider !== enrollment.provider ||
+          state.stopBaseline.context !== entry.generation.context ||
+          state.stopBaseline.uid !== entry.generation.uid ||
+          state.stopBaseline.sourceContainer !== entry.generation.sourceContainer ||
           state.stopBaseline.endpoint !== `unix://${domain.endpoint}` ||
           state.stopBaseline.daemonId !== domain.daemonId ||
           projects.has(state.composeProject)
