@@ -97,3 +97,16 @@ lifecycle/model tests. The committed packed qualification is running for this co
 The integrated final reviewer is active; confirm its covered revision before accepting it.
 Draft PR and CI delivery remain pending these results. No further user approval is needed
 for the authorized source-package sequence.
+
+## Source package completion
+
+Integrated Claude final review covers 4012dc9..c11f417, including the pre-send model
+correction. Its structured result validates against the required schema. The sole low
+finding, duplicated no-replay predicates, is addressed in 236175c by sharing the predicate;
+early duplicate rejection remains intact. The correction passes 36 focused lifecycle
+tests and typechecking. Full 1314-test evidence and clean c82512a packed qualification
+are reused because the correction preserves the predicate's behavior.
+
+Draft PR #69 contains the complete source package. Earlier-head CI passed; final-head
+CI is the remaining platform check. The PR stays draft. No merge, release, global
+installation or live-runtime claim is part of this package's completion record.
