@@ -51,14 +51,7 @@ function registration(state: ManagedRuntimeState) {
       throw new Error("Stop workspace identity changed.");
     resolveGitCommonDir(state.repoPath);
   } else if (state.workspace !== undefined) throw new Error("Stop checkout identity changed.");
-  const value = owner.workspace;
-  return {
-    context: value.context ?? "",
-    providerId: value.id,
-    uid: value.uid ?? "",
-    sourcePath: value.source.localFolder,
-    sourceContainer: value.source.container ?? "",
-  };
+  return identityOf(owner.workspace);
 }
 
 /** Devsy uses the workspace ID for legacy UIDs, otherwise its 16/40-byte UID. */
@@ -68,6 +61,21 @@ function managedRunnerId(uid: string | undefined, providerId: string): string {
   }
   const bytes = Buffer.byteLength(uid);
   return bytes === 16 || bytes === 40 ? uid : providerId;
+}
+
+function identityOf(value: {
+  context?: string;
+  id: string;
+  uid?: string;
+  source: { localFolder: string; container?: string };
+}) {
+  return {
+    context: value.context ?? "",
+    providerId: value.id,
+    uid: value.uid ?? "",
+    sourcePath: value.source.localFolder,
+    sourceContainer: value.source.container ?? "",
+  };
 }
 
 function compareText(left: string, right: string): number {
@@ -317,12 +325,15 @@ function proveReplacementStopAbsence(
   const oldRunner = managedRunnerId(baseline.uid, baseline.providerId);
   const newRunner = managedRunnerId(before.uid, baseline.providerId);
   const runners = oldRunner === newRunner ? [oldRunner] : [oldRunner, newRunner];
-  if (
-    inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0 ||
-    inspectManagedStopWorkspaceIds(baseline.endpoint, baseline.composeDirectory).length !== 0 ||
-    runners.some((id) => inspectProviderRunnerContainers(baseline.endpoint, id).length !== 0)
-  )
-    throw new Error("Replacement stop observed a remaining workspace population.");
+  const assertEmptyPopulation = () => {
+    if (
+      inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0 ||
+      inspectManagedStopWorkspaceIds(baseline.endpoint, baseline.composeDirectory).length !== 0 ||
+      runners.some((id) => inspectProviderRunnerContainers(baseline.endpoint, id).length !== 0)
+    )
+      throw new Error("Replacement stop observed a remaining workspace population.");
+  };
+  assertEmptyPopulation();
   const after = observation();
   if (
     after.uid !== before.uid ||
@@ -333,12 +344,7 @@ function proveReplacementStopAbsence(
     baseline.endpoint,
     baseline.containers.map((container) => container.id),
   );
-  if (
-    inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0 ||
-    inspectManagedStopWorkspaceIds(baseline.endpoint, baseline.composeDirectory).length !== 0 ||
-    runners.some((id) => inspectProviderRunnerContainers(baseline.endpoint, id).length !== 0)
-  )
-    throw new Error("Replacement stop observed a remaining workspace population.");
+  assertEmptyPopulation();
 }
 
 /** Caller holds the workspace and provider locks. No current config is used as historical evidence. */
@@ -351,13 +357,7 @@ export function proveManagedStop(state: ManagedRuntimeState): ManagedStopProof {
   );
   if (owner.status === "owned") {
     const identityKeys = ["context", "providerId", "uid", "sourcePath", "sourceContainer"] as const;
-    const current = {
-      context: owner.workspace.context ?? "",
-      providerId: owner.workspace.id,
-      uid: owner.workspace.uid ?? "",
-      sourcePath: owner.workspace.source.localFolder,
-      sourceContainer: owner.workspace.source.container ?? "",
-    };
+    const current = identityOf(owner.workspace);
     const changed = identityKeys.filter((key) => baseline[key] !== current[key]);
     if (
       changed.length === 1 &&
