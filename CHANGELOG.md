@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.65] - 2026-09-09
+
+### Added
+
+- Add read-only Docker network capacity and retained-ownership diagnostics to
+  `doctor` and `workspace cleanup`, separating active endpoints from retained
+  container references without cleanup suggestions or ambient endpoint
+  substitution.
+- Add opt-in daemon-bound subnet allocation for new managed linked-workspace
+  Compose networks: an operator-owned `network-policy.json` scoped to the
+  Docker daemon identity, a `/26` default prefix with `/25` and `/24`
+  overrides, endpoint-demand admission across the full service/profile union,
+  durable fenced subnet claims, and a persisted provider Docker destination
+  verified on later effects.
+- Warn before legacy starts only on positively observed default-pool exhaustion
+  from an explicitly qualified provider destination.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.65.md
+
 ## [0.0.64] - 2026-09-09
 
 ### Fixed
