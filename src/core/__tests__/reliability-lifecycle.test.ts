@@ -317,8 +317,15 @@ describe("reliability lifecycle supervision", () => {
     await lifecycle.superviseLifecycle("ensure", identity.repoPath, {});
     expect(fixture.runLifecycleWorker).toHaveBeenCalledOnce();
   });
-  it("waits without journal writes, then refreshes proof and preserves literal argv", async () => {
-    const { lifecycle, store, identity, contract, model } = await seedWorkerRequest("exec");
+  it.each(
+    (["ensure", "exec"] as const).flatMap((kind) =>
+      (["ensure", "exec"] as const).map((activeKind) => ({ kind, activeKind })),
+    ),
+  )("$kind waits behind $activeKind without writes and preserves copied inputs", async ({
+    kind,
+    activeKind,
+  }) => {
+    const { lifecycle, store, identity, contract, model } = await seedWorkerRequest(activeKind);
     vi.useFakeTimers();
     const progress = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     fixture.processBirthIdentity.mockReturnValue("proc:worker");
@@ -329,7 +336,14 @@ describe("reliability lifecycle supervision", () => {
     });
     const before = store.readReliabilityOperation(identity);
     const argv = ["synthetic", "literal ; $(ignored)"];
-    const pending = lifecycle.superviseLifecycle("exec", identity.repoPath, {}, argv);
+    const options = { profile: "full" };
+    const pending = lifecycle.superviseLifecycle(
+      kind,
+      identity.repoPath,
+      options,
+      kind === "exec" ? argv : undefined,
+    );
+    options.profile = "tooling";
     argv.push("later mutation");
     await vi.advanceTimersByTimeAsync(500);
     expect(store.readReliabilityOperation(identity)).toEqual(before);
@@ -358,18 +372,19 @@ describe("reliability lifecycle supervision", () => {
     await pending;
     expect(fixture.runLifecycleWorker).toHaveBeenCalledOnce();
     expect(fixture.runLifecycleWorker.mock.calls[0][0]).toMatchObject({
-      command: ["synthetic", "literal ; $(ignored)"],
-      admission: { runtimeRunning: true },
+      kind,
+      options: { profile: "full" },
+      ...(kind === "exec" ? { command: ["synthetic", "literal ; $(ignored)"] } : {}),
+      admission: { runtimeRunning: kind === "exec" },
     });
     expect(fixture.newLifecycleIds).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    "SIGINT",
-    "SIGTERM",
-    "timeout",
-    "stop",
-  ] as const)("never admits a waiting exec after %s", async (ending) => {
+  it.each(
+    (["ensure", "exec"] as const).flatMap((kind) =>
+      (["SIGINT", "SIGTERM", "timeout", "stop"] as const).map((ending) => ({ kind, ending })),
+    ),
+  )("never admits a waiting $kind after $ending", async ({ kind, ending }) => {
     const { lifecycle, store, identity, contract, model } = await seedWorkerRequest("exec");
     vi.useFakeTimers();
     vi.spyOn(process.stderr, "write").mockReturnValue(true);
@@ -381,7 +396,12 @@ describe("reliability lifecycle supervision", () => {
     });
     const before = store.readReliabilityOperation(identity);
     const listeners = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
-    const pending = lifecycle.superviseLifecycle("exec", identity.repoPath, {}, ["synthetic"]);
+    const pending = lifecycle.superviseLifecycle(
+      kind,
+      identity.repoPath,
+      {},
+      kind === "exec" ? ["synthetic"] : undefined,
+    );
     const rejection = expect(pending).rejects.toThrow();
     if (ending === "stop")
       store.updateReliabilityOperation(identity, (record) => {
@@ -402,7 +422,10 @@ describe("reliability lifecycle supervision", () => {
     expect([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]).toEqual(listeners);
   });
 
-  it("retries only admission contention with the same IDs and fresh runtime proof", async () => {
+  it.each([
+    "ensure",
+    "exec",
+  ] as const)("%s retries only admission contention with the same IDs", async (kind) => {
     const { lifecycle } = await loadLifecycleModules();
     const { LifecycleWorkerAdmissionBusyError } = await import("../reliability-worker");
     vi.useFakeTimers();
@@ -410,11 +433,16 @@ describe("reliability lifecycle supervision", () => {
     fixture.runLifecycleWorker
       .mockRejectedValueOnce(new LifecycleWorkerAdmissionBusyError())
       .mockResolvedValueOnce(7);
-    const pending = lifecycle.superviseLifecycle("exec", newCheckout(), {}, ["synthetic"]);
+    const pending = lifecycle.superviseLifecycle(
+      kind,
+      newCheckout(),
+      {},
+      kind === "exec" ? ["synthetic"] : undefined,
+    );
     await vi.advanceTimersByTimeAsync(250);
     await expect(pending).resolves.toBe(7);
     expect(fixture.newLifecycleIds).toHaveBeenCalledOnce();
-    expect(fixture.resolveRunningWorkspaceContainer).toHaveBeenCalledTimes(2);
+    expect(fixture.resolveRunningWorkspaceContainer).toHaveBeenCalledTimes(kind === "exec" ? 2 : 0);
     expect(fixture.runLifecycleWorker.mock.calls[0][0]).toEqual(
       fixture.runLifecycleWorker.mock.calls[1][0],
     );

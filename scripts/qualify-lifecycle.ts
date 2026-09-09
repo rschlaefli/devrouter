@@ -352,12 +352,37 @@ else fail();
     try {
       const first = launch(["ensure", repo, "--json"]);
       assert.equal(await first.done, 0, first.output());
+      configure("release-hold", 7);
+      const tooling = launch(["exec", repo, "--", "synthetic"]);
+      await watchUntil(`${fixture}.barrier`, () => fs.existsSync(`${fixture}.barrier`));
+      const waitingEnsure = launch(["ensure", repo, "--json"]);
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Ensure did not report waiting")), 15_000);
+        waitingEnsure.child.stderr.once("data", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        waitingEnsure.child.once("close", () => {
+          clearTimeout(timer);
+          reject(new Error(waitingEnsure.output()));
+        });
+      });
+      assert.equal(apiRequests.length, 1);
+      const held = JSON.parse(fs.readFileSync(fixture, "utf8"));
+      fs.writeFileSync(fixture, JSON.stringify({ ...held, mode: "complete", exitCode: 0 }));
+      fs.writeFileSync(`${fixture}.release`, "release");
+      assert.equal(await tooling.done, 7, tooling.output());
+      assert.equal(await waitingEnsure.done, 0, waitingEnsure.output());
+      assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+      fs.unlinkSync(`${fixture}.barrier`);
+      fs.unlinkSync(`${fixture}.release`);
+      evidence.push("installed ensure waits behind tooling without interrupting or replaying it");
       const generation = read().state.runtimeGeneration;
       const next = launch(["ensure", repo, "--json"]);
       assert.equal(await next.done, 0, next.output());
       assert.equal(read().state.runtimeGeneration, generation);
-      assert.equal(read().state.operationHistory.length, 2);
-      assert.equal(apiRequests.length, 2);
+      assert.equal(read().state.operationHistory.length, 4);
+      assert.equal(apiRequests.length, 3);
       configure("network-hold");
       const interrupted = launch(["ensure", repo, "--json"]);
       await watchUntil(`${fixture}.network-barrier`, () =>
