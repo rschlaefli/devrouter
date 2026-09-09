@@ -445,6 +445,23 @@ describe("pinned managed stop Docker operations", () => {
       }
     });
 
+    it.each(["", "\n", "\r\n"])("accepts the missing-object output terminator %j", (stdout) => {
+      vi.mocked(spawnSync).mockReturnValueOnce({
+        status: 1,
+        stdout,
+        stderr: `error: no such object: ${firstId}\n`,
+      } as never);
+      expect(() => assertManagedStopContainersAbsent(endpoint, [firstId])).not.toThrow();
+    });
+    it.each([" ", "\n\n", "unexpected\n"])("rejects unrelated stdout %j", (stdout) => {
+      vi.mocked(spawnSync).mockReturnValueOnce({
+        status: 1,
+        stdout,
+        stderr: `error: no such object: ${firstId}\n`,
+      } as never);
+      expect(() => assertManagedStopContainersAbsent(endpoint, [firstId])).toThrow();
+    });
+
     it.each([
       ["empty ids", [] as string[]],
       ["duplicate ids", [firstId, firstId]],

@@ -152,3 +152,12 @@ DevPod callers remain strict; permission, timeout, command failure and malformed
 registry responses are not absence. All pinned saved-runtime, ownership, generation
 and live-route checks remain required. The62 affected tests and typecheck pass.
 A focused continuation of the integrated review precedes a new consumer attempt.
+
+### Canary correction: Docker empty-line output
+
+The second canonical stop failed at exact-ID absence inspection without cleanup.
+Read-only inspection of every saved ID confirmed exit1, the exact matching
+missing-object stderr line, and a single newline on stdout. The helper incorrectly
+required zero stdout bytes. Accept empty output or one LF/CRLF terminator only;
+substantive stdout, whitespace, multiple lines and every other failure remain
+rejected. No ensure or runtime mutation followed the failed canary.

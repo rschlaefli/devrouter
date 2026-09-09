@@ -626,7 +626,7 @@ export function assertManagedStopContainersAbsent(endpoint: string, ids: string[
       result.status !== 1 ||
       result.error ||
       result.signal ||
-      result.stdout !== "" ||
+      (result.stdout !== "" && result.stdout !== "\n" && result.stdout !== "\r\n") ||
       !hasExactManagedStopMissingObjectError(result.stderr, id)
     ) {
       throw new Error("Managed stop Docker inspection did not prove container absence.");
