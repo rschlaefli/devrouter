@@ -17,9 +17,10 @@ const executable = `#!${process.execPath}
 const fs = require('node:fs');
 const argv = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(receipt)}, JSON.stringify(argv)+'\\n');
+const reject = () => { fs.writeFileSync(${JSON.stringify(`${receipt}.unexpected`)}, 'rejected'); process.exit(97); };
 let args = argv;
 if (args[0] === '--host') {
-  if (args[1] !== ${JSON.stringify(endpoint)}) process.exit(97);
+  if (args[1] !== ${JSON.stringify(endpoint)}) reject();
   args = args.slice(2);
 }
 const print = value => process.stdout.write(JSON.stringify(value)+'\\n');
@@ -35,7 +36,7 @@ else if (args[0] === 'inspect' && args.includes(cid)) print({id:cid,networks:{de
 else if (args[0] === 'context' && args[1] === 'show') process.stdout.write('synthetic');
 else if (args[0] === 'context' && args[1] === 'inspect') print(${JSON.stringify(endpoint)});
 else if (['info','version','--version','ps'].includes(args[0]) || (args[0] === 'compose' && args[1] === 'version')) process.exit(1);
-else process.exit(97);
+else reject();
 `;
 fs.writeFileSync(path.join(bin, "docker"), executable, { mode: 0o700 });
 const result = spawnSync(
