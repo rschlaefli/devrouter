@@ -309,7 +309,7 @@ describe("reliability lifecycle supervision", () => {
   it("waits without journal writes, then refreshes proof and preserves literal argv", async () => {
     const { lifecycle, store, identity, contract, model } = await seedWorkerRequest("exec");
     vi.useFakeTimers();
-    vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const progress = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     fixture.processBirthIdentity.mockReturnValue("proc:worker");
     fixture.newLifecycleIds.mockReturnValue({
       requestId: "next",
@@ -324,6 +324,12 @@ describe("reliability lifecycle supervision", () => {
     expect(store.readReliabilityOperation(identity)).toEqual(before);
     expect(fixture.resolveRunningWorkspaceContainer).not.toHaveBeenCalled();
     expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(progress).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(9500);
+    expect(progress).toHaveBeenCalledTimes(2);
+    const emitted = progress.mock.calls.map(([value]) => String(value)).join("");
+    expect(emitted).toContain("next");
+    for (const arg of argv) expect(emitted).not.toContain(arg);
     store.updateReliabilityOperation(identity, (record) => {
       for (const event of [
         { type: "completion", operationId: "operation-id", exitCode: 7 },
