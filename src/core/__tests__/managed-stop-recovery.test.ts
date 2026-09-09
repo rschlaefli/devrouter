@@ -96,6 +96,7 @@ function persist() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  delete process.env.DOCKER_PATH;
   fixture.home = fs.mkdtempSync(path.join(os.tmpdir(), "stop-baseline-test-"));
   const devsyHome = path.join(fixture.home, "devsy");
   const providerDirectory = path.join(devsyHome, "contexts/default/providers/docker");
@@ -184,6 +185,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env.DEVSY_HOME;
+  delete process.env.DOCKER_PATH;
   fs.rmSync(fixture.home, { recursive: true, force: true });
 });
 
