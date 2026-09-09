@@ -272,3 +272,33 @@ it("revalidates provider generation before publishing memory evidence", async ()
   });
   await expect(resolver.revalidate()).rejects.toThrow();
 });
+
+it.each([
+  "undispatched",
+  "worker",
+  "dispatched",
+])("proves empty queued population only before dispatch (%s)", async (phase) => {
+  const f = fixture();
+  f.record.state.phase = "queued";
+  f.record.state.stopProof = { workloadsStopped: false, routesRemoved: false };
+  f.record.state.operation = {
+    id: "queued",
+    status: "NOT_STARTED",
+    drained: false,
+  } as typeof f.record.state.operation;
+  if (phase === "worker")
+    f.record.worker = { id: "worker", operationId: "queued", pid: 1, birth: "birth" };
+  if (phase === "dispatched") f.record.state.operation!.status = "RUNNING";
+  const before = structuredClone(f.record);
+  const resolver = await f.resolve();
+  if (phase !== "undispatched") {
+    await expect(resolver.proveOwned(f.cancellation.signal)).rejects.toThrow();
+    expect(f.record).toEqual(before);
+    return;
+  }
+  expect(await resolver.proveOwned(f.cancellation.signal)).toEqual([
+    { environmentId: f.id, containers: [] },
+  ]);
+  await resolver.revalidate();
+  expect(f.record).toEqual(before);
+});

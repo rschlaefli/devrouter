@@ -192,13 +192,20 @@ export async function resolveCapacityOwnership(
           sampleSignal,
         );
         checkSample();
+        const undispatched =
+          !record.worker &&
+          record.state.phase === "queued" &&
+          record.state.operation?.status === "NOT_STARTED";
         const stopped =
           !record.worker &&
           record.state.stopProof.workloadsStopped &&
           record.state.stopProof.routesRemoved &&
           (!record.state.operation || record.state.operation.drained);
         if (containers.length === 0) {
-          if (!stopped) throw new Error("Absent capacity population lacks stopped proof.");
+          // This zero observation does not settle or release any reservation. The stable
+          // daemon index below must also exclude residual workspace containers.
+          if (!stopped && !undispatched)
+            throw new Error("Absent capacity population lacks stopped or undispatched proof.");
         } else {
           proveManagedCapacityPopulation({
             containers,
