@@ -520,6 +520,7 @@ describe("baseline-backed replacement registration", () => {
     "competitor-id",
     "competitor-path",
     "context",
+    "endpoint",
     "daemon",
     "provider-config",
     "uid-changed-mid",
@@ -548,6 +549,8 @@ describe("baseline-backed replacement registration", () => {
     if (failure === "competitor-path")
       fixture.competitors = [{ id: "other", source: { localFolder: state.repoPath } }];
     if (failure === "context") fixture.owner.context = "other";
+    if (failure === "endpoint")
+      vi.mocked(docker.resolveManagedStopEndpoint).mockReturnValue("tcp://other:2375");
     if (failure === "daemon") vi.mocked(docker.inspectManagedStopDaemon).mockReturnValue("other");
     if (failure === "provider-config")
       fs.writeFileSync(

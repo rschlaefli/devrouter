@@ -311,6 +311,8 @@ function proveReplacementStopAbsence(
     const workspace = replacementObservation(state);
     if (workspace.uid !== replacement.uid)
       throw new Error("Replacement stop registration changed during inspection.");
+    if (resolveManagedStopEndpoint() !== baseline.endpoint)
+      throw new Error("Stop endpoint changed.");
     if (inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId)
       throw new Error("Stop daemon changed.");
     return workspace;

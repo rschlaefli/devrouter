@@ -85,6 +85,18 @@ new behavior. Release artifacts are prepared separately after implementation.
 
 ## Progress
 
+Integrated final review (Claude Opus 5 medium via Claude CLI) returned REVISE
+with one 75-confidence finding: the replacement absence path proved the plain
+local Docker command but never compared the ambient-resolved endpoint with the
+pinned baseline endpoint, so a re-pointed ambient daemon could not be caught
+when the pinned baseline daemon still answered. This was a plan-named
+obligation and the narrowing was conditional on it. Dispositioned as accepted:
+the observation closure now requires resolveManagedStopEndpoint() to equal the
+baseline endpoint in both passes before the daemon check, mirroring retained
+exec, and the rejection matrix gained an endpoint-drift case (119 tests green).
+All other lenses were clean; the changelog claim is accurate with the fix in
+place. One correction pass re-review of the corrected head is pending.
+
 Slice review (Laplace, glm-5.3-flash max) returned DONE_WITH_CONCERNS on
 b5324f9..255685c: the fail-closed audit traced every guard to a zero-effect
 throw and no finding reached the 75 reporting threshold. Dispositioned findings:
