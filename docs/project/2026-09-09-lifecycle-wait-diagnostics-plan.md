@@ -68,5 +68,7 @@ OOM injection, deletion or shared VM change occurred. Final non-destructive stop
 and route readback confirm stopped with zero routes. Slice correctness review passes.
 Final review found three low items: plural grammar, exec-only runtime-proof wording,
 and an inert test parameter. All are corrected; focused worker tests (14), docs
-policy and Biome pass. Final review output correction is pending schema validation;
-the first result used invalid confidence and autofix fields.
+policy and Biome pass. The final follow-up passes and validates against the canonical
+review schema; its reviewed corrections are committed unchanged in65d14b4.
+PR#72 carries the package; CI34375869266 validates that head. The earlier invalid
+review output is retained only as finding provenance, not as gate evidence.
