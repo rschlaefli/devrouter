@@ -11,13 +11,18 @@ export function inspectNetworkCapacity(): NetworkCapacityReport {
   });
 }
 
-export function networkCapacityCheck(report: NetworkCapacityReport): DiagnosticCheck {
+export function hasExhaustedDockerPools(report: NetworkCapacityReport): boolean {
   const candidates = report.pools.flatMap((pool) => pool.candidates);
-  const exhausted =
+  return (
     report.evidence.inventory === "complete" &&
     report.pools.length > 0 &&
     report.pools.every((pool) => pool.candidates.length > 0) &&
-    candidates.every((candidate) => candidate.status === "occupied");
+    candidates.every((candidate) => candidate.status === "occupied")
+  );
+}
+
+export function networkCapacityCheck(report: NetworkCapacityReport): DiagnosticCheck {
+  const exhausted = hasExhaustedDockerPools(report);
   const retained = report.networks.filter(
     (network) =>
       network.activeEndpoints === 0 &&

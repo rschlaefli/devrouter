@@ -368,3 +368,102 @@ provider allocation preflight or mutation integration is claimed complete.
 Executor Locke completed its bounded model/tests; main verified and integrated
 that result. Explorer James owns the remaining source-only endpoint-binding
 question. No live network or runtime commands were issued during implementation.
+
+## Proposed amendment: bind the provider to the reserved daemon
+
+Status: approved by the user on 2026-09-09 after planner approval. Source implementation of scoped persistent binding is authorized; live effects remain excluded.
+
+The approved network allocator must inspect and use the same Docker daemon.
+Current Devsy and DevPod wrappers do not carry a pinned endpoint. Tagged Devsy
+source appends resolved provider Docker environment after the inherited process
+environment; its explicit DOCKER_HOST option is saved in the target workspace.
+Ambient DOCKER_HOST alone therefore does not satisfy the approved contract.
+
+### Recommended source design
+
+Permit exact-workspace persistent endpoint binding only for a newly claimed,
+policy-enabled, eligible linked workspace. After workspace/provider ownership
+proof and before allocation dispatch, bind DOCKER_HOST to the exact approved
+local endpoint through the existing provider option. Clear competing context
+selectors and prove provider definition/option precedence; decline allocation
+when unsupported. Persist endpoint identity in the fenced claim and verify the
+actual daemon and network postcondition before attaching the claim or publishing
+routes. The same workspace must retain that binding on stop/resume. Do not
+rewrite shared provider definitions, global settings, existing legacy workspaces,
+or another task's runtime. Missing or conflicting binding is repair-required.
+
+Implementation approval would permit source code, synthetic provider fixtures,
+configuration preservation tests, reviews, commits and draft PR delivery only.
+It would NOT permit writing a binding into any live provider registry, enabling
+machine network policy, starting a runtime or choosing a live CIDR. Those effects
+remain part of a later exact-target runtime experiment requiring approval.
+
+### Alternatives
+
+| Choice | Consequence |
+| --- | --- |
+| Scoped persistent workspace binding (recommended) | Smallest use of existing provider machinery, but endpoint choice becomes durable workspace metadata and needs explicit compatibility/recovery tests. |
+| Invocation-only provider capability | Requires a separately scoped provider patch and verified distribution before allocation can be enabled; no such fork or installation is authorized here. |
+| Diagnostics only for unqualified providers | Preserves the current plan restriction but does not deliver operational allocation on those providers. Keep the goal incomplete. |
+
+### Acceptance before source publication
+
+Synthetic tests must prove the exact target workspace receives the pinned option,
+shared provider options and unrelated registrations remain unchanged, competing
+context selectors cannot redirect the operation, and unsupported providers fail
+before allocation. Verify precedence from each supported provider's source and
+fixtures, not a fake echo command alone. Detect post-start daemon or subnet
+mismatch; retain the claim/runtime and withhold readiness without deletion.
+Stop/resume must reuse the same endpoint/network. Native and legacy flows remain
+unchanged. No provider definition or secret-bearing config is copied to artifacts.
+
+### Evidence
+
+Devsy v1.16.2 providers/docker/provider.yaml, pkg/options/resolve.go:103-154 and
+493-526, pkg/driver/docker/docker.go:31-43 and76-81,
+pkg/docker/helper.go:731-744. Existing wrappers: src/core/devsy-mutation.ts,
+src/core/devpod-mutation.ts. Source receipts in network-provider-evidence.md.
+DevPod v0.6.15 provider definition has the same DOCKER_HOST mapping; complete
+save/precedence qualification is still required before enabling that provider.
+
+### Planner corrections and exact exception
+
+If approved, this amendment supersedes only the original prohibition on
+compensating provider-setting writes for the exact newly allocated workspace's
+DOCKER_HOST option, passed through its qualified startup invocation. The binding
+becomes durable workspace metadata. No automatic rebinding is permitted. Shared
+and global provider settings, legacy workspaces, all live-effect exclusions and
+source delivery boundaries remain unchanged.
+
+“New” requires positive evidence of no pre-existing provider registration,
+runtime or legacy network, plus a durable workspace owner and proven available
+exact provider ID/path before effects. Persist the fenced subnet reservation
+before the first provider call that can save options. There is no separate
+settings-write phase. Reservation persistence failure and ID/path collision must
+produce zero provider calls.
+
+A saved binding is a retained effect even if no network exists. A crash before
+option save, after save or after network creation preserves the claim until exact
+worker settlement and provider evidence reconcile it. A binding-only registration
+is repair-required in this first version; no automatic continuation, rollback,
+deletion or rebinding. Missing network alone never proves no effect or authorizes
+reservation release. Release requires proof that the old operation cannot act and
+that no provider binding, registration, container or network effect remains.
+
+Qualify each provider/version/definition independently. Before every subsequent
+provider effect for a claimed workspace, including stop, resume and refresh,
+verify persisted binding, effective selector precedence and daemon ID. A changed
+provider definition, conflicting context, or the same socket serving a different
+daemon blocks before effects. Post-start proof is additional and never substitutes
+for this check. Coordinate these wrapper checks with the existing lifecycle owner;
+do not take over stop-recovery work. Test binding-only partial starts, all ambient
+and persisted selector conflicts, definition drift, shared-setting preservation
+and failure before any dispatch.
+
+The existing ownership map remains: executor owns diagnostics slice 1; executor
+owns allocation slice 2 after slice 1 and this amendment are approved; executor
+owns qualification slice 3 after slice 2. Main retains architecture, ownership
+coordination, integration and final proof. Binding, precedence and minimum
+recovery extend slice 2; restart and configuration-preservation faults extend
+slice 3. This creates no new user task or PR boundary. Carry the accepted text into
+the durable execution plan before dependent implementation.

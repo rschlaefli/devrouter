@@ -75,9 +75,6 @@ function id(value: unknown): string {
 }
 
 function rows(output: string): unknown[] {
-  if (Buffer.byteLength(output) > MAX_OUTPUT_BYTES) {
-    throw new NetworkInventoryError("Docker network inventory exceeded its output bound.");
-  }
   const trimmed = output.trim();
   return trimmed ? trimmed.split(/\r?\n/).map((line) => JSON.parse(line) as unknown) : [];
 }

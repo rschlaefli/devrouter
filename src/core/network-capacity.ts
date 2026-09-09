@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 /**
  * Pure, read-only network capacity diagnostics.
  *
@@ -120,6 +122,7 @@ export type NetworkCapacityNetworkReport = {
   name: string;
   driver: string;
   ipv4Subnets: string[];
+  ipv6Subnets: string[];
   composeProject?: string;
   composeNetwork?: string;
   activeEndpoints: NetworkCapacityCount;
@@ -162,13 +165,6 @@ type ParsedIPv4Cidr = {
   prefixLength: number;
   start: number;
   end: number;
-};
-
-type NormalizedRequest = DockerEndpointIdentity & {
-  prefixLength?: NetworkCapacityPrefixLength;
-  endpointDemand: number | "unknown";
-  endpointReserve: number | "unknown";
-  routes?: NetworkCapacityRouteInventory;
 };
 
 const DEFAULT_PREFIX_LENGTH: NetworkCapacityPrefixLength = 24;
@@ -241,13 +237,11 @@ export function collectNetworkCapacityReport(
   request: NetworkCapacityCollectionRequest,
   dependencies: NetworkCapacityDependencies,
 ): NetworkCapacityReport {
-  const normalizedRequest = normalizeRequest(request);
-
   let inventory: NetworkCapacityInventory;
   try {
     inventory = dependencies.collectInventory(request);
   } catch {
-    return buildUnknownReport(normalizedRequest, "network inventory collection failed");
+    return buildUnknownReport(request, "network inventory collection failed");
   }
 
   if (
@@ -257,26 +251,28 @@ export function collectNetworkCapacityReport(
     !request.daemonId.trim()
   ) {
     return buildUnknownReport(
-      normalizedRequest,
+      request,
       "network inventory endpoint or daemon identity does not match the requested identity",
     );
   }
 
   try {
-    return buildReport(normalizedRequest, inventory);
+    return buildReport(request, inventory);
   } catch {
-    return buildUnknownReport(normalizedRequest, "network inventory is malformed");
+    return buildUnknownReport(request, "network inventory is malformed");
   }
 }
 
 function buildReport(
-  request: NormalizedRequest,
+  request: NetworkCapacityCollectionRequest,
   inventory: NetworkCapacityInventory,
 ): NetworkCapacityReport {
   const routeInventory = request.routes ?? inventory.routes ?? { status: "unknown", routes: [] };
   const parsedNetworks = inventory.networks.map((network) => ({
     network,
-    subnets: network.subnets.map((subnet) => parseCidr(subnet)),
+    subnets: network.subnets
+      .filter((subnet) => !isIPv6Cidr(subnet))
+      .map((subnet) => parseCidr(subnet)),
   }));
   const networkEvidenceUnknown =
     inventory.status === "unknown" ||
@@ -293,8 +289,8 @@ function buildReport(
   const endpointPrefix = resolveReportPrefix(request, inventory);
   const endpointCapacity = calculateIPv4EndpointCapacity(
     endpointPrefix,
-    request.endpointReserve === "unknown" ? Number.NaN : request.endpointReserve,
-    request.endpointDemand === "unknown" ? null : request.endpointDemand,
+    request.endpointReserve,
+    request.endpointDemand,
   );
   const networks = parsedNetworks.map(({ network, subnets }) =>
     buildNetworkReport(network, subnets, inventory.status),
@@ -309,15 +305,22 @@ function buildReport(
       routeEvidenceUnknown || malformedRouteEvidence,
     ),
   );
+  const parsedPools = inventory.pools.map((pool) => parseCidr(pool.base));
+  const overlappingPools = parsedPools.some(
+    (pool, index) =>
+      pool && parsedPools.slice(index + 1).some((other) => other && overlaps(pool, other)),
+  );
   const unknownEvidence =
     inventory.status === "unknown" ||
     networkEvidenceUnknown ||
     containerEvidenceUnknown ||
     routeEvidenceUnknown ||
     malformedRouteEvidence ||
+    overlappingPools ||
     pools.some((pool) => pool.status === "unknown") ||
     endpointCapacity.status === "unknown";
   const blockers = [
+    ...(overlappingPools ? ["configured Docker address pools overlap"] : []),
     ...(inventory.status === "unknown" ? ["Docker network inventory is unknown"] : []),
     ...(networkEvidenceUnknown && inventory.status === "complete"
       ? ["one or more Docker network subnets are unknown"]
@@ -334,7 +337,7 @@ function buildReport(
       : []),
     ...(inventory.pools.length === 0 ? ["no configured Docker address pools were observed"] : []),
   ];
-  const freeBlockCount = summarizeFreeBlocks(pools);
+  const freeBlockCount = overlappingPools ? "unknown" : summarizeFreeBlocks(pools);
 
   return {
     endpoint: request.endpoint,
@@ -397,7 +400,8 @@ function buildNetworkReport(
     id: network.id,
     name: network.name,
     driver: network.driver,
-    ipv4Subnets: network.subnets.slice(),
+    ipv4Subnets: network.subnets.filter((subnet) => !isIPv6Cidr(subnet)),
+    ipv6Subnets: network.subnets.filter(isIPv6Cidr),
     composeProject: network.composeProject,
     composeNetwork: network.composeNetwork,
     activeEndpoints,
@@ -413,7 +417,7 @@ function buildNetworkReport(
 
 function buildPoolReport(
   pool: NetworkCapacityPool,
-  request: NormalizedRequest,
+  request: NetworkCapacityCollectionRequest,
   networks: Array<{ network: NetworkCapacityNetwork; subnets: Array<ParsedIPv4Cidr | undefined> }>,
   routes: NetworkCapacityRouteInventory,
   networkEvidenceUnknown: boolean,
@@ -458,8 +462,8 @@ function buildPoolReport(
     const routeClassification = classifyIPv4RouteOverlap(candidate.cidr, routes);
     const candidateEndpoint = calculateIPv4EndpointCapacity(
       candidatePrefixLength,
-      request.endpointReserve === "unknown" ? Number.NaN : request.endpointReserve,
-      request.endpointDemand === "unknown" ? null : request.endpointDemand,
+      request.endpointReserve,
+      request.endpointDemand,
     );
     const candidateRouteStatus = routeEvidenceUnknown ? "unknown" : routeClassification.status;
     let status: NetworkCapacityCandidateStatus;
@@ -514,7 +518,7 @@ function buildPoolReport(
 }
 
 function resolveReportPrefix(
-  request: NormalizedRequest,
+  request: NetworkCapacityCollectionRequest,
   inventory: NetworkCapacityInventory,
 ): NetworkCapacityPrefixLength {
   if (request.prefixLength !== undefined) return request.prefixLength;
@@ -533,38 +537,15 @@ function summarizeFreeBlocks(pools: NetworkCapacityPoolReport[]): number | "unkn
   return pools.reduce((total, pool) => total + (pool.potentialFreeBlockCount as number), 0);
 }
 
-function normalizeRequest(request: NetworkCapacityCollectionRequest): NormalizedRequest {
-  const endpointDemand =
-    request.endpointDemand === null ||
-    request.endpointDemand === undefined ||
-    !Number.isSafeInteger(request.endpointDemand) ||
-    request.endpointDemand < 0
-      ? request.endpointDemand === undefined
-        ? 0
-        : "unknown"
-      : request.endpointDemand;
-  const endpointReserve =
-    request.endpointReserve === undefined
-      ? DEFAULT_ENDPOINT_RESERVE
-      : Number.isSafeInteger(request.endpointReserve) && request.endpointReserve >= 0
-        ? request.endpointReserve
-        : "unknown";
-  return {
-    endpoint: request.endpoint,
-    daemonId: request.daemonId,
-    prefixLength: request.prefixLength,
-    endpointDemand,
-    endpointReserve,
-    routes: request.routes,
-  };
-}
-
-function buildUnknownReport(request: NormalizedRequest, reason: string): NetworkCapacityReport {
+function buildUnknownReport(
+  request: NetworkCapacityCollectionRequest,
+  reason: string,
+): NetworkCapacityReport {
   const endpointPrefix = request.prefixLength ?? DEFAULT_PREFIX_LENGTH;
   const endpointCapacity = calculateIPv4EndpointCapacity(
     endpointPrefix,
-    request.endpointReserve === "unknown" ? Number.NaN : request.endpointReserve,
-    request.endpointDemand === "unknown" ? null : request.endpointDemand,
+    request.endpointReserve,
+    request.endpointDemand,
   );
   return {
     endpoint: request.endpoint,
@@ -588,6 +569,16 @@ function buildUnknownReport(request: NormalizedRequest, reason: string): Network
 
 function isSupportedPrefix(value: number | undefined): value is NetworkCapacityPrefixLength {
   return value === 24 || value === 25 || value === 26;
+}
+
+function isIPv6Cidr(value: string): boolean {
+  const parts = value.split("/");
+  return (
+    parts.length === 2 &&
+    isIP(parts[0]) === 6 &&
+    /^\d{1,3}$/.test(parts[1]) &&
+    Number(parts[1]) <= 128
+  );
 }
 
 function parseCidr(value: string): ParsedIPv4Cidr | undefined {

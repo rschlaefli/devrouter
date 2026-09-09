@@ -50,6 +50,27 @@ function occupiedNetwork(subnet: string, id = "network-1") {
 }
 
 describe("IPv4 capacity primitives", () => {
+  it("enforces endpoint reserve at the /26 threshold and permits larger overrides", () => {
+    expect(calculateIPv4EndpointCapacity(26, 8, 53).status).toBe("available");
+    expect(calculateIPv4EndpointCapacity(26, 8, 54).status).toBe("insufficient");
+    expect(calculateIPv4EndpointCapacity(25, 8, 54).status).toBe("available");
+    expect(calculateIPv4EndpointCapacity(24, 8, null).status).toBe("unknown");
+    expect(calculateIPv4EndpointCapacity(26, -1, 1).status).toBe("unknown");
+  });
+
+  it.each([
+    "10.0.0.4/32",
+    "10.0.0.0/27",
+    "0.0.0.0/1",
+    "10.0.0.0/8",
+  ])("rejects overlapping concrete host or tunnel prefix %s", (cidr) => {
+    expect(
+      classifyIPv4RouteOverlap("10.0.0.0/26", {
+        status: "complete",
+        routes: [{ cidr }],
+      }).status,
+    ).toBe("conflict");
+  });
   it("calculates conventional /26 capacity with an eight-address reserve", () => {
     expect(calculateIPv4EndpointCapacity(26)).toMatchObject({
       totalAddresses: 64,
@@ -81,6 +102,37 @@ describe("IPv4 capacity primitives", () => {
 });
 
 describe("collectNetworkCapacityReport", () => {
+  it("keeps IPv6 evidence separate from occupied IPv4 capacity", () => {
+    const network = occupiedNetwork("10.0.0.0/24");
+    network.subnets.push("fd00::/64");
+    const report = collect(request(), inventory({ networks: [network] }));
+    expect(report.allocation.status).toBe("exhausted");
+    expect(report.networks[0].ipv6Subnets).toEqual(["fd00::/64"]);
+    expect(report.networks[0].ipv4Subnets).toEqual(["10.0.0.0/24"]);
+  });
+
+  it("does not double count overlapping pool declarations", () => {
+    const report = collect(
+      request(),
+      inventory({
+        pools: [
+          { base: "10.0.0.0/24", size: 26 },
+          { base: "10.0.0.0/25", size: 26 },
+        ],
+      }),
+    );
+    expect(report.allocation.status).toBe("unknown");
+    expect(report.allocation.freeBlockCount).toBe("unknown");
+  });
+  it("suppresses untrusted collector exception content", () => {
+    const report = collectNetworkCapacityReport(request(), {
+      collectInventory: () => {
+        throw new Error("synthetic-private-canary");
+      },
+    });
+    expect(report.evidence.inventory).toBe("unknown");
+    expect(JSON.stringify(report)).not.toContain("synthetic-private-canary");
+  });
   it("reports exact exhaustion across thirty occupied /24 pool bases", () => {
     const pools = Array.from({ length: 30 }, (_, index) => ({
       base: `10.${index}.0.0/24`,

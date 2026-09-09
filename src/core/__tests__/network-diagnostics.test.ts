@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { collectNetworkCapacityReport } from "../network-capacity";
-import { networkCapacityCheck } from "../network-diagnostics";
+import { hasExhaustedDockerPools, networkCapacityCheck } from "../network-diagnostics";
 
 const identity = { endpoint: "unix:///tmp/synthetic.sock", daemonId: "synthetic" };
 
@@ -30,6 +30,13 @@ function report(occupied: boolean) {
 describe("network diagnostic integration", () => {
   it("can prove occupied pools without claiming route safety", () => {
     const result = report(true);
+    expect(hasExhaustedDockerPools(result)).toBe(true);
+    expect(
+      hasExhaustedDockerPools({
+        ...result,
+        evidence: { ...result.evidence, inventory: "unknown" },
+      }),
+    ).toBe(false);
     expect(result.allocation.status).toBe("unknown");
     expect(result.pools[0].candidates[0].status).toBe("occupied");
     expect(result.networks[0].retainedReferences).toBe(1);
@@ -41,6 +48,7 @@ describe("network diagnostic integration", () => {
 
   it("does not present an unoccupied pool as ready without route evidence", () => {
     const result = report(false);
+    expect(hasExhaustedDockerPools(result)).toBe(false);
     expect(result.allocation.status).toBe("unknown");
     expect(result.evidence.routes).toBe("unknown");
     expect(networkCapacityCheck(result).level).toBe("warn");
