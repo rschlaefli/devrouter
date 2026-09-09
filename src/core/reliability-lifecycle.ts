@@ -21,7 +21,6 @@ import { canExecAfterInterruptedEnsure, stepReliability } from "./reliability-mo
 import {
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
-  readReliabilityOperation,
   updateReliabilityOperation,
 } from "./reliability-operation-store";
 import {
@@ -151,7 +150,10 @@ export async function superviseLifecycle(
     kind === "exec" ? Boolean(resolveRunningWorkspaceContainer(repoPath)) : false;
   const previous =
     kind === "exec" && identity.provider === "devsy"
-      ? readReliabilityOperation(identity)
+      ? updateReliabilityOperation(identity, (record) => {
+          reconcileDrained(record);
+          return record;
+        })
       : undefined;
   let retainedExecProof: DevsyExecProof | undefined;
   if (previous && !previous.worker && canExecAfterInterruptedEnsure(previous.state)) {

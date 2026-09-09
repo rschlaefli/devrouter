@@ -98,7 +98,9 @@ reported as unknown. A new ensure reconciles an interrupted ensure after positiv
 worker drainage while retaining its unknown historical result. Unknown arbitrary
 exec is never replayed; explicit stop reconciles that command uncertainty.
 For a manual Devsy workspace with running intent, a new `exec` can also proceed
-once an interrupted ensure has fully drained. Devrouter proves the exact running
+once an interrupted ensure has fully drained. This recovery supports a local Docker
+provider using the plain `docker` command; Apple and custom provider commands remain
+unsupported. Devrouter proves the exact running
 container and provider identity, then revalidates them before launching the command.
 This preserves tooling access despite configuration drift without claiming startup
 succeeded or changing retained configuration, managed state, or routes. Missing

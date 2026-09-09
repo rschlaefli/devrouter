@@ -1,8 +1,10 @@
+import fs from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as environment from "../devpod-environment";
 import { captureDevsyExecProof, revalidateDevsyExecProof } from "../devsy-exec-proof";
 import * as registry from "../devsy-workspaces";
 
+vi.mock("node:fs", () => ({ default: { statSync: vi.fn(), readFileSync: vi.fn() } }));
 vi.mock("../devpod-environment", () => ({
   inspectManagedStopContainers: vi.fn(),
   inspectManagedStopDaemon: vi.fn(),
@@ -27,6 +29,8 @@ const workspace = {
   id: "fixture",
   uid: "0123456789abcdef",
   context: "default",
+  providerName: "docker",
+  dockerPathOption: "docker",
   source: { localFolder: "/fixture" },
 };
 const container = {
@@ -38,6 +42,13 @@ const container = {
 };
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(fs.statSync).mockReturnValue({ size: 100 } as never);
+  vi.mocked(fs.readFileSync).mockReturnValue(
+    JSON.stringify({
+      name: "docker",
+      agent: { driver: "docker", docker: { path: "${DOCKER_PATH}" } },
+    }),
+  );
   vi.mocked(registry.listDevsyWorkspaces).mockReturnValue([workspace]);
   vi.mocked(registry.selectDevsyWorkspace).mockReturnValue(workspace);
   vi.mocked(registry.inspectDevsyWorkspaceOwnership).mockReturnValue({
@@ -88,6 +99,21 @@ describe("retained exec identity", () => {
       vi.mocked(environment.inspectWorkspaceContainers).mockReturnValue([changed]);
       vi.mocked(environment.inspectManagedStopContainers).mockReturnValue([changed as never]);
     }
+    expect(() => revalidateDevsyExecProof("/fixture", proof)).toThrow();
+  });
+  it.each([
+    { driver: "apple", docker: {} },
+    { driver: "docker", docker: { path: "podman" } },
+    { driver: "docker", docker: { path: "${CUSTOM_COMMAND}" } },
+  ])("rejects provider selection outside the proven Docker command", (agent) => {
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ name: "docker", agent }));
+    expect(() => captureDevsyExecProof("/fixture")).toThrow();
+  });
+  it("revalidates provider configuration before dispatch", () => {
+    const proof = captureDevsyExecProof("/fixture");
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ name: "docker", agent: { driver: "apple" } }),
+    );
     expect(() => revalidateDevsyExecProof("/fixture", proof)).toThrow();
   });
   it("rejects another container sharing the provider runner label", () => {

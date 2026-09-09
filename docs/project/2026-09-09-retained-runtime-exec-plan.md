@@ -78,3 +78,14 @@ clean committed qualification remains required. The focused source suite passes
 84 tests, including replacement identity rejection and zero launches after a failed
 proof. TypeScript, Biome and Knip pass. No consumer runtime or machine policy changed.
 Independent committed-slice and integrated-final reviews and PR delivery remain open.
+
+
+Advisor review identified that Docker observations alone do not prove Devsy runtime
+selection. Main verified Devsy 1.16.2 NewContainerRuntime, LoadProviderConfig and
+platform path resolution in upstream source. The correction reads only the selected
+provider configuration for driver/command qualification and retains only allowlisted
+registry provider name and DOCKER_PATH metadata. Recovery requires Docker and the
+plain docker command; it never redirects custom commands or an Apple provider.
+Capture and revalidation repeat this qualification. Unsupported recovery stays
+blocked while ordinary exec behavior is unchanged. Configuration is never written
+or returned in error output. Final review must include this provider-data boundary.

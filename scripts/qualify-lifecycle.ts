@@ -153,7 +153,7 @@ if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args
 if (command === 'devpod' && args[0] === 'version') { console.log('fixture'); }
 else if (command === 'devsy' && args[0] === '--version') { console.log('fixture'); }
 else if (command === 'devpod' && args.join(' ') === 'list --output json --skip-pro') { output(state.provider === 'devpod' ? [{id:workspaceId,source:{localFolder:state.repo}}] : []); }
-else if (command === 'devsy' && args.join(' ') === 'workspace list --result-format json --skip-pro') { output(state.provider === 'devsy' ? [{id:workspaceId,uid:'fixture-uid',context:'default',source:{localFolder:state.repo}}] : []); }
+else if (command === 'devsy' && args.join(' ') === 'workspace list --result-format json --skip-pro') { output(state.provider === 'devsy' ? [{id:workspaceId,uid:'fixture-uid',context:'default',provider:{name:'docker',options:{DOCKER_PATH:{value:'docker'}}},source:{localFolder:state.repo}}] : []); }
 else if (command === 'devpod' && [ 'up '+state.repo+' --id fixture --open-ide=false', 'up '+state.repo+' --id fixture --devcontainer-path .devcontainer/devcontainer.devrouter.json --open-ide=false' ].includes(args.join(' '))) { state.running=true; state.starts=(state.starts??0)+1; write(); if(state.mode === 'start-failure') process.exit(1); }
 else if (command === 'devpod' && args[0] === 'status' && args[1] === workspaceId) { output({id:workspaceId,state:state.running?'Running':'Stopped'}); }
 else if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'status' && args[2] === workspaceId) { output({id:workspaceId,state:state.running?'Running':'Stopped'}); }
@@ -449,6 +449,15 @@ else fail();
       const previousHome = closedEnv.HOME;
       const previousJournal = journal;
       freshHome("retained-devsy-home");
+      const providerConfig = path.join(
+        closedEnv.HOME,
+        ".devsy/contexts/default/providers/docker/provider.json",
+      );
+      fs.mkdirSync(path.dirname(providerConfig), { recursive: true });
+      fs.writeFileSync(
+        providerConfig,
+        JSON.stringify({ name: "docker", agent: { driver: "docker", docker: {} } }),
+      );
       const retainedStateFile = path.join(
         closedEnv.HOME,
         ".config/devrouter/managed-runtime",

@@ -128,6 +128,7 @@ describe("retained Devsy execution", () => {
     id: "actual-id",
     uid: "uid",
     context: "default",
+    providerName: "docker",
     endpoint: "unix:///fixture.sock",
     daemon: "daemon",
     containerId: "a".repeat(64),
