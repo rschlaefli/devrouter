@@ -540,6 +540,37 @@ describe("manual operation lifecycle", () => {
     state = step(state, { type: "stop" }).state;
     expect(step(state, next).outcome).toBe("blocked");
   });
+  it("admits proved tooling after drained interrupted ensure and preserves its result", () => {
+    let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
+    const exec = {
+      ...ensure,
+      kind: "exec" as const,
+      key: "tool",
+      operationId: "tool",
+      runtimeRunning: true,
+      recoverInterruptedEnsure: true,
+    };
+    expect(step(state, exec).outcome).toBe("blocked");
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    expect(step(state, { ...exec, runtimeRunning: false }).outcome).toBe("blocked");
+    expect(step(state, { ...exec, recoverInterruptedEnsure: false }).outcome).toBe("blocked");
+    const result = step(state, exec);
+    expect(result.outcome).toBe("accepted");
+    expect(result.state.operationHistory[0]).toMatchObject({
+      id: ensure.operationId,
+      status: "INTERRUPTED",
+      drained: true,
+      exitCode: null,
+    });
+    expect(step(result.state, ensure).effects).toEqual([]);
+    expect(step(step(state, { type: "stop" }).state, exec).outcome).toBe("blocked");
+    let unknown = step(dispatched("exec"), {
+      type: "interrupted",
+      operationId: ensure.operationId,
+    }).state;
+    unknown = step(unknown, { type: "drained", operationId: ensure.operationId }).state;
+    expect(step(unknown, exec).outcome).toBe("blocked");
+  });
   it("keeps uncertain exec blocked until worker drainage and complete explicit-stop proof", () => {
     let state = step(dispatched("exec"), {
       type: "interrupted",

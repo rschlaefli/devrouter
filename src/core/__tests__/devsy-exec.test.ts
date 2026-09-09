@@ -2,11 +2,16 @@ import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { devsyExec, devsyExecOutcome } from "../devsy-exec";
+import { revalidateDevsyExecProof } from "../devsy-exec-proof";
 import { listDevsyWorkspaces, selectDevsyWorkspace } from "../devsy-workspaces";
 import type { ExecutionOutcomeError } from "../execution-outcome";
 import { withWorkspaceLifecycleLock } from "../workspace";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
+vi.mock("../devsy-exec-proof", () => ({ revalidateDevsyExecProof: vi.fn() }));
+vi.mock("../devsy-mutation", () => ({
+  withMutationLock: (_activity: string, _target: string, operation: () => unknown) => operation(),
+}));
 vi.mock("../devsy-workspaces", () => ({
   listDevsyWorkspaces: vi.fn(),
   selectDevsyWorkspace: vi.fn(),
@@ -114,5 +119,58 @@ describe("devsyExec", () => {
         transport: { exitCode: null, signal: null },
       },
     } satisfies Partial<ExecutionOutcomeError>);
+  });
+});
+
+describe("retained Devsy execution", () => {
+  const proof = {
+    repoPath: "/repo",
+    id: "actual-id",
+    uid: "uid",
+    context: "default",
+    endpoint: "unix:///fixture.sock",
+    daemon: "daemon",
+    containerId: "a".repeat(64),
+    workspacePath: "/workspace",
+  };
+  it("does not launch when identity revalidation fails", async () => {
+    vi.mocked(selectDevsyWorkspace).mockReturnValue({
+      id: proof.id,
+      source: { localFolder: "/repo" },
+    });
+    vi.mocked(revalidateDevsyExecProof).mockImplementationOnce(() => {
+      throw new Error("identity changed");
+    });
+    await expect(devsyExecOutcome("/repo", ["tool"], proof)).rejects.toMatchObject({
+      outcome: { status: "not-started", exitCode: null },
+    });
+    expect(spawn).not.toHaveBeenCalled();
+  });
+  it("keeps named-workspace semantics, context and literal command arguments", async () => {
+    vi.mocked(selectDevsyWorkspace).mockReturnValue({
+      id: proof.id,
+      source: { localFolder: "/repo" },
+    });
+    mockExecExit(7);
+    await expect(devsyExecOutcome("/repo", ["tool", "a b"], proof)).resolves.toMatchObject({
+      exitCode: 7,
+    });
+    expect(revalidateDevsyExecProof).toHaveBeenCalledWith("/repo", proof);
+    expect(spawn).toHaveBeenCalledWith(
+      "devsy",
+      [
+        "workspace",
+        "exec",
+        "--result-format",
+        "plain",
+        "--context",
+        "default",
+        "actual-id",
+        "--",
+        "tool",
+        "a b",
+      ],
+      { stdio: "inherit" },
+    );
   });
 });

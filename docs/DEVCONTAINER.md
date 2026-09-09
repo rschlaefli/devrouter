@@ -97,6 +97,12 @@ A proven application exit code remains the CLI exit code. A lost completion is
 reported as unknown. A new ensure reconciles an interrupted ensure after positive
 worker drainage while retaining its unknown historical result. Unknown arbitrary
 exec is never replayed; explicit stop reconciles that command uncertainty.
+For a manual Devsy workspace with running intent, a new `exec` can also proceed
+once an interrupted ensure has fully drained. Devrouter proves the exact running
+container and provider identity, then revalidates them before launching the command.
+This preserves tooling access despite configuration drift without claiming startup
+succeeded or changing retained configuration, managed state, or routes. Missing
+identity proof or an earlier uncertain exec still prevents command dispatch.
 If stop cannot prove cessation, preserve the operation record and generated
 configuration and investigate the reported provider or worker evidence. Deleting
 bookkeeping cannot prove that earlier work stopped. Corrupt or incompatible

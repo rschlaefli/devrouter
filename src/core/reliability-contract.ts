@@ -98,6 +98,7 @@ export type ReliabilityEvent = ReliabilityFence &
         profile: string;
         consumer: ReliabilityConsumer;
         runtimeRunning: boolean;
+        recoverInterruptedEnsure?: boolean;
       }
     | { type: "drained"; operationId: string }
     | { type: "release"; consumerId: string }

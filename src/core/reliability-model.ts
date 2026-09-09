@@ -85,7 +85,9 @@ function assertReliabilityEvent(value: unknown): asserts value is ReliabilityEve
         isReliabilityId(value.operationId) &&
         isReliabilityProfile(value.profile) &&
         isConsumer(value.consumer) &&
-        typeof value.runtimeRunning === "boolean";
+        typeof value.runtimeRunning === "boolean" &&
+        (value.recoverInterruptedEnsure === undefined ||
+          typeof value.recoverInterruptedEnsure === "boolean");
       break;
     case "drained":
       valid = isReliabilityId(value.operationId);
@@ -349,6 +351,17 @@ function handleRequest(
   return transition(state, "accepted");
 }
 
+export function canExecAfterInterruptedEnsure(state: ReliabilityState): boolean {
+  return (
+    state.executionPolicy === "manual" &&
+    state.desired === "running" &&
+    state.phase === "recovering" &&
+    state.operation?.kind === "ensure" &&
+    state.operation.status === "INTERRUPTED" &&
+    state.operation.drained
+  );
+}
+
 function handleOperationRequest(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "operation-request" }>,
@@ -377,7 +390,12 @@ function handleOperationRequest(
     (!state.operation.drained ||
       (!["COMPLETED", "NOT_LAUNCHED", "NOT_STARTED"].includes(state.operation.status) &&
         !fullyStopped &&
-        !reconcileEnsure))
+        !reconcileEnsure &&
+        !(
+          event.kind === "exec" &&
+          event.recoverInterruptedEnsure === true &&
+          canExecAfterInterruptedEnsure(state)
+        )))
   )
     return unchanged(state, "blocked");
   if (state.phase === "stopping" || state.desired === "parked-for-capacity")
