@@ -199,6 +199,16 @@ configuration. Each stop effect claims the current lifecycle fence. Final
 settlement revalidates the same baseline and requires zero exact routes. A present
 invalid baseline never falls back or grants ownership of replacement containers.
 
+A valid baseline also permits stop for a ledger-owned linked checkout with missing
+registration when every saved ID is positively absent on the saved daemon and
+project, directory and provider-runner populations are empty. Fresh checks of both
+registries, present Git ownership and the retained generation bracket that proof.
+The absent result does not report a provider mutation. Route cleanup revalidates
+under the provider lock; retries and final settlement independently prove live
+absence of retained desired app router names across both protocols. Routes outside
+that retained set prevent cleanup. The baseline and interrupted history remain.
+This exception does not apply to primary checkouts or legacy records.
+
 For retained managed Devsy state without that baseline, reversible stop proves the complete captured
 Compose population under the workspace and provider locks. Provider and primary
 state must agree. An already-stopped primary skips provider stop; residual

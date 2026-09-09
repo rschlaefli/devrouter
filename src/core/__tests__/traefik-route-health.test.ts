@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostRouteInput } from "../host-routes";
 import { restartRouterStack } from "../router";
 import {
+  assertTraefikRoutesRemoved,
   ensureTraefikRoutesLoaded,
   ensureTraefikRoutesMatch,
   ensureTraefikRoutesRemoved,
@@ -424,5 +425,24 @@ describe("ensureTraefikRoutesRemoved", () => {
       "http://127.0.0.1:8080/api/http/routers?per_page=1000",
       "http://127.0.0.1:8080/api/tcp/routers?per_page=1000",
     ]);
+  });
+});
+
+describe("retained stop live route proof", () => {
+  it.each([
+    { routers: [] },
+    { routers: [{ name: "host-repo-web@file" }] },
+    { routers: [{}] },
+  ])("accepts only a complete absent response", ({ routers }) => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(routers),
+      stderr: "",
+    } as never);
+    const proof = () =>
+      assertTraefikRoutesRemoved([{ repoPath: "/repo", name: "web", protocol: "http" }]);
+    if (routers.length === 0) expect(proof).not.toThrow();
+    else expect(proof).toThrow();
+    expect(restartRouterStack).not.toHaveBeenCalled();
   });
 });

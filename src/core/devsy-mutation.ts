@@ -33,7 +33,10 @@ const DEVSY_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devsy-mutation.lock"
  */
 const DEVSY_MUTATION_WAIT_MS = 1_800_000;
 
-export type OwnedDevsyMutationResult = { status: "changed" } | { status: "absent" };
+export type OwnedDevsyMutationResult =
+  | { status: "changed" }
+  | { status: "absent" }
+  | { status: "proven-absent" };
 
 export type DevsyStartOptions = {
   prepareNetwork?: PrepareNetworkStart;
@@ -194,15 +197,14 @@ function mutateOwnedDevsyWorkspace(
   worktreePath: string,
 ): OwnedDevsyMutationResult {
   return withMutationLock(`Devsy ${action}`, worktreePath, () => {
-    if (
-      action === "stop" &&
-      stopRetainedManagedDevsyWorkspace({
+    if (action === "stop") {
+      const stopped = stopRetainedManagedDevsyWorkspace({
         repoPath: worktreePath,
         devsyId,
         stopProvider: () => runDevsyAction("stop", devsyId),
-      })
-    )
-      return { status: "changed" };
+      });
+      if (stopped) return { status: stopped === "proven-absent" ? "proven-absent" : "changed" };
+    }
     const before = inspectExactOwnership(devsyId, worktreePath);
     if (before.status === "absent") return { status: "absent" as const };
 

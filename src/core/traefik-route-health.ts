@@ -80,6 +80,12 @@ function inspectRouterApi(protocol: RouteProtocol): RouterApiResult {
     return { ok: false, details: `${protocol.toUpperCase()} router API returned a non-array` };
   }
 
+  if (value.some((item) => !isRecord(item) || typeof item.name !== "string" || !item.name))
+    return {
+      ok: false,
+      details: `${protocol.toUpperCase()} router API returned malformed entries`,
+    };
+
   return {
     ok: true,
     reachedPageLimit: value.length >= ROUTER_API_PAGE_SIZE,
@@ -463,4 +469,10 @@ export async function ensureTraefikRoutesRemoved(
   options: TraefikRouteLoadOptions = {},
 ): Promise<{ restarted: boolean }> {
   return ensureTraefikRouteExpectation(routes, "removed", options);
+}
+
+/** Verify absence from the live router even after canonical metadata has been removed. */
+export function assertTraefikRoutesRemoved(routes: TraefikRouteReference[]): void {
+  const result = inspectExpectedRoutes(routes, "removed");
+  if (!result.ok) throw new Error(`Workspace route cessation is not proven: ${result.details}`);
 }
