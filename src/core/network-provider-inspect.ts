@@ -69,11 +69,11 @@ export function inspectNetworkProviderBinding(input: {
   provider: "devsy" | "devpod";
   providerId: string;
   repoPath: string;
-  endpoint: string;
+  endpoint?: string;
   providerContext?: string;
 }): NetworkProviderBindingEvidence {
   try {
-    const { provider, providerId, repoPath, endpoint } = input;
+    const { provider, providerId, repoPath } = input;
     const contexts: unknown = JSON.parse(
       read(provider, [
         "context",
@@ -138,6 +138,18 @@ export function inspectNetworkProviderBinding(input: {
     };
     if (workspaceProvider && workspaceProvider.name !== "docker") throw new Error();
     if (option("DOCKER_ELEVATION") && option("DOCKER_ELEVATION") !== "none") throw new Error();
+    // Without an allocation binding, only an explicitly configured provider
+    // endpoint identifies the diagnostic target. Ambient Docker selectors do not.
+    const endpoint = input.endpoint ?? option("DOCKER_HOST");
+    if (
+      !endpoint ||
+      (!input.endpoint &&
+        (process.env.DOCKER_CONTEXT ||
+          option("DOCKER_CONTEXT") ||
+          (option("DOCKER_PATH") ?? "docker") !== "docker" ||
+          (!workspace && entry.default !== true)))
+    )
+      throw new Error();
     return {
       provider,
       providerContext,

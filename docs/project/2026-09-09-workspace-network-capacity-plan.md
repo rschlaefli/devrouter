@@ -683,3 +683,19 @@ The source package intentionally cannot increase this OrbStack host's usable
 capacity yet. It provides diagnostics and the guarded allocator, while live pool
 selection and guest-route qualification remain separate operator decisions.
 No shared host configuration, runtime migration or cleanup is part of delivery.
+
+
+### Legacy preflight completion
+
+The legacy preflight is advisory, consistent with the no-policy diagnostics-only
+contract. The zero-provider-mutation requirement applies to opted-in allocation
+refusals. A qualified default Docker provider with an explicit local endpoint can
+supply a bounded pre-start exhaustion warning. Missing destination evidence,
+competing ambient context, custom Docker command, existing registration or unknown
+inventory skips the warning and preserves startup. No ambient endpoint substitutes
+for provider destination proof. The snapshot does not pin legacy startup or guarantee
+capacity; persistent binding remains limited to approved new policy-enabled networks.
+The advisor report is in `_local/reviews/2026-09-09-network-preflight-advisor.md`.
+Main accepts advisory-only semantics and rejects the suggested ambient-daemon query.
+Main owns qualification after the executor terminated without a delivered artifact.
+User explicitly instructed continuing with working tools after the usage-limit stop.

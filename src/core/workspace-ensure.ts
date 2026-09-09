@@ -51,6 +51,7 @@ import {
 } from "./managed-runtime-state";
 import { collectManagedRuntimeStatus } from "./managed-runtime-status";
 import { captureManagedStopBaseline, proveRetainedManagedStop } from "./managed-stop-recovery";
+import { inspectLegacyNetworkCapacity } from "./network-diagnostics";
 import { networkDockerOptions, withNetworkEffectGuard } from "./network-effect-scope";
 import {
   assertRetainedNetworkConfiguration,
@@ -1126,6 +1127,19 @@ export async function workspaceEnsure(
           );
       }
       if (managedPlan && !options.repair && !network) {
+        if (
+          !target.hadExactDevpod &&
+          devpodId &&
+          inspectLegacyNetworkCapacity({
+            provider: resolveWorkspaceRuntimeOrDefault(repoPath),
+            providerId: devpodId,
+            repoPath,
+          })
+        ) {
+          process.stderr.write(
+            "Warning: the configured provider Docker endpoint has exhausted default address pools. Existing network reuse may still succeed. Run devrouter doctor for capacity and ownership diagnostics. Stop and worktree removal do not release subnets; do not prune automatically.\n",
+          );
+        }
         claimLifecycleEffect();
         writeManagedDevcontainerConfig(managedPlan);
         managedConfigWritten = true;

@@ -4,6 +4,7 @@ import { type NetworkClaim, readNetworkClaims } from "./network-claims";
 import { collectDockerNetworkInventory } from "./network-inventory";
 import { readNetworkPolicy } from "./network-policy";
 import { diagnoseNetworkPolicy, type NetworkPolicyDiagnostics } from "./network-policy-diagnostics";
+import { inspectNetworkProviderBinding } from "./network-provider-inspect";
 import { collectNetworkRoutes } from "./network-routes";
 
 export type NetworkCapacityInspection = NetworkCapacityReport & {
@@ -67,4 +68,30 @@ export function networkCapacityCheck(report: NetworkCapacityInspection): Diagnos
       ? "Existing network reuse can continue. Review operator-approved route-safe pools or exact ownership-aware recovery. Stop and worktree removal do not release subnets; do not prune automatically."
       : "Review complete Docker, LAN, VPN and guest route evidence before allocating a new subnet. Unknown evidence does not authorize cleanup.",
   };
+}
+
+/** Best-effort advisory; unavailable destination evidence never blocks legacy starts. */
+export function inspectLegacyNetworkCapacity(input: {
+  provider: "devsy" | "devpod";
+  providerId: string;
+  repoPath: string;
+}): NetworkCapacityReport | undefined {
+  try {
+    const binding = inspectNetworkProviderBinding(input);
+    if (binding.registration !== "absent") return undefined;
+    const snapshot = collectDockerNetworkInventory({
+      endpoint: binding.endpoint,
+      expectedDaemonId: binding.daemonId,
+    });
+    const report = collectNetworkCapacityReport(binding, {
+      collectInventory: () => ({
+        ...snapshot,
+        endpoint: binding.endpoint,
+        daemonId: binding.daemonId,
+      }),
+    });
+    return hasExhaustedDockerPools(report) ? report : undefined;
+  } catch {
+    return undefined;
+  }
 }

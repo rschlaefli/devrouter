@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { inspectManagedStopDaemon } from "../devpod-environment";
 import { inspectNetworkProviderBinding } from "../network-provider-inspect";
 
@@ -9,6 +9,9 @@ const endpoint = "unix:///tmp/synthetic.sock";
 let saved: Record<string, unknown>;
 let contexts: unknown;
 let fail = false;
+let registered = true;
+let defaultProvider = true;
+let shared: Record<string, unknown>;
 function providerDefinition(provider: string) {
   return {
     name: "docker",
@@ -33,6 +36,10 @@ function providerDefinition(provider: string) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("DOCKER_CONTEXT", "");
+  registered = true;
+  defaultProvider = true;
+  shared = { DOCKER_HOST: { value: endpoint } };
   saved = { DOCKER_HOST: { value: endpoint } };
   contexts = [{ name: "synthetic-context", default: true }];
   fail = false;
@@ -49,20 +56,24 @@ beforeEach(() => {
           ? {
               docker: {
                 config: providerDefinition(provider),
-                state: { options: { DOCKER_HOST: { value: endpoint } } },
+                default: defaultProvider,
+                state: { options: shared },
               },
             }
-          : [
-              {
-                id: "synthetic",
-                source: { localFolder: "/synthetic" },
-                provider: { name: "docker", options: saved },
-              },
-            ];
+          : registered
+            ? [
+                {
+                  id: "synthetic",
+                  source: { localFolder: "/synthetic" },
+                  provider: { name: "docker", options: saved },
+                },
+              ]
+            : [];
     }
     return { status: 0, stdout: JSON.stringify(value) };
   }) as never);
 });
+afterEach(() => vi.unstubAllEnvs());
 describe("provider binding evidence collection", () => {
   it.each([
     "devsy",
@@ -94,4 +105,29 @@ describe("provider binding evidence collection", () => {
       expect(String(error)).not.toContain("synthetic-private-marker");
     }
   });
+});
+
+it.each([
+  "devsy",
+  "devpod",
+] as const)("diagnoses only the explicit %s destination for a new identity", (provider) => {
+  registered = false;
+  vi.stubEnv("DOCKER_HOST", "unix:///tmp/unrelated.sock");
+  const input = { provider, providerId: "synthetic", repoPath: "/synthetic" };
+  expect(inspectNetworkProviderBinding(input)).toMatchObject({ endpoint, registration: "absent" });
+  expect(inspectManagedStopDaemon).toHaveBeenCalledWith(endpoint);
+  expect(inspectManagedStopDaemon).not.toHaveBeenCalledWith("unix:///tmp/unrelated.sock");
+  for (const options of [
+    {},
+    { DOCKER_HOST: { value: endpoint }, DOCKER_PATH: { value: "custom" } },
+  ]) {
+    shared = options;
+    expect(() => inspectNetworkProviderBinding(input)).toThrow();
+  }
+  shared = { DOCKER_HOST: { value: endpoint } };
+  defaultProvider = false;
+  expect(() => inspectNetworkProviderBinding(input)).toThrow();
+  defaultProvider = true;
+  vi.stubEnv("DOCKER_CONTEXT", "unrelated");
+  expect(() => inspectNetworkProviderBinding(input)).toThrow();
 });

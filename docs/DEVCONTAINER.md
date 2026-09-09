@@ -168,6 +168,11 @@ New linked Compose workspaces can reserve a private default-network subnet from
 an operator-owned `network-policy.json` under the Devrouter home directory.
 Without that policy, allocation keeps its existing behavior. Existing provider
 registrations and custom networks remain unchanged when a policy is added.
+Before a new managed legacy start, `ensure` warns on positively observed default-pool
+exhaustion only when the qualified default Docker provider has an explicit local
+endpoint. It never substitutes the ambient Docker context, treats unknown inventory
+as exhaustion, or blocks startup on this advisory. Existing registrations skip the
+warning. This snapshot does not guarantee the destination or capacity at dispatch.
 Compose continues to own network creation; Devrouter never pre-creates an external
 replacement for the private default network. Shared `devnet` remains external.
 
