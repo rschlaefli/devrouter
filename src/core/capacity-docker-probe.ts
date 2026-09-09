@@ -131,6 +131,51 @@ export async function listDockerCapacityContainers(
   });
 }
 
+/** Minimal daemon-wide evidence for detecting unattributed enrolled containers. */
+export async function readDockerCapacityOwnershipIndex(
+  endpoint: string,
+  signal: AbortSignal,
+): Promise<
+  Array<{ id: string; project: string; workingDirectory: string; bindSources: string[] }>
+> {
+  const value = await request(endpoint, "/containers/json?all=true", signal);
+  if (!Array.isArray(value) || value.length > MAX_CONTAINERS) throw failure();
+  const ids = new Set<string>();
+  const text = (value: unknown): value is string =>
+    typeof value === "string" && value.length <= 4096 && !value.includes("\0");
+  return value
+    .map((entry: unknown) => {
+      if (
+        !object(entry) ||
+        typeof entry.Id !== "string" ||
+        !CONTAINER_ID.test(entry.Id) ||
+        ids.has(entry.Id) ||
+        !object(entry.Labels) ||
+        !Array.isArray(entry.Mounts) ||
+        entry.Mounts.length > 256
+      )
+        throw failure();
+      ids.add(entry.Id);
+      const project = entry.Labels["com.docker.compose.project"] ?? "";
+      const workingDirectory = entry.Labels["com.docker.compose.project.working_dir"] ?? "";
+      if (
+        !text(project) ||
+        !text(workingDirectory) ||
+        (workingDirectory && !path.isAbsolute(workingDirectory))
+      )
+        throw failure();
+      const bindSources: string[] = [];
+      for (const mount of entry.Mounts) {
+        if (!object(mount) || !text(mount.Type)) throw failure();
+        if (mount.Type !== "bind") continue;
+        if (!text(mount.Source) || !path.isAbsolute(mount.Source)) throw failure();
+        bindSources.push(mount.Source);
+      }
+      return { id: entry.Id, project, workingDirectory, bindSources: bindSources.sort() };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 export async function readDockerCapacityMemory(
   endpoint: string,
   containerId: string,

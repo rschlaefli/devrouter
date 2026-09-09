@@ -8,6 +8,7 @@ import {
   listDockerCapacityContainers,
   readDockerCapacityInfo,
   readDockerCapacityMemory,
+  readDockerCapacityOwnershipIndex,
 } from "../capacity-docker-probe";
 
 const id = "a".repeat(64);
@@ -228,4 +229,56 @@ it.each([
 ])("rejects invalid project filter %s before HTTP", async (project) => {
   await expect(listDockerCapacityContainers(endpoint, signal(), project)).rejects.toThrow(Error);
   expect(requests).toEqual([]);
+});
+
+it("reads an unfiltered ownership index without exposing unrelated labels or mount metadata", async () => {
+  respond = (_request, response) =>
+    response.end(
+      JSON.stringify([
+        {
+          Id: id,
+          Labels: {
+            "com.docker.compose.project": "fixture",
+            "com.docker.compose.project.working_dir": "/fixture/.devcontainer",
+            unrelated: "discarded",
+          },
+          Mounts: [
+            { Type: "bind", Source: "/fixture", Destination: "/workspace", extra: "discarded" },
+            { Type: "volume", Name: "discarded" },
+          ],
+        },
+      ]),
+    );
+  expect(await readDockerCapacityOwnershipIndex(endpoint, signal())).toEqual([
+    {
+      id,
+      project: "fixture",
+      workingDirectory: "/fixture/.devcontainer",
+      bindSources: ["/fixture"],
+    },
+  ]);
+  expect(requests).toEqual([{ method: "GET", url: "/containers/json?all=true" }]);
+});
+
+it.each([
+  "duplicate",
+  "missing-mounts",
+  "relative-bind",
+  "relative-directory",
+  "oversized-population",
+])("rejects incomplete ownership index: %s", async (mode) => {
+  const entry = { Id: id, Labels: {} as Record<string, string>, Mounts: [] as unknown[] };
+  if (mode === "relative-bind") entry.Mounts = [{ Type: "bind", Source: "relative" }];
+  if (mode === "relative-directory")
+    entry.Labels["com.docker.compose.project.working_dir"] = "relative";
+  const value =
+    mode === "missing-mounts"
+      ? [{ Id: id, Labels: {} }]
+      : mode === "duplicate"
+        ? [entry, entry]
+        : mode === "oversized-population"
+          ? Array(257).fill(entry)
+          : [entry];
+  respond = (_request, response) => response.end(JSON.stringify(value));
+  await expect(readDockerCapacityOwnershipIndex(endpoint, signal())).rejects.toThrow();
 });
