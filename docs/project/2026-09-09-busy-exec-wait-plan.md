@@ -64,14 +64,20 @@ that same consultation is still running. No reset credit or configuration change
 
 Focused verification passes 35 tests covering waiting without journal mutation, copied
 argv, fresh proof, timeout, signals, stop fencing, admission contention, uncertain birth,
-history rollover, dispatch durability and undispatched-helper cleanup. The full suite
-passed 1308 tests before the last five focused regressions and helper-close guard.
-Linux-only process-helper tests are skipped on macOS and remain a CI requirement.
-Formatting, typechecking, unused-code, documentation policy and knowledge checks pass.
+history rollover, dispatch durability and undispatched-helper cleanup. All 1313 tests
+in 92 files pass on 902a781. Linux-only process-helper tests are skipped on macOS and
+remain a CI requirement. Formatting, typechecking, unused-code, documentation policy,
+knowledge checks and commit hooks pass.
 
-The packed synthetic qualification passes overlapping exec, both exit codes, one launch
-per command, waiter cancellation, stop fencing and existing lifecycle failure cases.
-The package-install smoke passes. This evidence used the development tree before the
-final helper-close guard; a committed qualification will verify the review range.
-No live consumer runtime was touched. Required slice and final reviews, CI and draft
-PR delivery remain open. The roadmap goal stays active beyond this source package.
+The packed synthetic qualification passes on clean 048c395, including overlapping
+exec, both exit codes, one launch per command, waiter cancellation, stop fencing and
+existing lifecycle failure cases. Package-install smoke also passes. The qualification
+uses Node 26.8.1 and pnpm 11.6.0; it does not qualify a live provider or OOM recovery.
+Its unchanged runtime evidence is reused for 902a781, which removes the test-only
+legacy admission path and has fresh full-suite evidence.
+
+Simplifier Lagrange's sole finding is accepted in 902a781. Slice reviewer Archimedes
+is reviewing 048c395 with the narrow 902a781 follow-up supplied. The original advisor
+retry remains running without a terminal response. No replacement reviewer is started.
+Integrated final review, CI and draft PR delivery remain open. Main owns integration.
+No live consumer runtime was touched. The same roadmap goal remains active.
