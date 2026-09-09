@@ -38,6 +38,40 @@ describe("file lock ownership", () => {
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
+  it.each([
+    ["failed", { status: 1, stdout: "", stderr: "raw ps stderr" }],
+    ["empty", { status: 0, stdout: "", stderr: "" }],
+  ])("fails closed when procfs is unavailable and ps output is %s", (_case, psResult) => {
+    const existingLock = "existing-lock-bytes\n";
+    fs.writeFileSync(lockPath, existingLock, "utf-8");
+    const readFileSync = fs.readFileSync.bind(fs);
+    vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+      if (String(file).startsWith("/proc/")) {
+        throw Object.assign(new Error("procfs unavailable"), { code: "EACCES" });
+      }
+      return readFileSync(file, ...(args as [never]));
+    }) as typeof fs.readFileSync);
+    vi.mocked(spawnSync).mockReturnValue(psResult as never);
+    const callback = vi.fn();
+
+    let thrown: unknown;
+    try {
+      withFileLockSync(lockPath, { activity: "permission", fair: true }, callback);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).not.toContain("raw ps stderr");
+    expect(callback).not.toHaveBeenCalled();
+    expect(fs.readFileSync(lockPath, "utf-8")).toBe(existingLock);
+    expect(
+      fs
+        .readdirSync(tmpDir)
+        .filter((name) => name.includes(".candidate") || name.includes(".queue.")),
+    ).toEqual([]);
+  });
+
   it("does not displace the same live process instance", () => {
     withFileLockSync(lockPath, { activity: "outer" }, () => {
       expect(() =>

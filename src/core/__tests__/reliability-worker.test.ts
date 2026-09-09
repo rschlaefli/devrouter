@@ -370,8 +370,12 @@ describe("worker dispatch acknowledgement", () => {
     await expect(pending).resolves.toBe(0);
   });
 
-  it("disposes a snapshot-race loser without journal changes or IPC launch", async () => {
+  it.each([
+    "ensure",
+    "exec",
+  ] as const)("%s disposes a snapshot-race loser without journal changes or IPC launch", async (kind) => {
     const setup = prepared();
+    setup.request.kind = kind;
     setup.request.requestId = "next";
     setup.request.operationId = "next";
     setup.request.admission = {
@@ -464,8 +468,12 @@ describe("worker dispatch acknowledgement", () => {
     await result;
   });
 
-  it("records a proven pre-send abort without blocking subsequent tooling", async () => {
+  it.each([
+    "ensure",
+    "exec",
+  ] as const)("%s preserves cancellation outcome without launching", async (kind) => {
     const setup = prepared();
+    setup.request.kind = kind;
     const check = vi
       .fn()
       .mockImplementationOnce(() => {})
@@ -478,13 +486,16 @@ describe("worker dispatch acknowledgement", () => {
     expect(setup.child.send).not.toHaveBeenCalled();
     setup.close();
     await rejection;
-    expect(setup.record().state.operation).toMatchObject({ status: "NOT_LAUNCHED", drained: true });
+    expect(setup.record().state.operation).toMatchObject({
+      status: kind === "exec" ? "NOT_LAUNCHED" : "INTERRUPTED",
+      drained: true,
+    });
     const next = stepReliability(
       setup.record().state,
       {
         ...reliabilityFence(setup.record().state),
         type: "operation-request",
-        kind: "exec",
+        kind,
         key: "next",
         operationId: "next",
         profile: "full",

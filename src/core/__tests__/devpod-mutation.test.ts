@@ -147,6 +147,47 @@ async function waitForQueueTicket(home: string, pid: number): Promise<void> {
 }
 
 describe("machine-global DevPod mutation boundary", () => {
+  it("passes a prepared endpoint only through the exact startup invocation", async () => {
+    vi.mocked(spawnSync).mockImplementation((_command, args) => {
+      const argv = args as string[];
+      if (argv[0] === "list")
+        return {
+          status: 0,
+          stdout: JSON.stringify([{ id: "feature", source: { localFolder: "/repo/feature" } }]),
+          stderr: "",
+        } as never;
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+    const binding = {
+      provider: "devpod" as const,
+      providerId: "feature",
+      endpoint: "unix:///tmp/synthetic.sock",
+      daemonId: "daemon",
+      definitionSha256: "a".repeat(64),
+      providerContext: "default",
+    };
+    const prepareNetwork = vi.fn(() => ({
+      binding,
+      evidence: {
+        ...binding,
+        versionQualified: true,
+        providerName: "docker",
+        dockerPath: "docker",
+        persistedEndpoint: null,
+        persistedContext: null,
+        registration: "absent" as const,
+      },
+      firstAllocation: true,
+      devcontainerPath: ".devcontainer/network.json",
+      retainUncertain: vi.fn(),
+    }));
+    await startDevpodWorkspace({ repoPath: "/repo/feature", devpodId: "feature", prepareNetwork });
+    const call = vi.mocked(spawnSync).mock.calls.find(([, args]) => (args as string[])[0] === "up");
+    expect(call?.[1]).toContain("DOCKER_HOST=unix:///tmp/synthetic.sock");
+    expect(call?.[1]).toContain(".devcontainer/network.json");
+    expect(prepareNetwork).toHaveBeenCalledWith("feature");
+  });
+
   it("refreshes registry evidence before stop and discards it after failure", () => {
     process.env.DEVROUTER_WORKSPACE_RUNTIME = "devsy";
     let registryId = "old";

@@ -26,9 +26,18 @@ source_paths:
   - src/core/controller-monitor.ts
   - src/core/controller-observation.ts
   - src/core/controller-sessions.ts
+  - src/core/network-*.ts
 ---
 
 # Managed environment lifecycle
+
+Managed network allocation precedes new provider effects only for policy-enabled,
+eligible linked Compose workspaces. Claims retain the exact workspace, daemon and
+subnet across stop/resume. Unknown outcomes retain their reservation; a saved
+provider binding is an effect even without containers. Recovery releases only
+reservation metadata after worker settlement and complete absence proof. Existing
+networks remain owned by Compose. See the [network allocation contract](../DEVCONTAINER.md#managed-workspace-network-allocation)
+and [ADR 0009](../adr/0009-preserve-compose-network-ownership.md).
 
 ## Purpose and boundary
 

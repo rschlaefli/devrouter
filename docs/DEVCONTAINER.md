@@ -94,10 +94,10 @@ new mutations or restoring routes. Completion requires positive workload and
 route cessation evidence as well as drainage of earlier workers.
 
 When another positively identified lifecycle worker is active on the same checkout,
-`exec` waits asynchronously for up to thirty minutes and reports progress on stderr.
+`ensure` and `exec` wait asynchronously for up to thirty minutes and report progress on stderr.
 Commands remain serial; waiting does not promise FIFO ordering or a persistent
-queue. The waiting invocation keeps its request identity and refreshes runtime
-proof before admission. Cancellation or timeout before admission leaves the running
+queue. The waiting invocation keeps its request identity; a waiting `exec` also
+refreshes runtime proof before admission. Cancellation or timeout before admission leaves the running
 command untouched. An intervening stop or other lifecycle fence change cancels
 admission, even if the environment subsequently resumes. Uncertain completion or
 unavailable worker identity does not grant permission to launch another command.
@@ -168,6 +168,75 @@ devrouter's Traefik runs in Docker on a shared external bridge network,
 network — **no host port**. devrouter demuxes by hostname: `Host()` for HTTP,
 `HostSNI()` (TLS SNI) for TCP. So N apps + their databases all share `:443` /
 `:5432` / `:6379`, separated by hostname.
+
+### Managed workspace network allocation
+
+New linked Compose workspaces can reserve a private default-network subnet from
+an operator-owned `network-policy.json` under the Devrouter home directory.
+Without that policy, allocation keeps its existing behavior. Existing provider
+registrations and custom networks remain unchanged when a policy is added.
+Before a new managed legacy start, `ensure` warns on positively observed default-pool
+exhaustion only when the qualified default Docker provider has an explicit local
+endpoint. It never substitutes the ambient Docker context, treats unknown inventory
+as exhaustion, or blocks startup on this advisory. Existing registrations skip the
+warning. This snapshot does not guarantee the destination or capacity at dispatch.
+Compose continues to own network creation; Devrouter never pre-creates an external
+replacement for the private default network. Shared `devnet` remains external.
+
+Eligible allocations default to `/26`. The policy can permit `/25` and `/24`
+requests through `managedRuntime.network.prefixLength` in `.devrouter.yml`.
+A `/26` provides 53 endpoints after network, broadcast, gateway and the default
+eight-address reserve. Admission includes the full service/profile union and
+recreation headroom. `managedRuntime.network.endpointUpperBound` declares a
+full-lifecycle bound when replicas or other endpoint demand cannot be derived;
+it cannot reduce an observed lower bound. Repository configuration cannot choose
+machine pools, exclusions or daemon identity.
+
+The machine policy has version `1`, a required `daemonId`, canonical private IPv4
+`pools`, `exclusions` within those pools, `allowedPrefixes`, and an optional
+`endpointReserve`. Each pool must fit at most 4096 candidates at the longest
+permitted prefix: `/26` requires pools of `/14` or longer. Oversized pools are
+rejected during policy validation. Pool selection is operator-specific: no subnet is universally
+safe across Docker, LAN and VPN routes. Complete route and daemon evidence is
+required before allocation. Local Linux qualification checks that the Docker
+socket belongs to a daemon in the caller's network namespace. OrbStack and other
+virtualized contexts remain diagnostics-only until guest-route evidence is
+qualified. A host socket alone does not establish route visibility.
+
+The qualified Devsy and DevPod startup paths persist the exact Docker endpoint
+only in the newly allocated workspace's provider options. Later effects verify
+the saved provider context, definition and daemon. Endpoint drift, an uncertain
+start, a missing retained network, or a changed requested prefix requires
+reconciliation; ensure does not silently rebind, recreate or resize the network.
+Stopping retains its subnet and claim. Removing policy does not remove those
+records or grant cleanup authority. Zero active endpoints does not mean a
+network is unused: stopped containers can retain references.
+
+For a reconciliation failure, first run `devrouter doctor --repo <exact-checkout>`
+for read-only capacity and policy diagnostics. Retained claims live under
+`$DEVROUTER_HOME/networks/<sha256-of-daemon-id>.json`, or
+`~/.config/devrouter/networks/` with the default home. Inspect the matching owner
+record locally for its state, subnet, provider ID, provider context, endpoint,
+daemon ID and operation fence. Keep local paths and identifiers out of shared
+reports. Do not edit or remove the claim file to bypass a failure.
+
+On a later `ensure`, automatic reservation reconciliation releases metadata only
+for an unattached claim whose earlier operation has settled and cannot have further
+effects. It requires exact retained workspace ownership, the saved provider and
+qualified definition, a valid policy for the saved daemon, absent provider
+registration and local endpoint binding, complete inventory proving no overlapping
+network, and no workspace containers. The current operation must still hold its
+fence immediately before release. This does not delete provider or Docker resources.
+An attached claim, missing retained network, surviving binding, or unavailable
+evidence requires an operator decision; there is no force-reconcile command.
+Preserve those records and request repair approval naming the exact workspace,
+claim and affected resources. Provider or endpoint drift requires restoring the
+qualified configuration or separately approving a supported repair; `ensure`
+never treats drift as permission to move the workspace.
+
+The generated network overlay must be ignored by Git. Native Compose and Dev
+Container files remain unchanged. Explicit default-network names, IPAM, custom
+drivers and multiple private networks are outside managed allocation support.
 
 ## 1. Join the devcontainer services to `devnet`
 

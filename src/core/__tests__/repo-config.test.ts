@@ -67,6 +67,46 @@ describe("managed host preparation argv", () => {
   });
 });
 
+describe("managed network requests", () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = makeTmpDir();
+  });
+  afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
+  function write(network: unknown) {
+    writeConfig(
+      directory,
+      JSON.stringify({
+        version: 1,
+        apps: [],
+        managedRuntime: {
+          devcontainer: { baseServices: [], profileServices: [] },
+          processes: [],
+          network,
+        },
+      }),
+    );
+  }
+  it.each([24, 25, 26])("preserves prefix override %s without rewriting config", (prefixLength) => {
+    const network = { prefixLength, endpointUpperBound: 53 };
+    write(network);
+    const before = readConfig(directory);
+    expect(loadRepoConfig(directory).managedRuntime?.network).toEqual(network);
+    expect(readConfig(directory)).toBe(before);
+  });
+  it.each([
+    { prefixLength: 23 },
+    { prefixLength: "26" },
+    { endpointUpperBound: 0 },
+    { endpointUpperBound: 254 },
+    { pools: ["10.0.0.0/8"] },
+    { daemonId: "other" },
+  ])("rejects invalid requests or repository pool authority %#", (network) => {
+    write(network);
+    expect(() => loadRepoConfig(directory)).toThrow();
+  });
+});
+
 function writeManagedProfileConfig(dir: string, profilesYaml: string): void {
   writeConfig(
     dir,
