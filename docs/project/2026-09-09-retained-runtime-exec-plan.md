@@ -100,3 +100,12 @@ ProviderConfig JSON tags and SaveProviderConfig JSON serialization. Advisor's
 runtime-alignment finding is resolved by qualification, without changing provider
 configuration. Synthetic receipts and reviews are in docs/project/_local/reviews.
 Integrated final review and draft PR/CI are the remaining delivery steps.
+
+
+Final reviewer returned two findings. Main verified and corrected both: retained
+identity proof now remains required for successor tooling commands after a rejected
+launch or completed exec until a later ensure replaces the interrupted startup;
+the provider runner UID rule now has its existing explanation at the new call site.
+Two model regressions cover failed launch and completed tooling, repeat identity
+checks, deduplication and successful preparation clearing the recovery condition.
+All 1299 tests pass; correction review and clean packed qualification remain pending.

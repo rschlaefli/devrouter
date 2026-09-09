@@ -352,13 +352,18 @@ function handleRequest(
 }
 
 export function canExecAfterInterruptedEnsure(state: ReliabilityState): boolean {
+  const latestEnsure = [...state.operationHistory]
+    .reverse()
+    .find((operation) => operation.kind === "ensure");
   return (
     state.executionPolicy === "manual" &&
     state.desired === "running" &&
-    state.phase === "recovering" &&
-    state.operation?.kind === "ensure" &&
-    state.operation.status === "INTERRUPTED" &&
-    state.operation.drained
+    latestEnsure?.status === "INTERRUPTED" &&
+    latestEnsure.drained &&
+    state.operation?.drained === true &&
+    ((state.operation.kind === "ensure" && state.phase === "recovering") ||
+      (state.operation.kind === "exec" &&
+        ["COMPLETED", "NOT_LAUNCHED", "NOT_STARTED"].includes(state.operation.status)))
   );
 }
 
@@ -380,6 +385,14 @@ function handleOperationRequest(
     );
   if (state.operationHistory.some((entry) => entry.id === event.operationId))
     return unchanged(state, "conflict");
+  // Tooling does not reconcile interrupted preparation. Every subsequent command
+  // needs fresh identity proof until a later ensure replaces that startup result.
+  if (
+    event.kind === "exec" &&
+    canExecAfterInterruptedEnsure(state) &&
+    event.recoverInterruptedEnsure !== true
+  )
+    return unchanged(state, "blocked");
   const fullyStopped = state.stopProof.workloadsStopped && state.stopProof.routesRemoved;
   const reconcileEnsure =
     event.kind === "ensure" &&

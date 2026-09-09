@@ -107,6 +107,7 @@ export function captureDevsyExecProof(repoPath: string): DevsyExecProof {
   );
   if (mounts.length !== 1 || !mounts[0].Destination.startsWith("/"))
     throw new Error("Retained exec requires one exact source mount.");
+  // Devsy uses the workspace ID for legacy UIDs, otherwise its 16/40-byte UID.
   const uidBytes = Buffer.byteLength(workspace.uid);
   const runner = uidBytes === 16 || uidBytes === 40 ? workspace.uid : workspace.id;
   const runnerContainers = inspectProviderRunnerContainers(endpoint, runner);

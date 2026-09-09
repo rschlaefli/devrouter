@@ -571,6 +571,43 @@ describe("manual operation lifecycle", () => {
     unknown = step(unknown, { type: "drained", operationId: ensure.operationId }).state;
     expect(step(unknown, exec).outcome).toBe("blocked");
   });
+  it.each([
+    "not-started",
+    "completion",
+  ] as const)("requires fresh proof after recovery exec %s until preparation completes", (outcome) => {
+    let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    const exec = {
+      ...ensure,
+      kind: "exec" as const,
+      key: "tool",
+      operationId: "tool",
+      runtimeRunning: true,
+      recoverInterruptedEnsure: true,
+    };
+    state = step(state, exec).state;
+    state = step(state, { type: "dispatch" }).state;
+    state = step(state, { type: "dispatch-persisted", operationId: "tool" }).state;
+    state = step(state, { type: "launched", operationId: "tool" }).state;
+    state = step(
+      state,
+      outcome === "completion"
+        ? { type: "completion", operationId: "tool", exitCode: 7 }
+        : { type: "not-started", operationId: "tool" },
+    ).state;
+    state = step(state, { type: "drained", operationId: "tool" }).state;
+    const retry = { ...exec, key: "retry", operationId: "retry" };
+    expect(step(state, { ...retry, recoverInterruptedEnsure: false }).outcome).toBe("blocked");
+    expect(step(state, retry).outcome).toBe("accepted");
+    expect(step(state, exec).outcome).toBe("joined");
+    state = step(state, { ...ensure, key: "prepare", operationId: "prepare" }).state;
+    state = step(state, { type: "dispatch" }).state;
+    state = step(state, { type: "dispatch-persisted", operationId: "prepare" }).state;
+    state = step(state, { type: "launched", operationId: "prepare" }).state;
+    state = step(state, { type: "completion", operationId: "prepare", exitCode: 0 }).state;
+    state = step(state, { type: "drained", operationId: "prepare" }).state;
+    expect(step(state, { ...retry, recoverInterruptedEnsure: false }).outcome).toBe("accepted");
+  });
   it("keeps uncertain exec blocked until worker drainage and complete explicit-stop proof", () => {
     let state = step(dispatched("exec"), {
       type: "interrupted",
