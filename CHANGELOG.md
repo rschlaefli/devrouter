@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.64] - 2026-09-09
+
+### Fixed
+
+- Wait for healthy lifecycle work before canonical ensure admission, preserving
+  request identity, cancellation and stop fencing without replaying commands.
+- Explain unavailable or sandbox-denied process inspection in lock diagnostics
+  without weakening ownership checks.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.64.md
+
 ## [0.0.63] - 2026-09-09
 
 ### Fixed
