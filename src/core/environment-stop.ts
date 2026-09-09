@@ -53,7 +53,7 @@ export async function environmentStop(
         repoPath,
         workspace: result.workspace,
         ...(result.devpodId ? { devpodId: result.devpodId } : {}),
-        stopped: !options.delete && result.providerChanged,
+        stopped: !options.delete && (result.providerChanged || result.runtimeAbsent === true),
         ...(options.delete ? { deleted: result.providerChanged } : {}),
         freedRoutes: result.freedRoutes,
       };

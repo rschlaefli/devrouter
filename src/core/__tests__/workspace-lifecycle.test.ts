@@ -9,6 +9,7 @@ import {
 } from "../devpod-mutation";
 import { listDevpodWorkspaces, listDevpodWorkspacesFromSnapshots } from "../devpod-workspaces";
 import { readManagedRuntimeState } from "../managed-runtime-state";
+import { proveManagedStop } from "../managed-stop-recovery";
 import { superviseLifecycle } from "../reliability-lifecycle";
 import { loadRuntimeConfig } from "../repo-config";
 import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
@@ -46,8 +47,19 @@ vi.mock("../reliability-lifecycle", () => ({
 }));
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("../devsy-mutation", () => ({
+  withMutationLock: (_a: string, _b: string, operation: () => unknown) => operation(),
+}));
+vi.mock("../managed-stop-recovery", () => ({
+  proveManagedStop: vi.fn(() => ({ status: "proven-absent", containers: [] })),
+  managedStopRouteReferences: (state: { repoPath: string; desired: { apps: string[] } }) =>
+    state.desired.apps.flatMap((name) =>
+      ["http", "tcp"].map((protocol) => ({ repoPath: state.repoPath, name, protocol })),
+    ),
+}));
 vi.mock("../managed-runtime-state", () => ({ readManagedRuntimeState: vi.fn() }));
 vi.mock("../route-state", () => ({
+  listRoutesForWorktreePath: vi.fn(() => []),
   listRoutesForWorktreePaths: vi.fn(() => new Map()),
   removeWorkspaceRoutesForWorktree: vi.fn(() => []),
 }));
@@ -556,6 +568,31 @@ describe("workspaceStop", () => {
     expect(stopOwnedDevpodWorkspace).toHaveBeenCalledWith("feat-a", "/main/repo-feat-a");
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
     expect(ensureTraefikRoutesRemoved).not.toHaveBeenCalled();
+  });
+
+  it("rechecks absent ownership and live route removal on retries without provider mutation", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "proven-absent" });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      repoPath: "/main/repo-feat-a",
+      stopBaseline: { version: 1 },
+      desired: { apps: ["web"] },
+    } as never);
+    vi.mocked(ensureTraefikRoutesRemoved).mockRejectedValueOnce(new Error("unload failed"));
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true })).rejects.toThrow(
+      "unload failed",
+    );
+    await expect(
+      workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true }),
+    ).resolves.toMatchObject({ providerChanged: false });
+    expect(proveManagedStop).toHaveBeenCalledTimes(2);
+    expect(ensureTraefikRoutesRemoved).toHaveBeenLastCalledWith([
+      { repoPath: "/main/repo-feat-a", name: "web", protocol: "http" },
+      { repoPath: "/main/repo-feat-a", name: "web", protocol: "tcp" },
+    ]);
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
   });
 
   it("stops the ledger owner for an exact path despite a colliding branch name", async () => {

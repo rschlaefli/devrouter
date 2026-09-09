@@ -594,6 +594,49 @@ export function inspectManagedStopWorkspaceIds(
   return ids;
 }
 
+function hasExactManagedStopMissingObjectError(stderr: unknown, id: string): boolean {
+  if (typeof stderr !== "string") return false;
+  const line = stderr.endsWith("\r\n")
+    ? stderr.slice(0, -2)
+    : stderr.endsWith("\n")
+      ? stderr.slice(0, -1)
+      : stderr;
+  return (
+    /^error: no such object: [0-9a-f]{64}$/i.test(line) &&
+    line.toLowerCase() === `error: no such object: ${id}`
+  );
+}
+
+export function assertManagedStopContainersAbsent(endpoint: string, ids: string[]): void {
+  assertManagedStopEndpoint(endpoint);
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 256) {
+    throw new Error("Managed stop absence proof requires between 1 and 256 container ids.");
+  }
+  ids.forEach(assertFullContainerId);
+  assertUniqueContainerIds(ids);
+
+  const env = { ...process.env };
+  delete env.DOCKER_CONTEXT;
+  delete env.DOCKER_HOST;
+  for (const id of ids) {
+    const result = spawnSync("docker", ["--host", endpoint, "inspect", "--format", "{{.Id}}", id], {
+      env,
+      encoding: "utf-8",
+      timeout: MANAGED_STOP_DOCKER_TIMEOUT_MS,
+      maxBuffer: MANAGED_STOP_DOCKER_MAX_BUFFER,
+    });
+    if (
+      result.status !== 1 ||
+      result.error ||
+      result.signal ||
+      result.stdout !== "" ||
+      !hasExactManagedStopMissingObjectError(result.stderr, id)
+    ) {
+      throw new Error("Managed stop Docker inspection did not prove container absence.");
+    }
+  }
+}
+
 export function stopPinnedManagedContainer(endpoint: string, containerId: string): void {
   assertFullContainerId(containerId);
   runManagedStopDocker(["stop", containerId], endpoint, 30_000);

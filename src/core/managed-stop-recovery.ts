@@ -3,20 +3,28 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { ManagedDevcontainerPlan } from "./devcontainer-profile";
 import {
+  assertManagedStopContainersAbsent,
   inspectManagedStopContainers,
   inspectManagedStopDaemon,
   inspectManagedStopRunnerId,
   inspectManagedStopWorkspaceIds,
+  inspectProviderRunnerContainers,
   resolveManagedStopEndpoint,
   stopPinnedManagedContainer,
 } from "./devpod-environment";
+import { listDevpodWorkspacesRaw } from "./devpod-registry";
 import { inspectDevsyWorkspaceOwnership, listDevsyWorkspaces } from "./devsy-workspaces";
 import { proveManagedComposePopulation } from "./managed-compose-population";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
 import { type ManagedStopBaseline, validateManagedStopBaseline } from "./managed-stop-baseline";
 import { claimLifecycleEffect } from "./reliability-context";
 import { isLinkedWorktree, resolveWorktreeWorkspace, sameWorkspacePath } from "./workspace";
-import { readWorkspaceOwnership, resolveGitCommonDir } from "./workspace-ownership";
+import {
+  inspectWorkspaceOwnership,
+  listGitWorktrees,
+  readWorkspaceOwnership,
+  resolveGitCommonDir,
+} from "./workspace-ownership";
 import { resetWorkspaceRuntimeCaches, resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
 
 function registration(state: ManagedRuntimeState) {
@@ -203,8 +211,81 @@ export function proveRetainedManagedStop(state: ManagedRuntimeState) {
   return result;
 }
 
+export type ManagedStopProof =
+  | { status: "retained"; containers: ReturnType<typeof proveRetainedManagedStop> }
+  | { status: "proven-absent"; containers: [] };
+
+function absentRegistrationIdentity(state: ManagedRuntimeState) {
+  resetWorkspaceRuntimeCaches();
+  if (resolveWorkspaceRuntimeOrDefault(state.repoPath) !== "devsy")
+    throw new Error("Stop provider changed.");
+  if (!state.workspace || !isLinkedWorktree(state.repoPath))
+    throw new Error("Absent stop requires a linked workspace.");
+  const record = readWorkspaceOwnership(state.repoPath, state.workspace);
+  if (
+    !record ||
+    record.workspace !== state.workspace ||
+    record.devpodId !== state.devpodId ||
+    !sameWorkspacePath(record.worktreePath, state.repoPath) ||
+    resolveWorktreeWorkspace(state.repoPath) !== state.workspace ||
+    inspectWorkspaceOwnership(record, listGitWorktrees(state.repoPath), undefined).ownerStatus !==
+      "present"
+  )
+    throw new Error("Absent stop workspace ownership changed.");
+  for (const entries of [listDevsyWorkspaces(), listDevpodWorkspacesRaw()]) {
+    if (
+      entries.some(
+        (entry) =>
+          entry.id === state.devpodId ||
+          sameWorkspacePath(entry.source.localFolder, state.repoPath),
+      )
+    )
+      throw new Error("Absent stop requires both provider registrations to remain absent.");
+  }
+  return { record, gitCommonDir: resolveGitCommonDir(state.repoPath) };
+}
+
+/** Caller holds the workspace and provider locks. No current config is used as historical evidence. */
+export function proveManagedStop(state: ManagedRuntimeState): ManagedStopProof {
+  const baseline = validateManagedStopBaseline(state.stopBaseline, state);
+  const owner = inspectDevsyWorkspaceOwnership(
+    listDevsyWorkspaces(),
+    state.devpodId,
+    state.repoPath,
+  );
+  if (owner.status !== "absent")
+    return { status: "retained", containers: proveRetainedManagedStop(state) };
+  if (baseline.sourceContainer) throw new Error("Absent stop cannot prove a source container.");
+  const before = absentRegistrationIdentity(state);
+  if (!isDeepStrictEqual(readManagedRuntimeState(state.repoPath, state.workspace), state))
+    throw new Error("Retained stop generation changed.");
+  if (inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId)
+    throw new Error("Stop daemon changed.");
+  assertManagedStopContainersAbsent(
+    baseline.endpoint,
+    baseline.containers.map((container) => container.id),
+  );
+  const uidBytes = Buffer.byteLength(baseline.uid);
+  const runnerId = uidBytes === 16 || uidBytes === 40 ? baseline.uid : baseline.providerId;
+  if (
+    inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0 ||
+    inspectManagedStopWorkspaceIds(baseline.endpoint, baseline.composeDirectory).length !== 0 ||
+    inspectProviderRunnerContainers(baseline.endpoint, runnerId).length !== 0
+  )
+    throw new Error("Absent stop observed a remaining workspace population.");
+  if (
+    inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId ||
+    !isDeepStrictEqual(absentRegistrationIdentity(state), before) ||
+    !isDeepStrictEqual(readManagedRuntimeState(state.repoPath, state.workspace), state)
+  )
+    throw new Error("Absent stop authority changed during inspection.");
+  return { status: "proven-absent", containers: [] };
+}
+
 /** Caller holds the workspace and provider locks. Every effect claims the current stop fence. */
-export function stopFromManagedBaseline(state: ManagedRuntimeState): void {
+export function stopFromManagedBaseline(state: ManagedRuntimeState): "retained" | "proven-absent" {
+  const proof = proveManagedStop(state);
+  if (proof.status === "proven-absent") return proof.status;
   const baseline = validateManagedStopBaseline(state.stopBaseline, state);
   const stopped = new Set<string>();
   for (const initial of proveRetainedManagedStop(state))
@@ -227,4 +308,12 @@ export function stopFromManagedBaseline(state: ManagedRuntimeState): void {
   }
   if (inspect().some((container) => container.state.Running))
     throw new Error("Retained workloads remain running.");
+  return "retained";
+}
+
+/** Both protocols are checked because the retained desired set does not encode protocols. */
+export function managedStopRouteReferences(state: ManagedRuntimeState) {
+  return state.desired.apps.flatMap((name) =>
+    (["http", "tcp"] as const).map((protocol) => ({ repoPath: state.repoPath, name, protocol })),
+  );
 }
