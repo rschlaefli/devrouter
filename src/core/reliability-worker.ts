@@ -103,6 +103,8 @@ export async function runLifecycleWorker(
   let ready = false;
   let closed = false;
   let registered = false;
+  let dispatchAcknowledged = false;
+  let sendAttempted = false;
   let readinessTimer: ReturnType<typeof setTimeout> | undefined;
   let result: LifecycleWorkerResult | undefined;
   let cancelled = false;
@@ -217,11 +219,13 @@ export async function runLifecycleWorker(
                 }
                 record.state = transition.state;
               });
+              dispatchAcknowledged = true;
             }
             await new Promise<void>((resolve) => setImmediate(resolve));
             if (closed) return;
             beforeAdmission?.();
             if (cancelled) throw new Error("Lifecycle invocation was cancelled before dispatch.");
+            sendAttempted = true;
             child.send({ request }, (error) => {
               if (error) {
                 failure = error;
@@ -256,7 +260,10 @@ export async function runLifecycleWorker(
                   record.state,
                   {
                     ...reliabilityFence(record.state),
-                    type: "interrupted",
+                    type:
+                      request.kind === "exec" && dispatchAcknowledged && !sendAttempted
+                        ? "not-started"
+                        : "interrupted",
                     operationId: request.operationId,
                   },
                   Date.now(),

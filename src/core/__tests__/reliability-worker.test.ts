@@ -259,6 +259,38 @@ describe("worker dispatch acknowledgement", () => {
     await result;
   });
 
+  it("records a proven pre-send abort without blocking subsequent tooling", async () => {
+    const setup = prepared();
+    const check = vi
+      .fn()
+      .mockImplementationOnce(() => {})
+      .mockImplementationOnce(() => {
+        throw new Error("synthetic cancellation");
+      });
+    const pending = runLifecycleWorker(setup.request, check);
+    const rejection = expect(pending).rejects.toThrow("synthetic cancellation");
+    await ready(setup.child);
+    expect(setup.child.send).not.toHaveBeenCalled();
+    setup.close();
+    await rejection;
+    expect(setup.record().state.operation).toMatchObject({ status: "NOT_LAUNCHED", drained: true });
+    const next = stepReliability(
+      setup.record().state,
+      {
+        ...reliabilityFence(setup.record().state),
+        type: "operation-request",
+        kind: "exec",
+        key: "next",
+        operationId: "next",
+        profile: "full",
+        runtimeRunning: true,
+        consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+      },
+      Date.now(),
+    );
+    expect(next.outcome).toBe("accepted");
+  });
+
   it("never registers a helper that closes while its ready callback yields", async () => {
     const setup = prepared();
     const before = structuredClone(setup.record());
