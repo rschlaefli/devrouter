@@ -23,6 +23,14 @@ const fixture = vi.hoisted(() => ({
   merge: vi.fn(),
   incarnation: vi.fn(),
   collection: vi.fn(),
+  witness: vi.fn(),
+  running: vi.fn(),
+}));
+vi.mock("../capacity-startup-witness", () => ({
+  publishQueuedStartupWitness: fixture.witness,
+}));
+vi.mock("../devpod-environment", () => ({
+  resolveRunningWorkspaceContainer: fixture.running,
 }));
 vi.mock("../capacity-docker-probe", () => ({ readDockerCapacityInfo: fixture.info }));
 vi.mock("../capacity-store", () => ({
@@ -405,6 +413,112 @@ it.each([
       },
     },
   );
+});
+
+it("publishes the queued startup witness before enqueueing an ensure", async () => {
+  const policyEnrollmentWithProvider = { ...submissionEnrollment, providerId: "provider" };
+  fixture.policy.mockReturnValue({
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [policyEnrollmentWithProvider],
+    domains: { host: { kind: "host" }, runtime: submissionRuntime },
+  });
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: policyEnrollmentWithProvider,
+  });
+  fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
+  fixture.charge.mockReturnValue({
+    environmentId: "env",
+    totals: { host: 1 },
+    startup: true,
+    heavy: false,
+  });
+  fixture.prepare.mockReturnValue({
+    operationId: "accepted",
+    request: {
+      operationId: "accepted",
+      requestId: "stable",
+      fence: { environmentId: "env", intentRevision: 1, runtimeGeneration: 1, controllerEpoch: 1 },
+    },
+  });
+  fixture.status.mockReturnValue({ operationId: "accepted", phase: "queued" });
+  await expect(
+    controller().submit(
+      { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
+      environment,
+      new AbortController().signal,
+    ),
+  ).resolves.toBeDefined();
+  expect(fixture.witness).toHaveBeenCalledOnce();
+  expect(fixture.witness).toHaveBeenCalledWith(
+    expect.objectContaining({
+      identity: { repoPath: "/fixture", workspace: "fixture", provider: "devsy" },
+      providerId: "provider",
+      operationId: "accepted",
+      profile: "full",
+      fence: { environmentId: "env", intentRevision: 1, runtimeGeneration: 1, controllerEpoch: 1 },
+    }),
+  );
+  expect(fixture.enqueue).toHaveBeenCalledOnce();
+});
+
+it("retires the queued intent when startup witness publication fails", async () => {
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
+  fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
+  fixture.charge.mockReturnValue({
+    environmentId: "env",
+    totals: { host: 1 },
+    startup: true,
+    heavy: false,
+  });
+  const prepared = { operationId: "accepted", requestId: "stable" };
+  fixture.prepare.mockReturnValue({ operationId: "accepted", request: prepared });
+  fixture.witness.mockImplementation(() => {
+    throw new Error("witness fence changed");
+  });
+  await expect(
+    controller().submit(
+      { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
+      environment,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow("witness fence changed");
+  expect(fixture.retire).toHaveBeenCalledWith(prepared);
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+it("publishes no startup witness for exec submissions", async () => {
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
+  fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
+  fixture.charge.mockReturnValue({ environmentId: "env", totals: { host: 1 } });
+  fixture.prepare.mockReturnValue({
+    operationId: "accepted",
+    request: { operationId: "accepted", requestId: "stable" },
+  });
+  fixture.status.mockReturnValue({ operationId: "accepted", phase: "queued" });
+  await controller().submit(
+    {
+      ...binding,
+      method: "operation-submit",
+      kind: "exec",
+      requestId: "stable",
+      command: ["synthetic"],
+    },
+    environment,
+    new AbortController().signal,
+  );
+  expect(fixture.witness).not.toHaveBeenCalled();
+  expect(fixture.enqueue).toHaveBeenCalledOnce();
 });
 
 it("does not enqueue a second payload when durable preparation joins", async () => {

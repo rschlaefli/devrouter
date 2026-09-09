@@ -7,6 +7,7 @@ import { enrollCapacityLifecycle } from "./capacity-enrollment";
 import { readCapacityPolicy } from "./capacity-policy";
 import { CapacityQueue } from "./capacity-queue";
 import { capacityRequest } from "./capacity-request";
+import { publishQueuedStartupWitness } from "./capacity-startup-witness";
 import { type CapacityPoolReservation, CapacityStore } from "./capacity-store";
 import { readControllerEvidence } from "./controller-binding";
 import type { ControllerOperations, ControllerStartup } from "./controller-server";
@@ -244,6 +245,21 @@ export function createCapacityController(options: {
           Boolean(resolveRunningWorkspaceContainer(environment.repoPath)),
         ...(request.kind === "exec" ? { command: request.command } : {}),
       });
+      if (prepared.request && request.kind === "ensure") {
+        try {
+          await publishQueuedStartupWitness({
+            identity,
+            providerId: resolved.enrollment.providerId,
+            operationId: prepared.operationId,
+            fence: prepared.request.fence,
+            profile: environment.profile,
+            signal,
+          });
+        } catch (error) {
+          retireQueuedLifecycle(prepared.request);
+          throw error;
+        }
+      }
       const signature = createHmac("sha256", payloadKey)
         .update(
           JSON.stringify({

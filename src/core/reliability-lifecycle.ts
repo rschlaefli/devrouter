@@ -43,6 +43,7 @@ import {
   type CapacityControllerIdentity,
   type CapacityExecSteady,
   type CapacityPhaseSettlement,
+  clearStartupWitness,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   readReliabilityOperation,
@@ -285,6 +286,9 @@ export function prepareManagedLifecycleOperation(input: {
     if (record.worker) throw new Error("An earlier lifecycle worker remains undrained.");
     record.state = transition.state;
     record.outcome = null;
+    // A newly accepted operation supersedes any prior startup witness; the next
+    // publication rebinds the witness to this operation's fence before mutation.
+    record.startupWitness = null;
     return {
       operationId,
       request: {
@@ -814,18 +818,45 @@ export function renewLifecycleCapacity(
       )
         return false;
       const maxAge = policy.scheduling.maxSampleAgeSeconds * 1000;
-      if (
-        !evaluateCapacity(
-          policy.domains,
-          samples,
-          snapshot.reservations,
-          reservation,
-          nowMs,
-          maxAge,
-          snapshot.pools,
-        ).admitted
-      )
-        return false;
+      const decision = evaluateCapacity(
+        policy.domains,
+        samples,
+        snapshot.reservations,
+        reservation,
+        nowMs,
+        maxAge,
+        snapshot.pools,
+      );
+      if (!decision.admitted) {
+        // Unknown collection stays local to the affected domain. While an active
+        // startup witness proves accounting ownership of the changing runtime
+        // domain, its transient unknown sample must not invalidate authority —
+        // but any unknown elsewhere, or any non-unknown reason, still blocks it.
+        const witnessedDomain = enrolled?.runtimeDomain;
+        const tolerated =
+          record.startupWitness != null &&
+          decision.reason === "unknown" &&
+          typeof witnessedDomain === "string" &&
+          decision.domain === witnessedDomain &&
+          (() => {
+            const remaining = Object.fromEntries(
+              Object.entries(reservation.totals).filter(([domain]) => domain !== witnessedDomain),
+            );
+            return (
+              Object.keys(remaining).length === 0 ||
+              evaluateCapacity(
+                policy.domains,
+                samples,
+                snapshot.reservations,
+                { ...reservation, totals: remaining },
+                nowMs,
+                maxAge,
+                snapshot.pools,
+              ).admitted
+            );
+          })();
+        if (!tolerated) return false;
+      }
       binding.snapshotRevision = snapshot.revision;
       binding.validUntilMs =
         Math.min(
@@ -910,6 +941,19 @@ export function bindLifecycleCapacity(
     if (record.state.executionPolicy === "capacity-managed")
       stepRecord(record, { ...request.fence, type: "admission", result: "admitted" });
   });
+}
+
+/**
+ * Replace the active startup witness after the strict baseline capture persisted.
+ * Only this operation's witness is cleared, with the freshly read live fence, so
+ * a concurrent superseding generation is left to its own lifecycle.
+ */
+export function clearActiveLifecycleStartupWitness(): void {
+  const request = activeWorker;
+  if (!request || request.kind === "stop") return;
+  const record = readReliabilityOperation(request.identity);
+  if (record?.startupWitness?.operationId !== request.operationId) return;
+  clearStartupWitness(request.identity, reliabilityFence(record.state));
 }
 
 async function acquireWorkerLock<T>(repoPath: string, operation: () => Promise<T>): Promise<T> {

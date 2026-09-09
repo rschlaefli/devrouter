@@ -14,8 +14,16 @@ import { runControllerProbe } from "./controller-probe";
 import { readManagedRuntimeState } from "./managed-runtime-state";
 import { readReliabilityOperation } from "./reliability-operation-store";
 
-/** The retained Devsy generation is stronger evidence than its reusable workspace ID. */
-async function readProviderGeneration(repoPath: string, providerId: string, signal: AbortSignal) {
+/**
+ * The retained Devsy generation is stronger evidence than its reusable workspace ID.
+ * Shared with the queued startup-witness construction so both bind the same
+ * provenance for one enrollment.
+ */
+export async function readProviderGeneration(
+  repoPath: string,
+  providerId: string,
+  signal: AbortSignal,
+) {
   const entries: unknown = JSON.parse(
     await runControllerProbe(
       "devsy",
