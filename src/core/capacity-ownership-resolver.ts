@@ -32,9 +32,9 @@ async function readProviderGeneration(repoPath: string, providerId: string, sign
     throw new Error("Capacity provider generation is ambiguous.");
   const entry = matches[0];
   const generation = {
-    context: entry.context ?? "",
-    uid: entry.uid ?? "",
-    sourceContainer: entry.source.container ?? "",
+    context: entry.context === undefined ? "" : entry.context,
+    uid: entry.uid === undefined ? "" : entry.uid,
+    sourceContainer: entry.source.container === undefined ? "" : entry.source.container,
   };
   if (Object.values(generation).some((value) => typeof value !== "string" || value.length > 4096))
     throw new Error("Capacity provider generation is malformed.");
@@ -48,7 +48,7 @@ export async function resolveCapacityOwnership(
   signal: AbortSignal,
   dependencies = {
     resolve: resolveCapacityEnrollment,
-    providerGeneration: readProviderGeneration,
+    providerGeneration: readProviderGeneration as typeof readProviderGeneration | undefined,
     journal: readReliabilityOperation,
     managed: readManagedRuntimeState,
     population: readDockerCapacityPopulation,
@@ -84,7 +84,7 @@ export async function resolveCapacityOwnership(
       throw new Error("Capacity ownership enrollment changed.");
     if (enrollment.provider !== "devsy")
       throw new Error("Capacity retained generation requires Devsy ownership.");
-    const generation = await dependencies.providerGeneration(
+    const generation = await (dependencies.providerGeneration ?? readProviderGeneration)(
       enrollment.repoPath,
       enrollment.providerId,
       signal,
@@ -98,7 +98,7 @@ export async function resolveCapacityOwnership(
         check();
         const current = await dependencies.resolve(policy, entry.request, signal);
         check();
-        const generation = await dependencies.providerGeneration(
+        const generation = await (dependencies.providerGeneration ?? readProviderGeneration)(
           entry.enrollment.repoPath,
           entry.enrollment.providerId,
           signal,

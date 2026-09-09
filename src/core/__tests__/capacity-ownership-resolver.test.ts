@@ -2,9 +2,12 @@ import { createHash } from "node:crypto";
 import { expect, it, vi } from "vitest";
 import { resolveCapacityOwnership } from "../capacity-ownership-resolver";
 import type { CapacityPolicy } from "../capacity-policy";
+import { runControllerProbe } from "../controller-probe";
 import type { ManagedStopContainerSnapshot } from "../devpod-environment";
 import type { ManagedRuntimeState } from "../managed-runtime-state";
 import type { ReliabilityOperationRecord } from "../reliability-operation-store";
+
+vi.mock("../controller-probe", () => ({ runControllerProbe: vi.fn() }));
 
 function fixture() {
   const repoPath = "/synthetic/checkout";
@@ -301,4 +304,27 @@ it.each([
   ]);
   await resolver.revalidate();
   expect(f.record).toEqual(before);
+});
+
+it.each([
+  "context",
+  "uid",
+  "sourceContainer",
+])("rejects present null provider %s metadata", async (field) => {
+  const f = fixture();
+  const entry = {
+    id: "synthetic",
+    context: "default",
+    uid: "generation",
+    source: { localFolder: "/synthetic/checkout", container: "" },
+  };
+  if (field === "sourceContainer") Object.assign(entry.source, { container: null });
+  else Object.assign(entry, { [field]: null });
+  vi.mocked(runControllerProbe).mockResolvedValue(JSON.stringify([entry]));
+  await expect(
+    resolveCapacityOwnership(f.policy, "guest", f.cancellation.signal, {
+      ...f.dependencies,
+      providerGeneration: undefined,
+    }),
+  ).rejects.toThrow();
 });

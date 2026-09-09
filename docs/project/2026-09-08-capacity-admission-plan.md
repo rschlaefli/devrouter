@@ -2190,3 +2190,19 @@ Next: finish correctness review, then prove cold/partial startup ownership and
 reservation renewal before enabling the production controller factory and
 canonical command integration. Reuse the unaffected release and fixture evidence.
 The native goal is active; earlier blocked-goal notes are historical.
+
+Correctness reviewer Euclid found a retained provider-generation gap. Commit
+477abc5 adds current context/uid/sourceContainer comparison and revalidation;
+Euclid confirmed that correction. Main also implements the reviewer's final
+parser correction: only undefined optional metadata becomes empty; null and other
+non-string values are rejected. Three cases exercise the actual registry parser.
+The resolver now passes 24 tests; TypeScript, Biome and Knip pass.
+
+Commit a6acada addresses a separate liveness defect: queued intent clears historic
+stop proof before admission. A positively empty population with an undispatched
+queued operation can now be observed as zero, with the same stable residual and
+provider checks. It does not settle reservations, infer absence from metadata, or
+allow running workers through that branch. Its three cases cover undispatched,
+worker-present and already-dispatched records. This change still needs slice
+review. Partial container creation after dispatch remains unavailable and needs
+an exact generation-proof design before factory activation.
