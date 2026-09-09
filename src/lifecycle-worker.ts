@@ -1,4 +1,5 @@
 import { devpodExecOutcome } from "./core/devpod-exec";
+import { devsyExecOutcome } from "./core/devsy-exec";
 import { environmentStop } from "./core/environment-stop";
 import { ExecutionOutcomeError } from "./core/execution-outcome";
 import {
@@ -12,10 +13,16 @@ import {
 import type { LifecycleWorkerRequest, LifecycleWorkerResult } from "./core/reliability-worker";
 import { workspaceEnsure } from "./core/workspace-ensure";
 
-process.on("SIGTERM", cancelLifecycleWorker);
-process.on("SIGINT", cancelLifecycleWorker);
-process.on("disconnect", cancelLifecycleWorker);
+let started = false;
+function cancel(): void {
+  cancelLifecycleWorker();
+  if (!started && process.connected) process.disconnect();
+}
+process.on("SIGTERM", cancel);
+process.on("SIGINT", cancel);
+process.on("disconnect", cancel);
 process.once("message", async (message: { request: LifecycleWorkerRequest }) => {
+  started = true;
   let result: LifecycleWorkerResult;
   try {
     const request = message.request;
@@ -26,7 +33,13 @@ process.once("message", async (message: { request: LifecycleWorkerRequest }) => 
         return stopped;
       }
       if (request.kind === "exec") {
-        const outcome = await devpodExecOutcome(request.repoPath, request.command ?? []);
+        const outcome = request.retainedExecProof
+          ? await devsyExecOutcome(
+              request.repoPath,
+              request.command ?? [],
+              request.retainedExecProof,
+            )
+          : await devpodExecOutcome(request.repoPath, request.command ?? []);
         recordLifecycleOutcome(outcome);
         return outcome;
       }

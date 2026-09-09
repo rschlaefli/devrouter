@@ -14,6 +14,30 @@ beforeEach(() => {
 });
 
 describe("Devsy workspace adapter", () => {
+  it("retains only provider selection fields needed for runtime proof", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stderr: "",
+      stdout: JSON.stringify([
+        {
+          id: "fixture",
+          source: { localFolder: "/fixture" },
+          provider: {
+            name: "docker",
+            options: { DOCKER_PATH: { value: "docker" }, UNRELATED: { value: "excluded" } },
+          },
+        },
+      ]),
+    } as never);
+    expect(listDevsyWorkspaces()).toEqual([
+      {
+        id: "fixture",
+        source: { localFolder: "/fixture" },
+        providerName: "docker",
+        dockerPathOption: "docker",
+      },
+    ]);
+  });
   it("parses the provider list at one typed boundary", () => {
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,

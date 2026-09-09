@@ -41,7 +41,7 @@ export function stopRetainedManagedDevsyWorkspace(options: {
   repoPath: string;
   devsyId: string;
   stopProvider: () => void;
-}): boolean {
+}): boolean | "proven-absent" {
   const { repoPath, devsyId } = options;
   const linked = isLinkedWorktree(repoPath);
   const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
@@ -52,8 +52,7 @@ export function stopRetainedManagedDevsyWorkspace(options: {
     throw new Error("Managed stop requires the exact retained workspace identity.");
   }
   if (state.stopBaseline) {
-    stopFromManagedBaseline(state);
-    return true;
+    return stopFromManagedBaseline(state) === "proven-absent" ? "proven-absent" : true;
   }
   const workspaceEnv = workspace
     ? { token: workspace, gitCommonDir: resolveGitCommonDir(repoPath) }

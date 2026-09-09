@@ -85,7 +85,9 @@ function assertReliabilityEvent(value: unknown): asserts value is ReliabilityEve
         isReliabilityId(value.operationId) &&
         isReliabilityProfile(value.profile) &&
         isConsumer(value.consumer) &&
-        typeof value.runtimeRunning === "boolean";
+        typeof value.runtimeRunning === "boolean" &&
+        (value.recoverInterruptedEnsure === undefined ||
+          typeof value.recoverInterruptedEnsure === "boolean");
       break;
     case "drained":
       valid = isReliabilityId(value.operationId);
@@ -349,6 +351,22 @@ function handleRequest(
   return transition(state, "accepted");
 }
 
+export function canExecAfterInterruptedEnsure(state: ReliabilityState): boolean {
+  const latestEnsure = [...state.operationHistory]
+    .reverse()
+    .find((operation) => operation.kind === "ensure");
+  return (
+    state.executionPolicy === "manual" &&
+    state.desired === "running" &&
+    latestEnsure?.status === "INTERRUPTED" &&
+    latestEnsure.drained &&
+    state.operation?.drained === true &&
+    ((state.operation.kind === "ensure" && state.phase === "recovering") ||
+      (state.operation.kind === "exec" &&
+        ["COMPLETED", "NOT_LAUNCHED", "NOT_STARTED"].includes(state.operation.status)))
+  );
+}
+
 function handleOperationRequest(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "operation-request" }>,
@@ -368,6 +386,14 @@ function handleOperationRequest(
     return unchanged(state, "conflict");
   if (state.executionPolicy !== "manual" && state.operationHistory.length >= RELIABILITY_MAX_ITEMS)
     return unchanged(state, "blocked");
+  // Tooling does not reconcile interrupted preparation. Every subsequent command
+  // needs fresh identity proof until a later ensure replaces that startup result.
+  if (
+    event.kind === "exec" &&
+    canExecAfterInterruptedEnsure(state) &&
+    event.recoverInterruptedEnsure !== true
+  )
+    return unchanged(state, "blocked");
   const fullyStopped = state.stopProof.workloadsStopped && state.stopProof.routesRemoved;
   const reconcileEnsure =
     event.kind === "ensure" &&
@@ -378,7 +404,12 @@ function handleOperationRequest(
     (!state.operation.drained ||
       (!["COMPLETED", "NOT_LAUNCHED", "NOT_STARTED"].includes(state.operation.status) &&
         !fullyStopped &&
-        !reconcileEnsure))
+        !reconcileEnsure &&
+        !(
+          event.kind === "exec" &&
+          event.recoverInterruptedEnsure === true &&
+          canExecAfterInterruptedEnsure(state)
+        )))
   )
     return unchanged(state, "blocked");
   if (state.phase === "stopping" || state.desired === "parked-for-capacity")
@@ -397,9 +428,14 @@ function handleOperationRequest(
       (!state.operation.drained || !["COMPLETED", "NOT_LAUNCHED"].includes(state.operation.status))
     )
       return unchanged(state, "blocked");
+    // Retain the preparation result that supersedes older interrupted startup.
+    const latestEnsureId = [...state.operationHistory]
+      .reverse()
+      .find((entry) => entry.kind === "ensure")?.id;
     retired = state.operationHistory.findIndex(
       (entry) =>
         entry.id !== state.operation?.id &&
+        entry.id !== latestEnsureId &&
         entry.drained &&
         ["COMPLETED", "NOT_LAUNCHED"].includes(entry.status),
     );
@@ -873,7 +909,10 @@ function applyReliabilityEvent(
     case "not-started":
       if (next.executionPolicy !== "manual" || next.operation?.kind !== "exec")
         return unchanged(next, "blocked");
-      if (next.operation.id !== event.operationId || next.operation.status !== "RUNNING")
+      if (
+        next.operation.id !== event.operationId ||
+        !["RUNNING", "DISPATCH_RECORDED"].includes(next.operation.status)
+      )
         return unchanged(next, "stale");
       next.operation = { ...next.operation, status: "NOT_LAUNCHED", exitCode: null };
       return transition(next, "accepted");

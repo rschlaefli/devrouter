@@ -2,8 +2,13 @@ import { type ChildProcess, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import type { DevsyExecProof } from "./devsy-exec-proof";
 import { processBirthIdentity } from "./file-lock";
-import { type ReliabilityFence, reliabilityFence } from "./reliability-contract";
+import {
+  type ReliabilityConsumer,
+  type ReliabilityFence,
+  reliabilityFence,
+} from "./reliability-contract";
 import { stepReliability } from "./reliability-model";
 import {
   assertCapacityEffect,
@@ -22,6 +27,14 @@ export type LifecycleWorkerRequest = {
   workerId: string;
   fence: ReliabilityFence;
   command?: string[];
+  retainedExecProof?: DevsyExecProof;
+  admission?: {
+    expectedRevision: number;
+    profile: string;
+    consumer: ReliabilityConsumer;
+    runtimeRunning: boolean;
+    recoverInterruptedEnsure?: boolean;
+  };
   options: {
     profile?: string;
     repair?: boolean;
@@ -182,9 +195,26 @@ export class LifecycleOutput {
   }
 }
 
+export class LifecycleWorkerAdmissionBusyError extends Error {
+  constructor() {
+    super("Lifecycle admission lost to another operation.");
+    this.name = "LifecycleWorkerAdmissionBusyError";
+  }
+}
+
 function sameFence(record: ReliabilityOperationRecord, fence: ReliabilityFence): boolean {
   return Object.entries(reliabilityFence(record.state)).every(
     ([key, value]) => value === fence[key as keyof ReliabilityFence],
+  );
+}
+
+export function hasDuplicateOperation(
+  record: ReliabilityOperationRecord,
+  requestId: string,
+  operationId: string,
+): boolean {
+  return record.state.operationHistory.some(
+    (operation) => operation.key === requestId || operation.id === operationId,
   );
 }
 
@@ -209,6 +239,7 @@ function signalOwnedGroup(child: ChildProcess, signal: NodeJS.Signals): void {
 export async function runLifecycleWorker(
   request: LifecycleWorkerRequest,
   supervision?: LifecycleSupervision,
+  beforeAdmission?: () => void,
 ): Promise<unknown> {
   if (supervision?.signal.aborted)
     throw new Error("Lifecycle invocation was cancelled before dispatch.");
@@ -225,13 +256,18 @@ export async function runLifecycleWorker(
     execArgv: [],
   });
   let ready = false;
+  let closed = false;
+  let registered = false;
+  let dispatchAcknowledged = false;
+  let sendAttempted = false;
+  let readinessTimer: ReturnType<typeof setTimeout> | undefined;
   let result: LifecycleWorkerResult | undefined;
   let cancelled = false;
   let forceTimer: ReturnType<typeof setTimeout> | undefined;
   let monitor: ReturnType<typeof setInterval> | undefined;
   let failure: Error | undefined;
   const cancel = () => {
-    if (cancelled) return;
+    if (cancelled || closed) return;
     cancelled = true;
     try {
       signalOwnedGroup(child, "SIGTERM");
@@ -264,23 +300,67 @@ export async function runLifecycleWorker(
       child.once("error", (error) => {
         failure = error;
       });
-      child.on("message", (message: unknown) => {
+      readinessTimer = setTimeout(() => {
+        failure = new Error("Lifecycle worker readiness timed out before dispatch.");
+        cancel();
+      }, 30_000);
+      child.on("message", async (message: unknown) => {
         if (!message || typeof message !== "object") return;
         if ("ready" in message && message.ready === true && !ready) {
           ready = true;
+          if (readinessTimer) clearTimeout(readinessTimer);
           try {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            if (closed) return;
             if (cancelled || !child.pid)
               throw new Error("Lifecycle invocation was cancelled before dispatch.");
             if (request.kind !== "stop") {
               const birth = processBirthIdentity(child.pid);
               if (!birth) throw new Error("Could not prove lifecycle worker incarnation.");
               updateReliabilityOperation(request.identity, (record) => {
-                if (
-                  !sameFence(record, request.fence) ||
-                  record.worker ||
-                  record.state.operation?.id !== request.operationId
-                ) {
-                  throw new Error("Lifecycle intent changed before dispatch.");
+                if (request.admission) {
+                  beforeAdmission?.();
+                  if (!request.admission)
+                    throw new Error("Lifecycle operation admission is required.");
+                  if (hasDuplicateOperation(record, request.requestId, request.operationId))
+                    throw new Error(
+                      "Lifecycle operation request conflicts with an existing operation.",
+                    );
+                  if (!sameFence(record, request.fence))
+                    throw new Error("Lifecycle intent changed before dispatch.");
+                  if (record.worker || record.revision !== request.admission.expectedRevision) {
+                    throw new LifecycleWorkerAdmissionBusyError();
+                  }
+                  const admitted = stepReliability(
+                    record.state,
+                    {
+                      ...request.fence,
+                      type: "operation-request",
+                      kind: request.kind === "exec" ? "exec" : "ensure",
+                      key: request.requestId,
+                      operationId: request.operationId,
+                      profile: request.admission.profile,
+                      consumer: request.admission.consumer,
+                      runtimeRunning: request.admission.runtimeRunning,
+                      ...(request.admission.recoverInterruptedEnsure
+                        ? { recoverInterruptedEnsure: true }
+                        : {}),
+                    },
+                    Date.now(),
+                  );
+                  if (admitted.outcome !== "accepted")
+                    throw new Error(`Lifecycle admission is ${admitted.outcome}.`);
+                  record.state = admitted.state;
+                  record.outcome = null;
+                  request.fence = reliabilityFence(record.state);
+                } else {
+                  if (
+                    record.state.executionPolicy === "manual" ||
+                    !sameFence(record, request.fence) ||
+                    record.worker ||
+                    record.state.operation?.id !== request.operationId
+                  )
+                    throw new Error("Controller lifecycle admission is required.");
                 }
                 assertCapacityEffect(record, request.workerId, Date.now());
                 record.worker = {
@@ -298,6 +378,7 @@ export async function runLifecycleWorker(
                   throw new Error("Lifecycle dispatch is blocked.");
                 record.state = transition.state;
               });
+              registered = true;
               updateReliabilityOperation(request.identity, (record) => {
                 assertCapacityEffect(record, request.workerId, Date.now());
                 const transition = stepReliability(
@@ -309,12 +390,18 @@ export async function runLifecycleWorker(
                   },
                   Date.now(),
                 );
-                record.state = transition.state;
                 if (!transition.effects.some((effect) => effect.kind === "launch")) {
                   throw new Error("Lifecycle dispatch persistence was not acknowledged.");
                 }
+                record.state = transition.state;
               });
+              dispatchAcknowledged = true;
             }
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            if (closed) return;
+            beforeAdmission?.();
+            if (cancelled) throw new Error("Lifecycle invocation was cancelled before dispatch.");
+            sendAttempted = true;
             child.send({ request }, (error) => {
               if (error) {
                 failure = error;
@@ -339,8 +426,9 @@ export async function runLifecycleWorker(
         }
       });
       child.once("close", () => {
+        closed = true;
         try {
-          if (request.kind !== "stop") {
+          if (request.kind !== "stop" && registered) {
             updateReliabilityOperation(request.identity, (record) => {
               if (record.worker?.id !== request.workerId || record.worker.pid !== child.pid) return;
               if (!result) {
@@ -348,7 +436,10 @@ export async function runLifecycleWorker(
                   record.state,
                   {
                     ...reliabilityFence(record.state),
-                    type: "interrupted",
+                    type:
+                      request.kind === "exec" && dispatchAcknowledged && !sendAttempted
+                        ? "not-started"
+                        : "interrupted",
                     operationId: request.operationId,
                   },
                   Date.now(),
@@ -382,6 +473,7 @@ export async function runLifecycleWorker(
       });
     });
   } finally {
+    if (readinessTimer) clearTimeout(readinessTimer);
     if (monitor) clearInterval(monitor);
     if (forceTimer) clearTimeout(forceTimer);
     process.removeListener("SIGINT", onSignal);

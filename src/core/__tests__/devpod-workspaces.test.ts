@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listDevpodWorkspacesRaw } from "../devpod-registry";
 import {
   inspectDevpodRuntimeStatus,
   inspectDevpodWorkspaceOwnership,
@@ -142,5 +143,36 @@ describe("DevPod workspace adapter", () => {
         "/repo/trees/feature",
       ),
     ).toMatchObject({ status: "conflict" });
+  });
+});
+
+describe("optional competing DevPod executable", () => {
+  it("accepts executable absence only when explicitly requested", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: null,
+      stdout: null,
+      stderr: null,
+      error: Object.assign(new Error("missing executable"), { code: "ENOENT" }),
+    } as never);
+    expect(() => listDevpodWorkspacesRaw()).toThrow();
+    expect(listDevpodWorkspacesRaw({ allowMissingExecutable: true })).toEqual([]);
+  });
+  it.each(["EACCES", "ETIMEDOUT", "EIO"])("rejects %s with optional enumeration", (code) => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: null,
+      stdout: "",
+      stderr: "",
+      error: Object.assign(new Error("unavailable"), { code }),
+    } as never);
+    expect(() => listDevpodWorkspacesRaw({ allowMissingExecutable: true })).toThrow();
+  });
+  it.each([
+    { status: 1, stdout: "", stderr: "registry unavailable" },
+    { status: 0, stdout: "invalid", stderr: "" },
+    { status: 0, stdout: "{}", stderr: "" },
+    { status: 0, stdout: '[{"id":"other"}]', stderr: "" },
+  ])("rejects failed or malformed registry output", (result) => {
+    vi.mocked(spawnSync).mockReturnValue(result as never);
+    expect(() => listDevpodWorkspacesRaw({ allowMissingExecutable: true })).toThrow();
   });
 });

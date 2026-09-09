@@ -8,14 +8,20 @@ import {
   listDevpodWorkspaces,
   listDevpodWorkspacesFromSnapshots,
 } from "./devpod-workspaces";
+import { withMutationLock as withDevsyMutationLock } from "./devsy-mutation";
 import { readManagedRuntimeState } from "./managed-runtime-state";
+import { managedStopRouteReferences, proveManagedStop } from "./managed-stop-recovery";
 import {
   claimLifecycleEffect,
   superviseLifecycle,
   withLifecycleOperationLock,
 } from "./reliability-lifecycle";
 import { resolveRepoPath } from "./repo-config";
-import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
+import {
+  listRoutesForWorktreePath,
+  listRoutesForWorktreePaths,
+  removeWorkspaceRoutesForWorktree,
+} from "./route-state";
 import { ensureTraefikRoutesRemoved } from "./traefik-route-health";
 import {
   isLinkedWorktree,
@@ -415,6 +421,7 @@ type WorkspaceLifecycleResult = {
   devpodId?: string;
   freedRoutes: number;
   providerChanged: boolean;
+  runtimeAbsent?: boolean;
   workspace: string;
 };
 
@@ -443,8 +450,33 @@ async function mutateWorkspaceRuntime(
     );
   }
 
-  const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
-  await ensureTraefikRoutesRemoved(routes);
+  const retained =
+    action === "stop"
+      ? readManagedRuntimeState(resolved.worktreePath, resolved.workspace)
+      : undefined;
+  let absent = false;
+  const remove = () => {
+    if (retained?.stopBaseline) {
+      absent = proveManagedStop(retained).status === "proven-absent";
+      if (
+        absent &&
+        listRoutesForWorktreePath(resolved.worktreePath).some(
+          (route) =>
+            route.workspace !== resolved.workspace || !retained.desired.apps.includes(route.name),
+        )
+      )
+        throw new Error("Absent stop contains routes outside the retained desired set.");
+    }
+    claimLifecycleEffect();
+    return removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
+  };
+  const routes = retained?.stopBaseline
+    ? withDevsyMutationLock("Revalidate stop routes", resolved.worktreePath, remove)
+    : remove();
+  await ensureTraefikRoutesRemoved([
+    ...routes,
+    ...(absent && retained ? managedStopRouteReferences(retained) : []),
+  ]);
   if (!quiet) {
     process.stdout.write(
       `Freed ${routes.length} route(s) for workspace '${resolved.workspace}'.\n`,
@@ -454,6 +486,7 @@ async function mutateWorkspaceRuntime(
     ...(mutation.status === "changed" ? { devpodId } : {}),
     freedRoutes: routes.length,
     providerChanged: mutation.status === "changed",
+    ...(absent ? { runtimeAbsent: true } : {}),
     workspace: resolved.workspace,
   };
 }

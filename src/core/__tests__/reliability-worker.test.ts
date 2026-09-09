@@ -24,23 +24,25 @@ vi.mock("../reliability-operation-store", () => ({
   assertCapacityEffect: fixture.capacity,
 }));
 
-function prepared() {
+function prepared(admit = false) {
   const identity = { repoPath: "/synthetic", workspace: null, provider: "devpod" as const };
   const initial = createReliabilityState("synthetic", 0, "manual");
-  const state = stepReliability(
-    initial,
-    {
-      ...reliabilityFence(initial),
-      type: "operation-request",
-      kind: "exec",
-      key: "request",
-      operationId: "operation",
-      profile: "full",
-      runtimeRunning: true,
-      consumer: { id: "manual", requiredCapabilities: [], pinned: false },
-    },
-    0,
-  ).state;
+  const state = admit
+    ? stepReliability(
+        initial,
+        {
+          ...reliabilityFence(initial),
+          type: "operation-request",
+          kind: "exec",
+          key: "request",
+          operationId: "operation",
+          profile: "full",
+          runtimeRunning: true,
+          consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+        },
+        0,
+      ).state
+    : initial;
   let record: ReliabilityOperationRecord = {
     version: 1,
     identity,
@@ -76,12 +78,24 @@ function prepared() {
     fence: reliabilityFence(state),
     options: {},
     command: ["synthetic"],
+    admission: {
+      expectedRevision: 0,
+      profile: "full",
+      runtimeRunning: true,
+      consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+    },
   };
   const close = () => {
     child.exitCode = 0;
     child.emit("close", 0, null);
   };
   return { child, request, close, record: () => record };
+}
+
+async function ready(child: EventEmitter): Promise<void> {
+  child.emit("message", { ready: true });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 beforeEach(() => {
@@ -92,7 +106,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("worker dispatch acknowledgement", () => {
   it.each([
@@ -104,7 +121,7 @@ describe("worker dispatch acknowledgement", () => {
       if (++claims === boundary) throw new Error("capacity authority revoked");
     });
     const pending = runLifecycleWorker(setup.request);
-    setup.child.emit("message", { ready: true });
+    await ready(setup.child);
     expect(setup.child.send).not.toHaveBeenCalled();
     setup.close();
     await expect(pending).rejects.toThrow("capacity authority revoked");
@@ -295,8 +312,8 @@ describe("worker dispatch acknowledgement", () => {
       callback(null);
     });
     const pending = runLifecycleWorker(setup.request);
-    setup.child.emit("message", { ready: true });
-    setup.child.emit("message", { ready: true });
+    await ready(setup.child);
+    await ready(setup.child);
     expect(setup.child.send).toHaveBeenCalledTimes(1);
     setup.child.emit("message", { ok: true, value: 7 });
     setup.close();
@@ -305,10 +322,97 @@ describe("worker dispatch acknowledgement", () => {
     expect(setup.record().state.operation?.drained).toBe(true);
   });
 
+  it("admits and rolls history atomically with worker registration before launch", async () => {
+    const setup = prepared(true);
+    const record = setup.record();
+    for (const event of [
+      { type: "dispatch" },
+      { type: "dispatch-persisted", operationId: "operation" },
+      { type: "completion", operationId: "operation", exitCode: 0 },
+      { type: "drained", operationId: "operation" },
+    ] as const)
+      record.state = stepReliability(
+        record.state,
+        { ...reliabilityFence(record.state), ...event },
+        1,
+      ).state;
+    const current = record.state.operationHistory[0];
+    record.state.operationHistory = [
+      ...Array.from({ length: 127 }, (_, i) => ({ ...current, id: `old-${i}`, key: `old-${i}` })),
+      current,
+    ];
+    const beforeFence = reliabilityFence(record.state);
+    setup.request.requestId = "next";
+    setup.request.operationId = "next";
+    setup.request.fence = beforeFence;
+    setup.request.admission = {
+      expectedRevision: 0,
+      profile: "full",
+      runtimeRunning: true,
+      consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+    };
+    setup.child.send.mockImplementation((_message, callback) => {
+      expect(fixture.update).toHaveBeenCalledTimes(2);
+      expect(setup.record().state.intentRevision).toBe(beforeFence.intentRevision + 1);
+      expect(setup.record().state.operationHistory).toHaveLength(128);
+      expect(setup.record().state.operationHistory.some((entry) => entry.id === "old-0")).toBe(
+        false,
+      );
+      expect(setup.record().state.operation?.id).toBe("next");
+      expect(setup.record().worker?.operationId).toBe("next");
+      callback(null);
+    });
+    const pending = runLifecycleWorker(setup.request);
+    await ready(setup.child);
+    expect(setup.child.send).toHaveBeenCalledOnce();
+    setup.child.emit("message", { ok: true, value: 0 });
+    setup.close();
+    await expect(pending).resolves.toBe(0);
+  });
+
+  it("disposes a snapshot-race loser without journal changes or IPC launch", async () => {
+    const setup = prepared();
+    setup.request.requestId = "next";
+    setup.request.operationId = "next";
+    setup.request.admission = {
+      expectedRevision: 99,
+      profile: "full",
+      runtimeRunning: true,
+      consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+    };
+    const before = structuredClone(setup.record());
+    const pending = runLifecycleWorker(setup.request);
+    const rejection = expect(pending).rejects.toMatchObject({
+      name: "LifecycleWorkerAdmissionBusyError",
+    });
+    await ready(setup.child);
+    expect(setup.child.send).not.toHaveBeenCalled();
+    setup.close();
+    await rejection;
+    expect(setup.record()).toEqual(before);
+    expect(process.kill).toHaveBeenCalledWith(-123, "SIGTERM");
+  });
+
+  it("delivers pending cancellation before admitting a ready helper", async () => {
+    const setup = prepared();
+    const before = structuredClone(setup.record());
+    const listeners = process.listenerCount("SIGTERM");
+    const pending = runLifecycleWorker(setup.request);
+    const rejection = expect(pending).rejects.toThrow();
+    setup.child.emit("message", { ready: true });
+    process.emit("SIGTERM");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    setup.close();
+    await rejection;
+    expect(setup.child.send).not.toHaveBeenCalled();
+    expect(setup.record()).toEqual(before);
+    expect(process.listenerCount("SIGTERM")).toBe(listeners);
+  });
+
   it("rejects duplicate dispatch without allowing its child to drain the original worker", async () => {
     const setup = prepared();
     const original = runLifecycleWorker(setup.request);
-    setup.child.emit("message", { ready: true });
+    await ready(setup.child);
     const duplicate = Object.assign(new EventEmitter(), {
       pid: 456,
       exitCode: null as number | null,
@@ -317,8 +421,8 @@ describe("worker dispatch acknowledgement", () => {
     });
     fixture.fork.mockReturnValue(duplicate);
     const rejected = runLifecycleWorker(setup.request);
-    const rejection = expect(rejected).rejects.toThrow("Lifecycle intent changed before dispatch");
-    duplicate.emit("message", { ready: true });
+    const rejection = expect(rejected).rejects.toThrow("conflicts with an existing operation");
+    await ready(duplicate);
     duplicate.exitCode = 0;
     duplicate.emit("close", 0, null);
     await rejection;
@@ -335,7 +439,7 @@ describe("worker dispatch acknowledgement", () => {
     vi.mocked(process.kill).mockReturnValue(true);
     const pending = runLifecycleWorker(setup.request);
     const rejection = expect(pending).rejects.toThrow("completion is unknown");
-    setup.child.emit("message", { ready: true });
+    await ready(setup.child);
     setup.close();
     await rejection;
     expect(setup.record().state.operation?.status).toBe("INTERRUPTED");
@@ -354,10 +458,71 @@ describe("worker dispatch acknowledgement", () => {
     });
     const pending = runLifecycleWorker(setup.request);
     const result = expect(pending).rejects.toThrow("synthetic persistence failure");
-    setup.child.emit("message", { ready: true });
+    await ready(setup.child);
     expect(setup.child.send).not.toHaveBeenCalled();
     setup.close();
     await result;
+  });
+
+  it("records a proven pre-send abort without blocking subsequent tooling", async () => {
+    const setup = prepared();
+    const check = vi
+      .fn()
+      .mockImplementationOnce(() => {})
+      .mockImplementationOnce(() => {
+        throw new Error("synthetic cancellation");
+      });
+    const pending = runLifecycleWorker(setup.request, undefined, check);
+    const rejection = expect(pending).rejects.toThrow("synthetic cancellation");
+    await ready(setup.child);
+    expect(setup.child.send).not.toHaveBeenCalled();
+    setup.close();
+    await rejection;
+    expect(setup.record().state.operation).toMatchObject({ status: "NOT_LAUNCHED", drained: true });
+    const next = stepReliability(
+      setup.record().state,
+      {
+        ...reliabilityFence(setup.record().state),
+        type: "operation-request",
+        kind: "exec",
+        key: "next",
+        operationId: "next",
+        profile: "full",
+        runtimeRunning: true,
+        consumer: { id: "manual", requiredCapabilities: [], pinned: false },
+      },
+      Date.now(),
+    );
+    expect(next.outcome).toBe("accepted");
+  });
+
+  it("never registers a helper that closes while its ready callback yields", async () => {
+    const setup = prepared();
+    const before = structuredClone(setup.record());
+    const pending = runLifecycleWorker(setup.request);
+    const rejection = expect(pending).rejects.toThrow();
+    setup.child.emit("message", { ready: true });
+    setup.close();
+    await rejection;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(setup.record()).toEqual(before);
+    expect(setup.child.send).not.toHaveBeenCalled();
+  });
+
+  it("bounds unready helper lifetime without registering or launching it", async () => {
+    vi.useFakeTimers();
+    const setup = prepared();
+    const before = structuredClone(setup.record());
+    const pending = runLifecycleWorker(setup.request);
+    const rejection = expect(pending).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(32_000);
+    expect(process.kill).toHaveBeenCalledWith(-123, "SIGTERM");
+    expect(process.kill).toHaveBeenCalledWith(-123, "SIGKILL");
+    setup.close();
+    await rejection;
+    expect(setup.record()).toEqual(before);
+    expect(setup.child.send).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("stop before dispatch claim prevents IPC launch", async () => {
@@ -370,7 +535,7 @@ describe("worker dispatch acknowledgement", () => {
     ).state;
     const pending = runLifecycleWorker(setup.request);
     const result = expect(pending).rejects.toThrow("Lifecycle intent changed before dispatch");
-    setup.child.emit("message", { ready: true });
+    await ready(setup.child);
     expect(setup.child.send).not.toHaveBeenCalled();
     setup.close();
     await result;

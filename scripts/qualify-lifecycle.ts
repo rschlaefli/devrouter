@@ -142,13 +142,18 @@ const command = path.basename(process.argv[1]);
 const workspaceId = state.workspaceId ?? 'fixture';
 const containerId = state.containerId ?? 'a'.repeat(64);
 const args = process.argv.slice(2);
+if (command === 'docker' && args[0] === '--host' && args[1] === 'unix://'+path.join(path.dirname(file),'nonexistent.sock')) args.splice(0, 2);
 const output = value => process.stdout.write(JSON.stringify(value) + '\\n');
 const fail = () => { fs.appendFileSync(file + '.unexpected', JSON.stringify({command,args})+'\\n'); process.exit(90); };
 const write = () => fs.writeFileSync(file, JSON.stringify(state));
+if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args[4] === '--context') {
+ if (args[5] !== 'default') fail();
+ args.splice(4,2);
+}
 if (command === 'devpod' && args[0] === 'version') { console.log('fixture'); }
 else if (command === 'devsy' && args[0] === '--version') { console.log('fixture'); }
 else if (command === 'devpod' && args.join(' ') === 'list --output json --skip-pro') { output(state.provider === 'devpod' ? [{id:workspaceId,source:{localFolder:state.repo}}] : []); }
-else if (command === 'devsy' && args.join(' ') === 'workspace list --result-format json --skip-pro') { output(state.provider === 'devsy' ? [{id:workspaceId,source:{localFolder:state.repo}}] : []); }
+else if (command === 'devsy' && args.join(' ') === 'workspace list --result-format json --skip-pro') { output(state.provider === 'devsy' ? [{id:workspaceId,uid:'fixture-uid',context:'default',provider:{name:'docker',options:{DOCKER_PATH:{value:'docker'}}},source:{localFolder:state.repo}}] : []); }
 else if (command === 'devpod' && [ 'up '+state.repo+' --id fixture --open-ide=false', 'up '+state.repo+' --id fixture --devcontainer-path .devcontainer/devcontainer.devrouter.json --open-ide=false' ].includes(args.join(' '))) { state.running=true; state.starts=(state.starts??0)+1; write(); if(state.mode === 'start-failure') process.exit(1); }
 else if (command === 'devpod' && args[0] === 'status' && args[1] === workspaceId) { output({id:workspaceId,state:state.running?'Running':'Stopped'}); }
 else if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'status' && args[2] === workspaceId) { output({id:workspaceId,state:state.running?'Running':'Stopped'}); }
@@ -175,6 +180,8 @@ else if (command === 'curl') {
   if(state.mode === 'readiness-hold') { fs.writeFileSync(file+'.readiness', String(process.pid)); setInterval(()=>{},1000); } else if(Object.values(document.http?.routers??{}).some(router=>router.rule==='Host('+String.fromCharCode(96)+'fixture.localhost'+String.fromCharCode(96)+')')) console.log('200'); else fail();
  } else fail();
 }
+else if (command === 'docker' && args.join(' ') === 'info --format {{json .ID}}') output('fixture-daemon');
+else if (command === 'docker' && args[0] === 'inspect' && args[2] === '{{json (index .Config.Labels "dev.containers.id")}}' && args.at(-1) === containerId) output(workspaceId);
 else if (command === 'docker' && args.join(' ') === 'context show') console.log('fixture');
 else if (command === 'docker' && args[0] === 'context' && args[1] === 'inspect' && args[2] === 'fixture') console.log('unix://'+file+'.sock');
 else if (command === 'docker' && args.join(' ') === 'exec '+containerId+' git -C /workspace rev-parse --show-toplevel') console.log('/workspace');
@@ -190,7 +197,19 @@ else if (command === 'docker' && args[0] === 'inspect' && args.at(-1) === contai
 }
 else if ((command === 'devpod' && args[2] === 'ssh' && args[3] === workspaceId) || (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args[4] === workspaceId)) {
  state.launches++; write();
- if (state.mode === 'hold') { fs.writeFileSync(file+'.barrier', String(process.pid)); setInterval(()=>{}, 1000); }
+ if (state.mode === 'release-hold') {
+  fs.writeFileSync(file+'.barrier', String(process.pid));
+  const watcher = fs.watch(path.dirname(file), () => {
+   if (!fs.existsSync(file+'.release')) return;
+   watcher.close();
+   if (command === 'devpod') {
+    const marker = args[args.indexOf('--command')+1].match(/(__DEVROUTER_EXIT_[A-Za-z0-9-]+__:)/)?.[1];
+    if (!marker) fail();
+    process.stderr.write(marker+String(state.exitCode)+'\\n');
+   } else process.exit(state.exitCode);
+  });
+ }
+ else if (state.mode === 'hold') { fs.writeFileSync(file+'.barrier', String(process.pid)); setInterval(()=>{}, 1000); }
  else if (state.mode === 'unknown') process.kill(process.pid, 'SIGKILL');
  else if (command === 'devpod') {
   const wrapped = args[args.indexOf('--command')+1];
@@ -439,6 +458,81 @@ else fail();
       evidence.push(
         "installed ordinary ensure repairs retained degraded state with one adapter run and no provider bootstrap",
       );
+      const previousHome = closedEnv.HOME;
+      const previousJournal = journal;
+      freshHome("retained-devsy-home");
+      const providerConfig = path.join(
+        closedEnv.HOME,
+        ".devsy/contexts/default/providers/docker/provider.json",
+      );
+      fs.mkdirSync(path.dirname(providerConfig), { recursive: true });
+      fs.writeFileSync(
+        providerConfig,
+        JSON.stringify({ name: "docker", agent: { driver: "docker", docker: {} } }),
+      );
+      const retainedStateFile = path.join(
+        closedEnv.HOME,
+        ".config/devrouter/managed-runtime",
+        stateName,
+      );
+      fs.mkdirSync(path.dirname(retainedStateFile), { recursive: true });
+      const retainedState = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+      delete retainedState.stopBaseline;
+      fs.writeFileSync(retainedStateFile, JSON.stringify(retainedState));
+      configure("complete", 0, "devsy");
+      closedEnv.DEVROUTER_WORKSPACE_RUNTIME = "devsy";
+      // The fixture deliberately lacks a supported Devsy agent: ensure fails
+      // before bootstrap while the independently observed runtime stays running.
+      const failedPreparation = launch(["ensure", repo, "--json"]);
+      assert.equal(await failedPreparation.done, 1, failedPreparation.output());
+      const interruptedResult = read().state.operation;
+      assert.equal(interruptedResult.status, "INTERRUPTED");
+      assert.equal(interruptedResult.drained, true);
+      assert.equal(read().worker, null);
+      const nativeConfig = path.join(repo, ".devcontainer/devcontainer.json");
+      const nativeBefore = fs.readFileSync(nativeConfig, "utf8");
+      const driftedConfig = JSON.parse(nativeBefore);
+      driftedConfig.dockerComposeFile = ["compose.yml", "dependency-mounts.yml"];
+      const addedCompose = path.join(repo, ".devcontainer/dependency-mounts.yml");
+      fs.writeFileSync(
+        addedCompose,
+        "services:\n  app:\n    volumes:\n      - synthetic_modules:/workspace/node_modules\nvolumes:\n  synthetic_modules: {}\n",
+      );
+      fs.writeFileSync(nativeConfig, JSON.stringify(driftedConfig));
+      const preservedFiles = [nativeConfig, addedCompose, generated, retainedStateFile];
+      const preserved = preservedFiles.map((file) => fs.readFileSync(file, "utf8"));
+      const routesFile = path.join(
+        closedEnv.HOME,
+        ".config/devrouter/traefik/dynamic/host-routes.yml",
+      );
+      const routesBefore = fs.existsSync(routesFile) ? fs.readFileSync(routesFile, "utf8") : null;
+      configure("complete", 7, "devsy");
+      expectExit(["exec", repo, "--", "synthetic"], 7);
+      assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+      assert.ok(
+        read().state.operationHistory.some(
+          (entry: { id: string; status: string }) =>
+            entry.id === interruptedResult.id && entry.status === "INTERRUPTED",
+        ),
+      );
+      assert.deepEqual(
+        preservedFiles.map((file) => fs.readFileSync(file, "utf8")),
+        preserved,
+      );
+      assert.equal(
+        fs.existsSync(routesFile) ? fs.readFileSync(routesFile, "utf8") : null,
+        routesBefore,
+      );
+      evidence.push(
+        "tooling exec after drained interrupted ensure preserves retained configuration, managed state, routes and prior result with one launch and numeric exit",
+      );
+      fs.writeFileSync(nativeConfig, nativeBefore);
+      fs.unlinkSync(addedCompose);
+      closedEnv.DEVROUTER_WORKSPACE_RUNTIME = "devpod";
+      closedEnv.HOME = previousHome;
+      journal = previousJournal;
+      configure("complete");
+
       fs.writeFileSync(
         path.join(repo, ".devrouter.yml"),
         managedConfig.replace(
@@ -594,6 +688,85 @@ else fail();
   evidence.push(
     "concurrent installed callers sharing request identity launch only one provider command",
   );
+  closedEnv.NODE_OPTIONS = "";
+  closedEnv.LIFECYCLE_FAULT = "";
+  freshHome("busy-success-home");
+  configure("release-hold", 7);
+  const firstBusy = launch(["exec", repo, "--", "synthetic"]);
+  await watchUntil(`${fixture}.barrier`, () => fs.existsSync(`${fixture}.barrier`));
+  const secondBusy = launch(["exec", repo, "--", "synthetic"]);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Waiting caller did not report busy state")),
+      15_000,
+    );
+    secondBusy.child.stderr.on("data", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    secondBusy.child.once("close", () => {
+      clearTimeout(timer);
+      reject(new Error(secondBusy.output()));
+    });
+  });
+  assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+  const released = JSON.parse(fs.readFileSync(fixture, "utf8"));
+  fs.writeFileSync(fixture, JSON.stringify({ ...released, mode: "complete", exitCode: 0 }));
+  fs.writeFileSync(`${fixture}.release`, "release");
+  assert.equal(await firstBusy.done, 7, firstBusy.output());
+  assert.equal(await secondBusy.done, 0, secondBusy.output());
+  assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 2);
+  assert.equal(read().state.operationHistory.length, 2);
+  assert.ok(
+    read().state.operationHistory.every(
+      (entry: { status: string; drained: boolean }) =>
+        entry.status === "COMPLETED" && entry.drained,
+    ),
+  );
+  fs.unlinkSync(`${fixture}.barrier`);
+  fs.unlinkSync(`${fixture}.release`);
+  evidence.push(
+    "overlapping installed exec waits without stopping healthy work, preserves both exits and launches each command once",
+  );
+  for (const ending of ["cancel", "stop"]) {
+    freshHome(`busy-${ending}-home`);
+    configure("release-hold", 7);
+    const active = launch(["exec", repo, "--", "synthetic"]);
+    await watchUntil(`${fixture}.barrier`, () => fs.existsSync(`${fixture}.barrier`));
+    const waiting = launch(["exec", repo, "--", "synthetic"]);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("Waiting caller did not report busy state")),
+        15_000,
+      );
+      waiting.child.stderr.once("data", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      waiting.child.once("close", () => {
+        clearTimeout(timer);
+        reject(new Error(waiting.output()));
+      });
+    });
+    assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+    if (ending === "cancel") {
+      waiting.child.kill("SIGTERM");
+      assert.notEqual(await waiting.done, 0, waiting.output());
+      assert.equal(active.child.exitCode, null);
+      fs.writeFileSync(`${fixture}.release`, "release");
+      assert.equal(await active.done, 7, active.output());
+      fs.unlinkSync(`${fixture}.release`);
+    } else {
+      const stopping = launch(["stop", repo, "--json"]);
+      assert.equal(await stopping.done, 0, stopping.output());
+      assert.notEqual(await waiting.done, 0, waiting.output());
+      assert.notEqual(await active.done, 0, active.output());
+      assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
+    }
+    assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).launches, 1);
+    fs.unlinkSync(`${fixture}.barrier`);
+    evidence.push(`installed busy exec ${ending} prevents waiter dispatch without replay`);
+  }
   freshHome("before-dispatch-home");
   configure("complete");
   closedEnv.NODE_OPTIONS = `--require=${faultPreload}`;

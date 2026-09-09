@@ -93,10 +93,27 @@ records stopped intent before waiting and prevents earlier workers from claiming
 new mutations or restoring routes. Completion requires positive workload and
 route cessation evidence as well as drainage of earlier workers.
 
+When another positively identified lifecycle worker is active on the same checkout,
+`exec` waits asynchronously for up to thirty minutes and reports progress on stderr.
+Commands remain serial; waiting does not promise FIFO ordering or a persistent
+queue. The waiting invocation keeps its request identity and refreshes runtime
+proof before admission. Cancellation or timeout before admission leaves the running
+command untouched. An intervening stop or other lifecycle fence change cancels
+admission, even if the environment subsequently resumes. Uncertain completion or
+unavailable worker identity does not grant permission to launch another command.
+
 A proven application exit code remains the CLI exit code. A lost completion is
 reported as unknown. A new ensure reconciles an interrupted ensure after positive
 worker drainage while retaining its unknown historical result. Unknown arbitrary
 exec is never replayed; explicit stop reconciles that command uncertainty.
+For a manual Devsy workspace with running intent, a new `exec` can also proceed
+once an interrupted ensure has fully drained. This recovery supports a local Docker
+provider using the plain `docker` command; Apple and custom provider commands remain
+unsupported. Devrouter proves the exact running
+container and provider identity, then revalidates them before launching the command.
+This preserves tooling access despite configuration drift without claiming startup
+succeeded or changing retained configuration, managed state, or routes. Missing
+identity proof or an earlier uncertain exec still prevents command dispatch.
 If stop cannot prove cessation, preserve the operation record and generated
 configuration and investigate the reported provider or worker evidence. Deleting
 bookkeeping cannot prove that earlier work stopped. Corrupt or incompatible
@@ -418,6 +435,24 @@ application failure does not prevent shutdown. Repository and generated
 configuration may change or disappear without invalidating this stop path.
 Containers and volumes remain intact. Missing, replaced, foreign or unreadable
 members prevent successful stop proof; stopped provider status alone is insufficient.
+
+For a ledger-owned linked checkout whose registration has disappeared, a valid
+saved baseline also allows stop when every saved container is positively absent
+on the same daemon. Both provider registries must remain clear of that exact ID
+and path among installed providers. An uninstalled competing DevPod executable
+is optional; permission, transport and registry errors remain failures. Git
+ownership must remain present, and project, directory and runner
+populations must be empty. This performs no provider or container mutation. It
+preserves the baseline and interrupted history, verifies live route removal even
+on retries, and permits ordinary ensure after stop settles. Partial absence,
+unknown evidence, primary checkouts and records without baselines do not use this
+recovery path.
+
+The absent-runtime stop path requires provider selection to remain Devsy. If a
+missing registration makes a mixed-provider machine resolve the checkout to DevPod,
+this package does not override that selection or migrate its lifecycle identity.
+Use the existing explicit runtime selection only when Devsy is the intended
+provider; provider selection changes remain outside this recovery proof.
 
 Startup requires this complete ownership proof before launching the selected
 application and publishing its routes. Unexpected project members, including

@@ -23,12 +23,13 @@ import {
   inspectWorkspaceContainers,
   resolveRunningWorkspaceContainer,
 } from "./devpod-environment";
+import { captureDevsyExecProof, type DevsyExecProof } from "./devsy-exec-proof";
 import { withMutationLock as withDevsyMutationLock } from "./devsy-mutation";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { processBirthIdentity } from "./file-lock";
 import { listHostRouteState } from "./host-routes";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
-import { proveRetainedManagedStop } from "./managed-stop-recovery";
+import { managedStopRouteReferences, proveManagedStop } from "./managed-stop-recovery";
 import { claimLifecycleEffect, installLifecycleEffectClaim } from "./reliability-context";
 import {
   type ReliabilityConsumer,
@@ -36,7 +37,7 @@ import {
   type ReliabilityFence,
   reliabilityFence,
 } from "./reliability-contract";
-import { stepReliability } from "./reliability-model";
+import { canExecAfterInterruptedEnsure, stepReliability } from "./reliability-model";
 import {
   assertCapacityEffect,
   type CapacityControllerIdentity,
@@ -44,15 +45,19 @@ import {
   type CapacityPhaseSettlement,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
+  readReliabilityOperation,
   updateReliabilityOperation,
 } from "./reliability-operation-store";
 import {
+  hasDuplicateOperation,
+  LifecycleWorkerAdmissionBusyError,
   type LifecycleWorkerRequest,
   newLifecycleIds,
   runLifecycleWorker,
   workerGroupAbsent,
 } from "./reliability-worker";
 import { DEVROUTER_HOME } from "./router";
+import { assertTraefikRoutesRemoved } from "./traefik-route-health";
 import {
   comparableWorkspacePath,
   isLinkedWorktree,
@@ -71,6 +76,10 @@ let cancelled = false;
 let lockHeld = false;
 let stopProjects: string[] = [];
 let stopBaselineState: ManagedRuntimeState | undefined;
+
+const BUSY_EXEC_WAIT_MS = 30 * 60 * 1000;
+const BUSY_EXEC_POLL_MS = 250;
+const BUSY_EXEC_PROGRESS_MS = 10_000;
 
 function matchesFence(record: ReliabilityOperationRecord, fence: ReliabilityFence): boolean {
   return Object.entries(reliabilityFence(record.state)).every(
@@ -414,13 +423,160 @@ export function settlePreparedLifecycleCapacity(input: {
   return false;
 }
 
+function reportBusyExecWait(operationId: string, waitedMs: number): void {
+  process.stderr.write(
+    `Lifecycle exec ${operationId} is waiting for the existing worker (${Math.ceil(waitedMs / 1000)}s).\n`,
+  );
+}
+
+function installLifecycleWaitSignals(cancellation: { requested: boolean }): () => void {
+  const onSignal = () => {
+    cancellation.requested = true;
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+  return () => {
+    process.removeListener("SIGINT", onSignal);
+    process.removeListener("SIGTERM", onSignal);
+  };
+}
+
 export async function superviseLifecycle(
   kind: LifecycleWorkerRequest["kind"],
   repoPath: string,
   options: LifecycleWorkerRequest["options"] = {},
   command?: string[],
 ): Promise<unknown> {
-  return runLifecycleWorker(prepareLifecycleOperation(kind, repoPath, options, command));
+  repoPath = comparableWorkspacePath(repoPath);
+  if (isLinkedWorktree(repoPath) && !readPersistedWorkspace(repoPath)) {
+    if (kind === "stop") throw new Error("Stop requires the existing linked workspace identity.");
+    resolveLinkedTarget(repoPath);
+  }
+  const identity: ReliabilityIdentity = {
+    repoPath,
+    workspace: resolveWorktreeWorkspace(repoPath) ?? null,
+    provider: resolveWorkspaceRuntimeOrDefault(repoPath),
+  };
+  const ids = newLifecycleIds();
+  const copiedOptions = { ...options };
+  const copiedCommand = command ? [...command] : undefined;
+  if (kind === "stop") {
+    const fence = updateReliabilityOperation(identity, (record) => {
+      reconcileDrained(record);
+      stepRecord(record, { ...reliabilityFence(record.state), type: "stop" });
+      return reliabilityFence(record.state);
+    });
+    return runLifecycleWorker({ kind, repoPath, identity, ...ids, fence, options: copiedOptions });
+  }
+  const initial =
+    readReliabilityOperation(identity) ?? updateReliabilityOperation(identity, (record) => record);
+  if (initial.state.executionPolicy !== "manual")
+    throw new Error("Enrolled lifecycle operations require controller admission.");
+  const expectedFence = reliabilityFence(initial.state);
+  const deadline = Date.now() + BUSY_EXEC_WAIT_MS;
+  const cancellation = { requested: false };
+  const removeSignals = installLifecycleWaitSignals(cancellation);
+  let lastProgress = -Infinity;
+  const assertWaiting = () => {
+    if (cancellation.requested)
+      throw new Error(`Lifecycle exec ${ids.operationId} cancelled before dispatch.`);
+    if (Date.now() >= deadline)
+      throw new Error(
+        `Lifecycle exec ${ids.operationId} admission timed out; command was not launched.`,
+      );
+  };
+  try {
+    for (;;) {
+      assertWaiting();
+      let previous = readReliabilityOperation(identity);
+      if (!previous || !matchesFence(previous, expectedFence))
+        throw new Error(
+          "Lifecycle intent changed while awaiting admission; command was not launched.",
+        );
+      if (hasDuplicateOperation(previous, ids.requestId, ids.operationId))
+        throw new Error("Lifecycle request identity already exists; command was not replayed.");
+      if (previous.worker) {
+        const worker = previous.worker;
+        const birth = processBirthIdentity(worker.pid);
+        if (birth !== worker.birth && workerGroupAbsent(worker.pid)) {
+          previous = updateReliabilityOperation(identity, (record) => {
+            reconcileDrained(record);
+            return record;
+          });
+        } else {
+          if (
+            !birth ||
+            birth !== worker.birth ||
+            previous.state.operation?.status === "COMPLETION_UNKNOWN"
+          )
+            throw new Error(
+              "Existing lifecycle worker identity or completion is uncertain; preserve its evidence.",
+            );
+          if (kind !== "exec")
+            throw new Error("A lifecycle worker is active; wait for its completion before ensure.");
+          const now = Date.now();
+          if (now - lastProgress >= BUSY_EXEC_PROGRESS_MS) {
+            reportBusyExecWait(ids.operationId, now - (deadline - BUSY_EXEC_WAIT_MS));
+            lastProgress = now;
+          }
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(BUSY_EXEC_POLL_MS, deadline - now)),
+          );
+          continue;
+        }
+      }
+      if (
+        !previous.worker &&
+        previous.state.operation?.status === "NOT_STARTED" &&
+        !previous.state.operation.drained
+      )
+        previous = updateReliabilityOperation(identity, (record) => {
+          reconcileDrained(record);
+          return record;
+        });
+      assertWaiting();
+      const runtimeRunning = kind === "exec" && Boolean(resolveRunningWorkspaceContainer(repoPath));
+      let retainedExecProof: DevsyExecProof | undefined;
+      if (
+        kind === "exec" &&
+        identity.provider === "devsy" &&
+        canExecAfterInterruptedEnsure(previous.state)
+      )
+        retainedExecProof = withDevsyMutationLock("Prove retained exec", repoPath, () =>
+          captureDevsyExecProof(repoPath),
+        );
+      assertWaiting();
+      try {
+        return await runLifecycleWorker(
+          {
+            kind,
+            repoPath,
+            identity,
+            ...ids,
+            fence: { ...expectedFence },
+            options: copiedOptions,
+            ...(copiedCommand ? { command: copiedCommand } : {}),
+            ...(retainedExecProof ? { retainedExecProof } : {}),
+            admission: {
+              expectedRevision: previous.revision,
+              profile: copiedOptions.profile ?? previous.state.profile ?? "full",
+              consumer: { id: "manual-cli", requiredCapabilities: [], pinned: false },
+              runtimeRunning,
+              ...(retainedExecProof ? { recoverInterruptedEnsure: true } : {}),
+            },
+          },
+          undefined,
+          assertWaiting,
+        );
+      } catch (error) {
+        if (!(error instanceof LifecycleWorkerAdmissionBusyError) || kind !== "exec") throw error;
+        assertWaiting();
+        await new Promise((resolve) => setTimeout(resolve, BUSY_EXEC_POLL_MS));
+      }
+    }
+  } finally {
+    removeSignals();
+  }
 }
 
 /** Admit a prepared operation; journal transactions never surround capacity transactions. */
@@ -809,7 +965,7 @@ export async function executeLifecycleWorker<T>(
         if (retained?.stopBaseline) {
           stopBaselineState = retained;
           withDevsyMutationLock("Verify retained stop", request.repoPath, () =>
-            proveRetainedManagedStop(retained),
+            proveManagedStop(retained),
           );
         } else {
           const containers = inspectWorkspaceContainers();
@@ -913,11 +1069,11 @@ export function proveLifecycleStopped(): void {
   const settle = () => {
     claimLifecycleEffect();
     if (stopBaselineState) {
-      if (
-        proveRetainedManagedStop(stopBaselineState).some((container) => container.state.Running)
-      ) {
+      const proof = proveManagedStop(stopBaselineState);
+      if (proof.containers.some((container) => container.state.Running))
         throw new Error("Retained workspace workloads remain running.");
-      }
+      if (proof.status === "proven-absent")
+        assertTraefikRoutesRemoved(managedStopRouteReferences(stopBaselineState));
     } else {
       for (const project of stopProjects) {
         const containers = inspectManagedStopContainers(project);
