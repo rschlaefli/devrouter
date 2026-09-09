@@ -2142,3 +2142,15 @@ The focused policy, runtime sample, host sample and accounting suites pass75 tes
 TypeScript passes. No live policy or runtime changed. Source-only collector evidence
 is not live guest accounting qualification. Independent slice reviews follow the
 implementation commit before factory integration.
+
+The guest schema/collector slice is committed at5bbb3bd. Simplifier Copernicus
+and correctness reviewer Dewey returned DONE with no findings. Review covered
+only the committed slice; main verified its ownership-callback boundary and
+preserves production wiring as unfinished. The agent tool briefly lost workers;
+Dewey was recovered as the same reviewer and supplied a terminal result.
+
+Main now prioritizes the independently reported absent-runtime stop regression
+blocking a consumer, on rs/absent-runtime-stop from current main. Capacity work
+remains owned here and resumes with production ownership resolution and factory
+wiring after that bounded recovery fix. No capacity source was released or live
+policy activated. This checkpoint is not completion of the admission package.
