@@ -109,3 +109,12 @@ the provider runner UID rule now has its existing explanation at the new call si
 Two model regressions cover failed launch and completed tooling, repeat identity
 checks, deduplication and successful preparation clearing the recovery condition.
 All 1299 tests pass; correction review and clean packed qualification remain pending.
+
+The focused final correction review confirms both original findings resolved.
+Its new low finding about bounded history is verified and fixed: retirement now
+preserves the newest ensure result, preventing old interruptions from reappearing
+after successful preparation. A 256-command regression passes and retains the
+original request deduplication. Main inspected this narrow correction against the
+reviewer's recommendation; no further reviewer is required for this settled fix.
+Clean packed qualification at d74f71c passed; this history-only follow-up reuses
+that runtime evidence and adds the targeted rollover sequence.

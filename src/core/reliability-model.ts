@@ -426,9 +426,14 @@ function handleOperationRequest(
       (!state.operation.drained || !["COMPLETED", "NOT_LAUNCHED"].includes(state.operation.status))
     )
       return unchanged(state, "blocked");
+    // Retain the preparation result that supersedes older interrupted startup.
+    const latestEnsureId = [...state.operationHistory]
+      .reverse()
+      .find((entry) => entry.kind === "ensure")?.id;
     retired = state.operationHistory.findIndex(
       (entry) =>
         entry.id !== state.operation?.id &&
+        entry.id !== latestEnsureId &&
         entry.drained &&
         ["COMPLETED", "NOT_LAUNCHED"].includes(entry.status),
     );

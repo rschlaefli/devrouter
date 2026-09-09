@@ -699,6 +699,26 @@ describe("manual operation lifecycle", () => {
     }
     expect(state.operationHistory[0].id).toBe("op-172");
   });
+  it("does not resurrect interrupted preparation when settled tooling history rolls over", () => {
+    let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    state = finish(step(state, { ...ensure, key: "prepared", operationId: "prepared" }).state);
+    for (let index = 0; index < 256; index++) {
+      const result = step(state, {
+        ...ensure,
+        kind: "exec",
+        key: `tool-${index}`,
+        operationId: `tool-${index}`,
+        runtimeRunning: true,
+      });
+      expect(result.outcome).toBe("accepted");
+      state = finish(result.state);
+    }
+    expect(state.operationHistory.find((entry) => entry.id === "prepared")?.status).toBe(
+      "COMPLETED",
+    );
+    expect(step(state, ensure).outcome).toBe("joined");
+  });
   it("checks retained duplicates and conflicts before rollover and fences old events", () => {
     const full = fullHistory();
     const retained = { ...ensure, key: "request-127", operationId: "op-127" };
