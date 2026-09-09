@@ -699,3 +699,28 @@ The advisor report is in `_local/reviews/2026-09-09-network-preflight-advisor.md
 Main accepts advisory-only semantics and rejects the suggested ambient-daemon query.
 Main owns qualification after the executor terminated without a delivered artifact.
 User explicitly instructed continuing with working tools after the usage-limit stop.
+
+
+### Source qualification receipt
+
+At advisory commit `cadbde9` plus the qualification additions, 116 Vitest files
+pass with 1527 tests. Both actual provider wrapper subprocess paths execute closed
+synthetic Devsy/DevPod programs that parse the generated config and subnet overlay,
+check default/devnet membership, verify endpoint options and cleared ambient selectors,
+reuse the same overlay, then inject a failure and observe uncertain retention.
+Six starts validate the overlay across the two providers. These are fake providers,
+not installed-provider runtime compatibility proof. File locks use host process
+identity; the sandbox cannot provide that evidence, so this check runs on the host.
+
+The packed CLI is installed only in its existing temporary package-smoke prefix.
+Its network diagnostic fixture records 16 Docker reads, one retained-container
+inspection, one final daemon identity read and no Docker mutation commands. All
+executable selectors point to closed synthetic commands and a nonexistent test
+socket. Build, package smoke, typecheck, Biome, Knip, documentation and knowledge
+checks pass. Linux process-helper tests remain skipped on macOS; CI owns Linux proof.
+The toolchain is Node 26.8.1 and pnpm 11.6.0; repository CI pins Node 24.
+
+Remote main `f5828dc` includes released lifecycle waiting and release metadata.
+A three-way merge preview has no conflict markers. Keep the previously integrated
+baseline; target movement alone does not require another merge. Final review and
+draft publication are still pending. No live allocation or recovery is claimed.
