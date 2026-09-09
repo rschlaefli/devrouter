@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.62] - 2026-09-09
+
+### Fixed
+
+- Restore manual tooling execution after a drained interrupted ensure on an
+  exactly proven retained Devsy Docker runtime. Revalidate provider, container,
+  daemon and source identity before each command without recreating services or
+  rewriting configuration. Preserve interrupted startup history and never replay
+  uncertain execution. Retain the latest preparation result through history rollover.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.62.md
+
 ## [0.0.61] - 2026-09-08
 
 ### Fixed
