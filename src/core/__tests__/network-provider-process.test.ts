@@ -74,6 +74,7 @@ else if (up) {
   record({provider, action:'overlay-validated', subnet: models[1].networks.default.ipam.config[0].subnet});
   fs.writeFileSync(${JSON.stringify(registry)}, JSON.stringify([{id:option('--id'),source:{localFolder:${JSON.stringify(repo)}}}]));
   if (process.env.NETWORK_FIXTURE_FAIL === '1') process.exit(1);
+  if (process.env.NETWORK_FIXTURE_FAIL === 'attachment') fs.writeFileSync(${JSON.stringify(registry)}, '[]');
 } else { record({provider, action:'unexpected'}); process.exit(97); }
 `;
   for (const provider of ["devsy", "devpod"])
@@ -157,13 +158,16 @@ describe("real provider subprocess contract with closed synthetic executables", 
     vi.stubEnv("NETWORK_FIXTURE_FAIL", "1");
     await expect(start()).rejects.toThrow();
     expect(retainUncertain).toHaveBeenCalledOnce();
+    vi.stubEnv("NETWORK_FIXTURE_FAIL", "attachment");
+    await expect(start()).rejects.toThrow();
+    expect(retainUncertain).toHaveBeenCalledTimes(2);
     const rows = fs
       .readFileSync(f.receipt, "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    expect(rows.filter((row) => row.action === "overlay-validated")).toHaveLength(3);
-    expect(rows.filter((row) => row.action === "up")).toHaveLength(3);
+    expect(rows.filter((row) => row.action === "overlay-validated")).toHaveLength(4);
+    expect(rows.filter((row) => row.action === "up")).toHaveLength(4);
     expect(rows.filter((row) => row.action === "unexpected")).toHaveLength(0);
     expect(f.native.composeFiles).toEqual([path.join(f.compose, "compose.yml")]);
   });

@@ -708,7 +708,8 @@ pass with 1527 tests. Both actual provider wrapper subprocess paths execute clos
 synthetic Devsy/DevPod programs that parse the generated config and subnet overlay,
 check default/devnet membership, verify endpoint options and cleared ambient selectors,
 reuse the same overlay, then inject a failure and observe uncertain retention.
-Six starts validate the overlay across the two providers. These are fake providers,
+Eight starts validate the overlay across the two providers, including successful
+provider exit followed by failed attachment verification and uncertain retention. These are fake providers,
 not installed-provider runtime compatibility proof. File locks use host process
 identity; the sandbox cannot provide that evidence, so this check runs on the host.
 
