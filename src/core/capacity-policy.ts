@@ -89,18 +89,32 @@ export type CapacityHostDomain =
       heavySlots: number;
     };
 
-export type CapacityRuntimeDomain = {
-  kind: "runtime";
-  adapter: "orbstack-local-v1";
-  endpoint: string;
-  daemonId: string;
-  hostDomain: string;
-  hostChargeCeilingBytes: number;
-  capacityBytes: number;
-  protectedHeadroomBytes: number;
-  startupSlots: number;
-  heavySlots: number;
-};
+export type CapacityRuntimeDomain =
+  | {
+      kind: "runtime";
+      adapter: "orbstack-local-v1";
+      endpoint: string;
+      daemonId: string;
+      hostDomain: string;
+      hostChargeCeilingBytes: number;
+      capacityBytes: number;
+      protectedHeadroomBytes: number;
+      startupSlots: number;
+      heavySlots: number;
+    }
+  | {
+      kind: "runtime";
+      adapter: "orbstack-declared-v1";
+      endpoint: string;
+      daemonId: string;
+      hostDomain: string;
+      hostChargeCeilingBytes: number;
+      capacityBytes: number;
+      protectedHeadroomBytes: number;
+      guestUnmanagedAllowanceBytes: number;
+      startupSlots: number;
+      heavySlots: number;
+    };
 
 export type CapacityPolicyDomain = CapacityHostDomain | CapacityRuntimeDomain;
 
@@ -336,14 +350,15 @@ function parseDomain(value: unknown, domainId: string): CapacityPolicyDomain {
         "hostChargeCeilingBytes",
         "capacityBytes",
         "protectedHeadroomBytes",
+        "guestUnmanagedAllowanceBytes",
         "startupSlots",
         "heavySlots",
       ],
       label,
     );
     const adapter = parseBoundedString(domain.adapter, `${label}.adapter`);
-    if (adapter !== "orbstack-local-v1") {
-      throw new Error(`${label}.adapter must be 'orbstack-local-v1'.`);
+    if (adapter !== "orbstack-local-v1" && adapter !== "orbstack-declared-v1") {
+      throw new Error(`${label}.adapter must be 'orbstack-local-v1' or 'orbstack-declared-v1'.`);
     }
     const endpoint = parseCanonicalAbsolutePath(domain.endpoint, `${label}.endpoint`);
     const daemonId = parseBoundedString(domain.daemonId, `${label}.daemonId`);
@@ -360,17 +375,45 @@ function parseDomain(value: unknown, domainId: string): CapacityPolicyDomain {
     if (protectedHeadroomBytes >= capacityBytes) {
       throw new Error(`${label}.protectedHeadroomBytes must be less than capacityBytes.`);
     }
+    const startupSlots = parsePositiveInteger(domain.startupSlots, `${label}.startupSlots`);
+    const heavySlots = parsePositiveInteger(domain.heavySlots, `${label}.heavySlots`);
+
+    if (adapter === "orbstack-local-v1") {
+      if (Object.hasOwn(domain, "guestUnmanagedAllowanceBytes")) {
+        throw new Error(
+          `${label}.guestUnmanagedAllowanceBytes is only supported for adapter 'orbstack-declared-v1'.`,
+        );
+      }
+      return {
+        kind: "runtime",
+        adapter: "orbstack-local-v1",
+        endpoint,
+        daemonId,
+        hostDomain,
+        hostChargeCeilingBytes,
+        capacityBytes,
+        protectedHeadroomBytes,
+        startupSlots,
+        heavySlots,
+      };
+    }
+
     return {
       kind: "runtime",
-      adapter: "orbstack-local-v1",
+      adapter: "orbstack-declared-v1",
       endpoint,
       daemonId,
       hostDomain,
       hostChargeCeilingBytes,
       capacityBytes,
       protectedHeadroomBytes,
-      startupSlots: parsePositiveInteger(domain.startupSlots, `${label}.startupSlots`),
-      heavySlots: parsePositiveInteger(domain.heavySlots, `${label}.heavySlots`),
+      guestUnmanagedAllowanceBytes: parseSafeInteger(
+        domain.guestUnmanagedAllowanceBytes,
+        `${label}.guestUnmanagedAllowanceBytes`,
+        0,
+      ),
+      startupSlots,
+      heavySlots,
     };
   }
 

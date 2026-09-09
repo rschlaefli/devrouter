@@ -87,6 +87,24 @@ function declaredPolicy(unmanagedAllowanceBytes = 100): CapacityPolicy {
   return policy;
 }
 
+function declaredRuntimePolicy(guestUnmanagedAllowanceBytes = 100): CapacityPolicy {
+  const policy = validPolicy();
+  policy.domains["runtime-a"] = {
+    kind: "runtime",
+    adapter: "orbstack-declared-v1",
+    endpoint: "/tmp/orbstack-a.sock",
+    daemonId: "daemon-a",
+    hostDomain: "host",
+    hostChargeCeilingBytes: 800,
+    capacityBytes: 500,
+    protectedHeadroomBytes: 50,
+    guestUnmanagedAllowanceBytes,
+    startupSlots: 1,
+    heavySlots: 1,
+  };
+  return policy;
+}
+
 describe("parseCapacityPolicy", () => {
   it.each([
     ["maxQueuedTotal", 65],
@@ -167,6 +185,52 @@ describe("parseCapacityPolicy", () => {
         domains: {
           ...policy.domains,
           host: { ...policy.domains.host, unmanagedAllowanceBytes: 0 },
+        },
+      }),
+    ).toThrow(/only supported for adapter/);
+  });
+
+  it.each([
+    0, 100,
+  ])("round-trips a declared runtime domain with explicit guest allowance %s", (allowance) => {
+    const policy = declaredRuntimePolicy(allowance);
+
+    expect(parseCapacityPolicy(policy)).toEqual(policy);
+  });
+
+  it("requires a nonnegative safe integer allowance for declared runtimes", () => {
+    const policy = declaredRuntimePolicy();
+    const runtime = policy.domains["runtime-a"];
+    if (runtime.adapter !== "orbstack-declared-v1") throw new Error("Invalid test fixture");
+
+    const runtimeWithoutAllowance = { ...runtime };
+    delete (runtimeWithoutAllowance as Partial<typeof runtimeWithoutAllowance>)
+      .guestUnmanagedAllowanceBytes;
+    expect(() =>
+      parseCapacityPolicy({
+        ...policy,
+        domains: { ...policy.domains, "runtime-a": runtimeWithoutAllowance },
+      }),
+    ).toThrow(/guestUnmanagedAllowanceBytes/);
+
+    for (const allowance of [-1, -0, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      runtime.guestUnmanagedAllowanceBytes = allowance;
+      expect(() => parseCapacityPolicy(policy)).toThrow(/guestUnmanagedAllowanceBytes/);
+    }
+  });
+
+  it("rejects a guest allowance on the legacy runtime adapter", () => {
+    const policy = validPolicy();
+
+    expect(() =>
+      parseCapacityPolicy({
+        ...policy,
+        domains: {
+          ...policy.domains,
+          "runtime-a": {
+            ...policy.domains["runtime-a"],
+            guestUnmanagedAllowanceBytes: 0,
+          },
         },
       }),
     ).toThrow(/only supported for adapter/);

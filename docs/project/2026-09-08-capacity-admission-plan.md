@@ -1,6 +1,6 @@
 # Capacity admission execution plan
 
-Status: approved source sequence; declared host-budget amendment approved on 2026-09-09.
+Status: approved source sequence; declared host and guest budgets approved on 2026-09-09. Guest implementation details passed planner review.
 The amendment below supersedes historical statements that the host choice is pending.
 Owner: main. Branch: rs/capacity-admission. Target: main.
 Baseline: 0db64c1a89e58d67b71e9686e849f41db6c721a7.
@@ -34,7 +34,7 @@ production activation must reject them before startup journal reconciliation and
 never reinterpret them as declared-budget policies.
 Charge each VM pool's full declared growth budget once through durable pool
 reservations. Host estimates cover only work outside those pools. Guest workloads
-remain independently accounted in their runtime domain. Validate host capacity
+remain independently budgeted in their runtime domain under the guest amendment below. Validate host capacity
 against physical memory, preserve protected headroom, and require fresh normal
 pressure. Missing, stale or contradictory observations cannot authorize dispatch.
 
@@ -46,8 +46,8 @@ research or replace retained growth reservations with current occupancy.
 
 Implement and verify the host schema and sample mapping first, then production
 runtime accounting and controller factory wiring, then ordinary ensure/exec
-submission and reconnection. Verify guest pressure and complete population
-accounting before enabling that factory; a synthetic collector cannot qualify it.
+submission and reconnection. Verify the declared guest accounting and host-pressure interpretation below before
+enabling that factory; a synthetic collector cannot qualify live activation.
 Commands must preserve exact enrollment, stop authority, pending identity, output
 and nonzero outcomes. An unavailable controller never permits manual fallback for
 an enrolled runtime. A lost exec acknowledgement never authorizes replay.
@@ -58,6 +58,57 @@ Prove one admitted startup, one stable queued request, settlement and one dispat
 retained data, and exact stopped runtime with zero routes. Reuse unchanged reviews
 and checks. Numeric limits and live activation remain a concrete approval boundary;
 this source amendment neither installs a service nor changes machine policy.
+
+## Approved declared guest-budget amendment
+
+The user approved declared guest budgets with an explicit unmanaged-memory
+allowance and host-pressure checks on 2026-09-09. This replaces the independent
+guest-pressure prerequisite in earlier sections and historical Progress. It does
+not establish guest-pressure detection or guarantee protection against guest OOM.
+
+Add `orbstack-declared-v1` with required nonnegative safe-integer
+`guestUnmanagedAllowanceBytes`, with no inferred default. The allowance covers
+guest kernel memory, non-container processes, and containers outside enrolled
+workspaces, including the shared router. Explicit zero requires operator review.
+Keep `orbstack-local-v1` readable for historical records and synthetic tests;
+reject the new allowance on that adapter. Production activation must reject legacy
+host or runtime adapters before startup journal reconciliation.
+
+For a declared guest sample, use collection-start freshness and a fresh macOS
+host-pressure observation, explicitly labelled as host evidence. Missing or unknown
+host evidence never becomes normal. Do not read an absent guest pressure file as
+normal. Validate the configured daemon identity and reject declared capacity above
+observed Docker MemTotal. Retain protected guest headroom and existing independent
+host pool reservations; no new one-runtime-per-host restriction is authorized.
+
+Map `unmanagedBytes` to the reviewed guest allowance, `sharedBytes` to zero, and
+`ownedBytes` to complete exact-owned container usage grouped by lifecycle environment
+identity. Read stats only for proven running containers; proven stopped containers
+contribute zero. Paused, restarting, transitional or contradictory state is
+unavailable unless its accounting is explicitly proven. Container usage includes
+cache; do not silently subtract cache or use configured limits as observed usage.
+Reject duplicate attribution, changed daemon or population, incomplete ownership,
+failed probes, unsafe sums, stale evidence and cancelled collection. Bound work
+and drain outstanding probes before returning failure.
+
+Main owns collector semantics, ownership proof, factory integration and final
+verification. An executor owns the discriminated policy schema and focused parser
+tests after planner review. Implement that schema first, then the collector with
+synthetic probes, then production factory and canonical command integration.
+Preserve existing retained pool lifetime and charge semantics. No provider or
+lifecycle locks may be held while waiting for capacity.
+
+Acceptance covers required allowance and explicit zero, legacy compatibility and
+activation rejection, full owned population accounting, stopped versus uncertain
+states, fresh normal/pressured/unknown host observations, daemon and population
+races, cancellation and unsafe arithmetic. Qualification with eLearning still
+requires separately reviewed numeric policy and exact stopped state with zero
+routes. The source change neither installs services nor activates policy.
+
+Underestimated allowances, unmanaged growth, guest-only pressure, dynamic VM
+memory behavior and delayed host signals remain limits. The release may claim
+reviewed budget admission and fresh host-pressure checks, never independent guest
+pressure detection, complete OOM protection or autonomous recovery.
 
 ## Binding contracts
 
@@ -72,7 +123,7 @@ Repository capacity version 1 declares exact profile combinations with host and
 runtime steadyBytes/startupTotalBytes (safe nonnegative integers, startup >= steady,
 runtime steady positive) and named operation host/runtime increments. Operator
 policy pins reviewed estimate digests, domains, protected headroom, slots and
-qualified telemetry interpretation. Zero host charge requires explicit qualified
+the declared-budget and host-pressure interpretations above. Zero host charge requires explicit qualified
 interpretation. Runtime domain binds daemon identity, not context display names.
 
 Domain charge is unmanaged + shared + sum(max(observedOwned, reservedTotal)).
@@ -2076,3 +2127,18 @@ goal tools cannot resume it. Do not mark it complete to bypass that restriction.
 Source work can continue, but automatic goal continuation needs the application's
 resume control. Production guest accounting and ordinary command integration
 remain the next source work; the host mapping is not useful live admission alone.
+
+### Declared guest-budget execution
+
+Planner Kant approved the guest amendment without blocking findings. Main accepted
+its requirement to bracket memory sampling with population/ownership revalidation
+and to keep stopped observations separate from reservation settlement. Executor
+Hegel implemented only the policy schema and parser tests; main verified the diff.
+Main implemented the bounded runtime sample collector and synthetic tests. It
+requires a caller-supplied complete ownership proof before and after memory reads;
+production ownership resolution and factory wiring remain unfinished.
+
+The focused policy, runtime sample, host sample and accounting suites pass75 tests.
+TypeScript passes. No live policy or runtime changed. Source-only collector evidence
+is not live guest accounting qualification. Independent slice reviews follow the
+implementation commit before factory integration.
