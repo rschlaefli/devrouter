@@ -25,6 +25,7 @@ import {
   updateReliabilityOperation,
 } from "./reliability-operation-store";
 import {
+  hasDuplicateOperation,
   LifecycleWorkerAdmissionBusyError,
   type LifecycleWorkerRequest,
   newLifecycleIds,
@@ -132,18 +133,6 @@ function reconcileDrained(record: ReliabilityOperationRecord): void {
     });
     record.worker = null;
   }
-}
-
-function hasDuplicateOperation(
-  record: ReliabilityOperationRecord | undefined,
-  requestId: string,
-  operationId: string,
-): boolean {
-  return Boolean(
-    record?.state.operationHistory.some(
-      (operation) => operation.key === requestId || operation.id === operationId,
-    ),
-  );
 }
 
 function reportBusyExecWait(operationId: string, waitedMs: number): void {

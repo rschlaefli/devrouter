@@ -58,7 +58,7 @@ function sameFence(record: ReliabilityOperationRecord, fence: ReliabilityFence):
   );
 }
 
-function hasDuplicateOperation(
+export function hasDuplicateOperation(
   record: ReliabilityOperationRecord,
   requestId: string,
   operationId: string,
