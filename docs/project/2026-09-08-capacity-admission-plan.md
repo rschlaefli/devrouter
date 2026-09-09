@@ -2279,3 +2279,16 @@ JSON reports ready, and ls returns thousands of stale-worktree route entries
 with nine missing workspace owners; route-state inspection appears to choke on
 stale route-table scale. This is a non-blocking status/ls scalability finding,
 not part of the capacity amendment.
+
+PR #76 CI qualification failure resolved in 123cd1c: startup-witness
+publication demanded retained Devsy generation for every enrollment, but
+retained Devsy generation is a Devsy-only ownership concept, so the synthetic
+devpod-enrolled qualification submit failed behind the controller's opaque
+request-unavailable reply. Devpod enrollments now publish witnesses with empty
+generation strings, which the journal schema already accepts and no consumer
+reads for devpod providers. A regression test proves Devsy generation is never
+read for them. Verified locally: tsc, Biome, knip, the witness/controller/
+resolver suites (62), the journal-backed integration suite (22), and the packed
+qualification scenario end-to-end with its receipt. PR #76 check is green at
+123cd1c; merge remains user-gated. The dedicated simplifier pass stays
+deferred on route recovery and now covers 5557b15..123cd1c.
