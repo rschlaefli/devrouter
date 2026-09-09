@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.66] - 2026-09-09
+
+### Fixed
+
+- Complete managed stop for an exact linked workspace whose Devsy registration
+  was replaced with a new UID after all original containers are positively
+  absent. The replacement generation must select plain local Docker and resolve
+  to the pinned baseline daemon with both the old and new runner populations
+  empty across two full observation passes. Any residual population, daemon
+  drift, competing registration, or ownership change remains a fail-closed
+  diagnostic error, and the absence path performs no provider, container, or
+  source mutation. This releases a workspace whose lifecycle journal is stuck
+  in `stopping` so a later `ensure` can be admitted again.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.66.md
+
 ## [0.0.65] - 2026-09-09
 
 ### Added
