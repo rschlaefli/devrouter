@@ -81,7 +81,7 @@ export async function runController(options: {
   collect?: ControllerObservationCollector;
   onListening?: () => void;
   operations?: ControllerOperations;
-  createOperations?: (controller: ControllerStartup) => ControllerOperations;
+  createOperations?: (controller: ControllerStartup) => ControllerOperations | undefined;
 }): Promise<void> {
   if (options.operations && options.createOperations)
     throw new Error("Controller operations have multiple owners.");

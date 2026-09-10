@@ -2292,3 +2292,17 @@ resolver suites (62), the journal-backed integration suite (22), and the packed
 qualification scenario end-to-end with its receipt. PR #76 check is green at
 123cd1c; merge remains user-gated. The dedicated simplifier pass stays
 deferred on route recovery and now covers 5557b15..123cd1c.
+
+Factory activation slice: runControllerCommand now supplies the default
+operations factory for controller startup. Without an enabled capacity policy
+the factory returns undefined without consuming startup authority, so ordinary
+observation-only startup is unchanged; with an enabled policy it activates
+createCapacityController with collectCapacityDomains as the production
+collector, and an unreadable policy fails startup closed instead of silently
+disabling admission. The server's createOperations contract now allows
+undefined returns. An explicit injected factory still takes precedence, proven
+by the packed qualification scenario. Verified: tsc, Biome, knip, command
+controller suite (3), controller-server and sessions plus all command suites
+(84, isolated), journal-backed capacity integration (22), and the packed
+qualification receipt. Slice review is pending with the package's standing
+review owners; no runtime or operator policy was changed on this machine.
