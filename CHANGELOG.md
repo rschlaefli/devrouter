@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Lock acquisition now reports actionable process-identity diagnostics. The
+  error names the failing inspection stage (procfs read result or ps exit,
+  signal, or spawn error), the activity and exact lock path, a portable
+  reproduction command (`LC_ALL=C ps -o lstart= -o command= -p
+  <any-live-pid>`), and the permitted-host-context remediation, while locks
+  stay fail-closed and no identity fallback is attempted. Raw stderr from the
+  inspection is still not echoed. `devrouter controller` commands additionally
+  print the underlying failure cause on stderr while keeping the stable
+  `controller-unavailable` JSON contract on stdout.
+
 ## [0.0.67] - 2026-09-10
 
 ### Fixed
