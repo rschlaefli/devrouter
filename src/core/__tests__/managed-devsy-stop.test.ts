@@ -206,12 +206,14 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   fs.rmSync(root, { recursive: true, force: true });
 });
 
 describe("retained managed Devsy stop", () => {
   it("stops initial dependencies when no retained runtime baseline exists", () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
     vi.mocked(inspectWorkspaceContainers).mockImplementation(() => structuredClone(containers));
     expect(run()).toBe(true);
@@ -220,6 +222,7 @@ describe("retained managed Devsy stop", () => {
   });
 
   it("refuses an initial population whose project includes foreign containers", () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
     vi.mocked(inspectWorkspaceContainers).mockImplementation(() =>
       structuredClone(containers.slice(0, 1)),
@@ -229,6 +232,7 @@ describe("retained managed Devsy stop", () => {
   });
 
   it("refuses initial cleanup when the provider registration is absent", () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
     vi.mocked(inspectDevsyWorkspaceOwnership).mockReturnValue({ status: "absent" });
     expect(run).toThrow("exact Devsy registration");
@@ -459,6 +463,7 @@ describe("retained managed Devsy stop", () => {
     expect(run).toThrow();
   });
   it("leaves legacy stop behavior to its existing caller", () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
     expect(run()).toBe(false);
     expect(inspectManagedStopContainers).not.toHaveBeenCalled();

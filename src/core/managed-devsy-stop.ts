@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -49,6 +50,7 @@ function containerIdentity(container: ManagedStopContainerSnapshot): string {
 
 /** Recover a complete initial Compose population before a runtime baseline exists. */
 function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): boolean {
+  if (!fs.existsSync(path.join(repoPath, ".devrouter.yml"))) return false;
   const linked = isLinkedWorktree(repoPath);
   const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
   const registration = () => {
@@ -70,6 +72,8 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
     }
     return owner.workspace;
   };
+  const runtime = loadRuntimeConfig(repoPath, workspace ?? "");
+  if (!runtime.config.managedRuntime) return false;
   const owner = registration();
   if (
     !owner.context ||
@@ -77,8 +81,6 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
     !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(devsyId)
   )
     throw new Error("Initial managed stop requires exact provider context.");
-  const runtime = loadRuntimeConfig(repoPath, workspace ?? "");
-  if (!runtime.config.managedRuntime) return false;
   const plan = inspectManagedDevcontainerConfig({
     repoPath,
     config: runtime.config,
