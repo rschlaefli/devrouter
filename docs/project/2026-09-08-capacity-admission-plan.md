@@ -2320,3 +2320,26 @@ new routing regression tests, the full suite (2050 across 136 files), and the
 packed qualification receipt. Slice review is pending with the standing review
 owners alongside the factory activation slice; no runtime or operator policy
 was changed on this machine.
+
+Slice review of factory activation plus canonical CLI wiring returned
+DONE_WITH_CONCERNS: zero correctness, data-integrity, protocol, or contract
+defects across the five risk lenses, with three accepted findings. All three
+are fixed in 4749a10. The admission-follow loop now survives controller
+restarts and transport failures while the request stays queued: a failed
+rebind or follow waits on the existing bounded cadence and resumes observation
+instead of failing the CLI, while the loop-top deadline still fails closed with
+the retention disclosure and pre-submission bind failures still propagate
+because nothing is retained yet. The terminal-without-result error now
+interpolates the operation reason like the timeout path, and the cancellation
+message states that the controller retains the request and may still execute
+it when capacity frees. A regression test proves a failed follow reconnects
+and returns the journalled result. Verified: tsc, Biome, knip, the capacity
+routing suite (3), the full journal-backed suite (2050 across 136 files), and
+a fresh packed qualification receipt (tarball 15f51eda87c07a6e, produced on
+the identical pre-commit tree, fixtureBundle f6b594ba2bb69386). Review
+boundary: real-protocol coverage rests on the packed qualification receipt
+because the slice reviewer saw only mocked client tests. The dedicated
+simplifier pass stays deferred: a fourth dispatch attempt (Boyle) returned a
+terminal 429 route limit for the simplifier model, so the deferral now covers
+5557b15..4749a10; the simplifier gate is not a correctness or readiness gate.
+No runtime or operator policy was changed on this machine.
