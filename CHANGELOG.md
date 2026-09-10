@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.68] - 2026-09-10
+
 ### Changed
 
 - Lock acquisition now reports actionable process-identity diagnostics. The
@@ -27,6 +29,10 @@ All notable changes to this project are documented in this file.
   `scheduling.clientWaitSeconds`, `maxClientWaitSeconds`, `watchSeconds`, and
   `sampleIntervalSeconds` knobs are validated and reserved for future runtime
   binding; runtime constants remain authoritative.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.68.md
 
 ## [0.0.67] - 2026-09-10
 

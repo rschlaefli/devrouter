@@ -410,3 +410,4 @@ For host/docker runtime apps only:
 - `devrouter app exec` follows the same dep lifecycle for one-shot commands and preserves argv semantics by default (`shell: false`).
 - `devrouter app exec --shell` is explicit and requires exactly one command string after `--`.
 - Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (`printenv DB_URL DB_HOST DB_PORT`) before migrate/seed.
+- A lock that cannot prove its owner fails closed and names the failing inspection stage, the exact lock path, and a portable reproduction command. Run the canonical command in a permitted host context; there is no identity fallback.
