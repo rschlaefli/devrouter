@@ -182,4 +182,9 @@ read-only child dispatches; reports persist under `docs/project/_local/reviews/`
   `upgrade-prompts/0.0.68.md`, SKILL.md fixed-host-ports contract, `ai-prompt.ts` refusal +
   doctor intents, AGENTS.md map entries, `docs/knowledge/managed-environment-lifecycle.md`
   startup-flow step. ai-prompt/upgrade suites, docs-policy, and knowledge guards green.
-  Remaining: full validation checklist and integrated final review.
+- 2026-09-10 (complete): validation checklist green at `dfa97fe` (check, knip, typecheck,
+  1621/1621 tests, build, package smoke on 0.0.68, docs guards, built-CLI setup/doctor/inspect;
+  routing/devcontainer live smokes skipped — live owner workspaces share this machine's Traefik,
+  recorded precedent). Integrated final review DONE, no blocking findings
+  (`docs/project/_local/reviews/2026-09-10-host-port-claims-final.md`). Terminal condition met.
+  Push/PR withheld per plan (stacked on unmerged `rs/journal-deadlock-recovery`; owner decision).
