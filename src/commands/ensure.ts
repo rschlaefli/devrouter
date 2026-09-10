@@ -16,10 +16,33 @@ export async function runEnsureCommand(options: {
     profile: options.profile,
     ...(options.repair ? { repair: true } : {}),
   })) as WorkspaceEnsureResult;
+  const conflicts = result.hostPortConflicts ?? [];
   const applicationFailed = result.applicationReadiness?.status === "application-error";
-  if (applicationFailed) process.exitCode = 1;
+  if (applicationFailed || conflicts.length > 0) process.exitCode = 1;
   if (options.json) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+
+  if (conflicts.length > 0) {
+    const label =
+      result.kind === "primary" ? "Primary checkout" : `Workspace '${result.workspace}'`;
+    const lines = conflicts.map((conflict) => {
+      const desired = `${conflict.hostIp ?? "*"}:${conflict.hostPort}/${conflict.protocol}`;
+      const holder = [
+        `'${conflict.holderContainer}'`,
+        conflict.holderComposeProject
+          ? `compose project '${conflict.holderComposeProject}'`
+          : undefined,
+        conflict.holderWorkspace ? `workspace '${conflict.holderWorkspace}'` : undefined,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      return `  - service '${conflict.service}' needs ${desired}, held by ${holder}\n    ${conflict.remediation}`;
+    });
+    process.stdout.write(
+      `${label} [profile: ${result.profile}] was not started: ${conflicts.length} fixed host-port claim${conflicts.length === 1 ? "" : "s"} conflict${conflicts.length === 1 ? "s" : ""} with running containers.\n${lines.join("\n")}\n`,
+    );
     return;
   }
 

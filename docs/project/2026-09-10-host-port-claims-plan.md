@@ -160,4 +160,11 @@ read-only child dispatches; reports persist under `docs/project/_local/reviews/`
 - 2026-09-10 (slice 1): one plan amendment folded in during implementation — the candidate
   enrichment inspect was redundant (the holder inspect template already carries the labels
   exclusion and attribution need); detection cost is render + ps + one inspect, conflict-path
-  behavior unchanged. Next: engine unit tests.
+  behavior unchanged. Engine committed as `505d23c` (17 unit tests).
+- 2026-09-10 (slice 2): admission wiring landed — `WorkspaceEnsureResult.hostPortConflicts`,
+  detection in `ensureNetworkLocked` before network session/config write/start, fail-closed
+  evidence errors, worker completion exit 1 on refusal, command human + `--json` refusal output
+  (one handler covers `ensure` and the `workspace ensure` alias). Tests: two managed refusal
+  cases in `workspace-ensure.test.ts` (no config-write/devpod-up before refusal; evidence
+  failure refuses) + new `commands/__tests__/ensure.test.ts` (JSON shape, human attribution,
+  ready-path unchanged). 137/137 affected tests, typecheck, biome green. Next: slice 3 (doctor).
