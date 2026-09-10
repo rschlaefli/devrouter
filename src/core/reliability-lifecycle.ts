@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { CapacityEstimates } from "../types";
@@ -17,6 +18,11 @@ import {
   CapacitySnapshotChangedError,
   CapacityStore,
 } from "./capacity-store";
+import {
+  followControllerOperation,
+  observeControllerBinding,
+  submitControllerOperation,
+} from "./controller-client";
 import { ControllerStore } from "./controller-store";
 import {
   inspectManagedStopContainers,
@@ -80,6 +86,7 @@ let stopBaselineState: ManagedRuntimeState | undefined;
 
 const BUSY_LIFECYCLE_WAIT_MS = 30 * 60 * 1000;
 const BUSY_LIFECYCLE_POLL_MS = 250;
+const CAPACITY_CLIENT_WAIT_MS = 30 * 60 * 1000;
 const BUSY_LIFECYCLE_PROGRESS_MS = 10_000;
 
 function matchesFence(record: ReliabilityOperationRecord, fence: ReliabilityFence): boolean {
@@ -208,6 +215,7 @@ export function prepareLifecycleOperation(
           "An earlier lifecycle worker may still be active; use explicit stop to reconcile it.",
         );
       record.outcome = null;
+      record.result = null;
       stepRecord(record, {
         ...reliabilityFence(record.state),
         type: "operation-request",
@@ -286,6 +294,7 @@ export function prepareManagedLifecycleOperation(input: {
     if (record.worker) throw new Error("An earlier lifecycle worker remains undrained.");
     record.state = transition.state;
     record.outcome = null;
+    record.result = null;
     // A newly accepted operation supersedes any prior startup witness; the next
     // publication rebinds the witness to this operation's fence before mutation.
     record.startupWitness = null;
@@ -478,6 +487,15 @@ export async function superviseLifecycle(
   }
   const initial =
     readReliabilityOperation(identity) ?? updateReliabilityOperation(identity, (record) => record);
+  if (initial.state.executionPolicy === "capacity-managed" || capacityPolicyTargets(repoPath))
+    return superviseThroughController({
+      kind,
+      repoPath,
+      identity,
+      requestId: ids.requestId,
+      profile: copiedOptions.profile,
+      ...(copiedCommand ? { command: copiedCommand } : {}),
+    });
   if (initial.state.executionPolicy !== "manual")
     throw new Error("Enrolled lifecycle operations require controller admission.");
   const expectedFence = reliabilityFence(initial.state);
@@ -749,6 +767,91 @@ export function admitLifecycleCapacity(
     );
   }
   return decision;
+}
+
+/** Route CLI operations through the controller whenever its enabled policy targets the checkout. */
+function capacityPolicyTargets(repoPath: string): boolean {
+  const policy = readCapacityPolicy(path.join(DEVROUTER_HOME, "controller"));
+  return (
+    policy?.admissions === "enabled" &&
+    policy.enrollments.some((entry) => entry.repoPath === repoPath)
+  );
+}
+
+function controllerWaitSeconds(deadline: number): number {
+  return Math.max(0, Math.min(900, Math.ceil((deadline - Date.now()) / 1000)));
+}
+
+/**
+ * Follow a controller-dispatched operation to its terminal outcome and return
+ * the worker's journalled result, preserving the canonical CLI contract across
+ * client disconnects and bounded admission waits.
+ */
+async function superviseThroughController(input: {
+  kind: "ensure" | "exec";
+  repoPath: string;
+  identity: ReliabilityIdentity;
+  requestId: string;
+  profile?: string;
+  command?: string[];
+}): Promise<unknown> {
+  if (input.kind === "exec" && !input.command)
+    throw new Error("Exec requires a command for controller admission.");
+  const directory = path.join(DEVROUTER_HOME, "controller");
+  const cancellation = { requested: false };
+  const removeSignals = installLifecycleWaitSignals(cancellation);
+  const cancelled = () => {
+    if (cancellation.requested)
+      throw new Error(
+        `Lifecycle ${input.kind} ${input.requestId} cancelled while awaiting controller admission.`,
+      );
+  };
+  const deadline = Date.now() + CAPACITY_CLIENT_WAIT_MS;
+  try {
+    const bind = () =>
+      observeControllerBinding(directory, {
+        path: input.repoPath,
+        session: randomUUID(),
+        profile: input.profile ?? "full",
+      });
+    let binding = await bind();
+    let pending = await submitControllerOperation(
+      directory,
+      input.kind === "exec"
+        ? { ...binding, requestId: input.requestId, kind: "exec", command: input.command ?? [] }
+        : { ...binding, requestId: input.requestId, kind: "ensure" },
+      { waitSeconds: controllerWaitSeconds(deadline) },
+    );
+    while (pending.status !== "terminal") {
+      cancelled();
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Lifecycle ${input.kind} ${input.requestId} admission timed out (reason: ${pending.reason ?? pending.operation?.reason ?? "unknown"}); the controller retains the request.`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1_000, deadline - Date.now())));
+      cancelled();
+      binding = await bind();
+      pending = await followControllerOperation(
+        directory,
+        { ...binding, operationId: pending.operationId },
+        { waitSeconds: controllerWaitSeconds(deadline) },
+      );
+    }
+    const record = readReliabilityOperation(input.identity);
+    if (record?.result) {
+      if (record.result.ok) return record.result.value;
+      throw new Error(record.result.message);
+    }
+    const outcome = record?.outcome;
+    if (input.kind === "exec" && outcome?.status === "completed" && outcome.exitCode !== null)
+      return { status: outcome.status, exitCode: outcome.exitCode, transport: outcome.transport };
+    throw new Error(
+      `Lifecycle ${input.kind} ${pending.operationId} completed without a journalled result; inspect controller evidence before retrying.`,
+    );
+  } finally {
+    removeSignals();
+  }
 }
 
 /** Renew local effect authority from fresh evidence without releasing retained charges. */
@@ -1049,7 +1152,10 @@ export async function executeLifecycleWorker<T>(
   });
 }
 
-export function recordLifecycleOutcome(outcome: ExecutionOutcome): void {
+export function recordLifecycleOutcome(
+  outcome: ExecutionOutcome,
+  result?: { ok: true; value: unknown } | { ok: false; message: string },
+): void {
   const request = activeWorker;
   if (request?.kind !== "exec") return;
   updateReliabilityOperation(request.identity, (record) => {
@@ -1070,10 +1176,15 @@ export function recordLifecycleOutcome(outcome: ExecutionOutcome): void {
           };
     stepRecord(record, event);
     record.outcome = { ...outcome, operationId: request.operationId };
+    if (result !== undefined) record.result = result;
   });
 }
 
-export function recordLifecycleCompletion(exitCode: number, preparedProfile?: string): void {
+export function recordLifecycleCompletion(
+  exitCode: number,
+  preparedProfile?: string,
+  result?: { ok: true; value: unknown } | { ok: false; message: string },
+): void {
   const request = activeWorker;
   if (!request || request.kind === "stop") return;
   updateReliabilityOperation(request.identity, (record) => {
@@ -1100,15 +1211,17 @@ export function recordLifecycleCompletion(exitCode: number, preparedProfile?: st
       operationId: request.operationId,
       exitCode,
     });
+    if (result !== undefined) record.result = result;
   });
 }
 
-export function recordLifecycleUnknown(): void {
+export function recordLifecycleUnknown(result?: { ok: false; message: string }): void {
   const request = activeWorker;
   if (!request || request.kind === "stop") return;
   updateReliabilityOperation(request.identity, (record) => {
     if (!matchesFence(record, request.fence)) return;
     stepRecord(record, { ...request.fence, type: "interrupted", operationId: request.operationId });
+    if (result !== undefined) record.result = result;
   });
 }
 

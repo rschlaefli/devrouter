@@ -99,6 +99,7 @@ export type ReliabilityOperationRecord = {
   preparation?: ReliabilityPreparationReceipt | null;
   phaseSettlement?: CapacityPhaseSettlement | null;
   startupWitness?: CapacityStartupWitness | null;
+  result?: { ok: true; value: unknown } | { ok: false; message: string } | null;
 };
 
 const MAX_RECORD_BYTES = 1_048_576;
@@ -336,6 +337,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     "worker",
     "effectSequence",
     "outcome",
+    "result",
     ...(record.version === 2
       ? [
           "capacity",
@@ -582,6 +584,19 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
           !/^SIG[A-Z0-9]{1,16}$/.test(outcome.transport.signal)))
     ) {
       throw new Error("Reliability execution outcome is invalid.");
+    }
+    if (record.result !== undefined && record.result !== null) {
+      const serialized = JSON.stringify(record.result);
+      if (
+        typeof serialized !== "string" ||
+        serialized.length > 262_144 ||
+        (record.result.ok !== true && record.result.ok !== false) ||
+        (record.result.ok ? "message" in record.result : !("message" in record.result)) ||
+        (!record.result.ok &&
+          (typeof record.result.message !== "string" || record.result.message.length > 4_096))
+      ) {
+        throw new Error("Reliability operation result is invalid.");
+      }
     }
   }
   if (record.worker !== null) {

@@ -350,6 +350,37 @@ export async function followControllerOperation(
   return followAcceptedOperation(directory, input, input.operationId, options, null, input.output);
 }
 
+/** Bind a client session to one canonical environment before operation submission. */
+export async function observeControllerBinding(
+  directory: string,
+  input: { path: string; session: string; profile: string; require?: string[] },
+): Promise<ControllerOperationBinding> {
+  const response = await operationRequest(directory, {
+    method: "observe",
+    path: input.path,
+    session: input.session,
+    profile: input.profile,
+    require: input.require ?? [],
+  });
+  if (
+    !isRecord(response) ||
+    !hasExactKeys(response, ["store", "epoch", "generation", "session"]) ||
+    !isControllerId(response.session) ||
+    !isControllerId(response.store) ||
+    !isSafeCounter(response.epoch) ||
+    typeof response.generation !== "string" ||
+    response.generation.length > 4_096
+  ) {
+    throw new Error("Malformed controller observation binding.");
+  }
+  return {
+    session: response.session,
+    store: response.store,
+    epoch: response.epoch,
+    generation: response.generation,
+  };
+}
+
 export async function controllerRequest(
   directory: string,
   input: object,

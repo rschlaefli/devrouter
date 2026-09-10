@@ -25,11 +25,20 @@ const fixture = vi.hoisted(() => ({
   readCapacityPolicy: vi.fn(),
   isLinkedWorktree: vi.fn(),
   resolveLinkedTarget: vi.fn(),
+  observe: vi.fn(),
+  submit: vi.fn(),
+  follow: vi.fn(),
 }));
 
 vi.mock("../capacity-policy", async (original) => ({
   ...(await original<typeof import("../capacity-policy")>()),
   readCapacityPolicy: fixture.readCapacityPolicy,
+}));
+
+vi.mock("../controller-client", () => ({
+  observeControllerBinding: fixture.observe,
+  submitControllerOperation: fixture.submit,
+  followControllerOperation: fixture.follow,
 }));
 
 vi.mock("../router", async (importOriginal) => {
@@ -2378,5 +2387,64 @@ describe("reliability lifecycle supervision", () => {
     expect(persisted).not.toContain(rawArg);
     expect(persisted).not.toContain(rawEnv);
     expect(persisted).not.toContain(rawOutput);
+  });
+});
+
+describe("capacity admission CLI routing", () => {
+  const terminalResult = {
+    status: "terminal" as const,
+    operationId: "operation-id",
+    operation: null,
+    output: null,
+    outputCursor: { sequence: 0, offset: 0 },
+    outputGap: false,
+  };
+  const binding = { session: "session", store: "store", epoch: 1, generation: "generation" };
+
+  it("routes an enrolled checkout through the controller and returns the journalled result", async () => {
+    const { lifecycle, store, identity } = await seedWorkerRequest();
+    fixture.readCapacityPolicy.mockReturnValue({
+      revision: 1,
+      admissions: "enabled",
+      enrollments: [{ repoPath: identity.repoPath, profiles: ["full"] }],
+    });
+    fixture.observe.mockResolvedValue(binding);
+    fixture.submit.mockImplementation(async () => {
+      store.updateReliabilityOperation(identity, (record) => {
+        record.result = { ok: true, value: { synthetic: "ensure-result" } };
+      });
+      return terminalResult;
+    });
+    await expect(lifecycle.superviseLifecycle("ensure", identity.repoPath, {})).resolves.toEqual({
+      synthetic: "ensure-result",
+    });
+    expect(fixture.observe).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ path: identity.repoPath, profile: "full" }),
+    );
+    expect(fixture.submit).toHaveBeenCalledOnce();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a journalled worker failure for an enrolled exec", async () => {
+    const { lifecycle, store, identity } = await seedWorkerRequest("exec");
+    fixture.readCapacityPolicy.mockReturnValue({
+      revision: 1,
+      admissions: "enabled",
+      enrollments: [{ repoPath: identity.repoPath, profiles: ["full"] }],
+    });
+    store.updateReliabilityOperation(identity, (record) => {
+      record.result = { ok: false, message: "synthetic worker failure" };
+    });
+    fixture.observe.mockResolvedValue(binding);
+    fixture.submit.mockResolvedValue(terminalResult);
+    await expect(
+      lifecycle.superviseLifecycle("exec", identity.repoPath, {}, ["synthetic-command"]),
+    ).rejects.toThrow("synthetic worker failure");
+    expect(fixture.submit).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ kind: "exec", command: ["synthetic-command"] }),
+      expect.objectContaining({ waitSeconds: 900 }),
+    );
   });
 });
