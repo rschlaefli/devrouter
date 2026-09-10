@@ -844,11 +844,25 @@ describe("manual operation lifecycle", () => {
       expect(step(full, ensure).outcome).toBe("accepted");
     }
   });
-  it("does not enable rollover for capacity-managed operations", () => {
+  it("rolls over capacity-managed history under the same conservative guards", () => {
     const full = fullHistory();
     full.executionPolicy = "capacity-managed";
     full.admission = "waiting";
-    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+    const accepted = step(full, ensure);
+    expect(accepted.outcome).toBe("accepted");
+    expect(accepted.state.operationHistory).toHaveLength(128);
+    expect(accepted.state.operationHistory.some((entry) => entry.id === "op-0")).toBe(false);
+    expect(accepted.state.admission).toBe("waiting");
+  });
+  it("refuses a saturated capacity-managed journal when nothing is retirable", () => {
+    const full = fullHistory();
+    full.executionPolicy = "capacity-managed";
+    full.admission = "waiting";
+    full.operation = { ...full.operation!, status: "COMPLETION_UNKNOWN", exitCode: null };
+    full.operationHistory[127] = { ...full.operationHistory[127], ...full.operation };
+    const result = step(full, ensure);
+    expect(result.outcome).toBe("blocked");
+    expect(result.state).toEqual(full);
   });
   it("settles a lost operation as unobservable so the next ensure supersedes it", () => {
     let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
