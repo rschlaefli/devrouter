@@ -283,6 +283,10 @@ async function main() {
   };
   const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
   const sourceRevision = run("git", ["rev-parse", "HEAD"]);
+  // The tracer bundle stands in for the installed CLI, so it must report the
+  // same version: reliability records carry the writing CLI version.
+  const cliVersion = JSON.parse(fs.readFileSync(path.join(source, "package.json"), "utf8"))
+    .version as string;
   const dirty = run("git", ["status", "--porcelain"]) !== "";
   run("pnpm", ["build"]);
   run("pnpm", ["pack", "--pack-destination", root]);
@@ -552,6 +556,7 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
     splitting: false,
     config: false,
     silent: true,
+    define: { __VERSION__: JSON.stringify(cliVersion) },
   });
   const bundled = path.join(installed, "capacity-tracer-entry.js");
   assert.equal(sha(fs.readFileSync(worker)), workerDigest);
