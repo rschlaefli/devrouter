@@ -187,4 +187,12 @@ read-only child dispatches; reports persist under `docs/project/_local/reviews/`
   routing/devcontainer live smokes skipped — live owner workspaces share this machine's Traefik,
   recorded precedent). Integrated final review DONE, no blocking findings
   (`docs/project/_local/reviews/2026-09-10-host-port-claims-final.md`). Terminal condition met.
-  Push/PR withheld per plan (stacked on unmerged `rs/journal-deadlock-recovery`; owner decision).
+- 2026-09-10 (rebased onto main): the parent 0.0.67 branch merged as PR #78 (squashed) and PRs
+  #77/#76 landed on top, so the branch was rebased from the local parent tip onto
+  `origin/main` (`b5fdb03`); the two squashed parent commits were skipped, conflicts resolved in
+  `docs/project/index.md`, `src/lifecycle-worker.ts` (main's evolved three-arg
+  `recordLifecycleCompletion` now also counts refusal exit 1), and `CHANGELOG.md` (0.0.68
+  section after main's Unreleased). Review evidence survives per the reuse rule (equivalent
+  rebase); fresh verification on the rebased head: typecheck, knip, biome, 2118/2118 tests,
+  build, package smoke, docs guards all green. Branch remains local; push/PR is the owner's
+  decision and no longer waits on the parent.
