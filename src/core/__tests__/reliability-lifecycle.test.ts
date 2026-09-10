@@ -2447,4 +2447,29 @@ describe("capacity admission CLI routing", () => {
       expect.objectContaining({ waitSeconds: 900 }),
     );
   });
+
+  it("survives a controller transport failure while following a queued admission", async () => {
+    const { lifecycle, store, identity } = await seedWorkerRequest();
+    fixture.readCapacityPolicy.mockReturnValue({
+      revision: 1,
+      admissions: "enabled",
+      enrollments: [{ repoPath: identity.repoPath, profiles: ["full"] }],
+    });
+    fixture.observe.mockResolvedValue(binding);
+    fixture.submit.mockResolvedValue({ ...terminalResult, status: "pending" as const });
+    fixture.follow
+      .mockRejectedValueOnce(new Error("synthetic controller restart"))
+      .mockImplementation(async () => {
+        store.updateReliabilityOperation(identity, (record) => {
+          record.result = { ok: true, value: { synthetic: "reconnected-result" } };
+        });
+        return terminalResult;
+      });
+    await expect(lifecycle.superviseLifecycle("ensure", identity.repoPath, {})).resolves.toEqual({
+      synthetic: "reconnected-result",
+    });
+    expect(fixture.observe).toHaveBeenCalledTimes(3);
+    expect(fixture.follow).toHaveBeenCalledTimes(2);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
 });

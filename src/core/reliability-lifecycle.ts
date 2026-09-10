@@ -803,7 +803,7 @@ async function superviseThroughController(input: {
   const cancelled = () => {
     if (cancellation.requested)
       throw new Error(
-        `Lifecycle ${input.kind} ${input.requestId} cancelled while awaiting controller admission.`,
+        `Lifecycle ${input.kind} ${input.requestId} cancelled while awaiting controller admission; the controller retains the request and may still execute it when capacity frees.`,
       );
   };
   const deadline = Date.now() + CAPACITY_CLIENT_WAIT_MS;
@@ -831,12 +831,18 @@ async function superviseThroughController(input: {
       }
       await new Promise((resolve) => setTimeout(resolve, Math.min(1_000, deadline - Date.now())));
       cancelled();
-      binding = await bind();
-      pending = await followControllerOperation(
-        directory,
-        { ...binding, operationId: pending.operationId },
-        { waitSeconds: controllerWaitSeconds(deadline) },
-      );
+      try {
+        binding = await bind();
+        pending = await followControllerOperation(
+          directory,
+          { ...binding, operationId: pending.operationId },
+          { waitSeconds: controllerWaitSeconds(deadline) },
+        );
+      } catch {
+        // A controller restart or transport hiccup must not kill the CLI while
+        // the request stays queued; keep observing until the deadline expires.
+        await new Promise((resolve) => setTimeout(resolve, Math.min(1_000, deadline - Date.now())));
+      }
     }
     const record = readReliabilityOperation(input.identity);
     if (record?.result) {
@@ -847,7 +853,7 @@ async function superviseThroughController(input: {
     if (input.kind === "exec" && outcome?.status === "completed" && outcome.exitCode !== null)
       return { status: outcome.status, exitCode: outcome.exitCode, transport: outcome.transport };
     throw new Error(
-      `Lifecycle ${input.kind} ${pending.operationId} completed without a journalled result; inspect controller evidence before retrying.`,
+      `Lifecycle ${input.kind} ${pending.operationId} completed without a journalled result (reason: ${pending.reason ?? pending.operation?.reason ?? "unknown"}); inspect controller evidence before retrying.`,
     );
   } finally {
     removeSignals();
