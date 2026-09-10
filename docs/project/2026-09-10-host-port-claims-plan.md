@@ -167,4 +167,10 @@ read-only child dispatches; reports persist under `docs/project/_local/reviews/`
   (one handler covers `ensure` and the `workspace ensure` alias). Tests: two managed refusal
   cases in `workspace-ensure.test.ts` (no config-write/devpod-up before refusal; evidence
   failure refuses) + new `commands/__tests__/ensure.test.ts` (JSON shape, human attribution,
-  ready-path unchanged). 137/137 affected tests, typecheck, biome green. Next: slice 3 (doctor).
+  ready-path unchanged). 137/137 affected tests, typecheck, biome green. Committed as `91c7b29`.
+- 2026-09-10 (slice 3): doctor check `repo.host-port-claims` landed in
+  `buildDevcontainerChecks` (no-op without `managedRuntime`; error on conflict with holder +
+  workspace attribution; warn on unavailable evidence; workspace interpolation env for linked
+  checkouts). 28/28 diagnostics+doctor tests green. Post-slice review pair (simplifier +
+  slice-reviewer) dispatched on `123a2b1..91c7b29`; findings pending. Next: disposition
+  findings, then slice 4 (release).

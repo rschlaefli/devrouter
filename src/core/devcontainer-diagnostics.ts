@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import type { DevrouterApp, DevrouterConfig, DiagnosticCheck } from "../types";
+import { inspectManagedDevcontainerConfig } from "./devcontainer-profile";
+import { detectHostPortClaimConflicts } from "./host-port-claims";
 import { resolveManagedPostStartPlan } from "./managed-post-start";
+import { loadRuntimeConfig } from "./repo-config";
+import { isLinkedWorktree } from "./workspace";
+import { resolveGitCommonDir } from "./workspace-ownership";
 
 type ComposeInspection = {
   aliases: string[];
@@ -152,6 +157,56 @@ function routedProxyApps(
   );
 }
 
+// Read-only drift evidence: what the managed start would bind versus what is
+// bound right now. Unlike ensure admission, unavailable evidence only warns —
+// doctor must never fail on a degraded Docker endpoint.
+function buildHostPortClaimsCheck(repoPath: string, workspace?: string): DiagnosticCheck {
+  try {
+    const linked = isLinkedWorktree(repoPath);
+    const runtime = loadRuntimeConfig(repoPath);
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath,
+      config: runtime.config,
+      profile: runtime.resolvedProfile,
+      linked,
+    });
+    const gitCommonDir = linked ? resolveGitCommonDir(repoPath) : undefined;
+    const workspaceEnv =
+      linked && workspace && gitCommonDir ? { token: workspace, gitCommonDir } : undefined;
+    const conflicts = detectHostPortClaimConflicts({ repoPath, plan, workspace: workspaceEnv });
+    if (conflicts.length === 0) {
+      return {
+        id: "repo.host-port-claims",
+        level: "ok",
+        summary: "No configured fixed host-port binding conflicts with a running container.",
+      };
+    }
+    return {
+      id: "repo.host-port-claims",
+      level: "error",
+      summary: `${conflicts.length} configured fixed host-port binding${conflicts.length === 1 ? "" : "s"} conflict${conflicts.length === 1 ? "s" : ""} with running containers.`,
+      details: conflicts
+        .map(
+          (conflict) =>
+            `${conflict.service}: ${conflict.hostIp ?? "*"}:${conflict.hostPort}/${conflict.protocol} held by '${conflict.holderContainer}'` +
+            (conflict.holderWorkspace ? ` (workspace '${conflict.holderWorkspace}')` : ""),
+        )
+        .join("; "),
+      suggestion:
+        "Stop the holding workspace or change the consumer's own published binding, then run ensure again. Devrouter never rewrites consumer-declared host bindings.",
+    };
+  } catch (error) {
+    return {
+      id: "repo.host-port-claims",
+      level: "warn",
+      summary: "Could not compare configured fixed host-port bindings against live holders.",
+      details: error instanceof Error ? error.message : String(error),
+      suggestion:
+        "Check Docker availability; a managed ensure refuses on this evidence before starting.",
+    };
+  }
+}
+
 export function buildDevcontainerChecks(
   repoPath: string,
   config?: DevrouterConfig,
@@ -267,6 +322,10 @@ export function buildDevcontainerChecks(
       suggestion: "Add or fix .devrouter.yml proxy entries for the devcontainer services.",
     });
     return checks;
+  }
+
+  if (config.managedRuntime) {
+    checks.push(buildHostPortClaimsCheck(repoPath, workspace));
   }
 
   const aliasSet = new Set(
