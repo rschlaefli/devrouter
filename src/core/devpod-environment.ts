@@ -142,7 +142,7 @@ function assertString(value: unknown): asserts value is string {
   }
 }
 
-function validateManagedStopSnapshot(
+export function validateManagedStopSnapshot(
   value: unknown,
   composeProject: string,
 ): ManagedStopContainerSnapshot {

@@ -1,19 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ManagedDevcontainerPlan } from "./devcontainer-profile";
+import type { inspectManagedDevcontainerConfig } from "./devcontainer-profile";
 import type { ManagedStopContainerSnapshot } from "./devpod-environment";
 import { sameWorkspacePath } from "./workspace";
 
-/** Independent configured service membership; never inferred from the observed labels. */
+/** Validate supplied Compose population ownership without inspecting or mutating a provider. */
 export function proveManagedComposePopulation(options: {
-  plan: ManagedDevcontainerPlan;
+  plan: Pick<
+    ReturnType<typeof inspectManagedDevcontainerConfig>,
+    "nativeRunServices" | "composeDirectory" | "composeFiles" | "desiredServices" | "primaryService"
+  >;
   repoPath: string;
   composeProject: string;
+  providerRoot: string;
   featureDirectory: string;
-  devsyRoot: string;
   containers: ManagedStopContainerSnapshot[];
 }): ManagedStopContainerSnapshot {
-  const { plan, repoPath, composeProject, featureDirectory, devsyRoot, containers } = options;
+  const { plan, repoPath, composeProject, providerRoot, featureDirectory, containers } = options;
   const services = new Set<string>();
   for (const container of containers) {
     const service = container.labels["com.docker.compose.service"] ?? "";
@@ -47,7 +50,7 @@ export function proveManagedComposePopulation(options: {
           path.basename(file),
         ) ||
         fs.realpathSync(file) !==
-          path.join(fs.realpathSync(devsyRoot), path.relative(devsyRoot, file))
+          path.join(fs.realpathSync(providerRoot), path.relative(providerRoot, file))
       ) {
         throw new Error("Managed stop refuses a foreign or escaped provider Compose file.");
       }

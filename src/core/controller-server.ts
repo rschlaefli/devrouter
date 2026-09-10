@@ -2,7 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { ControllerMonitor, type ControllerObservationCollector } from "./controller-monitor";
-import { parseControllerRequest } from "./controller-protocol";
+import { type ControllerRequest, parseControllerRequest } from "./controller-protocol";
 import { ControllerSessions } from "./controller-sessions";
 import {
   type ControllerEnvironment,
@@ -10,6 +10,7 @@ import {
   ControllerStore,
 } from "./controller-store";
 import { withFileLock } from "./file-lock";
+import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
 
 const FRAME_BYTES = 65_536;
 function privateDirectory(directory: string) {
@@ -51,13 +52,39 @@ export type ControllerResolver = (
   request: { path: string; profile: string; require: string[] },
   signal: AbortSignal,
 ) => Promise<ControllerEnvironment>;
+
+export type ControllerOperations = {
+  tick?: () => Promise<void>;
+  close?: () => void;
+  submit: (
+    request: Extract<ControllerRequest, { method: "operation-submit" }>,
+    environment: ControllerEnvironment,
+    signal: AbortSignal,
+  ) => Promise<unknown>;
+  watch: (
+    request: Extract<ControllerRequest, { method: "operation-watch" }>,
+    environment: ControllerEnvironment,
+    signal: AbortSignal,
+  ) => Promise<unknown>;
+};
+
+export type ControllerStartup = {
+  directory: string;
+  store: string;
+  epoch: number;
+  consumeStartup: (directory: string) => void;
+};
 export async function runController(options: {
   directory: string;
   signal: AbortSignal;
   resolve: ControllerResolver;
   collect?: ControllerObservationCollector;
   onListening?: () => void;
+  operations?: ControllerOperations;
+  createOperations?: (controller: ControllerStartup) => ControllerOperations | undefined;
 }): Promise<void> {
+  if (options.operations && options.createOperations)
+    throw new Error("Controller operations have multiple owners.");
   const socketPath = path.join(options.directory, "control.sock");
   if (Buffer.byteLength(socketPath) > 103) throw new Error("Controller socket path is too long.");
   privateDirectory(options.directory);
@@ -72,6 +99,24 @@ export async function runController(options: {
   await withFileLock(lockPath, { activity: "controller ownership", waitMs: 0 }, async () => {
     if (validateOwnedFile(socketPath, true)) fs.unlinkSync(socketPath);
     const sessions = new ControllerSessions(new ControllerStore(options.directory));
+    const incarnation = sessions.read();
+    let startupAvailable = true;
+    let operations: ControllerOperations | undefined;
+    try {
+      operations =
+        options.createOperations?.({
+          directory: options.directory,
+          store: incarnation.store,
+          epoch: incarnation.epoch,
+          consumeStartup: (directory) => {
+            if (!startupAvailable || directory !== options.directory)
+              throw new Error("Controller startup authority is unavailable.");
+            startupAvailable = false;
+          },
+        }) ?? options.operations;
+    } finally {
+      startupAvailable = false;
+    }
     const sockets = new Set<net.Socket>();
     let serial = Promise.resolve();
     const monotonic = () => Math.floor(performance.now());
@@ -231,6 +276,66 @@ export async function runController(options: {
           socket.destroy();
           return;
         }
+        if (request.method === "operation-submit" || request.method === "operation-watch") {
+          const operationRequest = request;
+          const abort = new AbortController();
+          const cancel = () => abort.abort();
+          socket.once("close", cancel);
+          options.signal.addEventListener("abort", cancel, { once: true });
+          const timeout =
+            operationRequest.method === "operation-watch"
+              ? operationRequest.timeout * 1000 + 1000
+              : 3000;
+          let deadline: ReturnType<typeof setTimeout> | undefined;
+          let environment: ControllerEnvironment;
+          const validate = serial.then(() => {
+            sessions.tick(monotonic(), Date.now());
+            const session = sessions.validate(operationRequest);
+            const bound = sessions
+              .read()
+              .environments.find((entry) => entry.id === session.environmentId);
+            if (!bound || !operations) throw new Error("Managed operations unavailable.");
+            environment = bound;
+          });
+          serial = validate.catch(() => {});
+          void validate
+            .then(async () => {
+              if (abort.signal.aborted || socket.destroyed)
+                throw new Error("Operation client detached.");
+              if (!operations) throw new Error("Managed operations unavailable.");
+              const handler =
+                operationRequest.method === "operation-submit"
+                  ? operations.submit(operationRequest, environment, abort.signal)
+                  : operations.watch(operationRequest, environment, abort.signal);
+              const result = await Promise.race([
+                handler,
+                new Promise<never>((_resolve, reject) => {
+                  deadline = setTimeout(() => {
+                    cancel();
+                    reject(new Error("Operation response deadline exceeded."));
+                  }, timeout);
+                }),
+              ]);
+              if (!socket.destroyed)
+                send({ version: 1, id: operationRequest.id, ok: true, result });
+            })
+            .catch(() => {
+              if (!socket.destroyed)
+                send({
+                  version: 1,
+                  id: operationRequest.id,
+                  ok: false,
+                  error: "request-unavailable",
+                });
+            })
+            .finally(() => {
+              clearTimeout(deadline);
+              socket.removeListener("close", cancel);
+              options.signal.removeEventListener("abort", cancel);
+              pending = false;
+            });
+          return;
+        }
         const task = async () => {
           if (socket.destroyed) return;
           sessions.tick(monotonic(), Date.now());
@@ -294,6 +399,23 @@ export async function runController(options: {
                   ? String(offset + 16)
                   : null,
             };
+          } else if (request.method === "operation-status") {
+            const session = sessions.validate(request);
+            const environment = sessions
+              .read()
+              .environments.find((entry) => entry.id === session.environmentId);
+            if (!environment) throw new Error("Session environment is unavailable.");
+            result = {
+              operation:
+                readLifecycleOperationStatus(
+                  {
+                    repoPath: environment.repoPath,
+                    workspace: environment.workspace || null,
+                    provider: environment.provider,
+                  },
+                  request.operationId,
+                ) ?? null,
+            };
           } else {
             sessions.validate(request);
             const deadline = monotonic() + request.timeout * 1000;
@@ -355,8 +477,23 @@ export async function runController(options: {
       });
     });
     let finish: () => void = () => {};
+    let shuttingDown = false;
+    let operationTick: Promise<void> | undefined;
+    let operationsClosed = false;
+    const closeOperations = () => {
+      if (operationsClosed) return;
+      operationsClosed = true;
+      try {
+        operations?.close?.();
+      } catch {
+        fatal = new Error("Controller operation shutdown failed.");
+      }
+    };
     const shutdown = () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
       monitor?.stop();
+      closeOperations();
       for (const socket of sockets) socket.destroy();
       server.close(finish);
     };
@@ -366,8 +503,19 @@ export async function runController(options: {
       tickQueued = true;
       serial = serial
         .then(() => {
+          if (shuttingDown) return;
           sessions.tick(monotonic(), Date.now());
           monitor?.tick();
+          if (operations?.tick && !operationTick) {
+            operationTick = Promise.resolve()
+              .then(() => operations.tick?.())
+              .catch(() => {
+                // Failed collection grants no renewed authority; observation remains available.
+              })
+              .finally(() => {
+                operationTick = undefined;
+              });
+          }
         })
         .catch(() => {
           fatal = new Error("Controller state unavailable.");
@@ -397,6 +545,7 @@ export async function runController(options: {
     } finally {
       clearInterval(timer);
       monitor?.stop();
+      closeOperations();
       options.signal.removeEventListener("abort", shutdown);
       for (const socket of sockets) socket.destroy();
       if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -29,6 +29,7 @@
     "test": "vitest run && pnpm test:process",
     "test:package": "./scripts/package-smoke.sh",
     "qualify:lifecycle": "node --import tsx scripts/qualify-lifecycle.ts",
+    "qualify:capacity": "node --import tsx scripts/qualify-capacity.ts",
     "qualify:controller": "node --import tsx scripts/qualify-controller.ts",
     "qualify:stop-drift": "node --import tsx scripts/qualify-config-drift-stop.ts",
     "test:process": "bash scripts/test-devrouter-process.sh",

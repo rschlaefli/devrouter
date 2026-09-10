@@ -8,6 +8,9 @@ export const CONTROLLER_MAX_PROFILE_LENGTH = 256;
 export const CONTROLLER_MAX_CURSOR_LENGTH = 256;
 export const CONTROLLER_MAX_REQUIREMENTS = 16;
 export const CONTROLLER_MAX_SELECTOR_LENGTH = 132;
+export const CONTROLLER_MAX_OPERATION_ARGS = 128;
+export const CONTROLLER_MAX_OPERATION_REQUEST_BYTES = 32 * 1024;
+export const CONTROLLER_MAX_OPERATION_WATCH_TIMEOUT = 30;
 
 const CONTROLLER_ID_RE = /^[A-Za-z0-9_-]+$/;
 const CONTROLLER_PROFILE_TOKEN_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -21,7 +24,16 @@ function hasControlCharacter(value: string): boolean {
   );
 }
 
-type ControllerMethod = "handshake" | "observe" | "renew" | "release" | "status" | "watch";
+type ControllerMethod =
+  | "handshake"
+  | "observe"
+  | "renew"
+  | "release"
+  | "status"
+  | "watch"
+  | "operation-status"
+  | "operation-submit"
+  | "operation-watch";
 
 export type ControllerHandshakeRequest = {
   version: 1;
@@ -80,13 +92,50 @@ export type ControllerWatchRequest = {
   timeout: number;
 };
 
+type ControllerOperationSubmitBinding = {
+  version: 1;
+  id: string;
+  method: "operation-submit";
+  session: string;
+  store: string;
+  epoch: number;
+  generation: string;
+  requestId: string;
+  operation?: string;
+};
+
+export type ControllerOperationSubmitRequest =
+  | (ControllerOperationSubmitBinding & { kind: "ensure"; command?: never })
+  | (ControllerOperationSubmitBinding & { kind: "exec"; command: string[] });
+
+export type ControllerOutputCursor = {
+  sequence: number;
+  offset: number;
+};
+
+export type ControllerOperationWatchRequest = {
+  version: 1;
+  id: string;
+  method: "operation-watch";
+  session: string;
+  store: string;
+  epoch: number;
+  generation: string;
+  operationId: string;
+  timeout: number;
+  output?: ControllerOutputCursor;
+};
+
 export type ControllerRequest =
+  | (Omit<ControllerRenewRequest, "method"> & { method: "operation-status"; operationId: string })
   | ControllerHandshakeRequest
   | ControllerObserveRequest
   | ControllerRenewRequest
   | ControllerReleaseRequest
   | ControllerStatusRequest
-  | ControllerWatchRequest;
+  | ControllerWatchRequest
+  | ControllerOperationSubmitRequest
+  | ControllerOperationWatchRequest;
 
 class ControllerProtocolError extends Error {
   constructor(message: string) {
@@ -221,6 +270,61 @@ function parseTimeout(value: unknown): number {
   return value;
 }
 
+function parseOperationWatchTimeout(value: unknown): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > CONTROLLER_MAX_OPERATION_WATCH_TIMEOUT
+  ) {
+    invalidRequest();
+  }
+  return value;
+}
+
+function parseOperationCommand(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > CONTROLLER_MAX_OPERATION_ARGS ||
+    value.some((argument) => typeof argument !== "string" || argument.includes("\u0000")) ||
+    value[0].length === 0
+  ) {
+    invalidRequest();
+  }
+  return value;
+}
+
+function parseOutputCursor(value: unknown): ControllerOutputCursor {
+  if (!isRecord(value)) invalidRequest();
+  assertFields(value, ["sequence", "offset"]);
+  const { sequence, offset } = value;
+  if (
+    typeof sequence !== "number" ||
+    !Number.isSafeInteger(sequence) ||
+    sequence < 0 ||
+    typeof offset !== "number" ||
+    !Number.isSafeInteger(offset) ||
+    offset < 0
+  ) {
+    invalidRequest();
+  }
+  return { sequence, offset };
+}
+
+function assertOperationSubmitByteBound(input: unknown): void {
+  let encoded: string | undefined;
+  try {
+    encoded = JSON.stringify(input);
+  } catch {
+    invalidRequest();
+  }
+  if (encoded === undefined) invalidRequest();
+  if (Buffer.byteLength(encoded, "utf8") > CONTROLLER_MAX_OPERATION_REQUEST_BYTES) {
+    fail("Operation submit request exceeds the maximum size.");
+  }
+}
+
 function parseEpoch(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
     invalidRequest();
@@ -288,6 +392,23 @@ export function parseControllerRequest(input: unknown): ControllerRequest {
           generation: parseId(input.generation),
         };
       }
+      case "operation-status": {
+        const header = parseHeader(input, "operation-status", [
+          "session",
+          "store",
+          "epoch",
+          "generation",
+          "operationId",
+        ]);
+        return {
+          ...header,
+          session: parseId(input.session),
+          store: parseId(input.store),
+          epoch: parseEpoch(input.epoch),
+          generation: parseId(input.generation),
+          operationId: parseId(input.operationId),
+        };
+      }
       case "status": {
         const header = parseHeader(input, "status", [], ["session", "cursor"]);
         const session = optionalString(input, "session", parseId);
@@ -316,6 +437,62 @@ export function parseControllerRequest(input: unknown): ControllerRequest {
           ...(after === undefined ? {} : { after }),
           ...(afterStore === undefined ? {} : { afterStore }),
           timeout: parseTimeout(input.timeout),
+        };
+      }
+      case "operation-submit": {
+        assertOperationSubmitByteBound(input);
+        const header = parseHeader(
+          input,
+          "operation-submit",
+          ["session", "store", "epoch", "generation", "requestId", "kind"],
+          ["operation", "command"],
+        );
+        const kind = input.kind;
+        if (kind !== "ensure" && kind !== "exec") invalidRequest();
+        const operation = optionalString(input, "operation", parseId);
+        if (kind === "ensure") {
+          if (Object.hasOwn(input, "command")) invalidRequest();
+          return {
+            ...header,
+            session: parseId(input.session),
+            store: parseId(input.store),
+            epoch: parseEpoch(input.epoch),
+            generation: parseId(input.generation),
+            requestId: parseId(input.requestId),
+            kind,
+            ...(operation === undefined ? {} : { operation }),
+          };
+        }
+        if (!Object.hasOwn(input, "command")) invalidRequest();
+        return {
+          ...header,
+          session: parseId(input.session),
+          store: parseId(input.store),
+          epoch: parseEpoch(input.epoch),
+          generation: parseId(input.generation),
+          requestId: parseId(input.requestId),
+          kind,
+          ...(operation === undefined ? {} : { operation }),
+          command: parseOperationCommand(input.command),
+        };
+      }
+      case "operation-watch": {
+        const header = parseHeader(
+          input,
+          "operation-watch",
+          ["session", "store", "epoch", "generation", "operationId", "timeout"],
+          ["output"],
+        );
+        const output = Object.hasOwn(input, "output") ? parseOutputCursor(input.output) : undefined;
+        return {
+          ...header,
+          session: parseId(input.session),
+          store: parseId(input.store),
+          epoch: parseEpoch(input.epoch),
+          generation: parseId(input.generation),
+          operationId: parseId(input.operationId),
+          timeout: parseOperationWatchTimeout(input.timeout),
+          ...(output === undefined ? {} : { output }),
         };
       }
       default:

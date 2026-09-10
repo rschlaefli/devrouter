@@ -142,6 +142,13 @@ Renew every ten seconds; the lease lasts thirty seconds. Watching and status rea
 do not renew it. `app:<name>` requirements need an application in the selected
 profile with an explicit HTTP readiness contract.
 
+Controller protocol clients can query `operation-status` with the same session
+binding and an `operationId`. The reply reads the current operation or retained
+journal history without submitting work. Pending operations have a null outcome;
+completed commands retain their exit code, and uncertain completion remains
+explicit. A missing operation returns null. This read does not renew the session
+lease or establish application readiness.
+
 Treat `UNKNOWN`, expired evidence, disconnection, and lost event continuity as
 unverified readiness. Reacquire after observer restart; old bindings cannot renew
 or release a replacement session. Watch reconnection uses `--after <epoch>:<sequence>`

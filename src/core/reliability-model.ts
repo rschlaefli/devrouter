@@ -385,7 +385,6 @@ function handleOperationRequest(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "operation-request" }>,
 ): ReliabilityTransition {
-  if (state.executionPolicy !== "manual") return unchanged(state, "blocked");
   const previous = state.operationHistory.find((entry) => entry.key === event.key);
   if (previous)
     return unchanged(
@@ -399,6 +398,8 @@ function handleOperationRequest(
     );
   if (state.operationHistory.some((entry) => entry.id === event.operationId))
     return unchanged(state, "conflict");
+  if (state.executionPolicy !== "manual" && state.operationHistory.length >= RELIABILITY_MAX_ITEMS)
+    return unchanged(state, "blocked");
   // Tooling does not reconcile interrupted preparation. Every subsequent command
   // needs fresh identity proof until a later ensure replaces that startup result.
   if (
@@ -444,7 +445,8 @@ function handleOperationRequest(
       state,
       `exec requires a running workspace (runtimeRunning=${event.runtimeRunning}, desired='${state.desired}').`,
     );
-  const rollover = state.operationHistory.length >= RELIABILITY_MAX_ITEMS;
+  const rollover =
+    state.executionPolicy === "manual" && state.operationHistory.length >= RELIABILITY_MAX_ITEMS;
   let retired = -1;
   if (rollover) {
     // The supersede gates above already proved the current drained operation is
@@ -479,6 +481,7 @@ function handleOperationRequest(
   state.desired = "running";
   state.phase = "queued";
   state.profile = event.profile;
+  if (state.executionPolicy === "capacity-managed") state.admission = "waiting";
   state.stopProof = { workloadsStopped: false, routesRemoved: false };
   state.consumers = [cloneConsumer(event.consumer)];
   state.requests = [
@@ -504,7 +507,13 @@ function handleOperationRequest(
     profile: event.profile,
     consumer: cloneConsumer(event.consumer),
   });
-  return transition(state, "accepted");
+  return transition(
+    state,
+    "accepted",
+    state.executionPolicy === "capacity-managed"
+      ? [effect(state, "request-admission", event.operationId)]
+      : [],
+  );
 }
 
 function handleAdmission(
@@ -700,7 +709,7 @@ function handleObservation(
 }
 
 function handleStop(state: ReliabilityState): ReliabilityTransition {
-  if (state.desired === "stopped-by-user" && state.intentRevision > 0)
+  if (state.desired === "stopped-by-user" && state.phase === "stopping")
     return unchanged(state, "joined");
   const intentRevision = advance(state.intentRevision);
   if (intentRevision === null) return unchanged(state, "blocked");
@@ -1008,11 +1017,7 @@ export function stepReliability(
   if (!isReliabilityCounter(nowMs) || nowMs < state.observationsAfterMs)
     throw new Error("Invalid reliability clock.");
   const result = applyReliabilityEvent(state, event, nowMs);
-  if (
-    result.outcome === "accepted" &&
-    result.state.executionPolicy === "manual" &&
-    result.state.operation
-  ) {
+  if (result.outcome === "accepted" && result.state.operation) {
     const operation = result.state.operation;
     result.state.operationHistory = result.state.operationHistory.map((entry) =>
       entry.id === operation.id ? { ...entry, ...operation } : entry,

@@ -2,11 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DevrouterApp, DevrouterConfig } from "../../types";
+import type { CapacityEstimates, DevrouterApp, DevrouterConfig } from "../../types";
 import { formatSupportedTcpProtocols } from "../capabilities";
 import {
   applyProfile,
   applyWorkspace,
+  capacityEstimatesDigest,
   initRepoConfig,
   loadRepoConfig,
   loadRuntimeConfig,
@@ -1743,5 +1744,199 @@ apps: []
 `,
     );
     expect(() => loadRepoConfig(tmpDir)).toThrow(/apps must not be empty/);
+  });
+
+  it("parses exact capacity profile combinations and transition totals", () => {
+    writeConfig(
+      tmpDir,
+      `version: 1
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: proxy
+    upstream: 127.0.0.1:3000
+profiles:
+  api:
+    apps: [web]
+  worker:
+    apps: [web]
+capacity:
+  version: 1
+  profiles:
+    worker,api:
+      host:
+        steadyBytes: 200
+        startupTotalBytes: 300
+      runtime:
+        steadyBytes: 300
+        startupTotalBytes: 400
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 10
+        exec:
+          hostIncrementBytes: 5
+          runtimeIncrementBytes: 20
+    api:
+      host:
+        steadyBytes: 0
+        startupTotalBytes: 100
+      runtime:
+        steadyBytes: 100
+        startupTotalBytes: 150
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 8
+  transitions:
+    api:
+      worker,api:
+        hostTotalBytes: 250
+        runtimeTotalBytes: 350
+`,
+    );
+
+    const config = loadRepoConfig(tmpDir);
+    expect(config.capacity?.profiles["api,worker"]).toEqual({
+      host: { steadyBytes: 200, startupTotalBytes: 300 },
+      runtime: { steadyBytes: 300, startupTotalBytes: 400 },
+      operations: {
+        ensure: { hostIncrementBytes: 0, runtimeIncrementBytes: 10 },
+        exec: { hostIncrementBytes: 5, runtimeIncrementBytes: 20 },
+      },
+    });
+    expect(config.capacity?.transitions?.api?.["api,worker"]).toEqual({
+      hostTotalBytes: 250,
+      runtimeTotalBytes: 350,
+    });
+
+    const resolved = loadRuntimeConfig(tmpDir, undefined, "worker,api");
+    expect(resolved.profile).toBe("api,worker");
+    expect(resolved.config.capacity?.profiles[resolved.profile]).toBeDefined();
+  });
+
+  it("rejects aliased capacity transition source keys", () => {
+    writeConfig(
+      tmpDir,
+      `version: 1
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: proxy
+    upstream: 127.0.0.1:3000
+profiles:
+  api:
+    apps: [web]
+  worker:
+    apps: [web]
+capacity:
+  version: 1
+  profiles:
+    api:
+      host:
+        steadyBytes: 0
+        startupTotalBytes: 100
+      runtime:
+        steadyBytes: 100
+        startupTotalBytes: 150
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 10
+    api,worker:
+      host:
+        steadyBytes: 200
+        startupTotalBytes: 300
+      runtime:
+        steadyBytes: 300
+        startupTotalBytes: 400
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 10
+  transitions:
+    worker,api:
+      api:
+        hostTotalBytes: 200
+        runtimeTotalBytes: 300
+    api,worker:
+      api:
+        hostTotalBytes: 200
+        runtimeTotalBytes: 300
+`,
+    );
+
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/aliases for source/);
+  });
+
+  it("uses a stable digest for normalized estimate ordering", () => {
+    const estimates: CapacityEstimates = {
+      version: 1,
+      profiles: {
+        "api,worker": {
+          host: { steadyBytes: 200, startupTotalBytes: 300 },
+          runtime: { steadyBytes: 300, startupTotalBytes: 400 },
+          operations: { exec: { hostIncrementBytes: 5, runtimeIncrementBytes: 20 } },
+        },
+        api: {
+          host: { steadyBytes: 0, startupTotalBytes: 100 },
+          runtime: { steadyBytes: 100, startupTotalBytes: 150 },
+          operations: { ensure: { hostIncrementBytes: 0, runtimeIncrementBytes: 10 } },
+        },
+      },
+    };
+    const reordered: CapacityEstimates = {
+      ...estimates,
+      profiles: {
+        api: estimates.profiles.api,
+        "api,worker": estimates.profiles["api,worker"],
+      },
+    };
+
+    expect(capacityEstimatesDigest(estimates)).toBe(capacityEstimatesDigest(reordered));
+  });
+
+  it.each([
+    ["zero runtime steady", "steadyBytes: 0"],
+    ["startup below steady", "startupTotalBytes: 99"],
+    ["transition below steady", "runtimeTotalBytes: 99"],
+  ])("rejects malformed capacity estimates: %s", (_case, replacement) => {
+    const capacityYaml = `capacity:
+  version: 1
+  profiles:
+    full:
+      host:
+        steadyBytes: 0
+        startupTotalBytes: 100
+      runtime:
+        steadyBytes: 100
+        startupTotalBytes: 150
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 10
+  transitions:
+    full:
+      full:
+        hostTotalBytes: 100
+        runtimeTotalBytes: 100
+`;
+    const malformed =
+      replacement === "steadyBytes: 0"
+        ? capacityYaml.replace("steadyBytes: 100", replacement)
+        : replacement === "startupTotalBytes: 99"
+          ? capacityYaml.replace("startupTotalBytes: 150", replacement)
+          : capacityYaml.replace("runtimeTotalBytes: 100", replacement);
+    writeConfig(tmpDir, `version: 1\napps: []\n${malformed}`);
+    expect(() => loadRepoConfig(tmpDir)).toThrow();
+  });
+
+  it("keeps existing example configurations valid without capacity", () => {
+    for (const example of ["routing", "devcontainer"]) {
+      const config = loadRepoConfig(path.resolve(__dirname, "../../../examples", example));
+      expect(config.capacity).toBeUndefined();
+    }
   });
 });

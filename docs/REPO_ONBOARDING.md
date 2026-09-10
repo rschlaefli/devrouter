@@ -416,6 +416,7 @@ explicit artifact-write flags are supplied.
 - Each HTTP route is exercised through its real `https://*.localhost` URL.
 - Each TCP route is exercised with a direct-TLS/SNI-capable client.
 - Managed devcontainers include static verify, `ensure --json`, route evidence, and exact-container `exec` evidence.
+- Enrolled checkouts under an enabled capacity policy report controller admission for `ensure` and `exec`; unenrolled repositories are unaffected.
 - Skipped live checks name the missing prerequisite and residual risk.
 
 The [routing example](../examples/routing/README.md), [managed devcontainer

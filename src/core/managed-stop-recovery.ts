@@ -187,7 +187,7 @@ export function captureManagedStopBaseline(
     repoPath: state.repoPath,
     composeProject: state.composeProject,
     featureDirectory,
-    devsyRoot,
+    providerRoot: devsyRoot,
     containers,
   });
   if (primary.id !== primaryId)

@@ -202,6 +202,18 @@ Records are stamped with `writtenByVersion`. A record written by a newer CLI is
 refused with an upgrade instruction before any lifecycle step, so version skew
 surfaces as one explicit message instead of new refusals mid-flight.
 
+## Capacity admission (opt-in)
+
+With an explicitly enabled controller capacity policy, enrolled managed linked
+checkouts route `ensure` and `exec` through controller admission before
+dispatch. The CLI follows the decision with bounded reconnecting waits that
+survive controller restarts while the request stays queued, and worker results
+are journalled atomically with the completion event. `stop` bypasses admission.
+Checkouts without enrollment, and machines without `capacity-policy.json`
+under Devrouter home, keep the manual lifecycle. See
+[ADR 0008](../adr/0008-model-reliability-before-runtime-activation.md) for the
+source contract and activation boundaries.
+
 ## Stop, delete, and inspect
 
 | Command | Effect | Preserved state |

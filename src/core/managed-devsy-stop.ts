@@ -234,7 +234,7 @@ export function stopRetainedManagedDevsyWorkspace(options: {
       repoPath,
       composeProject: state.composeProject,
       featureDirectory,
-      devsyRoot,
+      providerRoot: devsyRoot,
       containers,
     });
     if (

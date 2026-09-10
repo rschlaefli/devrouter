@@ -16,6 +16,18 @@ All notable changes to this project are documented in this file.
   print the underlying failure cause on stderr while keeping the stable
   `controller-unavailable` JSON contract on stdout.
 
+### Added
+
+- Capacity admission for enrolled managed checkouts behind an explicitly
+  enabled operator policy: the controller admits `ensure` and `exec` before
+  dispatch, the CLI follows the decision with bounded reconnecting waits that
+  survive controller restarts, worker results are journalled atomically, and
+  `stop` bypasses admission. Behavior is unchanged without
+  `capacity-policy.json` under Devrouter home (ADR 0008). The policy
+  `scheduling.clientWaitSeconds`, `maxClientWaitSeconds`, `watchSeconds`, and
+  `sampleIntervalSeconds` knobs are validated and reserved for future runtime
+  binding; runtime constants remain authoritative.
+
 ## [0.0.67] - 2026-09-10
 
 ### Fixed

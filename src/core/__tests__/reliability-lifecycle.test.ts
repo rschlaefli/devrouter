@@ -22,8 +22,23 @@ const fixture = vi.hoisted(() => ({
   absent: false,
   assertRoutesRemoved: vi.fn(),
   withWorkspaceLifecycleLock: vi.fn(),
+  readCapacityPolicy: vi.fn(),
   isLinkedWorktree: vi.fn(),
   resolveLinkedTarget: vi.fn(),
+  observe: vi.fn(),
+  submit: vi.fn(),
+  follow: vi.fn(),
+}));
+
+vi.mock("../capacity-policy", async (original) => ({
+  ...(await original<typeof import("../capacity-policy")>()),
+  readCapacityPolicy: fixture.readCapacityPolicy,
+}));
+
+vi.mock("../controller-client", () => ({
+  observeControllerBinding: fixture.observe,
+  submitControllerOperation: fixture.submit,
+  followControllerOperation: fixture.follow,
 }));
 
 vi.mock("../router", async (importOriginal) => {
@@ -34,7 +49,7 @@ vi.mock("../router", async (importOriginal) => {
   const root = actualFs.mkdtempSync(actualPath.join(actualOs.tmpdir(), "reliability-lifecycle-"));
   actualFs.chmodSync(root, 0o700);
   fixture.roots.push(root);
-  return { DEVROUTER_HOME: root, TCP_PROTOCOL_REGISTRY: actual.TCP_PROTOCOL_REGISTRY };
+  return { ...actual, DEVROUTER_HOME: root };
 });
 
 vi.mock("../devpod-environment", () => ({
@@ -196,6 +211,116 @@ async function seedWorkerRequest(kind: "ensure" | "exec" = "ensure") {
   return { contract, identity, lifecycle, model, request, store };
 }
 
+async function seedCapacityWorkerRequest(
+  options: {
+    budgets?: Record<
+      string,
+      {
+        capacityBytes: number;
+        protectedHeadroomBytes: number;
+        startupSlots: number;
+        heavySlots: number;
+      }
+    >;
+    samples?: Record<
+      string,
+      {
+        sampledAtMs: number;
+        pressure: "normal" | "unknown";
+        unmanagedBytes: number;
+        sharedBytes: number;
+        ownedBytes: Record<string, number>;
+      }
+    >;
+    totals?: Record<string, number>;
+  } = {},
+) {
+  const seeded = await seedWorkerRequest();
+  const { CapacityStore } = await import("../capacity-store");
+  const { ControllerStore } = await import("../controller-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const directory = path.join(DEVROUTER_HOME, "controller");
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const controller = new ControllerStore(directory).startIncarnation();
+  const capacities = new CapacityStore(directory);
+  const now = Date.now();
+  const budgets = options.budgets ?? {
+    host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 2, heavySlots: 2 },
+  };
+  const samples = options.samples ?? {
+    host: {
+      sampledAtMs: now,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    },
+  };
+  const reservation = {
+    environmentId: seeded.request.fence.environmentId,
+    operationId: seeded.request.operationId,
+    reservationId: "claim-reservation",
+    policyRevision: 1,
+    totals: options.totals ?? { host: 1 },
+    startup: true,
+    heavy: true,
+  };
+  const admission = capacities.reserve(
+    reservation,
+    budgets,
+    samples,
+    now,
+    60_000,
+    undefined,
+    capacities.read().revision,
+  );
+  if (!admission.admitted) throw new Error("Synthetic admission failed.");
+  const enrollment = {
+    policyRevision: 1,
+    gitCommonDir: "/tmp/synthetic-common",
+    providerId: "synthetic-provider",
+    hostDomain: "host",
+    runtimeDomain: "guest",
+    endpoint: "/tmp/synthetic-docker.sock",
+    daemonId: "synthetic-daemon",
+    estimatesDigest: "a".repeat(64),
+  };
+  seeded.store.updateReliabilityOperation(seeded.identity, (record) => {
+    record.version = 2;
+    record.enrollment = enrollment;
+    record.activeProfile = "full";
+    record.state.executionPolicy = "capacity-managed";
+    record.state.admission = "admitted";
+    record.state.chargeHeld = true;
+    record.capacity = {
+      reservationId: reservation.reservationId,
+      operationId: seeded.request.operationId,
+      workerId: seeded.request.workerId,
+      policyRevision: 1,
+      validUntilMs: now + 60_000,
+      snapshotRevision: admission.revision,
+      controller: { store: controller.store, epoch: controller.epoch },
+    };
+  });
+  const policy = {
+    revision: 1,
+    admissions: "enabled",
+    scheduling: { maxSampleAgeSeconds: 60 },
+    domains: {
+      ...budgets,
+      guest: {
+        ...(budgets.guest ?? {}),
+        kind: "runtime",
+        endpoint: enrollment.endpoint,
+        daemonId: enrollment.daemonId,
+      },
+    },
+    enrollments: [{ ...enrollment, ...seeded.identity, profiles: ["full"] }],
+  } as unknown as import("../capacity-policy").CapacityPolicy;
+  fixture.readCapacityPolicy.mockReturnValue(policy);
+  return { ...seeded, capacities, controller, directory, reservation, policy, samples, now };
+}
+
 async function seedStopRequest() {
   const { contract, lifecycle, model, store } = await loadLifecycleModules();
   const identity: ReliabilityIdentity = {
@@ -228,6 +353,8 @@ async function seedStopRequest() {
 }
 
 beforeEach(() => {
+  for (const root of fixture.roots)
+    fs.rmSync(path.join(root, "controller"), { recursive: true, force: true });
   fixture.absent = false;
   fixture.assertRoutesRemoved.mockReset();
   vi.resetModules();
@@ -249,6 +376,883 @@ beforeEach(() => {
   fixture.withWorkspaceLifecycleLock.mockImplementation(
     async (_repoPath: string, operation: () => Promise<unknown>) => operation(),
   );
+});
+
+it("persists an operation reference without dispatch and lets stop supersede it", async () => {
+  const { lifecycle, store, contract } = await loadLifecycleModules();
+  const repoPath = newCheckout();
+  const request = lifecycle.prepareLifecycleOperation("ensure", repoPath, { profile: "full" });
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  const pending = store.readReliabilityOperation(request.identity)!;
+  expect(pending.worker).toBeNull();
+  expect(pending.state.operation).toMatchObject({ id: request.operationId, status: "NOT_STARTED" });
+  const stop = lifecycle.prepareLifecycleOperation("stop", repoPath);
+  expect(stop.fence.intentRevision).toBeGreaterThan(request.fence.intentRevision);
+  expect(
+    contract.reliabilityFence(store.readReliabilityOperation(request.identity)!.state),
+  ).toEqual(stop.fence);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("accepts managed intent once and reconnects without returning another worker payload", async () => {
+  const { lifecycle, store, contract, model } = await loadLifecycleModules();
+  const identity: ReliabilityIdentity = {
+    repoPath: newCheckout(),
+    workspace: null,
+    provider: "devsy",
+  };
+  store.updateReliabilityOperation(identity, (record) => {
+    record.state = model.stepReliability(
+      record.state,
+      { ...contract.reliabilityFence(record.state), type: "stop" },
+      1,
+    ).state;
+    record.state = model.stepReliability(
+      record.state,
+      {
+        ...contract.reliabilityFence(record.state),
+        type: "stop-proof",
+        workloadsStopped: true,
+        routesRemoved: true,
+      },
+      2,
+    ).state;
+  });
+  const before = store.readReliabilityOperation(identity)!;
+  store.enrollStoppedLifecycle(identity, before.revision, {
+    policyRevision: 1,
+    gitCommonDir: "/tmp/synthetic-common",
+    providerId: "synthetic-provider",
+    hostDomain: "host",
+    runtimeDomain: "guest",
+    endpoint: "/tmp/synthetic-docker.sock",
+    daemonId: "synthetic-daemon",
+    estimatesDigest: "a".repeat(64),
+  });
+  const { ControllerStore } = await import("../controller-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const directory = path.join(DEVROUTER_HOME, "controller");
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const controllerStore = new ControllerStore(directory);
+  const controller = controllerStore.startIncarnation();
+  const input = {
+    identity,
+    controller: { store: controller.store, epoch: controller.epoch },
+    policyRevision: 1,
+    requestId: "durable-request",
+    kind: "ensure" as const,
+    profile: "full",
+    consumer: { id: "agent", requiredCapabilities: [], pinned: false },
+    runtimeRunning: false,
+  };
+  expect(() => lifecycle.prepareManagedLifecycleOperation({ ...input, policyRevision: 2 })).toThrow(
+    "enrollment",
+  );
+  expect(() => lifecycle.prepareLifecycleOperation("ensure", identity.repoPath)).toThrow(
+    "controller admission",
+  );
+  const accepted = lifecycle.prepareManagedLifecycleOperation(input);
+  expect(accepted.request).toMatchObject({ requestId: input.requestId });
+  expect(store.readReliabilityOperation(identity)?.state).toMatchObject({
+    admission: "waiting",
+    phase: "queued",
+    operation: { id: accepted.operationId, status: "NOT_STARTED" },
+  });
+  fixture.newLifecycleIds.mockReturnValue({
+    requestId: "unused-request",
+    operationId: "unused-operation",
+    workerId: "unused-worker",
+  });
+  expect(lifecycle.prepareManagedLifecycleOperation(input)).toEqual({
+    operationId: accepted.operationId,
+  });
+  expect(() =>
+    lifecycle.prepareManagedLifecycleOperation({ ...input, requestId: "competing-request" }),
+  ).toThrow("blocked");
+  expect(store.readReliabilityOperation(identity)?.state.operation).toMatchObject({
+    id: accepted.operationId,
+    status: "NOT_STARTED",
+    drained: false,
+  });
+  expect(() => lifecycle.prepareManagedLifecycleOperation({ ...input, profile: "other" })).toThrow(
+    "conflict",
+  );
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  expect(store.readReliabilityOperation(identity)?.state.operationHistory).toHaveLength(1);
+  store.updateReliabilityOperation(identity, (record) => {
+    const completed = { status: "COMPLETED" as const, drained: true, exitCode: 0 };
+    record.state.operation = { ...record.state.operation!, ...completed };
+    record.state.operationHistory = record.state.operationHistory.map((entry) => ({
+      ...entry,
+      ...completed,
+    }));
+  });
+  const execInput = {
+    ...input,
+    kind: "exec" as const,
+    requestId: "exec-request",
+    runtimeRunning: true,
+    command: ["synthetic-transient-payload"],
+  };
+  const exec = lifecycle.prepareManagedLifecycleOperation(execInput);
+  expect(exec.request?.command).toEqual(execInput.command);
+  const now = Date.now();
+  expect(
+    lifecycle.admitLifecycleCapacity(
+      exec.request!,
+      {
+        environmentId: exec.request!.fence.environmentId,
+        operationId: exec.operationId,
+        reservationId: "managed-reservation",
+        policyRevision: 1,
+        totals: { host: 1 },
+        startup: false,
+        heavy: true,
+      },
+      { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+      {
+        host: {
+          sampledAtMs: now,
+          pressure: "normal",
+          unmanagedBytes: 0,
+          sharedBytes: 0,
+          ownedBytes: {},
+        },
+      },
+      now,
+      15_000,
+      directory,
+      { store: controller.store, epoch: controller.epoch },
+    ).admitted,
+  ).toBe(true);
+  const admitted = store.readReliabilityOperation(identity)!;
+  expect(() => store.assertCapacityEffect(admitted, exec.request!.workerId, now)).not.toThrow();
+  const policy = {
+    revision: 1,
+    admissions: "enabled",
+    scheduling: { maxSampleAgeSeconds: 15 },
+    domains: {
+      host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 },
+      guest: {
+        kind: "runtime",
+        endpoint: admitted.enrollment!.endpoint,
+        daemonId: admitted.enrollment!.daemonId,
+      },
+    },
+    enrollments: [{ ...admitted.enrollment, ...identity, profiles: ["full"] }],
+  } as unknown as import("../capacity-policy").CapacityPolicy;
+  fixture.readCapacityPolicy.mockReturnValue(policy);
+  const samples = {
+    host: {
+      sampledAtMs: now + 1000,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    },
+  };
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 1000,
+    ),
+  ).toBe(true);
+  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(now + 16_000);
+  const { CapacityStore } = await import("../capacity-store");
+  const capacities = new CapacityStore(directory);
+  const readCapacity = CapacityStore.prototype.read;
+  vi.spyOn(CapacityStore.prototype, "read").mockImplementationOnce(function (
+    this: InstanceType<typeof CapacityStore>,
+  ) {
+    const snapshot = readCapacity.call(this);
+    capacities.settleEnvironmentAfterStop("competing-environment", snapshot.revision);
+    return snapshot;
+  });
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 1000,
+    ),
+  ).toBe(false);
+  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+  const reservations = capacities.read();
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 20_000,
+    ),
+  ).toBe(false);
+  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+  expect(new CapacityStore(directory).read()).toEqual(reservations);
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 1000,
+    ),
+  ).toBe(true);
+  controllerStore.startIncarnation();
+  expect(() => store.assertCapacityEffect(admitted, exec.request!.workerId, now)).toThrow(
+    "incarnation",
+  );
+  expect(
+    lifecycle.renewLifecycleCapacity(
+      exec.request!,
+      policy,
+      samples,
+      controller,
+      directory,
+      now + 1000,
+    ),
+  ).toBe(false);
+  expect(new CapacityStore(directory).read()).toEqual(reservations);
+  expect(admitted.state).toMatchObject({ admission: "admitted", chargeHeld: true });
+  expect(
+    model.stepReliability(
+      admitted.state,
+      { ...contract.reliabilityFence(admitted.state), type: "dispatch" },
+      now,
+    ).outcome,
+  ).toBe("accepted");
+  const beforeStaleAcceptance = store.readReliabilityOperation(identity);
+  expect(() =>
+    lifecycle.prepareManagedLifecycleOperation({
+      ...execInput,
+      command: ["replacement-not-executed"],
+    }),
+  ).toThrow("incarnation");
+  expect(store.readReliabilityOperation(identity)).toEqual(beforeStaleAcceptance);
+  expect(() =>
+    lifecycle.admitLifecycleCapacity(
+      exec.request!,
+      reservations.reservations[0],
+      { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+      samples,
+      now,
+      15_000,
+      directory,
+      controller,
+    ),
+  ).toThrow("incarnation");
+  expect(store.readReliabilityOperation(identity)).toEqual(beforeStaleAcceptance);
+  expect(new CapacityStore(directory).read()).toEqual(reservations);
+  const saved = fs.readFileSync(store.reliabilityOperationPath(identity), "utf8");
+  expect(saved).not.toContain("synthetic-transient-payload");
+  expect(saved).not.toContain("replacement-not-executed");
+});
+
+function witnessedRecordFixture(
+  record: import("../reliability-operation-store").ReliabilityOperationRecord,
+  fence: import("../reliability-contract").ReliabilityFence,
+) {
+  return {
+    operationId: record.state.operation!.id,
+    fence,
+    provider: {
+      id: record.enrollment!.providerId,
+      context: "default",
+      uid: "generation",
+      sourceContainer: "container",
+    },
+    profile: "full",
+    sourceConfigSha256: "b".repeat(64),
+    effectiveConfigSha256: "c".repeat(64),
+    composeFiles: ["/tmp/synthetic-compose.yml"],
+    primaryService: "app",
+    startupServices: ["app", "db"],
+    retainedContainerIds: [],
+  };
+}
+
+it("renews authority with an unknown sample local to the witnessed runtime domain", async () => {
+  const seeded = await seedCapacityWorkerRequest({
+    totals: { host: 1, guest: 1 },
+    budgets: {
+      host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 2, heavySlots: 2 },
+      guest: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 2, heavySlots: 2 },
+    },
+    samples: {
+      host: {
+        sampledAtMs: Date.now(),
+        pressure: "normal",
+        unmanagedBytes: 0,
+        sharedBytes: 0,
+        ownedBytes: {},
+      },
+      guest: {
+        sampledAtMs: Date.now(),
+        pressure: "normal",
+        unmanagedBytes: 0,
+        sharedBytes: 0,
+        ownedBytes: {},
+      },
+    },
+  });
+  const guestUnknown = {
+    sampledAtMs: seeded.now,
+    pressure: "unknown" as const,
+    unmanagedBytes: 0,
+    sharedBytes: 0,
+    ownedBytes: {},
+  };
+  const samples = {
+    host: seeded.samples.host,
+    guest: guestUnknown,
+  };
+  expect(
+    seeded.lifecycle.renewLifecycleCapacity(
+      seeded.request,
+      seeded.policy,
+      samples,
+      seeded.controller,
+      seeded.directory,
+      seeded.now,
+    ),
+  ).toBe(false);
+  expect(seeded.store.readReliabilityOperation(seeded.identity)?.capacity?.validUntilMs).toBe(0);
+  seeded.store.updateReliabilityOperation(seeded.identity, (record) => {
+    record.capacity!.validUntilMs = seeded.now + 60_000;
+    record.startupWitness = witnessedRecordFixture(record, seeded.request.fence);
+  });
+  expect(
+    seeded.lifecycle.renewLifecycleCapacity(
+      seeded.request,
+      seeded.policy,
+      samples,
+      seeded.controller,
+      seeded.directory,
+      seeded.now,
+    ),
+  ).toBe(true);
+  const renewed = seeded.store.readReliabilityOperation(seeded.identity)!;
+  expect(renewed.capacity?.validUntilMs).toBeGreaterThan(seeded.now);
+  expect(
+    seeded.lifecycle.renewLifecycleCapacity(
+      seeded.request,
+      seeded.policy,
+      {
+        ...samples,
+        guest: { ...samples.guest, sampledAtMs: seeded.now - 120_000, pressure: "unknown" },
+      },
+      seeded.controller,
+      seeded.directory,
+      seeded.now,
+    ),
+  ).toBe(false);
+  expect(
+    seeded.lifecycle.renewLifecycleCapacity(
+      seeded.request,
+      seeded.policy,
+      { ...samples, guest: { ...samples.guest, pressure: "pressured" } },
+      seeded.controller,
+      seeded.directory,
+      seeded.now,
+    ),
+  ).toBe(false);
+  expect(
+    seeded.lifecycle.renewLifecycleCapacity(
+      seeded.request,
+      seeded.policy,
+      { host: guestUnknown, guest: seeded.samples.host },
+      seeded.controller,
+      seeded.directory,
+      seeded.now,
+    ),
+  ).toBe(false);
+});
+
+it("clears a superseded startup witness when a new managed operation is accepted", async () => {
+  const { lifecycle, store, contract, model } = await loadLifecycleModules();
+  const identity: ReliabilityIdentity = {
+    repoPath: newCheckout(),
+    workspace: null,
+    provider: "devsy",
+  };
+  store.updateReliabilityOperation(identity, (record) => {
+    record.state = model.stepReliability(
+      record.state,
+      { ...contract.reliabilityFence(record.state), type: "stop" },
+      1,
+    ).state;
+    record.state = model.stepReliability(
+      record.state,
+      {
+        ...contract.reliabilityFence(record.state),
+        type: "stop-proof",
+        workloadsStopped: true,
+        routesRemoved: true,
+      },
+      2,
+    ).state;
+  });
+  const before = store.readReliabilityOperation(identity)!;
+  store.enrollStoppedLifecycle(identity, before.revision, {
+    policyRevision: 1,
+    gitCommonDir: "/tmp/synthetic-common",
+    providerId: "synthetic-provider",
+    hostDomain: "host",
+    runtimeDomain: "guest",
+    endpoint: "/tmp/synthetic-docker.sock",
+    daemonId: "synthetic-daemon",
+    estimatesDigest: "a".repeat(64),
+  });
+  const { ControllerStore } = await import("../controller-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const directory = path.join(DEVROUTER_HOME, "controller");
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const controller = new ControllerStore(directory).startIncarnation();
+  const input = {
+    identity,
+    controller: { store: controller.store, epoch: controller.epoch },
+    policyRevision: 1,
+    requestId: "first-request",
+    kind: "ensure" as const,
+    profile: "full",
+    consumer: { id: "agent", requiredCapabilities: [], pinned: false },
+    runtimeRunning: false,
+  };
+  const accepted = lifecycle.prepareManagedLifecycleOperation(input);
+  store.updateReliabilityOperation(identity, (record) => {
+    record.startupWitness = witnessedRecordFixture(record, accepted.request!.fence);
+  });
+  expect(store.readReliabilityOperation(identity)?.startupWitness).not.toBeNull();
+  store.updateReliabilityOperation(identity, (record) => {
+    const completed = { status: "COMPLETED" as const, drained: true, exitCode: 0 };
+    record.state.operation = { ...record.state.operation!, ...completed };
+    record.state.operationHistory = record.state.operationHistory.map((entry) => ({
+      ...entry,
+      ...completed,
+    }));
+  });
+  fixture.newLifecycleIds.mockReturnValue({
+    requestId: "second-request",
+    operationId: "second-operation",
+    workerId: "second-worker",
+  });
+  const second = lifecycle.prepareManagedLifecycleOperation({
+    ...input,
+    requestId: "second-request",
+  });
+  expect(second.request).toMatchObject({ operationId: "second-operation" });
+  expect(store.readReliabilityOperation(identity)?.startupWitness ?? null).toBeNull();
+});
+
+it("clears the active operation's startup witness inside the lifecycle worker", async () => {
+  const seeded = await seedCapacityWorkerRequest();
+  seeded.store.updateReliabilityOperation(seeded.identity, (record) => {
+    record.startupWitness = witnessedRecordFixture(record, seeded.request.fence);
+  });
+  await expect(
+    seeded.lifecycle.executeLifecycleWorker(seeded.request, async () => {
+      seeded.lifecycle.clearActiveLifecycleStartupWitness();
+      expect(
+        seeded.store.readReliabilityOperation(seeded.identity)?.startupWitness ?? null,
+      ).toBeNull();
+      return "ok";
+    }),
+  ).resolves.toBe("ok");
+  expect(seeded.store.readReliabilityOperation(seeded.identity)?.startupWitness ?? null).toBeNull();
+  seeded.lifecycle.clearActiveLifecycleStartupWitness();
+});
+
+it.each([
+  false,
+  true,
+])("binds a persisted reservation only to current intent (stop intervenes: %s)", async (stopped) => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const { CapacityStore } = await import("../capacity-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const request = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  const record = store.readReliabilityOperation(request.identity)!;
+  const now = Date.now();
+  const capacities = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+  const admission = capacities.reserve(
+    {
+      environmentId: record.state.environmentId,
+      operationId: request.operationId,
+      reservationId: "reserved",
+      policyRevision: 1,
+      totals: { host: 1 },
+      startup: true,
+      heavy: false,
+    },
+    { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+    {
+      host: {
+        sampledAtMs: now,
+        pressure: "normal",
+        unmanagedBytes: 0,
+        sharedBytes: 0,
+        ownedBytes: {},
+      },
+    },
+    now,
+    15_000,
+    undefined,
+    capacities.read().revision,
+  );
+  expect(admission.admitted).toBe(true);
+  if (!admission.admitted) throw new Error("Synthetic admission failed.");
+  if (stopped) lifecycle.prepareLifecycleOperation("stop", request.repoPath);
+  const bind = () =>
+    lifecycle.bindLifecycleCapacity(request, {
+      reservationId: "reserved",
+      policyRevision: 1,
+      snapshotRevision: admission.revision,
+      validUntilMs: now + 15_000,
+    });
+  if (stopped) expect(bind).toThrow("intent changed");
+  else {
+    expect(bind).not.toThrow();
+    expect(store.readReliabilityOperation(request.identity)).toMatchObject({
+      version: 2,
+      capacity: { workerId: request.workerId },
+    });
+  }
+  expect(capacities.read().reservations).toHaveLength(1);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it.each([
+  30, 100,
+])("rebinds drained intent only after admitting exec growth of %s bytes", async (bytes) => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const { CapacityStore } = await import("../capacity-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const capacities = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+  const first = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  const now = Date.now();
+  const budgets = {
+    host: { capacityBytes: 100, protectedHeadroomBytes: 10, startupSlots: 1, heavySlots: 1 },
+  };
+  const samples = {
+    host: {
+      sampledAtMs: now,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    },
+  };
+  const reservation = {
+    environmentId: store.readReliabilityOperation(first.identity)!.state.environmentId,
+    operationId: first.operationId,
+    reservationId: "first-reservation",
+    policyRevision: 1,
+    totals: { host: 20 },
+    startup: true,
+    heavy: false,
+  };
+  expect(
+    lifecycle.admitLifecycleCapacity(first, reservation, budgets, samples, now, 15_000).admitted,
+  ).toBe(true);
+  fixture.newLifecycleIds.mockReturnValue({
+    requestId: "next-request",
+    operationId: "next-operation",
+    workerId: "next-worker",
+  });
+  fixture.resolveRunningWorkspaceContainer.mockReturnValue({ id: "synthetic-running" });
+  const next = lifecycle.prepareLifecycleOperation("exec", first.repoPath, {}, ["true"]);
+  const expanded = {
+    ...reservation,
+    operationId: next.operationId,
+    reservationId: "next-reservation",
+    totals: { host: bytes },
+    heavy: true,
+  };
+  const decision = lifecycle.admitLifecycleCapacity(next, expanded, budgets, samples, now, 15_000);
+  expect(decision.admitted).toBe(bytes === 30);
+  expect(capacities.read().reservations).toEqual([bytes === 30 ? expanded : reservation]);
+  const record = store.readReliabilityOperation(first.identity)!;
+  if (bytes === 30) {
+    expect(record.capacity?.operationId).toBe(next.operationId);
+    expect(() => store.assertCapacityEffect(record, next.workerId, now)).not.toThrow();
+  } else {
+    expect(record.capacity?.validUntilMs).toBe(0);
+    expect(() => store.assertCapacityEffect(record, first.workerId, now)).toThrow();
+  }
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("freshly re-admits the same request but revokes stale or changed retries", async () => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const { CapacityStore } = await import("../capacity-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const capacities = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+  const request = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  const environmentId = store.readReliabilityOperation(request.identity)!.state.environmentId;
+  const now = Date.now();
+  const maxSampleAgeMs = 15_000;
+  const budgets = {
+    host: { capacityBytes: 100, protectedHeadroomBytes: 10, startupSlots: 1, heavySlots: 1 },
+  };
+  const sample = (sampledAtMs: number) => ({
+    host: {
+      sampledAtMs,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    },
+  });
+  const reservation = {
+    environmentId,
+    operationId: request.operationId,
+    reservationId: "retry-reservation",
+    policyRevision: 1,
+    totals: { host: 20 },
+    startup: true,
+    heavy: false,
+  };
+
+  expect(
+    lifecycle.admitLifecycleCapacity(
+      request,
+      reservation,
+      budgets,
+      sample(now),
+      now,
+      maxSampleAgeMs,
+    ).admitted,
+  ).toBe(true);
+  const firstSnapshot = capacities.read();
+  expect(firstSnapshot.reservations).toEqual([reservation]);
+
+  expect(
+    lifecycle.admitLifecycleCapacity(
+      request,
+      reservation,
+      budgets,
+      sample(now + 1),
+      now + 1,
+      maxSampleAgeMs,
+    ).admitted,
+  ).toBe(true);
+  expect(capacities.read().revision).toBe(firstSnapshot.revision + 1);
+  const rebound = store.readReliabilityOperation(request.identity)!;
+  expect(rebound.capacity).toMatchObject({
+    operationId: request.operationId,
+    reservationId: reservation.reservationId,
+    workerId: request.workerId,
+    policyRevision: reservation.policyRevision,
+  });
+  expect(() => store.assertCapacityEffect(rebound, request.workerId, now + 1)).not.toThrow();
+
+  const beforeStale = capacities.read();
+  const staleNow = now + maxSampleAgeMs + 1;
+  expect(
+    lifecycle.admitLifecycleCapacity(
+      request,
+      reservation,
+      budgets,
+      sample(now),
+      staleNow,
+      maxSampleAgeMs,
+    ),
+  ).toEqual({ admitted: false, domain: "host", reason: "stale" });
+  expect(capacities.read()).toEqual(beforeStale);
+  const revoked = store.readReliabilityOperation(request.identity)!;
+  expect(revoked.capacity).toMatchObject({
+    operationId: request.operationId,
+    reservationId: reservation.reservationId,
+    workerId: request.workerId,
+    policyRevision: reservation.policyRevision,
+    validUntilMs: 0,
+  });
+  expect(() => store.assertCapacityEffect(revoked, request.workerId, staleNow)).toThrow(
+    "absent or stale",
+  );
+
+  const beforeChangedRequirements = capacities.read();
+  expect(() =>
+    lifecycle.admitLifecycleCapacity(
+      request,
+      { ...reservation, totals: { host: 21 } },
+      budgets,
+      sample(staleNow),
+      staleNow,
+      maxSampleAgeMs,
+    ),
+  ).toThrow("Repeated capacity request changed its admitted requirements.");
+  expect(capacities.read()).toEqual(beforeChangedRequirements);
+  expect(store.readReliabilityOperation(request.identity)!.capacity?.validUntilMs).toBe(0);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("fences an initial reservation when stop settles before publication", async () => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const { CapacityStore } = await import("../capacity-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const capacities = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+  const request = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  const environmentId = store.readReliabilityOperation(request.identity)!.state.environmentId;
+  const reserve = CapacityStore.prototype.reserve;
+  vi.spyOn(CapacityStore.prototype, "reserve").mockImplementationOnce(function (
+    this: InstanceType<typeof CapacityStore>,
+    ...args
+  ) {
+    expect(store.readReliabilityOperation(request.identity)).toMatchObject({
+      version: 2,
+      capacity: null,
+    });
+    lifecycle.prepareLifecycleOperation("stop", request.repoPath);
+    capacities.settleEnvironmentAfterStop(environmentId, capacities.read().revision);
+    return reserve.apply(this, args);
+  });
+  const now = Date.now();
+  expect(() =>
+    lifecycle.admitLifecycleCapacity(
+      request,
+      {
+        environmentId,
+        operationId: request.operationId,
+        reservationId: "late",
+        policyRevision: 1,
+        totals: { host: 1 },
+        startup: true,
+        heavy: false,
+      },
+      { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+      {
+        host: {
+          sampledAtMs: now,
+          pressure: "normal",
+          unmanagedBytes: 0,
+          sharedBytes: 0,
+          ownedBytes: {},
+        },
+      },
+      now,
+      15_000,
+    ),
+  ).toThrow("Capacity snapshot changed");
+  expect(capacities.read().reservations).toEqual([]);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("retires queued intent durably without allowing it to dispatch again", async () => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const request = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  lifecycle.retireQueuedLifecycle(request);
+  expect(store.readReliabilityOperation(request.identity)?.state.operation).toMatchObject({
+    id: request.operationId,
+    status: "NOT_STARTED",
+    drained: true,
+  });
+  expect(() =>
+    lifecycle.bindLifecycleCapacity(request, {
+      reservationId: "unused",
+      policyRevision: 1,
+      snapshotRevision: 1,
+      validUntilMs: Date.now() + 15_000,
+    }),
+  ).toThrow("intent changed");
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("retains potentially dispatched intent when queued retirement cannot prove absence", async () => {
+  const { lifecycle, store, request, identity } = await seedWorkerRequest();
+  const before = store.readReliabilityOperation(identity);
+  expect(() => lifecycle.retireQueuedLifecycle(request)).toThrow("absence is not proven");
+  expect(store.readReliabilityOperation(identity)).toEqual(before);
+});
+
+it("retires stop-superseded undispatched intent without changing the newer intent", async () => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const request = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  expect(lifecycle.retireQueuedLifecycle(request, true)).toBe(false);
+  expect(store.readReliabilityOperation(request.identity)?.state.operation?.drained).toBe(false);
+  lifecycle.prepareLifecycleOperation("stop", request.repoPath);
+  const before = store.readReliabilityOperation(request.identity)!;
+  expect(before.state.operation).toMatchObject({
+    id: request.operationId,
+    status: "NOT_STARTED",
+    drained: true,
+  });
+  expect(lifecycle.retireQueuedLifecycle(request, true)).toBe(true);
+  const after = store.readReliabilityOperation(request.identity)!;
+  expect(after.state).toEqual(before.state);
+  expect(after.capacity).toEqual(before.capacity);
+  expect(after.worker).toEqual(before.worker);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("keeps prior capacity authority when replacement lacks drainage proof", async () => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const { CapacityStore } = await import("../capacity-store");
+  const { DEVROUTER_HOME } = await import("../router");
+  const capacities = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+  const request = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  const now = Date.now();
+  const budgets = {
+    host: { capacityBytes: 100, protectedHeadroomBytes: 10, startupSlots: 1, heavySlots: 1 },
+  };
+  const samples = {
+    host: {
+      sampledAtMs: now,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    },
+  };
+  const reservation = {
+    environmentId: store.readReliabilityOperation(request.identity)!.state.environmentId,
+    operationId: request.operationId,
+    reservationId: "previous-reservation",
+    policyRevision: 1,
+    totals: { host: 20 },
+    startup: true,
+    heavy: false,
+  };
+  expect(
+    lifecycle.admitLifecycleCapacity(request, reservation, budgets, samples, now, 15_000).admitted,
+  ).toBe(true);
+  fixture.newLifecycleIds.mockReturnValue({
+    requestId: "replacement-request",
+    operationId: "replacement-operation",
+    workerId: "replacement-worker",
+  });
+  const next = lifecycle.prepareLifecycleOperation("ensure", request.repoPath);
+  store.updateReliabilityOperation(request.identity, (record) => {
+    record.state.operationHistory.find(
+      (operation) => operation.id === request.operationId,
+    )!.drained = false;
+  });
+  const before = store.readReliabilityOperation(request.identity);
+  const snapshot = capacities.read();
+  expect(() =>
+    lifecycle.admitLifecycleCapacity(
+      next,
+      {
+        ...reservation,
+        operationId: next.operationId,
+        reservationId: "replacement-reservation",
+      },
+      budgets,
+      samples,
+      now,
+      15_000,
+    ),
+  ).toThrow("drainage is not proven");
+  expect(store.readReliabilityOperation(request.identity)).toEqual(before);
+  expect(capacities.read()).toEqual(snapshot);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
 });
 
 afterEach(() => {
@@ -499,6 +1503,148 @@ describe("reliability lifecycle supervision", () => {
     await expect(pending).resolves.toEqual({ stopped: true });
   });
 
+  it.each([
+    true,
+    false,
+  ])("retains charged claims across durable revocation (claim first: %s)", async (claimFirst) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity, capacities } = await seedCapacityWorkerRequest();
+    const charged = capacities.read();
+    let effects = 0;
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      const initialSequence = store.readReliabilityOperation(identity)!.effectSequence;
+      if (claimFirst) lifecycle.claimLifecycleEffect();
+      store.updateReliabilityOperation(identity, (record) => {
+        record.capacity!.validUntilMs = 0;
+      });
+      expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+      if (claimFirst) effects++;
+      expect(() => {
+        lifecycle.claimLifecycleEffect();
+        effects++;
+      }).toThrow("absent or stale");
+      expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(
+        initialSequence + (claimFirst ? 1 : 0),
+      );
+      expect(effects).toBe(claimFirst ? 1 : 0);
+      expect(capacities.read()).toEqual(charged);
+    });
+    expect(capacities.read()).toEqual(charged);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("does not acknowledge or release charges on interrupted fencing (published: %s)", async (published) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity, capacities } = await seedCapacityWorkerRequest();
+    const charged = capacities.read();
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      const rename = fs.renameSync;
+      const sync = fs.fsyncSync;
+      let renamed = false;
+      let acknowledged = false;
+      const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+        if (String(to) === store.reliabilityOperationPath(identity) && !published)
+          throw new Error("synthetic fencing interruption");
+        rename(from, to);
+        if (String(to) === store.reliabilityOperationPath(identity)) renamed = true;
+      });
+      const syncSpy = vi.spyOn(fs, "fsyncSync").mockImplementation((descriptor) => {
+        if (renamed) throw new Error("synthetic fencing interruption");
+        sync(descriptor);
+      });
+      try {
+        expect(() => {
+          store.updateReliabilityOperation(identity, (record) => {
+            record.capacity!.validUntilMs = 0;
+          });
+          acknowledged = true;
+        }).toThrow("synthetic fencing interruption");
+      } finally {
+        renameSpy.mockRestore();
+        syncSpy.mockRestore();
+      }
+      expect(acknowledged).toBe(false);
+      const sequence = store.readReliabilityOperation(identity)!.effectSequence;
+      if (published) {
+        expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+        expect(() => lifecycle.claimLifecycleEffect()).toThrow("absent or stale");
+        expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(sequence);
+      } else {
+        expect(() => lifecycle.claimLifecycleEffect()).not.toThrow();
+        expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(sequence + 1);
+      }
+      expect(capacities.read()).toEqual(charged);
+      store.updateReliabilityOperation(identity, (record) => {
+        record.capacity!.validUntilMs = 0;
+      });
+      expect(() => lifecycle.claimLifecycleEffect()).toThrow("absent or stale");
+    });
+    expect(capacities.read()).toEqual(charged);
+  });
+
+  it("requires fresh renewal after a competing snapshot revision before another effect claim", async () => {
+    setProcessConnected(true);
+    const {
+      lifecycle,
+      request,
+      store,
+      identity,
+      capacities,
+      controller,
+      directory,
+      reservation,
+      policy,
+      samples,
+      now,
+    } = await seedCapacityWorkerRequest();
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      const old = store.readReliabilityOperation(identity)!;
+      const sequence = old.effectSequence;
+      const competing = capacities.reserve(
+        {
+          ...reservation,
+          environmentId: "competing-environment",
+          operationId: "competing-operation",
+          reservationId: "competing-reservation",
+        },
+        policy.domains,
+        samples,
+        now,
+        60_000,
+        undefined,
+        capacities.read().revision,
+      );
+      expect(competing.admitted).toBe(true);
+      let effects = 0;
+      expect(() => {
+        lifecycle.claimLifecycleEffect();
+        effects++;
+      }).toThrow("snapshot authority");
+      expect(effects).toBe(0);
+      expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(sequence);
+      expect(capacities.read().reservations).toHaveLength(2);
+      expect(
+        lifecycle.renewLifecycleCapacity(request, policy, samples, controller, directory, now),
+      ).toBe(true);
+      expect(store.readReliabilityOperation(identity)?.capacity?.snapshotRevision).toBe(
+        capacities.read().revision,
+      );
+      lifecycle.claimLifecycleEffect();
+      effects++;
+      expect(effects).toBe(1);
+      expect(store.readReliabilityOperation(identity)?.effectSequence).toBe(sequence + 1);
+      expect(() => store.assertCapacityEffect(old, request.workerId, now, directory)).toThrow(
+        "snapshot authority",
+      );
+      expect(() => store.assertCapacityEffect(old, "replacement-worker", now, directory)).toThrow(
+        "absent or stale",
+      );
+      expect(capacities.read().reservations).toHaveLength(2);
+    });
+  });
+
   it("does not let a stale worker claim increment effectSequence", async () => {
     setProcessConnected(true);
     const { contract, lifecycle, model, request, store, identity } = await seedWorkerRequest();
@@ -625,6 +1771,224 @@ describe("reliability lifecycle supervision", () => {
     expect(store.readReliabilityOperation(identity)).toMatchObject({ effectSequence: 1 });
   });
 
+  it.each([
+    0, 1,
+  ])("retains a prepared profile independently of application exit %s", async (exitCode) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedWorkerRequest();
+    const { capacityEstimatesDigest } = await import("../repo-config");
+    const estimates = {
+      version: 1 as const,
+      profiles: {
+        full: {
+          host: { steadyBytes: 10, startupTotalBytes: 30 },
+          runtime: { steadyBytes: 20, startupTotalBytes: 60 },
+          operations: {},
+        },
+      },
+    };
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      // Isolate completion bookkeeping after the worker's existing launch claim.
+      store.updateReliabilityOperation(identity, (record) => {
+        record.version = 2;
+        record.state.executionPolicy = "capacity-managed";
+        record.state.admission = "admitted";
+        record.state.chargeHeld = true;
+        record.capacity = null;
+        record.activeProfile = null;
+        record.enrollment = {
+          policyRevision: 1,
+          gitCommonDir: "/tmp/synthetic-common",
+          providerId: "synthetic-provider",
+          hostDomain: "host",
+          runtimeDomain: "guest",
+          endpoint: "/tmp/synthetic-docker.sock",
+          daemonId: "synthetic-daemon",
+          estimatesDigest: capacityEstimatesDigest(estimates),
+        };
+      });
+      expect(() => lifecycle.recordLifecycleCompletion(exitCode, "other")).toThrow();
+      expect(store.readReliabilityOperation(identity)?.activeProfile).toBeNull();
+      lifecycle.recordLifecycleCompletion(exitCode, "full");
+    });
+    expect(store.readReliabilityOperation(identity)).toMatchObject({
+      activeProfile: "full",
+      preparation: {
+        operationId: request.operationId,
+        profile: "full",
+        fence: request.fence,
+      },
+      state: { operation: { status: "COMPLETED", exitCode } },
+    });
+    const { ControllerStore } = await import("../controller-store");
+    const { CapacityStore, CapacitySnapshotChangedError } = await import("../capacity-store");
+    const { DEVROUTER_HOME } = await import("../router");
+    const directory = path.join(DEVROUTER_HOME, "controller");
+    const controller = new ControllerStore(directory).startIncarnation();
+    fs.chmodSync(directory, 0o700);
+    const enrollment = {
+      repoPath: identity.repoPath,
+      gitCommonDir: "/tmp/synthetic-common",
+      workspace: "",
+      provider: identity.provider,
+      providerId: "synthetic-provider",
+      hostDomain: "host",
+      runtimeDomain: "guest",
+      profiles: ["full"],
+      estimatesDigest: capacityEstimatesDigest(estimates),
+      defaultOperation: { hostIncrementBytes: 1, runtimeIncrementBytes: 1 },
+    };
+    store.updateReliabilityOperation(identity, (record) => {
+      record.capacity = {
+        reservationId: "prepared-reservation",
+        operationId: request.operationId,
+        workerId: request.workerId,
+        policyRevision: 1,
+        validUntilMs: Date.now() + 1000,
+        controller: { store: controller.store, epoch: controller.epoch },
+      };
+    });
+    const reservation = {
+      environmentId: request.fence.environmentId,
+      operationId: request.operationId,
+      reservationId: "prepared-reservation",
+      policyRevision: 1,
+      totals: { host: 30, guest: 60 },
+      startup: true,
+      heavy: false,
+    };
+    fs.writeFileSync(
+      path.join(directory, "capacity-reservations.json"),
+      JSON.stringify({ version: 1, revision: 1, reservations: [reservation] }),
+      { mode: 0o600 },
+    );
+    const settlement = { identity, controller, estimates, enrollment, directory };
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(false);
+    expect(new CapacityStore(directory).read().reservations).toEqual([reservation]);
+    store.updateReliabilityOperation(identity, (record) => {
+      record.worker = null;
+      record.state.operation!.drained = true;
+      record.state.operationHistory.forEach((operation) => {
+        operation.drained = true;
+      });
+    });
+    const preparation = store.readReliabilityOperation(identity)!.preparation!;
+    store.updateReliabilityOperation(identity, (record) => {
+      record.preparation = null;
+    });
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(false);
+    expect(new CapacityStore(directory).read().reservations).toEqual([reservation]);
+    store.updateReliabilityOperation(identity, (record) => {
+      record.preparation = preparation;
+    });
+    const reduce = CapacityStore.prototype.reduceAfterPhase;
+    const crash = vi
+      .spyOn(CapacityStore.prototype, "reduceAfterPhase")
+      .mockImplementationOnce(function (
+        this: InstanceType<typeof CapacityStore>,
+        target,
+        revision,
+      ) {
+        reduce.call(this, target, revision);
+        throw new Error("synthetic crash after reduction");
+      });
+    expect(() => lifecycle.settlePreparedLifecycleCapacity(settlement)).toThrow("synthetic crash");
+    expect(store.readReliabilityOperation(identity)?.phaseSettlement).not.toBeNull();
+    expect(() =>
+      lifecycle.prepareManagedLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 1,
+        requestId: "replacement-operation",
+        kind: "ensure",
+        profile: "full",
+        consumer: { id: "synthetic", requiredCapabilities: [], pinned: false },
+        runtimeRunning: true,
+      }),
+    ).toThrow("settlement is pending");
+    crash.mockRestore();
+    const replacement = new ControllerStore(directory).startIncarnation();
+    expect(() => lifecycle.settlePreparedLifecycleCapacity(settlement)).toThrow(
+      "incarnation changed",
+    );
+    settlement.controller = replacement;
+    const conflict = vi
+      .spyOn(CapacityStore.prototype, "reduceAfterPhase")
+      .mockImplementationOnce(() => {
+        throw new CapacitySnapshotChangedError();
+      });
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(true);
+    expect(conflict).toHaveBeenCalledTimes(2);
+    conflict.mockRestore();
+    expect(new CapacityStore(directory).read().reservations).toEqual([
+      { ...reservation, totals: { host: 10, guest: 20 }, startup: false },
+    ]);
+    expect(store.readReliabilityOperation(identity)).toMatchObject({
+      phaseSettlement: null,
+      capacity: { validUntilMs: 0 },
+    });
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(false);
+    const capacity = new CapacityStore(directory);
+    fs.writeFileSync(
+      path.join(directory, "capacity-reservations.json"),
+      JSON.stringify({
+        version: 1,
+        revision: capacity.read().revision + 1,
+        reservations: [reservation],
+      }),
+      { mode: 0o600 },
+    );
+    const stopRace = vi
+      .spyOn(CapacityStore.prototype, "reduceAfterPhase")
+      .mockImplementationOnce(function (
+        this: InstanceType<typeof CapacityStore>,
+        target,
+        revision,
+      ) {
+        lifecycle.prepareLifecycleOperation("stop", identity.repoPath);
+        this.settleEnvironmentAfterStop(target.environmentId, this.read().revision);
+        reduce.call(this, target, revision);
+      });
+    expect(lifecycle.settlePreparedLifecycleCapacity(settlement)).toBe(false);
+    expect(capacity.read().reservations).toEqual([]);
+    expect(store.readReliabilityOperation(identity)?.state.desired).toBe("stopped-by-user");
+    stopRace.mockRestore();
+  });
+
+  it.each([
+    false,
+    true,
+  ])("clears the active profile only after complete stop proof (%s)", async (routesRemain) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    store.updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.state.executionPolicy = "capacity-managed";
+      record.state.admission = "unknown";
+      record.capacity = null;
+      record.activeProfile = "full";
+      record.enrollment = {
+        policyRevision: 1,
+        gitCommonDir: "/tmp/synthetic-common",
+        providerId: "synthetic-provider",
+        hostDomain: "host",
+        runtimeDomain: "guest",
+        endpoint: "/tmp/synthetic-docker.sock",
+        daemonId: "synthetic-daemon",
+        estimatesDigest: "a".repeat(64),
+      };
+    });
+    if (routesRemain) fixture.listHostRouteState.mockReturnValue([{ repoPath: identity.repoPath }]);
+    const stopped = lifecycle.executeLifecycleWorker(request, async () =>
+      lifecycle.proveLifecycleStopped(),
+    );
+    if (routesRemain) await expect(stopped).rejects.toThrow("routes remain");
+    else await expect(stopped).resolves.toBeUndefined();
+    expect(store.readReliabilityOperation(identity)?.activeProfile).toBe(
+      routesRemain ? "full" : null,
+    );
+  });
+
   it("keeps stop unproven when workload inspection cannot provide proof", async () => {
     setProcessConnected(true);
     const { lifecycle, request, store, identity } = await seedStopRequest();
@@ -643,6 +2007,213 @@ describe("reliability lifecycle supervision", () => {
     expect(store.readReliabilityOperation(identity)).toMatchObject({
       state: { stopProof: { workloadsStopped: false, routesRemoved: false } },
     });
+  });
+
+  it("fences a repeated completed stop before its capacity settlement window", async () => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    const { contract, model } = await loadLifecycleModules();
+    const { CapacityStore } = await import("../capacity-store");
+    store.updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = null;
+      record.state = model.stepReliability(
+        record.state,
+        {
+          ...contract.reliabilityFence(record.state),
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        },
+        2,
+      ).state;
+    });
+    const repeated = lifecycle.prepareLifecycleOperation("stop", identity.repoPath);
+    expect(repeated.fence.intentRevision).toBeGreaterThan(request.fence.intentRevision);
+    const settle = CapacityStore.prototype.settleEnvironmentAfterStop;
+    const intercepted = vi
+      .spyOn(CapacityStore.prototype, "settleEnvironmentAfterStop")
+      .mockImplementationOnce(function (this: InstanceType<typeof CapacityStore>, id, revision) {
+        expect(store.readReliabilityOperation(identity)?.state.phase).toBe("stopping");
+        expect(() => lifecycle.prepareLifecycleOperation("ensure", identity.repoPath)).toThrow(
+          "Lifecycle transition is blocked",
+        );
+        return settle.call(this, id, revision);
+      });
+    await lifecycle.executeLifecycleWorker(repeated, async () => {
+      lifecycle.proveLifecycleStopped();
+    });
+    expect(intercepted).toHaveBeenCalledOnce();
+    expect(store.readReliabilityOperation(identity)?.state).toMatchObject({
+      phase: "idle",
+      stopProof: { workloadsStopped: true, routesRemoved: true },
+    });
+    expect(() => lifecycle.prepareLifecycleOperation("ensure", identity.repoPath)).not.toThrow();
+  });
+
+  it("bounds settlement contention without publishing stop proof", async () => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    const { CapacityStore, CapacitySnapshotChangedError } = await import("../capacity-store");
+    store.updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = null;
+    });
+    const settle = vi
+      .spyOn(CapacityStore.prototype, "settleEnvironmentAfterStop")
+      .mockImplementation(() => {
+        throw new CapacitySnapshotChangedError();
+      });
+    await expect(
+      lifecycle.executeLifecycleWorker(request, async () => {
+        lifecycle.proveLifecycleStopped();
+      }),
+    ).rejects.toThrow("Capacity snapshot changed");
+    expect(settle).toHaveBeenCalledTimes(3);
+    expect(store.readReliabilityOperation(identity)?.state).toMatchObject({
+      phase: "stopping",
+      stopProof: { workloadsStopped: false, routesRemoved: false },
+    });
+  });
+
+  it.each(
+    [
+      { routesRemain: false, crashAfterRelease: false, unbound: false },
+      { routesRemain: true, crashAfterRelease: false, unbound: false },
+      { routesRemain: false, crashAfterRelease: true, unbound: false },
+      { routesRemain: false, crashAfterRelease: false, unbound: true },
+    ].flatMap((scenario) => [
+      { ...scenario, retainedBaseline: false },
+      { ...scenario, retainedBaseline: true },
+    ]),
+  )("settles capacity after stop and reconciles released bindings ($routesRemain, $crashAfterRelease, $unbound, $retainedBaseline)", async ({
+    routesRemain,
+    crashAfterRelease,
+    unbound,
+    retainedBaseline,
+  }) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    const { CapacityStore } = await import("../capacity-store");
+    const { DEVROUTER_HOME } = await import("../router");
+    const reservations = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+    const environmentId = store.readReliabilityOperation(identity)!.state.environmentId;
+    if (retainedBaseline) {
+      fixture.readManagedRuntimeState.mockReturnValue({
+        repoPath: identity.repoPath,
+        stopBaseline: { version: 1 },
+      });
+      fixture.proveRetainedManagedStop.mockReturnValue([defaultContainer(identity.repoPath)]);
+    }
+    const sample = {
+      sampledAtMs: 100,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    };
+    const admission = reservations.reserve(
+      {
+        environmentId,
+        operationId: "previous",
+        reservationId: "reservation",
+        policyRevision: 1,
+        totals: { host: 1 },
+        startup: true,
+        heavy: false,
+      },
+      { host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 } },
+      { host: sample },
+      100,
+      15,
+      undefined,
+      reservations.read().revision,
+    );
+    expect(admission.admitted).toBe(true);
+    store.updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = {
+        reservationId: "reservation",
+        operationId: "previous",
+        workerId: "previous-worker",
+        policyRevision: 1,
+        validUntilMs: 1000,
+      };
+    });
+    if (routesRemain) fixture.listHostRouteState.mockReturnValue([{ repoPath: identity.repoPath }]);
+    if (unbound)
+      store.updateReliabilityOperation(identity, (record) => {
+        record.capacity = null;
+      });
+    if (crashAfterRelease) {
+      const release = CapacityStore.prototype.settleEnvironmentAfterStop;
+      vi.spyOn(CapacityStore.prototype, "settleEnvironmentAfterStop").mockImplementationOnce(
+        function (this: InstanceType<typeof CapacityStore>, expected, revision) {
+          release.call(this, expected, revision);
+          throw new Error("synthetic crash after release");
+        },
+      );
+    }
+    const stopped = lifecycle.executeLifecycleWorker(request, async () => {
+      if (crashAfterRelease) {
+        expect(() => lifecycle.proveLifecycleStopped()).toThrow("synthetic crash after release");
+        expect(store.readReliabilityOperation(identity)?.state).toMatchObject({
+          phase: "stopping",
+          stopProof: { workloadsStopped: false, routesRemoved: false },
+        });
+        expect(reservations.read().reservations).toHaveLength(0);
+        expect(() => lifecycle.prepareLifecycleOperation("ensure", request.repoPath)).toThrow();
+      }
+      lifecycle.proveLifecycleStopped();
+    });
+    if (routesRemain) await expect(stopped).rejects.toThrow("routes remain");
+    else await expect(stopped).resolves.toBeUndefined();
+    expect(
+      reservations.read().reservations.filter((entry) => entry.environmentId === environmentId),
+    ).toHaveLength(routesRemain ? 1 : 0);
+    expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(
+      routesRemain ? 1000 : undefined,
+    );
+    if (!routesRemain) {
+      expect(store.readReliabilityOperation(identity)).toMatchObject({
+        version: 2,
+        capacity: null,
+      });
+      fixture.newLifecycleIds.mockReturnValue({
+        requestId: "after-stop-request",
+        operationId: "after-stop-operation",
+        workerId: "after-stop-worker",
+      });
+      const next = lifecycle.prepareLifecycleOperation("ensure", request.repoPath);
+      expect(() =>
+        store.assertCapacityEffect(
+          store.readReliabilityOperation(identity)!,
+          next.workerId,
+          Date.now(),
+        ),
+      ).toThrow("absent or stale");
+      const now = Date.now();
+      expect(
+        lifecycle.admitLifecycleCapacity(
+          next,
+          {
+            environmentId,
+            operationId: next.operationId,
+            reservationId: "after-stop",
+            policyRevision: 1,
+            totals: { host: 1 },
+            startup: true,
+            heavy: false,
+          },
+          {
+            host: { capacityBytes: 10, protectedHeadroomBytes: 1, startupSlots: 1, heavySlots: 1 },
+          },
+          { host: { ...sample, sampledAtMs: now } },
+          now,
+          15_000,
+        ).admitted,
+      ).toBe(true);
+    }
   });
 
   it.each([
@@ -816,5 +2387,89 @@ describe("reliability lifecycle supervision", () => {
     expect(persisted).not.toContain(rawArg);
     expect(persisted).not.toContain(rawEnv);
     expect(persisted).not.toContain(rawOutput);
+  });
+});
+
+describe("capacity admission CLI routing", () => {
+  const terminalResult = {
+    status: "terminal" as const,
+    operationId: "operation-id",
+    operation: null,
+    output: null,
+    outputCursor: { sequence: 0, offset: 0 },
+    outputGap: false,
+  };
+  const binding = { session: "session", store: "store", epoch: 1, generation: "generation" };
+
+  it("routes an enrolled checkout through the controller and returns the journalled result", async () => {
+    const { lifecycle, store, identity } = await seedWorkerRequest();
+    fixture.readCapacityPolicy.mockReturnValue({
+      revision: 1,
+      admissions: "enabled",
+      enrollments: [{ repoPath: identity.repoPath, profiles: ["full"] }],
+    });
+    fixture.observe.mockResolvedValue(binding);
+    fixture.submit.mockImplementation(async () => {
+      store.updateReliabilityOperation(identity, (record) => {
+        record.result = { ok: true, value: { synthetic: "ensure-result" } };
+      });
+      return terminalResult;
+    });
+    await expect(lifecycle.superviseLifecycle("ensure", identity.repoPath, {})).resolves.toEqual({
+      synthetic: "ensure-result",
+    });
+    expect(fixture.observe).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ path: identity.repoPath, profile: "full" }),
+    );
+    expect(fixture.submit).toHaveBeenCalledOnce();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a journalled worker failure for an enrolled exec", async () => {
+    const { lifecycle, store, identity } = await seedWorkerRequest("exec");
+    fixture.readCapacityPolicy.mockReturnValue({
+      revision: 1,
+      admissions: "enabled",
+      enrollments: [{ repoPath: identity.repoPath, profiles: ["full"] }],
+    });
+    store.updateReliabilityOperation(identity, (record) => {
+      record.result = { ok: false, message: "synthetic worker failure" };
+    });
+    fixture.observe.mockResolvedValue(binding);
+    fixture.submit.mockResolvedValue(terminalResult);
+    await expect(
+      lifecycle.superviseLifecycle("exec", identity.repoPath, {}, ["synthetic-command"]),
+    ).rejects.toThrow("synthetic worker failure");
+    expect(fixture.submit).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ kind: "exec", command: ["synthetic-command"] }),
+      expect.objectContaining({ waitSeconds: 900 }),
+    );
+  });
+
+  it("survives a controller transport failure while following a queued admission", async () => {
+    const { lifecycle, store, identity } = await seedWorkerRequest();
+    fixture.readCapacityPolicy.mockReturnValue({
+      revision: 1,
+      admissions: "enabled",
+      enrollments: [{ repoPath: identity.repoPath, profiles: ["full"] }],
+    });
+    fixture.observe.mockResolvedValue(binding);
+    fixture.submit.mockResolvedValue({ ...terminalResult, status: "pending" as const });
+    fixture.follow
+      .mockRejectedValueOnce(new Error("synthetic controller restart"))
+      .mockImplementation(async () => {
+        store.updateReliabilityOperation(identity, (record) => {
+          record.result = { ok: true, value: { synthetic: "reconnected-result" } };
+        });
+        return terminalResult;
+      });
+    await expect(lifecycle.superviseLifecycle("ensure", identity.repoPath, {})).resolves.toEqual({
+      synthetic: "reconnected-result",
+    });
+    expect(fixture.observe).toHaveBeenCalledTimes(3);
+    expect(fixture.follow).toHaveBeenCalledTimes(2);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
   });
 });

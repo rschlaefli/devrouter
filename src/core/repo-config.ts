@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import YAML, { type Document, isMap, isSeq, parseDocument, type YAMLSeq } from "yaml";
 import type {
   AppAddOptions,
+  CapacityEstimates,
   DevrouterApp,
   DevrouterConfig,
   DevrouterDockerDependencyApp,
@@ -51,6 +53,10 @@ const VALID_HOSTNAME_RE =
 const DEVROUTER_VERSION_RE = /^\d+\.\d+\.\d+$/;
 const VALID_ENV_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/i;
 const VALID_ENV_VAR_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const MAX_CAPACITY_PROFILES = 256;
+const MAX_CAPACITY_OPERATIONS = 64;
+const MAX_CAPACITY_TRANSITIONS = 1024;
+const MAX_CAPACITY_NAME_LENGTH = 64;
 
 // Workspace templating. `upstream` may embed the literal `${WORKSPACE}` token,
 // which is substituted with the resolved workspace at runtime (see applyWorkspace).
@@ -737,11 +743,362 @@ function parseManagedRuntime(
   };
 }
 
+function parseCapacitySafeInteger(value: unknown, pathLabel: string, minimum: number): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || Object.is(value, -0)) {
+    throw new Error(`${pathLabel} must be a safe integer.`);
+  }
+  if (value < minimum) {
+    throw new Error(`${pathLabel} must be at least ${minimum}.`);
+  }
+  return value;
+}
+
+function parseCapacityName(value: unknown, pathLabel: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${pathLabel} must be a non-empty string.`);
+  }
+  if (value !== value.trim()) {
+    throw new Error(`${pathLabel} must not have leading or trailing whitespace.`);
+  }
+  if (value.length > MAX_CAPACITY_NAME_LENGTH) {
+    throw new Error(
+      `${pathLabel} exceeds the maximum length of ${MAX_CAPACITY_NAME_LENGTH} characters.`,
+    );
+  }
+  if (
+    [...value].some(
+      (character) => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
+    )
+  ) {
+    throw new Error(`${pathLabel} must not contain control characters.`);
+  }
+  return value;
+}
+
+function parseCapacityProfileKey(
+  value: unknown,
+  pathLabel: string,
+  declaredProfiles: DevrouterConfig["profiles"],
+): string {
+  const key = parseCapacityName(value, pathLabel);
+  if (key === "full") return key;
+
+  const names = key.split(",");
+  const seen = new Set<string>();
+  for (const [index, name] of names.entries()) {
+    if (!PROFILE_NAME_RE.test(name)) {
+      throw new Error(`${pathLabel}[${index}] is not a valid profile name.`);
+    }
+    if (seen.has(name)) {
+      throw new Error(`${pathLabel} contains duplicate profile '${name}'.`);
+    }
+    if (!declaredProfiles || !Object.hasOwn(declaredProfiles, name)) {
+      throw new Error(`${pathLabel} references undefined profile '${name}'.`);
+    }
+    seen.add(name);
+  }
+
+  return [...names].sort().join(",");
+}
+
+function parseCapacityDimension(
+  value: unknown,
+  pathLabel: string,
+  runtime: boolean,
+): { steadyBytes: number; startupTotalBytes: number } {
+  const dimension = ensureObject(value, pathLabel);
+  ensureAllowedKeys(dimension, ["steadyBytes", "startupTotalBytes"], pathLabel);
+  const minimum = runtime ? 1 : 0;
+  const steadyBytes = parseCapacitySafeInteger(
+    dimension.steadyBytes,
+    `${pathLabel}.steadyBytes`,
+    minimum,
+  );
+  const startupTotalBytes = parseCapacitySafeInteger(
+    dimension.startupTotalBytes,
+    `${pathLabel}.startupTotalBytes`,
+    minimum,
+  );
+  if (startupTotalBytes < steadyBytes) {
+    throw new Error(`${pathLabel}.startupTotalBytes must be at least steadyBytes.`);
+  }
+  return { steadyBytes, startupTotalBytes };
+}
+
+function parseCapacityOperation(
+  value: unknown,
+  pathLabel: string,
+): { hostIncrementBytes: number; runtimeIncrementBytes: number } {
+  const operation = ensureObject(value, pathLabel);
+  ensureAllowedKeys(operation, ["hostIncrementBytes", "runtimeIncrementBytes"], pathLabel);
+  return {
+    hostIncrementBytes: parseCapacitySafeInteger(
+      operation.hostIncrementBytes,
+      `${pathLabel}.hostIncrementBytes`,
+      0,
+    ),
+    runtimeIncrementBytes: parseCapacitySafeInteger(
+      operation.runtimeIncrementBytes,
+      `${pathLabel}.runtimeIncrementBytes`,
+      0,
+    ),
+  };
+}
+
+function parseCapacityOperations(
+  value: unknown,
+  pathLabel: string,
+): Record<string, { hostIncrementBytes: number; runtimeIncrementBytes: number }> {
+  const rawOperations = ensureObject(value, pathLabel);
+  const operationEntries = Object.entries(rawOperations);
+  if (operationEntries.length === 0) {
+    throw new Error(`${pathLabel} must define at least one named operation.`);
+  }
+  if (operationEntries.length > MAX_CAPACITY_OPERATIONS) {
+    throw new Error(`${pathLabel} exceeds the maximum of ${MAX_CAPACITY_OPERATIONS} operations.`);
+  }
+
+  const operations: Record<string, { hostIncrementBytes: number; runtimeIncrementBytes: number }> =
+    {};
+  for (const [operationName, operationValue] of operationEntries) {
+    const name = parseCapacityName(operationName, `${pathLabel} key`);
+    if (!/^[a-z][a-z0-9._-]*$/.test(name)) {
+      throw new Error(`${pathLabel}.${operationName} is not a valid operation name.`);
+    }
+    operations[name] = parseCapacityOperation(operationValue, `${pathLabel}.${operationName}`);
+  }
+  return operations;
+}
+
+function parseCapacityTransition(
+  value: unknown,
+  pathLabel: string,
+): { hostTotalBytes: number; runtimeTotalBytes: number } {
+  const transition = ensureObject(value, pathLabel);
+  ensureAllowedKeys(transition, ["hostTotalBytes", "runtimeTotalBytes"], pathLabel);
+  return {
+    hostTotalBytes: parseCapacitySafeInteger(
+      transition.hostTotalBytes,
+      `${pathLabel}.hostTotalBytes`,
+      0,
+    ),
+    runtimeTotalBytes: parseCapacitySafeInteger(
+      transition.runtimeTotalBytes,
+      `${pathLabel}.runtimeTotalBytes`,
+      1,
+    ),
+  };
+}
+
+function parseCapacityEstimates(
+  value: unknown,
+  configPath: string,
+  declaredProfiles: DevrouterConfig["profiles"],
+): CapacityEstimates | undefined {
+  if (value === undefined) return undefined;
+
+  const pathLabel = `${configPath}.capacity`;
+  const capacity = ensureObject(value, pathLabel);
+  ensureAllowedKeys(capacity, ["version", "profiles", "transitions"], pathLabel);
+
+  const version = parseCapacitySafeInteger(capacity.version, `${pathLabel}.version`, 1);
+  if (version !== 1) {
+    throw new Error(`${pathLabel}.version must be 1.`);
+  }
+
+  const rawProfiles = ensureObject(capacity.profiles, `${pathLabel}.profiles`);
+  const profileEntries = Object.entries(rawProfiles);
+  if (profileEntries.length === 0) {
+    throw new Error(`${pathLabel}.profiles must define at least one exact profile combination.`);
+  }
+  if (profileEntries.length > MAX_CAPACITY_PROFILES) {
+    throw new Error(
+      `${pathLabel}.profiles exceeds the maximum of ${MAX_CAPACITY_PROFILES} combinations.`,
+    );
+  }
+
+  const profiles: CapacityEstimates["profiles"] = {};
+  for (const [rawKey, profileValue] of profileEntries) {
+    const profileKey = parseCapacityProfileKey(
+      rawKey,
+      `${pathLabel}.profiles key`,
+      declaredProfiles,
+    );
+    if (Object.hasOwn(profiles, profileKey)) {
+      throw new Error(
+        `${pathLabel}.profiles contains aliases for the same exact combination '${profileKey}'.`,
+      );
+    }
+    const profile = ensureObject(profileValue, `${pathLabel}.profiles.${rawKey}`);
+    ensureAllowedKeys(
+      profile,
+      ["host", "runtime", "operations"],
+      `${pathLabel}.profiles.${rawKey}`,
+    );
+    profiles[profileKey] = {
+      host: parseCapacityDimension(profile.host, `${pathLabel}.profiles.${rawKey}.host`, false),
+      runtime: parseCapacityDimension(
+        profile.runtime,
+        `${pathLabel}.profiles.${rawKey}.runtime`,
+        true,
+      ),
+      operations: parseCapacityOperations(
+        profile.operations,
+        `${pathLabel}.profiles.${rawKey}.operations`,
+      ),
+    };
+  }
+
+  let transitions: CapacityEstimates["transitions"];
+  if (capacity.transitions !== undefined) {
+    const rawTransitions = ensureObject(capacity.transitions, `${pathLabel}.transitions`);
+    const transitionEntries = Object.entries(rawTransitions);
+    if (transitionEntries.length === 0) {
+      throw new Error(`${pathLabel}.transitions must define at least one transition.`);
+    }
+    transitions = {};
+    let transitionCount = 0;
+    for (const [rawSource, targetValue] of transitionEntries) {
+      const source = parseCapacityProfileKey(
+        rawSource,
+        `${pathLabel}.transitions source key`,
+        declaredProfiles,
+      );
+      if (!Object.hasOwn(profiles, source)) {
+        throw new Error(
+          `${pathLabel}.transitions source '${source}' must have a profile estimate.`,
+        );
+      }
+      if (Object.hasOwn(transitions, source)) {
+        throw new Error(`${pathLabel}.transitions contains aliases for source '${source}'.`);
+      }
+      const rawTargets = ensureObject(targetValue, `${pathLabel}.transitions.${rawSource}`);
+      const targetEntries = Object.entries(rawTargets);
+      if (targetEntries.length === 0) {
+        throw new Error(`${pathLabel}.transitions.${rawSource} must define a target.`);
+      }
+      const targets: Record<string, { hostTotalBytes: number; runtimeTotalBytes: number }> = {};
+      for (const [rawTarget, transitionValue] of targetEntries) {
+        transitionCount += 1;
+        if (transitionCount > MAX_CAPACITY_TRANSITIONS) {
+          throw new Error(
+            `${pathLabel}.transitions exceeds the maximum of ${MAX_CAPACITY_TRANSITIONS} entries.`,
+          );
+        }
+        const target = parseCapacityProfileKey(
+          rawTarget,
+          `${pathLabel}.transitions.${rawSource} target key`,
+          declaredProfiles,
+        );
+        if (!Object.hasOwn(profiles, target)) {
+          throw new Error(
+            `${pathLabel}.transitions target '${target}' must have a profile estimate.`,
+          );
+        }
+        if (Object.hasOwn(targets, target)) {
+          throw new Error(
+            `${pathLabel}.transitions.${rawSource} contains aliases for '${target}'.`,
+          );
+        }
+        const transition = parseCapacityTransition(
+          transitionValue,
+          `${pathLabel}.transitions.${rawSource}.${rawTarget}`,
+        );
+        const sourceProfile = profiles[source];
+        const targetProfile = profiles[target];
+        if (
+          transition.hostTotalBytes <
+          Math.max(sourceProfile.host.steadyBytes, targetProfile.host.steadyBytes)
+        ) {
+          throw new Error(
+            `${pathLabel}.transitions.${rawSource}.${rawTarget}.hostTotalBytes must cover both steady host estimates.`,
+          );
+        }
+        if (
+          transition.runtimeTotalBytes <
+          Math.max(sourceProfile.runtime.steadyBytes, targetProfile.runtime.steadyBytes)
+        ) {
+          throw new Error(
+            `${pathLabel}.transitions.${rawSource}.${rawTarget}.runtimeTotalBytes must cover both steady runtime estimates.`,
+          );
+        }
+        targets[target] = transition;
+      }
+      transitions[source] = targets;
+    }
+  }
+
+  return {
+    version: 1,
+    profiles,
+    ...(transitions ? { transitions } : {}),
+  };
+}
+
+export function normalizeCapacityEstimates(estimates: CapacityEstimates): CapacityEstimates {
+  const profiles: CapacityEstimates["profiles"] = {};
+  for (const key of Object.keys(estimates.profiles).sort()) {
+    const estimate = estimates.profiles[key];
+    profiles[key] = {
+      host: {
+        steadyBytes: estimate.host.steadyBytes,
+        startupTotalBytes: estimate.host.startupTotalBytes,
+      },
+      runtime: {
+        steadyBytes: estimate.runtime.steadyBytes,
+        startupTotalBytes: estimate.runtime.startupTotalBytes,
+      },
+      operations: Object.fromEntries(
+        Object.keys(estimate.operations)
+          .sort()
+          .map((name) => [name, { ...estimate.operations[name] }]),
+      ),
+    };
+  }
+
+  let transitions: CapacityEstimates["transitions"];
+  if (estimates.transitions !== undefined) {
+    transitions = {};
+    for (const source of Object.keys(estimates.transitions).sort()) {
+      const targets: Record<string, { hostTotalBytes: number; runtimeTotalBytes: number }> = {};
+      for (const target of Object.keys(estimates.transitions[source]).sort()) {
+        const transition = estimates.transitions[source][target];
+        targets[target] = {
+          hostTotalBytes: transition.hostTotalBytes,
+          runtimeTotalBytes: transition.runtimeTotalBytes,
+        };
+      }
+      transitions[source] = targets;
+    }
+  }
+
+  return {
+    version: 1,
+    profiles,
+    ...(transitions ? { transitions } : {}),
+  };
+}
+
+export function capacityEstimatesDigest(estimates: CapacityEstimates): string {
+  return createHash("sha256")
+    .update(JSON.stringify(normalizeCapacityEstimates(estimates)), "utf8")
+    .digest("hex");
+}
+
 function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
   const root = ensureObject(raw, configPath);
   ensureAllowedKeys(
     root,
-    ["version", "devrouter", "project", "secretManager", "managedRuntime", "profiles", "apps"],
+    [
+      "version",
+      "devrouter",
+      "project",
+      "secretManager",
+      "managedRuntime",
+      "profiles",
+      "capacity",
+      "apps",
+    ],
     configPath,
   );
 
@@ -823,6 +1180,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
 
   const managedRuntime = parseManagedRuntime(root.managedRuntime, configPath);
   const profiles = parseProfiles(root.profiles, configPath, apps, managedRuntime);
+  const capacity = parseCapacityEstimates(root.capacity, configPath, profiles);
 
   return {
     version: 1,
@@ -834,6 +1192,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
     ...(secretManager ? { secretManager } : {}),
     ...(managedRuntime ? { managedRuntime } : {}),
     ...(profiles ? { profiles } : {}),
+    ...(capacity ? { capacity } : {}),
     apps,
   };
 }

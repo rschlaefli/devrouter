@@ -59,7 +59,11 @@ import {
   type ManagedNetworkSession,
 } from "./network-managed";
 import { recoverUnattachedNetworkReservation } from "./network-recovery";
-import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-lifecycle";
+import {
+  claimLifecycleEffect,
+  clearActiveLifecycleStartupWitness,
+  withLifecycleOperationLock,
+} from "./reliability-lifecycle";
 import { loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, DEVROUTER_HOME, TCP_PROTOCOL_REGISTRY } from "./router";
@@ -1348,6 +1352,9 @@ export async function workspaceEnsure(
               claimLifecycleEffect();
               writeManagedRuntimeState(state);
               capturedStopState = state;
+              // The strict baseline is durable; the startup witness's accounting
+              // authority ends here and never outlives the generation it proved.
+              clearActiveLifecycleStartupWitness();
             };
             // Repair already holds this same provider lock beneath the workspace lock.
             if (options.repair) capture();

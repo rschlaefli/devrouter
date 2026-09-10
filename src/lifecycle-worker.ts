@@ -40,20 +40,26 @@ process.once("message", async (message: { request: LifecycleWorkerRequest }) => 
               request.retainedExecProof,
             )
           : await devpodExecOutcome(request.repoPath, request.command ?? []);
-        recordLifecycleOutcome(outcome);
+        recordLifecycleOutcome(outcome, { ok: true, value: outcome });
         return outcome;
       }
       const ensured = await workspaceEnsure(request.repoPath, request.options);
       recordLifecycleCompletion(
         ensured.applicationReadiness?.status === "application-error" ? 1 : 0,
+        ensured.managedRuntime?.status === "ready" ? ensured.profile : undefined,
+        { ok: true, value: ensured },
       );
       return ensured;
     });
     result = { ok: true, value };
   } catch (error) {
     try {
-      if (error instanceof ExecutionOutcomeError) recordLifecycleOutcome(error.outcome);
-      else recordLifecycleUnknown();
+      const failure = {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error),
+      };
+      if (error instanceof ExecutionOutcomeError) recordLifecycleOutcome(error.outcome, failure);
+      else recordLifecycleUnknown(failure);
     } catch {
       /* Preserve the original operation failure. */
     }

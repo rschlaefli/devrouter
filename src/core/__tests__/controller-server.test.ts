@@ -5,7 +5,11 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { type ControllerObservationCollector, controllerCapability } from "../controller-monitor";
 import { CONTROLLER_FRAME_BYTES } from "../controller-protocol";
-import { runController } from "../controller-server";
+import {
+  type ControllerOperations,
+  type ControllerStartup,
+  runController,
+} from "../controller-server";
 import { ControllerSessions } from "../controller-sessions";
 import { createReliabilityState } from "../reliability-contract";
 import * as operationStore from "../reliability-operation-store";
@@ -17,7 +21,11 @@ afterEach(async () => {
   for (const directory of directories.splice(0))
     fs.rmSync(directory, { recursive: true, force: true });
 });
-async function fixture(collect?: ControllerObservationCollector) {
+async function fixture(
+  collect?: ControllerObservationCollector,
+  operations?: ControllerOperations,
+  createOperations?: (controller: ControllerStartup) => ControllerOperations,
+) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-")));
   directories.push(directory);
   const abort = new AbortController();
@@ -30,6 +38,8 @@ async function fixture(collect?: ControllerObservationCollector) {
     signal: abort.signal,
     onListening: listening,
     collect,
+    operations,
+    createOperations,
     resolve: async () => ({
       id: "env",
       repoPath: "/fixture/checkout",
@@ -47,6 +57,15 @@ async function fixture(collect?: ControllerObservationCollector) {
   });
   return { directory, run, abort };
 }
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolveValue) => {
+    resolve = resolveValue;
+  });
+  return { promise, resolve };
+}
+
 function connect(directory: string) {
   const socket = net.createConnection(path.join(directory, "control.sock"));
   let pending: ((value: any) => void) | undefined;
@@ -70,6 +89,283 @@ function connect(directory: string) {
       }),
   };
 }
+
+it("creates managed operations from the handshake identity and closes them once", async () => {
+  const tickEntered = deferred<void>();
+  const releaseTick = deferred<void>();
+  const tick = vi.fn(async () => {
+    tickEntered.resolve();
+    await releaseTick.promise;
+  });
+  const close = vi.fn();
+  const createOperations = vi.fn(
+    (_controller: { store: string; epoch: number }): ControllerOperations => ({
+      submit: vi.fn(),
+      watch: vi.fn(),
+      tick,
+      close,
+    }),
+  );
+  const { directory, abort, run } = await fixture(undefined, undefined, createOperations);
+  const client = connect(directory);
+  try {
+    const handshake = await client.request({ method: "handshake" });
+    expect(handshake).toMatchObject({
+      ok: true,
+      result: { store: expect.any(String), epoch: expect.any(Number) },
+    });
+    expect(createOperations).toHaveBeenCalledOnce();
+    expect(createOperations).toHaveBeenCalledWith({
+      store: handshake.result.store,
+      epoch: handshake.result.epoch,
+      directory,
+      consumeStartup: expect.any(Function),
+    });
+
+    await tickEntered.promise;
+    expect(tick).toHaveBeenCalledOnce();
+    expect(await client.request({ method: "status" })).toMatchObject({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    expect(tick).toHaveBeenCalledOnce();
+
+    releaseTick.resolve();
+    abort.abort();
+    await run;
+    expect(close).toHaveBeenCalledOnce();
+  } finally {
+    client.socket.destroy();
+  }
+});
+
+it.each([
+  false,
+  true,
+])("expires startup authority after its factory returns (consumed: %s)", async (consume) => {
+  let startup!: ControllerStartup;
+  await fixture(undefined, undefined, (value) => {
+    startup = value;
+    if (consume) {
+      value.consumeStartup(value.directory);
+      expect(() => value.consumeStartup(value.directory)).toThrow();
+    }
+    return { submit: vi.fn(), watch: vi.fn() };
+  });
+  expect(() => startup.consumeStartup(startup.directory)).toThrow();
+});
+
+it("expires startup authority when the factory throws", async () => {
+  let startup!: ControllerStartup;
+  await expect(
+    fixture(undefined, undefined, (value) => {
+      startup = value;
+      value.consumeStartup(value.directory);
+      throw new Error("Synthetic initialization failure");
+    }),
+  ).rejects.toThrow("Synthetic initialization failure");
+  expect(() => startup.consumeStartup(startup.directory)).toThrow();
+});
+
+it("queries durable operation history only through a valid session binding", async () => {
+  const { directory } = await fixture();
+  const client = connect(directory);
+  await client.request({ method: "handshake" });
+  const acquired = await client.request({
+    method: "observe",
+    path: "/fixture/checkout",
+    session: "reader",
+    profile: "web",
+    require: ["runtime"],
+  });
+  const read = vi.spyOn(operationStore, "readReliabilityOperation").mockReturnValue({
+    state: {
+      operation: null,
+      operationHistory: [
+        { id: "previous", kind: "exec", drained: true, status: "COMPLETED", exitCode: 7 },
+      ],
+    },
+  } as unknown as operationStore.ReliabilityOperationRecord);
+  try {
+    const result = await client.request({
+      ...acquired.result,
+      method: "operation-status",
+      operationId: "previous",
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      result: { operation: { operationId: "previous", outcome: "COMPLETED", exitCode: 7 } },
+    });
+    expect(read).toHaveBeenCalledWith({
+      repoPath: "/fixture/checkout",
+      workspace: "fixture",
+      provider: "devsy",
+    });
+    read.mockClear();
+    const rejected = await client.request({
+      ...acquired.result,
+      method: "operation-status",
+      operationId: "previous",
+      generation: "stale-generation",
+    });
+    expect(rejected.ok).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+  } finally {
+    read.mockRestore();
+    client.socket.destroy();
+  }
+});
+
+it("reconnects through a fresh session to retained operation history without launching work", async () => {
+  const { directory } = await fixture();
+  const first = connect(directory);
+  await first.request({ method: "handshake" });
+  const acquired = await first.request({
+    method: "observe",
+    path: "/fixture/checkout",
+    session: "original",
+    profile: "web",
+    require: ["runtime"],
+  });
+  await first.request({ ...acquired.result, method: "release" });
+  first.socket.destroy();
+  const second = connect(directory);
+  await second.request({ method: "handshake" });
+  const reconnected = await second.request({
+    method: "observe",
+    path: "/fixture/checkout",
+    session: "replacement",
+    profile: "web",
+    require: ["runtime"],
+  });
+  const read = vi.spyOn(operationStore, "readReliabilityOperation").mockReturnValue({
+    state: {
+      operation: null,
+      operationHistory: [
+        { id: "retained-command", kind: "exec", drained: true, status: "COMPLETED", exitCode: 3 },
+      ],
+    },
+  } as unknown as operationStore.ReliabilityOperationRecord);
+  const mutate = vi.spyOn(operationStore, "updateReliabilityOperation");
+  try {
+    const result = await second.request({
+      ...reconnected.result,
+      method: "operation-status",
+      operationId: "retained-command",
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      result: { operation: { operationId: "retained-command", outcome: "COMPLETED", exitCode: 3 } },
+    });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledWith({
+      repoPath: "/fixture/checkout",
+      workspace: "fixture",
+      provider: "devsy",
+    });
+  } finally {
+    mutate.mockRestore();
+    read.mockRestore();
+    second.socket.destroy();
+  }
+});
+
+it("keeps status responsive during an operation watch and binds submission to its session", async () => {
+  const { submitControllerOperation, followControllerOperation } = await import(
+    "../controller-client"
+  );
+  const queued = {
+    operationId: "accepted",
+    phase: "queued",
+    outcome: null,
+    reason: null,
+    exitCode: null,
+  };
+  let finishWatch: (value: unknown) => void = () => {};
+  let enteredWatch: () => void = () => {};
+  const entered = new Promise<void>((resolve) => {
+    enteredWatch = resolve;
+  });
+  const operations: ControllerOperations = {
+    submit: vi.fn(async () => ({ operation: queued })),
+    watch: vi.fn(async () => {
+      enteredWatch();
+      return new Promise((resolve) => {
+        finishWatch = resolve;
+      });
+    }),
+  };
+  const { directory } = await fixture(undefined, operations);
+  const first = connect(directory);
+  const second = connect(directory);
+  try {
+    await first.request({ method: "handshake" });
+    await second.request({ method: "handshake" });
+    const acquired = await first.request({
+      method: "observe",
+      path: "/fixture/checkout",
+      session: "operator",
+      profile: "web",
+      require: ["runtime"],
+    });
+    const submitted = await submitControllerOperation(
+      directory,
+      {
+        ...acquired.result,
+        requestId: "durable-request",
+        kind: "ensure",
+      },
+      { waitSeconds: 0 },
+    );
+    expect(submitted).toMatchObject({
+      status: "pending",
+      operationId: "accepted",
+      operation: { phase: "queued" },
+    });
+    expect(operations.submit).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "durable-request" }),
+      expect.objectContaining({ repoPath: "/fixture/checkout", providerId: "provider" }),
+      expect.any(AbortSignal),
+    );
+    const watched = first.request({
+      ...acquired.result,
+      method: "operation-watch",
+      operationId: "accepted",
+      timeout: 30,
+    });
+    await entered;
+    expect(await second.request({ method: "status" })).toMatchObject({ ok: true });
+    finishWatch({ operationId: "accepted", phase: "queued" });
+    expect(await watched).toMatchObject({ ok: true, result: { operationId: "accepted" } });
+    vi.mocked(operations.watch).mockResolvedValue({
+      operation: { ...queued, phase: "terminal", outcome: "COMPLETED", exitCode: 7 },
+      output: null,
+    });
+    expect(
+      await followControllerOperation(
+        directory,
+        {
+          ...acquired.result,
+          operationId: submitted.operationId,
+        },
+        { waitSeconds: 1 },
+      ),
+    ).toMatchObject({ status: "terminal", operation: { exitCode: 7 } });
+    expect(
+      await first.request({
+        ...acquired.result,
+        generation: "stale",
+        method: "operation-submit",
+        requestId: "other",
+        kind: "ensure",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(operations.submit).toHaveBeenCalledOnce();
+  } finally {
+    finishWatch({});
+    first.socket.destroy();
+    second.socket.destroy();
+  }
+});
+
 it("streams a later application failure while an independent runtime consumer stays ready", async () => {
   const { controllerRequest } = await import("../controller-client");
   const state = createReliabilityState("environment", 0, "manual");

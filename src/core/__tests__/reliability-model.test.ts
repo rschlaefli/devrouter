@@ -147,6 +147,21 @@ describe("reliability transitions", () => {
     const state = step(completed(), { type: "stop" }).state;
     expect(step(state, { type: "stop" })).toMatchObject({ state, effects: [], outcome: "joined" });
   });
+  it("re-fences a repeated stop after full settlement before allowing ensure", () => {
+    let state = step(completed(), { type: "stop" }).state;
+    state = step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).state;
+    expect(state.phase).toBe("idle");
+    expect(state.stopProof).toEqual({ workloadsStopped: true, routesRemoved: true });
+
+    const repeated = step(state, { type: "stop" });
+    expect(repeated.outcome).toBe("accepted");
+    expect(repeated.state.intentRevision).toBe(state.intentRevision + 1);
+    expect(repeated.state.phase).toBe("stopping");
+    expect(repeated.state.stopProof).toEqual({ workloadsStopped: false, routesRemoved: false });
+    expect(
+      step(repeated.state, { ...request, key: "after-stop", operationId: "after-stop" }).outcome,
+    ).toBe("blocked");
+  });
   it("keeps consumers independently ready when another requires a failing capability", () => {
     let state = step(completed(), {
       ...request,
@@ -870,5 +885,101 @@ describe("manual operation lifecycle", () => {
     shared.executionPolicy = "capacity-managed";
     shared.admission = "waiting";
     expect(step(shared, { type: "settle", operationId: "again" }).outcome).toBe("stale");
+  });
+});
+
+describe("capacity-managed operation lifecycle", () => {
+  const ensure = {
+    type: "operation-request",
+    kind: "ensure",
+    key: "managed-1",
+    operationId: "managed-op-1",
+    profile: "web",
+    consumer,
+    runtimeRunning: false,
+  } as const;
+
+  function managed() {
+    return createReliabilityState("env", 1, "capacity-managed");
+  }
+
+  function drained() {
+    let state = step(managed(), ensure).state;
+    state = step(state, { type: "admission", result: "admitted" }).state;
+    state = step(state, { type: "dispatch" }).state;
+    state = step(state, {
+      type: "dispatch-persisted",
+      operationId: ensure.operationId,
+    }).state;
+    state = step(state, { type: "launched", operationId: ensure.operationId }).state;
+    state = step(state, {
+      type: "completion",
+      operationId: ensure.operationId,
+      exitCode: 0,
+    }).state;
+    return step(state, { type: "drained", operationId: ensure.operationId }).state;
+  }
+
+  it("queues a managed ensure and blocks dispatch until admission", () => {
+    const accepted = step(managed(), ensure);
+    expect(accepted.outcome).toBe("accepted");
+    expect(accepted.state).toMatchObject({
+      phase: "queued",
+      admission: "waiting",
+      chargeHeld: false,
+      operation: { id: ensure.operationId, status: "NOT_STARTED", drained: false },
+    });
+    expect(accepted.effects).toEqual([
+      expect.objectContaining({ kind: "request-admission", operationId: ensure.operationId }),
+    ]);
+
+    const blocked = step(accepted.state, { type: "dispatch" });
+    expect(blocked).toMatchObject({ outcome: "blocked", effects: [] });
+    expect(blocked.state).toEqual(accepted.state);
+
+    const admitted = step(accepted.state, { type: "admission", result: "admitted" });
+    expect(admitted.state.chargeHeld).toBe(true);
+    expect(step(admitted.state, { type: "dispatch" }).outcome).toBe("accepted");
+  });
+
+  it("joins a repeated managed request without a second admission effect", () => {
+    const accepted = step(managed(), ensure);
+    const joined = step(accepted.state, ensure);
+    expect(joined).toMatchObject({ outcome: "joined", effects: [] });
+    expect(joined.state).toEqual(accepted.state);
+  });
+
+  it("requires fresh admission for a managed exec while retaining its held charge", () => {
+    const state = drained();
+    expect(state.chargeHeld).toBe(true);
+
+    const next = {
+      ...ensure,
+      kind: "exec",
+      key: "managed-exec",
+      operationId: "managed-exec",
+      runtimeRunning: true,
+    } as const;
+    const accepted = step(state, next);
+    expect(accepted).toMatchObject({
+      outcome: "accepted",
+      state: {
+        phase: "queued",
+        admission: "waiting",
+        chargeHeld: true,
+        operation: { id: next.operationId, kind: "exec", status: "NOT_STARTED", drained: false },
+      },
+      effects: [
+        expect.objectContaining({ kind: "request-admission", operationId: next.operationId }),
+      ],
+    });
+
+    const blocked = step(accepted.state, { type: "dispatch" });
+    expect(blocked).toMatchObject({ outcome: "blocked", effects: [] });
+    expect(blocked.state).toEqual(accepted.state);
+
+    const readmitted = step(accepted.state, { type: "admission", result: "admitted" });
+    expect(readmitted.state.chargeHeld).toBe(true);
+    expect(step(readmitted.state, { type: "dispatch" }).outcome).toBe("accepted");
   });
 });
