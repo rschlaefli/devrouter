@@ -2370,3 +2370,42 @@ ai-prompt suite (6), Biome, tsc, docs policy, and knowledge validation (7
 files). The reviewer did not reproduce runtime evidence; live Docker/DevPod
 behavior rests on the recorded suite and packed qualification receipt. Merge
 remains user-gated.
+
+## eLearning live dogfood package (prepared, activation review-gated)
+
+Target: the managed worktree /Users/rschlae/Git/tc/elearning/trees/rs/reliability-canary
+with its existing Devsy workspace rs-reliability-canary (uid default-rs-101ce).
+Its journal exists at revision 1992 in the stopped-by-user, manual state, which
+satisfies the stopped-proof enrollment base. Machine facts: physical memory
+68719476736 bytes, OrbStack docker info MemTotal 36786507776 bytes, endpoint
+/Users/rschlae/.orbstack/run/docker.sock, daemon ID ded85e46-31f8-4028-842c-22d716305b0d.
+
+Proposed numeric machine policy for review (one file,
+~/.config/devrouter/controller/capacity-policy.json, mode 0600): version 1,
+revision 1, admissions enabled; scheduling maxQueuedPerDomain 2,
+maxQueuedTotal 4, queueLifetimeSeconds 900, clientWaitSeconds 30,
+maxClientWaitSeconds 900, watchSeconds 30, sampleIntervalSeconds 5,
+maxSampleAgeSeconds 15; host domain host with macos-declared-v1,
+unmanagedAllowanceBytes 17179869184, capacityBytes 68719476736,
+protectedHeadroomBytes 8589934592, startupSlots 2, heavySlots 1; runtime
+domain runtime with orbstack-declared-v1, the endpoint and daemon ID above,
+hostDomain host, hostChargeCeilingBytes 4294967296, capacityBytes 32212254720,
+protectedHeadroomBytes 2147483648, guestUnmanagedAllowanceBytes 4294967296,
+startupSlots 2, heavySlots 1; one enrollment for the identity above with
+profiles [full] and defaultOperation hostIncrementBytes 0,
+runtimeIncrementBytes 268435456. The worktree .devrouter.yml additionally
+needs a local capacity estimates block for the full profile (runtime steady
+1610612736, startup 3221225472, host zero, ensure/exec operations) as an
+uncommitted change reverted after the dogfood; the enrollment estimatesDigest
+is computed from it with capacityEstimatesDigest at execution time and the
+policy file is validated with parseCapacityPolicy before controller startup.
+
+Procedure once the numbers are approved: validate policy, start the PR-head
+controller foreground session, confirm ensure routes through admission and
+returns the journalled result, exercise exec through admission, kill and
+restart the controller during one bounded wait to prove live reconnection,
+stop while the controller holds no work to prove stop bypass, then disable
+the policy, revert the config change, stop the controller, and prove the
+exact runtime stopped with zero routes. Until the numeric limits are reviewed
+and approved, live activation stays gated per the declared-budget amendment;
+the packed qualification remains the capacity evidence of record.
