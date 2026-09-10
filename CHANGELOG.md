@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.72] - 2026-09-10
+
+### Fixed
+
+- A capacity-managed lifecycle journal no longer refuses every later command
+  once it holds the 128-entry cap. Rollover was reachable only for manual
+  execution policy, so an enrolled checkout that accumulated 128 settled
+  operations was permanently wedged; the next admitted `ensure` failed with
+  `Managed lifecycle transition is blocked.` Both policies now share the same
+  conservative rollover guards: duplicate and conflict checks run first, only a
+  settled drained `COMPLETED`/`NOT_LAUNCHED`/`INTERRUPTED` entry is retired, the
+  current operation and the latest `ensure` result are retained, one entry is
+  freed per accepted replacement, and the request is refused when nothing
+  qualifies.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.72.md
+
 ## [0.0.71] - 2026-09-10
 
 ### Fixed

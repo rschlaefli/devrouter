@@ -1,6 +1,6 @@
 version: 1
 devrouter:
-  version: 0.0.71
+  version: 0.0.72
 project:
   name: devrouter-routing
 
