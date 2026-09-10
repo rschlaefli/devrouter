@@ -42,3 +42,16 @@ Docker reports zero running task containers and routes remain absent. Devsy stil
 reports Busy for the never-started primary. Ensure passed lifecycle admission
 and is testing startup on a free task-specific Blob port. This is not yet full
 provider recovery proof.
+
+## Verification receipt
+
+Full Vitest suite: 139 files, 2094 tests passing with maxWorkers=2. A first
+concurrent run found an unmanaged-provider regression (fixed) and a controller
+watch timeout (passed both focused and full reruns). Typecheck, build and focused
+Biome checks pass. The final source correction is 3576daa51e30b8769054c46503bee5efb1e91f39.
+
+Live qualification completed canonical stop, ensure, exec and final stop. Provider
+Stopped, no running task containers, 11 routes removed, retained volumes. The
+repair is installed as a local package; the ordinary published Volta install
+remains 0.0.67. Draft PR: https://github.com/rschlaefli/devrouter/pull/80.
+Independent review remains pending after a malformed first response; CI pending.
