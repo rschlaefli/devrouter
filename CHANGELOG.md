@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.71] - 2026-09-10
+
+### Fixed
+
+- Enrolled `ensure` and `exec` now bind to the controller correctly.
+  Supervised binds sent an empty requirement list that the controller protocol
+  rejects, and the observation binding validated the wire envelope instead of
+  its result. Both defects kept every capacity-enrolled checkout from starting
+  or running commands, and both shipped in 0.0.69 and 0.0.70.
+- The controller now writes the bounded single-line cause of a failed operation
+  submit or watch to stderr instead of reporting only the generic
+  `request-unavailable` refusal.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.71.md
+
 ## [0.0.70] - 2026-09-10
 
 ### Fixed
