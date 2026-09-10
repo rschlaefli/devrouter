@@ -736,6 +736,21 @@ workspaceCommand
     }),
   );
 
+workspaceCommand
+  .command("journal settle")
+  .description(
+    "Settle an interrupted lifecycle operation as unobservable so ensure and stop can proceed",
+  )
+  .argument("[path]", "Checkout path (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (path: string | undefined, _options: unknown, command: Command) => {
+      const options = command.opts<{ json?: boolean }>();
+      const { runWorkspaceJournalSettleCommand } = await import("./commands/workspace");
+      await runWorkspaceJournalSettleCommand({ ...(path ? { path } : {}), ...options });
+    }),
+  );
+
 function parseVersionRequest(argv: string[]): { repo?: string } | null {
   let requested = false;
   let repo: string | undefined;

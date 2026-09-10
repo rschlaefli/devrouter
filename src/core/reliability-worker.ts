@@ -184,7 +184,11 @@ export async function runLifecycleWorker(
                   Date.now(),
                 );
                 if (admitted.outcome !== "accepted")
-                  throw new Error(`Lifecycle admission is ${admitted.outcome}.`);
+                  throw new Error(
+                    `Lifecycle admission is ${admitted.outcome}.${
+                      admitted.reason ? ` ${admitted.reason}` : ""
+                    }`,
+                  );
                 record.state = admitted.state;
                 record.outcome = null;
                 request.fence = reliabilityFence(record.state);

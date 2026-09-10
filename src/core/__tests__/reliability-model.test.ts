@@ -717,7 +717,15 @@ describe("manual operation lifecycle", () => {
     expect(state.operationHistory.find((entry) => entry.id === "prepared")?.status).toBe(
       "COMPLETED",
     );
-    expect(step(state, ensure).outcome).toBe("joined");
+    // The drained interrupted entry is retirable like any settled result, so a
+    // saturated journal eventually frees its deduplication key; the completed
+    // preparation result is retained and must survive the replacement.
+    expect(state.operationHistory.some((entry) => entry.id === ensure.operationId)).toBe(false);
+    const result = step(state, ensure);
+    expect(result.outcome).toBe("accepted");
+    expect(result.state.operationHistory.find((entry) => entry.id === "prepared")?.status).toBe(
+      "COMPLETED",
+    );
   });
   it("checks retained duplicates and conflicts before rollover and fences old events", () => {
     const full = fullHistory();
@@ -759,27 +767,48 @@ describe("manual operation lifecycle", () => {
       entry.status = "COMPLETION_UNKNOWN";
       entry.exitCode = null;
     }
-    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+    const refusal = step(full, ensure);
+    expect(refusal.outcome).toBe("blocked");
+    expect(refusal.reason).toContain("retirable entry");
+    expect(refusal.state).toEqual(full);
   });
   it.each([
     "INTERRUPTED",
-    "COMPLETION_UNKNOWN",
     "NOT_STARTED",
-  ] as const)("does not roll over a current %s operation even after drainage", (status) => {
+  ] as const)("supersedes a drained current %s operation at rollover when a fresh ensure replaces it", (status) => {
     const full = fullHistory();
     full.operation = { ...full.operation!, status, exitCode: null };
     full.operationHistory[127] = { ...full.operationHistory[127], ...full.operation };
-    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+    const result = step(full, ensure);
+    expect(result.outcome).toBe("accepted");
+    // The superseded entry stays in history until a later rollover retires it.
+    expect(result.state.operationHistory.some((entry) => entry.id === "op-127")).toBe(true);
+    expect(result.state.operationHistory.some((entry) => entry.id === "op-0")).toBe(false);
+    expect(result.state.operationHistory).toHaveLength(128);
+  });
+  it("does not roll over a current COMPLETION_UNKNOWN operation without a supersede proof", () => {
+    const full = fullHistory();
+    full.operation = { ...full.operation!, status: "COMPLETION_UNKNOWN", exitCode: null };
+    full.operationHistory[127] = { ...full.operationHistory[127], ...full.operation };
+    const result = step(full, ensure);
+    expect(result.outcome).toBe("blocked");
+    expect(result.reason).toContain("COMPLETION_UNKNOWN");
+    expect(result.state).toEqual(full);
   });
   it("requires current drainage and preserves state when the counter is exhausted", () => {
     const full = fullHistory();
     full.operation!.drained = false;
     full.operationHistory[127].drained = false;
-    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+    const refusal = step(full, ensure);
+    expect(refusal.outcome).toBe("blocked");
+    expect(refusal.reason).toContain("drained=false");
+    expect(refusal.state).toEqual(full);
     full.operation!.drained = true;
     full.operationHistory[127].drained = true;
     full.intentRevision = Number.MAX_SAFE_INTEGER;
-    expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+    const exhausted = step(full, ensure);
+    expect(exhausted.outcome).toBe("blocked");
+    expect(exhausted.state).toEqual(full);
     expect(step(full, { ...ensure, key: "request-127", operationId: "op-127" }).outcome).toBe(
       "joined",
     );
@@ -805,5 +834,41 @@ describe("manual operation lifecycle", () => {
     full.executionPolicy = "capacity-managed";
     full.admission = "waiting";
     expect(step(full, ensure)).toEqual({ state: full, outcome: "blocked", effects: [] });
+  });
+  it("settles a lost operation as unobservable so the next ensure supersedes it", () => {
+    let state = step(dispatched(), { type: "interrupted", operationId: ensure.operationId }).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    state = step(state, { type: "settle", operationId: ensure.operationId }).state;
+    expect(state.operation).toMatchObject({ status: "INTERRUPTED", drained: true });
+    expect(state.operationHistory[0]).toMatchObject({ status: "INTERRUPTED", drained: true });
+    expect(step(state, { type: "settle", operationId: ensure.operationId }).outcome).toBe("joined");
+    // The settled operation's own request still joins; a fresh request supersedes it.
+    expect(step(state, ensure).outcome).toBe("joined");
+    const result = step(state, { ...ensure, key: "after-settle", operationId: "after-settle" });
+    expect(result.outcome).toBe("accepted");
+  });
+  it("settles an interrupted running operation into recovery and keeps exec recovery available", () => {
+    let state = dispatched();
+    state = step(state, { type: "settle", operationId: ensure.operationId }).state;
+    expect(state.operation).toMatchObject({ status: "INTERRUPTED", drained: true });
+    expect(state.phase).toBe("recovering");
+    const exec = {
+      ...ensure,
+      kind: "exec",
+      runtimeRunning: true,
+      recoverInterruptedEnsure: true,
+      key: "exec-after-settle",
+      operationId: "exec-after-settle",
+    } as const;
+    expect(step(state, exec).outcome).toBe("accepted");
+  });
+  it("joins settle for a completed outcome and stales foreign or non-manual settles", () => {
+    const state = drained();
+    expect(step(state, { type: "settle", operationId: ensure.operationId }).outcome).toBe("joined");
+    expect(step(state, { type: "settle", operationId: "foreign" }).outcome).toBe("stale");
+    const shared = step(state, { ...ensure, key: "again", operationId: "again" }).state;
+    shared.executionPolicy = "capacity-managed";
+    shared.admission = "waiting";
+    expect(step(shared, { type: "settle", operationId: "again" }).outcome).toBe("stale");
   });
 });

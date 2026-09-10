@@ -112,6 +112,7 @@ export type ReliabilityEvent = ReliabilityFence &
     | { type: "completion"; operationId: string; exitCode: number }
     | { type: "not-started"; operationId: string }
     | { type: "interrupted"; operationId: string }
+    | { type: "settle"; operationId: string }
     | { type: "observation"; observation: ReliabilityObservation }
     | { type: "stop-proof"; workloadsStopped: boolean; routesRemoved: boolean }
     | { type: "epoch"; nextEpoch: number }
@@ -124,6 +125,8 @@ export type ReliabilityTransition = {
   state: ReliabilityState;
   effects: ReliabilityEffect[];
   outcome: "accepted" | "joined" | "stale" | "blocked" | "conflict";
+  /** Machine-readable reason naming the blocking field; set for every "blocked". */
+  reason?: string;
 };
 
 export function isReliabilityId(value: unknown): value is string {
