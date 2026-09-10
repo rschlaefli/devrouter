@@ -2306,3 +2306,17 @@ controller suite (3), controller-server and sessions plus all command suites
 (84, isolated), journal-backed capacity integration (22), and the packed
 qualification receipt. Slice review is pending with the package's standing
 review owners; no runtime or operator policy was changed on this machine.
+
+Canonical CLI wiring slice committed as e412981: superviseLifecycle routes
+enrolled ensure and exec through the controller instead of refusing them. The
+CLI observes a session binding, submits, and follows with reconnecting
+polling bounded by the existing 30-minute CLI deadline; the worker journals its
+rich result atomically with the completion event (new bounded record field), so
+ensure returns the identical result payload and exec the identical outcome.
+Worker failure results surface as command errors; stop still bypasses
+admission; controller-replaced results degrade to an honest inspect-before-
+retry error and exec journal-outcome fallback. Verified: tsc, Biome, knip, two
+new routing regression tests, the full suite (2050 across 136 files), and the
+packed qualification receipt. Slice review is pending with the standing review
+owners alongside the factory activation slice; no runtime or operator policy
+was changed on this machine.
