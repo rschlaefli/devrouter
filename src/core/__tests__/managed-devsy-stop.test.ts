@@ -173,6 +173,7 @@ beforeEach(() => {
   vi.mocked(isLinkedWorktree).mockReturnValue(false);
   vi.mocked(resolveWorkspaceRuntimeOrDefault).mockReturnValue("devsy");
   vi.mocked(listDevsyWorkspaces).mockReturnValue([]);
+  vi.mocked(inspectWorkspaceContainers).mockReturnValue([]);
   vi.mocked(inspectDevsyWorkspaceOwnership).mockImplementation(() => ({
     status: "owned",
     workspace: { id: devsyId, context, source: { localFolder: repoPath } },
@@ -210,6 +211,30 @@ afterEach(() => {
 });
 
 describe("retained managed Devsy stop", () => {
+  it("stops initial dependencies when no retained runtime baseline exists", () => {
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    vi.mocked(inspectWorkspaceContainers).mockImplementation(() => structuredClone(containers));
+    expect(run()).toBe(true);
+    expect(containers.every((c) => !c.state.Running)).toBe(true);
+    expect(stopProvider).not.toHaveBeenCalled();
+  });
+
+  it("refuses an initial population whose project includes foreign containers", () => {
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    vi.mocked(inspectWorkspaceContainers).mockImplementation(() =>
+      structuredClone(containers.slice(0, 1)),
+    );
+    expect(run).toThrow("population changed");
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+  });
+
+  it("refuses initial cleanup when the provider registration is absent", () => {
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    vi.mocked(inspectDevsyWorkspaceOwnership).mockReturnValue({ status: "absent" });
+    expect(run).toThrow("exact Devsy registration");
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+  });
+
   it("completes a stopped primary's residual service and is idempotent", () => {
     expect(run()).toBe(true);
     expect(stopProvider).not.toHaveBeenCalled();
