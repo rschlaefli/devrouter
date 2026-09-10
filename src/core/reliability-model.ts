@@ -398,8 +398,6 @@ function handleOperationRequest(
     );
   if (state.operationHistory.some((entry) => entry.id === event.operationId))
     return unchanged(state, "conflict");
-  if (state.executionPolicy !== "manual" && state.operationHistory.length >= RELIABILITY_MAX_ITEMS)
-    return unchanged(state, "blocked");
   // Tooling does not reconcile interrupted preparation. Every subsequent command
   // needs fresh identity proof until a later ensure replaces that startup result.
   if (
@@ -445,8 +443,13 @@ function handleOperationRequest(
       state,
       `exec requires a running workspace (runtimeRunning=${event.runtimeRunning}, desired='${state.desired}').`,
     );
-  const rollover =
-    state.executionPolicy === "manual" && state.operationHistory.length >= RELIABILITY_MAX_ITEMS;
+  // Both manual and capacity-managed journals roll over at the cap. A
+  // capacity-managed checkout accumulates one entry per ensure and exec, so a
+  // journal that never rolls over permanently refuses every later command once
+  // it fills. Retirement stays conservative: only a settled, drained entry that
+  // is neither the current operation nor the latest ensure qualifies, and the
+  // request is refused when nothing qualifies.
+  const rollover = state.operationHistory.length >= RELIABILITY_MAX_ITEMS;
   let retired = -1;
   if (rollover) {
     // The supersede gates above already proved the current drained operation is
