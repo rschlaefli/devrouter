@@ -217,7 +217,14 @@ function parseHolderPortMap(value: unknown): HolderSnapshot["ports"] {
       ports.push({ hostIp: normalizeHostIp(entry.HostIp), hostPort: bound, protocol });
     }
   }
-  return ports;
+  // Docker reports a wildcard bind once per address family (0.0.0.0 and ::);
+  // after normalization both describe the same logical binding, so collapse
+  // them to one entry instead of emitting duplicate conflicts.
+  const unique = new Map<string, HolderSnapshot["ports"][number]>();
+  for (const port of ports) {
+    unique.set(`${port.hostIp ?? ""}|${port.hostPort}|${port.protocol}`, port);
+  }
+  return [...unique.values()];
 }
 
 function parseHolderSnapshots(stdout: string): HolderSnapshot[] {

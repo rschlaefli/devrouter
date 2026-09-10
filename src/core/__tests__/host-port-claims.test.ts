@@ -349,6 +349,39 @@ describe("detectHostPortClaimConflicts", () => {
     expect(conflicts[0].remediation).toContain("standalone-postgres");
   });
 
+  it("reports one conflict when the holder binds the port on both address families", () => {
+    configureDetection({
+      rendered: () =>
+        renderedModel({
+          postgres: {
+            ports: [{ target: 5432, published: "5432", protocol: "tcp" }],
+          },
+        }),
+      ps: () => dockerResult("def456\n"),
+      holders: () =>
+        dockerResult(
+          `${JSON.stringify({
+            id: "def456",
+            name: "/standalone-postgres",
+            labels: {},
+            ports: {
+              "5432/tcp": [
+                { HostIp: "0.0.0.0", HostPort: "5432" },
+                { HostIp: "::", HostPort: "5432" },
+              ],
+            },
+          })}\n`,
+        ),
+    });
+    const conflicts = detectHostPortClaimConflicts({ repoPath: REPO, plan: PLAN });
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      holderContainer: "standalone-postgres",
+      hostIp: null,
+      hostPort: 5432,
+    });
+  });
+
   it("refuses when the live holder listing fails", () => {
     configureDetection({
       rendered: () =>
