@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.69] - 2026-09-10
+
+### Added
+
+- Refuse managed `ensure` before any session, config write, or provider start
+  when a configured fixed published host binding (an explicit `host:port`
+  compose binding; ephemeral bindings are exempt by design) is already held by
+  a running container. The refusal returns `hostPortConflicts` in the
+  `--json` result, exits nonzero, and names per conflict the desired binding,
+  the holding container, its compose project, and the owning workspace when
+  attributable through compose labels and workspace ownership records.
+  Detection renders the effective Compose model with the exact interpolation
+  environment the start would use (profile services included) and inspects
+  live holders with one `docker ps` plus one batched `docker inspect`.
+  Consumer-declared bindings are never rewritten or offset; the refusal is
+  the product. Unverifiable evidence (render or Docker failure) also refuses
+  fail-closed instead of risking a late raw bind failure after a full
+  provider bootstrap.
+- Report configured versus live fixed host-port bindings as the read-only
+  `repo.host-port-claims` doctor check: conflicts are errors naming the
+  holder and owning workspace, repos without `managedRuntime` are skipped,
+  and unavailable evidence warns instead of failing doctor.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.69.md
+
 ## [0.0.68] - 2026-09-10
 
 ### Changed

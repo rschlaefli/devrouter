@@ -57,10 +57,19 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
 4. For Devsy, validate the pinned agent source before entering the provider
    queue. Missing, stale, or invalid sources fail with the exact setup repair;
    the verified path enters only the copied CLI child environment.
-5. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide. Contenders join a fair arrival-order queue, wait up to thirty minutes for the machine-global provider lock, and print one throttled stderr progress line every ten seconds while waiting; a timeout names the queue position or holder PID, the true lock-hold duration when known, and how long the contender waited.
-6. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
-7. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, prove that Traefik loaded desired file-provider routers and unloaded removed routers, and then verify HTTP readiness.
-8. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
+5. For managed runtimes, resolve the fixed published host bindings of the
+   effective Compose model (`src/core/host-port-claims.ts`) with the same
+   interpolation environment the start would use, and refuse before any
+   session, generated-config write, or provider start when a running container
+   already binds one (`hostPortConflicts` in the result names the binding,
+   holder container, compose project, and owning workspace when attributable).
+   Ephemeral bindings are exempt and consumer bindings are never rewritten.
+   Unverifiable evidence refuses fail-closed; `doctor` reports the same
+   comparison read-only as `repo.host-port-claims`.
+6. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide. Contenders join a fair arrival-order queue, wait up to thirty minutes for the machine-global provider lock, and print one throttled stderr progress line every ten seconds while waiting; a timeout names the queue position or holder PID, the true lock-hold duration when known, and how long the contender waited.
+7. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
+8. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, prove that Traefik loaded desired file-provider routers and unloaded removed routers, and then verify HTTP readiness.
+9. Spend at most one recreate on an already-existing exact runtime. Clear the route batch when a later proof fails.
 
 A provider command can fail after creating recovery state. Devsy startup
 therefore re-reads exact ownership while its machine-global mutation lock is

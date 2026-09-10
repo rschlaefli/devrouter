@@ -29,6 +29,7 @@ import { DevpodStartPostconditionError, startDevpodWorkspace } from "./devpod-mu
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { withMutationLockAsync as withDevsyMutationLock } from "./devsy-mutation";
 import { createStderrWaitReporter, withFileLock } from "./file-lock";
+import { detectHostPortClaimConflicts, type HostPortClaimConflict } from "./host-port-claims";
 import {
   type HostRouteInput,
   listHostRouteState,
@@ -110,6 +111,8 @@ export type WorkspaceEnsureResult = {
     status: "ready" | "application-error";
     checks: { app: string; ok: boolean; status?: number; checkedAt: string }[];
   };
+  /** Present only when admission refused to start over fixed host-port conflicts. */
+  hostPortConflicts?: HostPortClaimConflict[];
 };
 
 type EnvironmentTarget =
@@ -1081,6 +1084,40 @@ export async function workspaceEnsure(
             plan: managedPlan,
             processes: managedRuntime.processes,
           });
+        }
+      }
+      if (managedPlan) {
+        // Fixed published bindings are machine-global: detect live collisions
+        // before any session, config write, or provider start so the refusal
+        // is fast and attributed instead of Docker's late raw bind failure.
+        let hostPortConflicts: HostPortClaimConflict[] = [];
+        try {
+          hostPortConflicts = detectHostPortClaimConflicts({
+            repoPath,
+            plan: managedPlan,
+            workspace: managedWorkspaceEnv,
+          });
+        } catch (error) {
+          throw new Error(
+            `Managed admission could not verify fixed host-port claims before start: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        if (hostPortConflicts.length > 0) {
+          return {
+            kind: target.kind,
+            repoPath,
+            ...(target.kind === "linked" ? { workspace: target.workspace } : {}),
+            profile: runtime.profile,
+            // A refusal precedes the provider start, so the exact id may not
+            // be known yet on a primary checkout.
+            devpodId: devpodId ?? "(absent)",
+            urls: [],
+            recreated: false,
+            tlsRefreshed: false,
+            hostPortConflicts,
+          };
         }
       }
       const apps = proxyAppsFromConfig(runtime.config);

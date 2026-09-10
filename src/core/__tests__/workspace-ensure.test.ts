@@ -22,6 +22,7 @@ import {
   type WorkspaceContainerSnapshot,
 } from "../devpod-environment";
 import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspaces";
+import { detectHostPortClaimConflicts } from "../host-port-claims";
 import { listHostRouteState, replaceHostRoutesForRepo } from "../host-routes";
 import { runManagedHostPreparation } from "../managed-host-preparation";
 import {
@@ -51,6 +52,7 @@ import { writeWorkspaceOwnership } from "../workspace-ownership";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 vi.mock("../network-diagnostics", () => ({ inspectLegacyNetworkCapacity: vi.fn() }));
+vi.mock("../host-port-claims", () => ({ detectHostPortClaimConflicts: vi.fn(() => []) }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../devsy-agent", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -2827,5 +2829,100 @@ describe("workspaceEnsure", () => {
     ).rejects.toThrow("HTTP route readiness timed out");
 
     expect(devpodUpCalls()).toHaveLength(2);
+  });
+
+  it("refuses a managed start on fixed host-port conflicts before any dispatch", async () => {
+    const events: string[] = [];
+    mockManagedLifecycle({ events });
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
+      workspace: "feature",
+      config: managedRuntimeConfig(),
+    });
+    vi.mocked(detectHostPortClaimConflicts).mockReturnValue([
+      {
+        service: "azurite",
+        hostIp: "127.0.0.1",
+        hostPort: 10003,
+        protocol: "tcp",
+        holderContainer: "default-fe-d0f0d-azurite-1",
+        holderComposeProject: "default-fe-d0f0d",
+        holderWorkspace: "feat-kb-capacity",
+        remediation: "Stop the holding workspace with 'devrouter stop /repo/trees/kb-capacity'.",
+      },
+    ]);
+
+    const result = await workspaceEnsure(tmpDir, {});
+
+    expect(result.urls).toEqual([]);
+    expect(result.hostPortConflicts).toHaveLength(1);
+    expect(result.hostPortConflicts?.[0]).toMatchObject({
+      holderContainer: "default-fe-d0f0d-azurite-1",
+      holderWorkspace: "feat-kb-capacity",
+    });
+    // The refusal must precede every mutation boundary: no network session,
+    // no generated config write, no provider start, no extra-service start.
+    expect(events).not.toContain("config-write");
+    expect(events).not.toContain("devpod-up");
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(startExactManagedServices).not.toHaveBeenCalled();
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+    expect(detectHostPortClaimConflicts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: tmpDir,
+        workspace: { token: "feature", gitCommonDir: gitDir },
+      }),
+    );
+  });
+
+  it("refuses loudly when fixed host-port evidence cannot be verified", async () => {
+    mockManagedLifecycle();
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
+      workspace: "feature",
+      config: managedRuntimeConfig(),
+    });
+    vi.mocked(detectHostPortClaimConflicts).mockImplementation(() => {
+      throw new Error("Cannot connect to the Docker daemon");
+    });
+
+    await expect(workspaceEnsure(tmpDir, {})).rejects.toThrow(
+      /could not verify fixed host-port claims.*Cannot connect to the Docker daemon/,
+    );
+    expect(devpodUpCalls()).toHaveLength(0);
+  });
+
+  it("refuses a repair on fixed host-port conflicts without starting retained containers", async () => {
+    const events: string[] = [];
+    mockRepair(events);
+    vi.mocked(detectHostPortClaimConflicts).mockReturnValue([
+      {
+        service: "azurite",
+        hostIp: "127.0.0.1",
+        hostPort: 11003,
+        protocol: "tcp",
+        holderContainer: "other-azurite",
+        remediation: "Stop or reconfigure the holding container 'other-azurite'.",
+      },
+    ]);
+
+    const result = await workspaceEnsure(tmpDir, {
+      repair: true,
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+
+    expect(result.urls).toEqual([]);
+    expect(result.hostPortConflicts).toHaveLength(1);
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(
+      vi
+        .mocked(spawnSync)
+        .mock.calls.filter(
+          ([command, args]) => command === "docker" && (args as string[])?.[0] === "start",
+        ),
+    ).toHaveLength(0);
+    expect(events).not.toContain("config-write");
+    expect(events).not.toContain("state-write");
   });
 });
