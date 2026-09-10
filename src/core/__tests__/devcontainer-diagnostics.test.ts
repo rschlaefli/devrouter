@@ -1,9 +1,26 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DevrouterConfig } from "../../types";
 import { buildDevcontainerChecks } from "../devcontainer-diagnostics";
+import { inspectManagedDevcontainerConfig } from "../devcontainer-profile";
+import { detectHostPortClaimConflicts } from "../host-port-claims";
+import { loadRuntimeConfig } from "../repo-config";
+import { isLinkedWorktree } from "../workspace";
+import { resolveGitCommonDir } from "../workspace-ownership";
+
+vi.mock("../repo-config", () => ({ loadRuntimeConfig: vi.fn() }));
+vi.mock("../devcontainer-profile", () => ({ inspectManagedDevcontainerConfig: vi.fn() }));
+vi.mock("../host-port-claims", () => ({ detectHostPortClaimConflicts: vi.fn(() => []) }));
+vi.mock("../workspace", async (importOriginal) => ({
+  ...(await importOriginal()),
+  isLinkedWorktree: vi.fn(() => false),
+}));
+vi.mock("../workspace-ownership", async (importOriginal) => ({
+  ...(await importOriginal()),
+  resolveGitCommonDir: vi.fn(() => "/tmp/host-port-claims-doctor/common"),
+}));
 
 let tmpDir: string;
 
@@ -62,6 +79,17 @@ function config(upstream: string): DevrouterConfig {
         upstream,
       },
     ],
+  };
+}
+
+function managedConfig(): DevrouterConfig {
+  return {
+    version: 1,
+    managedRuntime: {
+      devcontainer: { baseServices: ["postgres"], profileServices: ["redis"] },
+      processes: ["app"],
+    },
+    apps: [],
   };
 }
 
@@ -179,5 +207,89 @@ describe("buildDevcontainerChecks", () => {
 
     expect(lifecycle?.level).toBe("error");
     expect(lifecycle?.details).toContain("Set waitFor to 'postCreateCommand'");
+  });
+});
+
+describe("repo.host-port-claims check", () => {
+  beforeEach(() => {
+    fs.mkdirSync(path.join(tmpDir, ".devcontainer"), { recursive: true });
+    vi.mocked(isLinkedWorktree).mockReturnValue(false);
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "full",
+      workspace: undefined,
+      resolvedProfile: { name: "full" },
+      config: managedConfig(),
+    } as never);
+    vi.mocked(inspectManagedDevcontainerConfig).mockReturnValue({
+      composeFiles: ["/d/docker-compose.yml"],
+      composeDirectory: "/d",
+    } as never);
+    vi.mocked(detectHostPortClaimConflicts).mockReturnValue([]);
+  });
+
+  it("is absent for repos without managedRuntime", () => {
+    const checks = buildDevcontainerChecks(tmpDir, config("sample-app:3000"));
+
+    expect(checks.some((check) => check.id === "repo.host-port-claims")).toBe(false);
+    expect(detectHostPortClaimConflicts).not.toHaveBeenCalled();
+  });
+
+  it("reports ok when no configured binding conflicts with a live holder", () => {
+    const checks = buildDevcontainerChecks(tmpDir, managedConfig());
+
+    expect(checkLevel(checks, "repo.host-port-claims")).toBe("ok");
+    expect(detectHostPortClaimConflicts).toHaveBeenCalledWith({
+      repoPath: tmpDir,
+      plan: { composeFiles: ["/d/docker-compose.yml"], composeDirectory: "/d" },
+      workspace: undefined,
+    });
+  });
+
+  it("errors with holder attribution on conflicts", () => {
+    vi.mocked(detectHostPortClaimConflicts).mockReturnValue([
+      {
+        service: "azurite",
+        hostIp: "127.0.0.1",
+        hostPort: 10003,
+        protocol: "tcp",
+        holderContainer: "default-fe-d0f0d-azurite-1",
+        holderComposeProject: "default-fe-d0f0d",
+        holderWorkspace: "feat-kb-capacity",
+        remediation: "Stop the holding workspace.",
+      },
+    ]);
+
+    const checks = buildDevcontainerChecks(tmpDir, managedConfig(), "feature");
+    const check = checks.find((entry) => entry.id === "repo.host-port-claims");
+
+    expect(check?.level).toBe("error");
+    expect(check?.details).toContain("azurite: 127.0.0.1:10003/tcp");
+    expect(check?.details).toContain("'default-fe-d0f0d-azurite-1'");
+    expect(check?.details).toContain("workspace 'feat-kb-capacity'");
+  });
+
+  it("warns instead of throwing when evidence is unavailable", () => {
+    vi.mocked(detectHostPortClaimConflicts).mockImplementation(() => {
+      throw new Error("Cannot connect to the Docker daemon");
+    });
+
+    const checks = buildDevcontainerChecks(tmpDir, managedConfig());
+    const check = checks.find((entry) => entry.id === "repo.host-port-claims");
+
+    expect(check?.level).toBe("warn");
+    expect(check?.details).toContain("Cannot connect to the Docker daemon");
+  });
+
+  it("passes the workspace interpolation env for linked checkouts", () => {
+    vi.mocked(isLinkedWorktree).mockReturnValue(true);
+    vi.mocked(resolveGitCommonDir).mockReturnValue("/tmp/host-port-claims-doctor/common");
+
+    buildDevcontainerChecks(tmpDir, managedConfig(), "feature");
+
+    expect(detectHostPortClaimConflicts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: { token: "feature", gitCommonDir: "/tmp/host-port-claims-doctor/common" },
+      }),
+    );
   });
 });

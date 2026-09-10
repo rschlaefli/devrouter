@@ -737,7 +737,9 @@ workspaceCommand
   );
 
 workspaceCommand
-  .command("journal settle")
+  .command("journal")
+  .description("Inspect and recover workspace lifecycle journals")
+  .command("settle")
   .description(
     "Settle an interrupted lifecycle operation as unobservable so ensure and stop can proceed",
   )

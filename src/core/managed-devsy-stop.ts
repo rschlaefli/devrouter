@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -47,6 +48,122 @@ function containerIdentity(container: ManagedStopContainerSnapshot): string {
   });
 }
 
+/** Recover a complete initial Compose population before a runtime baseline exists. */
+function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): boolean {
+  if (!fs.existsSync(path.join(repoPath, ".devrouter.yml"))) return false;
+  const linked = isLinkedWorktree(repoPath);
+  const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
+  const registration = () => {
+    resetWorkspaceRuntimeCaches();
+    if (resolveWorkspaceRuntimeOrDefault(repoPath) !== "devsy")
+      throw new Error("Initial managed stop provider selection changed.");
+    const owner = inspectDevsyWorkspaceOwnership(listDevsyWorkspaces(), devsyId, repoPath);
+    if (owner.status !== "owned")
+      throw new Error("Initial managed stop requires one exact Devsy registration.");
+    if (linked) {
+      const record = workspace ? readWorkspaceOwnership(repoPath, workspace) : undefined;
+      if (
+        !record ||
+        record.devpodId !== devsyId ||
+        !sameWorkspacePath(record.worktreePath, repoPath) ||
+        resolveWorktreeWorkspace(repoPath) !== workspace
+      )
+        throw new Error("Initial managed stop workspace ownership changed.");
+    }
+    return owner.workspace;
+  };
+  const runtime = loadRuntimeConfig(repoPath, workspace ?? "");
+  if (!runtime.config.managedRuntime) return false;
+  const owner = registration();
+  if (
+    !owner.context ||
+    !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(owner.context) ||
+    !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(devsyId)
+  )
+    throw new Error("Initial managed stop requires exact provider context.");
+  const plan = inspectManagedDevcontainerConfig({
+    repoPath,
+    config: runtime.config,
+    profile: runtime.resolvedProfile,
+    linked,
+  });
+  const providerRoot = path.resolve(process.env.DEVSY_HOME || path.join(os.homedir(), ".devsy"));
+  const featureDirectory = path.join(
+    providerRoot,
+    "contexts",
+    owner.context,
+    "workspaces",
+    devsyId,
+    "agent",
+    ".docker-compose",
+  );
+  const observe = () => {
+    if (!isDeepStrictEqual(registration(), owner) || readManagedRuntimeState(repoPath, workspace))
+      throw new Error("Initial managed stop ownership or runtime state changed.");
+    const matches = inspectWorkspaceContainers().filter((c) =>
+      sameWorkspacePath(
+        c.labels["com.docker.compose.project.working_dir"] ?? "",
+        plan.composeDirectory,
+      ),
+    );
+    if (!matches.length) return [];
+    const projects = new Set(matches.map((c) => c.labels["com.docker.compose.project"]));
+    if (projects.size !== 1 || !matches[0]?.labels["com.docker.compose.project"])
+      throw new Error("Initial managed stop requires one exact Compose project.");
+    const population = inspectManagedStopContainers(
+      matches[0].labels["com.docker.compose.project"],
+    );
+    if (
+      !sameSet(
+        matches.map((c) => c.id),
+        population.map((c) => c.id),
+      )
+    )
+      throw new Error("Initial managed stop population changed.");
+    proveManagedComposePopulation({
+      plan,
+      repoPath,
+      composeProject: matches[0].labels["com.docker.compose.project"],
+      providerRoot,
+      featureDirectory,
+      containers: population,
+    });
+    return population;
+  };
+  const initial = observe();
+  const stable = () => {
+    const current = observe();
+    if (
+      !sameSet(
+        initial.map((c) => c.id),
+        current.map((c) => c.id),
+      ) ||
+      current.some((c) => {
+        const prior = initial.find((p) => p.id === c.id);
+        return (
+          !prior ||
+          containerIdentity(prior) !== containerIdentity(c) ||
+          (!prior.state.Running && c.state.Running)
+        );
+      })
+    )
+      throw new Error("Initial managed stop population or identity changed.");
+    return current;
+  };
+  stable();
+  if (!initial.length) return false;
+  for (const container of initial) {
+    const current = stable().find((c) => c.id === container.id);
+    if (current?.state.Running)
+      stopExactManagedService(current.id, current.labels["com.docker.compose.service"] ?? "", {
+        timeoutMs: 30_000,
+      });
+  }
+  if (stable().some((c) => c.state.Running))
+    throw new Error("Initial managed stop left a workload running.");
+  return true;
+}
+
 /** Called only while the canonical caller holds the workspace and provider locks. */
 export function stopRetainedManagedDevsyWorkspace(options: {
   repoPath: string;
@@ -57,7 +174,7 @@ export function stopRetainedManagedDevsyWorkspace(options: {
   const linked = isLinkedWorktree(repoPath);
   const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
   const retainedState = readManagedRuntimeState(repoPath, workspace);
-  if (!retainedState) return false;
+  if (!retainedState) return stopInitialManagedDevsyWorkspace(repoPath, devsyId);
   const state = retainedState;
   if (state.devpodId !== devsyId || (linked && !workspace)) {
     throw new Error("Managed stop requires the exact retained workspace identity.");
