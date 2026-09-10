@@ -162,6 +162,18 @@ for enrollment, lease renewal, restart handling, and event continuity. Releasing
 the last consumer preserves application data and runtime state; the caller still
 owns the normal exact-stop lifecycle.
 
+## Capacity admission (opt-in)
+
+With an explicitly enabled controller capacity policy, enrolled managed linked
+checkouts route `ensure` and `exec` through controller admission before
+dispatch. The CLI follows the decision with bounded reconnecting waits that
+survive controller restarts while the request stays queued, and worker results
+are journalled atomically with the completion event. `stop` bypasses admission.
+Checkouts without enrollment, and machines without `capacity-policy.json`
+under Devrouter home, keep the manual lifecycle. See
+[ADR 0008](../adr/0008-model-reliability-before-runtime-activation.md) for the
+source contract and activation boundaries.
+
 ## Stop, delete, and inspect
 
 | Command | Effect | Preserved state |

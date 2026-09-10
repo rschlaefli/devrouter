@@ -124,3 +124,9 @@ reconciling journals. Stopping an environment does not release a retained VM poo
 only exact fenced pool-cessation proof permits that release. Numeric machine
 policy and live activation remain separately reviewed actions. Host mapping alone
 does not qualify production guest accounting or canonical command integration.
+
+The policy schema also validates controller scheduling knobs
+(`clientWaitSeconds`, `maxClientWaitSeconds`, `watchSeconds`,
+`sampleIntervalSeconds`) that are reserved for future runtime binding. Runtime
+constants remain authoritative until a reviewed change binds them at their use
+sites.

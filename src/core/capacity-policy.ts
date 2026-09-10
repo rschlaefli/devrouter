@@ -448,6 +448,9 @@ function parseScheduling(value: unknown): CapacityPolicyScheduling {
       scheduling.queueLifetimeSeconds,
       `${label}.queueLifetimeSeconds`,
     ),
+    // Reserved for future runtime binding: validated and bounded today, but no
+    // consumer reads these scheduling knobs yet. Runtime constants remain
+    // authoritative (controller watch window, CLI admission wait, tick cadence).
     clientWaitSeconds: parseSafeInteger(
       scheduling.clientWaitSeconds,
       `${label}.clientWaitSeconds`,
