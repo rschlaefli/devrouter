@@ -319,7 +319,14 @@ export async function runController(options: {
               if (!socket.destroyed)
                 send({ version: 1, id: operationRequest.id, ok: true, result });
             })
-            .catch(() => {
+            .catch((error: unknown) => {
+              // Operators otherwise see only the generic refusal; mirror the
+              // bounded single-line cause pattern used by controller commands.
+              const cause = (error instanceof Error ? error.message : String(error))
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 300);
+              if (cause) process.stderr.write(`controller operation failed: ${cause}\n`);
               if (!socket.destroyed)
                 send({
                   version: 1,

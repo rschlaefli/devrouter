@@ -364,20 +364,28 @@ export async function observeControllerBinding(
   });
   if (
     !isRecord(response) ||
-    !hasExactKeys(response, ["store", "epoch", "generation", "session"]) ||
-    !isControllerId(response.session) ||
-    !isControllerId(response.store) ||
-    !isSafeCounter(response.epoch) ||
-    typeof response.generation !== "string" ||
-    response.generation.length > 4_096
+    response.version !== 1 ||
+    response.ok !== true ||
+    !isRecord(response.result)
+  ) {
+    throw new Error("Malformed controller observation binding.");
+  }
+  const result = response.result;
+  if (
+    !hasExactKeys(result, ["store", "epoch", "generation", "session"]) ||
+    !isControllerId(result.session) ||
+    !isControllerId(result.store) ||
+    !isSafeCounter(result.epoch) ||
+    typeof result.generation !== "string" ||
+    result.generation.length > 4_096
   ) {
     throw new Error("Malformed controller observation binding.");
   }
   return {
-    session: response.session,
-    store: response.store,
-    epoch: response.epoch,
-    generation: response.generation,
+    session: result.session,
+    store: result.store,
+    epoch: result.epoch,
+    generation: result.generation,
   };
 }
 
