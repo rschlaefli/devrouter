@@ -72,7 +72,10 @@ outside this package or a material contract conflict with the parent branch appe
   `docker ps --filter status=running --format {{.ID}}`, then one batched
   `docker inspect --format <template>` over those IDs extracting compose labels and
   `.NetworkSettings.Ports` (structured `[{HostIp, HostPort}]`; empty `HostIp` = wildcard) —
-  never `docker ps --format json`, whose Labels/Ports are pre-formatted strings on real daemons;
+  never `docker ps --format json`, whose Labels/Ports are pre-formatted strings on real daemons
+  (during implementation the planned second enrichment inspect proved redundant: the holder
+  template already carries the labels exclusion and attribution need, so the detection cost is
+  render + ps + one inspect);
   the conflict engine (render with `--profile '*'` and the same env as
   `managedComposeEnvironment(workspace)`, intersect, exclude the target's own containers by
   `com.docker.compose.project.working_dir == <repoPath>/.devcontainer` like
@@ -151,4 +154,10 @@ read-only child dispatches; reports persist under `docs/project/_local/reviews/`
   (empirical: `docker ps --format json` Labels/Ports are strings), `--profile '*'` added to
   renders, refusal no-mutation claim scoped precisely, ensure evidence-unavailability pinned
   fail-closed (+ portfolio row), plan moved into the worktree + index registration pending in the
-  plan commit, doctor no-op without `managedRuntime`. Next: round 2 on the revised draft.
+  plan commit, doctor no-op without `managedRuntime`. Round 2 on the revised draft → APPROVED
+  (report in `docs/project/_local/reviews/2026-09-10-host-port-claims-plan-hardening.md`); plan
+  committed as `123a2b1`.
+- 2026-09-10 (slice 1): one plan amendment folded in during implementation — the candidate
+  enrichment inspect was redundant (the holder inspect template already carries the labels
+  exclusion and attribution need); detection cost is render + ps + one inspect, conflict-path
+  behavior unchanged. Next: engine unit tests.
