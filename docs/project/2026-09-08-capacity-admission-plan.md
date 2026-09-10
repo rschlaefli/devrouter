@@ -2409,3 +2409,43 @@ the policy, revert the config change, stop the controller, and prove the
 exact runtime stopped with zero routes. Until the numeric limits are reviewed
 and approved, live activation stays gated per the declared-budget amendment;
 the packed qualification remains the capacity evidence of record.
+
+## CLI-level isolated dogfood (completed 2026-09-10)
+
+The mocked-client boundary from final review is closed with a real-CLI
+harness. A fresh fixture root isolated the entire state surface via HOME:
+control repo plus linked worktree trees/canary (branch elearning-canary),
+persisted workspace record, stopped journal seeded through the production
+model (manual policy, stop plus stop-proof), an enabled capacity policy with
+tiny numeric limits validated by readCapacityPolicy before startup, and a
+synthetic provider (docker/devpod/devsy/mkcert CLI shims plus a Docker HTTP
+API server on a fixture unix socket serving /info, /networks/devnet,
+/containers/json, per-container stats and inspect). The controller ran as the
+production child process (devrouter controller run), admission activated
+through the real factory path from the enabled policy, and the real installed
+devrouter-lifecycle-worker executed every operation. No route publication
+occurred (zero routed apps), so the shared host Traefik was never touched.
+
+All phases passed with exit 0: (1) controller SIGKILL mid-dispatch with
+worker release only after restart, where the CLI reattached to the restarted
+controller, drained the operation, and returned the full ready result rather
+than the tolerated honest-failure outcomes; (2) clean ensure returned the
+journalled result through admission; (3) exec routed through admission and
+surfaced the in-container command output (printenv WORKSPACE printed
+elearning-canary); (4) stop bypassed admission, the provider reported the
+runtime stopped, and route state stayed empty. Receipt:
+/private/tmp/dr-cli-dogfood-receipt.json (fixture root
+/private/tmp/dr-cli-dogfood-run-XsKqGQ); harness
+/private/tmp/dr-cli-dogfood/run.mjs and shim.js.
+
+Fixture-side corrections uncovered during iteration were harness modeling
+errors, not product defects: wrapper argv plumbing (the tool name must be
+passed explicitly), Docker context inspect --format passthrough, DevPod ssh
+exec wrapping with its stderr exit-marker protocol, workspace ownership that
+survives provider stop in provider listings, and a harness flaw where a
+blocking spawnSync starved the fixture Docker socket listener (async spawn
+fixed it). One product diagnosability note for the roadmap backlog: the
+controller command's generic failure path reports only
+controller-unavailable and discards the underlying startup error, which cost
+a diagnostic cycle (process-identity lock denial under sandboxing); surface
+the cause alongside the stable error code.
