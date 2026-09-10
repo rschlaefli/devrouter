@@ -2449,3 +2449,29 @@ controller command's generic failure path reports only
 controller-unavailable and discards the underlying startup error, which cost
 a diagnostic cycle (process-identity lock denial under sandboxing); surface
 the cause alongside the stable error code.
+
+## Binary skew compatibility finding (2026-09-10)
+
+Cross-lane evidence from the Doc Query KB-capacity runner diagnosis:
+
+- One machine exposed two devrouter installations:
+  /opt/homebrew/bin/devrouter 0.0.66 and the Volta-managed 0.0.69 binary.
+  The consumer's util/devrouter-cli.mjs resolved the Homebrew binary while
+  direct shell calls resolved 0.0.69.
+- A reliability record written by 0.0.68+ carries top-level
+  writtenByVersion and result fields. The 0.0.66 validate contract accepts
+  only version/identity/revision/state/worker/effectSequence/outcome and
+  rejects unsupported fields, so the pnpm runner failed while direct ensure
+  with 0.0.69 succeeded.
+- The refusal is fail-closed in the correct direction: the older CLI refuses
+  records it cannot parse instead of misreading them. The supported consumer
+  resolution is a single pinned binary for all runners (the consumer lane's
+  KLICKER_DEVROUTER_BIN override to the Volta binary).
+
+Product gap for W7 (installed package and platform compatibility): devrouter
+doctor does not detect shadowed or multiple installed devrouter binaries, so
+mixed-version skew surfaces only as opaque lifecycle refusals at usage time.
+Detection belongs before unsafe mutation: doctor should compare every
+devrouter executable on PATH and common install roots against the invoked
+binary and emit an actionable check when versions differ. Recorded from
+verified local evidence; no reliability records were edited in this exchange.
