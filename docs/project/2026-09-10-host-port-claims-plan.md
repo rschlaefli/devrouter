@@ -1,9 +1,9 @@
 # Host-port claims: admission-time detection of consumer-declared fixed host-port conflicts
 
-- Branch: `rs/host-port-claims` (worktree `trees/rs/host-port-claims`), based on `f167c91`
-  (stacked on local `rs/journal-deadlock-recovery`, 0.0.67; rebase onto `main` after the parent merges).
-- Target: `main`. Delivery: release `0.0.68` per the release checklist; push/PR remains an owner
-  decision because the branch stacks on the unmerged parent.
+- Branch: `rs/host-port-claims` (worktree `trees/rs/host-port-claims`), integrated with
+  `origin/main` at `822e7af`.
+- Target: `main`. Current delivery: prepare `0.0.69`, push the task branch, and create a draft PR.
+  Version `0.0.68` was published separately for capacity admission and lock diagnostics.
 - Handoffs: `~/.handoffs/devrouter/2026-09-10-host-port-claims-product-gap-handoff.md` (work item),
   `~/.handoffs/devrouter/2026-09-10-journal-liveness-0.0.67-and-port-blocker-handoff.md` (context).
 
@@ -35,15 +35,14 @@ refusal already names the holder.
 
 Done means: ensure refuses a live port conflict with attribution in seconds (unit-proven, no live
 Docker needed for CI), doctor reports configured-vs-live holders, the full validation checklist
-passes, and release artifacts for `0.0.68` exist on the branch.
+passes, and release artifacts for `0.0.69` exist on the branch.
 
-Approval mode: executable batch delegated by the ready-to-claim handoff (origin session
-`sess_a4d91191-ed05-4227-9f7a-fa7d517fd3c1`). Granted: local commits on the task branch, release
-`0.0.68` artifacts, running the repo validation checklist. Withheld: push, PR creation, touching
-the `rs/journal-deadlock-recovery` worktree, mutating klicker workspaces, live smoking against
-owner runtimes. Terminal condition: validation checklist green at the release commit, plan
-`Progress` final, handoff checkpoint written. Pause only if a checklist item fails for reasons
-outside this package or a material contract conflict with the parent branch appears.
+Approval mode: the current takeover and proceed instructions authorize completion through ordinary
+branch push and draft PR creation. Merge, marking ready, package publication, installation,
+worktree deletion, and mutations to owner runtimes remain outside this package. Earlier local-only
+notes in Progress record the original session and are superseded by this delivery scope.
+Terminal condition: verified integrated source and release artifacts in a draft PR, with existing
+review evidence reused where applicable and live-smoke limitations visible.
 
 ## Execution details
 
@@ -196,3 +195,9 @@ read-only child dispatches; reports persist under `docs/project/_local/reviews/`
   rebase); fresh verification on the rebased head: typecheck, knip, biome, 2118/2118 tests,
   build, package smoke, docs guards all green. Branch remains local; push/PR is the owner's
   decision and no longer waits on the parent.
+
+- 2026-09-10 (finalization): integrated origin/main `822e7af` because release 0.0.68 was already published for capacity admission and lock diagnostics. Preserved its release notes and adaptation prompt; moved this package to 0.0.69. Current user instruction authorizes routine task-branch push and draft PR delivery, superseding the earlier agent-authored local-only restriction. Integration and release reconciliation stay with the main session; prior completed review is reused because executable behavior is unchanged. Fresh release/package checks passed. No runtime touched.
+
+- Fresh finalization checks passed: docs policy, knowledge, Biome (two pre-existing informational findings), Knip, typecheck, build, and packed 0.0.69 installation smoke. Prior full-suite evidence (2118 tests) is reused for unchanged executable behavior.
+
+- Focused finalization validation: 173 tests passed across seven suites; Opengrep ran 210 rules on the five changed executable files with zero findings; Gitleaks found no leaks in the implementation commits. Packaging remains one coherent engine/ensure/doctor feature with its release artifacts; no additional implementation slice was created.
