@@ -2420,7 +2420,7 @@ describe("capacity admission CLI routing", () => {
     });
     expect(fixture.observe).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ path: identity.repoPath, profile: "full" }),
+      expect.objectContaining({ path: identity.repoPath, profile: "full", require: ["runtime"] }),
     );
     expect(fixture.submit).toHaveBeenCalledOnce();
     expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();

@@ -353,31 +353,39 @@ export async function followControllerOperation(
 /** Bind a client session to one canonical environment before operation submission. */
 export async function observeControllerBinding(
   directory: string,
-  input: { path: string; session: string; profile: string; require?: string[] },
+  input: { path: string; session: string; profile: string; require: string[] },
 ): Promise<ControllerOperationBinding> {
   const response = await operationRequest(directory, {
     method: "observe",
     path: input.path,
     session: input.session,
     profile: input.profile,
-    require: input.require ?? [],
+    require: input.require,
   });
   if (
     !isRecord(response) ||
-    !hasExactKeys(response, ["store", "epoch", "generation", "session"]) ||
-    !isControllerId(response.session) ||
-    !isControllerId(response.store) ||
-    !isSafeCounter(response.epoch) ||
-    typeof response.generation !== "string" ||
-    response.generation.length > 4_096
+    response.version !== 1 ||
+    response.ok !== true ||
+    !isRecord(response.result)
+  ) {
+    throw new Error("Malformed controller observation binding.");
+  }
+  const result = response.result;
+  if (
+    !hasExactKeys(result, ["store", "epoch", "generation", "session"]) ||
+    !isControllerId(result.session) ||
+    !isControllerId(result.store) ||
+    !isSafeCounter(result.epoch) ||
+    typeof result.generation !== "string" ||
+    result.generation.length > 4_096
   ) {
     throw new Error("Malformed controller observation binding.");
   }
   return {
-    session: response.session,
-    store: response.store,
-    epoch: response.epoch,
-    generation: response.generation,
+    session: result.session,
+    store: result.store,
+    epoch: result.epoch,
+    generation: result.generation,
   };
 }
 

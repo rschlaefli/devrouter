@@ -3,6 +3,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { observeControllerBinding } from "../controller-client";
 import { type ControllerObservationCollector, controllerCapability } from "../controller-monitor";
 import { CONTROLLER_FRAME_BYTES } from "../controller-protocol";
 import {
@@ -89,6 +90,22 @@ function connect(directory: string) {
       }),
   };
 }
+
+it("binds observations through the canonical client contract", async () => {
+  const { directory } = await fixture();
+  const binding = await observeControllerBinding(directory, {
+    path: "/fixture/checkout",
+    session: "session-1",
+    profile: "web",
+    require: ["runtime"],
+  });
+  expect(binding).toEqual({
+    session: "session-1",
+    store: expect.any(String),
+    epoch: expect.any(Number),
+    generation: expect.any(String),
+  });
+});
 
 it("creates managed operations from the handshake identity and closes them once", async () => {
   const tickEntered = deferred<void>();
