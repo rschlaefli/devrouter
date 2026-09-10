@@ -5,6 +5,7 @@ import {
   type WorkspaceCleanupOptions,
 } from "../core/workspace-cleanup";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
+import { settleWorkspaceJournal } from "../core/workspace-journal-settle";
 import {
   workspaceDown,
   workspaceLs,
@@ -12,6 +13,7 @@ import {
   workspaceUp,
 } from "../core/workspace-lifecycle";
 import { resolveGitCommonDir } from "../core/workspace-ownership";
+import { resolveGitCheckoutPath } from "./environment-path";
 
 function resolveGitWorkspaceRepo(repoPath?: string): string {
   const resolved = resolveRepoPath(repoPath);
@@ -113,4 +115,26 @@ export function runWorkspaceGcCommand(options: {
     }
   }
   if (report.summary.errors > 0) process.exitCode = 1;
+}
+
+export async function runWorkspaceJournalSettleCommand(options: {
+  path?: string;
+  json?: boolean;
+}): Promise<void> {
+  const repoPath = resolveGitCheckoutPath(options.path);
+  const result = await settleWorkspaceJournal(repoPath);
+  if (options.json) {
+    printJSON(result);
+    return;
+  }
+  const workspaceLabel = result.workspace ? ` (workspace '${result.workspace}')` : "";
+  if (result.status === "already-settled") {
+    process.stdout.write(
+      `Journal operation ${result.operationId} is already settled${workspaceLabel}.\n`,
+    );
+    return;
+  }
+  process.stdout.write(
+    `Settled journal operation ${result.operationId} (was ${result.priorStatus})${workspaceLabel}; ensure and stop may proceed.\n`,
+  );
 }

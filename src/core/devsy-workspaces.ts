@@ -126,6 +126,24 @@ export function inspectDevsyRuntimeStatus(devsyId: string): DevsyRuntimeStatus {
   return parseDevsyRuntimeStatus(result.stdout, devsyId);
 }
 
+/**
+ * Positive evidence that Devsy has no runtime for the ID. A deleted
+ * registration is reported through a nonzero status exit ("workspace not
+ * found") rather than a JSON NotFound state, and both signals must count as
+ * absence while an unreadable provider stays fail-closed.
+ */
+export function inspectDevsyRuntimeAbsence(devsyId: string): boolean {
+  const result = spawnSync("devsy", ["workspace", "status", devsyId, "--result-format", "json"], {
+    encoding: "utf-8",
+    timeout: 10_000,
+  });
+  if (!result.error && result.status === 0) {
+    return parseDevsyRuntimeStatus(result.stdout, devsyId) === "not-found";
+  }
+  const output = [result.error?.message, result.stdout, result.stderr].filter(Boolean).join("\n");
+  return /workspace not found/i.test(output);
+}
+
 export function inspectDevsyWorkspaceOwnership(
   workspaces: DevsyWorkspace[],
   devsyId: string,

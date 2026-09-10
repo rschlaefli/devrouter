@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   inspectManagedDevcontainerConfig,
   inspectManagedDevcontainerGeneratedConfig,
@@ -7,9 +8,14 @@ import {
 } from "./devcontainer-profile";
 import {
   inspectManagedStopContainers,
+  inspectProviderRunnerContainers,
+  inspectWorkspaceContainers,
   type ManagedStopContainerSnapshot,
+  resolveManagedStopEndpoint,
 } from "./devpod-environment";
+import { listDevpodWorkspacesRaw } from "./devpod-registry";
 import {
+  inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
   inspectDevsyWorkspaceOwnership,
   listDevsyWorkspaces,
@@ -20,7 +26,12 @@ import { stopFromManagedBaseline } from "./managed-stop-recovery";
 import { loadRuntimeConfig } from "./repo-config";
 import { proxyAppsFromConfig } from "./route-publication";
 import { isLinkedWorktree, resolveWorktreeWorkspace, sameWorkspacePath } from "./workspace";
-import { readWorkspaceOwnership, resolveGitCommonDir } from "./workspace-ownership";
+import {
+  inspectWorkspaceOwnership,
+  listGitWorktrees,
+  readWorkspaceOwnership,
+  resolveGitCommonDir,
+} from "./workspace-ownership";
 import { resetWorkspaceRuntimeCaches, resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
 
 function sameSet(left: string[], right: string[]): boolean {
@@ -82,6 +93,86 @@ export function stopRetainedManagedDevsyWorkspace(options: {
     return owner.workspace;
   }
 
+  function registrationStatus() {
+    resetWorkspaceRuntimeCaches();
+    if (resolveWorkspaceRuntimeOrDefault(repoPath) !== "devsy") {
+      throw new Error("Managed stop provider selection changed.");
+    }
+    return inspectDevsyWorkspaceOwnership(listDevsyWorkspaces(), devsyId, repoPath);
+  }
+
+  /**
+   * A guard-ordered `stop --delete` or an external teardown may have removed the
+   * Devsy registration while every workload is positively gone. Stop is then
+   * symmetric to the baseline absence proof: two stable observations of an
+   * absent registration in both provider registries, a not-found Devsy runtime,
+   * and empty workload populations settle the stop without the registration
+   * precondition. Nothing is mutated; routes are freed by the caller.
+   */
+  function proveAbsentRegistrationStop(): void {
+    const observe = () => {
+      const owner = registrationStatus();
+      if (owner.status === "conflict") throw new Error(owner.reason);
+      if (owner.status !== "absent") {
+        throw new Error("Managed stop absence proof requires the registration to remain absent.");
+      }
+      if (
+        listDevpodWorkspacesRaw({ allowMissingExecutable: true }).some(
+          (entry) => entry.id === devsyId || sameWorkspacePath(entry.source.localFolder, repoPath),
+        )
+      ) {
+        throw new Error(
+          "Managed stop absence proof requires both provider registrations to remain absent.",
+        );
+      }
+      if (!inspectDevsyRuntimeAbsence(devsyId)) {
+        throw new Error(
+          "Managed stop absence proof requires Devsy to report the runtime not-found.",
+        );
+      }
+      if (inspectManagedStopContainers(state.composeProject).length !== 0) {
+        throw new Error("Managed stop absence proof observed a remaining compose population.");
+      }
+      if (inspectProviderRunnerContainers(resolveManagedStopEndpoint(), devsyId).length !== 0) {
+        throw new Error("Managed stop absence proof observed a remaining runner population.");
+      }
+      const owned = inspectWorkspaceContainers().filter((container) =>
+        sameWorkspacePath(
+          container.labels["com.docker.compose.project.working_dir"] ?? "",
+          path.join(repoPath, ".devcontainer"),
+        ),
+      );
+      if (owned.length !== 0) {
+        throw new Error("Managed stop absence proof observed a remaining workspace container.");
+      }
+      if (workspace) {
+        const record = readWorkspaceOwnership(repoPath, workspace);
+        if (
+          !record ||
+          record.devpodId !== devsyId ||
+          !sameWorkspacePath(record.worktreePath, repoPath) ||
+          resolveWorktreeWorkspace(repoPath) !== workspace ||
+          resolveGitCommonDir(repoPath) !== workspaceEnv?.gitCommonDir ||
+          inspectWorkspaceOwnership(record, listGitWorktrees(repoPath), undefined).ownerStatus !==
+            "present"
+        ) {
+          throw new Error("Managed stop workspace ownership changed during absence proof.");
+        }
+      }
+      if (!isDeepStrictEqual(readManagedRuntimeState(repoPath, workspace), state)) {
+        throw new Error("Managed stop retained state changed during absence proof.");
+      }
+    };
+    observe();
+    observe();
+  }
+
+  const initialOwner = registrationStatus();
+  if (initialOwner.status === "conflict") throw new Error(initialOwner.reason);
+  if (initialOwner.status === "absent") {
+    proveAbsentRegistrationStop();
+    return "proven-absent";
+  }
   const context = registration().context;
   if (
     !context ||

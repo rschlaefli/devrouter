@@ -170,6 +170,11 @@ export const COMMAND_INTENTS: CommandIntent[] = [
     purpose:
       "Report missing owners without mutation by default; --yes deletes only exact eligible ledger-owned resources and records, never Git worktrees.",
   },
+  {
+    command: "devrouter workspace journal settle [path] [--json]",
+    purpose:
+      "Settle a lifecycle operation whose worker is provably gone as unobservable so ensure/stop can proceed; never hand-edit the devrouter state directory.",
+  },
 ];
 
 function normalizeEntriesJson(input?: string): string {
