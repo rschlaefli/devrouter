@@ -72,4 +72,23 @@ describe("controller command failure reporting", () => {
     expect(stderr.join("")).toContain("controller command failed: connect ECONNREFUSED");
     expect(process.exitCode).toBe(1);
   });
+
+  it("collapses the reported cause to a single bounded line", async () => {
+    vi.mocked(runController).mockRejectedValue(
+      new Error("first line\nsecond line\n" + "x".repeat(500)),
+    );
+    const stderr: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+
+    await runControllerCommand("run", {});
+
+    const line = stderr.join("").trimEnd();
+    expect(line).not.toContain("\n");
+    expect(line.startsWith("controller command failed: ")).toBe(true);
+    expect(line.length).toBeLessThanOrEqual(300 + "controller command failed: ".length);
+  });
 });

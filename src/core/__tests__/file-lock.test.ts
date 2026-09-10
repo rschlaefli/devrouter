@@ -109,6 +109,13 @@ describe("file lock ownership", () => {
   });
 
   it("reports the failing ps stage without echoing raw stderr", () => {
+    const readFileSync = fs.readFileSync.bind(fs);
+    vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+      if (String(file).startsWith("/proc/")) {
+        throw Object.assign(new Error("procfs unavailable"), { code: "ENOENT" });
+      }
+      return readFileSync(file, ...(args as [never]));
+    }) as typeof fs.readFileSync);
     vi.mocked(spawnSync).mockReturnValue({
       status: 1,
       stdout: "",
@@ -123,6 +130,13 @@ describe("file lock ownership", () => {
   });
 
   it("reports the ps spawn error code as the cause", () => {
+    const readFileSync = fs.readFileSync.bind(fs);
+    vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+      if (String(file).startsWith("/proc/")) {
+        throw Object.assign(new Error("procfs unavailable"), { code: "ENOENT" });
+      }
+      return readFileSync(file, ...(args as [never]));
+    }) as typeof fs.readFileSync);
     vi.mocked(spawnSync).mockReturnValue({
       error: Object.assign(new Error("spawn ps EACCES"), { code: "EACCES" }),
       status: null,

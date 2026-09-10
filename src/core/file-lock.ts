@@ -102,7 +102,9 @@ export function processBirthIdentityWithCause(pid: number): ProcessBirthIdentity
     );
   } else if (result.status !== 0) {
     causeParts.push(
-      `ps exited with status ${result.status}${result.signal ? ` on ${result.signal}` : ""}`,
+      result.status === null && result.signal
+        ? `ps was killed by signal ${result.signal}`
+        : `ps exited with status ${result.status}` + (result.signal ? ` on ${result.signal}` : ""),
     );
   } else {
     const startedAt = result.stdout.trim().replace(/\s+/g, " ");
