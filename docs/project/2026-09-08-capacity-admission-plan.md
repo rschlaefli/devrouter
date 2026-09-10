@@ -2343,3 +2343,30 @@ simplifier pass stays deferred: a fourth dispatch attempt (Boyle) returned a
 terminal 429 route limit for the simplifier model, so the deferral now covers
 5557b15..4749a10; the simplifier gate is not a correctness or readiness gate.
 No runtime or operator policy was changed on this machine.
+
+Whole-package final review of e5326b4..afc6370 (66 paths, all included)
+returned findings with zero correctness, security, protocol, or contract
+defects at rubric threshold. Route provenance: the required Claude CLI
+final-reviewer route failed terminally with a 429 session limit (resets 4am
+Europe/Zurich); the documented AGY Gemini 3.8 Flash high fallback failed
+terminally because headless mode auto-denied the read-only inspection command
+while configuration allow-rules and skip-permissions are both forbidden by the
+route rules; the continuity fallback dispatched a fresh read-only
+combo/glm-5.3-flash max child carrying the complete final-review contract and
+the cross-provider JSON schema, with the native model/effort/transport
+provenance of the Claude route unavailable. The reviewer confirmed the
+controller-restart contract: startup retires positively-undispatched queued
+intents with charges retained and preserves uncertain dispatch, the CLI wait
+loop survives the restart and reports the terminal NOT_STARTED outcome
+honestly. Two low, confidence-75 findings were accepted and fixed in 1853b76:
+the plan-named acceptance doc set is now delivered (Unreleased changelog
+entry, bundled-skill and AI-prompt capacity notes, REPO_ONBOARDING evidence
+bullet, knowledge lifecycle capacity section referencing ADR 0008), and the
+four validated-but-unconsumed scheduling knobs (clientWaitSeconds,
+maxClientWaitSeconds, watchSeconds, sampleIntervalSeconds) are documented as
+reserved for future runtime binding with runtime constants authoritative;
+binding them at their use sites is roadmap backlog. Verified for the fix:
+ai-prompt suite (6), Biome, tsc, docs policy, and knowledge validation (7
+files). The reviewer did not reproduce runtime evidence; live Docker/DevPod
+behavior rests on the recorded suite and packed qualification receipt. Merge
+remains user-gated.
