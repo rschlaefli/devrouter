@@ -27,7 +27,26 @@ export type ReliabilityOperationRecord = {
   worker: { id: string; operationId: string; pid: number; birth: string } | null;
   effectSequence: number;
   outcome: (ExecutionOutcome & { operationId: string }) | null;
+  /** CLI version that last wrote this record; absent in pre-0.0.67 records. */
+  writtenByVersion?: string;
 };
+
+declare const __VERSION__: string;
+
+function installedCliVersion(): string {
+  return typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev";
+}
+
+function compareCliVersions(left: string, right: string): number {
+  const parts = (value: string) => value.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const leftParts = parts(left);
+  const rightParts = parts(right);
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
 
 const MAX_RECORD_BYTES = 1_048_576;
 
@@ -61,7 +80,24 @@ function keys(value: unknown, expected: string[]): void {
 }
 
 function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdentity): void {
-  keys(record, ["version", "identity", "revision", "state", "worker", "effectSequence", "outcome"]);
+  keys(record, [
+    "version",
+    "identity",
+    "revision",
+    "state",
+    "worker",
+    "effectSequence",
+    "outcome",
+    "writtenByVersion",
+  ]);
+  if (
+    record.writtenByVersion !== undefined &&
+    compareCliVersions(record.writtenByVersion, installedCliVersion()) > 0
+  ) {
+    throw new Error(
+      `Reliability record was last written by devrouter ${record.writtenByVersion}, which is newer than the installed ${installedCliVersion()}; upgrade devrouter (devrouter upgrade) before running lifecycle commands.`,
+    );
+  }
   keys(record.identity, ["repoPath", "workspace", "provider"]);
   if (
     record.version !== 1 ||
@@ -240,6 +276,7 @@ export function updateReliabilityOperation<T>(
     if (result && typeof (result as { then?: unknown }).then === "function") {
       throw new Error("Reliability record updates must be synchronous.");
     }
+    record.writtenByVersion = installedCliVersion();
     validate(record, identity);
     record.revision += 1;
     persist(record);

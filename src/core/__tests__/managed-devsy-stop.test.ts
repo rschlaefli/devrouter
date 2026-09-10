@@ -8,8 +8,15 @@ import {
   inspectManagedDevcontainerGeneratedConfig,
   stopExactManagedService,
 } from "../devcontainer-profile";
-import { inspectManagedStopContainers } from "../devpod-environment";
 import {
+  inspectManagedStopContainers,
+  inspectProviderRunnerContainers,
+  inspectWorkspaceContainers,
+  resolveManagedStopEndpoint,
+} from "../devpod-environment";
+import { listDevpodWorkspacesRaw } from "../devpod-registry";
+import {
+  inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
   inspectDevsyWorkspaceOwnership,
   listDevsyWorkspaces,
@@ -18,7 +25,12 @@ import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "../managed-runtime-state";
 import { loadRuntimeConfig } from "../repo-config";
 import { isLinkedWorktree, resolveWorktreeWorkspace } from "../workspace";
-import { readWorkspaceOwnership, resolveGitCommonDir } from "../workspace-ownership";
+import {
+  inspectWorkspaceOwnership,
+  listGitWorktrees,
+  readWorkspaceOwnership,
+  resolveGitCommonDir,
+} from "../workspace-ownership";
 import { resolveWorkspaceRuntimeOrDefault } from "../workspace-runtime";
 
 vi.mock("../devcontainer-profile", () => ({
@@ -27,8 +39,15 @@ vi.mock("../devcontainer-profile", () => ({
   inspectManagedDevcontainerGeneratedConfig: vi.fn(),
   stopExactManagedService: vi.fn(),
 }));
-vi.mock("../devpod-environment", () => ({ inspectManagedStopContainers: vi.fn() }));
+vi.mock("../devpod-environment", () => ({
+  inspectManagedStopContainers: vi.fn(),
+  inspectProviderRunnerContainers: vi.fn(),
+  inspectWorkspaceContainers: vi.fn(),
+  resolveManagedStopEndpoint: vi.fn(),
+}));
+vi.mock("../devpod-registry", () => ({ listDevpodWorkspacesRaw: vi.fn() }));
 vi.mock("../devsy-workspaces", () => ({
+  inspectDevsyRuntimeAbsence: vi.fn(),
   inspectDevsyRuntimeStatus: vi.fn(),
   inspectDevsyWorkspaceOwnership: vi.fn(),
   listDevsyWorkspaces: vi.fn(),
@@ -41,6 +60,8 @@ vi.mock("../workspace", () => ({
   sameWorkspacePath: (a: string, b: string) => a === b,
 }));
 vi.mock("../workspace-ownership", () => ({
+  inspectWorkspaceOwnership: vi.fn(),
+  listGitWorktrees: vi.fn(),
   readWorkspaceOwnership: vi.fn(),
   resolveGitCommonDir: vi.fn(),
 }));
@@ -415,5 +436,93 @@ describe("retained managed Devsy stop", () => {
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
     expect(run()).toBe(false);
     expect(inspectManagedStopContainers).not.toHaveBeenCalled();
+  });
+});
+
+describe("absent-registration managed stop", () => {
+  beforeEach(() => {
+    vi.mocked(inspectWorkspaceContainers).mockReturnValue([]);
+    vi.mocked(inspectProviderRunnerContainers).mockReturnValue([]);
+    vi.mocked(resolveManagedStopEndpoint).mockReturnValue("unix:///var/run/docker.sock");
+    vi.mocked(listDevpodWorkspacesRaw).mockReturnValue([]);
+    vi.mocked(listGitWorktrees).mockReturnValue([]);
+  });
+
+  function arrangeAbsentRegistration() {
+    vi.mocked(inspectDevsyWorkspaceOwnership).mockReturnValue({ status: "absent" });
+    vi.mocked(inspectDevsyRuntimeStatus).mockReturnValue("not-found");
+    vi.mocked(inspectDevsyRuntimeAbsence).mockReturnValue(true);
+    vi.mocked(inspectManagedStopContainers).mockReturnValue([]);
+    containers = [];
+  }
+
+  it("fails closed when Devsy cannot positively report runtime absence", () => {
+    arrangeAbsentRegistration();
+    vi.mocked(inspectDevsyRuntimeAbsence).mockReturnValue(false);
+    expect(() => run()).toThrow("not-found");
+  });
+
+  it("proves absence without a registration when every workload is gone", () => {
+    arrangeAbsentRegistration();
+    expect(run()).toBe("proven-absent");
+    expect(stopProvider).not.toHaveBeenCalled();
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+  });
+
+  it("is stable across two observations", () => {
+    arrangeAbsentRegistration();
+    let observations = 0;
+    vi.mocked(inspectDevsyWorkspaceOwnership).mockImplementation(() => {
+      observations += 1;
+      return observations >= 3
+        ? {
+            status: "owned",
+            workspace: { id: devsyId, context, source: { localFolder: repoPath } },
+          }
+        : { status: "absent" };
+    });
+    expect(() => run()).toThrow("remain absent");
+  });
+
+  it("fails closed when a compose population remains", () => {
+    arrangeAbsentRegistration();
+    vi.mocked(inspectManagedStopContainers).mockReturnValue([
+      container("app", false, "c"),
+    ] as never);
+    expect(() => run()).toThrow("compose population");
+  });
+
+  it("fails closed when a competing provider registration remains", () => {
+    arrangeAbsentRegistration();
+    vi.mocked(listDevpodWorkspacesRaw).mockReturnValue([
+      { id: devsyId, source: { localFolder: `${repoPath}-other` } },
+    ] as never);
+    expect(() => run()).toThrow("provider registrations");
+  });
+
+  it("preserves ownership conflicts instead of proving absence", () => {
+    arrangeAbsentRegistration();
+    vi.mocked(inspectDevsyWorkspaceOwnership).mockReturnValue({
+      status: "conflict",
+      reason: "two exact owners",
+    });
+    expect(() => run()).toThrow("two exact owners");
+  });
+
+  it("fails closed when linked workspace ownership is not present", () => {
+    arrangeAbsentRegistration();
+    vi.mocked(isLinkedWorktree).mockReturnValue(true);
+    vi.mocked(resolveWorktreeWorkspace).mockReturnValue("feature");
+    vi.mocked(resolveGitCommonDir).mockReturnValue("/repo/.git");
+    vi.mocked(readWorkspaceOwnership).mockReturnValue({
+      devpodId: devsyId,
+      worktreePath: repoPath,
+      workspace: "feature",
+    } as never);
+    vi.mocked(inspectWorkspaceOwnership).mockReturnValue({
+      ownerStatus: "missing",
+      devpodStatus: "absent",
+    } as never);
+    expect(() => run()).toThrow("ownership changed during absence proof");
   });
 });
