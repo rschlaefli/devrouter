@@ -133,11 +133,13 @@ export async function withLifecycleOperationLock<T>(
 function stepRecord(record: ReliabilityOperationRecord, event: ReliabilityEvent): void {
   const transition = stepReliability(record.state, event, Date.now());
   if (!["accepted", "joined"].includes(transition.outcome))
-    throw new Error(`Lifecycle transition is ${transition.outcome}.`);
+    throw new Error(
+      `Lifecycle transition is ${transition.outcome}.${transition.reason ? ` ${transition.reason}` : ""}`,
+    );
   record.state = transition.state;
 }
 
-function reconcileDrained(record: ReliabilityOperationRecord): void {
+export function reconcileDrained(record: ReliabilityOperationRecord): void {
   const worker = record.worker;
   if (!worker) {
     if (record.state.operation?.status === "NOT_STARTED" && !record.state.operation.drained) {

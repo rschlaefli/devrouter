@@ -52,6 +52,36 @@ afterAll(() => {
   for (const checkout of checkouts) fs.rmSync(checkout, { recursive: true, force: true });
 });
 
+describe("reliability record version skew", () => {
+  it("stamps the writing CLI version on every persisted record", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const record = readReliabilityOperation(identity);
+    expect(typeof record?.writtenByVersion).toBe("string");
+    expect(record?.writtenByVersion).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it("refuses records from a newer CLI with an upgrade instruction", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const file = reliabilityOperationPath(identity);
+    const record = JSON.parse(fs.readFileSync(file, "utf8"));
+    record.writtenByVersion = "99.0.0";
+    fs.writeFileSync(file, `${JSON.stringify(record)}\n`);
+    expect(() => readReliabilityOperation(identity)).toThrow(/upgrade devrouter/);
+    expect(() => updateReliabilityOperation(identity, () => undefined)).toThrow(
+      /upgrade devrouter/,
+    );
+  });
+
+  it("accepts records that predate the version stamp", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const file = reliabilityOperationPath(identity);
+    const record = JSON.parse(fs.readFileSync(file, "utf8"));
+    delete record.writtenByVersion;
+    fs.writeFileSync(file, `${JSON.stringify(record)}\n`);
+    expect(() => readReliabilityOperation(identity)).not.toThrow();
+  });
+});
+
 describe("durable reliability records", () => {
   const enrollment = {
     policyRevision: 1,

@@ -111,6 +111,7 @@ function assertReliabilityEvent(value: unknown): asserts value is ReliabilityEve
     case "launched":
     case "interrupted":
     case "not-started":
+    case "settle":
       valid = isReliabilityId(value.operationId);
       break;
     case "completion":
@@ -217,8 +218,15 @@ function transition(
 function unchanged(
   state: ReliabilityState,
   outcome: ReliabilityTransition["outcome"],
+  reason?: string,
 ): ReliabilityTransition {
-  return transition(cloneState(state), outcome);
+  const result = transition(cloneState(state), outcome);
+  if (reason) result.reason = reason;
+  return result;
+}
+
+function blocked(state: ReliabilityState, reason: string): ReliabilityTransition {
+  return unchanged(state, "blocked", reason);
 }
 
 function advance(value: number): number | null {
@@ -262,7 +270,10 @@ function handleRequest(
   event: Extract<ReliabilityEvent, { type: "request" }>,
 ): ReliabilityTransition {
   if (state.executionPolicy === "manual" && event.mode === "start")
-    return unchanged(state, "blocked");
+    return blocked(
+      state,
+      "start requests are not admitted under manual execution policy; use the ensure/stop commands.",
+    );
   const existing = state.requests.find((request) => request.key === event.key);
   if (existing) {
     const consumer = state.consumers.find((candidate) => candidate.id === existing.consumerId);
@@ -355,13 +366,16 @@ export function canExecAfterInterruptedEnsure(state: ReliabilityState): boolean 
   const latestEnsure = [...state.operationHistory]
     .reverse()
     .find((operation) => operation.kind === "ensure");
+  // A completed stop proof is positive evidence the workspace is quiescent, so
+  // recovery is admitted regardless of whether desired records running or stopped.
+  const quiescent = state.stopProof.workloadsStopped && state.stopProof.routesRemoved;
   return (
     state.executionPolicy === "manual" &&
-    state.desired === "running" &&
+    (state.desired === "running" || (quiescent && state.desired === "stopped-by-user")) &&
     latestEnsure?.status === "INTERRUPTED" &&
     latestEnsure.drained &&
     state.operation?.drained === true &&
-    ((state.operation.kind === "ensure" && state.phase === "recovering") ||
+    ((state.operation.kind === "ensure" && (state.phase === "recovering" || quiescent)) ||
       (state.operation.kind === "exec" &&
         ["COMPLETED", "NOT_LAUNCHED", "NOT_STARTED"].includes(state.operation.status)))
   );
@@ -393,7 +407,10 @@ function handleOperationRequest(
     canExecAfterInterruptedEnsure(state) &&
     event.recoverInterruptedEnsure !== true
   )
-    return unchanged(state, "blocked");
+    return blocked(
+      state,
+      "the latest ensure is INTERRUPTED and drained; exec requires recovering it first (run ensure, or exec with recovery proof).",
+    );
   const fullyStopped = state.stopProof.workloadsStopped && state.stopProof.routesRemoved;
   const reconcileEnsure =
     event.kind === "ensure" &&
@@ -411,24 +428,33 @@ function handleOperationRequest(
           canExecAfterInterruptedEnsure(state)
         )))
   )
-    return unchanged(state, "blocked");
+    return blocked(
+      state,
+      `operation ${state.operation.id} is ${state.operation.status} (drained=${state.operation.drained}) and no stop proof, ensure reconciliation, or exec recovery supersedes it.`,
+    );
   if (state.phase === "stopping" || state.desired === "parked-for-capacity")
-    return unchanged(state, "blocked");
+    return blocked(
+      state,
+      `phase is '${state.phase}' with desired '${state.desired}'; wait for the running stop to finish.`,
+    );
   if (
     event.kind === "exec" &&
     (!event.runtimeRunning || (state.desired !== "running" && state.intentRevision !== 0))
   )
-    return unchanged(state, "blocked");
+    return blocked(
+      state,
+      `exec requires a running workspace (runtimeRunning=${event.runtimeRunning}, desired='${state.desired}').`,
+    );
   const rollover =
     state.executionPolicy === "manual" && state.operationHistory.length >= RELIABILITY_MAX_ITEMS;
   let retired = -1;
   if (rollover) {
-    if (
-      state.operation &&
-      (!state.operation.drained || !["COMPLETED", "NOT_LAUNCHED"].includes(state.operation.status))
-    )
-      return unchanged(state, "blocked");
-    // Retain the preparation result that supersedes older interrupted startup.
+    // The supersede gates above already proved the current drained operation is
+    // replaceable; retirement here only frees a deduplication entry. Drained
+    // INTERRUPTED entries qualify: a crashed ensure or exec is exactly the state
+    // a full journal is most likely to hold, and excluding it deadlocked every
+    // command behind a saturated journal. The latest ensure result is still
+    // retained because it supersedes older interrupted startup evidence.
     const latestEnsureId = [...state.operationHistory]
       .reverse()
       .find((entry) => entry.kind === "ensure")?.id;
@@ -437,9 +463,13 @@ function handleOperationRequest(
         entry.id !== state.operation?.id &&
         entry.id !== latestEnsureId &&
         entry.drained &&
-        ["COMPLETED", "NOT_LAUNCHED"].includes(entry.status),
+        ["COMPLETED", "NOT_LAUNCHED", "INTERRUPTED"].includes(entry.status),
     );
-    if (retired === -1) return unchanged(state, "blocked");
+    if (retired === -1)
+      return blocked(
+        state,
+        `journal holds ${state.operationHistory.length} entries and every retirable entry is the current operation or the latest ensure.`,
+      );
   }
   if (state.desired !== "running" || rollover) {
     const revision = advance(state.intentRevision);
@@ -520,7 +550,10 @@ function handleDispatch(state: ReliabilityState): ReliabilityTransition {
     (state.executionPolicy === "capacity-managed" && state.admission !== "admitted") ||
     state.consumers.length === 0
   ) {
-    return unchanged(state, "blocked");
+    return blocked(
+      state,
+      `dispatch requires desired 'running' with a registered consumer (desired='${state.desired}', consumers=${state.consumers.length}).`,
+    );
   }
 
   const corrective = state.phase === "recovering" && state.incident !== null;
@@ -544,7 +577,10 @@ function handleDispatchPersisted(
   ) {
     state.operation = setUnknown(state.operation);
     state.chargeHeld = state.executionPolicy === "capacity-managed";
-    return transition(state, "blocked");
+    return blocked(
+      state,
+      `dispatch persistence requires desired 'running' (desired='${state.desired}'); the operation outcome is unknown.`,
+    );
   }
   if (
     state.phase === "recovering" &&
@@ -613,6 +649,35 @@ function handleInterrupted(
   return transition(state, "accepted");
 }
 
+/**
+ * Settles an operation whose worker is provably gone into the terminal
+ * INTERRUPTED+drained state. This is the first-class escape hatch that keeps a
+ * crashed lifecycle from wedging a record: settle never claims anything about
+ * workloads or routes, it only marks the operation unobservable so a later
+ * stop or ensure can replace it under the normal supersede proofs.
+ */
+function handleSettle(
+  state: ReliabilityState,
+  event: Extract<ReliabilityEvent, { type: "settle" }>,
+): ReliabilityTransition {
+  if (state.executionPolicy !== "manual") return unchanged(state, "stale");
+  if (!state.operation || state.operation.id !== event.operationId)
+    return unchanged(state, "stale");
+  if (state.operation.drained && state.operation.status === "INTERRUPTED")
+    return unchanged(state, "joined");
+  // A completed outcome is already terminal evidence; settlement must never
+  // rewrite it into an interruption.
+  if (state.operation.status === "COMPLETED") return unchanged(state, "joined");
+  state.operation = {
+    ...state.operation,
+    status: "INTERRUPTED",
+    drained: true,
+    exitCode: null,
+  };
+  if (state.desired === "running") state.phase = "recovering";
+  return transition(state, "accepted");
+}
+
 function handleObservation(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "observation" }>,
@@ -630,7 +695,10 @@ function handleObservation(
     return unchanged(state, "stale");
   }
   if (!previous && state.observations.length >= RELIABILITY_MAX_ITEMS)
-    return unchanged(state, "blocked");
+    return blocked(
+      state,
+      `observation set holds ${state.observations.length} distinct capabilities; observations repeat per capability and never retire.`,
+    );
 
   state.observations = state.observations.filter(
     (observation) => observation.capability !== event.observation.capability,
@@ -671,7 +739,10 @@ function handleStopProof(
     event.workloadsStopped &&
     event.routesRemoved
   )
-    return unchanged(state, "blocked");
+    return blocked(
+      state,
+      `stop proof cannot settle while operation ${state.operation.id} is not drained; wait for its worker or settle the journal.`,
+    );
   const previous = { ...state.stopProof };
   if (
     previous.workloadsStopped === event.workloadsStopped &&
@@ -920,6 +991,8 @@ function applyReliabilityEvent(
       return handleCompletion(next, event);
     case "interrupted":
       return handleInterrupted(next, event);
+    case "settle":
+      return handleSettle(next, event);
     case "observation":
       return handleObservation(next, event, nowMs);
     case "stop-proof":

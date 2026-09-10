@@ -58,7 +58,12 @@ export async function runControllerCommand(
       { method, ...fields, ...(repo ? { path: path.resolve(repo) } : {}) },
       (value) => process.stdout.write(`${JSON.stringify(value)}\n`),
     );
-  } catch {
+  } catch (error) {
+    const cause = (error instanceof Error ? error.message : String(error))
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 300);
+    if (cause) process.stderr.write(`controller command failed: ${cause}\n`);
     process.stdout.write(
       `${JSON.stringify({ version: 1, ok: false, error: "controller-unavailable" })}\n`,
     );

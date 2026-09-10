@@ -162,6 +162,46 @@ for enrollment, lease renewal, restart handling, and event continuity. Releasing
 the last consumer preserves application data and runtime state; the caller still
 owns the normal exact-stop lifecycle.
 
+## Manual operation journal
+
+Each managed workspace keeps one durable reliability record under
+`~/.config/devrouter/reliability/`. The journal inside it has three jobs:
+
+- **Duplicate-operation detection.** Every accepted operation request stores its
+  request key and operation ID, so a retried CLI invocation joins or conflicts
+  instead of starting a second lifecycle against the same workspace.
+- **Crash recovery.** Each operation carries a `drained` flag and a status. A
+  CLI or worker crash mid-flight leaves an `INTERRUPTED`/drained entry that the
+  next command reconciles instead of silently assuming the operation never ran.
+- **Intent fencing.** `desired`, `phase`, and the stop proof fence effects
+  against concurrent intent: effects claim the current revision, and a stale
+  fence refuses to mutate.
+
+The journal is capped at `RELIABILITY_MAX_ITEMS` (128) entries. The cap bounds
+the record (it must stay a small, atomically written, private file) and keeps
+deduplication scans bounded; history beyond that horizon has no recovery value
+because the current operation and the latest ensure result are always retained.
+Rollover retires one drained terminal entry per accepted replacement —
+including drained `INTERRUPTED` entries, which a crash is most likely to leave
+behind. Liveness is an invariant, not an accident: from any state a crash can
+produce, at least one canonical command must progress (`ensure` admitted and
+dispatched, or a `stop` that settles its proof). The saturated-journal,
+interrupted-ensure repro is asserted in
+`src/core/__tests__/reliability-liveness.test.ts`, including randomized crash
+walks.
+
+If a lifecycle worker is provably gone and a record still refuses progress,
+`devrouter workspace journal settle [path]` settles the recorded operation as
+`INTERRUPTED` and drained under the workspace lifecycle lock. Settlement never
+claims anything about workloads, routes, or registrations; it only marks the
+operation unobservable so the normal stop and ensure supersede proofs apply.
+Refusals name the blocking field and the canonical remediation instead of a
+bare "blocked".
+
+Records are stamped with `writtenByVersion`. A record written by a newer CLI is
+refused with an upgrade instruction before any lifecycle step, so version skew
+surfaces as one explicit message instead of new refusals mid-flight.
+
 ## Capacity admission (opt-in)
 
 With an explicitly enabled controller capacity policy, enrolled managed linked
@@ -238,7 +278,12 @@ generated configuration, container identities and full membership are revalidate
 Unapplied Compose service edits do not require matching current service hashes
 for stop; startup retains its service-configuration checks.
 Final provider and complete-project stopped proof precedes route cleanup.
-Missing registration or unreadable evidence preserves routes. If provider stop
+Unreadable evidence preserves routes. A guard-ordered `stop --delete` or
+external teardown that removed the registration is the symmetric absence case:
+when both provider registries positively lack the ID and path, Devsy reports the
+runtime `not-found`, and the compose, runner, and workspace populations are
+empty across two stable observations, the stop completes as proven-absent and
+only routes are freed. If provider stop
 fails, eligible residual cleanup may still run, but its original failure remains
 nonzero and routes remain intact. This does not change legacy or delete paths.
 

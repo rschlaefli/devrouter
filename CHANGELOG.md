@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Lock acquisition now reports actionable process-identity diagnostics. The
+  error names the failing inspection stage (procfs read result or ps exit,
+  signal, or spawn error), the activity and exact lock path, a portable
+  reproduction command (`LC_ALL=C ps -o lstart= -o command= -p
+  <any-live-pid>`), and the permitted-host-context remediation, while locks
+  stay fail-closed and no identity fallback is attempted. Raw stderr from the
+  inspection is still not echoed. `devrouter controller` commands additionally
+  print the underlying failure cause on stderr while keeping the stable
+  `controller-unavailable` JSON contract on stdout.
+
 ### Added
 
 - Capacity admission for enrolled managed checkouts behind an explicitly
@@ -15,6 +27,46 @@ All notable changes to this project are documented in this file.
   `scheduling.clientWaitSeconds`, `maxClientWaitSeconds`, `watchSeconds`, and
   `sampleIntervalSeconds` knobs are validated and reserved for future runtime
   binding; runtime constants remain authoritative.
+
+## [0.0.67] - 2026-09-10
+
+### Fixed
+
+- Make the reliability journal incapable of deadlocking lifecycle commands.
+  Rollover now retires a drained `INTERRUPTED` entry like any settled result
+  (still retaining the current operation and the latest ensure result), so a
+  journal saturated at 128 entries can no longer permanently refuse every
+  command behind a crashed ensure. A property suite saturates the journal,
+  interrupts an operation at every lifecycle step, and asserts at least one
+  canonical command progresses, including randomized crash walks.
+- Complete canonical `devrouter stop` for retained managed Devsy state without
+  a stop baseline when a guard-ordered `stop --delete` or external teardown
+  removed the registration: when both provider registries positively lack the
+  ID and path, Devsy reports the runtime `not-found`, and the compose, runner,
+  and workspace populations are empty across two stable observations, the stop
+  settles as proven-absent and only routes are freed. Ownership conflicts and
+  unreadable evidence still fail closed without mutation.
+- Admit interrupted-ensure recovery after a completed stop proof regardless of
+  whether `desired` records `running` or `stopped-by-user`; a finished stop is
+  proof the workspace is quiescent.
+- Name the blocking field and remediation on every manual-policy lifecycle
+  admission refusal instead of a bare "Lifecycle admission is blocked."
+- Guard version skew: reliability records are stamped with the writing CLI
+  version, and a record written by a newer CLI is refused with an explicit
+  upgrade instruction before any lifecycle step instead of new refusals
+  mid-flight.
+
+### Added
+
+- Add `devrouter workspace journal settle [path]` as the first-class escape
+  hatch for unrecoverable records: it settles a lifecycle operation whose
+  worker is provably gone as `INTERRUPTED` and drained under the workspace
+  lifecycle lock. Settlement never claims anything about workloads, routes, or
+  registrations, so agents never need to hand-edit `~/.config/devrouter`.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.67.md
 
 ## [0.0.66] - 2026-09-09
 

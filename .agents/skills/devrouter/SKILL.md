@@ -348,6 +348,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter workspace stop <workspace|branch>`: stop DevPod and routes; preserve checkout, owner record, and data
 - `devrouter workspace down <workspace|branch> [--keep-worktree]`: delete runtime/routes and optionally remove the clean worktree and record
 - `devrouter workspace gc [--json] [--yes]`: report missing owners by default; apply exact eligible cleanup with `--yes`
+- `devrouter workspace journal settle [path] [--json]`: settle a lifecycle operation whose worker is provably gone as unobservable so ensure/stop can proceed; never hand-edit `~/.config/devrouter`
 
 For host-generated Compose inputs, configure
 `managedRuntime.devcontainer.prepareCommand` as literal argv. Ensure runs it once

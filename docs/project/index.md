@@ -4,6 +4,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Actionable process-identity diagnostics](./2026-09-10-process-identity-diagnostics-plan.md) — lock errors and controller commands report the failing inspection stage, reproduction command, and remediation without weakening fail-closed locks, in [PR #77](https://github.com/rschlaefli/devrouter/pull/77).
 - [Interruption-safe lifecycle integration](./2026-09-06-reliability-lifecycle-execution-plan.md) — connect manual ensure, exec, and stop to durable operation records and qualify the installed CLI with synthetic providers. Source implementation approved; real-provider/OOM qualification remains separate.
 
 - [Reliability contract foundation](./2026-09-06-reliability-contract-plan.md) — model intent, readiness, admission, and uncertain dispatch before live controller activation.
