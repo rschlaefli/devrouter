@@ -353,14 +353,14 @@ export async function followControllerOperation(
 /** Bind a client session to one canonical environment before operation submission. */
 export async function observeControllerBinding(
   directory: string,
-  input: { path: string; session: string; profile: string; require?: string[] },
+  input: { path: string; session: string; profile: string; require: string[] },
 ): Promise<ControllerOperationBinding> {
   const response = await operationRequest(directory, {
     method: "observe",
     path: input.path,
     session: input.session,
     profile: input.profile,
-    require: input.require ?? [],
+    require: input.require,
   });
   if (
     !isRecord(response) ||

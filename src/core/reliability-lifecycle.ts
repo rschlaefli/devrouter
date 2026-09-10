@@ -815,6 +815,10 @@ async function superviseThroughController(input: {
         path: input.repoPath,
         session: randomUUID(),
         profile: input.profile ?? "full",
+        // The protocol requires at least one readiness selector, and every
+        // supervised operation depends on runtime readiness; "runtime" is the
+        // one selector every managed binding may declare.
+        require: ["runtime"],
       });
     let binding = await bind();
     let pending = await submitControllerOperation(
