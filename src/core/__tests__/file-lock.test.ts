@@ -3,7 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type LockWaitProgress, withFileLockSync } from "../file-lock";
+import {
+  type LockWaitProgress,
+  processBirthIdentityWithCause,
+  withFileLockSync,
+} from "../file-lock";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
@@ -80,6 +84,56 @@ describe("file lock ownership", () => {
         `inner is already running (PID ${process.pid}, held for 0s); gave up after waiting 0s`,
       );
     });
+  });
+
+  it("describes the denied process inspection in the acquisition error", () => {
+    const existingLock = "existing-lock-bytes\n";
+    fs.writeFileSync(lockPath, existingLock, "utf-8");
+    const readFileSync = fs.readFileSync.bind(fs);
+    vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+      if (String(file).startsWith("/proc/")) {
+        throw Object.assign(new Error("procfs unavailable"), { code: "EACCES" });
+      }
+      return readFileSync(file, ...(args as [never]));
+    }) as typeof fs.readFileSync);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: "raw ps stderr",
+    } as never);
+
+    expect(() => withFileLockSync(lockPath, { activity: "permission" }, () => undefined)).toThrow(
+      /could not determine process identity for permission lock at .*: .*ps exited with status 1.*LC_ALL=C ps -o lstart=.*fail-closed/,
+    );
+    expect(fs.readFileSync(lockPath, "utf-8")).toBe(existingLock);
+  });
+
+  it("reports the failing ps stage without echoing raw stderr", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: "raw ps stderr",
+    } as never);
+
+    const result = processBirthIdentityWithCause(process.pid);
+
+    expect(result.identity).toBeUndefined();
+    expect(result.cause).toContain("ps exited with status 1");
+    expect(result.cause).not.toContain("raw ps stderr");
+  });
+
+  it("reports the ps spawn error code as the cause", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      error: Object.assign(new Error("spawn ps EACCES"), { code: "EACCES" }),
+      status: null,
+      stdout: "",
+      stderr: "",
+    } as never);
+
+    const result = processBirthIdentityWithCause(process.pid);
+
+    expect(result.identity).toBeUndefined();
+    expect(result.cause).toContain("ps spawn failed (EACCES)");
   });
 
   it("keeps legacy pid:uuid records conservative while the PID is live", () => {

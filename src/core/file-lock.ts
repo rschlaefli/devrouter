@@ -65,7 +65,14 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-export function processBirthIdentity(pid: number): string | undefined {
+/** Bounded, privacy-safe explanation of why a process-birth probe failed. */
+export type ProcessBirthIdentityCause = {
+  identity?: string;
+  cause?: string;
+};
+
+export function processBirthIdentityWithCause(pid: number): ProcessBirthIdentityCause {
+  const causeParts: string[] = [];
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf-8");
     const commandEnd = stat.lastIndexOf(")");
@@ -75,18 +82,39 @@ export function processBirthIdentity(pid: number): string | undefined {
         .trim()
         .split(/\s+/);
       const startTime = fields[19];
-      if (startTime) return `proc:${startTime}`;
+      if (startTime) return { identity: `proc:${startTime}` };
+      causeParts.push(`procfs /proc/${pid}/stat had no start-time field`);
     }
-  } catch {
-    // macOS and other non-procfs hosts use the portable ps fallback below.
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT")
+      causeParts.push(`procfs /proc/${pid}/stat read failed (${code ?? "unknown"})`);
   }
+  // ENOENT is the normal non-procfs case (macOS); it is not reported as a cause.
 
   const result = spawnSync("ps", ["-o", "lstart=", "-o", "command=", "-p", String(pid)], {
     encoding: "utf-8",
     env: { ...process.env, LC_ALL: "C" },
   });
-  const startedAt = result.status === 0 ? result.stdout.trim().replace(/\s+/g, " ") : "";
-  return startedAt ? `ps:${createHash("sha256").update(startedAt).digest("hex")}` : undefined;
+  if (result.error) {
+    causeParts.push(
+      `ps spawn failed (${(result.error as NodeJS.ErrnoException).code ?? result.error.message})`,
+    );
+  } else if (result.status !== 0) {
+    causeParts.push(
+      `ps exited with status ${result.status}${result.signal ? ` on ${result.signal}` : ""}`,
+    );
+  } else {
+    const startedAt = result.stdout.trim().replace(/\s+/g, " ");
+    if (startedAt)
+      return { identity: `ps:${createHash("sha256").update(startedAt).digest("hex")}` };
+    causeParts.push(`ps produced no start time for pid ${pid}`);
+  }
+  return { cause: causeParts.join("; ") };
+}
+
+export function processBirthIdentity(pid: number): string | undefined {
+  return processBirthIdentityWithCause(pid).identity;
 }
 
 function parseLockOwner(value: string): LockOwner | undefined {
@@ -261,14 +289,17 @@ function tryReclaimStaleLock(
 }
 
 function acquireFileLock(lockPath: string, options: FileLockOptions): string {
-  const processBirth = processBirthIdentity(process.pid);
-  if (!processBirth) {
+  const processBirth = processBirthIdentityWithCause(process.pid);
+  const birthIdentity = processBirth.identity;
+  if (!birthIdentity) {
     throw new Error(
-      `could not determine process identity for ${options.activity} lock: process inspection may be unavailable or sandbox-denied; run the canonical command in a permitted host context`,
+      `could not determine process identity for ${options.activity} lock at ${lockPath}: ${processBirth.cause ?? "process inspection returned no result"}. ` +
+        "process inspection may be unavailable or denied by the execution sandbox; verify with LC_ALL=C ps -o lstart= -o command= -p <any-live-pid> and, if that fails with an operation-not-permitted error, run the canonical command in a permitted host context outside the sandbox. " +
+        "the lock stays fail-closed; no identity fallback was attempted.",
     );
   }
   const ownerId = randomUUID();
-  const owner = `${process.pid}:${Buffer.from(processBirth).toString("base64url")}:${ownerId}`;
+  const owner = `${process.pid}:${Buffer.from(birthIdentity).toString("base64url")}:${ownerId}`;
   const candidatePath = `${lockPath}.${process.pid}.${ownerId}.candidate`;
   const staleLinkPath = `${candidatePath}.stale`;
   const enqueuedAtMs = Date.now();
