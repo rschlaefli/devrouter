@@ -177,5 +177,9 @@ read-only child dispatches; reports persist under `docs/project/_local/reviews/`
   Accepted and applied: five behavior-preserving simplifier reductions; R1 tighter
   refusal-ordering assertions; R2 new repair-mode refusal test (no retained-container starts).
   R3 (rollback suffix on the rare evidence-failure error) accepted as cosmetic with rationale.
-  138/138 affected tests, typecheck green. Next: slice 4 (release 0.0.68), then integrated
-  final review.
+  138/138 affected tests, typecheck green. Committed as `b231e55`.
+- 2026-09-10 (slice 4): release `0.0.68` artifacts landed — package/examples pins, CHANGELOG,
+  `upgrade-prompts/0.0.68.md`, SKILL.md fixed-host-ports contract, `ai-prompt.ts` refusal +
+  doctor intents, AGENTS.md map entries, `docs/knowledge/managed-environment-lifecycle.md`
+  startup-flow step. ai-prompt/upgrade suites, docs-policy, and knowledge guards green.
+  Remaining: full validation checklist and integrated final review.

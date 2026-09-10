@@ -130,6 +130,7 @@ Supported routing:
 - `src/core/routes.ts`: discover HTTP + TCP routes from labels
 - `src/core/router.ts`: shared Traefik stack/files under `~/.config/devrouter`
 - `src/core/host-routes.ts`: locked host-route state, versioned canonical Traefik metadata/rendering, durable atomic publication, and compatibility recovery
+- `src/core/host-port-claims.ts`: admission-time fixed host-port binding resolution, live holder inspection/attribution, and the conflict refusal for managed ensure plus the `repo.host-port-claims` doctor check
 - `src/core/traefik-route-health.ts`: file-provider router proof, serialized one-restart recovery, and fail-closed diagnostics
 - `src/core/paths.ts`: path traversal guard (`assertPathWithinRepo`) for repo-scoped file references
 - `src/core/tls.ts`: mkcert integration, SAN coverage checks, and TLS enablement/refresh
@@ -164,6 +165,8 @@ Supported routing:
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
 - `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `devrouter app exec`, shell mode guard, per-dep env vars, config-level envMap, exec dependency ownership teardown, and SM `{env}` template resolution
 - `src/core/__tests__/tls.test.ts`: unit tests for TLS SAN parsing, wildcard coverage, and host preservation logic
+- `src/core/__tests__/host-port-claims.test.ts`: unit tests for the fixed-port resolver, conflict matching, holder attribution, and evidence-failure refusals
+- `src/commands/__tests__/ensure.test.ts`: unit tests for ensure host-port refusal output (JSON shape, human attribution, exit codes)
 - `src/commands/__tests__/init.test.ts`: unit tests for `devrouter init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `devrouter open` app-name fallback behavior
 - `src/commands/__tests__/repo-init.test.ts`: unit tests for `devrouter repo init` metadata initialization behavior
