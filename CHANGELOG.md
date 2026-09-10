@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.70] - 2026-09-10
+
+### Fixed
+
+- Host-port claim reporting collapses a holder's wildcard bind reported per
+  address family (0.0.0.0 and ::) into one conflict, so ensure refusals and the
+  `repo.host-port-claims` doctor check count each distinct conflicting binding
+  once.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.70.md
+
 ## [0.0.69] - 2026-09-10
 
 ### Added
