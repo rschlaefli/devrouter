@@ -47,7 +47,6 @@ function holderLine(
     name: `/${name}`,
     labels: {
       "com.docker.compose.project": options.composeProject,
-      "com.docker.compose.service": "azurite",
       "com.docker.compose.project.working_dir": options.workingDir,
     },
     ports: options.ports ?? {},
@@ -96,7 +95,6 @@ describe("resolveFixedPublishedHostPorts", () => {
         service: "azurite",
         hostIp: "127.0.0.1",
         hostPort: 10003,
-        targetPort: 10000,
         protocol: "tcp",
       },
     ]);
@@ -130,9 +128,9 @@ describe("resolveFixedPublishedHostPorts", () => {
       },
     };
     expect(resolveFixedPublishedHostPorts(model)).toEqual([
-      { service: "mesh", hostIp: "127.0.0.1", hostPort: 10003, targetPort: 7000, protocol: "udp" },
-      { service: "mesh", hostIp: "127.0.0.1", hostPort: 10004, targetPort: 7000, protocol: "udp" },
-      { service: "mesh", hostIp: "127.0.0.1", hostPort: 10005, targetPort: 7000, protocol: "udp" },
+      { service: "mesh", hostIp: "127.0.0.1", hostPort: 10003, protocol: "udp" },
+      { service: "mesh", hostIp: "127.0.0.1", hostPort: 10004, protocol: "udp" },
+      { service: "mesh", hostIp: "127.0.0.1", hostPort: 10005, protocol: "udp" },
     ]);
   });
 

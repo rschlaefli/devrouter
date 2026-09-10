@@ -23,7 +23,6 @@ export type DesiredHostPortBinding = {
   /** Exact bound host IP, or null when the binding is a wildcard. */
   hostIp: string | null;
   hostPort: number;
-  targetPort: number;
   protocol: string;
 };
 
@@ -141,17 +140,15 @@ export function resolveFixedPublishedHostPorts(renderedConfig: unknown): Desired
       if (!isRecord(port)) {
         throw new Error(`Service '${service}' declares an unsupported port entry.`);
       }
+      // Target validation stays even though only the published side is
+      // matched: an out-of-range target cannot bind, so refusing stays loud.
+      parseSinglePortValue(port.target, service, "container target");
+      const hostIp = normalizeHostIp(port.host_ip);
+      const protocol = typeof port.protocol === "string" && port.protocol ? port.protocol : "tcp";
       if (typeof port.published !== "string" || !port.published.includes("-")) {
-        const targetPort = parseSinglePortValue(port.target, service, "container target");
         const hostPort = parseFixedPublishedPort(port.published, service);
         if (hostPort === null) continue;
-        pushBinding({
-          service,
-          hostIp: normalizeHostIp(port.host_ip),
-          hostPort,
-          targetPort,
-          protocol: typeof port.protocol === "string" && port.protocol ? port.protocol : "tcp",
-        });
+        pushBinding({ service, hostIp, hostPort, protocol });
         continue;
       }
       const range = parsePublishedRange(port.published, service);
@@ -160,15 +157,8 @@ export function resolveFixedPublishedHostPorts(renderedConfig: unknown): Desired
           `Service '${service}' publishes an unsupported host port value '${String(port.published)}'.`,
         );
       }
-      const targetPort = parseSinglePortValue(port.target, service, "container target");
       for (let hostPort = range[0]; hostPort <= range[1]; hostPort += 1) {
-        pushBinding({
-          service,
-          hostIp: normalizeHostIp(port.host_ip),
-          hostPort,
-          targetPort,
-          protocol: typeof port.protocol === "string" && port.protocol ? port.protocol : "tcp",
-        });
+        pushBinding({ service, hostIp, hostPort, protocol });
       }
     }
   }
@@ -190,7 +180,7 @@ export function hostPortBindingsConflict(
 }
 
 const HOST_PORT_INSPECT_TEMPLATE =
-  '{"id":{{json .Id}},"name":{{json .Name}},"labels":{"com.docker.compose.project":{{json (index .Config.Labels "com.docker.compose.project")}},"com.docker.compose.service":{{json (index .Config.Labels "com.docker.compose.service")}},"com.docker.compose.project.working_dir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}}},"ports":{{json .NetworkSettings.Ports}}}';
+  '{"id":{{json .Id}},"name":{{json .Name}},"labels":{"com.docker.compose.project":{{json (index .Config.Labels "com.docker.compose.project")}},"com.docker.compose.project.working_dir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}}},"ports":{{json .NetworkSettings.Ports}}}';
 
 function runDocker(args: string[]): string {
   const result = spawnSync("docker", args, {
@@ -215,10 +205,10 @@ function parseHolderPortMap(value: unknown): HolderSnapshot["ports"] {
   const ports: HolderSnapshot["ports"] = [];
   for (const [key, entries] of Object.entries(isRecord(value) ? value : {})) {
     const separator = key.lastIndexOf("/");
+    // Only the bound host side feeds matching; the key's container port is
+    // irrelevant and is not validated beyond the key shape.
     if (separator <= 0) continue;
-    const containerPort = Number(key.slice(0, separator));
     const protocol = key.slice(separator + 1);
-    if (!Number.isInteger(containerPort) || containerPort <= 0) continue;
     if (!Array.isArray(entries)) continue;
     for (const entry of entries) {
       if (!isRecord(entry) || entry.HostPort === undefined || entry.HostPort === null) continue;

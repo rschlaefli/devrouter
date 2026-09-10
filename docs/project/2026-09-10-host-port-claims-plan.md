@@ -171,6 +171,11 @@ read-only child dispatches; reports persist under `docs/project/_local/reviews/`
 - 2026-09-10 (slice 3): doctor check `repo.host-port-claims` landed in
   `buildDevcontainerChecks` (no-op without `managedRuntime`; error on conflict with holder +
   workspace attribution; warn on unavailable evidence; workspace interpolation env for linked
-  checkouts). 28/28 diagnostics+doctor tests green. Post-slice review pair (simplifier +
-  slice-reviewer) dispatched on `123a2b1..91c7b29`; findings pending. Next: disposition
-  findings, then slice 4 (release).
+  checkouts). 28/28 diagnostics+doctor tests green. Committed as `a63cb75`.
+- 2026-09-10 (review disposition): simplifier + slice-reviewer pair returned on
+  `123a2b1..91c7b29` (reports in `docs/project/_local/reviews/`). No critical or major findings.
+  Accepted and applied: five behavior-preserving simplifier reductions; R1 tighter
+  refusal-ordering assertions; R2 new repair-mode refusal test (no retained-container starts).
+  R3 (rollback suffix on the rare evidence-failure error) accepted as cosmetic with rationale.
+  138/138 affected tests, typecheck green. Next: slice 4 (release 0.0.68), then integrated
+  final review.

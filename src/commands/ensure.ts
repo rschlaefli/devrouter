@@ -24,9 +24,12 @@ export async function runEnsureCommand(options: {
     return;
   }
 
+  const label =
+    result.kind === "primary"
+      ? `Primary checkout [profile: ${result.profile}]`
+      : `Workspace '${result.workspace}' [profile: ${result.profile}]`;
+
   if (conflicts.length > 0) {
-    const label =
-      result.kind === "primary" ? "Primary checkout" : `Workspace '${result.workspace}'`;
     const lines = conflicts.map((conflict) => {
       const desired = `${conflict.hostIp ?? "*"}:${conflict.hostPort}/${conflict.protocol}`;
       const holder = [
@@ -41,15 +44,11 @@ export async function runEnsureCommand(options: {
       return `  - service '${conflict.service}' needs ${desired}, held by ${holder}\n    ${conflict.remediation}`;
     });
     process.stdout.write(
-      `${label} [profile: ${result.profile}] was not started: ${conflicts.length} fixed host-port claim${conflicts.length === 1 ? "" : "s"} conflict${conflicts.length === 1 ? "s" : ""} with running containers.\n${lines.join("\n")}\n`,
+      `${label} was not started: ${conflicts.length} fixed host-port claim${conflicts.length === 1 ? "" : "s"} conflict${conflicts.length === 1 ? "s" : ""} with running containers.\n${lines.join("\n")}\n`,
     );
     return;
   }
 
-  const label =
-    result.kind === "primary"
-      ? `Primary checkout [profile: ${result.profile}]`
-      : `Workspace '${result.workspace}' [profile: ${result.profile}]`;
   const routes = result.urls.map((url) => `  ${url}`).join("\n");
   process.stdout.write(
     `${label} ${applicationFailed ? "has available infrastructure but failed its application readiness contract" : "is ready"} (${result.devpodId}).\n${routes}${routes ? "\n" : ""}`,

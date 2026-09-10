@@ -2865,6 +2865,8 @@ describe("workspaceEnsure", () => {
     expect(events).not.toContain("config-write");
     expect(events).not.toContain("devpod-up");
     expect(devpodUpCalls()).toHaveLength(0);
+    expect(startExactManagedServices).not.toHaveBeenCalled();
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
     expect(detectHostPortClaimConflicts).toHaveBeenCalledWith(
       expect.objectContaining({
         repoPath: tmpDir,
@@ -2888,5 +2890,39 @@ describe("workspaceEnsure", () => {
       /could not verify fixed host-port claims.*Cannot connect to the Docker daemon/,
     );
     expect(devpodUpCalls()).toHaveLength(0);
+  });
+
+  it("refuses a repair on fixed host-port conflicts without starting retained containers", async () => {
+    const events: string[] = [];
+    mockRepair(events);
+    vi.mocked(detectHostPortClaimConflicts).mockReturnValue([
+      {
+        service: "azurite",
+        hostIp: "127.0.0.1",
+        hostPort: 11003,
+        protocol: "tcp",
+        holderContainer: "other-azurite",
+        remediation: "Stop or reconfigure the holding container 'other-azurite'.",
+      },
+    ]);
+
+    const result = await workspaceEnsure(tmpDir, {
+      repair: true,
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+
+    expect(result.urls).toEqual([]);
+    expect(result.hostPortConflicts).toHaveLength(1);
+    expect(devpodUpCalls()).toHaveLength(0);
+    expect(
+      vi
+        .mocked(spawnSync)
+        .mock.calls.filter(
+          ([command, args]) => command === "docker" && (args as string[])?.[0] === "start",
+        ),
+    ).toHaveLength(0);
+    expect(events).not.toContain("config-write");
+    expect(events).not.toContain("state-write");
   });
 });
