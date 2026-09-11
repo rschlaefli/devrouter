@@ -243,3 +243,15 @@ publication, or release occurred; and an appended dated Progress entry below.
   this package's evidence and ruled by the user; it changes nothing shipped.
   W2 was the only approved package here, so no next W-item follows it on this
   roadmap — further work needs new planning against the parent backlog.
+- `2026-08-29`: Phase 5 revalidated the terminal boundary from live Git and
+  forge evidence. [PR #30](https://github.com/rschlaefli/devrouter/pull/30)
+  merged its exact head `8eda6aa` into `main` as
+  [`f176a67`](https://github.com/rschlaefli/devrouter/commit/f176a6672328fe2a4d1da039a05ffb7f0a68cdf2)
+  on 2026-08-16; the required CI check passed and the publish job skipped. The
+  package was subsequently published through
+  [v0.0.36](https://github.com/rschlaefli/devrouter/releases/tag/v0.0.36),
+  whose package and changelog contain the W2 contract. W2 is terminal at the
+  `released` delivery layer with no remaining slice or required gate. The
+  earlier `pr_ready` entry remains the historical pre-merge boundary. This
+  package roadmap has no next W-item; the parent roadmap owns future package
+  selection.
