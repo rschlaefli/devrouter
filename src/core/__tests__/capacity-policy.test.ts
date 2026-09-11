@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { type CapacityPolicy, parseCapacityPolicy, readCapacityPolicy } from "../capacity-policy";
+import {
+  type CapacityPolicy,
+  DEFAULT_CAPACITY_RECOVERY,
+  parseCapacityPolicy,
+  readCapacityPolicy,
+} from "../capacity-policy";
 
 function validPolicy(): CapacityPolicy {
   return {
@@ -18,6 +23,15 @@ function validPolicy(): CapacityPolicy {
       watchSeconds: 30,
       sampleIntervalSeconds: 5,
       maxSampleAgeSeconds: 15,
+    },
+    recovery: {
+      enabled: false,
+      maxProcessRestarts: 2,
+      maxServiceRestarts: 1,
+      maxCorrectiveActions: 3,
+      windowSeconds: 600,
+      observationSeconds: 30,
+      resumeDwellSeconds: 300,
     },
     domains: {
       host: {
@@ -367,5 +381,64 @@ describe("parseCapacityPolicy", () => {
         enrollments: [{ ...validPolicy().enrollments[0], repoPath: "/workspace/../repo" }],
       }),
     ).toThrow(/canonical absolute path/);
+  });
+});
+
+describe("capacity policy automatic recovery", () => {
+  function withoutRecovery(): Record<string, unknown> {
+    const policy: Record<string, unknown> = { ...validPolicy() };
+    delete policy.recovery;
+    return policy;
+  }
+
+  it("keeps automatic recovery disabled when the block is absent", () => {
+    expect(parseCapacityPolicy(withoutRecovery()).recovery).toEqual(DEFAULT_CAPACITY_RECOVERY);
+    expect(DEFAULT_CAPACITY_RECOVERY.enabled).toBe(false);
+  });
+
+  it("parses an explicit bounded budget", () => {
+    const policy = parseCapacityPolicy({
+      ...validPolicy(),
+      recovery: {
+        enabled: true,
+        maxProcessRestarts: 2,
+        maxServiceRestarts: 1,
+        maxCorrectiveActions: 3,
+        windowSeconds: 600,
+        observationSeconds: 30,
+        resumeDwellSeconds: 300,
+      },
+    });
+    expect(policy.recovery).toEqual({
+      enabled: true,
+      maxProcessRestarts: 2,
+      maxServiceRestarts: 1,
+      maxCorrectiveActions: 3,
+      windowSeconds: 600,
+      observationSeconds: 30,
+      resumeDwellSeconds: 300,
+    });
+  });
+
+  it("rejects malformed recovery blocks", () => {
+    const block = (recovery: unknown) => parseCapacityPolicy({ ...validPolicy(), recovery });
+
+    expect(() => block({ ...DEFAULT_CAPACITY_RECOVERY, enabled: "yes" })).toThrow(/enabled/);
+    expect(() => block({ ...DEFAULT_CAPACITY_RECOVERY, unexpected: 1 })).toThrow(/unexpected/);
+    expect(() =>
+      block({
+        ...DEFAULT_CAPACITY_RECOVERY,
+        maxProcessRestarts: 2,
+        maxServiceRestarts: 1,
+        maxCorrectiveActions: 2,
+      }),
+    ).toThrow(/maxCorrectiveActions/);
+    expect(() => block({ ...DEFAULT_CAPACITY_RECOVERY, maxCorrectiveActions: 9 })).toThrow(
+      /bounds/,
+    );
+    expect(() => block({ ...DEFAULT_CAPACITY_RECOVERY, windowSeconds: 3601 })).toThrow(/bounds/);
+    expect(() => block({ ...DEFAULT_CAPACITY_RECOVERY, maxServiceRestarts: -1 })).toThrow(
+      /at least 0/,
+    );
   });
 });

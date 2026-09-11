@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { ControllerMonitor, type ControllerObservationCollector } from "./controller-monitor";
+import {
+  ControllerMonitor,
+  type ControllerObservationCollector,
+  type ControllerRecovery,
+} from "./controller-monitor";
 import { type ControllerRequest, parseControllerRequest } from "./controller-protocol";
 import { ControllerSessions } from "./controller-sessions";
 import {
@@ -56,6 +60,7 @@ export type ControllerResolver = (
 export type ControllerOperations = {
   tick?: () => Promise<void>;
   close?: () => void;
+  recover?: ControllerRecovery;
   submit: (
     request: Extract<ControllerRequest, { method: "operation-submit" }>,
     environment: ControllerEnvironment,
@@ -122,11 +127,18 @@ export async function runController(options: {
     const monotonic = () => Math.floor(performance.now());
     let fatal: Error | undefined;
     const monitor = options.collect
-      ? new ControllerMonitor(sessions, options.collect, (operation) => {
-          const pending = serial.then(operation);
-          serial = pending.catch(() => {});
-          return pending;
-        })
+      ? new ControllerMonitor(
+          sessions,
+          options.collect,
+          (operation) => {
+            const pending = serial.then(operation);
+            serial = pending.catch(() => {});
+            return pending;
+          },
+          undefined,
+          undefined,
+          operations?.recover,
+        )
       : undefined;
     const server = net.createServer((socket) => {
       if (sockets.size >= 32) {

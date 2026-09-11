@@ -43,7 +43,11 @@ import {
   type ReliabilityFence,
   reliabilityFence,
 } from "./reliability-contract";
-import { canExecAfterInterruptedEnsure, stepReliability } from "./reliability-model";
+import {
+  canExecAfterInterruptedEnsure,
+  decideRecovery,
+  stepReliability,
+} from "./reliability-model";
 import {
   assertCapacityEffect,
   type CapacityControllerIdentity,
@@ -325,6 +329,74 @@ function assertCurrentCapacityController(
   const current = new ControllerStore(directory).read();
   if (!expected || current?.store !== expected.store || current.epoch !== expected.epoch)
     throw new Error("Capacity controller incarnation changed.");
+}
+
+/**
+ * Open or advance one bounded automatic recovery for an environment whose
+ * required capability has positively failed. The incident budget and the
+ * decision rule live in the reliability model, so the recovery a caller
+ * receives is the one the model accepted; an environment that is healthy,
+ * already dispatching, or out of budget yields no request.
+ */
+export function prepareRecoveryLifecycleOperation(input: {
+  identity: ReliabilityIdentity;
+  controller: CapacityControllerIdentity;
+  policyRevision: number;
+  actionLimit: number;
+  failedCapabilities: string[];
+  profile: string;
+  incidentId: string;
+}): { operationId: string; request: LifecycleWorkerRequest } | undefined {
+  const ids = newLifecycleIds();
+  return updateReliabilityOperation(input.identity, (record) => {
+    assertCurrentCapacityController(input.controller);
+    if (
+      record.version !== 2 ||
+      record.state.executionPolicy !== "capacity-managed" ||
+      record.enrollment?.policyRevision !== input.policyRevision
+    )
+      throw new Error("Managed recovery requires current durable enrollment.");
+    if (record.phaseSettlement) return undefined;
+    // Settle an operation the queue no longer owns before deciding, so a stale
+    // preparation cannot wedge every later recovery behind its evidence.
+    reconcileDrained(record);
+    if (record.worker) return undefined;
+    const decision = decideRecovery({
+      state: record.state,
+      nowMs: Date.now(),
+      actionLimit: input.actionLimit,
+      pressureDwellSatisfied: false,
+      failedCapabilities: input.failedCapabilities,
+    });
+    if (decision.action !== "start" && decision.action !== "continue") return undefined;
+    const transition = stepReliability(
+      record.state,
+      {
+        ...reliabilityFence(record.state),
+        type: "recover",
+        incidentId: decision.action === "continue" ? decision.incidentId : input.incidentId,
+        actionLimit: input.actionLimit,
+        operationId: ids.operationId,
+      },
+      Date.now(),
+    );
+    if (transition.outcome !== "accepted") return undefined;
+    record.state = transition.state;
+    record.outcome = null;
+    record.result = null;
+    record.startupWitness = null;
+    return {
+      operationId: ids.operationId,
+      request: {
+        ...ids,
+        kind: "ensure",
+        repoPath: input.identity.repoPath,
+        identity: { ...input.identity },
+        fence: reliabilityFence(record.state),
+        options: { profile: input.profile, quiet: true },
+      },
+    };
+  });
 }
 
 /** Reduce completed phase charges only after the exact worker has drained. */
@@ -898,7 +970,6 @@ export function renewLifecycleCapacity(
       binding.controller?.epoch !== controller.epoch
     )
       throw new Error("Capacity renewal no longer owns this operation.");
-    binding.validUntilMs = 0;
     try {
       if (
         record.state.executionPolicy !== "capacity-managed" ||
@@ -908,8 +979,10 @@ export function renewLifecycleCapacity(
         policy.admissions !== "enabled" ||
         policy.revision !== binding.policyRevision ||
         JSON.stringify(readCapacityPolicy(directory)) !== JSON.stringify(policy)
-      )
+      ) {
+        binding.validUntilMs = 0;
         return false;
+      }
       const enrolled = record.enrollment;
       const runtime = enrolled && policy.domains[enrolled.runtimeDomain];
       const enrollment = policy.enrollments.find(
@@ -931,8 +1004,10 @@ export function renewLifecycleCapacity(
         runtime?.kind !== "runtime" ||
         runtime.endpoint !== enrolled.endpoint ||
         runtime.daemonId !== enrolled.daemonId
-      )
+      ) {
+        binding.validUntilMs = 0;
         return false;
+      }
       const snapshot = new CapacityStore(directory).read();
       const reservation = snapshot.reservations.find(
         (entry) => entry.reservationId === binding.reservationId,
@@ -942,8 +1017,10 @@ export function renewLifecycleCapacity(
         reservation.environmentId !== record.state.environmentId ||
         reservation.operationId !== request.operationId ||
         reservation.policyRevision !== policy.revision
-      )
+      ) {
+        binding.validUntilMs = 0;
         return false;
+      }
       const maxAge = policy.scheduling.maxSampleAgeSeconds * 1000;
       const decision = evaluateCapacity(
         policy.domains,
@@ -982,17 +1059,29 @@ export function renewLifecycleCapacity(
               ).admitted
             );
           })();
-        if (!tolerated) return false;
+        if (!tolerated) {
+          // An observational refusal only declines the extension. Authority
+          // already expires by its own deadline, so revoking here would abort a
+          // running start on one failed or stale probe and misreport it as
+          // absent authority. Genuine limits still revoke immediately.
+          if (decision.reason !== "unknown" && decision.reason !== "stale")
+            binding.validUntilMs = 0;
+          return false;
+        }
       }
+      // Extending authority requires a usable sample for every reserved domain.
+      // A collection gap must not be read as an ancient sample: that would both
+      // compute an already-expired deadline and revoke a running operation whose
+      // authority is still inside its freshness window.
+      const observed = Object.keys(reservation.totals).map(
+        (domain) => samples[domain]?.sampledAtMs,
+      );
+      if (observed.some((sampledAtMs) => typeof sampledAtMs !== "number")) return false;
       binding.snapshotRevision = snapshot.revision;
-      binding.validUntilMs =
-        Math.min(
-          ...Object.keys(reservation.totals).map((domain) => samples[domain]?.sampledAtMs ?? 0),
-        ) + maxAge;
+      binding.validUntilMs = Math.min(...observed) + maxAge;
       assertCapacityEffect(record, request.workerId, nowMs, directory);
       return true;
     } catch {
-      binding.validUntilMs = 0;
       return false;
     }
   });

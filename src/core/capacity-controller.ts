@@ -10,6 +10,7 @@ import { capacityRequest } from "./capacity-request";
 import { publishQueuedStartupWitness } from "./capacity-startup-witness";
 import { type CapacityPoolReservation, CapacityStore } from "./capacity-store";
 import { readControllerEvidence } from "./controller-binding";
+import type { ControllerRecovery } from "./controller-monitor";
 import type { ControllerOperations, ControllerStartup } from "./controller-server";
 import { ControllerStore } from "./controller-store";
 import { resolveRunningWorkspaceContainer } from "./devpod-environment";
@@ -17,6 +18,7 @@ import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
 import { reliabilityFence } from "./reliability-contract";
 import {
   prepareManagedLifecycleOperation,
+  prepareRecoveryLifecycleOperation,
   retireQueuedLifecycle,
   settlePreparedLifecycleCapacity,
 } from "./reliability-lifecycle";
@@ -35,7 +37,11 @@ export function createCapacityController(options: {
   // Host samples exclude VM usage covered by pool ceilings; sharedBytes excludes those ceilings.
   // Collectors must cooperate with abort by draining their work and rejecting.
   collect: (signal: AbortSignal) => Promise<Record<string, CapacityDomainSample>>;
-}): ControllerOperations & { tick: () => Promise<void>; close: () => void } {
+}): ControllerOperations & {
+  tick: () => Promise<void>;
+  close: () => void;
+  recover: ControllerRecovery;
+} {
   options.controller.consumeStartup(options.directory);
   const policy = readCapacityPolicy(options.directory);
   if (policy?.admissions !== "enabled") throw new Error("Capacity policy is not enabled.");
@@ -322,6 +328,98 @@ export function createCapacityController(options: {
     tick: () => {
       settlePreparations();
       return queue.tick();
+    },
+    /**
+     * Open or advance one bounded automatic recovery for an environment whose
+     * required capability has positively failed. It is inert unless the
+     * operator policy enables recovery, and every decision, budget, and
+     * admission rule is the one an operator-requested ensure obeys.
+     */
+    async recover(environment, failedCapabilities, signal) {
+      signal = AbortSignal.any([signal, lifetime.signal]);
+      if (signal.aborted || !policy.recovery.enabled) return;
+      if (failedCapabilities.length === 0 || failedCapabilities.length > 64) return;
+      const current = readCapacityPolicy(options.directory);
+      if (current?.admissions !== "enabled" || !isDeepStrictEqual(current, policy)) return;
+      let resolved: Awaited<ReturnType<typeof enrollCapacityLifecycle>>;
+      try {
+        resolved = await enrollCapacityLifecycle(
+          current,
+          { path: environment.repoPath, profile: environment.profile, require: [] },
+          signal,
+          options.directory,
+        );
+      } catch {
+        // An unresolvable binding keeps the environment unrecovered rather than
+        // acting on evidence that no longer matches the durable enrollment.
+        return;
+      }
+      if (signal.aborted || !isDeepStrictEqual(resolved.environment, environment)) return;
+      if (!isDeepStrictEqual(readCapacityPolicy(options.directory), current)) return;
+      const runtime = current.domains[resolved.enrollment.runtimeDomain];
+      if (
+        runtime?.kind !== "runtime" ||
+        runtime.hostDomain !== resolved.enrollment.hostDomain ||
+        current.domains[runtime.hostDomain]?.kind !== "host" ||
+        !current.enrollments.some((entry) => isDeepStrictEqual(entry, resolved.enrollment))
+      )
+        return;
+      const pool = {
+        daemonId: runtime.daemonId,
+        runtimeDomain: resolved.enrollment.runtimeDomain,
+        hostDomain: runtime.hostDomain,
+        hostChargeCeilingBytes: runtime.hostChargeCeilingBytes,
+      };
+      const identity = {
+        repoPath: environment.repoPath,
+        workspace: environment.workspace || null,
+        provider: environment.provider,
+      };
+      const record = readReliabilityOperation(identity);
+      if (!record) return;
+      // Never supersede an operation the queue is still working on.
+      if (record.state.operation && queue.hasOperation(record.state.operation.id)) return;
+      let prepared: ReturnType<typeof prepareRecoveryLifecycleOperation>;
+      try {
+        prepared = prepareRecoveryLifecycleOperation({
+          identity,
+          controller,
+          policyRevision: current.revision,
+          actionLimit: policy.recovery.maxCorrectiveActions,
+          failedCapabilities,
+          profile: environment.profile,
+          incidentId: `incident-${randomUUID()}`,
+        });
+      } catch {
+        return;
+      }
+      if (!prepared) return;
+      const charge = capacityRequest(resolved.estimates, resolved.enrollment, {
+        environmentId: record.state.environmentId,
+        profile: environment.profile,
+        ...(record.activeProfile ? { activeProfile: record.activeProfile } : {}),
+        kind: "ensure",
+      });
+      try {
+        queue.enqueue(
+          prepared.request,
+          {
+            ...charge,
+            operationId: prepared.operationId,
+            reservationId: randomUUID(),
+            policyRevision: current.revision,
+          },
+          { estimates: resolved.estimates, enrollment: resolved.enrollment, pool },
+        );
+      } catch {
+        // A full queue or changed revision must not strand the journal in a
+        // dispatchable recovery; settle it so the next ensure can supersede it.
+        try {
+          retireQueuedLifecycle(prepared.request);
+        } catch {
+          // Retain uncertainty: the journal keeps the conservative recovery state.
+        }
+      }
     },
     close() {
       lifetime.abort();

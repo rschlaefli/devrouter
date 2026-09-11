@@ -158,6 +158,43 @@ it("proves a positively stopped absent population and revalidates provider owner
   await resolver.revalidate();
   expect(f.dependencies.resolve).toHaveBeenCalledTimes(2);
 });
+it("keeps a stable population usable while the journal advances during collection", async () => {
+  const f = fixture();
+  f.dependencies.journal.mockImplementation(() => {
+    // The controller rewrites the journal every second it observes: the
+    // revision and the capacity binding move without changing which
+    // population this enrollment owns.
+    f.record.revision += 1;
+    return structuredClone(f.record);
+  });
+  const resolver = await f.resolve();
+  expect(await resolver.proveOwned(f.cancellation.signal)).toEqual([
+    { environmentId: f.id, containers: [] },
+  ]);
+  expect(await resolver.proveOwned(f.cancellation.signal)).toEqual([
+    { environmentId: f.id, containers: [] },
+  ]);
+  await resolver.revalidate();
+  expect(f.dependencies.journal.mock.results.length).toBeGreaterThan(2);
+});
+it("keeps a start usable while its startup witness clears during collection", async () => {
+  const f = fixture();
+  f.record.startupWitness = witness();
+  f.record.state.phase = "starting";
+  const resolver = await f.resolve();
+  expect(await resolver.proveOwned(f.cancellation.signal)).toEqual([
+    { environmentId: f.id, containers: [] },
+  ]);
+  // The worker dispatches while the runtime probe still sizes the owned
+  // containers: the witness clears and the phase advances, but the enrolled
+  // Compose project keeps owning the same population.
+  f.record.startupWitness = null;
+  f.record.state.phase = "verifying";
+  expect(await resolver.proveOwned(f.cancellation.signal)).toEqual([
+    { environmentId: f.id, containers: [] },
+  ]);
+  await resolver.revalidate();
+});
 it.each([
   "stop",
   "worker",
@@ -203,11 +240,14 @@ it("does not attribute a sibling checkout by lexical prefix", async () => {
   const resolver = await f.resolve();
   await expect(resolver.proveOwned(f.cancellation.signal)).resolves.toHaveLength(1);
 });
-it.each(["between-samples", "publication"])("rejects record drift at %s", async (when) => {
+it.each(["between-samples", "publication"])("rejects ownership drift at %s", async (when) => {
   const f = fixture();
   const resolver = await f.resolve();
   await resolver.proveOwned(f.cancellation.signal);
-  f.record.revision++;
+  // Lifecycle progress alone is bookkeeping: the controller rewrites the
+  // record every second it observes. Pointing the workspace at another
+  // Compose project does change which population the proof covers.
+  f.state.composeProject = "foreign-project";
   await expect(
     when === "publication" ? resolver.revalidate() : resolver.proveOwned(f.cancellation.signal),
   ).rejects.toThrow();

@@ -146,7 +146,10 @@ beforeEach(() => {
       port: 3000,
     } as ReturnType<typeof readHostRouteStateReadOnly>[number],
   ]);
-  vi.mocked(observeControllerProcess).mockResolvedValue("123 456 fingerprint");
+  vi.mocked(observeControllerProcess).mockResolvedValue({
+    kind: "present",
+    identity: "123 456 fingerprint",
+  });
   vi.mocked(runControllerProbe).mockImplementation(async (command, args) => {
     if (command === "git") return "/fixture/.git/worktrees/checkout\n/fixture/.git\n";
     if (command === "curl") return http;
@@ -183,12 +186,26 @@ it("keeps missing or changed process evidence unknown without removing tooling r
     false,
   );
   vi.mocked(observeControllerProcess)
-    .mockResolvedValueOnce("123 456 before")
-    .mockResolvedValueOnce("123 789 after");
+    .mockResolvedValueOnce({ kind: "present", identity: "123 456 before" })
+    .mockResolvedValueOnce({ kind: "present", identity: "123 789 after" });
   expect((await collect()).capabilities.map((value) => value.application)).toEqual([
     "verified",
     "unverified",
   ]);
+});
+
+it("reports a positively absent required process as a failed capability", async () => {
+  vi.mocked(observeControllerProcess).mockResolvedValue({ kind: "absent" });
+  const result = await collect();
+  expect(result.capabilities.map((value) => [value.infrastructure, value.application])).toEqual([
+    ["healthy", "verified"],
+    ["failed", "unverified"],
+  ]);
+  expect(result.stopped).toBe(false);
+  // A dead process is not probed for readiness; the failure is the evidence.
+  expect(vi.mocked(runControllerProbe).mock.calls.some(([command]) => command === "curl")).toBe(
+    false,
+  );
 });
 
 it.each([
@@ -205,7 +222,7 @@ it.each([
 it("rejects a container restart occurring inside the observation batch", async () => {
   vi.mocked(observeControllerProcess).mockImplementation(async () => {
     snapshots[0].state.StartedAt = "2026-09-08T00:01:00Z";
-    return "123 456 fingerprint";
+    return { kind: "present", identity: "123 456 fingerprint" };
   });
   await expect(collect()).rejects.toThrow("Observation runtime changed.");
 });
