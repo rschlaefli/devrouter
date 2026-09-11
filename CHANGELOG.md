@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.73] - 2026-09-11
+
+### Fixed
+
+- Capacity-enrolled `exec` now returns the wrapped command's output. The
+  controller captures a supervised worker's stdout/stderr into its bounded
+  buffer and the client exposes it through `onOutput`, but the CLI never
+  forwarded it: every enrolled `devrouter exec` produced the command's exit
+  status and no output. The controller-supervised path now streams each bounded
+  page to the same stdout/stderr streams as the local path and reports a single
+  notice when the controller's output buffer dropped earlier bytes. The manual
+  (unmanaged) path is unchanged.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.73.md
+
 ## [0.0.72] - 2026-09-10
 
 ### Fixed
