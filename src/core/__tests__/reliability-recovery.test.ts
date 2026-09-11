@@ -152,4 +152,25 @@ describe("decideRecovery", () => {
   it("rejects an invalid recovery budget", () => {
     expect(() => decide(failed(runningState()), { actionLimit: 0 })).toThrow(/budget/);
   });
+
+  it("uses the caller's freshly observed failures instead of persisted ones", () => {
+    const decideLive = (failedCapabilities: string[]) =>
+      decideRecovery({
+        state: runningState(),
+        nowMs: NOW,
+        actionLimit: 3,
+        pressureDwellSatisfied: false,
+        failedCapabilities,
+      });
+
+    // The durable journal keeps no observation history, so a live failure must
+    // drive the decision even while the persisted observation reads healthy.
+    expect(decideLive(["app-1"])).toEqual({
+      action: "start",
+      reason: "recovery-eligible",
+      actionLimit: 3,
+    });
+    expect(decideLive([])).toEqual({ action: "none", reason: "healthy" });
+    expect(() => decideLive(["bad capability"])).toThrow(/evidence/);
+  });
 });

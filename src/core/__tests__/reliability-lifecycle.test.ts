@@ -2473,3 +2473,156 @@ describe("capacity admission CLI routing", () => {
     expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
   });
 });
+
+describe("bounded recovery preparation", () => {
+  async function enrolledRecoveryFixture() {
+    const { contract, lifecycle, model, store } = await loadLifecycleModules();
+    const identity: ReliabilityIdentity = {
+      repoPath: newCheckout(),
+      workspace: null,
+      provider: "devsy",
+    };
+    store.updateReliabilityOperation(identity, (record) => {
+      record.state = model.stepReliability(
+        record.state,
+        { ...contract.reliabilityFence(record.state), type: "stop" },
+        1,
+      ).state;
+      record.state = model.stepReliability(
+        record.state,
+        {
+          ...contract.reliabilityFence(record.state),
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        },
+        2,
+      ).state;
+    });
+    const before = store.readReliabilityOperation(identity)!;
+    store.enrollStoppedLifecycle(identity, before.revision, {
+      policyRevision: 1,
+      gitCommonDir: "/tmp/synthetic-common",
+      providerId: "synthetic-provider",
+      hostDomain: "host",
+      runtimeDomain: "guest",
+      endpoint: "/tmp/synthetic-docker.sock",
+      daemonId: "synthetic-daemon",
+      estimatesDigest: "a".repeat(64),
+    });
+    const { ControllerStore } = await import("../controller-store");
+    const { DEVROUTER_HOME } = await import("../router");
+    const directory = path.join(DEVROUTER_HOME, "controller");
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const incarnation = new ControllerStore(directory).startIncarnation();
+    const controller = { store: incarnation.store, epoch: incarnation.epoch };
+    // A completed prior ensure leaves the environment observed but healthy.
+    lifecycle.prepareManagedLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      requestId: "prior-ensure",
+      kind: "ensure",
+      profile: "full",
+      consumer: { id: "agent", requiredCapabilities: [], pinned: false },
+      runtimeRunning: false,
+    });
+    store.updateReliabilityOperation(identity, (record) => {
+      const completed = { status: "COMPLETED" as const, drained: true, exitCode: 0 };
+      record.state.operation = { ...record.state.operation!, ...completed };
+      record.state.operationHistory = record.state.operationHistory.map((entry) => ({
+        ...entry,
+        ...completed,
+      }));
+    });
+    return { lifecycle, store, identity, controller };
+  }
+
+  it("opens one bounded recovery and hands the queue an unadmitted ensure", async () => {
+    const { lifecycle, store, identity, controller } = await enrolledRecoveryFixture();
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "recovery-request",
+      operationId: "recovery-operation",
+      workerId: "recovery-worker",
+    });
+    const prepared = lifecycle.prepareRecoveryLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      actionLimit: 3,
+      failedCapabilities: ["app-dead"],
+      profile: "full",
+      incidentId: "incident-test",
+    });
+    expect(prepared).toBeDefined();
+    expect(prepared!.request.kind).toBe("ensure");
+    // The recovery uses controller admission, so it must not carry the manual
+    // CLI's admission block.
+    expect(Object.hasOwn(prepared!.request, "admission")).toBe(false);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    const record = store.readReliabilityOperation(identity)!;
+    expect(record.state.incident).toMatchObject({ id: "incident-test", actionLimit: 3 });
+    expect(record.state.operation).toMatchObject({
+      id: "recovery-operation",
+      status: "NOT_STARTED",
+      drained: false,
+    });
+    expect(record.state.phase).toBe("recovering");
+  });
+
+  it("supersedes a stranded never-launched preparation with a fresh recovery", async () => {
+    const { lifecycle, store, identity, controller } = await enrolledRecoveryFixture();
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "recovery-request",
+      operationId: "recovery-operation",
+      workerId: "recovery-worker",
+    });
+    const first = lifecycle.prepareRecoveryLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      actionLimit: 3,
+      failedCapabilities: ["app-dead"],
+      profile: "full",
+      incidentId: "incident-test",
+    });
+    expect(first?.operationId).toBe("recovery-operation");
+    // The queue no longer owns the preparation, so the next recovery settles it
+    // instead of stalling behind evidence that can never dispatch.
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "recovery-request-2",
+      operationId: "recovery-operation-2",
+      workerId: "recovery-worker-2",
+    });
+    const second = lifecycle.prepareRecoveryLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      actionLimit: 3,
+      failedCapabilities: ["app-dead"],
+      profile: "full",
+      incidentId: "incident-test",
+    });
+    expect(second?.operationId).toBe("recovery-operation-2");
+    expect(store.readReliabilityOperation(identity)?.state.operation).toMatchObject({
+      id: "recovery-operation-2",
+      status: "NOT_STARTED",
+      drained: false,
+    });
+  });
+
+  it("refuses to prepare recovery without the current durable enrollment", async () => {
+    const { lifecycle, identity, controller } = await enrolledRecoveryFixture();
+    expect(() =>
+      lifecycle.prepareRecoveryLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 2,
+        actionLimit: 3,
+        failedCapabilities: ["app-dead"],
+        profile: "full",
+        incidentId: "incident-test",
+      }),
+    ).toThrow(/enrollment/);
+  });
+});

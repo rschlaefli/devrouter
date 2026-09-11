@@ -875,17 +875,24 @@ function handleRecover(
     return unchanged(state, "blocked");
   if (possibleDispatch(state.operation)) return unchanged(state, "blocked");
 
+  // A drained operation that never launched holds no live effect, so a later
+  // recovery supersedes it instead of stalling behind its evidence.
+  const stranded =
+    state.operation?.drained === true &&
+    ["NOT_STARTED", "NOT_LAUNCHED"].includes(state.operation.status);
+  const operation = stranded ? null : state.operation;
+
   if (state.incident !== null && state.incident.id !== event.incidentId) {
     return unchanged(state, "conflict");
   }
 
   if (state.incident !== null) {
-    if (state.operation && pendingCommand(state.operation)) {
-      return state.operation.id === event.operationId && state.phase === "recovering"
+    if (operation && pendingCommand(operation)) {
+      return operation.id === event.operationId && state.phase === "recovering"
         ? unchanged(state, "joined")
         : unchanged(state, "conflict");
     }
-    if (state.operation?.id === event.operationId && state.operation.status === "COMPLETED") {
+    if (operation?.id === event.operationId && operation.status === "COMPLETED") {
       return unchanged(state, "joined");
     }
     if (state.incident.correctiveActionsTaken >= state.incident.actionLimit) {
@@ -894,8 +901,8 @@ function handleRecover(
   }
 
   if (state.incident === null) {
-    if (state.operation?.status === "NOT_STARTED") return unchanged(state, "blocked");
-    if (state.operation?.id === event.operationId) return unchanged(state, "conflict");
+    if (operation?.status === "NOT_STARTED") return unchanged(state, "blocked");
+    if (operation?.id === event.operationId) return unchanged(state, "conflict");
     state.incident = {
       id: event.incidentId,
       correctiveActionsTaken: 0,
@@ -903,13 +910,16 @@ function handleRecover(
     };
   }
 
-  if (
-    !state.operation ||
-    state.operation.status === "COMPLETED" ||
-    state.operation.status === "INTERRUPTED"
-  ) {
+  if (!operation || operation.status === "COMPLETED" || operation.status === "INTERRUPTED") {
     const runtimeGeneration = advance(state.runtimeGeneration);
     if (runtimeGeneration === null) return unchanged(state, "blocked");
+    // The recovery ensure inherits the environment's current identity, so its
+    // journal entry needs a known profile and at least one declared consumer.
+    const consumer = state.consumers[0];
+    if (state.profile === null || consumer === undefined) return unchanged(state, "blocked");
+    // A saturated journal cannot hold the new entry; the next operator ensure
+    // rolls it over, and recovery stays inert until then.
+    if (state.operationHistory.length >= RELIABILITY_MAX_ITEMS) return unchanged(state, "blocked");
     state.runtimeGeneration = runtimeGeneration;
     state.observations = [];
     state.operation = {
@@ -919,6 +929,12 @@ function handleRecover(
       status: "NOT_STARTED",
       exitCode: null,
     };
+    state.operationHistory.push({
+      ...state.operation,
+      key: event.operationId,
+      profile: state.profile,
+      consumer: cloneConsumer(consumer),
+    });
   }
   state.phase = "recovering";
   return transition(state, "accepted");
@@ -1056,8 +1072,8 @@ function requiredCapabilities(state: ReliabilityState): string[] {
   return [...required];
 }
 
-function hasFailedRequiredCapability(state: ReliabilityState, nowMs: number): boolean {
-  return requiredCapabilities(state).some((capability) => {
+function failedCapability(state: ReliabilityState, required: string[], nowMs: number): boolean {
+  return required.some((capability) => {
     const observation = state.observations.find((entry) => entry.capability === capability);
     return (
       observation !== undefined &&
@@ -1079,11 +1095,25 @@ export function decideRecovery(input: {
   nowMs: number;
   actionLimit: number;
   pressureDwellSatisfied: boolean;
+  /**
+   * Capabilities the caller just observed as positively failed. The durable
+   * journal keeps no observation history, so a live controller supplies its
+   * freshly sampled failures here; omitting it falls back to persisted
+   * observations, which carry their own freshness bounds.
+   */
+  failedCapabilities?: string[];
 }): RecoveryDecision {
   const { state, nowMs, actionLimit, pressureDwellSatisfied } = input;
   assertReliabilityState(state);
   if (!isReliabilityCounter(nowMs) || nowMs < state.observationsAfterMs)
     throw new Error("Invalid reliability clock.");
+
+  if (
+    input.failedCapabilities !== undefined &&
+    (input.failedCapabilities.length > RELIABILITY_MAX_ITEMS ||
+      input.failedCapabilities.some((capability) => !isReliabilityId(capability)))
+  )
+    throw new Error("Invalid recovery evidence.");
 
   if (state.executionPolicy === "manual") return { action: "none", reason: "unmanaged" };
   if (state.desired === "stopped-by-user") return { action: "none", reason: "user-stopped" };
@@ -1106,7 +1136,11 @@ export function decideRecovery(input: {
   if (!isReliabilityCounter(actionLimit) || actionLimit < 1)
     throw new Error("Invalid recovery action budget.");
 
-  if (!hasFailedRequiredCapability(state, nowMs)) return { action: "none", reason: "healthy" };
+  const failed =
+    input.failedCapabilities !== undefined
+      ? input.failedCapabilities.length > 0
+      : failedCapability(state, requiredCapabilities(state), nowMs);
+  if (!failed) return { action: "none", reason: "healthy" };
   // A discoverable command must drain before a corrective action replaces it.
   if (possibleDispatch(state.operation)) return { action: "none", reason: "active-operation" };
   if (state.incident !== null) {

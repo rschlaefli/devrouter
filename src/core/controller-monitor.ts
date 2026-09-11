@@ -24,6 +24,17 @@ export type ControllerObservationCollector = (
   signal: AbortSignal,
 ) => Promise<ControllerObservationBatch>;
 
+/**
+ * The controller's bounded, policy-gated recovery entry point. The monitor
+ * detects a positively failed required capability and asks the operations
+ * owner to open or advance one recovery; it never decides the action itself.
+ */
+export type ControllerRecovery = (
+  environment: ControllerEnvironment,
+  failedCapabilities: string[],
+  signal: AbortSignal,
+) => Promise<void>;
+
 import { createHash } from "node:crypto";
 import type { ControllerBinding, ControllerSessions } from "./controller-sessions";
 import type { ControllerProjection } from "./controller-store";
@@ -47,6 +58,7 @@ export class ControllerMonitor {
     private readonly serialize: (operation: () => void) => Promise<void>,
     private readonly clock = () => Math.floor(performance.now()),
     private readonly fence = withReliabilityObservationFence,
+    private readonly recover?: ControllerRecovery,
   ) {}
   stop(): void {
     this.stopped = true;
@@ -151,6 +163,20 @@ export class ControllerMonitor {
               this.sessions.publish(bindings, projections, commitTime, Date.now());
             });
           });
+          if (this.recover === undefined || this.stopped) return;
+          const required = new Set(requirements.map(controllerCapability));
+          const failed = batch.capabilities
+            .filter(
+              (capability) =>
+                capability.infrastructure === "failed" && required.has(capability.capability),
+            )
+            .map((capability) => capability.capability);
+          if (failed.length > 0)
+            void this.recover(
+              batch.environment,
+              failed,
+              this.active.get(environment.id)?.signal ?? abort.signal,
+            ).catch(() => {});
         })
         .catch(async (error) => {
           if (!this.stopped)

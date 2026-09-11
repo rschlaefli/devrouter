@@ -11,6 +11,8 @@ const fixture = vi.hoisted(() => ({
   tick: vi.fn(),
   journal: vi.fn(),
   prepare: vi.fn(),
+  prepareRecovery: vi.fn(),
+  hasOperation: vi.fn(),
   retire: vi.fn(),
   settle: vi.fn(),
   evidence: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock("../reliability-operation-store", () => ({
 }));
 vi.mock("../reliability-lifecycle", () => ({
   prepareManagedLifecycleOperation: fixture.prepare,
+  prepareRecoveryLifecycleOperation: fixture.prepareRecovery,
   retireQueuedLifecycle: fixture.retire,
   settlePreparedLifecycleCapacity: fixture.settle,
 }));
@@ -69,6 +72,7 @@ vi.mock("../capacity-queue", () => ({
     close = fixture.close;
     tick = fixture.tick;
     enqueue = fixture.enqueue;
+    hasOperation = fixture.hasOperation;
   },
 }));
 beforeEach(() => {
@@ -797,4 +801,94 @@ it("drains a cooperative sample collector on close before tick rejects", async (
   expect(events).toEqual(["aborted", "drained", "tick-rejected"]);
   expect(fixture.merge).not.toHaveBeenCalled();
   expect(launch).not.toHaveBeenCalled();
+});
+
+it("opens a bounded recovery for a failed capability when policy enables it", async () => {
+  fixture.policy.mockReturnValue({
+    revision: 1,
+    admissions: "enabled",
+    recovery: { enabled: true, maxCorrectiveActions: 3 },
+    enrollments: [submissionEnrollment],
+    domains: { host: { kind: "host" }, runtime: submissionRuntime },
+  });
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: { host: { steadyBytes: 1 } },
+    enrollment: submissionEnrollment,
+  });
+  fixture.journal.mockReturnValue({ state: { environmentId: "env", operation: null } });
+  fixture.hasOperation.mockReturnValue(false);
+  fixture.charge.mockReturnValue({
+    environmentId: "env",
+    totals: { host: 1 },
+    startup: false,
+    heavy: false,
+  });
+  fixture.prepareRecovery.mockReturnValue({
+    operationId: "recovered",
+    request: { operationId: "recovered", requestId: "recovery" },
+  });
+
+  await controller().recover(environment, ["app-dead"], new AbortController().signal);
+
+  expect(fixture.prepareRecovery).toHaveBeenCalledWith(
+    expect.objectContaining({
+      policyRevision: 1,
+      actionLimit: 3,
+      failedCapabilities: ["app-dead"],
+      profile: "full",
+    }),
+  );
+  expect(fixture.enqueue).toHaveBeenCalledWith(
+    expect.objectContaining({ operationId: "recovered" }),
+    expect.objectContaining({ operationId: "recovered", policyRevision: 1, totals: { host: 1 } }),
+    {
+      estimates: { host: { steadyBytes: 1 } },
+      enrollment: submissionEnrollment,
+      pool: {
+        daemonId: "synthetic.daemon",
+        hostDomain: "host",
+        runtimeDomain: "runtime",
+        hostChargeCeilingBytes: 60,
+      },
+    },
+  );
+});
+
+it("is inert when policy leaves automatic recovery disabled", async () => {
+  fixture.policy.mockReturnValue({
+    revision: 1,
+    admissions: "enabled",
+    recovery: { enabled: false },
+    enrollments: [submissionEnrollment],
+    domains: { host: { kind: "host" }, runtime: submissionRuntime },
+  });
+  await controller().recover(environment, ["app-dead"], new AbortController().signal);
+  expect(fixture.enroll).not.toHaveBeenCalled();
+  expect(fixture.prepareRecovery).not.toHaveBeenCalled();
+});
+
+it("leaves an operation the queue still owns alone", async () => {
+  fixture.policy.mockReturnValue({
+    revision: 1,
+    admissions: "enabled",
+    recovery: { enabled: true, maxCorrectiveActions: 3 },
+    enrollments: [submissionEnrollment],
+    domains: { host: { kind: "host" }, runtime: submissionRuntime },
+  });
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
+  fixture.journal.mockReturnValue({
+    state: { environmentId: "env", operation: { id: "inflight" } },
+  });
+  fixture.hasOperation.mockReturnValue(true);
+
+  await controller().recover(environment, ["app-dead"], new AbortController().signal);
+
+  expect(fixture.hasOperation).toHaveBeenCalledWith("inflight");
+  expect(fixture.prepareRecovery).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
 });

@@ -281,3 +281,55 @@ it("does not replace timed-out batches whose probes have not drained", async () 
     vi.useRealTimers();
   }
 });
+
+it("asks the operations owner to recover a required capability that failed", async () => {
+  const { sessions, batch } = fixture();
+  sessions.acquire("two", environment, ["app:web"], 100, Date.now());
+  batch.capabilities.push({
+    capability: controllerCapability("app:web"),
+    infrastructure: "failed",
+    application: "unverified",
+    observedAtMs: 0,
+    validForMs: 15000,
+  });
+  const recover = vi.fn(
+    async (_environment: unknown, _failedCapabilities: string[], _signal: AbortSignal) => {},
+  );
+  const monitor = new ControllerMonitor(
+    sessions,
+    async () => batch,
+    async (operation) => operation(),
+    () => 100,
+    (_identity, _revision, publish) => publish(batch.journal),
+    recover,
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  await flush();
+  expect(recover).toHaveBeenCalledTimes(1);
+  expect(recover.mock.calls[0][1]).toEqual([controllerCapability("app:web")]);
+});
+
+it("stays idle when a capability outside the required set fails", async () => {
+  const { sessions, batch } = fixture();
+  batch.capabilities.push({
+    capability: controllerCapability("app:web"),
+    infrastructure: "failed",
+    application: "unverified",
+    observedAtMs: 0,
+    validForMs: 15000,
+  });
+  const recover = vi.fn(async () => {});
+  const monitor = new ControllerMonitor(
+    sessions,
+    async () => batch,
+    async (operation) => operation(),
+    () => 100,
+    (_identity, _revision, publish) => publish(batch.journal),
+    recover,
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  await flush();
+  expect(recover).not.toHaveBeenCalled();
+});

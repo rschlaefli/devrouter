@@ -121,6 +121,12 @@ export class CapacityQueue {
     return request.operationId;
   }
 
+  /** True while the queue still owns the operation, awaiting admission or running. */
+  hasOperation(operationId: string): boolean {
+    const entry = this.entries.get(operationId);
+    return entry !== undefined && entry.phase !== "terminal";
+  }
+
   observe(operationId: string) {
     const entry = this.entries.get(operationId);
     return entry
