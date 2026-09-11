@@ -325,10 +325,14 @@ export const collectControllerObservation: ControllerObservationCollector = asyn
   ];
   const processes: string[] = [];
   let processesVerified = healthy;
+  let processesAbsent = false;
   if (healthy && requirements.some((value) => value.startsWith("app:"))) {
     try {
-      for (const name of profile.managedRuntime.processes)
-        processes.push(await observeControllerProcess(primary[0].id, name, signal));
+      for (const name of profile.managedRuntime.processes) {
+        const observation = await observeControllerProcess(primary[0].id, name, signal);
+        if (observation.kind === "absent") processesAbsent = true;
+        else processes.push(observation.identity);
+      }
     } catch (error) {
       if (signal.aborted) throw error;
       processesVerified = false;
@@ -355,7 +359,7 @@ export const collectControllerObservation: ControllerObservationCollector = asyn
         route.port === upstream.port,
     );
     const http =
-      healthy && routeMatches && processesVerified
+      healthy && routeMatches && processesVerified && !processesAbsent
         ? await probeHttpReadiness(
             app.host,
             app.readiness,
@@ -366,7 +370,8 @@ export const collectControllerObservation: ControllerObservationCollector = asyn
         : undefined;
     capabilities.push({
       capability: controllerCapability(requirement),
-      infrastructure: healthy && routeMatches ? "healthy" : "unknown",
+      infrastructure:
+        healthy && routeMatches ? (processesAbsent ? "failed" : "healthy") : "unknown",
       application: http?.ok
         ? "verified"
         : http?.classification === "application-contract"
@@ -378,16 +383,15 @@ export const collectControllerObservation: ControllerObservationCollector = asyn
   }
   if (processesVerified && requirements.some((value) => value.startsWith("app:"))) {
     try {
-      for (let index = 0; index < profile.managedRuntime.processes.length; index++)
-        if (
-          processes[index] !==
-          (await observeControllerProcess(
-            primary[0].id,
-            profile.managedRuntime.processes[index],
-            signal,
-          ))
-        )
+      for (let index = 0; index < profile.managedRuntime.processes.length; index++) {
+        const recheck = await observeControllerProcess(
+          primary[0].id,
+          profile.managedRuntime.processes[index],
+          signal,
+        );
+        if (recheck.kind !== "present" || processes[index] !== recheck.identity)
           throw new Error("Observation process changed.");
+      }
     } catch (error) {
       if (signal.aborted) throw error;
       for (const capability of capabilities)
