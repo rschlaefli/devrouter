@@ -6,13 +6,21 @@ export class ControllerProbeUnavailable extends Error {
   }
 }
 
-/** Output is transient evidence; errors deliberately omit provider output and argv. */
-export function runControllerProbe(
+export type ControllerProbeStatus = { output: string; code: number | null };
+export type ControllerProbeOptions = { cwd?: string; env?: NodeJS.ProcessEnv; input?: string };
+
+/**
+ * Runs one bounded probe. A non-zero exit resolves with its code so a caller
+ * can distinguish positively observed absence from a probe that could not run;
+ * only a probe that fails to execute, times out, or exceeds its bound rejects.
+ * Output is transient evidence; errors deliberately omit provider output and argv.
+ */
+function probe(
   command: string,
   args: string[],
   signal: AbortSignal,
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string } = {},
-): Promise<string> {
+  options: ControllerProbeOptions,
+): Promise<ControllerProbeStatus> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
       reject(new Error("Observation cancelled."));
@@ -68,9 +76,30 @@ export function runControllerProbe(
       if (finished) return;
       finished = true;
       cleanup();
-      if (failed || code !== 0)
-        reject(new Error("Observation process failed or exceeded its bound."));
-      else resolve(Buffer.concat(chunks).toString("utf8"));
+      if (failed) reject(new Error("Observation process failed or exceeded its bound."));
+      else resolve({ output: Buffer.concat(chunks).toString("utf8"), code });
     });
   });
+}
+
+/** Resolves stdout only for a successful probe. */
+export async function runControllerProbe(
+  command: string,
+  args: string[],
+  signal: AbortSignal,
+  options: ControllerProbeOptions = {},
+): Promise<string> {
+  const result = await probe(command, args, signal, options);
+  if (result.code !== 0) throw new Error("Observation process failed or exceeded its bound.");
+  return result.output;
+}
+
+/** Retains the exit code so a caller can distinguish observed absence from failure. */
+export function runControllerProbeStatus(
+  command: string,
+  args: string[],
+  signal: AbortSignal,
+  options: ControllerProbeOptions = {},
+): Promise<ControllerProbeStatus> {
+  return probe(command, args, signal, options);
 }
