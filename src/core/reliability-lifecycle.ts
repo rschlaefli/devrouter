@@ -61,6 +61,7 @@ import {
 } from "./reliability-operation-store";
 import {
   hasDuplicateOperation,
+  type LifecycleOutputPage,
   LifecycleWorkerAdmissionBusyError,
   type LifecycleWorkerRequest,
   newLifecycleIds,
@@ -881,6 +882,17 @@ async function superviseThroughController(input: {
       );
   };
   const deadline = Date.now() + CAPACITY_CLIENT_WAIT_MS;
+  let outputGapReported = false;
+  const onOutput = (page: LifecycleOutputPage): void => {
+    if (page.gap && !outputGapReported) {
+      process.stderr.write("devrouter: controller output buffer dropped earlier command output.\n");
+      outputGapReported = true;
+    }
+    for (const chunk of page.chunks) {
+      const stream = chunk.stream === "stderr" ? process.stderr : process.stdout;
+      stream.write(Buffer.from(chunk.data, page.encoding));
+    }
+  };
   try {
     const bind = () =>
       observeControllerBinding(directory, {
@@ -898,7 +910,7 @@ async function superviseThroughController(input: {
       input.kind === "exec"
         ? { ...binding, requestId: input.requestId, kind: "exec", command: input.command ?? [] }
         : { ...binding, requestId: input.requestId, kind: "ensure" },
-      { waitSeconds: controllerWaitSeconds(deadline) },
+      { waitSeconds: controllerWaitSeconds(deadline), onOutput },
     );
     while (pending.status !== "terminal") {
       cancelled();
@@ -914,7 +926,7 @@ async function superviseThroughController(input: {
         pending = await followControllerOperation(
           directory,
           { ...binding, operationId: pending.operationId },
-          { waitSeconds: controllerWaitSeconds(deadline) },
+          { waitSeconds: controllerWaitSeconds(deadline), onOutput },
         );
       } catch {
         // A controller restart or transport hiccup must not kill the CLI while

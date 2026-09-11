@@ -2469,6 +2469,45 @@ describe("capacity admission CLI routing", () => {
     );
   });
 
+  it("streams controller-captured output and reports a bounded gap once", async () => {
+    const { lifecycle, store, identity } = await seedWorkerRequest("exec");
+    fixture.readCapacityPolicy.mockReturnValue({
+      revision: 1,
+      admissions: "enabled",
+      enrollments: [{ repoPath: identity.repoPath, profiles: ["full"] }],
+    });
+    store.updateReliabilityOperation(identity, (record) => {
+      record.result = { ok: true, value: { status: "completed", exitCode: 0 } };
+    });
+    fixture.observe.mockResolvedValue(binding);
+    fixture.submit.mockImplementation(async (_directory: string, _input: unknown, options: any) => {
+      options.onOutput({
+        encoding: "base64",
+        gap: true,
+        sequence: { sequence: 4, offset: 0 },
+        chunks: [
+          {
+            stream: "stdout",
+            data: Buffer.from("synthetic-out").toString("base64"),
+            sequence: 4,
+          },
+          {
+            stream: "stderr",
+            data: Buffer.from("synthetic-err").toString("base64"),
+            sequence: 4,
+          },
+        ],
+      });
+      return terminalResult;
+    });
+    const out = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const err = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    await lifecycle.superviseLifecycle("exec", identity.repoPath, {}, ["synthetic-command"]);
+    expect(out.mock.calls.map(String).join("")).toContain("synthetic-out");
+    expect(err.mock.calls.map(String).join("")).toContain("synthetic-err");
+    expect(err.mock.calls.map(String).join("")).toContain("dropped earlier command output");
+  });
+
   it("survives a controller transport failure while following a queued admission", async () => {
     const { lifecycle, store, identity } = await seedWorkerRequest();
     fixture.readCapacityPolicy.mockReturnValue({

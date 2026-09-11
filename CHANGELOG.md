@@ -4,6 +4,55 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.73] - 2026-09-11
+
+### Added
+
+- Optional bounded automatic recovery for capacity-managed environments. A new
+  `recovery` block in the capacity policy enables a supervisor that reacts to a
+  positively failed required capability with one journal-admitted corrective
+  `ensure`, bounded by per-scope process and service restart counts, an
+  aggregate corrective-action cap, and a rolling observation window. The block
+  is absent by default, so recovery stays disabled and existing policy files and
+  lifecycle behavior are unchanged until an operator opts in. Parking and
+  controlled resume remain model-only: nothing emits those events yet. There is
+  no OOM detection, so a container-local OOM still surfaces only as a failed
+  capability.
+
+### Fixed
+
+- A capacity-enrolled operation no longer loses effect authority on an
+  unobservable capacity sample. Renewal wrote a zero deadline before each
+  attempt and again on failure, so one missing, stale, or unknown sample revoked
+  authority mid-start and every later command ended with `Capacity effect
+  authority is absent or stale.` Renewal now extends only when every reserved
+  domain has a usable sample; a collection gap or a thrown renewal leaves the
+  granted deadline intact and it still expires on its own. Ownership evidence now
+  compares environment identity (`environmentId`, enrollment, compose project,
+  DevPod ID, stop baseline) instead of whole journal records, so the controller
+  rewriting its own bookkeeping no longer reports `unknown` for a healthy
+  runtime. The runtime probe budget now covers two daemon reads plus
+  per-container sizing.
+- The controller observation collector now reports a required managed process
+  that has positively exited as a failed capability instead of `unknown`, so
+  bounded recovery can act on it. The process observation script exits `3` to
+  prove positive absence while malformed, oversized, symlinked, or unstable
+  state stays `unknown`; a positively absent required process marks the app
+  capability `infrastructure: "failed"` and skips its HTTP readiness probe while
+  the container-level runtime capability stays healthy.
+- Capacity-enrolled `exec` now returns the wrapped command's output. The
+  controller captures a supervised worker's stdout/stderr into its bounded
+  buffer and the client exposes it through `onOutput`, but the CLI never
+  forwarded it: every enrolled `devrouter exec` produced the command's exit
+  status and no output. The controller-supervised path now streams each bounded
+  page to the same stdout/stderr streams as the local path and reports a single
+  notice when the controller's output buffer dropped earlier bytes. The manual
+  (unmanaged) path is unchanged.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.73.md
+
 ## [0.0.72] - 2026-09-10
 
 ### Fixed
