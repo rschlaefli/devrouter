@@ -582,7 +582,10 @@ it("accepts managed intent once and reconnects without returning another worker 
       now + 1000,
     ),
   ).toBe(false);
-  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+  // A snapshot race is observational. Revoking here would abort a running
+  // operation whose authority is still inside its freshness window, and would
+  // misreport the cause as absent or stale authority.
+  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(now + 16_000);
   const reservations = capacities.read();
   expect(
     lifecycle.renewLifecycleCapacity(
@@ -594,7 +597,7 @@ it("accepts managed intent once and reconnects without returning another worker 
       now + 20_000,
     ),
   ).toBe(false);
-  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(0);
+  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(now + 16_000);
   expect(new CapacityStore(directory).read()).toEqual(reservations);
   expect(
     lifecycle.renewLifecycleCapacity(
@@ -606,6 +609,19 @@ it("accepts managed intent once and reconnects without returning another worker 
       now + 1000,
     ),
   ).toBe(true);
+  expect(() =>
+    store.assertCapacityEffect(
+      store.readReliabilityOperation(identity)!,
+      exec.request!.workerId,
+      now + 1000,
+    ),
+  ).not.toThrow();
+  // A collection gap for a reserved domain declines the extension without
+  // revoking the authority the operation still holds.
+  expect(
+    lifecycle.renewLifecycleCapacity(exec.request!, policy, {}, controller, directory, now + 1000),
+  ).toBe(false);
+  expect(store.readReliabilityOperation(identity)?.capacity?.validUntilMs).toBe(now + 16_000);
   controllerStore.startIncarnation();
   expect(() => store.assertCapacityEffect(admitted, exec.request!.workerId, now)).toThrow(
     "incarnation",
@@ -714,6 +730,7 @@ it("renews authority with an unknown sample local to the witnessed runtime domai
     host: seeded.samples.host,
     guest: guestUnknown,
   };
+  const granted = seeded.store.readReliabilityOperation(seeded.identity)!.capacity!.validUntilMs;
   expect(
     seeded.lifecycle.renewLifecycleCapacity(
       seeded.request,
@@ -724,7 +741,11 @@ it("renews authority with an unknown sample local to the witnessed runtime domai
       seeded.now,
     ),
   ).toBe(false);
-  expect(seeded.store.readReliabilityOperation(seeded.identity)?.capacity?.validUntilMs).toBe(0);
+  // An unobservable domain declines the extension without revoking the deadline
+  // the running operation already holds.
+  expect(seeded.store.readReliabilityOperation(seeded.identity)?.capacity?.validUntilMs).toBe(
+    granted,
+  );
   seeded.store.updateReliabilityOperation(seeded.identity, (record) => {
     record.capacity!.validUntilMs = seeded.now + 60_000;
     record.startupWitness = witnessedRecordFixture(record, seeded.request.fence);

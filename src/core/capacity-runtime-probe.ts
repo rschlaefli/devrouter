@@ -10,6 +10,14 @@ export type CapacityOwnedPopulation = {
   containers: ManagedStopContainerSnapshot[];
 };
 
+/**
+ * One probe must read the daemon twice and size every running owned container,
+ * so its budget has to stay inside the per-domain collection deadline while
+ * covering a busy machine; a tighter bound turns a slow but healthy read into
+ * an unknown sample that then denies authority to running work.
+ */
+const RUNTIME_PROBE_BUDGET_MS = 8_000;
+
 /** The caller proves every enrolled workspace and its complete population on each invocation. */
 export async function collectDeclaredRuntimeCapacity(
   domain: CapacityRuntimeDomain,
@@ -26,8 +34,8 @@ export async function collectDeclaredRuntimeCapacity(
   const sampledAtMs = Date.now();
   const cancellation = new AbortController();
   const combined = AbortSignal.any([signal, cancellation.signal]);
-  const timer = setTimeout(() => cancellation.abort(), 3000);
-  const deadline = performance.now() + 3000;
+  const timer = setTimeout(() => cancellation.abort(), RUNTIME_PROBE_BUDGET_MS);
+  const deadline = performance.now() + RUNTIME_PROBE_BUDGET_MS;
   const check = () => {
     if (combined.aborted || performance.now() >= deadline)
       throw new Error("Runtime capacity collection expired.");

@@ -52,6 +52,31 @@ export async function readProviderGeneration(
   return generation;
 }
 
+/**
+ * Population identity for one enrolled workspace, held for the lifetime of a
+ * single ownership resolution. Only fields that decide which population is
+ * owned belong here. A start rewrites lifecycle progress while the owned
+ * container set is unchanged: it publishes a startup witness while queued,
+ * clears that witness once the worker dispatches, withholds the worker until
+ * dispatch, and advances the operation status and phase throughout. Comparing
+ * that progress fails the population proof on ordinary bookkeeping, so the
+ * evidence stops at the identity of the environment, enrollment, Compose
+ * project, DevPod and retained runtime baseline that own the containers.
+ */
+function ownershipPopulationEvidence(
+  record: NonNullable<ReturnType<typeof readReliabilityOperation>>,
+  state: ReturnType<typeof readManagedRuntimeState>,
+) {
+  return {
+    environmentId: record.state.environmentId,
+    executionPolicy: record.state.executionPolicy,
+    enrollment: record.enrollment ?? null,
+    composeProject: state?.composeProject ?? null,
+    devpodId: state?.devpodId ?? null,
+    stopBaseline: state?.stopBaseline ?? null,
+  };
+}
+
 /** Bind providers outside the sampler deadline; revalidate them before publishing its result. */
 export async function resolveCapacityOwnership(
   policy: CapacityPolicy,
@@ -77,10 +102,7 @@ export async function resolveCapacityOwnership(
     request: { path: string; profile: string; require: string[] };
     binding: Awaited<ReturnType<typeof resolveCapacityEnrollment>>;
     generation: Awaited<ReturnType<typeof readProviderGeneration>>;
-    evidence?: {
-      record: ReturnType<typeof readReliabilityOperation>;
-      state: ReturnType<typeof readManagedRuntimeState>;
-    };
+    evidence?: ReturnType<typeof ownershipPopulationEvidence>;
   }> = [];
   for (const enrollment of enrollments) {
     check();
@@ -122,18 +144,21 @@ export async function resolveCapacityOwnership(
           throw new Error("Capacity provider ownership changed during collection.");
         if (
           !entry.evidence ||
-          !isDeepStrictEqual(entry.evidence, {
-            record: dependencies.journal({
-              repoPath: entry.enrollment.repoPath,
-              workspace: entry.enrollment.workspace || null,
-              provider: entry.enrollment.provider,
-            }),
-            state: dependencies.managed(
-              entry.enrollment.repoPath,
-              entry.enrollment.workspace || undefined,
-              (file) => readControllerEvidence(file, 1_048_576),
+          !isDeepStrictEqual(
+            entry.evidence,
+            ownershipPopulationEvidence(
+              dependencies.journal({
+                repoPath: entry.enrollment.repoPath,
+                workspace: entry.enrollment.workspace || null,
+                provider: entry.enrollment.provider,
+              }) as NonNullable<ReturnType<typeof readReliabilityOperation>>,
+              dependencies.managed(
+                entry.enrollment.repoPath,
+                entry.enrollment.workspace || undefined,
+                (file) => readControllerEvidence(file, 1_048_576),
+              ),
             ),
-          })
+          )
         )
           throw new Error("Capacity ownership records changed before publication.");
       }
@@ -205,7 +230,7 @@ export async function resolveCapacityOwnership(
           baseline.daemonId !== domain.daemonId
         )
           throw new Error("Capacity population lacks an exact retained runtime baseline.");
-        const evidence = { record, state };
+        const evidence = ownershipPopulationEvidence(record, state);
         if (entry.evidence && !isDeepStrictEqual(entry.evidence, evidence))
           throw new Error("Capacity ownership generation changed during collection.");
         entry.evidence = structuredClone(evidence);
@@ -252,7 +277,15 @@ export async function resolveCapacityOwnership(
         }
         if (
           !isDeepStrictEqual(state, readState()) ||
-          !isDeepStrictEqual(record, dependencies.journal(identity))
+          !isDeepStrictEqual(
+            ownershipPopulationEvidence(record, state),
+            ownershipPopulationEvidence(
+              dependencies.journal(identity) as NonNullable<
+                ReturnType<typeof readReliabilityOperation>
+              >,
+              state,
+            ),
+          )
         )
           throw new Error("Capacity ownership records changed during collection.");
         result.push({ environmentId: binding.environment.id, containers });

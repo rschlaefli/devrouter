@@ -886,7 +886,6 @@ export function renewLifecycleCapacity(
       binding.controller?.epoch !== controller.epoch
     )
       throw new Error("Capacity renewal no longer owns this operation.");
-    binding.validUntilMs = 0;
     try {
       if (
         record.state.executionPolicy !== "capacity-managed" ||
@@ -896,8 +895,10 @@ export function renewLifecycleCapacity(
         policy.admissions !== "enabled" ||
         policy.revision !== binding.policyRevision ||
         JSON.stringify(readCapacityPolicy(directory)) !== JSON.stringify(policy)
-      )
+      ) {
+        binding.validUntilMs = 0;
         return false;
+      }
       const enrolled = record.enrollment;
       const runtime = enrolled && policy.domains[enrolled.runtimeDomain];
       const enrollment = policy.enrollments.find(
@@ -919,8 +920,10 @@ export function renewLifecycleCapacity(
         runtime?.kind !== "runtime" ||
         runtime.endpoint !== enrolled.endpoint ||
         runtime.daemonId !== enrolled.daemonId
-      )
+      ) {
+        binding.validUntilMs = 0;
         return false;
+      }
       const snapshot = new CapacityStore(directory).read();
       const reservation = snapshot.reservations.find(
         (entry) => entry.reservationId === binding.reservationId,
@@ -930,8 +933,10 @@ export function renewLifecycleCapacity(
         reservation.environmentId !== record.state.environmentId ||
         reservation.operationId !== request.operationId ||
         reservation.policyRevision !== policy.revision
-      )
+      ) {
+        binding.validUntilMs = 0;
         return false;
+      }
       const maxAge = policy.scheduling.maxSampleAgeSeconds * 1000;
       const decision = evaluateCapacity(
         policy.domains,
@@ -970,17 +975,29 @@ export function renewLifecycleCapacity(
               ).admitted
             );
           })();
-        if (!tolerated) return false;
+        if (!tolerated) {
+          // An observational refusal only declines the extension. Authority
+          // already expires by its own deadline, so revoking here would abort a
+          // running start on one failed or stale probe and misreport it as
+          // absent authority. Genuine limits still revoke immediately.
+          if (decision.reason !== "unknown" && decision.reason !== "stale")
+            binding.validUntilMs = 0;
+          return false;
+        }
       }
+      // Extending authority requires a usable sample for every reserved domain.
+      // A collection gap must not be read as an ancient sample: that would both
+      // compute an already-expired deadline and revoke a running operation whose
+      // authority is still inside its freshness window.
+      const observed = Object.keys(reservation.totals).map(
+        (domain) => samples[domain]?.sampledAtMs,
+      );
+      if (observed.some((sampledAtMs) => typeof sampledAtMs !== "number")) return false;
       binding.snapshotRevision = snapshot.revision;
-      binding.validUntilMs =
-        Math.min(
-          ...Object.keys(reservation.totals).map((domain) => samples[domain]?.sampledAtMs ?? 0),
-        ) + maxAge;
+      binding.validUntilMs = Math.min(...observed) + maxAge;
       assertCapacityEffect(record, request.workerId, nowMs, directory);
       return true;
     } catch {
-      binding.validUntilMs = 0;
       return false;
     }
   });
