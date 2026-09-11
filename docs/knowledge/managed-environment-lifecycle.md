@@ -223,6 +223,20 @@ under Devrouter home, keep the manual lifecycle. See
 [ADR 0008](../adr/0008-model-reliability-before-runtime-activation.md) for the
 source contract and activation boundaries.
 
+The policy's optional `recovery` block carries the bounded corrective-action
+budget: per-scope process and service restart allowances, the aggregate action
+cap an incident may not exceed, the incident window, the observation bound, and
+the capacity-resume dwell. It defaults to disabled, so enrollment alone never
+activates automatic corrective action. `decideRecovery` in
+`src/core/reliability-model.ts` reads a journal state and returns one
+recommendation — `start`, `continue`, `resume`, `blocked`, or `none` with a
+machine-readable reason — without mutating state. The durable journal keeps no
+observation history, so a live controller passes the capabilities it just
+observed as failed instead of relying on persisted observations. The monitor
+supplies those to `prepareRecoveryLifecycleOperation`, which opens one
+journal-admitted corrective ensure through the same capacity queue an operator
+command uses, and never supersedes an operation the queue still owns.
+
 ## Stop, delete, and inspect
 
 | Command | Effect | Preserved state |

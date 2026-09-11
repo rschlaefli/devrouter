@@ -387,6 +387,71 @@ describe("reliability transitions", () => {
     expect(step(state, { ...recover, operationId: "repair-2" }).outcome).toBe("accepted");
   });
 
+  it("supersedes a drained, never-launched operation when opening a recovery", () => {
+    const state = completed();
+    state.phase = "queued";
+    state.operation = {
+      id: "op",
+      kind: "ensure",
+      drained: true,
+      status: "NOT_STARTED",
+      exitCode: null,
+    };
+    const decision = step(state, {
+      type: "recover",
+      incidentId: "incident",
+      actionLimit: 2,
+      operationId: "repair",
+    });
+    expect(decision.outcome).toBe("accepted");
+    expect(decision.state.incident).toMatchObject({ id: "incident" });
+    expect(decision.state.operation).toMatchObject({
+      id: "repair",
+      status: "NOT_STARTED",
+      drained: false,
+    });
+    expect(decision.state.phase).toBe("recovering");
+  });
+
+  it("continues an incident by superseding a drained, never-launched operation", () => {
+    let state = completed();
+    state = step(state, {
+      type: "recover",
+      incidentId: "incident",
+      actionLimit: 2,
+      operationId: "repair",
+    }).state;
+    state.operation = { ...state.operation!, drained: true, status: "NOT_STARTED" };
+    const decision = step(state, {
+      type: "recover",
+      incidentId: "incident",
+      actionLimit: 2,
+      operationId: "repair-2",
+    });
+    expect(decision.outcome).toBe("accepted");
+    expect(decision.state.operation).toMatchObject({ id: "repair-2", status: "NOT_STARTED" });
+  });
+
+  it("still refuses recovery behind an undrained preparation awaiting admission", () => {
+    const state = completed();
+    state.phase = "queued";
+    state.operation = {
+      id: "op",
+      kind: "ensure",
+      drained: false,
+      status: "NOT_STARTED",
+      exitCode: null,
+    };
+    expect(
+      step(state, {
+        type: "recover",
+        incidentId: "incident",
+        actionLimit: 2,
+        operationId: "repair",
+      }).outcome,
+    ).toBe("blocked");
+  });
+
   it("rejects invalid event and clock inputs without effects", () => {
     expect(() => step(started(), { type: "epoch", nextEpoch: -1 })).toThrow();
     expect(() => step(started(), { type: "stop" }, Number.NaN)).toThrow();

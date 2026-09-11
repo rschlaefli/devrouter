@@ -128,6 +128,15 @@ function policy(enrollments: CapacityPolicyEnrollment[]): CapacityPolicy {
       sampleIntervalSeconds: 5,
       maxSampleAgeSeconds: 15,
     },
+    recovery: {
+      enabled: false,
+      maxProcessRestarts: 2,
+      maxServiceRestarts: 1,
+      maxCorrectiveActions: 3,
+      windowSeconds: 600,
+      observationSeconds: 30,
+      resumeDwellSeconds: 300,
+    },
     domains: {
       host: {
         kind: "host",

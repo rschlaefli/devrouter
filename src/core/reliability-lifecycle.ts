@@ -43,7 +43,11 @@ import {
   type ReliabilityFence,
   reliabilityFence,
 } from "./reliability-contract";
-import { canExecAfterInterruptedEnsure, stepReliability } from "./reliability-model";
+import {
+  canExecAfterInterruptedEnsure,
+  decideRecovery,
+  stepReliability,
+} from "./reliability-model";
 import {
   assertCapacityEffect,
   type CapacityControllerIdentity,
@@ -324,6 +328,74 @@ function assertCurrentCapacityController(
   const current = new ControllerStore(directory).read();
   if (!expected || current?.store !== expected.store || current.epoch !== expected.epoch)
     throw new Error("Capacity controller incarnation changed.");
+}
+
+/**
+ * Open or advance one bounded automatic recovery for an environment whose
+ * required capability has positively failed. The incident budget and the
+ * decision rule live in the reliability model, so the recovery a caller
+ * receives is the one the model accepted; an environment that is healthy,
+ * already dispatching, or out of budget yields no request.
+ */
+export function prepareRecoveryLifecycleOperation(input: {
+  identity: ReliabilityIdentity;
+  controller: CapacityControllerIdentity;
+  policyRevision: number;
+  actionLimit: number;
+  failedCapabilities: string[];
+  profile: string;
+  incidentId: string;
+}): { operationId: string; request: LifecycleWorkerRequest } | undefined {
+  const ids = newLifecycleIds();
+  return updateReliabilityOperation(input.identity, (record) => {
+    assertCurrentCapacityController(input.controller);
+    if (
+      record.version !== 2 ||
+      record.state.executionPolicy !== "capacity-managed" ||
+      record.enrollment?.policyRevision !== input.policyRevision
+    )
+      throw new Error("Managed recovery requires current durable enrollment.");
+    if (record.phaseSettlement) return undefined;
+    // Settle an operation the queue no longer owns before deciding, so a stale
+    // preparation cannot wedge every later recovery behind its evidence.
+    reconcileDrained(record);
+    if (record.worker) return undefined;
+    const decision = decideRecovery({
+      state: record.state,
+      nowMs: Date.now(),
+      actionLimit: input.actionLimit,
+      pressureDwellSatisfied: false,
+      failedCapabilities: input.failedCapabilities,
+    });
+    if (decision.action !== "start" && decision.action !== "continue") return undefined;
+    const transition = stepReliability(
+      record.state,
+      {
+        ...reliabilityFence(record.state),
+        type: "recover",
+        incidentId: decision.action === "continue" ? decision.incidentId : input.incidentId,
+        actionLimit: input.actionLimit,
+        operationId: ids.operationId,
+      },
+      Date.now(),
+    );
+    if (transition.outcome !== "accepted") return undefined;
+    record.state = transition.state;
+    record.outcome = null;
+    record.result = null;
+    record.startupWitness = null;
+    return {
+      operationId: ids.operationId,
+      request: {
+        ...ids,
+        kind: "ensure",
+        repoPath: input.identity.repoPath,
+        identity: { ...input.identity },
+        fence: reliabilityFence(record.state),
+        options: { profile: input.profile, quiet: true },
+      },
+    };
+  });
 }
 
 /** Reduce completed phase charges only after the exact worker has drained. */
