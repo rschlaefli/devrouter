@@ -1031,3 +1031,93 @@ export function stepReliability(
   }
   return result;
 }
+
+export type RecoveryDecisionReason =
+  | "unmanaged"
+  | "user-stopped"
+  | "healthy"
+  | "parked"
+  | "active-operation"
+  | "budget-exhausted"
+  | "recovery-eligible";
+
+export type RecoveryDecision =
+  | { action: "none"; reason: RecoveryDecisionReason }
+  | { action: "start"; reason: RecoveryDecisionReason; actionLimit: number }
+  | { action: "continue"; reason: RecoveryDecisionReason; incidentId: string; actionLimit: number }
+  | { action: "resume"; reason: RecoveryDecisionReason }
+  | { action: "blocked"; reason: RecoveryDecisionReason };
+
+function requiredCapabilities(state: ReliabilityState): string[] {
+  const required = new Set<string>();
+  for (const consumer of state.consumers) {
+    for (const capability of consumer.requiredCapabilities) required.add(capability);
+  }
+  return [...required];
+}
+
+function hasFailedRequiredCapability(state: ReliabilityState, nowMs: number): boolean {
+  return requiredCapabilities(state).some((capability) => {
+    const observation = state.observations.find((entry) => entry.capability === capability);
+    return (
+      observation !== undefined &&
+      observation.infrastructure === "failed" &&
+      observation.observedAtMs >= state.observationsAfterMs &&
+      observation.observedAtMs <= nowMs &&
+      nowMs - observation.observedAtMs < observation.validForMs
+    );
+  });
+}
+
+/**
+ * Read-only recommendation of the next bounded recovery action for one
+ * enrolled environment. The caller gates execution on policy and supplies the
+ * budget and capacity dwell; this never mutates the state it inspects.
+ */
+export function decideRecovery(input: {
+  state: ReliabilityState;
+  nowMs: number;
+  actionLimit: number;
+  pressureDwellSatisfied: boolean;
+}): RecoveryDecision {
+  const { state, nowMs, actionLimit, pressureDwellSatisfied } = input;
+  assertReliabilityState(state);
+  if (!isReliabilityCounter(nowMs) || nowMs < state.observationsAfterMs)
+    throw new Error("Invalid reliability clock.");
+
+  if (state.executionPolicy === "manual") return { action: "none", reason: "unmanaged" };
+  if (state.desired === "stopped-by-user") return { action: "none", reason: "user-stopped" };
+
+  if (state.desired === "parked-for-capacity") {
+    const resumeReady =
+      pressureDwellSatisfied &&
+      state.stopProof.workloadsStopped &&
+      state.stopProof.routesRemoved &&
+      state.consumers.length > 0 &&
+      state.admission === "admitted" &&
+      state.profile !== null &&
+      (state.incident === null ||
+        state.incident.correctiveActionsTaken < state.incident.actionLimit) &&
+      state.operation !== null &&
+      ["NOT_STARTED", "COMPLETED", "INTERRUPTED"].includes(state.operation.status);
+    return { action: resumeReady ? "resume" : "none", reason: "parked" };
+  }
+
+  if (!isReliabilityCounter(actionLimit) || actionLimit < 1)
+    throw new Error("Invalid recovery action budget.");
+
+  if (!hasFailedRequiredCapability(state, nowMs)) return { action: "none", reason: "healthy" };
+  // A discoverable command must drain before a corrective action replaces it.
+  if (possibleDispatch(state.operation)) return { action: "none", reason: "active-operation" };
+  if (state.incident !== null) {
+    if (state.incident.correctiveActionsTaken >= state.incident.actionLimit)
+      return { action: "blocked", reason: "budget-exhausted" };
+    return {
+      action: "continue",
+      reason: "recovery-eligible",
+      incidentId: state.incident.id,
+      actionLimit: state.incident.actionLimit,
+    };
+  }
+  return { action: "start", reason: "recovery-eligible", actionLimit };
+}

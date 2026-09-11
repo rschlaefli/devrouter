@@ -70,6 +70,31 @@ export type CapacityPolicyScheduling = {
   maxSampleAgeSeconds: number;
 };
 
+/**
+ * Bounded corrective-action policy for capacity-enrolled agent environments.
+ * The block is optional so an existing policy keeps automatic recovery off;
+ * these values are the reliability roadmap's initial canary budgets.
+ */
+export type CapacityPolicyRecovery = {
+  enabled: boolean;
+  maxProcessRestarts: number;
+  maxServiceRestarts: number;
+  maxCorrectiveActions: number;
+  windowSeconds: number;
+  observationSeconds: number;
+  resumeDwellSeconds: number;
+};
+
+export const DEFAULT_CAPACITY_RECOVERY: CapacityPolicyRecovery = {
+  enabled: false,
+  maxProcessRestarts: 2,
+  maxServiceRestarts: 1,
+  maxCorrectiveActions: 3,
+  windowSeconds: 600,
+  observationSeconds: 30,
+  resumeDwellSeconds: 300,
+};
+
 export type CapacityHostDomain =
   | {
       kind: "host";
@@ -139,6 +164,7 @@ export type CapacityPolicy = {
   revision: number;
   admissions: "enabled" | "paused";
   scheduling: CapacityPolicyScheduling;
+  recovery: CapacityPolicyRecovery;
   domains: Record<string, CapacityPolicyDomain>;
   enrollments: CapacityPolicyEnrollment[];
 };
@@ -494,6 +520,75 @@ function parseScheduling(value: unknown): CapacityPolicyScheduling {
   return result;
 }
 
+function parseRecovery(value: unknown): CapacityPolicyRecovery {
+  if (value === undefined) return { ...DEFAULT_CAPACITY_RECOVERY };
+  const label = "recovery";
+  const recovery = ensureObject(value, label);
+  ensureAllowedKeys(
+    recovery,
+    [
+      "enabled",
+      "maxProcessRestarts",
+      "maxServiceRestarts",
+      "maxCorrectiveActions",
+      "windowSeconds",
+      "observationSeconds",
+      "resumeDwellSeconds",
+    ],
+    label,
+  );
+  if (typeof recovery.enabled !== "boolean") {
+    throw new Error(`${label}.enabled must be a boolean.`);
+  }
+
+  const result: CapacityPolicyRecovery = {
+    enabled: recovery.enabled,
+    maxProcessRestarts: parseSafeInteger(
+      recovery.maxProcessRestarts,
+      `${label}.maxProcessRestarts`,
+      0,
+    ),
+    maxServiceRestarts: parseSafeInteger(
+      recovery.maxServiceRestarts,
+      `${label}.maxServiceRestarts`,
+      0,
+    ),
+    maxCorrectiveActions: parsePositiveInteger(
+      recovery.maxCorrectiveActions,
+      `${label}.maxCorrectiveActions`,
+    ),
+    windowSeconds: parsePositiveInteger(recovery.windowSeconds, `${label}.windowSeconds`),
+    observationSeconds: parsePositiveInteger(
+      recovery.observationSeconds,
+      `${label}.observationSeconds`,
+    ),
+    resumeDwellSeconds: parsePositiveInteger(
+      recovery.resumeDwellSeconds,
+      `${label}.resumeDwellSeconds`,
+    ),
+  };
+
+  // Broader actions count against the aggregate, so the per-scope allowances
+  // must remain reachable rather than being capped out by the incident budget.
+  if (result.maxCorrectiveActions < result.maxProcessRestarts + result.maxServiceRestarts) {
+    throw new Error(
+      `${label}.maxCorrectiveActions must cover maxProcessRestarts and maxServiceRestarts.`,
+    );
+  }
+  if (
+    result.maxProcessRestarts > 4 ||
+    result.maxServiceRestarts > 2 ||
+    result.maxCorrectiveActions > 8 ||
+    result.windowSeconds > 3600 ||
+    result.observationSeconds > 300 ||
+    result.resumeDwellSeconds > 3600
+  ) {
+    throw new Error(`${label} exceeds supported controller bounds.`);
+  }
+
+  return result;
+}
+
 function validateDomainReferences(domains: Record<string, CapacityPolicyDomain>): void {
   const daemonIds = new Map<string, string>();
   const endpoints = new Map<string, string>();
@@ -633,7 +728,7 @@ export function parseCapacityPolicy(value: unknown): CapacityPolicy {
   const root = ensureObject(value, "capacity policy");
   ensureAllowedKeys(
     root,
-    ["version", "revision", "admissions", "scheduling", "domains", "enrollments"],
+    ["version", "revision", "admissions", "scheduling", "recovery", "domains", "enrollments"],
     "capacity policy",
   );
 
@@ -647,6 +742,7 @@ export function parseCapacityPolicy(value: unknown): CapacityPolicy {
     throw new Error("capacity policy.admissions must be 'enabled' or 'paused'.");
   }
   const scheduling = parseScheduling(root.scheduling);
+  const recovery = parseRecovery(root.recovery);
 
   const domainsValue = ensureObject(root.domains, "capacity policy.domains");
   const domainEntries = Object.entries(domainsValue);
@@ -698,6 +794,7 @@ export function parseCapacityPolicy(value: unknown): CapacityPolicy {
     revision,
     admissions,
     scheduling,
+    recovery,
     domains,
     enrollments,
   };
