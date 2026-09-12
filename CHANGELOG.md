@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.77] - 2026-09-12
+
+### Fixed
+
+- Ordinary managed ensure prepares TLS certificate coverage for resolved proxy
+  hostnames before provider startup and container-side repository hooks. It
+  preserves existing certificate names under the shared lock, awaits coverage
+  before startup, and reports refreshes from either startup or route publication.
+  Admission refusals and retained-runtime repair keep their existing behavior.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.77.md
+
 ## [0.0.76] - 2026-09-12
 
 ### Fixed
