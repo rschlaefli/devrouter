@@ -180,10 +180,7 @@ function readLocalDevpodRegistry(): DevpodWorkspace[] {
       const actual = inspect(file);
       if ((actual && stamp(actual)) !== expected) throw fail();
     }
-    return result.sort(
-      (a, b) =>
-        a.id.localeCompare(b.id) || a.source.localFolder.localeCompare(b.source.localFolder),
-    );
+    return result;
   } catch {
     throw fail();
   }
