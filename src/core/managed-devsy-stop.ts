@@ -198,9 +198,7 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
   // selection, so resolve it through the config resolver against the current
   // profiles; a removed or renamed name refuses instead of widening selection.
   function canonicalProfile(recorded: string): string {
-    const resolved = resolveProfile(loadRepoConfig(repoPath), recorded);
-    if (!resolved.name) throw new Error("Initial managed stop requires the recorded profile.");
-    return resolved.name;
+    return resolveProfile(loadRepoConfig(repoPath), recorded).name;
   }
   const registration = () => {
     resetWorkspaceRuntimeCaches();
