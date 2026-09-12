@@ -78,16 +78,14 @@ export function devpodRegistryRoot(): string {
 function readLocalDevpodRegistry(): DevpodWorkspace[] {
   const fail = () =>
     new Error("Local DevPod registry evidence is incomplete, unreadable, or changed.");
-  const stamps = new Map<string, string | undefined>();
-  const stamp = (stat: fs.Stats) =>
+  const stamps = new Map<string, { value: string | undefined; identityOnly: boolean }>();
+  const stamp = (stat: fs.Stats, identityOnly = false) =>
     JSON.stringify([
       stat.dev,
       stat.ino,
       stat.mode,
       stat.uid,
-      stat.size,
-      stat.mtimeMs,
-      stat.ctimeMs,
+      ...(identityOnly ? [] : [stat.size, stat.mtimeMs, stat.ctimeMs]),
     ]);
   const inspect = (file: string): fs.Stats | undefined => {
     try {
@@ -97,10 +95,10 @@ function readLocalDevpodRegistry(): DevpodWorkspace[] {
       throw fail();
     }
   };
-  const directory = (dir: string, optional = false): boolean => {
+  const directory = (dir: string, optional = false, identityOnly = false): boolean => {
     const stat = inspect(dir);
     if ((!stat && !optional) || (stat && !stat.isDirectory())) throw fail();
-    stamps.set(dir, stat && stamp(stat));
+    stamps.set(dir, { value: stat && stamp(stat, identityOnly), identityOnly });
     return !!stat;
   };
   const entries = (dir: string) => {
@@ -113,11 +111,11 @@ function readLocalDevpodRegistry(): DevpodWorkspace[] {
     const root = devpodRegistryRoot();
     // Validate ancestors too: ENOENT behind a dangling link is not an absent registry.
     let ancestor = path.parse(root).root;
-    let present = directory(ancestor);
+    let present = directory(ancestor, false, ancestor !== root);
     for (const part of root.slice(ancestor.length).split(path.sep).filter(Boolean)) {
       if (!present) break;
       ancestor = path.join(ancestor, part);
-      present = directory(ancestor, true);
+      present = directory(ancestor, true, ancestor !== root);
     }
     const contexts = path.join(root, "contexts");
     if (present && directory(contexts, true)) {
@@ -133,7 +131,7 @@ function readLocalDevpodRegistry(): DevpodWorkspace[] {
           const file = path.join(workspace, "workspace.json");
           const stat = inspect(file);
           if (!stat?.isFile() || stat.size > 1024 * 1024) throw fail();
-          stamps.set(file, stamp(stat));
+          stamps.set(file, { value: stamp(stat), identityOnly: false });
           const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
           let raw: unknown;
           try {
@@ -178,7 +176,7 @@ function readLocalDevpodRegistry(): DevpodWorkspace[] {
     }
     for (const [file, expected] of stamps) {
       const actual = inspect(file);
-      if ((actual && stamp(actual)) !== expected) throw fail();
+      if ((actual && stamp(actual, expected.identityOnly)) !== expected.value) throw fail();
     }
     return result;
   } catch {

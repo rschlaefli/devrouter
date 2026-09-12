@@ -264,6 +264,16 @@ describe("local legacy registry when DevPod is uninstalled", () => {
     } as never);
     expect(read).toThrow();
   });
+  it("ignores unrelated sibling writes while preserving registry evidence", () => {
+    record();
+    const original = fs.readdirSync.bind(fs);
+    vi.spyOn(fs, "readdirSync").mockImplementation(((dir: string) => {
+      const names = original(dir);
+      fs.writeFileSync(path.join(root, "unrelated-sibling"), "synthetic");
+      return names;
+    }) as typeof fs.readdirSync);
+    expect(read()).toEqual([{ id: "other", source: { localFolder: "/unrelated" } }]);
+  });
   it("recognizes nonlocal sources without inventing a local path", () => {
     const file = record();
     fs.writeFileSync(
