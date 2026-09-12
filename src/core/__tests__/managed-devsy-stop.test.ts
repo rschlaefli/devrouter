@@ -9,22 +9,27 @@ import {
   stopExactManagedService,
 } from "../devcontainer-profile";
 import {
+  assertManagedStopCheckoutAbsent,
   inspectManagedStopContainers,
+  inspectManagedStopDaemon,
   inspectProviderRunnerContainers,
   inspectWorkspaceContainers,
   resolveManagedStopEndpoint,
+  supportsManagedStopBaseline,
 } from "../devpod-environment";
-import { listDevpodWorkspacesRaw } from "../devpod-registry";
+import { devpodRegistryRoot, listDevpodWorkspacesRaw } from "../devpod-registry";
 import {
   inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
   inspectDevsyWorkspaceOwnership,
   listDevsyWorkspaces,
 } from "../devsy-workspaces";
+import { listHostRouteState } from "../host-routes";
 import { proveManagedComposePopulation } from "../managed-compose-population";
 import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "../managed-runtime-state";
 import { loadRuntimeConfig } from "../repo-config";
+import { assertTraefikRoutesRemoved } from "../traefik-route-health";
 import { isLinkedWorktree, resolveWorktreeWorkspace } from "../workspace";
 import {
   inspectWorkspaceOwnership,
@@ -40,13 +45,21 @@ vi.mock("../devcontainer-profile", () => ({
   inspectManagedDevcontainerGeneratedConfig: vi.fn(),
   stopExactManagedService: vi.fn(),
 }));
+vi.mock("../traefik-route-health", () => ({ assertTraefikRoutesRemoved: vi.fn() }));
+vi.mock("../host-routes", () => ({ listHostRouteState: vi.fn(() => []) }));
 vi.mock("../devpod-environment", () => ({
+  assertManagedStopCheckoutAbsent: vi.fn(),
+  inspectManagedStopDaemon: vi.fn(),
+  supportsManagedStopBaseline: vi.fn(),
   inspectManagedStopContainers: vi.fn(),
   inspectProviderRunnerContainers: vi.fn(),
   inspectWorkspaceContainers: vi.fn(),
   resolveManagedStopEndpoint: vi.fn(),
 }));
-vi.mock("../devpod-registry", () => ({ listDevpodWorkspacesRaw: vi.fn() }));
+vi.mock("../devpod-registry", () => ({
+  listDevpodWorkspacesRaw: vi.fn(),
+  devpodRegistryRoot: vi.fn(() => "/legacy"),
+}));
 vi.mock("../devsy-workspaces", () => ({
   inspectDevsyRuntimeAbsence: vi.fn(),
   inspectDevsyRuntimeStatus: vi.fn(),
@@ -538,6 +551,7 @@ describe("absent-registration managed stop", () => {
     vi.mocked(inspectWorkspaceContainers).mockReturnValue([]);
     vi.mocked(inspectProviderRunnerContainers).mockReturnValue([]);
     vi.mocked(resolveManagedStopEndpoint).mockReturnValue("unix:///var/run/docker.sock");
+    vi.mocked(devpodRegistryRoot).mockReturnValue("/legacy");
     vi.mocked(listDevpodWorkspacesRaw).mockReturnValue([]);
     vi.mocked(listGitWorktrees).mockReturnValue([]);
   });
@@ -549,6 +563,163 @@ describe("absent-registration managed stop", () => {
     vi.mocked(inspectManagedStopContainers).mockReturnValue([]);
     containers = [];
   }
+
+  function arrangeInitialAbsence() {
+    arrangeAbsentRegistration();
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    vi.mocked(isLinkedWorktree).mockReturnValue(true);
+    vi.mocked(resolveWorktreeWorkspace).mockReturnValue("feature");
+    vi.mocked(resolveGitCommonDir).mockReturnValue("/repo/.git");
+    vi.mocked(readWorkspaceOwnership).mockReturnValue({
+      devpodId: devsyId,
+      worktreePath: repoPath,
+      workspace: "feature",
+    } as never);
+    vi.mocked(inspectWorkspaceOwnership).mockReturnValue({ ownerStatus: "present" } as never);
+    vi.mocked(inspectManagedStopDaemon).mockReturnValue("daemon");
+    vi.mocked(supportsManagedStopBaseline).mockReturnValue(true);
+    vi.mocked(listHostRouteState).mockReturnValue([]);
+  }
+
+  it("proves a pre-registration stop after a failed managed startup", () => {
+    arrangeInitialAbsence();
+    expect(run()).toBe("proven-absent");
+    expect(stopProvider).not.toHaveBeenCalled();
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+  });
+
+  it("allows unrelated nonlocal legacy sources without resolving their empty path", () => {
+    arrangeInitialAbsence();
+    vi.mocked(listDevpodWorkspacesRaw).mockReturnValue([
+      { id: "other", source: { localFolder: "" } },
+    ]);
+    expect(run()).toBe("proven-absent");
+    expect(listDevpodWorkspacesRaw).toHaveBeenCalledWith({ readLocalWhenMissing: true });
+  });
+
+  it.each([
+    [
+      "changed legacy home",
+      () => vi.mocked(devpodRegistryRoot).mockReturnValueOnce("/first").mockReturnValue("/second"),
+    ],
+    [
+      "changed unrelated legacy projection",
+      () =>
+        vi
+          .mocked(listDevpodWorkspacesRaw)
+          .mockReturnValueOnce([])
+          .mockReturnValue([{ id: "other", source: { localFolder: "/elsewhere" } }]),
+    ],
+    [
+      "nonlocal legacy ID conflict",
+      () =>
+        vi
+          .mocked(listDevpodWorkspacesRaw)
+          .mockReturnValue([{ id: devsyId, source: { localFolder: "" } }]),
+    ],
+    [
+      "unknown Docker",
+      () =>
+        vi.mocked(assertManagedStopCheckoutAbsent).mockImplementation(() => {
+          throw new Error("unknown Docker");
+        }),
+    ],
+    [
+      "remaining checkout",
+      () =>
+        vi.mocked(assertManagedStopCheckoutAbsent).mockImplementation(() => {
+          throw new Error("remaining checkout");
+        }),
+    ],
+    [
+      "remaining runner",
+      () => vi.mocked(inspectProviderRunnerContainers).mockReturnValue(["a".repeat(64)]),
+    ],
+    [
+      "remaining routes",
+      () => vi.mocked(listHostRouteState).mockReturnValue([{ repoPath }] as never),
+    ],
+    [
+      "live route remains",
+      () =>
+        vi.mocked(assertTraefikRoutesRemoved).mockImplementation(() => {
+          throw new Error("live route remains");
+        }),
+    ],
+    ["unknown Devsy", () => vi.mocked(inspectDevsyRuntimeAbsence).mockReturnValue(false)],
+    [
+      "unreadable legacy evidence",
+      () =>
+        vi.mocked(listDevpodWorkspacesRaw).mockImplementation(() => {
+          throw new Error("ENOENT");
+        }),
+    ],
+    [
+      "DevPod id conflict",
+      () =>
+        vi
+          .mocked(listDevpodWorkspacesRaw)
+          .mockReturnValue([{ id: devsyId, source: { localFolder: "/elsewhere" } }]),
+    ],
+    [
+      "DevPod path conflict",
+      () =>
+        vi
+          .mocked(listDevpodWorkspacesRaw)
+          .mockReturnValue([{ id: "other", source: { localFolder: repoPath } }]),
+    ],
+    [
+      "locked owner",
+      () =>
+        vi.mocked(inspectWorkspaceOwnership).mockReturnValue({ ownerStatus: "locked" } as never),
+    ],
+    ["wrong provider", () => vi.mocked(resolveWorkspaceRuntimeOrDefault).mockReturnValue("devpod")],
+    ["remote Docker", () => vi.mocked(supportsManagedStopBaseline).mockReturnValue(false)],
+    [
+      "changed daemon",
+      () =>
+        vi.mocked(inspectManagedStopDaemon).mockReturnValueOnce("first").mockReturnValue("second"),
+    ],
+    [
+      "changed owner",
+      () =>
+        vi
+          .mocked(readWorkspaceOwnership)
+          .mockReturnValueOnce({
+            devpodId: devsyId,
+            worktreePath: repoPath,
+            workspace: "feature",
+          } as never)
+          .mockReturnValue(undefined),
+    ],
+    [
+      "new retained state",
+      () =>
+        vi
+          .mocked(readManagedRuntimeState)
+          .mockReturnValueOnce(undefined)
+          .mockReturnValueOnce(undefined)
+          .mockReturnValue(state),
+    ],
+    [
+      "registration appears",
+      () =>
+        vi
+          .mocked(inspectDevsyWorkspaceOwnership)
+          .mockReturnValueOnce({ status: "absent" })
+          .mockReturnValue({
+            status: "owned",
+            workspace: { id: devsyId, source: { localFolder: repoPath } },
+          }),
+    ],
+  ] as const)("refuses pre-registration recovery with %s", (_reason, change) => {
+    arrangeInitialAbsence();
+    change();
+    expect(run).toThrow();
+    expect(stopProvider).not.toHaveBeenCalled();
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+  });
 
   it("fails closed when Devsy cannot positively report runtime absence", () => {
     arrangeAbsentRegistration();

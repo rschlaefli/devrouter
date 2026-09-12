@@ -293,6 +293,21 @@ absence of retained desired app router names across both protocols. Routes outsi
 that retained set prevent cleanup. The baseline and interrupted history remain.
 This exception does not apply to primary checkouts or legacy records.
 
+A failed startup before registration also permits canonical stop for a present
+ledger-owned linked managed Devsy checkout without retained state. Two observations
+require both provider registries to be readable and absent for the exact ID and
+path, positive runtime not-found, a pinned local Docker daemon with no checkout
+or runner containers, and no canonical or live app routes. Stopped containers
+also prevent this exception. Final settlement revalidates the original owner,
+daemon, legacy registry home and ownership projection, and route references under
+the provider lock after worker drainage;
+unknown or changed evidence leaves stop pending. If DevPod is uninstalled, an
+opt-in read of every local legacy context under `DEVPOD_HOME` (default `~/.devpod`)
+proves absence without installing it. Missing or empty registries are accepted;
+unreadable, partial, malformed, symlinked, or changing evidence is refused.
+The stop reports `runtimeAbsent: true` without a provider mutation.
+Primary, unowned and registered workspaces retain their existing stop paths.
+
 For retained managed Devsy state without that baseline, reversible stop proves the complete captured
 Compose population under the workspace and provider locks. Provider and primary
 state must agree. An already-stopped primary skips provider stop; residual

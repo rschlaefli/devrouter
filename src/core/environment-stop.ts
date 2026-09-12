@@ -14,6 +14,7 @@ export type EnvironmentStopResult = {
   workspace?: string;
   devpodId?: string;
   stopped: boolean;
+  runtimeAbsent?: boolean;
   deleted?: boolean;
   freedRoutes: number;
 };
@@ -53,6 +54,7 @@ export async function environmentStop(
         repoPath,
         workspace: result.workspace,
         ...(result.devpodId ? { devpodId: result.devpodId } : {}),
+        ...(result.runtimeAbsent ? { runtimeAbsent: true } : {}),
         stopped: !options.delete && (result.providerChanged || result.runtimeAbsent === true),
         ...(options.delete ? { deleted: result.providerChanged } : {}),
         freedRoutes: result.freedRoutes,

@@ -7,6 +7,7 @@ import type { ReliabilityIdentity } from "../reliability-operation-store";
 import type { LifecycleWorkerRequest } from "../reliability-worker";
 
 const fixture = vi.hoisted(() => ({
+  initialAbsence: vi.fn(),
   roots: [] as string[],
   checkouts: [] as string[],
   runLifecycleWorker: vi.fn(),
@@ -71,6 +72,9 @@ vi.mock("../file-lock", async (importOriginal) => {
 
 vi.mock("../host-routes", () => ({ listHostRouteState: fixture.listHostRouteState }));
 
+vi.mock("../managed-devsy-stop", () => ({
+  proveInitialManagedDevsyAbsence: fixture.initialAbsence,
+}));
 vi.mock("../managed-runtime-state", () => ({
   readManagedRuntimeState: fixture.readManagedRuntimeState,
 }));
@@ -355,6 +359,7 @@ async function seedStopRequest() {
 beforeEach(() => {
   for (const root of fixture.roots)
     fs.rmSync(path.join(root, "controller"), { recursive: true, force: true });
+  fixture.initialAbsence.mockReset();
   fixture.absent = false;
   fixture.assertRoutesRemoved.mockReset();
   vi.resetModules();
@@ -2685,4 +2690,74 @@ describe("bounded recovery preparation", () => {
       }),
     ).toThrow(/enrollment/);
   });
+});
+
+it.each([
+  "",
+  "daemon",
+  "legacyHome",
+  "legacyWorkspaces",
+])("recovers a completed failed startup only with stable initial absence (%s)", async (changed) => {
+  setProcessConnected(true);
+  const { lifecycle, model, contract, request, identity, store } = await seedWorkerRequest();
+  store.updateReliabilityOperation(identity, (record) => {
+    for (const event of [
+      { type: "completion", operationId: request.operationId, exitCode: 1 },
+      { type: "drained", operationId: request.operationId },
+      { type: "stop" },
+    ] as const)
+      record.state = model.stepReliability(
+        record.state,
+        { ...contract.reliabilityFence(record.state), ...event },
+        4,
+      ).state;
+    record.worker = null;
+  });
+  const blocked = store.readReliabilityOperation(identity)!;
+  expect(blocked.state.phase).toBe("stopping");
+  const { settleWorkspaceJournal } = await import("../workspace-journal-settle");
+  expect((await settleWorkspaceJournal(identity.repoPath)).status).toBe("already-settled");
+  fixture.newLifecycleIds.mockReturnValue({
+    requestId: "next-request",
+    operationId: "next-operation",
+    workerId: "next-worker",
+  });
+  expect(() => lifecycle.prepareLifecycleOperation("ensure", identity.repoPath)).toThrow(/blocked/);
+  const proof = {
+    record: { devpodId: "fixture" },
+    endpoint: "unix:///tmp/docker.sock",
+    daemon: "first",
+    legacyHome: "/first",
+    legacyWorkspaces: [],
+  };
+  fixture.initialAbsence.mockReturnValue(proof);
+  await lifecycle.executeLifecycleWorker(
+    { ...request, kind: "stop", fence: contract.reliabilityFence(blocked.state) },
+    async () => {
+      if (changed)
+        fixture.initialAbsence.mockReturnValue({
+          ...proof,
+          [changed]:
+            changed === "legacyWorkspaces"
+              ? [{ id: "other", source: { localFolder: "/unrelated" } }]
+              : "replacement",
+        });
+      if (changed) expect(() => lifecycle.proveLifecycleStopped()).toThrow(/evidence changed/);
+      else lifecycle.proveLifecycleStopped();
+    },
+  );
+  const final = store.readReliabilityOperation(identity)!;
+  expect(final.state.operation).toMatchObject({ status: "COMPLETED", exitCode: 1, drained: true });
+  if (changed) expect(final.state.phase).toBe("stopping");
+  else {
+    expect(final.state.phase).toBe("idle");
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "next-request",
+      operationId: "next-operation",
+      workerId: "next-worker",
+    });
+    expect(lifecycle.prepareLifecycleOperation("ensure", identity.repoPath).operationId).toBe(
+      "next-operation",
+    );
+  }
 });

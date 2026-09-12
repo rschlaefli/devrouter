@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  assertManagedStopCheckoutAbsent,
   assertManagedStopContainersAbsent,
   hasExactComposeIdentity,
   inspectManagedStopContainers,
@@ -625,5 +626,77 @@ describe("pinned managed stop Docker operations", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("pinned checkout absence", () => {
+  const endpoint = "unix:///tmp/docker.sock";
+  const repo = "/workspace/fixture";
+  const id = "a".repeat(64);
+  const other = "b".repeat(64);
+  const row = () => ({
+    id,
+    labels: {
+      "com.docker.compose.project.working_dir": null,
+      "devcontainer.local_folder": null,
+      "vsch.local.folder": null,
+    } as Record<string, string | null>,
+    mounts: [] as { Type: string; Source: string }[],
+  });
+  function arrange(value: unknown, final = id) {
+    vi.mocked(spawnSync)
+      .mockReset()
+      .mockReturnValueOnce({ status: 0, stdout: id } as never)
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(value) } as never)
+      .mockReturnValueOnce({ status: 0, stdout: final } as never);
+  }
+  it("proves a stable unrelated population with every read pinned", () => {
+    arrange(row());
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).not.toThrow();
+    for (const [, args] of vi.mocked(spawnSync).mock.calls)
+      expect(args?.slice(0, 2)).toEqual(["--host", endpoint]);
+  });
+  it.each([
+    "com.docker.compose.project.working_dir",
+    "devcontainer.local_folder",
+    "vsch.local.folder",
+    "mount",
+  ])("refuses residue identified by %s regardless of running state", (key) => {
+    const value = row();
+    if (key === "mount") value.mounts = [{ Type: "bind", Source: repo }];
+    else
+      value.labels[key] =
+        key === "com.docker.compose.project.working_dir" ? `${repo}/.devcontainer` : repo;
+    arrange(value);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow(/remaining checkout/);
+  });
+  it.each([
+    null,
+    {},
+    { ...row(), mounts: null },
+    { ...row(), labels: {} },
+    { ...row(), id: other },
+  ])("refuses incomplete inspection", (value) => {
+    arrange(value);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow();
+  });
+  it("refuses a changing population", () => {
+    arrange(row(), other);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow();
+  });
+  it("refuses an omitted inspection row", () => {
+    arrange(row());
+    vi.mocked(spawnSync)
+      .mockReset()
+      .mockReturnValueOnce({ status: 0, stdout: id } as never)
+      .mockReturnValueOnce({ status: 0, stdout: "" } as never);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow();
+  });
+  it("requires a second empty listing", () => {
+    vi.mocked(spawnSync)
+      .mockReset()
+      .mockReturnValueOnce({ status: 0, stdout: "" } as never)
+      .mockReturnValueOnce({ status: 1, stdout: "" } as never);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow();
   });
 });

@@ -128,7 +128,7 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   {
     command: "devrouter stop [path] [--delete] [--json]",
     purpose:
-      "Stop the exact checkout workspace runtime and routes; --delete explicitly deletes the ownership-proven runtime without removing the checkout.",
+      "Stop the exact checkout workspace runtime and routes, or prove absence after pre-registration failure; --delete explicitly deletes the ownership-proven runtime without removing the checkout.",
   },
   {
     command: "devrouter exec [path] -- <command...>",

@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.74] - 2026-09-12
+
+### Fixed
+
+- Canonical stop can recover a linked managed Devsy checkout whose startup
+  failed before provider registration. It requires exact ownership and fresh
+  proof that workers, registrations, runtime containers and routes are absent;
+  unknown evidence and surviving resources remain refusals. Completed startup
+  outcomes are preserved while successful stop permits a later ensure.
+- Devsy-only installations can prove legacy registration absence without
+  installing DevPod. A missing executable permits a bounded read-only scan of
+  every local legacy context; malformed, unreadable, conflicting or changing
+  evidence fails closed. Stop JSON preserves `runtimeAbsent: true` and human
+  output no longer claims a missing provider was stopped.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.74.md
+
 ## [0.0.73] - 2026-09-11
 
 ### Added

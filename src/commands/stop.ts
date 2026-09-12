@@ -17,6 +17,10 @@ export async function runStopCommand(options: {
   }
 
   const label = result.kind === "primary" ? "Primary checkout" : `Workspace '${result.workspace}'`;
+  if (result.runtimeAbsent) {
+    process.stdout.write(`${label} has no runtime or routes; stop is complete.\n`);
+    return;
+  }
   if (!result.stopped && !result.deleted && result.freedRoutes === 0) {
     process.stdout.write(`${label} is already stopped; no routes needed removal.\n`);
     return;

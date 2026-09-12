@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 export type DevpodWorkspace = {
   id: string;
@@ -16,16 +19,15 @@ export type DevpodWorkspace = {
  * inspection may ignore an uninstalled CLI; an installed but unreadable registry still fails.
  */
 export function listDevpodWorkspacesRaw(
-  options: { allowMissingExecutable?: boolean } = {},
+  options: { allowMissingExecutable?: boolean; readLocalWhenMissing?: boolean } = {},
 ): DevpodWorkspace[] {
   const result = spawnSync("devpod", ["list", "--output", "json", "--skip-pro"], {
     encoding: "utf-8",
   });
-  if (
-    options.allowMissingExecutable &&
-    (result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
-  )
-    return [];
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+    if (options.readLocalWhenMissing) return readLocalDevpodRegistry();
+    if (options.allowMissingExecutable) return [];
+  }
   if (result.error || result.status !== 0) {
     const details = [result.error?.message, result.stdout, result.stderr]
       .filter(Boolean)
@@ -66,4 +68,118 @@ export function listDevpodWorkspacesRaw(
     }
     return workspace;
   });
+}
+
+export function devpodRegistryRoot(): string {
+  return path.resolve(process.env.DEVPOD_HOME || path.join(os.homedir(), ".devpod"));
+}
+
+/** Missing CLI is not absence evidence: validate every local legacy context. */
+function readLocalDevpodRegistry(): DevpodWorkspace[] {
+  const fail = () =>
+    new Error("Local DevPod registry evidence is incomplete, unreadable, or changed.");
+  const stamps = new Map<string, { value: string | undefined; identityOnly: boolean }>();
+  const stamp = (stat: fs.Stats, identityOnly = false) =>
+    JSON.stringify([
+      stat.dev,
+      stat.ino,
+      stat.mode,
+      stat.uid,
+      ...(identityOnly ? [] : [stat.size, stat.mtimeMs, stat.ctimeMs]),
+    ]);
+  const inspect = (file: string): fs.Stats | undefined => {
+    try {
+      return fs.lstatSync(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw fail();
+    }
+  };
+  const directory = (dir: string, optional = false, identityOnly = false): boolean => {
+    const stat = inspect(dir);
+    if ((!stat && !optional) || (stat && !stat.isDirectory())) throw fail();
+    stamps.set(dir, { value: stat && stamp(stat, identityOnly), identityOnly });
+    return !!stat;
+  };
+  const entries = (dir: string) => {
+    const names = fs.readdirSync(dir).sort();
+    if (names.length > 256) throw fail();
+    return names;
+  };
+  const result: DevpodWorkspace[] = [];
+  try {
+    const root = devpodRegistryRoot();
+    // Validate ancestors too: ENOENT behind a dangling link is not an absent registry.
+    let ancestor = path.parse(root).root;
+    let present = directory(ancestor, false, ancestor !== root);
+    for (const part of root.slice(ancestor.length).split(path.sep).filter(Boolean)) {
+      if (!present) break;
+      ancestor = path.join(ancestor, part);
+      present = directory(ancestor, true, ancestor !== root);
+    }
+    const contexts = path.join(root, "contexts");
+    if (present && directory(contexts, true)) {
+      for (const context of entries(contexts)) {
+        const contextDir = path.join(contexts, context);
+        directory(contextDir);
+        const workspaces = path.join(contextDir, "workspaces");
+        if (!directory(workspaces, true)) continue;
+        for (const id of entries(workspaces)) {
+          if (result.length >= 256) throw fail();
+          const workspace = path.join(workspaces, id);
+          directory(workspace);
+          const file = path.join(workspace, "workspace.json");
+          const stat = inspect(file);
+          if (!stat?.isFile() || stat.size > 1024 * 1024) throw fail();
+          stamps.set(file, { value: stamp(stat), identityOnly: false });
+          const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+          let raw: unknown;
+          try {
+            if (stamp(fs.fstatSync(fd)) !== stamp(stat)) throw fail();
+            const buffer = Buffer.alloc(stat.size + 1);
+            const bytes = fs.readSync(fd, buffer, 0, buffer.length, 0);
+            if (bytes !== stat.size || stamp(fs.fstatSync(fd)) !== stamp(stat)) throw fail();
+            raw = JSON.parse(buffer.subarray(0, bytes).toString("utf8"));
+          } finally {
+            fs.closeSync(fd);
+          }
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw fail();
+          const value = raw as Record<string, unknown>;
+          if (
+            value.id !== id ||
+            !value.source ||
+            typeof value.source !== "object" ||
+            Array.isArray(value.source)
+          )
+            throw fail();
+          const source = value.source as Record<string, unknown>;
+          if (
+            source.localFolder !== undefined &&
+            (typeof source.localFolder !== "string" ||
+              (source.localFolder !== "" && !path.isAbsolute(source.localFolder)))
+          )
+            throw fail();
+          const remote = ["gitRepository", "image", "container"];
+          if (remote.some((key) => source[key] !== undefined && typeof source[key] !== "string"))
+            throw fail();
+          if (
+            !source.localFolder &&
+            !remote.some((key) => typeof source[key] === "string" && source[key])
+          )
+            throw fail();
+          result.push({
+            id,
+            source: { localFolder: (source.localFolder as string | undefined) ?? "" },
+          });
+        }
+      }
+    }
+    for (const [file, expected] of stamps) {
+      const actual = inspect(file);
+      if ((actual && stamp(actual, expected.identityOnly)) !== expected.value) throw fail();
+    }
+    return result;
+  } catch {
+    throw fail();
+  }
 }

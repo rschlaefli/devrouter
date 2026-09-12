@@ -8,24 +8,29 @@ import {
   stopExactManagedService,
 } from "./devcontainer-profile";
 import {
+  assertManagedStopCheckoutAbsent,
   inspectManagedStopContainers,
+  inspectManagedStopDaemon,
   inspectProviderRunnerContainers,
   inspectWorkspaceContainers,
   type ManagedStopContainerSnapshot,
   resolveManagedStopEndpoint,
+  supportsManagedStopBaseline,
 } from "./devpod-environment";
-import { listDevpodWorkspacesRaw } from "./devpod-registry";
+import { devpodRegistryRoot, listDevpodWorkspacesRaw } from "./devpod-registry";
 import {
   inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
   inspectDevsyWorkspaceOwnership,
   listDevsyWorkspaces,
 } from "./devsy-workspaces";
+import { listHostRouteState } from "./host-routes";
 import { proveManagedComposePopulation } from "./managed-compose-population";
 import { readManagedRuntimeState } from "./managed-runtime-state";
 import { stopFromManagedBaseline } from "./managed-stop-recovery";
 import { loadRuntimeConfig } from "./repo-config";
 import { proxyAppsFromConfig } from "./route-publication";
+import { assertTraefikRoutesRemoved } from "./traefik-route-health";
 import { isLinkedWorktree, resolveWorktreeWorkspace, sameWorkspacePath } from "./workspace";
 import {
   inspectWorkspaceOwnership,
@@ -46,6 +51,96 @@ function containerIdentity(container: ManagedStopContainerSnapshot): string {
     // Docker does not preserve mount-array order between inspections.
     mounts: container.mounts.map((mount) => JSON.stringify(mount)).sort(),
   });
+}
+
+/** Called under workspace and provider locks; the receipt must survive final settlement. */
+export function proveInitialManagedDevsyAbsence(repoPath: string, expectedId?: string) {
+  if (!isLinkedWorktree(repoPath)) return undefined;
+  const workspace = resolveWorktreeWorkspace(repoPath);
+  if (!workspace || readManagedRuntimeState(repoPath, workspace)) return undefined;
+  if (!fs.existsSync(path.join(repoPath, ".devrouter.yml"))) return undefined;
+  const runtime = loadRuntimeConfig(repoPath, workspace);
+  if (!runtime.config.managedRuntime) return undefined;
+  const routes = proxyAppsFromConfig(runtime.config).flatMap((app) =>
+    (["http", "tcp"] as const).map((protocol) => ({ repoPath, name: app.name, protocol })),
+  );
+  const record = readWorkspaceOwnership(repoPath, workspace);
+  if (
+    !record ||
+    (expectedId !== undefined && record.devpodId !== expectedId) ||
+    record.workspace !== workspace ||
+    !sameWorkspacePath(record.worktreePath, repoPath)
+  )
+    throw new Error("Initial managed stop requires exact linked ownership.");
+  const devsyId = record.devpodId;
+  const ownership = inspectDevsyWorkspaceOwnership(listDevsyWorkspaces(), devsyId, repoPath);
+  if (ownership.status === "conflict") throw new Error(ownership.reason);
+  if (ownership.status !== "absent") return undefined;
+  const gitCommonDir = resolveGitCommonDir(repoPath);
+  const endpoint = resolveManagedStopEndpoint();
+  if (!supportsManagedStopBaseline(endpoint))
+    throw new Error("Initial managed stop requires a local Docker endpoint.");
+  const daemon = inspectManagedStopDaemon(endpoint);
+  const legacyHome = devpodRegistryRoot();
+  const readLegacy = () =>
+    listDevpodWorkspacesRaw({ readLocalWhenMissing: true })
+      .map(({ id, source }) => ({ id, source: { localFolder: source.localFolder } }))
+      .sort(
+        (a, b) =>
+          a.id.localeCompare(b.id) || a.source.localFolder.localeCompare(b.source.localFolder),
+      );
+  const legacyWorkspaces = readLegacy();
+  const observe = () => {
+    resetWorkspaceRuntimeCaches();
+    if (
+      resolveWorkspaceRuntimeOrDefault(repoPath) !== "devsy" ||
+      !isLinkedWorktree(repoPath) ||
+      resolveWorktreeWorkspace(repoPath) !== workspace ||
+      resolveGitCommonDir(repoPath) !== gitCommonDir ||
+      !isDeepStrictEqual(readWorkspaceOwnership(repoPath, workspace), record) ||
+      inspectWorkspaceOwnership(record, listGitWorktrees(repoPath), undefined).ownerStatus !==
+        "present" ||
+      readManagedRuntimeState(repoPath, workspace)
+    )
+      throw new Error("Initial managed stop ownership or retained state changed.");
+    if (devpodRegistryRoot() !== legacyHome || !isDeepStrictEqual(readLegacy(), legacyWorkspaces))
+      throw new Error("Initial managed stop legacy registry evidence changed.");
+    if (
+      inspectDevsyWorkspaceOwnership(listDevsyWorkspaces(), devsyId, repoPath).status !==
+        "absent" ||
+      legacyWorkspaces.some(
+        (entry) =>
+          entry.id === devsyId ||
+          (entry.source.localFolder !== "" &&
+            sameWorkspacePath(entry.source.localFolder, repoPath)),
+      )
+    )
+      throw new Error("Initial managed stop requires both provider registrations absent.");
+    if (!inspectDevsyRuntimeAbsence(devsyId))
+      throw new Error("Initial managed stop requires positive runtime not-found.");
+    if (resolveManagedStopEndpoint() !== endpoint || inspectManagedStopDaemon(endpoint) !== daemon)
+      throw new Error("Initial managed stop Docker identity changed.");
+    if (inspectProviderRunnerContainers(endpoint, devsyId).length)
+      throw new Error("Initial managed stop observed a remaining provider runner.");
+    assertManagedStopCheckoutAbsent(endpoint, repoPath);
+    if (listHostRouteState().some((route) => sameWorkspacePath(route.repoPath, repoPath)))
+      throw new Error("Initial managed stop observed remaining workspace routes.");
+    assertTraefikRoutesRemoved(routes);
+    if (resolveManagedStopEndpoint() !== endpoint || inspectManagedStopDaemon(endpoint) !== daemon)
+      throw new Error("Initial managed stop Docker identity changed.");
+  };
+  observe();
+  observe();
+  return {
+    workspace,
+    record,
+    gitCommonDir,
+    endpoint,
+    daemon,
+    routes,
+    legacyHome,
+    legacyWorkspaces,
+  };
 }
 
 /** Recover a complete initial Compose population before a runtime baseline exists. */
@@ -174,7 +269,10 @@ export function stopRetainedManagedDevsyWorkspace(options: {
   const linked = isLinkedWorktree(repoPath);
   const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
   const retainedState = readManagedRuntimeState(repoPath, workspace);
-  if (!retainedState) return stopInitialManagedDevsyWorkspace(repoPath, devsyId);
+  if (!retainedState) {
+    if (proveInitialManagedDevsyAbsence(repoPath, devsyId)) return "proven-absent";
+    return stopInitialManagedDevsyWorkspace(repoPath, devsyId);
+  }
   const state = retainedState;
   if (state.devpodId !== devsyId || (linked && !workspace)) {
     throw new Error("Managed stop requires the exact retained workspace identity.");

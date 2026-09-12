@@ -454,7 +454,7 @@ async function mutateWorkspaceRuntime(
     action === "stop"
       ? readManagedRuntimeState(resolved.worktreePath, resolved.workspace)
       : undefined;
-  let absent = false;
+  let absent = mutation.status === "proven-absent";
   const remove = () => {
     if (retained?.stopBaseline) {
       absent = proveManagedStop(retained).status === "proven-absent";
@@ -466,6 +466,11 @@ async function mutateWorkspaceRuntime(
         )
       )
         throw new Error("Absent stop contains routes outside the retained desired set.");
+    }
+    if (absent && !retained) {
+      if (listRoutesForWorktreePath(resolved.worktreePath).length)
+        throw new Error("Initial managed stop observed remaining workspace routes.");
+      return [];
     }
     claimLifecycleEffect();
     return removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
@@ -508,7 +513,8 @@ async function runWorkspaceLifecycle(
       workspace: resolved.workspace,
       devpodId: stopped.devpodId,
       freedRoutes: stopped.freedRoutes,
-      providerChanged: stopped.stopped,
+      providerChanged: stopped.stopped && !stopped.runtimeAbsent,
+      ...(stopped.runtimeAbsent ? { runtimeAbsent: true } : {}),
     };
   }
   const operation = async (): Promise<WorkspaceLifecycleResult> => {

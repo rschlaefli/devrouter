@@ -562,14 +562,34 @@ describe("workspaceDown", () => {
 });
 
 describe("workspaceStop", () => {
-  it("resolves the alias then delegates stop intent to the supervisor", async () => {
+  it.each([
+    false,
+    true,
+  ])("resolves the alias and preserves absence through the supervisor (%s)", async (absent) => {
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
-    vi.mocked(superviseLifecycle).mockResolvedValueOnce({ stopped: true, freedRoutes: 0 });
-    await workspaceStop("feat-a", { quiet: true });
+    vi.mocked(superviseLifecycle).mockResolvedValueOnce({
+      stopped: true,
+      freedRoutes: 0,
+      ...(absent ? { runtimeAbsent: true } : {}),
+    });
+    await expect(workspaceStop("feat-a", { quiet: true })).resolves.toMatchObject({
+      providerChanged: !absent,
+      ...(absent ? { runtimeAbsent: true } : {}),
+    });
     expect(superviseLifecycle).toHaveBeenCalledWith("stop", "/main/repo-feat-a", { quiet: true });
     expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("reports pre-registration absence without a provider mutation", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "proven-absent" });
+    await expect(
+      workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true }),
+    ).resolves.toMatchObject({ runtimeAbsent: true, providerChanged: false });
   });
 
   it("preserves routes when retained managed registration disappeared", async () => {
