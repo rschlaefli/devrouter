@@ -17,11 +17,11 @@ alternative. Missing or conflicting evidence remains a refusal. Positive
 pre-registration absence and retained-baseline recovery retain their contracts.
 
 Authority is an executable batch: source implementation, regression tests,
-configured reviews, ordinary task-branch commits/push and draft PR. Merge,
-release, installation and consumer mutations are withheld. The original task
-remains the sole runtime owner. Terminal delivery includes an exact tested
-revision and a conditional supported recovery command; live recovery is a
-separate producing-run proof. A legacy workspace is recoverable only if its
+configured reviews, ordinary task-branch commits/push and draft PR. The user
+subsequently authorized merge, release and dogfooding in the original task.
+The original task remains the sole runtime owner; global installation remains
+outside this batch. Delivery includes an exact tested revision and released
+package. Live recovery requires the original owner’s producing-run proof. A legacy workspace is recoverable only if its
 complete proof passes, even when its history still contains the profile.
 
 ## Execution details
@@ -82,24 +82,34 @@ failed proof rather than weakening it.
 
 ## Progress
 
-S1 committed as `5df8bf99e635a50a2812302f7e2f0b8282029a87`; S2 active.
-Planner Dalton APPROVED frozen draft. Executor Maxwell delivered disjoint tests;
-main corrected unmanaged compatibility and verified the full diff. Dedicated
-simplifier and slice reviewer are active; integrated final review pending.
+S1 committed as `5df8bf99e635a50a2812302f7e2f0b8282029a87`; source and documentation
+verified at `9a4ce99c41612935a90b8452507d010fea2cdae3`.
+[PR #94](https://github.com/rschlaefli/devrouter/pull/94) contains the complete fix.
+Planner Dalton APPROVED. Executor Maxwell delivered the disjoint regression tests;
+main corrected unmanaged compatibility and verified the full diff. Simplifier
+Erdos found no justified simplification. Slice reviewer Dewey passed the exact
+source/test range with no findings, independently running173 tests and typecheck.
+Integrated final review is running through the configured Claude CLI route.
 Optional AGY planning challenge failed before source access (read_file denied).
 
-Baseline0.0.74 fails the new seven-service regression with the reported complete
-population refusal. Fixed source passes173 focused tests. Full2241 tests passed
-with four workers before the last unmanaged classification preservation; final
-exact-revision CI/full checks are pending. An unrestricted parallel run timed out
-in an unrelated controller test. Node24.16.0 is the acceptance toolchain. Linux
-process tests are unavailable locally; CI supplies that environment. Docs policy,
-knowledge, Biome, Knip and typecheck pass; build/package smoke will be refreshed.
+The new seven-service regression fails on baseline0.0.74 with the reported
+complete-population refusal and passes the fixed source.173 focused tests pass.
+[CI34701335208 attempt2](https://github.com/rschlaefli/devrouter/actions/runs/34701335208)
+passed all2242 tests, Linux process tests, docs/knowledge, Biome, Knip, typecheck,
+build/package and controller/capacity qualification at9a4ce99. Attempt1 hit an
+unchanged80ms file-lock timing assertion. Two local5s timing failures plus that
+case passed a serial40-test recheck. Acceptance toolchain: Node24.16.0.
 
-Substantive slice size:607 additions/46 deletions across one source and two test
-files. One bounded lifecycle fix, no stack or additional package. The adjacent
-failure was found after PR93 live dogfooding; the historical profile evidence was
-missed by the prior initial-stop path, not introduced by PR93's absence exception.
-No PR exists yet. No consumer mutation, merge, release or installation performed.
-Read-only evidence supports conditional existing recovery, but canonical stop and
-fresh provider/routes proof remain the original runtime owner's responsibility.
+Substantive slice:607 additions/46 deletions across one source and two test files.
+The test delta covers preserved profile selection and consequential refusal/race
+contracts in existing suites, replacing obsolete initial-stop fixtures; no new
+module, dependency or schema. The follow-up arose while dogfooding
+[PR #93](https://github.com/rschlaefli/devrouter/pull/93).
+
+The authorized release step prepares0.0.75 in a separate release commit, then
+merges the reviewed package, verifies the merged result and publishes through CI.
+No command/configuration surface changed, so bundled onboarding guidance needs no
+rewrite. Version/upgrade checks and package smoke validate the release metadata.
+Read-only consumer evidence supports conditional existing recovery. Canonical
+stop, subsequent admission and source/index preservation remain the original
+runtime owner's producing-run acceptance. No consumer recovery is claimed here.
