@@ -66,6 +66,10 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
    Ephemeral bindings are exempt and consumer bindings are never rewritten.
    Unverifiable evidence refuses fail-closed; `doctor` reports the same
    comparison read-only as `repo.host-port-claims`.
+   After admission, ordinary `ensure` prepares TLS coverage for the resolved
+   proxy hostnames before provider startup or repository hooks. The existing
+   certificate lock preserves coverage for other checkouts; retained-runtime
+   repair keeps its infrastructure-free contract.
 6. Start or attach to the exact-path DevPod or Devsy workspace through `src/core/devpod-mutation.ts:startDevpodWorkspace` (or its Devsy dispatch), which serializes and revalidates provider ownership machine-wide. Contenders join a fair arrival-order queue, wait up to thirty minutes for the machine-global provider lock, and print one throttled stderr progress line every ten seconds while waiting; a timeout names the queue position or holder PID, the true lock-hold duration when known, and how long the contender waited.
 7. Prove the expected Compose overlay, app-container mount, Git identity, health, and unique upstream aliases through `validateWorkspaceContainers` and preflight polling.
 8. Run the managed repository adapter when applicable, atomically replace the checkout's proxy routes, prove that Traefik loaded desired file-provider routers and unloaded removed routers, and then verify HTTP readiness.

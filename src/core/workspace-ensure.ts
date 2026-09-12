@@ -68,6 +68,7 @@ import {
 import { loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, DEVROUTER_HOME, TCP_PROTOCOL_REGISTRY } from "./router";
+import { ensureTLSHostsCovered } from "./tls";
 import {
   ensureTraefikRoutesLoaded,
   ensureTraefikRoutesMatch,
@@ -1167,6 +1168,17 @@ export async function workspaceEnsure(
             "Claimed network repair requires exact retained-network reconciliation; automatic repair is unavailable.",
           );
       }
+      let earlyTlsRefreshed = false;
+      if (!options.repair) {
+        // Repository startup hooks may call namespaced HTTPS endpoints before routes publish.
+        claimLifecycleEffect();
+        earlyTlsRefreshed = (
+          await ensureTLSHostsCovered(
+            apps.map((app) => app.host),
+            { repoPath },
+          )
+        ).refreshed;
+      }
       if (managedPlan && !options.repair && !network) {
         if (
           !target.hadExactDevpod &&
@@ -1616,7 +1628,7 @@ export async function workspaceEnsure(
         devpodId,
         urls,
         recreated,
-        tlsRefreshed: publication.tlsRefreshed,
+        tlsRefreshed: earlyTlsRefreshed || publication.tlsRefreshed,
         ...(applicationReadiness ? { applicationReadiness } : {}),
         ...(managedRuntimeStatus ? { managedRuntime: managedRuntimeStatus } : {}),
       };
