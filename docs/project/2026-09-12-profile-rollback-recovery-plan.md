@@ -109,6 +109,6 @@ No adoption, state rewrite or runtime operation was performed.
 
 Delivery: [draft PR 96](https://github.com/rschlaefli/devrouter/pull/96); source only, no merge/release/install.
 Substantive source/test size before resolver simplification: 238 added / 17 removed lines.
-Reviewed source correction: 88082c7. Final CI and owner dogfood receipts are in the PR;
-consumer legacy recovery remains blocked independently of source delivery.
+Reviewed source correction: 88082c7. The PR tracks final CI; owner dogfood is pending.
+Consumer legacy recovery remains blocked independently of source delivery.
 S1 simplifier removed an unreachable empty-name branch; focused tests remain green.
