@@ -412,3 +412,14 @@ For host/docker runtime apps only:
 - `devrouter app exec --shell` is explicit and requires exactly one command string after `--`.
 - Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (`printenv DB_URL DB_HOST DB_PORT`) before migrate/seed.
 - A lock that cannot prove its owner fails closed and names the failing inspection stage, the exact lock path, and a portable reproduction command. Run the canonical command in a permitted host context; there is no identity fallback.
+
+### Stop after pre-registration failure
+
+If managed Devsy startup failed before registration, canonical `devrouter stop
+<path> --json` can prove absence for an exact ledger-owned linked checkout with
+no retained state. Devsy-only installations do not require installing DevPod;
+legacy local registry evidence must still be readable, complete and conflict-free.
+Success preserves `runtimeAbsent: true`. Live workers, unknown ownership,
+surviving containers or routes keep stop pending. Do not edit journals or
+provider state to bypass a refusal. Revalidate the original startup blocker
+before retrying ensure; retained-container identity drift needs separate proof.
