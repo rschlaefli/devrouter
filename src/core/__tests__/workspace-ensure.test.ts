@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -967,7 +968,7 @@ describe("workspaceEnsure", () => {
   });
 
   function mockDevsyCapture(events: string[], endpoint: unknown = "unix:///synthetic/docker.sock") {
-    mockManagedLifecycle({ events });
+    const runtime = mockManagedLifecycle({ events });
     vi.mocked(loadRuntimeConfig).mockReturnValue({
       config: managedRuntimeConfig(),
       workspace: "feature",
@@ -1009,6 +1010,7 @@ describe("workspaceEnsure", () => {
       featureDirectory: "/synthetic/features",
       containers: [],
     }));
+    return runtime;
   }
 
   it.each([
@@ -1113,6 +1115,88 @@ describe("workspaceEnsure", () => {
     expect(writeManagedRuntimeState).not.toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready" }),
     );
+  });
+
+  it.each([
+    "compatible",
+    "extra-service",
+    "extra-process",
+    "manual-drift",
+  ] as const)("preserves captured first-transition configuration across retry (%s)", async (scenario) => {
+    const runtime = mockDevsyCapture([]);
+    if (scenario !== "extra-service") runtime.runningServices.delete("redis");
+    if (scenario !== "extra-process") runtime.runningProcesses.delete("local-mcp");
+    let persisted: ManagedRuntimeState | undefined;
+    vi.mocked(readManagedRuntimeState).mockImplementation(() => persisted);
+    vi.mocked(writeManagedRuntimeState).mockImplementation((state) => {
+      persisted = structuredClone(state);
+    });
+    vi.mocked(markManagedRuntimeDegraded).mockImplementation((state) => {
+      persisted = { ...structuredClone(state), status: "degraded" };
+    });
+    const actual =
+      await vi.importActual<typeof import("../devcontainer-profile")>("../devcontainer-profile");
+    vi.mocked(inspectManagedDevcontainerConfig).mockImplementation(({ profile }) => {
+      const plan = managedPlanFor(profile?.devcontainerServices ?? ["litellm"]);
+      plan.contents = `// devrouter:managed devcontainer profile\n${JSON.stringify({ runServices: plan.desiredServices })}\n`;
+      plan.effectiveConfigSha256 = createHash("sha256").update(plan.contents).digest("hex");
+      return plan;
+    });
+    vi.mocked(writeManagedDevcontainerConfig).mockImplementation((plan) => {
+      fs.writeFileSync(plan.generatedPath, plan.contents);
+    });
+    vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockImplementation(
+      actual.inspectManagedDevcontainerGeneratedConfig,
+    );
+    const generatedPath = managedPlanFor(["litellm"]).generatedPath;
+    const originalAdapter = vi.mocked(runManagedPostStart).getMockImplementation()!;
+    const drift = '// devrouter:managed devcontainer profile\n{"manual":true}\n';
+    vi.mocked(runManagedPostStart).mockImplementationOnce(() => {
+      if (scenario === "manual-drift") fs.writeFileSync(generatedPath, drift);
+      throw new Error("Synthetic first adapter failure");
+    });
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Synthetic first adapter failure");
+    expect(persisted).toMatchObject({ status: "degraded", profile: "ai" });
+    expect(runtime.runningServices).toEqual(
+      new Set(["app", "postgres", ...(scenario === "extra-service" ? ["redis"] : [])]),
+    );
+    expect(runtime.runningProcesses).toEqual(
+      new Set(["app", ...(scenario === "extra-process" ? ["local-mcp"] : [])]),
+    );
+    const failedBytes = fs.readFileSync(generatedPath, "utf8");
+    if (scenario === "manual-drift") expect(failedBytes).toBe(drift);
+    else
+      expect(createHash("sha256").update(failedBytes).digest("hex")).toBe(
+        persisted?.effectiveConfigSha256,
+      );
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledOnce();
+    vi.mocked(runManagedPostStart).mockImplementation(originalAdapter);
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
+      mode: "managed",
+      status: "ready",
+    } as ManagedRuntimeStatus);
+    // The next invocation consumes the failed invocation's persisted state and file.
+    const retry = workspaceEnsure(tmpDir, {
+      repair: true,
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+    if (scenario === "compatible") {
+      await expect(retry).resolves.toMatchObject({ devpodId: "feature" });
+      expect(persisted?.status).toBe("ready");
+    } else {
+      await expect(retry).rejects.toThrow(
+        scenario === "extra-service"
+          ? "unexpected active Compose resources"
+          : scenario === "extra-process"
+            ? "unexpected or unproven process"
+            : "unchanged managed configuration",
+      );
+      expect(persisted?.status).toBe("degraded");
+    }
+    expect(fs.readFileSync(generatedPath, "utf8")).toBe(failedBytes);
   });
 
   it("does not invoke the adapter when ownership persistence fails", async () => {

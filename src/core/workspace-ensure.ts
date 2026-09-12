@@ -1759,6 +1759,16 @@ export async function workspaceEnsure(
                 linked,
                 previousState: previousManagedState,
               });
+            } else if (capturedStopState) {
+              // The durable degraded state describes the attempted generation.
+              // Keep its configuration while restoring the previous running resources.
+              if (
+                capturedStopState.sourceConfigSha256 !== managedPlan.sourceConfigSha256 ||
+                capturedStopState.effectiveConfigSha256 !== managedPlan.effectiveConfigSha256 ||
+                inspectManagedDevcontainerGeneratedConfig(managedPlan).status !== "valid"
+              ) {
+                throw new Error("Captured managed configuration changed during rollback.");
+              }
             } else if (managedRuntimeConfig) {
               restoreFirstTransitionManagedConfig({
                 repoPath,

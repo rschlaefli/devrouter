@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DevrouterApp, DevrouterConfig, DevrouterProfile } from "../../types";
 import {
   assertManagedContainerConfigUnchanged,
   inspectManagedDevcontainerConfig,
@@ -45,7 +46,7 @@ import {
   type ReliabilityOperationRecord,
   readReliabilityOperation,
 } from "../reliability-operation-store";
-import { loadRepoConfig, loadRuntimeConfig } from "../repo-config";
+import { loadRepoConfig, loadRuntimeConfig, resolveProfile } from "../repo-config";
 import { assertTraefikRoutesRemoved } from "../traefik-route-health";
 import { isLinkedWorktree, resolveWorktreeWorkspace } from "../workspace";
 import {
@@ -93,7 +94,11 @@ vi.mock("../devsy-workspaces", () => ({
   listDevsyWorkspaces: vi.fn(),
 }));
 vi.mock("../managed-runtime-state", () => ({ readManagedRuntimeState: vi.fn() }));
-vi.mock("../repo-config", () => ({ loadRepoConfig: vi.fn(), loadRuntimeConfig: vi.fn() }));
+vi.mock("../repo-config", async (original) => ({
+  ...(await original<typeof import("../repo-config")>()),
+  loadRepoConfig: vi.fn(),
+  loadRuntimeConfig: vi.fn(),
+}));
 vi.mock("../workspace", () => ({
   isLinkedWorktree: vi.fn(),
   resolveWorktreeWorkspace: vi.fn(),
@@ -497,8 +502,43 @@ function stepChatModel(state: ReliabilityState, event: ModelInput, nowMs = 100) 
 describe("interrupted initial managed Devsy start", () => {
   const chatServices = ["app", "db", "redis", "blob", "worker", "proxy", "docs"];
   const endpoint = "unix:///synthetic/docker.sock";
+  /** Raw repo config whose declared profiles the real resolver validates against. */
+  function profileConfig(profiles: string[]): DevrouterConfig {
+    const apps: DevrouterApp[] = chatServices.map((name) => ({
+      name,
+      dependencies: [],
+      protocol: "http",
+      runtime: "docker",
+      host: `${name}.localhost`,
+      docker: { service: name, internalPort: 3000, composeFiles: ["compose.yml"] },
+    }));
+    const declared: Record<string, DevrouterProfile> = Object.fromEntries(
+      profiles.map((name) => [
+        name,
+        { apps: ["app"], processes: [name], devcontainerServices: ["db"] },
+      ]),
+    );
+    return {
+      version: 1,
+      project: { name: "chat-env" },
+      apps,
+      managedRuntime: {
+        processes: ["chat", "manage"],
+        devcontainer: { baseServices: [], profileServices: ["db", "redis"] },
+      },
+      profiles: declared,
+    };
+  }
+
+  /** The canonical name the real resolver derives for a recorded raw selection. */
+  function canonicalOf(recorded: string, profiles = ["chat", "manage"]): string {
+    return resolveProfile(profileConfig(profiles), recorded).name;
+  }
+
+  const recordedSelection = "manage,chat";
+  const canonicalSelection = canonicalOf(recordedSelection);
   const chatRuntime = {
-    profile: "chat",
+    profile: canonicalSelection,
     workspace: undefined as string | undefined,
     resolvedProfile: { processes: ["chat"] },
     config: {
@@ -530,7 +570,7 @@ describe("interrupted initial managed Devsy start", () => {
   let record: ReliabilityOperationRecord;
 
   /** A launched seven-service ensure cancelled before any completion result exists. */
-  function cancelledChatEnsure(): ReliabilityOperationRecord {
+  function cancelledChatEnsure(selection = recordedSelection): ReliabilityOperationRecord {
     const chatConsumer = { id: "chat-agent", requiredCapabilities: ["api"], pinned: false };
     let model = createReliabilityState("chat-env", 1, "manual");
     const advance = (event: ModelInput) => {
@@ -541,7 +581,7 @@ describe("interrupted initial managed Devsy start", () => {
       kind: "ensure",
       key: "request",
       operationId: "op",
-      profile: "chat",
+      profile: selection,
       consumer: chatConsumer,
       runtimeRunning: false,
     });
@@ -589,9 +629,10 @@ describe("interrupted initial managed Devsy start", () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
     vi.mocked(readReliabilityOperation).mockImplementation(() => structuredClone(record));
+    vi.mocked(loadRepoConfig).mockReturnValue(profileConfig(["chat", "manage"]));
     vi.mocked(loadRuntimeConfig).mockImplementation(
       (_repoPath, _workspace, profile) =>
-        (profile === "chat" ? chatRuntime : defaultRuntime) as never,
+        (profile === canonicalSelection ? chatRuntime : defaultRuntime) as never,
     );
     vi.mocked(inspectManagedDevcontainerConfig).mockImplementation(
       (options) =>
@@ -623,8 +664,10 @@ describe("interrupted initial managed Devsy start", () => {
       workspace: null,
       provider: "devsy",
     });
-    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "", "chat");
-    expect(vi.mocked(loadRuntimeConfig).mock.calls.every((call) => call[2] === "chat")).toBe(true);
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "", canonicalSelection);
+    expect(
+      vi.mocked(loadRuntimeConfig).mock.calls.every((call) => call[2] === canonicalSelection),
+    ).toBe(true);
     expect(inspectManagedStopContainers).toHaveBeenCalledWith("owned-project", endpoint);
     expect(inspectManagedStopWorkspaceIds).toHaveBeenCalledWith(endpoint, plan.composeDirectory);
     expect(stopPinnedManagedContainer).toHaveBeenCalledTimes(7);
@@ -706,8 +749,78 @@ describe("interrupted initial managed Devsy start", () => {
   it("requires the recorded managed profile instead of the default selection", () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({ ...chatRuntime, profile: "full" } as never);
     expect(run).toThrow("recorded managed profile");
-    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "", "chat");
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "", canonicalSelection);
     expect(stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+
+  /** Point the config and runtime mocks at one declared profile set and selection. */
+  function configureProfiles(declared: string[], raw: string, canonical: string) {
+    vi.mocked(loadRepoConfig).mockReturnValue(profileConfig(declared));
+    vi.mocked(loadRuntimeConfig).mockImplementation(
+      (_repoPath, _workspace, profile) =>
+        (profile === canonical ? { ...chatRuntime, profile: canonical } : defaultRuntime) as never,
+    );
+    record = cancelledChatEnsure(raw);
+  }
+
+  it.each([
+    ["reversed", "manage,chat"],
+    ["repeated", "manage,chat,manage"],
+    ["padded", " manage , chat "],
+  ])("stops the recorded population for a %s combined selection", (_label, raw) => {
+    record = cancelledChatEnsure(raw);
+    expect(canonicalOf(raw)).toBe(canonicalSelection);
+    const journal = structuredClone(record);
+    expect(run()).toBe(true);
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "", canonicalSelection);
+    expect(
+      vi.mocked(loadRuntimeConfig).mock.calls.every((call) => call[2] === canonicalSelection),
+    ).toBe(true);
+    expect(stopPinnedManagedContainer).toHaveBeenCalledTimes(chatServices.length);
+    expect(record.worker).toBeNull();
+    expect(record.state.operationHistory).toEqual(journal.state.operationHistory);
+    // The recorded entry keeps its raw authority while the journal only advances.
+    expect(record.state.operationHistory[0].profile).toBe(raw);
+    expect(record.state.desired).toBe("stopped-by-user");
+    expect(record.state.phase).toBe("stopping");
+    expect(record.revision).toBe(journal.revision + chatServices.length);
+    expect(record.effectSequence).toBe(chatServices.length);
+  });
+
+  it("stops the recorded population for a single profile selection", () => {
+    configureProfiles(["chat"], "chat", "chat");
+    expect(canonicalOf("chat", ["chat"])).toBe("chat");
+    expect(run()).toBe(true);
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "", "chat");
+    expect(stopPinnedManagedContainer).toHaveBeenCalledTimes(chatServices.length);
+  });
+
+  it("refuses a recorded selection whose profile no longer exists", () => {
+    vi.mocked(loadRepoConfig).mockReturnValue(profileConfig(["chat"]));
+    refuse(() => {});
+    expect(loadRuntimeConfig).not.toHaveBeenCalled();
+  });
+
+  it("accepts an added profile while the stop observes", () => {
+    // Both reads resolve the recorded selection to the same canonical name, so a
+    // config that only gains an unrelated profile keeps its recorded identity.
+    let reads = 0;
+    vi.mocked(loadRepoConfig).mockImplementation(() =>
+      reads++ < 2 ? profileConfig(["chat", "manage"]) : profileConfig(["chat", "manage", "docs"]),
+    );
+    expect(canonicalOf(recordedSelection, ["chat", "manage", "docs"])).toBe(canonicalSelection);
+    expect(run()).toBe(true);
+    expect(stopPinnedManagedContainer).toHaveBeenCalledTimes(chatServices.length);
+  });
+
+  it("refuses a changed selection resolution while the stop observes", () => {
+    // Remove the name after the initial managed-config and canonical-name reads.
+    let reads = 0;
+    vi.mocked(loadRepoConfig).mockImplementation(() =>
+      reads++ < 2 ? profileConfig(["chat", "manage"]) : profileConfig(["chat"]),
+    );
+    refuse(() => {});
+    expect(loadRuntimeConfig).toHaveBeenCalledOnce();
   });
 
   it("refuses generated configuration drift", () => {
@@ -852,7 +965,7 @@ describe("interrupted initial managed Devsy start", () => {
     vi.mocked(inspectWorkspaceOwnership).mockReturnValue({ ownerStatus: "present" } as never);
     vi.mocked(loadRuntimeConfig).mockImplementation(
       (_repoPath, _workspace, profile) =>
-        (profile === "chat"
+        (profile === canonicalSelection
           ? { ...chatRuntime, workspace: "chat-ws" }
           : { ...defaultRuntime, workspace: "chat-ws" }) as never,
     );
@@ -863,7 +976,7 @@ describe("interrupted initial managed Devsy start", () => {
       workspace: "chat-ws",
       provider: "devsy",
     });
-    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "chat-ws", "chat");
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "chat-ws", canonicalSelection);
     expect(assertManagedContainerConfigUnchanged).toHaveBeenCalledWith(
       expect.objectContaining({
         workspace: { token: "chat-ws", gitCommonDir: "/synthetic/common" },

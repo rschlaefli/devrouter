@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.76] - 2026-09-12
+
+### Fixed
+
+- Initial managed stop resolves historical combined profile selections to their
+  canonical name while preserving raw journal authority. Reordered, repeated and
+  whitespace-padded selections no longer cause a false profile mismatch.
+- First-transition rollback preserves generated configuration after capturing a
+  degraded stop baseline, while restoring prior running resources. Repair still
+  refuses manual configuration drift, unexpected resources and unknown ownership.
+  This prevents new inconsistent rollback state; it does not adopt historical
+  generated-file mismatches without producing evidence.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.76.md
+
 ## [0.0.75] - 2026-09-12
 
 ### Fixed
