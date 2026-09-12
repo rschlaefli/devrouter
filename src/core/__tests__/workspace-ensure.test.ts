@@ -43,6 +43,7 @@ import { inspectLegacyNetworkCapacity } from "../network-diagnostics";
 import * as reliabilityLifecycle from "../reliability-lifecycle";
 import { loadRepoConfig, loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
+import { ensureTLSHostsCovered } from "../tls";
 import {
   ensureTraefikRoutesLoaded,
   ensureTraefikRoutesMatch,
@@ -407,6 +408,13 @@ describe("workspaceEnsure", () => {
     vi.mocked(ensureTraefikRoutesRemoved).mockResolvedValue({ restarted: false });
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue({ kind: "unmanaged" });
     vi.mocked(runManagedPostStart).mockImplementation(() => undefined);
+    vi.mocked(ensureTLSHostsCovered)
+      .mockReset()
+      .mockImplementation(async () => ({
+        refreshed: false,
+        uncoveredHosts: [],
+        certificateHosts: ["*.localhost"],
+      }));
     mockDevsyUp();
   });
 
@@ -2957,6 +2965,7 @@ describe("workspaceEnsure", () => {
         workspace: { token: "feature", gitCommonDir: gitDir },
       }),
     );
+    expect(ensureTLSHostsCovered).not.toHaveBeenCalled();
   });
 
   it("refuses loudly when fixed host-port evidence cannot be verified", async () => {
@@ -3008,5 +3017,131 @@ describe("workspaceEnsure", () => {
     ).toHaveLength(0);
     expect(events).not.toContain("config-write");
     expect(events).not.toContain("state-write");
+    expect(ensureTLSHostsCovered).not.toHaveBeenCalled();
+  });
+
+  describe("managed TLS host coverage timing", () => {
+    function managedTlsRuntime(): void {
+      vi.mocked(loadRuntimeConfig).mockReturnValue({
+        config: managedRuntimeConfig(),
+        workspace: "feature",
+        profile: "ai",
+        resolvedProfile: {
+          apps: ["chat"],
+          devcontainerServices: ["redis"],
+          processes: ["app", "local-mcp"],
+        },
+      });
+    }
+
+    function tlsCoverage(refreshed: boolean) {
+      return {
+        refreshed,
+        uncoveredHosts: refreshed ? ["app.feature.localhost"] : [],
+        certificateHosts: ["*.localhost"],
+      };
+    }
+
+    it("holds provider startup, config write, adapter, and publication while early TLS coverage is pending", async () => {
+      let releaseTls: () => void = () => undefined;
+      const tlsGate = new Promise<void>((resolve) => {
+        releaseTls = resolve;
+      });
+      let markFirstCall: () => void = () => undefined;
+      const firstCallStarted = new Promise<void>((resolve) => {
+        markFirstCall = resolve;
+      });
+      managedTlsRuntime();
+      mockManagedLifecycle();
+      vi.mocked(detectHostPortClaimConflicts).mockReturnValue([]);
+      vi.mocked(ensureTLSHostsCovered).mockImplementation(async () => {
+        markFirstCall();
+        await tlsGate;
+        return tlsCoverage(false);
+      });
+
+      const pending = workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+      await firstCallStarted;
+
+      expect(devpodUpCalls()).toHaveLength(0);
+      expect(startExactManagedServices).not.toHaveBeenCalled();
+      expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+      expect(runManagedPostStart).not.toHaveBeenCalled();
+      expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+
+      releaseTls();
+      await expect(pending).resolves.toMatchObject({ profile: "ai" });
+    });
+
+    it("resolves namespaced HTTP and TCP app hosts before provider startup", async () => {
+      const events: string[] = [];
+      mockLifecycle({ events });
+      vi.mocked(ensureTLSHostsCovered).mockImplementation(async () => {
+        events.push("tls");
+        return tlsCoverage(false);
+      });
+
+      await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+
+      expect(ensureTLSHostsCovered).toHaveBeenCalledTimes(2);
+      expect(ensureTLSHostsCovered).toHaveBeenNthCalledWith(
+        1,
+        ["app.feature.localhost", "db.feature.localhost"],
+        expect.objectContaining({ repoPath: tmpDir }),
+      );
+      expect(events.indexOf("tls")).toBeLessThan(events.indexOf("devpod-up"));
+    });
+
+    it.each([
+      { scope: "early-only", early: true, late: false, refreshed: true },
+      { scope: "late-only", early: false, late: true, refreshed: true },
+      { scope: "neither", early: false, late: false, refreshed: false },
+    ])("reports tlsRefreshed for $scope coverage refresh", async ({ early, late, refreshed }) => {
+      managedTlsRuntime();
+      mockManagedLifecycle();
+      vi.mocked(detectHostPortClaimConflicts).mockReturnValue([]);
+      vi.mocked(ensureTLSHostsCovered)
+        .mockResolvedValueOnce(tlsCoverage(early))
+        .mockResolvedValueOnce(tlsCoverage(late));
+
+      const result = await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+
+      expect(ensureTLSHostsCovered).toHaveBeenCalledTimes(2);
+      expect(result.tlsRefreshed).toBe(refreshed);
+    });
+
+    it("fails before provider, config, adapter, and candidate publication while still detaching prior routes", async () => {
+      managedTlsRuntime();
+      mockManagedLifecycle();
+      vi.mocked(detectHostPortClaimConflicts).mockReturnValue([]);
+      vi.mocked(readManagedRuntimeState).mockReturnValue({
+        ...managedPreviousState(),
+        composeProject: "disappeared-project",
+      });
+      vi.mocked(ensureTLSHostsCovered).mockRejectedValue(new Error("mkcert unavailable"));
+
+      await expect(
+        workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      ).rejects.toThrow("mkcert unavailable");
+
+      expect(devpodUpCalls()).toHaveLength(0);
+      expect(startExactManagedServices).not.toHaveBeenCalled();
+      expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+      expect(runManagedPostStart).not.toHaveBeenCalled();
+      expect(replaceHostRoutesForRepo).toHaveBeenCalledWith(tmpDir, []);
+      expect(
+        vi.mocked(replaceHostRoutesForRepo).mock.calls.filter(([, routes]) => routes.length > 0),
+      ).toHaveLength(0);
+    });
+
+    it("never refreshes TLS coverage during repair", async () => {
+      mockRepair();
+
+      await expect(
+        workspaceEnsure(tmpDir, { repair: true, containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      ).resolves.toMatchObject({ profile: "old" });
+
+      expect(ensureTLSHostsCovered).not.toHaveBeenCalled();
+    });
   });
 });
