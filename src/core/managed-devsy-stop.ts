@@ -273,8 +273,8 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
       )
     )
       throw new Error("Initial managed stop found conflicting provider ownership.");
-    // Re-validate the recorded selection on every observation so a changed
-    // canonical profile or resolved dimensions refuses the stop.
+    // Re-resolve to reject removed profile names; the comparison defensively
+    // asserts canonical identity. Resource dimensions are compared below.
     if (canonicalProfile(authority.entry.profile) !== canonicalName)
       throw new Error("Initial managed stop configuration changed.");
     const currentRuntime = loadRuntimeConfig(repoPath, workspace ?? "", canonicalName);

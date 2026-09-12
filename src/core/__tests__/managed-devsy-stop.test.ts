@@ -806,7 +806,7 @@ describe("interrupted initial managed Devsy start", () => {
     // config that only gains an unrelated profile keeps its recorded identity.
     let reads = 0;
     vi.mocked(loadRepoConfig).mockImplementation(() =>
-      reads++ === 0 ? profileConfig(["chat", "manage"]) : profileConfig(["chat", "manage", "docs"]),
+      reads++ < 2 ? profileConfig(["chat", "manage"]) : profileConfig(["chat", "manage", "docs"]),
     );
     expect(canonicalOf(recordedSelection, ["chat", "manage", "docs"])).toBe(canonicalSelection);
     expect(run()).toBe(true);
@@ -814,13 +814,13 @@ describe("interrupted initial managed Devsy start", () => {
   });
 
   it("refuses a changed selection resolution while the stop observes", () => {
-    // The second read no longer resolves the recorded selection, so the stop
-    // refuses after re-reading the config instead of stopping on a stale profile.
+    // Remove the name after the initial managed-config and canonical-name reads.
     let reads = 0;
     vi.mocked(loadRepoConfig).mockImplementation(() =>
-      reads++ === 0 ? profileConfig(["chat", "manage"]) : profileConfig(["chat"]),
+      reads++ < 2 ? profileConfig(["chat", "manage"]) : profileConfig(["chat"]),
     );
     refuse(() => {});
+    expect(loadRuntimeConfig).toHaveBeenCalledOnce();
   });
 
   it("refuses generated configuration drift", () => {
