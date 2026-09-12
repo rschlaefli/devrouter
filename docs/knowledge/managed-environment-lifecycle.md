@@ -240,7 +240,9 @@ command uses, and never supersedes an operation the queue still owns.
 ## Stop, delete, and inspect
 
 If managed startup is interrupted before a runtime baseline exists, initial stop
-uses the current drained ensure's profile from operation history. It requires
+uses the current drained ensure's profile from operation history. Combined
+selections pass through the normal profile resolver for canonical comparison;
+the raw journal authority remains unchanged. It requires
 no remaining worker, stopping intent, the exact selected service population,
 matching generated configuration and recorded Compose hashes, and stable local
 provider/daemon ownership. It revalidates these proofs around each pinned
@@ -291,6 +293,13 @@ exact container IDs and complete membership without reading mutable repository
 configuration. Each stop effect claims the current lifecycle fence. Final
 settlement revalidates the same baseline and requires zero exact routes. A present
 invalid baseline never falls back or grants ownership of replacement containers.
+
+After a first transition captures degraded stop ownership, rollback preserves the
+captured generated configuration while restoring the prior running resources.
+It refuses generated drift rather than overwriting it. Same-profile repair still
+requires exact configuration and resource proofs; prior out-of-profile resources
+can therefore prevent repair. Legacy contradictory configuration without a
+producing receipt is not adopted automatically.
 
 A valid baseline also permits stop for a ledger-owned linked checkout with missing
 registration when every saved ID is positively absent on the saved daemon and
