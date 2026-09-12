@@ -36,7 +36,7 @@ import { stopFromManagedBaseline } from "./managed-stop-recovery";
 import { claimLifecycleEffect } from "./reliability-context";
 import { reliabilityFence } from "./reliability-contract";
 import { readReliabilityOperation } from "./reliability-operation-store";
-import { loadRepoConfig, loadRuntimeConfig } from "./repo-config";
+import { loadRepoConfig, loadRuntimeConfig, resolveProfile } from "./repo-config";
 import { proxyAppsFromConfig } from "./route-publication";
 import { assertTraefikRoutesRemoved } from "./traefik-route-health";
 import { isLinkedWorktree, resolveWorktreeWorkspace, sameWorkspacePath } from "./workspace";
@@ -193,6 +193,15 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
   const authority = readAuthority();
   const gitCommonDir = linked ? resolveGitCommonDir(repoPath) : undefined;
   const workspaceEnv = workspace && gitCommonDir ? { token: workspace, gitCommonDir } : undefined;
+  // The journal records the raw ensure selection, which may combine, reorder or
+  // duplicate profile names. Only the canonical name identifies the managed
+  // selection, so resolve it through the config resolver against the current
+  // profiles; a removed or renamed name refuses instead of widening selection.
+  function canonicalProfile(recorded: string): string {
+    const resolved = resolveProfile(loadRepoConfig(repoPath), recorded);
+    if (!resolved.name) throw new Error("Initial managed stop requires the recorded profile.");
+    return resolved.name;
+  }
   const registration = () => {
     resetWorkspaceRuntimeCaches();
     if (resolveWorkspaceRuntimeOrDefault(repoPath) !== "devsy")
@@ -215,8 +224,9 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
     }
     return owner.workspace;
   };
-  const runtime = loadRuntimeConfig(repoPath, workspace ?? "", authority.entry.profile);
-  if (!runtime.config.managedRuntime || runtime.profile !== authority.entry.profile)
+  const canonicalName = canonicalProfile(authority.entry.profile);
+  const runtime = loadRuntimeConfig(repoPath, workspace ?? "", canonicalName);
+  if (!runtime.config.managedRuntime || runtime.profile !== canonicalName)
     throw new Error("Initial managed stop requires the recorded managed profile.");
   const owner = registration();
   proveLocalDockerSelection(owner);
@@ -265,7 +275,11 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
       )
     )
       throw new Error("Initial managed stop found conflicting provider ownership.");
-    const currentRuntime = loadRuntimeConfig(repoPath, workspace ?? "", authority.entry.profile);
+    // Re-validate the recorded selection on every observation so a changed
+    // canonical profile or resolved dimensions refuses the stop.
+    if (canonicalProfile(authority.entry.profile) !== canonicalName)
+      throw new Error("Initial managed stop configuration changed.");
+    const currentRuntime = loadRuntimeConfig(repoPath, workspace ?? "", canonicalName);
     const currentPlan = inspectManagedDevcontainerConfig({
       repoPath,
       config: currentRuntime.config,
@@ -273,7 +287,7 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
       linked,
     });
     if (
-      currentRuntime.profile !== authority.entry.profile ||
+      currentRuntime.profile !== canonicalName ||
       !isDeepStrictEqual(currentRuntime.resolvedProfile, runtime.resolvedProfile) ||
       !isDeepStrictEqual(currentPlan, plan) ||
       inspectManagedDevcontainerGeneratedConfig(currentPlan).status !== "valid"
