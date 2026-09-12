@@ -59,3 +59,28 @@ next-ensure admission after proven stop. Receipt changes leave stop pending.
 Provider and Docker tests cover missing tools, competing ownership, incomplete
 observations and surviving resources at their narrow seams. These synthetic
 checks do not prove that any particular consumer recovered.
+
+## Cancellation after provider startup
+
+A later startup can pass absence recovery and still be cancelled during provider
+initialization, before a managed runtime baseline exists. The active journal
+profile is cleared by stop, but the matching ensure entry in operation history
+retains it. Reading only the active field incorrectly suggests that all profile
+evidence is lost; loading the default profile then requires services that the
+selected profile never requested.
+
+Initial stop reads the exact drained ensure's historical profile under the
+existing lifecycle and provider locks. It validates the selected generated
+configuration, each container's recorded Compose hash, exact selected service
+population, provider runner binding and pinned Docker daemon before every stop.
+Own journal effect-counter increments are allowed; changes to the authority,
+configuration or population refuse further effects. A stopped container that
+restarts also refuses further cleanup.
+
+This supports older interrupted starts when their operation history and full
+provider proof survive. It does not manufacture a new receipt or reconstruct
+all historical dispatch bytes. Missing history, incomplete population or
+unreadable configuration remains a blocker; do not change the consumer default
+profile, manually write state or bypass canonical stop. The invoking environment
+must reproduce the original non-secret Compose inputs for hash verification.
+Synthetic regression proof and read-only hash checks do not prove live cessation.

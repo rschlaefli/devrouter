@@ -82,6 +82,24 @@ failed proof rather than weakening it.
 
 ## Progress
 
-Planning complete; implementation pending. Planner Dalton approved the minimal
-journal evidence direction; frozen-draft challenge APPROVED. No PR exists yet.
-Substantive size: 0 lines. No consumer mutations or runtime watchers.
+S1 committed as `5df8bf99e635a50a2812302f7e2f0b8282029a87`; S2 active.
+Planner Dalton APPROVED frozen draft. Executor Maxwell delivered disjoint tests;
+main corrected unmanaged compatibility and verified the full diff. Dedicated
+simplifier and slice reviewer are active; integrated final review pending.
+Optional AGY planning challenge failed before source access (read_file denied).
+
+Baseline0.0.74 fails the new seven-service regression with the reported complete
+population refusal. Fixed source passes173 focused tests. Full2241 tests passed
+with four workers before the last unmanaged classification preservation; final
+exact-revision CI/full checks are pending. An unrestricted parallel run timed out
+in an unrelated controller test. Node24.16.0 is the acceptance toolchain. Linux
+process tests are unavailable locally; CI supplies that environment. Docs policy,
+knowledge, Biome, Knip and typecheck pass; build/package smoke will be refreshed.
+
+Substantive slice size:607 additions/46 deletions across one source and two test
+files. One bounded lifecycle fix, no stack or additional package. The adjacent
+failure was found after PR93 live dogfooding; the historical profile evidence was
+missed by the prior initial-stop path, not introduced by PR93's absence exception.
+No PR exists yet. No consumer mutation, merge, release or installation performed.
+Read-only evidence supports conditional existing recovery, but canonical stop and
+fresh provider/routes proof remain the original runtime owner's responsibility.
