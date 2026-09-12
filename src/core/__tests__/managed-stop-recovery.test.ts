@@ -36,6 +36,8 @@ const fixture = vi.hoisted(() => ({
   competitors: [] as Array<{ id: string; source: { localFolder: string } }>,
   ownership: "present",
 }));
+vi.mock("../host-routes", () => ({ listHostRouteState: vi.fn() }));
+vi.mock("../traefik-route-health", () => ({ assertTraefikRoutesRemoved: vi.fn() }));
 vi.mock("../router", () => ({
   get DEVROUTER_HOME() {
     return fixture.home;

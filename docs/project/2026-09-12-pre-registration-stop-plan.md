@@ -100,5 +100,20 @@ Finish with same-head CI and the exact supported local built CLI stop command.
   fails with `Initial managed stop requires one exact Devsy registration.`
 - Planner round 1: REVISE. Accepted pinned local daemon, strict provider evidence,
   captured settlement receipt, explicit ownership and portfolio findings above.
-- Optional AGY plan challenge pending; native planner round 2 APPROVED.
-- Tests, implementation, reviews and delivery remain pending.
+- Native planner round 2 APPROVED. Optional AGY challenge was unavailable:
+  headless read_file permission was denied; no provider permission was bypassed.
+- Implemented the shared pinned proof, strict provider error handling, result
+  propagation and final settlement receipt comparison. Public primitives are
+  unchanged: canonical stop supplies the existing stop-proof event only after
+  absence evidence; no new command, state or owner was introduced.
+- Native checks pass on Node 24.16.0 / pnpm 11.6.0: docs policy, knowledge,
+  Biome, Knip, typecheck, 2,191 Vitest tests across 142 files with four workers,
+  build and package smoke. The unchanged controller-session test timed out
+  under default local parallelism, passed alone and in the bounded suite.
+  Linux /proc shell tests skip on macOS; CI remains required.
+- Opengrep: 210 rules across the five changed production files, zero findings.
+- Semantic scope is 465 added and 6 removed source/test lines before review;
+  the additional baseline-recovery test file needed two import-boundary mocks.
+  No existing production comments or unrelated formatting were changed.
+- Required immutable reviews and draft delivery remain pending. Consumer
+  recovery remains outside this package and requires live absence proof.

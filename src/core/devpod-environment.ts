@@ -595,6 +595,61 @@ export function inspectManagedStopWorkspaceIds(
   return ids;
 }
 
+/** Prove checkout absence from a complete, pinned Docker container population. */
+export function assertManagedStopCheckoutAbsent(endpoint: string, repoPath: string): void {
+  const list = () => {
+    const ids = parseDockerLines(
+      runManagedStopDocker(["ps", "-a", "--no-trunc", "--format", "{{.ID}}"], endpoint),
+    );
+    if (ids.length > 256) throw new Error("Managed stop population exceeds its bound.");
+    ids.forEach(assertFullContainerId);
+    assertUniqueContainerIds(ids);
+    return ids;
+  };
+  const ids = list();
+  const seen: string[] = [];
+  const labels = [
+    "com.docker.compose.project.working_dir",
+    "devcontainer.local_folder",
+    "vsch.local.folder",
+  ];
+  const template =
+    '{"id":{{json .Id}},"labels":{"com.docker.compose.project.working_dir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"devcontainer.local_folder":{{json (index .Config.Labels "devcontainer.local_folder")}},"vsch.local.folder":{{json (index .Config.Labels "vsch.local.folder")}}},"mounts":[{{range $i, $m := .Mounts}}{{if $i}},{{end}}{"Type":{{json $m.Type}},"Source":{{json $m.Source}}}{{end}}]}';
+  if (ids.length) {
+    for (const line of parseDockerLines(
+      runManagedStopDocker(["inspect", "--format", template, ...ids], endpoint),
+    )) {
+      const value: unknown = parseManagedStopJson(line);
+      if (!isRecord(value) || !isRecord(value.labels) || !Array.isArray(value.mounts))
+        throw new Error("Managed stop checkout inspection is malformed.");
+      assertFullContainerId(value.id);
+      seen.push(value.id);
+      for (const label of labels) {
+        const field = value.labels[label];
+        if (field !== null && typeof field !== "string")
+          throw new Error("Managed stop checkout labels are incomplete.");
+        if (
+          typeof field === "string" &&
+          sameWorkspacePath(
+            field,
+            label === labels[0] ? path.join(repoPath, ".devcontainer") : repoPath,
+          )
+        )
+          throw new Error("Managed stop observed a remaining checkout container.");
+      }
+      for (const mount of value.mounts) {
+        if (!isRecord(mount) || typeof mount.Type !== "string" || typeof mount.Source !== "string")
+          throw new Error("Managed stop checkout mounts are incomplete.");
+        if (mount.Type === "bind" && sameWorkspacePath(mount.Source, repoPath))
+          throw new Error("Managed stop observed a remaining checkout mount.");
+      }
+    }
+  }
+  assertUniqueContainerIds(seen);
+  requireSameContainerPopulation(ids, seen);
+  requireSameContainerPopulation(ids, list());
+}
+
 function hasExactManagedStopMissingObjectError(stderr: unknown, id: string): boolean {
   if (typeof stderr !== "string") return false;
   const line = stderr.endsWith("\r\n")

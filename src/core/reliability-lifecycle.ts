@@ -34,6 +34,7 @@ import { withMutationLock as withDevsyMutationLock } from "./devsy-mutation";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { processBirthIdentity } from "./file-lock";
 import { listHostRouteState } from "./host-routes";
+import { proveInitialManagedDevsyAbsence } from "./managed-devsy-stop";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
 import { managedStopRouteReferences, proveManagedStop } from "./managed-stop-recovery";
 import { claimLifecycleEffect, installLifecycleEffectClaim } from "./reliability-context";
@@ -87,6 +88,7 @@ let activeWorker: LifecycleWorkerRequest | undefined;
 let cancelled = false;
 let lockHeld = false;
 let stopProjects: string[] = [];
+let initialStopAbsence: ReturnType<typeof proveInitialManagedDevsyAbsence>;
 let stopBaselineState: ManagedRuntimeState | undefined;
 
 const BUSY_LIFECYCLE_WAIT_MS = 30 * 60 * 1000;
@@ -1228,6 +1230,10 @@ export async function executeLifecycleWorker<T>(
           request.repoPath,
           request.identity.workspace ?? undefined,
         );
+        if (!retained && request.identity.provider === "devsy")
+          initialStopAbsence = withDevsyMutationLock("Verify initial stop", request.repoPath, () =>
+            proveInitialManagedDevsyAbsence(request.repoPath),
+          );
         if (retained?.stopBaseline) {
           stopBaselineState = retained;
           withDevsyMutationLock("Verify retained stop", request.repoPath, () =>
@@ -1344,6 +1350,14 @@ export function proveLifecycleStopped(): void {
     throw new Error("Full stop proof requires an explicit stop worker.");
   const settle = () => {
     claimLifecycleEffect();
+    if (
+      initialStopAbsence &&
+      !isDeepStrictEqual(
+        proveInitialManagedDevsyAbsence(request.repoPath, initialStopAbsence.record.devpodId),
+        initialStopAbsence,
+      )
+    )
+      throw new Error("Initial managed stop absence evidence changed before settlement.");
     if (stopBaselineState) {
       const proof = proveManagedStop(stopBaselineState);
       if (proof.containers.some((container) => container.state.Running))
@@ -1424,7 +1438,7 @@ export function proveLifecycleStopped(): void {
       });
     }
   };
-  if (stopBaselineState)
-    withDevsyMutationLock("Settle retained stop", stopBaselineState.repoPath, settle);
+  if (stopBaselineState || initialStopAbsence)
+    withDevsyMutationLock("Settle managed stop", request.repoPath, settle);
   else settle();
 }

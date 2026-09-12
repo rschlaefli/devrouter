@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
   inspectDevsyWorkspaceOwnership,
   listDevsyWorkspaces,
@@ -190,5 +191,28 @@ describe("Devsy workspace adapter", () => {
     expect(() =>
       selectDevsyWorkspace([exact, { ...exact, id: "feature-2" }], "/repo/trees/feature"),
     ).toThrow(/Multiple Devsy workspaces/);
+  });
+});
+
+describe("Devsy runtime absence", () => {
+  it.each([
+    new Error("workspace not found"),
+    Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
+  ])("does not turn a failed status process into absence", (error) => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: null,
+      error,
+      stdout: "",
+      stderr: "workspace not found",
+    } as never);
+    expect(inspectDevsyRuntimeAbsence("fixture")).toBe(false);
+  });
+  it("accepts a definitive provider not-found exit", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: "workspace not found",
+    } as never);
+    expect(inspectDevsyRuntimeAbsence("fixture")).toBe(true);
   });
 });

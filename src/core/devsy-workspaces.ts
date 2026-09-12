@@ -137,10 +137,11 @@ export function inspectDevsyRuntimeAbsence(devsyId: string): boolean {
     encoding: "utf-8",
     timeout: 10_000,
   });
-  if (!result.error && result.status === 0) {
+  if (result.error || result.status === null) return false;
+  if (result.status === 0) {
     return parseDevsyRuntimeStatus(result.stdout, devsyId) === "not-found";
   }
-  const output = [result.error?.message, result.stdout, result.stderr].filter(Boolean).join("\n");
+  const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
   return /workspace not found/i.test(output);
 }
 

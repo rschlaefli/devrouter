@@ -572,6 +572,16 @@ describe("workspaceStop", () => {
     expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
   });
 
+  it("reports pre-registration absence without a provider mutation", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "proven-absent" });
+    await expect(
+      workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true }),
+    ).resolves.toMatchObject({ runtimeAbsent: true, providerChanged: false });
+  });
+
   it("preserves routes when retained managed registration disappeared", async () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
