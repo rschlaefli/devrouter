@@ -94,7 +94,7 @@ simplification; safety review passed. S1 and integrated reviews pending.
 
 Typecheck, Biome, Knip, documentation checks, build and package smoke passed.
 Concurrent full-suite runs each hit one unchanged controller timing timeout;
-each affected suite passed in isolation. A bounded-concurrency full run is pending.
+each affected suite passed in isolation. The full suite passed all 2253 tests with two workers.
 Linux process-helper checks skip on macOS; CI supplies Linux coverage. No runtime
 smoke performed because consumer lifecycle belongs to its owning task.
 
@@ -104,4 +104,6 @@ provenance. Supported canonical stop with a valid retained stop baseline contain
 the runtime while preserving the checkout; same-checkout resume is blocked.
 No adoption, state rewrite or runtime operation was performed.
 
-Delivery: one draft PR pending; source only, no merge/release/install.
+Delivery: [draft PR 96](https://github.com/rschlaefli/devrouter/pull/96); source only, no merge/release/install.
+Substantive source/test size before resolver simplification: 238 added / 17 removed lines.
+S1 simplifier removed an unreachable empty-name branch; focused tests remain green.
