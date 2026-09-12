@@ -239,6 +239,15 @@ command uses, and never supersedes an operation the queue still owns.
 
 ## Stop, delete, and inspect
 
+If managed startup is interrupted before a runtime baseline exists, initial stop
+uses the current drained ensure's profile from operation history. It requires
+no remaining worker, stopping intent, the exact selected service population,
+matching generated configuration and recorded Compose hashes, and stable local
+provider/daemon ownership. It revalidates these proofs around each pinned
+container stop. Missing or changing evidence refuses recovery; the default
+profile is never substituted. This also applies to older interrupted operations
+whose complete historical and provider evidence survives.
+
 | Command | Effect | Preserved state |
 | --- | --- | --- |
 | `devrouter stop <path>` | Stop the exact primary or linked environment, remove its canonical routes, and prove Traefik unloaded them. | Checkout and linked ownership record. |

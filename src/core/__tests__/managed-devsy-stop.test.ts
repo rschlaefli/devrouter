@@ -12,12 +12,16 @@ import {
   assertManagedStopCheckoutAbsent,
   inspectManagedStopContainers,
   inspectManagedStopDaemon,
+  inspectManagedStopRunnerId,
+  inspectManagedStopWorkspaceIds,
   inspectProviderRunnerContainers,
   inspectWorkspaceContainers,
   resolveManagedStopEndpoint,
+  stopPinnedManagedContainer,
   supportsManagedStopBaseline,
 } from "../devpod-environment";
 import { devpodRegistryRoot, listDevpodWorkspacesRaw } from "../devpod-registry";
+import { proveLocalDockerSelection } from "../devsy-exec-proof";
 import {
   inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
@@ -28,7 +32,20 @@ import { listHostRouteState } from "../host-routes";
 import { proveManagedComposePopulation } from "../managed-compose-population";
 import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "../managed-runtime-state";
-import { loadRuntimeConfig } from "../repo-config";
+import { claimLifecycleEffect } from "../reliability-context";
+import {
+  createReliabilityState,
+  type ReliabilityEvent,
+  type ReliabilityFence,
+  type ReliabilityState,
+  reliabilityFence,
+} from "../reliability-contract";
+import { stepReliability } from "../reliability-model";
+import {
+  type ReliabilityOperationRecord,
+  readReliabilityOperation,
+} from "../reliability-operation-store";
+import { loadRepoConfig, loadRuntimeConfig } from "../repo-config";
 import { assertTraefikRoutesRemoved } from "../traefik-route-health";
 import { isLinkedWorktree, resolveWorktreeWorkspace } from "../workspace";
 import {
@@ -52,9 +69,18 @@ vi.mock("../devpod-environment", () => ({
   inspectManagedStopDaemon: vi.fn(),
   supportsManagedStopBaseline: vi.fn(),
   inspectManagedStopContainers: vi.fn(),
+  inspectManagedStopRunnerId: vi.fn(),
+  inspectManagedStopWorkspaceIds: vi.fn(),
   inspectProviderRunnerContainers: vi.fn(),
   inspectWorkspaceContainers: vi.fn(),
   resolveManagedStopEndpoint: vi.fn(),
+  stopPinnedManagedContainer: vi.fn(),
+}));
+vi.mock("../devsy-exec-proof", () => ({ proveLocalDockerSelection: vi.fn() }));
+vi.mock("../reliability-context", () => ({ claimLifecycleEffect: vi.fn() }));
+vi.mock("../reliability-operation-store", async (original) => ({
+  ...(await original<typeof import("../reliability-operation-store")>()),
+  readReliabilityOperation: vi.fn(),
 }));
 vi.mock("../devpod-registry", () => ({
   listDevpodWorkspacesRaw: vi.fn(),
@@ -67,7 +93,7 @@ vi.mock("../devsy-workspaces", () => ({
   listDevsyWorkspaces: vi.fn(),
 }));
 vi.mock("../managed-runtime-state", () => ({ readManagedRuntimeState: vi.fn() }));
-vi.mock("../repo-config", () => ({ loadRuntimeConfig: vi.fn() }));
+vi.mock("../repo-config", () => ({ loadRepoConfig: vi.fn(), loadRuntimeConfig: vi.fn() }));
 vi.mock("../workspace", () => ({
   isLinkedWorktree: vi.fn(),
   resolveWorktreeWorkspace: vi.fn(),
@@ -154,6 +180,10 @@ function featureFile(contextName = "default", workspaceId = devsyId) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(loadRepoConfig).mockReturnValue({
+    managedRuntime: { processes: [] },
+    apps: [],
+  } as never);
   root = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-managed-stop-"));
   vi.stubEnv("DEVSY_HOME", root);
   context = "default";
@@ -225,33 +255,6 @@ afterEach(() => {
 });
 
 describe("retained managed Devsy stop", () => {
-  it("stops initial dependencies when no retained runtime baseline exists", () => {
-    vi.spyOn(fs, "existsSync").mockReturnValue(true);
-    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
-    vi.mocked(inspectWorkspaceContainers).mockImplementation(() => structuredClone(containers));
-    expect(run()).toBe(true);
-    expect(containers.every((c) => !c.state.Running)).toBe(true);
-    expect(stopProvider).not.toHaveBeenCalled();
-  });
-
-  it("refuses an initial population whose project includes foreign containers", () => {
-    vi.spyOn(fs, "existsSync").mockReturnValue(true);
-    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
-    vi.mocked(inspectWorkspaceContainers).mockImplementation(() =>
-      structuredClone(containers.slice(0, 1)),
-    );
-    expect(run).toThrow("population changed");
-    expect(stopExactManagedService).not.toHaveBeenCalled();
-  });
-
-  it("refuses initial cleanup when the provider registration is absent", () => {
-    vi.spyOn(fs, "existsSync").mockReturnValue(true);
-    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
-    vi.mocked(inspectDevsyWorkspaceOwnership).mockReturnValue({ status: "absent" });
-    expect(run).toThrow("exact Devsy registration");
-    expect(stopExactManagedService).not.toHaveBeenCalled();
-  });
-
   it("completes a stopped primary's residual service and is idempotent", () => {
     expect(run()).toBe(true);
     expect(stopProvider).not.toHaveBeenCalled();
@@ -475,11 +478,397 @@ describe("retained managed Devsy stop", () => {
     vi.mocked(readWorkspaceOwnership).mockReturnValue(undefined);
     expect(run).toThrow();
   });
-  it("leaves legacy stop behavior to its existing caller", () => {
+});
+
+type ModelInput = ReliabilityEvent extends infer Event
+  ? Event extends ReliabilityEvent
+    ? Omit<Event, keyof ReliabilityFence>
+    : never
+  : never;
+
+function stepChatModel(state: ReliabilityState, event: ModelInput, nowMs = 100) {
+  return stepReliability(
+    state,
+    { ...reliabilityFence(state), ...event } as ReliabilityEvent,
+    nowMs,
+  );
+}
+
+describe("interrupted initial managed Devsy start", () => {
+  const chatServices = ["app", "db", "redis", "blob", "worker", "proxy", "docs"];
+  const endpoint = "unix:///synthetic/docker.sock";
+  const chatRuntime = {
+    profile: "chat",
+    workspace: undefined as string | undefined,
+    resolvedProfile: { processes: ["chat"] },
+    config: {
+      apps: [{ name: "web", runtime: "proxy", upstream: "app:3000", host: "web.localhost" }],
+      managedRuntime: { processes: ["chat"] },
+    },
+  };
+  /** What an unrecorded stop falls back to: the full native service selection. */
+  const defaultRuntime = {
+    profile: "full",
+    workspace: undefined as string | undefined,
+    resolvedProfile: { processes: ["*"] },
+    config: {
+      apps: [{ name: "web", runtime: "proxy", upstream: "app:3000", host: "web.localhost" }],
+      managedRuntime: { processes: ["*"] },
+    },
+  };
+  const chatPlan = {
+    primaryService: "app",
+    composeDirectory: `${repoPath}/.devcontainer`,
+    composeFiles: [`${repoPath}/.devcontainer/compose.yml`],
+    nativeRunServices: [...chatServices, "docs-native"],
+    desiredServices: [...chatServices],
+    desiredProfileServices: [...chatServices],
+    sourceConfigSha256: hash,
+    effectiveConfigSha256: hash,
+  };
+  const defaultPlan = { ...chatPlan, desiredServices: [...chatServices, "docs-native"] };
+  let record: ReliabilityOperationRecord;
+
+  /** A launched seven-service ensure cancelled before any completion result exists. */
+  function cancelledChatEnsure(): ReliabilityOperationRecord {
+    const chatConsumer = { id: "chat-agent", requiredCapabilities: ["api"], pinned: false };
+    let model = createReliabilityState("chat-env", 1, "manual");
+    const advance = (event: ModelInput) => {
+      model = stepChatModel(model, event).state;
+    };
+    advance({
+      type: "operation-request",
+      kind: "ensure",
+      key: "request",
+      operationId: "op",
+      profile: "chat",
+      consumer: chatConsumer,
+      runtimeRunning: false,
+    });
+    advance({ type: "dispatch" });
+    advance({ type: "dispatch-persisted", operationId: "op" });
+    advance({ type: "launched", operationId: "op" });
+    advance({ type: "stop" });
+    advance({ type: "drained", operationId: "op" });
+    return {
+      version: 1,
+      identity: { repoPath, workspace: null, provider: "devsy" },
+      revision: 3,
+      state: model,
+      worker: null,
+      effectSequence: 0,
+      outcome: null,
+    };
+  }
+
+  function syncHistory(current: ReliabilityOperationRecord) {
+    const operation = current.state.operation;
+    current.state.operationHistory = current.state.operationHistory.map((entry) =>
+      entry.id === operation?.id ? { ...entry, ...operation } : entry,
+    );
+  }
+
+  function primaryId() {
+    return containers.find((c) => c.labels["com.docker.compose.service"] === "app")!.id;
+  }
+
+  function refuse(change: () => void) {
+    change();
+    expect(run).toThrow(Error);
+    expect(stopPinnedManagedContainer).not.toHaveBeenCalled();
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+    expect(claimLifecycleEffect).not.toHaveBeenCalled();
+  }
+
+  beforeEach(() => {
+    inspectCount = 0;
+    mutateOnInspect = undefined;
+    record = cancelledChatEnsure();
+    containers = chatServices.map((service, index) => container(service, true, String(index + 1)));
+    plan = chatPlan;
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    vi.mocked(readReliabilityOperation).mockImplementation(() => structuredClone(record));
+    vi.mocked(loadRuntimeConfig).mockImplementation(
+      (_repoPath, _workspace, profile) =>
+        (profile === "chat" ? chatRuntime : defaultRuntime) as never,
+    );
+    vi.mocked(inspectManagedDevcontainerConfig).mockImplementation(
+      (options) =>
+        structuredClone(
+          options.profile === chatRuntime.resolvedProfile ? chatPlan : defaultPlan,
+        ) as never,
+    );
+    vi.mocked(inspectWorkspaceContainers).mockImplementation(() => structuredClone(containers));
+    vi.mocked(resolveManagedStopEndpoint).mockReturnValue(endpoint);
+    vi.mocked(supportsManagedStopBaseline).mockReturnValue(true);
+    vi.mocked(inspectManagedStopDaemon).mockReturnValue("synthetic-daemon");
+    vi.mocked(listDevpodWorkspacesRaw).mockReturnValue([]);
+    vi.mocked(inspectManagedStopWorkspaceIds).mockImplementation(() => containers.map((c) => c.id));
+    vi.mocked(inspectManagedStopRunnerId).mockImplementation(() => devsyId);
+    vi.mocked(inspectProviderRunnerContainers).mockImplementation(() => [primaryId()]);
+    vi.mocked(stopPinnedManagedContainer).mockImplementation((_endpoint, id) => {
+      exitContainer(containers.find((c) => c.id === id)!);
+    });
+    vi.mocked(claimLifecycleEffect).mockImplementation(() => {
+      record.effectSequence += 1;
+      record.revision += 1;
+    });
+  });
+
+  it("stops the complete seven-service population recorded by the interrupted ensure", () => {
+    expect(run()).toBe(true);
+    expect(readReliabilityOperation).toHaveBeenCalledWith({
+      repoPath,
+      workspace: null,
+      provider: "devsy",
+    });
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "", "chat");
+    expect(vi.mocked(loadRuntimeConfig).mock.calls.every((call) => call[2] === "chat")).toBe(true);
+    expect(inspectManagedStopContainers).toHaveBeenCalledWith("owned-project", endpoint);
+    expect(inspectManagedStopWorkspaceIds).toHaveBeenCalledWith(endpoint, plan.composeDirectory);
+    expect(stopPinnedManagedContainer).toHaveBeenCalledTimes(7);
+    expect(vi.mocked(stopPinnedManagedContainer).mock.calls.map((call) => call[1])).toEqual(
+      containers.map((c) => c.id),
+    );
+    expect(claimLifecycleEffect).toHaveBeenCalledTimes(7);
+    expect(proveLocalDockerSelection).toHaveBeenCalled();
+    expect(stopExactManagedService).not.toHaveBeenCalled();
+    expect(stopProvider).not.toHaveBeenCalled();
+    expect(containers.every((c) => !c.state.Running)).toBe(true);
+    expect(record.effectSequence).toBe(7);
+    expect(record.revision).toBe(10);
+    const configChecks = vi.mocked(assertManagedContainerConfigUnchanged).mock.calls;
+    expect(configChecks.length).toBeGreaterThan(0);
+    expect(configChecks.every(([options]) => options.containers.length === 7)).toBe(true);
+  });
+
+  it("leaves unmanaged provider stop to its existing caller", () => {
+    vi.mocked(loadRepoConfig).mockReturnValue({ apps: [] } as never);
     expect(run()).toBe(false);
-    expect(inspectManagedStopContainers).not.toHaveBeenCalled();
+    expect(readReliabilityOperation).not.toHaveBeenCalled();
+    expect(stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+
+  it("refuses an initial stop without journal evidence", () => {
+    vi.mocked(readReliabilityOperation).mockReturnValue(undefined);
+    expect(run).toThrow("drained ensure's recorded profile");
+    expect(loadRuntimeConfig).not.toHaveBeenCalled();
+    expect(stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unreadable journal", () => {
+    vi.mocked(readReliabilityOperation).mockImplementation(() => {
+      throw new Error("EACCES");
+    });
+    refuse(() => {});
+  });
+
+  it.each([
+    [
+      "a retained worker",
+      (r: ReliabilityOperationRecord) => {
+        r.worker = { id: "worker", operationId: "op", pid: 4_242, birth: "birth" };
+      },
+    ],
+    [
+      "an exec intent",
+      (r: ReliabilityOperationRecord) => {
+        r.state.operation = { ...r.state.operation!, kind: "exec" };
+        syncHistory(r);
+      },
+    ],
+    [
+      "an undrained operation",
+      (r: ReliabilityOperationRecord) => {
+        r.state.operation = { ...r.state.operation!, drained: false };
+        syncHistory(r);
+      },
+    ],
+    [
+      "a non-stopping phase",
+      (r: ReliabilityOperationRecord) => {
+        r.state.phase = "verifying";
+      },
+    ],
+    [
+      "a history entry that disagrees with the operation",
+      (r: ReliabilityOperationRecord) => {
+        r.state.operationHistory = r.state.operationHistory.map((entry) =>
+          entry.id === "op" ? { ...entry, status: "RUNNING" } : entry,
+        );
+      },
+    ],
+  ] as const)("refuses %s", (_label, change) => {
+    refuse(() => change(record));
+  });
+
+  it("requires the recorded managed profile instead of the default selection", () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({ ...chatRuntime, profile: "full" } as never);
+    expect(run).toThrow("recorded managed profile");
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "", "chat");
+    expect(stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+
+  it("refuses generated configuration drift", () => {
+    refuse(() => {
+      vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({ status: "drifted" });
+    });
+  });
+
+  it("refuses a recorded Compose configuration hash change", () => {
+    refuse(() => {
+      vi.mocked(assertManagedContainerConfigUnchanged).mockImplementation(() => {
+        throw new Error("Compose configuration hash changed.");
+      });
+    });
+  });
+
+  it.each([
+    [
+      "a missing selected service",
+      () => {
+        containers.pop();
+      },
+    ],
+    [
+      "an extra unselected native service",
+      () => {
+        containers.push(container("docs-native", true, "8"));
+      },
+    ],
+    [
+      "an extra foreign service",
+      () => {
+        containers.push(container("ghost", true, "8"));
+      },
+    ],
+  ])("refuses %s", (_label, change) => {
+    refuse(change);
+  });
+
+  it("refuses Docker endpoint drift", () => {
+    refuse(() => {
+      vi.mocked(resolveManagedStopEndpoint)
+        .mockReturnValueOnce(endpoint)
+        .mockReturnValue("unix:///other.sock");
+    });
+  });
+
+  it.each([
+    ["a short legacy UID", "short", devsyId],
+    ["an exact 16-byte UID", "1234567890123456", "1234567890123456"],
+    ["an exact 40-byte UID", "a".repeat(40), "a".repeat(40)],
+  ] as const)("binds the primary container to %s", (_label, uid, runnerId) => {
+    vi.mocked(inspectDevsyWorkspaceOwnership).mockReturnValue({
+      status: "owned",
+      workspace: { id: devsyId, uid, context, source: { localFolder: repoPath } },
+    } as never);
+    vi.mocked(inspectManagedStopRunnerId).mockReturnValue(runnerId);
+    expect(run()).toBe(true);
+    expect(inspectManagedStopRunnerId).toHaveBeenCalledWith(endpoint, primaryId());
+    expect(inspectProviderRunnerContainers).toHaveBeenCalledWith(endpoint, runnerId);
+  });
+
+  it("refuses a runner binding that differs from the recorded UID", () => {
+    refuse(() => {
+      vi.mocked(inspectDevsyWorkspaceOwnership).mockReturnValue({
+        status: "owned",
+        workspace: {
+          id: devsyId,
+          uid: "1234567890123456",
+          context,
+          source: { localFolder: repoPath },
+        },
+      } as never);
+      vi.mocked(inspectManagedStopRunnerId).mockReturnValue(devsyId);
+    });
+  });
+
+  it("requires the provider runner population to be the primary alone", () => {
+    refuse(() => {
+      vi.mocked(inspectProviderRunnerContainers).mockImplementation(() => [
+        primaryId(),
+        "9".repeat(64),
+      ]);
+    });
+  });
+
+  it("refuses an unreadable provider runner population", () => {
+    refuse(() => {
+      vi.mocked(inspectProviderRunnerContainers).mockImplementation(() => {
+        throw new Error("docker unavailable");
+      });
+    });
+  });
+
+  it("refuses a container that restarts after its pinned stop", () => {
+    vi.mocked(stopPinnedManagedContainer).mockImplementation((_endpoint, id) => {
+      const revived = containers.find((c) => c.id === id)!;
+      exitContainer(revived);
+      revived.state.Running = true;
+      revived.state.Status = "running";
+    });
+    expect(run).toThrow("cessation is not proven");
+    expect(stopPinnedManagedContainer).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a stopped service that restarts while a later service stops", () => {
+    let stops = 0;
+    vi.mocked(stopPinnedManagedContainer).mockImplementation((_endpoint, id) => {
+      exitContainer(containers.find((c) => c.id === id)!);
+      stops += 1;
+      if (stops === 2) {
+        containers[0].state.Running = true;
+        containers[0].state.Status = "running";
+      }
+    });
+    expect(run).toThrow("population or identity changed");
+    expect(stopPinnedManagedContainer).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a journal replaced after the first pinned stop", () => {
+    vi.mocked(stopPinnedManagedContainer).mockImplementation((_endpoint, id) => {
+      exitContainer(containers.find((c) => c.id === id)!);
+      record.state.operation = { ...record.state.operation!, id: "op-2" };
+      record.state.operationHistory = record.state.operationHistory.map((entry) => ({
+        ...entry,
+        id: "op-2",
+      }));
+    });
+    expect(run).toThrow();
+    expect(stopPinnedManagedContainer).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops the recorded population for a linked workspace and forwards its environment", () => {
+    vi.mocked(isLinkedWorktree).mockReturnValue(true);
+    vi.mocked(resolveWorktreeWorkspace).mockReturnValue("chat-ws");
+    vi.mocked(resolveGitCommonDir).mockReturnValue("/synthetic/common");
+    vi.mocked(readWorkspaceOwnership).mockReturnValue({
+      devpodId: devsyId,
+      worktreePath: repoPath,
+      workspace: "chat-ws",
+    } as never);
+    vi.mocked(inspectWorkspaceOwnership).mockReturnValue({ ownerStatus: "present" } as never);
+    vi.mocked(loadRuntimeConfig).mockImplementation(
+      (_repoPath, _workspace, profile) =>
+        (profile === "chat"
+          ? { ...chatRuntime, workspace: "chat-ws" }
+          : { ...defaultRuntime, workspace: "chat-ws" }) as never,
+    );
+    record.identity = { repoPath, workspace: "chat-ws", provider: "devsy" };
+    expect(run()).toBe(true);
+    expect(readReliabilityOperation).toHaveBeenCalledWith({
+      repoPath,
+      workspace: "chat-ws",
+      provider: "devsy",
+    });
+    expect(loadRuntimeConfig).toHaveBeenCalledWith(repoPath, "chat-ws", "chat");
+    expect(assertManagedContainerConfigUnchanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: { token: "chat-ws", gitCommonDir: "/synthetic/common" },
+      }),
+    );
   });
 });
 

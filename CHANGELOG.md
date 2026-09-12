@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.75] - 2026-09-12
+
+### Fixed
+
+- Canonical stop after interrupted initial managed Devsy startup selects the
+  drained ensure operation's recorded profile. It validates the complete selected
+  service population, generated configuration and every container's recorded
+  Compose hash before stopping exact containers. This permits recovery before
+  managed runtime state exists without falling back to the default profile.
+- Journal, provider, Docker daemon and container ownership are revalidated around
+  each stop. Missing or changed evidence, extra services, live workers and
+  containers that survive or restart remain refusals. Existing positive-absence
+  and retained-runtime recovery paths remain available.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.75.md
+
 ## [0.0.74] - 2026-09-12
 
 ### Fixed

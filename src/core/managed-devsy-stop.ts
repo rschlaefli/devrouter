@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
+  assertManagedContainerConfigUnchanged,
   inspectManagedDevcontainerConfig,
   inspectManagedDevcontainerGeneratedConfig,
   stopExactManagedService,
@@ -11,13 +12,17 @@ import {
   assertManagedStopCheckoutAbsent,
   inspectManagedStopContainers,
   inspectManagedStopDaemon,
+  inspectManagedStopRunnerId,
+  inspectManagedStopWorkspaceIds,
   inspectProviderRunnerContainers,
   inspectWorkspaceContainers,
   type ManagedStopContainerSnapshot,
   resolveManagedStopEndpoint,
+  stopPinnedManagedContainer,
   supportsManagedStopBaseline,
 } from "./devpod-environment";
 import { devpodRegistryRoot, listDevpodWorkspacesRaw } from "./devpod-registry";
+import { proveLocalDockerSelection } from "./devsy-exec-proof";
 import {
   inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
@@ -28,7 +33,10 @@ import { listHostRouteState } from "./host-routes";
 import { proveManagedComposePopulation } from "./managed-compose-population";
 import { readManagedRuntimeState } from "./managed-runtime-state";
 import { stopFromManagedBaseline } from "./managed-stop-recovery";
-import { loadRuntimeConfig } from "./repo-config";
+import { claimLifecycleEffect } from "./reliability-context";
+import { reliabilityFence } from "./reliability-contract";
+import { readReliabilityOperation } from "./reliability-operation-store";
+import { loadRepoConfig, loadRuntimeConfig } from "./repo-config";
 import { proxyAppsFromConfig } from "./route-publication";
 import { assertTraefikRoutesRemoved } from "./traefik-route-health";
 import { isLinkedWorktree, resolveWorktreeWorkspace, sameWorkspacePath } from "./workspace";
@@ -143,11 +151,48 @@ export function proveInitialManagedDevsyAbsence(repoPath: string, expectedId?: s
   };
 }
 
-/** Recover a complete initial Compose population before a runtime baseline exists. */
+/** Recover a complete initial Compose population using the interrupted ensure's profile. */
 function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): boolean {
   if (!fs.existsSync(path.join(repoPath, ".devrouter.yml"))) return false;
+  if (!loadRepoConfig(repoPath).managedRuntime) return false;
   const linked = isLinkedWorktree(repoPath);
   const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
+  const identity = { repoPath, workspace: workspace ?? null, provider: "devsy" as const };
+  // Stop clears active selection, but the current ensure history retains its
+  // profile. Journal counters may advance as this stop claims its own effects.
+  const readAuthority = () => {
+    const record = readReliabilityOperation(identity);
+    const operation = record?.state.operation;
+    const entries = record?.state.operationHistory.filter((entry) => entry.id === operation?.id);
+    const entry = entries?.[0];
+    if (
+      !record ||
+      !isDeepStrictEqual(record.identity, identity) ||
+      record.worker ||
+      !operation ||
+      operation.kind !== "ensure" ||
+      !operation.drained ||
+      !["COMPLETED", "INTERRUPTED", "COMPLETION_UNKNOWN"].includes(operation.status) ||
+      record.state.phase !== "stopping" ||
+      record.state.desired !== "stopped-by-user" ||
+      entries?.length !== 1 ||
+      !entry ||
+      entry.kind !== "ensure" ||
+      !entry.profile ||
+      !entry.drained ||
+      entry.status !== operation.status
+    )
+      throw new Error("Initial managed stop requires the drained ensure's recorded profile.");
+    return {
+      identity: record.identity,
+      fence: reliabilityFence(record.state),
+      operation,
+      entry,
+    };
+  };
+  const authority = readAuthority();
+  const gitCommonDir = linked ? resolveGitCommonDir(repoPath) : undefined;
+  const workspaceEnv = workspace && gitCommonDir ? { token: workspace, gitCommonDir } : undefined;
   const registration = () => {
     resetWorkspaceRuntimeCaches();
     if (resolveWorkspaceRuntimeOrDefault(repoPath) !== "devsy")
@@ -161,15 +206,24 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
         !record ||
         record.devpodId !== devsyId ||
         !sameWorkspacePath(record.worktreePath, repoPath) ||
-        resolveWorktreeWorkspace(repoPath) !== workspace
+        resolveWorktreeWorkspace(repoPath) !== workspace ||
+        resolveGitCommonDir(repoPath) !== gitCommonDir ||
+        inspectWorkspaceOwnership(record, listGitWorktrees(repoPath), undefined).ownerStatus !==
+          "present"
       )
         throw new Error("Initial managed stop workspace ownership changed.");
     }
     return owner.workspace;
   };
-  const runtime = loadRuntimeConfig(repoPath, workspace ?? "");
-  if (!runtime.config.managedRuntime) return false;
+  const runtime = loadRuntimeConfig(repoPath, workspace ?? "", authority.entry.profile);
+  if (!runtime.config.managedRuntime || runtime.profile !== authority.entry.profile)
+    throw new Error("Initial managed stop requires the recorded managed profile.");
   const owner = registration();
+  proveLocalDockerSelection(owner);
+  const endpoint = resolveManagedStopEndpoint();
+  if (!supportsManagedStopBaseline(endpoint))
+    throw new Error("Initial managed stop requires a pinned local Docker endpoint.");
+  const daemon = inspectManagedStopDaemon(endpoint);
   if (
     !owner.context ||
     !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(owner.context) ||
@@ -193,29 +247,72 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
     ".docker-compose",
   );
   const observe = () => {
-    if (!isDeepStrictEqual(registration(), owner) || readManagedRuntimeState(repoPath, workspace))
-      throw new Error("Initial managed stop ownership or runtime state changed.");
+    if (
+      !isDeepStrictEqual(readAuthority(), authority) ||
+      !isDeepStrictEqual(registration(), owner) ||
+      readManagedRuntimeState(repoPath, workspace) ||
+      resolveManagedStopEndpoint() !== endpoint ||
+      inspectManagedStopDaemon(endpoint) !== daemon
+    )
+      throw new Error("Initial managed stop authority or runtime state changed.");
+    proveLocalDockerSelection(owner);
+    if (
+      listDevpodWorkspacesRaw({ readLocalWhenMissing: true }).some(
+        (entry) =>
+          entry.id === devsyId ||
+          (entry.source.localFolder !== "" &&
+            sameWorkspacePath(entry.source.localFolder, repoPath)),
+      )
+    )
+      throw new Error("Initial managed stop found conflicting provider ownership.");
+    const currentRuntime = loadRuntimeConfig(repoPath, workspace ?? "", authority.entry.profile);
+    const currentPlan = inspectManagedDevcontainerConfig({
+      repoPath,
+      config: currentRuntime.config,
+      profile: currentRuntime.resolvedProfile,
+      linked,
+    });
+    if (
+      currentRuntime.profile !== authority.entry.profile ||
+      !isDeepStrictEqual(currentRuntime.resolvedProfile, runtime.resolvedProfile) ||
+      !isDeepStrictEqual(currentPlan, plan) ||
+      inspectManagedDevcontainerGeneratedConfig(currentPlan).status !== "valid"
+    )
+      throw new Error("Initial managed stop configuration changed.");
     const matches = inspectWorkspaceContainers().filter((c) =>
       sameWorkspacePath(
         c.labels["com.docker.compose.project.working_dir"] ?? "",
         plan.composeDirectory,
       ),
     );
-    if (!matches.length) return [];
+    if (!matches.length)
+      throw new Error("Initial managed stop requires its complete selected population.");
     const projects = new Set(matches.map((c) => c.labels["com.docker.compose.project"]));
     if (projects.size !== 1 || !matches[0]?.labels["com.docker.compose.project"])
       throw new Error("Initial managed stop requires one exact Compose project.");
     const population = inspectManagedStopContainers(
       matches[0].labels["com.docker.compose.project"],
+      endpoint,
     );
     if (
+      !sameSet(
+        inspectManagedStopWorkspaceIds(endpoint, plan.composeDirectory),
+        population.map((c) => c.id),
+      ) ||
       !sameSet(
         matches.map((c) => c.id),
         population.map((c) => c.id),
       )
     )
       throw new Error("Initial managed stop population changed.");
-    proveManagedComposePopulation({
+    if (
+      !sameSet(
+        population.map((c) => c.labels["com.docker.compose.service"] ?? ""),
+        plan.desiredServices,
+      )
+    )
+      throw new Error("Initial managed stop requires its complete selected population.");
+    const primary = proveManagedComposePopulation({
       plan,
       repoPath,
       composeProject: matches[0].labels["com.docker.compose.project"],
@@ -223,9 +320,34 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
       featureDirectory,
       containers: population,
     });
+    const uidBytes = Buffer.byteLength(owner.uid ?? "");
+    const runnerId = (uidBytes === 16 || uidBytes === 40 ? owner.uid : undefined) ?? devsyId;
+    if (
+      (owner.source.container && owner.source.container !== primary.id) ||
+      (!owner.source.container && inspectManagedStopRunnerId(endpoint, primary.id) !== runnerId)
+    )
+      throw new Error("Initial managed stop provider-to-container binding changed.");
+    if (
+      !owner.source.container &&
+      !sameSet(inspectProviderRunnerContainers(endpoint, runnerId), [primary.id])
+    )
+      throw new Error("Initial managed stop provider runner population changed.");
+    assertManagedContainerConfigUnchanged({
+      plan,
+      containers: population,
+      workspace: workspaceEnv,
+    });
+    if (
+      !isDeepStrictEqual(readAuthority(), authority) ||
+      !isDeepStrictEqual(registration(), owner) ||
+      resolveManagedStopEndpoint() !== endpoint ||
+      inspectManagedStopDaemon(endpoint) !== daemon
+    )
+      throw new Error("Initial managed stop authority changed during inspection.");
     return population;
   };
   const initial = observe();
+  const stopped = new Set(initial.filter((c) => !c.state.Running).map((c) => c.id));
   const stable = () => {
     const current = observe();
     if (
@@ -238,21 +360,23 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
         return (
           !prior ||
           containerIdentity(prior) !== containerIdentity(c) ||
-          (!prior.state.Running && c.state.Running)
+          (stopped.has(c.id) && c.state.Running)
         );
       })
     )
       throw new Error("Initial managed stop population or identity changed.");
+    for (const c of current) if (!c.state.Running) stopped.add(c.id);
     return current;
   };
   stable();
-  if (!initial.length) return false;
   for (const container of initial) {
     const current = stable().find((c) => c.id === container.id);
-    if (current?.state.Running)
-      stopExactManagedService(current.id, current.labels["com.docker.compose.service"] ?? "", {
-        timeoutMs: 30_000,
-      });
+    if (current?.state.Running) {
+      claimLifecycleEffect();
+      stopPinnedManagedContainer(endpoint, current.id);
+      if (stable().find((c) => c.id === current.id)?.state.Running)
+        throw new Error("Initial managed stop container cessation is not proven.");
+    }
   }
   if (stable().some((c) => c.state.Running))
     throw new Error("Initial managed stop left a workload running.");

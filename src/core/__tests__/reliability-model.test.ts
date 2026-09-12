@@ -965,6 +965,54 @@ describe("manual operation lifecycle", () => {
     shared.admission = "waiting";
     expect(step(shared, { type: "settle", operationId: "again" }).outcome).toBe("stale");
   });
+  it("retains the drained ensure profile when an initial startup is cancelled before managed state", () => {
+    let state = step(manual(), { ...ensure, profile: "chat" }).state;
+    state = step(state, { type: "dispatch" }).state;
+    state = step(state, { type: "dispatch-persisted", operationId: ensure.operationId }).state;
+    state = step(state, { type: "launched", operationId: ensure.operationId }).state;
+    expect(state.operation).toMatchObject({ kind: "ensure", status: "RUNNING", drained: false });
+    expect(state.phase).toBe("verifying");
+    state = step(state, { type: "stop" }).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    expect(state.desired).toBe("stopped-by-user");
+    expect(state.phase).toBe("stopping");
+    expect(state.profile).toBeNull();
+    expect(state.operation).toMatchObject({
+      id: ensure.operationId,
+      kind: "ensure",
+      status: "COMPLETION_UNKNOWN",
+      drained: true,
+    });
+    const entries = state.operationHistory.filter((entry) => entry.id === ensure.operationId);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      kind: "ensure",
+      profile: "chat",
+      status: "COMPLETION_UNKNOWN",
+      drained: true,
+    });
+  });
+  it("retains the drained ensure profile when the initial startup worker is interrupted", () => {
+    let state = step(manual(), { ...ensure, profile: "chat" }).state;
+    state = step(state, { type: "dispatch" }).state;
+    state = step(state, { type: "dispatch-persisted", operationId: ensure.operationId }).state;
+    state = step(state, { type: "launched", operationId: ensure.operationId }).state;
+    state = step(state, { type: "interrupted", operationId: ensure.operationId }).state;
+    state = step(state, { type: "stop" }).state;
+    state = step(state, { type: "drained", operationId: ensure.operationId }).state;
+    expect(state.operation).toMatchObject({
+      kind: "ensure",
+      status: "INTERRUPTED",
+      drained: true,
+    });
+    const entry = state.operationHistory.find((candidate) => candidate.id === ensure.operationId);
+    expect(entry).toMatchObject({
+      kind: "ensure",
+      profile: "chat",
+      status: "INTERRUPTED",
+      drained: true,
+    });
+  });
 });
 
 describe("capacity-managed operation lifecycle", () => {
