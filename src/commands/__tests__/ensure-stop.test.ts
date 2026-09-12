@@ -14,6 +14,21 @@ afterEach(() => {
 });
 
 describe("canonical environment commands", () => {
+  it("preserves proven absence in stop JSON", async () => {
+    const result = {
+      kind: "linked",
+      repoPath: "/repo/trees/feature",
+      workspace: "feature",
+      stopped: true,
+      runtimeAbsent: true,
+      freedRoutes: 0,
+    };
+    vi.mocked(superviseLifecycle).mockResolvedValue(result);
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await runStopCommand({ path: result.repoPath, json: true });
+    expect(JSON.parse(String(write.mock.calls[0][0]))).toEqual(result);
+    await runStopCommand({ path: result.repoPath });
+  });
   it("returns application failure as JSON with a nonzero exit while preserving runtime details", async () => {
     const previousExitCode = process.exitCode;
     const result = {

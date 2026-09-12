@@ -17,7 +17,7 @@ import {
   resolveManagedStopEndpoint,
   supportsManagedStopBaseline,
 } from "./devpod-environment";
-import { listDevpodWorkspacesRaw } from "./devpod-registry";
+import { devpodRegistryRoot, listDevpodWorkspacesRaw } from "./devpod-registry";
 import {
   inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
@@ -81,6 +81,15 @@ export function proveInitialManagedDevsyAbsence(repoPath: string, expectedId?: s
   if (!supportsManagedStopBaseline(endpoint))
     throw new Error("Initial managed stop requires a local Docker endpoint.");
   const daemon = inspectManagedStopDaemon(endpoint);
+  const legacyHome = devpodRegistryRoot();
+  const readLegacy = () =>
+    listDevpodWorkspacesRaw({ readLocalWhenMissing: true })
+      .map(({ id, source }) => ({ id, source: { localFolder: source.localFolder } }))
+      .sort(
+        (a, b) =>
+          a.id.localeCompare(b.id) || a.source.localFolder.localeCompare(b.source.localFolder),
+      );
+  const legacyWorkspaces = readLegacy();
   const observe = () => {
     resetWorkspaceRuntimeCaches();
     if (
@@ -94,11 +103,16 @@ export function proveInitialManagedDevsyAbsence(repoPath: string, expectedId?: s
       readManagedRuntimeState(repoPath, workspace)
     )
       throw new Error("Initial managed stop ownership or retained state changed.");
+    if (devpodRegistryRoot() !== legacyHome || !isDeepStrictEqual(readLegacy(), legacyWorkspaces))
+      throw new Error("Initial managed stop legacy registry evidence changed.");
     if (
       inspectDevsyWorkspaceOwnership(listDevsyWorkspaces(), devsyId, repoPath).status !==
         "absent" ||
-      listDevpodWorkspacesRaw().some(
-        (entry) => entry.id === devsyId || sameWorkspacePath(entry.source.localFolder, repoPath),
+      legacyWorkspaces.some(
+        (entry) =>
+          entry.id === devsyId ||
+          (entry.source.localFolder !== "" &&
+            sameWorkspacePath(entry.source.localFolder, repoPath)),
       )
     )
       throw new Error("Initial managed stop requires both provider registrations absent.");
@@ -117,7 +131,16 @@ export function proveInitialManagedDevsyAbsence(repoPath: string, expectedId?: s
   };
   observe();
   observe();
-  return { workspace, record, gitCommonDir, endpoint, daemon, routes };
+  return {
+    workspace,
+    record,
+    gitCommonDir,
+    endpoint,
+    daemon,
+    routes,
+    legacyHome,
+    legacyWorkspaces,
+  };
 }
 
 /** Recover a complete initial Compose population before a runtime baseline exists. */

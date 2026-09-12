@@ -210,7 +210,7 @@ describe("environmentStop", () => {
       },
     ]);
     vi.mocked(workspaceStopOwnedPath).mockResolvedValue({
-      devpodId: "feature",
+      ...(!absent ? { devpodId: "feature" } : {}),
       freedRoutes: 1,
       providerChanged: !absent,
       ...(absent ? { runtimeAbsent: true } : {}),
@@ -221,8 +221,9 @@ describe("environmentStop", () => {
       kind: "linked",
       repoPath: "/repo/trees/feature",
       workspace: "feature",
-      devpodId: "feature",
+      ...(!absent ? { devpodId: "feature" } : {}),
       stopped: true,
+      ...(absent ? { runtimeAbsent: true } : {}),
       freedRoutes: 1,
     });
 

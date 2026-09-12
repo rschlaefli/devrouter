@@ -35,8 +35,8 @@ Use a reusable read-only proof receipt in `managed-devsy-stop.ts`. Return no
 receipt for registered, retained or non-linked paths, preserving their current
 behavior. For the eligible absent case, require an exact record, token, path,
 Git common directory and present unlocked Git ownership. Require successful
-reads of both provider registries with no ID or path match; missing competing
-CLI is unknown, not absence. Reject Devsy timeout/spawn failure regardless of
+reads of both provider registries with no ID or path match. On DevPod executable
+ENOENT only, opt into the validated local legacy registry described below. Reject Devsy timeout/spawn failure regardless of
 error text. Require positive runtime not-found.
 
 Pin a supported local Unix Docker endpoint and daemon ID. Extend the existing
@@ -117,3 +117,58 @@ Finish with same-head CI and the exact supported local built CLI stop command.
   No existing production comments or unrelated formatting were changed.
 - Required immutable reviews and draft delivery remain pending. Consumer
   recovery remains outside this package and requires live absence proof.
+
+
+### Authorized Devsy-only amendment
+
+The original task conveyed explicit user approval to recover Devsy-only installs
+without installing or running DevPod. Main owns this coupled correction
+(critical-path coupling of registry source, receipt and public result).
+
+Extend `devpod-registry.ts` with an opt-in `readLocalWhenMissing` fallback only
+on exact executable ENOENT; existing caller semantics remain unchanged. Export
+a shared resolver for DEVPOD_HOME or the user's .devpod directory. Read every
+context's workspaces/ID/workspace.json, as defined by upstream DevPod
+[config directory](https://github.com/loft-sh/devpod/blob/5a0efcbff6610ab114b421f68a890739a452e66b/pkg/config/dir.go)
+and [workspace storage](https://github.com/loft-sh/devpod/blob/5a0efcbff6610ab114b421f68a890739a452e66b/pkg/provider/dir.go).
+An absent root/contexts/workspaces directory or an empty complete scan proves
+no local legacy registration. Every existing node must be readable, of the
+expected type and not symlinked; reject partial records, malformed JSON, mismatched
+IDs, unknown source shapes, oversized input and changed filesystem evidence.
+Bound context/entry counts and record bytes. Check all entries, including hidden
+ones, without copying raw records or printing their contents. Project only ID
+and local source path; a validated Git/image/container source without localFolder
+projects an empty path. Skip path comparison for that empty path, but always
+compare ID. This prevents empty paths resolving to the caller's current directory.
+
+The shared proof captures the resolved legacy home and sorted ID/path projection;
+repeat and compare both during each observation and include them in the final
+settlement receipt. Reader filesystem revalidation brackets each scan. Legacy
+home/projection changes between worker capture and settlement must leave stopping
+unproven, even if the replacement registry is empty.
+
+Preserve runtimeAbsent through `environment-stop.ts`, `commands/stop.ts` and
+supervised workspace-stop mapping. Proven absence reports providerChanged=false,
+JSON retains runtimeAbsent=true, and human output describes absence without
+interpolating an undefined provider ID. No prose assertions are added.
+
+Extend existing devpod-workspaces, managed-devsy-stop, reliability-lifecycle,
+environment-stop, workspace-lifecycle and ensure-stop tests for the amended
+false-absence, evidence-race and result-propagation portfolio. No new files.
+The red Devsy-only test precedes production changes. Reuse the original slice
+reviewer for the coherent correction; run integrated final review and same-head
+CI before final delivery. Earlier passing 9a0b256 evidence is a baseline only
+for changed behavior. Optional AGY remains unavailable; native amendment review
+is required. Documentation wording has no new test obligation.
+
+Amendment planner Goodall: round 1 REVISE, round 2 APPROVED after empty-path,
+shared-root receipt, and public result corrections. Amendment verification:
+2217 tests / 142 files, docs policy, knowledge, Biome, Knip, typecheck, build,
+package smoke pass. macOS process tests skip; Linux CI remains required.
+Opengrep: 210 rules / 8 production files / zero findings.
+
+The finish-gate lesson belongs in
+`docs/solutions/runtime-error/pre-registration-stop-remains-stopping.md`.
+Existing partial-shutdown notes cover surviving services after registration;
+this new incident record explains why a completed journal cannot prove absence.
+It is a retrospective solution, not an architectural decision.

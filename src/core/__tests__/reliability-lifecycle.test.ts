@@ -2693,8 +2693,10 @@ describe("bounded recovery preparation", () => {
 });
 
 it.each([
-  false,
-  true,
+  "",
+  "daemon",
+  "legacyHome",
+  "legacyWorkspaces",
 ])("recovers a completed failed startup only with stable initial absence (%s)", async (changed) => {
   setProcessConnected(true);
   const { lifecycle, model, contract, request, identity, store } = await seedWorkerRequest();
@@ -2725,12 +2727,21 @@ it.each([
     record: { devpodId: "fixture" },
     endpoint: "unix:///tmp/docker.sock",
     daemon: "first",
+    legacyHome: "/first",
+    legacyWorkspaces: [],
   };
   fixture.initialAbsence.mockReturnValue(proof);
   await lifecycle.executeLifecycleWorker(
     { ...request, kind: "stop", fence: contract.reliabilityFence(blocked.state) },
     async () => {
-      if (changed) fixture.initialAbsence.mockReturnValue({ ...proof, daemon: "replacement" });
+      if (changed)
+        fixture.initialAbsence.mockReturnValue({
+          ...proof,
+          [changed]:
+            changed === "legacyWorkspaces"
+              ? [{ id: "other", source: { localFolder: "/unrelated" } }]
+              : "replacement",
+        });
       if (changed) expect(() => lifecycle.proveLifecycleStopped()).toThrow(/evidence changed/);
       else lifecycle.proveLifecycleStopped();
     },

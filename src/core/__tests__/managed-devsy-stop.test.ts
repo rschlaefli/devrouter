@@ -17,7 +17,7 @@ import {
   resolveManagedStopEndpoint,
   supportsManagedStopBaseline,
 } from "../devpod-environment";
-import { listDevpodWorkspacesRaw } from "../devpod-registry";
+import { devpodRegistryRoot, listDevpodWorkspacesRaw } from "../devpod-registry";
 import {
   inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
@@ -56,7 +56,10 @@ vi.mock("../devpod-environment", () => ({
   inspectWorkspaceContainers: vi.fn(),
   resolveManagedStopEndpoint: vi.fn(),
 }));
-vi.mock("../devpod-registry", () => ({ listDevpodWorkspacesRaw: vi.fn() }));
+vi.mock("../devpod-registry", () => ({
+  listDevpodWorkspacesRaw: vi.fn(),
+  devpodRegistryRoot: vi.fn(() => "/legacy"),
+}));
 vi.mock("../devsy-workspaces", () => ({
   inspectDevsyRuntimeAbsence: vi.fn(),
   inspectDevsyRuntimeStatus: vi.fn(),
@@ -548,6 +551,7 @@ describe("absent-registration managed stop", () => {
     vi.mocked(inspectWorkspaceContainers).mockReturnValue([]);
     vi.mocked(inspectProviderRunnerContainers).mockReturnValue([]);
     vi.mocked(resolveManagedStopEndpoint).mockReturnValue("unix:///var/run/docker.sock");
+    vi.mocked(devpodRegistryRoot).mockReturnValue("/legacy");
     vi.mocked(listDevpodWorkspacesRaw).mockReturnValue([]);
     vi.mocked(listGitWorktrees).mockReturnValue([]);
   });
@@ -585,7 +589,35 @@ describe("absent-registration managed stop", () => {
     expect(stopExactManagedService).not.toHaveBeenCalled();
   });
 
+  it("allows unrelated nonlocal legacy sources without resolving their empty path", () => {
+    arrangeInitialAbsence();
+    vi.mocked(listDevpodWorkspacesRaw).mockReturnValue([
+      { id: "other", source: { localFolder: "" } },
+    ]);
+    expect(run()).toBe("proven-absent");
+    expect(listDevpodWorkspacesRaw).toHaveBeenCalledWith({ readLocalWhenMissing: true });
+  });
+
   it.each([
+    [
+      "changed legacy home",
+      () => vi.mocked(devpodRegistryRoot).mockReturnValueOnce("/first").mockReturnValue("/second"),
+    ],
+    [
+      "changed unrelated legacy projection",
+      () =>
+        vi
+          .mocked(listDevpodWorkspacesRaw)
+          .mockReturnValueOnce([])
+          .mockReturnValue([{ id: "other", source: { localFolder: "/elsewhere" } }]),
+    ],
+    [
+      "nonlocal legacy ID conflict",
+      () =>
+        vi
+          .mocked(listDevpodWorkspacesRaw)
+          .mockReturnValue([{ id: devsyId, source: { localFolder: "" } }]),
+    ],
     [
       "unknown Docker",
       () =>
@@ -617,7 +649,7 @@ describe("absent-registration managed stop", () => {
     ],
     ["unknown Devsy", () => vi.mocked(inspectDevsyRuntimeAbsence).mockReturnValue(false)],
     [
-      "missing DevPod",
+      "unreadable legacy evidence",
       () =>
         vi.mocked(listDevpodWorkspacesRaw).mockImplementation(() => {
           throw new Error("ENOENT");

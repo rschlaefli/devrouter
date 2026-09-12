@@ -299,9 +299,13 @@ require both provider registries to be readable and absent for the exact ID and
 path, positive runtime not-found, a pinned local Docker daemon with no checkout
 or runner containers, and no canonical or live app routes. Stopped containers
 also prevent this exception. Final settlement revalidates the original owner,
-daemon and route references under the provider lock after worker drainage;
-unknown or changed evidence leaves stop pending. A missing competing-provider
-CLI is unknown evidence. The stop reports absence without a provider mutation.
+daemon, legacy registry home and ownership projection, and route references under
+the provider lock after worker drainage;
+unknown or changed evidence leaves stop pending. If DevPod is uninstalled, an
+opt-in read of every local legacy context under `DEVPOD_HOME` (default `~/.devpod`)
+proves absence without installing it. Missing or empty registries are accepted;
+unreadable, partial, malformed, symlinked, or changing evidence is refused.
+The stop reports `runtimeAbsent: true` without a provider mutation.
 Primary, unowned and registered workspaces retain their existing stop paths.
 
 For retained managed Devsy state without that baseline, reversible stop proves the complete captured

@@ -513,7 +513,8 @@ async function runWorkspaceLifecycle(
       workspace: resolved.workspace,
       devpodId: stopped.devpodId,
       freedRoutes: stopped.freedRoutes,
-      providerChanged: stopped.stopped,
+      providerChanged: stopped.stopped && !stopped.runtimeAbsent,
+      ...(stopped.runtimeAbsent ? { runtimeAbsent: true } : {}),
     };
   }
   const operation = async (): Promise<WorkspaceLifecycleResult> => {
