@@ -859,3 +859,34 @@ lines across source/scripts against origin/main; project docs excluded). This is
 an early draft for one controller reliability capability under the approved single
 branch, with pending roadmap obligations clearly stated. No ready/merge/release
 claim. Main will reassess package boundaries before integrated final readiness.
+
+
+Pressure CI atd013ae9 passed source tests, build, package and controller qualifier,
+but the installed capacity qualifier expected a stale admission reason. The
+reviewed tracker now discards stale samples before admission, which reports
+unknown for missing trustworthy evidence. Main adds the existing
+`scripts/qualify-capacity.ts` to the correction scope and changes only that expected
+reason; producing stale-telemetry observations, zero provider starts, absent
+launch markers and queued durable intent remain required. No timeout increased
+and no failed safety assertion was removed. The qualifier is rerun locally.
+
+Zeno's simplifier result accepted: remove the redundant timestamp watermark
+field and derive it from the retained accepted sample. The68 accounting/controller
+tests remain passing without fixture changes. Correctness review completed; see the disposition below.
+
+
+Pressure review disposition: Leibniz completed the immutable646f721..d013ae9
+slice with one concern: the installed qualifier still expected stale after the
+tracker deliberately omitted stale samples. The assertion-only correction keeps
+queued identity, zero starts and launch-marker checks, and fresh exactly-once
+launch. The reviewer confirmed this preserves the frozen safety contract and
+that the accepted watermark simplification preserves behavior. No additional
+source finding remains from this slice; integrated final review is still due.
+
+The corrected installed capacity qualifier passed with receipt
+`/private/tmp/dr-cap-v3T7VS/receipt.json`: sourceRevisiond013ae9, dirtytrue,
+tarball SHA256ad86348cb2de1882ec8fcccafbb79986e6eeb8748175f942c8305f6c92d1b5e4.
+Both provider start counts stayed zero before fresh telemetry and became one
+afterward; operation identity survived, disconnect did not cancel, and positive
+preparation settlement passed. This is fixture-injected coordinator plus actual
+installed worker proof, not ordinary live CLI, harness or OOM qualification.

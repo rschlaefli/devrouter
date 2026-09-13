@@ -140,9 +140,7 @@ type PressureWindow = {
 };
 
 type DomainState = {
-  /** Latest accepted source timestamp, retained through every invalidation. */
-  watermark: number | null;
-  /** Evidence last accepted at the watermark, retained so a repeat stays comparable. */
+  /** Latest accepted evidence and timestamp, retained through every invalidation. */
   accepted: CapacityDomainSample | null;
   window: PressureWindow | null;
 };
@@ -283,20 +281,19 @@ export class CapacityPressureTracker {
         state.window = null;
         continue;
       }
-      if (state.watermark !== null && sample.sampledAtMs < state.watermark) {
+      if (state.accepted !== null && sample.sampledAtMs < state.accepted.sampledAtMs) {
         state.window = null;
         continue;
       }
-      if (state.watermark === sample.sampledAtMs) {
+      if (state.accepted?.sampledAtMs === sample.sampledAtMs) {
         // An equal timestamp never rebuilds or extends a window. A repeat that changes
         // any field contradicts the accepted evidence, so the window ends and the
         // contradictory sample is not handed back for admission.
-        if (!state.accepted || !sameDomainSample(state.accepted, sample)) {
+        if (!sameDomainSample(state.accepted, sample)) {
           state.window = null;
           continue;
         }
       } else {
-        state.watermark = sample.sampledAtMs;
         state.accepted = cloneDomainSample(sample);
         this.recordSample(state, sample, clock);
       }
@@ -370,7 +367,7 @@ export class CapacityPressureTracker {
   private stateFor(domainId: string): DomainState {
     const existing = this.states.get(domainId);
     if (existing) return existing;
-    const created: DomainState = { watermark: null, accepted: null, window: null };
+    const created: DomainState = { accepted: null, window: null };
     this.states.set(domainId, created);
     return created;
   }

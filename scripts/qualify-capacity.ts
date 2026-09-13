@@ -756,15 +756,18 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
       if (
         pending.operation.operationId === first.operation.operationId &&
         pending.operation.phase === "queued" &&
-        pending.operation.reason === "stale"
+        pending.operation.reason === "unknown"
       ) {
         stalePending = pending;
         break;
       }
     }
-    assert.ok(stalePending, "Coordinator never reported stale telemetry for the queued operation.");
+    assert.ok(
+      stalePending,
+      "Coordinator never refused the queued operation after stale samples were discarded.",
+    );
     assert.equal(stalePending.operation.phase, "queued");
-    assert.equal(stalePending.operation.reason, "stale");
+    assert.equal(stalePending.operation.reason, "unknown");
     assert.equal(stalePending.operation.operationId, first.operation.operationId);
     const staleEntries = JSON.parse(fs.readFileSync(fixture, "utf8")) as Array<{
       starts: number;
