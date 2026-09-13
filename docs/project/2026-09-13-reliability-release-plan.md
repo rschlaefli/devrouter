@@ -212,17 +212,35 @@ fixture and live evidence separately; unknown/skipped is never a pass.
 
 ### Progress
 
-Status: implementing slice 4 source prerequisites. Diagnostics, submission and recovery
-fences, durable human protection, consumer consent and controller store-loss refusal
-are committed and reviewed through78ddda0. Capacity ledger-loss repair is implemented
-and independently reviewed with post-rename snapshot fault coverage atc7515b5;
-CI34763896431 passed. Legacy positive-history detection and diagnostics are
-complete at5b5944b with2474tests, independent review and CI34764894059 passing.
-Exact-set parking observation proof is implemented with2516tests passing;
-immutable review and CI follow. Goal active.
-All seven slices retain integrated or live obligations. Required delivery is
-released and installed 0.1.0 with full roadmap qualification; achieved baseline
-is published 0.0.78, global installation last verified at 0.0.77.
+Status: implementing slice 4 parking/resume integration. Source is reviewed and
+CI-green at `2cae3f76145c574601ed438fed9b9d72a768068c` with 2,545 tests in 143 files.
+Delivered prerequisites include diagnostics, submission/recovery fences, durable
+human pins and consumer consent, controller/capacity history-loss refusals,
+pressure-duration evidence, exact-set parking observation, restart-stable bindings
+and exact retained-consumer withdrawal. CI 34769082566 also passes Linux helper,
+package and installed controller/capacity qualification.
+
+Park/resume model and lifecycle preparation are implemented on top of that
+baseline: resume is an intent change that earns admission through the ordinary
+queue instead of presuming it, park commits settled intent and keeps its charge
+until physical cessation, a crashed park is re-proven physically, and a resume
+that cannot keep its queued operation returns to parked intent. 2,553 tests pass
+in 143 files; controller-tier tests need a host context for process-identity
+inspection. Controller park/resume passes, status wording, durable windowed
+budgets and the remaining slices are open.
+
+All seven slices retain integrated or live obligations. Production park/resume,
+scoped/window recovery budgets, lost-identity/history reconciliation, actual
+harness enforcement, consumer breadth and measured optimization remain open.
+Codex 0.154.0-alpha.6.2 app-server initialization is unverified: both stdio and
+Unix transport probes time out without model turns. Claude 2.1.266 with isolated
+SDK 0.2.152 passes actual initialization with zero model turns; tool gating and
+continuation remain unverified. Its documented approval callback alone cannot
+gate already-approved tools.
+Live eLearning canary startup still awaits the explicit approval requested after
+automatic review rejected it; no consumer recovery is inferred. Goal remains
+active through published and installed 0.1.0 and full roadmap qualification.
+Published baseline is 0.0.78; global installation last verified at 0.0.77.
 
 Fresh fetch confirms origin/main `e92903a`; the task worktree uses pinned
 Node24.16.0/pnpm11.6.0. Source changes stay in the existing task worktree.

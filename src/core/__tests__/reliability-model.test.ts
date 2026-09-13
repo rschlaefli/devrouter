@@ -247,7 +247,7 @@ describe("reliability transitions", () => {
     expect(projectReliability(state, "agent", 100).state).toBe("PARKED_CAPACITY");
   });
 
-  it("joins parked consumers without restart and resumes only with fresh admission and operation", () => {
+  it("joins parked consumers without restart and refuses synthetic admission while parked", () => {
     let state = step(completed(), { type: "park" }).state;
     expect(step(state, { type: "park" }).effects).toEqual([]);
     expect(step(state, { ...request, mode: "attach", key: "parked" }).effects).toEqual([]);
@@ -257,22 +257,28 @@ describe("reliability transitions", () => {
       pressureDwellSatisfied: true,
       operationId: "resume-op",
     } as const;
-    expect(step(state, resume).outcome).toBe("blocked");
-    state = step(state, { type: "admission", result: "admitted" }).state;
-    expect(projectReliability(state, "agent", 100).state).toBe("STARTING");
-    expect(
-      step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).state
-        .chargeHeld,
-    ).toBe(true);
+    expect(step(state, { type: "admission", result: "admitted" }).outcome).toBe("blocked");
+    expect(projectReliability(state, "agent", 100).state).toBe("PARKED_CAPACITY");
+    const repeated = step(state, {
+      type: "stop-proof",
+      workloadsStopped: true,
+      routesRemoved: true,
+    });
+    expect(repeated.outcome).toBe("joined");
+    expect(repeated.state.chargeHeld).toBe(false);
+    expect(repeated.state.admission).toBe("waiting");
     expect(step(state, { ...resume, pressureDwellSatisfied: false }).outcome).toBe("blocked");
     expect(step(state, { ...resume, operationId: "op" }).outcome).toBe("blocked");
     const resumed = step(state, resume);
     expect(resumed.state).toMatchObject({
       desired: "running",
-      chargeHeld: true,
+      admission: "waiting",
+      chargeHeld: false,
+      phase: "queued",
       runtimeGeneration: state.runtimeGeneration + 1,
       operation: { id: "resume-op", status: "NOT_STARTED" },
     });
+    expect(projectReliability(resumed.state, "agent", 100).state).toBe("WAITING_CAPACITY");
   });
 
   it.each([

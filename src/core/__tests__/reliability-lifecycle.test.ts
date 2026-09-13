@@ -2944,6 +2944,333 @@ describe("bounded recovery preparation", () => {
   });
 });
 
+describe("bounded parking and resume preparation", () => {
+  async function runningEnrolledFixture() {
+    const { contract, lifecycle, model, store } = await loadLifecycleModules();
+    const identity: ReliabilityIdentity = {
+      repoPath: newCheckout(),
+      workspace: null,
+      provider: "devsy",
+    };
+    store.updateReliabilityOperation(identity, (record) => {
+      record.state = model.stepReliability(
+        record.state,
+        { ...contract.reliabilityFence(record.state), type: "stop" },
+        1,
+      ).state;
+      record.state = model.stepReliability(
+        record.state,
+        {
+          ...contract.reliabilityFence(record.state),
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        },
+        2,
+      ).state;
+    });
+    const before = store.readReliabilityOperation(identity)!;
+    store.enrollStoppedLifecycle(identity, before.revision, {
+      policyRevision: 1,
+      gitCommonDir: "/tmp/synthetic-common",
+      providerId: "synthetic-provider",
+      hostDomain: "host",
+      runtimeDomain: "guest",
+      endpoint: "/tmp/synthetic-docker.sock",
+      daemonId: "synthetic-daemon",
+      estimatesDigest: "a".repeat(64),
+    });
+    const { ControllerStore } = await import("../controller-store");
+    const { DEVROUTER_HOME } = await import("../router");
+    const directory = path.join(DEVROUTER_HOME, "controller");
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const incarnation = new ControllerStore(directory).startIncarnation();
+    const controller = { store: incarnation.store, epoch: incarnation.epoch };
+    lifecycle.prepareManagedLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      requestId: "prior-ensure",
+      kind: "ensure",
+      profile: "full",
+      consumer: { id: "agent", requiredCapabilities: [], pinned: false },
+      runtimeRunning: false,
+    });
+    store.updateReliabilityOperation(identity, (record) => {
+      record.state = model.stepReliability(
+        record.state,
+        { ...contract.reliabilityFence(record.state), type: "admission", result: "admitted" },
+        Date.now(),
+      ).state;
+      const completed = { status: "COMPLETED" as const, drained: true, exitCode: 0 };
+      record.state.operation = { ...record.state.operation!, ...completed };
+      record.state.operationHistory = record.state.operationHistory.map((entry) => ({
+        ...entry,
+        ...completed,
+      }));
+    });
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "park-request",
+      operationId: "park-operation",
+      workerId: "park-worker",
+    });
+    return { contract, lifecycle, model, store, identity, controller };
+  }
+
+  async function settledParkFixture() {
+    const context = await runningEnrolledFixture();
+    const before = context.store.readReliabilityOperation(context.identity)!;
+    const prepared = context.lifecycle.prepareParkLifecycleOperation({
+      identity: context.identity,
+      controller: context.controller,
+      policyRevision: 1,
+      journalRevision: before.revision,
+      observationSatisfied: () => true,
+    });
+    expect(prepared).toBeDefined();
+    context.store.updateReliabilityOperation(context.identity, (record) => {
+      record.state = context.model.stepReliability(
+        record.state,
+        {
+          ...context.contract.reliabilityFence(record.state),
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        },
+        Date.now(),
+      ).state;
+    });
+    return { ...context, prepared: prepared! };
+  }
+
+  it("commits parked intent and keeps the charge until physical cessation", async () => {
+    const { lifecycle, store, identity, controller } = await runningEnrolledFixture();
+    const before = store.readReliabilityOperation(identity)!;
+    const prepared = lifecycle.prepareParkLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      journalRevision: before.revision,
+      observationSatisfied: () => true,
+    });
+    expect(prepared).toBeDefined();
+    const after = store.readReliabilityOperation(identity)!;
+    expect(after.state).toMatchObject({
+      desired: "parked-for-capacity",
+      phase: "stopping",
+      chargeHeld: true,
+    });
+    expect(after.state.incident).toEqual(before.state.incident);
+    expect(after.revision).toBe(before.revision + 1);
+    expect(prepared!.request).toMatchObject({
+      kind: "stop",
+      repoPath: identity.repoPath,
+      operationId: "park-operation",
+    });
+    expect(prepared!.request.fence).toEqual({
+      environmentId: after.state.environmentId,
+      controllerEpoch: after.state.controllerEpoch,
+      intentRevision: before.state.intentRevision + 1,
+      runtimeGeneration: before.state.runtimeGeneration,
+    });
+  });
+
+  it("refuses parking when the live observation is no longer satisfied", async () => {
+    const { lifecycle, store, identity, controller } = await runningEnrolledFixture();
+    const before = store.readReliabilityOperation(identity)!;
+    expect(
+      lifecycle.prepareParkLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 1,
+        journalRevision: before.revision,
+        observationSatisfied: () => false,
+      }),
+    ).toBeUndefined();
+    const after = store.readReliabilityOperation(identity)!;
+    expect(after.state).toEqual(before.state);
+    expect(after.state.desired).toBe("running");
+  });
+
+  it("refuses parking on a stale observation revision or a pinned consumer", async () => {
+    const { lifecycle, store, identity, controller } = await runningEnrolledFixture();
+    const before = store.readReliabilityOperation(identity)!;
+    expect(() =>
+      lifecycle.prepareParkLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 1,
+        journalRevision: before.revision + 1,
+        observationSatisfied: () => true,
+      }),
+    ).toThrow(/revision/);
+    store.updateReliabilityOperation(identity, (record) => {
+      record.state.consumers = record.state.consumers.map((consumer) => ({
+        ...consumer,
+        pinned: true,
+      }));
+    });
+    const pinned = store.readReliabilityOperation(identity)!;
+    expect(
+      lifecycle.prepareParkLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 1,
+        journalRevision: pinned.revision,
+        observationSatisfied: () => true,
+      }),
+    ).toBeUndefined();
+    expect(store.readReliabilityOperation(identity)!.state.desired).toBe("running");
+  });
+
+  it("re-drives an unsettled park and stops once cessation is proven", async () => {
+    const { contract, lifecycle, model, store, identity, controller } =
+      await runningEnrolledFixture();
+    const before = store.readReliabilityOperation(identity)!;
+    lifecycle.prepareParkLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      journalRevision: before.revision,
+      observationSatisfied: () => true,
+    });
+    const recovery = lifecycle.reconcileParkedLifecycleStop({
+      identity,
+      controller,
+      policyRevision: 1,
+    });
+    expect(recovery).toMatchObject({ kind: "stop", repoPath: identity.repoPath });
+    const parked = store.readReliabilityOperation(identity)!;
+    expect(recovery!.fence).toEqual({
+      environmentId: parked.state.environmentId,
+      controllerEpoch: parked.state.controllerEpoch,
+      intentRevision: parked.state.intentRevision,
+      runtimeGeneration: parked.state.runtimeGeneration,
+    });
+    store.updateReliabilityOperation(identity, (record) => {
+      record.state = model.stepReliability(
+        record.state,
+        {
+          ...contract.reliabilityFence(record.state),
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        },
+        Date.now(),
+      ).state;
+    });
+    expect(
+      lifecycle.reconcileParkedLifecycleStop({
+        identity,
+        controller,
+        policyRevision: 1,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("resumes through waiting admission and releases a consumer without a live session", async () => {
+    const { lifecycle, store, identity, controller } = await settledParkFixture();
+    const before = store.readReliabilityOperation(identity)!;
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "resume-request",
+      operationId: "resume-operation",
+      workerId: "resume-worker",
+    });
+    const prepared = lifecycle.prepareResumeLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      journalRevision: before.revision,
+      profile: "full",
+      actionLimit: 3,
+      liveDemand: () => ["agent"],
+    });
+    expect(prepared).toBeDefined();
+    const after = store.readReliabilityOperation(identity)!;
+    expect(after.state).toMatchObject({
+      desired: "running",
+      phase: "queued",
+      admission: "waiting",
+      chargeHeld: false,
+      operation: { id: "resume-operation", status: "NOT_STARTED" },
+    });
+    expect(after.state.runtimeGeneration).toBe(before.state.runtimeGeneration + 1);
+    expect(prepared!.request.fence).toEqual({
+      environmentId: after.state.environmentId,
+      controllerEpoch: after.state.controllerEpoch,
+      intentRevision: before.state.intentRevision + 1,
+      runtimeGeneration: before.state.runtimeGeneration + 1,
+    });
+  });
+
+  it.each([
+    ["an empty live set", () => [] as string[]],
+    [
+      "unprovable demand",
+      () => {
+        throw new Error("synthetic session evidence unavailable");
+      },
+    ],
+  ])("never resumes for %s", async (_label, liveDemand) => {
+    const { lifecycle, store, identity, controller } = await settledParkFixture();
+    const before = store.readReliabilityOperation(identity)!;
+    expect(
+      lifecycle.prepareResumeLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 1,
+        journalRevision: before.revision,
+        profile: "full",
+        actionLimit: 3,
+        liveDemand,
+      }),
+    ).toBeUndefined();
+    const after = store.readReliabilityOperation(identity)!;
+    expect(after.state.desired).toBe("parked-for-capacity");
+    expect(after.state.chargeHeld).toBe(false);
+  });
+
+  it("returns parked intent when a resume cannot keep its queued operation", async () => {
+    const { lifecycle, store, identity, controller } = await settledParkFixture();
+    const before = store.readReliabilityOperation(identity)!;
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "resume-request",
+      operationId: "resume-operation",
+      workerId: "resume-worker",
+    });
+    const prepared = lifecycle.prepareResumeLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      journalRevision: before.revision,
+      profile: "full",
+      actionLimit: 3,
+      liveDemand: () => ["agent"],
+    })!;
+    expect(prepared).toBeDefined();
+    lifecycle.retireQueuedLifecycle(prepared.request);
+    lifecycle.restoreParkedIntentAfterFailedResume({
+      identity,
+      controller,
+      request: prepared.request,
+    });
+    const reparked = store.readReliabilityOperation(identity)!;
+    expect(reparked.state).toMatchObject({
+      desired: "parked-for-capacity",
+      phase: "stopping",
+      chargeHeld: false,
+    });
+    expect(reparked.state.operation).toMatchObject({
+      id: "resume-operation",
+      drained: true,
+      status: "NOT_STARTED",
+    });
+    expect(
+      lifecycle.reconcileParkedLifecycleStop({ identity, controller, policyRevision: 1 }),
+    ).toMatchObject({ kind: "stop" });
+  });
+});
+
 it.each([
   "",
   "daemon",

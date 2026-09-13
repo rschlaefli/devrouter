@@ -405,6 +405,227 @@ export function prepareRecoveryLifecycleOperation(input: {
   });
 }
 
+/**
+ * Commit parked intent for one policy-enrolled environment and return the
+ * exact non-destructive stop the caller must drive. Parking is a capacity
+ * decision, so it never charges the incident budget and never fabricates a
+ * reservation: the stop proof releases the charge only after physical
+ * cessation. The caller re-proves the live parking observation inside this
+ * transaction, so a superseded consumer set cannot park an environment that
+ * just became usable again.
+ */
+export function prepareParkLifecycleOperation(input: {
+  identity: ReliabilityIdentity;
+  controller: CapacityControllerIdentity;
+  policyRevision: number;
+  /** Journal revision the producing observation proved; a changed revision is refused. */
+  journalRevision: number;
+  /** Re-proves the live parking observation under the transaction that commits it. */
+  observationSatisfied: () => boolean;
+}): { operationId: string; request: LifecycleWorkerRequest } | undefined {
+  const ids = newLifecycleIds();
+  return updateReliabilityOperation(input.identity, (record) => {
+    if (record.revision !== input.journalRevision)
+      throw new Error("Parking observation journal revision changed.");
+    assertCurrentCapacityController(input.controller);
+    if (
+      record.version !== 2 ||
+      record.state.executionPolicy !== "capacity-managed" ||
+      record.enrollment?.policyRevision !== input.policyRevision
+    )
+      throw new Error("Managed parking requires current durable enrollment.");
+    if (record.phaseSettlement) return undefined;
+    // Settle an operation the queue no longer owns before deciding, so a stale
+    // preparation cannot wedge every later park behind its evidence.
+    reconcileDrained(record);
+    if (record.worker) return undefined;
+    if (!input.observationSatisfied()) return undefined;
+    const transition = stepReliability(
+      record.state,
+      { ...reliabilityFence(record.state), type: "park" },
+      Date.now(),
+    );
+    if (transition.outcome !== "accepted") return undefined;
+    record.state = transition.state;
+    record.outcome = null;
+    record.result = null;
+    record.startupWitness = null;
+    return {
+      operationId: ids.operationId,
+      request: {
+        ...ids,
+        kind: "stop",
+        repoPath: input.identity.repoPath,
+        identity: { ...input.identity },
+        fence: reliabilityFence(record.state),
+        options: {},
+      },
+    };
+  });
+}
+
+/**
+ * Re-drive a park whose stop worker died before provable cessation. The proof
+ * is physical and intent-agnostic, so recovery re-runs the same stop under the
+ * current fence instead of trusting a receipt that no longer exists. It is a
+ * no-op while the stop proof is complete or another worker owns the lifecycle.
+ */
+export function reconcileParkedLifecycleStop(input: {
+  identity: ReliabilityIdentity;
+  controller: CapacityControllerIdentity;
+  policyRevision: number;
+}): LifecycleWorkerRequest | undefined {
+  const ids = newLifecycleIds();
+  return updateReliabilityOperation(input.identity, (record) => {
+    assertCurrentCapacityController(input.controller);
+    if (
+      record.version !== 2 ||
+      record.state.executionPolicy !== "capacity-managed" ||
+      record.enrollment?.policyRevision !== input.policyRevision
+    )
+      return undefined;
+    if (record.phaseSettlement) return undefined;
+    reconcileDrained(record);
+    if (record.worker) return undefined;
+    if (record.state.desired !== "parked-for-capacity") return undefined;
+    if (record.state.stopProof.workloadsStopped && record.state.stopProof.routesRemoved)
+      return undefined;
+    return {
+      ...ids,
+      kind: "stop",
+      repoPath: input.identity.repoPath,
+      identity: { ...input.identity },
+      fence: reliabilityFence(record.state),
+      options: {},
+    };
+  });
+}
+
+/**
+ * Return parked intent to its settled charge-free state after a resume that no
+ * longer has a home. The caller has already proven the queued operation
+ * retired, so re-parking cannot strand unbacked running intent; the stop is
+ * driven by {@link reconcileParkedLifecycleStop} on a later pass.
+ */
+export function restoreParkedIntentAfterFailedResume(input: {
+  identity: ReliabilityIdentity;
+  controller: CapacityControllerIdentity;
+  request: LifecycleWorkerRequest;
+}): void {
+  updateReliabilityOperation(input.identity, (record) => {
+    assertCurrentCapacityController(input.controller);
+    if (!matchesFence(record, input.request.fence))
+      throw new Error("Resume intent was superseded before it could be parked.");
+    const operation = record.state.operation;
+    const retired = record.state.operationHistory.find(
+      (entry) => entry.id === input.request.operationId,
+    );
+    if (
+      record.worker ||
+      (operation?.id === input.request.operationId
+        ? !operation.drained || operation.status !== "NOT_STARTED"
+        : retired?.drained !== true || !["NOT_STARTED", "NOT_LAUNCHED"].includes(retired.status))
+    )
+      throw new Error("Resume intent absence is not proven.");
+    if (record.state.desired !== "running") throw new Error("Resume intent was already replaced.");
+    const transition = stepReliability(
+      record.state,
+      { ...reliabilityFence(record.state), type: "park" },
+      Date.now(),
+    );
+    if (transition.outcome !== "accepted")
+      throw new Error("Failed resume could not return to parked intent.");
+    record.state = transition.state;
+  });
+}
+
+/**
+ * Commit resumed intent and return the ensure the queue must admit. Resume is
+ * an intent change that requests capacity rather than one that presumes it: the
+ * journal returns to waiting and the ordinary admission path reserves against
+ * real domain budgets. Demand is re-proven as a live consumer set inside this
+ * transaction, and consumers that no longer have a live session are released
+ * so a lost consumer can never start work on its own.
+ */
+export function prepareResumeLifecycleOperation(input: {
+  identity: ReliabilityIdentity;
+  controller: CapacityControllerIdentity;
+  policyRevision: number;
+  /** Journal revision the producing observation proved; a changed revision is refused. */
+  journalRevision: number;
+  profile: string;
+  actionLimit: number;
+  /** Exact live consumer ids for this environment; throws when unprovable. */
+  liveDemand: () => string[];
+}): { operationId: string; request: LifecycleWorkerRequest } | undefined {
+  const ids = newLifecycleIds();
+  return updateReliabilityOperation(input.identity, (record) => {
+    if (record.revision !== input.journalRevision)
+      throw new Error("Resume observation journal revision changed.");
+    assertCurrentCapacityController(input.controller);
+    if (
+      record.version !== 2 ||
+      record.state.executionPolicy !== "capacity-managed" ||
+      record.enrollment?.policyRevision !== input.policyRevision
+    )
+      throw new Error("Managed resume requires current durable enrollment.");
+    if (record.phaseSettlement) return undefined;
+    reconcileDrained(record);
+    if (record.worker) return undefined;
+    if (record.state.desired !== "parked-for-capacity") return undefined;
+    let live: Set<string>;
+    try {
+      live = new Set(input.liveDemand());
+    } catch {
+      // Unprovable demand keeps the environment parked rather than starting
+      // work for a consumer whose session state is unknown.
+      return undefined;
+    }
+    for (const consumer of [...record.state.consumers]) {
+      if (live.has(consumer.id)) continue;
+      const released = stepReliability(
+        record.state,
+        { ...reliabilityFence(record.state), type: "release", consumerId: consumer.id },
+        Date.now(),
+      );
+      if (released.outcome === "accepted") record.state = released.state;
+    }
+    const decision = decideRecovery({
+      state: record.state,
+      nowMs: Date.now(),
+      actionLimit: input.actionLimit,
+      pressureDwellSatisfied: true,
+    });
+    if (decision.action !== "resume") return undefined;
+    const transition = stepReliability(
+      record.state,
+      {
+        ...reliabilityFence(record.state),
+        type: "resume",
+        pressureDwellSatisfied: true,
+        operationId: ids.operationId,
+      },
+      Date.now(),
+    );
+    if (transition.outcome !== "accepted") return undefined;
+    record.state = transition.state;
+    record.outcome = null;
+    record.result = null;
+    record.startupWitness = null;
+    return {
+      operationId: ids.operationId,
+      request: {
+        ...ids,
+        kind: "ensure",
+        repoPath: input.identity.repoPath,
+        identity: { ...input.identity },
+        fence: reliabilityFence(record.state),
+        options: { profile: input.profile, quiet: true },
+      },
+    };
+  });
+}
+
 /** Reduce completed phase charges only after the exact worker has drained. */
 export function settlePreparedLifecycleCapacity(input: {
   identity: ReliabilityIdentity;

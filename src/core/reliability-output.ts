@@ -49,13 +49,7 @@ export function projectReliability(state: ReliabilityState, consumerId: string, 
   if (!consumer) summary = "BLOCKED";
   else if (state.desired === "stopped-by-user") summary = completeStop ? "STOPPED" : "UNKNOWN";
   else if (state.desired === "parked-for-capacity")
-    summary = completeStop
-      ? "PARKED_CAPACITY"
-      : state.stopProof.workloadsStopped &&
-          state.stopProof.routesRemoved &&
-          state.admission === "admitted"
-        ? "STARTING"
-        : "BLOCKED";
+    summary = completeStop ? "PARKED_CAPACITY" : "BLOCKED";
   else if (
     state.operation?.status === "COMPLETION_UNKNOWN" ||
     state.operation?.status === "INTERRUPTED"

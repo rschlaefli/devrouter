@@ -536,11 +536,10 @@ function handleAdmission(
     return unchanged(state, "blocked");
   }
   if (state.admission === event.result) return unchanged(state, "joined");
-  if (
-    state.desired === "parked-for-capacity" &&
-    event.result === "admitted" &&
-    (!state.stopProof.workloadsStopped || !state.stopProof.routesRemoved)
-  )
+  // Parked intent holds no reservation, so no producer may report one. The
+  // resume transition returns to waiting and earns admission through the
+  // ordinary queue path against a real reservation.
+  if (state.desired === "parked-for-capacity" && event.result === "admitted")
     return unchanged(state, "blocked");
 
   state.admission = event.result;
@@ -809,7 +808,6 @@ function handleResume(
     !state.stopProof.workloadsStopped ||
     !state.stopProof.routesRemoved ||
     state.consumers.length === 0 ||
-    state.admission !== "admitted" ||
     state.profile === null ||
     (state.incident !== null &&
       state.incident.correctiveActionsTaken >= state.incident.actionLimit) ||
@@ -821,6 +819,19 @@ function handleResume(
     return unchanged(state, "blocked");
   }
 
+  // Resume mints a fresh journal entry, so it may reuse neither an existing ID
+  // nor a saturated journal slot. A full history retires exactly one eligible
+  // settled entry and refuses unchanged when nothing qualifies, as recovery does.
+  if (state.operationHistory.some((entry) => entry.id === event.operationId))
+    return unchanged(state, "conflict");
+  const rollover = state.operationHistory.length >= RELIABILITY_MAX_ITEMS;
+  const retired = rollover ? retirableEntryIndex(state) : -1;
+  if (rollover && retired === -1)
+    return blocked(
+      state,
+      `journal holds ${state.operationHistory.length} entries and every retirable entry is the current operation or the latest ensure.`,
+    );
+
   const intentRevision = advance(state.intentRevision);
   const runtimeGeneration = advance(state.runtimeGeneration);
   if (intentRevision === null || runtimeGeneration === null) return unchanged(state, "blocked");
@@ -829,9 +840,10 @@ function handleResume(
   state.runtimeGeneration = runtimeGeneration;
   state.desired = "running";
   state.phase = "queued";
+  state.admission = "waiting";
   state.stopProof = { workloadsStopped: false, routesRemoved: false };
   state.observations = [];
-  state.chargeHeld = true;
+  state.chargeHeld = false;
   state.operation = {
     id: event.operationId,
     kind: "ensure",
@@ -844,6 +856,13 @@ function handleResume(
     operationId: event.operationId,
     intentRevision,
   }));
+  if (retired !== -1) state.operationHistory.splice(retired, 1);
+  state.operationHistory.push({
+    ...state.operation,
+    key: event.operationId,
+    profile: state.profile,
+    consumer: cloneConsumer(state.consumers[0]),
+  });
   return transition(state, "accepted");
 }
 
@@ -1163,7 +1182,6 @@ export function decideRecovery(input: {
       state.stopProof.workloadsStopped &&
       state.stopProof.routesRemoved &&
       state.consumers.length > 0 &&
-      state.admission === "admitted" &&
       state.profile !== null &&
       (state.incident === null ||
         state.incident.correctiveActionsTaken < state.incident.actionLimit) &&
