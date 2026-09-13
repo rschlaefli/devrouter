@@ -1,5 +1,5 @@
 import type { ControllerEnvironment } from "./controller-store";
-import type { ReliabilityObservation } from "./reliability-contract";
+import type { ReliabilityObservation, ReliabilityOperation } from "./reliability-contract";
 import type {
   ReliabilityIdentity,
   ReliabilityOperationRecord,
@@ -37,8 +37,9 @@ export type ControllerRecovery = (
 ) => Promise<void>;
 
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { ControllerBinding, ControllerSessions } from "./controller-sessions";
-import type { ControllerProjection } from "./controller-store";
+import type { ControllerProjection, ControllerSession } from "./controller-store";
 import { withReliabilityObservationFence } from "./reliability-operation-store";
 import { projectReliability } from "./reliability-output";
 
@@ -48,11 +49,56 @@ export function controllerCapability(selector: string): string {
     : `app-${createHash("sha256").update(selector).digest("hex")}`;
 }
 
+export type ControllerParkingObservation =
+  | "observation-unavailable"
+  | "consumer-set-changed"
+  | "history-unproven"
+  | "unresolved-consumers"
+  | "consent-withheld"
+  | "observation-stale"
+  | "journal-changed"
+  | "human-pinned"
+  | "intent-protected"
+  | "lifecycle-unsettled"
+  | "capability-unknown"
+  | "application-error"
+  | "consumer-usable"
+  | "ownership-unproven"
+  | "unusable-consumers-proven";
+
+function parkingConsumers(consumers: ControllerSession[]) {
+  return consumers
+    .map(({ id, generation, requirements, parkingConsent, consentRevision }) => ({
+      id,
+      generation,
+      requirements: [...requirements].sort(),
+      parkingConsent,
+      consentRevision,
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+type ParkingObservation = {
+  store: string;
+  epoch: number;
+  parkingRevision: number;
+  consumers: ReturnType<typeof parkingConsumers>;
+  environment: ControllerEnvironment;
+  identity: ReliabilityIdentity;
+  journalRevision: number;
+  startedAtMs: number;
+  sampledAtMs: number;
+  runtimeFingerprint: string;
+  capabilities: ReliabilityObservation[];
+  revalidatePersisted: () => boolean;
+};
+
 /** Two fair batches at most; publication alone enters the owner serializer. */
 export class ControllerMonitor {
   private active = new Map<string, AbortController>();
   private lastStarted = new Map<string, number>();
   private stopped = false;
+  private parkingObservations = new Map<string, ParkingObservation>();
   constructor(
     private readonly sessions: ControllerSessions,
     private readonly collect: ControllerObservationCollector,
@@ -63,7 +109,111 @@ export class ControllerMonitor {
   ) {}
   stop(): void {
     this.stopped = true;
+    this.parkingObservations.clear();
     for (const abort of this.active.values()) abort.abort();
+  }
+  /** One prerequisite only. Caller holds the journal fence; this acquires no lock. */
+  parkingObservation(
+    environment: ControllerEnvironment,
+    journal: ReliabilityOperationRecord,
+  ): ControllerParkingObservation {
+    const evidence = this.parkingObservations.get(environment.id);
+    if (this.stopped || !evidence) return "observation-unavailable";
+    const now = this.clock();
+    this.sessions.tick(now, Date.now());
+    const snapshot = this.sessions.read();
+    const consumers = snapshot.sessions.filter(
+      (session) => session.environmentId === environment.id,
+    );
+    if (
+      evidence.store !== snapshot.store ||
+      evidence.epoch !== snapshot.epoch ||
+      evidence.parkingRevision !== snapshot.parkingRevision ||
+      !isDeepStrictEqual(environment, evidence.environment) ||
+      !isDeepStrictEqual(
+        snapshot.environments.find((entry) => entry.id === environment.id),
+        environment,
+      ) ||
+      !isDeepStrictEqual(parkingConsumers(consumers), evidence.consumers)
+    )
+      return "consumer-set-changed";
+    if (snapshot.history !== "complete") return "history-unproven";
+    if (snapshot.retainedSessions.some((session) => session.environment.id === environment.id))
+      return "unresolved-consumers";
+    if (
+      !consumers.length ||
+      consumers.some((session) => session.parkingConsent !== "allow-unusable")
+    )
+      return "consent-withheld";
+    if (
+      evidence.sampledAtMs < evidence.startedAtMs ||
+      evidence.sampledAtMs > now ||
+      now - evidence.sampledAtMs >= 15_000 ||
+      consumers.some(
+        ({ observation }) =>
+          !observation ||
+          observation.sampledAtMs !== evidence.sampledAtMs ||
+          observation.journalRevision !== evidence.journalRevision ||
+          observation.runtimeFingerprint !== evidence.runtimeFingerprint ||
+          observation.validUntilMs !== evidence.sampledAtMs + 15_000 ||
+          observation.validUntilMs <= now,
+      )
+    )
+      return "observation-stale";
+    if (
+      journal.revision !== evidence.journalRevision ||
+      !isDeepStrictEqual(journal.identity, evidence.identity)
+    )
+      return "journal-changed";
+    if (journal.consumerProtection?.humanPinned) return "human-pinned";
+    if (journal.state.desired !== "running") return "intent-protected";
+    const operations: ReliabilityOperation[] = [...journal.state.operationHistory];
+    if (journal.state.operation) operations.push(journal.state.operation);
+    if (
+      journal.worker ||
+      !["stable", "recovering"].includes(journal.state.phase) ||
+      operations.some(
+        (operation) =>
+          !operation.drained ||
+          !["COMPLETED", "NOT_LAUNCHED", "INTERRUPTED"].includes(operation.status) ||
+          (operation.kind === "exec" && operation.status === "INTERRUPTED"),
+      )
+    )
+      return "lifecycle-unsettled";
+    const required = consumers.map((consumer) =>
+      consumer.requirements.map((selector) =>
+        evidence.capabilities.filter(
+          (capability) => capability.capability === controllerCapability(selector),
+        ),
+      ),
+    );
+    if (
+      required.some((capabilities) =>
+        capabilities.some(
+          (matches) => matches.length !== 1 || matches[0].infrastructure === "unknown",
+        ),
+      )
+    )
+      return "capability-unknown";
+    if (
+      required.some((capabilities) =>
+        capabilities.some(([capability]) => capability.application === "unready"),
+      )
+    )
+      return "application-error";
+    if (
+      required.some(
+        (capabilities) =>
+          !capabilities.some(([capability]) => capability.infrastructure === "failed"),
+      )
+    )
+      return "consumer-usable";
+    try {
+      if (!evidence.revalidatePersisted()) return "ownership-unproven";
+    } catch {
+      return "ownership-unproven";
+    }
+    return "unusable-consumers-proven";
   }
   tick(): void {
     if (this.stopped) return;
@@ -71,6 +221,8 @@ export class ControllerMonitor {
     const current = new Set(snapshot.environments.map((env) => env.id));
     for (const [id, abort] of this.active) if (!current.has(id)) abort.abort();
     for (const id of this.lastStarted.keys()) if (!current.has(id)) this.lastStarted.delete(id);
+    for (const id of this.parkingObservations.keys())
+      if (!current.has(id)) this.parkingObservations.delete(id);
     const now = this.clock();
     const candidates = snapshot.environments
       .filter(
@@ -163,6 +315,26 @@ export class ControllerMonitor {
                 });
               }
               this.sessions.publish(bindings, projections, commitTime, Date.now());
+              const currentEnvironments = new Set(
+                this.sessions.read().environments.map((entry) => entry.id),
+              );
+              for (const id of this.parkingObservations.keys())
+                if (!currentEnvironments.has(id)) this.parkingObservations.delete(id);
+              if (currentEnvironments.has(environment.id))
+                this.parkingObservations.set(environment.id, {
+                  store: snapshot.store,
+                  epoch: snapshot.epoch,
+                  parkingRevision: snapshot.parkingRevision,
+                  consumers: parkingConsumers(consumers),
+                  environment: structuredClone(environment),
+                  identity: structuredClone(batch.identity),
+                  journalRevision: journal.revision,
+                  startedAtMs: now,
+                  sampledAtMs: batch.sampledAtMs,
+                  runtimeFingerprint: batch.runtimeFingerprint,
+                  capabilities: structuredClone(batch.capabilities),
+                  revalidatePersisted: batch.revalidatePersisted,
+                });
             });
             if (this.recover === undefined || this.stopped || abort.signal.aborted) return;
             const revalidate = () => {

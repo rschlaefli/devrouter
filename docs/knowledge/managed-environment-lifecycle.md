@@ -205,6 +205,15 @@ incarnation-local key, so a real process restart can prevent this equality proof
 reconnect across that boundary is not yet a seamless recovery path. Legacy history
 and lost identities remain unresolved. Protection status exposes consent and
 uncertainty counts; `consentSatisfied` proves only the consumer-consent prerequisite.
+`parkingObservation` additionally compares the original complete consumer set
+with current live bindings, consent revisions and published observation evidence.
+It revalidates the producing journal and persisted ownership under the existing
+journal fence without acquiring another lock. Each consumer needs a positively
+failed required infrastructure capability; unknown requirements, application
+errors, human pins, protected intent and unsettled operations veto. A later
+failed probe invalidates earlier proof even within its freshness window. Restart
+requires fresh observations. This is one prerequisite only; pressure policy,
+reservation safety and intent-preserving stop/resume remain separately required.
 These interfaces do not activate parking or provide a reusable execution permit.
 
 The controller's private `store-identity.json` binds its durable snapshot to one

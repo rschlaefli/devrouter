@@ -217,7 +217,9 @@ fences, durable human protection, consumer consent and controller store-loss ref
 are committed and reviewed through78ddda0. Capacity ledger-loss repair is implemented
 and independently reviewed with post-rename snapshot fault coverage atc7515b5;
 CI34763896431 passed. Legacy positive-history detection and diagnostics are
-implemented with focused verification; independent slice review is next. Goal active.
+complete at5b5944b with2474tests, independent review and CI34764894059 passing.
+Exact-set parking observation proof is implemented with2516tests passing;
+immutable review and CI follow. Goal active.
 All seven slices retain integrated or live obligations. Required delivery is
 released and installed 0.1.0 with full roadmap qualification; achieved baseline
 is published 0.0.78, global installation last verified at 0.0.77.
@@ -1464,3 +1466,98 @@ consequential tests. All prior failures resolved with test isolation and the
 constructor mock adaptation, without weakening runtime guards. Packed CLI/build,
 static/docs/knowledge/typecheck/Knip and bounded scan pass. Immutable reviews and
 exact CI follow this source commit; no full-roadmap or live completion claim.
+
+
+### Exact consumer parking observation — frozen derived draft
+
+Primitive impact: compose existing consumer consent, observer capability evidence
+and lifecycle intent for one bounded prerequisite. No new product object,
+persistence schema, policy, emitter or capacity permission. Later pressure-driven
+parking must revalidate this prerequisite inside its already-held journal lock,
+in addition to exact capacity reservations, policy, stop and resume authority.
+Restart intentionally requires a new observation; no observation crosses epochs.
+
+Scope: src/core/controller-monitor.ts and controller-server.ts plus their two
+existing test files, docs/DEVCONTAINER.md, managed-environment-lifecycle.md and this
+plan. Main owns the coupled synchronous publication/server seam under the recorded
+unhealthy executor route; planner then immutable simplifier/risk review apply.
+No runtime actions, installed updates, dependencies, new module or IPC method.
+
+Retain one latest successfully published batch per current environment in the
+monitor (maximum32, cleared on stop/removal). Capture original store/epoch,
+parkingRevision and the exact sorted binding tuples (id, generation, requirements,
+consent and consentRevision), full environment, sample/start time, journal identity
+and revision, capabilities, runtime fingerprint and persisted-read callback.
+Copy data into the retained entry. Write only after successful session publication
+inside the existing journal fence. Ordinary recovery retains surviving-subset
+semantics and its present callback unchanged.
+
+Add synchronous parkingObservation(environment,journal) for callers already
+holding the journal fence. It acquires no locks, uses bounded persisted reads,
+and ticks sessions with actual monotonic/wall time before evaluating. Tick may
+persist lease expiry or discontinuity through the existing session store;
+read-only here means no runtime or lifecycle mutation, as current protection-status.
+Never reacquire the journal fence. Returns one closed fixed reason, with negative
+default. Expose it only in existing protection-status as parkingObservation;
+it is explicitly one prerequisite, never an overall eligible/safe-to-park claim.
+No monitor yields observation-unavailable. Pin responses retain their current shape.
+
+Evaluation order: monitor stopped/missing -> observation-unavailable; current
+store/epoch/parkingRevision/full environment/original consumer tuple mismatch ->
+consumer-set-changed; incomplete history -> history-unproven; retained consumers
+for this environment -> unresolved-consumers; no live consumers or any withheld
+consent -> consent-withheld; sample ahead of clock, before collection start,
+expired at15000ms or no matching current projection for every consumer (sample,
+journal revision, runtime fingerprint and validUntil) -> observation-stale;
+mismatched journal identity/revision -> journal-changed; human pin -> human-pinned;
+desired other than running -> intent-protected; phase outside stable/recovering,
+any worker or any current/historical operation not drained and terminal ->
+lifecycle-unsettled. Interrupted exec vetoes even if drained; drained interrupted
+ensure may pass. Terminal means COMPLETED, NOT_LAUNCHED or INTERRUPTED ensure.
+No command result is replayed or reclassified by this proof.
+
+Every required selector must have exactly one batch capability. Missing, duplicate
+or infrastructure unknown -> capability-unknown. Any required application unready
+-> application-error. Every consumer needs at least one required infrastructure
+failure, otherwise consumer-usable. A healthy sibling requirement can coexist with
+positive failure, but unknown/unready siblings veto. Only then invoke the retained
+persisted callback; false/throw -> ownership-unproven. Successful prerequisite
+returns unusable-consumers-proven. Reason order is stable; reasons reveal no
+consumer IDs, paths, capability names, raw configuration or exceptions.
+
+Acceptance through real temporary ControllerSessions/Store and actual monitor
+publication, never direct private-map construction: two consumers with distinct
+requirements, positive failure for each; healthy/APP_ERROR/unknown/missing/duplicate
+requirements; consent/set/reacquire/release/expiry/clock/epoch/environment changes;
+new failed probe invalidates old still-fresh projection; stale or superseded sample;
+persisted callback false/throw; changed journal/pin/intent/worker/undrained/uncertain
+exec; no recursive fence; stopped monitor and bounded removal. Reuse existing
+surviving-subset recovery tests. One real socket/journal protection-status journey
+must expose the fixed reason without invoking lifecycle operations and preserve
+pin/status contracts. Baseline failing test, focused monitor/server/sessions suites,
+static/docs/knowledge/typecheck/Knip, full suite, build/package and CI. No prose tests.
+
+Advisor DONE_WITH_CONCERNS accepted with latest-publication anchor and deliberate
+conservative APP_ERROR predicate. Planner challenge precedes implementation.
+This source prerequisite does not close parking/resume, lost-history forward
+recovery, fingerprint continuity, scoped recovery, harness or live qualification.
+
+
+Parking-observation planner APPROVED round1. The red test fails at the missing
+method before source. Existing publication validation rejects duplicate capability
+records before retention, producing observation-unavailable; preserve that stronger
+earlier refusal. The post-publication cache prunes against current environments
+and skips a removed environment, preserving the32-environment bound even when
+collection outlives release. All changes remain within the frozen seven paths.
+
+
+Parking-observation verification:65monitor tests and32socket tests pass; full
+2516tests/143files pass with2workers. The first concurrent full run hit one existing
+5s cursor-replay timeout (2515pass); its unchanged isolated check passed and the
+full rerun without package/scan contention passed. Added42behavior cases cover
+per-consumer evidence, current projections, async membership, ownership, live
+socket reporting and journal immutability. Typecheck/static/docs/knowledge/Knip,
+build and packed CLI smoke pass; the sandbox smoke first refused psEPERM, then
+host smoke passed preserving fail-closed identity. Linux helper explicitly skips
+macOS and requires CI. Scan210rules/2sourcefiles0findings. No consumer runtime
+or global artifact changes. Exact immutable review and CI are next.

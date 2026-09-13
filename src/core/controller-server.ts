@@ -418,6 +418,9 @@ export async function runController(options: {
                         validate();
                         return {
                           journalRevision: journal.revision,
+                          parkingObservation:
+                            monitor?.parkingObservation(environment, journal) ??
+                            "observation-unavailable",
                           protection: journal.consumerProtection ?? {
                             version: 1,
                             revision: 0,

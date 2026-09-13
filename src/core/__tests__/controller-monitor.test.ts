@@ -483,3 +483,352 @@ it.each([
     expect(() => validate!()).toThrow();
   }
 });
+
+it("requires a current failed capability for every consenting parking consumer", async () => {
+  const { sessions, first, batch } = fixture();
+  const second = sessions.acquire("two", environment, ["app:web"], 100, Date.now());
+  sessions.setParkingConsent(first, 0, "allow-unusable", 100, Date.now());
+  sessions.setParkingConsent(second, 0, "allow-unusable", 100, Date.now());
+  batch.capabilities[0].infrastructure = "failed";
+  batch.capabilities.push({
+    capability: controllerCapability("app:web"),
+    infrastructure: "failed",
+    application: "unverified",
+    observedAtMs: 0,
+    validForMs: 15000,
+  });
+  const fence = vi.fn((_identity, _revision, publish) => publish(batch.journal));
+  const monitor = new ControllerMonitor(
+    sessions,
+    async () => batch,
+    async (operation) => operation(),
+    () => 100,
+    fence,
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  await flush();
+  const calls = fence.mock.calls.length;
+  expect(monitor.parkingObservation(environment, batch.journal)).toBe("unusable-consumers-proven");
+  expect(fence).toHaveBeenCalledTimes(calls);
+});
+
+async function parkingFixture(prepare?: (f: ReturnType<typeof fixture>) => void) {
+  const f = fixture();
+  const time = { now: 100 };
+  const wall = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => wall + time.now - 100);
+  f.sessions.setParkingConsent(f.first, 0, "allow-unusable", 100, Date.now());
+  f.batch.capabilities[0].infrastructure = "failed";
+  prepare?.(f);
+  const collect = vi.fn(async () => f.batch);
+  const fence = vi.fn((_identity, _revision, publish) => publish(f.batch.journal));
+  const monitor = new ControllerMonitor(
+    f.sessions,
+    collect,
+    async (operation) => operation(),
+    () => time.now,
+    fence,
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  await flush();
+  return {
+    ...f,
+    time,
+    collect,
+    fence,
+    monitor,
+    proof: () => monitor.parkingObservation(environment, f.batch.journal),
+  };
+}
+afterEach(() => vi.restoreAllMocks());
+
+it.each([
+  ["healthy", "consumer-usable"],
+  ["unknown", "capability-unknown"],
+  ["unready", "application-error"],
+  ["missing", "capability-unknown"],
+  ["duplicate", "observation-unavailable"],
+] as const)("refuses parking observation with %s required evidence", async (kind, reason) => {
+  const f = await parkingFixture(({ batch }) => {
+    if (kind === "healthy" || kind === "unknown") batch.capabilities[0].infrastructure = kind;
+    else if (kind === "unready") batch.capabilities[0].application = "unready";
+    else if (kind === "missing") batch.capabilities = [];
+    else batch.capabilities.push({ ...batch.capabilities[0] });
+  });
+  expect(f.proof()).toBe(reason);
+});
+
+it("vetoes a usable second consumer even when another consumer's requirement failed", async () => {
+  const f = await parkingFixture(({ sessions, batch }) => {
+    const binding = sessions.acquire("two", environment, ["app:web"], 100, Date.now());
+    sessions.setParkingConsent(binding, 0, "allow-unusable", 100, Date.now());
+    batch.capabilities.push({
+      ...batch.capabilities[0],
+      capability: controllerCapability("app:web"),
+      infrastructure: "healthy",
+    });
+  });
+  expect(f.proof()).toBe("consumer-usable");
+});
+
+it("allows a healthy sibling requirement alongside positive failure for the same consumer", async () => {
+  const f = await parkingFixture(({ sessions, first, batch }) => {
+    sessions.release(first, 100, Date.now());
+    const binding = sessions.acquire("one", environment, ["runtime", "app:web"], 100, Date.now());
+    sessions.setParkingConsent(binding, 0, "allow-unusable", 100, Date.now());
+    batch.capabilities.push({
+      ...batch.capabilities[0],
+      capability: controllerCapability("app:web"),
+      infrastructure: "healthy",
+    });
+  });
+  expect(f.proof()).toBe("unusable-consumers-proven");
+});
+
+it.each([
+  "added",
+  "released",
+  "reacquired",
+  "consent",
+  "expired",
+  "clock",
+  "environment",
+] as const)("invalidates original parking consumers after %s", async (kind) => {
+  const f = await parkingFixture();
+  expect(f.proof()).toBe("unusable-consumers-proven");
+  if (kind === "added") f.sessions.acquire("two", environment, ["runtime"], 100, Date.now());
+  if (kind === "released" || kind === "reacquired") f.sessions.release(f.first, 100, Date.now());
+  if (kind === "reacquired") f.sessions.acquire("one", environment, ["runtime"], 100, Date.now());
+  if (kind === "consent") f.sessions.setParkingConsent(f.first, 1, "protected", 100, Date.now());
+  if (kind === "expired") {
+    for (const now of [10100, 20100, 30100]) {
+      f.time.now = now;
+      f.sessions.tick(now, Date.now());
+    }
+  }
+  if (kind === "clock") f.time.now = 99;
+  if (kind === "environment") {
+    expect(
+      f.monitor.parkingObservation(
+        { ...environment, fingerprint: "c".repeat(64) },
+        f.batch.journal,
+      ),
+    ).toBe("consumer-set-changed");
+  } else expect(f.proof()).toBe("consumer-set-changed");
+});
+
+it("retains uncertainty about an expired consumer through a fresh consenting observation", async () => {
+  const f = await parkingFixture(({ sessions }) =>
+    sessions.acquire("lost", environment, ["runtime"], 100, Date.now()),
+  );
+  for (const now of [10100, 20100, 30100]) {
+    f.time.now = now;
+    f.sessions.renew(f.first, now, Date.now());
+  }
+  f.batch.sampledAtMs = f.time.now;
+  f.monitor.tick();
+  await flush();
+  expect(f.sessions.read().retainedSessions).toHaveLength(1);
+  expect(f.proof()).toBe("unresolved-consumers");
+});
+
+it("rejects incomplete migrated history even with a fresh consenting observation", async () => {
+  const f = await parkingFixture(({ sessions }) => {
+    const read = sessions.read.bind(sessions);
+    vi.spyOn(sessions, "read").mockImplementation(() => ({ ...read(), history: "legacy-unknown" }));
+  });
+  expect(f.proof()).toBe("history-unproven");
+});
+
+it("preserves default protection in a fresh observation", async () => {
+  const f = await parkingFixture(({ sessions, first }) =>
+    sessions.setParkingConsent(first, 1, "protected", 100, Date.now()),
+  );
+  expect(f.proof()).toBe("consent-withheld");
+});
+
+it("does not revive old evidence after a newer probe fails", async () => {
+  const f = await parkingFixture();
+  expect(f.proof()).toBe("unusable-consumers-proven");
+  f.collect.mockRejectedValueOnce(new Error("fixture probe failed"));
+  f.time.now = 5100;
+  f.monitor.tick();
+  await flush();
+  expect(f.collect).toHaveBeenCalledTimes(2);
+  expect(f.proof()).toBe("observation-stale");
+});
+
+it.each([
+  "sample",
+  "fingerprint",
+  "expiry",
+  "revision",
+] as const)("requires the producing current projection (%s)", async (change) => {
+  const f = await parkingFixture();
+  const observation = { ...f.sessions.validate(f.first).observation! };
+  if (change === "sample") observation.sampledAtMs++;
+  if (change === "fingerprint") observation.runtimeFingerprint = "c".repeat(64);
+  if (change === "expiry") observation.validUntilMs++;
+  if (change === "revision") observation.journalRevision++;
+  f.time.now = 101;
+  f.sessions.publish([f.first], new Map([[f.first.session, observation]]), 101, Date.now());
+  expect(f.proof()).toBe("observation-stale");
+});
+
+it("expires parking evidence while an ordinary renewal keeps its exact consumer alive", async () => {
+  const f = await parkingFixture();
+  f.time.now = 10100;
+  f.sessions.renew(f.first, f.time.now, Date.now());
+  f.time.now = 15100;
+  expect(f.proof()).toBe("observation-stale");
+  expect(f.sessions.validate(f.first)).toBeDefined();
+});
+
+it.each([
+  "false",
+  "throw",
+] as const)("refuses missing producing ownership proof (%s)", async (result) => {
+  let valid = true;
+  const f = await parkingFixture(({ batch }) => {
+    batch.revalidatePersisted = () => {
+      if (!valid && result === "throw") throw new Error("private fixture path");
+      return valid;
+    };
+  });
+  valid = false;
+  expect(f.proof()).toBe("ownership-unproven");
+});
+
+it.each([
+  "identity",
+  "revision",
+  "pin",
+  "stop",
+  "parked",
+  "phase",
+  "worker",
+  "undrained",
+  "unknown-exec",
+  "interrupted-exec",
+] as const)("preserves the current journal parking veto (%s)", async (change) => {
+  const f = await parkingFixture();
+  const journal = f.batch.journal;
+  if (change === "identity") journal.identity = { ...journal.identity, workspace: "other" };
+  if (change === "revision") journal.revision++;
+  if (change === "pin") journal.consumerProtection = { version: 1, revision: 1, humanPinned: true };
+  if (change === "stop") journal.state.desired = "stopped-by-user";
+  if (change === "parked") journal.state.desired = "parked-for-capacity";
+  if (change === "phase") journal.state.phase = "starting";
+  if (change === "worker")
+    journal.worker = { id: "worker", operationId: "op", pid: 123, birth: "fixture" };
+  if (change === "undrained" || change === "unknown-exec" || change === "interrupted-exec")
+    journal.state.operation = {
+      id: "op",
+      kind: "exec",
+      drained: change !== "undrained",
+      status:
+        change === "unknown-exec"
+          ? "COMPLETION_UNKNOWN"
+          : change === "interrupted-exec"
+            ? "INTERRUPTED"
+            : "COMPLETED",
+      exitCode: null,
+    };
+  expect(f.proof()).toBe(
+    change === "identity" || change === "revision"
+      ? "journal-changed"
+      : change === "pin"
+        ? "human-pinned"
+        : change === "stop" || change === "parked"
+          ? "intent-protected"
+          : "lifecycle-unsettled",
+  );
+});
+
+it("preserves an uncertain historical command despite a settled current ensure", async () => {
+  const f = await parkingFixture();
+  f.batch.journal.state.operation = {
+    id: "ensure",
+    kind: "ensure",
+    drained: true,
+    status: "INTERRUPTED",
+    exitCode: null,
+  };
+  expect(f.proof()).toBe("unusable-consumers-proven");
+  f.batch.journal.state.operationHistory.push({
+    id: "exec",
+    kind: "exec",
+    drained: true,
+    status: "INTERRUPTED",
+    exitCode: null,
+    key: "key",
+    profile: "web",
+    consumer: { id: "consumer", requiredCapabilities: ["runtime"], pinned: false },
+  });
+  expect(f.proof()).toBe("lifecycle-unsettled");
+});
+
+it("discards parking evidence when stopped or its environment is removed", async () => {
+  const f = await parkingFixture();
+  f.sessions.release(f.first, 100, Date.now());
+  f.monitor.tick();
+  expect(f.proof()).toBe("observation-unavailable");
+  f.monitor.stop();
+  expect(f.proof()).toBe("observation-unavailable");
+});
+
+it("keeps retained capability evidence independent from later collector mutations", async () => {
+  const f = await parkingFixture();
+  f.batch.capabilities[0].infrastructure = "healthy";
+  f.batch.environment = { ...environment, fingerprint: "c".repeat(64) };
+  expect(f.proof()).toBe("unusable-consumers-proven");
+});
+
+it("does not grant exact-set proof to a consumer added while the batch was running", async () => {
+  const { sessions, first, batch } = fixture();
+  sessions.setParkingConsent(first, 0, "allow-unusable", 100, Date.now());
+  batch.capabilities[0].infrastructure = "failed";
+  let finish!: (value: typeof batch) => void;
+  const monitor = new ControllerMonitor(
+    sessions,
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    async (operation) => operation(),
+    () => 100,
+    (_identity, _revision, publish) => publish(batch.journal),
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  const added = sessions.acquire("second", environment, ["runtime"], 100, Date.now());
+  sessions.setParkingConsent(added, 0, "allow-unusable", 100, Date.now());
+  finish(batch);
+  await flush();
+  expect(sessions.validate(first).observation).toBeDefined();
+  expect(sessions.validate(added).observation).toBeUndefined();
+  expect(monitor.parkingObservation(environment, batch.journal)).toBe("consumer-set-changed");
+});
+
+it("does not retain an in-flight batch after its environment was released", async () => {
+  const { sessions, first, batch } = fixture();
+  let finish!: (value: typeof batch) => void;
+  const monitor = new ControllerMonitor(
+    sessions,
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    async (operation) => operation(),
+    () => 100,
+    (_identity, _revision, publish) => publish(batch.journal),
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  sessions.release(first, 100, Date.now());
+  finish(batch);
+  await flush();
+  expect(monitor.parkingObservation(environment, batch.journal)).toBe("observation-unavailable");
+});

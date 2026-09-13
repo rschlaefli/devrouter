@@ -991,7 +991,7 @@ it("disconnects a client that sends an oversized frame", async () => {
   });
 });
 
-async function protectionFixture() {
+async function protectionFixture(collect?: ControllerObservationCollector) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "controller-pin-")));
   directories.push(directory);
   const environment = {
@@ -1024,6 +1024,7 @@ async function protectionFixture() {
       directory,
       signal: abort.signal,
       onListening: () => ready.resolve(),
+      collect,
       resolve: async (_request, _signal, capture) => {
         if (capture) {
           _signal.addEventListener("abort", () => control.cancelled(), { once: true });
@@ -1376,5 +1377,86 @@ it("reconnects retained generations only after fresh persisted ownership proof",
     });
   } finally {
     client.socket.destroy();
+  }
+});
+
+it("reports the exact consumer observation under the journal fence without lifecycle mutation", async () => {
+  const published = deferred<void>();
+  const publish = ControllerSessions.prototype.publish;
+  const observed = vi.spyOn(ControllerSessions.prototype, "publish").mockImplementation(function (
+    this: ControllerSessions,
+    ...args
+  ) {
+    publish.apply(this, args);
+    published.resolve();
+  });
+  const collect: ControllerObservationCollector = async (environment) => {
+    const identity = {
+      repoPath: environment.repoPath,
+      workspace: environment.workspace,
+      provider: environment.provider,
+    };
+    return {
+      environment,
+      identity,
+      journal: operationStore.readReliabilityOperation(identity)!,
+      sampledAtMs: Math.floor(performance.now()),
+      runtimeFingerprint: "b".repeat(64),
+      stopped: false,
+      revalidatePersisted: () => true,
+      capabilities: [
+        {
+          capability: "runtime",
+          infrastructure: "failed",
+          application: "unverified",
+          observedAtMs: 0,
+          validForMs: 15000,
+        },
+      ],
+    };
+  };
+  const f = await protectionFixture(collect);
+  try {
+    operationStore.updateReliabilityOperation(f.identity, (record) => {
+      record.state.desired = "running";
+      record.state.phase = "stable";
+    });
+    const consent = await f.client.request({
+      method: "parking-consent",
+      ...f.binding,
+      expectedConsentRevision: 0,
+      parkingConsent: "allow-unusable",
+    });
+    expect(consent.ok).toBe(true);
+    await published.promise;
+    const bytes = fs.readFileSync(operationStore.reliabilityOperationPath(f.identity));
+    const status = await f.client.request({ method: "protection-status", ...f.binding });
+    expect(status).toMatchObject({
+      ok: true,
+      result: {
+        parkingObservation: "unusable-consumers-proven",
+        consentSatisfied: true,
+        liveConsumers: 1,
+      },
+    });
+    expect(status.result).not.toHaveProperty("capabilities");
+    expect(status.result).not.toHaveProperty("requirements");
+    expect(fs.readFileSync(operationStore.reliabilityOperationPath(f.identity))).toEqual(bytes);
+    const withdraw = await f.client.request({
+      method: "parking-consent",
+      ...f.binding,
+      expectedConsentRevision: 1,
+      parkingConsent: "protected",
+    });
+    expect(withdraw.ok).toBe(true);
+    const invalidated = await f.client.request({ method: "protection-status", ...f.binding });
+    expect(invalidated).toMatchObject({
+      ok: true,
+      result: { parkingObservation: "consumer-set-changed", consentSatisfied: false },
+    });
+    expect(fs.readFileSync(operationStore.reliabilityOperationPath(f.identity))).toEqual(bytes);
+  } finally {
+    f.client.socket.destroy();
+    observed.mockRestore();
   }
 });

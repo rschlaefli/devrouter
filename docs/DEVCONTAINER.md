@@ -173,7 +173,12 @@ recovery, capacity admission, or agent-command replay authority.
 An existing exact session and journal support `controller protection-status`.
 Pass `--session`, `--store`, `--epoch`, and `--generation` from observation. The
 response includes the durable pin and its revision, live consumer counts and
-continuity evidence. Reads never renew leases or establish parking permission.
+continuity evidence. `parkingObservation` explains whether the latest complete
+consumer observation satisfies that prerequisite. `unusable-consumers-proven`
+requires explicit consent and positive infrastructure failure for every live
+consumer; unknown capabilities, application errors, stale evidence and unresolved
+consumers refuse. This result grants no parking permission. Reads never renew
+leases or change lifecycle intent.
 
 `controller protection-pin` takes the same binding plus `--pinned true|false`
 and `--expected-protection-revision <number>` from protection status. It records
