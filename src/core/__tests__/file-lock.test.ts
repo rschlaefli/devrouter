@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type LockWaitProgress,
+  processBirthIdentity,
   processBirthIdentityWithCause,
   withFileLockSync,
 } from "../file-lock";
@@ -270,6 +271,75 @@ describe("file lock ownership", () => {
     expect(progress.length).toBeGreaterThanOrEqual(1);
     expect(progress.every((item) => item.queuePosition === 1)).toBe(true);
     expect(progress.every((item) => item.waitingOn === "lock")).toBe(true);
+  });
+
+  it.each([
+    "live",
+    "missing",
+    "unreadable",
+    "malformed",
+    "changed",
+  ])("distinguishes the first waiter from %s holder evidence without changing the queue", (evidence) => {
+    const progress: LockWaitProgress[] = [];
+    const callback = vi.fn();
+    const leaderPid = process.ppid;
+    const birth = processBirthIdentity(leaderPid);
+    expect(birth).toBeDefined();
+    const ticket = `${lockPath}.queue.0000000000000.${leaderPid}.earlier`;
+    const leader = `${leaderPid}:${Buffer.from(birth!).toString("base64url")}:00000000-0000-4000-8000-000000000000\n`;
+    withFileLockSync(lockPath, { activity: "outer" }, () => {
+      fs.writeFileSync(ticket, leader);
+      const holderBytes = fs.readFileSync(lockPath, "utf-8");
+      const read = fs.readFileSync.bind(fs);
+      let reads = 0;
+      const spy = vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+        if (file === lockPath) {
+          reads += 1;
+          if (evidence === "missing" || evidence === "unreadable")
+            throw Object.assign(new Error("unavailable"), {
+              code: evidence === "missing" ? "ENOENT" : "EACCES",
+            });
+          if (evidence === "malformed" || (evidence === "changed" && reads % 2 === 0))
+            return "invalid owner";
+        }
+        return read(file, ...(args as [never]));
+      }) as typeof fs.readFileSync);
+      let now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => (now += 10));
+      try {
+        expect(() =>
+          withFileLockSync(
+            lockPath,
+            {
+              activity: "inner",
+              fair: true,
+              waitMs: 100,
+              progressIntervalMs: 1,
+              onWait: (item) => progress.push(item),
+            },
+            callback,
+          ),
+        ).toThrow();
+      } finally {
+        clock.mockRestore();
+        spy.mockRestore();
+      }
+      expect(callback).not.toHaveBeenCalled();
+      expect(progress.length).toBeGreaterThan(0);
+      for (const item of progress) {
+        expect(item.queuePosition).toBe(2);
+        expect(item.queueLeaderPid).toBe(leaderPid);
+        expect(item.holderPid).toBe(evidence === "live" ? process.pid : undefined);
+        expect(item.holderHeldMs !== undefined).toBe(evidence === "live");
+        expect(item.remainingWaitMs).toBeGreaterThan(0);
+        expect(item.remainingWaitMs).toBeLessThan(100);
+      }
+      expect(fs.readFileSync(lockPath, "utf-8")).toBe(holderBytes);
+      expect(fs.readFileSync(ticket, "utf-8")).toBe(leader);
+      expect(fs.readdirSync(tmpDir).filter((name) => name.includes(".queue."))).toEqual([
+        path.basename(ticket),
+      ]);
+    });
   });
 
   it("reclaims dead and malformed fair-queue leaders before acquisition", () => {
