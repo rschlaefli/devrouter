@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.78] - 2026-09-13
+
+### Fixed
+
+- Provider queue diagnostics distinguish the first waiter from the observed lock
+  holder, report held duration and remaining acquisition time, and explain that
+  acquisition timeout does not stop the holder. Unavailable or changing holder
+  evidence is reported as unknown without changing lock or queue behavior.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.78.md
+
 ## [0.0.77] - 2026-09-12
 
 ### Fixed
