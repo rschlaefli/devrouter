@@ -303,7 +303,11 @@ captured generated configuration while restoring the prior running resources.
 It refuses generated drift rather than overwriting it. Same-profile repair still
 requires exact configuration and resource proofs; prior out-of-profile resources
 can therefore prevent repair. Legacy contradictory configuration without a
-producing receipt is not adopted automatically.
+producing receipt is not adopted automatically. Repair baseline refusals identify
+profile, app/service/process sets, source/effective configuration, or generated-file
+evidence with fixed `MANAGED_REPAIR_BASELINE_MISMATCH` reason codes. Unreadable
+generated evidence remains unavailable; no configuration values or fingerprints
+are included in these codes.
 
 A valid baseline also permits stop for a ledger-owned linked checkout with missing
 registration when every saved ID is positively absent on the saved daemon and

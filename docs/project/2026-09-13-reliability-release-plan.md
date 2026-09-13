@@ -229,7 +229,7 @@ only. Next action: commit this approved contract, then reproduce and implement d
 
 ### Active diagnostic deltas
 
-Main owns `src/core/workspace-ensure.ts` and its existing test suite. Add fixed
+Main owns `src/core/workspace-ensure.ts`, its existing test suite, the affected failure-rule paragraph in `docs/knowledge/managed-environment-lifecycle.md`, and the unreleased changelog entry. Add fixed
 `MANAGED_REPAIR_BASELINE_MISMATCH` reason identifiers to the existing error,
 with profile, resource dimension, source/effective config and generated evidence
 classification. No new recovery permission or worker protocol is introduced;
@@ -248,3 +248,10 @@ and human summaries, with a named non-full default remedy. No resolver semantics
 or doctor edits in this child. Acceptance: focused profile/command tests and
 typecheck; no new runtime effects, dependencies, or prose-pinning assertions.
 Both deltas consume the diagnosis portfolio and depend only on the verified baseline.
+
+Diagnostic progress: plan committed at `5de5fb5`; 136 baseline tests passed.
+Nine new mismatch cases failed on the baseline and pass after classification.
+Generated-unavailable and multiple-dimension short-circuit cases extend that
+coverage. Full ensure suite passes 140 tests; typecheck, focused Biome, docs policy and knowledge checks pass. Profile child Hilbert
+`01a09a43-8449-7a61-af82-bf072f8e9925` owns the disjoint profile delta.
+No runtime was started by these source tests. Required source reviews remain open.

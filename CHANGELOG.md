@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Retained-runtime repair identifies which baseline dimensions prevent recovery,
+  including unavailable generated-file evidence, without changing ownership or
+  resource checks.
+
 ## [0.0.78] - 2026-09-13
 
 ### Fixed
