@@ -13,9 +13,13 @@ import { CapacityQueue } from "./capacity-queue";
 import { capacityRequest } from "./capacity-request";
 import { publishQueuedStartupWitness } from "./capacity-startup-witness";
 import type { CapacityPoolReservation } from "./capacity-store";
-import { readControllerEvidence } from "./controller-binding";
+import { createControllerBindingResolver, readControllerEvidence } from "./controller-binding";
 import type { ControllerRecovery } from "./controller-monitor";
-import type { ControllerOperations, ControllerStartup } from "./controller-server";
+import type {
+  ControllerOperations,
+  ControllerResolver,
+  ControllerStartup,
+} from "./controller-server";
 import { ControllerStore } from "./controller-store";
 import { resolveRunningWorkspaceContainer } from "./devpod-environment";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
@@ -39,6 +43,7 @@ import { loadRepoConfig } from "./repo-config";
 export function createCapacityController(options: {
   directory: string;
   controller: ControllerStartup;
+  bindingResolver?: ControllerResolver;
   // Host samples exclude VM usage covered by pool ceilings; sharedBytes excludes those ceilings.
   // Collectors must cooperate with abort by draining their work and rejecting.
   collect: (signal: AbortSignal) => Promise<Record<string, CapacityDomainSample>>;
@@ -53,6 +58,7 @@ export function createCapacityController(options: {
     sustainedPressure: boolean;
   };
 } {
+  const bindingResolver = options.bindingResolver ?? createControllerBindingResolver();
   options.controller.consumeStartup(options.directory);
   const policy = structuredClone(readCapacityPolicy(options.directory));
   if (policy?.admissions !== "enabled") throw new Error("Capacity policy is not enabled.");
@@ -337,6 +343,7 @@ export function createCapacityController(options: {
         },
         signal,
         options.directory,
+        bindingResolver,
       );
       if (!isDeepStrictEqual(resolved.environment, environment) || signal.aborted)
         throw new Error("Capacity submission binding changed.");
@@ -551,6 +558,7 @@ export function createCapacityController(options: {
           current,
           { path: environment.repoPath, profile: environment.profile, require: [] },
           signal,
+          bindingResolver,
         );
       } catch {
         // An unresolvable binding keeps the environment unrecovered rather than

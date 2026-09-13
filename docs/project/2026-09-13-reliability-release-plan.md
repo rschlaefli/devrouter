@@ -1561,3 +1561,143 @@ build and packed CLI smoke pass; the sandbox smoke first refused psEPERM, then
 host smoke passed preserving fail-closed identity. Linux helper explicitly skips
 macOS and requires CI. Scan210rules/2sourcefiles0findings. No consumer runtime
 or global artifact changes. Exact immutable review and CI are next.
+
+### Binding continuity across controller restarts — frozen derived draft
+
+The preceding parking-observation slice is complete at5fa92a2: immutable
+simplifier and risk review report no findings; CI34766071767 passes. It remains
+one prerequisite, not permission to park or a complete0.1.0 result.
+
+Identical synthetic input produced different fingerprints in two pinned Node
+processes, with zero provider calls. A module-local random HMAC key prevents the
+approved exact reconnect contract across restarts. Preserve opaque HMAC binding,
+full environment equality, retained uncertainty, fresh generations and default
+protection. Make the key durable and private to one controller store.
+
+Route: main; execution-tier skip reason: recorded unhealthy executor route and
+coupled persistence/composition migration. Planner construction and advisor advice
+were verified against executable callers. One frozen planner challenge precedes
+source. Immutable simplifier and slice-reviewer follow the integrated commit.
+
+Use two existing artifacts. store-identity.json version2 holds store, a32-byte
+random hex key and immutable positive enrollment epoch. snapshot.json version3
+holds the matching domain-separated SHA256 digest of key and store, and enrollment
+epoch, never the key. Epoch must not exceed the snapshot epoch. Strict version1/2
+snapshot readers normalize without fabricating key provenance; existing version1
+identity remains readable. Upgraded readers reject downgraded or mismatched bytes
+once observed. Older readers reject new schemas, including the migration window.
+No new module, storage artifact, dependency, IPC method or startup metadata field.
+
+Bootstrap writes a durable empty legacy-compatible epoch0 snapshot, then a private
+version2 identity enrolled at epoch1, then version3 startup before callbacks,
+listen or acknowledgement. Valid old snapshots with absent/version1 identity
+first validate history, write the identity at previous epoch+1, then version3.
+A version2 identity beside an old snapshot resumes the same key only when its
+enrollment epoch equals previous epoch+1. Version3 requires exact matching private
+identity, digest and epoch; missing, unsafe, replaced or malformed identity fails
+closed, never regenerates. Missing snapshot with surviving history remains refused
+before acquiring the lifetime lock. Existing atomic write and exact-byte/fsync
+retry handle crashes; no alternate persistence abstraction.
+
+Every persist and fingerprint callback revalidates durable provenance. Fingerprint
+closures capture the incarnation and refuse after epoch changes. Raw key stays
+inside store implementation and closure: no getter, event, snapshot, IPC, error,
+ControllerStartup or capacity metadata. Retained bindings from epochs before key
+enrollment cannot reconnect even if supplied fingerprints accidentally match;
+they remain uncertainty requiring later explicit reconciliation. Whole-artifact
+rollback or deletion remains an undetectable limitation, not a recovery permission.
+
+Replace module random key with createControllerBindingResolver(fingerprint?).
+An omitted callback creates one closure-local ephemeral key. A matching observation
+collector factory receives the same resolver and fingerprint callback for initial,
+captured-byte and final probes. Server creates this pair through createBindings
+after durable start under its lifetime lock; explicit injected test resolver and
+collector retain their existing mode. Do not publish migration without production
+wiring. createOperations(startup, resolver) receives the same resolver separately
+from unchanged startup metadata. Command forwards it to createCapacityController
+through optional bindingResolver. Standalone capacity controller creates one
+factory-local ephemeral resolver; production always injects durable resolver.
+
+resolveCapacityEnrollment accepts an optional fourth resolver argument, selects
+once per call, and shares it across both probes. enrollCapacityLifecycle retains
+the existing directory argument and accepts optional resolver fifth; it passes
+through the chosen resolver. resolveCapacityOwnership creates one ephemeral
+resolver for its entire initial/revalidate lifetime and passes it through every
+resolve call. Keep exact full comparisons in capacity-controller recovery and
+capacity-ownership-resolver revalidation unchanged. Standalone enrollment never
+creates controller storage or starts a controller.
+
+Scope is22 existing paths: nine production files controller-store,
+controller-binding, controller-observation, controller-sessions, controller-server,
+commands/controller, capacity-enrollment, capacity-controller and
+capacity-ownership-resolver; their existing store/binding/observation/sessions/
+server/command/enrollment/integration/ownership test files; qualify-controller.ts;
+ADR0008, managed-environment-lifecycle.md and this plan. No new modules. Account
+for any additional test fixture adaptation before editing it.
+
+Acceptance portfolio: extend existing persistence tests for pristine/legacy
+migration, marker/snapshot write and post-rename sync failures, safe retry with
+same key, loss/corruption/permissions/symlink/wrong-store/wrong-key/downgrade,
+old-reader refusal and no raw-key exposure. Extend resolver/collector composition
+for same-key stability, changed bytes/identity refusal and matching all probes.
+Extend session tests for newer exact reconnect with fresh protected generation,
+legacy-epoch refusal and unrelated retained uncertainty. Extend actual packed
+controller qualifier with two separate processes preserving private history;
+reconnect after restart without provider mutation, stale generation rejection,
+and changed binding refusal. Module-reset-only proof is insufficient. Extend
+server/command/capacity caller tests to prove identical resolver forwarding,
+standalone lifetime stability and changed config/provider refusal; real fingerprint
+behavior with synthetic evidence, not constant environment mocks alone.
+
+Run the smallest failing baseline first, focused suites, repository static/docs/
+knowledge/typecheck/Knip, full tests with2workers, build/package and the actual
+packed controller qualifier. Preserve Linux-only helper qualification in CI.
+No consumer runtime or global install for this slice. This does not close explicit
+lost-consumer reconciliation, actual parking/resume, scoped recovery, harness
+continuation, live breadth or release gates. Continue the existing release goal.
+
+Frozen challenge round1 correction accepted: both resolver and collector persisted
+proof closures synchronously re-run their captured fingerprint callback when
+invoked, comparing against their captured fingerprint. That callback revalidates
+store, incarnation, digest and enrollment epoch through bounded private reads.
+Missing, changed, downgraded or unreadable provenance returns false or throws,
+without locks or mutation. This closes the held-work gap before any later store
+write. Extend held-proof negatives for lost/replaced provenance; reuse existing
+changed-consumer-generation publication/recovery refusal coverage. No recovery
+may dispatch from held proof after provenance loss, and retained uncertainty stays.
+
+Full-suite discovery adds one existing fixture path: capacity-controller.test.ts
+mocks the whole binding module and must retain the new resolver factory export.
+This is a test composition adaptation within the same contract (23paths total),
+not a new source behavior. First full run2483pass/50fail all stem from this missing
+mock export; source and narrower capacity integration pass.
+
+Binding-continuity implementation matches the frozen contract. Two independent
+packed controller processes reconnect an unchanged app:web consumer with a fresh
+protected generation; stale renewals refuse. A third process refuses changed
+configuration and retains the consumer. Actual provider mutation count0; all
+fixture controllers stopped. Packed receipt /private/tmp/dr-observe-PC4Wxw/receipt.json
+records source baseline5fa92a2 plus dirty source and artifact hashes; CI will bind
+this qualification to the immutable commit. Prior packed attempt changed the
+consumer requirement and correctly refused; fixture corrected without source fix.
+
+Verification passes2533tests/143files with2workers; two additional held recovery
+negatives pass in the28-test capacity integration suite, preserving both controller
+snapshot and lifecycle journal after key loss/configuration drift with no dispatch.
+First full run's50failures were one missing mock factory, now fixed. Typecheck,
+Biome (two pre-existing infos), Knip, docs/knowledge checks and build pass. Old
+5fa92a2 validator/startup both refuse upgraded artifacts in an isolated actual-code
+probe. Opengrep210rules/9sourcefiles0findings; sandbox log-write refusal resolved
+by host scan. Linux process helper explicitly skipsmacOS; CI owns its proof.
+Packed smoke remains in progress; no consumer runtime, global install or release
+changes.23existingpaths, no new source modules or artifacts. Immutable review/CI
+follow before the next coupled source slice.
+
+Packed smoke passes with system Bash after the Homebrew Bash helper --help probe
+hung in two exact fixture processes. Those owned probes were terminated and the
+original watcher reaped; no runtime process was targeted. Source helper unchanged.
+Final typecheck and28capacity integration tests pass.2533full tests plus two new
+focused negatives cover2535current cases. Exact source review, CI and the next
+roadmap slice remain pending. Diff is23paths with formatter indentation required
+by the resolver/collector closure factories; substantive behavior inspection used
+both normal and whitespace-insensitive diff. No unrelated comment cleanup or data.

@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { expect, it, vi } from "vitest";
 import { resolveCapacityOwnership } from "../capacity-ownership-resolver";
 import type { CapacityPolicy } from "../capacity-policy";
@@ -472,4 +475,81 @@ it("rejects a witnessed population without its primary container", async () => {
   await expect(resolver.proveOwned(f.cancellation.signal)).rejects.toThrow(
     "Capacity witnessed population is missing the primary container.",
   );
+});
+
+it("shares one real binding resolver across ownership collection and repeated revalidation", async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "capacity-binding-")));
+  try {
+    const f = fixture();
+    const repo = path.join(root, "checkout");
+    const common = path.join(root, ".git");
+    const git = path.join(common, "worktrees", "checkout");
+    fs.mkdirSync(git, { recursive: true });
+    fs.mkdirSync(repo);
+    fs.mkdirSync(path.join(common, "devrouter", "workspaces"), { recursive: true });
+    fs.writeFileSync(path.join(git, "devrouter-workspace"), "synthetic");
+    fs.writeFileSync(
+      path.join(common, "devrouter", "workspaces", "synthetic.json"),
+      JSON.stringify({
+        version: 1,
+        workspace: "synthetic",
+        worktreePath: repo,
+        devpodId: "synthetic",
+      }),
+    );
+    const config = path.join(repo, ".devrouter.yml");
+    fs.writeFileSync(
+      config,
+      JSON.stringify({
+        version: 1,
+        managedRuntime: {
+          devcontainer: { baseServices: ["db"], profileServices: [] },
+          processes: ["web"],
+        },
+        profiles: { full: { apps: ["*"], processes: ["*"], default: true } },
+        apps: [
+          {
+            name: "web",
+            host: "web.localhost",
+            protocol: "http",
+            runtime: "proxy",
+            upstream: "${WORKSPACE}-web:3000",
+            readiness: { path: "/health" },
+          },
+        ],
+      }),
+    );
+    vi.mocked(runControllerProbe).mockImplementation(async (command) =>
+      command === "git"
+        ? `${git}\n${common}\n${repo}\n`
+        : command === "devpod"
+          ? "[]"
+          : JSON.stringify([{ id: "synthetic", source: { localFolder: repo } }]),
+    );
+    const enrollment = f.policy.enrollments[0];
+    enrollment.repoPath = repo;
+    enrollment.gitCommonDir = common;
+    f.record.enrollment!.gitCommonDir = common;
+    f.record.identity.repoPath = repo;
+    f.record.state.environmentId = createHash("sha256").update(repo).digest("hex");
+    f.state.repoPath = repo;
+    f.dependencies.resolve.mockImplementation(async (_policy, request, signal, resolver) => ({
+      enrollment,
+      environment: await resolver!(request, signal),
+      estimates: {} as never,
+    }));
+    const ownership = await f.resolve();
+    await ownership.proveOwned(f.cancellation.signal);
+    await ownership.revalidate();
+    await ownership.revalidate();
+    const resolver = f.dependencies.resolve.mock.calls[0][3];
+    expect(typeof resolver).toBe("function");
+    expect(f.dependencies.resolve.mock.calls.every((call) => call[3] === resolver)).toBe(true);
+    fs.appendFileSync(config, "\n");
+    await expect(ownership.revalidate()).rejects.toThrow();
+    expect(fs.existsSync(path.join(root, "controller"))).toBe(false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    vi.mocked(runControllerProbe).mockReset();
+  }
 });

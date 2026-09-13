@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomically } from "./atomic-file";
@@ -69,8 +69,11 @@ export type ControllerEvent = {
   kind: ControllerEventKind;
 };
 export type ControllerHistory = "complete" | "legacy-unknown";
+type ControllerFingerprintProvenance = { digest: string; enrolledEpoch: number };
+type ControllerIdentity =
+  | { version: 1; store: string }
+  | { version: 2; store: string; key: string; enrolledEpoch: number };
 export type ControllerSnapshot = {
-  version: 2;
   store: string;
   epoch: number;
   revision: number;
@@ -81,7 +84,10 @@ export type ControllerSnapshot = {
   sessions: ControllerSession[];
   retainedSessions: ControllerRetainedSession[];
   events: ControllerEvent[];
-};
+} & (
+  | { version: 2; fingerprint?: never }
+  | { version: 3; fingerprint: ControllerFingerprintProvenance }
+);
 
 type ControllerLegacySession = {
   id: string;
@@ -262,9 +268,10 @@ export function validateControllerSnapshot(value: unknown): asserts value is Con
     "sessions",
     "retainedSessions",
     "events",
+    ...((value as { version?: unknown })?.version === 3 ? ["fingerprint"] : []),
   ]);
   if (
-    value.version !== 2 ||
+    (value.version !== 2 && value.version !== 3) ||
     !id(value.store) ||
     !counter(value.epoch) ||
     !counter(value.revision) ||
@@ -280,6 +287,17 @@ export function validateControllerSnapshot(value: unknown): asserts value is Con
     value.sessions.length + value.retainedSessions.length > 128
   )
     fail();
+  if (value.version === 3) {
+    fields(value.fingerprint, ["digest", "enrolledEpoch"]);
+    if (
+      typeof value.fingerprint.digest !== "string" ||
+      !/^[a-f0-9]{64}$/.test(value.fingerprint.digest) ||
+      !counter(value.fingerprint.enrolledEpoch) ||
+      value.fingerprint.enrolledEpoch < 1 ||
+      value.fingerprint.enrolledEpoch > Number(value.epoch)
+    )
+      fail();
+  }
   const ids = new Map<string, string>();
   const paths = new Map<string, string>();
   for (const environment of value.environments) checkEnvironment(environment, ids, paths);
@@ -461,6 +479,7 @@ export class ControllerStore {
   private readonly identityFile: string;
   private identity: string | undefined;
   private observedStore: string | undefined;
+  private observedFingerprint: string | undefined;
   constructor(
     readonly directory: string,
     private readonly write = writeFileAtomically,
@@ -506,22 +525,87 @@ export class ControllerStore {
     }
   }
 
-  private readIdentity(): string | undefined {
+  private readIdentity(): ControllerIdentity | undefined {
     try {
       const bytes = this.readBytes(this.identityFile, 4096);
       if (!bytes) return undefined;
       const value: unknown = JSON.parse(bytes.toString("utf8"));
-      fields(value, ["version", "store"]);
-      if (value.version !== 1 || !id(value.store)) fail();
-      return value.store;
+      fields(value, [
+        "version",
+        "store",
+        ...((value as { version?: unknown })?.version === 2 ? ["key", "enrolledEpoch"] : []),
+      ]);
+      if ((value.version !== 1 && value.version !== 2) || !id(value.store)) fail();
+      if (
+        value.version === 2 &&
+        (typeof value.key !== "string" ||
+          !/^[a-f0-9]{64}$/.test(value.key) ||
+          !counter(value.enrolledEpoch) ||
+          Number(value.enrolledEpoch) < 1)
+      )
+        fail();
+      return value as ControllerIdentity;
     } catch {
       throw new Error("Controller store-identity.json is unreadable or invalid.");
     }
   }
 
+  private provenance(identity: ControllerIdentity): ControllerFingerprintProvenance {
+    if (identity.version !== 2) throw new Error("Controller binding provenance is unavailable.");
+    return {
+      digest: createHash("sha256")
+        .update(JSON.stringify(["devrouter-controller-binding-v1", identity.store, identity.key]))
+        .digest("hex"),
+      enrolledEpoch: identity.enrolledEpoch,
+    };
+  }
+
+  private checkProvenance(
+    snapshot: ControllerSnapshot,
+    identity: ControllerIdentity | undefined,
+  ): void {
+    if (snapshot.version === 3) {
+      if (
+        !identity ||
+        identity.store !== snapshot.store ||
+        JSON.stringify(this.provenance(identity)) !== JSON.stringify(snapshot.fingerprint)
+      )
+        throw new Error("Controller binding provenance changed.");
+    } else if (identity?.version === 2 && identity.enrolledEpoch !== snapshot.epoch + 1) {
+      throw new Error("Controller binding enrollment epoch changed.");
+    }
+    if (
+      this.observedFingerprint &&
+      (snapshot.version !== 3 || JSON.stringify(snapshot.fingerprint) !== this.observedFingerprint)
+    )
+      throw new Error("Controller binding provenance disappeared or changed.");
+  }
+
+  /** Return an incarnation-fenced capability; private key bytes never leave this store. */
+  bindingFingerprint(): (owner: string, config: string) => string {
+    const captured = this.read();
+    if (captured?.version !== 3) throw new Error("Controller binding provenance is unavailable.");
+    return (owner, config) => {
+      const current = this.read();
+      const identity = this.readIdentity();
+      if (
+        !current ||
+        current.store !== captured.store ||
+        current.epoch !== captured.epoch ||
+        JSON.stringify(current.fingerprint) !== JSON.stringify(captured.fingerprint) ||
+        identity?.version !== 2
+      )
+        throw new Error("Controller binding incarnation changed.");
+      this.checkProvenance(current, identity);
+      return createHmac("sha256", Buffer.from(identity.key, "hex"))
+        .update(JSON.stringify({ owner, config }))
+        .digest("hex");
+    };
+  }
+
   read(): ControllerSnapshot | undefined {
     const identity = this.readIdentity();
-    if (this.identity && identity !== this.identity)
+    if (this.identity && JSON.stringify(identity) !== this.identity)
       throw new Error("Controller store-identity.json disappeared or changed.");
     const bytes = this.readBytes();
     if (!bytes) {
@@ -534,12 +618,14 @@ export class ControllerStore {
     try {
       const snapshot = parseStoredSnapshot(JSON.parse(bytes.toString("utf8")));
       if (
-        (identity && identity !== snapshot.store) ||
+        (identity && identity.store !== snapshot.store) ||
         (this.observedStore && this.observedStore !== snapshot.store)
       )
         fail();
+      this.checkProvenance(snapshot, identity);
       this.observedStore = snapshot.store;
-      this.identity = identity;
+      this.identity = identity ? JSON.stringify(identity) : undefined;
+      if (snapshot.version === 3) this.observedFingerprint = JSON.stringify(snapshot.fingerprint);
       return snapshot;
     } catch {
       throw new Error("Controller snapshot is unreadable or invalid.");
@@ -569,12 +655,22 @@ export class ControllerStore {
     if (!this.read()) this.assertEmptyDirectory(false);
   }
 
-  private enroll(store: string): void {
+  private enroll(store: string, epoch: number): ControllerFingerprintProvenance {
     const existing = this.readIdentity();
-    if (existing && existing !== store) throw new Error("Controller store identity changed.");
-    if (!existing)
-      this.commitBytes(this.identityFile, `${JSON.stringify({ version: 1, store })}\n`, 4096);
-    this.identity = store;
+    if (existing && existing.store !== store) throw new Error("Controller store identity changed.");
+    const identity: ControllerIdentity =
+      existing?.version === 2
+        ? existing
+        : {
+            version: 2,
+            store,
+            key: randomBytes(32).toString("hex"),
+            enrolledEpoch: epoch,
+          };
+    if (existing?.version !== 2)
+      this.commitBytes(this.identityFile, `${JSON.stringify(identity)}\n`, 4096);
+    this.identity = JSON.stringify(identity);
+    return this.provenance(identity);
   }
 
   persist(snapshot: ControllerSnapshot): void {
@@ -583,8 +679,10 @@ export class ControllerStore {
     const previous = this.read();
     if (previous && previous.store !== snapshot.store)
       throw new Error("Controller store identity changed.");
+    this.checkProvenance(snapshot, this.readIdentity());
     const contents = `${JSON.stringify(snapshot)}\n`;
     this.commitBytes(this.file, contents, CONTROLLER_SNAPSHOT_BYTES);
+    if (snapshot.version === 3) this.observedFingerprint = JSON.stringify(snapshot.fingerprint);
   }
 
   private commitBytes(file: string, contents: string, limit: number): void {
@@ -608,7 +706,8 @@ export class ControllerStore {
   }
 
   startIncarnation(): ControllerSnapshot {
-    const previous = this.read();
+    let previous = this.read();
+    const pristine = !previous;
     if (!previous) this.assertEmptyDirectory(this.ownsLifetimeLock);
     if (
       previous &&
@@ -617,13 +716,30 @@ export class ControllerStore {
         previous.parkingRevision === Number.MAX_SAFE_INTEGER)
     )
       throw new Error("Controller snapshot counters exhausted.");
-    if (previous) this.enroll(previous.store);
+    if (!previous) {
+      previous = {
+        version: 2,
+        store: randomUUID(),
+        epoch: 0,
+        revision: 0,
+        parkingRevision: 0,
+        history: "complete",
+        nextSequence: 1,
+        environments: [],
+        sessions: [],
+        retainedSessions: [],
+        events: [],
+      };
+      this.persist(previous);
+    }
+    const fingerprint = this.enroll(previous.store, previous.epoch + 1);
     const snapshot: ControllerSnapshot = {
-      version: 2,
-      store: previous?.store ?? randomUUID(),
+      version: 3,
+      fingerprint,
+      store: previous.store,
       epoch: (previous?.epoch ?? 0) + 1,
       revision: (previous?.revision ?? 0) + 1,
-      parkingRevision: previous ? previous.parkingRevision + 1 : 0,
+      parkingRevision: pristine ? 0 : previous.parkingRevision + 1,
       history: previous?.history ?? "complete",
       nextSequence: 1,
       environments: [],
@@ -634,7 +750,6 @@ export class ControllerStore {
       events: [],
     };
     this.persist(snapshot);
-    this.enroll(snapshot.store);
     return snapshot;
   }
 }

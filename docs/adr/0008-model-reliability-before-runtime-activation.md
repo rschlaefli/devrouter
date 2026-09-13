@@ -71,8 +71,8 @@ command requirement without activating the capacity-managed controller.
 
 The observation controller has a separate store identity, incarnation epoch and
 consumer generation. These never replace the manual journal's environment,
-intent, runtime or controller fences. Restart discards active observer bindings;
-only explicit acquisition and renewal authorize a consumer session. Session
+intent, runtime or controller fences. Restart discards active observer leases and retains unresolved consumer bindings;
+explicit acquisition, renewal or exact reconnection authorizes a consumer session. Session
 release and expiry have no runtime effect. Existing manual commands remain
 independent of observer availability.
 
@@ -90,10 +90,21 @@ before releasing the lock and delivers events afterward. Manual stop therefore
 wins against stale publication; external runtime changes after sampling remain
 subject to the next observation and freshness bound.
 
-Configuration fingerprints use an incarnation-local random HMAC key. This binds
-observations to configuration bytes without retaining a public low-entropy hash
-of secret-bearing values. Neither the key nor raw configuration enters the
-snapshot. Runtime output is transient and failures expose fixed classifications.
+Configuration fingerprints use a random HMAC key private to the durable controller
+store. The private identity marker retains it so unchanged configuration can
+reconnect across real process restarts. The snapshot carries only its enrollment
+epoch and a domain-separated high-entropy key/store digest. This binds observations
+to configuration bytes without exposing a public low-entropy hash of secret-bearing
+values. Neither the key nor raw configuration enters snapshots, events or IPC.
+
+Migration preserves older consumer uncertainty. A binding predating key enrollment
+cannot reconnect from fingerprint equality alone. Missing or changed key provenance
+refuses startup, persistence and held ownership proofs; it never generates a
+replacement key for upgraded history. Proof closures also fence the incarnation.
+The two existing private artifacts use atomic durable writes before acknowledgement.
+A complete rollback or deletion of both artifacts cannot be detected from these
+local artifacts alone. Runtime output stays transient and failures expose fixed
+classifications.
 
 A timeout cancels only the observer-owned probe group. A batch whose probe has
 not drained retains its concurrency slot. Continuous recovery, capacity admission,

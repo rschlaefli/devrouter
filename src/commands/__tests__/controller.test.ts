@@ -2,13 +2,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { controllerRequest } from "../../core/controller-client";
 import { runControllerCommand } from "../controller";
 
-const fixture = vi.hoisted(() => ({ run: vi.fn(), observe: vi.fn() }));
+const fixture = vi.hoisted(() => ({
+  run: vi.fn(),
+  observe: vi.fn(),
+  resolve: vi.fn(),
+  collector: vi.fn(),
+}));
 vi.mock("../../core/controller-server", () => ({ runController: fixture.run }));
 vi.mock("../../core/controller-client", () => ({ controllerRequest: vi.fn() }));
 vi.mock("../../core/controller-observation", () => ({
-  collectControllerObservation: fixture.observe,
+  createControllerObservationCollector: fixture.collector,
 }));
-vi.mock("../../core/controller-binding", () => ({ resolveControllerBinding: vi.fn() }));
+vi.mock("../../core/controller-binding", () => ({
+  createControllerBindingResolver: () => fixture.resolve,
+}));
 vi.mock("../../core/router", () => ({ DEVROUTER_HOME: "/synthetic/router" }));
 const capacity = vi.hoisted(() => ({ policy: vi.fn(), factory: vi.fn(), collect: vi.fn() }));
 vi.mock("../../core/capacity-policy", () => ({ readCapacityPolicy: capacity.policy }));
@@ -26,7 +33,11 @@ it("keeps ordinary controller startup observation-only without an enabled policy
   await runControllerCommand("run", {});
   expect(fixture.run).toHaveBeenCalledOnce();
   const createOperations = fixture.run.mock.calls[0][0].createOperations;
-  expect(fixture.run.mock.calls[0][0].collect).toBe(fixture.observe);
+  fixture.collector.mockReturnValue(fixture.observe);
+  const fingerprint = vi.fn();
+  const bindings = fixture.run.mock.calls[0][0].createBindings(fingerprint);
+  expect(bindings).toEqual({ resolve: fixture.resolve, collect: fixture.observe });
+  expect(fixture.collector).toHaveBeenCalledWith(fixture.resolve, fingerprint);
   const startup = { directory: "/synthetic", consumeStartup: vi.fn() };
   expect(createOperations(startup)).toBeUndefined();
   expect(startup.consumeStartup).not.toHaveBeenCalled();
@@ -41,11 +52,12 @@ it("activates the capacity factory only for an enabled policy", async () => {
   await runControllerCommand("run", {});
   const createOperations = fixture.run.mock.calls[0][0].createOperations;
   const startup = { directory: "/synthetic", consumeStartup: vi.fn() };
-  expect(createOperations(startup)).toBe(operations);
+  expect(createOperations(startup, fixture.resolve)).toBe(operations);
   expect(capacity.factory).toHaveBeenCalledOnce();
   const options = capacity.factory.mock.calls[0][0];
   expect(options.directory).toBe("/synthetic/router/controller");
   expect(options.controller).toBe(startup);
+  expect(options.bindingResolver).toBe(fixture.resolve);
   options.collect(new AbortController().signal);
   expect(capacity.collect).toHaveBeenCalledWith(policy, expect.any(AbortSignal));
 });

@@ -100,9 +100,10 @@ describe("controller snapshot durability", () => {
     fs.writeFileSync(path.join(store.directory, "capacity-policy.json"), "{}", { mode: 0o600 });
     const snapshot = store.startIncarnation();
     const identity = path.join(store.directory, "store-identity.json");
-    expect(JSON.parse(fs.readFileSync(identity, "utf8"))).toEqual({
-      version: 1,
+    expect(JSON.parse(fs.readFileSync(identity, "utf8"))).toMatchObject({
+      version: 2,
       store: snapshot.store,
+      enrolledEpoch: 1,
     });
     expect(fs.statSync(identity).mode & 0o777).toBe(0o600);
     expect(snapshot.history).toBe("complete");
@@ -185,7 +186,7 @@ describe("controller snapshot durability", () => {
     const store = fixture();
     const first = store.startIncarnation();
     expect(first).toMatchObject({
-      version: 2,
+      version: 3,
       epoch: 1,
       parkingRevision: 0,
       history: "complete",
@@ -284,7 +285,7 @@ describe("controller snapshot durability", () => {
     snapshot.sessions[0].environmentId = "missing";
     expect(() => store.persist(snapshot)).toThrow();
     expect(() =>
-      store.persist({ ...snapshot, transcript: "forbidden" } as ControllerSnapshot),
+      store.persist({ ...snapshot, transcript: "forbidden" } as unknown as ControllerSnapshot),
     ).toThrow();
     expect(fs.readFileSync(store.file)).toEqual(bytes);
   });
@@ -322,7 +323,7 @@ describe("controller consent snapshot contract", () => {
     writeLegacy(store);
     const started = store.startIncarnation();
     expect(started).toMatchObject({
-      version: 2,
+      version: 3,
       epoch: 5,
       parkingRevision: 1,
       history: "legacy-unknown",
@@ -356,7 +357,7 @@ describe("controller consent snapshot contract", () => {
     expect(fs.readFileSync(store.file, "utf8")).toBe(contents);
     expect(store.read()?.retainedSessions).toEqual([]);
   });
-  it("acknowledges only exact version2 bytes after a reported post-rename failure", () => {
+  it("acknowledges only exact version3 bytes after a reported post-rename failure", () => {
     const store = fixture();
     writeLegacy(store);
     const uncertain = new ControllerStore(store.directory, (file, bytes) => {
@@ -364,10 +365,10 @@ describe("controller consent snapshot contract", () => {
       throw new Error("injected post-rename failure");
     });
     const next = uncertain.startIncarnation();
-    expect(next).toMatchObject({ version: 2, epoch: 5, parkingRevision: 1 });
+    expect(next).toMatchObject({ version: 3, epoch: 5, parkingRevision: 1 });
     expect(JSON.parse(fs.readFileSync(store.file, "utf8"))).toEqual(next);
   });
-  it("rejects a normalized legacy view as proof of a version2 commit", () => {
+  it("rejects a normalized legacy view as proof of a version3 commit", () => {
     const store = fixture();
     writeLegacy(store);
     const normalized = store.read() as ControllerSnapshot;
@@ -515,4 +516,120 @@ describe("controller consent snapshot contract", () => {
     });
     expect(() => store.read()).toThrow("Controller snapshot is unreadable or invalid.");
   });
+});
+
+describe("durable controller binding fingerprints", () => {
+  it("keeps identical fingerprints across incarnations while fencing an old closure", () => {
+    const store = fixture();
+    store.startIncarnation();
+    const first = store.bindingFingerprint();
+    const fingerprint = first("synthetic-owner", "synthetic-config");
+    const restarted = new ControllerStore(store.directory);
+    restarted.startIncarnation();
+    expect(restarted.bindingFingerprint()("synthetic-owner", "synthetic-config")).toBe(fingerprint);
+    expect(restarted.bindingFingerprint()("synthetic-owner", "changed-config")).not.toBe(
+      fingerprint,
+    );
+    expect(() => first("synthetic-owner", "synthetic-config")).toThrow();
+  });
+});
+
+it.each([
+  "missing",
+  "key",
+  "epoch",
+  "downgrade",
+  "snapshot-downgrade",
+])("invalidates held fingerprints and refuses restart after %s provenance", (change) => {
+  const store = fixture();
+  const snapshot = store.startIncarnation();
+  const fingerprint = store.bindingFingerprint();
+  const identityFile = path.join(store.directory, "store-identity.json");
+  const identity = JSON.parse(fs.readFileSync(identityFile, "utf8"));
+  if (change === "missing") fs.unlinkSync(identityFile);
+  if (change === "key")
+    writeFileAtomically(identityFile, JSON.stringify({ ...identity, key: "0".repeat(64) }));
+  if (change === "epoch")
+    writeFileAtomically(
+      identityFile,
+      JSON.stringify({ ...identity, enrolledEpoch: identity.enrolledEpoch + 1 }),
+    );
+  if (change === "downgrade")
+    writeFileAtomically(identityFile, JSON.stringify({ version: 1, store: identity.store }));
+  if (change === "snapshot-downgrade") {
+    const { fingerprint: _fingerprint, ...legacy } = snapshot;
+    writeFileAtomically(store.file, JSON.stringify({ ...legacy, version: 2 }));
+  }
+  const before = fs.readFileSync(store.file);
+  expect(() => fingerprint("owner", "config")).toThrow();
+  expect(() => store.persist(snapshot)).toThrow();
+  expect(() => new ControllerStore(store.directory).startIncarnation()).toThrow();
+  expect(fs.readFileSync(store.file)).toEqual(before);
+});
+
+it.each([
+  1, 2,
+])("enrolls version%s history without reconnect provenance for older epochs", (version) => {
+  const store = fixture();
+  writeLegacy(store);
+  if (version === 2) writeFileAtomically(store.file, JSON.stringify(store.read()));
+  writeFileAtomically(
+    path.join(store.directory, "store-identity.json"),
+    JSON.stringify({ version: 1, store: "legacy-store" }),
+  );
+  const before = fs.readFileSync(store.file);
+  expect(store.read()?.version).toBe(2);
+  expect(fs.readFileSync(store.file)).toEqual(before);
+  const migrated = store.startIncarnation();
+  expect(migrated.version).toBe(3);
+  expect(migrated.fingerprint?.enrolledEpoch).toBe(5);
+  expect(migrated.retainedSessions[0].epoch).toBe(4);
+  const key = JSON.parse(
+    fs.readFileSync(path.join(store.directory, "store-identity.json"), "utf8"),
+  ).key;
+  expect(typeof key === "string" && /^[a-f0-9]{64}$/.test(key)).toBe(true);
+  expect(JSON.stringify(migrated).includes(key)).toBe(false);
+  const other = fixture();
+  other.startIncarnation();
+  expect(other.bindingFingerprint()("owner", "config")).not.toBe(
+    store.bindingFingerprint()("owner", "config"),
+  );
+});
+
+it.each([
+  false,
+  true,
+])("resumes the same enrolled key after a version3 write failure (renamed: %s)", (renamed) => {
+  const store = fixture();
+  writeLegacy(store);
+  const broken = new ControllerStore(store.directory, (file, bytes) => {
+    if (file !== store.file) return writeFileAtomically(file, bytes);
+    if (renamed) writeFileAtomically(file, bytes);
+    throw new Error("synthetic write failure");
+  });
+  if (renamed) expect(broken.startIncarnation().epoch).toBe(5);
+  else expect(() => broken.startIncarnation()).toThrow();
+  const marker = fs.readFileSync(path.join(store.directory, "store-identity.json"));
+  const resumed = new ControllerStore(store.directory);
+  const snapshot = resumed.startIncarnation();
+  expect(snapshot.fingerprint?.enrolledEpoch).toBe(5);
+  expect(snapshot.epoch).toBe(renamed ? 6 : 5);
+  expect(snapshot.retainedSessions).toHaveLength(1);
+  expect(fs.readFileSync(path.join(store.directory, "store-identity.json"))).toEqual(marker);
+});
+
+it("rejects a migrated identity with an impossible pending epoch without replacing history", () => {
+  const store = fixture();
+  const contents = writeLegacy(store);
+  writeFileAtomically(
+    path.join(store.directory, "store-identity.json"),
+    JSON.stringify({
+      version: 2,
+      store: "legacy-store",
+      key: "a".repeat(64),
+      enrolledEpoch: 4,
+    }),
+  );
+  expect(() => store.startIncarnation()).toThrow();
+  expect(fs.readFileSync(store.file, "utf8")).toBe(contents);
 });

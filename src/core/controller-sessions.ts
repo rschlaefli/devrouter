@@ -255,6 +255,8 @@ export class ControllerSessions {
     );
     if (
       previous.store !== next.store ||
+      next.version !== 3 ||
+      previous.epoch < next.fingerprint.enrolledEpoch ||
       !retained ||
       next.sessions.some((entry) => entry.id === previous.session) ||
       !isDeepStrictEqual(retained.environment, environment) ||

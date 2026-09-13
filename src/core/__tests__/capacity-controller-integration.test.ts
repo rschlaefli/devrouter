@@ -1165,7 +1165,11 @@ it.each([
   }
 });
 
-it("recovers an enrolled environment without rewriting its durable enrollment", async () => {
+it.each([
+  "match",
+  "changed-config",
+  "lost-provenance",
+])("revalidates the durable binding before recovery (%s)", async (mode) => {
   const directory = path.join(fixture.root, "controller");
   fs.mkdirSync(directory, { mode: 0o700 });
   const current = environment(fs.mkdtempSync(path.join(fixture.root, "recover-")), "e");
@@ -1175,7 +1179,15 @@ it("recovers an enrolled environment without rewriting its durable enrollment", 
     workspace: current.workspace,
     provider: current.provider,
   };
-  const incarnation = new ControllerStore(directory).startIncarnation();
+  const controllerStore = new ControllerStore(directory);
+  const incarnation = controllerStore.startIncarnation();
+  const fingerprint = controllerStore.bindingFingerprint();
+  current.fingerprint = fingerprint("synthetic-owner", "synthetic-config");
+  let configBytes = "synthetic-config";
+  const bindingResolver = vi.fn(async () => ({
+    ...current,
+    fingerprint: fingerprint("synthetic-owner", configBytes),
+  }));
   const controller = { store: incarnation.store, epoch: incarnation.epoch };
   seedEnrolledRunning(identity, durableEnrollment(current), controller);
   const operatorPolicy = policy([enrollment]);
@@ -1187,23 +1199,41 @@ it("recovers an enrolled environment without rewriting its durable enrollment", 
     path.join(current.repoPath, ".devrouter.yml"),
     JSON.stringify({ version: 1, apps: [], capacity: estimates }),
   );
-  fixture.resolve.mockResolvedValue({ environment: current, enrollment, estimates });
+  fixture.resolve.mockImplementation(async (_policy, request, signal, resolver) => ({
+    environment: await resolver(request, signal),
+    enrollment,
+    estimates,
+  }));
   fixture.runLifecycleWorker.mockReset();
   fixture.runLifecycleWorker.mockImplementation(async () => ({ status: "completed" }));
   const active = createCapacityController({
     directory,
+    bindingResolver,
     controller: { ...controller, directory, consumeStartup: () => {} },
     collect: async () => ({ host: sample(Date.now()), runtime: sample(Date.now()) }),
   });
   try {
     const before = readReliabilityOperation(identity)!;
+    const snapshotBefore = fs.readFileSync(controllerStore.file);
     const revalidate = () => {
+      if (fingerprint("synthetic-owner", "synthetic-config") !== current.fingerprint)
+        throw new Error("Binding provenance changed.");
       const now = readReliabilityOperation(identity);
       if (!now || now.revision !== before.revision)
         throw new Error("Observation revision changed.");
       return { journalRevision: before.revision, failedCapabilities: ["app-dead"] };
     };
+    if (mode === "changed-config") configBytes = "changed-config";
+    if (mode === "lost-provenance") fs.unlinkSync(path.join(directory, "store-identity.json"));
     await active.recover(current, ["app-dead"], new AbortController().signal, revalidate);
+    if (mode !== "match") {
+      expect(readReliabilityOperation(identity)).toEqual(before);
+      expect(fs.readFileSync(controllerStore.file)).toEqual(snapshotBefore);
+      expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+      return;
+    }
+    expect(bindingResolver).toHaveBeenCalledOnce();
+    expect(fixture.resolve.mock.calls[0][3]).toBe(bindingResolver);
     const recovered = readReliabilityOperation(identity)!;
     // Exactly one write: the recovery preparation. Enrollment is never converted.
     expect(recovered.revision).toBe(before.revision + 1);

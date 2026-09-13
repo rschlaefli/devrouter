@@ -9,7 +9,7 @@ import {
   proveWitnessedCapacityPopulation,
 } from "./capacity-population-proof";
 import type { CapacityOwnedPopulation } from "./capacity-runtime-probe";
-import { readControllerEvidence } from "./controller-binding";
+import { createControllerBindingResolver, readControllerEvidence } from "./controller-binding";
 import { runControllerProbe } from "./controller-probe";
 import { readManagedRuntimeState } from "./managed-runtime-state";
 import { readReliabilityOperation } from "./reliability-operation-store";
@@ -91,6 +91,7 @@ export async function resolveCapacityOwnership(
     index: readDockerCapacityOwnershipIndex,
   },
 ) {
+  const bindingResolver = createControllerBindingResolver();
   const domain = policy.domains[runtimeDomain];
   if (domain?.kind !== "runtime") throw new Error("Capacity runtime domain is unavailable.");
   const enrollments = policy.enrollments.filter((entry) => entry.runtimeDomain === runtimeDomain);
@@ -111,7 +112,7 @@ export async function resolveCapacityOwnership(
       profile: enrollment.profiles[0],
       require: ["runtime"],
     };
-    const binding = await dependencies.resolve(policy, request, signal);
+    const binding = await dependencies.resolve(policy, request, signal, bindingResolver);
     check();
     if (!isDeepStrictEqual(binding.enrollment, enrollment))
       throw new Error("Capacity ownership enrollment changed.");
@@ -129,7 +130,7 @@ export async function resolveCapacityOwnership(
     revalidate: async () => {
       for (const entry of bindings) {
         check();
-        const current = await dependencies.resolve(policy, entry.request, signal);
+        const current = await dependencies.resolve(policy, entry.request, signal, bindingResolver);
         check();
         const generation = await (dependencies.providerGeneration ?? readProviderGeneration)(
           entry.enrollment.repoPath,

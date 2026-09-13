@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import type { ControllerBindingFingerprint } from "./controller-binding";
 import {
   ControllerMonitor,
   type ControllerObservationCollector,
@@ -119,12 +120,21 @@ export type ControllerStartup = {
 export async function runController(options: {
   directory: string;
   signal: AbortSignal;
-  resolve: ControllerResolver;
+  resolve?: ControllerResolver;
   collect?: ControllerObservationCollector;
+  createBindings?: (fingerprint: ControllerBindingFingerprint) => {
+    resolve: ControllerResolver;
+    collect: ControllerObservationCollector;
+  };
   onListening?: () => void;
   operations?: ControllerOperations;
-  createOperations?: (controller: ControllerStartup) => ControllerOperations | undefined;
+  createOperations?: (
+    controller: ControllerStartup,
+    resolve: ControllerResolver,
+  ) => ControllerOperations | undefined;
 }): Promise<void> {
+  if (options.createBindings ? options.resolve || options.collect : !options.resolve)
+    throw new Error("Controller bindings require one owner.");
   if (options.operations && options.createOperations)
     throw new Error("Controller operations have multiple owners.");
   const socketPath = path.join(options.directory, "control.sock");
@@ -145,20 +155,28 @@ export async function runController(options: {
     const sessions = new ControllerSessions(store);
     if (staleSocket) fs.unlinkSync(socketPath);
     const incarnation = sessions.read();
+    const { resolve, collect } = options.createBindings?.(store.bindingFingerprint()) ?? {
+      resolve: options.resolve,
+      collect: options.collect,
+    };
+    if (!resolve) throw new Error("Controller binding resolver is unavailable.");
     let startupAvailable = true;
     let operations: ControllerOperations | undefined;
     try {
       operations =
-        options.createOperations?.({
-          directory: options.directory,
-          store: incarnation.store,
-          epoch: incarnation.epoch,
-          consumeStartup: (directory) => {
-            if (!startupAvailable || directory !== options.directory)
-              throw new Error("Controller startup authority is unavailable.");
-            startupAvailable = false;
+        options.createOperations?.(
+          {
+            directory: options.directory,
+            store: incarnation.store,
+            epoch: incarnation.epoch,
+            consumeStartup: (directory) => {
+              if (!startupAvailable || directory !== options.directory)
+                throw new Error("Controller startup authority is unavailable.");
+              startupAvailable = false;
+            },
           },
-        }) ?? options.operations;
+          resolve,
+        ) ?? options.operations;
     } finally {
       startupAvailable = false;
     }
@@ -166,10 +184,10 @@ export async function runController(options: {
     let serial = Promise.resolve();
     const monotonic = () => Math.floor(performance.now());
     let fatal: Error | undefined;
-    const monitor = options.collect
+    const monitor = collect
       ? new ControllerMonitor(
           sessions,
-          options.collect,
+          collect,
           (operation) => {
             const pending = serial.then(operation);
             serial = pending.catch(() => {});
@@ -374,7 +392,7 @@ export async function runController(options: {
           void initial
             .then(async ({ environment, identity, revision, requirements }) => {
               let persisted: (() => boolean) | undefined;
-              const resolved = await options.resolve(
+              const resolved = await resolve(
                 {
                   path: environment.repoPath,
                   profile: environment.profile,
@@ -567,7 +585,7 @@ export async function runController(options: {
             try {
               let persisted: (() => boolean) | undefined;
               const environment = await Promise.race([
-                options.resolve(
+                resolve(
                   request,
                   controller.signal,
                   request.reconnect

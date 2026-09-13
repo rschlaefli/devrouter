@@ -144,12 +144,15 @@ it("creates managed operations from the handshake identity and closes them once"
       result: { store: expect.any(String), epoch: expect.any(Number) },
     });
     expect(createOperations).toHaveBeenCalledOnce();
-    expect(createOperations).toHaveBeenCalledWith({
-      store: handshake.result.store,
-      epoch: handshake.result.epoch,
-      directory,
-      consumeStartup: expect.any(Function),
-    });
+    expect(createOperations).toHaveBeenCalledWith(
+      {
+        store: handshake.result.store,
+        epoch: handshake.result.epoch,
+        directory,
+        consumeStartup: expect.any(Function),
+      },
+      expect.any(Function),
+    );
 
     await tickEntered.promise;
     expect(tick).toHaveBeenCalledOnce();
@@ -1458,5 +1461,67 @@ it("reports the exact consumer observation under the journal fence without lifec
   } finally {
     f.client.socket.destroy();
     observed.mockRestore();
+  }
+});
+
+it("creates the binding pair only after durable enrollment and passes its resolver to operations", async () => {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-binding-pair-")));
+  directories.push(directory);
+  const abort = new AbortController();
+  const ready = deferred<void>();
+  let resolveBinding:
+    | Parameters<NonNullable<Parameters<typeof runController>[0]["createOperations"]>>[1]
+    | undefined;
+  const createOperations = vi.fn((_startup: ControllerStartup, resolver: typeof resolveBinding) => {
+    expect(resolver).toBe(resolveBinding);
+    return undefined;
+  });
+  const running = runController({
+    directory,
+    signal: abort.signal,
+    onListening: () => ready.resolve(),
+    createOperations,
+    createBindings: (fingerprint) => {
+      const snapshot = JSON.parse(fs.readFileSync(path.join(directory, "snapshot.json"), "utf8"));
+      expect(snapshot.version).toBe(3);
+      expect(fs.existsSync(path.join(directory, "store-identity.json"))).toBe(true);
+      const binding = {
+        id: "env",
+        repoPath: "/fixture/checkout",
+        workspace: "fixture",
+        provider: "devsy" as const,
+        providerId: "provider",
+        profile: "web",
+        fingerprint: fingerprint("owner", "config"),
+      };
+      resolveBinding = async () => binding;
+      return {
+        resolve: resolveBinding,
+        collect: async () => {
+          throw new Error("synthetic unavailable evidence");
+        },
+      };
+    },
+  });
+  stops.push(async () => {
+    abort.abort();
+    await running;
+  });
+  await Promise.race([ready.promise, running]);
+  expect(createOperations).toHaveBeenCalledOnce();
+  const client = connect(directory);
+  try {
+    await client.request({ method: "handshake" });
+    expect(
+      await client.request({
+        method: "observe",
+        path: "/fixture/checkout",
+        profile: "web",
+        session: "one",
+        require: ["runtime"],
+      }),
+    ).toMatchObject({ ok: true });
+  } finally {
+    client.socket.destroy();
   }
 });

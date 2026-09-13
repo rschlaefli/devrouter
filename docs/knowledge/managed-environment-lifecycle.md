@@ -200,10 +200,10 @@ changed configuration can continue while the older consumer remains unresolved.
 
 An optional exact previous binding on `observe` can reconcile only that retained
 consumer, after fresh persisted ownership and identical environment and requirement
-proof. It creates a new protected generation. Current fingerprints use an
-incarnation-local key, so a real process restart can prevent this equality proof;
-reconnect across that boundary is not yet a seamless recovery path. Legacy history
-and lost identities remain unresolved. Protection status exposes consent and
+proof. It creates a new protected generation. A private store-bound fingerprint key
+preserves equality across process restarts. Proof callbacks revalidate its durable
+provenance and their original incarnation before held work can publish or recover.
+Bindings predating key enrollment and lost identities remain unresolved. Protection status exposes consent and
 uncertainty counts; `consentSatisfied` proves only the consumer-consent prerequisite.
 `parkingObservation` additionally compares the original complete consumer set
 with current live bindings, consent revisions and published observation evidence.
@@ -217,8 +217,11 @@ reservation safety and intent-preserving stop/resume remain separately required.
 These interfaces do not activate parking or provide a reusable execution permit.
 
 The controller's private `store-identity.json` binds its durable snapshot to one
-store. Startup acknowledges only after both files are durable; a valid older
-snapshot enrolls without discarding its history. Missing snapshot bytes with a
+store and private fingerprint key. Snapshot version3 records only the key/store
+digest and enrollment epoch. Startup acknowledges only after both files are durable;
+a valid version1/2 snapshot enrolls without discarding its history. Interrupted
+enrollment resumes the same key. Missing, changed, downgraded or unsafe upgraded
+provenance refuses instead of silently changing binding identity. Missing snapshot bytes with a
 surviving identity or other controller artifact refuse startup. A read-only
 preflight preserves stale lock evidence across repeated refusals. Restore verified
 matching history when available; deleting metadata does not prove that retained

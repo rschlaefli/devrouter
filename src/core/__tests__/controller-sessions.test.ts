@@ -302,3 +302,18 @@ it.each([
     { parkingConsent: "protected", generation: old.generation },
   ]);
 });
+
+it("retains pre-enrollment consumers even when synthetic environment fingerprints match", () => {
+  const { store, sessions } = fixture();
+  const old = sessions.acquire("old", env, ["runtime"], 0, 1000);
+  const { fingerprint: _fingerprint, ...snapshot } = store.read()!;
+  writeFileAtomically(store.file, JSON.stringify({ ...snapshot, version: 2 }));
+  writeFileAtomically(
+    path.join(store.directory, "store-identity.json"),
+    JSON.stringify({ version: 1, store: old.store }),
+  );
+  const restarted = new ControllerSessions(new ControllerStore(store.directory));
+  expect(() => restarted.reconnect(old, env, ["runtime"], 0, 1000)).toThrow();
+  expect(restarted.read().retainedSessions).toHaveLength(1);
+  expect(restarted.read().sessions).toHaveLength(0);
+});

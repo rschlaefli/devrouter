@@ -57,7 +57,10 @@ vi.mock("../reliability-lifecycle", () => ({
   retireQueuedLifecycle: fixture.retire,
   settlePreparedLifecycleCapacity: fixture.settle,
 }));
-vi.mock("../controller-binding", () => ({ readControllerEvidence: fixture.evidence }));
+vi.mock("../controller-binding", async (original) => ({
+  ...(await original<typeof import("../controller-binding")>()),
+  readControllerEvidence: fixture.evidence,
+}));
 vi.mock("../repo-config", () => ({ loadRepoConfig: fixture.config }));
 vi.mock("../capacity-request", () => ({ capacityRequest: fixture.charge }));
 vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.policy }));
