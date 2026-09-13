@@ -349,36 +349,25 @@ export async function runController(options: {
               if (!operations) throw new Error("Managed operations unavailable.");
               const handler =
                 operationRequest.method === "operation-submit"
-                  ? operations.submit(
-                      operationRequest,
-                      environment,
-                      abort.signal,
-                      (() => {
-                        // Invocation-local proof for this submission only: it
-                        // re-ticks the clocks, revalidates the exact session
-                        // against the expected environment, and derives the
-                        // bounded consumer.
-                        const validateSession: ControllerSessionValidator = () => {
-                          if (abort.signal.aborted)
-                            throw new Error("Session validation was cancelled.");
-                          sessions.tick(monotonic(), Date.now());
-                          const session = sessions.validate(operationRequest);
-                          const bound = sessions
-                            .read()
-                            .environments.find((entry) => entry.id === session.environmentId);
-                          if (!bound || JSON.stringify(bound) !== JSON.stringify(environment))
-                            throw new Error("Session environment binding changed.");
-                          return sessionConsumer({
-                            store: operationRequest.store,
-                            epoch: operationRequest.epoch,
-                            session: operationRequest.session,
-                            generation: operationRequest.generation,
-                            requirements: session.requirements,
-                          });
-                        };
-                        return validateSession;
-                      })(),
-                    )
+                  ? operations.submit(operationRequest, environment, abort.signal, () => {
+                      // Revalidate the original binding immediately before submission.
+                      if (abort.signal.aborted)
+                        throw new Error("Session validation was cancelled.");
+                      sessions.tick(monotonic(), Date.now());
+                      const session = sessions.validate(operationRequest);
+                      const bound = sessions
+                        .read()
+                        .environments.find((entry) => entry.id === session.environmentId);
+                      if (!bound || JSON.stringify(bound) !== JSON.stringify(environment))
+                        throw new Error("Session environment binding changed.");
+                      return sessionConsumer({
+                        store: operationRequest.store,
+                        epoch: operationRequest.epoch,
+                        session: operationRequest.session,
+                        generation: operationRequest.generation,
+                        requirements: session.requirements,
+                      });
+                    })
                   : operations.watch(operationRequest, environment, abort.signal);
               const result = await Promise.race([
                 handler,
