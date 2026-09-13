@@ -30,6 +30,11 @@ const fixture = vi.hoisted(() => ({
   collection: vi.fn(),
   witness: vi.fn(),
   running: vi.fn(),
+  park: vi.fn(),
+  resumePrepare: vi.fn(),
+  reconcileStop: vi.fn(),
+  restoreParked: vi.fn(),
+  worker: vi.fn(),
 }));
 vi.mock("../capacity-startup-witness", () => ({
   publishQueuedStartupWitness: fixture.witness,
@@ -54,9 +59,14 @@ vi.mock("../reliability-operation-store", () => ({
 vi.mock("../reliability-lifecycle", () => ({
   prepareManagedLifecycleOperation: fixture.prepare,
   prepareRecoveryLifecycleOperation: fixture.prepareRecovery,
+  prepareParkLifecycleOperation: fixture.park,
+  prepareResumeLifecycleOperation: fixture.resumePrepare,
+  reconcileParkedLifecycleStop: fixture.reconcileStop,
+  restoreParkedIntentAfterFailedResume: fixture.restoreParked,
   retireQueuedLifecycle: fixture.retire,
   settlePreparedLifecycleCapacity: fixture.settle,
 }));
+vi.mock("../reliability-worker", () => ({ runLifecycleWorker: fixture.worker }));
 vi.mock("../controller-binding", async (original) => ({
   ...(await original<typeof import("../controller-binding")>()),
   readControllerEvidence: fixture.evidence,
@@ -1390,7 +1400,16 @@ const capacityEnrollment = {
   estimatesDigest: "c".repeat(64),
 };
 
-function capacityPolicyFixture(options: { recoveryEnabled?: boolean; enroll?: boolean } = {}) {
+function capacityPolicyFixture(
+  options: {
+    recoveryEnabled?: boolean;
+    enroll?: boolean;
+    collect?: (
+      signal: AbortSignal,
+    ) => Promise<Record<string, import("../capacity-accounting").CapacityDomainSample>>;
+    clock?: () => { wallMs: number; monotonicMs: number };
+  } = {},
+) {
   const base = collectionPolicy();
   const policy = {
     ...base,
@@ -1408,7 +1427,7 @@ function capacityPolicyFixture(options: { recoveryEnabled?: boolean; enroll?: bo
     enrollment: capacityEnrollment,
     estimates: { host: { steadyBytes: 1 } },
   });
-  const active = controller();
+  const active = controller(options.collect, options.clock);
   if (!active.capacity) throw new Error("Capacity directive is unavailable.");
   return { policy, active, capacity: active.capacity };
 }
@@ -1458,5 +1477,103 @@ it("refuses a parked stop once the operator policy changed", async () => {
   await expect(
     context.capacity.parkedStop(environmentIdentity(environment), capacitySignal()),
   ).resolves.toBe(false);
+  context.active.close();
+});
+
+/**
+ * The success paths below are the only ones that reach worker dispatch. The
+ * refused paths above return before it, so these mocks are consulted here only.
+ * Each decision must rest on pressure the tracker itself accumulated across
+ * distinct observations, never on a caller-supplied shortcut. The drain between
+ * collections matches the real cadence path: the collector slot clears on its
+ * own microtask, so an unawaited second read would reuse the first result.
+ */
+const pressuredSample = (wallMs: number) => ({
+  sampledAtMs: wallMs,
+  pressure: "pressured" as const,
+  unmanagedBytes: 4,
+  sharedBytes: 3,
+  ownedBytes: {},
+});
+const normalSample = (wallMs: number) => ({
+  sampledAtMs: wallMs,
+  pressure: "normal" as const,
+  unmanagedBytes: 4,
+  sharedBytes: 3,
+  ownedBytes: {},
+});
+const drainCollection = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+it("parks an enrolled pressured environment by committing intent and driving one stop", async () => {
+  const clock = { wallMs: 10_000, monotonicMs: 10_000 };
+  fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
+  fixture.park.mockReturnValue({ request: { intent: "park" } });
+  const context = capacityPolicyFixture({
+    collect: async () => ({
+      host: pressuredSample(clock.wallMs),
+      "runtime-0": pressuredSample(clock.wallMs),
+    }),
+    clock: () => ({ ...clock }),
+  });
+  // Observations 1s apart reach the 2s sustained-pressure window on the third.
+  await fixture.collection();
+  await drainCollection();
+  for (let tick = 0; tick < 2; tick++) {
+    clock.wallMs += 1000;
+    clock.monotonicMs += 1000;
+    await fixture.collection();
+    await drainCollection();
+  }
+
+  const observation = () => "unusable-consumers-proven" as const;
+  await expect(context.capacity.park(environment, 1, observation, capacitySignal())).resolves.toBe(
+    true,
+  );
+  expect(fixture.park).toHaveBeenCalledTimes(1);
+  const options = fixture.park.mock.calls[0][0];
+  expect(options.identity).toEqual(environmentIdentity(environment));
+  expect(options.policyRevision).toBe(1);
+  expect(options.journalRevision).toBe(1);
+  // The failed-capability proof is the controller's own journal gate.
+  expect(options.observationSatisfied({})).toBe(true);
+  expect(fixture.worker).toHaveBeenCalledWith({ intent: "park" });
+  context.active.close();
+});
+
+it("resumes a parked environment by enqueuing one automatic resume", async () => {
+  const clock = { wallMs: 10_000, monotonicMs: 10_000 };
+  fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
+  fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
+  fixture.charge.mockReturnValue({ environmentId: "env", totals: { host: 1 } });
+  fixture.resumePrepare.mockReturnValue({
+    operationId: "resume-op",
+    request: { intent: "resume" },
+  });
+  const context = capacityPolicyFixture({
+    collect: async () => ({
+      host: normalSample(clock.wallMs),
+      "runtime-0": normalSample(clock.wallMs),
+    }),
+    clock: () => ({ ...clock }),
+  });
+  // Observations 1s apart reach the 3s normal-dwell window on the fourth.
+  await fixture.collection();
+  await drainCollection();
+  for (let tick = 0; tick < 3; tick++) {
+    clock.wallMs += 1000;
+    clock.monotonicMs += 1000;
+    await fixture.collection();
+    await drainCollection();
+  }
+
+  await expect(context.capacity.resume(environment, 1, () => [], capacitySignal())).resolves.toBe(
+    true,
+  );
+  expect(fixture.enqueue).toHaveBeenCalledTimes(1);
+  const [request, charge, , autoResume] = fixture.enqueue.mock.calls[0];
+  expect(request).toEqual({ intent: "resume" });
+  expect(charge.operationId).toBe("resume-op");
+  // The automatic-resume flag is what lets an expired queue entry return to parked intent.
+  expect(autoResume).toBe(true);
   context.active.close();
 });
