@@ -1701,3 +1701,12 @@ focused negatives cover2535current cases. Exact source review, CI and the next
 roadmap slice remain pending. Diff is23paths with formatter indentation required
 by the resolver/collector closure factories; substantive behavior inspection used
 both normal and whitespace-insensitive diff. No unrelated comment cleanup or data.
+
+CI34767873826 passes static/typecheck/full2535tests, Linux helper, package and
+packed controller but fails capacity qualification at first operation-submit.
+The qualifier's custom operations factory omitted the second shared resolver
+argument, unlike production wiring. Add only forwarding in the generated entry
+in existing scripts/qualify-capacity.ts (24paths total). Local existing qualifier
+passes with that correction at /private/tmp/dr-cap-2bgmpq/receipt.json. No capacity
+equality or production guard changed. Risk reviewer notified; correction commit
+and exact CI will follow. This is fixture composition, not a new product slice.
