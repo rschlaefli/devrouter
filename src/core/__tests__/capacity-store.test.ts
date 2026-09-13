@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { writeFileAtomically } from "../atomic-file";
 import {
   type CapacityPoolReservation,
   type CapacityReservation,
@@ -11,6 +12,7 @@ import {
 
 const directories: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of directories.splice(0))
     fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -36,6 +38,204 @@ const request: CapacityReservation = {
   startup: true,
   heavy: false,
 };
+
+it("refuses new admission after an established reservation ledger disappears", () => {
+  const { directory, store } = fixture();
+  const budgets = { host: budget, guest: budget };
+  const samples = { host: sample, guest: sample };
+  expect(store.reserve(request, budgets, samples, 100, 15, undefined, 0).admitted).toBe(true);
+  const ledger = path.join(directory, "capacity-reservations.json");
+  fs.unlinkSync(ledger);
+  const restarted = new CapacityStore(directory);
+  expect(() =>
+    restarted.reserve(
+      { ...request, environmentId: "two", operationId: "two", reservationId: "two" },
+      budgets,
+      samples,
+      100,
+      15,
+      undefined,
+      0,
+    ),
+  ).toThrow();
+  expect(fs.existsSync(ledger)).toBe(false);
+});
+
+it("keeps pristine reads non-mutating and durably establishes an unchanged first observation", () => {
+  const { directory, store } = fixture();
+  expect(store.read()).toEqual({ version: 1, revision: 0, reservations: [] });
+  expect(fs.readdirSync(directory)).toEqual([]);
+  expect(store.mergeObservedPools([], 0)).toEqual({ changed: false, revision: 0 });
+  const marker = path.join(directory, "capacity-ledger.established");
+  expect(fs.statSync(marker).mode & 0o777).toBe(0o600);
+  expect(fs.statSync(path.join(directory, "capacity-reservations.json")).mode & 0o777).toBe(0o600);
+  fs.unlinkSync(path.join(directory, "capacity-reservations.json"));
+  expect(() => new CapacityStore(directory).read()).toThrow();
+});
+
+it("enrolls legacy history only during a mutation and preserves retained reservations", () => {
+  const { directory, store } = fixture();
+  const snapshot = { version: 1, revision: 5, reservations: [request] };
+  const ledger = path.join(directory, "capacity-reservations.json");
+  const marker = path.join(directory, "capacity-ledger.established");
+  fs.writeFileSync(ledger, JSON.stringify(snapshot), { mode: 0o600 });
+  expect(store.read()).toEqual(snapshot);
+  expect(fs.existsSync(marker)).toBe(false);
+  expect(store.mergeObservedPools([], 5)).toEqual({ changed: false, revision: 5 });
+  expect(fs.existsSync(marker)).toBe(true);
+  expect(store.read()).toEqual(snapshot);
+});
+
+it("refuses legacy ledger loss witnessed by the same instance", () => {
+  const { directory, store } = fixture();
+  const ledger = path.join(directory, "capacity-reservations.json");
+  fs.writeFileSync(ledger, JSON.stringify({ version: 1, revision: 1, reservations: [request] }), {
+    mode: 0o600,
+  });
+  store.read();
+  fs.unlinkSync(ledger);
+  expect(() => store.mergeObservedPools([], 0)).toThrow();
+  expect(fs.existsSync(ledger)).toBe(false);
+});
+
+it.each([
+  "reserve",
+  "observe",
+  "environment",
+  "pool",
+  "phase",
+])("preserves loss evidence while refusing %s mutation", (action) => {
+  const { directory, store } = fixture();
+  store.reserve(
+    request,
+    { host: budget, guest: budget },
+    { host: sample, guest: sample },
+    100,
+    15,
+    undefined,
+    0,
+  );
+  const ledger = path.join(directory, "capacity-reservations.json");
+  const marker = path.join(directory, "capacity-ledger.established");
+  const before = fs.readFileSync(marker);
+  fs.unlinkSync(ledger);
+  const restarted = new CapacityStore(directory);
+  expect(() => {
+    if (action === "reserve")
+      return restarted.reserve(
+        request,
+        { host: budget, guest: budget },
+        { host: sample, guest: sample },
+        100,
+        15,
+        undefined,
+        0,
+      );
+    if (action === "observe") return restarted.mergeObservedPools([], 0);
+    if (action === "environment") return restarted.settleEnvironmentAfterStop("one", 0);
+    if (action === "pool")
+      return restarted.settlePoolAfterCessation(
+        { daemonId: "daemon", hostDomain: "host", runtimeDomain: "guest" },
+        0,
+      );
+    return restarted.reduceAfterPhase({ ...request, startup: false }, 0);
+  }).toThrow();
+  expect(fs.existsSync(ledger)).toBe(false);
+  expect(fs.readFileSync(marker)).toEqual(before);
+});
+
+it.each([
+  "corrupt",
+  "version",
+  "extra",
+  "public",
+  "symlink",
+  "oversized",
+])("refuses a %s marker without changing ledger bytes", (mode) => {
+  const { directory, store } = fixture();
+  store.mergeObservedPools([], 0);
+  const marker = path.join(directory, "capacity-ledger.established");
+  const ledger = path.join(directory, "capacity-reservations.json");
+  const before = fs.readFileSync(ledger);
+  if (mode === "corrupt") fs.writeFileSync(marker, "{");
+  if (mode === "version") fs.writeFileSync(marker, '{"version":2}');
+  if (mode === "extra") fs.writeFileSync(marker, '{"version":1,"extra":true}');
+  if (mode === "public") fs.chmodSync(marker, 0o644);
+  if (mode === "oversized") fs.writeFileSync(marker, " ".repeat(4097));
+  if (mode === "symlink") {
+    fs.renameSync(marker, `${marker}.target`);
+    fs.symlinkSync(`${marker}.target`, marker);
+  }
+  expect(() => new CapacityStore(directory).mergeObservedPools([], 0)).toThrow();
+  expect(fs.readFileSync(ledger)).toEqual(before);
+});
+
+it.each([
+  "snapshot",
+  "marker",
+])("recovers a first %s write failure without duplicate charges", (stage) => {
+  const { directory } = fixture();
+  const budgets = { host: budget, guest: budget };
+  const samples = { host: sample, guest: sample };
+  const interrupted = new CapacityStore(directory, (file, bytes) => {
+    if (
+      path.basename(file) ===
+      (stage === "snapshot" ? "capacity-reservations.json" : "capacity-ledger.established")
+    )
+      throw new Error("injected pre-rename failure");
+    writeFileAtomically(file, bytes);
+  });
+  expect(() => interrupted.reserve(request, budgets, samples, 100, 15, undefined, 0)).toThrow();
+  const restarted = new CapacityStore(directory);
+  const revision = restarted.read().revision;
+  expect(revision).toBe(stage === "snapshot" ? 0 : 1);
+  expect(restarted.reserve(request, budgets, samples, 100, 15, undefined, revision)).toMatchObject({
+    admitted: true,
+    joined: stage === "marker",
+    revision: 1,
+  });
+  expect(restarted.read().reservations).toEqual([request]);
+  expect(fs.existsSync(path.join(directory, "capacity-ledger.established"))).toBe(true);
+});
+
+it.each([
+  "join",
+  "observe",
+])("requires durable marker synchronization before a fresh-instance %s retry", (retry) => {
+  const { directory } = fixture();
+  const budgets = { host: budget, guest: budget };
+  const samples = { host: sample, guest: sample };
+  const sync = fs.fsyncSync.bind(fs);
+  let markerWriting = false;
+  const failure = vi.spyOn(fs, "fsyncSync").mockImplementation((fd) => {
+    if (markerWriting && fs.fstatSync(fd).isDirectory())
+      throw new Error("injected directory sync failure");
+    sync(fd);
+  });
+  const interrupted = new CapacityStore(directory, (file, bytes) => {
+    if (path.basename(file) === "capacity-ledger.established") markerWriting = true;
+    writeFileAtomically(file, bytes);
+  });
+  expect(() => interrupted.reserve(request, budgets, samples, 100, 15, undefined, 0)).toThrow();
+  const ledger = path.join(directory, "capacity-reservations.json");
+  const before = fs.readFileSync(ledger);
+  expect(fs.existsSync(path.join(directory, "capacity-ledger.established"))).toBe(true);
+  const repeat = () => {
+    const restarted = new CapacityStore(directory);
+    return retry === "join"
+      ? restarted.reserve(request, budgets, samples, 100, 15, undefined, 1)
+      : restarted.mergeObservedPools([], 1);
+  };
+  expect(repeat).toThrow();
+  expect(fs.readFileSync(ledger)).toEqual(before);
+  failure.mockRestore();
+  expect(repeat()).toMatchObject(
+    retry === "join"
+      ? { admitted: true, joined: true, revision: 1 }
+      : { changed: false, revision: 1 },
+  );
+  expect(fs.readFileSync(ledger)).toEqual(before);
+});
 
 it("reduces only the exact retained phase and never resurrects a stopped row", () => {
   const { store } = fixture();

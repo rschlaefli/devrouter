@@ -212,21 +212,23 @@ fixture and live evidence separately; unknown/skipped is never a pass.
 
 ### Progress
 
-Status: implementing slice 4 source prerequisites. Diagnostic, submission and recovery
-fences plus durable human protection are committed and reviewed. Goal active.
+Status: implementing slice 4 source prerequisites. Diagnostics, submission and recovery
+fences, durable human protection, consumer consent and controller store-loss refusal
+are committed and reviewed through78ddda0. Capacity ledger-loss repair is next. Goal active.
 All seven slices retain integrated or live obligations. Required delivery is
 released and installed 0.1.0 with full roadmap qualification; achieved baseline
 is published 0.0.78, global installation last verified at 0.0.77.
 
-Fresh fetch confirms origin/main `e92903a`; new worktree is clean and pinned
-Node 24.16.0/pnpm 11.6.0 dependencies installed offline. eLearning owner confirms
+Fresh fetch confirms origin/main `e92903a`; the task worktree uses pinned
+Node24.16.0/pnpm11.6.0. Source changes stay in the existing task worktree.
+The earlier eLearning owner receipt confirms
 the established canary checkout is clean and available; no fresh semantic proof
 was supplied. Other owner-retained manual-verification environments are protected.
 
 Planner construction completed. Round 1 requested explicit accountable owners,
 portfolio obligations, derived-delta checkpoint, ADR binding and Q evidence
 ownership; all five findings were accepted in this revision. The same planner approved the corrected draft in round 3; implementation reviews remain required. Prior roadmap reviews covered direction
-only. Next action: finish bounded phase progress and installed diagnostic proof; historical ownership investigation remains independent.
+only. Current next action: complete the internally reviewed capacity ledger-loss correction, then continue exact-set parking and full-roadmap integration. Historical ownership and live qualification remain open.
 
 ### Active diagnostic deltas
 
@@ -1238,3 +1240,90 @@ returns revision0/empty and can permit new admission; effect-time old bindings
 still refuse. This needs a separately derived bounded ledger-loss correction
 before parking integration. No external deletion likelihood or live incident is
 claimed; the current controller correction does not close that capacity gap.
+
+
+### Capacity ledger loss — frozen derived contract
+
+Consent correction78ddda0 passed Faraday's focused verification, simplifier,
+and CI34761988066 (all source/Linux helper/build/package/installed qualifiers).
+PR100 now includes consent and store-loss behavior, evidence and remaining gaps.
+The separate capacity loss regression fails at that revision: after a successful
+reservation, deleting the temporary ledger lets another reservation succeed.
+
+Extend only CapacityStore and its existing tests for this bounded correction;
+main owns this plan and the lifecycle knowledge explanation. No controller-store
+or journal schema change, runtime action, new module, dependency or user config.
+Route: executor for the settled two-file implementation; main for integration
+and remaining Q32 legacy/forward-recovery policy. The store supports standalone
+capacity CLI and worker stop settlement without a live controller, so it owns a
+separate capacity-ledger.established file in the same existing private directory.
+Its exact content is version1 metadata; it carries no controller or store UUID.
+
+Read the bounded private marker before the ledger. Unsafe, symlinked, oversized,
+foreign-owned or corrupt metadata refuses. A marker plus missing ledger refuses
+and never recreates the ledger. Valid unmarked snapshots remain readable without
+writes. Both absent retain the existing pristine revision0 view. Cache observed
+ledger presence within an instance so subsequent disappearance cannot erase
+positive local evidence, including a read before lock acquisition.
+
+All five mutations still serialize on the existing ledger lock. Their in-lock
+read validates state first and establishes the marker for any existing valid
+ledger before returning mutation success, including idempotent reservation joins
+and unchanged observation results. Marker-only enrollment of valid legacy bytes
+is allowed during a mutation request, even if later admission/CAS refuses; it
+changes no reservation, pool or revision. This closes the advisor draft's retry
+gap: a marker write can fail after a reservation commits, and an identical retry
+must arm the marker before acknowledging the joined reservation.
+
+For genuinely absent state, commit the ledger snapshot first, then the marker,
+and return success only after both writes are durable. Use the existing atomic
+writer; report uncertain write failure without acknowledgment or rollback.
+A valid snapshot left after interrupted marker creation remains recoverable via
+the next locked mutation. Validate and bound snapshot contents before its write.
+Do not recreate a ledger after loss, clear charges, reconstruct missing rows,
+relax stop/effect authority, or use marker deletion as recovery. Keep identity
+proof and capacity revision fencing distinct.
+
+This detects ledger loss after successful enrollment and loss witnessed by the
+same instance. Pre-marker historical loss and loss of every evidence artifact
+remain unproved. Journal-derived positive legacy-loss detection and an explicit
+operator recovery/diagnostic path remain REQUIRED full-roadmap Q32 work after
+this bounded slice; the advisor's recommendation to exclude them is only a slice
+boundary, not a waiver for0.1.0. A missing ledger may now refuse manual preparation
+or stop settlement, rather than silently clearing retained capacity.
+
+Acceptance extends the red regression unchanged, pristine use, read-only legacy
+preservation plus mutation enrollment, every mutation after established loss,
+marker safety, first snapshot/marker write failures and exact retry join, and
+loss after an observed legacy read. Use existing synthetic stores; no host runtime
+or fault injection outside temporary fixtures. Static/docs/knowledge, focused
+capacity/lifecycle/controller suites, build/package and CI follow. No prose-pinning
+tests. Advisor consultation DONE_WITH_CONCERNS accepted with join-retry correction
+and explicitly retained operator/legacy obligations. Required planner challenge
+precedes source implementation; stopped intent and existing charges remain gated.
+
+Capacity planner round1 REVISE accepted: a visible marker after failed directory
+sync is not durable evidence. Before any successful mutation acknowledgment,
+including a joined reservation or unchanged observation from a fresh Store
+instance, sync the validated ledger and marker files and their directory.
+An existing marker cannot skip that durability proof. Persistent synchronization
+failure refuses and preserves charges/revision; a later successful sync permits
+the same idempotent retry. Add post-rename fsync-failure regressions for both
+retry paths. Ordinary file existence or parse success is not the acceptance proof.
+
+Capacity planner round2 APPROVED. Executor route failed before edits; main owns
+the two-file correction under unhealthy-route continuity, retaining independent
+reviews. A pristine unchanged observation now durably establishes the empty
+revision0 ledger without changing its revision, so even that successful mutation
+acknowledgment satisfies the frozen durability rule. Plain reads remain empty and
+non-mutating. No business charges are invented by that initialization.
+
+Capacity ledger verification: red deletion regression failed before source fix.
+All65capacity-store tests pass, adding19consequential cases across loss, every
+mutation, marker integrity, legacy read/enrollment and actual post-rename directory
+fsync failure with both fresh-instance no-op retry paths. Full2452tests/143files
+pass with2workers. Static checks/docs/knowledge/build/packed CLI smoke pass;
+Opengrep210rules/1sourcefile reports0findings. Existing2Biome infos unchanged.
+No consumer runtime or global install; no remaining shell watchers at commit.
+Independent simplification/correctness review and exact CI are next. Positive
+legacy history and explicit operator forward recovery remain required Q32 work.

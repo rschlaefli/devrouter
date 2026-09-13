@@ -268,6 +268,17 @@ under Devrouter home, keep the manual lifecycle. See
 [ADR 0008](../adr/0008-model-reliability-before-runtime-activation.md) for the
 source contract and activation boundaries.
 
+The capacity ledger has its own private `capacity-ledger.established` marker,
+independent of the controller process. Reads never enroll a ledger; locked
+mutations establish existing valid history or persist a new ledger before its
+marker. Successful mutation acknowledgments, including idempotent joins, require
+durable files and directory metadata. Missing marked history refuses admission
+and settlement without clearing charges. The marker cannot prove history lost
+before enrollment or detect deletion of all evidence; positive journal evidence
+and operator reconciliation remain separate recovery obligations. Restoring a
+verified ledger preserves its retained charges; deleting metadata does not prove
+capacity is available.
+
 The policy's optional `recovery` block carries the bounded corrective-action
 budget: per-scope process and service restart allowances, the aggregate action
 cap an incident may not exceed, the incident window, the observation bound, and
