@@ -1,168 +1,1019 @@
-# Cross-repository local environment reliability roadmap
+# Cross-repository managed development environment reliability roadmap
 
-## Proposed outcome and approval boundary
+## Status, purpose, and authority
 
-Make supported development environments reach a usable application through one
-predictable command, recover from ordinary interruption without losing local data,
-and explain failures without requiring repeated agent investigation.
+Updated: 2026-09-13. Status: proposed consolidated direction; M1 acceptance remains
+open. This revision reconciles the original PR #57, the later expanded roadmap,
+and delivered source through `1cb12099827a14d6198b7dd56de65a4808314df6`.
+It retains W0–W9, the W3/W6 subdivisions, S1–S8, M0–M3 and Q01–Q36. It replaces
+the shorter draft at this same path; it creates no parallel roadmap or supervisor.
 
-The recommended sequence is to measure the actual developer journey, strengthen
-readiness and recovery, isolate mutable build state, then qualify the installed
-tool across representative repositories. Optimize measured bottlenecks after
-correctness is observable. A successful process start is not the target outcome;
-a developer must be able to complete the repository's declared smoke journey.
+The user authorized merge/release of PR #95 separately and requested this roadmap.
+This document is **direction-only**: its implementation, consumer changes,
+controller enrollment, machine policy, global upgrades and live faults require
+separately scoped execution approval. Earlier approved packages retain their
+recorded authority; this refresh neither revokes nor expands it. The roadmap PR
+stays draft for the maintainer's direction decision.
 
-This is a proposed roadmap, not an implementation plan or a claim that every
-reported incident remains broken. The user authorized this document, its local
-commit, normal branch push, and a draft PR. Implementation, consumer-repository
-changes, installed-app upgrades, machine configuration, destructive tests,
-releases, and merges require their own scoped approval. No runtime is started or
-modified by this documentation package. Independent planning review is pending;
-the authoring side conversation prohibits subagents.
+The target remains a usable managed agent session: start once, receive truthful
+capability readiness, recover supported failures within policy, or wait without
+repeated agent repair. Capacity is finite; stopped intent, user work and unknown
+operation completion remain protected. A green CLI exit alone cannot establish
+that product outcome.
 
-Important choices remain open: which platform combinations receive a support
-commitment, which application probes may write synthetic data, and whether any
-automatic cache repair or idle stopping should be enabled. The conservative
-recommendation is read-only diagnostics and reversible, exact-workspace recovery,
-with destructive operations remaining explicit.
+Read the current evidence and priority section first. The numbered design sections
+preserve the complete target contract. Their proposed interfaces and historical
+external references are design inputs, not a claim of shipped support. Existing
+executable contracts and ADRs win; review current provider/harness documentation
+when deriving a version-specific implementation package.
 
-The immediate implementation candidate is **W1 — actionable failure evidence**.
-Agreement with this direction does not authorize the other work items. Each item
-must become a separately scoped execution package with fresh source inspection.
+## Current evidence and priority — 2026-09-13
 
-## Context and evidence boundary
+### Delivery and consumer acceptance
 
-Date: 2026-09-06. Audience: a maintainer deciding direction, then a developer or
-agent implementing an approved item without the originating conversation.
+Source, CI, publication, global installation, enrollment and live acceptance are
+separate dimensions. This roadmap carries bounded owner-reported consumer receipts;
+it does not independently restart a consumer to refresh them.
 
-Repository: `rschlaefli/devrouter`. Roadmap branch:
-`rs/local-environment-reliability-roadmap`. Target: `main`. Inspected base:
-`e8f7549cbc2206604e997c0f07d836c390f302c2`, whose package version is `0.0.55`.
-Source state is distinct from an installed binary or a successfully exercised
-consumer environment. No fresh live reliability benchmark accompanies this PR.
-
-### Existing work to preserve and reuse
-
-| Capability or repair | Verified source or delivery record | Consequence for this roadmap |
+| Evidence | Current disposition | Consequence |
 | --- | --- | --- |
-| Exact checkout ownership and generic process lifecycle | [Architecture and ownership](../knowledge/architecture-and-ownership.md), [managed lifecycle](../knowledge/managed-environment-lifecycle.md), `src/core/workspace-ensure.ts`, `bin/devrouter-process` | Extend existing ownership and reconciliation; do not add another supervisor. |
-| Retained-runtime repair and ordered preparation | [PR #51](https://github.com/rschlaefli/devrouter/pull/51), commit `f4c9cdd`; [PR #52](https://github.com/rschlaefli/devrouter/pull/52), commit `0152c80` | These fixes are already on the inspected base. Remaining work concerns coverage and contracts, not recreating them. |
-| Retained service shutdown, resolved Compose fingerprints, mount ordering | [PR #53](https://github.com/rschlaefli/devrouter/pull/53), commit `aba5287`; [PR #54](https://github.com/rschlaefli/devrouter/pull/54), commit `aad6111`; [PR #55](https://github.com/rschlaefli/devrouter/pull/55), commit `e8f7549` | Preserve strict identity proof and environment-sensitive invalidation. Do not weaken guards to make retries pass. |
-| Profiles and CI bindings | [Dependency-aware profiles](./2026-08-26-devcontainer-dependency-profiles-plan.md), [CI profile contract](./2026-08-30-ci-profile-plan-contract-plan.md), [ADR 0007](../adr/0007-keep-ci-profile-planning-repository-owned.md) | Profiles already exist. Repositories own command semantics; Devrouter emits validated literal bindings rather than executing CI workflows. |
-| Resource reporting and installed-package proof | [Resource roadmap](./2026-08-16-workspace-resource-accounting-roadmap.md), [delivery reconciliation PR #44](https://github.com/rschlaefli/devrouter/pull/44), [package-proof roadmap](./2026-08-15-packaged-cli-command-release-proof-roadmap.md), [profiles and leases plan](./2026-08-24-profiles-leases-resource-plan.md) | Reuse these seams. Some project-record status is historical; do not infer missing implementation from an old status heading. |
+| Pre-registration stop, recorded profile recovery and rollback consistency | PRs [#93](https://github.com/rschlaefli/devrouter/pull/93), [#94](https://github.com/rschlaefli/devrouter/pull/94), [#96](https://github.com/rschlaefli/devrouter/pull/96) merged; releases 0.0.74–0.0.76 | Reuse their guards and regressions. Prevention of new rollback contradictions does not establish ownership of historical generated bytes. |
+| TLS before managed provider/hooks | [#97](https://github.com/rschlaefli/devrouter/pull/97), release 0.0.77 at `97445d40a579c2ddf874d950c99a957f740fe854`; publication CI passed and both local global copies were verified against the official package | Add this ordering to installed regression journeys; preserve additive SAN coverage and shared certificate locking. |
+| Queue leader versus holder | [#95](https://github.com/rschlaefli/devrouter/pull/95) merged at `1cb12099827a14d6198b7dd56de65a4808314df6`; merged-main CI passed; 0.0.78 release in progress | Remaining progress work extends this reporting. Acquisition timeout still does not cancel the holder. |
+| Chat consumer clean-runtime lane | Owner recorded a 0.0.77 startup/readiness/check/stop success after a fixture correction; a subsequent route-free validation also stopped cleanly with empty active resources, no drift and zero exact routes | Bounded ordinary lifecycle proof exists. Current shared-seed/mock-isolation application work is consumer-owned; it is not a proven Devrouter defect or general M1 acceptance. |
+| Citation consumer lane | No complete same-checkout recovery receipt for its historical configuration mismatch | Do not infer recovery from the separate clean-runtime lane. Preserve its staged source work. |
+| Imported-sources consumer lane | Installed 0.0.77 versus repo metadata 0.0.72; repair refused configuration drift. Host `ls --json` proved zero exact routes; container ownership and producing-configuration provenance remain unknown | Still blocked for managed lifecycle. Host hook checks can pass separately; that does not establish runtime repair. |
+| Explicit managed profile named `full` | Source `normalizeSelectedProfile` in `repo-config.ts` replaces all three dimensions with wildcards even when arrays are explicit | Confirmed semantics/DX mismatch: reserved all-resources behavior can activate opt-in fixtures unexpectedly. A differently named declared default avoids that selection; changing `full` semantics needs compatibility review. |
 
-[PR #56 — reset-failure recovery](https://github.com/rschlaefli/devrouter/pull/56)
-is an open draft at inspection, on `rs/reset-rollback-recovery`, head
-`71aa5a8d33ea8966c76705e41273cb7d3d384b5e`. It owns retaining coherent recovery
-state after reset failure. Coordinate with that branch before editing the same
-reconciler. Its source and test evidence do not establish a completed live
-reset-failure recovery journey. This roadmap neither supersedes that PR nor
-duplicates its implementation. PR #44 owns historical resource-delivery record
-reconciliation; leave that correction to its existing branch.
+Private checkout paths, task IDs, raw diagnostics and injection details stay in
+the existing handoff and local evidence, not this public roadmap. No missing-owner
+GC warning is a remedy for a valid checkout's configuration drift.
 
-### Incident-derived hypotheses, not fresh reproductions
+### Reconcile existing source instead of rebuilding it
 
-The motivating consumer investigation reported repeated startup attempts,
-recycled provider state, root-page readiness despite broken authentication
-subroutes, incompatible generated artifacts, and installed-tool ambiguity.
-These observations identify qualification cases. They are not sufficient to
-assign every failure to Devrouter, a provider, or application code.
-
-| Observed failure class | What must be established before a fix | Intended prevention |
+| Workstream | Existing source and owning plan | Remaining acceptance |
 | --- | --- | --- |
-| Root page answers but login or API route fails | Probe exact subroute, response shape, redirects, and application logs; an HTTP 404 alone does not establish stale cache | Repository-owned semantic smoke journey and separate readiness levels |
-| Clearing generated state appears to help | Record writer, mode, toolchain, inputs, and failing artifact before invalidation | Artifact ownership and minimal invalidation, not routine cache deletion |
-| Cache archive causes a second compilation failure | Determine whether the framework scans the archive location | Quarantine outside source and watcher discovery, with explicit retention |
-| Different invocation paths select incompatible tools | Compare resolved executable and helper protocol, not just a version printed elsewhere | Deterministic resolution and compatibility preflight |
-| Unrelated container churn or slow dependencies disrupt startup | Reproduce target discovery race or deadline failure in disposable fixtures | Target-scoped inspection and bounded, progress-aware waits |
+| W0 / S1 | [Contract foundation](./2026-09-06-reliability-contract-plan.md), reliability model and ADRs | Reuse versioned intent, epochs, uncertainty and budget semantics; close only source obligations actually evidenced. |
+| W1 | [Process identity diagnostics](./2026-09-10-process-identity-diagnostics-plan.md), PR #95 | Specific repair failure reasons, phase/child progress, fresh evidence and bounded terminal output. |
+| W2 / S3 | Readiness path/status/content-type validation; [controller observation](./2026-09-07-pr-62-controller-observation-plan.md), positive process-absence PR #91 | Real semantic application checks, partial-child failure, proof invalidation and warm reuse. |
+| W3a / S2 | [Lifecycle integration](./2026-09-06-reliability-lifecycle-execution-plan.md), [reset recovery](./2026-09-06-reset-rollback-recovery-plan.md), [profile rollback](./2026-09-12-profile-rollback-recovery-plan.md) | Historical mismatch provenance and sanctioned recovery; interruption and neighbour acceptance beyond mocks. |
+| W3b / S4 | Controller observation and [capacity admission](./2026-09-08-capacity-admission-plan.md) | Existing controller is not greenfield. Crash/sleep, leases/events and recovery require evidence for the advertised support level. |
+| W4 / W5 | Preparation fingerprints, generated config validation, [consumer contract](../knowledge/consumer-devcontainer-contract.md), [eLearning canary](./2026-09-07-elearning-readiness-canary-plan.md) | Separate generic generated-state authority from consumer artifacts, fixtures, mock/default isolation and local/external modes. |
+| W6a / S5–S6 | [Capacity admission](./2026-09-08-capacity-admission-plan.md), [network allocation](./2026-09-09-workspace-network-capacity-plan.md), [history rollover](./2026-09-10-capacity-history-rollover-plan.md), bounded recovery PR #90 | Admission and opt-in recovery have source. Do not claim implemented OOM diagnosis, full parking/resume or real pressure qualification from model tests. |
+| W6b / M3 | Existing [resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md) and profiles | Optimize measured workloads after capability and retention correctness. |
+| W7 | [Packed CLI proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md), package/helper delivery and installed qualification scripts | Effective executable/protocol/state compatibility, repo metadata drift, drain/downgrade and one explicit support cell. |
+| W8 / W9 / S7–S8 | Existing lifecycle/controller/capacity/config-drift qualification scripts; expanded Q matrix below | Real enforcing harness, no-model wait and one-time continuation, protected neighbour and persistent-pressure/parking/resume journey remain open. |
 
-Large concurrent stacks are a capacity concern, not proof that resource
-exhaustion caused a particular incident. Collect memory, CPU, disk, and elapsed
-phase evidence before prescribing more hardware or replacing the provider.
+An old `Active` heading is not evidence of missing implementation. PR #44 retains
+its separate resource-delivery reconciliation; PR #92 retains its canary diagnosis
+record. Link their conclusions when relevant rather than duplicating their work.
 
-During this documentation package, the host shell resolved Node `26.8.1` despite
-the repository's Volta pin of `24.16.0`. Frozen installation exited successfully
-while the optional `cpu-features` native build failed. This is direct evidence
-that a declared pin and a successful install exit do not establish the effective
-toolchain or every dependency's availability. Scoped validation uses the already
-installed pinned Node binary; no global tool configuration is changed.
+### Next packages, dependencies, owners and exits
 
-## Product boundaries and non-goals
+These are ordered remaining packages within the existing S/W structure, not new
+roadmap IDs. The owner named here is accountable for deriving a scoped execution
+plan; parallel work may use specialist children after that scope is approved.
 
-The existing [architecture](../knowledge/architecture-and-ownership.md) remains
-the authority. Devrouter owns exact workspace reconciliation, routing, generic
-process supervision, and truthful diagnostics. Providers own their runtime.
-Repositories own dependency preparation, application commands, schema evolution,
-fixtures, and the meaning of functional readiness.
+| Order / priority | Scope and existing IDs | Accountable owner / dependency | Acceptance and terminal boundary |
+| --- | --- | --- | --- |
+| 1 / P0 | Progress and profile intent — W1/W5/W7 | Devrouter diagnostic/profile owner; release #95 first. Historical investigation proceeds independently; keep source writers disjoint | Separate queue, holder, preparation, process, routing and stop phases; identify child role and elapsed/stale evidence without raw argv. Reject or explain silently ignored `full` selections, document a named default and test explicit/implicit/combined profiles. Keep timeout/cancellation semantics unchanged unless a separate policy is approved. |
+| 2 / P0, independent investigation | Historical-state diagnosis and supported recovery — W1/W3a/W4, S2 remainder | Devrouter maintenance owner; consumer retains live authority. Start from saved mismatch/route receipts | Distinguish profile/resources/source/effective/generated config failures without values. Establish writer provenance and exact retained resources; reproduce a trustworthy case in an isolated fixture. Propose the smallest supported recovery, with unchanged unknown/live-worker/resource refusals. Source draft and explicit consumer recovery plan; no automatic adoption merely because routes are absent. |
+| 3 / P1 | Ordinary installed journey and compatibility — W2/W4/W5/W7/W8, S3 | Canary owner plus consumer owner; exact package and explicit profile | Installed cold/warm/stopped resume, trusted TLS and declared application capability, fixture isolation and retained synthetic records, then exact stop. Compare effective binary/helper/repo metadata and prior-state compatibility. Historical-blocked and clean lanes remain separate cohorts. |
+| 4 / P0 safety, after ordinary proof | Complete interruption, admission, parking/resume — W3b/W6a/W8, S4–S6 | Controller/capacity owner; reuse existing plans, named disposable fault scope, package 3 | Audit remaining S4–S6 obligations; close uncertain dispatch, positive-stop charges and pressure interpretation first. Implement only missing policy-approved behavior. Prove parked intent cannot be undone by ordinary ensure, bounded resume with fresh admission, protected neighbour, persistent retention and no budget reset. |
+| 5 / M1 | Actual harness and full canary — W9/W7/W8, S7–S8 | Harness owner with Devrouter and canary owners; package 4 and harness API qualification | Enforced no-model wait, cancellation and deduplicated continuation in one actual supported mode; Q01–Q36 disposition and real two-environment journey. M1 remains incomplete until all required rows have passing applicable evidence. |
+| 6 / M2–M3 | Second consumer/harness, artifact breadth, measured profiles — W4/W5/W6b/W7/W8 | Consumer/harness owners; M1 baseline and selected support cells | Prove a distinct non-Node consumer and second harness before portability claims; measure resource and latency cohorts before optimization. Broad preemption/cloud/provider replacement remain separately scoped. |
 
-| Primitive | Proposed change | Boundary retained |
+Package 1 delivers phase/child progress, bounded terminal diagnostics and effective CLI versus repository metadata visibility first. Historical investigation must not block those fixes. Reserved `full` behavior changes remain behind a compatibility decision; actionable validation can ship first.
+
+Package 2 begins with read-only evidence, then a synthetic reproduction. If no
+trustworthy producing receipt can be recovered, its exit is a documented blocked
+case and a reviewed exact recovery design, not a weaker hash check. Classify
+evidence as observed, owner-reported, reproduced, inferred or unavailable.
+
+For an opt-in stop/rebase recovery design, separately settle original versus
+current configuration authority, retained-container/volume disposition, source and
+untracked-file preservation, concurrent-writer exclusion, stale receipt rejection,
+and rollback/partial-failure behavior. Never implement a reset from this paragraph.
+
+### Delegation Map for subsequent execution planning
+
+The six packages below appear once each. `main` is this Devrouter maintenance
+lane; proposed peer tasks need explicit creation/scope authority. Child roles and
+bounded file ownership are selected when each execution plan is ready. Existing
+consumer tasks retain their source, runtime and secret-injection ownership.
+
+| Package | Execution-planning owner | Dependency / handoff |
 | --- | --- | --- |
-| Workspace | Expose a coherent generation and recovery phase to consumers | Git and existing durable owner records determine identity; no global repository registry |
-| Profile | Make the smallest useful developer journey discoverable | Existing independent app, service, and process dimensions; no silent change to the full default |
-| Managed process | Bind reuse evidence to preparation and artifact compatibility | One existing supervisor; application preparation remains repository-owned |
-| Route and readiness | Distinguish route publication, transport reachability, and application usability | Application status cannot substitute for exact Traefik generation proof |
-| Lifecycle evidence | Provide bounded, machine-readable failure and recovery information | Evidence conveys no authority to delete, stop another workspace, or expose secrets |
+| 1 — progress, profiles and compatibility evidence | main | PR #95 delivery; source paths disjoint from package 2 |
+| 2 — historical-state diagnosis/recovery | main | Saved owner receipts; send exact evidence request to consumer, no duplicate runtime owner |
+| 3 — installed ordinary journey | separate task (proposed), reusing the existing canary owner where applicable | Package 1 evidence and selected consumer/profile; a historical blocked lane additionally requires package 2 recovery design |
+| 4 — remaining controller/admission/parking/resume | main | Package 3 ordinary proof; existing S4–S6 plans and separately approved isolated faults |
+| 5 — actual harness and M1 qualification | separate task (proposed) | Package 4 and selected harness; hand back real two-environment evidence |
+| 6 — breadth and measured optimization | separate task (proposed) | M1 evidence and selected second support cells |
 
-Keep `.devrouter.yml` as the configuration entry point and existing machine
-artifact ownership under `~/.config/devrouter`. Preserve `.localhost`, shared
-Traefik ports, TLS-required database routing, repository path confinement, and
-runtime-only delivery of the matching helper. Keep provider mutation locks and
-ownership checks until a testable alternative proves equivalent safety.
+No new task, implementation or runtime action follows from this mapping alone.
 
-This roadmap does not propose Kubernetes, a replacement for OrbStack, a new
-global daemon, blanket retries, blanket dependency upgrades, or full-stack
-startup for documentation and pure source checks. It does not promise offline
-operation for uncached dependencies or real external integrations. It does not
-make Devrouter a package manager, migration engine, secret store, or CI scheduler.
+### Test portfolio and acceptance tracking
 
-## Work sequencing
+Extend existing suites and scripts. Add a new harness/module only if the approved
+execution plan identifies a missing seam; no tests pin prose or seed contents.
 
-Priority P0 protects correctness and diagnosis. Priority P1 improves repeatable
-daily use. Priority P2 optimizes measured cost. Start with the smallest independent
-package; do not open all branches at once.
-
-### First: make failure and recovery trustworthy
-
-| Work item | Priority | Dependency and terminal |
+| Consequential risk | Obligation | Primary existing seam |
 | --- | --- | --- |
-| W1 — actionable failure evidence | P0 | No implementation dependency; reviewed PR ready for a separate merge decision |
-| W2 — meaningful readiness and reuse | P0 | Uses W1 — actionable failure evidence; probe policy decision required before new probe execution |
-| W3 — interruption-safe lifecycle recovery | P0 | Coordinate PR #56 — reset-failure recovery; use W1 — actionable failure evidence |
-| W4 — artifact and toolchain isolation | P1 | Uses W1 — actionable failure evidence; cache policy decision before automatic invalidation |
-| W5 — deterministic local application contracts | P1 | Uses W2 — meaningful readiness and reuse and W4 — artifact and toolchain isolation; consumer changes require separate scope |
+| Roadmap links/status consistency | No new tests | Docs policy, knowledge, link validation and human diff inspection |
+| Mismatch provenance, stop baseline, surviving resources | Extend existing | `workspace-ensure.test.ts`, stop/recovery tests and `qualify-config-drift-stop.ts` |
+| Queue/phase/child evidence and profile semantics | Extend existing | `file-lock.test.ts`, command diagnostics, profile/config/resolve suites |
+| Runtime/application readiness, TLS, preparation reuse | Extend existing | Ensure/process/readiness tests plus consumer-owned semantic smoke |
+| Installed identity, helper/state mismatch | Extend existing | Tool diagnostics, `package-smoke.sh`, installed controller/lifecycle qualification |
+| Uncertain dispatch, capacity, retained state, neighbour isolation | Extend existing | Reliability/capacity suites and existing qualification scripts; scoped live fixtures for real-provider rows |
+| Actual harness wait/cancel/reconnect | Add new if the selected harness has no existing adapter seam; exact files selected in its execution plan | Real tool/event traces under a scoped privacy policy; simulated events alone do not close Q29/Q30/Q36 |
 
-### Then: qualify scale and delivery
+Q01–Q36 below retain their original required results. Each future receipt records
+source check, installed fixture and live canary evidence separately, with exact
+revision/toolchain/mode, producing run and result (`pass`, `fail`, `skipped`, or
+`unknown`). No Q row is marked passed solely by this roadmap refresh. Existing
+source evidence narrows the next test; it does not erase unfinished live obligations.
 
-| Work item | Priority | Dependency and terminal |
+## Planning progress
+
+This is a documentation-only update on the existing roadmap branch and PR #57.
+The primary expanded draft remains untouched. A historical untracked foundation
+plan was preserved in ignored local artifacts before integrating its delivered
+upstream version; the earlier local review remains untouched. Current review
+covers this consolidated draft; older reviews are historical context, not its gate.
+
+## Contents
+
+- [1. Outcomes and the meaning of reliability](#1-outcomes-and-the-meaning-of-reliability)
+- [2. Evidence baseline and existing work](#2-evidence-baseline-and-existing-work)
+- [3. Architectural decisions and non-goals](#3-architectural-decisions-and-non-goals)
+- [4. Controller architecture and survivability](#4-controller-architecture-and-survivability)
+- [5. Identity, sessions, state, and generations](#5-identity-sessions-state-and-generations)
+- [6. One-command startup and managed execution](#6-one-command-startup-and-managed-execution)
+- [7. Readiness and repository lifecycle contracts](#7-readiness-and-repository-lifecycle-contracts)
+- [8. Admission control and resource accounting — P0](#8-admission-control-and-resource-accounting--p0)
+- [9. Failure recovery and circuit breakers](#9-failure-recovery-and-circuit-breakers)
+- [10. Parking, stop precedence, and controlled resume](#10-parking-stop-precedence-and-controlled-resume)
+- [11. Agent integration and honest support levels](#11-agent-integration-and-honest-support-levels)
+- [12. Structured diagnostics, progress, and incident communication](#12-structured-diagnostics-progress-and-incident-communication)
+- [13. Preventive reliability: artifacts, toolchains, and application modes](#13-preventive-reliability-artifacts-toolchains-and-application-modes)
+- [14. Work packages and acceptance boundaries](#14-work-packages-and-acceptance-boundaries)
+- [15. Implementation sequence and integration milestones](#15-implementation-sequence-and-integration-milestones)
+- [16. Verification, fault matrix, and release gates](#16-verification-fault-matrix-and-release-gates)
+- [17. Rollout, operational policy, and rollback](#17-rollout-operational-policy-and-rollback)
+- [18. Decisions still requiring explicit implementation approval](#18-decisions-still-requiring-explicit-implementation-approval)
+- [19. Definition of done and ongoing maintenance](#19-definition-of-done-and-ongoing-maintenance)
+- [20. Source and design references](#20-source-and-design-references)
+
+## 1. Outcomes and the meaning of reliability
+
+### 1.1 The user journey
+
+For a supported repository and installed platform combination, the developer or launcher selects the required profile and invokes the canonical entry point once. That operation resolves or creates the exact workspace, obtains capacity, prepares it only where needed, starts the declared runtime, verifies the relevant capabilities, and reports when it is usable.
+
+The same managed session remains under observation afterwards. A required worker dying, a dependency stopping, a container being OOM-killed, or the provider becoming unavailable must invalidate the affected readiness evidence. Infrastructure owns the next decision: recover, wait, park, or escalate.
+
+A normal coding agent must not be instructed to call Docker/Compose/Devsy directly, repeat `ensure` in a loop, clear caches speculatively, inspect multiple unrelated log sources, or repair PATH/tool installations. Such actions remain available to an explicitly authorized infrastructure-maintenance task, not to ordinary consumer development.
+
+### 1.2 Success does not mean unlimited availability
+
+A finite machine cannot guarantee that every requested session can run immediately. The supported guarantee is truthful state, bounded recovery, safe resource decisions, and no routine environment-operation burden on the agent.
+
+A readiness proof concerns a particular observed generation and capability set. Failure can occur immediately afterwards. Continuous observation and execution gating reduce this interval; they do not create an atomic transaction spanning readiness, arbitrary application code, and the operating system.
+
+Preserving a checkout and persistent volumes does not preserve arbitrary in-memory state or prove an interrupted write completed. Application durability, database recovery, and command retry semantics remain explicit.
+
+### 1.3 First product milestone
+
+The first product milestone is not “better diagnostics are available.” It is:
+
+> In one real consumer repository, on one supported local provider configuration and one qualified agent harness, one command starts a usable environment. A required process subsequently fails. Infrastructure either restores it or deliberately parks the session. The agent performs no environment troubleshooting, and another parallel environment remains usable.
+
+This milestone includes a persistent-capacity-pressure case and a successful controlled resume. Broader provider, language, and harness coverage follows without weakening this initial contract.
+
+## 2. Evidence baseline and existing work
+
+Historical baseline: the original PR #57 head is `8fedc5caaf28c815f8e78e17e687f0c6bb5d24d7`; its base is `e8f7549cbc2206604e997c0f07d836c390f302c2`, identified in the original roadmap as package version `0.0.55`. PR #57 was an open documentation-only draft at review. The current delivery/consumer evidence above supersedes historical status. This document introduces no new benchmark or live fault run. [R1]
+
+Preserve these existing foundations:
+
+| Foundation | Evidence and consequence |
+| --- | --- |
+| Exact checkout/provider ownership, guarded lifecycle transitions, and canonical route state | Reuse the architecture and managed-lifecycle contracts. Never relax identity checks to make recovery succeed. [R3][R4] |
+| Retained-runtime repair, ordered preparation, retained-service stop, resolved Compose fingerprints, and mount-order hardening | The original roadmap records the merged work through PRs #51–#55. Revalidate the current source before implementation; do not recreate those fixes. [R1] |
+| Reset-failure recovery | PR #56 merged as `ef109a4`. Reuse coherent retained-state recovery; historical and mock evidence does not establish every live reset/retry path. [R2] |
+| Profile selection and repository-owned CI bindings | Retain independent resource dimensions and literal binding semantics. Do not turn `profile plan` into an implicit command executor. [R3][R8] |
+| Generic process helper | The inspected helper starts an owned process, records its identity, and exits after ownership verification. It is not an enduring host-side monitor for subsequent failures. Extend/reuse it as a lifecycle primitive, not as evidence that continuous supervision already exists. [R5] |
+| Lease planning | The historical plan proposes leases, but the inspected `WorkspaceOwnershipRecord` has identity and timestamps without those lease fields. Inventory the current implementation rather than treating the earlier plan as delivery evidence. [R6][R7] |
+| Resource and package-proof work | Existing storage accounting and package qualification are useful seams, not proof of whole-environment memory accounting or admission control. [R4][R9] |
+
+The incident classes motivating the roadmap remain qualification inputs: false readiness from a working root page, broken auth/API subroutes, partial process death, incompatible generated outputs, interrupted preparation, tool-version ambiguity, provider churn, and repeated failures under concurrency. Do not attribute a particular incident to OOM, stale caches, or a provider defect without evidence.
+
+## 3. Architectural decisions and non-goals
+
+### 3.1 Decisions to carry into implementation
+
+**D1 — A session, not a startup command, is the managed reliability unit.** `ensure` remains the canonical startup/reconciliation entry point. Managed adoption adds continuous observation and lifecycle ownership beyond that command's exit.
+
+**D2 — Use one small host-side controller.** It coordinates observation, sessions, admission, and recovery by invoking the existing lifecycle primitives. It must survive development-container loss. Replace the original prohibition on any new daemon with a prohibition on competing lifecycle implementations and overlapping restart authority.
+
+**D3 — Capacity safety is P0.** Split W6 into admission/pressure/parking correctness and later resource-efficiency optimization. Admission applies both to environment startup and to managed heavyweight operations after startup.
+
+**D4 — Separate infrastructure availability from application correctness.** An application compile error, failed test, or failing semantic smoke is not sufficient authority to reinstall dependencies or recreate infrastructure.
+
+**D5 — Recovery is deterministic, bounded, and policy-governed.** Do not use an LLM as the runtime failure classifier or repair planner. Unknown evidence stays unknown. Repeated CLI calls do not reset a recovery budget.
+
+**D6 — Waiting and parking are intentional states.** Persist intent before stopping. A routine `ensure`, heartbeat, or read-only status call cannot undo an explicit stop or bypass capacity parking.
+
+**D7 — The harness enforces agent waiting.** Skills explain the contract; adapters, launchers, and the managed execution boundary enforce it. Hook errors or repeated denial messages must not become the primary control loop.
+
+**D8 — Automatic repair is non-destructive.** Preserve source, untracked files, secret files, persistent volumes, and owner records. Never automatically reset a database, remove a worktree, delete volumes, prune unrelated resources, upgrade the provider, or restart the shared VM.
+
+**D9 — Repository configuration cannot grant machine authority.** A trusted repository declares requirements and safe actions. Operator-owned policy decides whether automatic stopping, artifact quarantine, or other interventions are allowed. Effective authority is the intersection, never a repository-controlled escalation.
+
+**D10 — Qualify installed behaviour and actual harness modes.** Source tests and public API documentation do not establish that a locally installed CLI, desktop application, provider version, or interactive mode works as intended.
+
+### 3.2 Ownership boundaries
+
+| Layer | Owns | Does not own |
 | --- | --- | --- |
-| W6 — right-sized profiles and capacity visibility | P2 | Reuse existing profiles and resource accounting; establish baseline first |
-| W7 — installed-tool compatibility and upgrades | P1 | Reuse existing packaged CLI proof; support matrix decision before support claims |
-| W8 — cross-repository reliability qualification | P1 | Incremental harness may start after W1 — actionable failure evidence; release acceptance needs the relevant preceding contracts |
+| Host user-service manager | Starting/restarting the lightweight controller with bounded restart policy | Restarting application services or deciding workload admission |
+| Devrouter controller | Session records, observations, capacity reservations, bounded recovery decisions, lifecycle events | Git identity authority, package management, application repair, database semantics |
+| Existing Devrouter lifecycle core | Exact target proof, provider mutations, process actions, routes, durable lifecycle transitions | Independent retry loops outside controller policy |
+| Devsy/other provider and container runtime | Runtime inventory and execution mechanisms | Application semantic readiness or agent-task continuation |
+| Repository adapter | Dependency preparation, process definitions, capability checks, schema/fixture rules, declared safe repair hooks | Stopping another workspace or modifying machine-wide policy |
+| Agent launcher/harness adapter | Consumer identity, tool gating, turn interruption/continuation, task/session references | Environment repair logic or independent resource scheduling |
+| Human maintainer | Policy enrollment, exceptions, unsafe/unknown incident resolution, release decisions | Repeating ordinary already-approved recovery steps |
 
-Work on diagnostics and a repository-specific contract prototype can proceed in
-parallel only with separate approved scopes and no shared mutable runtime. Keep
-one writer on `workspace-ensure.ts` and one writer on `bin/devrouter-process`.
-Do not replace or duplicate an active recovery branch to accelerate this plan.
+The controller belongs to the existing Devrouter distribution and machine-state area. Do not add Kubernetes, a workflow engine, a second CLI installed in consumer images, a required network service, a separate observability deployment, or a machine-global authoritative repository registry.
 
-## Shared execution contract
+Keep `.devrouter.yml` as the repository configuration entry point, existing machine artifacts under `~/.config/devrouter`, runtime-only helper delivery, exact route-generation proofs, `.localhost` routing, required TLS properties, and repository path confinement. [R3][R4][R8]
 
-Each approved item uses a dedicated `rs/<descriptive-name>` branch in
-`trees/rs/<descriptive-name>`, based on freshly inspected `origin/main`, targeting
-`main`. Reuse an existing matching worktree first. The item owner is the assigned
-implementer; no person or agent is preassigned by this proposal. The maintainer
-owns design rulings, merge, release, and machine-level activation decisions.
+## 4. Controller architecture and survivability
 
-Every item ends at `pr_ready`: exact diff reviewed, applicable checks passing,
-remaining live-proof gaps stated, and PR publication separately authorized.
-Roadmap text alone grants none of those future mutations. Do not equate a source
-merge with package publication, installed adoption, or consumer live proof.
+### 4.1 Minimal component layout
 
-Host Git and forge commands stay on the host. Devrouter's own pinned Node/pnpm
-toolchain follows its repository setup; consumer toolchain commands follow each
-consumer's execution-mode contract. Start no environment for documentation-only
-verification. Choose focused tests from
-[the change and verification map](../knowledge/change-and-verification-map.md),
-then run the applicable repository gates:
+```text
+Agent launcher / qualified harness adapter
+    │ acquire/renew/release session; gated execution; lifecycle events
+    ▼
+One host-side Devrouter controller per user/managed host
+    ├── bounded observation and capability health
+    ├── active sessions and durable transition journal
+    ├── resource-domain admission and operation reservations
+    ├── incident budgets, recovery, parking, and resume decisions
+    └── existing exact-owner lifecycle primitives
+            ▼
+      Provider / devcontainer / repository processes
+```
+
+Use authenticated-by-local-access IPC, preferably a user-private Unix-domain socket on the initial supported platform. Restrict permissions on the socket and machine-state directory; validate request identity and peer access where available. Do not expose a browser-accessible network control port or place controller credentials in a development container.
+
+The controller is not an isolation boundary against a hostile process with the same host-user privileges. Its enforceable reliability guarantees apply to enrolled execution paths and supported adapters. Avoid giving ordinary container-resident agents direct provider mutation access as part of the integration.
+
+### 4.2 No competing restart authorities
+
+Create a restart-ownership inventory for each selected resource. For every process/container, document whether restart belongs to the controller, the provider, or an existing repository supervisor. Controller policy may observe a lower-layer owner, but must not race it with another restart loop.
+
+For the initially supported managed services, prefer controller-governed restarts where this can be configured and verified safely. Existing provider-required policies need an explicit adapter contract and bounded interaction; do not disable them speculatively. Preflight must reject an unqualified combination that cannot keep an intentionally parked environment stopped. Docker documents container restart policies and warns against competing restart management; Compose dependency ordering is not a complete steady-state application supervisor. [E1][E2]
+
+### 4.3 Observation and reconciliation
+
+Consume provider/runtime events where supported and add bounded periodic reconciliation because events may be lost. Track event gaps and reconnects; never assume an event stream is a durable source of truth.
+
+Use cheap observations for ordinary monitoring: exact container state, declared child-process identity, lightweight health endpoints, and available resource counters. Heavy browser smoke tests, broad logs, storage walks, and dependency rebuilds do not belong in the polling loop.
+
+Coalesce observations across sessions. One environment with several consumers must not run a separate watcher and duplicate probes for each agent. A shared provider outage becomes one parent incident with affected environments, not independent reset attempts everywhere.
+
+### 4.4 Persistence and controller restart
+
+Persist a dispatch attempt before launch. A crash after dispatch intent but before launch acknowledgement means possible execution until positive evidence proves never-started or authoritative completion; retain charge and refuse automatic replay. Test each crash boundary independently.
+
+Persist only the minimum needed to recover intent: exact owner references, desired state/revision, active session metadata, resource reservations, current operations, incident counters, and bounded event history. Keep repository ownership authoritative in the existing repository-local records; the controller's host-wide active index is a reference and coordination structure, not deletion authority.
+
+Prefer existing atomic-file primitives for the first implementation if they can support a crash-consistent, single-writer journal and bounded compaction. Adopt another transactional store only through an explicit durability decision; do not create both an independent database and a parallel JSON ledger.
+
+Use an exclusive controller-owner lock and a controller epoch. Mutation workers must carry expected intent and runtime revisions and participate in existing locks. A PID alone is not sufficient ownership proof. A replacement controller must not start competing work while an old mutation worker can still be active; reobserve it or remain blocked.
+
+On restart, reload intent, invalidate stale observations, inspect outstanding operations, and rebuild accounting before admitting new work. Never release capacity merely because a reservation timer expired if its process may still be running. Never reconstruct live authorization from a stale status file.
+
+A host user-service manager may restart the controller, with a bounded policy. Ordinary setup is the explicit enrollment point; an enrolled `ensure` may activate the already-installed service. Repeated controller crash loops must produce an infrastructure incident, not silently fall back to multiple ad hoc controllers.
+
+### 4.5 Failure containment
+
+The controller has bounded concurrency, subprocess deadlines, output limits, event retention, and a measured memory/CPU budget. Use no model calls in this control loop. Prefer event-driven wakeups to per-agent polling.
+
+If the controller is unavailable, qualified managed execution refuses new runtime-dependent work after its freshness bound. Existing commands are not automatically killed by a missed heartbeat. Source-only work can remain available according to the adapter's capability contract.
+
+If the entire host is unavailable, no local process can promise live notification. On reconnection, report the observation gap honestly and reconcile before resuming. Host memory headroom protects the controller operationally; this roadmap does not claim immunity from host-wide OOM or hardware loss.
+
+## 5. Identity, sessions, state, and generations
+
+### 5.1 Identity and multi-consumer sessions
+
+An environment reference includes the existing exact checkout owner, canonical checkout path, Git-common-directory association, selected runtime provider, and the canonical provider endpoint/resource domain. Docker context display names alone are not unique resource-pool identities: aliases to the same endpoint must share admission accounting.
+
+A session lease belongs to a real consumer, such as one launcher-controlled agent task or an explicitly attached human session. It records an opaque consumer ID, environment reference, required profile/capabilities, lease expiry, active operation references, and approved lifecycle options.
+
+Support multiple compatible consumers of one environment. Releasing one lease must not stop another consumer's runtime. In the first version, share compatible profiles; reject conflicting profile transitions rather than having the last caller remove services another session needs. Automatic profile-union scheduling is deferred unless it can reuse existing semantics without ambiguity.
+
+The launcher renews leases without model calls. Read-only status/doctor monitoring is not work activity and must not keep idle environments alive indefinitely. Environment ownership timestamps and CPU usage are not reliable substitutes for consumer intent.
+
+Lease expiry enters an orphan-suspected state with grace and revalidation. Account for host sleep/wake and clock changes using monotonic elapsed time within a boot and an explicit boot/reconnect epoch. Do not mass-stop environments immediately after wake because wall-clock TTLs passed while the machine slept.
+
+Human pins and active incompatible consumers veto routine parking. Explicit human stop is a separate authorized action that notifies all consumers and supersedes automatic recovery.
+
+### 5.2 Internal state dimensions
+
+Do not implement one giant enum as the source of truth. Persist/observe independent dimensions:
+
+| Dimension | Representative values |
+| --- | --- |
+| Desired intent | running, parked-for-capacity, stopped-by-user; plus monotonic intent revision |
+| Reconciliation phase | absent, queued, preparing, starting, verifying, stable, recovering, quiescing, stopping |
+| Infrastructure observation | healthy, degraded, failed, unknown, per capability |
+| Application observation | verified, building, unready, unverified, external-unavailable |
+| Admission | admitted, waiting, denied-unadmittable, unknown |
+| Consumer activity | active, waiting, source-only, orphan-suspected, released |
+| Execution result | not-started, running, completed, interrupted, completion-unknown |
+
+A parked desired intent may coexist with `stopping` or a stop failure. Do not report `PARKED_CAPACITY` as a completed outcome until the relevant stop proof succeeds.
+
+### 5.3 Consumer-facing summary
+
+| Summary | Meaning | Coding-agent action |
+| --- | --- | --- |
+| `STARTING` | A single admitted startup is progressing. | Wait in the integration layer. |
+| `READY` | Required infrastructure and declared application readiness are freshly satisfied. | Continue. |
+| `RECOVERING` | Infrastructure owns a bounded recovery attempt. | Wait for affected operations; no repair commands. |
+| `WAITING_CAPACITY` | Requested work is not currently admitted. | Wait without polling or model turns. |
+| `PARKED_CAPACITY` | The opted-in environment is verified stopped to release resources. | Keep task state; resume only through admission. |
+| `APP_ERROR` | Infrastructure is usable but the required application contract is failing. This is not proof that a particular source edit caused it. | Diagnose/edit application code using available tooling; do not repair infra automatically. |
+| `BLOCKED` | Safe automation cannot continue, including unadmittable work or an unresolved external dependency. | Surface one incident; stop infrastructure retries. |
+| `STOPPED` | A user/approved lifecycle action intentionally stopped the environment. | Do not auto-resume. |
+| `UNKNOWN` | Observation/controller evidence is unavailable or stale. | Gate affected execution; do not assume absence or readiness. |
+
+Optional capability failure can coexist with `READY` for a consumer whose required capabilities still pass. Return the failed optional capabilities explicitly. Profile-wide failure must not block unrelated tasks unnecessarily.
+
+### 5.4 Generation and freshness rules
+
+Bind readiness to exact runtime/process identities, profile/resource membership, preparation fingerprint, relevant configuration, route generation, probe contract, and observation time. Maintain a controller epoch separately from environment generations and intent revisions.
+
+Invalidate only affected proof. A worker restart invalidates its capability and dependants, not every unrelated app. Ordinary source hot reload invalidates relevant application evidence, not automatically installation or infrastructure identity. Branch names alone are not preparation keys.
+
+Before dispatch, check the required capabilities and the current operation/intent revision under the execution gate. After dispatch, a runtime failure is an execution incident, not a reason to pretend the command never started. Stale success events and stale tool permits must be rejected after revision changes.
+
+## 6. One-command startup and managed execution
+
+### 6.1 Entry-point and compatibility contract
+
+Retain `devrouter ensure <path> --profile <name>` as the canonical environment entry point. Preserve the existing one-shot `exec` semantics for non-enrolled use: it does not silently start or recreate a runtime. Managed agent operation adds session-aware coordination around the same lifecycle core. [R4]
+
+Illustrative future interface, **not runnable against the reviewed release**:
+
+```sh
+# The launcher owns and renews this session; the model does not manage its TTL.
+devrouter ensure <path> --profile <name> --session <consumer-id> --json
+
+# Existing execution is extended with explicit managed-session semantics.
+devrouter exec <path> --session <consumer-id> -- <command> <args...>
+
+# Human-readable and structured views come from the same state contract.
+devrouter status --repo <path> --json
+```
+
+Do not introduce a parallel `agent-up` startup implementation. New watch/wait/attach options should extend the existing surfaces where practical. First-time installation, provider acquisition, repository trust, and machine enrollment remain explicit prerequisites. An already-enrolled session must not require repeated setup or approval prompts.
+
+A readiness command exits successfully only when its requested readiness contract is satisfied. `WAITING_CAPACITY`, `APP_ERROR`, `BLOCKED`, and incomplete startup are not a successful ready result. An IPC request may be accepted while its operation remains pending; keep request acceptance and readiness outcome separate.
+
+Human CLI waiting must be interruptible and bounded by a caller deadline. If waiting exceeds that deadline, return a structured pending/blocked outcome with an operation reference. A launcher can continue observing that same operation without submitting another start. Do not keep a model tool call open beyond its supported timeout or ask the model to poll.
+
+### 6.2 Startup sequence
+
+1. Resolve trusted repository configuration, exact ownership, compatible consumer/profile intent, installed CLI/helper/provider provenance, and required capabilities. Fail static incompatibility before expensive mutation.
+2. Attach to an existing matching operation or create one durable operation ID and intent revision. Repeated requests with the same idempotency key join, not duplicate.
+3. Request a provisional capacity reservation. Wait without holding repository/provider lifecycle locks. Snapshot or preflight results from before the wait are not authoritative afterwards.
+4. Reacquire existing lifecycle locks in their documented order, revalidate ownership/configuration, and commit the reservation against the still-current request. Cancel or replan a stale request rather than acting on its old snapshot.
+5. Start/resume the exact provider resources through the canonical lifecycle core. Respect the source devcontainer's required preparation ordering and matching runtime-only helper delivery.
+6. Run only required preparation under its artifact locks. A preparation success stamp is committed only after successful completion and verification of the declared outputs.
+7. Start or reconcile required processes and services, verify actual child capabilities, publish/reconcile routes under the existing route-generation contract, and verify required transport/application checks.
+8. Publish a ready result for the current generation, settle transient reservations to the steady allocation, and keep the session monitored. Do not settle a reservation while a preparation child or compiler remains active.
+
+Concurrent callers for one environment get the same progress stream and terminal outcome. Different environments share provider mutation serialization and pool admission without duplicating global work.
+
+### 6.3 Execution gate
+
+The managed execution layer checks lease validity, required capabilities, intentional stop/parking state, observation freshness, operation class, and resource permission before dispatch. It must also gate relevant runtime-dependent MCP and browser operations; shell-only coverage is not a complete integration.
+
+Represent capabilities explicitly: source access, container tooling, database, specific API, specific UI, worker, and external integration. Editing files on the host can remain available while a database is unavailable. Container-toolchain commands cannot silently fall back to a host Node/Python environment just because the container was parked.
+
+For heavyweight commands, reserve an additional operation budget before launch. Prefer repository-declared named operation classes and argument arrays over heuristic shell-string classification. Unknown runtime shell work receives a conservative default class. A heuristic may improve hints, but must not be the enforcement boundary.
+
+Track the owned command/process group through completion, including commands that outlive a single tool response. Disallow undeclared daemonization in one-shot operations or explicitly transfer ownership to the managed-process registry. Closing a terminal connection does not establish that its command ended.
+
+### 6.4 Cancellation and command results
+
+Distinguish cancellation of a caller's wait, release of one consumer lease, interruption of one command, and explicit environment stop. They have different effects. A caller detaching must not stop a shared startup needed by another consumer.
+
+Preserve an execution record with an opaque operation ID and one of:
+
+- `NOT_STARTED`: admission/gating prevented dispatch.
+- `COMPLETED`: an authoritative exit result was observed; retain the child exit code.
+- `INTERRUPTED`: interruption was observed; side effects may already have occurred.
+- `COMPLETION_UNKNOWN`: connection or runtime evidence was lost after possible dispatch.
+
+Do not replay arbitrary commands after repair. Automatic replay requires an explicit repository operation contract establishing retry safety or an application-supported idempotency mechanism. Tests are not inherently side-effect-free; retries must be declared even for test tasks. A migration/import/publish with uncertain completion goes to the appropriate application/maintainer path.
+
+The launcher owns task/transcript continuity. The controller records operation references and safe classifications, not raw command arguments, transcript copies, credentials, or request bodies.
+
+## 7. Readiness and repository lifecycle contracts
+
+### 7.1 Readiness levels
+
+Keep separate proof for provider availability, exact container/service membership, process presence, declared capability health, exact active route generation, transport reachability, and repository-declared functional readiness.
+
+A running container, surviving parent process, or HTTP 200 from `/` is not enough. A required worker must have a check meaningful for that worker. A UI profile must exercise its declared auth/API subroutes and expected response shapes, not just an HTML shell.
+
+For fully supported agent profiles, explicitly declare which checks are mandatory. Missing mandatory checks produce `UNVERIFIED_CONTRACT`, not `READY`. Generic/non-adopted repositories may retain legacy transport-only operation, but that lower support level must be visible.
+
+Checks must specify owner, capability, expected status/shape, timeout, startup grace, repeat policy, side-effect class, and relevant proof inputs. Read-only checks are the default. Authenticated/synthetic-write smoke tasks require isolated fixtures, bounded cleanup, and explicit adoption. Repeated steady-state checks must not continuously create application data.
+
+### 7.2 Three different failure decisions
+
+**Definite infrastructure loss:** an exact process exit, confirmed missing/stopped required service, or provider failure invalidates the affected capability promptly. Recovery policy decides whether to act.
+
+**Application contract failure:** infrastructure is present but a page, compile step, assertion, or application smoke fails. Report the failure with app-level evidence and leave development tooling available. Do not infer stale cache or authorize infrastructure repair from HTTP 404/500 alone.
+
+**Unknown or expected transition:** compiling/hot reload, grace-period startup, or unavailable observation is neither a successful proof nor necessarily a broken runtime. Use bounded waiting and reobservation. Prevent flapping with thresholds appropriate to the check, without delaying definite process-death handling.
+
+Dependency checks must not create restart amplification. A database outage may make several API checks fail; restart the APIs only if their own recovery contract requires it, not because every downstream probe turned red.
+
+### 7.3 Proof reuse and browser coverage
+
+On warm unchanged attach, reuse expensive proof only within its allowed freshness and generation bounds, and recheck cheap liveness. Run full browser smoke after relevant route/auth/bootstrap changes or during qualification, not on every tool call.
+
+Browser TLS, cookie domains, callback routing, and authenticated capability checks are distinct from a CLI transport request. A previous browser success cannot mask a dead current process.
+
+If an external-integration mode depends on unavailable identity, flags, storage, or paid APIs, report that mode as unavailable. Do not silently substitute mocks and call the integration successful.
+
+### 7.4 Preparation and local application contract
+
+Each adopted repository defines one authoritative set of operations for dependency preparation, service expectations, process launch, schema readiness, synthetic fixtures, and functional smoke. Native devcontainer, local routed, and headless/CI adapters consume this contract instead of maintaining separate bootstrap logic.
+
+Bootstrap must distinguish a fresh disposable database from retained local data. Routine start does not reset or reseed valuable state. Any automatic migration step must have repository-defined ordering, concurrency exclusion, and interruption semantics; unknown completion is not permission to run it again blindly.
+
+Local fixtures exercise real authorization with synthetic identities and roles. Include ordinary, entitled/beta-enabled, restricted, and delegated cases where relevant. Local flags must be deterministic without contacting an external service. Reject mock configuration in production, and require explicit selection for real credentials/data/cost-bearing integrations.
+
+The historical first-consumer candidate was KlickerUZH. Reconcile it with the existing eLearning canary and select one approved consumer/profile/harness cell before new adoption or fault work; this refresh leaves that selection pending. Generic Devrouter code must not acquire Klicker-specific conditions.
+
+## 8. Admission control and resource accounting — P0
+
+### 8.1 Account by resource domain, not container count
+
+Model separately the host resource domain and each container-runtime/VM/remote resource domain. A shared Docker endpoint is one pool even when several context names or repositories reference it. A future remote adapter uses the remote capacity domain, not the laptop's reported free memory.
+
+Within a domain, account for the full exact-owned environment: primary container, selected dependency services, workers, and managed operation bursts. Attribute shared resources once. Do not reuse disk-reclaimability figures as memory budgets or omit sibling services because an earlier storage report did. [R4]
+
+Avoid nested double counting. On the host, a VM's footprint and host tools consume host resources; in the guest, container charges consume the guest's budget. Do not add all guest process memory to the entire VM footprint in the same host accounting total.
+
+Memory numbers must carry source, timestamp, scope, and availability. Do not present RSS, cgroup charge, provider allocation, and compressed host memory as interchangeable metrics. Use each adapter's qualified interpretation.
+
+### 8.2 Reservation model
+
+A profile declares conservative initial estimates for:
+
+- **Steady requirement:** expected resident environment allocation while usable.
+- **Startup total peak:** total allocation during install/build/bootstrap, not an additional amount to add twice.
+- **Operation increments:** additional resources for named heavyweight operations such as typecheck/build/browser tests.
+
+Initial estimates are operator/maintainer-reviewed. Measurements can suggest updates; they must not silently lower safety budgets after one inexpensive run. A request with no trustworthy estimate uses a conservative fallback or becomes explicitly unadmittable under strict policy.
+
+For each independent memory domain `d`, use a conservative accounting invariant of the form:
+
+```text
+unmanagedEstimate[d]
++ sharedCharge[d]
++ sum(max(observedOwned[i,d], reservedTotal[i,d]))
+<= domainCapacity[d] - protectedHeadroom[d]
+```
+
+Reservations for not-yet-started work have zero observed usage but still consume their full charge. `reservedTotal` includes that environment's currently admitted phase and operation increments exactly once. Charge the environment's whole observed allocation if it exceeds its reservation. This is an admission model, not a claim that all platform metrics measure identical physical memory.
+
+Admission also checks current pressure, observation freshness, applicable container limits, startup slots, and heavy-operation slots. Passing a reservation inequality is not sufficient when the provider reports critical pressure.
+
+### 8.3 Atomic requests and lock rules
+
+Capacity reservation/commit is atomic across participating repositories. A simple read of free memory immediately before each start is not enough.
+
+Use two-stage scheduling: take a provisional reservation under a short scheduler transaction, then enter existing ownership/provider locks and revalidate before execution. If locks take too long, renew or withdraw the provisional reservation without starting unaccounted work.
+
+Never wait for capacity while holding a lock required by stop, release, or recovery. Never take the scheduler transaction lock around a long provider operation. Maintain the existing repository/provider lock order, and add a tested cancellation/intent path that can mark a stop without waiting behind the entire startup timeout.
+
+A reservation is released after positive completion/stopped evidence or a proven never-started cancellation. Unavailable inspection means capacity remains conservatively charged. Reconcile leaked reservations after restart; do not turn reservation TTL into authority to assume a workload disappeared.
+
+### 8.4 Initial scheduling policy
+
+Keep v1 small: one shared admission queue per resource domain, a steady memory budget, a startup slot limit, and a heavy-operation slot limit. A conservative initial canary can serialize startup peaks and heavyweight jobs until measurements justify more concurrency.
+
+Use a documented order among eligible requests, with bounded bypass/aging rather than allowing small jobs to starve a large request forever. A recovery request may receive limited preference, but persistent failures must not starve healthy new work. Record queue reasons; avoid fabricated wait-time estimates.
+
+A profile larger than the admissible budget even in isolation returns `UNADMITTABLE_PROFILE` with its shortfall. It does not wait forever. A requested profile change needing additional resources waits for the delta while preserving a compatible existing profile; it must not partially drop another consumer's required services.
+
+Managed requests cannot control unrelated host processes. Account for them as unmanaged load and reserve host headroom. The controller must never kill unrelated applications to make its queue fit.
+
+### 8.5 Limits, pressure, and classification
+
+Apply and verify repository/operator-approved container resource limits where the supported provider exposes them. A configured limit must be checked against the actual running container; YAML presence alone is not enforcement evidence. Do not disable the OOM killer or raise machine/VM limits automatically. Docker containers are unconstrained by default unless limits are configured. [E3]
+
+Where available, observe cgroup memory charge/limit and counter deltas from `memory.events` or `memory.events.local`. The latter excludes descendant events; `oom_kill` counts processes killed by any kind of OOM killer and is not by itself proof that the container's own limit caused the kill. Correlate identity, counter changes, limit evidence, and runtime events. Counter resets across recreation require a new baseline. [E4]
+
+Use available pressure telemetry, including Linux PSI where exposed, to distinguish sustained contention from a momentary utilization spike. PSI describes time stalled on resources; it is not a cross-platform universal threshold. Missing telemetry produces `unsupported`/`unknown` plus a conservative fallback, not an invented zero. [E5]
+
+Exit 137 or a missing process is not sufficient evidence for an OOM diagnosis. Record confidence and scope: confirmed OOM involvement, suspected pool pressure, application failure, or unknown.
+
+A single service repeatedly hitting its own configured limit while the pool has headroom is a workload/limit incident. Do not stop other environments to solve a local hard-limit problem that their removal cannot fix.
+
+### 8.6 Initial timing policy for qualification
+
+Use explicit, testable initial values, not magic numbers scattered through adapters. The following are starting hypotheses, not measured guarantees:
+
+| Control | Initial candidate |
+| --- | --- |
+| Cheap reconciliation interval | 5 seconds for active environments, coalesced across consumers |
+| Maximum age of ordinary health evidence | 15 seconds; definite failure events invalidate immediately |
+| Ambiguous health failure threshold | Two consecutive failed checks outside declared startup/build grace |
+| Pressure-free resume dwell | 60 seconds plus successful admission for the expected resumed peak |
+| Sustained healthy period before resetting recovery budget | 5 minutes |
+| Consumer heartbeat / lease duration | 20 seconds / 120 seconds, with a separate orphan and wake grace |
+| Completed incident retention | 7 days, bounded by a total size cap |
+
+Repository startup and graceful-stop deadlines follow actual service contracts. Resource percentages, headroom bytes, and controller overhead budgets must be selected for the canary machine class from a documented baseline. Do not prescribe a universal “90% memory means stop” rule across host compression, VM allocation, and cgroup limits.
+
+## 9. Failure recovery and circuit breakers
+
+### 9.1 Recovery decision order
+
+Every recovery follows the same sequence:
+
+1. Invalidate affected readiness and gate new dependent operations.
+2. Create/update one incident with exact resource identity, evidence, confidence, and affected consumers.
+3. Check current desired intent and generation; user stop or parking intent wins over an old recovery request.
+4. Classify scope and establish whether the proposed action can help. Reobserve uncertain provider evidence within a bounded observation budget.
+5. Check policy authority, active-work protection, ownership, and capacity for the proposed action.
+6. Execute the smallest approved corrective action through existing lifecycle primitives.
+7. Reverify affected capabilities and route/application evidence; publish recovery only for the current generation.
+8. On exhaustion or insufficient capacity, park or block transparently rather than escalating into broad resets.
+
+### 9.2 Recovery matrix
+
+| Observed condition | Allowed default response | Explicitly excluded response |
+| --- | --- | --- |
+| Required owned child exits, parent/container survives | Restart the smallest independently owned process unit if policy allows and capacity is reserved; otherwise reconcile the declared process group | Assume parent liveness proves health; run duplicate workers |
+| Required exact dependency stops | Restart that retained exact resource, wait for recovery, then recheck dependants | Recreate every downstream app on its first failed probe |
+| Primary container stops with coherent retained state | Resume through the exact retained-runtime path and reestablish proof | Delete volumes or run a generic full reset |
+| Runtime is positively absent | Canonical startup only when ownership, persistent-data mapping, bootstrap semantics, and action budget make it safe | Treat unreadable inventory as absence |
+| Shared provider unavailable | Coalesce a provider incident, gate affected work, perform bounded observation | Restart/reset the VM independently for each workspace |
+| Sustained capacity pressure | Stop admissions, defer restarts, select an eligible parking action | Unbounded `always restart` loops |
+| Wrong route generation with otherwise valid runtime | Canonical hot-reload proof and the existing policy-permitted serialized restart-once fallback, followed by fail-closed verification | Additional controller retry/restart loops or a broader shared-router intervention |
+| Declared generated artifacts proven incompatible | Run the approved narrow preparation/quarantine hook when authorized | Delete broad caches based on a generic 404 or compile failure |
+| Application compile/test/semantic-smoke failure | Surface `APP_ERROR`, retain tooling, allow application work | Reinstall, reset, or park as an infra “repair” without other evidence |
+| Ownership/configuration conflict or unknown command completion | Block the unsafe action and retain evidence | Guess the owner, replay writes, or weaken validation |
+
+Process units must be declared at a granularity the existing helper can safely own. Do not infer arbitrary child restart commands from process listings. Where one large dev runner owns several apps, either define independent units in the consumer or honestly recover the whole declared group within its policy.
+
+### 9.3 Action budgets
+
+Persist incident budgets outside individual CLI invocations. Key an incident to the logical environment/resource and failure family; a new PID/container generation does not automatically reset its count. A fresh `ensure`, controller restart, or reattached consumer must inherit the current budget.
+
+An initial canary policy may allow at most two corrective restarts of one logical process, one retained service/primary restart at a broader scope, and at most three corrective actions across the uninterrupted incident. Bound active recovery/observation time as well, initially at ten minutes excluding capacity waiting. Broader actions count against the aggregate rather than creating a fresh allowance. Elapsed time alone does not replenish the incident budget. Confirm values in qualification.
+
+A budget bounds permission, not an instruction to spend every retry. OOM/capacity-related attempts require both the appropriate dwell and fresh admission. Use backoff with bounded jitter for eligible transient incidents; keep progress/phase deadlines distinct from capacity waiting.
+
+When an unused action allowance remains, an open circuit may enter one controlled half-open trial after a meaningful capacity/pressure change and the required dwell. That trial requires fresh admission and consumes the existing allowance; it does not reset counters. Do not require a stopped environment to become healthy before allowing this trial. Merely parking or waiting without dispatching a corrective action does not consume an action allowance. An exhausted incident remains `BLOCKED` until an explicitly authorized correction/rearm; it does not retry forever on a timer.
+
+Reset the budget only after a sustained healthy interval or an explicitly reviewed relevant input/policy change. Fixing an application source file does not erase an unrelated provider or OOM incident automatically. Preserve incident history across any authorized rearm.
+
+### 9.4 Calling the existing reconciler safely
+
+The controller must not blindly call an unrestricted `ensure` and allow its internal retry/recreate behaviour to exceed policy. Expose an action plan or equivalent explicit constraints to the existing reconciler so that allowed scope, budget, intent revision, and cancellation are honoured at each mutation boundary.
+
+Preserve existing exact-identity checks and PR #56's retained-state semantics. Normal reconciliation and recovery remain one implementation, with a policy wrapper—not two algorithms that slowly diverge.
+
+Automatic recovery does not include shared provider resets, daemon reinstalls, global cache deletion, or tool upgrades. Such conditions become a maintainer incident. This is a supported terminal outcome, not a reason to hand an open-ended infrastructure repair task to a coding agent.
+
+## 10. Parking, stop precedence, and controlled resume
+
+### 10.1 Parking policy
+
+For an explicitly enrolled agent environment, automatically parking an unusable runtime is an approved capacity-protection action when ordinary safe recovery cannot proceed. It is not a universal idle cleanup policy.
+
+Prefer, in order, never-started requests, disposable in-flight work whose cancellation is authorized, already-unusable opted-in environments, and explicitly releasable idle managed environments. Do not preempt healthy active environments by default. Broader priority-based preemption is a later policy decision.
+
+A current human pin, incompatible active consumer, or protected non-preemptible operation vetoes routine parking. If these protections leave no safe victim, block new work and explain the capacity problem. Do not quietly reinterpret a pin as advisory.
+
+### 10.2 Parking transaction
+
+1. Persist `desired=parked-for-capacity` with a new intent revision and the incident/policy reason before stopping anything.
+2. Reject new dependent execution and cancel stale queued starts/recovery actions for the old revision.
+3. Notify all affected consumers. Request a harness checkpoint/interruption, but do not depend indefinitely on the agent or failed container acknowledging it.
+4. Stop accepting new work; let existing operations drain up to their declared deadline. Interrupt only owned operations permitted by the approved policy; record potential side effects/completion uncertainty.
+5. Stop exact-owned processes and services through the existing non-destructive stop path. Respect dependency shutdown order and service-specific graceful termination.
+6. Revalidate complete relevant resource state and route cleanup under the established lifecycle contract. Publish `PARKED_CAPACITY` and settle accounting only after positive stop proof.
+7. Retain checkout, uncommitted and untracked files, durable volumes, ownership, desired profile, incident, and consumer task references.
+
+If a stop partially fails or observation is unavailable, remain `stopping`/`BLOCKED` with desired parking intent. Do not claim memory has been released or that the environment is safely parked. Keep residual charges and exact recovery evidence.
+
+Retiring a verified stopped workload's logical reservation is distinct from observing sufficient physical headroom in every affected resource domain. Reobserve domain pressure/availability before admitting another workload; never infer host-level reclaim solely from guest-container stop.
+
+Existing stop semantics may retain routes when provider stop/ownership proof fails. Preserve that safety behaviour while reporting the environment unavailable to managed consumers; do not bypass route ownership rules to produce a cosmetically clean status. [R4]
+
+Docker `pause` freezes processes; this design uses stop for resource release rather than treating container pause as memory reclamation. Stop is not a snapshot of the agent's or application's in-memory state. [E6]
+
+### 10.3 Resume conditions
+
+A parked-capacity environment becomes eligible only when a consumer still requests it, machine policy still allows it, no human stop/pin conflict intervened, pressure has been below the resume threshold for the required dwell, and a reservation covering the resumed workload can be committed.
+
+Account for its own expected resumed footprint. The memory freed by stopping the environment is not, by itself, evidence that restarting it immediately will fit. Persistent rapid re-failure reopens the same incident and keeps the circuit open.
+
+Resume at bounded concurrency. Admit one eligible recovery/startup peak at a time in the conservative canary policy, rather than waking every parked environment on the same pressure change.
+
+Revalidate repository/configuration identity, restart through the canonical path, refresh required readiness, publish the new generation, then release the waiting harness. `ensure` joins this process; it cannot bypass the parking decision.
+
+### 10.4 User stop wins
+
+An explicit environment stop records durable user intent before waiting for teardown locks. Check intent again before starting resources, before publishing readiness, and after completing a provider operation that could not be cancelled safely. Clean up a late start under the new stop intent rather than publishing it as ready.
+
+Releasing one consumer is not environment stop. A user-stopped environment requires a new explicit authorized start intent; it must not resurrect because a stale lease, previous recovery worker, or provider restart policy still exists.
+
+A newly user-initiated one-command startup can carry that new intent; a retry/reattach of an old request cannot. Settle the distinction in the launcher/CLI contract using operation and intent revisions, rather than guessing from process names or forcing a second manual repair command.
+
+## 11. Agent integration and honest support levels
+
+### 11.1 Generic adapter contract
+
+The launcher/adaptor, not the model, performs session acquisition/renewal/release, subscribes to lifecycle transitions, checks the managed execution gate, and records the harness's thread/session/turn identifiers. Keep these identifiers opaque; do not parse private transcript formats as the primary integration API.
+
+Expose four behaviours:
+
+**Brief recovery:** hold or defer the affected operation within supported transport deadlines, without spending model turns on status checks.
+
+**Extended capacity wait:** stop active turn continuation, persist the session reference and pending operation state, and await an external readiness event. Do not keep prompting the model to “wait a bit longer.”
+
+**Source-only continuation:** allow genuinely independent work when policy permits. Report which capabilities are unavailable. Do not switch execution modes or toolchains silently.
+
+**Terminal block:** emit one bounded incident notice, prevent repeated infrastructure attempts, and identify the responsible actor. The user may explicitly choose a different task/profile or maintenance action.
+
+The waiting/continuation controller lives outside the development container. A container-resident agent may be supported only when its launcher and required session state survive that container's loss. Persist resume authorization and user cancellation separately: readiness returning does not authorize continuation after the user cancelled or redirected the task.
+
+### 11.2 Actual harness qualification
+
+For each supported adapter, test interactive versus non-interactive mode, installed version, parallel tools, nested agents, shell and non-shell runtime calls, outstanding prompts, disconnection, hook timeout, controller loss, and interruption while a command is already running.
+
+The 2026-09-06 source review identified Codex App Server `turn/interrupt`, `thread/resume`, and `turn/start` as candidates for a launcher-managed pause/continuation cycle. An interrupt request is not a saved CPU/process snapshot; wait for the corresponding turn outcome and reconcile in-flight operations before continuation. This API surface does not establish control over an unrelated stock desktop-client session. [E7]
+
+The 2026-09-06 source review recorded that Codex hook documentation included pre-tool interception but also lists coverage exceptions and unsupported outputs. Use qualified hooks for attachment and user-visible guardrails, not as the sole enforcement boundary. A native-client integration that can notify but cannot reliably stop continuation receives a lower support level. [E8]
+
+The 2026-09-06 source review recorded Claude Code pre-tool decisions, but non-interactive `defer` is ignored in interactive mode and in parallel tool batches. Timed-out command/HTTP/MCP pre-tool hooks do not block execution through normal permissions, while SDK callback behaviour differs. Therefore a sleeping hook is not the reliability gate. Qualify the exact SDK/launcher path or combine explicit decisions with independent execution gating; do not advertise universal pause/resume from a configuration snippet. [E9]
+
+Do not widen approval rules, bypass a sandbox, auto-answer user permissions, or disable safety checks to achieve environment integration. Restored sessions must retain their intended model, tool, trust, permission, and workspace settings through supported interfaces.
+
+### 11.3 Permission and tool boundaries
+
+Environment availability is not tool authorization. A runtime gate can deny/defer an otherwise permitted action; a green readiness result cannot authorize an otherwise prohibited action.
+
+The generic adapter should expose declared operation/capability metadata to the execution boundary. It must handle an application command already in progress when the environment fails, and must not reclassify arbitrary raw shell commands as safely retryable.
+
+No supported guarantee may depend only on the agent obeying a prose skill. Nevertheless, update the bundled skill to be short and operational: select the smallest useful profile, use canonical startup/execution, accept infrastructure-owned waiting, and never investigate infra unless assigned an explicit maintenance task.
+
+### 11.4 Support labels
+
+Publish separate support levels:
+
+| Level | Claim |
+| --- | --- |
+| Static/legacy | Configuration diagnostics and existing one-shot behaviour; no continuous session guarantee |
+| Managed runtime | Qualified continuous observation, admission, bounded recovery, and parking |
+| Integrated agent | Managed runtime plus verified tool gating and turn/session waiting/continuation in the named harness mode |
+
+A notification-only adapter is not an integrated-agent implementation. The first product milestone requires at least one fully integrated actual harness, not only a simulated adapter.
+
+## 12. Structured diagnostics, progress, and incident communication
+
+### 12.1 One schema across consumers
+
+Inventory existing status/doctor/ensure JSON fields before adding a versioned managed-session extension. Human CLI output, events, status snapshots, and harness responses must derive from the same facts. Preserve backwards compatibility or make an explicit versioned break.
+
+Include exact target references, intent/runtime/controller generations, profile and required capabilities, current phase, observation freshness, classification/confidence, incident and operation IDs, admission reason, attempted action counts, phase timings, responsible actor, and expected consumer action.
+
+Keep startup queueing, provider-lock waiting, preparation, process startup, route publication, smoke validation, recovery, and capacity waiting separately observable. A machine-global lock holder is not the same as a hung application.
+
+Illustrative snapshot fragment; all identifiers below are synthetic:
+
+```json
+{
+  "contractVersion": 1,
+  "sessionId": "session-example",
+  "environmentId": "environment-example",
+  "intentRevision": 19,
+  "environmentGeneration": 8,
+  "state": "PARKED_CAPACITY",
+  "desiredState": "parked-for-capacity",
+  "requiredCapabilities": ["tooling", "manage"],
+  "incident": {
+    "id": "incident-example",
+    "classification": "CAPACITY_UNAVAILABLE",
+    "evidenceStatus": "observed",
+    "correctiveActionsTaken": 1
+  },
+  "continuation": {
+    "owner": "infrastructure",
+    "agentAction": "await-ready-event",
+    "requiresNewAdmission": true
+  },
+  "retainedState": {
+    "worktree": "retained",
+    "persistentVolumes": "retained",
+    "inMemoryState": "not-preserved"
+  }
+}
+```
+
+The final schema also carries observation times and freshness. Do not interpret an example or cached snapshot as a live permit.
+
+### 12.2 Event delivery
+
+Events have a bounded sequence/cursor and stable incident IDs. Support reconnect with replay while retained, and a snapshot-required response after history compaction. Consumers deduplicate notifications and continuation actions. Event delivery may be at-least-once; never rely on exactly-once network delivery to prevent repeated command execution.
+
+Use bounded queues/backpressure. A slow or disconnected UI cannot grow controller memory indefinitely or block resource safety actions. Notifications occur at meaningful transitions, not every failed probe.
+
+A normal capacity notice should say what failed or is unavailable, what infrastructure is doing, whether runtime resources have actually stopped, what state is retained, and who acts next. It should not tell the coding agent to investigate logs or try arbitrary commands.
+
+### 12.3 Privacy and bounded evidence
+
+Allowlist metadata. Do not persist environment values, tokens, cookies, authorization headers, raw provider-inspect payloads, raw command arguments, request bodies, or harness transcripts in the controller journal or exported diagnostic bundle. Secret-bearing configuration fingerprints must use the existing approved values-free treatment; do not introduce public low-entropy secret hashes.
+
+Default diagnostics stay cheap. Expanded logs/storage measurements remain explicit and bounded. Exported bundles remove private path details where unnecessary, include a manifest, and never upload automatically.
+
+Initial candidate bounds: 64 KiB per structured result/event, 1 MiB per incident's structured evidence, and 32 MiB total retained incident/event storage per controller, with seven-day completed-incident retention. These are configurable engineering limits to test, not permission to truncate critical state silently. The canonical active intent/ownership references are not garbage-collected as incidental log history.
+
+Under disk pressure, stop adding verbose evidence before risking canonical state writes. If durable intent cannot be committed, stop new mutations/admissions and surface that condition; do not perform an unjournaled destructive fallback.
+
+## 13. Preventive reliability: artifacts, toolchains, and application modes
+
+### 13.1 Mutable output isolation
+
+Retain and implement W4's original principles. Host and container installs, generated clients, Python virtual environments, native modules, compiler outputs, and incompatible framework build modes must not share mutable outputs without a supported compatibility and locking contract.
+
+Preparation fingerprints cover relevant lockfiles, package manifests, platform/architecture, runtime/package-manager versions, installation configuration, generator inputs, adapter revision, and build mode. Exclude unrelated source changes where doing so safely avoids needless reinstall/rebuild. A branch name or command string alone is not a sufficient artifact key.
+
+Separate development and production/test output locations only where the framework supports it. Otherwise serialize writers or use separate checkouts. Source remains live; the controller must not “solve” corruption by sharing mutable build products across concurrent sessions.
+
+Shared download/package caches require the package manager's supported concurrency model, platform/toolchain keys where needed, and coordinated retention. Content addressing does not mean every cache maintenance/prune action is safe during concurrent use.
+
+### 13.2 Automatic generated-state repair
+
+Permit automatic quarantine only for declared regenerable artifacts and only under both repository declaration and operator authorization. Validate path confinement, symlink behaviour, output ownership, writer exclusion, free disk space, and an explicit retention bound.
+
+Place quarantine outside compiler/watcher/source discovery. Do not archive a broken build directory into another scanned path. Never include database volumes, source roots, user-created untracked files, secret files, or arbitrary home/cache directories.
+
+Prefer the exact preparation step over broad cleanup. A failed or interrupted install leaves an incomplete stamp and a recoverable declared state; it does not become “installed successfully” because a wrapper command exited zero while an optional required feature failed.
+
+The unchanged warm path skips preparation. A known incompatible artifact must be identified before launching the app. Unexpected failures become application/preparation incidents, not permission for an endless delete/rebuild loop.
+
+### 13.3 Installed compatibility
+
+Report the actually resolved CLI/helper/provider/toolchain executable and version, not merely a repository pin. Verify the matching helper protocol before mutation, and preserve one coherent version during an active operation. Consumer images remain Devrouter-free. [R3][R8]
+
+Pin verified distribution artifacts with integrity checks and distinguish cached/offline availability from first acquisition requiring network. An ordinary start does not upgrade tools, repair global PATH, change Docker context, or download an unverified provider agent.
+
+Support claims identify a tested combination of host OS/architecture, provider version, container runtime/Compose, installed Devrouter package digest, helper protocol, repository revision/profile, and harness mode. Unsupported combinations fail explicitly or operate at a lower declared level.
+
+### 13.4 Local versus headless execution
+
+Share repository lifecycle/semantic-smoke contracts across local and headless workflows, not necessarily a desktop provider, local DNS, and local Traefik deployment. The local adapter proves routed browser behaviour; a headless adapter may supply direct isolated endpoints under its own contract.
+
+Do not add cloud provisioning or multi-host scheduling to the first delivery. A future remote adapter must identify its actual capacity/failure domain and implement session control without assuming the user's laptop telemetry describes remote capacity.
+
+## 14. Work packages and acceptance boundaries
+
+The following target work packages preserve the expanded design. W0 and W9 were added by that design; W3 and W6 were split. Use the current reconciliation above to implement only missing obligations. The dependency order is defined in Section 15, not by opening every numbered branch at once.
+
+### W0 — Contract, ownership, and policy decisions (P0)
+
+**Deliver:** a small architecture decision covering the host controller and single restart authority; a decision for session/admission persistence and locking; versioned state/operation/event contracts; a compatibility/support-level definition; and the initial canary policy. Review public CLI syntax before code and update the original no-daemon/non-goal wording.
+
+Specify enrollment/trust, user-stop precedence, multiple leases, incompatible profiles, unknown evidence, resource-domain identity, replay restrictions, and exact unsafe actions. List existing implementation versus proposed contracts.
+
+**Source context:** architecture/lifecycle concepts, existing ADRs, `workspace-ownership.ts`, `workspace-runtime.ts`, `workspace-ensure.ts`, provider locks, and output contracts. New modules/ADR filenames are selected after current-tree inspection.
+
+**Accept:** reuse existing table-driven models for stop-before-start, conflicting consumers, duplicate requests, stale generations and controller recovery. Source contract approval is separate from measured host policy/enrollment approval. No machine service is installed by a model package.
+
+### W1 — Actionable evidence and lifecycle protocol (P0)
+
+**Deliver:** extend existing doctor/status/output/tool diagnostics; structured phases, freshness, incident/operation IDs, classification, actor/action semantics, and bounded event/snapshot encoding. Add safe diagnostic bundle limits and a common formatter.
+
+**Source context:** `doctor.ts`, `tool-diagnostics.ts`, `status.ts`, `output.ts`, managed-runtime status, and existing corresponding tests.
+
+**Accept:** parseable bounded JSON for each failure layer; stale/unavailable evidence remains unknown; intentional wait is not a generic error; secret-bearing fixtures do not leak; static diagnostics work without Docker. This package alone does not claim automatic recovery.
+
+### W2 — Capability-based readiness and proof reuse (P0)
+
+**Deliver:** separate infrastructure/process/capability/route/transport/application proof, required versus optional capabilities, invalidation rules, startup/build grace, and repository-owned probe execution with side-effect policy. Introduce child-capability checks that detect partial death beneath a live parent.
+
+**Source context:** `workspace-ensure.ts`, managed-runtime status, profile resolution, route-health tests, and consumer integration contracts.
+
+**Accept:** root-200/auth-404, wrong media type, bad redirect, stale process generation, optional-worker failure, and hot-reload cases produce the right classifications. Warm unchanged reuse performs no preparation and does not rerun full browser smoke unnecessarily. Required unverified contracts never become application-ready.
+
+### W3a — Interruption-safe lifecycle primitives (P0)
+
+**Deliver:** integrate/coordinate PR #56; make existing lifecycle actions usable with explicit policy scope, intent revision, cancellation, and finite action budgets. Preserve exact ownership and retained-state proof across partial start/stop, provider errors, and CLI cancellation.
+
+**Source context:** `workspace-ensure.ts`, `managed-runtime-state.ts`, `devpod-environment.ts`, provider mutation/stop modules, `managed-post-start.ts`, and `bin/devrouter-process`.
+
+**Accept:** failure followed by recovery uses one coherent retained state; stopped intent beats late startup; no duplicate reconciler after timeout; no unauthorized route deletion/recreation; owned preparation children are reaped; uncertain evidence is not absence. Preserve the existing one-shot compatibility path.
+
+### W3b — Host controller, sessions, and continuous recovery (P0)
+
+**Deliver:** one lightweight controller with lifecycle enrollment, local IPC, multi-consumer leases, coalesced observation, durable incident/operation state, event delivery, controller restart reconciliation, and bounded recovery using W3a. Define provider/process restart ownership and service-manager installation/uninstallation behaviour.
+
+Build an observation-only stage first, then activate corrective actions only with W6a and policy integration. The observation stage is not the completed product.
+
+**Accept:** process failure after `ensure` exits is detected; duplicate consumers do not duplicate probes/restarts; controller restart does not lose user stop/parking/budgets; sleep/wake and event gaps do not cause mass stops; controller failure gates new runtime execution. Measure controller overhead under the intended session count.
+
+### W4 — Artifact and toolchain isolation (P1; required slice in M1)
+
+**Deliver:** generic preparation identity/locking where needed, examples and diagnostics for host/container and dev/build isolation, bounded opt-in quarantine, and trustworthy completion stamps. Keep framework-specific directories/commands repository-owned.
+
+**Source context:** `managed-post-start.ts`, process helper, onboarding templates, and one consumer's preparation scripts.
+
+**Accept:** interrupted install, ABI/platform mismatch, lockfile/generator change, stale client, concurrent dev/build, and watcher-scanned archive cases. Warm unchanged work skips preparation; repair touches only declared output paths; pre-existing user files remain unchanged.
+
+### W5 — Deterministic repository application contract (P1; required slice in M1)
+
+**Deliver:** one real consumer's canonical preparation/services/schema/fixtures/smoke contract; explicit local/external modes; deterministic synthetic auth/flags; removal of superseded manual startup workarounds after equivalent behaviour is proven. Adopt the same generic shape in a small non-Node fixture before claiming portability.
+
+**Source context:** `examples/devcontainer/`, `docs/REPO_ONBOARDING.md`, consumer integration docs, and separately scoped consumer PRs.
+
+**Accept:** a meaningful local journey without external credentials; mock-in-production rejected; retained data not reset; wrong-workspace callback rejected; external failure not hidden by mock fallback. No consumer-specific conditions enter generic controller code.
+
+### W6a — Admission, pressure, parking, and resume (P0)
+
+**Deliver:** resource-domain identity; complete environment attribution; atomic phase/operation reservations; startup/heavy slots; pressure collection and confidence; queue fairness/cancellation; parking policy and positive-stop accounting; circuit-breaker admission; controlled wakeup.
+
+**Source context:** profile resolution/plan, existing resource ownership and consumption code as reusable evidence, controller state, and canonical stop. Add memory-specific collection rather than repurposing storage figures.
+
+**Accept:** concurrent requests cannot spend the same reservation; waits hold no teardown-blocking locks; startup peaks and later browser/build bursts are admitted; endpoint aliases share a pool; unknown observation retains charge; local-limit OOM does not evict siblings; parking cannot be undone by ordinary `ensure`; impossible profiles are rejected; resume does not oscillate.
+
+### W6b — Measured profiles and efficiency (P2)
+
+**Deliver:** smaller task profiles, reduced watcher scope, measured preparation parallelism, safe cache reuse/retention, and optional prebuilt toolchain layers where justified.
+
+**Accept:** documented before/after workload showing resource/startup improvement without altering the required capability contract, sharing mutable outputs unsafely, or hiding cold-start defects. Keep CPU optimization and broad idle/preemption policies out of the P0 critical path unless required to fix a reproduced safety issue.
+
+### W7 — Installed package and platform compatibility (P1; required slice in M1)
+
+**Deliver:** package/helper/controller protocol checks, exact executable provenance, pinned verified provider artifacts, small support matrix, explicit upgrade/drain/downgrade behaviour, and installed canary adoption.
+
+**Source context:** `tool-diagnostics.ts`, `upgrade.ts`, `managed-post-start.ts`, `scripts/package-smoke.sh`, and the existing package-proof roadmap.
+
+**Accept:** shadowed/mismatched binaries, incompatible helper/controller, missing cache, offline verified-cache use, tampered artifacts, and unsupported provider versions fail before unsafe mutation. Test the packed installed CLI; source `tsx` execution is insufficient. Establish whether the previous release can read new state before claiming rollback.
+
+### W8 — Fault qualification and release evidence (P1; harness begins at P0)
+
+**Deliver:** extend existing contract/package/live smoke suites, add controlled lifecycle/memory faults, publish exact matrix metadata and result cohorts, wire required CI/release jobs, and preserve bounded sanitized artifacts.
+
+**Source context:** existing ensure/provider/process/profile tests, package smoke, devcontainer/routing/workspace smoke scripts, and consumer-owned browser smoke. Do not copy a complete consumer suite into Devrouter.
+
+**Accept:** the matrix in Section 16 passes for the advertised candidate. Linux-only helper tests run on Linux; skipped tests are explicitly skipped. A deliberately reverted guard causes its regression test to fail. A passing script without a successful wired gate is not delivery evidence.
+
+### W9 — Agent launcher/harness integration (P0)
+
+**Deliver:** a generic adapter boundary and one actual fully qualified harness adapter for M1; lease ownership outside the container; gated shell/browser/MCP operations; bounded tool defer or turn interruption; no-model capacity wait; safe continuation; source-only mode; and concise bundled skill guidance. Add the second daily-use harness in the next milestone.
+
+**Source context:** Devrouter's bundled skill/AI prompt and a separately owned launcher or dotfiles integration. Keep harness-specific SDK logic outside lifecycle and admission algorithms.
+
+**Accept:** the actual agent starts once, performs no infrastructure repair calls after an injected fault, pauses without a denial/retry/model loop, preserves interrupted-operation uncertainty, and resumes once after fresh readiness. Test parallel tools, nested agents, pending approvals, user cancellation, and adapter reconnect. Publish unsupported native/interactive modes as gaps rather than claiming parity.
+
+## 15. Implementation sequence and integration milestones
+
+### 15.1 Work in vertical slices
+
+Maintain one writer for `workspace-ensure.ts` and one for `bin/devrouter-process`. Use separately scoped consumer and harness branches where there is no shared mutable runtime. Fetch and compare `origin/main`; integrate only for a concrete readiness reason. Reuse merged PR #56 rather than forking another reset-recovery implementation.
+
+Each execution package uses a dedicated `rs/<descriptive-name>` branch and `trees/rs/<descriptive-name>` worktree, reusing a matching worktree when present. It ends at a reviewed `pr_ready` boundary with exact base/head, tests, live-proof gaps, and the next approval boundary. Release, machine enrollment, and consumer activation are separate stages.
+
+Original dependency sequence (source portions are already delivered; current remaining order is above):
+
+| Slice | Scope | Terminal evidence |
+| --- | --- | --- |
+| S1 | W0 plus the minimum W1 state/incident contracts and fixture model | Approved ownership/policy; deterministic transition and encoding tests |
+| S2 | W3a, coordinated with PR #56 | Safe interruption, exact stop, intent checks, and constrained reconciler actions |
+| S3 | W2 plus narrow W4/W5 consumer preparation/readiness adoption | Real consumer reaches declared readiness and distinguishes app failure without speculative repairs |
+| S4 | W3b controller, leases, journal, events, observation-only enrollment | Continuous observation and crash/sleep reconciliation without duplicate authorities |
+| S5 | W6a atomic reservations, heavy-operation gate, pressure evidence | Concurrent starts/operations and resource accounting tested before automatic intervention |
+| S6 | W3b/W6a bounded recovery, parking, and controlled resume | Failure-to-recovery and failure-to-park/resume pass in isolated fixtures |
+| S7 | W9 first actual harness plus W7 installed canary | Enforced no-model waiting and one-time continuation on the installed stack |
+| S8 | W8 full M1 qualification and canary evidence | End-to-end real consumer, actual harness, persistent pressure, protected neighbour |
+
+These slices may be subdivided further. Separately approved bounded recovery retains its recorded authority and narrower support claim; this roadmap neither activates nor disables an existing policy. Broader M1 automatic recovery/parking/harness behavior stays gated until its admission, parking and execution boundaries are qualified. An observation-only installation remains observational until its own policy is approved.
+
+### 15.2 Milestones
+
+**M0 — Contract and safe foundation.** W0/W1 and the required W3a changes are reviewed; a model/fixture harness demonstrates the core state invariants. This is implementation progress, not the agent reliability product claim.
+
+**M1 — One complete managed agent journey.** Complete S1–S8 for one canary cell: an explicitly selected installed platform/provider combination, one approved consumer/profile, two parallel environments, and one actual qualified harness mode. KlickerUZH and the existing eLearning canary are candidates; this refresh leaves the consumer/profile/harness cell pending rather than assuming either is approved for new fault injection. Verify startup, partial-process death, persistent capacity pressure, parking, retained state, and controlled resume with zero agent-authored environment repair. Record exact installed versions rather than assuming the original roadmap's versions are still current.
+
+**M2 — Daily-workflow breadth.** Qualify the second primary coding harness; complete artifact-interruption cases; add a non-Node consumer fixture; prove supported profile changes, host/container alternation, browser/auth variations, and restart after controller/host interruptions. Expand support only where evidence exists.
+
+**M3 — Efficiency and optional execution modes.** Deliver measured W6b improvements and selected additional provider/headless adapters. Broad preemption, cloud provisioning, and cross-host scheduling require their own approved scope and do not block M1.
+
+### 15.3 Next separately authorizable execution package
+
+Start with phase/child progress, terminal diagnostics and installed-versus-repository metadata visibility; investigate historical-state recovery independently as scoped above.
+S1 source foundation already exists. Reuse it and its approval record; do not
+restart a contract-only project or install a controller merely to test a model.
+Package 1 requires diagnostic/progress acceptance and focused synthetic fixtures.
+Package 2's recovery execution plan must choose an evidence-proven recovery boundary,
+concrete source paths, regression fixture, exact consumer owner and publication/live gates.
+
+## 16. Verification, fault matrix, and release gates
+
+### 16.1 Testing layers
+
+Use fast deterministic contract/state-machine tests for transitions, budgets, clocks, locks, event replay, and encoding. Use installed CLI/controller tests for packaging, IPC, protocol mismatch, and restart behaviour. Use a small isolated live matrix for provider/runtime faults and consumer-owned functional/browser readiness.
+
+Use virtual clocks and injected observations to exercise long leases, pressure dwell, and retry windows without slow/flaky tests. Add randomized interleavings or property-based tests for the highest-risk state/lock invariants where existing test infrastructure supports them; a separate formal-methods stack is not required.
+
+Live OOM, disk-full, and provider-recycling tests run only in named disposable VMs/runners with synthetic data and cost/resource caps. Never induce host-wide OOM or restart a shared developer VM to prove this feature. A bounded fixture-local memory limit is preferable to pressure on the test host.
+
+### 16.2 Required acceptance matrix
+
+| ID | Scenario | Required result |
+| --- | --- | --- |
+| Q01 | Fresh and cached-cold start | One operation reaches declared semantic readiness; no hidden manual bootstrap |
+| Q02 | Warm unchanged attach | Fresh cheap proof; no unnecessary install/rebuild/full browser suite |
+| Q03 | Root 200, auth/API route broken | No false application-ready result; actionable application contract failure |
+| Q04 | Required child dies; parent/container survives | Capability invalidated and smallest owned recovery attempted |
+| Q05 | Optional worker fails | Unrelated required capabilities remain usable; optional failure visible |
+| Q06 | Dependency stops or recovers slowly | Correct grace/deadline; no downstream restart amplification |
+| Q07 | Primary/container-local OOM | Retained state preserved; diagnosis uses evidence; restart requires admission |
+| Q08 | Process SIGKILL without OOM evidence | No false confirmed-OOM classification |
+| Q09 | Single-service limit too small, pool healthy | Workload/limit block; no unrelated workspace eviction |
+| Q10 | Sustained pool pressure | New starts/heavy work wait; no restart storm; eligible unusable env parks |
+| Q11 | Simultaneous cross-repository starts | Atomic reservations prevent double spending; endpoint aliases share a pool |
+| Q12 | Heavy build/browser burst after startup | Additional reservation/slot required; idle footprint not treated as peak |
+| Q13 | Stop needed while another request waits | Waiting request holds no lock required for stop/freeing capacity |
+| Q14 | Repeated ensure during parked state | Same incident and intent; no bypass or reset of retry count |
+| Q15 | Capacity returns | Sustained headroom and reservation precede bounded resume and new proof |
+| Q16 | Impossible profile | Explicit unadmittable result, not endless waiting |
+| Q17 | Explicit stop races recovery/readiness | Stop intent wins; no resurrection or stale ready event |
+| Q18 | Two consumers; one releases; human pin present | No unintended stop/profile contraction; pin policy respected |
+| Q19 | Controller/CLI dies mid-transition | Coherent recovery; no competing mutation worker or capacity release on uncertainty |
+| Q20 | Host sleep/wake; wall clock changes | Reobservation and grace; no mass lease-expiry stop or stale ready permit |
+| Q21 | Provider unavailable; unrelated container churn | Unknown remains unknown; one provider incident; no broad destructive retry |
+| Q22 | Runtime fails after command dispatch | Interrupted/unknown completion preserved; no silent replay of writes |
+| Q23 | Partial stop or route-unload failure | Not falsely parked; residual resources remain charged; guards preserved |
+| Q24 | Application edit breaks compile/test | Agent can fix app; no speculative cache deletion or infrastructure loop |
+| Q25 | Interrupted preparation; ABI/client mismatch; dev/build overlap | No success stamp on failure; declared repair only; writer isolation |
+| Q26 | Quarantine in watcher-discovery path; symlink escape | Rejected/relocated safely; user data untouched |
+| Q27 | Secret-bearing logs/config and oversized evidence | Bounded allowlisted output; no secret disclosure; no silent state loss |
+| Q28 | Shadowed CLI or helper/controller mismatch | Compatibility failure before unsafe mutation |
+| Q29 | Parallel/nested tools, hook timeout, non-shell runtime tool | Independent gate remains effective in the claimed harness mode |
+| Q30 | User cancels/redirects agent while parked | No automatic continuation of the superseded task |
+| Q31 | Event loss/duplication, slow subscriber, reconnect | Snapshot recovery, bounded memory, deduplicated continuation |
+| Q32 | Controller disk-full/corrupt or unreadable operational state | New mutations blocked; evidence retained where possible; no invented clean state |
+| Q33 | All protected/active work; no parking victim | New work blocked transparently; no unauthorized preemption |
+| Q34 | Recovery attempt succeeds only briefly then fails again | Same incident/circuit retained; no infinite budget resets |
+| Q35 | Unmanaged load changes while managed tasks run | Admissions react conservatively; no killing unrelated applications |
+| Q36 | Real two-environment agent journey | Affected agent performs zero infra repair; protected neighbour remains usable |
+
+Faults that prevent a safety invariant from being proven must produce a blocked/unknown result, not a passing test merely because a later manual retry worked.
+
+### 16.3 Safety invariants
+
+A single observed violation blocks the affected release claim: cross-workspace mutation, unauthorized data deletion, secret disclosure, false required readiness, stale intent causing resurrection, uncontrolled recovery beyond budget, silent replay of an uncertain non-idempotent command, or reporting a completed stop while owned workload remains unaccounted for.
+
+Verify persistent state using synthetic sentinel files and application/database records appropriate to the fixture. Test both graceful stop and bounded interruption. Do not reduce “no data loss” to checking that a Docker volume object still exists.
+
+Protect a second workspace throughout fault/recovery tests and verify its actual functional capability, not just its container state. Include retained dirty/untracked source as fixture data because development work is normally uncommitted.
+
+### 16.4 Metrics and evidence
+
+Record package digest/version, source revision, installed executable provenance, provider/host/toolchain/harness versions, profile, resource limits, cache state, workload, sample count, phase timings, first-attempt outcome, corrective actions, blocked/waited duration, and agent/manual intervention count.
+
+Report cold, cached-cold, warm, stopped-resume, and fault-recovery cohorts separately. Do not remove unsuccessful first attempts from reliability reports because an automatic retry eventually passed. Capacity waiting is visible elapsed time, not startup success or application failure.
+
+Retain the original provisional minimal-fixture hypotheses: warm ensure below 10 seconds, stopped resume through functional smoke below 60 seconds, and cached-cold startup below 3 minutes. These remain unmeasured candidates until baseline runs establish distributions and a percentile gate. They are not commitments for an arbitrary monorepo, network install, or capacity wait. [R1]
+
+For active environments under the initial five-second reconciliation design, test the proposed fifteen-second maximum stale-proof window in the qualified runner. Event-driven failures may be detected sooner. Report detection latency and any scheduler/provider delays separately; host outage is an explicit observation gap.
+
+Collect at least twenty routine repetitions per advertised canary journey and ten repetitions of each selected deterministic live fault case for initial variance/flakiness review, unless a separately justified fixture cost limit changes the sample plan. This is finite qualification evidence, not a statistical proof of universal reliability.
+
+The key agent-facing acceptance metric is **zero agent-authored environment repair actions in supported injected infrastructure failures**, not simply fewer logged errors. Inspect actual tool traces under the fixture's privacy policy; a prose instruction saying “do not repair infra” is not evidence.
+
+### 16.5 Existing repository gates
+
+Select exact focused suites from the current change-and-verification map. Then run applicable existing repository gates in the correct toolchain/environment:
 
 ```sh
 pnpm check:docs-policy
@@ -175,386 +1026,103 @@ pnpm build
 pnpm test:package
 ```
 
-The list is a menu of existing gates, not permission to run live smoke scripts.
-Runtime tests require named disposable fixtures and approved mutation boundaries.
-Each implementation plan must name the exact focused command and extend existing
-behavioral tests before adding another overlapping suite. Test structured
-contracts and outcomes, not documentation prose or incidental seed contents.
+These are the original roadmap's gate names, not permission to start live runtimes in a documentation-only package. Confirm their current definitions before execution. Consumer gates and harness qualification are separate named commands in their own execution packages. Linux-only helper execution must actually run on Linux; a macOS skip is not a pass. [R1][R2][R10]
 
-## W1 — actionable failure evidence
+## 17. Rollout, operational policy, and rollback
 
-**Problem.** Agents repeatedly reconstruct the same environment state from
-scattered commands. Generic readiness or provider errors obscure the failing
-layer and encourage retries without a new hypothesis.
+### 17.1 Enrollment and staged activation
 
-**Do.** Extend existing diagnostics in `src/core/doctor.ts`,
-`src/core/tool-diagnostics.ts`, `src/core/status.ts`, `src/core/output.ts`, and
-the existing managed-runtime status seam. Inventory existing JSON fields before
-adding fields. Introduce a versioned failure contract only where necessary.
-Report exact target identity, resolved executable provenance, phase, elapsed
-time, failure classification, evidence freshness, and one scoped next action.
-Separate application failure, provider failure, configuration conflict,
-unavailable observation, and expected waiting. Unknown must remain unknown.
+Ship support in explicit modes: disabled/legacy, observe-only, and managed. Existing separately approved bounded recovery remains governed by its current policy and narrow qualification; broader M1 adoption is a separate gate. Repository capability declarations are separate from machine enrollment. Default existing installations to their documented compatibility behaviour until the operator selects a qualified managed policy.
 
-Capture bounded phase timings for discovery, queueing, preparation, provider
-transition, process start, route publication, and application probe. Ordinary
-status stays cheap; expensive storage walks or broad logs remain opt-in.
-Offer a bounded local diagnostic bundle through the existing command surface,
-not a second command family. Specify a size limit and retention policy before
-implementation. Prefer structured allowlisted metadata to regex-redacted logs.
-Exclude environment values, tokens, cookies, authorization headers, process
-arguments that may carry secrets, request bodies, and raw provider inspect data.
-Do not upload diagnostics automatically.
+A canary operator approves automatic exact-resource restart, bounded generated-output repair if selected, capacity waiting, and stop-only parking of opted-in unusable agent environments. Healthy active work and human pins remain protected. Document which actions are always outside the automatic policy.
 
-**Check.** Extend doctor/status/output tests with one failure per layer, missing
-tools, permission denial, stale evidence, and a deliberately secret-bearing
-fixture. JSON must remain parseable, bounded, and values-free. Distinguish
-partial results from successful diagnosis. A repository without Docker must
-still receive useful static diagnostics without installation or repair.
+Rollout proceeds from fixture to installed canary to one real consumer/harness, then to additional worktrees and the second harness. Keep source merge, package publication, installed adoption, controller enrollment, consumer contract adoption, and live proof as distinct recorded stages.
 
-**Working context.** Devrouter diagnostics worktree, single writer on output
-contracts. **Gate.** None for a read-only prototype; schema compatibility gets
-maintainer review. **Release-note claim.** Failed startup identifies the failing
-phase and a scoped next action, supported by installed-package failure tests.
+### 17.2 Upgrade and downgrade
 
-## W2 — meaningful readiness and reuse
+Before a controller/helper upgrade, stop new admissions, reconcile or drain in-flight mutations, preserve consumer waits, and restart under a coherent version. Refuse incompatible CLI/controller/helper protocol combinations rather than mixing implementations inside one transition.
 
-**Problem.** A running process or answering root page does not prove the user can
-log in, query an API, or exercise the selected feature.
+Prove state compatibility for a downgrade or provide an explicit safe non-destructive migration/export path. An older CLI must not silently take ownership of controller-enrolled workspaces it cannot interpret. Unknown schema versions fail closed; they do not mean an unused workspace.
 
-**Do.** Extend `src/core/workspace-ensure.ts`, managed runtime status, profile
-resolution, and repository integration documentation. Preserve distinct proof
-levels: provider/services healthy, processes present, exact routes applied,
-transport reachable, and repository-declared application smoke passed. Report
-the achieved level explicitly. Missing optional smoke definitions mean
-unverified application usability, not failure and not proof of success.
+A feature kill switch disables new autonomous actions and admissions while preserving truthful status and user-stop ability. It must not silently abandon active processes or release their charges. Switching to unmanaged operation is an explicit ownership handoff after reconciliation, not a flag that leaves two supervisors running.
 
-Keep application semantics in a repository-owned smoke task. If Devrouter needs
-a new adapter or result schema, review that public contract first; do not execute
-the literal bindings emitted by `profile plan`. Basic probes can assert expected
-status, content type, bounded response shape, and redirect destination. A login
-journey must include the actual auth subroute and authenticated capability, not
-only an HTML shell. CLI transport proof and browser cookie/TLS proof are separate.
+### 17.3 Maintainer intervention
 
-Associate reusable evidence with the relevant process generation, profile,
-preparation inputs, route generation, and probe contract. Define invalidation
-and an age bound. Reused proof must be labelled and cheap liveness rechecked;
-an old successful browser run must not mask a crashed service. Avoid rebuilding
-or rerunning all application tests merely to resume an unchanged workspace.
+A blocked incident presents exact scope, classification/confidence, what was tried, what remains running, what state is retained, and one maintainer decision. Typical decisions are fixing a repository contract, raising a reviewed per-service limit, releasing other managed work, correcting a provider installation, or investigating unknown data-operation completion.
 
-**Check.** Use fixtures where root returns 200 but login returns HTML 404, the API
-returns the wrong media type, redirects leave the workspace, and a process dies
-after a previous pass. Add a warm unchanged case that performs no preparation.
-Use existing ensure and route-health tests, plus one consumer-owned functional
-smoke. Do not normalize every 401 or 404 to failure; the repository defines its
-expected unauthenticated contract.
+Ordinary coding agents see the blocked/waiting outcome without receiving the full maintainer repair playbook. An infrastructure-maintenance agent receives separately authorized tools and scope; its actions remain in the same ownership system and do not bypass lifecycle locks.
 
-**Working context.** Devrouter readiness branch; separate consumer adoption PR.
-**GATED on A1 — probe side effects** before executing new application probes.
-**Release-note claim.** Readiness distinguishes infrastructure from declared
-application usability; installed fixture and browser evidence are required.
+## 18. Decisions still requiring explicit implementation approval
 
-## W3 — interruption-safe lifecycle recovery
+The direction below is recommended; the exact installed values and compatibility cells must be recorded in W0/enrollment rather than left as informal assumptions.
 
-**Problem.** Provider reset, cancellation, partial service startup, or failed
-reconciliation can leave state that another ensure cannot interpret reliably.
-
-**Do.** Inspect and reuse PR #56 — reset-failure recovery before changes to
-`src/core/workspace-ensure.ts`, `src/core/managed-runtime-state.ts`,
-`src/core/devpod-environment.ts`, and provider stop/mutation modules. Specify the
-transition table for absent, starting, ready, degraded, stopping, and unavailable
-evidence. Persist only identity and non-secret transition metadata needed to
-recover. Positive absence permits absence handling; an observation error does not.
-
-Audit global container discovery separately from the recently hardened retained
-stop path. Bound exact-target queries and tolerate unrelated disappearance only
-when it cannot conceal target ownership uncertainty. Retry only classified,
-transient observations within a deadline; retain the original error otherwise.
-Waiting for health needs progress and a deadline appropriate to the repository's
-service contract, not unconditional recreation after one short timeout.
-
-Cancellation must leave one coherent resumable state and terminate only owned
-process groups. Preserve data volumes during ordinary repair. Publish routes
-after candidate proof; remove stale owned routes on terminal failure according
-to the existing lifecycle contract. Audit lock duration with phase timings, but
-preserve fair provider queues and machine-global safety where providers require
-serialization. A timeout must not trigger a second competing reconciler.
-
-**Check.** Extend existing ensure, provider inspection, stop, and process tests.
-Inject cancellation at transition boundaries, target disappearance, unrelated
-container removal, mount enumeration reorder, delayed health, partial stop, and
-failed reset followed by ensure. Assert exact surviving services, ownership,
-routes, process groups, and retained data. Live VM recycling belongs only in an
-approved disposable qualification environment, never the developer's active VM.
-
-**Working context.** One reconciler writer; reuse existing recovery ownership.
-**Gate.** Coordinate PR #56 — reset-failure recovery before overlapping edits.
-**Release-note claim.** Named interruption scenarios recover without data loss;
-each claimed scenario needs installed-package live proof, not unit tests alone.
-
-## W4 — artifact and toolchain isolation
-
-**Problem.** Correct source can fail when a different OS, architecture, package
-manager, build mode, or concurrent writer produced its mutable outputs.
-
-**Do.** Extend onboarding diagnostics/templates and the preparation contract in
-`src/core/managed-post-start.ts` and `bin/devrouter-process` only where generic
-support is needed. Repositories declare artifact ownership and preparation;
-Devrouter does not infer every framework's output directories or run arbitrary
-package-manager repairs. Detect incompatibility before app startup and identify
-the narrow preparation step required.
-
-Separate host and container mutable installs, generated clients, and framework
-outputs. Separate development outputs from production-build/test outputs whenever
-the framework supports concurrent modes. Otherwise enforce exclusive writers or
-use a separate checkout. Share immutable download caches only with appropriate
-platform and toolchain keys. For Node include workspace links and native modules;
-for Python include interpreter/ABI and virtual environments; for compiled
-languages include target architecture and compiler configuration. These are
-consumer responsibilities exposed through one generic lifecycle contract.
-
-Preparation fingerprints must cover relevant lockfiles, package definitions,
-toolchain, platform, install configuration, generator inputs, and build mode.
-Environment-sensitive fingerprints must follow existing values-free handling;
-do not persist raw resolved environment data. A branch name alone is not a cache
-key. A successful stamp is written only after preparation succeeds, under the
-same ownership/locking discipline as its outputs.
-
-Automatic repair, if approved, may quarantine only declared generated artifacts.
-Place archives outside source discovery and watcher paths, avoid symlink escape,
-account for size, and provide explicit recovery/retention. Never include database
-volumes, untracked user files, secret files, or broad workspace roots. Do not
-prescribe a framework output location that the framework does not support.
-
-**Check.** Qualify host/container alternation, lockfile change, interrupted
-installation, stale generated client, concurrent dev/build, and archive scanning.
-The unchanged warm case must skip preparation. A failed preparation must not
-publish a success stamp. Confirm consumer tracked files remain unchanged.
-
-**Working context.** Generic adapter PR and separately approved consumer PRs.
-**GATED on A2 — generated-state repair policy** for automatic quarantine.
-**Release-note claim.** Incompatible generated state is detected and repaired
-through the declared preparation path; proof must name language and mode pairs.
-
-## W5 — deterministic local application contracts
-
-**Problem.** External identity, flags, storage, queues, or paid AI can block
-ordinary UI verification even when infrastructure is healthy.
-
-**Do.** Improve `examples/devcontainer/`, onboarding templates, and
-`docs/REPO_ONBOARDING.md` around a single repository-owned services, environment,
-bootstrap, and verification contract. Native, container, routed, and CI modes
-consume that contract rather than maintain parallel startup logic. Support only
-the modes the consumer declares; do not force every repository to support all.
-
-Define explicit local and external-integration modes. Local fixtures should
-exercise real authorization using synthetic identities and capabilities, not
-bypass access control. Cover ordinary, entitled/beta-enabled, restricted, and
-delegated accounts where relevant. Local flags should deterministically express
-enabled, disabled, and unavailable states without depending on a remote flag
-service. Keep mock namespaces separate from real credentials and reject mock
-configuration in production. Opting into external services must expose its data
-and cost boundary; stale environment files must not silently choose it.
-
-Make schema readiness, migration status, and fixture capabilities observable.
-Routine start and smoke must not reset or reseed valuable local data. Fresh
-disposable test databases and destructive reset remain separate named actions.
-Repositories own idempotent synthetic seed behavior and migration ordering.
-Use a URL-parameterized smoke command that CI also consumes, including auth
-callbacks, cookie domain, and host-to-container access where relevant.
-
-**Check.** Adopt the contract in a minimal non-Node fixture and one separately
-approved application repository. Prove login and one meaningful action without
-external credentials; reject mock-in-production and wrong-workspace callbacks.
-Verify a warm smoke leaves pre-existing synthetic data intact. Test external
-failure as unavailable, not as a silently successful mock fallback.
-
-**Working context.** Devrouter examples owner; consumer maintainers own application
-changes. **Gate.** Explicit consumer scope and approval of external calls.
-**Release-note claim.** Named examples reach a functional local journey without
-external credentials; no claim about unadopted repositories.
-
-## W6 — right-sized profiles and capacity visibility
-
-**Problem.** Starting every service for a small edit wastes resources and makes
-unrelated optional dependencies part of the critical path.
-
-**Do.** Reuse `src/core/profile-resolution.ts`, `src/core/profile-plan.ts`,
-`src/core/workspace-consumption.ts`, and existing lease/resource planning. Verify
-which lease behavior actually exists before extending it. Show resolved apps,
-services, and processes before startup. Let repositories recommend task profiles
-such as UI, API, or integration without silently changing existing full defaults.
-
-Use measured phase and resource data to identify expensive builds, bind-mount
-I/O, watcher load, duplicated workers, or oversized service sets. Distinguish
-shared image size from reclaimable storage and unavailable readings from zero.
-Keep capacity advice report-only initially. Any admission limit, idle suspension,
-or automatic stopping needs explicit policy, active-work vetoes, and exact
-ownership. A lease timestamp alone is not proof that human work is idle.
-
-Only after measurement, evaluate prebuilt stable toolchain/dependency layers,
-content-addressed download caches, and reduced watcher scope. Keep source live
-and avoid sharing mutable build outputs. Compare cold, cached-cold, and warm
-journeys separately so cache speed does not hide correctness defects.
-
-**Check.** Use two repositories with multiple worktrees. A narrow profile must
-exclude unrelated optional services, preserve required base dependencies, and
-transition without losing data. Resource reporting must stay bounded and must
-not stop another workspace. Benchmark a documented workload before and after
-each optimization; do not infer pressure from container count alone.
-
-**Working context.** Profile/resource branch, coordinated with existing plans.
-**GATED on A3 — capacity intervention policy** for any automatic action.
-**Release-note claim.** Named task profiles reduce measured startup or resource
-cost; publish the workload and measurement conditions, not an unqualified speedup.
-
-## W7 — installed-tool compatibility and upgrades
-
-**Problem.** A repository pin, shell-resolved binary, provider agent, and delivered
-helper can disagree even though each appears individually installed.
-
-**Do.** Extend `src/core/tool-diagnostics.ts`, `src/core/upgrade.ts`,
-`src/core/managed-post-start.ts`, and existing package smoke coverage. Report
-resolved executable location and version, package provenance when available,
-provider version, helper compatibility, and relevant Docker context. A mismatched
-or shadowed executable must produce an actionable preflight failure before
-mutation. Do not install a second CLI inside managed consumer images.
-
-Define a tested compatibility matrix for Devrouter, provider, Docker/Compose,
-host OS/architecture, and runtime toolchain. Scope guarantees to tested cells.
-Pin provider agents and distribution artifacts with integrity checks; distinguish
-verified cached availability from first acquisition requiring network. Handle
-unsupported or newer versions explicitly rather than assuming compatibility.
-
-Use explicit upgrades, a canary consumer, and known-good package provenance.
-Keep an active operation on one coherent helper/protocol version. Document
-whether state remains readable by the previous release before claiming rollback.
-Host PATH and shell wrapper repairs should be suggested, not performed silently.
-No global auto-update or machine-wide reinstall belongs in ordinary ensure.
-
-**Check.** Extend `scripts/package-smoke.sh` and tool diagnostics tests with
-shadowed executables, incompatible helpers, missing verified agent cache,
-unsupported versions, offline cached use, and tampered artifacts. Verify the
-packed CLI rather than only `tsx` source execution. Test supported provider
-combinations in disposable fixtures before publishing compatibility claims.
-
-**Working context.** Package/diagnostics branch; follow existing package-proof
-roadmap rather than creating a parallel distribution harness.
-**GATED on A4 — supported platform matrix** for support commitments.
-**Release-note claim.** Compatibility problems are diagnosed before mutation;
-each advertised combination has installed-package evidence.
-
-## W8 — cross-repository reliability qualification
-
-**Problem.** Unit tests can pass while packaging, browser behavior, concurrency,
-or recycled runtime state still prevents a developer from working.
-
-**Do.** Extend existing package, routing, devcontainer, profile, and workspace
-smoke scripts. Keep a small layered portfolio: fast deterministic contract tests,
-installed CLI tests, and a bounded live qualification matrix. Use a minimal
-Node application, a minimal non-Node application, and a separately approved
-multi-app consumer. Repositories own semantic smoke tasks; Devrouter owns generic
-lifecycle assertions. Do not copy full consumer test suites into Devrouter.
-
-Run ordinary disposable fixture tests per relevant change and broader provider
-qualification on scheduled or release-candidate runs. Fault injection must target
-an isolated VM or runner, not a shared developer runtime. Each run records exact
-package digest/version, source revision, provider/toolchain matrix, profile,
-cache state, phase timings, result, and sanitized failure classification.
-
-| Journey | Required assertion |
-| --- | --- |
-| Fresh checkout and cached-cold start | Documented prerequisites reach the declared functional smoke; no hidden manual setup |
-| Warm ensure and stopped resume | No unnecessary install/rebuild; fresh liveness and correct proof reuse |
-| Input change and dev/build alternation | Required outputs regenerate; incompatible writers cannot corrupt each other |
-| Cancellation, reset failure, provider recycling | Recovery remains exact-workspace scoped and preserves declared persistent data |
-| Parallel repositories, unrelated churn, DNS/TLS and browser auth | One lifecycle operation leaves the other workspace usable; browser and CLI address the intended routes |
-
-Add focused negative cases for delayed health, dependency outage, disk-full or
-permission failure, stale ownership, and unavailable observation. Avoid the
-Cartesian product: choose pairwise coverage plus explicit high-risk combinations
-and document untested cells. A failed attempt remains a failure in the report
-even if a retry succeeds; classify flaky recovery rather than laundering it.
-
-**Check.** The approved matrix passes against the installed release candidate.
-Revert one representative guard and show its regression test fails. Preserve
-bounded failure artifacts, report skipped cases, and prove fixture-only cleanup.
-An advertised release gate requires CI wiring and a successful gate run, not
-merely scripts in the repository.
-
-**Working context.** Qualification branch; coordinate scripts with existing
-package-proof work. **Gates.** A4 — supported platform matrix and
-A5 — qualification infrastructure before live destructive fault tests.
-**Release-note claim.** The named release candidate passes a published, bounded
-qualification matrix. Never describe all environments as universally bulletproof.
-
-## Success measures and release acceptance
-
-Measure time to usable application, not time until the provider command exits.
-Separate active agent effort, unattended waiting, first-attempt success, repeated
-recovery attempts, and manual interventions. Report cold, cached-cold, warm, and
-stopped-resume cohorts separately, with profile and machine class.
-
-Provisional targets for a cached minimal fixture are warm ensure below 10 seconds,
-stopped resume through functional smoke below 60 seconds, and cached-cold startup
-below 3 minutes. These are hypotheses for baseline comparison, not commitments
-for an arbitrary monorepo or uncached network install. Establish sample counts,
-variance, and a percentile target before using them as release gates.
-
-The correctness gate is stricter: qualification must observe no cross-workspace
-mutation, unauthorized data deletion, secret disclosure, false application-ready
-claim, or orphaned owned process after completed stop. A single violation blocks
-the affected release claim. Passing a finite suite is bounded evidence, not proof
-that these events are impossible.
-
-A release candidate should carry five evidence groups: supported matrix and
-package provenance; fresh and warm functional journeys; recovery and isolation;
-measured latency/resource change; and open gaps with rollback constraints. Source
-review, CI success, package publication, installed adoption, and consumer live
-proof remain separately recorded stages.
-
-## Decisions required before affected implementation
-
-| Decision | Options and recommendation | Hard stop |
+| Decision | Recommended initial resolution | Boundary |
 | --- | --- | --- |
-| A1 — probe side effects | Default to read-only transport/shape probes. Permit login or synthetic writes only through an explicitly selected repository smoke task with isolated fixtures and cleanup rules. | New automatic application probe execution in W2 — meaningful readiness and reuse |
-| A2 — generated-state repair policy | Recommend diagnose and offer exact repair first. Opt-in automatic quarantine may follow proven ownership; never automatic database reset or broad deletion. | Automatic invalidation in W4 — artifact and toolchain isolation |
-| A3 — capacity intervention policy | Recommend advisory budgets first. Automatic queueing or idle suspension changes user control and needs separate policy and active-work protection. | Automatic resource actions in W6 — right-sized profiles and capacity visibility |
-| A4 — supported platform matrix | Recommend a small explicit matrix based on actual adoption, then add cells only with evidence. Do not imply Windows, every provider, or every Docker version is qualified. | Support promises in W7 — installed-tool compatibility and upgrades and W8 — cross-repository reliability qualification |
-| A5 — qualification infrastructure | Recommend isolated disposable runners or VMs with bounded cost and synthetic data. Choose ownership, budget, retention, and provider licensing before provisioning. | Infrastructure creation and reset/failure injection in W8 — cross-repository reliability qualification |
+| A1 — Application probe side effects | Read-only recurring checks; approved isolated auth/synthetic-write startup smoke | No automatic writes outside the adopted repository contract |
+| A2 — Generated-state repair | Exact declared outputs only; opt-in bounded quarantine with writer exclusion | Never source/secret/database/general cache deletion |
+| A3 — Capacity intervention | P0 admission and parking of unusable opted-in agent environments | No default healthy-active or human-pinned preemption |
+| A4 — Platform and harness matrix | One actually installed local Devsy/provider cell and one qualified harness mode for M1 | No blanket macOS/Linux/Windows/provider/desktop claims |
+| A5 — Qualification infrastructure | Disposable runner/VM, synthetic data, bounded spend and pressure | No destructive fault injection on the active developer host |
+| A6 — Host controller enrollment | Small user-level service, private IPC, single owner, approved state location | No implicit machine-wide install during ordinary ensure |
+| A7 — Continuation and operation replay | Resume only still-authorized tasks; replay only declared safe operations | No automatic replay of uncertain writes or cancelled tasks |
+| A8 — Initial budgets and thresholds | Conservative phase estimates, protected headroom, startup/heavy slots, measured canary tuning | No invented universal free-memory threshold or automatic limit increases |
 
-## Adoption and simplification
+## 19. Definition of done and ongoing maintenance
 
-Start with generic evidence and one representative consumer, then prove the same
-contract in a different language/runtime before distributing templates broadly.
-Consumer PRs should remove the superseded local workaround when the canonical
-path demonstrably covers its behavior. Preserve documented escape hatches;
-do not remove a supported mode merely to simplify testing.
+M1 is done only when the installed, enrolled stack passes the real two-environment journey and the relevant safety/fault matrix with an actual agent harness. Documentation, a new controller process, a green unit suite, or a successful startup alone is insufficient.
 
-Prefer deleting a redundant step over adding a service to manage it. Examples
-include replacing repeated manual dependency builds with the existing preparation
-hook, replacing parallel bootstrap scripts with a repository-owned task, and
-replacing repeated chat log reconstruction with one bounded diagnostic result.
-Do not solve package-manager, provider, and application defects with a growing
-set of repository-name conditionals in Devrouter.
+For every subsequent support addition, name its contract, owner, qualified versions/modes, exact tests, known gaps, and rollback constraints. Keep capabilities and policy generic; remove consumer workarounds when the canonical path demonstrably replaces them.
 
-External dependencies are explicit: provider fixes may require upstream reports;
-application maintainers must own synthetic auth/flag fixtures; package managers
-and frameworks determine valid artifact locations; qualification runners need
-separate operational ownership. Investigate upstream behavior with current
-primary documentation before designing version-specific implementation.
+Every production-of-the-tool release claim must separate startup correctness, continuous infrastructure recovery, capacity control, application readiness, and harness integration. A lower-tier or unqualified mode is not silently covered by a higher-tier claim elsewhere.
 
-## Review and progress
+The long-term operating loop is: observe recurring incident classes, reproduce them in isolated fixtures, improve deterministic prevention or bounded recovery, and add regression evidence. Do not grow a collection of repository-name conditionals, agent prompts, or speculative cleanup commands around unresolved lifecycle problems.
 
-For each future item, retain the base/head, complete diff, affected contracts,
-focused checks, installed/live proof where applicable, unresolved decisions, and
-next authority boundary. Review lifecycle and artifact changes for ownership,
-data integrity, failure behavior, and unnecessary complexity. A reviewer must
-check that the implementation composes with existing PRs and does not weaken
-guardrails to meet timing targets.
+The final product expectation remains:
 
-2026-09-06: Proposed roadmap drafted from current Devrouter source, existing
-project records, open PR state, and incident-derived consumer hypotheses.
-Independent review is pending. No implementation or live qualification is
-claimed. The documentation package is intended for a draft PR; roadmap agreement
-and subsequent execution approval remain distinct.
+> Start once. Receive truthful readiness. Let infrastructure handle supported failures. Wait without model churn when resources are unavailable. Stop unusable opted-in runtimes when safe. Resume only after fresh admission and proof. Preserve user work and expose uncertainty rather than hiding it.
+
+## 20. Source and design references
+
+Repository references are pinned where they describe the inspected baseline. Implementation must refresh current branch/PR state before editing. External references were checked on 2026-09-06; they explain available mechanisms, not a qualification result for the user's installed tools.
+
+| Reference | Source |
+| --- | --- |
+| [R1] | Original roadmap at the inspected PR #57 head |
+| [R2] | PR #56 reset-failure recovery |
+| [R3] | Architecture and state ownership |
+| [R4] | Managed lifecycle, stop, and resource-reporting contract |
+| [R5] | Generic process lifecycle helper |
+| [R6] | Workspace ownership record implementation |
+| [R7] | Historical profiles/leases plan |
+| [R8] | Consumer devcontainer contract |
+| [R9] | Installed-package proof roadmap |
+| [R10] | Repository change-and-verification map |
+| [E1] | Docker restart policies |
+| [E2] | Compose startup/dependency ordering |
+| [E3] | Docker resource constraints |
+| [E4] | Linux cgroup v2 memory interfaces |
+| [E5] | Linux Pressure Stall Information |
+| [E6] | Docker pause semantics |
+| [E7] | Codex App Server |
+| [E8] | Codex hooks |
+| [E9] | Claude Code hooks |
+
+[R1]: https://github.com/rschlaefli/devrouter/blob/8fedc5caaf28c815f8e78e17e687f0c6bb5d24d7/docs/project/2026-09-06-local-environment-reliability-roadmap.md "Original PR #57 roadmap at the reviewed head"
+[R2]: https://github.com/rschlaefli/devrouter/pull/56 "Reset-failure retained-state recovery PR"
+[R3]: https://github.com/rschlaefli/devrouter/blob/e8f7549cbc2206604e997c0f07d836c390f302c2/docs/knowledge/architecture-and-ownership.md "Architecture and state ownership"
+[R4]: https://github.com/rschlaefli/devrouter/blob/e8f7549cbc2206604e997c0f07d836c390f302c2/docs/knowledge/managed-environment-lifecycle.md "Managed environment lifecycle and current stop/resource-reporting semantics"
+[R5]: https://github.com/rschlaefli/devrouter/blob/e8f7549cbc2206604e997c0f07d836c390f302c2/bin/devrouter-process "Generic process lifecycle helper"
+[R6]: https://github.com/rschlaefli/devrouter/blob/e8f7549cbc2206604e997c0f07d836c390f302c2/src/core/workspace-ownership.ts "Inspected workspace ownership record"
+[R7]: https://github.com/rschlaefli/devrouter/blob/e8f7549cbc2206604e997c0f07d836c390f302c2/docs/project/2026-08-24-profiles-leases-resource-plan.md "Historical profiles and leases plan"
+[R8]: https://github.com/rschlaefli/devrouter/blob/e8f7549cbc2206604e997c0f07d836c390f302c2/docs/knowledge/consumer-devcontainer-contract.md "Consumer devcontainer contract"
+[R9]: https://github.com/rschlaefli/devrouter/blob/e8f7549cbc2206604e997c0f07d836c390f302c2/docs/project/2026-08-15-packaged-cli-command-release-proof-roadmap.md "Existing installed-package proof roadmap"
+[R10]: https://github.com/rschlaefli/devrouter/blob/e8f7549cbc2206604e997c0f07d836c390f302c2/docs/knowledge/change-and-verification-map.md "Repository verification map"
+[E1]: https://docs.docker.com/engine/containers/start-containers-automatically/ "Docker restart policies and restart-manager interaction"
+[E2]: https://docs.docker.com/compose/how-tos/startup-order/ "Compose startup and dependency ordering"
+[E3]: https://docs.docker.com/engine/containers/resource_constraints/ "Docker memory/resource constraints"
+[E4]: https://docs.kernel.org/admin-guide/cgroup-v2.html "Linux cgroup v2 memory interfaces and OOM counters"
+[E5]: https://docs.kernel.org/accounting/psi.html "Linux Pressure Stall Information"
+[E6]: https://docs.docker.com/reference/cli/docker/container/pause/ "Docker pause semantics"
+[E7]: https://developers.openai.com/codex/app-server "Codex App Server thread and turn lifecycle"
+[E8]: https://developers.openai.com/codex/hooks "Codex hooks and tool-coverage limitations"
+[E9]: https://code.claude.com/docs/en/hooks "Claude Code hook decisions, defer constraints, and timeout behaviour"
