@@ -322,3 +322,34 @@ passed; verified simplifier reduction removes a single-use helper without behavi
 change (22 affected tests pass). Reviews are retained under `_local/reviews/`.
 Lifecycle progress derived plan approved by Euclid in round 2; implementation and
 focused regression checks are in progress. Both prior reviewer children closed.
+
+### Installed diagnostics and remaining source inventory
+
+Lifecycle progress committed at `734414d76a8e2658bc0ed0be894919e473a34321`;
+189 focused tests and typecheck/Biome/knip/docs-policy/knowledge passed. Profile
+simplifier reduction committed separately at `207edd2`. The progress simplifier
+found no justified reduction; IPC safety review is running on that exact range.
+The installed lifecycle qualifier's first attempt failed because its harness
+parsed merged stdout/stderr as JSON. Main owns the bounded correction in existing
+`scripts/qualify-lifecycle.ts`: retain merged error diagnostics, parse only stdout,
+and verify installed progress separately. This extends the package compatibility
+portfolio without changing CLI behavior or adding a new fixture.
+
+A read-only capacity inventory found runtime-unwired park/resume events and
+unbound recovery policy dimensions. Main verified the hardcoded false dwell input
+and aggregate-only recovery dispatch. Do not implement the explorer's proposed
+simple wiring: pressure provenance, exact stop effects, durable charge settlement,
+consumer pins, cancellation and restart clocks need a derived design first.
+Existing reserved scheduler knobs stay distinguished from recovery obligations.
+The recorded citation consumer owner reports no new ensure after its historical
+mismatch and only a previous stopped/zero-routes checkpoint; recovery remains
+unknown pending exact runtime and provenance evidence.
+
+Executor owns the final existing doctor seam: `src/core/doctor.ts` and its current
+test suite. Reuse committed profile-report notices for warning-only full expansion
+with fixed dimensions and the named-default remedy; preserve resolver membership.
+Existing version compatibility levels stay unchanged, with installed and repo
+metadata shown separately in diagnostic details. Missing version is unknown;
+an older repo pin is not a runtime failure. No new schema or module. Acceptance:
+focused doctor tests/typecheck and unchanged profile resolution evidence. Main
+retains all worker/qualifier paths, so writes remain disjoint.
