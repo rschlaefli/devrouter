@@ -245,15 +245,25 @@ byte-identical to its CI-green revision, so measured optimization owns the real
 fix.
 
 Review state: the configured slice-reviewer route did not return after roughly
-twenty-five minutes, and the configured simplifier role failed on the account's
-ChatGPT usage limit. Both passes therefore ran on opencodex-routed executors with
-their briefs unchanged, and the substitutions are material differences from the
-configured roles. The simplifier completed read-only over `2cae3f7..34dfbde` with
-no blockers; its one substantive follow-up is that the production `capacity`
-directive has no test, so the proof covers the monitor side and the reliability
-model rather than the controller's own park, parkedStop and resume decisions. The
-gating slice-reviewer substitute is still outstanding, so the source slice is
-delivered but its risk gate is not yet closed.
+twenty-five minutes, the configured simplifier role failed on the account's
+ChatGPT usage limit, and the opencodex-routed substitute reviewer then failed with
+429 responses. Both gates are withdrawn on capability rather than disposition, and
+each substitution is a material difference from its configured role. The
+simplifier substitute did complete read-only over `2cae3f7..34dfbde` with no
+blockers and one substantive follow-up: the production `capacity` directive had no
+test, so the proof covered the monitor side and the reliability model rather than
+the controller's own park, parkedStop and resume decisions. `22ff5f5` closes the
+refusal half of that. Five tests prove parking refuses before target resolution
+while recovery is disabled, refuses an unenrolled environment, and refuses without
+sustained pressure evidence; that resume refuses without normal dwell; and that a
+parked stop refuses after a policy change. Two assertions pin which gate refused,
+so the recovery-disabled case fails if that guard is removed. The success path
+still has no test. The source slice is delivered but its risk gate is not closed.
+
+Focused evidence for the delivered range: `tsc --noEmit` clean, `biome check`
+clean over the repository, and 385 tests pass across the eight capacity,
+controller and reliability files. The full suite still carries the watch gap
+fixture above, so it is not yet a green signal on this host.
 
 Next slice: scoped and windowed recovery budgets. Policy already parses
 `maxProcessRestarts`, `maxServiceRestarts` and `windowSeconds`, and roadmap
