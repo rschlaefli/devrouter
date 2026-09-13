@@ -353,3 +353,79 @@ metadata shown separately in diagnostic details. Missing version is unknown;
 an older repo pin is not a runtime failure. No new schema or module. Acceptance:
 focused doctor tests/typecheck and unchanged profile resolution evidence. Main
 retains all worker/qualifier paths, so writes remain disjoint.
+
+### Diagnostic package delivery checkpoint
+
+Current draft: [PR #100](https://github.com/rschlaefli/devrouter/pull/100),
+head `de22e1a25ccd9bd9e42d52a139ecc98ae98fa119`. Main progress IPC review passed;
+doctor review passed. Installed protocol qualifier passed with30 evidence
+claims, separate stdout/stderr assertions and no live provider. Receipt records
+source `734414d` plus dirty qualifier changes; CLI/worker bytes match that source.
+The test-only correction is committed at `27fd113`. Doctor/profile38 tests pass.
+Full default-concurrency suite:2298 passed,5 timing failures across4 suites.
+Those4 suites pass53 tests at maxWorkers=2; full bounded-concurrency confirmation
+passed all 2,303 tests in 143 files. Linux CI also passed the process-helper
+reconciliation suite, package smoke and controller/capacity qualifiers. No test timeout or production behavior was changed to hide failures.
+
+Live ordinary canary qualification is approval-blocked: automatic approval review
+rejected exact startup under the original other-workspace restriction. Pending
+explicit user question names the existing eLearning canary, start/warm/stop/resume,
+retained synthetic verification and final non-destructive stop. No startup ran.
+Read-only exact registration/container proof found Stopped, zero routes, and
+6GiB/512MiB/256MiB memory-plus-swap limits. Citation has zero exact routes only;
+its runtime recovery remains unknown. Unaffected source and installed fixtures
+continue. No global0.1.0 installation or release has occurred.
+
+Main identified another prerequisite before parking: capacity submissions persist
+a generic unpinned controller consumer, while live session leases/requirements
+are owned by ControllerSessions. Parking cannot safely trust that synthetic
+consumer as a live task or pin. The derived controller design must bridge exact
+session generation/lease and stop fences before adding automatic stop/resume.
+A read-only advisor is running on this seam and residual-charge/pressure design.
+
+### Session submission fencing prerequisite
+
+Doctor review and simplifier passed at `de22e1a25ccd9bd9e42d52a139ecc98ae98fa119`.
+The full bounded suite passed 2,303 tests; Linux CI run 34752913310 passed source,
+process-helper, package, controller and capacity checks on that exact head.
+The advisor's proposed stop-settlement repair already exists: the lifecycle test
+suite reproduces crash-after-release and re-proves physical stop before clearing
+the binding. Reuse it; automatic park-stop continuation remains a later obligation.
+Do not clear a missing reservation merely from its absence.
+
+Next delta extends the existing consumer-session and operation primitives. The
+server validates a session before asynchronous enrollment, but the submission
+can outlive that lease or generation. Main owns the design; executor owns existing
+`src/core/controller-server.ts`, `src/core/capacity-controller.ts`, and their
+`controller-server.test.ts`, `capacity-controller.test.ts`, and
+`capacity-controller-integration.test.ts` suites. No new files or wire schema.
+
+Pass a required synchronous session-validation callback as the fourth internal
+submit argument. It ticks current monotonic/wall clocks, validates exact store,
+epoch, generation and environment binding, and returns a bounded consumer with
+an ID hashed from the complete binding and requirements mapped through the
+existing controllerCapability function. Its consumer is unpinned because the
+current public observation contract grants no pin; a separate explicit pin
+contract remains required before automatic parking. Replace the synthetic
+controller consumer only for new submitted operations.
+
+Capacity submission calls the callback before enrollment, again immediately
+before journal preparation after asynchronous resolution, and after awaited
+startup-witness publication immediately before enqueue. No await occurs between
+the final validation and enqueue. On failure after new preparation, retire that
+exact undispatched request. Preserve durable idempotency of already accepted
+operations and uncertain-completion rules. Session release after accepted enqueue
+does not cancel or replay it; cancellation of accepted work belongs to the later
+harness contract. Enrollment remains the existing operator-approved stopped
+conversion; this delta fences operation creation and enqueue, not provider mutation.
+
+Acceptance extends the capacity/intent portfolio: hold enrollment then expire or
+release the exact session and assert no preparation/enqueue; hold witness then
+invalidate generation and assert exact retirement/no enqueue; a current session
+submits normally with its mapped requirements; reconnect returns the accepted
+operation. Server protocol tests exercise the real callback against release and
+same-ID reacquisition; integration fixtures supply an explicit synthetic validator.
+Run focused three suites, typecheck, Biome and Knip. No live runtime is needed.
+This prerequisite does not claim complete parking, live lease-to-journal sync,
+human pins, or actual harness enforcement. Review this derived delta internally
+before implementation and continue the approved batch.
