@@ -212,8 +212,10 @@ fixture and live evidence separately; unknown/skipped is never a pass.
 
 ### Progress
 
-Status: implementing slice 4 parking/resume integration. Source is reviewed and
-CI-green at `2cae3f76145c574601ed438fed9b9d72a768068c` with 2,545 tests in 143 files.
+Status: slice 4 (parking/resume integration), the agent-facing status slice and
+the production-directive success coverage are delivered; scoped and windowed
+recovery budgets are next. Source is reviewed and CI-green at
+`2cae3f76145c574601ed438fed9b9d72a768068c` with 2,545 tests in 143 files.
 Delivered prerequisites include diagnostics, submission/recovery fences, durable
 human pins and consumer consent, controller/capacity history-loss refusals,
 pressure-duration evidence, exact-set parking observation, restart-stable bindings
@@ -257,8 +259,13 @@ refusal half of that. Five tests prove parking refuses before target resolution
 while recovery is disabled, refuses an unenrolled environment, and refuses without
 sustained pressure evidence; that resume refuses without normal dwell; and that a
 parked stop refuses after a policy change. Two assertions pin which gate refused,
-so the recovery-disabled case fails if that guard is removed. The success path
-still has no test.
+so the recovery-disabled case fails if that guard is removed. The success path now
+has coverage: `ce7d683` proves a park resting on 2s of tracker-accumulated pressure
+commits intent and drives exactly one stop with the exact identity, policy
+revision, revision and failed-capability gate, and that a resume resting on 3s of
+normal dwell enqueues one automatic resume. Each assertion fails if its pressure
+gate is weakened, because the driven samples only reach the window through the
+real collector cadence.
 
 `404fc8d` closes the blocker and both should-fix items. Blocker: an incomplete
 committed park was re-driven only from the live session snapshot, so a crash after
@@ -287,6 +294,19 @@ ensure in the same state does not, and that a mismatched automatic-resume
 reference is rejected. 449 tests pass across the ten capacity, controller and
 reliability files with a host context for process-identity inspection; typecheck,
 repository Biome, Knip and the docs-policy check are clean.
+
+Slice review of `404fc8d` returned DONE with no blockers. The reviewer confirmed
+that the durable re-drive re-proves every policy, controller, worker, revision,
+enrollment, drain and physical-cessation fact under the per-journal lock; that
+the live loop now resumes only settled parks while the scan is the sole,
+throttled re-driver; that the lifetime signal refuses to start a decision after
+shutdown yet leaves an already-dispatched stop unsupervised, which the physical
+serialization and fence claims make safe; and that the automatic-resume restore
+is fence-pinned and lifecycle-tested. Three non-blocking notes remain: a human pin
+set after a park commits cannot cancel the owed stop, which matches
+commit-then-prove semantics; a transient journal enumeration failure delays the
+next scan by ten seconds, which stays fail-closed; and a restore that itself
+throws leaves running intent for an operator ensure to supersede.
 
 Focused evidence for the delivered range: `tsc --noEmit` clean, `biome check`
 clean over the repository, and 385 tests pass across the eight capacity,
