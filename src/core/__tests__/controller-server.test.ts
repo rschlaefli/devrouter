@@ -341,6 +341,7 @@ it("keeps status responsive during an operation watch and binds submission to it
       expect.objectContaining({ requestId: "durable-request" }),
       expect.objectContaining({ repoPath: "/fixture/checkout", providerId: "provider" }),
       expect.any(AbortSignal),
+      expect.any(Function),
     );
     const watched = first.request({
       ...acquired.result,
@@ -379,6 +380,111 @@ it("keeps status responsive during an operation watch and binds submission to it
   } finally {
     finishWatch({});
     first.socket.destroy();
+    second.socket.destroy();
+  }
+});
+
+it("fences submitted operations through the real session callback across release and reacquisition", async () => {
+  const { controllerRequest, submitControllerOperation } = await import("../controller-client");
+  const settle: Array<() => void> = [];
+  const submit = vi.fn(
+    (...args: unknown[]) =>
+      new Promise<unknown>((resolve) => {
+        settle.push(() =>
+          resolve({
+            operation: {
+              operationId: "accepted",
+              phase: "queued",
+              outcome: null,
+              reason: null,
+              exitCode: null,
+            },
+          }),
+        );
+        void args;
+      }),
+  );
+  const operations: ControllerOperations = { submit, watch: vi.fn() };
+  const { directory } = await fixture(undefined, operations);
+  const client = connect(directory);
+  const second = connect(directory);
+  try {
+    await client.request({ method: "handshake" });
+    await second.request({ method: "handshake" });
+    let binding: any;
+    await controllerRequest(
+      directory,
+      {
+        method: "observe",
+        path: "/fixture/checkout",
+        session: "operator",
+        profile: "web",
+        require: ["runtime", "app:web"],
+      },
+      (value: any) => {
+        binding = value.result;
+      },
+    );
+
+    const held = submitControllerOperation(
+      directory,
+      { ...binding, requestId: "first", kind: "ensure" },
+      { waitSeconds: 0 },
+    );
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    const callback = submit.mock.calls[0][3] as () => {
+      id: string;
+      requiredCapabilities: string[];
+      pinned: boolean;
+    };
+    expect(typeof callback).toBe("function");
+    const consumer = callback();
+    expect(consumer).toEqual({
+      id: expect.stringMatching(/^session-[a-f0-9]{64}$/),
+      requiredCapabilities: [controllerCapability("app:web"), "runtime"],
+      pinned: false,
+    });
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "first", kind: "ensure" }),
+      expect.objectContaining({ repoPath: "/fixture/checkout", providerId: "provider" }),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
+
+    // The exact callback rejects once its session is released, with the
+    // submission still held open on a live socket.
+    expect((await second.request({ ...binding, method: "release" })).ok).toBe(true);
+    expect(() => callback()).toThrow("stale or absent");
+
+    // Same-ID reacquisition rebuilds the callback with a fresh generation while
+    // the original socket stays open.
+    const reacquired = await client.request({
+      method: "observe",
+      path: "/fixture/checkout",
+      session: "operator",
+      profile: "web",
+      require: ["runtime", "app:web"],
+    });
+    expect(reacquired.result.generation).not.toBe(binding.generation);
+    expect(() => callback()).toThrow("stale or absent");
+    const reHeld = submitControllerOperation(
+      directory,
+      { ...reacquired.result, requestId: "released", kind: "ensure" },
+      { waitSeconds: 0 },
+    );
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(2));
+    const reCallback = submit.mock.calls[1][3] as () => { id: string };
+    expect(reCallback).not.toThrow();
+    expect(reCallback().id).not.toBe(consumer.id);
+    expect(reCallback().id).toBe(reCallback().id);
+
+    settle[0]();
+    expect(await held).toMatchObject({ status: "pending", operationId: "accepted" });
+    settle[1]();
+    expect(await reHeld).toMatchObject({ status: "pending", operationId: "accepted" });
+    expect(submit).toHaveBeenCalledTimes(2);
+  } finally {
+    client.socket.destroy();
     second.socket.destroy();
   }
 });

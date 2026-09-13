@@ -7,6 +7,7 @@ import type { CapacityDomainSample } from "../capacity-accounting";
 import { createCapacityController } from "../capacity-controller";
 import type { CapacityPolicy, CapacityPolicyEnrollment } from "../capacity-policy";
 import { CapacityStore } from "../capacity-store";
+import type { ControllerSessionValidator } from "../controller-server";
 import { ControllerStore } from "../controller-store";
 import { reliabilityFence } from "../reliability-contract";
 import { stepReliability } from "../reliability-model";
@@ -181,6 +182,13 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/** Explicit synthetic session proof: integration fixtures own no live sessions. */
+const submitValidator: ControllerSessionValidator = () => ({
+  id: "synthetic-consumer",
+  requiredCapabilities: [],
+  pinned: false,
+});
+
 function seedStopped(identity: ReliabilityIdentity, enrollment: CapacityEnrollmentBinding): void {
   updateReliabilityOperation(identity, (record) => {
     let transition = stepReliability(
@@ -339,6 +347,7 @@ it.each([
       { ...binding, requestId: "prepare", kind: "ensure" },
       current,
       new AbortController().signal,
+      submitValidator,
     );
     await active.tick();
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -402,6 +411,7 @@ it.each([
       { ...binding, requestId: "exec", kind: "exec", command: ["synthetic-command"] },
       current,
       new AbortController().signal,
+      submitValidator,
     );
     await active.tick();
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -525,6 +535,7 @@ it("admits a cold witnessed ensure and retains authority through unknown witness
       },
       current,
       new AbortController().signal,
+      submitValidator,
     );
     const queued = readReliabilityOperation(identity)!;
     expect(queued.startupWitness).toMatchObject({
@@ -595,6 +606,7 @@ it("retires the queued ensure when startup witness publication fails", async () 
         },
         current,
         new AbortController().signal,
+        submitValidator,
       ),
     ).rejects.toThrow("witness unavailable");
     const retired = readReliabilityOperation(identity)!;
@@ -708,6 +720,7 @@ it.each([
     },
     first,
     new AbortController().signal,
+    submitValidator,
   )) as { operation: { operationId: string; phase: string } };
   const secondSubmitted = (await active.submit(
     {
@@ -723,6 +736,7 @@ it.each([
     },
     second,
     new AbortController().signal,
+    submitValidator,
   )) as { operation: { operationId: string; phase: string } };
   const firstOperation = firstSubmitted.operation;
   const secondOperation = secondSubmitted.operation;
@@ -949,6 +963,7 @@ it.each([
     },
     first,
     new AbortController().signal,
+    submitValidator,
   );
   expect(reconnected).toMatchObject({
     operation: {
@@ -1045,6 +1060,7 @@ it.each([
       },
       current,
       new AbortController().signal,
+      submitValidator,
     );
     if (mode === "snapshot-race" || mode === "policy-drift" || mode === "epoch-drift") {
       await expect(active.tick()).rejects.toThrow(Error);

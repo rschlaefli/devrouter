@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -5,6 +6,7 @@ import {
   ControllerMonitor,
   type ControllerObservationCollector,
   type ControllerRecovery,
+  controllerCapability,
 } from "./controller-monitor";
 import { type ControllerRequest, parseControllerRequest } from "./controller-protocol";
 import { ControllerSessions } from "./controller-sessions";
@@ -15,6 +17,7 @@ import {
 } from "./controller-store";
 import { withFileLock } from "./file-lock";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
+import type { ReliabilityConsumer } from "./reliability-contract";
 
 const FRAME_BYTES = 65_536;
 function privateDirectory(directory: string) {
@@ -57,6 +60,33 @@ export type ControllerResolver = (
   signal: AbortSignal,
 ) => Promise<ControllerEnvironment>;
 
+/**
+ * Synchronous liveness proof for one consumer binding. It ticks the controller
+ * clocks, validates the exact store/epoch/generation binding against the
+ * expected environment, and derives a bounded consumer identity from the
+ * session identity plus requirements. It never awaits, so a caller that runs it
+ * immediately before enqueue cannot be interleaved with a later release or
+ * expiry, and watch or recovery never reuse it.
+ */
+export type ControllerSessionValidator = () => ReliabilityConsumer;
+
+function sessionConsumer(input: {
+  store: string;
+  epoch: number;
+  session: string;
+  generation: string;
+  requirements: string[];
+}): ReliabilityConsumer {
+  const { store, epoch, session, generation, requirements } = input;
+  const requiredCapabilities = [...new Set(requirements)].sort().map(controllerCapability);
+  // Hash only the session identity: every request from one session keeps the
+  // same consumer, so a reconnect under the same generation stays idempotent.
+  const id = `session-${createHash("sha256")
+    .update(JSON.stringify([store, epoch, session, generation]))
+    .digest("hex")}`;
+  return { id, requiredCapabilities, pinned: false };
+}
+
 export type ControllerOperations = {
   tick?: () => Promise<void>;
   close?: () => void;
@@ -65,6 +95,7 @@ export type ControllerOperations = {
     request: Extract<ControllerRequest, { method: "operation-submit" }>,
     environment: ControllerEnvironment,
     signal: AbortSignal,
+    validate: ControllerSessionValidator,
   ) => Promise<unknown>;
   watch: (
     request: Extract<ControllerRequest, { method: "operation-watch" }>,
@@ -301,12 +332,13 @@ export async function runController(options: {
           let deadline: ReturnType<typeof setTimeout> | undefined;
           let environment: ControllerEnvironment;
           const validate = serial.then(() => {
+            if (!operations) throw new Error("Managed operations unavailable.");
             sessions.tick(monotonic(), Date.now());
             const session = sessions.validate(operationRequest);
             const bound = sessions
               .read()
               .environments.find((entry) => entry.id === session.environmentId);
-            if (!bound || !operations) throw new Error("Managed operations unavailable.");
+            if (!bound) throw new Error("Session environment is unavailable.");
             environment = bound;
           });
           serial = validate.catch(() => {});
@@ -317,7 +349,36 @@ export async function runController(options: {
               if (!operations) throw new Error("Managed operations unavailable.");
               const handler =
                 operationRequest.method === "operation-submit"
-                  ? operations.submit(operationRequest, environment, abort.signal)
+                  ? operations.submit(
+                      operationRequest,
+                      environment,
+                      abort.signal,
+                      (() => {
+                        // Invocation-local proof for this submission only: it
+                        // re-ticks the clocks, revalidates the exact session
+                        // against the expected environment, and derives the
+                        // bounded consumer.
+                        const validateSession: ControllerSessionValidator = () => {
+                          if (abort.signal.aborted)
+                            throw new Error("Session validation was cancelled.");
+                          sessions.tick(monotonic(), Date.now());
+                          const session = sessions.validate(operationRequest);
+                          const bound = sessions
+                            .read()
+                            .environments.find((entry) => entry.id === session.environmentId);
+                          if (!bound || JSON.stringify(bound) !== JSON.stringify(environment))
+                            throw new Error("Session environment binding changed.");
+                          return sessionConsumer({
+                            store: operationRequest.store,
+                            epoch: operationRequest.epoch,
+                            session: operationRequest.session,
+                            generation: operationRequest.generation,
+                            requirements: session.requirements,
+                          });
+                        };
+                        return validateSession;
+                      })(),
+                    )
                   : operations.watch(operationRequest, environment, abort.signal);
               const result = await Promise.race([
                 handler,

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createCapacityController } from "../capacity-controller";
+import { controllerCapability } from "../controller-monitor";
+import type { ControllerSessionValidator } from "../controller-server";
 
 const fixture = vi.hoisted(() => ({
   policy: vi.fn(),
@@ -132,6 +134,46 @@ function controller(
     collect,
   });
 }
+
+const submissionValidator: ControllerSessionValidator = () => ({
+  id: "synthetic-consumer",
+  requiredCapabilities: [],
+  pinned: false,
+});
+
+function submissionFixture() {
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
+  fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
+  fixture.charge.mockReturnValue({ environmentId: "env", totals: { host: 1 } });
+  fixture.status.mockReturnValue({ operationId: "accepted", phase: "queued" });
+  fixture.prepare.mockReturnValue({
+    operationId: "accepted",
+    request: {
+      operationId: "accepted",
+      requestId: "stable",
+      fence: { environmentId: "env", intentRevision: 1, runtimeGeneration: 1, controllerEpoch: 1 },
+    },
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolveValue) => {
+    resolve = resolveValue;
+  });
+  return { promise, resolve };
+}
+
+const submission = {
+  ...binding,
+  method: "operation-submit" as const,
+  kind: "ensure" as const,
+  requestId: "stable",
+};
 
 function policyEnrollment(repoPath: string) {
   return { repoPath, workspace: null, provider: "devsy" as const };
@@ -319,6 +361,7 @@ it("does not begin enrollment after operator policy is paused", async () => {
       { ...binding, method: "operation-submit", requestId: "request", kind: "ensure" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).rejects.toThrow();
   expect(fixture.enroll).not.toHaveBeenCalled();
@@ -340,6 +383,7 @@ it("cancels in-flight enrollment when its owning controller closes", async () =>
     { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
     environment,
     new AbortController().signal,
+    submissionValidator,
   );
   expect(enrollmentSignal?.aborted).toBe(false);
   active.close();
@@ -360,6 +404,7 @@ it("does not prepare work if policy changes while enrollment resolves", async ()
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).rejects.toThrow("policy changed");
   expect(fixture.prepare).not.toHaveBeenCalled();
@@ -393,6 +438,7 @@ it.each([
     { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
     environment,
     new AbortController().signal,
+    submissionValidator,
   );
   if (reject) {
     await expect(result).rejects.toThrow("queue full");
@@ -457,6 +503,7 @@ it("publishes the queued startup witness before enqueueing an ensure", async () 
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).resolves.toBeDefined();
   expect(fixture.witness).toHaveBeenCalledOnce();
@@ -496,6 +543,7 @@ it("retires the queued intent when startup witness publication fails", async () 
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).rejects.toThrow("witness fence changed");
   expect(fixture.retire).toHaveBeenCalledWith(prepared);
@@ -525,6 +573,7 @@ it("publishes no startup witness for exec submissions", async () => {
     },
     environment,
     new AbortController().signal,
+    submissionValidator,
   );
   expect(fixture.witness).not.toHaveBeenCalled();
   expect(fixture.enqueue).toHaveBeenCalledOnce();
@@ -550,6 +599,7 @@ it("does not enqueue a second payload when durable preparation joins", async () 
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).resolves.toMatchObject({ operation: { operationId: "accepted" } });
   expect(fixture.enqueue).not.toHaveBeenCalled();
@@ -575,9 +625,14 @@ it("rejects conflicting repeated operation metadata while the accepted payload i
     requestId: "stable",
     operation: "small",
   };
-  await active.submit(request, environment, new AbortController().signal);
+  await active.submit(request, environment, new AbortController().signal, submissionValidator);
   await expect(
-    active.submit({ ...request, operation: "large" }, environment, new AbortController().signal),
+    active.submit(
+      { ...request, operation: "large" },
+      environment,
+      new AbortController().signal,
+      submissionValidator,
+    ),
   ).rejects.toThrow("conflicts");
   expect(fixture.enqueue).toHaveBeenCalledOnce();
 });
@@ -613,6 +668,7 @@ it.each([
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).rejects.toThrow(Error);
   expect(fixture.prepare).not.toHaveBeenCalled();
@@ -890,5 +946,84 @@ it("leaves an operation the queue still owns alone", async () => {
 
   expect(fixture.hasOperation).toHaveBeenCalledWith("inflight");
   expect(fixture.prepareRecovery).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+it("does not prepare or enqueue an ensure whose session is released during enrollment", async () => {
+  submissionFixture();
+  const validator = vi.fn(submissionValidator);
+  validator.mockReturnValueOnce({
+    id: "synthetic-consumer",
+    requiredCapabilities: [],
+    pinned: false,
+  });
+  validator.mockImplementationOnce(() => {
+    throw new Error("session released during enrollment");
+  });
+  await expect(
+    controller().submit(submission, environment, new AbortController().signal, validator),
+  ).rejects.toThrow("session released during enrollment");
+  expect(validator.mock.calls.length).toBeGreaterThanOrEqual(2);
+  expect(fixture.prepare).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+  expect(fixture.retire).not.toHaveBeenCalled();
+});
+
+it("retires the exact undispatched request when the generation changes during witness", async () => {
+  submissionFixture();
+  const witnessHeld = deferred<void>();
+  const witnessEntered = deferred<void>();
+  let validateCalls = 0;
+  const validator = vi.fn<ControllerSessionValidator>(() => {
+    validateCalls += 1;
+    if (validateCalls >= 3) throw new Error("session generation changed");
+    return { id: "synthetic-consumer", requiredCapabilities: [], pinned: false };
+  });
+  fixture.witness.mockImplementation(async () => {
+    witnessEntered.resolve();
+    await witnessHeld.promise;
+  });
+  const pending = controller().submit(
+    submission,
+    environment,
+    new AbortController().signal,
+    validator,
+  );
+  await witnessEntered.promise;
+  witnessHeld.resolve();
+  await expect(pending).rejects.toThrow("session generation changed");
+  expect(validateCalls).toBe(3);
+  expect(fixture.retire).toHaveBeenCalledWith(fixture.prepare.mock.results[0].value.request);
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+it("maps current session requirements onto the submitted consumer", async () => {
+  submissionFixture();
+  const consumer = {
+    id: "hashed-binding",
+    requiredCapabilities: [controllerCapability("app:web"), "runtime"],
+    pinned: false,
+  };
+  const validator = vi.fn(() => consumer);
+  await expect(
+    controller().submit(submission, environment, new AbortController().signal, validator),
+  ).resolves.toMatchObject({ operation: { operationId: "accepted", phase: "queued" } });
+  expect(validator).toHaveBeenCalledTimes(3);
+  expect(validator).toHaveBeenCalledWith();
+  expect(fixture.prepare).toHaveBeenCalledWith(expect.objectContaining({ consumer }));
+});
+
+it("refuses a submission whose enrollment resolves a different environment", async () => {
+  submissionFixture();
+  fixture.enroll.mockResolvedValue({
+    environment: { ...environment, repoPath: "/elsewhere" },
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
+  const validator = vi.fn(submissionValidator);
+  await expect(
+    controller().submit(submission, environment, new AbortController().signal, validator),
+  ).rejects.toThrow("Capacity submission binding changed.");
+  expect(fixture.prepare).not.toHaveBeenCalled();
   expect(fixture.enqueue).not.toHaveBeenCalled();
 });

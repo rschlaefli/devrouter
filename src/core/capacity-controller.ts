@@ -182,12 +182,15 @@ export function createCapacityController(options: {
     }
   };
   return {
-    async submit(request, environment, signal) {
+    async submit(request, environment, signal, validate) {
       signal = AbortSignal.any([signal, lifetime.signal]);
       if (signal.aborted) throw new Error("Capacity submission unavailable.");
       const current = readCapacityPolicy(options.directory);
       if (current?.admissions !== "enabled" || !isDeepStrictEqual(current, policy))
         throw new Error("Capacity controller policy changed.");
+      // Prove the session before the first asynchronous step so a released or
+      // expired lease never reaches enrollment.
+      validate();
       const resolved = await enrollCapacityLifecycle(
         current,
         {
@@ -238,6 +241,10 @@ export function createCapacityController(options: {
         kind: request.kind,
         operation: request.operation,
       });
+      // Enrollment is asynchronous; re-prove the exact binding and map the
+      // session requirements onto the prepared consumer before any journal proof.
+      if (signal.aborted) throw new Error("Capacity submission binding changed.");
+      const initialConsumer = validate();
       const prepared = prepareManagedLifecycleOperation({
         identity,
         controller,
@@ -245,7 +252,7 @@ export function createCapacityController(options: {
         requestId: request.requestId,
         kind: request.kind,
         profile: environment.profile,
-        consumer: { id: "controller", requiredCapabilities: [], pinned: false },
+        consumer: initialConsumer,
         runtimeRunning:
           request.kind === "exec" &&
           Boolean(resolveRunningWorkspaceContainer(environment.repoPath)),
@@ -283,6 +290,10 @@ export function createCapacityController(options: {
         throw new Error("Operation request conflicts with its accepted payload.");
       if (prepared.request) {
         try {
+          // No await between this final proof and enqueue: a release or expiry
+          // that lands here retires the exact undispatched request instead of
+          // stranding queued work for an absent session.
+          validate();
           queue.enqueue(
             prepared.request,
             {
