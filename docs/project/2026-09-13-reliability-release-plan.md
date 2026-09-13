@@ -215,7 +215,9 @@ fixture and live evidence separately; unknown/skipped is never a pass.
 Status: implementing slice 4 source prerequisites. Diagnostics, submission and recovery
 fences, durable human protection, consumer consent and controller store-loss refusal
 are committed and reviewed through78ddda0. Capacity ledger-loss repair is implemented
-and CI-proven at001548c; review requested post-rename snapshot fault coverage. Goal active.
+and independently reviewed with post-rename snapshot fault coverage atc7515b5;
+CI34763896431 passed. Legacy positive-history detection and diagnostics are
+implemented with focused verification; independent slice review is next. Goal active.
 All seven slices retain integrated or live obligations. Required delivery is
 released and installed 0.1.0 with full roadmap qualification; achieved baseline
 is published 0.0.78, global installation last verified at 0.0.77.
@@ -229,7 +231,7 @@ was supplied. Other owner-retained manual-verification environments are protecte
 Planner construction completed. Round 1 requested explicit accountable owners,
 portfolio obligations, derived-delta checkpoint, ADR binding and Q evidence
 ownership; all five findings were accepted in this revision. The same planner approved the corrected draft in round 3; implementation reviews remain required. Prior roadmap reviews covered direction
-only. Current next action: close the capacity durability test correction, then implement
+only. Current next action: implement the internally hardened
 positive legacy-journal loss detection and continue exact-set parking and full-roadmap integration. Historical ownership and live qualification remain open.
 
 ### Active diagnostic deltas
@@ -1337,3 +1339,128 @@ The two new cases must reject acknowledgment under persistent sync failure and
 then preserve exact charges/revision on a durable retry. CI34763207992 passed
 at001548c, including installed controller/capacity qualification. Next legacy
 regression is separately uncommitted and excluded from this correction receipt.
+
+### Legacy capacity history and diagnosis (frozen draft)
+
+Primitive impact: extend the existing machine capacity ledger with positive
+history validation; compose validated lifecycle journals as evidence. No new
+product object, persisted field, policy or recovery permission. Main owns this
+derived slice because architecture/integration is coupled and the configured
+executor route has an unrecovered pre-work failure. Required independent planner
+and slice review remain. Existing capacity/uncertainty portfolio, Q32.
+
+Named existing paths: capacity-store.ts, reliability-operation-store.ts,
+reliability-lifecycle.ts, capacity-controller.ts, capacity-queue.ts, doctor.ts
+under src/core; their six existing tests except capacity-controller's integration
+suite may replace its isolated test for the real-journal seam. Owning lifecycle
+knowledge, docs/DEVCONTAINER.md diagnostics paragraph and this plan. No new files
+or dependencies. Uncommitted lifecycle test reproduces unrelated admission after
+a legacy ledger disappears; it fails at001548c before source correction.
+
+Add one production factory in reliability-operation-store.ts (which already
+imports CapacityStore) to inject a read-only revision-floor callback into the
+store. Replace every production CapacityStore construction with this factory,
+including effect checks, all lifecycle settlement/admission and controller pool
+observation. Keep pure standalone CapacityStore construction in fixture tests.
+The callback enumerates all bounded validated lifecycle journals without taking
+journal locks. It returns the maximum retained capacity.snapshotRevision; any
+non-null legacy binding without snapshotRevision contributes minimum1. Null
+bindings and controller/policy presence contribute nothing. Never use receipt
+maxima to reconstruct reservations or pools.
+
+CapacityStore.read invokes the callback BEFORE reading marker/ledger, on every
+read including inside its existing mutation lock. Journal-first ordering ensures
+a concurrent legitimate admission cannot make a later journal appear ahead of
+an earlier sampled ledger. Refuse a ledger revision below the observed floor;
+missing with positive floor is lost history. Existing marker/observed loss also
+uses the same stable loss code. Existing valid empty ledger at or above floor
+passes, including fully settled history. First use and controller-only prior use
+stay valid. No journal locks or runtime calls inside the capacity lock. Callback
+errors refuse as history-unprovable, never as empty evidence. The floor callback
+never calls CapacityStore or effect validation, so recursion is forbidden.
+
+Guard pool observation before it can initialize or increment an empty ledger;
+an admission-only check is insufficient when the surviving binding has revision1.
+Do not hard-refuse controller startup: it may revoke binding validity but preserves
+positive capacity evidence; collection and dispatch refuse through the factory.
+Manual prepare must not clear a binding when history read refuses. Keep existing
+stop settlement semantics and established-loss refusal; independent stop forward
+reconciliation remains required before0.1.0. No successful-stop claim from a
+failed settlement, metadata deletion, current-policy charge reconstruction or
+forged historical provenance.
+
+Add typed fixed reasons capacity-ledger-lost and capacity-history-unprovable.
+Queue collection/admission catches preserve these reasons while keeping existing
+expiry, supersession, retained charge, command and domain-wait behavior. Other
+errors retain current generic classifications. Unknown historical ownership is
+machine-wide because no trustworthy domain can scope it; no collateral journal
+mutation follows. Values-free global.capacity-ledger doctor check uses the same
+factory and reports health or these fixed reasons without identifiers, paths,
+totals, raw exceptions or policy values. Documentation explains diagnosis and
+verified-history restoration only; forward recovery remains an explicit release
+obligation, not an accepted permanent agent dead end.
+
+Acceptance: preserve the failing unrelated-admission regression; minimum floor
+from multiple journals and legacy binding, first use/null bindings/settled empty
+ledger, corrupt or unsafe enumeration, a concurrent journal/ledger revision
+advance with journal-first ordering, pool observation before first-reservation
+loss can be laundered, no manual binding clearing, both queue reason codes at
+collection/admission, and doctor values-free classification. Extend existing
+fixtures and tests; do not pin prose. All mutations inherit the guard through
+existing readForMutation; add one representative mutation race proving loss
+between outer read and in-lock read refuses. Review static/typecheck/docs,
+focused lifecycle/store/controller/queue/doctor tests then full suite and package.
+
+Limit: deletion of every artifact, historical pool-only use with no surviving
+binding and rollback to a revision at/above every surviving binding cannot be
+detected from these records. This slice claims only positive evidence, never
+complete disaster recovery. No live fault, consumer runtime or installation.
+Advisor completed; high-water and ordering accepted, unfenced pool-observation
+recommendation rejected because revision1 evidence would be laundered. Required
+planner challenge precedes source; correction review for previous slice must
+converge before coupled implementation.
+
+Planner round1 REVISE accepted: typed history failures must be handled before
+the generic admission catch's mutating retireQueuedLifecycle(request,true).
+For these typed failures, use readReliabilityOperation and a pure predicate
+matching the existing superseded-only condition; if not positively superseded
+(or reading fails), retain the queued entry and fixed reason without writing any
+journal. Only positively superseded requests call existing retirement to complete
+their own journal transaction, revalidating there as today. Queue expiry behavior
+remains unchanged and separately allowed. Extend real-journal or seam tests to
+prove loss/unprovable reasons preserve unrelated bytes/revisions and dispatch
+nothing, while superseded requests retire. Do not refactor ordinary admission
+errors or blanket-suppress authorized expiry retirement.
+
+Planner round2 APPROVED. Main refined typed-history supersession handling to
+finish only transient queue state after positive drained/superseded/no-worker
+proof, because superseded-only retirement changes no journal semantics. The same
+planner explicitly APPROVED this narrow equivalence in round3. No journal write
+is needed; expiry retains its original separate behavior. All prior capacity
+correction reviews/CI are complete. Main implements under recorded unhealthy
+executor route; no new route probes.
+
+Verification found one directly coupled mock in existing
+src/core/__tests__/capacity-retired-intent.test.ts: the fixture mocked the old
+constructor and must now mock the production factory. This eighth existing test
+path is included for behavior-preserving adaptation, with all four intent refusal
+assertions retained. No new module or obligation. Shared temporary lifecycle
+fixtures now clear journals together with their per-test ledger; previously they
+manufactured the exact historical-loss state between unrelated cases.
+
+Legacy verification: baseline unrelated admission failed; corrected regression
+passes. Focused7suites passed372tests before the final stopped-binding test.
+Full suite with actual Vitest2workers passed2470tests and exposed4failures in
+one constructor mock; that mock was corrected and all4intent-refusal tests pass.
+Earlier unbounded package-script invocation mis-forwarded maxWorkers and hit two
+unrelated5s timeouts; those pass with2workers. Static/docs/knowledge/typecheck/Knip
+pass; build and isolated packed CLI smoke pass. Scan210rules/6sourcefiles yields
+0findings. Linux process-helper tests explicitly skip on macOS and remain a CI
+requirement. Final full-suite readback follows the fixture correction. No consumer
+runtime or global artifacts changed.
+
+Final legacy verification passes2474tests/143files with2workers, adding20
+consequential tests. All prior failures resolved with test isolation and the
+constructor mock adaptation, without weakening runtime guards. Packed CLI/build,
+static/docs/knowledge/typecheck/Knip and bounded scan pass. Immutable reviews and
+exact CI follow this source commit; no full-roadmap or live completion claim.

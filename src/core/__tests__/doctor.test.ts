@@ -3,11 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagedRuntimeStatus, RouterStatus } from "../../types";
+import { CapacityHistoryError } from "../capacity-store";
 import { buildDoctorReport } from "../doctor";
+import { createLifecycleCapacityStore } from "../reliability-operation-store";
 import { collectRouterStatus } from "../status";
 import { getTLSHostCoverage } from "../tls";
 import { inspectWorkspaceGc } from "../workspace-gc";
 import { resolveGitCommonDir } from "../workspace-ownership";
+
+vi.mock("../reliability-operation-store", () => ({
+  createLifecycleCapacityStore: vi.fn(() => ({ read: () => ({ revision: 0, reservations: [] }) })),
+}));
 
 vi.mock("../status", () => ({
   collectRouterStatus: vi.fn(),
@@ -599,4 +605,29 @@ profiles:
       suggestion: `Inspect: dev status --repo ${tmpDir}; resolve the reported drift before retrying ensure.`,
     });
   });
+});
+
+it.each([
+  "capacity-ledger-lost",
+  "capacity-history-unprovable",
+] as const)("reports %s without raw history evidence", async (code) => {
+  vi.mocked(createLifecycleCapacityStore).mockImplementationOnce(() => {
+    throw new CapacityHistoryError(code);
+  });
+  const report = await buildDoctorReport({ repo: tmpDir });
+  expect(report.checks.find((check) => check.id === "global.capacity-ledger")).toMatchObject({
+    level: "error",
+    details: code,
+  });
+});
+
+it("redacts an arbitrary capacity history read failure", async () => {
+  const privateValue = "synthetic-private-history-value";
+  vi.mocked(createLifecycleCapacityStore).mockImplementationOnce(() => {
+    throw new Error(privateValue);
+  });
+  const report = await buildDoctorReport({ repo: tmpDir });
+  const check = report.checks.find((check) => check.id === "global.capacity-ledger");
+  expect(check).toMatchObject({ level: "error", details: "capacity-history-unprovable" });
+  expect(JSON.stringify(check)).not.toContain(privateValue);
 });

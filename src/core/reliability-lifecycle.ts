@@ -13,11 +13,7 @@ import {
   readCapacityPolicy,
 } from "./capacity-policy";
 import { type CapacityAdmissionContext, capacitySteadyCharge } from "./capacity-request";
-import {
-  type CapacityReservation,
-  CapacitySnapshotChangedError,
-  CapacityStore,
-} from "./capacity-store";
+import { type CapacityReservation, CapacitySnapshotChangedError } from "./capacity-store";
 import {
   followControllerOperation,
   observeControllerBinding,
@@ -55,6 +51,7 @@ import {
   type CapacityExecSteady,
   type CapacityPhaseSettlement,
   clearStartupWitness,
+  createLifecycleCapacityStore,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   readReliabilityOperation,
@@ -211,7 +208,7 @@ export function prepareLifecycleOperation(
       record.state.stopProof.workloadsStopped &&
       record.state.stopProof.routesRemoved
     ) {
-      const retained = new CapacityStore(path.join(DEVROUTER_HOME, "controller"))
+      const retained = createLifecycleCapacityStore(path.join(DEVROUTER_HOME, "controller"))
         .read()
         .reservations.some((entry) => entry.environmentId === record.state.environmentId);
       if (!retained) record.capacity = null;
@@ -417,7 +414,7 @@ export function settlePreparedLifecycleCapacity(input: {
   directory?: string;
 }): boolean {
   const directory = input.directory ?? path.join(DEVROUTER_HOME, "controller");
-  const store = new CapacityStore(directory);
+  const store = createLifecycleCapacityStore(directory);
   for (let attempt = 0; attempt < 3; attempt++) {
     const snapshot = store.read();
     const pending = updateReliabilityOperation(input.identity, (record) => {
@@ -704,7 +701,7 @@ export function admitLifecycleCapacity(
   admission?: CapacityAdmissionContext,
 ) {
   if (request.kind === "stop") throw new Error("Stop never requires capacity admission.");
-  const capacity = new CapacityStore(directory);
+  const capacity = createLifecycleCapacityStore(directory);
   const snapshot = capacity.read();
   let execSteady: CapacityExecSteady | undefined;
   const previous = updateReliabilityOperation(request.identity, (record) => {
@@ -1017,7 +1014,7 @@ export function renewLifecycleCapacity(
         binding.validUntilMs = 0;
         return false;
       }
-      const snapshot = new CapacityStore(directory).read();
+      const snapshot = createLifecycleCapacityStore(directory).read();
       const reservation = snapshot.reservations.find(
         (entry) => entry.reservationId === binding.reservationId,
       );
@@ -1413,7 +1410,7 @@ export function proveLifecycleStopped(): void {
       return undefined;
     });
     if (settlement) {
-      const capacity = new CapacityStore(path.join(DEVROUTER_HOME, "controller"));
+      const capacity = createLifecycleCapacityStore(path.join(DEVROUTER_HOME, "controller"));
       for (let attempt = 0; ; attempt++) {
         try {
           capacity.settleEnvironmentAfterStop(settlement, capacity.read().revision);

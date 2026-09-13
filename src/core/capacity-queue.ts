@@ -2,13 +2,17 @@ import { isDeepStrictEqual } from "node:util";
 import type { CapacityDomainSample } from "./capacity-accounting";
 import { readCapacityPolicy } from "./capacity-policy";
 import type { CapacityAdmissionContext } from "./capacity-request";
-import type { CapacityReservation } from "./capacity-store";
+import { CapacityHistoryError, type CapacityReservation } from "./capacity-store";
+import { reliabilityFence } from "./reliability-contract";
 import {
   admitLifecycleCapacity,
   renewLifecycleCapacity,
   retireQueuedLifecycle,
 } from "./reliability-lifecycle";
-import type { CapacityControllerIdentity } from "./reliability-operation-store";
+import {
+  type CapacityControllerIdentity,
+  readReliabilityOperation,
+} from "./reliability-operation-store";
 import {
   LifecycleOutput,
   type LifecycleWorkerRequest,
@@ -213,8 +217,8 @@ export class CapacityQueue {
       let samples: Record<string, CapacityDomainSample>;
       try {
         samples = await this.options.collect();
-      } catch {
-        this.pause("collection-unavailable");
+      } catch (error) {
+        this.pause(error instanceof CapacityHistoryError ? error.code : "collection-unavailable");
         return;
       }
       if (this.closed) return;
@@ -264,7 +268,38 @@ export class CapacityQueue {
             this.options.controller,
             entry.admission,
           );
-        } catch {
+        } catch (error) {
+          if (error instanceof CapacityHistoryError) {
+            entry.reason = error.code;
+            try {
+              const record = readReliabilityOperation(entry.request.identity);
+              const operation =
+                record?.state.operation?.id === entry.request.operationId
+                  ? record.state.operation
+                  : record?.state.operationHistory.find(
+                      (operation) => operation.id === entry.request.operationId,
+                    );
+              if (
+                record &&
+                (!isDeepStrictEqual(reliabilityFence(record.state), entry.request.fence) ||
+                  record.state.operation?.id !== entry.request.operationId) &&
+                operation?.drained &&
+                ["NOT_STARTED", "NOT_LAUNCHED"].includes(operation.status) &&
+                record.worker?.operationId !== entry.request.operationId
+              ) {
+                // Durable supersession and drainage suffice to retire this transient
+                // request. A history failure must not rewrite the surviving journal.
+                entry.reason = "intent-superseded";
+                entry.phase = "terminal";
+                entry.request.command = undefined;
+                this.finish(entry);
+              }
+            } catch {
+              // Unavailable history cannot prove a queued worker absent.
+            }
+            if (entry.phase === "queued") for (const domain of domains) waitingDomains.add(domain);
+            continue;
+          }
           try {
             if (retireQueuedLifecycle(entry.request, true)) {
               entry.reason = "intent-superseded";

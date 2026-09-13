@@ -38,18 +38,16 @@ vi.mock("../devpod-environment", () => ({
   resolveRunningWorkspaceContainer: fixture.running,
 }));
 vi.mock("../capacity-docker-probe", () => ({ readDockerCapacityInfo: fixture.info }));
-vi.mock("../capacity-store", () => ({
-  CapacityStore: class {
-    read = fixture.snapshot;
-    mergeObservedPools = fixture.merge;
-  },
-}));
 vi.mock("../controller-store", () => ({
   ControllerStore: class {
     read = fixture.incarnation;
   },
 }));
 vi.mock("../reliability-operation-store", () => ({
+  createLifecycleCapacityStore: () => ({
+    read: fixture.snapshot,
+    mergeObservedPools: fixture.merge,
+  }),
   readReliabilityOperation: fixture.journal,
   listReliabilityOperations: fixture.list,
 }));

@@ -18,6 +18,7 @@ import {
   publishStartupWitness,
   type ReliabilityIdentity,
   readReliabilityOperation,
+  reliabilityOperationPath,
   updateReliabilityOperation,
 } from "../reliability-operation-store";
 import type { LifecycleWorkerRequest } from "../reliability-worker";
@@ -1309,6 +1310,93 @@ it("rejects a recovery superseded by an explicit stop and new start", async () =
     await active.tick();
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  } finally {
+    active.close();
+  }
+});
+
+it.each([
+  "capacity-ledger-lost",
+  "capacity-history-unprovable",
+] as const)("preserves real journal bytes and refuses pool collection on %s", async (reason) => {
+  const directory = path.join(fixture.root, "controller");
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const current = environment(fs.mkdtempSync(path.join(fixture.root, "history-")), "c");
+  const enrollment = policyEnrollment(current);
+  const identity: ReliabilityIdentity = {
+    repoPath: current.repoPath,
+    workspace: current.workspace,
+    provider: current.provider,
+  };
+  seedStopped(identity, durableEnrollment(current));
+  fs.writeFileSync(
+    path.join(directory, "capacity-policy.json"),
+    JSON.stringify(policy([enrollment])),
+    { mode: 0o600 },
+  );
+  fs.writeFileSync(
+    path.join(current.repoPath, ".devrouter.yml"),
+    JSON.stringify({ version: 1, apps: [], capacity: estimates }),
+  );
+  const incarnation = new ControllerStore(directory).startIncarnation();
+  const controller = { store: incarnation.store, epoch: incarnation.epoch };
+  fixture.enroll.mockResolvedValue({ environment: current, enrollment, estimates });
+  const collect = vi.fn(async () => ({ host: sample(Date.now()), runtime: sample(Date.now()) }));
+  const active = createCapacityController({
+    directory,
+    controller: { ...controller, directory, consumeStartup: () => {} },
+    collect,
+  });
+  try {
+    const accepted = (await active.submit(
+      {
+        version: 1,
+        id: "submit",
+        method: "operation-submit",
+        session: "session",
+        ...controller,
+        generation: "generation",
+        requestId: "history-request",
+        kind: "ensure",
+      },
+      current,
+      new AbortController().signal,
+      submitValidator,
+    )) as { operation: { operationId: string } };
+    const other: ReliabilityIdentity = {
+      repoPath: path.join(fixture.root, "previous"),
+      workspace: null,
+      provider: "devsy",
+    };
+    updateReliabilityOperation(other, (record) => {
+      record.version = 2;
+      record.capacity = {
+        reservationId: "previous",
+        operationId: "previous-operation",
+        workerId: "previous-worker",
+        policyRevision: 1,
+        validUntilMs: 0,
+        snapshotRevision: 1,
+      };
+    });
+    const previousFile = reliabilityOperationPath(other);
+    if (reason === "capacity-history-unprovable") fs.writeFileSync(previousFile, "{");
+    const before = [previousFile, reliabilityOperationPath(identity)].map((file) =>
+      fs.readFileSync(file),
+    );
+    await active.tick();
+    const waiting = (await active.watch(
+      watchRequest(controller, accepted.operation.operationId, 0),
+      current,
+      new AbortController().signal,
+    )) as { operation: { phase: string; reason: string } };
+    expect(waiting.operation).toMatchObject({ phase: "queued", reason });
+    expect(collect).not.toHaveBeenCalled();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(directory, "capacity-reservations.json"))).toBe(false);
+    expect(
+      [previousFile, reliabilityOperationPath(identity)].map((file) => fs.readFileSync(file)),
+    ).toEqual(before);
   } finally {
     active.close();
   }

@@ -17,15 +17,11 @@ const fixture = vi.hoisted(() => ({
   reserve: vi.fn(),
   assertEffect: vi.fn(),
 }));
-vi.mock("../capacity-store", () => ({
-  CapacityStore: class {
-    read() {
-      return { revision: 1, reservations: [] };
-    }
-    reserve = fixture.reserve;
-  },
-}));
 vi.mock("../reliability-operation-store", () => ({
+  createLifecycleCapacityStore: () => ({
+    read: () => ({ revision: 1, reservations: [] }),
+    reserve: fixture.reserve,
+  }),
   updateReliabilityOperation: (_identity: unknown, operation: (record: unknown) => unknown) =>
     operation(fixture.record),
   assertCapacityEffect: fixture.assertEffect,

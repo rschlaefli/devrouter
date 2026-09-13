@@ -123,6 +123,14 @@ full; it is not silently discarded.
 These commands provide manual lifecycle coordination. They do not enroll the
 machine in resource admission, prevent OOM, or enable capacity-managed parking/recovery.
 
+`devrouter doctor` includes `global.capacity-ledger`, a read-only consistency
+check against available lifecycle history. `capacity-ledger-lost` means surviving
+evidence proves ledger history is missing or regressed;
+`capacity-history-unprovable` means safe history inspection failed. Admission
+refuses both states. Preserve the ledger and journals and restore verified
+history before retrying; clearing metadata is not a recovery procedure. This
+check does not prove runtime health or complete historical provenance.
+
 ## Foreground consumer sessions
 
 `devrouter controller run` owns a private local socket and durable session snapshot

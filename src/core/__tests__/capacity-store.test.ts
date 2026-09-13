@@ -891,3 +891,36 @@ it("preserves the prior file if observed pools exceed the snapshot byte bound", 
   expect(fs.readFileSync(file, "utf8")).toBe(contents);
   expect(store.read()).toEqual(snapshot);
 });
+
+it("reads the history floor before sampling a concurrently advanced ledger", () => {
+  const { directory } = fixture();
+  const store = new CapacityStore(directory, undefined, () => {
+    fs.writeFileSync(
+      path.join(directory, "capacity-reservations.json"),
+      JSON.stringify({ version: 1, revision: 2, reservations: [] }),
+      { mode: 0o600 },
+    );
+    return 2;
+  });
+  expect(store.read().revision).toBe(2);
+});
+
+it("rechecks history inside the mutation lock after an earlier pristine read", () => {
+  const { directory } = fixture();
+  let floor = 0;
+  const store = new CapacityStore(directory, undefined, () => floor);
+  expect(store.read().revision).toBe(0);
+  floor = 1;
+  expect(() =>
+    store.reserve(
+      request,
+      { host: budget, guest: budget },
+      { host: sample, guest: sample },
+      100,
+      15,
+      undefined,
+      0,
+    ),
+  ).toThrow();
+  expect(fs.existsSync(path.join(directory, "capacity-reservations.json"))).toBe(false);
+});

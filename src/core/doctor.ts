@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
+import { CapacityHistoryError } from "./capacity-store";
 import { listContainers } from "./docker";
 import { listHostRoutes } from "./host-routes";
+import { createLifecycleCapacityStore } from "./reliability-operation-store";
 import { compareSemver, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 
 declare const __VERSION__: string;
@@ -333,6 +335,24 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
   }
 
   addCheck(checks, networkCapacityCheck(inspectNetworkCapacity()));
+
+  try {
+    createLifecycleCapacityStore().read();
+    addCheck(checks, {
+      id: "global.capacity-ledger",
+      level: "ok",
+      summary: "Capacity ledger is consistent with available lifecycle history.",
+    });
+  } catch (error) {
+    addCheck(checks, {
+      id: "global.capacity-ledger",
+      level: "error",
+      summary: "Capacity ledger history is unavailable for safe admission.",
+      details: error instanceof CapacityHistoryError ? error.code : "capacity-history-unprovable",
+      suggestion:
+        "Preserve ledger and lifecycle records; restore verified history before retrying admission.",
+    });
+  }
 
   let statusNextSteps: string[] = [];
   try {

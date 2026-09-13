@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileAtomically } from "../atomic-file";
-import { CapacityStore } from "../capacity-store";
+import { CapacityHistoryError, CapacityStore } from "../capacity-store";
 import { reliabilityFence } from "../reliability-contract";
 import { stepReliability } from "../reliability-model";
 import {
@@ -12,6 +12,7 @@ import {
   type CapacityPhaseSettlement,
   type CapacityStartupWitness,
   clearStartupWitness,
+  createLifecycleCapacityStore,
   enrollStoppedLifecycle,
   listReliabilityOperations,
   publishStartupWitness,
@@ -41,6 +42,8 @@ vi.mock("../atomic-file", async (original) => {
 
 let identity: ReliabilityIdentity;
 beforeEach(() => {
+  fs.rmSync(fixture.root, { recursive: true, force: true });
+  fs.mkdirSync(fixture.root, { mode: 0o700 });
   identity = {
     repoPath: fs.mkdtempSync(path.join(os.tmpdir(), "reliability-checkout-")),
     workspace: null,
@@ -1528,5 +1531,85 @@ describe("durable consumer protection pins", () => {
     expect(journalBytes()).toEqual(bytes);
     expect(readReliabilityOperation(identity)).toMatchObject({ revision: 1 });
     expect(readReliabilityOperation(identity)!.consumerProtection).toBeUndefined();
+  });
+});
+
+describe("capacity history composition", () => {
+  function binding(snapshotRevision?: number) {
+    updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = {
+        reservationId: "retained",
+        operationId: "retained-operation",
+        workerId: "retained-worker",
+        policyRevision: 1,
+        validUntilMs: 0,
+        ...(snapshotRevision === undefined ? {} : { snapshotRevision }),
+      };
+    });
+  }
+  function ledger(revision: number) {
+    const directory = path.join(fixture.root, "controller");
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(
+      path.join(directory, "capacity-reservations.json"),
+      JSON.stringify({ version: 1, revision, reservations: [] }),
+      { mode: 0o600 },
+    );
+    return directory;
+  }
+
+  it("keeps pristine and null-binding history non-mutating", () => {
+    expect(createLifecycleCapacityStore().read().revision).toBe(0);
+    updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = null;
+    });
+    expect(createLifecycleCapacityStore().read().revision).toBe(0);
+    expect(fs.existsSync(path.join(fixture.root, "controller"))).toBe(false);
+  });
+
+  it.each([
+    undefined,
+    1,
+    4,
+  ])("preserves legacy lost history with snapshot revision %s", (revision) => {
+    binding(revision);
+    const before = fs.readFileSync(reliabilityOperationPath(identity));
+    expect(() => createLifecycleCapacityStore().read()).toThrow(CapacityHistoryError);
+    expect(() => createLifecycleCapacityStore().mergeObservedPools([], 0)).toThrow(
+      CapacityHistoryError,
+    );
+    expect(fs.existsSync(path.join(fixture.root, "controller", "capacity-reservations.json"))).toBe(
+      false,
+    );
+    expect(fs.readFileSync(reliabilityOperationPath(identity))).toEqual(before);
+  });
+
+  it("uses the highest retained revision and permits a settled empty ledger", () => {
+    binding(4);
+    const first = identity;
+    identity = { ...first, repoPath: path.join(first.repoPath, "second") };
+    binding(2);
+    ledger(3);
+    expect(() => createLifecycleCapacityStore().read()).toThrow(CapacityHistoryError);
+    ledger(4);
+    expect(createLifecycleCapacityStore().read()).toMatchObject({ revision: 4, reservations: [] });
+    expect(createLifecycleCapacityStore().mergeObservedPools([], 4)).toEqual({
+      changed: false,
+      revision: 4,
+    });
+  });
+
+  it("refuses unprovable journals without mistaking them for absent history", () => {
+    updateReliabilityOperation(identity, () => {});
+    fs.writeFileSync(reliabilityOperationPath(identity), "{");
+    try {
+      createLifecycleCapacityStore().read();
+      throw new Error("Expected unavailable history");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "capacity-history-unprovable" });
+    }
+    expect(fs.existsSync(path.join(fixture.root, "controller"))).toBe(false);
   });
 });

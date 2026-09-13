@@ -28,6 +28,17 @@ type Snapshot = {
 };
 const MAX_BYTES = 1_048_576;
 
+export class CapacityHistoryError extends Error {
+  constructor(readonly code: "capacity-ledger-lost" | "capacity-history-unprovable") {
+    super(
+      code === "capacity-ledger-lost"
+        ? "Capacity ledger history is lost; restore verified capacity-reservations.json."
+        : "Capacity history cannot be proven; inspect the private lifecycle journals.",
+    );
+    this.name = "CapacityHistoryError";
+  }
+}
+
 export class CapacitySnapshotChangedError extends Error {
   constructor() {
     super("Capacity snapshot changed.");
@@ -184,6 +195,7 @@ export class CapacityStore {
   constructor(
     private directory: string,
     private write = writeFileAtomically,
+    private minimumRevision: () => number = () => 0,
   ) {
     this.file = path.join(directory, "capacity-reservations.json");
     this.establishedFile = path.join(directory, "capacity-ledger.established");
@@ -222,6 +234,9 @@ export class CapacityStore {
   }
 
   read(): Snapshot {
+    // Read journal evidence first: a concurrent admission publishes its ledger
+    // before its journal, so the later ledger cannot legitimately trail this floor.
+    const minimumRevision = this.minimumRevision();
     const established = this.readEstablished();
     let descriptor: number;
     try {
@@ -231,10 +246,8 @@ export class CapacityStore {
       );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        if (established || this.observedLedger)
-          throw new Error(
-            "Established capacity ledger is missing; restore verified capacity-reservations.json.",
-          );
+        if (established || this.observedLedger || minimumRevision > 0)
+          throw new CapacityHistoryError("capacity-ledger-lost");
         return { version: 1, revision: 0, reservations: [] };
       }
       throw error;
@@ -253,6 +266,7 @@ export class CapacityStore {
       if (count > MAX_BYTES) throw new Error("Capacity reservation snapshot exceeds byte limit.");
       const value: unknown = JSON.parse(buffer.subarray(0, count).toString("utf8"));
       validate(value);
+      if (value.revision < minimumRevision) throw new CapacityHistoryError("capacity-ledger-lost");
       this.observedLedger = true;
       return value;
     } finally {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CapacityDomainBudget, CapacityDomainSample } from "../capacity-accounting";
 import { CapacityQueue } from "../capacity-queue";
 import type { CapacityAdmissionContext } from "../capacity-request";
-import type { CapacityReservation } from "../capacity-store";
+import { CapacityHistoryError, type CapacityReservation } from "../capacity-store";
 import type { LifecycleWorkerRequest } from "../reliability-worker";
 
 const fixture = vi.hoisted(() => ({
@@ -12,7 +12,10 @@ const fixture = vi.hoisted(() => ({
   runLifecycleWorker: vi.fn(),
   readCapacityPolicy: vi.fn(),
   renewLifecycleCapacity: vi.fn(),
+  journal: vi.fn(),
 }));
+
+vi.mock("../reliability-operation-store", () => ({ readReliabilityOperation: fixture.journal }));
 
 vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.readCapacityPolicy }));
 
@@ -144,6 +147,7 @@ afterEach(() => {
   fixture.retireQueuedLifecycle.mockReset();
   fixture.runLifecycleWorker.mockReset();
   fixture.renewLifecycleCapacity.mockReset();
+  fixture.journal.mockReset();
 });
 
 describe("CapacityQueue", () => {
@@ -849,4 +853,72 @@ it("pauses queued work on collection failure without releasing or dispatching", 
   expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
   expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
   active.close();
+});
+
+it.each([
+  "capacity-ledger-lost",
+  "capacity-history-unprovable",
+] as const)("retains queued requests without journal mutation on %s", async (code) => {
+  const queued = queue();
+  fixture.collect.mockResolvedValue(samples);
+  fixture.admitLifecycleCapacity.mockImplementation(() => {
+    throw new CapacityHistoryError(code);
+  });
+  const pending = request("history");
+  const journal = {
+    state: { ...pending.fence, operation: { id: pending.operationId } },
+    worker: null,
+  };
+  fixture.journal.mockReturnValue(journal);
+  const before = structuredClone(journal);
+  queued.enqueue(pending, reservation("history", pending.fence.environmentId, ["domain-a"]));
+  await queued.tick();
+  expect(queued.observe("history")).toMatchObject({ phase: "queued", reason: code });
+  expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  expect(journal).toEqual(before);
+});
+
+it.each([
+  "capacity-ledger-lost",
+  "capacity-history-unprovable",
+] as const)("preserves %s from collection without admission or retirement", async (code) => {
+  const queued = queue();
+  fixture.collect.mockRejectedValue(new CapacityHistoryError(code));
+  const pending = request("history");
+  queued.enqueue(pending, reservation("history", pending.fence.environmentId, ["domain-a"]));
+  await queued.tick();
+  expect(queued.observe("history")).toMatchObject({ phase: "queued", reason: code });
+  expect(fixture.admitLifecycleCapacity).not.toHaveBeenCalled();
+  expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("retires only transient superseded work from positive history during ledger loss", async () => {
+  const queued = queue();
+  fixture.collect.mockResolvedValue(samples);
+  fixture.admitLifecycleCapacity.mockImplementation(() => {
+    throw new CapacityHistoryError("capacity-ledger-lost");
+  });
+  const pending = request("history");
+  const journal = {
+    state: {
+      ...pending.fence,
+      intentRevision: pending.fence.intentRevision + 1,
+      operation: { id: "later" },
+      operationHistory: [{ id: pending.operationId, status: "NOT_STARTED", drained: true }],
+    },
+    worker: null,
+  };
+  fixture.journal.mockReturnValue(journal);
+  const before = structuredClone(journal);
+  queued.enqueue(pending, reservation("history", pending.fence.environmentId, ["domain-a"]));
+  await queued.tick();
+  expect(queued.observe("history")).toMatchObject({
+    phase: "terminal",
+    reason: "intent-superseded",
+  });
+  expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  expect(journal).toEqual(before);
 });

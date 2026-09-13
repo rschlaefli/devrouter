@@ -357,8 +357,10 @@ async function seedStopRequest() {
 }
 
 beforeEach(() => {
-  for (const root of fixture.roots)
+  for (const root of fixture.roots) {
     fs.rmSync(path.join(root, "controller"), { recursive: true, force: true });
+    fs.rmSync(path.join(root, "reliability"), { recursive: true, force: true });
+  }
   fixture.initialAbsence.mockReset();
   fixture.absent = false;
   fixture.assertRoutesRemoved.mockReset();
@@ -955,6 +957,98 @@ it.each([
     });
   }
   expect(capacities.read().reservations).toHaveLength(1);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("refuses unrelated admission when a legacy journal proves lost capacity history", async () => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const { DEVROUTER_HOME } = await import("../router");
+  const first = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  const now = Date.now();
+  const budgets = {
+    host: { capacityBytes: 100, protectedHeadroomBytes: 10, startupSlots: 1, heavySlots: 1 },
+  };
+  const samples = {
+    host: {
+      sampledAtMs: now,
+      pressure: "normal" as const,
+      unmanagedBytes: 0,
+      sharedBytes: 0,
+      ownedBytes: {},
+    },
+  };
+  const reservation = {
+    environmentId: store.readReliabilityOperation(first.identity)!.state.environmentId,
+    operationId: first.operationId,
+    reservationId: "first-reservation",
+    policyRevision: 1,
+    totals: { host: 20 },
+    startup: true,
+    heavy: false,
+  };
+  expect(
+    lifecycle.admitLifecycleCapacity(first, reservation, budgets, samples, now, 15_000).admitted,
+  ).toBe(true);
+  const prior = fs.readFileSync(store.reliabilityOperationPath(first.identity));
+  const directory = path.join(DEVROUTER_HOME, "controller");
+  fs.unlinkSync(path.join(directory, "capacity-ledger.established"));
+  fs.unlinkSync(path.join(directory, "capacity-reservations.json"));
+  fixture.newLifecycleIds.mockReturnValue({
+    requestId: "next-request",
+    operationId: "next-operation",
+    workerId: "next-worker",
+  });
+  const next = lifecycle.prepareLifecycleOperation("ensure", newCheckout());
+  expect(() =>
+    lifecycle.admitLifecycleCapacity(
+      next,
+      {
+        ...reservation,
+        environmentId: store.readReliabilityOperation(next.identity)!.state.environmentId,
+        operationId: next.operationId,
+        reservationId: "next-reservation",
+      },
+      budgets,
+      samples,
+      now,
+      15_000,
+    ),
+  ).toThrow();
+  expect(fs.existsSync(path.join(directory, "capacity-reservations.json"))).toBe(false);
+  expect(fs.readFileSync(store.reliabilityOperationPath(first.identity))).toEqual(prior);
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("preserves a stopped legacy binding when preparation cannot prove its ledger", async () => {
+  const { lifecycle, store, identity } = await seedStopRequest();
+  const { contract, model } = await loadLifecycleModules();
+  store.updateReliabilityOperation(identity, (record) => {
+    const transition = model.stepReliability(
+      record.state,
+      {
+        ...contract.reliabilityFence(record.state),
+        type: "stop-proof",
+        workloadsStopped: true,
+        routesRemoved: true,
+      },
+      Date.now(),
+    );
+    expect(transition.outcome).toBe("accepted");
+    record.state = transition.state;
+    record.version = 2;
+    record.capacity = {
+      reservationId: "retained",
+      operationId: "retained-operation",
+      workerId: "retained-worker",
+      policyRevision: 1,
+      validUntilMs: 0,
+      snapshotRevision: 1,
+    };
+  });
+  const file = store.reliabilityOperationPath(identity);
+  const before = fs.readFileSync(file);
+  expect(() => lifecycle.prepareLifecycleOperation("ensure", identity.repoPath)).toThrow();
+  expect(fs.readFileSync(file)).toEqual(before);
   expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
 });
 

@@ -273,11 +273,16 @@ independent of the controller process. Reads never enroll a ledger; locked
 mutations establish existing valid history or persist a new ledger before its
 marker. Successful mutation acknowledgments, including idempotent joins, require
 durable files and directory metadata. Missing marked history refuses admission
-and settlement without clearing charges. The marker cannot prove history lost
-before enrollment or detect deletion of all evidence; positive journal evidence
-and operator reconciliation remain separate recovery obligations. Restoring a
-verified ledger preserves its retained charges; deleting metadata does not prove
-capacity is available.
+and settlement without clearing charges. Production reads also compare the ledger
+revision with surviving validated lifecycle bindings, including pre-marker history.
+Journals are read first, so a concurrent admission cannot create false revision
+regression. Pool observation uses the same guard before writing a ledger. Unknown
+journal evidence refuses machine admission; it cannot be scoped to a trustworthy
+domain. Queue and doctor distinguish `capacity-ledger-lost` from
+`capacity-history-unprovable` without exposing historical identifiers or values.
+Neither a marker nor a surviving journal proves history after deletion of every
+artifact or rollback beyond the available evidence. Restoring a verified ledger
+preserves its retained charges; deleting metadata does not prove capacity is available.
 
 The policy's optional `recovery` block carries the bounded corrective-action
 budget: per-scope process and service restart allowances, the aggregate action

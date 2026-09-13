@@ -12,7 +12,7 @@ import { readCapacityPolicy } from "./capacity-policy";
 import { CapacityQueue } from "./capacity-queue";
 import { capacityRequest } from "./capacity-request";
 import { publishQueuedStartupWitness } from "./capacity-startup-witness";
-import { type CapacityPoolReservation, CapacityStore } from "./capacity-store";
+import type { CapacityPoolReservation } from "./capacity-store";
 import { readControllerEvidence } from "./controller-binding";
 import type { ControllerRecovery } from "./controller-monitor";
 import type { ControllerOperations, ControllerStartup } from "./controller-server";
@@ -28,6 +28,7 @@ import {
 } from "./reliability-lifecycle";
 import { stepReliability } from "./reliability-model";
 import {
+  createLifecycleCapacityStore,
   listReliabilityOperations,
   readReliabilityOperation,
   updateReliabilityOperation,
@@ -145,7 +146,7 @@ export function createCapacityController(options: {
     collectionSignal: AbortSignal,
     check: () => CapacityEvidenceClock,
   ): Promise<Record<string, CapacityDomainSample>> => {
-    const store = new CapacityStore(options.directory);
+    const store = createLifecycleCapacityStore(options.directory);
     const revision = store.read().revision;
     const runtimes = Object.entries(policy.domains).filter((entry) => entry[1].kind === "runtime");
     const observed: CapacityPoolReservation[] = [];

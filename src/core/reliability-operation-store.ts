@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { writeFileAtomically } from "./atomic-file";
-import { type CapacityReservation, CapacityStore } from "./capacity-store";
+import { CapacityHistoryError, type CapacityReservation, CapacityStore } from "./capacity-store";
 import { ControllerStore } from "./controller-store";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { withFileLockSync } from "./file-lock";
@@ -681,6 +681,23 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
   }
 }
 
+/** Read ledger state against surviving lifecycle admission history. */
+export function createLifecycleCapacityStore(
+  directory = path.join(DEVROUTER_HOME, "controller"),
+): CapacityStore {
+  return new CapacityStore(directory, undefined, () => {
+    try {
+      let revision = 0;
+      for (const record of listReliabilityOperations()) {
+        if (record.capacity) revision = Math.max(revision, record.capacity.snapshotRevision ?? 1);
+      }
+      return revision;
+    } catch {
+      throw new CapacityHistoryError("capacity-history-unprovable");
+    }
+  });
+}
+
 /** Called inside the journal transaction, before accepting a lifecycle effect. */
 export function assertCapacityEffect(
   record: ReliabilityOperationRecord,
@@ -707,7 +724,7 @@ export function assertCapacityEffect(
     )
       throw new Error("Capacity controller incarnation changed.");
   }
-  const snapshot = new CapacityStore(directory).read();
+  const snapshot = createLifecycleCapacityStore(directory).read();
   if (binding.snapshotRevision === undefined || snapshot.revision !== binding.snapshotRevision)
     throw new Error("Capacity snapshot authority is absent or stale.");
   const reservation = snapshot.reservations.find(
