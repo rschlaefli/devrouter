@@ -18,6 +18,7 @@ import type {
 import { buildDevcontainerChecks } from "./devcontainer-diagnostics";
 import { inspectNetworkCapacity, networkCapacityCheck } from "./network-diagnostics";
 import { assertPathWithinRepo } from "./paths";
+import { buildProfileResolutionReport } from "./profile-resolution";
 import { findStaleProcessRoutes } from "./route-state";
 import { getRouterFileLayout, isTLSEnabled } from "./router";
 import { discoverRoutes, findDuplicateHosts } from "./routes";
@@ -502,17 +503,47 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       loadedConfig = config;
       loadedWorkspace = runtimeConfig.workspace;
 
+      // The resolver normalizes a reserved managed `full` profile to wildcards and
+      // reports every declared dimension it widens. Surface that notice as a warning
+      // so the diagnosis names the ignored dimensions without restating selection.
+      const [expansionNotice] = buildProfileResolutionReport(config, repo.path).notices ?? [];
+      if (expansionNotice) {
+        const remedyCandidates =
+          expansionNotice.remedy.profiles.length > 0
+            ? ` (available: ${expansionNotice.remedy.profiles.join(", ")})`
+            : "";
+        addCheck(checks, {
+          id: "repo.profile-expansion",
+          level: "warn",
+          summary: `Managed profile '${expansionNotice.profile}' expands declared dimensions: ${expansionNotice.dimensions.join(", ")}.`,
+          details: `notice=${expansionNotice.code}; dimensions=${expansionNotice.dimensions.join(",")}`,
+          suggestion: `Remedy ${expansionNotice.remedy.code}: set a named default profile other than '${expansionNotice.profile}'${remedyCandidates}.`,
+        });
+      }
+
       const cliVersion = typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev";
       const configVersion = config.devrouter?.version;
-      if (
-        configVersion &&
-        cliVersion !== "0.0.0-dev" &&
-        compareSemver(configVersion, cliVersion) > 0
-      ) {
+      const installedKnown = cliVersion !== "0.0.0-dev";
+      const versionComparison =
+        installedKnown && configVersion ? compareSemver(configVersion, cliVersion) : undefined;
+      // Installed CLI and repo adaptation metadata are reported separately. An
+      // older repo pin is stale metadata, not a runtime failure, so the relation is
+      // informative and only a newer requirement escalates the check.
+      const versionRelation =
+        versionComparison === undefined
+          ? "unknown"
+          : versionComparison === 0
+            ? "equal"
+            : versionComparison > 0
+              ? "newer"
+              : "older";
+      const versionDetails = `installedVersion=${installedKnown ? cliVersion : "unknown"}; repoVersion=${configVersion ?? "unknown"}; repoVersionRelation=${versionRelation}`;
+      if (versionComparison !== undefined && versionComparison > 0) {
         addCheck(checks, {
           id: "repo.cli-outdated",
           level: "error",
           summary: `Installed CLI (${cliVersion}) is older than required repo version (${configVersion}).`,
+          details: versionDetails,
           suggestion: "Upgrade CLI: npm install -g @devrouter/cli",
         });
       } else {
@@ -520,6 +551,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
           id: "repo.cli-outdated",
           level: "ok",
           summary: "Installed CLI version is compatible with repo configuration.",
+          details: versionDetails,
         });
       }
 
