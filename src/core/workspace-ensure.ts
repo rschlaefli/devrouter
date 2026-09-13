@@ -37,6 +37,7 @@ import {
   replaceHostRoutesForRepo,
 } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
+import { reportLifecycleProgress } from "./lifecycle-progress";
 import { runManagedHostPreparation } from "./managed-host-preparation";
 import {
   type ManagedPostStartPlan,
@@ -1019,6 +1020,7 @@ export async function workspaceEnsure(
       ...(options.repair ? { allowRestart: false } : {}),
     };
     try {
+      reportLifecycleProgress("validation");
       const target = options.repair
         ? resolveRepairTarget(repoPath, linked)
         : linked
@@ -1229,6 +1231,7 @@ export async function workspaceEnsure(
         target.kind === "linked" ? target : { ...target, devpodId };
 
       const startAndProveAttachment = async (recreate = false): Promise<void> => {
+        reportLifecycleProgress("provider");
         const requestedTarget = currentTarget();
         try {
           devpodId = await startDevpodWorkspace({
@@ -1288,6 +1291,7 @@ export async function workspaceEnsure(
             if (stopped.length > 0) {
               repairMutationStarted = true;
               transitionPhase = "service-start";
+              reportLifecycleProgress("service-start");
               claimLifecycleEffect();
               const result = spawnSync("docker", ["start", ...stopped.map((entry) => entry.id)], {
                 ...networkDockerOptions(),
@@ -1327,6 +1331,7 @@ export async function workspaceEnsure(
       managedContainer = container;
       if (managedPlan) {
         transitionPhase = "service-start";
+        reportLifecycleProgress("service-start");
         const initialContainers = inspectWorkspaceContainers();
         managedComposeProject = resolveComposeProject(
           initialContainers,
@@ -1467,6 +1472,7 @@ export async function workspaceEnsure(
       if (options.repair && managedPlan)
         assertRetainedRepairContainers(repoPath, managedPlan, retainedRepairContainers);
       transitionPhase = "process-start";
+      reportLifecycleProgress("process-start");
       claimLifecycleEffect();
       runManagedPostStart({
         plan: managedPostStart,
@@ -1494,6 +1500,7 @@ export async function workspaceEnsure(
             }
             continue;
           }
+          reportLifecycleProgress("process-stop");
           claimLifecycleEffect();
           runManagedProcessAction({
             container,
@@ -1515,6 +1522,7 @@ export async function workspaceEnsure(
         }
 
         transitionPhase = "service-stop";
+        reportLifecycleProgress("service-stop");
         if (!options.repair)
           stopDroppedManagedServices(managedPlan, repoPath, managedComposeProject);
         assertDroppedManagedServicesStopped(managedPlan, repoPath, managedComposeProject);
@@ -1529,6 +1537,7 @@ export async function workspaceEnsure(
       }
 
       transitionPhase = "route-publication";
+      reportLifecycleProgress("route-publication");
       claimLifecycleEffect();
       const publication = await replacePublishedProxyRoutes(
         repoPath,
@@ -1546,6 +1555,7 @@ export async function workspaceEnsure(
       );
       let applicationReadiness: WorkspaceEnsureResult["applicationReadiness"];
       try {
+        reportLifecycleProgress("readiness");
         applicationReadiness = await waitForHttpRoutes(
           repoPath,
           apps,
@@ -1783,6 +1793,7 @@ export async function workspaceEnsure(
         const rollbackErrors: string[] = [];
         const failedPhase = transitionPhase;
         transitionPhase = "rollback";
+        reportLifecycleProgress("rollback");
         const previousServices =
           previousManagedState?.desired.services ?? firstTransitionBaseline?.services ?? [];
         const previousProcesses =
@@ -2035,6 +2046,7 @@ export async function workspaceEnsure(
       repair: Boolean(options.repair),
     });
     if (preparationConfig.managedRuntime?.devcontainer.prepareCommand) {
+      reportLifecycleProgress("preparation");
       claimLifecycleEffect();
       await runManagedHostPreparation(repoPath, preparationConfig);
       claimLifecycleEffect();

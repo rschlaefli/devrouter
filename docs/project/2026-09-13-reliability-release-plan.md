@@ -212,8 +212,8 @@ fixture and live evidence separately; unknown/skipped is never a pass.
 
 ### Progress
 
-Status: execution planning; no new implementation yet. Goal active. All seven
-slices remain; first active slice is actionable diagnosis. Required delivery is
+Status: implementing slice 1; repair classification and profile notices committed and reviewed. Goal active. All seven
+slices have remaining obligations; first active slice is actionable diagnosis. Required delivery is
 released and installed 0.1.0 with full roadmap qualification; achieved baseline
 is published 0.0.78, global installation last verified at 0.0.77.
 
@@ -225,7 +225,7 @@ was supplied. Other owner-retained manual-verification environments are protecte
 Planner construction completed. Round 1 requested explicit accountable owners,
 portfolio obligations, derived-delta checkpoint, ADR binding and Q evidence
 ownership; all five findings were accepted in this revision. The same planner approved the corrected draft in round 3; implementation reviews remain required. Prior roadmap reviews covered direction
-only. Next action: commit this approved contract, then reproduce and implement diagnostics while historical ownership investigation remains independent.
+only. Next action: finish bounded phase progress and installed diagnostic proof; historical ownership investigation remains independent.
 
 ### Active diagnostic deltas
 
@@ -255,3 +255,70 @@ Generated-unavailable and multiple-dimension short-circuit cases extend that
 coverage. Full ensure suite passes 140 tests; typecheck, focused Biome, docs policy and knowledge checks pass. Profile child Hilbert
 `01a09a43-8449-7a61-af82-bf072f8e9925` owns the disjoint profile delta.
 No runtime was started by these source tests. Required source reviews remain open.
+
+### Lifecycle progress contract (diagnosis continuation)
+
+Main is the sole writer for this delta: `src/core/lifecycle-progress.ts`,
+`src/core/__tests__/lifecycle-progress.test.ts`, `src/core/reliability-worker.ts`,
+its existing tests, `src/lifecycle-worker.ts`, and phase call sites in
+`src/core/workspace-ensure.ts` and `src/core/environment-stop.ts`. Owning lifecycle
+knowledge and unreleased changelog are updated together. No new dependency.
+
+Reuse the existing parent/worker IPC and bounded controller output buffer. Worker
+reports fixed allowlisted phases only: validation, preparation, provider, service
+start/stop, process start/stop, route publication/removal, readiness, rollback and
+stop. The parent owns a monotonic receipt timestamp and emits bounded fixed-shape
+progress on stderr at phase changes and every ten seconds during ensure/stop.
+After thirty seconds without a phase receipt, report phase evidence as stale,
+not a dead worker; lifecycle/child liveness stays unknown unless independently
+proven. Fixed child roles identify the responsible stage, not raw process argv.
+Before first receipt report phase/child unknown. No application output is parsed.
+
+Do not change stdout JSON, exec output, journal schema, timeout, cancellation,
+provider queue order or worker ownership. Progress never grants mutation or ready
+authority. Unknown IPC values are ignored and cannot leak extra fields. Errors in
+the best-effort progress channel cannot turn a safe operation into a mutation.
+Timer cleanup is mandatory on success, failure and cancellation. The existing
+worker monitor and result remain authoritative.
+
+Acceptance consumes the diagnosis portfolio: deterministic phase allowlist and
+fresh/stale duration tests; existing worker output tests verify stderr forwarding,
+unknown-message rejection, no impact on exec, and no timer/output after close.
+Ensure phase call sites must sit before potentially blocking preparation/provider
+or process operations, and readiness only after observed route proof. Reuse
+passing repair classification evidence. No runtime startup needed for this delta.
+Stop and internally revise the delta if it requires a new durable protocol, raw
+process identity discovery, or any lifecycle authority change.
+
+Progress hardening round 1 corrections accepted: phases describe the last observed
+stage, never current child liveness. Fixed role mapping: validation/readiness/route
+proof/rollback = lifecycle worker; preparation = repository preparation; provider =
+provider operation; process start/stop = repository process adapter; service
+start/stop = service reconciliation; coarse stop = lifecycle stop. `readiness`
+means checking, never achieved readiness. Linked stop exposes coarse stop only
+because its internal delegated phases are outside this delta's write scope.
+
+Use a distinct `lifecycleProgress` IPC discriminator checked before ready/ok.
+Malformed/mixed progress envelopes are discarded, never dispatch acknowledgments
+or results. Suppress the entire progress sender, timer and sink for exec. Worker
+sends best-effort with one outstanding send maximum; while blocked, retain at
+most the newest fixed phase. Never await delivery. Ignore synchronous throws,
+callback errors and disconnects; none affects dispatch, result or cancellation.
+Parent writes to the invocation's existing LifecycleOutput as stderr when
+supervised, and parent stderr otherwise. Drop best-effort direct progress when
+the stream signals backpressure; catch synchronous sink failures. No new output
+queue, persistence, or stream ownership. Async send failure is absorbed.
+
+Progress-specific portfolio detail: add new deterministic protocol/role/monotonic
+age/exact stale-boundary tests. Extend existing worker tests for both sinks,
+mixed envelopes, send failures, cancellation and late-message/timer cleanup.
+Extend existing ensure/stop tests for phase placement before blocking operations,
+route-proof failure, rollback, and coarse linked stop. New runtime tests: none;
+this is observational and current installed output qualification remains later.
+
+Current verified source: repair `e215f8c`, profile notices `e299f1c`. Repair
+simplifier/slice review completed without blocking findings. Profile slice review
+passed; verified simplifier reduction removes a single-use helper without behavior
+change (22 affected tests pass). Reviews are retained under `_local/reviews/`.
+Lifecycle progress derived plan approved by Euclid in round 2; implementation and
+focused regression checks are in progress. Both prior reviewer children closed.

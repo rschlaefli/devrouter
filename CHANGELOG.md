@@ -11,6 +11,8 @@ All notable changes to this project are documented in this file.
   resource checks.
 - Profile reports explain when a declared managed `full` profile expands finite
   selections, while preserving existing resource membership.
+- Ensure and stop workers report bounded, values-free lifecycle stages on stderr,
+  with elapsed receipt age and explicit stale or unknown evidence.
 
 ## [0.0.78] - 2026-09-13
 

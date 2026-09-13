@@ -1,6 +1,7 @@
 import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "./devpod-mutation";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { removeHostRoutesWhere } from "./host-routes";
+import { reportLifecycleProgress } from "./lifecycle-progress";
 import { readManagedRuntimeState } from "./managed-runtime-state";
 import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-lifecycle";
 import { ensureTraefikRoutesRemoved } from "./traefik-route-health";
@@ -23,6 +24,7 @@ export async function environmentStop(
   repoPath: string,
   options: { delete?: boolean } = {},
 ): Promise<EnvironmentStopResult> {
+  reportLifecycleProgress("stop");
   const linked = isLinkedWorktree(repoPath);
   const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
   if (linked && !workspace) {
@@ -83,6 +85,7 @@ export async function environmentStop(
     const removedRoutes = removeHostRoutesWhere((route) =>
       sameWorkspacePath(route.repoPath, repoPath),
     );
+    reportLifecycleProgress("route-removal");
     await ensureTraefikRoutesRemoved(removedRoutes);
 
     return {

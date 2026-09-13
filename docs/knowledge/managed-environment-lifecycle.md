@@ -94,6 +94,15 @@ and gives concurrent creators 60 seconds to serialize; the machine-global
 provider mutation lock waits up to thirty minutes in arrival order with throttled stderr progress
 lines; ordinary ownership transactions retain their short wait.
 
+Ensure and stop workers emit best-effort `lifecycle-progress` JSON lines on stderr
+at stage changes and every ten seconds. Each line contains an allowlisted phase,
+the responsible role, monotonic elapsed receipt age, and recent, stale or unknown
+evidence. Thirty seconds without a new stage receipt makes that evidence stale;
+it does not prove a dead worker. Liveness remains unknown, and `readiness` names
+the checking stage rather than successful readiness. Exec output is unchanged.
+Controller invocations retain these lines in their existing bounded output buffer.
+Progress delivery never grants lifecycle authority or changes operation results.
+
 ## Profile transitions
 
 The native Dev Container view remains full: its source configuration describes

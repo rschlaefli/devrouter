@@ -5,6 +5,11 @@ import path from "node:path";
 import type { DevsyExecProof } from "./devsy-exec-proof";
 import { processBirthIdentity } from "./file-lock";
 import {
+  isLifecycleProgressPhase,
+  type LifecycleProgressPhase,
+  lifecycleProgressSnapshot,
+} from "./lifecycle-progress";
+import {
   type ReliabilityConsumer,
   type ReliabilityFence,
   reliabilityFence,
@@ -266,6 +271,20 @@ export async function runLifecycleWorker(
   let forceTimer: ReturnType<typeof setTimeout> | undefined;
   let monitor: ReturnType<typeof setInterval> | undefined;
   let failure: Error | undefined;
+  let progressPhase: LifecycleProgressPhase | undefined;
+  let progressReceivedAt: number | undefined;
+  let progressTimer: ReturnType<typeof setInterval> | undefined;
+  const emitProgress = () => {
+    if (closed || cancelled || request.kind === "exec") return;
+    const data = `${JSON.stringify(lifecycleProgressSnapshot(progressPhase, progressReceivedAt, performance.now()))}\n`;
+    try {
+      if (supervision) supervision.output.append("stderr", Buffer.from(data));
+      else if (!process.stderr.writableNeedDrain && !process.stderr.destroyed)
+        process.stderr.write(data, () => {});
+    } catch {
+      // Progress cannot change dispatch, cancellation or the lifecycle result.
+    }
+  };
   const cancel = () => {
     if (cancelled || closed) return;
     cancelled = true;
@@ -306,6 +325,21 @@ export async function runLifecycleWorker(
       }, 30_000);
       child.on("message", async (message: unknown) => {
         if (!message || typeof message !== "object") return;
+        if ("lifecycleProgress" in message) {
+          if (
+            !closed &&
+            !cancelled &&
+            sendAttempted &&
+            request.kind !== "exec" &&
+            Object.keys(message).length === 1 &&
+            isLifecycleProgressPhase(message.lifecycleProgress)
+          ) {
+            progressPhase = message.lifecycleProgress;
+            progressReceivedAt = performance.now();
+            emitProgress();
+          }
+          return;
+        }
         if ("ready" in message && message.ready === true && !ready) {
           ready = true;
           if (readinessTimer) clearTimeout(readinessTimer);
@@ -412,6 +446,7 @@ export async function runLifecycleWorker(
                 cancel();
               }
             });
+            if (request.kind !== "exec") progressTimer = setInterval(emitProgress, 10_000);
             monitor = setInterval(() => {
               try {
                 const record = readReliabilityOperation(request.identity);
@@ -477,6 +512,7 @@ export async function runLifecycleWorker(
       });
     });
   } finally {
+    if (progressTimer) clearInterval(progressTimer);
     if (readinessTimer) clearTimeout(readinessTimer);
     if (monitor) clearInterval(monitor);
     if (forceTimer) clearTimeout(forceTimer);

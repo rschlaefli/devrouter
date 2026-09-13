@@ -25,6 +25,7 @@ import {
 import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspaces";
 import { detectHostPortClaimConflicts } from "../host-port-claims";
 import { listHostRouteState, replaceHostRoutesForRepo } from "../host-routes";
+import { reportLifecycleProgress } from "../lifecycle-progress";
 import { runManagedHostPreparation } from "../managed-host-preparation";
 import {
   resolveManagedPostStartPlan,
@@ -133,6 +134,8 @@ vi.mock("../router", () => ({
   isTLSEnabled: vi.fn(() => true),
   startRouterStack: vi.fn(),
 }));
+vi.mock("../lifecycle-progress", () => ({ reportLifecycleProgress: vi.fn() }));
+
 vi.mock("../traefik-route-health", () => ({
   ensureTraefikRoutesLoaded: vi.fn(async () => ({ restarted: false })),
   ensureTraefikRoutesMatch: vi.fn(async () => undefined),
@@ -1387,6 +1390,10 @@ describe("workspaceEnsure", () => {
       workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
     ).rejects.toThrow("Candidate runtime was rolled back");
 
+    expect(reportLifecycleProgress).toHaveBeenCalledWith("route-publication");
+    expect(reportLifecycleProgress).toHaveBeenCalledWith("rollback");
+    expect(reportLifecycleProgress).not.toHaveBeenCalledWith("readiness");
+
     expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, [
       expect.objectContaining({ name: "chat", upstreamHost: "feature-app" }),
     ]);
@@ -1546,6 +1553,7 @@ describe("workspaceEnsure", () => {
     vi.mocked(loadRepoConfig).mockReturnValueOnce(config);
     const generated = path.join(tmpDir, ".devcontainer", "generated.yml");
     vi.mocked(runManagedHostPreparation).mockImplementationOnce(async () => {
+      expect(reportLifecycleProgress).toHaveBeenLastCalledWith("preparation");
       fs.writeFileSync(generated, "services: {}\n");
     });
     const inspect = vi.mocked(inspectManagedDevcontainerConfig).getMockImplementation()!;
@@ -2650,6 +2658,7 @@ describe("workspaceEnsure", () => {
     };
     vi.mocked(resolveManagedPostStartPlan).mockReturnValue(plan);
     vi.mocked(runManagedPostStart).mockImplementation(() => {
+      expect(reportLifecycleProgress).toHaveBeenLastCalledWith("process-start");
       events.push("managed-start");
     });
     mockLifecycle({ events });
