@@ -3,7 +3,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { CapacityDomainSample } from "./capacity-accounting";
 import { readDockerCapacityInfo } from "./capacity-docker-probe";
-import { enrollCapacityLifecycle } from "./capacity-enrollment";
+import { enrollCapacityLifecycle, resolveCapacityEnrollment } from "./capacity-enrollment";
 import { readCapacityPolicy } from "./capacity-policy";
 import { CapacityQueue } from "./capacity-queue";
 import { capacityRequest } from "./capacity-request";
@@ -344,21 +344,37 @@ export function createCapacityController(options: {
      * Open or advance one bounded automatic recovery for an environment whose
      * required capability has positively failed. It is inert unless the
      * operator policy enables recovery, and every decision, budget, and
-     * admission rule is the one an operator-requested ensure obeys.
+     * admission rule is the one an operator-requested ensure obeys. The
+     * producing observation supplies its own proof; recovery resolves and
+     * commits nothing once that proof stops matching the live journal.
      */
-    async recover(environment, failedCapabilities, signal) {
+    async recover(environment, failedCapabilities, signal, revalidate) {
       signal = AbortSignal.any([signal, lifetime.signal]);
       if (signal.aborted || !policy.recovery.enabled) return;
       if (failedCapabilities.length === 0 || failedCapabilities.length > 64) return;
       const current = readCapacityPolicy(options.directory);
       if (current?.admissions !== "enabled" || !isDeepStrictEqual(current, policy)) return;
-      let resolved: Awaited<ReturnType<typeof enrollCapacityLifecycle>>;
+      // Prove the producing observation before the first asynchronous step; a
+      // released session, changed generation, or advanced journal revision
+      // throws here and leaves the environment unrecovered.
+      let observed: ReturnType<typeof revalidate>;
       try {
-        resolved = await enrollCapacityLifecycle(
+        observed = revalidate();
+      } catch {
+        return;
+      }
+      // A later observation may narrow the failures a still-live consumer
+      // requires; it may never author a capability the producing proof omitted.
+      if (
+        !failedCapabilities.some((capability) => observed.failedCapabilities.includes(capability))
+      )
+        return;
+      let resolved: Awaited<ReturnType<typeof resolveCapacityEnrollment>>;
+      try {
+        resolved = await resolveCapacityEnrollment(
           current,
           { path: environment.repoPath, profile: environment.profile, require: [] },
           signal,
-          options.directory,
         );
       } catch {
         // An unresolvable binding keeps the environment unrecovered rather than
@@ -375,29 +391,62 @@ export function createCapacityController(options: {
         !current.enrollments.some((entry) => isDeepStrictEqual(entry, resolved.enrollment))
       )
         return;
-      const pool = {
-        daemonId: runtime.daemonId,
-        runtimeDomain: resolved.enrollment.runtimeDomain,
-        hostDomain: runtime.hostDomain,
-        hostChargeCeilingBytes: runtime.hostChargeCeilingBytes,
-      };
       const identity = {
         repoPath: environment.repoPath,
         workspace: environment.workspace || null,
         provider: environment.provider,
       };
       const record = readReliabilityOperation(identity);
-      if (!record) return;
+      const durable = record?.enrollment;
+      // Recovery never converts or repairs enrollment: the durable binding must
+      // still equal the resolved policy binding exactly, because converting it
+      // would advance the journal revision the producing proof resolved against.
+      // A mismatch in policy revision, common directory, provider, domains,
+      // daemon, endpoint, or estimates digest forbids the action.
+      if (
+        !record ||
+        !durable ||
+        durable.policyRevision !== current.revision ||
+        durable.gitCommonDir !== resolved.enrollment.gitCommonDir ||
+        durable.providerId !== resolved.enrollment.providerId ||
+        durable.hostDomain !== resolved.enrollment.hostDomain ||
+        durable.runtimeDomain !== resolved.enrollment.runtimeDomain ||
+        durable.endpoint !== runtime.endpoint ||
+        durable.daemonId !== runtime.daemonId ||
+        durable.estimatesDigest !== resolved.enrollment.estimatesDigest
+      )
+        return;
       // Never supersede an operation the queue is still working on.
       if (record.state.operation && queue.hasOperation(record.state.operation.id)) return;
+      // Re-prove the exact observation immediately before the transactional
+      // preparation; only the revision this proof returns may be committed.
+      let proof: ReturnType<typeof revalidate>;
+      try {
+        proof = revalidate();
+      } catch {
+        return;
+      }
+      const required = failedCapabilities.filter(
+        (capability) =>
+          observed.failedCapabilities.includes(capability) &&
+          proof.failedCapabilities.includes(capability),
+      );
+      if (required.length === 0) return;
+      const pool = {
+        daemonId: runtime.daemonId,
+        runtimeDomain: resolved.enrollment.runtimeDomain,
+        hostDomain: runtime.hostDomain,
+        hostChargeCeilingBytes: runtime.hostChargeCeilingBytes,
+      };
       let prepared: ReturnType<typeof prepareRecoveryLifecycleOperation>;
       try {
         prepared = prepareRecoveryLifecycleOperation({
           identity,
           controller,
           policyRevision: current.revision,
+          journalRevision: proof.journalRevision,
           actionLimit: policy.recovery.maxCorrectiveActions,
-          failedCapabilities,
+          failedCapabilities: required,
           profile: environment.profile,
           incidentId: `incident-${randomUUID()}`,
         });
@@ -412,6 +461,8 @@ export function createCapacityController(options: {
         kind: "ensure",
       });
       try {
+        // No asynchronous session request can interleave before enqueue;
+        // the queue independently rechecks intent before dispatch.
         queue.enqueue(
           prepared.request,
           {

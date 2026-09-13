@@ -344,6 +344,8 @@ export function prepareRecoveryLifecycleOperation(input: {
   identity: ReliabilityIdentity;
   controller: CapacityControllerIdentity;
   policyRevision: number;
+  /** Journal revision the producing observation proved; a changed revision is refused. */
+  journalRevision: number;
   actionLimit: number;
   failedCapabilities: string[];
   profile: string;
@@ -351,6 +353,11 @@ export function prepareRecoveryLifecycleOperation(input: {
 }): { operationId: string; request: LifecycleWorkerRequest } | undefined {
   const ids = newLifecycleIds();
   return updateReliabilityOperation(input.identity, (record) => {
+    // Refuse before reconciliation or mutation. The transaction still advances
+    // the revision and persists on a no-op return, so a superseded observation
+    // must throw instead of resetting the evidence it was resolved against.
+    if (record.revision !== input.journalRevision)
+      throw new Error("Recovery observation journal revision changed.");
     assertCurrentCapacityController(input.controller);
     if (
       record.version !== 2 ||

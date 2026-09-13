@@ -2614,6 +2614,7 @@ describe("bounded recovery preparation", () => {
       identity,
       controller,
       policyRevision: 1,
+      journalRevision: store.readReliabilityOperation(identity)!.revision,
       actionLimit: 3,
       failedCapabilities: ["app-dead"],
       profile: "full",
@@ -2646,6 +2647,7 @@ describe("bounded recovery preparation", () => {
       identity,
       controller,
       policyRevision: 1,
+      journalRevision: store.readReliabilityOperation(identity)!.revision,
       actionLimit: 3,
       failedCapabilities: ["app-dead"],
       profile: "full",
@@ -2663,6 +2665,7 @@ describe("bounded recovery preparation", () => {
       identity,
       controller,
       policyRevision: 1,
+      journalRevision: store.readReliabilityOperation(identity)!.revision,
       actionLimit: 3,
       failedCapabilities: ["app-dead"],
       profile: "full",
@@ -2677,18 +2680,39 @@ describe("bounded recovery preparation", () => {
   });
 
   it("refuses to prepare recovery without the current durable enrollment", async () => {
-    const { lifecycle, identity, controller } = await enrolledRecoveryFixture();
+    const { lifecycle, store, identity, controller } = await enrolledRecoveryFixture();
     expect(() =>
       lifecycle.prepareRecoveryLifecycleOperation({
         identity,
         controller,
         policyRevision: 2,
+        journalRevision: store.readReliabilityOperation(identity)!.revision,
         actionLimit: 3,
         failedCapabilities: ["app-dead"],
         profile: "full",
         incidentId: "incident-test",
       }),
     ).toThrow(/enrollment/);
+  });
+
+  it("refuses a superseded observation revision without writing the journal", async () => {
+    const { lifecycle, store, identity, controller } = await enrolledRecoveryFixture();
+    const before = store.readReliabilityOperation(identity)!;
+    expect(() =>
+      lifecycle.prepareRecoveryLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 1,
+        journalRevision: before.revision + 1,
+        actionLimit: 3,
+        failedCapabilities: ["app-dead"],
+        profile: "full",
+        incidentId: "incident-test",
+      }),
+    ).toThrow(/revision/);
+    const after = store.readReliabilityOperation(identity)!;
+    expect(after.revision).toBe(before.revision);
+    expect(after.state).toEqual(before.state);
   });
 });
 

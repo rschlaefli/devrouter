@@ -33,6 +33,7 @@ export type ControllerRecovery = (
   environment: ControllerEnvironment,
   failedCapabilities: string[],
   signal: AbortSignal,
+  revalidate: () => { journalRevision: number; failedCapabilities: string[] },
 ) => Promise<void>;
 
 import { createHash } from "node:crypto";
@@ -164,24 +165,57 @@ export class ControllerMonitor {
               this.sessions.publish(bindings, projections, commitTime, Date.now());
             });
             if (this.recover === undefined || this.stopped || abort.signal.aborted) return;
-            const required = new Set<string>();
-            for (const binding of bindings) {
-              try {
-                const consumer = this.sessions.validate(binding);
-                for (const selector of consumer.requirements)
-                  required.add(controllerCapability(selector));
-              } catch {
-                // Released or replaced consumers cannot authorize recovery from this batch.
-              }
-            }
-            const failed = batch.capabilities
-              .filter(
-                (capability) =>
-                  capability.infrastructure === "failed" && required.has(capability.capability),
+            const revalidate = () => {
+              const time = this.clock();
+              this.sessions.tick(time, Date.now());
+              if (
+                this.stopped ||
+                abort.signal.aborted ||
+                batch.sampledAtMs < now ||
+                batch.sampledAtMs > time ||
+                time - batch.sampledAtMs >= 15_000 ||
+                JSON.stringify(batch.environment) !== JSON.stringify(environment)
               )
-              .map((capability) => capability.capability);
-            if (failed.length > 0)
-              void this.recover(batch.environment, failed, abort.signal).catch(() => {});
+                throw new ControllerObservationBindingChanged("Recovery observation expired.");
+              return this.fence(batch.identity, batch.journal.revision, () => {
+                if (!batch.revalidatePersisted())
+                  throw new ControllerObservationBindingChanged(
+                    "Recovery persisted fence changed.",
+                  );
+                const required = new Set<string>();
+                for (const binding of bindings) {
+                  try {
+                    const consumer = this.sessions.validate(binding);
+                    const bound = this.sessions
+                      .read()
+                      .environments.find((entry) => entry.id === consumer.environmentId);
+                    if (JSON.stringify(bound) !== JSON.stringify(environment)) continue;
+                    for (const selector of consumer.requirements)
+                      required.add(controllerCapability(selector));
+                  } catch {
+                    // Only surviving original bindings may use this observation.
+                  }
+                }
+                return {
+                  journalRevision: batch.journal.revision,
+                  failedCapabilities: batch.capabilities
+                    .filter(
+                      (capability) =>
+                        capability.infrastructure === "failed" &&
+                        required.has(capability.capability),
+                    )
+                    .map((capability) => capability.capability),
+                };
+              });
+            };
+            const proof = revalidate();
+            if (proof.failedCapabilities.length > 0)
+              void this.recover(
+                batch.environment,
+                proof.failedCapabilities,
+                abort.signal,
+                revalidate,
+              ).catch(() => {});
           });
         })
         .catch(async (error) => {

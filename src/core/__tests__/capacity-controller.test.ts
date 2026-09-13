@@ -6,6 +6,7 @@ import type { ControllerSessionValidator } from "../controller-server";
 const fixture = vi.hoisted(() => ({
   policy: vi.fn(),
   enroll: vi.fn(),
+  resolve: vi.fn(),
   status: vi.fn(),
   wait: vi.fn(),
   page: vi.fn(),
@@ -62,7 +63,10 @@ vi.mock("../controller-binding", () => ({ readControllerEvidence: fixture.eviden
 vi.mock("../repo-config", () => ({ loadRepoConfig: fixture.config }));
 vi.mock("../capacity-request", () => ({ capacityRequest: fixture.charge }));
 vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.policy }));
-vi.mock("../capacity-enrollment", () => ({ enrollCapacityLifecycle: fixture.enroll }));
+vi.mock("../capacity-enrollment", () => ({
+  enrollCapacityLifecycle: fixture.enroll,
+  resolveCapacityEnrollment: fixture.resolve,
+}));
 vi.mock("../lifecycle-operation-status", () => ({ readLifecycleOperationStatus: fixture.status }));
 vi.mock("../capacity-queue", () => ({
   CapacityQueue: class {
@@ -166,6 +170,64 @@ function deferred<T>() {
     resolve = resolveValue;
   });
   return { promise, resolve };
+}
+
+/** Synthetic provider facts for the recovery path; the resolver never writes. */
+const recoveryEnrollment = {
+  hostDomain: "host",
+  runtimeDomain: "runtime",
+  gitCommonDir: "/fixture/.git",
+  providerId: "provider",
+  estimatesDigest: "d".repeat(64),
+};
+const recoveryRuntime = {
+  kind: "runtime" as const,
+  daemonId: "synthetic.daemon",
+  hostDomain: "host",
+  hostChargeCeilingBytes: 60,
+  endpoint: "/tmp/synthetic-controller/d.sock",
+};
+const recoveryDurableEnrollment = {
+  policyRevision: 1,
+  gitCommonDir: recoveryEnrollment.gitCommonDir,
+  providerId: recoveryEnrollment.providerId,
+  hostDomain: recoveryEnrollment.hostDomain,
+  runtimeDomain: recoveryEnrollment.runtimeDomain,
+  endpoint: recoveryRuntime.endpoint,
+  daemonId: recoveryRuntime.daemonId,
+  estimatesDigest: recoveryEnrollment.estimatesDigest,
+};
+const recoveryEstimates = { host: { steadyBytes: 1 } };
+
+function recoveryFixture() {
+  fixture.policy.mockReturnValue({
+    revision: 1,
+    admissions: "enabled",
+    recovery: { enabled: true, maxCorrectiveActions: 3 },
+    enrollments: [recoveryEnrollment],
+    domains: { host: { kind: "host" }, runtime: recoveryRuntime },
+  });
+  fixture.resolve.mockResolvedValue({
+    environment,
+    enrollment: recoveryEnrollment,
+    estimates: recoveryEstimates,
+  });
+  fixture.journal.mockReturnValue({
+    state: { environmentId: "env", operation: null },
+    activeProfile: null,
+    enrollment: recoveryDurableEnrollment,
+  });
+  fixture.hasOperation.mockReturnValue(false);
+  fixture.charge.mockReturnValue({ environmentId: "env", totals: { host: 1 } });
+  fixture.prepareRecovery.mockReturnValue({
+    operationId: "recovered",
+    request: { operationId: "recovered", requestId: "recovery" },
+  });
+}
+
+/** Stand-in for the monitor's producing-observation closure. */
+function recoveryProof(failedCapabilities = ["app-dead"]) {
+  return () => ({ journalRevision: 1, failedCapabilities });
 }
 
 const submission = {
@@ -860,36 +922,20 @@ it("drains a cooperative sample collector on close before tick rejects", async (
 });
 
 it("opens a bounded recovery for a failed capability when policy enables it", async () => {
-  fixture.policy.mockReturnValue({
-    revision: 1,
-    admissions: "enabled",
-    recovery: { enabled: true, maxCorrectiveActions: 3 },
-    enrollments: [submissionEnrollment],
-    domains: { host: { kind: "host" }, runtime: submissionRuntime },
-  });
-  fixture.enroll.mockResolvedValue({
+  recoveryFixture();
+
+  await controller().recover(
     environment,
-    estimates: { host: { steadyBytes: 1 } },
-    enrollment: submissionEnrollment,
-  });
-  fixture.journal.mockReturnValue({ state: { environmentId: "env", operation: null } });
-  fixture.hasOperation.mockReturnValue(false);
-  fixture.charge.mockReturnValue({
-    environmentId: "env",
-    totals: { host: 1 },
-    startup: false,
-    heavy: false,
-  });
-  fixture.prepareRecovery.mockReturnValue({
-    operationId: "recovered",
-    request: { operationId: "recovered", requestId: "recovery" },
-  });
+    ["app-dead"],
+    new AbortController().signal,
+    recoveryProof(),
+  );
 
-  await controller().recover(environment, ["app-dead"], new AbortController().signal);
-
+  expect(fixture.enroll).not.toHaveBeenCalled();
   expect(fixture.prepareRecovery).toHaveBeenCalledWith(
     expect.objectContaining({
       policyRevision: 1,
+      journalRevision: 1,
       actionLimit: 3,
       failedCapabilities: ["app-dead"],
       profile: "full",
@@ -899,8 +945,8 @@ it("opens a bounded recovery for a failed capability when policy enables it", as
     expect.objectContaining({ operationId: "recovered" }),
     expect.objectContaining({ operationId: "recovered", policyRevision: 1, totals: { host: 1 } }),
     {
-      estimates: { host: { steadyBytes: 1 } },
-      enrollment: submissionEnrollment,
+      estimates: recoveryEstimates,
+      enrollment: recoveryEnrollment,
       pool: {
         daemonId: "synthetic.daemon",
         hostDomain: "host",
@@ -916,35 +962,116 @@ it("is inert when policy leaves automatic recovery disabled", async () => {
     revision: 1,
     admissions: "enabled",
     recovery: { enabled: false },
-    enrollments: [submissionEnrollment],
-    domains: { host: { kind: "host" }, runtime: submissionRuntime },
+    enrollments: [recoveryEnrollment],
+    domains: { host: { kind: "host" }, runtime: recoveryRuntime },
   });
-  await controller().recover(environment, ["app-dead"], new AbortController().signal);
-  expect(fixture.enroll).not.toHaveBeenCalled();
+  await controller().recover(
+    environment,
+    ["app-dead"],
+    new AbortController().signal,
+    recoveryProof(),
+  );
+  expect(fixture.resolve).not.toHaveBeenCalled();
   expect(fixture.prepareRecovery).not.toHaveBeenCalled();
 });
 
 it("leaves an operation the queue still owns alone", async () => {
-  fixture.policy.mockReturnValue({
-    revision: 1,
-    admissions: "enabled",
-    recovery: { enabled: true, maxCorrectiveActions: 3 },
-    enrollments: [submissionEnrollment],
-    domains: { host: { kind: "host" }, runtime: submissionRuntime },
-  });
-  fixture.enroll.mockResolvedValue({
-    environment,
-    estimates: {},
-    enrollment: submissionEnrollment,
-  });
+  recoveryFixture();
   fixture.journal.mockReturnValue({
     state: { environmentId: "env", operation: { id: "inflight" } },
+    activeProfile: null,
+    enrollment: recoveryDurableEnrollment,
   });
   fixture.hasOperation.mockReturnValue(true);
 
-  await controller().recover(environment, ["app-dead"], new AbortController().signal);
+  await controller().recover(
+    environment,
+    ["app-dead"],
+    new AbortController().signal,
+    recoveryProof(),
+  );
 
   expect(fixture.hasOperation).toHaveBeenCalledWith("inflight");
+  expect(fixture.prepareRecovery).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+it.each([
+  "released",
+  "reacquired",
+  "expired",
+  "revision-changed",
+])("prepares and enqueues nothing when the held session proof fails (%s)", async () => {
+  recoveryFixture();
+  let valid = true;
+  const proof = () => {
+    if (!valid) throw new Error("observation invalidated");
+    return { journalRevision: 1, failedCapabilities: ["app-dead"] };
+  };
+  const started = deferred<void>();
+  const held = deferred<void>();
+  fixture.resolve.mockImplementation(async () => {
+    started.resolve();
+    await held.promise;
+    return {
+      environment,
+      enrollment: recoveryEnrollment,
+      estimates: recoveryEstimates,
+    };
+  });
+
+  const pending = controller().recover(
+    environment,
+    ["app-dead"],
+    new AbortController().signal,
+    proof,
+  );
+  await started.promise;
+  valid = false;
+  held.resolve();
+  await pending;
+
+  expect(fixture.prepareRecovery).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+it("recovers only the failures a surviving consumer still requires", async () => {
+  recoveryFixture();
+  let calls = 0;
+  const proof = () => {
+    calls += 1;
+    return {
+      journalRevision: 1,
+      failedCapabilities: calls === 1 ? ["app-dead", "app-released"] : ["app-dead"],
+    };
+  };
+
+  await controller().recover(
+    environment,
+    ["app-dead", "app-released"],
+    new AbortController().signal,
+    proof,
+  );
+
+  expect(fixture.prepareRecovery).toHaveBeenCalledWith(
+    expect.objectContaining({ failedCapabilities: ["app-dead"], journalRevision: 1 }),
+  );
+  expect(fixture.enqueue).toHaveBeenCalledOnce();
+});
+
+it("never broadens the producing failure set from a later observation", async () => {
+  recoveryFixture();
+  let calls = 0;
+  const proof = () => {
+    calls += 1;
+    return {
+      journalRevision: 1,
+      failedCapabilities: calls === 1 ? ["app-dead"] : ["app-other"],
+    };
+  };
+
+  await controller().recover(environment, ["app-dead"], new AbortController().signal, proof);
+
   expect(fixture.prepareRecovery).not.toHaveBeenCalled();
   expect(fixture.enqueue).not.toHaveBeenCalled();
 });

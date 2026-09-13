@@ -406,3 +406,80 @@ it("recovers only capabilities still required by a matching live consumer", asyn
   expect(recover).toHaveBeenCalledOnce();
   expect(recover.mock.calls[0][1]).toEqual([controllerCapability("app:web")]);
 });
+
+it.each([
+  "released",
+  "reacquired",
+  "expired",
+  "journal",
+  "persisted",
+  "stopped",
+  "remaining",
+])("revalidates recovery after asynchronous resolution (%s)", async (reason) => {
+  const { sessions, first, batch } = fixture();
+  sessions.acquire("two", environment, ["app:web"], 100, Date.now());
+  batch.capabilities[0].infrastructure = "failed";
+  batch.capabilities.push({
+    capability: controllerCapability("app:web"),
+    infrastructure: "failed",
+    application: "unverified",
+    observedAtMs: 0,
+    validForMs: 15_000,
+  });
+  let now = 100;
+  let changedJournal = false;
+  let validate: (() => { journalRevision: number; failedCapabilities: string[] }) | undefined;
+  const monitor = new ControllerMonitor(
+    sessions,
+    async () => batch,
+    async (operation) => operation(),
+    () => now,
+    (_identity, _revision, publish) => {
+      if (changedJournal) throw new Error("Journal revision changed");
+      return publish(batch.journal);
+    },
+    async (...args: unknown[]) => {
+      validate = args[3] as typeof validate;
+    },
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  await flush();
+  expect(validate).toBeTypeOf("function");
+  expect(validate!()).toEqual({
+    journalRevision: 1,
+    failedCapabilities: ["runtime", controllerCapability("app:web")],
+  });
+  if (reason === "released" || reason === "reacquired" || reason === "remaining") {
+    sessions.release(first, now, Date.now());
+    if (reason !== "remaining") {
+      const second = sessions.read().sessions.find((entry) => entry.id === "two")!;
+      const snapshot = sessions.read();
+      sessions.release(
+        {
+          store: snapshot.store,
+          epoch: snapshot.epoch,
+          session: second.id,
+          generation: second.generation,
+        },
+        now,
+        Date.now(),
+      );
+    }
+    if (reason === "reacquired") sessions.acquire("one", environment, ["runtime"], now, Date.now());
+  }
+  if (reason === "expired") now = 15_100;
+  if (reason === "journal") changedJournal = true;
+  if (reason === "persisted") batch.revalidatePersisted = () => false;
+  if (reason === "stopped") monitor.stop();
+  if (reason === "remaining") {
+    expect(validate!()).toEqual({
+      journalRevision: 1,
+      failedCapabilities: [controllerCapability("app:web")],
+    });
+  } else if (reason === "released" || reason === "reacquired") {
+    expect(validate!().failedCapabilities).toEqual([]);
+  } else {
+    expect(() => validate!()).toThrow();
+  }
+});

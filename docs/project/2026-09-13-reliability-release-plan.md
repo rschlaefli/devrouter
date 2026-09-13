@@ -457,3 +457,82 @@ Recovery observation planner approved the derived delta. Five new baseline cases
 failed as expected; after the fix all sixteen monitor tests pass. The sixth new
 case proves that releasing one consumer filters only its required capabilities.
 Typecheck, focused Biome and Knip pass. Exact immutable slice review follows commit.
+
+
+### Recovery preparation fencing
+
+After submission and observation slices, main owns existing
+`src/core/controller-monitor.ts`, `src/core/capacity-controller.ts`,
+`src/core/reliability-lifecycle.ts` and their three current suites, plus existing
+`src/core/__tests__/capacity-controller-integration.test.ts`. No concurrent
+writer touches them during implementation. Reuse consumer-session and lifecycle
+fences; no new persistent schema or runtime policy.
+
+Extend the internal ControllerRecovery callback with a required synchronous
+`revalidate` closure supplied by the producing observation. It ticks clocks,
+rejects stale/future evidence, stop/abort and changed store/epoch/session generation,
+revalidates the observation's exact journal revision and persisted ownership/config,
+and returns only positively failed capabilities required by still-live original
+consumers. An empty set forbids a new recovery. Keep closure invocation outside
+journal transactions; do not nest journal locks.
+
+Capacity recovery uses existing side-effect-free resolveCapacityEnrollment instead
+of enrollCapacityLifecycle: the latter rewrites even unchanged enrollment and
+invalidates the producing journal revision. No capacity-enrollment.ts edit is
+needed. Compare every durable enrollment field with the resolved policy binding,
+including provider, exact path/common-dir, policy revision, daemon/endpoint,
+domains and estimates digest. Never convert or repair enrollment in recovery.
+Invoke the proof before asynchronous resolution and immediately before
+prepareRecoveryLifecycleOperation, then queue synchronously without another await.
+Pass the producing journal revision as an explicit recovery input and require that
+revision inside prepare's transaction before reconciliation or mutation. This
+prevents an explicit stop followed by a new start from inheriting an older failed
+observation during enrollment. Changed consumer requirements may narrow failure
+selection; no new consumer or generation may adopt old evidence. Joined normal
+operation and queue ownership guards remain authoritative. After accepted enqueue,
+worker/queue intent checks continue to govern; later automatic dispatch and full
+session-lease synchronization remain the parking/harness slice's responsibility.
+
+Acceptance extends the same capacity/intent portfolio: held enrollment then last
+consumer release, same-ID reacquisition, evidence expiry or journal revision change
+must produce no recovery preparation/enqueue; one surviving matching consumer can
+recover its required failed capability. Direct lifecycle test rejects changed
+revision without mutation. Extend the integration suite with real journal and
+prepare transitions while resolving only external provider facts synthetically:
+unchanged existing enrollment allows recovery without an intermediate revision
+write, whereas an intervening explicit stop/new start rejects the old observation.
+Mocking both enrollment and preparation is insufficient for this seam. Preserve original incident and existing action budget.
+Run affected monitor, capacity-controller and lifecycle suites, typecheck, Biome,
+Knip. No live runtime needed. Internal review precedes implementation.
+
+### Submission and recovery fencing verification
+
+Submission fencing committed at `a81bd58c4103fd65aeb6e44071d391538354d612`.
+The worker passed 80 focused tests, typecheck and Knip. Parent strengthened the
+server regression to release through a second real Unix socket and assert fresh
+binding identity; all 20 server tests passed. Native slice reviewer Russell
+returned DONE with no qualifying findings. Native simplifier Ptolemy recommended
+removing the validator's redundant wrapper; accepted with unchanged 20-test pass.
+Monitor pre-tick correction committed at `85f7532210ef2ebc5c6f00a4184029ad373b506a`;
+Fermat's focused correction review closed the prior concern. All 17 tests passed.
+
+Recovery preparation is in progress. Parent's seven new monitor cases failed
+against the old three-argument callback. Its revalidation closure now passes all
+24 monitor tests, including release, reacquisition, expiry, changed journal,
+persisted evidence, stop and one surviving consumer. Worker Feynman owns capacity
+and lifecycle preparation plus the three existing suites; parent retains monitor
+files. Source remains unreleased. Original consumer owner received a progress
+notice without any request to start or mutate its runtime.
+
+The exact eLearning canary permission question is pending after the previous
+automatic approval review rejection. Independent source and harness protocol
+qualification continue; no consumer recovery or complete 0.1.0 guarantee is claimed.
+
+Recovery preparation implementation now passes 124 capacity/lifecycle unit tests,
+24 capacity integration tests and 24 monitor tests (172 total). Typecheck, Knip
+and whole-repository Biome pass; Biome reports two pre-existing informational
+findings outside this slice. The unchanged-enrollment integration verifies exactly
+one recovery preparation write; stop/new-start during resolution prevents recovery.
+A stale journal revision throws before any write. Live runtimes were not required.
+The redundant submission wrapper correction is `ce700797f34c7488d492872715b66a159dab802f`.
+Independent immutable recovery review follows this commit.
