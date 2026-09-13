@@ -379,7 +379,11 @@ mutation will touch: one logical process from the managed process set, or one
 retained service from the resolved service set. Its key and kind come from the
 exact prepared resource plan the recovery already resolves, mapped from the
 producing failed capability, never from a process listing and never as a
-`min(process, service)` proxy. The unit is claimed durably under the existing
+`min(process, service)` proxy. The controller only ever delivers
+`controllerCapability(selector)` hashes, so the unit key is recovered inside the
+lifecycle layer by recomputing that hash over the repository-declared process and
+service selectors and matching the producing capability; no raw selector or
+process listing crosses the boundary. The unit is claimed durably under the existing
 per-journal file lock immediately before each mutation; the claim increments the
 unit counter and the aggregate `correctiveActionsTaken` in the same write,
 refuses when `maxProcessRestarts` (process) or `maxServiceRestarts` (service) is
