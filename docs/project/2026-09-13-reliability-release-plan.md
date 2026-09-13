@@ -220,14 +220,30 @@ pressure-duration evidence, exact-set parking observation, restart-stable bindin
 and exact retained-consumer withdrawal. CI 34769082566 also passes Linux helper,
 package and installed controller/capacity qualification.
 
-Park/resume model and lifecycle preparation are implemented on top of that
-baseline: resume is an intent change that earns admission through the ordinary
-queue instead of presuming it, park commits settled intent and keeps its charge
-until physical cessation, a crashed park is re-proven physically, and a resume
-that cannot keep its queued operation returns to parked intent. 2,553 tests pass
-in 143 files; controller-tier tests need a host context for process-identity
-inspection. Controller park/resume passes, status wording, durable windowed
-budgets and the remaining slices are open.
+Park/resume model and lifecycle preparation landed in `2f09de0`: resume is an
+intent change that earns admission through the ordinary queue instead of
+presuming it, park commits settled intent and keeps its charge until physical
+cessation, a crashed park is re-proven physically, and a resume that cannot keep
+its queued operation returns to parked intent.
+
+The controller capacity pass landed in `b9b0429`. The monitor supplies the exact
+same-store, same-epoch, same-parkingRevision consumer set and the live demand for
+it; the controller resolves the enrolled target, policy revision and reservation,
+commits intent under the journal lock, and drives one non-destructive lifecycle
+worker per pass with single-flight per incarnation and five-second spacing.
+`34dfbde` gives the two durable-burst controller fixtures the same bounded test
+deadline the sibling cursor-replay fixture already carries, keeping every
+assertion. 2,557 tests pass in 143 files, and the focused controller and
+reliability suites pass with a host context for process-identity inspection.
+
+One pre-existing fixture stays load-sensitive on a contended host: the watch gap
+fixture performs 257 synchronous durable renewals, measured at 2.3s in isolation,
+against the protocol's own five-second watch client deadline. The test cannot
+raise that deadline because the client deliberately refuses a caller deadline
+longer than the watch lifetime. It fails only under full-suite parallelism and is
+byte-identical to its CI-green revision, so measured optimization owns the real
+fix. Controller park/resume passes, status wording, durable windowed budgets and
+the remaining slices are open.
 
 All seven slices retain integrated or live obligations. Production park/resume,
 scoped/window recovery budgets, lost-identity/history reconciliation, actual
