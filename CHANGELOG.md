@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Controller sessions support explicit per-binding capacity-parking consent and
+  exact retained-session reconnect. Defaults remain protected. Snapshot version2
+  retains unresolved consumers across lease loss and restart. Reading legacy
+  version1 preserves unknown history; controller startup durably migrates it.
+  Older CLIs refuse version2: do not delete snapshots to downgrade or clear
+  uncertainty. Exact fingerprint continuity and operator reconciliation remain
+  prerequisites for seamless restart recovery; consent alone starts no runtime.
+
 - Controller protection status and explicit human pin updates preserve operator
   protection independently of operation history and session leases. Pin updates
   require exact current ownership, session and revision evidence. Once a pin

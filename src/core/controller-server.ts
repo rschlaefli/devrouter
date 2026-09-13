@@ -553,28 +553,63 @@ export async function runController(options: {
             const timedOut = new Promise<never>((_resolve, reject) => {
               rejectDeadline = reject;
             });
+            const expiresAt = monotonic() + 3000;
             const deadline = setTimeout(() => {
               abort();
               rejectDeadline(new Error("Resolver deadline exceeded."));
             }, 3000);
             try {
+              let persisted: (() => boolean) | undefined;
               const environment = await Promise.race([
-                options.resolve(request, controller.signal),
+                options.resolve(
+                  request,
+                  controller.signal,
+                  request.reconnect
+                    ? (proof) => {
+                        persisted = proof;
+                      }
+                    : undefined,
+                ),
                 timedOut,
               ]);
               if (controller.signal.aborted || socket.destroyed)
                 throw new Error("Observation binding unavailable.");
-              result = sessions.acquire(
-                request.session,
-                environment,
-                request.require,
-                monotonic(),
-                Date.now(),
-              );
+              if (request.reconnect) {
+                if (
+                  options.signal.aborted ||
+                  monotonic() >= expiresAt ||
+                  !persisted ||
+                  !persisted()
+                )
+                  throw new Error("Reconnect ownership evidence unavailable or changed.");
+                result = sessions.reconnect(
+                  request.reconnect,
+                  environment,
+                  request.require,
+                  monotonic(),
+                  Date.now(),
+                );
+              } else {
+                result = sessions.acquire(
+                  request.session,
+                  environment,
+                  request.require,
+                  monotonic(),
+                  Date.now(),
+                );
+              }
             } finally {
               clearTimeout(deadline);
               socket.removeListener("close", abort);
             }
+          } else if (request.method === "parking-consent") {
+            result = sessions.setParkingConsent(
+              request,
+              request.expectedConsentRevision,
+              request.parkingConsent,
+              monotonic(),
+              Date.now(),
+            );
           } else if (request.method === "renew") {
             result = sessions.renew(request, monotonic(), Date.now());
           } else if (request.method === "release") {

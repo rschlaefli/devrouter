@@ -191,7 +191,21 @@ survives lease release, controller restart and lifecycle operations; only an
 explicit pin update clears it. A pin never requests startup or overrides user stop.
 Continuity loss remains unknown through a sixty-second monotonic grace and then
 requires revalidation. Grace expiry never establishes that parking is safe.
-Existing live observers remain protected; these interfaces do not activate parking.
+Fresh sessions and reconnected sessions default to protected. The IPC
+`parking-consent` method changes only the exact live binding with a consent
+revision check. Explicit release acknowledges that consumer; expiry, binding drift,
+clock discontinuity and controller restart instead retain unresolved protection.
+Those records are bounded and never evicted to make room. Ordinary observation of
+changed configuration can continue while the older consumer remains unresolved.
+
+An optional exact previous binding on `observe` can reconcile only that retained
+consumer, after fresh persisted ownership and identical environment and requirement
+proof. It creates a new protected generation. Current fingerprints use an
+incarnation-local key, so a real process restart can prevent this equality proof;
+reconnect across that boundary is not yet a seamless recovery path. Legacy history
+and lost identities remain unresolved. Protection status exposes consent and
+uncertainty counts; `consentSatisfied` proves only the consumer-consent prerequisite.
+These interfaces do not activate parking or provide a reusable execution permit.
 
 ## Manual operation journal
 

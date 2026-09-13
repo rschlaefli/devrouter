@@ -1020,3 +1020,146 @@ Whole typecheck/Biome, Knip, docs/knowledge, build and isolated package smoke pa
 Focused Opengrep210rules on the one source module reports0findings. Source has
 no runtime authority additions. Main owns all six paths after worker convergence;
 staged material is source, synthetic fixtures and values-free project evidence.
+
+
+Rollover convergence at ece78339675185ec30b5ba4affdb5818b62379d4:
+independent slice review DONE with no qualifying findings; simplifier found no
+worthwhile reduction. CI34759169929 passed at that exact head. Reports reside in
+the ignored review directory. This closes the source delta only. Parking/resume,
+scoped recovery budgets, live qualification and harness acceptance remain open.
+
+
+### Durable consumer consent and reconnect — frozen derived contract
+
+Scope A extends consumer session protection only. It adds no park/resume emitter,
+provider mutation, reservation or journal-authority change. Scope B will add the
+exact-set observation proof; actual parking and resume must integrate together.
+Existing default observers and every reconnect start protected. Explicit release
+acknowledges only its current binding; expiry, restart, clock discontinuity and
+binding drift preserve unresolved protection. Journal request consumers remain
+idempotency history, never live demand. Missing pin, elapsed grace and pressure
+are not consent. Existing ordinary observation remains usable after config drift.
+
+Primitive impact: extend consumer session with per-binding consent and retained
+uncertainty; compose exact environment identity and operator protection. Reuse
+current private atomic controller storage, session leases and serializer. No new
+product object, module, policy default or process is introduced.
+
+Controller snapshot becomes strict version2 with existing fields plus
+parkingRevision (safe nonnegative counter), history (complete|legacy-unknown), and
+retainedSessions. Active sessions add parkingConsent (protected|allow-unusable)
+and consentRevision (safe counter). A retained entry carries id, generation,
+epoch, requirements, parkingConsent, consentRevision, reason
+(expired|restart|discontinuity|binding-changed), and the complete embedded
+ControllerEnvironment. It carries no lease, timestamp or observation. Active
+environments[] retains its existing active-only meaning. Unknown retained records
+match by logical environment ID/path even when fingerprint/profile drifted; their
+old fingerprint cannot block a fresh ordinary acquisition for that logical path.
+Incompatible logical ID/path mappings still refuse.
+
+At most128combined active/retained entries,32distinct logical environments,
+256events and1MiB snapshot. Multiple generations of one session name may be
+retained; the complete binding tuple must remain unique. No eviction of unresolved
+protection on exhaustion. Every material membership, consent, reconciliation or
+continuity change increments parkingRevision. Ordinary renewal/publication need
+not increment it. Counter exhaustion and persistence failure refuse; preserve
+existing poisoned-owner and exact-byte resync behavior.
+
+Validate legacy version1 before migration; absent new fields never imply consent.
+A version1 store becomes legacy-unknown, surviving active sessions become retained
+protected entries on startup, and missing historical sessions stay unknown.
+Preserve store identity and counters, advance epoch and persist before startup
+acknowledgement. Version2 startup retains active sessions with their old epoch,
+clears active bindings/leases/observations, retains prior uncertainty and history.
+A genuinely first-created store starts complete. Missing/corrupt established
+storage is never an authorized reset procedure. Strict older readers reject v2;
+migration guidance forbids deleting state to downgrade or bypass uncertainty.
+The read API may normalize validated v1 bytes to the current in-memory shape;
+normalization alone cannot acknowledge a durable migration or new epoch.
+
+Wire version1 existing methods stay compatible. Add strict parking-consent with
+existing header and exact binding fields plus expectedConsentRevision and
+parkingConsent. Mutation validates a live binding and CAS; an immediate matching
+next-revision retry may acknowledge without another write; stale/revoked/generation
+mismatches refuse. No-op at the expected revision returns current without consuming
+a revision. Record a consent event only for a changed value. Existing observe
+response binding shape stays unchanged; status exposes current consent revision.
+
+Observe may carry an optional reconnect object containing previous complete
+session/store/epoch/generation. Its session name must equal the requested session.
+Fresh ownership resolution must equal the retained complete environment; validate
+captured persisted ownership again immediately before the synchronous commit.
+Atomically replace only that exact retained generation with a new protected
+active generation and fresh lease. Never reuse its consent or operational authority.
+Refuse an already-active session, a missing retained tuple, changed profile or
+fingerprint, cancelled/deadline-expired request or failed persisted proof. A new
+ordinary acquisition with the same name does not consume retained entries.
+Old bindings cannot renew, release, submit operations or mutate consent.
+
+Preserve unresolved sessions before expiry/discontinuity/binding invalidation
+removes them; every such change invalidates prior parking evidence. Explicit
+live release removes only that validated active record without creating a retained
+record. It invalidates prior proof and grants no consent to remaining consumers.
+Protection diagnostics add complete/legacy history, unresolved and consenting
+counts, plus consentSatisfied. That boolean means only nonempty all-consenting
+live demand with complete history and zero unresolved records; it is never a
+runtime permission. Existing grace remains advisory and cannot make it true.
+
+Known bounded limitation: controller-binding uses an incarnation-local HMAC key,
+so exact equality can prevent reconnect after a real process restart. Do not weaken
+fingerprint comparison or persist its key in this prerequisite. Full roadmap
+must resolve identity continuity and explicit operator reconciliation of lost or
+legacy identities before seamless restart or release acceptance. Pending work
+cannot be bypassed by erasing retained protection. Scoped recovery/time budgets
+also remain in full scope.
+
+Paths for A: controller-store.ts, controller-sessions.ts, controller-protocol.ts,
+controller-server.ts and their four existing test files, this plan, CHANGELOG.md,
+and managed-environment-lifecycle.md. No new code files. Executor owns only store
+and its existing tests after challenge approval; main owns sessions, protocol,
+server, tests and documentation. All other code read-only. B separately extends
+monitor/current-set proof and existing tests after A convergence.
+
+Acceptance A: legacy migration and fresh-store distinction; restart retention;
+default protection; consent CAS/idempotency/revocation/stale binding; expiry vs
+explicit release; unrelated retained consumer remains; exact reconnect and failed
+persisted proof; drifted ordinary acquisition succeeds but cannot clear uncertainty;
+combined bounds/counter exhaustion/pre- and post-rename failure; controller Unix
+socket reconnect/consent invoke zero lifecycle operations. Extend existing focused
+suites, then static/docs/knowledge, typecheck, build, package and CI. No prose tests
+or new live runtime. Run baseline failures before source implementation.
+
+Stop A for any need to relax ownership, discard history, reset storage, introduce
+runtime actions or change default consent. Main has dispositioned construction
+corrections; same planner challenges this frozen contract before source changes.
+
+
+Frozen challenge round1 corrections (accepted): reconnect also requires exact
+sorted requirements equality; changing requirements cannot consume retained
+protection. A new independent observe may request another set but leaves the
+retained consumer intact. Legacy read normalization preserves old epoch and
+surviving sessions, performs no retention or write, and repeats without changes.
+Startup alone retains those sessions and advances epoch exactly once. Persistence
+error recovery must compare actual stored version/content against intended bytes;
+a normalized legacy view is not evidence that v2 bytes reached disk. Add focused
+legacy tests for repeated read, pre-replacement failure retaining original v1,
+and post-replacement error acknowledging only exact v2 after verified resync.
+
+
+Consent A integration: planner round2 APPROVED. Executor owned only store and
+store tests; main integrated session/protocol/server semantics. Baseline new cases
+failed (sessions5, protocol2, store10). Final focused portfolio includes103tests
+across five suites, with subsequent boundary/persistence assertions passing.
+Full source suite2413tests/143files passed with2workers after the default parallel
+run hit two existing filesystem-heavy test deadlines. Main then extended the
+existing counter test to three exhausted counters and the128session test to
+prove exact reconnect still progresses at the combined retention cap; all38store
+and session tests pass. No timeout or ownership fallback was changed.
+
+Whole typecheck/Biome/Knip/docs/knowledge/build/package and focused Opengrep
+210rules/4files/0findings pass. Two unrelated Biome infos persist. Linux process
+helper tests correctly skip on macOS and remain CI's Linux obligation. True
+prior-reader compatibility was checked against the original committed validator:
+v1 accepted, v2 refused. No consumer runtime, controller enrollment or global
+installation changed. Lost/legacy identity reconciliation, cross-process HMAC
+continuity, exact-set parking proof and full park/resume integration remain open.

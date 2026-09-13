@@ -1198,3 +1198,103 @@ it("does not write a pin cancelled while its final transaction waits in the seri
   expect(fs.readFileSync(file)).toEqual(bytes);
   other.socket.destroy();
 });
+
+it("negotiates consent on the exact socket binding without submitting lifecycle work", async () => {
+  const operations = { submit: vi.fn(), watch: vi.fn() };
+  const { directory } = await fixture(undefined, operations);
+  const client = connect(directory);
+  try {
+    await client.request({ method: "handshake" });
+    const acquired = await client.request({
+      method: "observe",
+      path: "/fixture/checkout",
+      session: "consent",
+      profile: "web",
+      require: ["runtime"],
+    });
+    expect(acquired.ok).toBe(true);
+    const binding = acquired.result;
+    expect(
+      await client.request({
+        method: "parking-consent",
+        ...binding,
+        expectedConsentRevision: 0,
+        parkingConsent: "allow-unusable",
+      }),
+    ).toMatchObject({ ok: true, result: { consentRevision: 1, parkingConsent: "allow-unusable" } });
+    const status = await client.request({ method: "status", session: "consent" });
+    expect(status.result.sessions[0]).toMatchObject({
+      consentRevision: 1,
+      parkingConsent: "allow-unusable",
+    });
+    await client.request({ method: "release", ...binding });
+    const observer = connect(directory);
+    try {
+      await observer.request({ method: "handshake" });
+      expect(
+        await observer.request({
+          method: "parking-consent",
+          ...binding,
+          expectedConsentRevision: 1,
+          parkingConsent: "protected",
+        }),
+      ).toMatchObject({ ok: false });
+    } finally {
+      observer.socket.destroy();
+    }
+    expect(operations.submit).not.toHaveBeenCalled();
+    expect(operations.watch).not.toHaveBeenCalled();
+  } finally {
+    client.socket.destroy();
+  }
+});
+
+it("reconnects retained generations only after fresh persisted ownership proof", async () => {
+  const f = await protectionFixture();
+  await f.client.request({
+    method: "parking-consent",
+    ...f.binding,
+    expectedConsentRevision: 0,
+    parkingConsent: "allow-unusable",
+  });
+  f.client.socket.destroy();
+  await f.stop();
+  await f.start();
+  const request = {
+    method: "observe",
+    path: f.directory,
+    session: "pin-session",
+    profile: "web",
+    require: ["runtime"],
+    reconnect: f.binding,
+  };
+  const denied = connect(f.directory);
+  try {
+    await denied.request({ method: "handshake" });
+    f.control.proof = () => false;
+    expect(await denied.request(request)).toMatchObject({ ok: false });
+  } finally {
+    denied.socket.destroy();
+  }
+  f.control.proof = () => true;
+  const client = connect(f.directory);
+  try {
+    await client.request({ method: "handshake" });
+    const reconnected = await client.request(request);
+    expect(reconnected.ok).toBe(true);
+    expect(reconnected.result.generation).not.toBe(f.binding.generation);
+    expect(reconnected.result.epoch).toBeGreaterThan(f.binding.epoch);
+    const status = await client.request({ method: "status", session: "pin-session" });
+    expect(status.result.sessions[0]).toMatchObject({
+      parkingConsent: "protected",
+      consentRevision: 0,
+    });
+    const proof = await client.request({ method: "protection-status", ...reconnected.result });
+    expect(proof).toMatchObject({
+      ok: true,
+      result: { unresolvedConsumers: 0, consentSatisfied: false },
+    });
+  } finally {
+    client.socket.destroy();
+  }
+});

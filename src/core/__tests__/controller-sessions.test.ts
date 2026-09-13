@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { writeFileAtomically } from "../atomic-file";
 import { ControllerSessions } from "../controller-sessions";
 import { ControllerStore } from "../controller-store";
 
@@ -98,6 +99,13 @@ it("rejects excess sessions without evicting or changing acknowledged bindings",
   expect(fs.readFileSync(store.file)).toEqual(before);
   for (const binding of bindings)
     expect(sessions.validate(binding).generation).toBe(binding.generation);
+  for (const time of [10_000, 20_000, 30_000]) sessions.tick(time, time + 1000);
+  expect(sessions.read().retainedSessions).toHaveLength(128);
+  expect(() => sessions.acquire("overflow", env, ["runtime"], 30_001, 31_001)).toThrow();
+  const replacement = sessions.reconnect(bindings[0], env, ["runtime"], 30_002, 31_002);
+  expect(sessions.validate(replacement).parkingConsent).toBe("protected");
+  expect(sessions.read().retainedSessions).toHaveLength(127);
+  expect(sessions.read().sessions).toHaveLength(1);
 });
 
 it("caps environments while still accepting consumers of an existing environment", () => {
@@ -166,4 +174,131 @@ it("resets protection grace on sleep and refuses evidence for changed environmen
   expect(() =>
     sessions.protection({ ...env, fingerprint: "b".repeat(64) }, 16_002, 17_002),
   ).toThrow();
+});
+
+it("requires explicit live consent and fences revocation against stale retries", () => {
+  const { sessions, store } = fixture();
+  const binding = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  expect(sessions.validate(binding)).toMatchObject({
+    parkingConsent: "protected",
+    consentRevision: 0,
+  });
+  expect(sessions.protection(env, 1, 1001).consentSatisfied).toBe(false);
+  sessions.setParkingConsent(binding, 0, "allow-unusable", 2, 1002);
+  expect(sessions.protection(env, 3, 1003).consentSatisfied).toBe(true);
+  const before = fs.readFileSync(store.file);
+  sessions.setParkingConsent(binding, 0, "allow-unusable", 4, 1004);
+  expect(fs.readFileSync(store.file)).toEqual(before);
+  sessions.setParkingConsent(binding, 1, "protected", 5, 1005);
+  expect(() => sessions.setParkingConsent(binding, 0, "allow-unusable", 6, 1006)).toThrow();
+  sessions.renew(binding, 7, 1007);
+  expect(sessions.protection(env, 8, 1008).consentSatisfied).toBe(false);
+});
+
+it("retains expired protection despite a new opted-in consumer and acknowledges only the exact lost binding", () => {
+  const { sessions } = fixture();
+  const old = sessions.acquire("one", env, ["app:web"], 0, 1000);
+  sessions.tick(10_000, 11_000);
+  sessions.tick(20_000, 21_000);
+  sessions.tick(30_000, 31_000);
+  const other = sessions.acquire("two", env, ["runtime"], 30_001, 31_001);
+  sessions.setParkingConsent(other, 0, "allow-unusable", 30_002, 31_002);
+  expect(sessions.protection(env, 30_003, 31_003)).toMatchObject({
+    unresolvedConsumers: 1,
+    consentSatisfied: false,
+  });
+  const retained = sessions.read().retainedSessions;
+  expect(() =>
+    sessions.reconnect({ ...old, generation: "wrong" }, env, ["app:web"], 30_004, 31_004),
+  ).toThrow();
+  expect(() => sessions.reconnect(old, env, ["runtime"], 30_005, 31_005)).toThrow();
+  expect(sessions.read().retainedSessions).toEqual(retained);
+  const replacement = sessions.reconnect(old, env, ["app:web"], 30_006, 31_006);
+  expect(replacement.generation).not.toBe(old.generation);
+  expect(sessions.validate(replacement)).toMatchObject({
+    parkingConsent: "protected",
+    consentRevision: 0,
+  });
+  expect(() => sessions.setParkingConsent(old, 0, "allow-unusable", 30_007, 31_007)).toThrow();
+  sessions.setParkingConsent(replacement, 0, "allow-unusable", 30_008, 31_008);
+  expect(sessions.protection(env, 30_009, 31_009).consentSatisfied).toBe(true);
+});
+
+it("keeps ordinary observation available after drift without discarding lost consumers", () => {
+  const { sessions, store } = fixture();
+  const old = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  const restarted = new ControllerSessions(store);
+  const changed = { ...env, fingerprint: "b".repeat(64) };
+  const current = restarted.acquire("two", changed, ["runtime"], 0, 2000);
+  restarted.setParkingConsent(current, 0, "allow-unusable", 1, 2001);
+  expect(restarted.protection(changed, 2, 2002)).toMatchObject({
+    unresolvedConsumers: 1,
+    consentSatisfied: false,
+  });
+  expect(() => restarted.reconnect(old, changed, ["runtime"], 3, 2003)).toThrow();
+  restarted.release(current, 4, 2004);
+  expect(restarted.read().sessions).toEqual([]);
+  expect(restarted.read().retainedSessions).toHaveLength(1);
+});
+
+it("removes only acknowledged live releases and invalidates the prior complete-set revision", () => {
+  const { sessions } = fixture();
+  const first = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  const second = sessions.acquire("two", env, ["runtime"], 0, 1000);
+  sessions.setParkingConsent(second, 0, "allow-unusable", 1, 1001);
+  const revision = sessions.read().parkingRevision;
+  expect(sessions.protection(env, 2, 1002).consentSatisfied).toBe(false);
+  sessions.release(first, 3, 1003);
+  expect(sessions.read().parkingRevision).toBeGreaterThan(revision);
+  expect(sessions.read().retainedSessions).toEqual([]);
+  expect(sessions.protection(env, 4, 1004).consentSatisfied).toBe(true);
+  sessions.release(second, 5, 1005);
+  expect(sessions.read().sessions).toEqual([]);
+});
+
+it("retains binding invalidations and never clears legacy uncertainty through consent", () => {
+  const { sessions, store } = fixture();
+  sessions.acquire("one", env, ["runtime"], 0, 1000);
+  sessions.invalidate(env.id, true);
+  expect(sessions.read().retainedSessions).toHaveLength(1);
+  const snapshot = store.read()!;
+  snapshot.history = "legacy-unknown";
+  store.persist(snapshot);
+  const restarted = new ControllerSessions(store);
+  const binding = restarted.acquire("two", env, ["runtime"], 0, 2000);
+  restarted.setParkingConsent(binding, 0, "allow-unusable", 1, 2001);
+  expect(restarted.protection(env, 2, 2002)).toMatchObject({
+    history: "legacy-unknown",
+    consentSatisfied: false,
+  });
+});
+
+it.each([
+  "consent",
+  "reconnect",
+] as const)("does not acknowledge %s when its durable write fails", (action) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "controller-consent-failure-"));
+  directories.push(directory);
+  let fail = false;
+  const store = new ControllerStore(directory, (file, bytes) => {
+    if (fail) throw new Error("injected persistence failure");
+    writeFileAtomically(file, bytes);
+  });
+  let sessions = new ControllerSessions(store);
+  const old = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  if (action === "reconnect") sessions = new ControllerSessions(store);
+  const before = fs.readFileSync(store.file);
+  fail = true;
+  expect(() =>
+    action === "consent"
+      ? sessions.setParkingConsent(old, 0, "allow-unusable", 1, 1001)
+      : sessions.reconnect(old, env, ["runtime"], 1, 1001),
+  ).toThrow();
+  expect(fs.readFileSync(store.file)).toEqual(before);
+  expect(() => sessions.read()).toThrow();
+  fail = false;
+  const restarted = new ControllerSessions(store);
+  expect(restarted.read().retainedSessions).toMatchObject([
+    { parkingConsent: "protected", generation: old.generation },
+  ]);
 });

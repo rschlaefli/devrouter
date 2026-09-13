@@ -313,3 +313,57 @@ it("requires explicit pin intent and exact consumer revisions", () => {
   expectInvalid({ ...status, pinned: true });
   expectInvalid({ ...pin, unknown: true });
 });
+
+describe("explicit parking consent and reconnect", () => {
+  it("requires an exact binding and explicit bounded consent CAS", () => {
+    const valid = request("parking-consent", {
+      session: BASE_IDS.session,
+      store: BASE_IDS.store,
+      epoch: 1,
+      generation: BASE_IDS.generation,
+      expectedConsentRevision: 0,
+      parkingConsent: "allow-unusable",
+    });
+    expect(parseControllerRequest(valid)).toEqual(valid);
+    for (const field of [
+      "session",
+      "store",
+      "epoch",
+      "generation",
+      "expectedConsentRevision",
+      "parkingConsent",
+    ]) {
+      const missing = { ...valid };
+      delete missing[field];
+      expectInvalid(missing);
+    }
+    for (const parkingConsent of [true, null, "", "allow-all"])
+      expectInvalid({ ...valid, parkingConsent });
+    for (const expectedConsentRevision of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1])
+      expectInvalid({ ...valid, expectedConsentRevision });
+  });
+  it("accepts reconnect only for the complete previous binding of the named session", () => {
+    const reconnect = {
+      session: BASE_IDS.session,
+      store: BASE_IDS.store,
+      epoch: 1,
+      generation: BASE_IDS.generation,
+    };
+    const valid = request("observe", {
+      path: "/fixture/checkout",
+      session: BASE_IDS.session,
+      profile: "web",
+      require: ["runtime"],
+      reconnect,
+    });
+    expect(parseControllerRequest(valid)).toEqual(valid);
+    for (const field of Object.keys(reconnect)) {
+      const missing: Record<string, unknown> = { ...reconnect };
+      delete missing[field];
+      expectInvalid({ ...valid, reconnect: missing });
+    }
+    expectInvalid({ ...valid, reconnect: { ...reconnect, session: "other" } });
+    expectInvalid({ ...valid, reconnect: { ...reconnect, parkingConsent: "allow-unusable" } });
+    expectInvalid({ ...valid, reconnect: null });
+  });
+});
