@@ -996,12 +996,7 @@ it("leaves an operation the queue still owns alone", async () => {
   expect(fixture.enqueue).not.toHaveBeenCalled();
 });
 
-it.each([
-  "released",
-  "reacquired",
-  "expired",
-  "revision-changed",
-])("prepares and enqueues nothing when the held session proof fails (%s)", async () => {
+it("prepares and enqueues nothing when the held session proof fails", async () => {
   recoveryFixture();
   let valid = true;
   const proof = () => {

@@ -536,3 +536,15 @@ one recovery preparation write; stop/new-start during resolution prevents recove
 A stale journal revision throws before any write. Live runtimes were not required.
 The redundant submission wrapper correction is `ce700797f34c7488d492872715b66a159dab802f`.
 Independent immutable recovery review follows this commit.
+
+
+Recovery fencing committed at `4f2ae539f4ec3608046c985bfe8a56fb5b42e7c3`.
+Noether's immutable eight-path slice review returned DONE without qualifying
+findings. Raman's accepted simplification collapses four identical mocked
+invalidations into one; actual invalidation seams remain separately covered.
+The corrected capacity suite passes 41 tests (169 focused tests across the
+recovery portfolio after removing duplicate executions).
+[CI run 34755018015](https://github.com/rschlaefli/devrouter/actions/runs/34755018015)
+passed all 2,331 source tests in 143 files at the committed head, Linux process
+helper reconciliation, package smoke and controller/capacity qualifiers.
+Live canary authority and actual harness qualification remain pending.
