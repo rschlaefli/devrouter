@@ -2,6 +2,7 @@ import { devpodExecOutcome } from "./core/devpod-exec";
 import { devsyExecOutcome } from "./core/devsy-exec";
 import { environmentStop } from "./core/environment-stop";
 import { ExecutionOutcomeError } from "./core/execution-outcome";
+import { installLifecycleProgressSender } from "./core/lifecycle-progress";
 import {
   cancelLifecycleWorker,
   executeLifecycleWorker,
@@ -24,6 +25,13 @@ process.on("disconnect", cancel);
 process.once("message", async (message: { request: LifecycleWorkerRequest }) => {
   started = true;
   let result: LifecycleWorkerResult;
+  const stopProgress =
+    message.request.kind === "exec"
+      ? undefined
+      : installLifecycleProgressSender((progress, done) => {
+          if (process.connected && process.send) process.send(progress, () => done());
+          else done();
+        });
   try {
     const request = message.request;
     const value = await executeLifecycleWorker(request, async () => {
@@ -67,6 +75,8 @@ process.once("message", async (message: { request: LifecycleWorkerRequest }) => 
       /* Preserve the original operation failure. */
     }
     result = { ok: false, message: error instanceof Error ? error.message : String(error) };
+  } finally {
+    stopProgress?.();
   }
   if (process.connected && process.send) process.send(result, () => process.disconnect());
 });

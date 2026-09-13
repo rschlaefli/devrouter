@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileAtomically } from "../atomic-file";
-import { CapacityStore } from "../capacity-store";
+import { CapacityHistoryError, CapacityStore } from "../capacity-store";
 import { reliabilityFence } from "../reliability-contract";
 import { stepReliability } from "../reliability-model";
 import {
@@ -12,14 +12,17 @@ import {
   type CapacityPhaseSettlement,
   type CapacityStartupWitness,
   clearStartupWitness,
+  createLifecycleCapacityStore,
   enrollStoppedLifecycle,
   listReliabilityOperations,
   publishStartupWitness,
+  type ReliabilityConsumerProtection,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   type ReliabilityPreparationReceipt,
   readReliabilityOperation,
   reliabilityOperationPath,
+  setReliabilityHumanPin,
   updateReliabilityOperation,
   withReliabilityObservationFence,
 } from "../reliability-operation-store";
@@ -39,6 +42,8 @@ vi.mock("../atomic-file", async (original) => {
 
 let identity: ReliabilityIdentity;
 beforeEach(() => {
+  fs.rmSync(fixture.root, { recursive: true, force: true });
+  fs.mkdirSync(fixture.root, { mode: 0o700 });
   identity = {
     repoPath: fs.mkdtempSync(path.join(os.tmpdir(), "reliability-checkout-")),
     workspace: null,
@@ -1157,4 +1162,454 @@ it("fences observation publication without changing manual state", () => {
   updateReliabilityOperation(identity, () => undefined);
   expect(() => withReliabilityObservationFence(identity, 1, publish)).toThrow();
   expect(publish).toHaveBeenCalledTimes(1);
+});
+
+describe("durable consumer protection pins", () => {
+  const enrollment = {
+    policyRevision: 1,
+    gitCommonDir: "/tmp/synthetic-pin-common",
+    providerId: "synthetic-pin-provider",
+    hostDomain: "host",
+    runtimeDomain: "guest",
+    endpoint: "/tmp/synthetic-pin-docker.sock",
+    daemonId: "synthetic:pin-daemon",
+    estimatesDigest: "e".repeat(64),
+  };
+  const noRevalidation = () => undefined;
+
+  function rawJournal(): Record<string, unknown> {
+    return JSON.parse(fs.readFileSync(reliabilityOperationPath(identity), "utf8")) as Record<
+      string,
+      unknown
+    >;
+  }
+
+  function writeRawJournal(value: Record<string, unknown>): void {
+    fs.writeFileSync(reliabilityOperationPath(identity), `${JSON.stringify(value)}\n`, {
+      mode: 0o600,
+    });
+  }
+
+  function journalBytes(): Buffer {
+    return fs.readFileSync(reliabilityOperationPath(identity));
+  }
+
+  function stoppedRecord() {
+    updateReliabilityOperation(identity, (record) => {
+      record.state = stepReliability(
+        record.state,
+        { ...reliabilityFence(record.state), type: "stop" },
+        100,
+      ).state;
+      record.state = stepReliability(
+        record.state,
+        {
+          ...reliabilityFence(record.state),
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        },
+        100,
+      ).state;
+    });
+    return readReliabilityOperation(identity)!;
+  }
+
+  it("treats an absent field as revision zero on a version 1 journal", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    expect(readReliabilityOperation(identity)?.consumerProtection).toBeUndefined();
+    expect(setReliabilityHumanPin(identity, 1, 0, true, noRevalidation)).toEqual({
+      journalRevision: 2,
+      protection: { version: 1, revision: 1, humanPinned: true },
+    });
+  });
+
+  it("reads an enrolled version 2 journal without the protection field", () => {
+    const stopped = stoppedRecord();
+    enrollStoppedLifecycle(identity, stopped.revision, enrollment);
+    const record = readReliabilityOperation(identity)!;
+    expect(record.version).toBe(2);
+    expect(record.consumerProtection).toBeUndefined();
+    const receipt = setReliabilityHumanPin(identity, record.revision, 0, true, noRevalidation);
+    expect(receipt.protection).toEqual({ version: 1, revision: 1, humanPinned: true });
+    expect(readReliabilityOperation(identity)!.consumerProtection).toEqual(receipt.protection);
+  });
+
+  it("rejects malformed protection fields without changing bytes", () => {
+    const variants: Array<[string, unknown]> = [
+      ["missing pin", { version: 1, revision: 1 }],
+      ["extra field", { version: 1, revision: 1, humanPinned: true, extra: 1 }],
+      ["wrong version", { version: 2, revision: 1, humanPinned: true }],
+      ["string version", { version: "1", revision: 1, humanPinned: true }],
+      ["negative revision", { version: 1, revision: -1, humanPinned: true }],
+      ["fractional revision", { version: 1, revision: 0.5, humanPinned: true }],
+      ["unsafe revision", { version: 1, revision: Number.MAX_SAFE_INTEGER + 1, humanPinned: true }],
+      ["string revision", { version: 1, revision: "1", humanPinned: true }],
+      ["non-boolean pin", { version: 1, revision: 1, humanPinned: "yes" }],
+      ["null value", null],
+      ["array value", []],
+    ];
+    updateReliabilityOperation(identity, () => undefined);
+    const journal = rawJournal();
+    for (const [label, protection] of variants) {
+      writeRawJournal({ ...journal, consumerProtection: protection });
+      expect(() => readReliabilityOperation(identity), label).toThrow();
+      expect(() => updateReliabilityOperation(identity, () => undefined), label).toThrow();
+      writeRawJournal(journal);
+      expect(() => readReliabilityOperation(identity), label).not.toThrow();
+    }
+  });
+
+  it("validates pin arguments before touching the journal", () => {
+    expect(() => setReliabilityHumanPin(identity, -1, 0, true, noRevalidation)).toThrow();
+    expect(() => setReliabilityHumanPin(identity, 1.5, 0, true, noRevalidation)).toThrow();
+    expect(() =>
+      setReliabilityHumanPin(identity, 0, Number.MAX_SAFE_INTEGER + 1, true, noRevalidation),
+    ).toThrow();
+    expect(() =>
+      setReliabilityHumanPin(identity, 0, 0, "yes" as unknown as boolean, noRevalidation),
+    ).toThrow();
+    expect(() =>
+      setReliabilityHumanPin(identity, 0, 0, true, undefined as unknown as () => void),
+    ).toThrow();
+    expect(fs.existsSync(reliabilityOperationPath(identity))).toBe(false);
+  });
+
+  it("refuses a missing journal instead of initializing one", () => {
+    expect(readReliabilityOperation(identity)).toBeUndefined();
+    expect(() => setReliabilityHumanPin(identity, 0, 0, true, noRevalidation)).toThrow(
+      /fence changed or is absent/,
+    );
+    expect(fs.existsSync(reliabilityOperationPath(identity))).toBe(false);
+    expect(readReliabilityOperation(identity)).toBeUndefined();
+  });
+
+  it("refuses stale journal and pin revisions without writing", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    expect(() => setReliabilityHumanPin(identity, 0, 0, true, noRevalidation)).toThrow();
+    expect(() => setReliabilityHumanPin(identity, 9, 0, true, noRevalidation)).toThrow();
+    setReliabilityHumanPin(identity, 1, 0, true, noRevalidation);
+    const bytes = journalBytes();
+    const current = readReliabilityOperation(identity)!;
+    expect(() =>
+      setReliabilityHumanPin(identity, current.revision, 5, true, noRevalidation),
+    ).toThrow(/protection revision changed/);
+    expect(() =>
+      setReliabilityHumanPin(identity, current.revision, 0, false, noRevalidation),
+    ).toThrow(/protection revision changed/);
+    expect(() =>
+      setReliabilityHumanPin(identity, current.revision - 2, 1, false, noRevalidation),
+    ).toThrow();
+    expect(journalBytes()).toEqual(bytes);
+    expect(readReliabilityOperation(identity)!.consumerProtection).toEqual({
+      version: 1,
+      revision: 1,
+      humanPinned: true,
+    });
+  });
+
+  it("refuses exhausted pin and journal counters without writing", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const journal = rawJournal();
+    writeRawJournal({
+      ...journal,
+      consumerProtection: { version: 1, revision: Number.MAX_SAFE_INTEGER, humanPinned: true },
+    });
+    const pinnedAtLimit = journalBytes();
+    expect(() =>
+      setReliabilityHumanPin(identity, 1, Number.MAX_SAFE_INTEGER, false, noRevalidation),
+    ).toThrow(/exhausted/);
+    expect(journalBytes()).toEqual(pinnedAtLimit);
+
+    writeRawJournal({ ...journal, revision: Number.MAX_SAFE_INTEGER });
+    const revisionAtLimit = journalBytes();
+    expect(() =>
+      setReliabilityHumanPin(identity, Number.MAX_SAFE_INTEGER, 0, true, noRevalidation),
+    ).toThrow(/exhausted/);
+    expect(journalBytes()).toEqual(revisionAtLimit);
+  });
+
+  it("pins, unpins, and replays the exact next value without writing", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const pinned = setReliabilityHumanPin(identity, 1, 0, true, noRevalidation);
+    expect(pinned).toEqual({
+      journalRevision: 2,
+      protection: { version: 1, revision: 1, humanPinned: true },
+    });
+    const pinnedBytes = journalBytes();
+    expect(setReliabilityHumanPin(identity, 2, 0, true, noRevalidation)).toEqual(pinned);
+    expect(journalBytes()).toEqual(pinnedBytes);
+    expect(readReliabilityOperation(identity)!.revision).toBe(2);
+
+    const unpinned = setReliabilityHumanPin(identity, 2, 1, false, noRevalidation);
+    expect(unpinned).toEqual({
+      journalRevision: 3,
+      protection: { version: 1, revision: 2, humanPinned: false },
+    });
+    const unpinnedBytes = journalBytes();
+    expect(setReliabilityHumanPin(identity, 3, 1, false, noRevalidation)).toEqual(unpinned);
+    expect(journalBytes()).toEqual(unpinnedBytes);
+    expect(readReliabilityOperation(identity)!.consumerProtection).toEqual(unpinned.protection);
+  });
+
+  it("runs the required validator after the lock on every accepted return", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const first = vi.fn(noRevalidation);
+    expect(setReliabilityHumanPin(identity, 1, 0, true, first).journalRevision).toBe(2);
+    expect(first).toHaveBeenCalledTimes(1);
+    const bytes = journalBytes();
+    const replay = vi.fn(noRevalidation);
+    expect(setReliabilityHumanPin(identity, 2, 0, true, replay).journalRevision).toBe(2);
+    expect(replay).toHaveBeenCalledTimes(1);
+    expect(journalBytes()).toEqual(bytes);
+  });
+
+  it("refuses a throwing or asynchronous validator without writing", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const bytes = journalBytes();
+    const failing = vi.fn(() => {
+      throw new Error("synthetic session revoked");
+    });
+    expect(() => setReliabilityHumanPin(identity, 1, 0, true, failing)).toThrow(
+      /synthetic session revoked/,
+    );
+    expect(failing).toHaveBeenCalledTimes(1);
+    expect(journalBytes()).toEqual(bytes);
+    expect(readReliabilityOperation(identity)).toMatchObject({ revision: 1 });
+    expect(readReliabilityOperation(identity)!.consumerProtection).toBeUndefined();
+
+    expect(() =>
+      setReliabilityHumanPin(
+        identity,
+        1,
+        0,
+        true,
+        (async () => undefined) as unknown as () => void,
+      ),
+    ).toThrow(/must be synchronous/);
+    expect(journalBytes()).toEqual(bytes);
+    expect(readReliabilityOperation(identity)!.consumerProtection).toBeUndefined();
+  });
+
+  it("refuses a failed validator on an idempotent replay without writing", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    setReliabilityHumanPin(identity, 1, 0, true, noRevalidation);
+    const bytes = journalBytes();
+    const failing = vi.fn(() => {
+      throw new Error("synthetic replay revoked");
+    });
+    expect(() => setReliabilityHumanPin(identity, 2, 0, true, failing)).toThrow(
+      /synthetic replay revoked/,
+    );
+    expect(failing).toHaveBeenCalledTimes(1);
+    expect(journalBytes()).toEqual(bytes);
+    expect(() =>
+      setReliabilityHumanPin(
+        identity,
+        2,
+        0,
+        true,
+        (async () => undefined) as unknown as () => void,
+      ),
+    ).toThrow(/must be synchronous/);
+    expect(journalBytes()).toEqual(bytes);
+  });
+
+  it("refuses adding, changing, deleting or nesting pin state through a generic callback", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const file = reliabilityOperationPath(identity);
+    let bytes = journalBytes();
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.consumerProtection = { version: 1, revision: 1, humanPinned: true };
+      }),
+    ).toThrow(/dedicated pin authority/);
+    expect(journalBytes()).toEqual(bytes);
+
+    setReliabilityHumanPin(identity, 1, 0, true, noRevalidation);
+    bytes = journalBytes();
+    const attempts: Array<(record: ReliabilityOperationRecord) => void> = [
+      (record) => {
+        record.consumerProtection!.humanPinned = false;
+      },
+      (record) => {
+        record.consumerProtection!.revision = 7;
+      },
+      (record) => {
+        record.consumerProtection = {
+          version: 1,
+          revision: 1,
+          humanPinned: true,
+          extra: 1,
+        } as unknown as ReliabilityConsumerProtection;
+      },
+      (record) => {
+        record.consumerProtection = undefined;
+      },
+      (record) => {
+        delete record.consumerProtection;
+      },
+      (record) => {
+        record.consumerProtection = null as unknown as ReliabilityConsumerProtection;
+      },
+    ];
+    for (const attempt of attempts) {
+      expect(() => updateReliabilityOperation(identity, attempt)).toThrow(
+        /dedicated pin authority/,
+      );
+      expect(fs.readFileSync(file)).toEqual(bytes);
+    }
+    expect(readReliabilityOperation(identity)!.consumerProtection).toEqual({
+      version: 1,
+      revision: 1,
+      humanPinned: true,
+    });
+  });
+
+  it("changes only pin and journal revisions and stamps the CLI version", () => {
+    const stopped = stoppedRecord();
+    const withoutStamp = rawJournal();
+    delete withoutStamp.writtenByVersion;
+    writeRawJournal(withoutStamp);
+    const before = readReliabilityOperation(identity)!;
+    expect(before.revision).toBe(stopped.revision);
+    const receipt = setReliabilityHumanPin(identity, before.revision, 0, true, noRevalidation);
+    const after = readReliabilityOperation(identity)!;
+    expect(receipt.journalRevision).toBe(before.revision + 1);
+    expect(after.revision).toBe(before.revision + 1);
+    expect(after.writtenByVersion).toMatch(/^\d+\.\d+\.\d+/);
+    expect(after.state).toEqual(before.state);
+    expect(after.identity).toEqual(before.identity);
+    expect(after.worker).toEqual(before.worker);
+    expect(after.capacity).toEqual(before.capacity);
+    expect(after.effectSequence).toBe(before.effectSequence);
+    expect(after.outcome).toEqual(before.outcome);
+    expect(after.version).toBe(before.version);
+  });
+
+  it("preserves the pin through enrollment and a later lifecycle transition", () => {
+    const stopped = stoppedRecord();
+    const pinned = setReliabilityHumanPin(identity, stopped.revision, 0, true, noRevalidation);
+    const enrolledBefore = readReliabilityOperation(identity)!;
+    enrollStoppedLifecycle(identity, enrolledBefore.revision, enrollment);
+    let record = readReliabilityOperation(identity)!;
+    expect(record.version).toBe(2);
+    expect(record.consumerProtection).toEqual(pinned.protection);
+
+    updateReliabilityOperation(identity, (current) => {
+      current.state = stepReliability(
+        current.state,
+        {
+          ...reliabilityFence(current.state),
+          type: "operation-request",
+          kind: "ensure",
+          key: "pin-key",
+          operationId: "pin-operation",
+          profile: "full",
+          runtimeRunning: false,
+          consumer: { id: "synthetic", requiredCapabilities: [], pinned: false },
+        },
+        100,
+      ).state;
+    });
+    record = readReliabilityOperation(identity)!;
+    expect(record.state.operation?.id).toBe("pin-operation");
+    expect(record.consumerProtection).toEqual(pinned.protection);
+  });
+
+  it("does not acknowledge a pin when atomic persistence fails", async () => {
+    const actual = await vi.importActual<typeof import("../atomic-file")>("../atomic-file");
+    updateReliabilityOperation(identity, () => undefined);
+    const bytes = journalBytes();
+    vi.mocked(writeFileAtomically).mockImplementationOnce(() => {
+      throw new Error("fixture pin before rename");
+    });
+    expect(() => setReliabilityHumanPin(identity, 1, 0, true, noRevalidation)).toThrow(
+      /fixture pin before rename/,
+    );
+    vi.mocked(writeFileAtomically).mockImplementation(actual.writeFileAtomically);
+    expect(journalBytes()).toEqual(bytes);
+    expect(readReliabilityOperation(identity)).toMatchObject({ revision: 1 });
+    expect(readReliabilityOperation(identity)!.consumerProtection).toBeUndefined();
+  });
+});
+
+describe("capacity history composition", () => {
+  function binding(snapshotRevision?: number) {
+    updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = {
+        reservationId: "retained",
+        operationId: "retained-operation",
+        workerId: "retained-worker",
+        policyRevision: 1,
+        validUntilMs: 0,
+        ...(snapshotRevision === undefined ? {} : { snapshotRevision }),
+      };
+    });
+  }
+  function ledger(revision: number) {
+    const directory = path.join(fixture.root, "controller");
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(
+      path.join(directory, "capacity-reservations.json"),
+      JSON.stringify({ version: 1, revision, reservations: [] }),
+      { mode: 0o600 },
+    );
+    return directory;
+  }
+
+  it("keeps pristine and null-binding history non-mutating", () => {
+    expect(createLifecycleCapacityStore().read().revision).toBe(0);
+    updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = null;
+    });
+    expect(createLifecycleCapacityStore().read().revision).toBe(0);
+    expect(fs.existsSync(path.join(fixture.root, "controller"))).toBe(false);
+  });
+
+  it.each([
+    undefined,
+    1,
+    4,
+  ])("preserves legacy lost history with snapshot revision %s", (revision) => {
+    binding(revision);
+    const before = fs.readFileSync(reliabilityOperationPath(identity));
+    expect(() => createLifecycleCapacityStore().read()).toThrow(CapacityHistoryError);
+    expect(() => createLifecycleCapacityStore().mergeObservedPools([], 0)).toThrow(
+      CapacityHistoryError,
+    );
+    expect(fs.existsSync(path.join(fixture.root, "controller", "capacity-reservations.json"))).toBe(
+      false,
+    );
+    expect(fs.readFileSync(reliabilityOperationPath(identity))).toEqual(before);
+  });
+
+  it("uses the highest retained revision and permits a settled empty ledger", () => {
+    binding(4);
+    const first = identity;
+    identity = { ...first, repoPath: path.join(first.repoPath, "second") };
+    binding(2);
+    ledger(3);
+    expect(() => createLifecycleCapacityStore().read()).toThrow(CapacityHistoryError);
+    ledger(4);
+    expect(createLifecycleCapacityStore().read()).toMatchObject({ revision: 4, reservations: [] });
+    expect(createLifecycleCapacityStore().mergeObservedPools([], 4)).toEqual({
+      changed: false,
+      revision: 4,
+    });
+  });
+
+  it("refuses unprovable journals without mistaking them for absent history", () => {
+    updateReliabilityOperation(identity, () => {});
+    fs.writeFileSync(reliabilityOperationPath(identity), "{");
+    try {
+      createLifecycleCapacityStore().read();
+      throw new Error("Expected unavailable history");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "capacity-history-unprovable" });
+    }
+    expect(fs.existsSync(path.join(fixture.root, "controller"))).toBe(false);
+  });
 });

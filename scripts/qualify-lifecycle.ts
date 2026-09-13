@@ -310,17 +310,21 @@ else fail();
     ownedInvocations.add(child);
     child.once("close", () => ownedInvocations.delete(child));
     let output = "";
+    let stdout = "";
+    let stderr = "";
     child.stdout.on("data", (chunk) => {
       output += chunk;
+      stdout += chunk;
     });
     child.stderr.on("data", (chunk) => {
       output += chunk;
+      stderr += chunk;
     });
     const done = new Promise<number | null>((resolve, reject) => {
       child.once("error", reject);
       child.once("close", (code) => resolve(code));
     });
-    return { child, done, output: () => output };
+    return { child, done, output: () => output, stdout: () => stdout, stderr: () => stderr };
   }
   async function qualifyEnsure() {
     freshHome("ensure-home");
@@ -567,7 +571,28 @@ else fail();
       );
       const ready = launch(["ensure", repo, "--json"]);
       assert.equal(await ready.done, 0, ready.output());
-      assert.equal(JSON.parse(ready.output()).applicationReadiness.status, "ready");
+      assert.equal(JSON.parse(ready.stdout()).applicationReadiness.status, "ready");
+      const progress = ready
+        .stderr()
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      assert.ok(progress.some((entry) => entry.phase === "readiness"));
+      for (const entry of progress) {
+        assert.equal(entry.type, "lifecycle-progress");
+        assert.equal(entry.liveness, "unknown");
+        assert.deepEqual(Object.keys(entry).sort(), [
+          "elapsedMs",
+          "evidence",
+          "liveness",
+          "phase",
+          "role",
+          "type",
+        ]);
+      }
+      evidence.push(
+        "installed ensure keeps result JSON on stdout and fixed-shape progress on stderr",
+      );
       const beforeApplicationFailure = JSON.parse(fs.readFileSync(fixture, "utf8"));
       fs.writeFileSync(
         fixture,
@@ -575,7 +600,7 @@ else fail();
       );
       const applicationFailure = launch(["ensure", repo, "--json"]);
       assert.equal(await applicationFailure.done, 1, applicationFailure.output());
-      const applicationResult = JSON.parse(applicationFailure.output());
+      const applicationResult = JSON.parse(applicationFailure.stdout());
       assert.equal(applicationResult.applicationReadiness.status, "application-error");
       assert.equal(applicationResult.applicationReadiness.checks[0].status, 503);
       assert.equal(applicationResult.recreated, false);

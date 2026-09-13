@@ -19,7 +19,7 @@ vi.mock("../reliability-operation-store", () => ({
   enrollStoppedLifecycle: fixture.enroll,
 }));
 vi.mock("../controller-binding", () => ({
-  resolveControllerBinding: fixture.resolve,
+  createControllerBindingResolver: () => fixture.resolve,
   readControllerEvidence: () => "synthetic",
 }));
 vi.mock("../controller-probe", () => ({ runControllerProbe: fixture.probe }));

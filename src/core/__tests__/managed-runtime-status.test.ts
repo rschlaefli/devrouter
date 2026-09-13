@@ -54,6 +54,8 @@ vi.mock("../managed-runtime-state", () => ({
 vi.mock("../workspace", () => ({
   sameWorkspacePath: vi.fn((left: string, right: string) => left === right),
 }));
+vi.mock("../reliability-operation-store", () => ({ readReliabilityOperation: vi.fn() }));
+vi.mock("../workspace-runtime", () => ({ resolveWorkspaceRuntimeForReport: vi.fn() }));
 
 import {
   inspectManagedDevcontainerConfig,
@@ -63,6 +65,9 @@ import { inspectWorkspaceContainers, workspaceAppContainers } from "../devpod-en
 import { listHostRouteState } from "../host-routes";
 import { runManagedProcessAction } from "../managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "../managed-runtime-state";
+import { createReliabilityState, type ReliabilityState } from "../reliability-contract";
+import { readReliabilityOperation } from "../reliability-operation-store";
+import { resolveWorkspaceRuntimeForReport } from "../workspace-runtime";
 
 const repoPath = "/repo/trees/feature";
 const workspace = "feature";
@@ -168,6 +173,8 @@ function setupManagedRuntime(options: {
   routes?: Array<{ name: string; repoPath: string; workspace?: string }>;
   runtimeState?: ManagedRuntimeState;
   processStatuses?: Record<string, "running" | "stopped" | "foreign" | "drifted">;
+  reliability?: ReliabilityState;
+  provider?: "devpod" | "devsy";
 }): void {
   const plan = managedPlan();
   vi.mocked(inspectManagedDevcontainerConfig).mockReturnValue(plan);
@@ -194,6 +201,10 @@ function setupManagedRuntime(options: {
     })),
   );
   vi.mocked(readManagedRuntimeState).mockReturnValue(options.runtimeState);
+  vi.mocked(resolveWorkspaceRuntimeForReport).mockReturnValue(options.provider ?? "devsy");
+  vi.mocked(readReliabilityOperation).mockReturnValue(
+    options.reliability ? ({ state: options.reliability } as never) : undefined,
+  );
   vi.mocked(runManagedProcessAction).mockImplementation(({ name }) => {
     return options.processStatuses?.[name] ?? "stopped";
   });
@@ -620,5 +631,85 @@ describe("collectManagedRuntimeStatus", () => {
 
     expect(result.status).toBe("drifted");
     expect(result.drift).toContain("managed generated Dev Container configuration changed");
+  });
+
+  it("reports durable lifecycle intent and a runnable recovery for a parked environment", () => {
+    setupManagedRuntime({
+      containers: [container("postgres")],
+      runtimeState: state({ status: "degraded" }),
+      reliability: {
+        ...createReliabilityState("environment-feature", 1),
+        desired: "parked-for-capacity",
+        phase: "idle",
+        stopProof: { workloadsStopped: true, routesRemoved: true },
+      },
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+    });
+
+    expect(result.reliability).toMatchObject({
+      desired: "parked-for-capacity",
+      phase: "idle",
+      chargeHeld: false,
+      incident: null,
+      attention: { reason: "capacity-parked" },
+    });
+    expect(result.reliability?.attention?.recovery.join(" ")).toContain("devrouter ensure");
+    expect(result.reliability?.attention?.recovery.join(" ")).toContain(repoPath);
+  });
+
+  it("reports an unresolved lifecycle operation as needing a stop and repair", () => {
+    setupManagedRuntime({
+      containers: [container("app", { mountRepo: true }), container("postgres")],
+      runtimeState: state(),
+      reliability: {
+        ...createReliabilityState("environment-feature", 1),
+        desired: "running",
+        phase: "stable",
+        admission: "admitted",
+        operation: {
+          id: "operation-feature",
+          kind: "ensure",
+          drained: true,
+          status: "COMPLETION_UNKNOWN",
+          exitCode: null,
+        },
+      },
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+    });
+
+    expect(result.reliability?.attention).toMatchObject({ reason: "operation-unknown" });
+    const recovery = result.reliability?.attention?.recovery.join(" ") ?? "";
+    expect(recovery).toContain(`devrouter stop ${repoPath}`);
+    expect(recovery).toContain(`devrouter ensure ${repoPath}`);
+  });
+
+  it("omits the lifecycle block when no provider or journal is available", () => {
+    setupManagedRuntime({
+      containers: [container("app", { mountRepo: true }), container("postgres")],
+      runtimeState: state(),
+    });
+    vi.mocked(resolveWorkspaceRuntimeForReport).mockReturnValue(undefined);
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+    });
+
+    expect(result.reliability).toBeUndefined();
+    expect(readReliabilityOperation).not.toHaveBeenCalled();
   });
 });

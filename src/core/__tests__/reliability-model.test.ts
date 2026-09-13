@@ -123,7 +123,7 @@ describe("reliability transitions", () => {
     ).toMatchObject({ outcome: "blocked", state, effects: [] });
   });
   it("fences old completions across recovery and refuses a reused current operation ID", () => {
-    const state = completed();
+    const state = step(completed(), { type: "drained", operationId: "op" }).state;
     const recovery = {
       type: "recover",
       incidentId: "incident",
@@ -247,7 +247,7 @@ describe("reliability transitions", () => {
     expect(projectReliability(state, "agent", 100).state).toBe("PARKED_CAPACITY");
   });
 
-  it("joins parked consumers without restart and resumes only with fresh admission and operation", () => {
+  it("joins parked consumers without restart and refuses synthetic admission while parked", () => {
     let state = step(completed(), { type: "park" }).state;
     expect(step(state, { type: "park" }).effects).toEqual([]);
     expect(step(state, { ...request, mode: "attach", key: "parked" }).effects).toEqual([]);
@@ -257,22 +257,28 @@ describe("reliability transitions", () => {
       pressureDwellSatisfied: true,
       operationId: "resume-op",
     } as const;
-    expect(step(state, resume).outcome).toBe("blocked");
-    state = step(state, { type: "admission", result: "admitted" }).state;
-    expect(projectReliability(state, "agent", 100).state).toBe("STARTING");
-    expect(
-      step(state, { type: "stop-proof", workloadsStopped: true, routesRemoved: true }).state
-        .chargeHeld,
-    ).toBe(true);
+    expect(step(state, { type: "admission", result: "admitted" }).outcome).toBe("blocked");
+    expect(projectReliability(state, "agent", 100).state).toBe("PARKED_CAPACITY");
+    const repeated = step(state, {
+      type: "stop-proof",
+      workloadsStopped: true,
+      routesRemoved: true,
+    });
+    expect(repeated.outcome).toBe("joined");
+    expect(repeated.state.chargeHeld).toBe(false);
+    expect(repeated.state.admission).toBe("waiting");
     expect(step(state, { ...resume, pressureDwellSatisfied: false }).outcome).toBe("blocked");
     expect(step(state, { ...resume, operationId: "op" }).outcome).toBe("blocked");
     const resumed = step(state, resume);
     expect(resumed.state).toMatchObject({
       desired: "running",
-      chargeHeld: true,
+      admission: "waiting",
+      chargeHeld: false,
+      phase: "queued",
       runtimeGeneration: state.runtimeGeneration + 1,
       operation: { id: "resume-op", status: "NOT_STARTED" },
     });
+    expect(projectReliability(resumed.state, "agent", 100).state).toBe("WAITING_CAPACITY");
   });
 
   it.each([
@@ -358,7 +364,7 @@ describe("reliability transitions", () => {
   });
 
   it("retains incident budgets across observations and epochs and allows explicit rearm", () => {
-    let state = completed();
+    let state = step(completed(), { type: "drained", operationId: "op" }).state;
     const recover = {
       type: "recover",
       incidentId: "incident",
@@ -382,6 +388,7 @@ describe("reliability transitions", () => {
     expect(
       step(state, { ...recover, incidentId: "replacement", operationId: "repair-2" }).outcome,
     ).toBe("conflict");
+    state = step(state, { type: "drained", operationId: "repair" }).state;
     state = step(state, { type: "rearm", incidentId: "incident" }).state;
     expect(state.incident).toBeNull();
     expect(step(state, { ...recover, operationId: "repair-2" }).outcome).toBe("accepted");
@@ -414,7 +421,7 @@ describe("reliability transitions", () => {
   });
 
   it("continues an incident by superseding a drained, never-launched operation", () => {
-    let state = completed();
+    let state = step(completed(), { type: "drained", operationId: "op" }).state;
     state = step(state, {
       type: "recover",
       incidentId: "incident",
@@ -1108,5 +1115,272 @@ describe("capacity-managed operation lifecycle", () => {
     const readmitted = step(accepted.state, { type: "admission", result: "admitted" });
     expect(readmitted.state.chargeHeld).toBe(true);
     expect(step(readmitted.state, { type: "dispatch" }).outcome).toBe("accepted");
+  });
+});
+
+describe("capacity-managed recovery history rollover", () => {
+  const managedEnsure = {
+    type: "operation-request",
+    kind: "ensure",
+    key: "managed",
+    operationId: "managed",
+    profile: "web",
+    consumer,
+    runtimeRunning: false,
+  } as const;
+
+  function saturatedManaged(): ReliabilityState {
+    let state = createReliabilityState("env", 1, "capacity-managed");
+    for (let index = 0; index < 128; index++) {
+      const accepted = step(state, {
+        ...managedEnsure,
+        key: `request-${index}`,
+        operationId: `op-${index}`,
+      });
+      expect(accepted.outcome).toBe("accepted");
+      state = accepted.state;
+      state = step(state, { type: "admission", result: "admitted" }).state;
+      state = step(state, { type: "dispatch" }).state;
+      state = step(state, { type: "dispatch-persisted", operationId: `op-${index}` }).state;
+      state = step(state, { type: "launched", operationId: `op-${index}` }).state;
+      state = step(state, { type: "completion", operationId: `op-${index}`, exitCode: 0 }).state;
+      state = step(state, { type: "drained", operationId: `op-${index}` }).state;
+    }
+    return state;
+  }
+
+  const recover = {
+    type: "recover",
+    incidentId: "incident",
+    actionLimit: 3,
+    operationId: "repair",
+  } as const;
+
+  it("rolls a saturated journal over and recovers instead of opening a zero-action incident", () => {
+    const full = saturatedManaged();
+    expect(full.operationHistory).toHaveLength(128);
+    expect(full.operationHistory.some((entry) => entry.id === "op-0")).toBe(true);
+    const accepted = step(full, recover);
+    expect(accepted.outcome).toBe("accepted");
+    // Exactly one eligible entry retires and one recovery ensure is appended.
+    expect(accepted.state.operationHistory).toHaveLength(128);
+    expect(accepted.state.operationHistory.some((entry) => entry.id === "op-0")).toBe(false);
+    expect(accepted.state.operationHistory.some((entry) => entry.id === "op-1")).toBe(true);
+    expect(accepted.state.operation).toMatchObject({
+      id: "repair",
+      kind: "ensure",
+      status: "NOT_STARTED",
+      drained: false,
+    });
+    expect(accepted.state.phase).toBe("recovering");
+    // The incident opens with its full budget; a preparation consumes nothing.
+    expect(accepted.state.incident).toEqual({
+      id: "incident",
+      correctiveActionsTaken: 0,
+      actionLimit: 3,
+    });
+    // Rollover fences the environment with the runtime generation and keeps the
+    // intent revision, so no outstanding request is re-fenced.
+    expect(accepted.state.runtimeGeneration).toBe(full.runtimeGeneration + 1);
+    expect(accepted.state.intentRevision).toBe(full.intentRevision);
+    for (const stale of [
+      { type: "completion", operationId: "op-0", exitCode: 0 },
+      { type: "drained", operationId: "op-0" },
+      { type: "dispatch" },
+    ] as Input[]) {
+      expect(
+        stepReliability(
+          accepted.state,
+          { ...reliabilityFence(full), ...stale } as ReliabilityEvent,
+          100,
+        ),
+      ).toEqual({ state: accepted.state, outcome: "stale", effects: [] });
+    }
+  });
+
+  it("refuses a saturated recovery unchanged when nothing is retirable", () => {
+    const full = saturatedManaged();
+    for (const entry of full.operationHistory) entry.drained = false;
+    const result = step(full, recover);
+    expect(result.outcome).toBe("blocked");
+    // No candidate means no journal, incident, generation or phase mutation.
+    expect(result.state).toEqual(full);
+    expect(result.state.incident).toBeNull();
+    expect(result.state.runtimeGeneration).toBe(full.runtimeGeneration);
+  });
+
+  it("rejects a retained history ID or key, including the rollover victim", () => {
+    const full = saturatedManaged();
+    expect(step(full, { ...recover, operationId: "op-0" }).outcome).toBe("conflict");
+    expect(step(full, { ...recover, operationId: "request-0" }).outcome).toBe("conflict");
+    const accepted = step(full, recover);
+    expect(accepted.outcome).toBe("accepted");
+    expect(accepted.state.operation?.id).toBe("repair");
+  });
+
+  it("refuses stopping, stopped and parked intent and undrained current operations", () => {
+    const stopping = saturatedManaged();
+    stopping.phase = "stopping";
+    stopping.incident = { id: "incident", correctiveActionsTaken: 0, actionLimit: 3 };
+    const stopped = step(stopping, recover);
+    expect(stopped.outcome).toBe("blocked");
+    expect(stopped.state).toEqual(stopping);
+
+    for (const desired of ["stopped-by-user", "parked-for-capacity"] as const) {
+      const intent = saturatedManaged();
+      intent.desired = desired;
+      intent.phase = "stopping";
+      const refused = step(intent, recover);
+      expect(refused.outcome).toBe("blocked");
+      expect(refused.state).toEqual(intent);
+    }
+
+    for (const status of ["COMPLETED", "INTERRUPTED", "NOT_STARTED"] as const) {
+      const undrained = saturatedManaged();
+      undrained.operation = {
+        ...undrained.operation!,
+        id: "op-127",
+        status,
+        drained: false,
+        exitCode: status === "COMPLETED" ? 0 : null,
+      };
+      undrained.operationHistory[127] = {
+        ...undrained.operationHistory[127],
+        status,
+        drained: false,
+        exitCode: status === "COMPLETED" ? 0 : null,
+      };
+      const refused = step(undrained, recover);
+      expect(refused.outcome).toBe("blocked");
+      expect(refused.state).toEqual(undrained);
+    }
+
+    // A drained interrupted ensure may be superseded; interrupted tooling is
+    // protected because its command outcome is still uncertain.
+    const interruptedEnsure = saturatedManaged();
+    interruptedEnsure.operation = {
+      ...interruptedEnsure.operation!,
+      id: "op-127",
+      status: "INTERRUPTED",
+      drained: true,
+      exitCode: null,
+    };
+    interruptedEnsure.operationHistory[127] = {
+      ...interruptedEnsure.operationHistory[127],
+      status: "INTERRUPTED",
+      drained: true,
+      exitCode: null,
+    };
+    expect(step(interruptedEnsure, recover).outcome).toBe("accepted");
+
+    const interruptedExec = saturatedManaged();
+    interruptedExec.operation = {
+      ...interruptedExec.operation!,
+      id: "op-127",
+      kind: "exec",
+      status: "INTERRUPTED",
+      drained: true,
+      exitCode: null,
+    };
+    interruptedExec.operationHistory[127] = {
+      ...interruptedExec.operationHistory[127],
+      kind: "exec",
+      status: "INTERRUPTED",
+      drained: true,
+      exitCode: null,
+    };
+    const refusedExec = step(interruptedExec, recover);
+    expect(refusedExec.outcome).toBe("blocked");
+    expect(refusedExec.state).toEqual(interruptedExec);
+
+    const completedExec = structuredClone(interruptedExec);
+    completedExec.operation = { ...completedExec.operation!, status: "COMPLETED", exitCode: 0 };
+    completedExec.operationHistory[127] = {
+      ...completedExec.operationHistory[127],
+      ...completedExec.operation,
+    };
+    const afterExec = step(completedExec, recover);
+    expect(afterExec.outcome).toBe("accepted");
+    expect(afterExec.state.operationHistory.some((entry) => entry.id === "op-127")).toBe(true);
+    expect(afterExec.state.operationHistory.some((entry) => entry.id === "op-126")).toBe(true);
+  });
+
+  it("requires a fresh ID when superseding a drained stranded preparation", () => {
+    const full = saturatedManaged();
+    full.phase = "queued";
+    full.operation = {
+      ...full.operation!,
+      id: "op-127",
+      status: "NOT_STARTED",
+      drained: true,
+      exitCode: null,
+    };
+    full.operationHistory[127] = {
+      ...full.operationHistory[127],
+      status: "NOT_STARTED",
+      drained: true,
+      exitCode: null,
+    };
+    expect(step(full, { ...recover, operationId: "op-127" }).outcome).toBe("conflict");
+    const accepted = step(full, recover);
+    expect(accepted.outcome).toBe("accepted");
+    expect(accepted.state.operation?.id).toBe("repair");
+    expect(accepted.state.operationHistory.some((entry) => entry.id === "repair")).toBe(true);
+  });
+
+  it("preserves pending and completed deduplication before any retirement", () => {
+    const incident = { type: "recover", incidentId: "incident", actionLimit: 3 } as const;
+    const full = saturatedManaged();
+    full.incident = { id: "incident", correctiveActionsTaken: 0, actionLimit: 3 };
+    full.phase = "recovering";
+    full.operation = { ...full.operation!, status: "NOT_STARTED", drained: false, exitCode: null };
+    full.operationHistory[127] = { ...full.operationHistory[127], ...full.operation };
+    expect(step(full, { ...incident, operationId: "op-127" })).toMatchObject({
+      outcome: "joined",
+      effects: [],
+    });
+    expect(step(full, { ...incident, operationId: "op-0" })).toMatchObject({
+      outcome: "conflict",
+      effects: [],
+    });
+
+    const completed = saturatedManaged();
+    completed.incident = { id: "incident", correctiveActionsTaken: 1, actionLimit: 3 };
+    expect(step(completed, { ...incident, operationId: "op-127" })).toMatchObject({
+      outcome: "joined",
+      effects: [],
+    });
+  });
+
+  it("refuses exhausted counters, exhausted budgets and unsafe current operations unchanged", () => {
+    const saturated = saturatedManaged();
+    saturated.runtimeGeneration = Number.MAX_SAFE_INTEGER;
+    const exhausted = step(saturated, recover);
+    expect(exhausted.outcome).toBe("blocked");
+    expect(exhausted.state.runtimeGeneration).toBe(Number.MAX_SAFE_INTEGER);
+    expect(exhausted.state.incident).toBeNull();
+
+    const spent = saturatedManaged();
+    spent.incident = { id: "incident", correctiveActionsTaken: 3, actionLimit: 3 };
+    const budget = step(spent, recover);
+    expect(budget.outcome).toBe("blocked");
+    expect(budget.state).toEqual(spent);
+
+    const locked = saturatedManaged();
+    locked.operation = {
+      ...locked.operation!,
+      id: "op-127",
+      status: "COMPLETION_UNKNOWN",
+      drained: false,
+      exitCode: null,
+    };
+    locked.operationHistory[127] = {
+      ...locked.operationHistory[127],
+      status: "COMPLETION_UNKNOWN",
+      exitCode: null,
+    };
+    const unsafe = step(locked, recover);
+    expect(unsafe.outcome).toBe("blocked");
+    expect(unsafe.state).toEqual(locked);
   });
 });

@@ -4,6 +4,8 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Reliable managed sessions through 0.1.0](./2026-09-13-reliability-release-plan.md) — approved full-roadmap execution, qualification, release and local adoption.
+
 - [Capacity-managed lifecycle history rollover](./2026-09-10-capacity-history-rollover-plan.md) — extend conservative journal rollover to capacity-managed history so enrolled checkouts keep accepting ensure and exec past the 128-entry cap.
 - [Host-port claims](./2026-09-10-host-port-claims-plan.md) — admission-time detection and attribution of conflicting consumer-declared fixed host-port bindings, plus a read-only doctor check; release 0.0.68 on `rs/host-port-claims`.
 

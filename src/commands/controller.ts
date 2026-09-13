@@ -2,10 +2,10 @@ import path from "node:path";
 import { collectCapacityDomains } from "../core/capacity-collector";
 import { createCapacityController } from "../core/capacity-controller";
 import { readCapacityPolicy } from "../core/capacity-policy";
-import { resolveControllerBinding } from "../core/controller-binding";
+import { createControllerBindingResolver } from "../core/controller-binding";
 import { controllerRequest } from "../core/controller-client";
-import { collectControllerObservation } from "../core/controller-observation";
-import type { ControllerStartup } from "../core/controller-server";
+import { createControllerObservationCollector } from "../core/controller-observation";
+import type { ControllerResolver, ControllerStartup } from "../core/controller-server";
 import { runController } from "../core/controller-server";
 import { DEVROUTER_HOME } from "../core/router";
 
@@ -28,20 +28,23 @@ export async function runControllerCommand(
         // keeps an unreadable policy from silently disabling admission.
         const defaultOperations = dependencies.createOperations
           ? undefined
-          : (startup: ControllerStartup) => {
+          : (startup: ControllerStartup, bindingResolver: ControllerResolver) => {
               const policy = readCapacityPolicy(directory);
               if (policy?.admissions !== "enabled") return undefined;
               return createCapacityController({
                 directory,
                 controller: startup,
+                bindingResolver,
                 collect: (signal) => collectCapacityDomains(policy, signal),
               });
             };
         await runController({
           directory,
           signal: controller.signal,
-          resolve: resolveControllerBinding,
-          collect: collectControllerObservation,
+          createBindings: (fingerprint) => {
+            const resolve = createControllerBindingResolver(fingerprint);
+            return { resolve, collect: createControllerObservationCollector(resolve, fingerprint) };
+          },
           createOperations: dependencies.createOperations ?? defaultOperations,
         });
       } finally {
@@ -51,6 +54,21 @@ export async function runControllerCommand(
       return;
     }
     const { json: _json, ...fields } = options;
+    if (method === "protection-pin") {
+      if (
+        fields.pinned !== "true" &&
+        fields.pinned !== "false" &&
+        typeof fields.pinned !== "boolean"
+      )
+        throw new Error("Pinned must be explicitly true or false.");
+      fields.pinned = fields.pinned === true || fields.pinned === "true";
+      if (
+        typeof fields.expectedProtectionRevision === "string" &&
+        !/^(0|[1-9][0-9]*)$/.test(fields.expectedProtectionRevision)
+      )
+        throw new Error("Protection revision must be a nonnegative integer.");
+      fields.expectedProtectionRevision = Number(fields.expectedProtectionRevision);
+    }
     if (fields.epoch !== undefined) fields.epoch = Number(fields.epoch);
     if (fields.timeout !== undefined) fields.timeout = Number(fields.timeout);
     await controllerRequest(

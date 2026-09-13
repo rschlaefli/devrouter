@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomically } from "./atomic-file";
@@ -29,7 +29,67 @@ export type ControllerProjection = {
   journalRevision: number;
   runtimeFingerprint: string;
 };
+/** Consumer intent for one live binding; only `allow-unusable` grants parking consent. */
+export type ControllerParkingConsent = "protected" | "allow-unusable";
 export type ControllerSession = {
+  id: string;
+  environmentId: string;
+  generation: string;
+  requirements: string[];
+  renewedAtMs: number;
+  parkingConsent: ControllerParkingConsent;
+  consentRevision: number;
+  observation?: ControllerProjection;
+};
+export type ControllerRetainedReason = "expired" | "restart" | "discontinuity" | "binding-changed";
+/** Durable uncertainty for a consumer whose live binding ended without release. */
+export type ControllerRetainedSession = {
+  id: string;
+  generation: string;
+  epoch: number;
+  requirements: string[];
+  parkingConsent: ControllerParkingConsent;
+  consentRevision: number;
+  reason: ControllerRetainedReason;
+  environment: ControllerEnvironment;
+};
+export type ControllerEventKind =
+  | "acquired"
+  | "renewed"
+  | "released"
+  | "expired"
+  | "invalidated"
+  | "observed"
+  | "consent"
+  | "reconnected";
+export type ControllerEvent = {
+  sequence: number;
+  session: string;
+  generation: string;
+  kind: ControllerEventKind;
+};
+export type ControllerHistory = "complete" | "legacy-unknown";
+type ControllerFingerprintProvenance = { digest: string; enrolledEpoch: number };
+type ControllerIdentity =
+  | { version: 1; store: string }
+  | { version: 2; store: string; key: string; enrolledEpoch: number };
+export type ControllerSnapshot = {
+  store: string;
+  epoch: number;
+  revision: number;
+  parkingRevision: number;
+  history: ControllerHistory;
+  nextSequence: number;
+  environments: ControllerEnvironment[];
+  sessions: ControllerSession[];
+  retainedSessions: ControllerRetainedSession[];
+  events: ControllerEvent[];
+} & (
+  | { version: 2; fingerprint?: never }
+  | { version: 3; fingerprint: ControllerFingerprintProvenance }
+);
+
+type ControllerLegacySession = {
   id: string;
   environmentId: string;
   generation: string;
@@ -37,22 +97,39 @@ export type ControllerSession = {
   renewedAtMs: number;
   observation?: ControllerProjection;
 };
-export type ControllerEvent = {
-  sequence: number;
-  session: string;
-  generation: string;
-  kind: "acquired" | "renewed" | "released" | "expired" | "invalidated" | "observed";
-};
-export type ControllerSnapshot = {
+type ControllerLegacySnapshot = {
   version: 1;
   store: string;
   epoch: number;
   revision: number;
   nextSequence: number;
   environments: ControllerEnvironment[];
-  sessions: ControllerSession[];
+  sessions: ControllerLegacySession[];
   events: ControllerEvent[];
 };
+
+const EVENT_KINDS: readonly string[] = [
+  "acquired",
+  "renewed",
+  "released",
+  "expired",
+  "invalidated",
+  "observed",
+  "consent",
+  "reconnected",
+];
+const LEGACY_EVENT_KINDS: readonly string[] = EVENT_KINDS.slice(0, 6);
+const PROJECTION_STATUSES: readonly string[] = [
+  "READY",
+  "APP_ERROR",
+  "BLOCKED",
+  "STOPPED",
+  "STARTING",
+  "RECOVERING",
+  "WAITING_CAPACITY",
+  "PARKED_CAPACITY",
+  "UNKNOWN",
+];
 
 function fail(): never {
   throw new Error("Invalid controller snapshot.");
@@ -76,8 +153,223 @@ function id(value: unknown): value is string {
 function counter(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
+function requirements(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length >= 1 &&
+    value.length <= 16 &&
+    new Set(value).size === value.length &&
+    value.every(
+      (entry: unknown) => text(entry, 132) && /^(runtime|app:[a-z0-9][a-z0-9-]*)$/.test(entry),
+    )
+  );
+}
+function parkingConsent(value: unknown): value is ControllerParkingConsent {
+  return value === "protected" || value === "allow-unusable";
+}
+function retainedReason(value: unknown): value is ControllerRetainedReason {
+  return (
+    value === "expired" ||
+    value === "restart" ||
+    value === "discontinuity" ||
+    value === "binding-changed"
+  );
+}
+/**
+ * Validate one environment and register its logical identity. An id or path may
+ * only ever map to the one counterpart, so drifted own fields stay one logical
+ * environment while incompatible id/path mappings refuse.
+ */
+function checkEnvironment(
+  value: unknown,
+  ids: Map<string, string>,
+  paths: Map<string, string>,
+): void {
+  fields(value, [
+    "id",
+    "repoPath",
+    "workspace",
+    "provider",
+    "providerId",
+    "profile",
+    "fingerprint",
+  ]);
+  if (
+    !id(value.id) ||
+    !text(value.repoPath, 4096) ||
+    !path.isAbsolute(value.repoPath) ||
+    path.resolve(value.repoPath) !== value.repoPath ||
+    !id(value.workspace) ||
+    !id(value.providerId) ||
+    !text(value.profile) ||
+    !/^[a-z0-9-]+(?:,[a-z0-9-]+)*$/.test(value.profile) ||
+    !text(value.fingerprint, 128) ||
+    !/^[a-f0-9]{64}$/.test(value.fingerprint) ||
+    !["devpod", "devsy"].includes(String(value.provider))
+  )
+    fail();
+  const knownPath = ids.get(value.id);
+  if (knownPath !== undefined && knownPath !== value.repoPath) fail();
+  const knownId = paths.get(value.repoPath);
+  if (knownId !== undefined && knownId !== value.id) fail();
+  ids.set(value.id, value.repoPath);
+  paths.set(value.repoPath, value.id);
+}
+function checkProjection(session: Record<string, unknown>): void {
+  if (session.observation === undefined) return;
+  const observation = session.observation;
+  fields(observation, [
+    "status",
+    "sampledAtMs",
+    "validUntilMs",
+    "journalRevision",
+    "runtimeFingerprint",
+  ]);
+  if (
+    !PROJECTION_STATUSES.includes(String(observation.status)) ||
+    !counter(observation.sampledAtMs) ||
+    !counter(observation.validUntilMs) ||
+    observation.validUntilMs < observation.sampledAtMs ||
+    !counter(observation.journalRevision) ||
+    !text(observation.runtimeFingerprint, 128) ||
+    !/^[a-f0-9]{64}$/.test(observation.runtimeFingerprint)
+  )
+    fail();
+}
+function checkEvents(events: unknown[], nextSequence: number, kinds: readonly string[]): void {
+  let previous = 0;
+  for (const event of events) {
+    fields(event, ["sequence", "session", "generation", "kind"]);
+    if (
+      !counter(event.sequence) ||
+      event.sequence <= previous ||
+      event.sequence >= nextSequence ||
+      !id(event.session) ||
+      !id(event.generation) ||
+      typeof event.kind !== "string" ||
+      !kinds.includes(event.kind)
+    )
+      fail();
+    previous = event.sequence;
+  }
+  if (Buffer.byteLength(JSON.stringify(events)) > 262_144) fail();
+}
 
 export function validateControllerSnapshot(value: unknown): asserts value is ControllerSnapshot {
+  fields(value, [
+    "version",
+    "store",
+    "epoch",
+    "revision",
+    "parkingRevision",
+    "history",
+    "nextSequence",
+    "environments",
+    "sessions",
+    "retainedSessions",
+    "events",
+    ...((value as { version?: unknown })?.version === 3 ? ["fingerprint"] : []),
+  ]);
+  if (
+    (value.version !== 2 && value.version !== 3) ||
+    !id(value.store) ||
+    !counter(value.epoch) ||
+    !counter(value.revision) ||
+    !counter(value.parkingRevision) ||
+    (value.history !== "complete" && value.history !== "legacy-unknown") ||
+    !counter(value.nextSequence) ||
+    value.nextSequence < 1 ||
+    !Array.isArray(value.environments) ||
+    !Array.isArray(value.sessions) ||
+    !Array.isArray(value.retainedSessions) ||
+    !Array.isArray(value.events) ||
+    value.events.length > 256 ||
+    value.sessions.length + value.retainedSessions.length > 128
+  )
+    fail();
+  if (value.version === 3) {
+    fields(value.fingerprint, ["digest", "enrolledEpoch"]);
+    if (
+      typeof value.fingerprint.digest !== "string" ||
+      !/^[a-f0-9]{64}$/.test(value.fingerprint.digest) ||
+      !counter(value.fingerprint.enrolledEpoch) ||
+      value.fingerprint.enrolledEpoch < 1 ||
+      value.fingerprint.enrolledEpoch > Number(value.epoch)
+    )
+      fail();
+  }
+  const ids = new Map<string, string>();
+  const paths = new Map<string, string>();
+  for (const environment of value.environments) checkEnvironment(environment, ids, paths);
+  if (ids.size !== value.environments.length) fail();
+  const activeEnvironments = new Set(ids.keys());
+  const usedEnvironments = new Set<string>();
+  const activeSessions = new Set<string>();
+  const tuples = new Set<string>();
+  for (const session of value.sessions) {
+    fields(session, [
+      "id",
+      "environmentId",
+      "generation",
+      "requirements",
+      "renewedAtMs",
+      "parkingConsent",
+      "consentRevision",
+      ...(Object.hasOwn(session, "observation") ? ["observation"] : []),
+    ]);
+    const tuple = `${session.id}\u0000${value.epoch}\u0000${session.generation}`;
+    if (
+      !id(session.id) ||
+      activeSessions.has(session.id) ||
+      !id(session.environmentId) ||
+      !activeEnvironments.has(session.environmentId) ||
+      !id(session.generation) ||
+      !counter(session.renewedAtMs) ||
+      !requirements(session.requirements) ||
+      !parkingConsent(session.parkingConsent) ||
+      !counter(session.consentRevision) ||
+      tuples.has(tuple)
+    )
+      fail();
+    activeSessions.add(session.id);
+    usedEnvironments.add(session.environmentId);
+    tuples.add(tuple);
+    checkProjection(session);
+  }
+  if (usedEnvironments.size !== value.environments.length) fail();
+  for (const retainedSession of value.retainedSessions) {
+    fields(retainedSession, [
+      "id",
+      "generation",
+      "epoch",
+      "requirements",
+      "parkingConsent",
+      "consentRevision",
+      "reason",
+      "environment",
+    ]);
+    const tuple = `${retainedSession.id}\u0000${retainedSession.epoch}\u0000${retainedSession.generation}`;
+    if (
+      !id(retainedSession.id) ||
+      !id(retainedSession.generation) ||
+      !counter(retainedSession.epoch) ||
+      retainedSession.epoch > value.epoch ||
+      !requirements(retainedSession.requirements) ||
+      !parkingConsent(retainedSession.parkingConsent) ||
+      !counter(retainedSession.consentRevision) ||
+      !retainedReason(retainedSession.reason) ||
+      tuples.has(tuple)
+    )
+      fail();
+    tuples.add(tuple);
+    checkEnvironment(retainedSession.environment, ids, paths);
+  }
+  if (ids.size > 32) fail();
+  checkEvents(value.events, value.nextSequence, EVENT_KINDS);
+  if (Buffer.byteLength(JSON.stringify(value)) + 1 > CONTROLLER_SNAPSHOT_BYTES) fail();
+}
+
+function validateLegacySnapshot(value: unknown): asserts value is ControllerLegacySnapshot {
   fields(value, [
     "version",
     "store",
@@ -103,39 +395,13 @@ export function validateControllerSnapshot(value: unknown): asserts value is Con
     value.events.length > 256
   )
     fail();
-  const environments = new Set<string>();
-  const checkouts = new Set<string>();
-  for (const env of value.environments) {
-    fields(env, [
-      "id",
-      "repoPath",
-      "workspace",
-      "provider",
-      "providerId",
-      "profile",
-      "fingerprint",
-    ]);
-    if (
-      !id(env.id) ||
-      environments.has(env.id) ||
-      !text(env.repoPath, 4096) ||
-      !path.isAbsolute(env.repoPath) ||
-      path.resolve(env.repoPath) !== env.repoPath ||
-      checkouts.has(env.repoPath) ||
-      !id(env.workspace) ||
-      !id(env.providerId) ||
-      !text(env.profile) ||
-      !/^[a-z0-9-]+(?:,[a-z0-9-]+)*$/.test(env.profile) ||
-      !text(env.fingerprint, 128) ||
-      !/^[a-f0-9]{64}$/.test(env.fingerprint) ||
-      !["devpod", "devsy"].includes(String(env.provider))
-    )
-      fail();
-    environments.add(env.id);
-    checkouts.add(env.repoPath);
-  }
-  const sessions = new Set<string>();
+  const ids = new Map<string, string>();
+  const paths = new Map<string, string>();
+  for (const environment of value.environments) checkEnvironment(environment, ids, paths);
+  if (ids.size !== value.environments.length) fail();
+  const activeEnvironments = new Set(ids.keys());
   const usedEnvironments = new Set<string>();
+  const sessions = new Set<string>();
   for (const session of value.sessions) {
     fields(session, [
       "id",
@@ -149,90 +415,85 @@ export function validateControllerSnapshot(value: unknown): asserts value is Con
       !id(session.id) ||
       sessions.has(session.id) ||
       !id(session.environmentId) ||
-      !environments.has(session.environmentId) ||
+      !activeEnvironments.has(session.environmentId) ||
       !id(session.generation) ||
       !counter(session.renewedAtMs) ||
-      !Array.isArray(session.requirements) ||
-      session.requirements.length < 1 ||
-      session.requirements.length > 16 ||
-      new Set(session.requirements).size !== session.requirements.length ||
-      session.requirements.some(
-        (r: unknown) => !text(r, 132) || !/^(runtime|app:[a-z0-9][a-z0-9-]*)$/.test(r),
-      )
+      !requirements(session.requirements)
     )
       fail();
-    if (session.observation !== undefined) {
-      const observation = session.observation;
-      fields(observation, [
-        "status",
-        "sampledAtMs",
-        "validUntilMs",
-        "journalRevision",
-        "runtimeFingerprint",
-      ]);
-      if (
-        ![
-          "READY",
-          "APP_ERROR",
-          "BLOCKED",
-          "STOPPED",
-          "STARTING",
-          "RECOVERING",
-          "WAITING_CAPACITY",
-          "PARKED_CAPACITY",
-          "UNKNOWN",
-        ].includes(String(observation.status)) ||
-        !counter(observation.sampledAtMs) ||
-        !counter(observation.validUntilMs) ||
-        observation.validUntilMs < observation.sampledAtMs ||
-        !counter(observation.journalRevision) ||
-        !text(observation.runtimeFingerprint, 128) ||
-        !/^[a-f0-9]{64}$/.test(observation.runtimeFingerprint)
-      )
-        fail();
-    }
     sessions.add(session.id);
     usedEnvironments.add(session.environmentId);
+    checkProjection(session);
   }
-  if (usedEnvironments.size !== environments.size) fail();
-  let previous = 0;
-  for (const event of value.events) {
-    fields(event, ["sequence", "session", "generation", "kind"]);
-    if (
-      !counter(event.sequence) ||
-      event.sequence <= previous ||
-      event.sequence >= value.nextSequence ||
-      !id(event.session) ||
-      !id(event.generation) ||
-      !["acquired", "renewed", "released", "expired", "invalidated", "observed"].includes(
-        String(event.kind),
-      )
-    )
-      fail();
-    previous = event.sequence;
-  }
+  if (usedEnvironments.size !== value.environments.length) fail();
+  checkEvents(value.events, value.nextSequence, LEGACY_EVENT_KINDS);
+  if (Buffer.byteLength(JSON.stringify(value)) + 1 > CONTROLLER_SNAPSHOT_BYTES) fail();
+}
+
+/**
+ * Read-only shape migration. Absent consent never implies consent, so every
+ * surviving session stays protected at revision zero.
+ */
+function normalizeLegacySnapshot(value: ControllerLegacySnapshot): ControllerSnapshot {
+  return {
+    version: 2,
+    store: value.store,
+    epoch: value.epoch,
+    revision: value.revision,
+    parkingRevision: 0,
+    history: "legacy-unknown",
+    nextSequence: value.nextSequence,
+    environments: value.environments.map((environment) => ({ ...environment })),
+    sessions: value.sessions.map((session) => ({
+      id: session.id,
+      environmentId: session.environmentId,
+      generation: session.generation,
+      requirements: [...session.requirements],
+      renewedAtMs: session.renewedAtMs,
+      parkingConsent: "protected",
+      consentRevision: 0,
+      ...(session.observation ? { observation: { ...session.observation } } : {}),
+    })),
+    retainedSessions: [],
+    events: value.events.map((event) => ({ ...event })),
+  };
+}
+/** Version dispatch is exact: legacy bytes validate strictly, then normalize in memory only. */
+function parseStoredSnapshot(value: unknown): ControllerSnapshot {
   if (
-    Buffer.byteLength(JSON.stringify(value.events)) > 262_144 ||
-    Buffer.byteLength(JSON.stringify(value)) + 1 > CONTROLLER_SNAPSHOT_BYTES
-  )
-    fail();
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as { version?: unknown }).version === 1
+  ) {
+    validateLegacySnapshot(value);
+    return normalizeLegacySnapshot(value);
+  }
+  validateControllerSnapshot(value);
+  return value;
 }
 
 /** Only the controller's exclusive lifetime owner may read-modify-write this store. */
 export class ControllerStore {
   readonly file: string;
+  private readonly identityFile: string;
+  private identity: string | undefined;
+  private observedStore: string | undefined;
+  private observedFingerprint: string | undefined;
   constructor(
     readonly directory: string,
     private readonly write = writeFileAtomically,
+    private readonly ownsLifetimeLock = false,
   ) {
     this.file = path.join(directory, "snapshot.json");
+    this.identityFile = path.join(directory, "store-identity.json");
   }
 
-  read(): ControllerSnapshot | undefined {
+  private readBytes(file = this.file, limit = CONTROLLER_SNAPSHOT_BYTES): Buffer | undefined {
     let fd: number;
     try {
       fd = fs.openSync(
-        this.file,
+        file,
         fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
       );
     } catch (error) {
@@ -245,20 +506,18 @@ export class ControllerStore {
         !stat.isFile() ||
         stat.uid !== process.getuid?.() ||
         (stat.mode & 0o077) !== 0 ||
-        stat.size > CONTROLLER_SNAPSHOT_BYTES
+        stat.size > limit
       )
         fail();
-      const bytes = Buffer.alloc(CONTROLLER_SNAPSHOT_BYTES + 1);
+      const bytes = Buffer.alloc(limit + 1);
       let length = 0;
       while (length < bytes.length) {
         const count = fs.readSync(fd, bytes, length, bytes.length - length, null);
         if (!count) break;
         length += count;
       }
-      if (length > CONTROLLER_SNAPSHOT_BYTES) fail();
-      const value: unknown = JSON.parse(bytes.subarray(0, length).toString("utf8"));
-      validateControllerSnapshot(value);
-      return value;
+      if (length > limit) fail();
+      return bytes.subarray(0, length);
     } catch {
       throw new Error("Controller snapshot is unreadable or invalid.");
     } finally {
@@ -266,21 +525,177 @@ export class ControllerStore {
     }
   }
 
+  private readIdentity(): ControllerIdentity | undefined {
+    try {
+      const bytes = this.readBytes(this.identityFile, 4096);
+      if (!bytes) return undefined;
+      const value: unknown = JSON.parse(bytes.toString("utf8"));
+      fields(value, [
+        "version",
+        "store",
+        ...((value as { version?: unknown })?.version === 2 ? ["key", "enrolledEpoch"] : []),
+      ]);
+      if ((value.version !== 1 && value.version !== 2) || !id(value.store)) fail();
+      if (
+        value.version === 2 &&
+        (typeof value.key !== "string" ||
+          !/^[a-f0-9]{64}$/.test(value.key) ||
+          !counter(value.enrolledEpoch) ||
+          Number(value.enrolledEpoch) < 1)
+      )
+        fail();
+      return value as ControllerIdentity;
+    } catch {
+      throw new Error("Controller store-identity.json is unreadable or invalid.");
+    }
+  }
+
+  private provenance(identity: ControllerIdentity): ControllerFingerprintProvenance {
+    if (identity.version !== 2) throw new Error("Controller binding provenance is unavailable.");
+    return {
+      digest: createHash("sha256")
+        .update(JSON.stringify(["devrouter-controller-binding-v1", identity.store, identity.key]))
+        .digest("hex"),
+      enrolledEpoch: identity.enrolledEpoch,
+    };
+  }
+
+  private checkProvenance(
+    snapshot: ControllerSnapshot,
+    identity: ControllerIdentity | undefined,
+  ): void {
+    if (snapshot.version === 3) {
+      if (
+        !identity ||
+        identity.store !== snapshot.store ||
+        JSON.stringify(this.provenance(identity)) !== JSON.stringify(snapshot.fingerprint)
+      )
+        throw new Error("Controller binding provenance changed.");
+    } else if (identity?.version === 2 && identity.enrolledEpoch !== snapshot.epoch + 1) {
+      throw new Error("Controller binding enrollment epoch changed.");
+    }
+    if (
+      this.observedFingerprint &&
+      (snapshot.version !== 3 || JSON.stringify(snapshot.fingerprint) !== this.observedFingerprint)
+    )
+      throw new Error("Controller binding provenance disappeared or changed.");
+  }
+
+  /** Return an incarnation-fenced capability; private key bytes never leave this store. */
+  bindingFingerprint(): (owner: string, config: string) => string {
+    const captured = this.read();
+    if (captured?.version !== 3) throw new Error("Controller binding provenance is unavailable.");
+    return (owner, config) => {
+      const current = this.read();
+      const identity = this.readIdentity();
+      if (
+        !current ||
+        current.store !== captured.store ||
+        current.epoch !== captured.epoch ||
+        JSON.stringify(current.fingerprint) !== JSON.stringify(captured.fingerprint) ||
+        identity?.version !== 2
+      )
+        throw new Error("Controller binding incarnation changed.");
+      this.checkProvenance(current, identity);
+      return createHmac("sha256", Buffer.from(identity.key, "hex"))
+        .update(JSON.stringify({ owner, config }))
+        .digest("hex");
+    };
+  }
+
+  read(): ControllerSnapshot | undefined {
+    const identity = this.readIdentity();
+    if (this.identity && JSON.stringify(identity) !== this.identity)
+      throw new Error("Controller store-identity.json disappeared or changed.");
+    const bytes = this.readBytes();
+    if (!bytes) {
+      if (identity || this.observedStore)
+        throw new Error(
+          "Controller snapshot.json is missing; restore verified history matching store-identity.json.",
+        );
+      return undefined;
+    }
+    try {
+      const snapshot = parseStoredSnapshot(JSON.parse(bytes.toString("utf8")));
+      if (
+        (identity && identity.store !== snapshot.store) ||
+        (this.observedStore && this.observedStore !== snapshot.store)
+      )
+        fail();
+      this.checkProvenance(snapshot, identity);
+      this.observedStore = snapshot.store;
+      this.identity = identity ? JSON.stringify(identity) : undefined;
+      if (snapshot.version === 3) this.observedFingerprint = JSON.stringify(snapshot.fingerprint);
+      return snapshot;
+    } catch {
+      throw new Error("Controller snapshot is unreadable or invalid.");
+    }
+  }
+
+  private assertEmptyDirectory(ignoreOwnerLock: boolean): void {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(this.directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    if (
+      entries.some(
+        (entry) => entry !== "capacity-policy.json" && !(ignoreOwnerLock && entry === "owner.lock"),
+      )
+    )
+      throw new Error(
+        "Controller history is missing with surviving artifacts; restore verified history.",
+      );
+  }
+
+  /** Refuse before acquiring a lock could consume the last surviving history evidence. */
+  assertStartup(): void {
+    if (!this.read()) this.assertEmptyDirectory(false);
+  }
+
+  private enroll(store: string, epoch: number): ControllerFingerprintProvenance {
+    const existing = this.readIdentity();
+    if (existing && existing.store !== store) throw new Error("Controller store identity changed.");
+    const identity: ControllerIdentity =
+      existing?.version === 2
+        ? existing
+        : {
+            version: 2,
+            store,
+            key: randomBytes(32).toString("hex"),
+            enrolledEpoch: epoch,
+          };
+    if (existing?.version !== 2)
+      this.commitBytes(this.identityFile, `${JSON.stringify(identity)}\n`, 4096);
+    this.identity = JSON.stringify(identity);
+    return this.provenance(identity);
+  }
+
   persist(snapshot: ControllerSnapshot): void {
     validateControllerSnapshot(snapshot);
     // Reject an unsafe or corrupt existing destination before replacing it.
-    this.read();
+    const previous = this.read();
+    if (previous && previous.store !== snapshot.store)
+      throw new Error("Controller store identity changed.");
+    this.checkProvenance(snapshot, this.readIdentity());
     const contents = `${JSON.stringify(snapshot)}\n`;
+    this.commitBytes(this.file, contents, CONTROLLER_SNAPSHOT_BYTES);
+    if (snapshot.version === 3) this.observedFingerprint = JSON.stringify(snapshot.fingerprint);
+  }
+
+  private commitBytes(file: string, contents: string, limit: number): void {
     try {
-      this.write(this.file, contents);
+      this.write(file, contents);
     } catch {
-      // Rename can precede a failed directory sync. Exact bytes must be synced
-      // again before acknowledging this transition; otherwise the owner exits.
-      const current = this.read();
-      if (!current || `${JSON.stringify(current)}\n` !== contents)
+      // Rename can precede a failed directory sync. Only the exact stored bytes
+      // prove this transition reached disk; a normalized legacy view does not.
+      const stored = this.readBytes(file, limit);
+      if (!stored || stored.toString("utf8") !== contents)
         throw new Error("Controller snapshot commit failed.");
-      for (const file of [this.file, this.directory]) {
-        const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      for (const target of [file, this.directory]) {
+        const fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
         try {
           fs.fsyncSync(fd);
         } finally {
@@ -291,23 +706,70 @@ export class ControllerStore {
   }
 
   startIncarnation(): ControllerSnapshot {
-    const previous = this.read();
+    let previous = this.read();
+    const pristine = !previous;
+    if (!previous) this.assertEmptyDirectory(this.ownsLifetimeLock);
     if (
       previous &&
-      (previous.epoch === Number.MAX_SAFE_INTEGER || previous.revision === Number.MAX_SAFE_INTEGER)
+      (previous.epoch === Number.MAX_SAFE_INTEGER ||
+        previous.revision === Number.MAX_SAFE_INTEGER ||
+        previous.parkingRevision === Number.MAX_SAFE_INTEGER)
     )
       throw new Error("Controller snapshot counters exhausted.");
+    if (!previous) {
+      previous = {
+        version: 2,
+        store: randomUUID(),
+        epoch: 0,
+        revision: 0,
+        parkingRevision: 0,
+        history: "complete",
+        nextSequence: 1,
+        environments: [],
+        sessions: [],
+        retainedSessions: [],
+        events: [],
+      };
+      this.persist(previous);
+    }
+    const fingerprint = this.enroll(previous.store, previous.epoch + 1);
     const snapshot: ControllerSnapshot = {
-      version: 1,
-      store: previous?.store ?? randomUUID(),
+      version: 3,
+      fingerprint,
+      store: previous.store,
       epoch: (previous?.epoch ?? 0) + 1,
       revision: (previous?.revision ?? 0) + 1,
+      parkingRevision: pristine ? 0 : previous.parkingRevision + 1,
+      history: previous?.history ?? "complete",
       nextSequence: 1,
       environments: [],
       sessions: [],
+      retainedSessions: previous
+        ? [...previous.retainedSessions, ...previous.sessions.map((s) => retain(s, previous))]
+        : [],
       events: [],
     };
     this.persist(snapshot);
     return snapshot;
   }
+}
+
+function retain(
+  session: ControllerSession,
+  previous: ControllerSnapshot,
+): ControllerRetainedSession {
+  const environment = previous.environments.find(
+    (candidate) => candidate.id === session.environmentId,
+  );
+  if (!environment) fail();
+  return {
+    id: session.id,
+    generation: session.generation,
+    epoch: previous.epoch,
+    requirements: [...session.requirements],
+    parkingConsent: session.parkingConsent,
+    consentRevision: session.consentRevision,
+    reason: "restart",
+    environment: { ...environment },
+  };
 }

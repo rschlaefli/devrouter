@@ -26,12 +26,12 @@ function digest(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-const fingerprintKey = randomBytes(32);
+export type ControllerBindingFingerprint = (owner: string, config: string) => string;
 
-export function controllerBindingFingerprint(owner: string, config: string): string {
-  return createHmac("sha256", fingerprintKey)
-    .update(JSON.stringify({ owner, config }))
-    .digest("hex");
+export function createControllerBindingFingerprint(): ControllerBindingFingerprint {
+  const key = randomBytes(32);
+  return (owner, config) =>
+    createHmac("sha256", key).update(JSON.stringify({ owner, config })).digest("hex");
 }
 
 /** Capture bounded local files now; publication rechecks bytes without subprocesses. */
@@ -54,115 +54,156 @@ export function captureControllerEvidence(files: string[]): {
   };
 }
 
-export const resolveControllerBinding: ControllerResolver = async (request, signal) => {
-  const repoPath = fs.realpathSync(request.path);
-  const metadata = (
-    await runControllerProbe(
-      "git",
-      [
-        "-C",
-        repoPath,
-        "rev-parse",
-        "--path-format=absolute",
-        "--git-dir",
-        "--git-common-dir",
-        "--show-toplevel",
-      ],
-      signal,
+export function createControllerBindingResolver(
+  fingerprint = createControllerBindingFingerprint(),
+): ControllerResolver {
+  return async (request, signal, capturePersisted) => {
+    const repoPath = fs.realpathSync(request.path);
+    const metadata = (
+      await runControllerProbe(
+        "git",
+        [
+          "-C",
+          repoPath,
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-dir",
+          "--git-common-dir",
+          "--show-toplevel",
+        ],
+        signal,
+      )
     )
-  )
-    .trim()
-    .split("\n");
-  if (metadata.length !== 3) throw new Error("Canonical linked ownership unavailable.");
-  const [gitDir, commonDir, topLevel] = metadata.map((file) => fs.realpathSync(file));
-  if (
-    topLevel !== repoPath ||
-    gitDir === commonDir ||
-    path.dirname(path.dirname(gitDir)) !== commonDir ||
-    path.basename(path.dirname(gitDir)) !== "worktrees"
-  )
-    throw new Error("Controller requires an existing linked checkout.");
-  const workspace = readControllerEvidence(path.join(gitDir, "devrouter-workspace"), 128).trim();
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workspace) || workspace.length > 32)
-    throw new Error("Canonical workspace token unavailable.");
-  const ownerFile = path.join(commonDir, "devrouter", "workspaces", `${workspace}.json`);
-  const ownerBytes = readControllerEvidence(ownerFile);
-  const owner = JSON.parse(ownerBytes);
-  if (
-    owner?.version !== 1 ||
-    owner.workspace !== workspace ||
-    typeof owner.devpodId !== "string" ||
-    !/^[a-zA-Z0-9_-]{1,128}$/.test(owner.devpodId) ||
-    owner.worktreePath !== repoPath
-  )
-    throw new Error("Canonical workspace owner unavailable.");
-  const configFile = path.join(repoPath, ".devrouter.yml");
-  const configBytes = readControllerEvidence(configFile);
-  const config = loadRepoConfig(repoPath, () => configBytes);
-  if (!config.managedRuntime) throw new Error("Controller requires managed configuration.");
-  const profile = buildProfileResolutionReport(config, repoPath, request.profile);
-  for (const requirement of request.require) {
-    if (requirement === "runtime") continue;
-    const name = requirement.slice(4);
-    const app = config.apps.find((candidate) => candidate.name === name);
+      .trim()
+      .split("\n");
+    if (metadata.length !== 3) throw new Error("Canonical linked ownership unavailable.");
+    const [gitDir, commonDir, topLevel] = metadata.map((file) => fs.realpathSync(file));
     if (
-      !profile.apps.includes(name) ||
-      !app ||
-      app.kind === "dependency" ||
-      app.protocol !== "http" ||
-      app.runtime !== "proxy" ||
-      !app.readiness
+      topLevel !== repoPath ||
+      gitDir === commonDir ||
+      path.dirname(path.dirname(gitDir)) !== commonDir ||
+      path.basename(path.dirname(gitDir)) !== "worktrees"
     )
-      throw new Error("Controller requirement lacks explicit managed HTTP readiness.");
-  }
-  const candidates: Array<{ provider: "devpod" | "devsy"; id: string; localFolder: string }> = [];
-  for (const provider of ["devpod", "devsy"] as const) {
-    const args =
-      provider === "devpod"
-        ? ["list", "--output", "json", "--skip-pro"]
-        : ["workspace", "list", "--result-format", "json", "--skip-pro"];
-    let output: string;
-    try {
-      output = await runControllerProbe(provider, args, signal);
-    } catch (error) {
-      if (error instanceof ControllerProbeUnavailable && error.missingExecutable) continue;
-      // An unavailable registry cannot prove that a conflicting owner is absent.
-      throw new Error("Provider ownership evidence unavailable.");
+      throw new Error("Controller requires an existing linked checkout.");
+    const gitPointer = capturePersisted
+      ? readControllerEvidence(path.join(repoPath, ".git"))
+      : undefined;
+    if (gitPointer !== undefined) {
+      const pointer = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(gitPointer);
+      if (!pointer || fs.realpathSync(path.resolve(repoPath, pointer[1])) !== gitDir)
+        throw new Error("Protection Git pointer no longer matches resolved ownership.");
     }
-    const entries: unknown = JSON.parse(output);
-    if (!Array.isArray(entries)) throw new Error("Provider ownership evidence malformed.");
-    for (const entry of entries) {
-      if (!entry || typeof entry.id !== "string" || typeof entry.source?.localFolder !== "string")
-        throw new Error("Provider ownership evidence malformed.");
-      if (entry.id === owner.devpodId || path.resolve(entry.source.localFolder) === repoPath)
-        candidates.push({
-          provider,
-          id: entry.id,
-          localFolder: path.resolve(entry.source.localFolder),
-        });
+    const workspace = readControllerEvidence(path.join(gitDir, "devrouter-workspace"), 128).trim();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workspace) || workspace.length > 32)
+      throw new Error("Canonical workspace token unavailable.");
+    const ownerFile = path.join(commonDir, "devrouter", "workspaces", `${workspace}.json`);
+    const ownerBytes = readControllerEvidence(ownerFile);
+    const owner = JSON.parse(ownerBytes);
+    if (
+      owner?.version !== 1 ||
+      owner.workspace !== workspace ||
+      typeof owner.devpodId !== "string" ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(owner.devpodId) ||
+      owner.worktreePath !== repoPath
+    )
+      throw new Error("Canonical workspace owner unavailable.");
+    const configFile = path.join(repoPath, ".devrouter.yml");
+    const configBytes = readControllerEvidence(configFile);
+    const config = loadRepoConfig(repoPath, () => configBytes);
+    if (!config.managedRuntime) throw new Error("Controller requires managed configuration.");
+    const profile = buildProfileResolutionReport(config, repoPath, request.profile);
+    for (const requirement of request.require) {
+      if (requirement === "runtime") continue;
+      const name = requirement.slice(4);
+      const app = config.apps.find((candidate) => candidate.name === name);
+      if (
+        !profile.apps.includes(name) ||
+        !app ||
+        app.kind === "dependency" ||
+        app.protocol !== "http" ||
+        app.runtime !== "proxy" ||
+        !app.readiness
+      )
+        throw new Error("Controller requirement lacks explicit managed HTTP readiness.");
     }
-  }
-  if (
-    candidates.length !== 1 ||
-    candidates[0].id !== owner.devpodId ||
-    candidates[0].localFolder !== repoPath
-  )
-    throw new Error("Provider ownership is ambiguous.");
-  if (
-    readControllerEvidence(ownerFile) !== ownerBytes ||
-    readControllerEvidence(configFile) !== configBytes ||
-    readControllerEvidence(path.join(gitDir, "devrouter-workspace"), 128).trim() !== workspace
-  )
-    throw new Error("Binding evidence changed during resolution.");
-  // The approved snapshot contains only opaque fingerprints and canonical refs.
-  // Configuration bytes remain transient and are never emitted as diagnostics.
-  return {
-    id: digest(repoPath),
-    repoPath,
-    workspace,
-    provider: candidates[0].provider,
-    providerId: owner.devpodId,
-    profile: profile.profile,
-    fingerprint: controllerBindingFingerprint(ownerBytes, configBytes),
+    const candidates: Array<{ provider: "devpod" | "devsy"; id: string; localFolder: string }> = [];
+    for (const provider of ["devpod", "devsy"] as const) {
+      const args =
+        provider === "devpod"
+          ? ["list", "--output", "json", "--skip-pro"]
+          : ["workspace", "list", "--result-format", "json", "--skip-pro"];
+      let output: string;
+      try {
+        output = await runControllerProbe(provider, args, signal);
+      } catch (error) {
+        if (error instanceof ControllerProbeUnavailable && error.missingExecutable) continue;
+        // An unavailable registry cannot prove that a conflicting owner is absent.
+        throw new Error("Provider ownership evidence unavailable.");
+      }
+      const entries: unknown = JSON.parse(output);
+      if (!Array.isArray(entries)) throw new Error("Provider ownership evidence malformed.");
+      for (const entry of entries) {
+        if (!entry || typeof entry.id !== "string" || typeof entry.source?.localFolder !== "string")
+          throw new Error("Provider ownership evidence malformed.");
+        if (entry.id === owner.devpodId || path.resolve(entry.source.localFolder) === repoPath)
+          candidates.push({
+            provider,
+            id: entry.id,
+            localFolder: path.resolve(entry.source.localFolder),
+          });
+      }
+    }
+    if (
+      candidates.length !== 1 ||
+      candidates[0].id !== owner.devpodId ||
+      candidates[0].localFolder !== repoPath
+    )
+      throw new Error("Provider ownership is ambiguous.");
+    if (
+      readControllerEvidence(ownerFile) !== ownerBytes ||
+      readControllerEvidence(configFile) !== configBytes ||
+      readControllerEvidence(path.join(gitDir, "devrouter-workspace"), 128).trim() !== workspace
+    )
+      throw new Error("Binding evidence changed during resolution.");
+    const capturedFingerprint = fingerprint(ownerBytes, configBytes);
+    if (capturePersisted) {
+      const evidence = captureControllerEvidence([
+        path.join(repoPath, ".git"),
+        path.join(gitDir, "devrouter-workspace"),
+        ownerFile,
+        configFile,
+      ]);
+      if (
+        evidence.contents[0] !== gitPointer ||
+        evidence.contents[1].trim() !== workspace ||
+        evidence.contents[2] !== ownerBytes ||
+        evidence.contents[3] !== configBytes
+      )
+        throw new Error("Protection binding changed during resolution.");
+      capturePersisted(() => {
+        try {
+          return (
+            fingerprint(ownerBytes, configBytes) === capturedFingerprint &&
+            evidence.unchanged() &&
+            fs.realpathSync(request.path) === repoPath &&
+            fs.realpathSync(gitDir) === gitDir &&
+            fs.realpathSync(commonDir) === commonDir
+          );
+        } catch {
+          return false;
+        }
+      });
+    }
+    // The approved snapshot contains only opaque fingerprints and canonical refs.
+    // Configuration bytes remain transient and are never emitted as diagnostics.
+    return {
+      id: digest(repoPath),
+      repoPath,
+      workspace,
+      provider: candidates[0].provider,
+      providerId: owner.devpodId,
+      profile: profile.profile,
+      fingerprint: capturedFingerprint,
+    };
   };
-};
+}

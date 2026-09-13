@@ -55,6 +55,13 @@ function acceptEnsure(state: ReliabilityState, index: number | string): Reliabil
   return result.state;
 }
 
+/** Accepts one managed ensure and its admission, returning the admitted state. */
+function acceptManagedEnsure(state: ReliabilityState, index: number | string): ReliabilityState {
+  const admission = step(acceptEnsure(state, index), { type: "admission", result: "admitted" });
+  expect(admission.outcome).toBe("accepted");
+  return admission.state;
+}
+
 /** Fills the journal with 128 completed ensure cycles. */
 function saturated(): ReliabilityState {
   let state = createReliabilityState("env", 1, "manual");
@@ -212,6 +219,50 @@ describe("reliability journal liveness under a saturated cap", () => {
     const before = state.operationHistory.length;
     state = finish(acceptEnsure(state, "recovery"), "op-recovery");
     expect(state.operationHistory.length).toBe(Math.min(before, 128));
+  });
+
+  it("rolls a saturated capacity-managed journal over for recovery and for a plain ensure", () => {
+    let state = createReliabilityState("env", 1, "capacity-managed");
+    for (let index = 0; index < 128; index++)
+      state = finish(acceptManagedEnsure(state, `managed-${index}`), `op-managed-${index}`);
+    expect(state.operationHistory).toHaveLength(128);
+
+    // Repeated recovery keeps the same incident and spends only persisted dispatch.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const operationId = `managed-recovery-${attempt}`;
+      const recovery = step(state, {
+        type: "recover",
+        incidentId: "incident",
+        actionLimit: attempt === 0 ? 3 : 9,
+        operationId,
+      });
+      expect(recovery.outcome).toBe("accepted");
+      expect(recovery.state.operationHistory).toHaveLength(128);
+      expect(recovery.state.incident?.correctiveActionsTaken).toBe(attempt);
+      const admitted = step(recovery.state, { type: "admission", result: "admitted" });
+      state = finish(admitted.state, operationId);
+      expect(state.incident).toEqual({
+        id: "incident",
+        actionLimit: 3,
+        correctiveActionsTaken: attempt + 1,
+      });
+      expect(state.operationHistory).toHaveLength(128);
+    }
+
+    // The same saturated journal still admits the ordinary managed ensure.
+    state = acceptManagedEnsure(state, "ordinary");
+    expect(state.operationHistory).toHaveLength(128);
+    const dispatch = step(state, { type: "dispatch" });
+    expect(dispatch.outcome).toBe("accepted");
+    const persisted = step(dispatch.state, {
+      type: "dispatch-persisted",
+      operationId: "op-ordinary",
+    });
+    expect(
+      persisted.outcome === "accepted" &&
+        persisted.effects.some((effect) => effect.kind === "launch"),
+      "ordinary ensure must still launch against a saturated managed journal",
+    ).toBe(true);
   });
 });
 

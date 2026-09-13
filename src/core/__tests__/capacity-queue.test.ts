@@ -2,23 +2,28 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CapacityDomainBudget, CapacityDomainSample } from "../capacity-accounting";
 import { CapacityQueue } from "../capacity-queue";
 import type { CapacityAdmissionContext } from "../capacity-request";
-import type { CapacityReservation } from "../capacity-store";
+import { CapacityHistoryError, type CapacityReservation } from "../capacity-store";
 import type { LifecycleWorkerRequest } from "../reliability-worker";
 
 const fixture = vi.hoisted(() => ({
   admitLifecycleCapacity: vi.fn(),
   collect: vi.fn(),
   retireQueuedLifecycle: vi.fn(),
+  restoreParkedIntentAfterFailedResume: vi.fn(),
   runLifecycleWorker: vi.fn(),
   readCapacityPolicy: vi.fn(),
   renewLifecycleCapacity: vi.fn(),
+  journal: vi.fn(),
 }));
+
+vi.mock("../reliability-operation-store", () => ({ readReliabilityOperation: fixture.journal }));
 
 vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.readCapacityPolicy }));
 
 vi.mock("../reliability-lifecycle", () => ({
   admitLifecycleCapacity: fixture.admitLifecycleCapacity,
   retireQueuedLifecycle: fixture.retireQueuedLifecycle,
+  restoreParkedIntentAfterFailedResume: fixture.restoreParkedIntentAfterFailedResume,
   renewLifecycleCapacity: fixture.renewLifecycleCapacity,
 }));
 
@@ -142,8 +147,10 @@ afterEach(() => {
   fixture.admitLifecycleCapacity.mockReset();
   fixture.collect.mockReset();
   fixture.retireQueuedLifecycle.mockReset();
+  fixture.restoreParkedIntentAfterFailedResume.mockReset();
   fixture.runLifecycleWorker.mockReset();
   fixture.renewLifecycleCapacity.mockReset();
+  fixture.journal.mockReset();
 });
 
 describe("CapacityQueue", () => {
@@ -317,6 +324,48 @@ describe("CapacityQueue", () => {
     });
     expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
     expect(fixture.runLifecycleWorker.mock.calls[0][0].operationId).toBe("next");
+  });
+
+  it("returns an expired automatic resume to parked intent and never re-parks an operator ensure", async () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    const queued = queue(
+      { maxQueuedTotal: 64, maxQueuedPerDomain: 32, queueLifetimeSeconds: 1 },
+      { store: "store", epoch: 1 },
+    );
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({
+      admitted: false,
+      domain: "domain-a",
+      reason: "memory",
+    });
+    fixture.retireQueuedLifecycle.mockReturnValue(true);
+    queued.enqueue(
+      request("resume"),
+      reservation("resume", "environment-resume", ["domain-a"]),
+      undefined,
+      true,
+    );
+    queued.enqueue(request("ensure"), reservation("ensure", "environment-ensure", ["domain-b"]));
+    clock.mockReturnValue(2_000);
+    await queued.tick();
+    expect(fixture.restoreParkedIntentAfterFailedResume).toHaveBeenCalledTimes(1);
+    expect(fixture.restoreParkedIntentAfterFailedResume).toHaveBeenCalledWith({
+      identity: expect.objectContaining({ provider: "devsy" }),
+      controller: { store: "store", epoch: 1 },
+      request: expect.objectContaining({ operationId: "resume" }),
+    });
+    expect(queued.observe("resume")).toMatchObject({ phase: "terminal", reason: "queue-expired" });
+    expect(queued.observe("ensure")).toMatchObject({ phase: "terminal", reason: "queue-expired" });
+  });
+
+  it("rejects an automatic resume reference that does not match the retained intent", async () => {
+    const queued = queue(undefined, { store: "store", epoch: 1 });
+    const resume = request("resume");
+    const acceptance = reservation("resume", "environment-resume", ["domain-a"]);
+    queued.enqueue(resume, acceptance, undefined, true);
+    expect(() => queued.enqueue(resume, acceptance, undefined, false)).toThrow(
+      "Operation reference belongs to another accepted request.",
+    );
   });
 
   it("does not abort or relaunch an accepted worker after caller timeout", async () => {
@@ -818,4 +867,103 @@ describe("CapacityQueue", () => {
     worker.resolve({ ok: true });
     await expect(queued.wait("running", 1_000)).resolves.toBe(true);
   });
+});
+
+it("only collects an idle queue when explicitly requested and never dispatches", async () => {
+  const active = queue();
+  fixture.collect.mockResolvedValue(samples);
+  await active.tick();
+  expect(fixture.collect).not.toHaveBeenCalled();
+  await active.tick({ observeIdle: true });
+  expect(fixture.collect).toHaveBeenCalledTimes(1);
+  expect(fixture.admitLifecycleCapacity).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  active.close();
+});
+
+it("pauses queued work on collection failure without releasing or dispatching", async () => {
+  const active = queue();
+  const prepared = request("collection-failure");
+  active.enqueue(
+    prepared,
+    reservation(prepared.operationId, prepared.fence.environmentId, ["domain-a"]),
+  );
+  fixture.collect.mockRejectedValue(new Error("synthetic collection unavailable"));
+  await active.tick();
+  expect(active.observe(prepared.operationId)).toMatchObject({
+    phase: "queued",
+    reason: "collection-unavailable",
+  });
+  expect(fixture.admitLifecycleCapacity).not.toHaveBeenCalled();
+  expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  active.close();
+});
+
+it.each([
+  "capacity-ledger-lost",
+  "capacity-history-unprovable",
+] as const)("retains queued requests without journal mutation on %s", async (code) => {
+  const queued = queue();
+  fixture.collect.mockResolvedValue(samples);
+  fixture.admitLifecycleCapacity.mockImplementation(() => {
+    throw new CapacityHistoryError(code);
+  });
+  const pending = request("history");
+  const journal = {
+    state: { ...pending.fence, operation: { id: pending.operationId } },
+    worker: null,
+  };
+  fixture.journal.mockReturnValue(journal);
+  const before = structuredClone(journal);
+  queued.enqueue(pending, reservation("history", pending.fence.environmentId, ["domain-a"]));
+  await queued.tick();
+  expect(queued.observe("history")).toMatchObject({ phase: "queued", reason: code });
+  expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  expect(journal).toEqual(before);
+});
+
+it.each([
+  "capacity-ledger-lost",
+  "capacity-history-unprovable",
+] as const)("preserves %s from collection without admission or retirement", async (code) => {
+  const queued = queue();
+  fixture.collect.mockRejectedValue(new CapacityHistoryError(code));
+  const pending = request("history");
+  queued.enqueue(pending, reservation("history", pending.fence.environmentId, ["domain-a"]));
+  await queued.tick();
+  expect(queued.observe("history")).toMatchObject({ phase: "queued", reason: code });
+  expect(fixture.admitLifecycleCapacity).not.toHaveBeenCalled();
+  expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+});
+
+it("retires only transient superseded work from positive history during ledger loss", async () => {
+  const queued = queue();
+  fixture.collect.mockResolvedValue(samples);
+  fixture.admitLifecycleCapacity.mockImplementation(() => {
+    throw new CapacityHistoryError("capacity-ledger-lost");
+  });
+  const pending = request("history");
+  const journal = {
+    state: {
+      ...pending.fence,
+      intentRevision: pending.fence.intentRevision + 1,
+      operation: { id: "later" },
+      operationHistory: [{ id: pending.operationId, status: "NOT_STARTED", drained: true }],
+    },
+    worker: null,
+  };
+  fixture.journal.mockReturnValue(journal);
+  const before = structuredClone(journal);
+  queued.enqueue(pending, reservation("history", pending.fence.environmentId, ["domain-a"]));
+  await queued.tick();
+  expect(queued.observe("history")).toMatchObject({
+    phase: "terminal",
+    reason: "intent-superseded",
+  });
+  expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  expect(journal).toEqual(before);
 });

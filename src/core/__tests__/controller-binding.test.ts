@@ -2,13 +2,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { resolveControllerBinding } from "../controller-binding";
+import { createControllerBindingResolver } from "../controller-binding";
 import { ControllerProbeUnavailable, runControllerProbe } from "../controller-probe";
+import { ControllerStore } from "../controller-store";
 
 vi.mock("../controller-probe", async (original) => ({
   ...(await original<typeof import("../controller-probe")>()),
   runControllerProbe: vi.fn(),
 }));
+const resolveControllerBinding = createControllerBindingResolver();
 const directories: string[] = [];
 afterEach(() => {
   vi.resetAllMocks();
@@ -77,4 +79,66 @@ it("rejects undeclared application readiness before provider inspection", async 
     ),
   ).rejects.toThrow();
   expect(runControllerProbe).toHaveBeenCalledTimes(1);
+});
+
+it("captures persisted protection evidence and rejects later configuration or Git pointer changes", async () => {
+  const { repo, request, common } = fixture();
+  const pointer = path.join(repo, ".git");
+  fs.writeFileSync(pointer, `gitdir: ${path.join(common, "worktrees", "checkout")}\n`);
+  let proof: (() => boolean) | undefined;
+  await resolveControllerBinding(request, new AbortController().signal, (value) => {
+    proof = value;
+  });
+  expect(proof?.()).toBe(true);
+  const config = path.join(repo, ".devrouter.yml");
+  const original = fs.readFileSync(config);
+  fs.appendFileSync(config, "\n# changed\n");
+  expect(proof?.()).toBe(false);
+  fs.writeFileSync(config, original);
+  expect(proof?.()).toBe(true);
+  fs.writeFileSync(pointer, "gitdir: /synthetic/other\n");
+  expect(proof?.()).toBe(false);
+});
+
+it("refuses a Git pointer changed before protection evidence was captured", async () => {
+  const { repo, request } = fixture();
+  fs.writeFileSync(path.join(repo, ".git"), "gitdir: /synthetic/other\n");
+  const capture = vi.fn();
+  await expect(
+    resolveControllerBinding(request, new AbortController().signal, capture),
+  ).rejects.toThrow();
+  expect(capture).not.toHaveBeenCalled();
+});
+
+it.each([
+  "restart",
+  "missing",
+])("invalidates captured persisted ownership on %s while keeping exact resolver continuity", async (change) => {
+  const f = fixture();
+  const git = path.join(f.common, "worktrees", "checkout");
+  fs.writeFileSync(path.join(f.repo, ".git"), `gitdir: ${git}\n`);
+  const directory = path.join(f.common, "controller");
+  fs.mkdirSync(directory);
+  const store = new ControllerStore(directory);
+  store.startIncarnation();
+  const resolve = createControllerBindingResolver(store.bindingFingerprint());
+  let held!: () => boolean;
+  const first = await resolve(f.request, new AbortController().signal, (proof) => {
+    held = proof;
+  });
+  expect(held()).toBe(true);
+  if (change === "missing") fs.unlinkSync(path.join(directory, "store-identity.json"));
+  else {
+    const next = new ControllerStore(directory);
+    next.startIncarnation();
+    const fresh = createControllerBindingResolver(next.bindingFingerprint());
+    expect(await fresh(f.request, new AbortController().signal)).toEqual(first);
+    const file = path.join(f.repo, ".devrouter.yml");
+    fs.appendFileSync(file, "# changed synthetic bytes\n");
+    expect((await fresh(f.request, new AbortController().signal)).fingerprint).not.toBe(
+      first.fingerprint,
+    );
+  }
+  expect(held()).toBe(false);
+  await expect(resolve(f.request, new AbortController().signal)).rejects.toThrow();
 });

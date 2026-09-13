@@ -1,6 +1,8 @@
 import type {
   DevrouterConfig,
   DevrouterProfile,
+  ManagedReliabilityReason,
+  ManagedReliabilityStatus,
   ManagedRuntimeResourceStatus,
   ManagedRuntimeStatus,
 } from "../types";
@@ -18,7 +20,79 @@ import {
 import { listHostRouteState } from "./host-routes";
 import { runManagedProcessAction } from "./managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
+import { readReliabilityOperation } from "./reliability-operation-store";
+import { reliabilityAttention } from "./reliability-output";
 import { sameWorkspacePath } from "./workspace";
+import { resolveWorkspaceRuntimeForReport } from "./workspace-runtime";
+
+/**
+ * The supported recovery path for one durable attention reason, in order. An
+ * agent that sees a non-ready environment must be able to run these directly
+ * instead of guessing at lifecycle intent.
+ */
+function reliabilityRecovery(reason: ManagedReliabilityReason, repoPath: string): string[] {
+  switch (reason) {
+    case "stop-incomplete":
+    case "operation-unknown":
+      return [`Run: devrouter stop ${repoPath}`, `Run: devrouter ensure ${repoPath} --repair`];
+    case "unadmittable":
+      return [
+        `Run: devrouter stop ${repoPath}`,
+        `Lower the requested capacity in .devrouter.yml, then run: devrouter ensure ${repoPath}`,
+      ];
+    case "capacity-parked":
+      return [`Run: devrouter ensure ${repoPath} (waits for capacity to free up)`];
+    case "capacity-waiting":
+      return [`Run: devrouter ensure ${repoPath} (still queued until capacity frees up)`];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Durable lifecycle intent for one exact managed environment, read from its
+ * reliability journal. Any missing or unsafe evidence omits the block rather
+ * than reporting a guessed reason.
+ */
+function readReliabilityStatus(options: {
+  repoPath: string;
+  workspace?: string;
+}): ManagedReliabilityStatus | undefined {
+  let provider: ReturnType<typeof resolveWorkspaceRuntimeForReport>;
+  try {
+    provider = resolveWorkspaceRuntimeForReport(options.repoPath);
+  } catch {
+    return undefined;
+  }
+  if (!provider) return undefined;
+  let record: ReturnType<typeof readReliabilityOperation>;
+  try {
+    record = readReliabilityOperation({
+      repoPath: options.repoPath,
+      workspace: options.workspace ?? null,
+      provider,
+    });
+  } catch {
+    return undefined;
+  }
+  if (!record) return undefined;
+  const reason = reliabilityAttention(record.state);
+  return {
+    desired: record.state.desired,
+    phase: record.state.phase,
+    admission: record.state.admission,
+    chargeHeld: record.state.chargeHeld,
+    incident: record.state.incident
+      ? {
+          correctiveActionsTaken: record.state.incident.correctiveActionsTaken,
+          actionLimit: record.state.incident.actionLimit,
+        }
+      : null,
+    ...(reason
+      ? { attention: { reason, recovery: reliabilityRecovery(reason, options.repoPath) } }
+      : {}),
+  };
+}
 
 type RuntimeInspection = {
   plan?: ManagedDevcontainerPlan;
@@ -566,10 +640,16 @@ export function collectManagedRuntimeStatus(options: {
     processes: inspection.activeProcesses,
   };
 
+  const reliability = readReliabilityStatus({
+    repoPath: options.repoPath,
+    ...(options.workspace !== undefined ? { workspace: options.workspace } : {}),
+  });
+
   return {
     mode: "managed",
     status,
     profile: options.profile,
+    ...(reliability ? { reliability } : {}),
     ...(state?.profile ? { activeProfile: state.profile } : {}),
     ...(options.workspace !== undefined ? { workspace: options.workspace } : {}),
     ...(state?.devpodId ? { devpodId: state.devpodId } : {}),

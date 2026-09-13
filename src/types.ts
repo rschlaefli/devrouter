@@ -78,6 +78,32 @@ export type ManagedRuntimeStatus = {
   sourceConfigSha256?: string;
   effectiveConfigSha256?: string;
   transitionPhase?: string;
+  reliability?: ManagedReliabilityStatus;
+};
+
+/**
+ * Why a managed environment cannot make progress on its own. Derived only from
+ * durable lifecycle state, so the report can explain an environment whose last
+ * consumer session is already gone.
+ */
+export type ManagedReliabilityReason =
+  | "stop-incomplete"
+  | "operation-unknown"
+  | "unadmittable"
+  | "capacity-waiting"
+  | "capacity-parked"
+  | "recovering"
+  | "starting";
+
+/** Durable lifecycle intent for one exact managed environment. */
+export type ManagedReliabilityStatus = {
+  desired: "running" | "parked-for-capacity" | "stopped-by-user";
+  phase: "idle" | "queued" | "starting" | "verifying" | "stable" | "recovering" | "stopping";
+  admission: "admitted" | "waiting" | "unknown" | "denied-unadmittable" | "not-applicable";
+  chargeHeld: boolean;
+  incident: { correctiveActionsTaken: number; actionLimit: number } | null;
+  /** Absent once the environment's recorded intent needs no action. */
+  attention?: { reason: ManagedReliabilityReason; recovery: string[] };
 };
 
 export type CapacityDimensionEstimate = {

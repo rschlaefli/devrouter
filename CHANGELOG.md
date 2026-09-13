@@ -4,6 +4,54 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `devrouter status` reports the durable lifecycle intent of a managed
+  environment alongside its runtime state: intent, phase, capacity admission and
+  charge, corrective-action budget, and a fixed attention reason with the runnable
+  recovery steps for that exact checkout. A parked, waiting, blocked or
+  mid-operation environment is therefore explainable without a live session. The
+  block is omitted when provider or journal evidence is unavailable, and it never
+  mutates lifecycle state.
+
+- Controller sessions support explicit per-binding capacity-parking consent and
+  exact retained-session reconnect. Defaults remain protected. Snapshot version2
+  retains unresolved consumers across lease loss and restart. Reading legacy
+  version1 preserves unknown history; controller startup durably migrates it.
+  Older CLIs refuse version2: do not delete snapshots to downgrade or clear
+  uncertainty. Exact fingerprint continuity and operator reconciliation remain
+  prerequisites for seamless restart recovery; consent alone starts no runtime.
+
+- Controller protection status and explicit human pin updates preserve operator
+  protection independently of operation history and session leases. Pin updates
+  require exact current ownership, session and revision evidence. Once a pin
+  record is written, older CLIs refuse that journal; retain it and use a
+  compatible CLI rather than deleting protection state to downgrade.
+
+### Fixed
+
+- A committed capacity park now finishes even when the controller restarts or the
+  last consumer session expires: the monitor re-drives an incomplete
+  `parked-for-capacity` stop from the durable journal by identity instead of
+  requiring a live session, so the environment can no longer hold its charge in an
+  unobservable stopping phase. An automatic resume that expires in the capacity
+  queue now returns to parked intent rather than leaving running intent no worker
+  honors, and the capacity pass carries its own lifetime signal so shutdown
+  cancels a retired decision.
+
+- Controller release accepts an exact retained consumer binding after expiry,
+  restart or configuration drift, including pre-enrollment bindings. It preserves
+  newer same-name leases, human pins and runtime state. Unknown history and lost
+  identities remain unresolved; a repeated or unacknowledged release has no
+  inferred success receipt.
+- Retained-runtime repair identifies which baseline dimensions prevent recovery,
+  including unavailable generated-file evidence, without changing ownership or
+  resource checks.
+- Profile reports explain when a declared managed `full` profile expands finite
+  selections, while preserving existing resource membership.
+- Ensure and stop workers report bounded, values-free lifecycle stages on stderr,
+  with elapsed receipt age and explicit stale or unknown evidence.
+
 ## [0.0.78] - 2026-09-13
 
 ### Fixed

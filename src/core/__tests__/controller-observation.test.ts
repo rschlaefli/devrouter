@@ -1,11 +1,7 @@
 import { createHash } from "node:crypto";
 import { beforeEach, expect, it, vi } from "vitest";
-import {
-  captureControllerEvidence,
-  controllerBindingFingerprint,
-  resolveControllerBinding,
-} from "../controller-binding";
-import { collectControllerObservation } from "../controller-observation";
+import { captureControllerEvidence } from "../controller-binding";
+import { createControllerObservationCollector } from "../controller-observation";
 import { runControllerProbe } from "../controller-probe";
 import { observeControllerProcess } from "../controller-process-observation";
 import { readHostRouteStateReadOnly } from "../host-routes";
@@ -16,8 +12,6 @@ import { applyWorkspace, loadRepoConfig } from "../repo-config";
 
 vi.mock("../controller-binding", () => ({
   captureControllerEvidence: vi.fn(),
-  controllerBindingFingerprint: vi.fn(),
-  resolveControllerBinding: vi.fn(),
   readControllerEvidence: vi.fn(),
 }));
 vi.mock("../controller-probe", () => ({ runControllerProbe: vi.fn() }));
@@ -38,6 +32,12 @@ vi.mock("../router", async (original) => ({
   isTLSEnabled: () => false,
 }));
 
+const resolveControllerBinding = vi.fn();
+const controllerBindingFingerprint = vi.fn();
+const collectControllerObservation = createControllerObservationCollector(
+  resolveControllerBinding,
+  controllerBindingFingerprint,
+);
 const environment = {
   id: "fixture",
   repoPath: "/fixture/checkout",
@@ -261,4 +261,17 @@ it.each([
     "/fixture/checkout/.devcontainer/compose.yml",
     overlay,
   ]);
+});
+
+it("revalidates the fingerprint capability when held publication proof is consumed", async () => {
+  const observed = await collectControllerObservation(
+    environment,
+    ["runtime", "app:web"],
+    new AbortController().signal,
+  );
+  expect(observed.revalidatePersisted()).toBe(true);
+  controllerBindingFingerprint.mockImplementation(() => {
+    throw new Error("synthetic provenance loss");
+  });
+  expect(() => observed.revalidatePersisted()).toThrow();
 });

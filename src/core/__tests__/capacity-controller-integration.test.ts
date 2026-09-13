@@ -7,8 +7,10 @@ import type { CapacityDomainSample } from "../capacity-accounting";
 import { createCapacityController } from "../capacity-controller";
 import type { CapacityPolicy, CapacityPolicyEnrollment } from "../capacity-policy";
 import { CapacityStore } from "../capacity-store";
+import type { ControllerSessionValidator } from "../controller-server";
 import { ControllerStore } from "../controller-store";
 import { reliabilityFence } from "../reliability-contract";
+import { prepareManagedLifecycleOperation } from "../reliability-lifecycle";
 import { stepReliability } from "../reliability-model";
 import {
   type CapacityEnrollmentBinding,
@@ -16,6 +18,7 @@ import {
   publishStartupWitness,
   type ReliabilityIdentity,
   readReliabilityOperation,
+  reliabilityOperationPath,
   updateReliabilityOperation,
 } from "../reliability-operation-store";
 import type { LifecycleWorkerRequest } from "../reliability-worker";
@@ -24,6 +27,7 @@ import { capacityEstimatesDigest } from "../repo-config";
 const fixture = vi.hoisted(() => ({
   root: "",
   enroll: vi.fn(),
+  resolve: vi.fn(),
   publishWitness: vi.fn(),
   runLifecycleWorker: vi.fn(),
   runningContainer: vi.fn(),
@@ -45,6 +49,7 @@ vi.mock("../router", async (importOriginal) => {
 
 vi.mock("../capacity-enrollment", () => ({
   enrollCapacityLifecycle: fixture.enroll,
+  resolveCapacityEnrollment: fixture.resolve,
 }));
 
 vi.mock("../capacity-startup-witness", () => ({
@@ -181,6 +186,13 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/** Explicit synthetic session proof: integration fixtures own no live sessions. */
+const submitValidator: ControllerSessionValidator = () => ({
+  id: "synthetic-consumer",
+  requiredCapabilities: [],
+  pinned: false,
+});
+
 function seedStopped(identity: ReliabilityIdentity, enrollment: CapacityEnrollmentBinding): void {
   updateReliabilityOperation(identity, (record) => {
     let transition = stepReliability(
@@ -205,6 +217,43 @@ function seedStopped(identity: ReliabilityIdentity, enrollment: CapacityEnrollme
   const stopped = readReliabilityOperation(identity);
   if (!stopped) throw new Error("Synthetic stopped journal was not persisted.");
   enrollStoppedLifecycle(identity, stopped.revision, enrollment);
+}
+
+/** Move an enrolled stopped journal to a running environment with a drained, completed ensure. */
+function seedEnrolledRunning(
+  identity: ReliabilityIdentity,
+  enrollment: CapacityEnrollmentBinding,
+  controller: { store: string; epoch: number },
+): void {
+  seedStopped(identity, enrollment);
+  prepareManagedLifecycleOperation({
+    identity,
+    controller,
+    policyRevision: enrollment.policyRevision,
+    requestId: "prior-ensure",
+    kind: "ensure",
+    profile: "full",
+    consumer: { id: "observer", requiredCapabilities: [], pinned: false },
+    runtimeRunning: false,
+  });
+  updateReliabilityOperation(identity, (record) => {
+    const completed = {
+      ...record.state.operation!,
+      status: "COMPLETED" as const,
+      drained: true,
+      exitCode: 0,
+    };
+    record.state.operation = completed;
+    record.state.operationHistory = record.state.operationHistory.map((entry) =>
+      entry.id === completed.id ? { ...entry, ...completed } : entry,
+    );
+    record.activeProfile = "full";
+    record.preparation = {
+      operationId: completed.id,
+      profile: "full",
+      fence: reliabilityFence(record.state),
+    };
+  });
 }
 
 function watchRequest(
@@ -339,6 +388,7 @@ it.each([
       { ...binding, requestId: "prepare", kind: "ensure" },
       current,
       new AbortController().signal,
+      submitValidator,
     );
     await active.tick();
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -402,6 +452,7 @@ it.each([
       { ...binding, requestId: "exec", kind: "exec", command: ["synthetic-command"] },
       current,
       new AbortController().signal,
+      submitValidator,
     );
     await active.tick();
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -525,6 +576,7 @@ it("admits a cold witnessed ensure and retains authority through unknown witness
       },
       current,
       new AbortController().signal,
+      submitValidator,
     );
     const queued = readReliabilityOperation(identity)!;
     expect(queued.startupWitness).toMatchObject({
@@ -595,6 +647,7 @@ it("retires the queued ensure when startup witness publication fails", async () 
         },
         current,
         new AbortController().signal,
+        submitValidator,
       ),
     ).rejects.toThrow("witness unavailable");
     const retired = readReliabilityOperation(identity)!;
@@ -708,6 +761,7 @@ it.each([
     },
     first,
     new AbortController().signal,
+    submitValidator,
   )) as { operation: { operationId: string; phase: string } };
   const secondSubmitted = (await active.submit(
     {
@@ -723,6 +777,7 @@ it.each([
     },
     second,
     new AbortController().signal,
+    submitValidator,
   )) as { operation: { operationId: string; phase: string } };
   const firstOperation = firstSubmitted.operation;
   const secondOperation = secondSubmitted.operation;
@@ -949,6 +1004,7 @@ it.each([
     },
     first,
     new AbortController().signal,
+    submitValidator,
   );
   expect(reconnected).toMatchObject({
     operation: {
@@ -1031,7 +1087,7 @@ it.each([
     }),
   });
   try {
-    await active.submit(
+    const accepted = (await active.submit(
       {
         version: 1,
         id: "submit",
@@ -1045,9 +1101,35 @@ it.each([
       },
       current,
       new AbortController().signal,
-    );
+      submitValidator,
+    )) as { operation: { operationId: string } };
     if (mode === "snapshot-race" || mode === "policy-drift" || mode === "epoch-drift") {
-      await expect(active.tick()).rejects.toThrow(Error);
+      await expect(active.tick()).resolves.toBeUndefined();
+      const waiting = active.watch(
+        {
+          version: 1,
+          id: "watch",
+          method: "operation-watch",
+          session: "session",
+          store: incarnation.store,
+          epoch: incarnation.epoch,
+          generation: "generation",
+          operationId: accepted.operation.operationId,
+          timeout: 0,
+        },
+        current,
+        new AbortController().signal,
+      );
+      if (mode === "snapshot-race") {
+        await expect(waiting).resolves.toMatchObject({
+          operation: {
+            phase: "queued",
+            reason: "collection-unavailable",
+          },
+        });
+      } else {
+        await expect(waiting).rejects.toThrow("Capacity watch unavailable.");
+      }
       expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
       expect(store.read()).toEqual({
         version: 1,
@@ -1078,6 +1160,273 @@ it.each([
         expect(store.read()).toEqual(snapshot);
       }
     }
+  } finally {
+    active.close();
+  }
+});
+
+it.each([
+  "match",
+  "changed-config",
+  "lost-provenance",
+])("revalidates the durable binding before recovery (%s)", async (mode) => {
+  const directory = path.join(fixture.root, "controller");
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const current = environment(fs.mkdtempSync(path.join(fixture.root, "recover-")), "e");
+  const enrollment = policyEnrollment(current);
+  const identity: ReliabilityIdentity = {
+    repoPath: current.repoPath,
+    workspace: current.workspace,
+    provider: current.provider,
+  };
+  const controllerStore = new ControllerStore(directory);
+  const incarnation = controllerStore.startIncarnation();
+  const fingerprint = controllerStore.bindingFingerprint();
+  current.fingerprint = fingerprint("synthetic-owner", "synthetic-config");
+  let configBytes = "synthetic-config";
+  const bindingResolver = vi.fn(async () => ({
+    ...current,
+    fingerprint: fingerprint("synthetic-owner", configBytes),
+  }));
+  const controller = { store: incarnation.store, epoch: incarnation.epoch };
+  seedEnrolledRunning(identity, durableEnrollment(current), controller);
+  const operatorPolicy = policy([enrollment]);
+  operatorPolicy.recovery = { ...operatorPolicy.recovery, enabled: true };
+  fs.writeFileSync(path.join(directory, "capacity-policy.json"), JSON.stringify(operatorPolicy), {
+    mode: 0o600,
+  });
+  fs.writeFileSync(
+    path.join(current.repoPath, ".devrouter.yml"),
+    JSON.stringify({ version: 1, apps: [], capacity: estimates }),
+  );
+  fixture.resolve.mockImplementation(async (_policy, request, signal, resolver) => ({
+    environment: await resolver(request, signal),
+    enrollment,
+    estimates,
+  }));
+  fixture.runLifecycleWorker.mockReset();
+  fixture.runLifecycleWorker.mockImplementation(async () => ({ status: "completed" }));
+  const active = createCapacityController({
+    directory,
+    bindingResolver,
+    controller: { ...controller, directory, consumeStartup: () => {} },
+    collect: async () => ({ host: sample(Date.now()), runtime: sample(Date.now()) }),
+  });
+  try {
+    const before = readReliabilityOperation(identity)!;
+    const snapshotBefore = fs.readFileSync(controllerStore.file);
+    const revalidate = () => {
+      if (fingerprint("synthetic-owner", "synthetic-config") !== current.fingerprint)
+        throw new Error("Binding provenance changed.");
+      const now = readReliabilityOperation(identity);
+      if (!now || now.revision !== before.revision)
+        throw new Error("Observation revision changed.");
+      return { journalRevision: before.revision, failedCapabilities: ["app-dead"] };
+    };
+    if (mode === "changed-config") configBytes = "changed-config";
+    if (mode === "lost-provenance") fs.unlinkSync(path.join(directory, "store-identity.json"));
+    await active.recover(current, ["app-dead"], new AbortController().signal, revalidate);
+    if (mode !== "match") {
+      expect(readReliabilityOperation(identity)).toEqual(before);
+      expect(fs.readFileSync(controllerStore.file)).toEqual(snapshotBefore);
+      expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+      return;
+    }
+    expect(bindingResolver).toHaveBeenCalledOnce();
+    expect(fixture.resolve.mock.calls[0][3]).toBe(bindingResolver);
+    const recovered = readReliabilityOperation(identity)!;
+    // Exactly one write: the recovery preparation. Enrollment is never converted.
+    expect(recovered.revision).toBe(before.revision + 1);
+    expect(recovered.enrollment).toEqual(before.enrollment);
+    expect(recovered.state.operation).toMatchObject({
+      kind: "ensure",
+      status: "NOT_STARTED",
+      drained: false,
+    });
+    expect(recovered.state.phase).toBe("recovering");
+    expect(recovered.state.incident).not.toBeNull();
+    await active.tick();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(fixture.runLifecycleWorker).toHaveBeenCalledOnce();
+    expect(fixture.runLifecycleWorker.mock.calls[0][0].operationId).toBe(
+      recovered.state.operation!.id,
+    );
+  } finally {
+    active.close();
+  }
+});
+
+it("rejects a recovery superseded by an explicit stop and new start", async () => {
+  const directory = path.join(fixture.root, "controller");
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const current = environment(fs.mkdtempSync(path.join(fixture.root, "supersede-")), "f");
+  const enrollment = policyEnrollment(current);
+  const identity: ReliabilityIdentity = {
+    repoPath: current.repoPath,
+    workspace: current.workspace,
+    provider: current.provider,
+  };
+  const incarnation = new ControllerStore(directory).startIncarnation();
+  const controller = { store: incarnation.store, epoch: incarnation.epoch };
+  seedEnrolledRunning(identity, durableEnrollment(current), controller);
+  const operatorPolicy = policy([enrollment]);
+  operatorPolicy.recovery = { ...operatorPolicy.recovery, enabled: true };
+  fs.writeFileSync(path.join(directory, "capacity-policy.json"), JSON.stringify(operatorPolicy), {
+    mode: 0o600,
+  });
+  fs.writeFileSync(
+    path.join(current.repoPath, ".devrouter.yml"),
+    JSON.stringify({ version: 1, apps: [], capacity: estimates }),
+  );
+  const started = deferred<void>();
+  const held = deferred<void>();
+  fixture.resolve.mockImplementation(async () => {
+    started.resolve();
+    await held.promise;
+    return { environment: current, enrollment, estimates };
+  });
+  fixture.runLifecycleWorker.mockReset();
+  fixture.runLifecycleWorker.mockImplementation(async () => ({ status: "completed" }));
+  const active = createCapacityController({
+    directory,
+    controller: { ...controller, directory, consumeStartup: () => {} },
+    collect: async () => ({ host: sample(Date.now()), runtime: sample(Date.now()) }),
+  });
+  try {
+    const before = readReliabilityOperation(identity)!;
+    const revalidate = () => {
+      const now = readReliabilityOperation(identity);
+      if (!now || now.revision !== before.revision)
+        throw new Error("Observation revision changed.");
+      return { journalRevision: before.revision, failedCapabilities: ["app-dead"] };
+    };
+    const pending = active.recover(current, ["app-dead"], new AbortController().signal, revalidate);
+    await started.promise;
+    // An explicit stop followed by a fresh managed start supersedes the observation.
+    updateReliabilityOperation(identity, (record) => {
+      record.state = stepReliability(
+        record.state,
+        { ...reliabilityFence(record.state), type: "stop" },
+        Date.now(),
+      ).state;
+      record.state = stepReliability(
+        record.state,
+        {
+          ...reliabilityFence(record.state),
+          type: "stop-proof",
+          workloadsStopped: true,
+          routesRemoved: true,
+        },
+        Date.now(),
+      ).state;
+    });
+    const restarted = prepareManagedLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      requestId: "new-start",
+      kind: "ensure",
+      profile: "full",
+      consumer: { id: "observer", requiredCapabilities: [], pinned: false },
+      runtimeRunning: false,
+    });
+    held.resolve();
+    await pending;
+    const after = readReliabilityOperation(identity)!;
+    // Recovery wrote nothing: the superseding stop and start own the journal.
+    expect(after.revision).toBe(before.revision + 2);
+    expect(after.state.operation?.id).toBe(restarted.operationId);
+    expect(after.state.incident).toBeNull();
+    await active.tick();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  } finally {
+    active.close();
+  }
+});
+
+it.each([
+  "capacity-ledger-lost",
+  "capacity-history-unprovable",
+] as const)("preserves real journal bytes and refuses pool collection on %s", async (reason) => {
+  const directory = path.join(fixture.root, "controller");
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const current = environment(fs.mkdtempSync(path.join(fixture.root, "history-")), "c");
+  const enrollment = policyEnrollment(current);
+  const identity: ReliabilityIdentity = {
+    repoPath: current.repoPath,
+    workspace: current.workspace,
+    provider: current.provider,
+  };
+  seedStopped(identity, durableEnrollment(current));
+  fs.writeFileSync(
+    path.join(directory, "capacity-policy.json"),
+    JSON.stringify(policy([enrollment])),
+    { mode: 0o600 },
+  );
+  fs.writeFileSync(
+    path.join(current.repoPath, ".devrouter.yml"),
+    JSON.stringify({ version: 1, apps: [], capacity: estimates }),
+  );
+  const incarnation = new ControllerStore(directory).startIncarnation();
+  const controller = { store: incarnation.store, epoch: incarnation.epoch };
+  fixture.enroll.mockResolvedValue({ environment: current, enrollment, estimates });
+  const collect = vi.fn(async () => ({ host: sample(Date.now()), runtime: sample(Date.now()) }));
+  const active = createCapacityController({
+    directory,
+    controller: { ...controller, directory, consumeStartup: () => {} },
+    collect,
+  });
+  try {
+    const accepted = (await active.submit(
+      {
+        version: 1,
+        id: "submit",
+        method: "operation-submit",
+        session: "session",
+        ...controller,
+        generation: "generation",
+        requestId: "history-request",
+        kind: "ensure",
+      },
+      current,
+      new AbortController().signal,
+      submitValidator,
+    )) as { operation: { operationId: string } };
+    const other: ReliabilityIdentity = {
+      repoPath: path.join(fixture.root, "previous"),
+      workspace: null,
+      provider: "devsy",
+    };
+    updateReliabilityOperation(other, (record) => {
+      record.version = 2;
+      record.capacity = {
+        reservationId: "previous",
+        operationId: "previous-operation",
+        workerId: "previous-worker",
+        policyRevision: 1,
+        validUntilMs: 0,
+        snapshotRevision: 1,
+      };
+    });
+    const previousFile = reliabilityOperationPath(other);
+    if (reason === "capacity-history-unprovable") fs.writeFileSync(previousFile, "{");
+    const before = [previousFile, reliabilityOperationPath(identity)].map((file) =>
+      fs.readFileSync(file),
+    );
+    await active.tick();
+    const waiting = (await active.watch(
+      watchRequest(controller, accepted.operation.operationId, 0),
+      current,
+      new AbortController().signal,
+    )) as { operation: { phase: string; reason: string } };
+    expect(waiting.operation).toMatchObject({ phase: "queued", reason });
+    expect(collect).not.toHaveBeenCalled();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(directory, "capacity-reservations.json"))).toBe(false);
+    expect(
+      [previousFile, reliabilityOperationPath(identity)].map((file) => fs.readFileSync(file)),
+    ).toEqual(before);
   } finally {
     active.close();
   }

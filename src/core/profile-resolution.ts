@@ -1,6 +1,21 @@
 import type { DevrouterConfig, DevrouterProfile, DevrouterRoutedApp } from "../types";
 import { applyProfile, loadRepoConfig, resolveProfile, resolveRepoPath } from "./repo-config";
 
+export type ManagedProfileExpansionDimension = "apps" | "devcontainerServices" | "processes";
+
+// Reserved managed `full` profile normalization replaces declared dimensions with
+// wildcards. The notice records only the dimensions that actually changed, so a
+// profile that already selects every resource stays quiet.
+export type ManagedProfileExpansionNotice = {
+  code: "MANAGED_FULL_PROFILE_EXPANSION";
+  profile: string;
+  dimensions: ManagedProfileExpansionDimension[];
+  remedy: {
+    code: "SET_NAMED_DEFAULT_PROFILE";
+    profiles: string[];
+  };
+};
+
 export type ProfileResolutionReport = {
   schemaVersion: 1;
   repoPath: string;
@@ -14,6 +29,7 @@ export type ProfileResolutionReport = {
     services: string[];
     processes: string[];
   };
+  notices?: ManagedProfileExpansionNotice[];
 };
 
 function sortedUnique(values: Iterable<string>): string[] {
@@ -22,6 +38,58 @@ function sortedUnique(values: Iterable<string>): string[] {
 
 function expandsAll(values: string[] | undefined): boolean {
   return values?.length === 1 && values[0] === "*";
+}
+
+function selectionMatchesAll(values: string[] | undefined, all: string[]): boolean {
+  if (values === undefined) return all.length === 0;
+  const selected = sortedUnique(values);
+  return selected.length === all.length && selected.every((value, index) => value === all[index]);
+}
+
+// Combined selections use literal arrays; only single managed full selection expands them.
+function managedFullExpansionNotices(
+  config: DevrouterConfig,
+  resolvedName: string,
+): ManagedProfileExpansionNotice[] {
+  const managedRuntime = config.managedRuntime;
+  if (!managedRuntime || resolvedName !== "full") return [];
+  const declared = config.profiles?.full;
+  if (!declared) return [];
+
+  const allApps = sortedUnique(
+    config.apps.filter((app) => app.kind !== "dependency").map((app) => app.name),
+  );
+  const allServices = sortedUnique(managedRuntime.devcontainer.profileServices);
+  const allProcesses = sortedUnique(managedRuntime.processes);
+
+  const dimensions: ManagedProfileExpansionDimension[] = [];
+  const consider = (
+    dimension: ManagedProfileExpansionDimension,
+    declaredValues: string[] | undefined,
+    all: string[],
+  ): void => {
+    if (expandsAll(declaredValues) || selectionMatchesAll(declaredValues, all)) return;
+    dimensions.push(dimension);
+  };
+
+  consider("apps", declared.apps, allApps);
+  consider("devcontainerServices", declared.devcontainerServices, allServices);
+  consider("processes", declared.processes, allProcesses);
+  if (dimensions.length === 0) return [];
+
+  return [
+    {
+      code: "MANAGED_FULL_PROFILE_EXPANSION",
+      profile: "full",
+      dimensions,
+      remedy: {
+        code: "SET_NAMED_DEFAULT_PROFILE",
+        profiles: Object.keys(config.profiles ?? {})
+          .filter((name) => name !== "full")
+          .sort(),
+      },
+    },
+  ];
 }
 
 function selectedManagedResources(
@@ -89,6 +157,8 @@ export function buildProfileResolutionReport(
       )
     : [];
 
+  const notices = managedFullExpansionNotices(config, resolved.name);
+
   return {
     schemaVersion: 1,
     repoPath,
@@ -102,6 +172,7 @@ export function buildProfileResolutionReport(
       services: sortedUnique([...baseServices, ...profileServices]),
       processes,
     },
+    ...(notices.length > 0 ? { notices } : {}),
   };
 }
 
