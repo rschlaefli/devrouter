@@ -22,6 +22,15 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- A committed capacity park now finishes even when the controller restarts or the
+  last consumer session expires: the monitor re-drives an incomplete
+  `parked-for-capacity` stop from the durable journal by identity instead of
+  requiring a live session, so the environment can no longer hold its charge in an
+  unobservable stopping phase. An automatic resume that expires in the capacity
+  queue now returns to parked intent rather than leaving running intent no worker
+  honors, and the capacity pass carries its own lifetime signal so shutdown
+  cancels a retired decision.
+
 - Controller release accepts an exact retained consumer binding after expiry,
   restart or configuration drift, including pre-enrollment bindings. It preserves
   newer same-name leases, human pins and runtime state. Unknown history and lost

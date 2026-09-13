@@ -244,21 +244,49 @@ longer than the watch lifetime. It fails only under full-suite parallelism and i
 byte-identical to its CI-green revision, so measured optimization owns the real
 fix.
 
-Review state: the configured slice-reviewer route did not return after roughly
-twenty-five minutes, the configured simplifier role failed on the account's
-ChatGPT usage limit, and the opencodex-routed substitute reviewer then failed with
-429 responses. Both gates are withdrawn on capability rather than disposition, and
-each substitution is a material difference from its configured role. The
-simplifier substitute did complete read-only over `2cae3f7..34dfbde` with no
-blockers and one substantive follow-up: the production `capacity` directive had no
-test, so the proof covered the monitor side and the reliability model rather than
-the controller's own park, parkedStop and resume decisions. `22ff5f5` closes the
+Review state: the configured slice-reviewer route returned late with
+`DONE_WITH_CONCERNS` and one blocker, so the slice remained open. The configured
+simplifier role failed on the account's ChatGPT usage limit, and the
+opencodex-routed substitute reviewer then failed with 429 responses; each
+substitution is a material difference from its configured role. The simplifier
+substitute did complete read-only over `2cae3f7..34dfbde` with no blockers and one
+substantive follow-up: the production `capacity` directive had no test, so the
+proof covered the monitor side and the reliability model rather than the
+controller's own park, parkedStop and resume decisions. `22ff5f5` closes the
 refusal half of that. Five tests prove parking refuses before target resolution
 while recovery is disabled, refuses an unenrolled environment, and refuses without
 sustained pressure evidence; that resume refuses without normal dwell; and that a
 parked stop refuses after a policy change. Two assertions pin which gate refused,
 so the recovery-disabled case fails if that guard is removed. The success path
-still has no test. The source slice is delivered but its risk gate is not closed.
+still has no test.
+
+`404fc8d` closes the blocker and both should-fix items. Blocker: an incomplete
+committed park was re-driven only from the live session snapshot, so a crash after
+the park committed but before physical cessation could hold the charge
+indefinitely once the controller restarted or the last session expired. The
+monitor now enumerates the durable journal for a capacity-managed
+`parked-for-capacity` record whose stop proof is incomplete and re-drives it by
+identity, independent of the snapshot, with the controller re-proving the record
+transactionally under the same policy, controller and worker fences. Should-fix:
+an automatic resume that expired in the capacity queue now returns to parked
+intent through the same proof the synchronous enqueue-failure path uses, so it can
+no longer strand running intent no worker will honor, and the pass now carries the
+monitor lifetime signal that `stop()` aborts in place of the inert controller.
+Two accepted simplifier findings landed there as well: `environmentIdentity` is
+shared across the monitor, controller and server instead of three inline copies,
+and the dead abort is gone. The pure-consolidation simplifier items were deferred
+deliberately: a shared decision-slot preamble and removing two behaviorally inert
+`readPressure` guards would restructure code a review just accepted without a
+correctness signal that outweighs the churn.
+
+Regression evidence for `404fc8d`: `controller-monitor` proves the orphan stop is
+re-driven when no live session remains, drives exactly one stop per pass with the
+exact journal identity, and skips a park whose proof is complete; `capacity-queue`
+proves an expired automatic resume returns to parked intent while an operator
+ensure in the same state does not, and that a mismatched automatic-resume
+reference is rejected. 449 tests pass across the ten capacity, controller and
+reliability files with a host context for process-identity inspection; typecheck,
+repository Biome, Knip and the docs-policy check are clean.
 
 Focused evidence for the delivered range: `tsc --noEmit` clean, `biome check`
 clean over the repository, and 385 tests pass across the eight capacity,
