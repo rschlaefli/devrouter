@@ -169,6 +169,14 @@ service/process statuses, fingerprints, and values-free drift. A fully stopped
 exact runtime is a normal stopped state, not evidence that another workspace's
 resources may be reclaimed.
 
+For a managed environment with a durable reliability journal, `devrouter status`
+also reports the lifecycle intent, phase, capacity admission and charge, the
+corrective-action budget, and, when the recorded intent cannot progress on its
+own, a fixed attention reason with the supported recovery commands for that exact
+checkout. The block is read-only and is omitted when provider or journal evidence
+is unavailable, so a parked or waiting environment stays explainable without a
+live consumer session.
+
 ## Continuous observation
 
 The foreground controller observes explicitly enrolled managed linked checkouts.

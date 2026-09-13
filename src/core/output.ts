@@ -203,6 +203,23 @@ function appendManagedRuntimeRows(rows: string[][], managedRuntime: ManagedRunti
   rows.push(["Effective config SHA-256", managedRuntime.effectiveConfigSha256 ?? "-"]);
   rows.push(["Transition phase", managedRuntime.transitionPhase ?? "-"]);
   rows.push(["Runtime drift", formatResourceNames(managedRuntime.drift)]);
+  if (managedRuntime.reliability) {
+    const reliability = managedRuntime.reliability;
+    rows.push(["Lifecycle intent", reliability.desired]);
+    rows.push(["Lifecycle phase", reliability.phase]);
+    rows.push(["Capacity admission", reliability.admission]);
+    rows.push(["Capacity charge held", reliability.chargeHeld ? "yes" : "no"]);
+    rows.push([
+      "Lifecycle incident",
+      reliability.incident
+        ? `${reliability.incident.correctiveActionsTaken}/${reliability.incident.actionLimit} corrective actions`
+        : "-",
+    ]);
+    rows.push(["Lifecycle attention", reliability.attention?.reason ?? "-"]);
+    reliability.attention?.recovery.forEach((step, index) => {
+      rows.push([`Recovery ${index + 1}`, step]);
+    });
+  }
 }
 
 export function printRoutes(routes: Route[], duplicateHosts: string[]): void {

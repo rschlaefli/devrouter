@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- `devrouter status` reports the durable lifecycle intent of a managed
+  environment alongside its runtime state: intent, phase, capacity admission and
+  charge, corrective-action budget, and a fixed attention reason with the runnable
+  recovery steps for that exact checkout. A parked, waiting, blocked or
+  mid-operation environment is therefore explainable without a live session. The
+  block is omitted when provider or journal evidence is unavailable, and it never
+  mutates lifecycle state.
+
 - Controller sessions support explicit per-binding capacity-parking consent and
   exact retained-session reconnect. Defaults remain protected. Snapshot version2
   retains unresolved consumers across lease loss and restart. Reading legacy

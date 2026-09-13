@@ -1,3 +1,4 @@
+import type { ManagedReliabilityReason } from "../types";
 import {
   assertReliabilityState,
   isReliabilityCounter,
@@ -143,4 +144,28 @@ export function encodeReliability(
   if (Buffer.byteLength(json, "utf8") > RELIABILITY_MAX_OUTPUT_BYTES)
     throw new Error("Reliability output exceeds the byte limit.");
   return json;
+}
+
+/**
+ * The durable reason a managed environment cannot make progress on its own, or
+ * undefined when its recorded intent needs no action. This reads only durable
+ * lifecycle state, so a report can explain an environment with no live session
+ * and never needs an observation to be fresh.
+ */
+export function reliabilityAttention(
+  state: ReliabilityState,
+): ManagedReliabilityReason | undefined {
+  assertReliabilityState(state);
+  const completeStop = state.stopProof.workloadsStopped && state.stopProof.routesRemoved;
+  if (state.desired === "stopped-by-user") return completeStop ? undefined : "stop-incomplete";
+  if (state.operation?.status === "COMPLETION_UNKNOWN" || state.operation?.status === "INTERRUPTED")
+    return "operation-unknown";
+  if (state.desired === "parked-for-capacity")
+    return completeStop ? "capacity-parked" : "stop-incomplete";
+  if (state.admission === "denied-unadmittable") return "unadmittable";
+  if (state.admission === "waiting") return "capacity-waiting";
+  if (state.phase === "recovering") return "recovering";
+  if (state.phase === "queued" || state.phase === "starting" || state.phase === "verifying")
+    return "starting";
+  return undefined;
 }

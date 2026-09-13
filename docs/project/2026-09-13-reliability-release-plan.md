@@ -304,12 +304,23 @@ durable action claim at each mutation boundary do not exist yet. This needs a
 named action-scope contract before implementation, and the configured planner
 route is unavailable under the same usage limit.
 
-The agent-facing status gap is unstarted. `projectReliability` produces
-`PARKED_CAPACITY`, `WAITING_CAPACITY`, `BLOCKED` and the admission reason, but the
-only consumers are the controller command, the lifecycle module and the
-qualification scripts. `devrouter status` reports the managed runtime through
-`managed-runtime-state` and never reads the controller projection, so a consumer
-whose environment is parked or waiting sees no explanation and no escape.
+The agent-facing status gap is implemented (status slice, follow-on to
+`404fc8d`). `devrouter status` now attaches a read-only `reliability` block for a
+managed environment with a durable journal: desired intent, phase, capacity
+admission and charge, the corrective-action budget and, when the recorded intent
+cannot progress, a fixed attention reason with the supported `devrouter stop`
+and `devrouter ensure` recovery commands for that exact checkout. The reason is
+derived only from durable lifecycle state through `reliabilityAttention`, so a
+parked, waiting, blocked or mid-operation environment is explainable with no live
+session; the block is omitted when provider or journal evidence is unavailable and
+never mutates state. `projectReliability` continues to produce
+`PARKED_CAPACITY`, `WAITING_CAPACITY`, `BLOCKED` and the admission reason for the
+controller, lifecycle and qualification consumers. Regression evidence:
+`reliability-output` proves every attention reason and the settled/healthy cases;
+`managed-runtime-status` proves the parked recovery command, the
+`COMPLETION_UNKNOWN` stop-and-repair path and omission without a provider. 36
+tests pass across the status, output, reliability-output and managed-runtime-status
+files; typecheck, Biome, Knip and docs policy are clean.
 
 All seven slices retain integrated or live obligations. Production park/resume,
 scoped/window recovery budgets, lost-identity/history reconciliation, actual
