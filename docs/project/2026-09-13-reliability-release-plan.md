@@ -320,9 +320,9 @@ one retained service restart at broader scope, three corrective actions across t
 uninterrupted incident, and a bounded active recovery and observation time
 excluding capacity waiting, reset only after a sustained healthy interval. The
 runtime consumes only `maxCorrectiveActions`, because action-scope proof and a
-durable action claim at each mutation boundary do not exist yet. This needs a
-named action-scope contract before implementation, and the configured planner
-route is unavailable under the same usage limit.
+durable action claim at each mutation boundary do not exist yet. The named
+action-scope contract is now recorded under `Scoped recovery budget contract`;
+implementation remains open.
 
 The agent-facing status gap is implemented (status slice, follow-on to
 `404fc8d`). `devrouter status` now attaches a read-only `reliability` block for a
@@ -366,6 +366,58 @@ portfolio obligations, derived-delta checkpoint, ADR binding and Q evidence
 ownership; all five findings were accepted in this revision. The same planner approved the corrected draft in round 3; implementation reviews remain required. Prior roadmap reviews covered direction
 only. Current next action: implement the internally hardened
 positive legacy-journal loss detection and continue exact-set parking and full-roadmap integration. Historical ownership and live qualification remain open.
+
+### Scoped recovery budget contract (derived delta, pending implementation)
+
+This is the named action-scope contract the next slice requires before coding.
+Policy already parses `maxProcessRestarts`, `maxServiceRestarts` and
+`windowSeconds`; runtime consumes only `maxCorrectiveActions`, so the parsed
+limits are reserved rather than enforced and no consumer may claim otherwise.
+
+Contract. The action unit is the repository-declared resource a corrective
+mutation will touch: one logical process from the managed process set, or one
+retained service from the resolved service set. Its key and kind come from the
+exact prepared resource plan the recovery already resolves, mapped from the
+producing failed capability, never from a process listing and never as a
+`min(process, service)` proxy. The unit is claimed durably under the existing
+per-journal file lock immediately before each mutation; the claim increments the
+unit counter and the aggregate `correctiveActionsTaken` in the same write,
+refuses when `maxProcessRestarts` (process) or `maxServiceRestarts` (service) is
+exhausted, refuses when the aggregate limit is exhausted, and refuses an action
+older than `windowSeconds` from the incident start. Unknown completion consumes
+the claim and never refunds it. Active time excludes capacity waiting and uses
+only tracker monotonic duration and `observationsAfterMs`; unobservable worker
+time fails conservatively and neither extends nor replenishes a budget. One
+bounded half-open trial may run after a sustained healthy interval; a failed
+trial returns to exhausted without raising the limit. Window expiry alone never
+erases an exhausted incident or a user stop.
+
+Durable shape. `ReliabilityIncident` gains `startedAtMs` and a bounded,
+key-unique `units` array of `{ key, kind: "process" | "service", actions,
+lastActionAtMs }`. The change is additive; because `assertReliabilityState`
+validates a field whitelist rather than exhaustively rejecting unknown keys,
+records written before the field exists stay valid with zero actions at the
+incident start, so no `contractVersion` bump or migration is needed. A new pure
+module `src/core/recovery-budget.ts` owns derivation, claim and window math;
+its test is `src/core/__tests__/recovery-budget.test.ts`. Existing paths touched:
+`capacity-policy.ts`, `reliability-contract.ts`, `reliability-model.ts`,
+`reliability-lifecycle.ts`, `reliability-worker.ts`, `capacity-controller.ts`,
+`reliability-output.ts`. One writer: main.
+
+Acceptance. `recovery-budget` proves unit-key derivation, per-unit and aggregate
+refusal, inside/outside window boundaries, unknown completion consuming a claim,
+capacity-wait exclusion and conservative unobservable time. `reliability-lifecycle`
+and `reliability-worker` prove the claim is checked before each mutation and that
+a refused claim leaves the environment unchanged. `capacity-controller` and
+`reliability-model` prove `maxCorrectiveActions` remains the aggregate ceiling and
+that the parsed per-unit fields now have a production consumer. Existing
+reliability suites stay green; typecheck, Biome and Knip stay clean.
+
+Stop conditions. Stop and re-present the contract if defining the unit would
+require inferring commands from a process listing, if the claim cannot be made
+durable under the existing journal lock, if enforcement would weaken any
+fail-closed check for live workers, unknown ownership or surviving resources, or
+if it would require a contract version bump or a data migration.
 
 ### Active diagnostic deltas
 
