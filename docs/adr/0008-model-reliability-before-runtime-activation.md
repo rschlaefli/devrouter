@@ -73,7 +73,10 @@ The observation controller has a separate store identity, incarnation epoch and
 consumer generation. These never replace the manual journal's environment,
 intent, runtime or controller fences. Restart discards active observer leases and retains unresolved consumer bindings;
 explicit acquisition, renewal or exact reconnection authorizes a consumer session. Session
-release and expiry have no runtime effect. Existing manual commands remain
+release and expiry have no runtime effect. Exact retained tuple withdrawal also
+works after drift or before fingerprint enrollment within the existing same-uid
+capability boundary; it cannot release newer generations or clear unknown history.
+Existing manual commands remain
 independent of observer availability.
 
 The foreground controller owns one private Unix socket and bounded active-reference

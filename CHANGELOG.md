@@ -22,6 +22,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Controller release accepts an exact retained consumer binding after expiry,
+  restart or configuration drift, including pre-enrollment bindings. It preserves
+  newer same-name leases, human pins and runtime state. Unknown history and lost
+  identities remain unresolved; a repeated or unacknowledged release has no
+  inferred success receipt.
 - Retained-runtime repair identifies which baseline dimensions prevent recovery,
   including unavailable generated-file evidence, without changing ownership or
   resource checks.

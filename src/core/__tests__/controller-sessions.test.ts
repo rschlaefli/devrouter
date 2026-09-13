@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { writeFileAtomically } from "../atomic-file";
 import { ControllerSessions } from "../controller-sessions";
 import { ControllerStore } from "../controller-store";
@@ -79,13 +79,15 @@ it("invalidates sessions on scheduling and wall-clock discontinuities", () => {
     expect(() => sessions.validate(first)).toThrow();
   }
 });
-it("requires explicit reacquisition after restart, fencing the old epoch", () => {
+it("fences the old epoch from a replacement session after restart", () => {
   const { sessions, store } = fixture();
   const first = sessions.acquire("one", env, ["runtime"], 0, 1000);
   const replacement = new ControllerSessions(store);
   const second = replacement.acquire("one", env, ["runtime"], 0, 1000);
   expect(second.epoch).toBe(first.epoch + 1);
-  expect(() => replacement.release(first, 1, 1001)).toThrow();
+  expect(() => replacement.renew(first, 1, 1001)).toThrow();
+  replacement.release(first, 2, 1002);
+  replacement.tick(3, 1003);
   expect(replacement.validate(second).id).toBe("one");
 });
 
@@ -106,6 +108,10 @@ it("rejects excess sessions without evicting or changing acknowledged bindings",
   expect(sessions.validate(replacement).parkingConsent).toBe("protected");
   expect(sessions.read().retainedSessions).toHaveLength(127);
   expect(sessions.read().sessions).toHaveLength(1);
+  sessions.release(bindings[1], 30_003, 31_003);
+  sessions.acquire("overflow", env, ["runtime"], 30_004, 31_004);
+  expect(() => sessions.acquire("second-overflow", env, ["runtime"], 30_005, 31_005)).toThrow();
+  expect(store.read()).toEqual(sessions.read());
 });
 
 it("caps environments while still accepting consumers of an existing environment", () => {
@@ -307,7 +313,10 @@ it("retains pre-enrollment consumers even when synthetic environment fingerprint
   const { store, sessions } = fixture();
   const old = sessions.acquire("old", env, ["runtime"], 0, 1000);
   const { fingerprint: _fingerprint, ...snapshot } = store.read()!;
-  writeFileAtomically(store.file, JSON.stringify({ ...snapshot, version: 2 }));
+  writeFileAtomically(
+    store.file,
+    JSON.stringify({ ...snapshot, version: 2, history: "legacy-unknown" }),
+  );
   writeFileAtomically(
     path.join(store.directory, "store-identity.json"),
     JSON.stringify({ version: 1, store: old.store }),
@@ -316,4 +325,96 @@ it("retains pre-enrollment consumers even when synthetic environment fingerprint
   expect(() => restarted.reconnect(old, env, ["runtime"], 0, 1000)).toThrow();
   expect(restarted.read().retainedSessions).toHaveLength(1);
   expect(restarted.read().sessions).toHaveLength(0);
+  restarted.release(old, 1, 1001);
+  expect(restarted.read().retainedSessions).toEqual([]);
+  expect(restarted.read().history).toBe("legacy-unknown");
+});
+
+it("acknowledges an exact retained consumer after drift while preserving a newer live generation", () => {
+  const { sessions, store } = fixture();
+  const old = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  const restarted = new ControllerSessions(store);
+  const changed = { ...env, fingerprint: "b".repeat(64) };
+  const current = restarted.acquire("one", changed, ["runtime"], 0, 2000);
+  const revision = restarted.read().parkingRevision;
+  expect(() => restarted.reconnect(old, changed, ["runtime"], 1, 2001)).toThrow();
+  restarted.release(old, 2, 2002);
+  restarted.tick(3, 2003);
+  expect(restarted.renew(current, 4, 2004)).toEqual(current);
+  expect(restarted.read().retainedSessions).toEqual([]);
+  expect(restarted.validate(current).generation).toBe(current.generation);
+  expect(restarted.read().parkingRevision).toBeGreaterThan(revision);
+  expect(restarted.read().events.find((event) => event.kind === "released")).toMatchObject({
+    session: old.session,
+    generation: old.generation,
+    kind: "released",
+  });
+});
+
+it.each([
+  "store",
+  "epoch",
+  "generation",
+  "session",
+] as const)("refuses retained withdrawal with a mismatched %s and refuses replay", (field) => {
+  const { sessions, store } = fixture();
+  const old = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  const restarted = new ControllerSessions(store);
+  const before = fs.readFileSync(store.file);
+  const wrong = { ...old, [field]: field === "epoch" ? old.epoch + 1 : "unknown" };
+  expect(() => restarted.release(wrong, 0, 2000)).toThrow();
+  expect(fs.readFileSync(store.file)).toEqual(before);
+  restarted.release(old, 1, 2001);
+  const released = fs.readFileSync(store.file);
+  expect(() => restarted.release(old, 2, 2002)).toThrow();
+  expect(fs.readFileSync(store.file)).toEqual(released);
+});
+
+it.each(["expired", "binding-changed"] as const)("withdraws exact %s protection", (reason) => {
+  const { sessions } = fixture();
+  const old = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  if (reason === "expired") {
+    for (const now of [10_000, 20_000, 30_000]) sessions.tick(now, now + 1000);
+  } else sessions.invalidate(env.id, true);
+  expect(sessions.read().retainedSessions[0].reason).toBe(reason);
+  const now = reason === "expired" ? 30_001 : 1;
+  sessions.release(old, now, now + 1000);
+  expect(sessions.read().retainedSessions).toEqual([]);
+});
+
+it.each([
+  "before-write",
+  "after-write",
+] as const)("does not acknowledge retained withdrawal when persistence fails %s", (failure) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "controller-release-failure-"));
+  directories.push(directory);
+  let fail = false;
+  let resyncFails = false;
+  const fsync = fs.fsyncSync;
+  const sync = vi.spyOn(fs, "fsyncSync").mockImplementation((fd) => {
+    if (resyncFails) throw new Error("injected sync failure");
+    fsync(fd);
+  });
+  const store = new ControllerStore(directory, (file, bytes) => {
+    if (fail && failure === "before-write") throw new Error("injected persistence failure");
+    writeFileAtomically(file, bytes);
+    if (fail) {
+      resyncFails = true;
+      throw new Error("injected post-write failure");
+    }
+  });
+  const sessions = new ControllerSessions(store);
+  const old = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  const restarted = new ControllerSessions(store);
+  fail = true;
+  try {
+    expect(() => restarted.release(old, 0, 2000)).toThrow();
+    expect(() => restarted.read()).toThrow();
+  } finally {
+    sync.mockRestore();
+  }
+  fail = false;
+  const recovered = new ControllerSessions(new ControllerStore(directory));
+  expect(recovered.read().retainedSessions).toHaveLength(failure === "before-write" ? 1 : 0);
+  expect(recovered.read().sessions).toEqual([]);
 });

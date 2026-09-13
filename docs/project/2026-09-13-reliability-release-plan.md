@@ -1717,3 +1717,70 @@ failed only the known cursor replay fixture's five-second deadline. That fixture
 performs256sequential socket renewals with durable fsync. Give this one integration
 test15seconds, retaining every cursor and boundary assertion; no global timeout
 or product behavior changes. Revalidate focused fixture and exact-head CI.
+
+
+### Explicit retained-consumer withdrawal — frozen derived contract
+
+The existing release command must let a caller withdraw one exact old consumer
+intent after lease loss, restart or configuration drift. This closes a bounded
+128-record exhaustion path without acquiring a replacement runtime session.
+It does not resolve unknown history or lost caller bindings; those remain required
+roadmap work. Route: main; execution-tier skip reason: recorded unhealthy executor
+route and coupled session/parking authority. Existing full-package reviews apply.
+
+Primitive impact: extend consumer-session release to exact retained intent. Reuse
+the store/session/epoch/generation tuple in the existing same-uid controller trust
+boundary. Live status already discloses binding tuples to same-uid clients; this is
+not a claim of isolation between same-uid processes. Withdrawal grants no live
+binding, parking consent, pin change, lifecycle request or capacity permission.
+Configuration equality and fingerprint enrollment are reconnect prerequisites,
+not withdrawal prerequisites. The old tuple cannot affect a newer generation.
+
+Implementation in controller-sessions.ts: tick as before, read healthy snapshot,
+match a live tuple against current store and epoch and exact generation; otherwise
+match only an exact retained store/session/epoch/generation. Refuse absent/foreign
+or mismatched tuples. Remove only the matching record, emit the existing released
+event and advance parkingRevision before durable commit/acknowledgement. Only the
+live branch removes its lease map entry and unused live environment metadata;
+the retained branch leaves those unchanged. Narrow the private event helper input
+to the id/generation it consumes if necessary. No new field, module, schema or API.
+All retained reasons are eligible. Preserve legacy-unknown and failure poisoning.
+Duplicate/lost-ack release remains refusal-on-retry: existing events lack epoch and
+must not be used to infer a receipt. Reconnect semantics remain unchanged.
+
+Consequential evidence in existing suites: drift/restart release with newer
+same-name live lease surviving a subsequent tick and renewal; expiry and binding
+invalidation; pre-enrollment release with reconnect refusal and legacy-unknown
+remaining; foreign store/wrong epoch/generation/unknown and repeated tuple refusals;
+128 retained consumers admit exactly one replacement after one release; durable
+write failure never acknowledges and poisons subsequent access. Failure before
+publication leaves the retained record for restart; a write-then-throw with failed
+re-sync may persist the withdrawal and restart must not resurrect it. Existing
+store logic can acknowledge after exact-byte readback and successful re-sync;
+retain that proven success path. Monitor
+coverage checks a held complete-set parking proof rejects the release revision.
+Real socket release proves unchanged IPC command path and generation isolation.
+No provider operations or consumer runtime required for this pure intent change.
+
+Paths: src/core/controller-sessions.ts; existing controller-sessions, controller-
+server and controller-monitor test files; docs/DEVCONTAINER.md; docs/knowledge/
+managed-environment-lifecycle.md; docs/adr/0008-model-reliability-before-runtime-
+activation.md; CHANGELOG.md; this active plan. Update only affected authority.
+Versioned prompt remains in the separate final release commit. Baseline regression
+at b4a7f67254aabe5062cd0db9bf43f7b7c860d749 fails stale-or-absent on exact retained
+release; /private/tmp/devrouter-retained-release-red.log. Planner challenge precedes
+source; focused tests then static/typecheck/docs/knowledge/Knip and full suite,
+immutable simplifier/risk pass and CI before continuing the next roadmap slice.
+
+Retained-withdrawal implementation uses exact retained lookup followed by existing
+live validation; store tuple uniqueness makes branch order equivalent to the
+frozen contract.18source lines change, nine existing paths total. Baseline exact
+retained release reproduced; all2545tests/143files pass with2workers, including
+real socket generation and pin preservation. Typecheck, Biome (two existing infos),
+Knip, docs/knowledge and build pass; Opengrep210rules1file0findings. The first
+post-write failure test overlooked existing successful exact-byte re-sync. It now
+injects failed re-sync as well and passes; store source remains unchanged. Planner
+Volta approved the bounded correction and is closed. Optional AGY rival remains
+unpassed because discovery lacked authentication and hit sandbox cache/log errors.
+Linux helper skipsmacOS; CI owns that check. Immutable slice reviews and exact CI
+follow. Previous binding-continuity CI34768531727 is green at b4a7f67.

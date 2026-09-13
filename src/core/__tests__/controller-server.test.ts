@@ -1525,3 +1525,47 @@ it("creates the binding pair only after durable enrollment and passes its resolv
     client.socket.destroy();
   }
 });
+
+it("releases a retained binding over IPC without touching its replacement or human pin", async () => {
+  const f = await protectionFixture();
+  await f.client.request({
+    method: "protection-pin",
+    ...f.binding,
+    expectedProtectionRevision: 0,
+    pinned: true,
+  });
+  const file = operationStore.reliabilityOperationPath(f.identity);
+  const bytes = fs.readFileSync(file);
+  f.client.socket.destroy();
+  await f.stop();
+  await f.start();
+  const client = connect(f.directory);
+  try {
+    await client.request({ method: "handshake" });
+    const current = await client.request({
+      method: "observe",
+      path: f.directory,
+      session: f.binding.session,
+      profile: "web",
+      require: ["runtime"],
+    });
+    expect(current).toMatchObject({ ok: true });
+    expect(current.result.generation).not.toBe(f.binding.generation);
+    expect(await client.request({ method: "release", ...f.binding })).toMatchObject({
+      ok: true,
+      result: { released: true },
+    });
+    expect(await client.request({ method: "renew", ...current.result })).toMatchObject({
+      ok: true,
+      result: current.result,
+    });
+    expect(await client.request({ method: "release", ...f.binding })).toMatchObject({ ok: false });
+    expect(await client.request({ method: "protection-status", ...current.result })).toMatchObject({
+      ok: true,
+      result: { protection: { revision: 1, humanPinned: true }, unresolvedConsumers: 0 },
+    });
+    expect(fs.readFileSync(file)).toEqual(bytes);
+  } finally {
+    client.socket.destroy();
+  }
+});

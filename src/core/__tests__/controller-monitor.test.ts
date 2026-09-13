@@ -620,9 +620,10 @@ it.each([
 });
 
 it("retains uncertainty about an expired consumer through a fresh consenting observation", async () => {
-  const f = await parkingFixture(({ sessions }) =>
-    sessions.acquire("lost", environment, ["runtime"], 100, Date.now()),
-  );
+  let lost: ReturnType<ControllerSessions["acquire"]> | undefined;
+  const f = await parkingFixture(({ sessions }) => {
+    lost = sessions.acquire("lost", environment, ["runtime"], 100, Date.now());
+  });
   for (const now of [10100, 20100, 30100]) {
     f.time.now = now;
     f.sessions.renew(f.first, now, Date.now());
@@ -632,6 +633,9 @@ it("retains uncertainty about an expired consumer through a fresh consenting obs
   await flush();
   expect(f.sessions.read().retainedSessions).toHaveLength(1);
   expect(f.proof()).toBe("unresolved-consumers");
+  f.sessions.release(lost!, f.time.now, Date.now());
+  expect(f.proof()).toBe("consumer-set-changed");
+  expect(f.sessions.validate(f.first).generation).toBe(f.first.generation);
 });
 
 it("rejects incomplete migrated history even with a fresh consenting observation", async () => {

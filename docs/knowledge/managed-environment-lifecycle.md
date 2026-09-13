@@ -193,7 +193,11 @@ Continuity loss remains unknown through a sixty-second monotonic grace and then
 requires revalidation. Grace expiry never establishes that parking is safe.
 Fresh sessions and reconnected sessions default to protected. The IPC
 `parking-consent` method changes only the exact live binding with a consent
-revision check. Explicit release acknowledges that consumer; expiry, binding drift,
+revision check. Explicit release acknowledges one exact live or retained consumer,
+including after configuration drift, and advances the complete-consumer-set fence.
+It preserves newer same-name leases and does not change runtime state, pins or
+unknown history. A persistence failure leaves acknowledgement uncertain; release
+retries refuse when the tuple is already absent. Expiry, binding drift,
 clock discontinuity and controller restart instead retain unresolved protection.
 Those records are bounded and never evicted to make room. Ordinary observation of
 changed configuration can continue while the older consumer remains unresolved.
@@ -203,7 +207,8 @@ consumer, after fresh persisted ownership and identical environment and requirem
 proof. It creates a new protected generation. A private store-bound fingerprint key
 preserves equality across process restarts. Proof callbacks revalidate its durable
 provenance and their original incarnation before held work can publish or recover.
-Bindings predating key enrollment and lost identities remain unresolved. Protection status exposes consent and
+Bindings predating key enrollment cannot reconnect, but their exact original tuple
+can withdraw retained intent. Lost identities remain unresolved. Protection status exposes consent and
 uncertainty counts; `consentSatisfied` proves only the consumer-consent prerequisite.
 `parkingObservation` additionally compares the original complete consumer set
 with current live bindings, consent revisions and published observation evidence.

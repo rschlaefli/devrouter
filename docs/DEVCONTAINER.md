@@ -163,6 +163,15 @@ or release a replacement session. Watch reconnection uses `--after <epoch>:<sequ
 and `--after-store <store>` for bounded replay. A gap requires accepting the current
 snapshot instead of relying on retained events as fresh readiness evidence.
 
+An exact old binding can release its retained consumer intent after expiry,
+restart, or configuration drift. This also supports bindings from before
+fingerprint-key enrollment. It leaves any newer same-name session intact and
+grants no runtime or parking authority. A repeated release refuses; a lost
+acknowledgement cannot establish whether withdrawal persisted. Unknown history
+and consumers whose bindings are lost still require explicit reconciliation.
+Bindings are capabilities within the controller's existing same-user boundary;
+status exposes live bindings to other processes running as that user.
+
 Releasing a session, letting its lease expire, or stopping the foreground observer
 leaves application runtimes and data intact. Continue using explicit `ensure`,
 `exec`, and `stop` for lifecycle actions. Consumer sessions grant no automatic

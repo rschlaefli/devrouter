@@ -48,7 +48,7 @@ export class ControllerSessions {
   }
   private event(
     next: ControllerSnapshot,
-    session: ControllerSession,
+    session: Pick<ControllerSession, "id" | "generation">,
     kind: ControllerEvent["kind"],
   ) {
     if (next.nextSequence === Number.MAX_SAFE_INTEGER)
@@ -447,8 +447,22 @@ export class ControllerSessions {
   }
   release(binding: ControllerBinding, monotonic: number, wall: number): void {
     this.tick(monotonic, wall);
-    const session = this.validate(binding);
     const next = this.read();
+    const retained = next.retainedSessions.find(
+      (entry) =>
+        binding.store === next.store &&
+        entry.id === binding.session &&
+        entry.epoch === binding.epoch &&
+        entry.generation === binding.generation,
+    );
+    if (retained) {
+      next.retainedSessions = next.retainedSessions.filter((entry) => entry !== retained);
+      this.event(next, retained, "released");
+      this.advanceParking(next);
+      this.commit(next);
+      return;
+    }
+    const session = this.validate(binding);
     next.sessions = next.sessions.filter((s) => s.id !== session.id);
     this.removeUnused(next);
     this.event(next, session, "released");
