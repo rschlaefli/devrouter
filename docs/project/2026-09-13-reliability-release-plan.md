@@ -1710,3 +1710,10 @@ in existing scripts/qualify-capacity.ts (24paths total). Local existing qualifie
 passes with that correction at /private/tmp/dr-cap-2bgmpq/receipt.json. No capacity
 equality or production guard changed. Risk reviewer notified; correction commit
 and exact CI will follow. This is fixture composition, not a new product slice.
+
+Risk review Bohr completed the cumulative5fa92a2..8f30a1b24-path range with no
+qualifying findings; simplifier also complete. CI34768173037 passed2534tests and
+failed only the known cursor replay fixture's five-second deadline. That fixture
+performs256sequential socket renewals with durable fsync. Give this one integration
+test15seconds, retaining every cursor and boundary assertion; no global timeout
+or product behavior changes. Revalidate focused fixture and exact-head CI.

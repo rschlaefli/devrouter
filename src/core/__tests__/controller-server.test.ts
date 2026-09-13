@@ -852,7 +852,7 @@ it("replays valid cursors, accepts the oldest retained boundary, and gaps future
     expect(results[0].kind).toBe("gap");
     expect(results.at(-1).kind).toBe("end");
   }
-});
+}, 15_000);
 it("signals a live watch gap when events expire between deliveries", async () => {
   const { controllerRequest } = await import("../controller-client");
   let owner: ControllerSessions | undefined;
