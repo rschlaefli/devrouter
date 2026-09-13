@@ -2607,6 +2607,136 @@ describe("bounded recovery preparation", () => {
     return { lifecycle, store, identity, controller };
   }
 
+  async function saturatedRecoveryFixture(retirable = true) {
+    const context = await enrolledRecoveryFixture();
+    context.store.updateReliabilityOperation(context.identity, (record) => {
+      const prior = record.state.operationHistory[0];
+      record.state.operationHistory = [
+        ...Array.from({ length: 127 }, (_, index) => ({
+          ...prior,
+          id: `history-${index}`,
+          key: `history-request-${index}`,
+          drained: retirable,
+        })),
+        prior,
+      ];
+    });
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "rollover-request",
+      operationId: "rollover-operation",
+      workerId: "rollover-worker",
+    });
+    const before = context.store.readReliabilityOperation(context.identity)!;
+    const prepare = () =>
+      context.lifecycle.prepareRecoveryLifecycleOperation({
+        identity: context.identity,
+        controller: context.controller,
+        policyRevision: 1,
+        journalRevision: before.revision,
+        actionLimit: 3,
+        failedCapabilities: ["app-dead"],
+        profile: "full",
+        incidentId: "rollover-incident",
+      });
+    return { ...context, before, prepare };
+  }
+
+  it("persists the replacement fence before returning saturated recovery to admission", async () => {
+    const { store, identity, before, prepare } = await saturatedRecoveryFixture();
+    const prepared = prepare();
+    expect(prepared).toBeDefined();
+    const after = store.readReliabilityOperation(identity)!;
+    expect(after.state.operationHistory).toHaveLength(128);
+    expect(after.state.operationHistory.some((entry) => entry.id === "history-0")).toBe(false);
+    expect(
+      after.state.operationHistory.some((entry) => entry.id === before.state.operation!.id),
+    ).toBe(true);
+    expect(after.state.operation?.id).toBe(prepared!.operationId);
+    expect(prepared!.request.fence).toEqual({
+      environmentId: after.state.environmentId,
+      controllerEpoch: after.state.controllerEpoch,
+      intentRevision: before.state.intentRevision,
+      runtimeGeneration: before.state.runtimeGeneration + 1,
+    });
+    expect(after.state.incident).toEqual({
+      id: "rollover-incident",
+      actionLimit: 3,
+      correctiveActionsTaken: 0,
+    });
+    expect(after.revision).toBe(before.revision + 1);
+    expect(after.capacity).toEqual(before.capacity);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
+  it("refuses saturated recovery without retiring undrained entries or opening an incident", async () => {
+    const { store, identity, before, prepare } = await saturatedRecoveryFixture(false);
+    expect(prepare()).toBeUndefined();
+    const after = store.readReliabilityOperation(identity)!;
+    expect(after.revision).toBe(before.revision + 1);
+    expect(after.state).toEqual(before.state);
+    expect(after.result).toEqual(before.result);
+    expect(after.startupWitness).toEqual(before.startupWitness);
+    expect(after.capacity).toEqual(before.capacity);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    true,
+    false,
+  ])("preserves saturated history when the worker cannot be reclaimed (same birth: %s)", async (sameBirth) => {
+    const context = await saturatedRecoveryFixture();
+    context.store.updateReliabilityOperation(context.identity, (record) => {
+      record.worker = {
+        id: "live-worker",
+        operationId: record.state.operation!.id,
+        pid: process.pid,
+        birth: "proc:worker",
+      };
+    });
+    fixture.processBirthIdentity.mockReturnValue(sameBirth ? "proc:worker" : "proc:replacement");
+    fixture.workerGroupAbsent.mockReturnValue(false);
+    const before = context.store.readReliabilityOperation(context.identity)!;
+    expect(
+      context.lifecycle.prepareRecoveryLifecycleOperation({
+        identity: context.identity,
+        controller: context.controller,
+        policyRevision: 1,
+        journalRevision: before.revision,
+        actionLimit: 3,
+        failedCapabilities: ["app-dead"],
+        profile: "full",
+        incidentId: "rollover-incident",
+      }),
+    ).toBeUndefined();
+    const after = context.store.readReliabilityOperation(context.identity)!;
+    expect(after.state).toEqual(before.state);
+    expect(after.worker).toEqual(before.worker);
+    expect(after.capacity).toEqual(before.capacity);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
+  it("returns no recovery request when replacement journal persistence fails", async () => {
+    const { store, identity, before, prepare } = await saturatedRecoveryFixture();
+    const rename = fs.renameSync;
+    const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      if (String(to) === store.reliabilityOperationPath(identity))
+        throw new Error("synthetic recovery persistence failure");
+      rename(from, to);
+    });
+    let returned = false;
+    try {
+      expect(() => {
+        prepare();
+        returned = true;
+      }).toThrow("synthetic recovery persistence failure");
+    } finally {
+      renameSpy.mockRestore();
+    }
+    expect(returned).toBe(false);
+    expect(store.readReliabilityOperation(identity)).toEqual(before);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
   it("opens one bounded recovery and hands the queue an unadmitted ensure", async () => {
     const { lifecycle, store, identity, controller } = await enrolledRecoveryFixture();
     fixture.newLifecycleIds.mockReturnValue({

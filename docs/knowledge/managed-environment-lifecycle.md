@@ -259,6 +259,14 @@ supplies those to `prepareRecoveryLifecycleOperation`, which opens one
 journal-admitted corrective ensure through the same capacity queue an operator
 command uses, and never supersedes an operation the queue still owns.
 
+Automatic recovery uses the same conservative history retirement as ordinary
+requests when the128-entry journal fills. It retains the current operation and
+latest ensure, requires a drained settled retirement candidate, and advances the
+runtime generation before returning a replacement for admission. Refused recovery
+does not open an incident or retire history. An existing incident keeps its
+original action limit and count; only persisted corrective dispatch spends an
+action. Unknown or undrained commands cannot be replaced through rollover.
+
 The controller shares one bounded collector between admission and recovery-enabled
 idle sampling, using the policy sample interval. A timeout rejects waiting callers
 but retains the collector slot until its underlying work drains. Later samples

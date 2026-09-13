@@ -890,3 +890,133 @@ Both provider start counts stayed zero before fresh telemetry and became one
 afterward; operation identity survived, disconnect did not cancel, and positive
 preparation settlement passed. This is fixture-injected coordinator plus actual
 installed worker proof, not ordinary live CLI, harness or OOM qualification.
+
+
+Pressure correction31e05609b1ebd25a9e52820ba3b0aba1d4534c00 passed
+CI34758262340: docs/knowledge, Biome, Knip, typecheck, source and Linux helper
+tests, build, packed distribution and both installed controller/capacity
+qualifiers. No live consumer or final integrated readiness proof follows.
+
+### Automatic recovery history rollover (frozen derived delta)
+
+Slice4 prerequisite; existing capacity/intent/uncertainty portfolio. Baseline at
+31e0560:128 complete managed ensure/admit/dispatch/persist/launch/complete/drain
+cycles followed by recover with3available actions returns blocked, leaves op127
+and128entries, but creates a zero-action incident. Ordinary requests already
+retire settled entries; recovery must not require an operator ensure solely to
+make journal space.
+
+Extract one private retirement-candidate selector in reliability-model.ts shared
+by handleOperationRequest and handleRecover. Select the first drained COMPLETED,
+NOT_LAUNCHED or INTERRUPTED entry excluding current operation and latest ensure.
+Preserve ordinary request behavior. At128entries an accepted recovery removes
+exactly one eligible entry and appends one ensure; no candidate refuses unchanged.
+
+Preflight before mutation: intent/policy and possible-dispatch, incident identity,
+pending/current completed deduplication, remaining budget, history ID/key collision,
+profile/consumer, drained replacement proof, runtime-generation headroom and
+retirement availability. Preserve same-incident pending NOT_STARTED joins and
+completed-current joins before replacement checks. A drained stranded preparation
+requires a fresh ID. Reject retained history ID/key reuse even when colliding with
+the candidate victim. Interrupted ensure may be superseded after drain; uncertain
+exec and live/undrained operations remain protected. Stopping, stopped or parked
+intent cannot acquire recovery authority through rollover.
+
+Reuse recovery's runtimeGeneration increment for the fresh rollover fence; keep
+intentRevision unchanged. Preserve existing incident ID, action limit and count.
+Create an initial incident only after successful preflight. Preparation/dispatch
+consume no action; accepted dispatch-persisted consumes one, exactly once. Exhausted
+counters or budget refuse unchanged and old-fence completion/dispatch/observation
+remain stale. Historical retirement never grants command replay or releases charge.
+
+Keep transaction semantics: existing prepareRecoveryLifecycleOperation may
+reconcile proven worker loss and ordinary undefined returns persist a new record
+revision. No store implementation change. A blocked preparation can retain that
+existing reconciliation but cannot retire history, open an incident, consume a
+budget, clear result/witness or return a request. Stale authority throws before
+reconciliation; failed persistence must yield no launchable request.
+
+Changed paths:src/core/reliability-model.ts; existing reliability-model.test.ts,
+reliability-liveness.test.ts and reliability-lifecycle.test.ts; this plan and
+managed-environment-lifecycle.md. Read-only dependencies:reliability-contract.ts,
+reliability-lifecycle.ts, operation store, and existing recovery decision suite.
+Route:executor owns model source plus model/liveness tests after frozen challenge;
+main owns real-journal lifecycle tests, docs, integration and external effects.
+Acceptance:baseline failing reproduction; saturated initial/continuing/repeated
+bounded recovery, protected entries/no candidate, pending/current deduplication,
+ID/key/victim collisions, uncertain/live/undrained operations, stale fences,
+exhausted generation and budget, unchanged incident limit/count until persistence.
+Real-journal tests verify persisted fence, refused authority/reconciliation and
+failed persistence. Run four existing reliability suites and required static and
+package checks; add no duplicate policy or prose tests. No live runtime proof.
+
+Stop this delta for schema/policy changes, broader transaction semantics, new
+modules or runtime effects. No material user decision is open. Planner construction
+DONE; main froze this contract for the same child's challenge before implementation.
+
+
+Rollover planner Ohm approved frozen round1. Executor Dirac owns the model and
+model/liveness tests; main added three real-journal lifecycle cases. Baseline
+real-journal saturation fails to produce a request; no-candidate refusal and
+failed-persistence protections pass. Evidence:
+`/private/tmp/devrouter-recovery-rollover-baseline.log`. Unlike the raw model,
+blocked lifecycle preparation does not persist the model's partially changed
+incident because it returns before assigning transition.state.
+
+Original citation owner fresh readback: installed CLI0.0.77, repo adaptation
+pin0.0.51, no current Devrouter-specific blocker; no ensure/stop or new runtime
+proof in that owner's current session. Historical all-stopped/zero-route receipts
+are inherited, not current proof. Preserve staged merge and consumer ownership.
+
+
+### Parking consent integration investigation (not frozen)
+
+Primitive impact:extend existing consumer sessions with explicit capacity-parking
+consent; compose durable operator pin, exact enrollment, incident and parked intent.
+No new product object. Existing observers remain protected by default. Session
+release, lease expiry, missing human pin and pressure alone grant no consent.
+Current ControllerSessions has only protected observers and retains continuity
+uncertainty; operation consumers are deduplication evidence, not live demand.
+
+Before an emitter can be designed, qualify one current consumer proof across the
+server serializer, asynchronous observation and journal lock. Every live consumer
+must explicitly permit parking of an already-unusable environment; healthy active
+work, APP_ERROR and nonpreemptible/unknown operations veto. Consumer set changes,
+release/reacquisition, controller restart and wall/monotonic gaps invalidate old
+proofs. A new opt-in cannot clear uncertainty about an expired protected observer.
+A transient startup grace expiring means revalidation-required, never safe absence.
+
+Existing seams to extend after design review:controller sessions/protocol/server
+and their suites for consent; controller-monitor producing proof and capacity
+controller for consumption. Existing source has no parking emitter, so a consent
+prerequisite must remain inert until durable resume admission and intent-preserving
+single-flight stop are implemented together. No implicit enrollment or policy write.
+
+Remaining design problem:how to preserve a parked task's demand across controller
+restart without treating old journal request consumers as live authorization. A
+launcher reattach may establish a fresh consumer but cannot erase uncertain old
+consumer protection. Resolve in the integration contract before code; no defaults
+or compatibility claims are changed by this investigation.
+
+
+Rollover integration:main took over the bounded worker patch after a fixture-driven
+guard relaxation. Final source requires completed operations to be drained, allows
+completed exec recovery, and refuses interrupted exec even after drain. Existing
+three recovery fixtures now emit actual drain before requesting replacement.
+The stale-event regression targets the new state with the old fence; pending
+deduplication uses an actual NOT_STARTED record. Repeated recovery preserves the
+original3-action limit despite later supplied9, and each persisted dispatch spends
+exactly one. Main preserves original surrounding comments and removes redundant
+new selector arguments/checks.187 tests pass across four reliability suites.
+Typecheck, docs/knowledge, Knip and build pass; final formatting, focused scan and
+packed smoke are recorded before commit. Sandbox-only ps and Opengrep log-write
+failures are rerun in the permitted host context; no ownership bypass or runtime
+mutation. New implementation still requires immutable simplifier/slice reviews.
+
+
+Final rollover source verification before commit:187tests across four suites
+passed; the added completed-exec retention assertion then passed all76modeltests.
+Whole typecheck/Biome, Knip, docs/knowledge, build and isolated package smoke pass.
+Focused Opengrep210rules on the one source module reports0findings. Source has
+no runtime authority additions. Main owns all six paths after worker convergence;
+staged material is source, synthetic fixtures and values-free project evidence.
