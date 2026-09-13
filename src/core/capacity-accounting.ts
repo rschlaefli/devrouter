@@ -111,3 +111,301 @@ export function evaluateCapacity(
     throw new Error("Capacity request has no domains.");
   return { admitted: true };
 }
+
+/** One wall-clock and monotonic reading, captured together for continuity checks. */
+export type CapacityEvidenceClock = {
+  wallMs: number;
+  monotonicMs: number;
+};
+
+/** Bounded, ephemeral pressure evidence for a single declared domain. */
+export type CapacityPressureEvidence = {
+  pressure: "normal" | "pressured" | "unknown";
+  observedDurationMs: number;
+  sampledAtMs: number | null;
+};
+
+/** Mirrors the capacity policy domain bound; the tracker owns no policy of its own. */
+const MAX_DECLARED_DOMAINS = 256;
+/** Wall and monotonic deltas may differ by this much before a reading is a clock jump. */
+const MAX_CLOCK_DIVERGENCE_MS = 2000;
+/** A monotonic gap beyond this loses continuity, so every window has to restart. */
+const MAX_MONOTONIC_GAP_MS = 15_000;
+
+type PressureWindow = {
+  pressure: "normal" | "pressured";
+  firstMonotonicMs: number;
+  lastMonotonicMs: number;
+  lastSampledAtMs: number;
+};
+
+type DomainState = {
+  /** Latest accepted source timestamp, retained through every invalidation. */
+  watermark: number | null;
+  /** Evidence last accepted at the watermark, retained so a repeat stays comparable. */
+  accepted: CapacityDomainSample | null;
+  window: PressureWindow | null;
+};
+
+function nonNegativeSafeInteger(value: unknown): boolean {
+  return typeof value === "number" && bytes(value);
+}
+
+function isClock(clock: unknown): clock is CapacityEvidenceClock {
+  if (typeof clock !== "object" || clock === null) return false;
+  const reading = clock as CapacityEvidenceClock;
+  return nonNegativeSafeInteger(reading.wallMs) && nonNegativeSafeInteger(reading.monotonicMs);
+}
+
+function isDomainSample(value: unknown): value is CapacityDomainSample {
+  if (typeof value !== "object" || value === null) return false;
+  const sample = value as CapacityDomainSample;
+  return (
+    nonNegativeSafeInteger(sample.sampledAtMs) &&
+    (sample.pressure === "normal" ||
+      sample.pressure === "pressured" ||
+      sample.pressure === "unknown") &&
+    nonNegativeSafeInteger(sample.unmanagedBytes) &&
+    nonNegativeSafeInteger(sample.sharedBytes) &&
+    typeof sample.ownedBytes === "object" &&
+    sample.ownedBytes !== null &&
+    !Array.isArray(sample.ownedBytes) &&
+    Object.values(sample.ownedBytes).every(nonNegativeSafeInteger)
+  );
+}
+
+function cloneDomainSample(sample: CapacityDomainSample): CapacityDomainSample {
+  return {
+    sampledAtMs: sample.sampledAtMs,
+    pressure: sample.pressure,
+    unmanagedBytes: sample.unmanagedBytes,
+    sharedBytes: sample.sharedBytes,
+    ownedBytes: { ...sample.ownedBytes },
+  };
+}
+
+function sameDomainSample(left: CapacityDomainSample, right: CapacityDomainSample): boolean {
+  const keys = Object.keys(left.ownedBytes);
+  return (
+    left.sampledAtMs === right.sampledAtMs &&
+    left.pressure === right.pressure &&
+    left.unmanagedBytes === right.unmanagedBytes &&
+    left.sharedBytes === right.sharedBytes &&
+    keys.length === Object.keys(right.ownedBytes).length &&
+    keys.every(
+      (key) =>
+        Object.hasOwn(right.ownedBytes, key) && right.ownedBytes[key] === left.ownedBytes[key],
+    )
+  );
+}
+
+function unknownPressureEvidence(): CapacityPressureEvidence {
+  return { pressure: "unknown", observedDurationMs: 0, sampledAtMs: null };
+}
+
+/**
+ * Tracks ephemeral, incarnation-local pressure duration for the declared domains.
+ * It reads no policy, persists nothing and grants no authority: callers derive
+ * their own predicates from `read()` and reuse `observe()` samples for the existing
+ * instantaneous admission checks.
+ */
+export class CapacityPressureTracker {
+  private readonly domainIds: ReadonlySet<string>;
+  private readonly maxSampleAgeMs: number;
+  private readonly states = new Map<string, DomainState>();
+  private lastClock: CapacityEvidenceClock | null = null;
+  private generation = 0;
+
+  constructor(domainIds: string[], maxSampleAgeMs: number) {
+    if (!Array.isArray(domainIds) || domainIds.length === 0)
+      throw new Error("Capacity pressure tracker requires at least one declared domain.");
+    if (domainIds.length > MAX_DECLARED_DOMAINS)
+      throw new Error(
+        `Capacity pressure tracker accepts at most ${MAX_DECLARED_DOMAINS} declared domains.`,
+      );
+    const declared = new Set<string>();
+    for (const domainId of domainIds) {
+      if (typeof domainId !== "string" || domainId.length === 0)
+        throw new Error("Capacity pressure tracker requires nonempty string domain identifiers.");
+      if (declared.has(domainId))
+        throw new Error(`Capacity pressure tracker declares domain ${domainId} more than once.`);
+      declared.add(domainId);
+    }
+    if (!nonNegativeSafeInteger(maxSampleAgeMs) || maxSampleAgeMs < 1)
+      throw new Error("Capacity pressure tracker requires a positive safe maxSampleAgeMs.");
+    this.domainIds = declared;
+    this.maxSampleAgeMs = maxSampleAgeMs;
+  }
+
+  /**
+   * Records one clock reading and returns the current generation. The generation
+   * advances on every global invalidation, so a caller can capture it before an
+   * await and refuse publication once it moved.
+   */
+  checkpoint(clock: CapacityEvidenceClock): number {
+    this.acceptClock(clock);
+    return this.generation;
+  }
+
+  /**
+   * Clears every window and advances the generation; timestamp watermarks and their
+   * accepted evidence remain.
+   */
+  invalidate(): void {
+    this.invalidateAll();
+  }
+
+  /**
+   * Validates one collection result and returns independent clones of the declared
+   * domains' fresh samples for admission reuse. Malformed, stale, future, regressing
+   * and contradictory equal-timestamp samples are omitted, while unknown pressure
+   * stays in the result and never establishes duration.
+   */
+  observe(
+    samples: Record<string, CapacityDomainSample>,
+    clock: CapacityEvidenceClock,
+  ): Record<string, CapacityDomainSample> {
+    const observed: Record<string, CapacityDomainSample> = {};
+    if (!this.acceptClock(clock)) return observed;
+    for (const domainId of this.domainIds) {
+      const state = this.stateFor(domainId);
+      const sample: unknown =
+        typeof samples === "object" && samples !== null ? samples[domainId] : undefined;
+      if (!isDomainSample(sample)) {
+        state.window = null;
+        continue;
+      }
+      if (
+        sample.sampledAtMs > clock.wallMs ||
+        clock.wallMs - sample.sampledAtMs > this.maxSampleAgeMs
+      ) {
+        // A future reading is untrustworthy and a stale one no longer covers the window.
+        state.window = null;
+        continue;
+      }
+      if (state.watermark !== null && sample.sampledAtMs < state.watermark) {
+        state.window = null;
+        continue;
+      }
+      if (state.watermark === sample.sampledAtMs) {
+        // An equal timestamp never rebuilds or extends a window. A repeat that changes
+        // any field contradicts the accepted evidence, so the window ends and the
+        // contradictory sample is not handed back for admission.
+        if (!state.accepted || !sameDomainSample(state.accepted, sample)) {
+          state.window = null;
+          continue;
+        }
+      } else {
+        state.watermark = sample.sampledAtMs;
+        state.accepted = cloneDomainSample(sample);
+        this.recordSample(state, sample, clock);
+      }
+      observed[domainId] = cloneDomainSample(sample);
+    }
+    return observed;
+  }
+
+  /**
+   * Returns bounded evidence for the requested declared domains, so arbitrary keys
+   * cannot inflate the result. Windows that outlive their sample age against current
+   * wall time are dropped, and a read never extends duration.
+   */
+  read(
+    domainIds: string[],
+    clock: CapacityEvidenceClock,
+  ): Record<string, CapacityPressureEvidence> {
+    const evidence: Record<string, CapacityPressureEvidence> = {};
+    const usable = this.acceptClock(clock);
+    const requested = new Set(domainIds);
+    for (const domainId of this.domainIds) {
+      if (!requested.has(domainId)) continue;
+      const state = usable ? this.states.get(domainId) : undefined;
+      const window = state?.window ?? null;
+      if (window === null || clock.wallMs - window.lastSampledAtMs > this.maxSampleAgeMs) {
+        if (state) state.window = null;
+        evidence[domainId] = unknownPressureEvidence();
+        continue;
+      }
+      evidence[domainId] = {
+        pressure: window.pressure,
+        observedDurationMs: window.lastMonotonicMs - window.firstMonotonicMs,
+        sampledAtMs: window.lastSampledAtMs,
+      };
+    }
+    return evidence;
+  }
+
+  private recordSample(
+    state: DomainState,
+    sample: CapacityDomainSample,
+    clock: CapacityEvidenceClock,
+  ): void {
+    if (sample.pressure === "unknown") {
+      state.window = null;
+      return;
+    }
+    const predecessor = state.window;
+    if (
+      predecessor !== null &&
+      predecessor.pressure === sample.pressure &&
+      clock.wallMs - predecessor.lastSampledAtMs <= this.maxSampleAgeMs
+    ) {
+      state.window = {
+        pressure: sample.pressure,
+        firstMonotonicMs: predecessor.firstMonotonicMs,
+        lastMonotonicMs: clock.monotonicMs,
+        lastSampledAtMs: sample.sampledAtMs,
+      };
+      return;
+    }
+    // A pressure transition or a coverage gap restarts the window at zero.
+    state.window = {
+      pressure: sample.pressure,
+      firstMonotonicMs: clock.monotonicMs,
+      lastMonotonicMs: clock.monotonicMs,
+      lastSampledAtMs: sample.sampledAtMs,
+    };
+  }
+
+  private stateFor(domainId: string): DomainState {
+    const existing = this.states.get(domainId);
+    if (existing) return existing;
+    const created: DomainState = { watermark: null, accepted: null, window: null };
+    this.states.set(domainId, created);
+    return created;
+  }
+
+  /**
+   * Records one reading. An unusable reading returns false, clears every window and
+   * advances the generation; an invalid reading also forgets the baseline, while a
+   * usable but discontinuous reading becomes the new baseline so only the
+   * discontinuity itself is reported and later distinct observations can rebuild.
+   */
+  private acceptClock(clock: CapacityEvidenceClock): boolean {
+    if (!isClock(clock)) {
+      this.lastClock = null;
+      this.invalidateAll();
+      return false;
+    }
+    const previous = this.lastClock;
+    this.lastClock = { wallMs: clock.wallMs, monotonicMs: clock.monotonicMs };
+    if (!previous) return true;
+    const wallDelta = clock.wallMs - previous.wallMs;
+    const monotonicDelta = clock.monotonicMs - previous.monotonicMs;
+    if (
+      wallDelta < 0 ||
+      monotonicDelta < 0 ||
+      Math.abs(wallDelta - monotonicDelta) > MAX_CLOCK_DIVERGENCE_MS ||
+      monotonicDelta > MAX_MONOTONIC_GAP_MS
+    ) {
+      this.invalidateAll();
+      return false;
+    }
+    return true;
+  }
+
+  private invalidateAll(): void {
+    this.generation++;
+    for (const state of this.states.values()) state.window = null;
+  }
+}

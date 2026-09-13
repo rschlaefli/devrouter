@@ -1086,7 +1086,7 @@ it.each([
     }),
   });
   try {
-    await active.submit(
+    const accepted = (await active.submit(
       {
         version: 1,
         id: "submit",
@@ -1101,9 +1101,34 @@ it.each([
       current,
       new AbortController().signal,
       submitValidator,
-    );
+    )) as { operation: { operationId: string } };
     if (mode === "snapshot-race" || mode === "policy-drift" || mode === "epoch-drift") {
-      await expect(active.tick()).rejects.toThrow(Error);
+      await expect(active.tick()).resolves.toBeUndefined();
+      const waiting = active.watch(
+        {
+          version: 1,
+          id: "watch",
+          method: "operation-watch",
+          session: "session",
+          store: incarnation.store,
+          epoch: incarnation.epoch,
+          generation: "generation",
+          operationId: accepted.operation.operationId,
+          timeout: 0,
+        },
+        current,
+        new AbortController().signal,
+      );
+      if (mode === "snapshot-race") {
+        await expect(waiting).resolves.toMatchObject({
+          operation: {
+            phase: "queued",
+            reason: "collection-unavailable",
+          },
+        });
+      } else {
+        await expect(waiting).rejects.toThrow("Capacity watch unavailable.");
+      }
       expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
       expect(store.read()).toEqual({
         version: 1,

@@ -1,7 +1,11 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { CapacityDomainSample } from "./capacity-accounting";
+import {
+  type CapacityDomainSample,
+  type CapacityEvidenceClock,
+  CapacityPressureTracker,
+} from "./capacity-accounting";
 import { readDockerCapacityInfo } from "./capacity-docker-probe";
 import { enrollCapacityLifecycle, resolveCapacityEnrollment } from "./capacity-enrollment";
 import { readCapacityPolicy } from "./capacity-policy";
@@ -37,13 +41,19 @@ export function createCapacityController(options: {
   // Host samples exclude VM usage covered by pool ceilings; sharedBytes excludes those ceilings.
   // Collectors must cooperate with abort by draining their work and rejecting.
   collect: (signal: AbortSignal) => Promise<Record<string, CapacityDomainSample>>;
+  clock?: () => CapacityEvidenceClock;
 }): ControllerOperations & {
   tick: () => Promise<void>;
   close: () => void;
   recover: ControllerRecovery;
+  pressureEvidence: (domains: { hostDomain: string; runtimeDomain: string }) => {
+    domains: ReturnType<CapacityPressureTracker["read"]>;
+    normalDwellSatisfied: boolean;
+    sustainedPressure: boolean;
+  };
 } {
   options.controller.consumeStartup(options.directory);
-  const policy = readCapacityPolicy(options.directory);
+  const policy = structuredClone(readCapacityPolicy(options.directory));
   if (policy?.admissions !== "enabled") throw new Error("Capacity policy is not enabled.");
   // The server invokes this factory under its owner lock, before accepting requests.
   for (const prior of listReliabilityOperations()) {
@@ -74,25 +84,74 @@ export function createCapacityController(options: {
   }
   const controller = { store: options.controller.store, epoch: options.controller.epoch };
   const lifetime = new AbortController();
-  const collect = async (): Promise<Record<string, CapacityDomainSample>> => {
-    const assertCurrent = () => {
-      const current = new ControllerStore(options.directory).read();
-      if (
-        lifetime.signal.aborted ||
-        current?.store !== controller.store ||
-        current.epoch !== controller.epoch ||
-        !isDeepStrictEqual(readCapacityPolicy(options.directory), policy)
-      )
-        throw new Error("Capacity collection authority changed.");
-    };
-    assertCurrent();
+  const clock =
+    options.clock ?? (() => ({ wallMs: Date.now(), monotonicMs: Math.floor(performance.now()) }));
+  const maxSampleAgeMs = policy.scheduling.maxSampleAgeSeconds * 1000;
+  const intervalMs = policy.scheduling.sampleIntervalSeconds * 1000;
+  const tracker = new CapacityPressureTracker(Object.keys(policy.domains), maxSampleAgeMs);
+  let generation = tracker.checkpoint(clock());
+  let cached: Record<string, CapacityDomainSample> | undefined;
+  let lastStarted: number | undefined;
+  let invalidated = false;
+  let collecting:
+    | {
+        result: Promise<Record<string, CapacityDomainSample>>;
+        cancel: () => void;
+        cancelled: boolean;
+      }
+    | undefined;
+  const invalidateEvidence = () => {
+    cached = undefined;
+    tracker.invalidate();
+  };
+  const assertCurrent = () => {
+    let current: ReturnType<ControllerStore["read"]>;
+    let matches = false;
+    try {
+      current = new ControllerStore(options.directory).read();
+      matches =
+        current?.store === controller.store &&
+        current.epoch === controller.epoch &&
+        isDeepStrictEqual(readCapacityPolicy(options.directory), policy);
+    } catch {
+      // Unavailable authority cannot preserve an old duration or admission sample.
+    }
+    if (invalidated || lifetime.signal.aborted || !matches) {
+      invalidated = true;
+      invalidateEvidence();
+      lifetime.abort();
+      throw new Error("Capacity collection authority changed.");
+    }
+  };
+  const checkedClock = () => {
+    const now = clock();
+    const next = tracker.checkpoint(now);
+    if (next !== generation) {
+      generation = next;
+      cached = undefined;
+      if (lastStarted !== undefined && now.monotonicMs < lastStarted) lastStarted = undefined;
+      collecting?.cancel();
+    }
+    if (
+      !Number.isSafeInteger(now.wallMs) ||
+      now.wallMs < 0 ||
+      !Number.isSafeInteger(now.monotonicMs) ||
+      now.monotonicMs < 0
+    )
+      throw new Error("Capacity collection clock unavailable.");
+    return now;
+  };
+  const collectRaw = async (
+    collectionSignal: AbortSignal,
+    check: () => CapacityEvidenceClock,
+  ): Promise<Record<string, CapacityDomainSample>> => {
     const store = new CapacityStore(options.directory);
     const revision = store.read().revision;
     const runtimes = Object.entries(policy.domains).filter((entry) => entry[1].kind === "runtime");
     const observed: CapacityPoolReservation[] = [];
     const unknown = new Set<string>();
     const cancellation = new AbortController();
-    const signal = AbortSignal.any([lifetime.signal, cancellation.signal]);
+    const signal = AbortSignal.any([collectionSignal, cancellation.signal]);
     const deadline = performance.now() + 3000;
     const timer = setTimeout(() => cancellation.abort(), 3000);
     let next = 0;
@@ -124,15 +183,92 @@ export function createCapacityController(options: {
     } finally {
       clearTimeout(timer);
     }
-    assertCurrent();
-    const samples = structuredClone(await options.collect(lifetime.signal));
-    assertCurrent();
-    // The revision predates observation, so a concurrent cessation cannot be undone by stale evidence.
-    store.mergeObservedPools(observed, revision);
+    check();
+    const samples = structuredClone(await options.collect(collectionSignal));
+    check();
     for (const domain of unknown) {
       if (samples[domain]) samples[domain] = { ...samples[domain], pressure: "unknown" };
     }
-    return samples;
+    // The revision predates observation, so a concurrent cessation cannot be undone by stale evidence.
+    check();
+    store.mergeObservedPools(observed, revision);
+    return tracker.observe(samples, check());
+  };
+  const collect = (): Promise<Record<string, CapacityDomainSample>> => {
+    let now: CapacityEvidenceClock;
+    try {
+      assertCurrent();
+      now = checkedClock();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    if (collecting)
+      return collecting.cancelled
+        ? Promise.reject(new Error("Capacity collection is still draining."))
+        : collecting.result;
+    if (lastStarted !== undefined && now.monotonicMs - lastStarted < intervalMs) {
+      if (!cached) return Promise.reject(new Error("Capacity sample unavailable within cadence."));
+      return Promise.resolve(
+        structuredClone(
+          Object.fromEntries(
+            Object.entries(cached).filter(
+              ([, sample]) =>
+                sample.sampledAtMs <= now.wallMs &&
+                now.wallMs - sample.sampledAtMs <= maxSampleAgeMs,
+            ),
+          ),
+        ),
+      );
+    }
+    const startedGeneration = generation;
+    const expiresAt = now.monotonicMs + maxSampleAgeMs;
+    lastStarted = now.monotonicMs;
+    const cancellation = new AbortController();
+    let resolveResult!: (samples: Record<string, CapacityDomainSample>) => void;
+    let rejectResult!: (error: unknown) => void;
+    const result = new Promise<Record<string, CapacityDomainSample>>((resolve, reject) => {
+      resolveResult = resolve;
+      rejectResult = reject;
+    });
+    const slot = {
+      result,
+      cancelled: false,
+      cancel: () => {
+        if (slot.cancelled) return;
+        slot.cancelled = true;
+        invalidateEvidence();
+        cancellation.abort();
+        rejectResult(new Error("Capacity collection expired or cancelled."));
+      },
+    };
+    collecting = slot;
+    const timer = setTimeout(slot.cancel, maxSampleAgeMs);
+    lifetime.signal.addEventListener("abort", slot.cancel, { once: true });
+    const check = () => {
+      assertCurrent();
+      const current = checkedClock();
+      if (slot.cancelled || generation !== startedGeneration || current.monotonicMs >= expiresAt) {
+        slot.cancel();
+        throw new Error("Capacity collection evidence expired.");
+      }
+      return current;
+    };
+    void collectRaw(cancellation.signal, check)
+      .then((samples) => {
+        check();
+        cached = structuredClone(samples);
+        resolveResult(samples);
+      })
+      .catch((error: unknown) => {
+        if (!slot.cancelled) invalidateEvidence();
+        rejectResult(error);
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        lifetime.signal.removeEventListener("abort", slot.cancel);
+        if (collecting === slot) collecting = undefined;
+      });
+    return result;
   };
   const queue = new CapacityQueue({
     ...options,
@@ -336,9 +472,48 @@ export function createCapacityController(options: {
         output: queued?.output ?? null,
       };
     },
-    tick: () => {
+    tick: async () => {
+      try {
+        assertCurrent();
+        checkedClock();
+      } catch {
+        // The queue still retires expired requests while collection remains fenced.
+        await queue.tick();
+        return;
+      }
       settlePreparations();
-      return queue.tick();
+      await queue.tick({ observeIdle: policy.recovery.enabled });
+    },
+    pressureEvidence: ({ hostDomain, runtimeDomain }) => {
+      assertCurrent();
+      const now = checkedClock();
+      const runtime = policy.domains[runtimeDomain];
+      if (
+        policy.domains[hostDomain]?.kind !== "host" ||
+        runtime?.kind !== "runtime" ||
+        runtime.hostDomain !== hostDomain
+      )
+        throw new Error("Capacity pressure domain pair is invalid.");
+      const domains = tracker.read([hostDomain, runtimeDomain], now);
+      const values = Object.values(domains);
+      const known = values.every((entry) => entry.pressure !== "unknown");
+      return {
+        domains,
+        normalDwellSatisfied:
+          known &&
+          values.every(
+            (entry) =>
+              entry.pressure === "normal" &&
+              entry.observedDurationMs >= policy.recovery.resumeDwellSeconds * 1000,
+          ),
+        sustainedPressure:
+          known &&
+          values.some(
+            (entry) =>
+              entry.pressure === "pressured" &&
+              entry.observedDurationMs >= policy.recovery.observationSeconds * 1000,
+          ),
+      };
     },
     /**
      * Open or advance one bounded automatic recovery for an environment whose
@@ -484,6 +659,7 @@ export function createCapacityController(options: {
       }
     },
     close() {
+      invalidateEvidence();
       lifetime.abort();
       queue.close();
       acceptedPayloads.clear();

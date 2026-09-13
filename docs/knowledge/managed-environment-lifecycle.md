@@ -259,6 +259,21 @@ supplies those to `prepareRecoveryLifecycleOperation`, which opens one
 journal-admitted corrective ensure through the same capacity queue an operator
 command uses, and never supersedes an operation the queue still owns.
 
+The controller shares one bounded collector between admission and recovery-enabled
+idle sampling, using the policy sample interval. A timeout rejects waiting callers
+but retains the collector slot until its underlying work drains. Later samples
+cannot overlap that work or publish its late result. Policy or controller identity
+changes invalidate this instance's sampling authority.
+
+Pressure duration uses distinct fresh samples and monotonic observation intervals
+within one controller incarnation. Unknown domains, expired samples, clock jumps
+and sleep gaps clear duration evidence; reads never accrue time. Normal resume
+dwell requires both the exact host and runtime domains to remain normal. Sustained
+pressure requires known evidence in both domains and continuous pressure in one.
+These internal predicates grant no parking permission or runtime action. The
+current runtime adapter reports host pressure, which does not prove guest OOM
+prevention.
+
 ## Stop, delete, and inspect
 
 If managed startup is interrupted before a runtime baseline exists, initial stop

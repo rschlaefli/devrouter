@@ -86,6 +86,8 @@ beforeEach(() => {
   fixture.policy.mockReturnValue({
     revision: 1,
     admissions: "enabled",
+    scheduling: { sampleIntervalSeconds: 1, maxSampleAgeSeconds: 15 },
+    recovery: { enabled: false, observationSeconds: 30, resumeDwellSeconds: 300 },
     enrollments: [submissionEnrollment],
     domains: { host: { kind: "host" }, runtime: submissionRuntime },
   });
@@ -126,6 +128,7 @@ function controller(
   ) => Promise<
     Record<string, import("../capacity-accounting").CapacityDomainSample>
   > = async () => ({}),
+  clock = () => ({ wallMs: 100, monotonicMs: 100 }),
 ) {
   return createCapacityController({
     directory: "/tmp/synthetic-controller",
@@ -136,6 +139,7 @@ function controller(
       consumeStartup: () => {},
     },
     collect,
+    clock,
   });
 }
 
@@ -203,7 +207,13 @@ function recoveryFixture() {
   fixture.policy.mockReturnValue({
     revision: 1,
     admissions: "enabled",
-    recovery: { enabled: true, maxCorrectiveActions: 3 },
+    scheduling: { sampleIntervalSeconds: 1, maxSampleAgeSeconds: 15 },
+    recovery: {
+      enabled: true,
+      maxCorrectiveActions: 3,
+      observationSeconds: 30,
+      resumeDwellSeconds: 300,
+    },
     enrollments: [recoveryEnrollment],
     domains: { host: { kind: "host" }, runtime: recoveryRuntime },
   });
@@ -263,7 +273,12 @@ function preparedRecord(overrides: { worker?: unknown; drained?: boolean } = {})
 it("settles a completed drained ensure before queue tick", async () => {
   const enrollment = policyEnrollment("/fixture");
   const estimates = { host: { steadyBytes: 1 } };
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
+  fixture.policy.mockReturnValue({
+    ...fixture.policy(),
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [enrollment],
+  });
   fixture.journal.mockReturnValue(preparedRecord());
   fixture.evidence.mockReturnValue(Buffer.from("synthetic"));
   fixture.config.mockReturnValue({ capacity: estimates });
@@ -289,7 +304,12 @@ it.each([
   ["undrained", { drained: false }],
 ] as const)("does not settle an ensure with %s evidence", async (_label, overrides) => {
   const enrollment = policyEnrollment("/fixture");
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
+  fixture.policy.mockReturnValue({
+    ...fixture.policy(),
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [enrollment],
+  });
   fixture.journal.mockReturnValue(preparedRecord(overrides));
 
   const active = controller();
@@ -301,6 +321,7 @@ it.each([
 
 it("skips preparation settlement when the operator policy changes", async () => {
   const initial = {
+    ...fixture.policy(),
     revision: 1,
     admissions: "enabled",
     enrollments: [policyEnrollment("/fixture")],
@@ -321,7 +342,12 @@ it("continues settling independent enrollments after one enrollment fails", asyn
   const bad = policyEnrollment("/bad");
   const good = policyEnrollment("/good");
   const estimates = { guest: { steadyBytes: 2 } };
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [bad, good] });
+  fixture.policy.mockReturnValue({
+    ...fixture.policy(),
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [bad, good],
+  });
   fixture.journal.mockImplementation((target: { repoPath: string }) => {
     if (target.repoPath === bad.repoPath) throw new Error("bad enrollment");
     return preparedRecord();
@@ -355,7 +381,12 @@ it("continues queue handling when settlement cannot read the policy", async () =
 
 it("skips preparation settlement after the controller closes", async () => {
   const enrollment = policyEnrollment("/fixture");
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
+  fixture.policy.mockReturnValue({
+    ...fixture.policy(),
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [enrollment],
+  });
   fixture.journal.mockReturnValue(preparedRecord());
 
   const active = controller();
@@ -534,6 +565,7 @@ it("publishes the queued startup witness before enqueueing an ensure", async () 
     providerId: "provider",
   };
   fixture.policy.mockReturnValue({
+    ...fixture.policy(),
     revision: 1,
     admissions: "enabled",
     enrollments: [policyEnrollmentWithProvider],
@@ -713,6 +745,7 @@ it.each([
     },
   });
   fixture.policy.mockReturnValue({
+    ...fixture.policy(),
     revision: 1,
     admissions: "enabled",
     enrollments: [submissionEnrollment],
@@ -756,7 +789,14 @@ function collectionPolicy(count = 1) {
       daemonId: `daemon-${i}`,
       hostDomain: i === 0 ? "host" : "independent",
     };
-  const policy = { revision: 1, admissions: "enabled", enrollments: [], domains };
+  const policy = {
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [],
+    domains,
+    scheduling: { sampleIntervalSeconds: 1, maxSampleAgeSeconds: 15 },
+    recovery: { enabled: false, observationSeconds: 30, resumeDwellSeconds: 300 },
+  };
   fixture.policy.mockReturnValue(policy);
   return policy;
 }
@@ -870,7 +910,7 @@ it.each(["close", "timeout"])("bounds four in-flight probes and drains on %s", a
   } else expect(fixture.merge).toHaveBeenCalledWith([], 7);
 });
 
-it("drains a cooperative sample collector on close before tick rejects", async () => {
+it("retains a closing collector slot until its underlying work drains", async () => {
   collectionPolicy();
   fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
   let started!: (signal: AbortSignal) => void;
@@ -913,10 +953,11 @@ it("drains a cooperative sample collector on close before tick rejects", async (
   expect(signal.aborted).toBe(false);
   active.close();
   expect(signal.aborted).toBe(true);
-  expect(events).toEqual(["aborted"]);
-  finishDrain();
   await completion;
-  expect(events).toEqual(["aborted", "drained", "tick-rejected"]);
+  expect(events).toEqual(["aborted", "tick-rejected"]);
+  finishDrain();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(events).toEqual(["aborted", "tick-rejected", "drained"]);
   expect(fixture.merge).not.toHaveBeenCalled();
   expect(launch).not.toHaveBeenCalled();
 });
@@ -961,7 +1002,8 @@ it("is inert when policy leaves automatic recovery disabled", async () => {
   fixture.policy.mockReturnValue({
     revision: 1,
     admissions: "enabled",
-    recovery: { enabled: false },
+    scheduling: { sampleIntervalSeconds: 1, maxSampleAgeSeconds: 15 },
+    recovery: { enabled: false, observationSeconds: 30, resumeDwellSeconds: 300 },
     enrollments: [recoveryEnrollment],
     domains: { host: { kind: "host" }, runtime: recoveryRuntime },
   });
@@ -1148,4 +1190,185 @@ it("refuses a submission whose enrollment resolves a different environment", asy
   ).rejects.toThrow("Capacity submission binding changed.");
   expect(fixture.prepare).not.toHaveBeenCalled();
   expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+function pressureFixture() {
+  const policy = collectionPolicy();
+  policy.recovery.enabled = true;
+  policy.recovery.observationSeconds = 2;
+  policy.recovery.resumeDwellSeconds = 3;
+  let now = { wallMs: 10_000, monotonicMs: 10_000 };
+  fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
+  const sample = (pressure: "normal" | "pressured" | "unknown" = "normal") => ({
+    ...collectedSample,
+    sampledAtMs: now.wallMs,
+    pressure,
+  });
+  const collect = vi.fn(async () => ({ host: sample(), "runtime-0": sample() }));
+  const active = controller(collect, () => ({ ...now }));
+  return {
+    policy,
+    active,
+    collect,
+    sample,
+    advance: (ms: number) => {
+      now = { wallMs: now.wallMs + ms, monotonicMs: now.monotonicMs + ms };
+    },
+    jumpWall: (ms: number) => {
+      now.wallMs += ms;
+    },
+    evidence: () => active.pressureEvidence({ hostDomain: "host", runtimeDomain: "runtime-0" }),
+  };
+}
+
+it("shares collection and cached cadence without extending observed dwell", async () => {
+  const context = pressureFixture();
+  const first = fixture.collection();
+  const second = fixture.collection();
+  expect(first).toBe(second);
+  await first;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  context.advance(999);
+  await fixture.collection();
+  expect(context.collect).toHaveBeenCalledTimes(1);
+  expect(context.evidence().domains.host.observedDurationMs).toBe(0);
+  context.advance(1);
+  await fixture.collection();
+  expect(context.collect).toHaveBeenCalledTimes(2);
+  expect(context.evidence().domains.host.observedDurationMs).toBe(1000);
+  context.active.close();
+});
+
+it("requires complete continuous evidence for normal dwell and sustained pressure", async () => {
+  const context = pressureFixture();
+  for (let tick = 0; tick <= 3; tick++) {
+    await fixture.collection();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(context.evidence().normalDwellSatisfied).toBe(tick === 3);
+    if (tick < 3) context.advance(1000);
+  }
+  context.collect.mockImplementation(async () => ({
+    host: context.sample("pressured"),
+    "runtime-0": context.sample(),
+  }));
+  for (let tick = 0; tick <= 2; tick++) {
+    context.advance(1000);
+    await fixture.collection();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(context.evidence().sustainedPressure).toBe(tick === 2);
+    expect(context.evidence().normalDwellSatisfied).toBe(false);
+  }
+  context.collect.mockImplementation(async () => ({
+    host: context.sample("pressured"),
+    "runtime-0": context.sample("unknown"),
+  }));
+  context.advance(1000);
+  await fixture.collection();
+  expect(context.evidence().sustainedPressure).toBe(false);
+  context.active.close();
+});
+
+it("expires completed dwell on reads and refuses changed live authority", async () => {
+  const context = pressureFixture();
+  for (let tick = 0; tick <= 3; tick++) {
+    await fixture.collection();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (tick < 3) context.advance(1000);
+  }
+  expect(context.evidence().normalDwellSatisfied).toBe(true);
+  context.advance(15_000);
+  expect(context.evidence().normalDwellSatisfied).toBe(true);
+  context.advance(1);
+  expect(context.evidence().normalDwellSatisfied).toBe(false);
+  context.policy.recovery.resumeDwellSeconds = 1;
+  expect(context.evidence).toThrow();
+  context.policy.recovery.resumeDwellSeconds = 3;
+  expect(context.evidence).toThrow();
+  context.active.close();
+});
+
+it.each([
+  "timeout",
+  "clock-read",
+  "close",
+])("retains an unresponsive collector slot after %s", async (cause) => {
+  vi.useFakeTimers();
+  const context = pressureFixture();
+  let finish!: (value: Awaited<ReturnType<typeof context.collect>>) => void;
+  let started!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let signal!: AbortSignal;
+  context.collect.mockImplementation(
+    (input?: AbortSignal) =>
+      new Promise((resolve) => {
+        signal = input!;
+        finish = resolve;
+        started();
+      }),
+  );
+  const pending = fixture.collection();
+  const rejected = expect(pending).rejects.toThrow();
+  await entered;
+  if (cause === "timeout") {
+    context.advance(15_000);
+    await vi.advanceTimersByTimeAsync(15_000);
+  } else if (cause === "clock-read") {
+    context.jumpWall(2001);
+    expect(context.evidence().normalDwellSatisfied).toBe(false);
+  } else context.active.close();
+  await rejected;
+  expect(signal.aborted).toBe(true);
+  await expect(fixture.collection()).rejects.toThrow();
+  expect(context.collect).toHaveBeenCalledTimes(1);
+  expect(fixture.merge).not.toHaveBeenCalled();
+  finish({ host: context.sample(), "runtime-0": context.sample() });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fixture.merge).not.toHaveBeenCalled();
+  if (cause !== "close") expect(context.evidence().normalDwellSatisfied).toBe(false);
+  context.active.close();
+});
+
+it("handles late collector rejection and starts fresh only after drain and cadence", async () => {
+  vi.useFakeTimers();
+  const context = pressureFixture();
+  let fail!: (error: Error) => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  context.collect.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+        entered();
+      }),
+  );
+  const pending = fixture.collection();
+  const rejected = expect(pending).rejects.toThrow();
+  await started;
+  context.advance(15_000);
+  await vi.advanceTimersByTimeAsync(15_000);
+  await rejected;
+  await expect(fixture.collection()).rejects.toThrow();
+  fail(new Error("late synthetic failure"));
+  await vi.advanceTimersByTimeAsync(0);
+  await fixture.collection();
+  expect(context.collect).toHaveBeenCalledTimes(2);
+  expect(context.evidence().domains.host.observedDurationMs).toBe(0);
+  context.active.close();
+});
+
+it.each([
+  false,
+  true,
+])("samples idle environments only when recovery is enabled=%s", async (enabled) => {
+  const context = pressureFixture();
+  context.active.close();
+  context.policy.recovery.enabled = enabled;
+  const active = controller();
+  await active.tick();
+  expect(fixture.tick).toHaveBeenCalledWith({ observeIdle: enabled });
+  active.close();
 });

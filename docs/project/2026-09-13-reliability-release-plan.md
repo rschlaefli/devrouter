@@ -736,3 +736,126 @@ the reduction. [CI run 34756501873](https://github.com/rschlaefli/devrouter/acti
 passed source checks, package smoke and controller/capacity qualifiers. No live
 consumer recovery, park/resume or 0.1.0 readiness follows from this source result.
 Pressure-duration planning continues with Planck; the draft remains unimplemented.
+
+
+### Pressure-duration frozen implementation contract
+
+Refines the preceding draft within slice4; no runtime action or policy change.
+Extend `capacity-accounting.ts` with `CapacityPressureTracker`, constructed with
+exact declared domain IDs and maxSampleAgeMs. Its `observe(samples, clock)`,
+`read(domainIds, clock)` and `invalidate()` methods own ephemeral windows, timestamp
+watermarks and clock continuity. Clock is wallMs plus monotonicMs. Return bounded
+per-domain pressure and observedDurationMs only; reads never accrue duration.
+Keep evaluateCapacity's instantaneous admission semantics unchanged.
+
+Each valid distinct source timestamp extends a same-pressure window only while
+its predecessor remains valid. Start at zero on transition or a coverage gap.
+Validate the entire sample shape, including numeric fields and ownedBytes.
+Missing, malformed, stale, future, unknown or timestamp regression invalidates
+the domain window. Equal timestamps never rebuild or extend a window; contradictory
+equal-timestamp samples invalidate it. Preserve valid timestamp watermarks across
+invalidation. At exact maxSampleAgeMs age a sample is still valid.
+
+Clock checking runs at tick, collection start/completion and evidence read.
+Invalid or backward clocks, divergence above2000ms, or monotonic gap above15000ms
+clear all windows. A collection crossing an anomaly cannot publish. Restart begins
+empty. Duration uses last accepted monotonic observation minus first; no saved
+state or wall-time extrapolation. No new module or persisted format.
+
+Extend `capacity-controller.ts` with optional injected clock and internal
+`pressureEvidence({hostDomain,runtimeDomain})`. Validate the pair against frozen
+policy. Both domains must be known: normalDwellSatisfied requires both normal
+for resumeDwellSeconds; sustainedPressure requires positive pressure in at least
+one for observationSeconds. These are evidence predicates only, with no consent,
+admission, recovery, stop, park or resume authority. No server/wire exposure.
+
+The controller owns a single collection slot, cache and cadence. Queue uses its
+shared collect wrapper. Add `CapacityQueue.tick({observeIdle?: boolean})` in
+`capacity-queue.ts`; only bypass the empty-queue return, preserving all lifecycle
+ordering. Controller tick passes observeIdle only when recovery is enabled.
+Collection rejection pauses queued requests with collection-unavailable and
+retains charges; existing queue lifecycle tests remain required.
+
+Launch at most once per sampleIntervalSeconds between monotonic starts. Within
+cadence, reuse only still-valid cached samples; no tracker observation on reuse.
+Concurrent callers share one bounded result. The raw slot covers pool probes,
+caller collector and drain. Preserve four pool probes and their3s sub-deadline.
+A whole deadline of maxSampleAgeMs aborts the combined signal, invalidates evidence
+and rejects callers, but retains the raw slot until settled. While draining,
+refuse new collection. Discard late results and handle late rejection. Close also
+aborts and clears evidence. Revalidate authority and clocks after awaits and before
+pool merge/cache/tracker publication. An observed policy content/revision or
+controller store/epoch mismatch permanently invalidates this instance. Collection
+failure clears cache/windows; per-domain invalid input leaves valid neighbours
+available. Unknown overlays from failed pool probes remain authoritative.
+
+Main owns controller/queue source and existing suites, plus this plan and affected
+lifecycle knowledge. A trusted bounded worker may own only accounting source and
+its existing tests after the frozen challenge approves. No shared writes or new
+files. Acceptance consumes the existing capacity/intent portfolio: exact/below
+threshold, repeated/contradictory/regressing samples, alternating/cross-domain
+pressure, expired predecessor, unknown/malformed/stale/future data, clock boundaries,
+restart, watermark replay, cadence/shared collection, never-settling and delayed
+collector drain, late success/rejection, close, policy/incarnation drift and idle
+queue wiring. Existing policy schema/defaults remain unchanged; focused four suites
+plus relevant capacity integration and required static/package checks apply.
+
+Pressure provenance remains the current collector's host-pressure evidence;
+this does not prove guest OOM prevention. Slow sequential collectors may miss the
+existing validity deadline; do not relax it or add probe parallelism here. Stop
+the dependent delta if it requires policy/schema/provenance changes, server wire
+changes, runtime actions, consent/enrollment or additional modules. Live proof and
+harness qualification remain outstanding beyond this source slice.
+
+Pressure hardening round1: both findings accepted. Add
+`checkpoint(clock): number` to the tracker, returning a generation incremented
+on every global invalidation. Controller captures generation at collection start,
+compares it after awaits and before publication, and clears its admission cache
+plus aborts any active collection when it observes a generation change. Keep the
+raw slot until drain. An anomaly detected by an intervening read/tick invalidates
+an already-running collection even if its completion clocks later look normal.
+
+`read()` expires windows against current wall time without extending duration.
+`pressureEvidence()` revalidates live policy and controller identity before every
+report; after invalidation it returns unknown/false or refuses, never old predicates.
+Every invalidate retains timestamp watermarks; only a new tracker forgets them.
+Test completed dwell expiring without collection, policy drift before a tick,
+replayed last timestamps after global invalidation, and an intervening read anomaly
+followed by late successful collection with no pool/cache/tracker publication.
+
+Pure accounting API boundary for the disjoint worker: export CapacityEvidenceClock
+with wallMs/monotonicMs, and per-domain evidence with pressure (normal, pressured,
+unknown), observedDurationMs and sampledAtMs (number or null). `read(domainIds,clock)`
+returns a record of that evidence. `observe(samples,clock)` returns independently
+cloned, structurally valid and fresh declared-domain samples for admission reuse;
+unknown-pressure samples may remain in this result so existing admission refusal
+and pool-failure diagnostics remain unchanged. They never establish duration.
+Malformed, stale, future and regressing samples are omitted. Constructor validates
+nonempty unique declared IDs within the existing256-domain bound and a positive
+safe maxSampleAgeMs. All other tracker methods are synchronous. No thresholds or
+runtime policy enter the tracker; controller derives the two predicates.
+
+
+Pressure integration scope refinement: main also updates the existing
+`capacity-controller-integration.test.ts` assertions for the approved queue
+collection-failure contract. Three real-journal/socket cases previously expected
+tick rejection; they must now verify a queued collection-unavailable refusal,
+unchanged pool/reservation evidence and no worker dispatch. This preserves their
+risk seam and adds no new fixture or source surface. Baseline103 tests passed;
+parent controller/queue78 tests now pass. Required reviews remain after commit.
+
+Pressure source integration now passes150 tests across accounting, controller,
+queue, policy and real-journal controller integration. Typecheck, whole-repository
+Biome, Knip, docs policy and knowledge pass. Two pre-existing Biome informational
+findings remain unchanged. The worker's full-sample replay correction prevents
+same-timestamp changed memory charges from replacing accepted admission evidence.
+Main preserved queue expiry handling when policy evidence becomes unavailable;
+collection remains fenced. Integration drift cases now assert queued refusal or
+invalidated-controller watch refusal plus unchanged pool/reservation evidence and
+no worker launch. Build/package and scoped static scan run before commit.
+
+Package size at this checkpoint:4083 additions153 deletions (4236 substantive
+lines across source/scripts against origin/main; project docs excluded). This is
+an early draft for one controller reliability capability under the approved single
+branch, with pending roadmap obligations clearly stated. No ready/merge/release
+claim. Main will reassess package boundaries before integrated final readiness.

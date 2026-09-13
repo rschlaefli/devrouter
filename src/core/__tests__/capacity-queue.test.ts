@@ -819,3 +819,34 @@ describe("CapacityQueue", () => {
     await expect(queued.wait("running", 1_000)).resolves.toBe(true);
   });
 });
+
+it("only collects an idle queue when explicitly requested and never dispatches", async () => {
+  const active = queue();
+  fixture.collect.mockResolvedValue(samples);
+  await active.tick();
+  expect(fixture.collect).not.toHaveBeenCalled();
+  await active.tick({ observeIdle: true });
+  expect(fixture.collect).toHaveBeenCalledTimes(1);
+  expect(fixture.admitLifecycleCapacity).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  active.close();
+});
+
+it("pauses queued work on collection failure without releasing or dispatching", async () => {
+  const active = queue();
+  const prepared = request("collection-failure");
+  active.enqueue(
+    prepared,
+    reservation(prepared.operationId, prepared.fence.environmentId, ["domain-a"]),
+  );
+  fixture.collect.mockRejectedValue(new Error("synthetic collection unavailable"));
+  await active.tick();
+  expect(active.observe(prepared.operationId)).toMatchObject({
+    phase: "queued",
+    reason: "collection-unavailable",
+  });
+  expect(fixture.admitLifecycleCapacity).not.toHaveBeenCalled();
+  expect(fixture.retireQueuedLifecycle).not.toHaveBeenCalled();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  active.close();
+});

@@ -181,7 +181,7 @@ export class CapacityQueue {
     });
   }
 
-  async tick(): Promise<void> {
+  async tick(options: { observeIdle?: boolean } = {}): Promise<void> {
     if (this.ticking || this.closed) return;
     this.ticking = true;
     try {
@@ -190,6 +190,7 @@ export class CapacityQueue {
           this.retire(entry, "queue-expired");
       }
       if (
+        !options.observeIdle &&
         ![...this.entries.values()].some(
           (entry) =>
             (entry.phase === "queued" && performance.now() < entry.expiresAt) ||
@@ -209,7 +210,13 @@ export class CapacityQueue {
         return;
       }
       const policyBytes = JSON.stringify(policy);
-      const samples = await this.options.collect();
+      let samples: Record<string, CapacityDomainSample>;
+      try {
+        samples = await this.options.collect();
+      } catch {
+        this.pause("collection-unavailable");
+        return;
+      }
       if (this.closed) return;
       if (this.options.controller) {
         for (const entry of this.entries.values()) {
