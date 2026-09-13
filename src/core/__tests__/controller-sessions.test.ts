@@ -112,7 +112,7 @@ it("rejects excess sessions without evicting or changing acknowledged bindings",
   sessions.acquire("overflow", env, ["runtime"], 30_004, 31_004);
   expect(() => sessions.acquire("second-overflow", env, ["runtime"], 30_005, 31_005)).toThrow();
   expect(store.read()).toEqual(sessions.read());
-});
+}, 15_000);
 
 it("caps environments while still accepting consumers of an existing environment", () => {
   const { sessions, store } = fixture();

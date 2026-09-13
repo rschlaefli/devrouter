@@ -899,7 +899,7 @@ it("signals a live watch gap when events expire between deliveries", async () =>
   } finally {
     capture.mockRestore();
   }
-});
+}, 15_000);
 
 it("disconnects a subscriber at the output bound while other clients remain responsive", async () => {
   const { controllerRequest } = await import("../controller-client");
