@@ -336,6 +336,7 @@ it("stays idle when a capability outside the required set fails", async () => {
 
 it.each([
   "stale",
+  "pre-tick",
   "future",
   "released",
   "reacquired",
@@ -360,6 +361,7 @@ it.each([
   monitors.push(monitor);
   monitor.tick();
   if (reason === "stale") now = 15_100;
+  if (reason === "pre-tick") batch.sampledAtMs = 99;
   if (reason === "future") batch.sampledAtMs = 101;
   if (reason === "released" || reason === "reacquired") {
     sessions.release(first, 100, Date.now());
