@@ -638,6 +638,86 @@ it("rejects a second live owner without changing its snapshot", async () => {
   ).rejects.toThrow();
   expect(fs.readFileSync(path.join(directory, "snapshot.json"))).toEqual(snapshot);
 });
+it("refuses lost history before exposing a new controller or creating operations", async () => {
+  const { directory, abort, run } = await fixture();
+  abort.abort();
+  await run;
+  const snapshotPath = path.join(directory, "snapshot.json");
+  fs.unlinkSync(snapshotPath);
+  const next = new AbortController();
+  const createOperations = vi.fn();
+  const listening = vi.fn(() => next.abort());
+  await expect(
+    runController({
+      directory,
+      signal: next.signal,
+      onListening: listening,
+      createOperations,
+      resolve: async () => {
+        throw new Error("unused");
+      },
+    }),
+  ).rejects.toThrow();
+  expect(listening).not.toHaveBeenCalled();
+  expect(createOperations).not.toHaveBeenCalled();
+  expect(fs.existsSync(snapshotPath)).toBe(false);
+});
+it("preserves a surviving controller socket when its history is absent", async () => {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-")));
+  directories.push(directory);
+  const original = path.join(directory, "original.sock");
+  const socketPath = path.join(directory, "control.sock");
+  const stale = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    stale.once("error", reject);
+    stale.listen(original, resolve);
+  });
+  fs.chmodSync(original, 0o600);
+  fs.renameSync(original, socketPath);
+  await new Promise<void>((resolve) => stale.close(() => resolve()));
+  const before = fs.lstatSync(socketPath);
+  const abort = new AbortController();
+  const listening = vi.fn(() => abort.abort());
+  await expect(
+    runController({
+      directory,
+      signal: abort.signal,
+      onListening: listening,
+      resolve: async () => {
+        throw new Error("unused");
+      },
+    }),
+  ).rejects.toThrow();
+  expect(listening).not.toHaveBeenCalled();
+  expect(fs.lstatSync(socketPath).ino).toBe(before.ino);
+  expect(fs.existsSync(path.join(directory, "snapshot.json"))).toBe(false);
+});
+it("preserves owner-lock-only loss evidence across repeated startup attempts", async () => {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-")));
+  directories.push(directory);
+  const lock = path.join(directory, "owner.lock");
+  fs.writeFileSync(lock, "interrupted owner evidence", { mode: 0o600 });
+  const before = fs.readFileSync(lock);
+  const createOperations = vi.fn();
+  const listening = vi.fn();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await expect(
+      runController({
+        directory,
+        signal: new AbortController().signal,
+        onListening: listening,
+        createOperations,
+        resolve: async () => {
+          throw new Error("unused");
+        },
+      }),
+    ).rejects.toThrow();
+    expect(fs.readFileSync(lock)).toEqual(before);
+    expect(fs.existsSync(path.join(directory, "snapshot.json"))).toBe(false);
+  }
+  expect(createOperations).not.toHaveBeenCalled();
+  expect(listening).not.toHaveBeenCalled();
+});
 it("rejects an unsupported watch deadline before emitting a successful snapshot", async () => {
   const { controllerRequest } = await import("../controller-client");
   const { directory } = await fixture();

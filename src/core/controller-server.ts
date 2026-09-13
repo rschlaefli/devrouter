@@ -138,9 +138,12 @@ export async function runController(options: {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+  const store = new ControllerStore(options.directory, undefined, true);
+  store.assertStartup();
   await withFileLock(lockPath, { activity: "controller ownership", waitMs: 0 }, async () => {
-    if (validateOwnedFile(socketPath, true)) fs.unlinkSync(socketPath);
-    const sessions = new ControllerSessions(new ControllerStore(options.directory));
+    const staleSocket = validateOwnedFile(socketPath, true);
+    const sessions = new ControllerSessions(store);
+    if (staleSocket) fs.unlinkSync(socketPath);
     const incarnation = sessions.read();
     let startupAvailable = true;
     let operations: ControllerOperations | undefined;

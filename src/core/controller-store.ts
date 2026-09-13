@@ -458,18 +458,23 @@ function parseStoredSnapshot(value: unknown): ControllerSnapshot {
 /** Only the controller's exclusive lifetime owner may read-modify-write this store. */
 export class ControllerStore {
   readonly file: string;
+  private readonly identityFile: string;
+  private identity: string | undefined;
+  private observedStore: string | undefined;
   constructor(
     readonly directory: string,
     private readonly write = writeFileAtomically,
+    private readonly ownsLifetimeLock = false,
   ) {
     this.file = path.join(directory, "snapshot.json");
+    this.identityFile = path.join(directory, "store-identity.json");
   }
 
-  private readBytes(): Buffer | undefined {
+  private readBytes(file = this.file, limit = CONTROLLER_SNAPSHOT_BYTES): Buffer | undefined {
     let fd: number;
     try {
       fd = fs.openSync(
-        this.file,
+        file,
         fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
       );
     } catch (error) {
@@ -482,17 +487,17 @@ export class ControllerStore {
         !stat.isFile() ||
         stat.uid !== process.getuid?.() ||
         (stat.mode & 0o077) !== 0 ||
-        stat.size > CONTROLLER_SNAPSHOT_BYTES
+        stat.size > limit
       )
         fail();
-      const bytes = Buffer.alloc(CONTROLLER_SNAPSHOT_BYTES + 1);
+      const bytes = Buffer.alloc(limit + 1);
       let length = 0;
       while (length < bytes.length) {
         const count = fs.readSync(fd, bytes, length, bytes.length - length, null);
         if (!count) break;
         length += count;
       }
-      if (length > CONTROLLER_SNAPSHOT_BYTES) fail();
+      if (length > limit) fail();
       return bytes.subarray(0, length);
     } catch {
       throw new Error("Controller snapshot is unreadable or invalid.");
@@ -501,31 +506,98 @@ export class ControllerStore {
     }
   }
 
-  read(): ControllerSnapshot | undefined {
-    const bytes = this.readBytes();
-    if (!bytes) return undefined;
+  private readIdentity(): string | undefined {
     try {
-      return parseStoredSnapshot(JSON.parse(bytes.toString("utf8")));
+      const bytes = this.readBytes(this.identityFile, 4096);
+      if (!bytes) return undefined;
+      const value: unknown = JSON.parse(bytes.toString("utf8"));
+      fields(value, ["version", "store"]);
+      if (value.version !== 1 || !id(value.store)) fail();
+      return value.store;
+    } catch {
+      throw new Error("Controller store-identity.json is unreadable or invalid.");
+    }
+  }
+
+  read(): ControllerSnapshot | undefined {
+    const identity = this.readIdentity();
+    if (this.identity && identity !== this.identity)
+      throw new Error("Controller store-identity.json disappeared or changed.");
+    const bytes = this.readBytes();
+    if (!bytes) {
+      if (identity || this.observedStore)
+        throw new Error(
+          "Controller snapshot.json is missing; restore verified history matching store-identity.json.",
+        );
+      return undefined;
+    }
+    try {
+      const snapshot = parseStoredSnapshot(JSON.parse(bytes.toString("utf8")));
+      if (
+        (identity && identity !== snapshot.store) ||
+        (this.observedStore && this.observedStore !== snapshot.store)
+      )
+        fail();
+      this.observedStore = snapshot.store;
+      this.identity = identity;
+      return snapshot;
     } catch {
       throw new Error("Controller snapshot is unreadable or invalid.");
     }
   }
 
+  private assertEmptyDirectory(ignoreOwnerLock: boolean): void {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(this.directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    if (
+      entries.some(
+        (entry) => entry !== "capacity-policy.json" && !(ignoreOwnerLock && entry === "owner.lock"),
+      )
+    )
+      throw new Error(
+        "Controller history is missing with surviving artifacts; restore verified history.",
+      );
+  }
+
+  /** Refuse before acquiring a lock could consume the last surviving history evidence. */
+  assertStartup(): void {
+    if (!this.read()) this.assertEmptyDirectory(false);
+  }
+
+  private enroll(store: string): void {
+    const existing = this.readIdentity();
+    if (existing && existing !== store) throw new Error("Controller store identity changed.");
+    if (!existing)
+      this.commitBytes(this.identityFile, `${JSON.stringify({ version: 1, store })}\n`, 4096);
+    this.identity = store;
+  }
+
   persist(snapshot: ControllerSnapshot): void {
     validateControllerSnapshot(snapshot);
     // Reject an unsafe or corrupt existing destination before replacing it.
-    this.read();
+    const previous = this.read();
+    if (previous && previous.store !== snapshot.store)
+      throw new Error("Controller store identity changed.");
     const contents = `${JSON.stringify(snapshot)}\n`;
+    this.commitBytes(this.file, contents, CONTROLLER_SNAPSHOT_BYTES);
+  }
+
+  private commitBytes(file: string, contents: string, limit: number): void {
     try {
-      this.write(this.file, contents);
+      this.write(file, contents);
     } catch {
       // Rename can precede a failed directory sync. Only the exact stored bytes
       // prove this transition reached disk; a normalized legacy view does not.
-      const stored = this.readBytes();
+      const stored = this.readBytes(file, limit);
       if (!stored || stored.toString("utf8") !== contents)
         throw new Error("Controller snapshot commit failed.");
-      for (const file of [this.file, this.directory]) {
-        const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      for (const target of [file, this.directory]) {
+        const fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
         try {
           fs.fsyncSync(fd);
         } finally {
@@ -537,6 +609,7 @@ export class ControllerStore {
 
   startIncarnation(): ControllerSnapshot {
     const previous = this.read();
+    if (!previous) this.assertEmptyDirectory(this.ownsLifetimeLock);
     if (
       previous &&
       (previous.epoch === Number.MAX_SAFE_INTEGER ||
@@ -544,6 +617,7 @@ export class ControllerStore {
         previous.parkingRevision === Number.MAX_SAFE_INTEGER)
     )
       throw new Error("Controller snapshot counters exhausted.");
+    if (previous) this.enroll(previous.store);
     const snapshot: ControllerSnapshot = {
       version: 2,
       store: previous?.store ?? randomUUID(),
@@ -560,6 +634,7 @@ export class ControllerStore {
       events: [],
     };
     this.persist(snapshot);
+    this.enroll(snapshot.store);
     return snapshot;
   }
 }

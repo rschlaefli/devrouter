@@ -207,6 +207,15 @@ and lost identities remain unresolved. Protection status exposes consent and
 uncertainty counts; `consentSatisfied` proves only the consumer-consent prerequisite.
 These interfaces do not activate parking or provide a reusable execution permit.
 
+The controller's private `store-identity.json` binds its durable snapshot to one
+store. Startup acknowledges only after both files are durable; a valid older
+snapshot enrolls without discarding its history. Missing snapshot bytes with a
+surviving identity or other controller artifact refuse startup. A read-only
+preflight preserves stale lock evidence across repeated refusals. Restore verified
+matching history when available; deleting metadata does not prove that retained
+consumers or resources are gone. Complete deletion of every local artifact cannot
+be distinguished from first initialization by this local evidence alone.
+
 ## Manual operation journal
 
 Each managed workspace keeps one durable reliability record under

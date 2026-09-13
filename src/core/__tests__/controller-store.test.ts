@@ -85,6 +85,102 @@ afterEach(() => {
     fs.rmSync(directory, { recursive: true, force: true });
 });
 describe("controller snapshot durability", () => {
+  it("refuses missing established history on both restart and an existing writer", () => {
+    const store = fixture();
+    const first = store.startIncarnation();
+    acquire(first);
+    store.persist(first);
+    fs.unlinkSync(store.file);
+    expect(() => new ControllerStore(store.directory).startIncarnation()).toThrow();
+    expect(() => store.persist(first)).toThrow();
+    expect(fs.existsSync(store.file)).toBe(false);
+  });
+  it("initializes with operator policy and enrolls both private artifacts", () => {
+    const store = fixture();
+    fs.writeFileSync(path.join(store.directory, "capacity-policy.json"), "{}", { mode: 0o600 });
+    const snapshot = store.startIncarnation();
+    const identity = path.join(store.directory, "store-identity.json");
+    expect(JSON.parse(fs.readFileSync(identity, "utf8"))).toEqual({
+      version: 1,
+      store: snapshot.store,
+    });
+    expect(fs.statSync(identity).mode & 0o777).toBe(0o600);
+    expect(snapshot.history).toBe("complete");
+  });
+  it.each([
+    "capacity-reservations.json",
+    "owner.lock",
+    ".snapshot.interrupted.tmp",
+  ])("refuses fresh initialization with surviving %s evidence", (name) => {
+    const store = fixture();
+    const artifact = path.join(store.directory, name);
+    fs.writeFileSync(artifact, "retained evidence", { mode: 0o600 });
+    expect(() => store.startIncarnation()).toThrow();
+    expect(fs.readFileSync(artifact, "utf8")).toBe("retained evidence");
+    expect(fs.existsSync(store.file)).toBe(false);
+  });
+  it("refuses a lost marker in the running writer", () => {
+    const store = fixture();
+    const snapshot = store.startIncarnation();
+    const before = fs.readFileSync(store.file);
+    fs.unlinkSync(path.join(store.directory, "store-identity.json"));
+    expect(() => store.persist(snapshot)).toThrow();
+    expect(fs.readFileSync(store.file)).toEqual(before);
+  });
+  it("refuses legacy history lost after the read-only startup preflight", () => {
+    const store = fixture();
+    writeLegacy(store);
+    store.assertStartup();
+    fs.unlinkSync(store.file);
+    expect(() => store.startIncarnation()).toThrow();
+    expect(fs.readdirSync(store.directory)).toEqual([]);
+  });
+  it.each([
+    "mismatch",
+    "corrupt",
+    "extra-field",
+    "public",
+    "symlink",
+    "oversized",
+  ])("refuses a %s identity marker without replacing either artifact", (mode) => {
+    const store = fixture();
+    const snapshot = store.startIncarnation();
+    const identity = path.join(store.directory, "store-identity.json");
+    if (mode === "mismatch")
+      fs.writeFileSync(identity, JSON.stringify({ version: 1, store: "different" }));
+    if (mode === "corrupt") fs.writeFileSync(identity, "{");
+    if (mode === "extra-field")
+      fs.writeFileSync(
+        identity,
+        JSON.stringify({ version: 1, store: snapshot.store, extra: true }),
+      );
+    if (mode === "public") fs.chmodSync(identity, 0o644);
+    if (mode === "oversized") fs.writeFileSync(identity, " ".repeat(4097));
+    if (mode === "symlink") {
+      fs.renameSync(identity, `${identity}.target`);
+      fs.symlinkSync(`${identity}.target`, identity);
+    }
+    const before = fs.readFileSync(store.file);
+    const marker = fs.readFileSync(identity);
+    expect(() => new ControllerStore(store.directory).startIncarnation()).toThrow();
+    expect(fs.readFileSync(store.file)).toEqual(before);
+    expect(fs.readFileSync(identity)).toEqual(marker);
+  });
+  it.each([false, true])("resumes interrupted marker enrollment (renamed: %s)", (renamed) => {
+    const store = fixture();
+    const interrupted = new ControllerStore(store.directory, (file, bytes) => {
+      if (path.basename(file) !== "store-identity.json") return writeFileAtomically(file, bytes);
+      if (renamed) writeFileAtomically(file, bytes);
+      throw new Error("injected marker commit failure");
+    });
+    if (renamed) expect(interrupted.startIncarnation().epoch).toBe(1);
+    else expect(() => interrupted.startIncarnation()).toThrow();
+    const first = store.read()!;
+    const resumed = new ControllerStore(store.directory).startIncarnation();
+    expect(resumed.store).toBe(first.store);
+    expect(resumed.epoch).toBe(first.epoch + 1);
+    expect(resumed.history).toBe("complete");
+  });
   it("advances the epoch with stable store identity and retains sessions on restart", () => {
     const store = fixture();
     const first = store.startIncarnation();
@@ -275,7 +371,8 @@ describe("controller consent snapshot contract", () => {
     const store = fixture();
     writeLegacy(store);
     const normalized = store.read() as ControllerSnapshot;
-    const broken = new ControllerStore(store.directory, (file) => {
+    const broken = new ControllerStore(store.directory, (file, bytes) => {
+      if (file !== store.file) return writeFileAtomically(file, bytes);
       writeFileAtomically(file, `${JSON.stringify(normalized)}\n`);
       throw new Error("installed normalized view");
     });

@@ -1163,3 +1163,78 @@ prior-reader compatibility was checked against the original committed validator:
 v1 accepted, v2 refused. No consumer runtime, controller enrollment or global
 installation changed. Lost/legacy identity reconciliation, cross-process HMAC
 continuity, exact-set parking proof and full park/resume integration remain open.
+
+
+### Store-loss correction — frozen derived contract
+
+Faraday's consent review found that missing snapshot bytes invent complete history.
+Both new store and host socket regressions reproduce the issue at d72600d. Route:
+main for this same-slice correction (critical-path coupling; original executor's
+correction budget was consumed). Acceptance: lost-history refuses before any
+startup acknowledgment or operation factory; normal first creation, migration,
+and durable restart continue with retained consumer protection.
+
+Add private bounded write-once store-identity.json in the existing controller
+directory, exact version1/store fields. Read validates both artifacts and exact
+identity; missing snapshot with marker, mismatched IDs, or unsafe/corrupt marker
+refuses. Read remains non-mutating; a valid snapshot without marker remains
+readable and enrolls only at startup, preserving its existing complete or
+legacy-unknown history. The live writer caches enrolled identity and refuses
+marker disappearance or identity replacement. It never repairs missing history.
+
+For first initialization persist the snapshot, then the marker, and acknowledge
+only after both are durable. Interrupted marker creation leaves a valid snapshot
+that the next startup can enroll. With a previous valid snapshot, persist its
+marker before advancing incarnation. Exact raw bytes plus successful file and
+directory sync may resolve a reported post-rename error; other failures refuse.
+Marker creation reuses the existing atomic-write implementation; no new module.
+
+Before acquiring its own owner lock, the server performs a read-only startup
+preflight: missing history with any prior artifact, including owner.lock, refuses
+immediately without reclaiming the lock. Cache any observed store identity in
+this Store instance so disappearance during acquisition also refuses. Under the
+lock revalidate surviving artifacts before initialization, ignoring only the
+newly acquired own lock, and preserve the socket until store startup succeeds.
+A missing snapshot plus preexisting/ambiguous runtime artifacts refuses; the
+newly acquired owner lock and operator-provisioned capacity-policy.json alone
+do not prevent a genuine first start. Unknown leftover files also refuse fresh
+initialization. Ordinary restarts with a valid snapshot are unaffected.
+
+Total deletion of snapshot, identity, and every surviving local lifecycle
+artifact cannot be distinguished from first use. No total-loss guarantee is
+claimed. Do not offer metadata deletion as a recovery procedure: restore a
+verified matching snapshot; explicit reconciliation remains a roadmap obligation.
+
+Paths: controller-store.ts, controller-server.ts, their existing test files,
+this plan and managed-environment-lifecycle.md. No snapshot schema or IPC extension,
+provider/runtime effects or relaxed ownership. Existing store/server loss
+regressions must turn green. Extend tests for marker safety/mismatch, first use
+with policy, legacy and interrupted enrollment, exact-byte sync uncertainty,
+existing writer marker loss, and refusal before socket replacement. Then focused
+controller suites, static/docs/knowledge, whole bounded suite, build/package,
+and the same Faraday correction pass. Advisor Claude Opus5/xhigh consultation
+completed DONE_WITH_CONCERNS; main accepts preservation and loss-limit notes,
+adds pre-lock owner/unknown-artifact proof, rejects deletion as routine recovery.
+Required planner challenge precedes source implementation.
+
+Planner round1 REVISE accepted: in-memory prior-artifact evidence alone would
+consume a stale owner-lock-only directory through lock reclaim/release; a second
+attempt could initialize. Read-only preflight must refuse BEFORE acquiring that
+lock, and both consecutive attempts must retain the original lock bytes and
+invoke neither operations nor listening. Under-lock recheck remains required.
+No mutation is needed to preserve refusal evidence. Planner round2 APPROVED.
+
+Store-loss correction verification: both baseline regressions failed before the
+fix; final36store,31server and17session cases pass. Full2433tests/143files pass
+with2workers. Biome, typecheck, Knip, docs-policy, knowledge, build and packed CLI
+smoke pass; focused Opengrep210rules/2files reports0findings. Existing2Biome
+informational messages remain unchanged. No consumer runtime/global install.
+Correction review and CI remain pending at this commit. Added18tests protecting
+loss, marker integrity, crash enrollment and repeated-refusal boundaries; changed
+one previous fault injection to target the snapshot after marker enrollment.
+
+Independent Q32 source mapping also confirms capacity-reservations.json loss
+returns revision0/empty and can permit new admission; effect-time old bindings
+still refuse. This needs a separately derived bounded ledger-loss correction
+before parking integration. No external deletion likelihood or live incident is
+claimed; the current controller correction does not close that capacity gap.
