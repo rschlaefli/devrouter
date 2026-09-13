@@ -7,6 +7,7 @@ import { reliabilityFence } from "./reliability-contract";
 import {
   admitLifecycleCapacity,
   renewLifecycleCapacity,
+  restoreParkedIntentAfterFailedResume,
   retireQueuedLifecycle,
 } from "./reliability-lifecycle";
 import {
@@ -26,6 +27,8 @@ type Entry = {
   phase: "queued" | "running" | "terminal";
   reason: string | null;
   expiresAt: number;
+  /** True when the entry is the ensure that automatic resume requested. */
+  autoResume: boolean;
   output: LifecycleOutput;
   abort: AbortController;
   waiters: Set<() => void>;
@@ -69,6 +72,7 @@ export class CapacityQueue {
     request: LifecycleWorkerRequest,
     reservation: CapacityReservation,
     admission?: CapacityAdmissionContext,
+    autoResume = false,
   ): string {
     if (this.closed) throw new Error("Capacity queue is closed.");
     if (request.kind === "stop" || request.operationId !== reservation.operationId)
@@ -86,7 +90,8 @@ export class CapacityQueue {
       if (
         !isDeepStrictEqual(existingRequest, incomingRequest) ||
         !isDeepStrictEqual(existing.reservation, reservation) ||
-        !isDeepStrictEqual(existing.admission, admission)
+        !isDeepStrictEqual(existing.admission, admission) ||
+        existing.autoResume !== autoResume
       )
         throw new Error("Operation reference belongs to another accepted request.");
       return request.operationId;
@@ -118,6 +123,7 @@ export class CapacityQueue {
       phase: "queued",
       reason: null,
       expiresAt: performance.now() + this.limits.lifetimeMs,
+      autoResume,
       output: new LifecycleOutput(),
       abort: new AbortController(),
       waiters: new Set(),
@@ -362,12 +368,27 @@ export class CapacityQueue {
   private retire(entry: Entry, reason: string): void {
     try {
       retireQueuedLifecycle(entry.request);
-      entry.reason = reason;
-      entry.phase = "terminal";
-      entry.request.command = undefined;
-      this.finish(entry);
     } catch {
       entry.reason = "retirement-unproven";
+      return;
     }
+    // A resume that never dispatched has no home for its running intent. Return
+    // it to the park it came from so a later pass re-proves cessation and demand
+    // instead of leaving the environment wedged in intent no worker will honor.
+    if (entry.autoResume && this.options.controller) {
+      try {
+        restoreParkedIntentAfterFailedResume({
+          identity: entry.request.identity,
+          controller: this.options.controller,
+          request: entry.request,
+        });
+      } catch {
+        // Retain the conservative running intent; a later ensure supersedes it.
+      }
+    }
+    entry.reason = reason;
+    entry.phase = "terminal";
+    entry.request.command = undefined;
+    this.finish(entry);
   }
 }

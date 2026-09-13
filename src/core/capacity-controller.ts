@@ -14,7 +14,11 @@ import { capacityRequest } from "./capacity-request";
 import { publishQueuedStartupWitness } from "./capacity-startup-witness";
 import type { CapacityPoolReservation } from "./capacity-store";
 import { createControllerBindingResolver, readControllerEvidence } from "./controller-binding";
-import type { ControllerCapacityDirective, ControllerRecovery } from "./controller-monitor";
+import {
+  type ControllerCapacityDirective,
+  type ControllerRecovery,
+  environmentIdentity,
+} from "./controller-monitor";
 import type {
   ControllerOperations,
   ControllerResolver,
@@ -400,12 +404,6 @@ export function createCapacityController(options: {
     return { current, resolved, runtime };
   };
 
-  const capacityIdentity = (environment: ControllerEnvironment) => ({
-    repoPath: environment.repoPath,
-    workspace: environment.workspace || null,
-    provider: environment.provider,
-  });
-
   const capacityPool = (
     runtime: { daemonId: string; hostDomain: string; hostChargeCeilingBytes: number },
     runtimeDomain: string,
@@ -440,7 +438,7 @@ export function createCapacityController(options: {
         return false;
       }
       if (!sustained) return false;
-      const identity = capacityIdentity(environment);
+      const identity = environmentIdentity(environment);
       const prepared = prepareParkLifecycleOperation({
         identity,
         controller,
@@ -454,7 +452,7 @@ export function createCapacityController(options: {
       await runLifecycleWorker(prepared.request);
       return true;
     },
-    async parkedStop(environment, signal) {
+    async parkedStop(identity, signal) {
       const bounded = AbortSignal.any([signal, lifetime.signal]);
       if (bounded.aborted) return false;
       // A committed park owes the environment a physical stop even if recovery
@@ -462,7 +460,7 @@ export function createCapacityController(options: {
       const current = readCapacityPolicy(options.directory);
       if (current?.admissions !== "enabled" || !isDeepStrictEqual(current, policy)) return false;
       const request = reconcileParkedLifecycleStop({
-        identity: capacityIdentity(environment),
+        identity: { ...identity },
         controller,
         policyRevision: current.revision,
       });
@@ -485,7 +483,7 @@ export function createCapacityController(options: {
         return false;
       }
       if (!headroom) return false;
-      const identity = capacityIdentity(environment);
+      const identity = environmentIdentity(environment);
       const record = readReliabilityOperation(identity);
       if (!record) return false;
       const prepared = prepareResumeLifecycleOperation({
@@ -518,6 +516,7 @@ export function createCapacityController(options: {
             enrollment: target.resolved.enrollment,
             pool: capacityPool(target.runtime, target.resolved.enrollment.runtimeDomain),
           },
+          true,
         );
       } catch {
         // A queue that cannot hold the resume must not leave running intent
@@ -577,11 +576,7 @@ export function createCapacityController(options: {
         hostDomain: runtime.hostDomain,
         hostChargeCeilingBytes: runtime.hostChargeCeilingBytes,
       };
-      const identity = {
-        repoPath: environment.repoPath,
-        workspace: environment.workspace || null,
-        provider: environment.provider,
-      };
+      const identity = environmentIdentity(environment);
       const record = readReliabilityOperation(identity);
       if (!record) throw new Error("Capacity lifecycle journal unavailable.");
       if ((record.preparation || record.capacity?.execSteady) && record.state.operation?.drained)
@@ -675,11 +670,7 @@ export function createCapacityController(options: {
     },
     async watch(request, environment, signal) {
       if (lifetime.signal.aborted || signal.aborted) throw new Error("Capacity watch unavailable.");
-      const identity = {
-        repoPath: environment.repoPath,
-        workspace: environment.workspace || null,
-        provider: environment.provider,
-      };
+      const identity = environmentIdentity(environment);
       const before = readLifecycleOperationStatus(identity, request.operationId);
       if (!before) throw new Error("Operation does not belong to this environment.");
       if (before.phase !== "terminal" && queue.observePage(request.operationId))
@@ -760,11 +751,7 @@ export function createCapacityController(options: {
         !current.enrollments.some((entry) => isDeepStrictEqual(entry, resolved.enrollment))
       )
         return;
-      const identity = {
-        repoPath: environment.repoPath,
-        workspace: environment.workspace || null,
-        provider: environment.provider,
-      };
+      const identity = environmentIdentity(environment);
       const record = readReliabilityOperation(identity);
       const durable = record?.enrollment;
       // Recovery never converts or repairs enrollment: the durable binding must

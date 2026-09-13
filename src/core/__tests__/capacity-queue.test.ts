@@ -9,6 +9,7 @@ const fixture = vi.hoisted(() => ({
   admitLifecycleCapacity: vi.fn(),
   collect: vi.fn(),
   retireQueuedLifecycle: vi.fn(),
+  restoreParkedIntentAfterFailedResume: vi.fn(),
   runLifecycleWorker: vi.fn(),
   readCapacityPolicy: vi.fn(),
   renewLifecycleCapacity: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.readCapacityP
 vi.mock("../reliability-lifecycle", () => ({
   admitLifecycleCapacity: fixture.admitLifecycleCapacity,
   retireQueuedLifecycle: fixture.retireQueuedLifecycle,
+  restoreParkedIntentAfterFailedResume: fixture.restoreParkedIntentAfterFailedResume,
   renewLifecycleCapacity: fixture.renewLifecycleCapacity,
 }));
 
@@ -145,6 +147,7 @@ afterEach(() => {
   fixture.admitLifecycleCapacity.mockReset();
   fixture.collect.mockReset();
   fixture.retireQueuedLifecycle.mockReset();
+  fixture.restoreParkedIntentAfterFailedResume.mockReset();
   fixture.runLifecycleWorker.mockReset();
   fixture.renewLifecycleCapacity.mockReset();
   fixture.journal.mockReset();
@@ -321,6 +324,48 @@ describe("CapacityQueue", () => {
     });
     expect(fixture.runLifecycleWorker).toHaveBeenCalledTimes(1);
     expect(fixture.runLifecycleWorker.mock.calls[0][0].operationId).toBe("next");
+  });
+
+  it("returns an expired automatic resume to parked intent and never re-parks an operator ensure", async () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    const queued = queue(
+      { maxQueuedTotal: 64, maxQueuedPerDomain: 32, queueLifetimeSeconds: 1 },
+      { store: "store", epoch: 1 },
+    );
+    fixture.collect.mockResolvedValue(samples);
+    fixture.admitLifecycleCapacity.mockReturnValue({
+      admitted: false,
+      domain: "domain-a",
+      reason: "memory",
+    });
+    fixture.retireQueuedLifecycle.mockReturnValue(true);
+    queued.enqueue(
+      request("resume"),
+      reservation("resume", "environment-resume", ["domain-a"]),
+      undefined,
+      true,
+    );
+    queued.enqueue(request("ensure"), reservation("ensure", "environment-ensure", ["domain-b"]));
+    clock.mockReturnValue(2_000);
+    await queued.tick();
+    expect(fixture.restoreParkedIntentAfterFailedResume).toHaveBeenCalledTimes(1);
+    expect(fixture.restoreParkedIntentAfterFailedResume).toHaveBeenCalledWith({
+      identity: expect.objectContaining({ provider: "devsy" }),
+      controller: { store: "store", epoch: 1 },
+      request: expect.objectContaining({ operationId: "resume" }),
+    });
+    expect(queued.observe("resume")).toMatchObject({ phase: "terminal", reason: "queue-expired" });
+    expect(queued.observe("ensure")).toMatchObject({ phase: "terminal", reason: "queue-expired" });
+  });
+
+  it("rejects an automatic resume reference that does not match the retained intent", async () => {
+    const queued = queue(undefined, { store: "store", epoch: 1 });
+    const resume = request("resume");
+    const acceptance = reservation("resume", "environment-resume", ["domain-a"]);
+    queued.enqueue(resume, acceptance, undefined, true);
+    expect(() => queued.enqueue(resume, acceptance, undefined, false)).toThrow(
+      "Operation reference belongs to another accepted request.",
+    );
   });
 
   it("does not abort or relaunch an accepted worker after caller timeout", async () => {

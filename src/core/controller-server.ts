@@ -8,6 +8,7 @@ import {
   type ControllerObservationCollector,
   type ControllerRecovery,
   controllerCapability,
+  environmentIdentity,
   sessionConsumerId,
 } from "./controller-monitor";
 import { type ControllerRequest, parseControllerRequest } from "./controller-protocol";
@@ -372,11 +373,7 @@ export async function runController(options: {
               .read()
               .environments.find((entry) => entry.id === session.environmentId);
             if (!environment) throw new Error("Protection environment unavailable.");
-            const identity = {
-              repoPath: environment.repoPath,
-              workspace: environment.workspace || null,
-              provider: environment.provider,
-            };
+            const identity = environmentIdentity(environment);
             const journal = readReliabilityOperation(identity);
             if (!journal) throw new Error("Protection journal unavailable.");
             return {
@@ -667,11 +664,7 @@ export async function runController(options: {
             result = {
               operation:
                 readLifecycleOperationStatus(
-                  {
-                    repoPath: environment.repoPath,
-                    workspace: environment.workspace || null,
-                    provider: environment.provider,
-                  },
+                  environmentIdentity(environment),
                   request.operationId,
                 ) ?? null,
             };

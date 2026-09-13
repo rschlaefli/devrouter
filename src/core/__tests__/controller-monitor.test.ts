@@ -7,12 +7,16 @@ import {
   ControllerMonitor,
   type ControllerObservationBatch,
   controllerCapability,
+  environmentIdentity,
   sessionConsumerId,
 } from "../controller-monitor";
 import { ControllerSessions } from "../controller-sessions";
 import { ControllerStore } from "../controller-store";
 import { createReliabilityState } from "../reliability-contract";
-import type { ReliabilityOperationRecord } from "../reliability-operation-store";
+import type {
+  ReliabilityIdentity,
+  ReliabilityOperationRecord,
+} from "../reliability-operation-store";
 
 const directories: string[] = [];
 const monitors: ControllerMonitor[] = [];
@@ -877,6 +881,7 @@ async function capacityPassFixture(options: {
     proof?: string;
     demand?: string[] | undefined;
     error?: string;
+    identity?: ReliabilityIdentity;
   }[] = [];
   const demand: { run?: () => string[] } = {};
   const directive: ControllerCapacityDirective = {
@@ -884,8 +889,8 @@ async function capacityPassFixture(options: {
       calls.push({ kind: "park", revision, proof: observation(record) });
       return true;
     }),
-    parkedStop: vi.fn(async () => {
-      calls.push({ kind: "parkedStop", revision: record.revision });
+    parkedStop: vi.fn(async (identity) => {
+      calls.push({ kind: "parkedStop", revision: record.revision, identity });
       return true;
     }),
     resume: vi.fn(async (_environment, revision, liveDemand) => {
@@ -910,6 +915,7 @@ async function capacityPassFixture(options: {
     undefined,
     directive,
     () => record,
+    () => [record],
   );
   monitors.push(monitor);
   monitor.tick();
@@ -954,9 +960,10 @@ it("refuses to park when the environment proved a usable consumer", async () => 
   });
 });
 
-it("resumes a settled park with exact live demand and re-drives an unsettled one", async () => {
+it("resumes a settled park with exact live demand and reconciles an unsettled one", async () => {
   const settled = await capacityPassFixture({ desired: "parked-for-capacity", settled: true });
   expect(settled.directive.resume).toHaveBeenCalledTimes(1);
+  expect(settled.directive.parkedStop).not.toHaveBeenCalled();
   const live = settled.sessions.read().sessions[0];
   expect(settled.calls[0]).toEqual({
     kind: "resume",
@@ -972,7 +979,61 @@ it("resumes a settled park with exact live demand and re-drives an unsettled one
   });
   const unsettled = await capacityPassFixture({ desired: "parked-for-capacity" });
   expect(unsettled.directive.parkedStop).toHaveBeenCalledTimes(1);
+  expect(unsettled.calls.at(-1)).toMatchObject({
+    kind: "parkedStop",
+    identity: environmentIdentity(environment),
+  });
   expect(unsettled.directive.resume).not.toHaveBeenCalled();
+});
+
+it("re-drives a committed park from the durable journal after the last session is gone", async () => {
+  const f = fixture();
+  const time = { now: 100 };
+  f.sessions.release(f.first, time.now, Date.now());
+  const record = {
+    version: 2,
+    identity: environmentIdentity(environment),
+    revision: 9,
+    state: createReliabilityState("environment", 0, "capacity-managed"),
+    worker: null,
+    effectSequence: 0,
+    outcome: null,
+  } as unknown as ReliabilityOperationRecord;
+  record.state.desired = "parked-for-capacity";
+  record.state.phase = "idle";
+  record.state.stopProof = { workloadsStopped: false, routesRemoved: false };
+  const parkedStop = vi.fn(async (_identity: ReliabilityIdentity) => true);
+  const directive: ControllerCapacityDirective = {
+    park: vi.fn(async () => false),
+    parkedStop,
+    resume: vi.fn(async () => false),
+  };
+  const monitor = new ControllerMonitor(
+    f.sessions,
+    async () => f.batch,
+    async (operation) => operation(),
+    () => time.now,
+    (_identity, _revision, publish) => publish(f.batch.journal),
+    undefined,
+    directive,
+    () => record,
+    () => [record],
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  await flush();
+  expect(parkedStop).toHaveBeenCalledTimes(1);
+  expect(parkedStop.mock.calls[0][0]).toEqual(environmentIdentity(environment));
+  expect(directive.park).not.toHaveBeenCalled();
+  expect(directive.resume).not.toHaveBeenCalled();
+  // One bounded action per pass: the same park is not re-driven inside the scan interval.
+  monitor.tick();
+  await flush();
+  expect(parkedStop).toHaveBeenCalledTimes(1);
+  time.now += 10_000;
+  monitor.tick();
+  await flush();
+  expect(parkedStop).toHaveBeenCalledTimes(2);
 });
 
 it("refuses resume demand when the consumer set changed after the observation", async () => {

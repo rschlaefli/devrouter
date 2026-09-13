@@ -49,7 +49,12 @@ export type ControllerCapacityDirective = {
     observation: (journal: ReliabilityOperationRecord) => ControllerParkingObservation,
     signal: AbortSignal,
   ) => Promise<boolean>;
-  parkedStop: (environment: ControllerEnvironment, signal: AbortSignal) => Promise<boolean>;
+  /**
+   * Finish a committed park whose physical stop never ran to completion. The
+   * durable journal names the environment, so this is driven by identity rather
+   * than by a live session: the last consumer may already be gone.
+   */
+  parkedStop: (identity: ReliabilityIdentity, signal: AbortSignal) => Promise<boolean>;
   resume: (
     environment: ControllerEnvironment,
     journalRevision: number,
@@ -63,6 +68,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { ControllerBinding, ControllerSessions } from "./controller-sessions";
 import type { ControllerProjection, ControllerSession } from "./controller-store";
 import {
+  listReliabilityOperations,
   readReliabilityOperation,
   withReliabilityObservationFence,
 } from "./reliability-operation-store";
@@ -90,6 +96,22 @@ export function sessionConsumerId(input: {
     .update(JSON.stringify([store, epoch, session, generation]))
     .digest("hex")}`;
 }
+
+/** The durable journal identity of one live environment binding. */
+export function environmentIdentity(environment: ControllerEnvironment): ReliabilityIdentity {
+  return {
+    repoPath: environment.repoPath,
+    workspace: environment.workspace || null,
+    provider: environment.provider,
+  };
+}
+
+function identityKey(identity: ReliabilityIdentity): string {
+  return JSON.stringify([identity.repoPath, identity.workspace, identity.provider]);
+}
+
+/** How often the durable journal is enumerated for an unfinished park stop. */
+const UNFINISHED_PARK_SCAN_MS = 10_000;
 
 export type ControllerParkingObservation =
   | "observation-unavailable"
@@ -141,6 +163,9 @@ export class ControllerMonitor {
   private lastStarted = new Map<string, number>();
   private capacityActive = new Set<string>();
   private lastCapacity = new Map<string, number>();
+  private unfinishedParkActive = new Set<string>();
+  private lastUnfinishedParkScan: number | undefined;
+  private readonly lifetime = new AbortController();
   private stopped = false;
   private parkingObservations = new Map<string, ParkingObservation>();
   constructor(
@@ -154,9 +179,11 @@ export class ControllerMonitor {
     private readonly readJournal: (
       identity: ReliabilityIdentity,
     ) => ReliabilityOperationRecord | undefined = readReliabilityOperation,
+    private readonly listJournals: () => ReliabilityOperationRecord[] = listReliabilityOperations,
   ) {}
   stop(): void {
     this.stopped = true;
+    this.lifetime.abort();
     this.parkingObservations.clear();
     for (const abort of this.active.values()) abort.abort();
   }
@@ -299,6 +326,9 @@ export class ControllerMonitor {
     if (this.stopped || !this.capacity) return;
     const snapshot = this.sessions.read();
     const now = this.clock();
+    // A committed park outlives the session that requested it, so its stop is
+    // reconciled from the durable journal before any live-session decision.
+    if (await this.reconcileUnfinishedParkStops(now)) return;
     for (const environment of snapshot.environments) {
       if (this.stopped) return;
       if (this.capacityActive.has(environment.id)) continue;
@@ -307,7 +337,7 @@ export class ControllerMonitor {
       if (now - (this.lastCapacity.get(environment.id) ?? -Infinity) < 5000) continue;
       this.lastCapacity.set(environment.id, now);
       this.capacityActive.add(environment.id);
-      const abort = new AbortController();
+      const abort = this.lifetime;
       let acted = false;
       try {
         await this.serialize(async () => {
@@ -318,14 +348,15 @@ export class ControllerMonitor {
           if (record.state.desired === "parked-for-capacity") {
             const settled =
               record.state.stopProof.workloadsStopped && record.state.stopProof.routesRemoved;
-            acted = settled
-              ? await this.capacity.resume(
-                  environment,
-                  record.revision,
-                  () => this.liveConsumerIds(environment),
-                  abort.signal,
-                )
-              : await this.capacity.parkedStop(environment, abort.signal);
+            // An unsettled stop is not a live-session decision: the durable
+            // reconciliation above owns it, with or without a remaining session.
+            if (settled)
+              acted = await this.capacity.resume(
+                environment,
+                record.revision,
+                () => this.liveConsumerIds(environment),
+                abort.signal,
+              );
             return;
           }
           if (record.state.desired !== "running") return;
@@ -346,6 +377,49 @@ export class ControllerMonitor {
       // observation rather than draining the whole host in one tick.
       if (acted) return;
     }
+  }
+  /**
+   * Re-drive a committed park whose physical stop never finished. The durable
+   * journal is the only authority that can still name that environment once the
+   * controller restarts or the last consumer session expires, so this pass
+   * enumerates journals instead of the live snapshot, re-proves each candidate
+   * under the controller's own transactional reconciliation, and drives at most
+   * one stop. Refusals and unreadable journals leave the held charge untouched
+   * for a later pass rather than authorizing a stop on weaker evidence.
+   */
+  private async reconcileUnfinishedParkStops(now: number): Promise<boolean> {
+    if (now - (this.lastUnfinishedParkScan ?? -Infinity) < UNFINISHED_PARK_SCAN_MS) return false;
+    this.lastUnfinishedParkScan = now;
+    let journals: ReliabilityOperationRecord[];
+    try {
+      journals = this.listJournals();
+    } catch {
+      // Journal authority is unavailable, so no unfinished park can be proven.
+      return false;
+    }
+    for (const record of journals) {
+      if (this.stopped || !this.capacity) return false;
+      if (record.state.executionPolicy !== "capacity-managed") continue;
+      if (record.state.desired !== "parked-for-capacity") continue;
+      if (record.state.stopProof.workloadsStopped && record.state.stopProof.routesRemoved) continue;
+      const key = identityKey(record.identity);
+      if (this.unfinishedParkActive.has(key)) continue;
+      this.unfinishedParkActive.add(key);
+      const abort = this.lifetime;
+      let acted = false;
+      try {
+        await this.serialize(async () => {
+          if (this.stopped || abort.signal.aborted || !this.capacity) return;
+          acted = await this.capacity.parkedStop({ ...record.identity }, abort.signal);
+        });
+      } catch {
+        // A refused stop leaves the durable park untouched for a later pass.
+      } finally {
+        this.unfinishedParkActive.delete(key);
+      }
+      if (acted) return true;
+    }
+    return false;
   }
   tick(): void {
     if (this.stopped) return;

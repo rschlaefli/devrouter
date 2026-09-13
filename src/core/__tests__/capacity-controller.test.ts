@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createCapacityController } from "../capacity-controller";
-import { controllerCapability } from "../controller-monitor";
+import { controllerCapability, environmentIdentity } from "../controller-monitor";
 import type { ControllerSessionValidator } from "../controller-server";
 
 const fixture = vi.hoisted(() => ({
@@ -1455,6 +1455,8 @@ it("refuses to resume while headroom has not dwelled normal", async () => {
 it("refuses a parked stop once the operator policy changed", async () => {
   const context = capacityPolicyFixture();
   fixture.policy.mockReturnValue({ ...context.policy, revision: 2 });
-  await expect(context.capacity.parkedStop(environment, capacitySignal())).resolves.toBe(false);
+  await expect(
+    context.capacity.parkedStop(environmentIdentity(environment), capacitySignal()),
+  ).resolves.toBe(false);
   context.active.close();
 });
