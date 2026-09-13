@@ -1373,3 +1373,88 @@ it.each([
   expect(fixture.tick).toHaveBeenCalledWith({ observeIdle: enabled });
   active.close();
 });
+
+/**
+ * A controller incarnation whose cloned policy already enrolls the capacity
+ * target. The enrolment has to exist before startup: the target resolver
+ * re-reads the live policy and refuses a decision when it differs from the
+ * clone, so adding an enrolment afterwards is a policy change rather than a
+ * fixture shortcut. None of the refused paths below reach worker dispatch,
+ * which is why the lifecycle preparation mocks stay untouched.
+ */
+const capacityEnrollment = {
+  hostDomain: "host",
+  runtimeDomain: "runtime-0",
+  gitCommonDir: "/fixture/.git",
+  providerId: "provider",
+  estimatesDigest: "c".repeat(64),
+};
+
+function capacityPolicyFixture(options: { recoveryEnabled?: boolean; enroll?: boolean } = {}) {
+  const base = collectionPolicy();
+  const policy = {
+    ...base,
+    recovery: {
+      ...base.recovery,
+      enabled: options.recoveryEnabled ?? true,
+      observationSeconds: 2,
+      resumeDwellSeconds: 3,
+    },
+    enrollments: (options.enroll ?? true) ? [capacityEnrollment] : [],
+  };
+  fixture.policy.mockReturnValue(policy);
+  fixture.resolve.mockResolvedValue({
+    environment,
+    enrollment: capacityEnrollment,
+    estimates: { host: { steadyBytes: 1 } },
+  });
+  const active = controller();
+  if (!active.capacity) throw new Error("Capacity directive is unavailable.");
+  return { policy, active, capacity: active.capacity };
+}
+
+const capacitySignal = () => new AbortController().signal;
+
+it("refuses to park while automatic recovery is disabled", async () => {
+  const context = capacityPolicyFixture({ recoveryEnabled: false });
+  await expect(
+    context.capacity.park(environment, 1, () => "unusable-consumers-proven", capacitySignal()),
+  ).resolves.toBe(false);
+  expect(fixture.resolve).not.toHaveBeenCalled();
+  context.active.close();
+});
+
+it("refuses to park an environment the policy does not enroll", async () => {
+  const context = capacityPolicyFixture({ enroll: false });
+  await expect(
+    context.capacity.park(environment, 1, () => "unusable-consumers-proven", capacitySignal()),
+  ).resolves.toBe(false);
+  expect(fixture.resolve).toHaveBeenCalledTimes(1);
+  context.active.close();
+});
+
+it("refuses to park without sustained pressure evidence", async () => {
+  const context = capacityPolicyFixture();
+  await expect(
+    context.capacity.park(environment, 1, () => "unusable-consumers-proven", capacitySignal()),
+  ).resolves.toBe(false);
+  // The enrolled target resolved, so the refusal came from the pressure gate.
+  expect(fixture.resolve).toHaveBeenCalledTimes(1);
+  context.active.close();
+});
+
+it("refuses to resume while headroom has not dwelled normal", async () => {
+  const context = capacityPolicyFixture();
+  await expect(context.capacity.resume(environment, 1, () => [], capacitySignal())).resolves.toBe(
+    false,
+  );
+  expect(fixture.resolve).toHaveBeenCalledTimes(1);
+  context.active.close();
+});
+
+it("refuses a parked stop once the operator policy changed", async () => {
+  const context = capacityPolicyFixture();
+  fixture.policy.mockReturnValue({ ...context.policy, revision: 2 });
+  await expect(context.capacity.parkedStop(environment, capacitySignal())).resolves.toBe(false);
+  context.active.close();
+});
