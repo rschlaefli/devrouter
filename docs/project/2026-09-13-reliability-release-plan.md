@@ -242,8 +242,36 @@ against the protocol's own five-second watch client deadline. The test cannot
 raise that deadline because the client deliberately refuses a caller deadline
 longer than the watch lifetime. It fails only under full-suite parallelism and is
 byte-identical to its CI-green revision, so measured optimization owns the real
-fix. Controller park/resume passes, status wording, durable windowed budgets and
-the remaining slices are open.
+fix.
+
+Review state: the configured slice-reviewer route did not return after roughly
+twenty-five minutes, and the configured simplifier role failed on the account's
+ChatGPT usage limit. Both passes therefore ran on opencodex-routed executors with
+their briefs unchanged, and the substitutions are material differences from the
+configured roles. The simplifier completed read-only over `2cae3f7..34dfbde` with
+no blockers; its one substantive follow-up is that the production `capacity`
+directive has no test, so the proof covers the monitor side and the reliability
+model rather than the controller's own park, parkedStop and resume decisions. The
+gating slice-reviewer substitute is still outstanding, so the source slice is
+delivered but its risk gate is not yet closed.
+
+Next slice: scoped and windowed recovery budgets. Policy already parses
+`maxProcessRestarts`, `maxServiceRestarts` and `windowSeconds`, and roadmap
+section 9.3 fixes their meaning: two corrective restarts of one logical process,
+one retained service restart at broader scope, three corrective actions across the
+uninterrupted incident, and a bounded active recovery and observation time
+excluding capacity waiting, reset only after a sustained healthy interval. The
+runtime consumes only `maxCorrectiveActions`, because action-scope proof and a
+durable action claim at each mutation boundary do not exist yet. This needs a
+named action-scope contract before implementation, and the configured planner
+route is unavailable under the same usage limit.
+
+The agent-facing status gap is unstarted. `projectReliability` produces
+`PARKED_CAPACITY`, `WAITING_CAPACITY`, `BLOCKED` and the admission reason, but the
+only consumers are the controller command, the lifecycle module and the
+qualification scripts. `devrouter status` reports the managed runtime through
+`managed-runtime-state` and never reads the controller projection, so a consumer
+whose environment is parked or waiting sees no explanation and no escape.
 
 All seven slices retain integrated or live obligations. Production park/resume,
 scoped/window recovery budgets, lost-identity/history reconciliation, actual
