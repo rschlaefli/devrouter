@@ -46,16 +46,15 @@ function selectionMatchesAll(values: string[] | undefined, all: string[]): boole
   return selected.length === all.length && selected.every((value, index) => value === all[index]);
 }
 
-// Dimensions that the reserved managed `full` profile silently replaced with a
-// wildcard: declared finite values that differ from the registry, and omitted
-// dimensions whose registry is non-empty. Declared wildcards and declarations
-// that already equal every registered resource are not expansions.
-function managedFullExpansionDimensions(
-  declared: DevrouterProfile,
+// Combined selections use literal arrays; only single managed full selection expands them.
+function managedFullExpansionNotices(
   config: DevrouterConfig,
-): ManagedProfileExpansionDimension[] {
+  resolvedName: string,
+): ManagedProfileExpansionNotice[] {
   const managedRuntime = config.managedRuntime;
-  if (!managedRuntime) return [];
+  if (!managedRuntime || resolvedName !== "full") return [];
+  const declared = config.profiles?.full;
+  if (!declared) return [];
 
   const allApps = sortedUnique(
     config.apps.filter((app) => app.kind !== "dependency").map((app) => app.name),
@@ -76,22 +75,6 @@ function managedFullExpansionDimensions(
   consider("apps", declared.apps, allApps);
   consider("devcontainerServices", declared.devcontainerServices, allServices);
   consider("processes", declared.processes, allProcesses);
-  return dimensions;
-}
-
-// The reserved `full` profile is fixed to every registered resource in managed
-// runtimes, so a declared `full` profile selected alone or used as the default
-// can silently widen a finite or omitted declaration. Combined selections read
-// the literal declared arrays and are intentionally not reported.
-function managedFullExpansionNotices(
-  config: DevrouterConfig,
-  resolvedName: string,
-): ManagedProfileExpansionNotice[] {
-  if (!config.managedRuntime || resolvedName !== "full") return [];
-  const declared = config.profiles?.full;
-  if (!declared) return [];
-
-  const dimensions = managedFullExpansionDimensions(declared, config);
   if (dimensions.length === 0) return [];
 
   return [
