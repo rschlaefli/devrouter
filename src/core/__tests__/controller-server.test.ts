@@ -2,7 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, expect, it, vi } from "vitest";
 import { observeControllerBinding } from "../controller-client";
 import { type ControllerObservationCollector, controllerCapability } from "../controller-monitor";
 import { CONTROLLER_FRAME_BYTES } from "../controller-protocol";
@@ -12,11 +12,23 @@ import {
   runController,
 } from "../controller-server";
 import { ControllerSessions } from "../controller-sessions";
+import * as fileLocks from "../file-lock";
 import { createReliabilityState } from "../reliability-contract";
 import * as operationStore from "../reliability-operation-store";
 
+const journalFixture = vi.hoisted(() => ({ root: "" }));
+vi.mock("../router", async (original) => {
+  const actual = await original<typeof import("../router")>();
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  journalFixture.root = fs.mkdtempSync(path.join(os.tmpdir(), "controller-pin-journal-"));
+  return { ...actual, DEVROUTER_HOME: journalFixture.root };
+});
+
 const directories: string[] = [];
 const stops: Array<() => Promise<void>> = [];
+afterAll(() => fs.rmSync(journalFixture.root, { recursive: true, force: true }));
 afterEach(async () => {
   for (const stop of stops.splice(0)) await stop();
   for (const directory of directories.splice(0))
@@ -897,4 +909,292 @@ it("disconnects a client that sends an oversized frame", async () => {
     socket.once("close", finish);
     socket.write(Buffer.alloc(CONTROLLER_FRAME_BYTES + 1, 0x78));
   });
+});
+
+async function protectionFixture() {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "controller-pin-")));
+  directories.push(directory);
+  const environment = {
+    id: "pin-env",
+    repoPath: directory,
+    workspace: "pin-workspace",
+    provider: "devsy" as const,
+    providerId: "provider",
+    profile: "web",
+    fingerprint: "a".repeat(64),
+  };
+  const identity = {
+    repoPath: directory,
+    workspace: environment.workspace,
+    provider: environment.provider,
+  };
+  operationStore.updateReliabilityOperation(identity, () => {});
+  const control = {
+    proof: () => true,
+    held: undefined as Promise<void> | undefined,
+    observeHeld: undefined as Promise<void> | undefined,
+    observeEntered: () => {},
+    cancelled: () => {},
+    entered: () => {},
+  };
+  const start = async () => {
+    const abort = new AbortController();
+    const ready = deferred<void>();
+    const run = runController({
+      directory,
+      signal: abort.signal,
+      onListening: () => ready.resolve(),
+      resolve: async (_request, _signal, capture) => {
+        if (capture) {
+          _signal.addEventListener("abort", () => control.cancelled(), { once: true });
+          capture(() => control.proof());
+          control.entered();
+          await control.held;
+        }
+        if (!capture) {
+          control.observeEntered();
+          await control.observeHeld;
+        }
+        return environment;
+      },
+    });
+    await Promise.race([ready.promise, run]);
+    const stop = async () => {
+      abort.abort();
+      await run;
+    };
+    stops.push(stop);
+    return stop;
+  };
+  const stop = await start();
+  const client = connect(directory);
+  await client.request({ method: "handshake" });
+  const acquired = await client.request({
+    method: "observe",
+    path: directory,
+    session: "pin-session",
+    profile: "web",
+    require: ["runtime"],
+  });
+  return { directory, identity, client, binding: acquired.result, control, start, stop };
+}
+
+it("persists explicit human pins across release and controller restart without starting a runtime", async () => {
+  const f = await protectionFixture();
+  const pin = await f.client.request({
+    method: "protection-pin",
+    ...f.binding,
+    expectedProtectionRevision: 0,
+    pinned: true,
+  });
+  expect(pin).toMatchObject({
+    ok: true,
+    result: {
+      protection: { revision: 1, humanPinned: true },
+      liveConsumers: 1,
+      protectedConsumers: 1,
+    },
+  });
+  const file = operationStore.reliabilityOperationPath(f.identity);
+  const bytes = fs.readFileSync(file);
+  const replay = await f.client.request({
+    method: "protection-pin",
+    ...f.binding,
+    expectedProtectionRevision: 0,
+    pinned: true,
+  });
+  expect(replay).toMatchObject({
+    ok: true,
+    result: { protection: { revision: 1, humanPinned: true } },
+  });
+  expect(fs.readFileSync(file)).toEqual(bytes);
+  await f.client.request({ method: "release", ...f.binding });
+  f.client.socket.destroy();
+  await f.stop();
+  await f.start();
+  const next = connect(f.directory);
+  await next.request({ method: "handshake" });
+  const acquired = await next.request({
+    method: "observe",
+    path: f.directory,
+    session: "new-session",
+    profile: "web",
+    require: ["runtime"],
+  });
+  expect(acquired.result.epoch).toBeGreaterThan(f.binding.epoch);
+  const status = await next.request({ method: "protection-status", ...acquired.result });
+  expect(status).toMatchObject({
+    ok: true,
+    result: { protection: { revision: 1, humanPinned: true }, continuity: "continuity-unknown" },
+  });
+  expect(fs.readFileSync(file)).toEqual(bytes);
+  const unpin = await next.request({
+    method: "protection-pin",
+    ...acquired.result,
+    expectedProtectionRevision: 1,
+    pinned: false,
+  });
+  expect(unpin).toMatchObject({
+    ok: true,
+    result: { protection: { revision: 2, humanPinned: false } },
+  });
+  next.socket.destroy();
+});
+
+it("rejects a held pin request after another socket releases and reacquires its session", async () => {
+  const f = await protectionFixture();
+  const entered = deferred<void>();
+  const held = deferred<void>();
+  f.control.entered = () => entered.resolve();
+  f.control.held = held.promise;
+  const file = operationStore.reliabilityOperationPath(f.identity);
+  const bytes = fs.readFileSync(file);
+  const pending = f.client.request({
+    method: "protection-pin",
+    ...f.binding,
+    expectedProtectionRevision: 0,
+    pinned: true,
+  });
+  await entered.promise;
+  const other = connect(f.directory);
+  await other.request({ method: "handshake" });
+  await other.request({ method: "release", ...f.binding });
+  const newer = await other.request({
+    method: "observe",
+    path: f.directory,
+    session: "pin-session",
+    profile: "web",
+    require: ["runtime"],
+  });
+  expect(newer.result.generation).not.toBe(f.binding.generation);
+  held.resolve();
+  expect(await pending).toMatchObject({ ok: false });
+  expect(fs.readFileSync(file)).toEqual(bytes);
+  other.socket.destroy();
+  f.client.socket.destroy();
+});
+
+it("rechecks persisted ownership after resolution before acknowledging status or pin", async () => {
+  const f = await protectionFixture();
+  f.control.proof = () => false;
+  const file = operationStore.reliabilityOperationPath(f.identity);
+  const bytes = fs.readFileSync(file);
+  for (const method of ["protection-status", "protection-pin"]) {
+    const result = await f.client.request({
+      method,
+      ...f.binding,
+      ...(method === "protection-pin" ? { expectedProtectionRevision: 0, pinned: true } : {}),
+    });
+    expect(result).toMatchObject({ ok: false });
+    expect(fs.readFileSync(file)).toEqual(bytes);
+  }
+  f.client.socket.destroy();
+});
+
+it("refuses pin, replay and status when their absolute deadline passes during journal lock wait", async () => {
+  const f = await protectionFixture();
+  const pin = await f.client.request({
+    method: "protection-pin",
+    ...f.binding,
+    expectedProtectionRevision: 0,
+    pinned: true,
+  });
+  expect(pin.ok).toBe(true);
+  const file = operationStore.reliabilityOperationPath(f.identity);
+  const bytes = fs.readFileSync(file);
+  const realLock = fileLocks.withFileLockSync;
+  const realNow = performance.now.bind(performance);
+  let offset = 0;
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => realNow() + offset);
+  const lock = vi.spyOn(fileLocks, "withFileLockSync").mockImplementation((name, options, run) =>
+    realLock(name, options, () => {
+      offset += 3001;
+      return run();
+    }),
+  );
+  try {
+    for (const fields of [
+      { method: "protection-status" },
+      { method: "protection-pin", expectedProtectionRevision: 0, pinned: true },
+      { method: "protection-pin", expectedProtectionRevision: 1, pinned: false },
+    ]) {
+      expect(await f.client.request({ ...fields, ...f.binding })).toMatchObject({ ok: false });
+      expect(fs.readFileSync(file)).toEqual(bytes);
+    }
+  } finally {
+    lock.mockRestore();
+    clock.mockRestore();
+    f.client.socket.destroy();
+  }
+});
+
+it("refuses ownership changes during the journal lock wait without writing", async () => {
+  const f = await protectionFixture();
+  const file = operationStore.reliabilityOperationPath(f.identity);
+  const bytes = fs.readFileSync(file);
+  const realLock = fileLocks.withFileLockSync;
+  const lock = vi.spyOn(fileLocks, "withFileLockSync").mockImplementation((name, options, run) =>
+    realLock(name, options, () => {
+      f.control.proof = () => false;
+      return run();
+    }),
+  );
+  try {
+    expect(
+      await f.client.request({
+        method: "protection-pin",
+        ...f.binding,
+        expectedProtectionRevision: 0,
+        pinned: true,
+      }),
+    ).toMatchObject({ ok: false });
+    expect(fs.readFileSync(file)).toEqual(bytes);
+  } finally {
+    lock.mockRestore();
+    f.client.socket.destroy();
+  }
+});
+
+it("does not write a pin cancelled while its final transaction waits in the serializer", async () => {
+  const f = await protectionFixture();
+  const entered = deferred<void>();
+  const held = deferred<void>();
+  f.control.entered = () => entered.resolve();
+  f.control.held = held.promise;
+  const file = operationStore.reliabilityOperationPath(f.identity);
+  const bytes = fs.readFileSync(file);
+  void f.client.request({
+    method: "protection-pin",
+    ...f.binding,
+    expectedProtectionRevision: 0,
+    pinned: true,
+  });
+  await entered.promise;
+  const other = connect(f.directory);
+  await other.request({ method: "handshake" });
+  const blocked = deferred<void>();
+  const observerEntered = deferred<void>();
+  const cancelled = deferred<void>();
+  f.control.observeEntered = () => observerEntered.resolve();
+  f.control.cancelled = () => cancelled.resolve();
+  f.control.observeHeld = blocked.promise;
+  const observation = other.request({
+    method: "observe",
+    path: f.directory,
+    session: "second",
+    profile: "web",
+    require: ["runtime"],
+  });
+  // The observer owns the serializer while this completed resolution queues its final transaction.
+  await observerEntered.promise;
+  held.resolve();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  f.client.socket.destroy();
+  await cancelled.promise;
+  blocked.resolve();
+  await observation;
+  const status = await other.request({ method: "status" });
+  expect(status.ok).toBe(true);
+  expect(fs.readFileSync(file)).toEqual(bytes);
+  other.socket.destroy();
 });

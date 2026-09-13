@@ -296,3 +296,20 @@ describe("parseControllerRequest", () => {
     expectInvalid({ ...validWatch, extra: true });
   });
 });
+
+it("requires explicit pin intent and exact consumer revisions", () => {
+  const binding = { session: "one", store: "store", epoch: 1, generation: "generation" };
+  const status = request("protection-status", binding);
+  expect(parseControllerRequest(status)).toEqual(status);
+  const pin = request("protection-pin", {
+    ...binding,
+    expectedProtectionRevision: 0,
+    pinned: true,
+  });
+  expect(parseControllerRequest(pin)).toEqual(pin);
+  for (const value of [undefined, null, "false", 0]) expectInvalid({ ...pin, pinned: value });
+  for (const revision of [-1, 0.5, "0", Number.MAX_SAFE_INTEGER + 1])
+    expectInvalid({ ...pin, expectedProtectionRevision: revision });
+  expectInvalid({ ...status, pinned: true });
+  expectInvalid({ ...pin, unknown: true });
+});

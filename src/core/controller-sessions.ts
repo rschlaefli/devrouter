@@ -19,6 +19,9 @@ export class ControllerSessions {
   private leases = new Map<string, number>();
   private previousTime: { monotonic: number; wall: number } | undefined;
   private failed = false;
+  private uncertainty:
+    | { since: number; reason: "continuity-unknown" | "orphan-suspected" }
+    | undefined;
   constructor(private readonly store: ControllerStore) {
     this.snapshot = store.startIncarnation();
   }
@@ -82,11 +85,14 @@ export class ControllerSessions {
         elapsed > 15_000 ||
         wallElapsed < 0 ||
         Math.abs(wallElapsed - elapsed) > 2_000);
+    if (!this.uncertainty || discontinuity)
+      this.uncertainty = { since: monotonic, reason: "continuity-unknown" };
     const next = this.read();
     const removed = next.sessions.filter(
       (s) => discontinuity || monotonic >= (this.leases.get(s.id) ?? 0),
     );
     if (removed.length) {
+      if (!discontinuity) this.uncertainty = { since: monotonic, reason: "orphan-suspected" };
       for (const session of removed)
         this.event(next, session, discontinuity ? "invalidated" : "expired");
       const ids = new Set(removed.map((s) => s.id));
@@ -106,6 +112,26 @@ export class ControllerSessions {
     }
     this.previousTime = { monotonic, wall };
     return discontinuity;
+  }
+  /** Loss of continuity never establishes that an environment has no other consumers. */
+  protection(environment: ControllerEnvironment, monotonic: number, wall: number) {
+    this.tick(monotonic, wall);
+    const snapshot = this.read();
+    const current = snapshot.environments.find((candidate) => candidate.id === environment.id);
+    if (!current || JSON.stringify(current) !== JSON.stringify(environment))
+      throw new Error("Controller protection binding changed.");
+    const liveConsumers = snapshot.sessions.filter(
+      (session) => session.environmentId === environment.id,
+    ).length;
+    const uncertainty = this.uncertainty;
+    if (!uncertainty) throw new Error("Controller continuity evidence unavailable.");
+    const graceRemainingMs = Math.max(0, 60_000 - (monotonic - uncertainty.since));
+    return {
+      liveConsumers,
+      protectedConsumers: liveConsumers,
+      continuity: graceRemainingMs > 0 ? uncertainty.reason : "revalidation-required",
+      graceRemainingMs,
+    };
   }
   acquire(
     id: string,

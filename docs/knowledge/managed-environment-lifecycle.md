@@ -184,6 +184,15 @@ for enrollment, lease renewal, restart handling, and event continuity. Releasing
 the last consumer preserves application data and runtime state; the caller still
 owns the normal exact-stop lifecycle.
 
+Controller protection status combines current exact session demand with a durable
+operator pin in the existing environment journal. Explicit pin changes require
+current ownership and session proof after the journal lock is acquired. Pin state
+survives lease release, controller restart and lifecycle operations; only an
+explicit pin update clears it. A pin never requests startup or overrides user stop.
+Continuity loss remains unknown through a sixty-second monotonic grace and then
+requires revalidation. Grace expiry never establishes that parking is safe.
+Existing live observers remain protected; these interfaces do not activate parking.
+
 ## Manual operation journal
 
 Each managed workspace keeps one durable reliability record under

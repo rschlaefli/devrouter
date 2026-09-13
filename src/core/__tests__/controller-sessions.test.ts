@@ -123,3 +123,47 @@ it("caps environments while still accepting consumers of an existing environment
   expect(sessions.validate(shared).environmentId).toBe("env-0");
   expect(sessions.read().environments).toHaveLength(32);
 });
+
+it("reports continuous grace without turning expiry or reacquisition into parking permission", () => {
+  const { sessions, store } = fixture();
+  const first = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  expect(sessions.protection(env, 0, 1000)).toMatchObject({
+    liveConsumers: 1,
+    protectedConsumers: 1,
+    continuity: "continuity-unknown",
+    graceRemainingMs: 60_000,
+  });
+  for (let time = 10_000; time <= 60_000; time += 10_000) sessions.renew(first, time, time + 1000);
+  expect(sessions.protection(env, 60_000, 61_000).continuity).toBe("revalidation-required");
+  sessions.tick(70_000, 71_000);
+  sessions.tick(80_000, 81_000);
+  sessions.tick(90_000, 91_000);
+  const replacement = sessions.acquire("one", env, ["runtime"], 90_001, 91_001);
+  expect(sessions.protection(env, 90_001, 91_001)).toMatchObject({
+    liveConsumers: 1,
+    protectedConsumers: 1,
+    continuity: "orphan-suspected",
+    graceRemainingMs: 59_999,
+  });
+  expect(() => sessions.validate(first)).toThrow();
+  sessions.acquire("two", env, ["app:web"], 90_002, 91_002);
+  sessions.release(replacement, 90_003, 91_003);
+  expect(sessions.protection(env, 90_003, 91_003).liveConsumers).toBe(1);
+  const restarted = new ControllerSessions(store);
+  restarted.acquire("new", env, ["runtime"], 0, 200_000);
+  expect(restarted.protection(env, 0, 200_000).continuity).toBe("continuity-unknown");
+});
+
+it("resets protection grace on sleep and refuses evidence for changed environments", () => {
+  const { sessions } = fixture();
+  sessions.acquire("one", env, ["runtime"], 0, 1000);
+  sessions.tick(16_000, 17_000);
+  sessions.acquire("two", env, ["runtime"], 16_001, 17_001);
+  expect(sessions.protection(env, 16_001, 17_001)).toMatchObject({
+    continuity: "continuity-unknown",
+    graceRemainingMs: 59_999,
+  });
+  expect(() =>
+    sessions.protection({ ...env, fingerprint: "b".repeat(64) }, 16_002, 17_002),
+  ).toThrow();
+});

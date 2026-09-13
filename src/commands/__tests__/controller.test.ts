@@ -129,3 +129,26 @@ describe("controller command failure reporting", () => {
     expect(line.length).toBeLessThanOrEqual(300 + "controller command failed: ".length);
   });
 });
+
+it("forwards explicit pin booleans and revisions without treating false as true", async () => {
+  vi.mocked(controllerRequest).mockResolvedValue(undefined);
+  for (const pinned of ["true", "false"]) {
+    await runControllerCommand("protection-pin", {
+      pinned,
+      expectedProtectionRevision: "2",
+      session: "one",
+      store: "store",
+      epoch: "1",
+      generation: "g",
+    });
+    expect(controllerRequest).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        method: "protection-pin",
+        pinned: pinned === "true",
+        expectedProtectionRevision: 2,
+      }),
+      expect.any(Function),
+    );
+  }
+});

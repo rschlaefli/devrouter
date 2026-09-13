@@ -130,3 +130,13 @@ The policy schema also validates controller scheduling knobs
 `sampleIntervalSeconds`) that are reserved for future runtime binding. Runtime
 constants remain authoritative until a reviewed change binds them at their use
 sites.
+
+## Durable consumer protection
+
+Human pins persist as a bounded revisioned extension of the existing environment
+journal, independent of operation consumers and controller session lifetime.
+Operation consumers serve request identity; replacing them cannot erase operator
+protection. Current demand comes from exact live sessions, while lost continuity
+requires conservative revalidation. A pin grants no startup or provider mutation
+authority. Explicit user stop still wins. Old strict readers reject the extended
+journal rather than silently losing the pin during downgrade.

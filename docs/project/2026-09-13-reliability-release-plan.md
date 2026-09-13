@@ -548,3 +548,180 @@ recovery portfolio after removing duplicate executions).
 passed all 2,331 source tests in 143 files at the committed head, Linux process
 helper reconciliation, package smoke and controller/capacity qualifiers.
 Live canary authority and actual harness qualification remain pending.
+
+
+### Pressure-duration evidence draft (not yet implemented)
+
+Extend the capacity evidence primitive with incarnation-local duration tracking.
+The current queue samples only while work is queued/running, so it cannot establish
+resume dwell for a parked idle environment. Recovery-enabled controller ticks
+must observe declared domains at the existing configured sample interval, sharing
+the same bounded collector with queue admission. Keep at most one collection in
+flight; a timed-out collector retains its slot until drained. Collection failure
+or changed policy/controller identity invalidates duration evidence. No new
+provider mutation, background service, machine enrollment or pressure source.
+
+The state per declared domain is normal, pressured or unknown, with the first
+continuous observation time and last source sample time. Compare sample age using
+its existing wall timestamp, but accumulate elapsed duration only with monotonic
+time. A stale, future, missing, malformed or unknown sample resets that domain.
+A backward clock, wall/monotonic divergence over two seconds, or scheduling gap
+over fifteen seconds resets all domains. Restart starts with no duration evidence.
+No wall time or saved JSON can restore duration after sleep/restart.
+
+Repeated reads do not advance an evidence window or freshen its sample. A new
+sample must extend the already-observed interval without a gap beyond sample
+validity. A domain change resets the affected evidence. For a target's exact host
+and runtime domains, normal dwell requires every domain continuously normal;
+sustained pressure requires positive continuous pressure in an affected domain.
+Unknown pressure can neither justify parking nor allow resume. Reports distinguish
+these evidence predicates from full action eligibility, which additionally needs
+consumer protection, ownership, policy, intent, budget and durable admission.
+
+Tentative existing seams: `capacity-accounting.ts` and its current suite for
+deterministic duration accounting; `capacity-controller.ts` and current suite for
+single collection ownership and idle sampling; `controller-server.ts` and current
+suite only if exposing bounded per-session evidence in status. No new files are
+needed. Main retains the design while the consumer-protection planner owns a
+read-only disjoint question. The final API and exact paths require internal plan
+hardening before implementation.
+
+Acceptance consumes the capacity/intent portfolio: exact duration boundary,
+alternating pressure, stale/future/unknown input, repeated sample, cross-domain
+normality, wall-clock jump, monotonic discontinuity, restart and an unresponsive
+collector retaining its concurrency slot. Source tests inject clocks and samples;
+physical OOM prevention and live parking remain separate qualification.
+
+
+### Durable human protection and live-demand bridge — frozen draft
+
+Main accepts the construction planner's separation of durable operator pin, live
+session demand and continuity uncertainty. Do not synchronize live sessions into
+operation consumers: their request-deduplication semantics differ. The existing
+private controller socket establishes local-user authority, not human identity;
+`humanPinned` records an explicit operator instruction and is never set implicitly.
+
+Add optional `consumerProtection: {version: 1, revision: number, humanPinned: boolean}`
+to existing version-1/2 journals. Absence means revision zero and no recorded pin,
+never permission to park. The narrow synchronous setter requires existing exact
+identity, expected journal revision, expected pin revision and a required final
+session-validation callback. Under the existing journal lock, check revisions
+and invoke the callback before persistence. Never initialize a missing journal.
+Increment pin and journal revisions on a new accepted write; retain false records.
+A retry with matching value at exactly expected pin revision plus one returns the
+existing receipt without another write. Other stale values/revisions refuse.
+Exhausted counters and uncertain persistence never acknowledge an unproven update.
+
+Ordinary lifecycle writers preserve the complete extension and reject adding,
+deleting or changing it through their generic callback. Pins survive enrollment,
+stop, new ensure, operation replacement and observer/controller restart. Existing
+strict old readers refuse the new field; never delete pin state to downgrade.
+Reuse durable atomic publication and its post-rename resync path.
+
+Add strict protocol methods `protection-status` and `protection-pin`, with the
+existing exact session binding; pin additionally requires `pinned: boolean` and
+`expectedProtectionRevision`. Resolve the exact original environment afresh with
+bounded cancellation outside the server serializer, so release on another socket
+can invalidate a held resolution. Capture the journal revision before resolution;
+after resolution, compare the complete environment, validate the original session
+and enter the journal fence synchronously. Revalidate sessions after any lock
+wait. Cancelled requests and changed owner/config/profile fail closed. Neither
+method enrolls, starts, stops or claims an environment.
+
+Return bounded aggregate evidence: journal revision, pin revision/value, number
+of live matching consumers and continuity classification. Do not serialize all
+consumer requirements or IDs into a potentially oversized response. Current demand
+and current legacy protection derive from validated sessions, never stale journal
+consumers. Every live existing observer remains protected. No parking consent is
+introduced by an omitted field or the current synthetic `pinned: false` value.
+
+ControllerSessions records incarnation-local continuity uncertainty: startup is
+continuity-unknown; expiry marks orphan-suspected; clock discontinuity resets
+uncertainty. A sixty-second continuous monotonic grace changes only the diagnostic
+classification to revalidation-required. It never grants action eligibility.
+Reacquisition does not prove other consumers absent; status does not renew leases.
+Bound tracking by using one conservative controller-wide uncertainty marker rather
+than an unbounded expired-environment map. Live matching demand remains independent.
+
+Expose both methods through existing controller CLI registration and command
+forwarder. Require explicit true/false value and nonnegative integer revision for
+the write; no default pin mutation. Update the existing lifecycle knowledge and
+ADR 0008 extension, with the downgrade limitation in Unreleased changelog.
+
+Ownership: executor writes only reliability-operation-store.ts and its existing
+test suite after hardening. Main owns controller-sessions.ts, controller-protocol.ts,
+controller-server.ts, src/cli.ts, commands/controller.ts and their existing suites,
+plus active plan, docs/adr/0008-model-reliability-before-runtime-activation.md,
+docs/knowledge/managed-environment-lifecycle.md if that is the owning concept,
+and CHANGELOG.md. Verify the actual knowledge path before editing. No new module
+or dependency. Session/store schema for observer snapshots stays unchanged.
+
+Acceptance extends existing store, sessions, protocol and server suites: legacy
+read; pin/unpin CAS/idempotent retry; counter exhaustion; strict fields; failed
+persistence; generic writer preservation; second-socket release/reacquire during
+held resolution; exact-owner mismatch; restart readback; grace/clock gaps and
+multiple current consumers. Add real-journal ensure/stop preservation in the
+existing lifecycle suite if store transitions do not cover the production seam.
+Old-reader refusal is verified against the prior committed reader in an isolated
+fixture, not a duplicate implementation of its validator. Reuse reviewed
+submission/recovery tests and run typecheck, Biome, Knip, docs checks and package CI.
+
+This slice ends with source and protocol proof of protection. Park/resume still
+requires explicit consent, complete consumer reconciliation, fresh pressure,
+protected-operation proof, intent-fenced stop and real durable resume admission.
+No live runtime or global installation is required for this source slice.
+
+
+Protection hardening round 1: all three findings accepted. After async resolution,
+re-enter the same server serializer for final validation and transaction. Carry
+an absolute monotonic three-second request deadline; check it after the synchronous
+lock wait, because timers/socket callbacks may not run during that wait. Check
+shutdown, observed cancellation, socket state, exact session and expected binding
+inside the locked callback before every success, including status and replay.
+Durable commit wins over later cancellation; lost responses reconcile through CAS.
+
+Check the captured journal revision first, then evaluate pin revision/value or
+exact-next-revision replay. A successful replay returns current validated journal
+revision and unchanged bytes. Aggregate demand is read after locked validation.
+
+Extend the existing ControllerResolver with an optional third internal argument
+that receives a synchronous persisted-evidence validator. Existing callers and
+wire requests stay unchanged. The canonical resolver supplies the validator only
+after successful provider/owner resolution; it captures the exact .git pointer,
+workspace token, owner record and .devrouter.yml bytes used for that result. It
+rechecks bounded files and exact canonical paths. Protection requires the callback;
+a resolver that cannot provide it refuses protection rather than granting weaker
+proof. Invoke it inside the locked session callback after the lock wait. Provider
+registry evidence remains the bounded fresh resolver observation; the pin itself
+gives no provider mutation authority. Add controller-binding.ts and its existing
+suite to main's exact paths. No functions enter persisted observer snapshots.
+
+Extend existing tests for queued cancellation, deadline crossing during simulated
+lock contention, expired session on status/replay, and changed captured ownership
+or configuration after resolution. Every refusal asserts unchanged journal bytes.
+
+
+Consumer-protection hardening approved in round2. Implementation uses the existing
+operation store directly for pin read/write; no lifecycle module wrapper was
+needed. Baseline108 tests passed. Initial new server tests prove real-journal
+pin/retry/restart readback, independent-socket release/reacquisition refusal and
+post-lock deadline/ownership refusal. The prior committed reader at5f683615
+accepts the synthetic baseline and refuses its pinned record; current reader
+preserves it. Compatibility receipt: /private/tmp/devrouter-pin-compat-NkmVOe.
+No provider or user runtime was involved. Source review and remaining regression
+coverage continue before delivery.
+
+The owning foreground-session manual `docs/DEVCONTAINER.md` is updated with
+the explicit CLI pin/read procedure; this is the same documented protocol,
+not another authority or runtime change. Existing lifecycle preparation test
+now verifies explicit stop preserves a previously recorded durable pin.
+
+
+Consumer protection verification: 223 focused tests in seven existing suites
+passed with pinned Node24.16.0. One additional cancellation case initially failed
+because the test assumed a client-side disconnect had already reached the server.
+An explicit server-side abort receipt and resolver-entry barrier remove that
+assumption; the corrected case passes, bringing the applicable portfolio to224.
+Typecheck, Biome, Knip, docs policy and knowledge checks pass. Build and isolated
+packed-CLI smoke pass, including installed protection command registration. Two
+pre-existing Biome informational findings remain outside this change.

@@ -76,6 +76,19 @@ export type CapacityStartupWitness = {
   retainedContainerIds: string[];
 };
 
+/**
+ * Bounded operator pin for a workspace. Absence of the field means revision
+ * zero and no recorded pin; it never grants parking permission. Only the
+ * dedicated pin authority writes it, and readers of versions 1 and 2 accept it
+ * strictly so a partially written or downgraded pin cannot be mistaken for
+ * absent protection.
+ */
+export type ReliabilityConsumerProtection = {
+  version: 1;
+  revision: number;
+  humanPinned: boolean;
+};
+
 export type ReliabilityOperationRecord = {
   version: 1 | 2;
   identity: ReliabilityIdentity;
@@ -86,6 +99,13 @@ export type ReliabilityOperationRecord = {
   outcome: (ExecutionOutcome & { operationId: string }) | null;
   /** CLI version that last wrote this record; absent in pre-0.0.67 records. */
   writtenByVersion?: string;
+  /**
+   * Durable operator pin evidence. It is orthogonal to lifecycle state and is
+   * only writable through the dedicated pin authority; ordinary lifecycle
+   * callbacks preserve it verbatim. Absence means revision zero and no recorded
+   * pin, which is never permission to park.
+   */
+  consumerProtection?: ReliabilityConsumerProtection;
   enrollment?: CapacityEnrollmentBinding;
   activeProfile?: string | null;
   capacity?: {
@@ -170,6 +190,22 @@ function exactKeys(value: unknown, expected: string[], message: string): void {
   ) {
     throw new Error(message);
   }
+}
+
+function validateConsumerProtection(record: ReliabilityOperationRecord): void {
+  const protection = record.consumerProtection;
+  if (protection === undefined) return;
+  exactKeys(
+    protection,
+    ["version", "revision", "humanPinned"],
+    "Invalid consumer protection fields.",
+  );
+  if (
+    protection.version !== 1 ||
+    !isReliabilityCounter(protection.revision) ||
+    typeof protection.humanPinned !== "boolean"
+  )
+    throw new Error("Invalid consumer protection.");
 }
 
 function validateCapacityPhaseSettlement(
@@ -358,6 +394,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     "outcome",
     "result",
     "writtenByVersion",
+    "consumerProtection",
     ...(record.version === 2
       ? [
           "capacity",
@@ -369,6 +406,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
         ]
       : []),
   ]);
+  validateConsumerProtection(record);
   if (
     record.writtenByVersion !== undefined &&
     compareCliVersions(record.writtenByVersion, installedCliVersion()) > 0
@@ -857,6 +895,7 @@ export function updateReliabilityOperation<T>(
       throw new Error("Reliability record revision is exhausted.");
     const previousVersion = record.version;
     const previousEnrollment = record.enrollment && { ...record.enrollment };
+    const previousProtection = structuredClone(record.consumerProtection);
     const result = operation(record);
     if (result && typeof (result as { then?: unknown }).then === "function") {
       throw new Error("Reliability record updates must be synchronous.");
@@ -866,6 +905,8 @@ export function updateReliabilityOperation<T>(
       (previousEnrollment && !isDeepStrictEqual(record.enrollment, previousEnrollment))
     )
       throw new Error("Durable capacity enrollment cannot be downgraded or replaced.");
+    if (!isDeepStrictEqual(record.consumerProtection, previousProtection))
+      throw new Error("Consumer protection is only writable through the dedicated pin authority.");
     record.writtenByVersion = installedCliVersion();
     validate(record, identity);
     record.revision += 1;
@@ -978,5 +1019,81 @@ export function withReliabilityObservationFence<T>(
     if (result && typeof (result as { then?: unknown }).then === "function")
       throw new Error("Observer publication must be synchronous.");
     return result;
+  });
+}
+
+/** Journal revision and validated protection carried by an accepted pin write. */
+export type ReliabilityHumanPinReceipt = {
+  journalRevision: number;
+  protection: ReliabilityConsumerProtection;
+};
+
+/**
+ * Set or clear the durable operator pin for an existing workspace journal.
+ *
+ * The write is a compare-and-swap on the protected pin revision and never
+ * initializes a missing journal. A caller states the journal revision and pin
+ * revision it observed; matching revisions increment both counters and persist
+ * through the shared atomic durability path. Replaying the exact next value
+ * against pin revision plus one returns the current receipt without writing
+ * bytes. Any other mismatch, an exhausted counter, or an uncertain persistence
+ * refuses without acknowledging an unproven update, and a cleared pin keeps its
+ * record instead of deleting evidence.
+ *
+ * `revalidate` runs after the shared lock is held and immediately before every
+ * successful return, including a replay, so a caller can re-check the exact
+ * session, ownership, and captured configuration that justified the write. It
+ * must be synchronous.
+ */
+export function setReliabilityHumanPin(
+  identity: ReliabilityIdentity,
+  expectedJournalRevision: number,
+  expectedProtectionRevision: number,
+  humanPinned: boolean,
+  revalidate: () => void,
+): ReliabilityHumanPinReceipt {
+  if (!isReliabilityCounter(expectedJournalRevision))
+    throw new Error("Expected journal revision must be a nonnegative safe integer.");
+  if (!isReliabilityCounter(expectedProtectionRevision))
+    throw new Error("Expected protection revision must be a nonnegative safe integer.");
+  if (typeof humanPinned !== "boolean") throw new Error("Human pin value must be a boolean.");
+  if (typeof revalidate !== "function")
+    throw new Error("Consumer protection requires a synchronous validation callback.");
+  const runRevalidation = (): void => {
+    const outcome: unknown = revalidate();
+    if (outcome && typeof (outcome as { then?: unknown }).then === "function")
+      throw new Error("Consumer protection validation must be synchronous.");
+  };
+  // The observation fence requires an existing journal, takes the same lock as
+  // lifecycle writers, and never initializes manual intent.
+  return withReliabilityObservationFence(identity, expectedJournalRevision, (record) => {
+    const current = record.consumerProtection;
+    const currentRevision = current === undefined ? 0 : current.revision;
+    if (
+      current !== undefined &&
+      currentRevision === expectedProtectionRevision + 1 &&
+      current.humanPinned === humanPinned
+    ) {
+      runRevalidation();
+      return { journalRevision: record.revision, protection: { ...current } };
+    }
+    if (currentRevision !== expectedProtectionRevision)
+      throw new Error("Consumer protection revision changed.");
+    if (currentRevision === Number.MAX_SAFE_INTEGER || record.revision === Number.MAX_SAFE_INTEGER)
+      throw new Error("Consumer protection revision is exhausted.");
+    record.consumerProtection = {
+      version: 1,
+      revision: currentRevision + 1,
+      humanPinned,
+    };
+    runRevalidation();
+    record.writtenByVersion = installedCliVersion();
+    validate(record, identity);
+    record.revision += 1;
+    persist(record);
+    return {
+      journalRevision: record.revision,
+      protection: { ...record.consumerProtection },
+    };
   });
 }

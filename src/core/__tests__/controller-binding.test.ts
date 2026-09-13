@@ -78,3 +78,32 @@ it("rejects undeclared application readiness before provider inspection", async 
   ).rejects.toThrow();
   expect(runControllerProbe).toHaveBeenCalledTimes(1);
 });
+
+it("captures persisted protection evidence and rejects later configuration or Git pointer changes", async () => {
+  const { repo, request, common } = fixture();
+  const pointer = path.join(repo, ".git");
+  fs.writeFileSync(pointer, `gitdir: ${path.join(common, "worktrees", "checkout")}\n`);
+  let proof: (() => boolean) | undefined;
+  await resolveControllerBinding(request, new AbortController().signal, (value) => {
+    proof = value;
+  });
+  expect(proof?.()).toBe(true);
+  const config = path.join(repo, ".devrouter.yml");
+  const original = fs.readFileSync(config);
+  fs.appendFileSync(config, "\n# changed\n");
+  expect(proof?.()).toBe(false);
+  fs.writeFileSync(config, original);
+  expect(proof?.()).toBe(true);
+  fs.writeFileSync(pointer, "gitdir: /synthetic/other\n");
+  expect(proof?.()).toBe(false);
+});
+
+it("refuses a Git pointer changed before protection evidence was captured", async () => {
+  const { repo, request } = fixture();
+  fs.writeFileSync(path.join(repo, ".git"), "gitdir: /synthetic/other\n");
+  const capture = vi.fn();
+  await expect(
+    resolveControllerBinding(request, new AbortController().signal, capture),
+  ).rejects.toThrow();
+  expect(capture).not.toHaveBeenCalled();
+});

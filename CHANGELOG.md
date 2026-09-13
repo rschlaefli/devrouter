@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Controller protection status and explicit human pin updates preserve operator
+  protection independently of operation history and session leases. Pin updates
+  require exact current ownership, session and revision evidence. Once a pin
+  record is written, older CLIs refuse that journal; retain it and use a
+  compatible CLI rather than deleting protection state to downgrade.
+
 ### Fixed
 
 - Retained-runtime repair identifies which baseline dimensions prevent recovery,

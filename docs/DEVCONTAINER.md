@@ -160,6 +160,27 @@ leaves application runtimes and data intact. Continue using explicit `ensure`,
 `exec`, and `stop` for lifecycle actions. Consumer sessions grant no automatic
 recovery, capacity admission, or agent-command replay authority.
 
+### Explicit environment protection
+
+An existing exact session and journal support `controller protection-status`.
+Pass `--session`, `--store`, `--epoch`, and `--generation` from observation. The
+response includes the durable pin and its revision, live consumer counts and
+continuity evidence. Reads never renew leases or establish parking permission.
+
+`controller protection-pin` takes the same binding plus `--pinned true|false`
+and `--expected-protection-revision <number>` from protection status. It records
+an explicit operator instruction after fresh ownership and session validation.
+A pin survives stop/start, session release and controller restart. It never
+starts a runtime or overrides an explicit stop. A conflicting revision requires
+reading the current protection and deciding whether the change is still intended.
+If a response is lost, the same value and expected pin revision can recover the
+receipt without another write, provided the exact session remains valid.
+
+All current live observers remain protected. Continuity loss has a sixty-second
+monotonic grace followed by required revalidation; neither classification grants
+permission to stop or resume an environment. Automatic parking is not activated
+by these commands.
+
 ## How it works: `devnet`
 
 devrouter's Traefik runs in Docker on a shared external bridge network,

@@ -54,7 +54,11 @@ export function captureControllerEvidence(files: string[]): {
   };
 }
 
-export const resolveControllerBinding: ControllerResolver = async (request, signal) => {
+export const resolveControllerBinding: ControllerResolver = async (
+  request,
+  signal,
+  capturePersisted,
+) => {
   const repoPath = fs.realpathSync(request.path);
   const metadata = (
     await runControllerProbe(
@@ -82,6 +86,14 @@ export const resolveControllerBinding: ControllerResolver = async (request, sign
     path.basename(path.dirname(gitDir)) !== "worktrees"
   )
     throw new Error("Controller requires an existing linked checkout.");
+  const gitPointer = capturePersisted
+    ? readControllerEvidence(path.join(repoPath, ".git"))
+    : undefined;
+  if (gitPointer !== undefined) {
+    const pointer = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(gitPointer);
+    if (!pointer || fs.realpathSync(path.resolve(repoPath, pointer[1])) !== gitDir)
+      throw new Error("Protection Git pointer no longer matches resolved ownership.");
+  }
   const workspace = readControllerEvidence(path.join(gitDir, "devrouter-workspace"), 128).trim();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workspace) || workspace.length > 32)
     throw new Error("Canonical workspace token unavailable.");
@@ -154,6 +166,33 @@ export const resolveControllerBinding: ControllerResolver = async (request, sign
     readControllerEvidence(path.join(gitDir, "devrouter-workspace"), 128).trim() !== workspace
   )
     throw new Error("Binding evidence changed during resolution.");
+  if (capturePersisted) {
+    const evidence = captureControllerEvidence([
+      path.join(repoPath, ".git"),
+      path.join(gitDir, "devrouter-workspace"),
+      ownerFile,
+      configFile,
+    ]);
+    if (
+      evidence.contents[0] !== gitPointer ||
+      evidence.contents[1].trim() !== workspace ||
+      evidence.contents[2] !== ownerBytes ||
+      evidence.contents[3] !== configBytes
+    )
+      throw new Error("Protection binding changed during resolution.");
+    capturePersisted(() => {
+      try {
+        return (
+          evidence.unchanged() &&
+          fs.realpathSync(request.path) === repoPath &&
+          fs.realpathSync(gitDir) === gitDir &&
+          fs.realpathSync(commonDir) === commonDir
+        );
+      } catch {
+        return false;
+      }
+    });
+  }
   // The approved snapshot contains only opaque fingerprints and canonical refs.
   // Configuration bytes remain transient and are never emitted as diagnostics.
   return {

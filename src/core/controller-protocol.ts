@@ -33,7 +33,9 @@ type ControllerMethod =
   | "watch"
   | "operation-status"
   | "operation-submit"
-  | "operation-watch";
+  | "operation-watch"
+  | "protection-status"
+  | "protection-pin";
 
 export type ControllerHandshakeRequest = {
   version: 1;
@@ -126,7 +128,16 @@ export type ControllerOperationWatchRequest = {
   output?: ControllerOutputCursor;
 };
 
+export type ControllerProtectionRequest =
+  | (Omit<ControllerRenewRequest, "method"> & { method: "protection-status" })
+  | (Omit<ControllerRenewRequest, "method"> & {
+      method: "protection-pin";
+      expectedProtectionRevision: number;
+      pinned: boolean;
+    });
+
 export type ControllerRequest =
+  | ControllerProtectionRequest
   | (Omit<ControllerRenewRequest, "method"> & { method: "operation-status"; operationId: string })
   | ControllerHandshakeRequest
   | ControllerObserveRequest
@@ -374,6 +385,32 @@ export function parseControllerRequest(input: unknown): ControllerRequest {
           session: parseId(input.session),
           profile: parseProfile(input.profile),
           require: parseRequirements(input.require),
+        };
+      }
+      case "protection-status":
+      case "protection-pin": {
+        const header = parseHeader(input, input.method, [
+          "session",
+          "store",
+          "epoch",
+          "generation",
+          ...(input.method === "protection-pin" ? ["expectedProtectionRevision", "pinned"] : []),
+        ]);
+        const binding = {
+          ...header,
+          session: parseId(input.session),
+          store: parseId(input.store),
+          epoch: parseTimeout(input.epoch),
+          generation: parseId(input.generation),
+        };
+        if (input.method === "protection-status")
+          return { ...binding, method: "protection-status" };
+        if (typeof input.pinned !== "boolean") invalidRequest();
+        return {
+          ...binding,
+          method: "protection-pin",
+          expectedProtectionRevision: parseTimeout(input.expectedProtectionRevision),
+          pinned: input.pinned,
         };
       }
       case "renew":

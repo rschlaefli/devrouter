@@ -51,6 +51,21 @@ export async function runControllerCommand(
       return;
     }
     const { json: _json, ...fields } = options;
+    if (method === "protection-pin") {
+      if (
+        fields.pinned !== "true" &&
+        fields.pinned !== "false" &&
+        typeof fields.pinned !== "boolean"
+      )
+        throw new Error("Pinned must be explicitly true or false.");
+      fields.pinned = fields.pinned === true || fields.pinned === "true";
+      if (
+        typeof fields.expectedProtectionRevision === "string" &&
+        !/^(0|[1-9][0-9]*)$/.test(fields.expectedProtectionRevision)
+      )
+        throw new Error("Protection revision must be a nonnegative integer.");
+      fields.expectedProtectionRevision = Number(fields.expectedProtectionRevision);
+    }
     if (fields.epoch !== undefined) fields.epoch = Number(fields.epoch);
     if (fields.timeout !== undefined) fields.timeout = Number(fields.timeout);
     await controllerRequest(

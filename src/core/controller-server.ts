@@ -18,6 +18,11 @@ import {
 import { withFileLock } from "./file-lock";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
 import type { ReliabilityConsumer } from "./reliability-contract";
+import {
+  readReliabilityOperation,
+  setReliabilityHumanPin,
+  withReliabilityObservationFence,
+} from "./reliability-operation-store";
 
 const FRAME_BYTES = 65_536;
 function privateDirectory(directory: string) {
@@ -58,6 +63,7 @@ function validateOwnedFile(file: string, socket: boolean) {
 export type ControllerResolver = (
   request: { path: string; profile: string; require: string[] },
   signal: AbortSignal,
+  capturePersisted?: (revalidate: () => boolean) => void,
 ) => Promise<ControllerEnvironment>;
 
 /**
@@ -317,6 +323,130 @@ export async function runController(options: {
         }
         if (handshake && request.method === "handshake") {
           socket.destroy();
+          return;
+        }
+        if (request.method === "protection-status" || request.method === "protection-pin") {
+          const protectionRequest = request;
+          const cancellation = new AbortController();
+          const cancel = () => cancellation.abort();
+          const expiresAt = monotonic() + 3000;
+          const deadline = setTimeout(cancel, 3000);
+          socket.once("close", cancel);
+          options.signal.addEventListener("abort", cancel, { once: true });
+          const assertActive = () => {
+            if (
+              cancellation.signal.aborted ||
+              options.signal.aborted ||
+              socket.destroyed ||
+              monotonic() >= expiresAt
+            )
+              throw new Error("Protection request expired or cancelled.");
+          };
+          const initial = serial.then(() => {
+            assertActive();
+            sessions.tick(monotonic(), Date.now());
+            const session = sessions.validate(protectionRequest);
+            const environment = sessions
+              .read()
+              .environments.find((entry) => entry.id === session.environmentId);
+            if (!environment) throw new Error("Protection environment unavailable.");
+            const identity = {
+              repoPath: environment.repoPath,
+              workspace: environment.workspace || null,
+              provider: environment.provider,
+            };
+            const journal = readReliabilityOperation(identity);
+            if (!journal) throw new Error("Protection journal unavailable.");
+            return {
+              environment,
+              identity,
+              revision: journal.revision,
+              requirements: session.requirements,
+            };
+          });
+          serial = initial.then(
+            () => {},
+            () => {},
+          );
+          void initial
+            .then(async ({ environment, identity, revision, requirements }) => {
+              let persisted: (() => boolean) | undefined;
+              const resolved = await options.resolve(
+                {
+                  path: environment.repoPath,
+                  profile: environment.profile,
+                  require: requirements,
+                },
+                cancellation.signal,
+                (validator) => {
+                  persisted = validator;
+                },
+              );
+              assertActive();
+              if (!persisted || JSON.stringify(resolved) !== JSON.stringify(environment))
+                throw new Error("Protection ownership evidence unavailable or changed.");
+              const proof = persisted;
+              const finish = serial.then(() => {
+                const revalidate = () => {
+                  assertActive();
+                  sessions.tick(monotonic(), Date.now());
+                  const session = sessions.validate(protectionRequest);
+                  const current = sessions
+                    .read()
+                    .environments.find((entry) => entry.id === session.environmentId);
+                  if (JSON.stringify(current) !== JSON.stringify(environment) || !proof())
+                    throw new Error("Protection persisted ownership changed.");
+                };
+                let demand: ReturnType<ControllerSessions["protection"]> | undefined;
+                const validate = () => {
+                  revalidate();
+                  demand = sessions.protection(environment, monotonic(), Date.now());
+                };
+                const receipt =
+                  protectionRequest.method === "protection-pin"
+                    ? setReliabilityHumanPin(
+                        identity,
+                        revision,
+                        protectionRequest.expectedProtectionRevision,
+                        protectionRequest.pinned,
+                        validate,
+                      )
+                    : withReliabilityObservationFence(identity, revision, (journal) => {
+                        validate();
+                        return {
+                          journalRevision: journal.revision,
+                          protection: journal.consumerProtection ?? {
+                            version: 1,
+                            revision: 0,
+                            humanPinned: false,
+                          },
+                        };
+                      });
+                send({
+                  version: 1,
+                  id: protectionRequest.id,
+                  ok: true,
+                  result: { ...receipt, ...demand },
+                });
+              });
+              serial = finish.catch(() => {});
+              await finish;
+            })
+            .catch(() => {
+              if (!socket.destroyed)
+                send({
+                  version: 1,
+                  id: protectionRequest.id,
+                  ok: false,
+                  error: "request-unavailable",
+                });
+            })
+            .finally(() => {
+              clearTimeout(deadline);
+              socket.removeListener("close", cancel);
+              options.signal.removeEventListener("abort", cancel);
+              pending = false;
+            });
           return;
         }
         if (request.method === "operation-submit" || request.method === "operation-watch") {

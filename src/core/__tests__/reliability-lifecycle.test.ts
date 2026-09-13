@@ -391,8 +391,12 @@ it("persists an operation reference without dispatch and lets stop supersede it"
   const pending = store.readReliabilityOperation(request.identity)!;
   expect(pending.worker).toBeNull();
   expect(pending.state.operation).toMatchObject({ id: request.operationId, status: "NOT_STARTED" });
+  const pin = store.setReliabilityHumanPin(request.identity, pending.revision, 0, true, () => {});
   const stop = lifecycle.prepareLifecycleOperation("stop", repoPath);
   expect(stop.fence.intentRevision).toBeGreaterThan(request.fence.intentRevision);
+  expect(store.readReliabilityOperation(request.identity)?.consumerProtection).toEqual(
+    pin.protection,
+  );
   expect(
     contract.reliabilityFence(store.readReliabilityOperation(request.identity)!.state),
   ).toEqual(stop.fence);
