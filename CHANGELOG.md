@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Retained-runtime repair identifies which baseline dimensions prevent recovery,
   including unavailable generated-file evidence, without changing ownership or
   resource checks.
+- Profile reports explain when a declared managed `full` profile expands finite
+  selections, while preserving existing resource membership.
 
 ## [0.0.78] - 2026-09-13
 

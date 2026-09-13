@@ -53,6 +53,16 @@ function printProfileResolutionSummary(report: ProfileResolutionReport): void {
   process.stdout.write(`Readiness: ${renderValues(report.readiness)}\n`);
   process.stdout.write(`Managed services: ${renderValues(report.managedRuntime.services)}\n`);
   process.stdout.write(`Managed processes: ${renderValues(report.managedRuntime.processes)}\n`);
+  for (const notice of report.notices ?? []) {
+    process.stdout.write(
+      `Notice ${notice.code}: managed profile '${notice.profile}' expanded ${renderValues(notice.dimensions)}\n`,
+    );
+    const candidates =
+      notice.remedy.profiles.length > 0 ? ` (available: ${notice.remedy.profiles.join(", ")})` : "";
+    process.stdout.write(
+      `Remedy ${notice.remedy.code}: set a named default profile other than '${notice.profile}'${candidates}\n`,
+    );
+  }
 }
 
 function printProfilePlanSummary(report: ProfilePlanReport, output?: string): void {

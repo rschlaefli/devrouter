@@ -106,6 +106,15 @@ registered dimension. Warm changes preserve the DevPod and volumes, never rerun
 proved. Inspect desired, active, and drift state with `devrouter status` or
 `devrouter doctor`.
 
+The profile name `full` is reserved in a managed configuration: whether it is
+selected alone or set as the default, its declared dimensions are replaced with
+wildcards. Declare `full` with explicit `['*']` values, and mark a different
+profile as the default when the selection must stay finite. A declared finite or
+omitted dimension that the wildcard widened produces a
+`MANAGED_FULL_PROFILE_EXPANSION` notice naming the affected dimensions and the
+available non-full default profiles. Combined selections such as `full,mcp`
+read the literal declared arrays and are not reported.
+
 Use the side-effect-free resolver when CI or another tool needs the same
 selection without starting or inspecting a runtime:
 
@@ -118,8 +127,9 @@ devrouter profile resolve \
 
 The JSON report is deterministic and includes the canonical selection, exact
 apps, dependencies, readiness checks, managed base and profile services, and
-managed process markers. Treat an invalid profile or unknown report schema as a
-hard error; do not silently widen automation to the full profile.
+managed process markers, plus any fixed-code notices. Treat an invalid profile or
+unknown report schema as a hard error; do not silently widen automation to the
+full profile.
 
 ### Bind profiles to repository automation
 
