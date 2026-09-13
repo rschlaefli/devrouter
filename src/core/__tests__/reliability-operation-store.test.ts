@@ -1174,28 +1174,25 @@ describe("durable consumer protection pins", () => {
   };
   const noRevalidation = () => undefined;
 
-  function rawJournal(target: ReliabilityIdentity = identity): Record<string, unknown> {
-    return JSON.parse(fs.readFileSync(reliabilityOperationPath(target), "utf8")) as Record<
+  function rawJournal(): Record<string, unknown> {
+    return JSON.parse(fs.readFileSync(reliabilityOperationPath(identity), "utf8")) as Record<
       string,
       unknown
     >;
   }
 
-  function writeRawJournal(
-    value: Record<string, unknown>,
-    target: ReliabilityIdentity = identity,
-  ): void {
-    fs.writeFileSync(reliabilityOperationPath(target), `${JSON.stringify(value)}\n`, {
+  function writeRawJournal(value: Record<string, unknown>): void {
+    fs.writeFileSync(reliabilityOperationPath(identity), `${JSON.stringify(value)}\n`, {
       mode: 0o600,
     });
   }
 
-  function journalBytes(target: ReliabilityIdentity = identity): Buffer {
-    return fs.readFileSync(reliabilityOperationPath(target));
+  function journalBytes(): Buffer {
+    return fs.readFileSync(reliabilityOperationPath(identity));
   }
 
-  function stoppedRecord(target: ReliabilityIdentity = identity) {
-    updateReliabilityOperation(target, (record) => {
+  function stoppedRecord() {
+    updateReliabilityOperation(identity, (record) => {
       record.state = stepReliability(
         record.state,
         { ...reliabilityFence(record.state), type: "stop" },
@@ -1212,7 +1209,7 @@ describe("durable consumer protection pins", () => {
         100,
       ).state;
     });
-    return readReliabilityOperation(target)!;
+    return readReliabilityOperation(identity)!;
   }
 
   it("treats an absent field as revision zero on a version 1 journal", () => {

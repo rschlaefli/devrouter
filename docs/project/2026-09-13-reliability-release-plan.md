@@ -212,8 +212,9 @@ fixture and live evidence separately; unknown/skipped is never a pass.
 
 ### Progress
 
-Status: implementing slice 1; repair classification and profile notices committed and reviewed. Goal active. All seven
-slices have remaining obligations; first active slice is actionable diagnosis. Required delivery is
+Status: implementing slice 4 source prerequisites. Diagnostic, submission and recovery
+fences plus durable human protection are committed and reviewed. Goal active.
+All seven slices retain integrated or live obligations. Required delivery is
 released and installed 0.1.0 with full roadmap qualification; achieved baseline
 is published 0.0.78, global installation last verified at 0.0.77.
 
@@ -725,3 +726,13 @@ assumption; the corrected case passes, bringing the applicable portfolio to224.
 Typecheck, Biome, Knip, docs policy and knowledge checks pass. Build and isolated
 packed-CLI smoke pass, including installed protection command registration. Two
 pre-existing Biome informational findings remain outside this change.
+
+
+Consumer protection committed at `b086a99f53476de7ae7f10cf41193e108a4f68b3`.
+Carver reviewed the complete nineteen-path immutable slice and returned DONE with
+no qualifying findings. Popper recommended removing four unused fixture target
+parameters; main verified that every call used the suite identity and accepted
+the reduction. [CI run 34756501873](https://github.com/rschlaefli/devrouter/actions/runs/34756501873)
+passed source checks, package smoke and controller/capacity qualifiers. No live
+consumer recovery, park/resume or 0.1.0 readiness follows from this source result.
+Pressure-duration planning continues with Planck; the draft remains unimplemented.
