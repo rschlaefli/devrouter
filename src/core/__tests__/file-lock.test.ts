@@ -3,7 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type LockWaitProgress, withFileLockSync } from "../file-lock";
+import {
+  type LockWaitProgress,
+  processBirthIdentity,
+  processBirthIdentityWithCause,
+  withFileLockSync,
+} from "../file-lock";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
@@ -38,6 +43,40 @@ describe("file lock ownership", () => {
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
+  it.each([
+    ["failed", { status: 1, stdout: "", stderr: "raw ps stderr" }],
+    ["empty", { status: 0, stdout: "", stderr: "" }],
+  ])("fails closed when procfs is unavailable and ps output is %s", (_case, psResult) => {
+    const existingLock = "existing-lock-bytes\n";
+    fs.writeFileSync(lockPath, existingLock, "utf-8");
+    const readFileSync = fs.readFileSync.bind(fs);
+    vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+      if (String(file).startsWith("/proc/")) {
+        throw Object.assign(new Error("procfs unavailable"), { code: "EACCES" });
+      }
+      return readFileSync(file, ...(args as [never]));
+    }) as typeof fs.readFileSync);
+    vi.mocked(spawnSync).mockReturnValue(psResult as never);
+    const callback = vi.fn();
+
+    let thrown: unknown;
+    try {
+      withFileLockSync(lockPath, { activity: "permission", fair: true }, callback);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).not.toContain("raw ps stderr");
+    expect(callback).not.toHaveBeenCalled();
+    expect(fs.readFileSync(lockPath, "utf-8")).toBe(existingLock);
+    expect(
+      fs
+        .readdirSync(tmpDir)
+        .filter((name) => name.includes(".candidate") || name.includes(".queue.")),
+    ).toEqual([]);
+  });
+
   it("does not displace the same live process instance", () => {
     withFileLockSync(lockPath, { activity: "outer" }, () => {
       expect(() =>
@@ -46,6 +85,70 @@ describe("file lock ownership", () => {
         `inner is already running (PID ${process.pid}, held for 0s); gave up after waiting 0s`,
       );
     });
+  });
+
+  it("describes the denied process inspection in the acquisition error", () => {
+    const existingLock = "existing-lock-bytes\n";
+    fs.writeFileSync(lockPath, existingLock, "utf-8");
+    const readFileSync = fs.readFileSync.bind(fs);
+    vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+      if (String(file).startsWith("/proc/")) {
+        throw Object.assign(new Error("procfs unavailable"), { code: "EACCES" });
+      }
+      return readFileSync(file, ...(args as [never]));
+    }) as typeof fs.readFileSync);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: "raw ps stderr",
+    } as never);
+
+    expect(() => withFileLockSync(lockPath, { activity: "permission" }, () => undefined)).toThrow(
+      /could not determine process identity for permission lock at .*: .*ps exited with status 1.*LC_ALL=C ps -o lstart=.*fail-closed/,
+    );
+    expect(fs.readFileSync(lockPath, "utf-8")).toBe(existingLock);
+  });
+
+  it("reports the failing ps stage without echoing raw stderr", () => {
+    const readFileSync = fs.readFileSync.bind(fs);
+    vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+      if (String(file).startsWith("/proc/")) {
+        throw Object.assign(new Error("procfs unavailable"), { code: "ENOENT" });
+      }
+      return readFileSync(file, ...(args as [never]));
+    }) as typeof fs.readFileSync);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: "raw ps stderr",
+    } as never);
+
+    const result = processBirthIdentityWithCause(process.pid);
+
+    expect(result.identity).toBeUndefined();
+    expect(result.cause).toContain("ps exited with status 1");
+    expect(result.cause).not.toContain("raw ps stderr");
+  });
+
+  it("reports the ps spawn error code as the cause", () => {
+    const readFileSync = fs.readFileSync.bind(fs);
+    vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+      if (String(file).startsWith("/proc/")) {
+        throw Object.assign(new Error("procfs unavailable"), { code: "ENOENT" });
+      }
+      return readFileSync(file, ...(args as [never]));
+    }) as typeof fs.readFileSync);
+    vi.mocked(spawnSync).mockReturnValue({
+      error: Object.assign(new Error("spawn ps EACCES"), { code: "EACCES" }),
+      status: null,
+      stdout: "",
+      stderr: "",
+    } as never);
+
+    const result = processBirthIdentityWithCause(process.pid);
+
+    expect(result.identity).toBeUndefined();
+    expect(result.cause).toContain("ps spawn failed (EACCES)");
   });
 
   it("keeps legacy pid:uuid records conservative while the PID is live", () => {
@@ -168,6 +271,75 @@ describe("file lock ownership", () => {
     expect(progress.length).toBeGreaterThanOrEqual(1);
     expect(progress.every((item) => item.queuePosition === 1)).toBe(true);
     expect(progress.every((item) => item.waitingOn === "lock")).toBe(true);
+  });
+
+  it.each([
+    "live",
+    "missing",
+    "unreadable",
+    "malformed",
+    "changed",
+  ])("distinguishes the first waiter from %s holder evidence without changing the queue", (evidence) => {
+    const progress: LockWaitProgress[] = [];
+    const callback = vi.fn();
+    const leaderPid = process.ppid;
+    const birth = processBirthIdentity(leaderPid);
+    expect(birth).toBeDefined();
+    const ticket = `${lockPath}.queue.0000000000000.${leaderPid}.earlier`;
+    const leader = `${leaderPid}:${Buffer.from(birth!).toString("base64url")}:00000000-0000-4000-8000-000000000000\n`;
+    withFileLockSync(lockPath, { activity: "outer" }, () => {
+      fs.writeFileSync(ticket, leader);
+      const holderBytes = fs.readFileSync(lockPath, "utf-8");
+      const read = fs.readFileSync.bind(fs);
+      let reads = 0;
+      const spy = vi.spyOn(fs, "readFileSync").mockImplementation(((file, ...args) => {
+        if (file === lockPath) {
+          reads += 1;
+          if (evidence === "missing" || evidence === "unreadable")
+            throw Object.assign(new Error("unavailable"), {
+              code: evidence === "missing" ? "ENOENT" : "EACCES",
+            });
+          if (evidence === "malformed" || (evidence === "changed" && reads % 2 === 0))
+            return "invalid owner";
+        }
+        return read(file, ...(args as [never]));
+      }) as typeof fs.readFileSync);
+      let now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => (now += 10));
+      try {
+        expect(() =>
+          withFileLockSync(
+            lockPath,
+            {
+              activity: "inner",
+              fair: true,
+              waitMs: 100,
+              progressIntervalMs: 1,
+              onWait: (item) => progress.push(item),
+            },
+            callback,
+          ),
+        ).toThrow();
+      } finally {
+        clock.mockRestore();
+        spy.mockRestore();
+      }
+      expect(callback).not.toHaveBeenCalled();
+      expect(progress.length).toBeGreaterThan(0);
+      for (const item of progress) {
+        expect(item.queuePosition).toBe(2);
+        expect(item.queueLeaderPid).toBe(leaderPid);
+        expect(item.holderPid).toBe(evidence === "live" ? process.pid : undefined);
+        expect(item.holderHeldMs !== undefined).toBe(evidence === "live");
+        expect(item.remainingWaitMs).toBeGreaterThan(0);
+        expect(item.remainingWaitMs).toBeLessThan(100);
+      }
+      expect(fs.readFileSync(lockPath, "utf-8")).toBe(holderBytes);
+      expect(fs.readFileSync(ticket, "utf-8")).toBe(leader);
+      expect(fs.readdirSync(tmpDir).filter((name) => name.includes(".queue."))).toEqual([
+        path.basename(ticket),
+      ]);
+    });
   });
 
   it("reclaims dead and malformed fair-queue leaders before acquisition", () => {

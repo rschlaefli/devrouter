@@ -100,6 +100,7 @@ if (prompts.length === 0) {
 const required = new Set([
   ...binTargets.map(normalizeMember),
   'package/dist/devrouter.js',
+  'package/dist/devrouter-lifecycle-worker.js',
   ...prompts.map((prompt) => `package/upgrade-prompts/${prompt}`),
 ]);
 
@@ -199,7 +200,7 @@ done <"$REQUIRED_MEMBERS"
 
 while IFS= read -r member; do
   case "$member" in
-    package/bin/*|package/dist/*) assert_tar_executable "$member" ;;
+    package/bin/*|package/dist/devrouter.js) assert_tar_executable "$member" ;;
   esac
 done <"$REQUIRED_MEMBERS"
 
@@ -418,6 +419,8 @@ if ((fs.statSync(filePath).mode & 0o777) !== 0o600) {
   throw new Error('profile plan output mode is not 0600');
 }
 NODE
+
+node "$ROOT_DIR/scripts/qualify-network-package.cjs" "$PACKAGE_DIR" "$WORK_ROOT"
 
 echo "Installed package verified from temporary cwd: $PROBE_CWD"
 echo "Package smoke passed; temporary artifacts will be removed on exit."

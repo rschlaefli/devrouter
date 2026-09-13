@@ -1,6 +1,7 @@
 import type { DevrouterConfig, DevrouterProxyApp, DevrouterRoutedApp } from "../types";
 import { ensureNetwork } from "./docker";
 import { type HostRouteInput, parseUpstream, replaceHostRoutesForRepo } from "./host-routes";
+import { claimLifecycleEffect } from "./reliability-context";
 import {
   activateTcpProtocol,
   DEVNET_NAME,
@@ -38,8 +39,10 @@ export async function ensureRouteInfrastructure(
   apps: DevrouterRoutedApp[],
   options: { repoPath?: string } = {},
 ): Promise<Awaited<ReturnType<typeof ensureTLSHostsCovered>>> {
+  claimLifecycleEffect();
   ensureRouterFiles();
   await ensureNetwork(DEVNET_NAME);
+  claimLifecycleEffect();
   const tlsCoverage = await ensureTLSHostsCovered(
     apps.map((app) => app.host),
     options,
@@ -56,6 +59,7 @@ export async function ensureRouteInfrastructure(
     }
   }
 
+  claimLifecycleEffect();
   startRouterStack();
   return tlsCoverage;
 }
@@ -87,6 +91,7 @@ export async function replacePublishedProxyRoutes(
     };
   });
 
+  claimLifecycleEffect();
   replaceHostRoutesForRepo(repoPath, routes);
   return { routes, tlsRefreshed: tlsCoverage.refreshed };
 }

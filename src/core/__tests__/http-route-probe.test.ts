@@ -98,4 +98,107 @@ describe("probeHttpRoute", () => {
     );
     expect(vi.mocked(getMkcertRootCAPath)).not.toHaveBeenCalled();
   });
+
+  it("probes a readiness contract with bounded metadata-only curl arguments", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: "200\tApplication/JSON; charset=utf-8",
+      stderr: "",
+    } as never);
+
+    expect(
+      probeHttpRoute("app.localhost", {
+        maxTimeSeconds: 2.5,
+        repoPath: "/repo",
+        readiness: { path: "/health", contentType: "application/json" },
+      }),
+    ).toEqual({ ok: true, status: 200, details: "HTTP 200" });
+
+    expect(spawnSync).toHaveBeenCalledWith(
+      "curl",
+      [
+        "--disable",
+        "--globoff",
+        "--silent",
+        "--show-error",
+        "--no-location",
+        "--noproxy",
+        "*",
+        "--output",
+        "/dev/null",
+        "--write-out",
+        "%{http_code}\t%{content_type}",
+        "--max-time",
+        "2.5",
+        "--cacert",
+        "/certs/localhost.pem",
+        "https://app.localhost/health",
+      ],
+      { encoding: "utf-8", maxBuffer: 1024, timeout: 2750 },
+    );
+    expect(vi.mocked(spawnSync).mock.calls[0][1]).not.toContain("--location");
+    expect(vi.mocked(spawnSync).mock.calls[0][1]).not.toContain("/repo");
+    expect(vi.mocked(getMkcertRootCAPath)).toHaveBeenCalledWith({ repoPath: "/repo" });
+  });
+
+  it("accepts an explicitly allowed 404 and rejects the default 200 contract", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: "404\ttext/plain",
+      stderr: "",
+    } as never);
+
+    expect(
+      probeHttpRoute("app.localhost", { readiness: { path: "/health", statuses: [404] } }),
+    ).toMatchObject({ ok: true, status: 404 });
+    expect(probeHttpRoute("app.localhost", { readiness: { path: "/health" } })).toMatchObject({
+      ok: false,
+      status: 404,
+      classification: "application-contract",
+    });
+  });
+
+  it("classifies wrong media and redirect responses as application failures", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: "200\ttext/html; charset=utf-8",
+      stderr: "",
+    } as never);
+
+    expect(
+      probeHttpRoute("app.localhost", {
+        readiness: { path: "/health", contentType: "application/json" },
+      }),
+    ).toMatchObject({
+      ok: false,
+      status: 200,
+      details: "HTTP 200; content type mismatch",
+      classification: "application-contract",
+    });
+
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: "302\ttext/html",
+      stderr: "",
+    } as never);
+    expect(probeHttpRoute("app.localhost", { readiness: { path: "/health" } })).toMatchObject({
+      ok: false,
+      status: 302,
+      classification: "application-contract",
+    });
+  });
+
+  it("classifies TLS and transport failures without exposing curl output", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 60,
+      stdout: "",
+      stderr: "secret body or private location",
+    } as never);
+
+    expect(probeHttpRoute("app.localhost", { readiness: { path: "/health" } })).toEqual({
+      ok: false,
+      details: "HTTP route probe transport failure",
+      classification: "transport",
+    });
+  });
 });

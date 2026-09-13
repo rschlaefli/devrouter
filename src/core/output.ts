@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import { renderTable } from "../util/table";
 import { formatAge } from "../util/timeago";
+import { networkCapacityCheck } from "./network-diagnostics";
 import type { WorkspaceCleanupReport, WorkspaceCleanupSize } from "./workspace-cleanup";
 
 export function printJSON(value: unknown): void {
@@ -17,6 +18,10 @@ export function printJSON(value: unknown): void {
 
 export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): void {
   process.stdout.write("Workspace cleanup report (read-only)\n");
+  if (report.networkCapacity) {
+    const check = networkCapacityCheck(report.networkCapacity);
+    process.stdout.write(`${check.summary}\n${check.details}\n${check.suggestion}\n`);
+  }
   process.stdout.write(
     `${renderTable(
       ["FIELD", "VALUE"],

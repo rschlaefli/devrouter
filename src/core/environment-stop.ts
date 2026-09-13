@@ -2,13 +2,9 @@ import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "./devpod-m
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { removeHostRoutesWhere } from "./host-routes";
 import { readManagedRuntimeState } from "./managed-runtime-state";
+import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-lifecycle";
 import { ensureTraefikRoutesRemoved } from "./traefik-route-health";
-import {
-  isLinkedWorktree,
-  resolveWorktreeWorkspace,
-  sameWorkspacePath,
-  withWorkspaceLifecycleLock,
-} from "./workspace";
+import { isLinkedWorktree, resolveWorktreeWorkspace, sameWorkspacePath } from "./workspace";
 import { workspaceDeleteOwnedPath, workspaceStopOwnedPath } from "./workspace-lifecycle";
 import { listGitWorktrees, listWorkspaceOwnership } from "./workspace-ownership";
 
@@ -18,6 +14,7 @@ export type EnvironmentStopResult = {
   workspace?: string;
   devpodId?: string;
   stopped: boolean;
+  runtimeAbsent?: boolean;
   deleted?: boolean;
   freedRoutes: number;
 };
@@ -57,15 +54,17 @@ export async function environmentStop(
         repoPath,
         workspace: result.workspace,
         ...(result.devpodId ? { devpodId: result.devpodId } : {}),
-        stopped: !options.delete && result.providerChanged,
+        ...(result.runtimeAbsent ? { runtimeAbsent: true } : {}),
+        stopped: !options.delete && (result.providerChanged || result.runtimeAbsent === true),
         ...(options.delete ? { deleted: result.providerChanged } : {}),
         freedRoutes: result.freedRoutes,
       };
     }
   }
 
-  return withWorkspaceLifecycleLock(repoPath, async () => {
+  return withLifecycleOperationLock(repoPath, async () => {
     const devpod = selectDevpodWorkspace(listDevpodWorkspaces(repoPath), repoPath);
+    claimLifecycleEffect();
     const mutation = devpod
       ? options.delete
         ? deleteOwnedDevpodWorkspace(devpod.id, repoPath)
@@ -80,6 +79,7 @@ export async function environmentStop(
         "Retained managed runtime has no exact provider registration; routes were preserved.",
       );
     }
+    claimLifecycleEffect();
     const removedRoutes = removeHostRoutesWhere((route) =>
       sameWorkspacePath(route.repoPath, repoPath),
     );

@@ -85,7 +85,7 @@ Supported routing:
 - `devrouter profile resolve` (`--repo`, `--profile`, `--json`), `devrouter profile plan` (`--repo`, `--profile`, `--contract`, `--output`, `--json`)
 - `devrouter repo init`, `devrouter repo inspect` (`--json`), `devrouter repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `devrouter repo devcontainer verify` (`--live`, `--yes`, `--json`), `devrouter repo agents`
 - `devrouter app add` (`--kind app|dependency`), `devrouter app ls`, `devrouter app run` (`--env`, `--workspace`), `devrouter app exec` (`--shell`, `--env`, `--workspace`), `devrouter app rm` (`--keep-config`)
-- `devrouter workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `devrouter workspace ensure` (`[path]`, `--open`, `--repair`, `--json`, compatibility alias), `devrouter workspace ls` (`--json`), `devrouter workspace cleanup` (`--repo`, `--inactive-for` default `30d`, `--check-merged`, `--measure-size`, `--json`, report-only), `devrouter workspace stop` (`<workspace|branch>`), `devrouter workspace down` (`<workspace|branch>`, `--keep-worktree`), `devrouter workspace gc` (`--json`, `--yes`)
+- `devrouter workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `devrouter workspace ensure` (`[path]`, `--open`, `--repair`, `--json`, compatibility alias), `devrouter workspace ls` (`--json`), `devrouter workspace cleanup` (`--repo`, `--inactive-for` default `30d`, `--check-merged`, `--measure-size`, `--json`, report-only), `devrouter workspace stop` (`<workspace|branch>`), `devrouter workspace down` (`<workspace|branch>`, `--keep-worktree`), `devrouter workspace gc` (`--json`, `--yes`), `devrouter workspace journal settle` (`[path]`, `--json`)
 
 ## Repository map
 
@@ -117,6 +117,8 @@ Supported routing:
 - `src/core/workspace-gc.ts`: dry-run-first cleanup for exact ledger-owned missing workspaces
 - `src/core/devpod-mutation.ts`: machine-global serialization boundary for ownership-proven DevPod provider mutations
 - `src/core/workspace-ensure.ts`: fail-closed `workspace ensure` engine (exact-path DevPod discovery/start, runtime proof, atomic route reconciliation)
+- `src/core/reliability-model.ts`: pure reliability transition model (journal rollover, interrupted-ensure reconciliation, settlement)
+- `src/core/workspace-journal-settle.ts`: `devrouter workspace journal settle` engine (first-class settlement of a provably lost lifecycle worker)
 - `src/core/managed-post-start.ts`: managed-adapter migration guard plus runtime-only process-helper delivery and invocation in the exact validated container
 - `src/core/environment-stop.ts`: non-destructive exact-checkout stop lifecycle
 - `src/core/devpod-exec.ts`: locked, exact-path one-shot DevPod execution
@@ -128,6 +130,7 @@ Supported routing:
 - `src/core/routes.ts`: discover HTTP + TCP routes from labels
 - `src/core/router.ts`: shared Traefik stack/files under `~/.config/devrouter`
 - `src/core/host-routes.ts`: locked host-route state, versioned canonical Traefik metadata/rendering, durable atomic publication, and compatibility recovery
+- `src/core/host-port-claims.ts`: admission-time fixed host-port binding resolution, live holder inspection/attribution, and the conflict refusal for managed ensure plus the `repo.host-port-claims` doctor check
 - `src/core/traefik-route-health.ts`: file-provider router proof, serialized one-restart recovery, and fail-closed diagnostics
 - `src/core/paths.ts`: path traversal guard (`assertPathWithinRepo`) for repo-scoped file references
 - `src/core/tls.ts`: mkcert integration, SAN coverage checks, and TLS enablement/refresh
@@ -156,10 +159,14 @@ Supported routing:
 - `src/core/__tests__/devpod-environment.test.ts`: unit tests for container inspection argv, keeping the unsized hot path free of `--size`
 - `src/core/__tests__/workspace-gc.test.ts`: unit tests for dry-run and exact-evidence garbage collection
 - `src/core/__tests__/workspace-ensure.test.ts`: unit tests for exact-path DevPod ownership, one-time recreate, proof failures, and route replacement
+- `src/core/__tests__/reliability-liveness.test.ts`: saturated-journal liveness property tests (incident crash repro + randomized walks)
+- `src/core/__tests__/workspace-journal-settle.test.ts`: unit tests for journal settlement under worker-loss proof
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging
 - `src/core/__tests__/app-run-exec.test.ts`: unit tests for argv-safe `devrouter app exec`, shell mode guard, per-dep env vars, config-level envMap, exec dependency ownership teardown, and SM `{env}` template resolution
 - `src/core/__tests__/tls.test.ts`: unit tests for TLS SAN parsing, wildcard coverage, and host preservation logic
+- `src/core/__tests__/host-port-claims.test.ts`: unit tests for the fixed-port resolver, conflict matching, holder attribution, and evidence-failure refusals
+- `src/commands/__tests__/ensure.test.ts`: unit tests for ensure host-port refusal output (JSON shape, human attribution, exit codes)
 - `src/commands/__tests__/init.test.ts`: unit tests for `devrouter init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `devrouter open` app-name fallback behavior
 - `src/commands/__tests__/repo-init.test.ts`: unit tests for `devrouter repo init` metadata initialization behavior

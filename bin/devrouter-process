@@ -461,6 +461,14 @@ if [ -n "$prepare_command" ]; then
   wait "$preparation_pid" || preparation_status=$?
   [ "$interrupted" -eq 0 ] || exit "$interrupted"
   [ "$preparation_status" -eq 0 ] || die "Preparation for '$name' failed (exit $preparation_status)."
+  # Build tools can return before short-lived child shutdown finishes. Keep the
+  # lifecycle lock while allowing natural drainage; persistent children still fail.
+  for ((attempt = 0; attempt < 20; attempt += 1)); do
+    [ "$interrupted" -eq 0 ] || exit "$interrupted"
+    process_group_alive "$preparation_pid" || break
+    sleep 0.1
+  done
+  [ "$interrupted" -eq 0 ] || exit "$interrupted"
   if process_group_alive "$preparation_pid"; then
     die "Preparation for '$name' left running children; a synchronous foreground command is required."
   fi

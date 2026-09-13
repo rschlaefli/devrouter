@@ -2,11 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DevrouterApp, DevrouterConfig } from "../../types";
+import type { CapacityEstimates, DevrouterApp, DevrouterConfig } from "../../types";
 import { formatSupportedTcpProtocols } from "../capabilities";
 import {
   applyProfile,
   applyWorkspace,
+  capacityEstimatesDigest,
   initRepoConfig,
   loadRepoConfig,
   loadRuntimeConfig,
@@ -32,6 +33,79 @@ function writeConfig(dir: string, content: string): void {
 function readConfig(dir: string): string {
   return fs.readFileSync(path.join(dir, ".devrouter.yml"), "utf-8");
 }
+
+describe("managed host preparation argv", () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = makeTmpDir();
+  });
+  afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const config = (prepareCommand: unknown) => ({
+    version: 1,
+    apps: [],
+    managedRuntime: {
+      processes: [],
+      devcontainer: { baseServices: [], profileServices: [], prepareCommand },
+    },
+  });
+  it("preserves literal arguments including empty non-executable arguments", () => {
+    const argv = ["node", "generator script.js", "", "$HOME"];
+    writeConfig(directory, JSON.stringify(config(argv)));
+    expect(loadRepoConfig(directory).managedRuntime?.devcontainer.prepareCommand).toEqual(argv);
+  });
+  it.each([
+    [],
+    "node script",
+    [""],
+    [null],
+    ["node", "a\0b"],
+    Array(65).fill("arg"),
+    ["node", "x".repeat(4097)],
+  ])("rejects invalid or unbounded argv %#", (argv) => {
+    writeConfig(directory, JSON.stringify(config(argv)));
+    expect(() => loadRepoConfig(directory)).toThrow();
+  });
+});
+
+describe("managed network requests", () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = makeTmpDir();
+  });
+  afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
+  function write(network: unknown) {
+    writeConfig(
+      directory,
+      JSON.stringify({
+        version: 1,
+        apps: [],
+        managedRuntime: {
+          devcontainer: { baseServices: [], profileServices: [] },
+          processes: [],
+          network,
+        },
+      }),
+    );
+  }
+  it.each([24, 25, 26])("preserves prefix override %s without rewriting config", (prefixLength) => {
+    const network = { prefixLength, endpointUpperBound: 53 };
+    write(network);
+    const before = readConfig(directory);
+    expect(loadRepoConfig(directory).managedRuntime?.network).toEqual(network);
+    expect(readConfig(directory)).toBe(before);
+  });
+  it.each([
+    { prefixLength: 23 },
+    { prefixLength: "26" },
+    { endpointUpperBound: 0 },
+    { endpointUpperBound: 254 },
+    { pools: ["10.0.0.0/8"] },
+    { daemonId: "other" },
+  ])("rejects invalid requests or repository pool authority %#", (network) => {
+    write(network);
+    expect(() => loadRepoConfig(directory)).toThrow();
+  });
+});
 
 function writeManagedProfileConfig(dir: string, profilesYaml: string): void {
   writeConfig(
@@ -114,6 +188,17 @@ apps:
     runtime: proxy
     upstream: 127.0.0.1:3000
 `;
+
+function proxyReadinessConfig(options: {
+  path: string;
+  statuses?: unknown;
+  contentType?: string;
+  extra?: string;
+}): string {
+  return `${VALID_PROXY_APP}    readiness:
+      path: ${JSON.stringify(options.path)}
+${options.statuses === undefined ? "" : `      statuses: ${JSON.stringify(options.statuses)}\n`}${options.contentType === undefined ? "" : `      contentType: ${JSON.stringify(options.contentType)}\n`}${options.extra === undefined ? "" : `      ${options.extra}\n`}`;
+}
 
 beforeEach(() => {
   tmpDir = makeTmpDir();
@@ -236,6 +321,105 @@ describe("protocol/runtime combinations", () => {
     expect(app.protocol).toBe("http");
     expect(app.host).toBe("app.localhost");
     expect(app.upstream).toBe("127.0.0.1:3000");
+  });
+
+  it("normalizes proxy HTTP readiness defaults and media types", () => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: "/health", contentType: "Application/JSON" }));
+    const config = loadRepoConfig(tmpDir);
+    const app = config.apps[0] as Extract<DevrouterApp, { runtime: "proxy"; protocol: "http" }>;
+
+    expect(app.readiness).toEqual({
+      path: "/health",
+      statuses: [200],
+      contentType: "application/json",
+    });
+  });
+
+  it("accepts unique 2xx and 4xx readiness statuses", () => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: "/health", statuses: [404, 200] }));
+    const config = loadRepoConfig(tmpDir);
+    const app = config.apps[0] as Extract<DevrouterApp, { runtime: "proxy"; protocol: "http" }>;
+
+    expect(app.readiness?.statuses).toEqual([404, 200]);
+  });
+
+  it("rejects unknown readiness keys and MIME parameters", () => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: "/health", extra: "unknown: true" }));
+    expect(() => loadRepoConfig(tmpDir)).toThrow("unknown is not supported");
+
+    writeConfig(
+      tmpDir,
+      proxyReadinessConfig({ path: "/health", contentType: "application/json; charset=utf-8" }),
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow("token/token form without parameters");
+  });
+
+  it.each([
+    "health",
+    "//health",
+    "/health?ready=1",
+    "/health#ready",
+    "/health\\ready",
+    "/health%2Fready",
+    "/health//ready",
+    "/./health",
+    "/health/../status",
+    "/health\nready",
+    "/héalth",
+  ])("rejects unsafe readiness path %s", (readinessPath) => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: readinessPath }));
+    expect(() => loadRepoConfig(tmpDir)).toThrow("readiness.path");
+  });
+
+  it.each([
+    { statuses: [] },
+    { statuses: [200, 200] },
+    { statuses: [300] },
+    { statuses: [399] },
+    { statuses: [500] },
+    { statuses: [200.5] },
+    { statuses: ["200"] },
+  ])("rejects invalid readiness statuses $statuses", ({ statuses }) => {
+    writeConfig(tmpDir, proxyReadinessConfig({ path: "/health", statuses }));
+    expect(() => loadRepoConfig(tmpDir)).toThrow("readiness.statuses");
+  });
+
+  it.each([
+    ["host", "http", "    hostRun:\n      command: node server.js"],
+    ["docker", "http", "    docker:\n      service: web\n      internalPort: 3000"],
+    ["proxy", "tcp", "    tcpProtocol: postgres\n    upstream: app-db:5432"],
+  ])("rejects readiness on %s %s apps", (runtime, protocol, runtimeConfig) => {
+    const protocolLine = protocol === undefined ? "" : `    protocol: ${protocol}\n`;
+    const yaml = `
+version: 1
+apps:
+  - name: app
+    host: app.localhost
+${protocolLine}    runtime: ${runtime}
+${runtimeConfig}
+    readiness:
+      path: /health
+`;
+    writeConfig(tmpDir, yaml);
+    expect(() => loadRepoConfig(tmpDir)).toThrow("readiness is only supported for HTTP proxy apps");
+  });
+
+  it("rejects readiness on dependency apps", () => {
+    writeConfig(
+      tmpDir,
+      `
+version: 1
+apps:
+  - name: redis
+    kind: dependency
+    runtime: docker
+    docker:
+      service: redis
+    readiness:
+      path: /health
+`,
+    );
+    expect(() => loadRepoConfig(tmpDir)).toThrow("readiness is only supported for HTTP proxy apps");
   });
 
   it("rejects proxy without upstream", () => {
@@ -1159,6 +1343,22 @@ apps:
     expect(() => resolveProfile(config, "nope")).toThrow(/Profile 'nope' is not defined/);
   });
 
+  it("resolves the implicit full profile by its persisted canonical name", () => {
+    const config = {
+      version: 1,
+      apps: [],
+      managedRuntime: {
+        devcontainer: { baseServices: [], profileServices: [] },
+        processes: [],
+      },
+    } as Parameters<typeof resolveProfile>[0];
+    const implicit = resolveProfile(config);
+    expect(resolveProfile(config, implicit.name)).toEqual(implicit);
+    expect(
+      resolveProfile({ ...config, profiles: { ui: { apps: [], default: true } } }, "full"),
+    ).toEqual(implicit);
+  });
+
   it("falls back to full behavior when profiles declare no default", () => {
     writeProfileConfig(
       tmpDir,
@@ -1544,5 +1744,199 @@ apps: []
 `,
     );
     expect(() => loadRepoConfig(tmpDir)).toThrow(/apps must not be empty/);
+  });
+
+  it("parses exact capacity profile combinations and transition totals", () => {
+    writeConfig(
+      tmpDir,
+      `version: 1
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: proxy
+    upstream: 127.0.0.1:3000
+profiles:
+  api:
+    apps: [web]
+  worker:
+    apps: [web]
+capacity:
+  version: 1
+  profiles:
+    worker,api:
+      host:
+        steadyBytes: 200
+        startupTotalBytes: 300
+      runtime:
+        steadyBytes: 300
+        startupTotalBytes: 400
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 10
+        exec:
+          hostIncrementBytes: 5
+          runtimeIncrementBytes: 20
+    api:
+      host:
+        steadyBytes: 0
+        startupTotalBytes: 100
+      runtime:
+        steadyBytes: 100
+        startupTotalBytes: 150
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 8
+  transitions:
+    api:
+      worker,api:
+        hostTotalBytes: 250
+        runtimeTotalBytes: 350
+`,
+    );
+
+    const config = loadRepoConfig(tmpDir);
+    expect(config.capacity?.profiles["api,worker"]).toEqual({
+      host: { steadyBytes: 200, startupTotalBytes: 300 },
+      runtime: { steadyBytes: 300, startupTotalBytes: 400 },
+      operations: {
+        ensure: { hostIncrementBytes: 0, runtimeIncrementBytes: 10 },
+        exec: { hostIncrementBytes: 5, runtimeIncrementBytes: 20 },
+      },
+    });
+    expect(config.capacity?.transitions?.api?.["api,worker"]).toEqual({
+      hostTotalBytes: 250,
+      runtimeTotalBytes: 350,
+    });
+
+    const resolved = loadRuntimeConfig(tmpDir, undefined, "worker,api");
+    expect(resolved.profile).toBe("api,worker");
+    expect(resolved.config.capacity?.profiles[resolved.profile]).toBeDefined();
+  });
+
+  it("rejects aliased capacity transition source keys", () => {
+    writeConfig(
+      tmpDir,
+      `version: 1
+apps:
+  - name: web
+    host: web.localhost
+    protocol: http
+    runtime: proxy
+    upstream: 127.0.0.1:3000
+profiles:
+  api:
+    apps: [web]
+  worker:
+    apps: [web]
+capacity:
+  version: 1
+  profiles:
+    api:
+      host:
+        steadyBytes: 0
+        startupTotalBytes: 100
+      runtime:
+        steadyBytes: 100
+        startupTotalBytes: 150
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 10
+    api,worker:
+      host:
+        steadyBytes: 200
+        startupTotalBytes: 300
+      runtime:
+        steadyBytes: 300
+        startupTotalBytes: 400
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 10
+  transitions:
+    worker,api:
+      api:
+        hostTotalBytes: 200
+        runtimeTotalBytes: 300
+    api,worker:
+      api:
+        hostTotalBytes: 200
+        runtimeTotalBytes: 300
+`,
+    );
+
+    expect(() => loadRepoConfig(tmpDir)).toThrow(/aliases for source/);
+  });
+
+  it("uses a stable digest for normalized estimate ordering", () => {
+    const estimates: CapacityEstimates = {
+      version: 1,
+      profiles: {
+        "api,worker": {
+          host: { steadyBytes: 200, startupTotalBytes: 300 },
+          runtime: { steadyBytes: 300, startupTotalBytes: 400 },
+          operations: { exec: { hostIncrementBytes: 5, runtimeIncrementBytes: 20 } },
+        },
+        api: {
+          host: { steadyBytes: 0, startupTotalBytes: 100 },
+          runtime: { steadyBytes: 100, startupTotalBytes: 150 },
+          operations: { ensure: { hostIncrementBytes: 0, runtimeIncrementBytes: 10 } },
+        },
+      },
+    };
+    const reordered: CapacityEstimates = {
+      ...estimates,
+      profiles: {
+        api: estimates.profiles.api,
+        "api,worker": estimates.profiles["api,worker"],
+      },
+    };
+
+    expect(capacityEstimatesDigest(estimates)).toBe(capacityEstimatesDigest(reordered));
+  });
+
+  it.each([
+    ["zero runtime steady", "steadyBytes: 0"],
+    ["startup below steady", "startupTotalBytes: 99"],
+    ["transition below steady", "runtimeTotalBytes: 99"],
+  ])("rejects malformed capacity estimates: %s", (_case, replacement) => {
+    const capacityYaml = `capacity:
+  version: 1
+  profiles:
+    full:
+      host:
+        steadyBytes: 0
+        startupTotalBytes: 100
+      runtime:
+        steadyBytes: 100
+        startupTotalBytes: 150
+      operations:
+        ensure:
+          hostIncrementBytes: 0
+          runtimeIncrementBytes: 10
+  transitions:
+    full:
+      full:
+        hostTotalBytes: 100
+        runtimeTotalBytes: 100
+`;
+    const malformed =
+      replacement === "steadyBytes: 0"
+        ? capacityYaml.replace("steadyBytes: 100", replacement)
+        : replacement === "startupTotalBytes: 99"
+          ? capacityYaml.replace("startupTotalBytes: 150", replacement)
+          : capacityYaml.replace("runtimeTotalBytes: 100", replacement);
+    writeConfig(tmpDir, `version: 1\napps: []\n${malformed}`);
+    expect(() => loadRepoConfig(tmpDir)).toThrow();
+  });
+
+  it("keeps existing example configurations valid without capacity", () => {
+    for (const example of ["routing", "devcontainer"]) {
+      const config = loadRepoConfig(path.resolve(__dirname, "../../../examples", example));
+      expect(config.capacity).toBeUndefined();
+    }
   });
 });

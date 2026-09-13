@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import type { ContainerInfo } from "dockerode";
+import { networkDockerEndpoint } from "./network-effect-scope";
 
 type DockerClient = {
   listContainers(options: { all: boolean }): Promise<ContainerInfo[]>;
@@ -67,8 +68,7 @@ function getDockerHostFromContext(context: string): string {
 
 async function createDockerClient(): Promise<DockerClient> {
   const DockerodeClass = await getDockerodeConstructor();
-  const context = getCurrentDockerContext();
-  const host = getDockerHostFromContext(context);
+  const host = networkDockerEndpoint() ?? getDockerHostFromContext(getCurrentDockerContext());
 
   if (host.startsWith("unix://")) {
     return new DockerodeClass({ socketPath: host.replace("unix://", "") });

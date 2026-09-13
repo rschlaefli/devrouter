@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomically } from "./atomic-file";
+import { type ManagedStopBaseline, validateManagedStopBaseline } from "./managed-stop-baseline";
 import { DEVROUTER_HOME } from "./router";
 
 export type ManagedRuntimeState = {
@@ -21,6 +22,7 @@ export type ManagedRuntimeState = {
   status: "ready" | "degraded";
   transitionPhase?: string;
   updatedAt: string;
+  stopBaseline?: ManagedStopBaseline;
 };
 
 function stateKey(repoPath: string, workspace?: string): string {
@@ -90,7 +92,7 @@ function validateState(value: unknown, repoPath: string, workspace?: string): Ma
   ) {
     throw new Error("Managed runtime state has an invalid timestamp.");
   }
-  return {
+  const result: ManagedRuntimeState = {
     version: 1,
     repoPath,
     ...(workspace !== undefined ? { workspace } : {}),
@@ -108,17 +110,22 @@ function validateState(value: unknown, repoPath: string, workspace?: string): Ma
     ...(candidate.transitionPhase ? { transitionPhase: candidate.transitionPhase } : {}),
     updatedAt: candidate.updatedAt,
   };
+  if (Object.hasOwn(candidate, "stopBaseline")) {
+    result.stopBaseline = validateManagedStopBaseline(candidate.stopBaseline, result);
+  }
+  return result;
 }
 
 export function readManagedRuntimeState(
   repoPath: string,
   workspace?: string,
+  read = (file: string) => fs.readFileSync(file, "utf-8"),
 ): ManagedRuntimeState | undefined {
   const statePath = managedRuntimeStatePath(repoPath, workspace);
   if (!fs.existsSync(statePath)) return undefined;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+    parsed = JSON.parse(read(statePath));
   } catch (error) {
     throw new Error(`Could not parse managed runtime state: ${String(error)}`);
   }

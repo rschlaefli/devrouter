@@ -13,6 +13,15 @@ vi.mock("../status", () => ({
   collectRouterStatus: vi.fn(),
 }));
 
+vi.mock("../network-diagnostics", () => ({
+  inspectNetworkCapacity: vi.fn(() => ({})),
+  networkCapacityCheck: vi.fn(() => ({
+    id: "global.network-capacity",
+    level: "warn",
+    summary: "Synthetic unknown capacity",
+  })),
+}));
+
 vi.mock("../router", () => ({
   DEVROUTER_HOME: "/tmp/devrouter-doctor-test-home",
   getRouterFileLayout: vi.fn(() => ({ required: [], missing: [] })),

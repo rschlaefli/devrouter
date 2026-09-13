@@ -169,6 +169,36 @@ describe("verifyDevcontainer", () => {
     ]);
   });
 
+  it.each([
+    { ok: false, status: 503, details: "HTTP 503" },
+    { ok: false, status: 200, details: "Unexpected content type" },
+    { ok: false, details: "No response" },
+  ])("retains published routes for readiness failure: $details", async (probe) => {
+    writeValidScaffold();
+    const configPath = path.join(tmpDir, ".devrouter.yml");
+    fs.writeFileSync(
+      configPath,
+      fs
+        .readFileSync(configPath, "utf8")
+        .replace(
+          "    upstream: ${WORKSPACE}-app:3000",
+          "    upstream: ${WORKSPACE}-app:3000\n    readiness:\n      path: /api/health\n      contentType: application/json",
+        ),
+    );
+    vi.mocked(probeHttpRoute).mockReturnValue(probe);
+
+    const report = await verifyDevcontainer({ repo: tmpDir, live: true, yes: true });
+
+    expect(probeHttpRoute).toHaveBeenCalledWith("sample.localhost", {
+      repoPath: tmpDir,
+      readiness: { path: "/api/health", statuses: [200], contentType: "application/json" },
+    });
+    expect(report.summary.error).toBeGreaterThan(0);
+    expect(report.evidence.liveRoutes?.[0]?.status).toBe("failed");
+    expect(replacePublishedProxyRoutes).toHaveBeenCalledOnce();
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+  });
+
   it("keeps live publication recovery scoped to the target repo", async () => {
     writeValidScaffold();
     vi.mocked(replacePublishedProxyRoutes).mockRejectedValueOnce(new Error("missing trust"));

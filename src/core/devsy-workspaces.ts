@@ -3,7 +3,11 @@ import { sameWorkspacePath } from "./workspace";
 
 export type DevsyWorkspace = {
   id: string;
-  source: { localFolder: string };
+  source: { localFolder: string; container?: string };
+  uid?: string;
+  /** Allowlisted runtime selection metadata; other provider options are not retained. */
+  providerName?: string;
+  dockerPathOption?: string;
   /** Provider context supplied by the local registry, when available. */
   context?: string;
   /** Optional provider activity metadata. */
@@ -48,15 +52,31 @@ export function listDevsyWorkspaces(): DevsyWorkspace[] {
 
   return parsed.map((entry) => {
     const candidate = entry as Partial<DevsyWorkspace> & Record<string, unknown>;
-    const source = candidate.source as { localFolder?: unknown } | undefined;
+    const source = candidate.source as { localFolder?: unknown; container?: unknown } | undefined;
     if (typeof candidate.id !== "string" || !source || typeof source.localFolder !== "string") {
       throw new Error("devsy workspace list returned a workspace without id/source.localFolder.");
     }
+    if (
+      (candidate.uid !== undefined && typeof candidate.uid !== "string") ||
+      (source.container !== undefined && typeof source.container !== "string")
+    ) {
+      throw new Error("Devsy workspace list returned invalid provider identity.");
+    }
     const workspace: DevsyWorkspace = {
       id: candidate.id,
-      source: { localFolder: source.localFolder },
+      source: {
+        localFolder: source.localFolder,
+        ...(typeof source.container === "string" ? { container: source.container } : {}),
+      },
+      ...(typeof candidate.uid === "string" ? { uid: candidate.uid } : {}),
       ...(typeof candidate.context === "string" ? { context: candidate.context } : {}),
     };
+    const provider = candidate.provider as
+      | { name?: unknown; options?: { DOCKER_PATH?: { value?: unknown } } }
+      | undefined;
+    if (provider && typeof provider.name === "string") workspace.providerName = provider.name;
+    if (typeof provider?.options?.DOCKER_PATH?.value === "string")
+      workspace.dockerPathOption = provider.options.DOCKER_PATH.value;
     if ("lastUsed" in candidate) {
       if (typeof candidate.lastUsed === "string") {
         workspace.lastUsed = candidate.lastUsed;
@@ -104,6 +124,25 @@ export function inspectDevsyRuntimeStatus(devsyId: string): DevsyRuntimeStatus {
   });
   if (result.status !== 0 || result.error) return "unknown";
   return parseDevsyRuntimeStatus(result.stdout, devsyId);
+}
+
+/**
+ * Positive evidence that Devsy has no runtime for the ID. A deleted
+ * registration is reported through a nonzero status exit ("workspace not
+ * found") rather than a JSON NotFound state, and both signals must count as
+ * absence while an unreadable provider stays fail-closed.
+ */
+export function inspectDevsyRuntimeAbsence(devsyId: string): boolean {
+  const result = spawnSync("devsy", ["workspace", "status", devsyId, "--result-format", "json"], {
+    encoding: "utf-8",
+    timeout: 10_000,
+  });
+  if (result.error || result.status === null) return false;
+  if (result.status === 0) {
+    return parseDevsyRuntimeStatus(result.stdout, devsyId) === "not-found";
+  }
+  const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+  return /workspace not found/i.test(output);
 }
 
 export function inspectDevsyWorkspaceOwnership(

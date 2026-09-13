@@ -38,6 +38,11 @@ apps:
 
     # if kind=app and runtime=proxy (protocol http or tcp):
     upstream: 127.0.0.1:3000 # already-running port to route to; no lifecycle/deps
+    # Optional for HTTP proxy apps only:
+    readiness:
+      path: /api/health
+      statuses: [200] # default when omitted; explicit unique 2xx/4xx, no redirects
+      contentType: application/json # optional case-insensitive MIME base type
     # Loopback (127.0.0.1/localhost) -> host.docker.internal (a published host
     # port). A non-loopback name is passed verbatim and resolved over devnet —
     # so a devcontainer container ON devnet (with a network alias) can be fronted
@@ -114,6 +119,14 @@ healthcheck:
 
 ## Profiles
 
+HTTP app readiness contracts use a same-host absolute path without queries,
+fragments, percent escapes, backslashes or dot segments. Redirects are not followed.
+Without a contract, the root probe remains route liveness rather than semantic
+application proof. A declared contract failure returns a nonzero ensure result
+with `applicationReadiness.status=application-error`; tools and routes remain
+available for application debugging. Do not repair it by clearing caches or
+recreating the provider. Live verification consumes the same contract.
+
 Optional named subsets of routed apps in `.devrouter.yml` so `ensure` can start only what a task needs:
 
 ```yaml
@@ -137,7 +150,7 @@ profiles:
 - Selection: `devrouter ensure <path> --profile <name>`. Comma-separated selections (`--profile manage,pwa`) merge with deduplication; the canonical name is sorted-unique so order never affects identity or fingerprints. A wildcard member collapses to everything.
 - Managed adapters receive `DEVROUTER_PROFILE` (canonical resolved name) in the post-start env; profile switches replace the owned process group via the fingerprint.
 - Adapters may pass `--prepare-command <command>` to `devrouter-process ensure` for synchronous dependency preparation under the process lock before application launch. Unchanged owned processes skip preparation; preparation participates in default fingerprints and must not daemonize or detach.
-- Exact managed Devsy stop proves the complete retained container population, ownership and configuration before stopping residual services after a stopped primary. Unknown evidence blocks cleanup, and an original provider failure remains an error even if residual cleanup succeeds.
+- Managed Devsy startup on a supported local Unix Docker endpoint captures exact stop ownership before application readiness. With that baseline, canonical stop tolerates changed or missing repository configuration while preserving containers and volumes. Older records without a baseline retain configuration-dependent stop; installing a new CLI does not create historical ownership proof. Invalid or changed ownership never falls back. Do not replay a destructive bootstrap hook to obtain a baseline.
 
 ### Managed devcontainer resources
 
@@ -228,13 +241,28 @@ Config-level `envMap` on dependency references aliases per-dep vars to app-expec
 
 ## Workspace isolation (parallel git worktrees / agents)
 
+For exhausted address pools, inspect `doctor --json` before proposing changes.
+Only an operator-owned `network-policy.json` under Devrouter home grants pools
+and daemon authority. New eligible linked Compose workspaces default to `/26`;
+`managedRuntime.network.prefixLength` accepts 24, 25 or 26 within policy, and
+`endpointUpperBound` declares lifecycle demand. Operator approval is required
+before activating policy or changing live Docker/provider settings. Unknown
+routes block allocation; OrbStack remains diagnostics-only until guest routes
+are qualified. Stop retains subnet claims, and zero active endpoints do not
+prove cleanup safety.
+
 Run several worktrees of one repo in parallel without host/route collisions. A **workspace token** spans the workspace-runtime id, devrouter routes, `${WORKSPACE}` proxy upstreams, and devcontainer aliases.
 
 - **Identity**: each managed linked worktree stores a local token in Git metadata plus a durable owner record in the repository's Git common directory. The record survives linked-worktree removal and binds the exact path to its workspace-runtime ID. First use reconciles persisted metadata, the exact-path owner record, and both DevPod and Devsy registries. It reuses an established agreement, keeps the readable sanitized branch/path slug when free, or claims a deterministic hash-suffixed fallback on collision before provider or route mutation. Later flags or `DEVROUTER_WORKSPACE` may repeat the identity but cannot rename it. Unreadable or conflicting evidence fails closed. The primary checkout remains non-namespaced.
 - **When active**: hosts auto-namespace (`web.localhost` → `web.<ws>.localhost`), `${WORKSPACE}` in `upstream` is substituted with the token, and the docker `router` key is suffixed per workspace. Managed `ensure` rejects every HTTP/TCP proxy upstream outside that exact alias namespace before it mutates DevPod or routes. The runtime config is computed in memory only — the committed `.devrouter.yml` is never rewritten.
+- **Fixed host ports**: managed `ensure` resolves every fixed published binding in the effective compose model — profile services included — with the start's own interpolation env and refuses before any provider bootstrap when a running container already binds one (`hostPortConflicts` in `--json`, nonzero exit, naming the holder container, compose project, and owning workspace when attributable). Ephemeral (`host::container`) bindings are exempt. Devrouter never rewrites or offsets consumer-declared ports: stop the holding workspace or use the consumer's own override, then ensure again. Unverifiable evidence refuses fail-closed. `doctor` reports the same drift read-only as `repo.host-port-claims` (warn when evidence is unavailable).
 - **TLS**: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.
 - **devcontainer integration**: managed scaffolds list the base compose file, then `${localEnv:DEVCONTAINER_COMPOSE_OVERLAY:docker-compose.default.yml}`; custom repositories may keep another default overlay. Selecting `.devcontainer/docker-compose.devrouter.yml` for linked worktrees must pass `WORKSPACE` and `DEVROUTER_WORKSPACE` across the combined base/overlay config and bind-mount `${DEVROUTER_GIT_COMMON_DIR}` to the same absolute app-container path. The app exposes `${WORKSPACE}-app`; the proxy uses `upstream: ${WORKSPACE}-app:<port>`.
+- After a drained interrupted ensure, manual exec can use an exactly proven retained Devsy runtime with the plain local Docker command. Fresh identity proof remains required for subsequent tooling until later preparation reconciles startup. Preserve configuration, data and interrupted history; never replay uncertain execution. This does not repair absent stop baselines or provide OOM protection.
 - **Lifecycle**: after one-time `setup`, use `ensure .` for both primary and linked checkouts; never branch manually on checkout kind or use live verify as startup. `stop .` is non-destructive; `stop . --delete` is explicit exact-owner cleanup without worktree removal; and `exec . -- <command...>` runs one-shot commands only in the exact running workspace runtime (DevPod or Devsy). Never substitute raw `devpod up`, `stop`, `delete`, or the Devsy equivalents: they bypass devrouter's machine-global ownership lock, which serializes provider mutations in a fair arrival-order queue and lets contenders wait up to thirty minutes with throttled stderr progress before failing with the queue position or holder PID and true durations. Runtime selection is path-aware: `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy` forces one runtime, an exact-path registry owner wins next, then the machine preference from `devrouter setup --workspace-runtime`, then installed-CLI auto-detection. `workspace up` creates linked worktrees; destructive worktree removal and GC remain ledger-scoped. Dirty or locked full down fails before side effects. For Devsy, run `devrouter setup --yes --workspace-runtime devsy` once so Devrouter acquires and verifies the pinned agent in its own machine cache. `doctor` reports `ready`, `missing`, `stale`, or `invalid` without network access, and `ensure` fails before the provider queue when readiness is not `ready`. An explicit `DEVSY_AGENT_BINARY` remains authoritative and must match a pinned official asset.
+- **Interrupted lifecycle**: ensure reconciles an interrupted or never-dispatched ensure after positive worker drainage and automatically repairs retained degraded runtimes. Unknown arbitrary exec is never replayed; explicit stop reconciles that uncertainty. Preserve journals and retained configuration when evidence is unavailable. This does not detect or prevent OOM; bounded automatic recovery runs only when the operator enables the capacity `recovery` policy.
+- **Capacity admission (opt-in)**: only an operator-enabled `capacity-policy.json` under Devrouter home with an enrolled checkout routes `ensure` and `exec` through controller admission. The CLI follows the decision with bounded reconnecting waits that survive controller restarts while the request stays queued, worker results are journalled atomically, and `stop` bypasses admission. Without an enabled policy lifecycle behavior is unchanged (ADR 0008). An optional `recovery` block adds bounded automatic recovery: one journal-admitted corrective `ensure` per positively failed required capability, bounded by per-scope restart counts, an aggregate corrective-action cap and a rolling observation window. It is inert unless enabled.
+- Busy `ensure` and `exec` wait up to thirty minutes for a positively identified active lifecycle worker on the same checkout, with stderr progress. Do not stop healthy work to make room. Commands stay serial; timeout or cancellation before admission leaves existing work untouched. A lifecycle fence change cancels waiting admission, and unknown completion never permits replay.
 - **Managed process identity**: `ensure` executes an exact captured adapter snapshot. Default reuse includes command argv, workspace, and adapter SHA-256. Set `DEVROUTER_PROCESS_FINGERPRINT_ENV` only to comma-separated non-secret environment names whose values affect runtime identity; secret-like names are rejected and raw values are never persisted.
 - **Route state**: the versioned Traefik dynamic file is authoritative for both metadata and rendering. JSON is a compatibility mirror; valid headerless generations migrate automatically, while corrupt canonical metadata fails closed.
 - **Cleanup**: `workspace cleanup --repo . --inactive-for 30d --json` is a report-only, no-`--yes` report for managed linked workspaces. It joins ownership (`present|missing|locked|conflict`), workspace runtime registration, runtime state (`running|stopped|busy|not-found|absent|unknown`), checkout, route, advisory activity, and integration evidence without mutating the workspace runtime, routes, ownership, Git, Docker, applications, worktrees, or branches. Local DevPod/Devsy list/status checks always run; `--check-merged` alone enables read-only origin and matching GitHub/GitLab checks. Treat `not-found` as stale runtime after Docker pruning; busy, unavailable, or conflicting evidence suppresses destructive suggestions. Explicit `gc`/`down` can remove exact stale registration only after expected-ID `NotFound` proof and ownership revalidation. GC never removes Git worktrees, branches, or prune state. Git has no worktree-removal hook.
@@ -289,7 +317,8 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter -V [--repo .]`: show installed CLI version, local repo version, and next upgrade target
 - `devrouter upgrade [version] [--repo .]`: list upgrade targets or print target Agent Adaptation Prompt
 - `devrouter setup --yes [--repo .] [--json] [--workspace-runtime <devpod|devsy>]`: first-run machine setup plus structured diagnostics; explicit Devsy selection acquires its verified agent
-- `devrouter ensure [path] [--profile <name>] [--repair] [--open] [--json]`: canonical startup/reconciliation for primary and linked checkouts; explicit repair uses the recorded degraded profile and unchanged retained configuration
+- `devrouter ensure [path] [--profile <name>] [--repair] [--open] [--json]`: canonical startup/reconciliation for primary and linked checkouts; automatically recovers retained degraded state into the requested profile after ownership proof, without starting dropped processes first; explicit repair uses the recorded profile only
+
 - `devrouter profile resolve --repo <path> [--profile <selection>] [--json]`: resolve exact profile resources for automation without starting or inspecting a runtime
 - `devrouter profile plan --repo <path> [--profile <selection>] --contract <repo-relative-yaml> [--output <path>] [--json]`: validate repository-owned resource policy and emit literal bindings without runtime access
 - `devrouter stop [path] [--delete] [--json]`: stop the exact workspace runtime and remove exact routes; `--delete` explicitly deletes its ownership-proven data without removing the checkout
@@ -320,6 +349,30 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter workspace stop <workspace|branch>`: stop DevPod and routes; preserve checkout, owner record, and data
 - `devrouter workspace down <workspace|branch> [--keep-worktree]`: delete runtime/routes and optionally remove the clean worktree and record
 - `devrouter workspace gc [--json] [--yes]`: report missing owners by default; apply exact eligible cleanup with `--yes`
+- `devrouter workspace journal settle [path] [--json]`: settle a lifecycle operation whose worker is provably gone as unobservable so ensure/stop can proceed; never hand-edit `~/.config/devrouter`
+
+For host-generated Compose inputs, configure
+`managedRuntime.devcontainer.prepareCommand` as literal argv. Ensure runs it once
+in the checkout root before Compose inspection, under lifecycle serialization,
+with a sixty-second bound. Keep `.devrouter.yml` unchanged and finish in the
+foreground. Diagnostics never execute the hook. Qualify changed mounts separately
+before relying on warm container reuse.
+
+## Observing consumer readiness
+
+For ongoing readiness, explicitly start `devrouter controller run`, then enroll
+the managed linked checkout with `controller observe --session <id> --profile
+<profile> --require runtime`. Use `--require app:<name>` for an application with
+an explicit HTTP readiness contract. Keep the returned store, epoch, generation,
+and session ID for renew, release, and watch requests. Renew every ten seconds;
+status and watch do not renew the thirty-second lease.
+
+Treat UNKNOWN, stale evidence, disconnection, or event gaps as unverified
+readiness. Reacquire after observer restart. A failing application can coexist
+with ready tooling; choose requirements for the actual work. Continue using
+`ensure`, `exec`, and `stop` for lifecycle actions: observation does not authorize
+automatic recovery, capacity admission, or command replay. Releasing observation
+preserves the runtime, so still stop the exact environment after runtime work.
 
 ## Validation workflow
 
@@ -358,3 +411,15 @@ For host/docker runtime apps only:
 - `devrouter app exec` follows the same dep lifecycle for one-shot commands and preserves argv semantics by default (`shell: false`).
 - `devrouter app exec --shell` is explicit and requires exactly one command string after `--`.
 - Secret-manager overlap caveat: if Infisical/Doppler defines DB vars too, probe effective env (`printenv DB_URL DB_HOST DB_PORT`) before migrate/seed.
+- A lock that cannot prove its owner fails closed and names the failing inspection stage, the exact lock path, and a portable reproduction command. Run the canonical command in a permitted host context; there is no identity fallback.
+
+### Stop after pre-registration failure
+
+If managed Devsy startup failed before registration, canonical `devrouter stop
+<path> --json` can prove absence for an exact ledger-owned linked checkout with
+no retained state. Devsy-only installations do not require installing DevPod;
+legacy local registry evidence must still be readable, complete and conflict-free.
+Success preserves `runtimeAbsent: true`. Live workers, unknown ownership,
+surviving containers or routes keep stop pending. Do not edit journals or
+provider state to bypass a refusal. Revalidate the original startup blocker
+before retrying ensure; retained-container identity drift needs separate proof.

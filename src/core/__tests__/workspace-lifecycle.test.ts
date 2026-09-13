@@ -8,9 +8,16 @@ import {
   stopOwnedDevpodWorkspace,
 } from "../devpod-mutation";
 import { listDevpodWorkspaces, listDevpodWorkspacesFromSnapshots } from "../devpod-workspaces";
+import { withMutationLock as withDevsyMutationLock } from "../devsy-mutation";
 import { readManagedRuntimeState } from "../managed-runtime-state";
+import { proveManagedStop } from "../managed-stop-recovery";
+import { superviseLifecycle } from "../reliability-lifecycle";
 import { loadRuntimeConfig } from "../repo-config";
-import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "../route-state";
+import {
+  listRoutesForWorktreePath,
+  listRoutesForWorktreePaths,
+  removeWorkspaceRoutesForWorktree,
+} from "../route-state";
 import { ensureTraefikRoutesRemoved } from "../traefik-route-health";
 import {
   resolveWorktreeWorkspace,
@@ -34,9 +41,30 @@ import {
   removeWorkspaceOwnership,
 } from "../workspace-ownership";
 
+vi.mock("../reliability-lifecycle", () => ({
+  claimLifecycleEffect: vi.fn(),
+  withLifecycleOperationLock: (repo: string, operation: () => Promise<unknown>) =>
+    withWorkspaceLifecycleLock(repo, operation),
+  superviseLifecycle: vi.fn(async (kind: string, repo: string, options: { open?: boolean }) => {
+    if (kind === "ensure") return workspaceEnsure(repo, options);
+    throw new Error("Unexpected supervisor fixture call");
+  }),
+}));
+
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("../devsy-mutation", () => ({
+  withMutationLock: vi.fn((_a: string, _b: string, operation: () => unknown) => operation()),
+}));
+vi.mock("../managed-stop-recovery", () => ({
+  proveManagedStop: vi.fn(() => ({ status: "proven-absent", containers: [] })),
+  managedStopRouteReferences: (state: { repoPath: string; desired: { apps: string[] } }) =>
+    state.desired.apps.flatMap((name) =>
+      ["http", "tcp"].map((protocol) => ({ repoPath: state.repoPath, name, protocol })),
+    ),
+}));
 vi.mock("../managed-runtime-state", () => ({ readManagedRuntimeState: vi.fn() }));
 vi.mock("../route-state", () => ({
+  listRoutesForWorktreePath: vi.fn(() => []),
   listRoutesForWorktreePaths: vi.fn(() => new Map()),
   removeWorkspaceRoutesForWorktree: vi.fn(() => []),
 }));
@@ -143,6 +171,14 @@ locked maintenance
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  vi.mocked(removeWorkspaceRoutesForWorktree).mockReset().mockReturnValue([]);
+  vi.mocked(listRoutesForWorktreePath).mockReset().mockReturnValue([]);
+  vi.mocked(proveManagedStop)
+    .mockReset()
+    .mockReturnValue({ status: "proven-absent", containers: [] });
+  vi.mocked(withDevsyMutationLock)
+    .mockReset()
+    .mockImplementation((_a, _b, operation) => operation());
   vi.mocked(readManagedRuntimeState).mockReset();
   stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   vi.mocked(ensureTraefikRoutesRemoved).mockResolvedValue({ restarted: false });
@@ -526,13 +562,107 @@ describe("workspaceDown", () => {
 });
 
 describe("workspaceStop", () => {
+  it.each([
+    false,
+    true,
+  ])("resolves the alias and preserves absence through the supervisor (%s)", async (absent) => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(superviseLifecycle).mockResolvedValueOnce({
+      stopped: true,
+      freedRoutes: 0,
+      ...(absent ? { runtimeAbsent: true } : {}),
+    });
+    await expect(workspaceStop("feat-a", { quiet: true })).resolves.toMatchObject({
+      providerChanged: !absent,
+      ...(absent ? { runtimeAbsent: true } : {}),
+    });
+    expect(superviseLifecycle).toHaveBeenCalledWith("stop", "/main/repo-feat-a", { quiet: true });
+    expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("reports pre-registration absence without a provider mutation", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "proven-absent" });
+    await expect(
+      workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true }),
+    ).resolves.toMatchObject({ runtimeAbsent: true, providerChanged: false });
+  });
+
   it("preserves routes when retained managed registration disappeared", async () => {
     vi.spyOn(fs, "existsSync").mockReturnValue(true);
     vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
     vi.mocked(readManagedRuntimeState).mockReturnValue({ status: "degraded" } as never);
-    await expect(workspaceStop("feat-a", { quiet: true })).rejects.toThrow();
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true })).rejects.toThrow();
     expect(stopOwnedDevpodWorkspace).toHaveBeenCalledWith("feat-a", "/main/repo-feat-a");
+    expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
+    expect(ensureTraefikRoutesRemoved).not.toHaveBeenCalled();
+  });
+
+  it("rechecks absent ownership and live route removal on retries without provider mutation", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "proven-absent" });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      repoPath: "/main/repo-feat-a",
+      stopBaseline: { version: 1 },
+      desired: { apps: ["web"] },
+    } as never);
+    let locked = false;
+    vi.mocked(withDevsyMutationLock).mockImplementation((_a, _b, operation) => {
+      locked = true;
+      try {
+        return operation();
+      } finally {
+        locked = false;
+      }
+    });
+    vi.mocked(proveManagedStop).mockImplementation(() => {
+      expect(locked).toBe(true);
+      return { status: "proven-absent", containers: [] };
+    });
+    vi.mocked(removeWorkspaceRoutesForWorktree).mockImplementation(() => {
+      expect(locked).toBe(true);
+      expect(proveManagedStop).toHaveBeenCalled();
+      return [];
+    });
+    vi.mocked(ensureTraefikRoutesRemoved).mockRejectedValueOnce(new Error("unload failed"));
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true })).rejects.toThrow(
+      "unload failed",
+    );
+    await expect(
+      workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true }),
+    ).resolves.toMatchObject({ providerChanged: false });
+    expect(proveManagedStop).toHaveBeenCalledTimes(2);
+    expect(ensureTraefikRoutesRemoved).toHaveBeenLastCalledWith([
+      { repoPath: "/main/repo-feat-a", name: "web", protocol: "http" },
+      { repoPath: "/main/repo-feat-a", name: "web", protocol: "tcp" },
+    ]);
+    expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("preserves routes outside the retained desired set", async () => {
+    vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    vi.mocked(listWorkspaceOwnership).mockReturnValue([owner()]);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: PORCELAIN, stderr: "" } as never);
+    vi.mocked(stopOwnedDevpodWorkspace).mockReturnValue({ status: "proven-absent" });
+    vi.mocked(proveManagedStop).mockReturnValue({ status: "proven-absent", containers: [] });
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      repoPath: "/main/repo-feat-a",
+      stopBaseline: { version: 1 },
+      desired: { apps: ["web"] },
+    } as never);
+    vi.mocked(listRoutesForWorktreePath).mockReturnValue([
+      { repoPath: "/main/repo-feat-a", workspace: "feat-a", name: "unrecorded" },
+    ] as never);
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true })).rejects.toThrow(
+      "outside the retained desired set",
+    );
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
     expect(ensureTraefikRoutesRemoved).not.toHaveBeenCalled();
   });
@@ -634,7 +764,7 @@ branch refs/heads/feature-foo
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    await workspaceStop("feat-a", { quiet: true });
+    await workspaceStopOwnedPath("/main/repo-feat-a", { quiet: true });
 
     expect(events).toEqual(["stop", "routes", "proof"]);
     expect(removeWorkspaceOwnership).not.toHaveBeenCalled();
@@ -658,7 +788,7 @@ branch refs/heads/feature-foo
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    await expect(workspaceStop("feat-a")).rejects.toThrow("devpod stop failed");
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a")).rejects.toThrow("devpod stop failed");
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
   });
 
@@ -681,7 +811,9 @@ branch refs/heads/feature-foo
       return { status: 0, stdout: "", stderr: "" } as never;
     });
 
-    await expect(workspaceStop("feat-a")).rejects.toThrow("ownership conflicts");
+    await expect(workspaceStopOwnedPath("/main/repo-feat-a")).rejects.toThrow(
+      "ownership conflicts",
+    );
     expect(removeWorkspaceRoutesForWorktree).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,15 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
-- [Cross-repository local environment reliability](./2026-09-06-local-environment-reliability-roadmap.md) — proposed readiness, recovery, artifact isolation, diagnostics, and installed-tool qualification roadmap; independent review pending.
+- [Cross-repository local environment reliability](./2026-09-06-local-environment-reliability-roadmap.md) — proposed reliability roadmap; current delivery and consumer evidence are being reconciled.
+
+- [Capacity-managed lifecycle history rollover](./2026-09-10-capacity-history-rollover-plan.md) — extend conservative journal rollover to capacity-managed history so enrolled checkouts keep accepting ensure and exec past the 128-entry cap.
+- [Host-port claims](./2026-09-10-host-port-claims-plan.md) — admission-time detection and attribution of conflicting consumer-declared fixed host-port bindings, plus a read-only doctor check; release 0.0.68 on `rs/host-port-claims`.
+
+- [Actionable process-identity diagnostics](./2026-09-10-process-identity-diagnostics-plan.md) — lock errors and controller commands report the failing inspection stage, reproduction command, and remediation without weakening fail-closed locks, in [PR #77](https://github.com/rschlaefli/devrouter/pull/77).
+- [Interruption-safe lifecycle integration](./2026-09-06-reliability-lifecycle-execution-plan.md) — connect manual ensure, exec, and stop to durable operation records and qualify the installed CLI with synthetic providers. Source implementation approved; real-provider/OOM qualification remains separate.
+
+- [Reliability contract foundation](./2026-09-06-reliability-contract-plan.md) — model intent, readiness, admission, and uncertain dispatch before live controller activation.
 - [CI profile-plan contract and Klicker adoption](./2026-08-30-ci-profile-plan-contract-plan.md) — emit repository-owned literal CI bindings from resolved profiles, release the generic contract, and migrate the existing Klicker Playwright draft.
 - [Side-effect-free CI profile resolution](./2026-08-30-pr-47-ci-profile-resolution-plan.md) — expose exact profile resources to automation without starting or inspecting a runtime in [PR #47](https://github.com/rschlaefli/devrouter/pull/47).
 - [Devsy agent readiness](./2026-08-30-devsy-agent-readiness-plan.md) — acquire and verify the pinned Devsy agent before provider mutation, with explicit setup repair and network-free diagnostics.

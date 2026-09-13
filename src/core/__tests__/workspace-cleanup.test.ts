@@ -17,6 +17,8 @@ import {
 import type { WorkspaceContainerConsumption } from "../workspace-consumption";
 import type { GitWorktree, WorkspaceOwnershipRecord } from "../workspace-ownership";
 
+vi.mock("../network-diagnostics", () => ({ inspectNetworkCapacity: vi.fn(() => undefined) }));
+
 const now = new Date("2026-08-12T12:00:00.000Z");
 const old = "2026-06-01T12:00:00.000Z";
 const recent = "2026-08-12T11:30:00.000Z";

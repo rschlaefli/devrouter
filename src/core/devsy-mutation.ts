@@ -15,6 +15,14 @@ import {
 } from "./devsy-workspaces";
 import { createStderrWaitReporter, withFileLock, withFileLockSync } from "./file-lock";
 import { stopRetainedManagedDevsyWorkspace } from "./managed-devsy-stop";
+import {
+  assertNetworkProviderBinding,
+  networkProviderEnvironment,
+  networkProviderStartupArguments,
+  type PrepareNetworkStart,
+} from "./network-provider-binding";
+import { networkProviderEffectOptions } from "./network-provider-effect";
+import { claimLifecycleEffect } from "./reliability-context";
 import { DEVROUTER_HOME } from "./router";
 
 const DEVSY_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devsy-mutation.lock");
@@ -25,9 +33,13 @@ const DEVSY_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devsy-mutation.lock"
  */
 const DEVSY_MUTATION_WAIT_MS = 1_800_000;
 
-export type OwnedDevsyMutationResult = { status: "changed" } | { status: "absent" };
+export type OwnedDevsyMutationResult =
+  | { status: "changed" }
+  | { status: "absent" }
+  | { status: "proven-absent" };
 
 export type DevsyStartOptions = {
+  prepareNetwork?: PrepareNetworkStart;
   repoPath: string;
   devsyId?: string;
   devcontainerPath?: string;
@@ -56,7 +68,7 @@ function failedStartMayHaveAttached(devsyId: string | undefined, repoPath: strin
   }
 }
 
-function withMutationLock<T>(activity: string, target: string, operation: () => T): T {
+export function withMutationLock<T>(activity: string, target: string, operation: () => T): T {
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   return withFileLockSync(
     DEVSY_MUTATION_LOCK_FILE,
@@ -71,7 +83,7 @@ function withMutationLock<T>(activity: string, target: string, operation: () => 
   );
 }
 
-function withMutationLockAsync<T>(
+export function withMutationLockAsync<T>(
   activity: string,
   target: string,
   operation: () => Promise<T>,
@@ -112,6 +124,7 @@ function runDevsyUp(
   quiet: boolean,
 ): Promise<DevsyUpResult> {
   return new Promise((resolve) => {
+    claimLifecycleEffect();
     const child = spawn("devsy", args, {
       stdio: ["inherit", quiet ? 2 : "inherit", "pipe"],
       env,
@@ -147,12 +160,24 @@ function runDevsyUp(
   });
 }
 
-function runDevsyAction(action: "stop" | "delete", devsyId: string, force = false): void {
+function runDevsyAction(
+  action: "stop" | "delete",
+  devsyId: string,
+  force = false,
+  repoPath?: string,
+): void {
   const args =
     action === "delete"
       ? ["delete", devsyId, ...(force ? ["--force"] : []), "--ignore-not-found"]
       : ["stop", devsyId];
-  const result = spawnSync("devsy", ["workspace", ...args], { encoding: "utf-8" });
+  claimLifecycleEffect();
+  const binding = repoPath
+    ? networkProviderEffectOptions("devsy", devsyId, repoPath)
+    : { args: [] };
+  const result = spawnSync("devsy", ["workspace", ...args, ...binding.args], {
+    encoding: "utf-8",
+    ...(binding.env ? { env: binding.env } : {}),
+  });
   if (result.status !== 0) {
     throw new Error(
       `devsy workspace ${action}${force ? " --force" : ""} failed for '${devsyId}': ${commandFailure(result) || "unknown error"}`,
@@ -172,19 +197,18 @@ function mutateOwnedDevsyWorkspace(
   worktreePath: string,
 ): OwnedDevsyMutationResult {
   return withMutationLock(`Devsy ${action}`, worktreePath, () => {
-    if (
-      action === "stop" &&
-      stopRetainedManagedDevsyWorkspace({
+    if (action === "stop") {
+      const stopped = stopRetainedManagedDevsyWorkspace({
         repoPath: worktreePath,
         devsyId,
         stopProvider: () => runDevsyAction("stop", devsyId),
-      })
-    )
-      return { status: "changed" };
+      });
+      if (stopped) return { status: stopped === "proven-absent" ? "proven-absent" : "changed" };
+    }
     const before = inspectExactOwnership(devsyId, worktreePath);
     if (before.status === "absent") return { status: "absent" as const };
 
-    runDevsyAction(action, devsyId);
+    runDevsyAction(action, devsyId, false, worktreePath);
 
     let after = inspectExactOwnership(devsyId, worktreePath);
     if (action === "stop" && after.status !== "owned") {
@@ -201,7 +225,7 @@ function mutateOwnedDevsyWorkspace(
       }
       after = inspectExactOwnership(devsyId, worktreePath);
       if (after.status === "owned") {
-        runDevsyAction("delete", devsyId, true);
+        runDevsyAction("delete", devsyId, true, worktreePath);
         after = inspectExactOwnership(devsyId, worktreePath);
       }
       if (after.status !== "absent") {
@@ -262,11 +286,18 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
       throw new Error("Cannot recreate a Devsy workspace before its exact id is known.");
     }
 
+    if (options.prepareNetwork && !devsyId)
+      throw new Error("Network allocation requires an exact provider ID before dispatch.");
+    const network = options.prepareNetwork?.(devsyId as string);
+    if (network)
+      assertNetworkProviderBinding(network.binding, network.evidence, network.firstAllocation);
     // Devsy derives the workspace id from the folder name on first use; the
     // explicit --id keeps linked-worktree identities stable across restarts.
     const args = ["workspace", "up", options.repoPath];
     if (devsyId) args.push("--id", devsyId);
-    if (options.devcontainerPath) args.push("--devcontainer", options.devcontainerPath);
+    const devcontainerPath = network?.devcontainerPath ?? options.devcontainerPath;
+    if (devcontainerPath) args.push("--devcontainer", devcontainerPath);
+    if (network) args.push(...networkProviderStartupArguments(network.binding));
     args.push("--ide-launch", "skip");
     if (options.workspace) {
       args.push(
@@ -281,7 +312,9 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
     }
     if (options.recreate) args.push("--recreate");
 
-    const env = { ...process.env };
+    const env = network
+      ? networkProviderEnvironment(network.binding, process.env)
+      : { ...process.env };
     env.DEVSY_AGENT_BINARY = agent.binaryPath;
     if (options.workspace) {
       env.WORKSPACE = options.workspace.token;
@@ -295,8 +328,15 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
       delete env.DEVCONTAINER_COMPOSE_OVERLAY;
     }
 
+    network?.beforeDispatch?.();
     const result = await runDevsyUp(args, env, options.quiet ?? false);
     if (result.status !== 0) {
+      if (network) {
+        network.retainUncertain();
+        throw new DevsyStartPostconditionError(
+          "Network-bound provider start failed; claim and binding require reconciliation.",
+        );
+      }
       let message = `devsy workspace up failed for '${devsyId ?? options.repoPath}'.`;
       if (result.error?.message) message += ` ${result.error.message}`;
       if (AGENT_ACQUISITION_RE.test(result.stderrTail)) {
@@ -323,6 +363,7 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
       }
       return devsyId;
     } catch (error) {
+      network?.retainUncertain();
       const message = error instanceof Error ? error.message : String(error);
       throw new DevsyStartPostconditionError(message);
     }

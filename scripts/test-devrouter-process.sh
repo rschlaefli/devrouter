@@ -462,6 +462,21 @@ read -r nested_child < "$test_dir/nested-child"
 [ ! -e "$state_file" ]
 ! pgrep -f -- "$pattern" > /dev/null
 
+# An exit-0 preparation may leave a short-lived child in the same process group.
+natural_drain_file="$test_dir/natural-drain"
+natural_runtime_command=(
+  bash
+  -c
+  "test -e '$natural_drain_file' && exec -a '$pattern' sleep 300"
+)
+prepare='(sleep 0.3; : > "$PREP_TEST_DIR/natural-drain") & exit 0'
+rm -f "$natural_drain_file"
+"$HELPER" ensure --name "$name" --match "$pattern" --log "$log_file" \
+  --prepare-command "$prepare" -- "${natural_runtime_command[@]}"
+[ -e "$natural_drain_file" ]
+read -r managed_pid _ _ <"$state_file"
+kill -0 "$managed_pid"
+
 # Concurrent ensures prepare once, then the lock waiter reuses the published runtime.
 prepare='sleep 1; printf "prepared\n" >> "$PREP_TEST_DIR/concurrent-prepared"'
 run_prepared &

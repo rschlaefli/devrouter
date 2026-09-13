@@ -441,9 +441,14 @@ describe("collectManagedRuntimeStatus", () => {
 
   it("reports a degraded state as failed-transition and corrupt state as drifted", () => {
     setupManagedRuntime({
-      containers: [],
-      routes: [],
+      containers: [
+        container("app", { mountRepo: true }),
+        container("postgres"),
+        container("litellm"),
+      ],
+      routes: [{ name: "chat", repoPath, workspace }],
       runtimeState: state({ status: "degraded", transitionPhase: "rollback" }),
+      processStatuses: { chat: "running", "local-mcp": "stopped" },
     });
 
     const degraded = collectManagedRuntimeStatus({
@@ -468,6 +473,82 @@ describe("collectManagedRuntimeStatus", () => {
     });
     expect(corrupt.status).toBe("drifted");
     expect(corrupt.drift.join(" ")).not.toContain("sensitive state parse detail");
+  });
+
+  it.each([
+    "stopped",
+    "absent",
+  ])("reports stopped after a degraded transition when exact resources are %s", (observed) => {
+    setupManagedRuntime({
+      containers:
+        observed === "absent"
+          ? []
+          : [
+              container("app", { mountRepo: true, running: false }),
+              container("postgres", { running: false }),
+              container("litellm", { running: false }),
+            ],
+      routes: [],
+      runtimeState: state({ status: "degraded", transitionPhase: "rollback" }),
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["chat"] },
+    });
+
+    expect(result.status).toBe("stopped");
+    expect(result.transitionPhase).toBe("rollback");
+    expect(result.drift.length).toBeGreaterThan(0);
+    expect(result.active).toEqual({ apps: [], services: [], processes: [] });
+  });
+
+  it("does not report stopped when retained service ownership conflicts", () => {
+    setupManagedRuntime({
+      containers: [
+        container("app", { mountRepo: true, running: false }),
+        container("postgres", { running: false, project: "foreign-project" }),
+      ],
+      routes: [],
+      runtimeState: state({ status: "degraded", transitionPhase: "start" }),
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["chat"] },
+    });
+
+    expect(result.status).toBe("failed-transition");
+    expect(result.baseServiceStatuses.postgres).toBe("foreign");
+  });
+
+  it("does not report stopped when the current runtime observation is unavailable", () => {
+    setupManagedRuntime({
+      containers: [],
+      routes: [],
+      runtimeState: state({ status: "degraded", transitionPhase: "rollback" }),
+    });
+    vi.mocked(inspectWorkspaceContainers).mockImplementation(() => {
+      throw new Error("runtime inspection unavailable");
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["chat"] },
+    });
+
+    expect(result.status).toBe("failed-transition");
+    expect(result.status).not.toBe("stopped");
+    expect(result.drift.length).toBeGreaterThan(0);
   });
 
   it("keeps a health transition observable without marking it as drift", () => {

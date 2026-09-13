@@ -16,6 +16,7 @@ import type {
   DoctorReport,
 } from "../types";
 import { buildDevcontainerChecks } from "./devcontainer-diagnostics";
+import { inspectNetworkCapacity, networkCapacityCheck } from "./network-diagnostics";
 import { assertPathWithinRepo } from "./paths";
 import { findStaleProcessRoutes } from "./route-state";
 import { getRouterFileLayout, isTLSEnabled } from "./router";
@@ -329,6 +330,8 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
   for (const check of buildGlobalToolChecks(resolvedRepoPath)) {
     addCheck(checks, check);
   }
+
+  addCheck(checks, networkCapacityCheck(inspectNetworkCapacity()));
 
   let statusNextSteps: string[] = [];
   try {

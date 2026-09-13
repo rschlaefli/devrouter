@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  inspectDevsyRuntimeAbsence,
   inspectDevsyRuntimeStatus,
   inspectDevsyWorkspaceOwnership,
   listDevsyWorkspaces,
@@ -14,6 +15,30 @@ beforeEach(() => {
 });
 
 describe("Devsy workspace adapter", () => {
+  it("retains only provider selection fields needed for runtime proof", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stderr: "",
+      stdout: JSON.stringify([
+        {
+          id: "fixture",
+          source: { localFolder: "/fixture" },
+          provider: {
+            name: "docker",
+            options: { DOCKER_PATH: { value: "docker" }, UNRELATED: { value: "excluded" } },
+          },
+        },
+      ]),
+    } as never);
+    expect(listDevsyWorkspaces()).toEqual([
+      {
+        id: "fixture",
+        source: { localFolder: "/fixture" },
+        providerName: "docker",
+        dockerPathOption: "docker",
+      },
+    ]);
+  });
   it("parses the provider list at one typed boundary", () => {
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,
@@ -41,6 +66,46 @@ describe("Devsy workspace adapter", () => {
       ["workspace", "list", "--result-format", "json", "--skip-pro"],
       { encoding: "utf-8" },
     );
+  });
+
+  it("projects provider UID and explicit source-container identity without other registry data", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify([
+        {
+          id: "fixture",
+          uid: "1234567890123456",
+          source: {
+            localFolder: "/synthetic/repo",
+            container: "a".repeat(64),
+            env: { SYNTHETIC_PRIVATE: "excluded" },
+          },
+          cliOptions: { idLabels: ["excluded"] },
+        },
+      ]),
+      stderr: "",
+    } as never);
+    expect(listDevsyWorkspaces()).toEqual([
+      {
+        id: "fixture",
+        uid: "1234567890123456",
+        source: { localFolder: "/synthetic/repo", container: "a".repeat(64) },
+      },
+    ]);
+  });
+
+  it.each([
+    { uid: 7 },
+    { source: { localFolder: "/synthetic/repo", container: [] } },
+  ])("rejects malformed provider identity projection", (override) => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify([
+        { id: "fixture", source: { localFolder: "/synthetic/repo" }, ...override },
+      ]),
+      stderr: "",
+    } as never);
+    expect(listDevsyWorkspaces).toThrow(Error);
   });
 
   it("fails closed on provider errors and malformed output", () => {
@@ -126,5 +191,28 @@ describe("Devsy workspace adapter", () => {
     expect(() =>
       selectDevsyWorkspace([exact, { ...exact, id: "feature-2" }], "/repo/trees/feature"),
     ).toThrow(/Multiple Devsy workspaces/);
+  });
+});
+
+describe("Devsy runtime absence", () => {
+  it.each([
+    new Error("workspace not found"),
+    Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
+  ])("does not turn a failed status process into absence", (error) => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: null,
+      error,
+      stdout: "",
+      stderr: "workspace not found",
+    } as never);
+    expect(inspectDevsyRuntimeAbsence("fixture")).toBe(false);
+  });
+  it("accepts a definitive provider not-found exit", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: "workspace not found",
+    } as never);
+    expect(inspectDevsyRuntimeAbsence("fixture")).toBe(true);
   });
 });

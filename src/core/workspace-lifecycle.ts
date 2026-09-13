@@ -8,19 +8,29 @@ import {
   listDevpodWorkspaces,
   listDevpodWorkspacesFromSnapshots,
 } from "./devpod-workspaces";
+import { withMutationLock as withDevsyMutationLock } from "./devsy-mutation";
 import { readManagedRuntimeState } from "./managed-runtime-state";
+import { managedStopRouteReferences, proveManagedStop } from "./managed-stop-recovery";
+import {
+  claimLifecycleEffect,
+  superviseLifecycle,
+  withLifecycleOperationLock,
+} from "./reliability-lifecycle";
 import { resolveRepoPath } from "./repo-config";
-import { listRoutesForWorktreePaths, removeWorkspaceRoutesForWorktree } from "./route-state";
+import {
+  listRoutesForWorktreePath,
+  listRoutesForWorktreePaths,
+  removeWorkspaceRoutesForWorktree,
+} from "./route-state";
 import { ensureTraefikRoutesRemoved } from "./traefik-route-health";
 import {
   isLinkedWorktree,
   resolveWorktreeWorkspace,
   sameWorkspacePath,
-  withWorkspaceLifecycleLock,
   workspaceIdentityCandidates,
   wsFromBranch,
 } from "./workspace";
-import { workspaceEnsure } from "./workspace-ensure";
+import type { WorkspaceEnsureResult } from "./workspace-ensure";
 import {
   type DevpodOwnerStatus,
   type GitWorktree,
@@ -345,7 +355,9 @@ export async function workspaceUp(
     return;
   }
 
-  const ensured = await workspaceEnsure(worktreePath, { open: opts.open });
+  const ensured = (await superviseLifecycle("ensure", worktreePath, {
+    open: opts.open,
+  })) as WorkspaceEnsureResult;
   if (ensured.urls.length > 0) {
     process.stdout.write(
       `\nWorkspace '${ensured.workspace}' routes:\n${ensured.urls.map((url) => `  ${url}`).join("\n")}\n`,
@@ -409,6 +421,7 @@ type WorkspaceLifecycleResult = {
   devpodId?: string;
   freedRoutes: number;
   providerChanged: boolean;
+  runtimeAbsent?: boolean;
   workspace: string;
 };
 
@@ -421,6 +434,7 @@ async function mutateWorkspaceRuntime(
   const devpods = listDevpodWorkspaces(resolved.worktreePath);
   assertDevpodTargetSafe(resolved, worktrees, devpods);
   const devpodId = resolved.record?.devpodId ?? resolved.workspace;
+  claimLifecycleEffect();
   const mutation =
     action === "stop"
       ? stopOwnedDevpodWorkspace(devpodId, resolved.worktreePath)
@@ -436,8 +450,38 @@ async function mutateWorkspaceRuntime(
     );
   }
 
-  const routes = removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
-  await ensureTraefikRoutesRemoved(routes);
+  const retained =
+    action === "stop"
+      ? readManagedRuntimeState(resolved.worktreePath, resolved.workspace)
+      : undefined;
+  let absent = mutation.status === "proven-absent";
+  const remove = () => {
+    if (retained?.stopBaseline) {
+      absent = proveManagedStop(retained).status === "proven-absent";
+      if (
+        absent &&
+        listRoutesForWorktreePath(resolved.worktreePath).some(
+          (route) =>
+            route.workspace !== resolved.workspace || !retained.desired.apps.includes(route.name),
+        )
+      )
+        throw new Error("Absent stop contains routes outside the retained desired set.");
+    }
+    if (absent && !retained) {
+      if (listRoutesForWorktreePath(resolved.worktreePath).length)
+        throw new Error("Initial managed stop observed remaining workspace routes.");
+      return [];
+    }
+    claimLifecycleEffect();
+    return removeWorkspaceRoutesForWorktree(resolved.workspace, resolved.worktreePath);
+  };
+  const routes = retained?.stopBaseline
+    ? withDevsyMutationLock("Revalidate stop routes", resolved.worktreePath, remove)
+    : remove();
+  await ensureTraefikRoutesRemoved([
+    ...routes,
+    ...(absent && retained ? managedStopRouteReferences(retained) : []),
+  ]);
   if (!quiet) {
     process.stdout.write(
       `Freed ${routes.length} route(s) for workspace '${resolved.workspace}'.\n`,
@@ -447,6 +491,7 @@ async function mutateWorkspaceRuntime(
     ...(mutation.status === "changed" ? { devpodId } : {}),
     freedRoutes: routes.length,
     providerChanged: mutation.status === "changed",
+    ...(absent ? { runtimeAbsent: true } : {}),
     workspace: resolved.workspace,
   };
 }
@@ -460,17 +505,24 @@ async function runWorkspaceLifecycle(
   const worktrees = identifyGitWorktrees(mainRepo);
   const records = listWorkspaceOwnership(mainRepo);
   const resolved = resolveWorkspaceTarget(mainRepo, target, worktrees, records);
+  if (action === "stop") {
+    const stopped = (await superviseLifecycle("stop", resolved.worktreePath, {
+      quiet: opts.quiet,
+    })) as import("./environment-stop").EnvironmentStopResult;
+    return {
+      workspace: resolved.workspace,
+      devpodId: stopped.devpodId,
+      freedRoutes: stopped.freedRoutes,
+      providerChanged: stopped.stopped && !stopped.runtimeAbsent,
+      ...(stopped.runtimeAbsent ? { runtimeAbsent: true } : {}),
+    };
+  }
   const operation = async (): Promise<WorkspaceLifecycleResult> => {
     const removeWorktree = action === "down" && !opts.keepWorktree;
     if (removeWorktree) {
       assertFullDownPreflight(mainRepo, resolved);
     }
-    const result = await mutateWorkspaceRuntime(
-      action === "stop" ? "stop" : "delete",
-      resolved,
-      worktrees,
-      opts.quiet,
-    );
+    const result = await mutateWorkspaceRuntime("delete", resolved, worktrees, opts.quiet);
 
     if (removeWorktree) {
       if (
@@ -498,7 +550,7 @@ async function runWorkspaceLifecycle(
   };
 
   return resolved.worktree && !resolved.worktree.prunable && fs.existsSync(resolved.worktreePath)
-    ? withWorkspaceLifecycleLock(resolved.worktreePath, operation)
+    ? withLifecycleOperationLock(resolved.worktreePath, operation)
     : operation();
 }
 
@@ -508,7 +560,7 @@ async function mutateWorkspaceOwnedPath(
   opts: { quiet?: boolean; repoPath?: string } = {},
 ): Promise<WorkspaceLifecycleResult> {
   const mainRepo = resolveRepoPath(opts.repoPath);
-  return withWorkspaceLifecycleLock(worktreePath, async () => {
+  return withLifecycleOperationLock(worktreePath, async () => {
     const worktrees = identifyGitWorktrees(mainRepo);
     const records = listWorkspaceOwnership(mainRepo);
     const record = oneRecordMatch(

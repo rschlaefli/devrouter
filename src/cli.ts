@@ -26,6 +26,63 @@ program
   .showSuggestionAfterError(true)
   .showHelpAfterError();
 
+const controllerCommand = program
+  .command("controller")
+  .description("Observe explicitly enrolled development sessions");
+controllerCommand
+  .command("run")
+  .description("Run the foreground observer")
+  .action(
+    withErrorHandling(async () => {
+      const { runControllerCommand } = await import("./commands/controller");
+      await runControllerCommand("run", {});
+    }),
+  );
+controllerCommand
+  .command("observe")
+  .argument("<path>")
+  .requiredOption("--session <id>")
+  .requiredOption("--profile <name>")
+  .requiredOption("--require <selectors...>")
+  .option("--json")
+  .action(
+    withErrorHandling(async (repo: string, options: Record<string, unknown>) => {
+      const { runControllerCommand } = await import("./commands/controller");
+      await runControllerCommand("observe", options, repo);
+    }),
+  );
+for (const method of ["renew", "release", "watch"]) {
+  const command = controllerCommand
+    .command(method)
+    .requiredOption("--session <id>")
+    .requiredOption("--store <id>")
+    .requiredOption("--epoch <n>")
+    .requiredOption("--generation <id>")
+    .option("--json");
+  if (method === "watch")
+    command
+      .option("--after <cursor>")
+      .option("--after-store <id>")
+      .requiredOption("--timeout <seconds>");
+  command.action(
+    withErrorHandling(async (options: Record<string, unknown>) => {
+      const { runControllerCommand } = await import("./commands/controller");
+      await runControllerCommand(method, options);
+    }),
+  );
+}
+controllerCommand
+  .command("status")
+  .option("--session <id>")
+  .option("--cursor <cursor>")
+  .option("--json")
+  .action(
+    withErrorHandling(async (options: Record<string, unknown>) => {
+      const { runControllerCommand } = await import("./commands/controller");
+      await runControllerCommand("status", options);
+    }),
+  );
+
 program
   .command("init")
   .description("Print an AI onboarding prompt template for adapting a repository to devrouter")
@@ -676,6 +733,23 @@ workspaceCommand
       }>();
       const { runWorkspaceDownCommand } = await import("./commands/workspace");
       await runWorkspaceDownCommand(target, options);
+    }),
+  );
+
+workspaceCommand
+  .command("journal")
+  .description("Inspect and recover workspace lifecycle journals")
+  .command("settle")
+  .description(
+    "Settle an interrupted lifecycle operation as unobservable so ensure and stop can proceed",
+  )
+  .argument("[path]", "Checkout path (defaults to current directory)")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (path: string | undefined, _options: unknown, command: Command) => {
+      const options = command.opts<{ json?: boolean }>();
+      const { runWorkspaceJournalSettleCommand } = await import("./commands/workspace");
+      await runWorkspaceJournalSettleCommand({ ...(path ? { path } : {}), ...options });
     }),
   );
 

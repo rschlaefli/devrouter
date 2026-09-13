@@ -17,7 +17,9 @@ type FileLockOptions = {
 
 export type LockWaitProgress = {
   waitingMs: number;
-  holderPid: number;
+  holderPid?: number;
+  queueLeaderPid?: number;
+  remainingWaitMs?: number;
   holderHeldMs?: number;
   queuePosition?: number;
   waitingOn?: "lock" | "queue";
@@ -65,7 +67,14 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-function processBirthIdentity(pid: number): string | undefined {
+/** Bounded, privacy-safe explanation of why a process-birth probe failed. */
+export type ProcessBirthIdentityCause = {
+  identity?: string;
+  cause?: string;
+};
+
+export function processBirthIdentityWithCause(pid: number): ProcessBirthIdentityCause {
+  const causeParts: string[] = [];
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf-8");
     const commandEnd = stat.lastIndexOf(")");
@@ -75,18 +84,41 @@ function processBirthIdentity(pid: number): string | undefined {
         .trim()
         .split(/\s+/);
       const startTime = fields[19];
-      if (startTime) return `proc:${startTime}`;
+      if (startTime) return { identity: `proc:${startTime}` };
+      causeParts.push(`procfs /proc/${pid}/stat had no start-time field`);
     }
-  } catch {
-    // macOS and other non-procfs hosts use the portable ps fallback below.
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT")
+      causeParts.push(`procfs /proc/${pid}/stat read failed (${code ?? "unknown"})`);
   }
+  // ENOENT is the normal non-procfs case (macOS); it is not reported as a cause.
 
   const result = spawnSync("ps", ["-o", "lstart=", "-o", "command=", "-p", String(pid)], {
     encoding: "utf-8",
     env: { ...process.env, LC_ALL: "C" },
   });
-  const startedAt = result.status === 0 ? result.stdout.trim().replace(/\s+/g, " ") : "";
-  return startedAt ? `ps:${createHash("sha256").update(startedAt).digest("hex")}` : undefined;
+  if (result.error) {
+    causeParts.push(
+      `ps spawn failed (${(result.error as NodeJS.ErrnoException).code ?? result.error.message})`,
+    );
+  } else if (result.status !== 0) {
+    causeParts.push(
+      result.status === null && result.signal
+        ? `ps was killed by signal ${result.signal}`
+        : `ps exited with status ${result.status}` + (result.signal ? ` on ${result.signal}` : ""),
+    );
+  } else {
+    const startedAt = result.stdout.trim().replace(/\s+/g, " ");
+    if (startedAt)
+      return { identity: `ps:${createHash("sha256").update(startedAt).digest("hex")}` };
+    causeParts.push(`ps produced no start time for pid ${pid}`);
+  }
+  return { cause: causeParts.join("; ") };
+}
+
+export function processBirthIdentity(pid: number): string | undefined {
+  return processBirthIdentityWithCause(pid).identity;
 }
 
 function parseLockOwner(value: string): LockOwner | undefined {
@@ -261,12 +293,17 @@ function tryReclaimStaleLock(
 }
 
 function acquireFileLock(lockPath: string, options: FileLockOptions): string {
-  const processBirth = processBirthIdentity(process.pid);
-  if (!processBirth) {
-    throw new Error(`could not determine process identity for ${options.activity} lock`);
+  const processBirth = processBirthIdentityWithCause(process.pid);
+  const birthIdentity = processBirth.identity;
+  if (!birthIdentity) {
+    throw new Error(
+      `could not determine process identity for ${options.activity} lock at ${lockPath}: ${processBirth.cause ?? "process inspection returned no result"}. ` +
+        "process inspection may be unavailable or denied by the execution sandbox; verify with LC_ALL=C ps -o lstart= -o command= -p <any-live-pid> and, if that fails with an operation-not-permitted error, run the canonical command in a permitted host context outside the sandbox. " +
+        "the lock stays fail-closed; no identity fallback was attempted.",
+    );
   }
   const ownerId = randomUUID();
-  const owner = `${process.pid}:${Buffer.from(processBirth).toString("base64url")}:${ownerId}`;
+  const owner = `${process.pid}:${Buffer.from(birthIdentity).toString("base64url")}:${ownerId}`;
   const candidatePath = `${lockPath}.${process.pid}.${ownerId}.candidate`;
   const staleLinkPath = `${candidatePath}.stale`;
   const enqueuedAtMs = Date.now();
@@ -305,9 +342,34 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
         }
         if (options.onWait && now - lastProgressAt >= progressIntervalMs) {
           lastProgressAt = now;
+          let holder: Extract<LockState, { kind: "live" }> | undefined;
+          try {
+            // Diagnostics never reclaim a lock or change a waiter's queue position.
+            const bytes = fs.readFileSync(lockPath, "utf-8");
+            const record = parseLockRecord(bytes);
+            if (
+              record.owner &&
+              isLockOwnerLive(record.owner, livenessCache) &&
+              fs.readFileSync(lockPath, "utf-8") === bytes
+            ) {
+              holder = {
+                kind: "live",
+                pid: record.owner.pid,
+                acquiredAtMs: record.acquiredAtMs,
+              };
+            }
+          } catch {
+            // Missing or unreadable holder evidence must not affect acquisition.
+          }
           options.onWait({
             waitingMs: now - waitStartedAt,
-            holderPid: queueState.leaderPid,
+            remainingWaitMs: Math.max(0, deadline - now),
+            queueLeaderPid: queueState.leaderPid,
+            holderPid: holder?.pid,
+            holderHeldMs:
+              holder?.acquiredAtMs !== undefined
+                ? Math.max(0, now - holder.acquiredAtMs)
+                : undefined,
             queuePosition: queueState.position,
             waitingOn: "queue",
           });
@@ -349,6 +411,7 @@ function acquireFileLock(lockPath: string, options: FileLockOptions): string {
           lastProgressAt = now;
           options.onWait({
             waitingMs: now - waitStartedAt,
+            remainingWaitMs: Math.max(0, deadline - now),
             holderPid: state.pid,
             holderHeldMs:
               state.acquiredAtMs !== undefined ? Math.max(0, now - state.acquiredAtMs) : undefined,
@@ -424,14 +487,22 @@ export function createStderrWaitReporter(
       progress.holderHeldMs !== undefined
         ? `, held for ${Math.round(progress.holderHeldMs / 1000)}s`
         : "";
+    const holder =
+      progress.holderPid !== undefined
+        ? `provider lock held by PID ${progress.holderPid}${heldSeconds}`
+        : "provider lock holder unknown";
+    const remaining =
+      progress.remainingWaitMs !== undefined
+        ? `; queue acquisition timeout in ${Math.ceil(progress.remainingWaitMs / 1000)}s (does not stop the holder)`
+        : "";
     const status =
       progress.waitingOn === "queue"
-        ? `waiting in provider queue position ${progress.queuePosition} led by PID ${progress.holderPid}`
+        ? `waiting in provider queue position ${progress.queuePosition}; first waiter PID ${progress.queueLeaderPid}; ${holder}`
         : progress.queuePosition !== undefined && progress.queuePosition > 1
           ? `waiting in provider queue position ${progress.queuePosition}; provider lock held by PID ${progress.holderPid}${heldSeconds}`
           : `waiting for the provider lock held by PID ${progress.holderPid}${heldSeconds}`;
     process.stderr.write(
-      `${activity} for ${target}: ${status}; waited ${Math.round(progress.waitingMs / 1000)}s so far\n`,
+      `${activity} for ${target}: ${status}; waited ${Math.round(progress.waitingMs / 1000)}s so far${remaining}\n`,
     );
   };
 }

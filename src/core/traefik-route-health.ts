@@ -5,6 +5,7 @@ import type { HostRouteState } from "../types";
 import { createStderrWaitReporter, withFileLock } from "./file-lock";
 import type { HostRouteInput } from "./host-routes";
 import { buildHostRouteId, buildHostRouteRouterName, buildHostRoutesDocument } from "./host-routes";
+import { claimLifecycleEffect } from "./reliability-context";
 import { DEVROUTER_HOME, restartRouterStack } from "./router";
 
 const ROUTER_API_BASE = "http://127.0.0.1:8080/api";
@@ -78,6 +79,12 @@ function inspectRouterApi(protocol: RouteProtocol): RouterApiResult {
   if (!Array.isArray(value)) {
     return { ok: false, details: `${protocol.toUpperCase()} router API returned a non-array` };
   }
+
+  if (value.some((item) => !isRecord(item) || typeof item.name !== "string" || !item.name))
+    return {
+      ok: false,
+      details: `${protocol.toUpperCase()} router API returned malformed entries`,
+    };
 
   return {
     ok: true,
@@ -397,6 +404,7 @@ async function ensureTraefikRouteExpectation(
       const recheck = await waitForExpectedRoutes(routes, expectation, 0, pollIntervalMs);
       if (recheck.ok) return { restarted: false };
 
+      claimLifecycleEffect();
       restartRouterStack();
       const recovered = await waitForExpectedRoutes(
         routes,
@@ -461,4 +469,10 @@ export async function ensureTraefikRoutesRemoved(
   options: TraefikRouteLoadOptions = {},
 ): Promise<{ restarted: boolean }> {
   return ensureTraefikRouteExpectation(routes, "removed", options);
+}
+
+/** Verify absence from the live router even after canonical metadata has been removed. */
+export function assertTraefikRoutesRemoved(routes: TraefikRouteReference[]): void {
+  const result = inspectExpectedRoutes(routes, "removed");
+  if (!result.ok) throw new Error(`Workspace route cessation is not proven: ${result.details}`);
 }

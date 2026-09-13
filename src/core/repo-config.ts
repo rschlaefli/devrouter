@@ -1,13 +1,16 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import YAML, { type Document, isMap, isSeq, parseDocument, type YAMLSeq } from "yaml";
 import type {
   AppAddOptions,
+  CapacityEstimates,
   DevrouterApp,
   DevrouterConfig,
   DevrouterDockerDependencyApp,
   DevrouterDockerHttpApp,
   DevrouterHostHttpApp,
+  DevrouterHttpReadiness,
   DevrouterManagedRuntime,
   DevrouterProfile,
 } from "../types";
@@ -50,6 +53,10 @@ const VALID_HOSTNAME_RE =
 const DEVROUTER_VERSION_RE = /^\d+\.\d+\.\d+$/;
 const VALID_ENV_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/i;
 const VALID_ENV_VAR_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const MAX_CAPACITY_PROFILES = 256;
+const MAX_CAPACITY_OPERATIONS = 64;
+const MAX_CAPACITY_TRANSITIONS = 1024;
+const MAX_CAPACITY_NAME_LENGTH = 64;
 
 // Workspace templating. `upstream` may embed the literal `${WORKSPACE}` token,
 // which is substituted with the resolved workspace at runtime (see applyWorkspace).
@@ -84,6 +91,8 @@ function assertHostNotTemplated(host: string, label: string): void {
 }
 
 const MAX_COMMAND_LENGTH = 4096;
+const MAX_PREPARE_ARGS = 64;
+const MAX_PREPARE_ARG_BYTES = 4096;
 
 const DEFAULT_HOST_STRATEGY = {
   type: "auto" as const,
@@ -275,6 +284,94 @@ function parseDependencyDockerConfig(
   };
 }
 
+const MAX_READINESS_PATH_LENGTH = 512;
+const MIME_TOKEN_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+function parseHttpReadinessPath(value: unknown, pathLabel: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${pathLabel} must be a non-empty string.`);
+  }
+  if (value.length > MAX_READINESS_PATH_LENGTH) {
+    throw new Error(
+      `${pathLabel} exceeds maximum length of ${MAX_READINESS_PATH_LENGTH} characters.`,
+    );
+  }
+  if (!/^[\x20-\x7E]+$/.test(value)) {
+    throw new Error(`${pathLabel} must contain only printable ASCII characters.`);
+  }
+  if (!value.startsWith("/") || value.includes("//")) {
+    throw new Error(`${pathLabel} must be an absolute path with a single leading slash.`);
+  }
+  if (/[?#\\%]/.test(value)) {
+    throw new Error(
+      `${pathLabel} must not contain query, fragment, backslash, or percent characters.`,
+    );
+  }
+  if (value.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw new Error(`${pathLabel} must not contain dot segments.`);
+  }
+  return value;
+}
+
+function parseHttpReadinessStatuses(value: unknown, pathLabel: string): number[] {
+  if (value === undefined) {
+    return [200];
+  }
+  if (!Array.isArray(value) || value.length < 1 || value.length > 32) {
+    throw new Error(`${pathLabel} must contain between 1 and 32 status codes.`);
+  }
+
+  const seen = new Set<number>();
+  return value.map((entry, index) => {
+    if (typeof entry !== "number" || !Number.isInteger(entry)) {
+      throw new Error(`${pathLabel}[${index}] must be an integer HTTP status code.`);
+    }
+    if (!((entry >= 200 && entry <= 299) || (entry >= 400 && entry <= 499))) {
+      throw new Error(`${pathLabel}[${index}] must be a 2xx or 4xx status code.`);
+    }
+    if (seen.has(entry)) {
+      throw new Error(`${pathLabel} contains duplicate status code '${entry}'.`);
+    }
+    seen.add(entry);
+    return entry;
+  });
+}
+
+function parseHttpReadinessContentType(value: unknown, pathLabel: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${pathLabel} must be a non-empty MIME type.`);
+  }
+  const contentType = value.trim().toLowerCase();
+  const separator = contentType.indexOf("/");
+  if (
+    separator <= 0 ||
+    separator === contentType.length - 1 ||
+    contentType.indexOf("/", separator + 1) !== -1 ||
+    !MIME_TOKEN_RE.test(contentType.slice(0, separator)) ||
+    !MIME_TOKEN_RE.test(contentType.slice(separator + 1))
+  ) {
+    throw new Error(`${pathLabel} must be a MIME type in token/token form without parameters.`);
+  }
+  return contentType;
+}
+
+function parseHttpReadiness(value: unknown, pathLabel: string): DevrouterHttpReadiness {
+  const readiness = ensureObject(value, pathLabel);
+  ensureAllowedKeys(readiness, ["path", "statuses", "contentType"], pathLabel);
+
+  const result: DevrouterHttpReadiness = {
+    path: parseHttpReadinessPath(readiness.path, `${pathLabel}.path`),
+    statuses: parseHttpReadinessStatuses(readiness.statuses, `${pathLabel}.statuses`),
+  };
+  if (readiness.contentType !== undefined) {
+    result.contentType = parseHttpReadinessContentType(
+      readiness.contentType,
+      `${pathLabel}.contentType`,
+    );
+  }
+  return result;
+}
+
 function parseHostOrThrow(value: unknown, pathLabel: string): string {
   const host = toStringOrThrow(value, pathLabel).toLowerCase();
   assertHostNotTemplated(host, pathLabel);
@@ -305,6 +402,7 @@ function parseApp(value: unknown, index: number): DevrouterApp {
       "tcpProtocol",
       "upstream",
       "dependencies",
+      "readiness",
     ],
     pathLabel,
   );
@@ -329,6 +427,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     }
     if (objectValue.hostRun !== undefined) {
       throw new Error(`${pathLabel}.hostRun is not supported when kind=dependency.`);
+    }
+    if (objectValue.readiness !== undefined) {
+      throw new Error(`${pathLabel}.readiness is only supported for HTTP proxy apps.`);
     }
 
     const runtime = toStringOrThrow(objectValue.runtime, `${pathLabel}.runtime`);
@@ -357,6 +458,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     throw new Error(`${pathLabel}.runtime must be one of: ${SUPPORTED_RUNTIMES.join(", ")}.`);
   }
   if (runtime === "host") {
+    if (objectValue.readiness !== undefined) {
+      throw new Error(`${pathLabel}.readiness is only supported for HTTP proxy apps.`);
+    }
     if (!runtimeSupportsProtocol("host", protocol)) {
       throw new Error(`${pathLabel}: host runtime currently supports only protocol=http.`);
     }
@@ -399,6 +503,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
   }
 
   if (runtime === "docker") {
+    if (objectValue.readiness !== undefined) {
+      throw new Error(`${pathLabel}.readiness is only supported for HTTP proxy apps.`);
+    }
     const docker = parseDockerConfig(objectValue.docker, `${pathLabel}.docker`);
 
     if (protocol === "http") {
@@ -450,6 +557,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
     assertUpstreamSpec(upstream, `${pathLabel}.upstream`);
 
     if (protocol === "tcp") {
+      if (objectValue.readiness !== undefined) {
+        throw new Error(`${pathLabel}.readiness is only supported for HTTP proxy apps.`);
+      }
       const tcpProtocol = toStringOrThrow(objectValue.tcpProtocol, `${pathLabel}.tcpProtocol`);
       if (!isSupportedTcpProtocol(tcpProtocol)) {
         throw new Error(
@@ -475,6 +585,9 @@ function parseApp(value: unknown, index: number): DevrouterApp {
       runtime: "proxy",
       dependencies,
       upstream,
+      ...(objectValue.readiness !== undefined
+        ? { readiness: parseHttpReadiness(objectValue.readiness, `${pathLabel}.readiness`) }
+        : {}),
     };
   }
 
@@ -500,6 +613,40 @@ function parseRequiredUniqueStringArray(value: unknown, pathLabel: string): stri
   return parseUniqueStringArray(value, pathLabel);
 }
 
+function parsePrepareCommand(value: unknown, pathLabel: string): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${pathLabel} must be a non-empty array of strings.`);
+  }
+  if (value.length === 0) {
+    throw new Error(`${pathLabel} must be a non-empty array of strings.`);
+  }
+  if (value.length > MAX_PREPARE_ARGS) {
+    throw new Error(`${pathLabel} exceeds the maximum of ${MAX_PREPARE_ARGS} arguments.`);
+  }
+
+  return value.map((item, index) => {
+    if (typeof item !== "string") {
+      throw new Error(`${pathLabel}[${index}] must be a string.`);
+    }
+    if (index === 0 && item.length === 0) {
+      throw new Error(`${pathLabel}[0] must be a non-empty executable.`);
+    }
+    if (item.includes("\0")) {
+      throw new Error(`${pathLabel}[${index}] must not contain null bytes.`);
+    }
+    const byteLength = Buffer.byteLength(item, "utf8");
+    if (byteLength > MAX_PREPARE_ARG_BYTES) {
+      throw new Error(
+        `${pathLabel}[${index}] exceeds the maximum of ${MAX_PREPARE_ARG_BYTES} UTF-8 bytes.`,
+      );
+    }
+    return item;
+  });
+}
+
 function parseManagedRuntime(
   value: unknown,
   configPath: string,
@@ -509,7 +656,39 @@ function parseManagedRuntime(
   }
 
   const managedRuntime = ensureObject(value, `${configPath}.managedRuntime`);
-  ensureAllowedKeys(managedRuntime, ["devcontainer", "processes"], `${configPath}.managedRuntime`);
+  ensureAllowedKeys(
+    managedRuntime,
+    ["devcontainer", "processes", "network"],
+    `${configPath}.managedRuntime`,
+  );
+  let network: DevrouterManagedRuntime["network"];
+  if (managedRuntime.network !== undefined) {
+    const value = ensureObject(managedRuntime.network, `${configPath}.managedRuntime.network`);
+    ensureAllowedKeys(
+      value,
+      ["prefixLength", "endpointUpperBound"],
+      `${configPath}.managedRuntime.network`,
+    );
+    if (value.prefixLength !== undefined && ![24, 25, 26].includes(value.prefixLength as number))
+      throw new Error("managedRuntime.network.prefixLength must be 24, 25 or 26.");
+    if (
+      value.endpointUpperBound !== undefined &&
+      (!Number.isSafeInteger(value.endpointUpperBound) ||
+        (value.endpointUpperBound as number) < 1 ||
+        (value.endpointUpperBound as number) > 253)
+    )
+      throw new Error(
+        "managedRuntime.network.endpointUpperBound must be an integer from 1 to 253.",
+      );
+    network = {
+      ...(value.prefixLength !== undefined
+        ? { prefixLength: value.prefixLength as 24 | 25 | 26 }
+        : {}),
+      ...(value.endpointUpperBound !== undefined
+        ? { endpointUpperBound: value.endpointUpperBound as number }
+        : {}),
+    };
+  }
 
   const devcontainer = ensureObject(
     managedRuntime.devcontainer,
@@ -517,7 +696,7 @@ function parseManagedRuntime(
   );
   ensureAllowedKeys(
     devcontainer,
-    ["baseServices", "profileServices"],
+    ["baseServices", "profileServices", "prepareCommand"],
     `${configPath}.managedRuntime.devcontainer`,
   );
   const baseServices = parseRequiredUniqueStringArray(
@@ -527,6 +706,10 @@ function parseManagedRuntime(
   const profileServices = parseRequiredUniqueStringArray(
     devcontainer.profileServices,
     `${configPath}.managedRuntime.devcontainer.profileServices`,
+  );
+  const prepareCommand = parsePrepareCommand(
+    devcontainer.prepareCommand,
+    `${configPath}.managedRuntime.devcontainer.prepareCommand`,
   );
   const baseSet = new Set(baseServices);
   const overlappingServices = profileServices.filter((service) => baseSet.has(service));
@@ -550,16 +733,372 @@ function parseManagedRuntime(
   }
 
   return {
-    devcontainer: { baseServices, profileServices },
+    ...(network ? { network } : {}),
+    devcontainer: {
+      baseServices,
+      profileServices,
+      ...(prepareCommand ? { prepareCommand } : {}),
+    },
     processes,
   };
+}
+
+function parseCapacitySafeInteger(value: unknown, pathLabel: string, minimum: number): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || Object.is(value, -0)) {
+    throw new Error(`${pathLabel} must be a safe integer.`);
+  }
+  if (value < minimum) {
+    throw new Error(`${pathLabel} must be at least ${minimum}.`);
+  }
+  return value;
+}
+
+function parseCapacityName(value: unknown, pathLabel: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${pathLabel} must be a non-empty string.`);
+  }
+  if (value !== value.trim()) {
+    throw new Error(`${pathLabel} must not have leading or trailing whitespace.`);
+  }
+  if (value.length > MAX_CAPACITY_NAME_LENGTH) {
+    throw new Error(
+      `${pathLabel} exceeds the maximum length of ${MAX_CAPACITY_NAME_LENGTH} characters.`,
+    );
+  }
+  if (
+    [...value].some(
+      (character) => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
+    )
+  ) {
+    throw new Error(`${pathLabel} must not contain control characters.`);
+  }
+  return value;
+}
+
+function parseCapacityProfileKey(
+  value: unknown,
+  pathLabel: string,
+  declaredProfiles: DevrouterConfig["profiles"],
+): string {
+  const key = parseCapacityName(value, pathLabel);
+  if (key === "full") return key;
+
+  const names = key.split(",");
+  const seen = new Set<string>();
+  for (const [index, name] of names.entries()) {
+    if (!PROFILE_NAME_RE.test(name)) {
+      throw new Error(`${pathLabel}[${index}] is not a valid profile name.`);
+    }
+    if (seen.has(name)) {
+      throw new Error(`${pathLabel} contains duplicate profile '${name}'.`);
+    }
+    if (!declaredProfiles || !Object.hasOwn(declaredProfiles, name)) {
+      throw new Error(`${pathLabel} references undefined profile '${name}'.`);
+    }
+    seen.add(name);
+  }
+
+  return [...names].sort().join(",");
+}
+
+function parseCapacityDimension(
+  value: unknown,
+  pathLabel: string,
+  runtime: boolean,
+): { steadyBytes: number; startupTotalBytes: number } {
+  const dimension = ensureObject(value, pathLabel);
+  ensureAllowedKeys(dimension, ["steadyBytes", "startupTotalBytes"], pathLabel);
+  const minimum = runtime ? 1 : 0;
+  const steadyBytes = parseCapacitySafeInteger(
+    dimension.steadyBytes,
+    `${pathLabel}.steadyBytes`,
+    minimum,
+  );
+  const startupTotalBytes = parseCapacitySafeInteger(
+    dimension.startupTotalBytes,
+    `${pathLabel}.startupTotalBytes`,
+    minimum,
+  );
+  if (startupTotalBytes < steadyBytes) {
+    throw new Error(`${pathLabel}.startupTotalBytes must be at least steadyBytes.`);
+  }
+  return { steadyBytes, startupTotalBytes };
+}
+
+function parseCapacityOperation(
+  value: unknown,
+  pathLabel: string,
+): { hostIncrementBytes: number; runtimeIncrementBytes: number } {
+  const operation = ensureObject(value, pathLabel);
+  ensureAllowedKeys(operation, ["hostIncrementBytes", "runtimeIncrementBytes"], pathLabel);
+  return {
+    hostIncrementBytes: parseCapacitySafeInteger(
+      operation.hostIncrementBytes,
+      `${pathLabel}.hostIncrementBytes`,
+      0,
+    ),
+    runtimeIncrementBytes: parseCapacitySafeInteger(
+      operation.runtimeIncrementBytes,
+      `${pathLabel}.runtimeIncrementBytes`,
+      0,
+    ),
+  };
+}
+
+function parseCapacityOperations(
+  value: unknown,
+  pathLabel: string,
+): Record<string, { hostIncrementBytes: number; runtimeIncrementBytes: number }> {
+  const rawOperations = ensureObject(value, pathLabel);
+  const operationEntries = Object.entries(rawOperations);
+  if (operationEntries.length === 0) {
+    throw new Error(`${pathLabel} must define at least one named operation.`);
+  }
+  if (operationEntries.length > MAX_CAPACITY_OPERATIONS) {
+    throw new Error(`${pathLabel} exceeds the maximum of ${MAX_CAPACITY_OPERATIONS} operations.`);
+  }
+
+  const operations: Record<string, { hostIncrementBytes: number; runtimeIncrementBytes: number }> =
+    {};
+  for (const [operationName, operationValue] of operationEntries) {
+    const name = parseCapacityName(operationName, `${pathLabel} key`);
+    if (!/^[a-z][a-z0-9._-]*$/.test(name)) {
+      throw new Error(`${pathLabel}.${operationName} is not a valid operation name.`);
+    }
+    operations[name] = parseCapacityOperation(operationValue, `${pathLabel}.${operationName}`);
+  }
+  return operations;
+}
+
+function parseCapacityTransition(
+  value: unknown,
+  pathLabel: string,
+): { hostTotalBytes: number; runtimeTotalBytes: number } {
+  const transition = ensureObject(value, pathLabel);
+  ensureAllowedKeys(transition, ["hostTotalBytes", "runtimeTotalBytes"], pathLabel);
+  return {
+    hostTotalBytes: parseCapacitySafeInteger(
+      transition.hostTotalBytes,
+      `${pathLabel}.hostTotalBytes`,
+      0,
+    ),
+    runtimeTotalBytes: parseCapacitySafeInteger(
+      transition.runtimeTotalBytes,
+      `${pathLabel}.runtimeTotalBytes`,
+      1,
+    ),
+  };
+}
+
+function parseCapacityEstimates(
+  value: unknown,
+  configPath: string,
+  declaredProfiles: DevrouterConfig["profiles"],
+): CapacityEstimates | undefined {
+  if (value === undefined) return undefined;
+
+  const pathLabel = `${configPath}.capacity`;
+  const capacity = ensureObject(value, pathLabel);
+  ensureAllowedKeys(capacity, ["version", "profiles", "transitions"], pathLabel);
+
+  const version = parseCapacitySafeInteger(capacity.version, `${pathLabel}.version`, 1);
+  if (version !== 1) {
+    throw new Error(`${pathLabel}.version must be 1.`);
+  }
+
+  const rawProfiles = ensureObject(capacity.profiles, `${pathLabel}.profiles`);
+  const profileEntries = Object.entries(rawProfiles);
+  if (profileEntries.length === 0) {
+    throw new Error(`${pathLabel}.profiles must define at least one exact profile combination.`);
+  }
+  if (profileEntries.length > MAX_CAPACITY_PROFILES) {
+    throw new Error(
+      `${pathLabel}.profiles exceeds the maximum of ${MAX_CAPACITY_PROFILES} combinations.`,
+    );
+  }
+
+  const profiles: CapacityEstimates["profiles"] = {};
+  for (const [rawKey, profileValue] of profileEntries) {
+    const profileKey = parseCapacityProfileKey(
+      rawKey,
+      `${pathLabel}.profiles key`,
+      declaredProfiles,
+    );
+    if (Object.hasOwn(profiles, profileKey)) {
+      throw new Error(
+        `${pathLabel}.profiles contains aliases for the same exact combination '${profileKey}'.`,
+      );
+    }
+    const profile = ensureObject(profileValue, `${pathLabel}.profiles.${rawKey}`);
+    ensureAllowedKeys(
+      profile,
+      ["host", "runtime", "operations"],
+      `${pathLabel}.profiles.${rawKey}`,
+    );
+    profiles[profileKey] = {
+      host: parseCapacityDimension(profile.host, `${pathLabel}.profiles.${rawKey}.host`, false),
+      runtime: parseCapacityDimension(
+        profile.runtime,
+        `${pathLabel}.profiles.${rawKey}.runtime`,
+        true,
+      ),
+      operations: parseCapacityOperations(
+        profile.operations,
+        `${pathLabel}.profiles.${rawKey}.operations`,
+      ),
+    };
+  }
+
+  let transitions: CapacityEstimates["transitions"];
+  if (capacity.transitions !== undefined) {
+    const rawTransitions = ensureObject(capacity.transitions, `${pathLabel}.transitions`);
+    const transitionEntries = Object.entries(rawTransitions);
+    if (transitionEntries.length === 0) {
+      throw new Error(`${pathLabel}.transitions must define at least one transition.`);
+    }
+    transitions = {};
+    let transitionCount = 0;
+    for (const [rawSource, targetValue] of transitionEntries) {
+      const source = parseCapacityProfileKey(
+        rawSource,
+        `${pathLabel}.transitions source key`,
+        declaredProfiles,
+      );
+      if (!Object.hasOwn(profiles, source)) {
+        throw new Error(
+          `${pathLabel}.transitions source '${source}' must have a profile estimate.`,
+        );
+      }
+      if (Object.hasOwn(transitions, source)) {
+        throw new Error(`${pathLabel}.transitions contains aliases for source '${source}'.`);
+      }
+      const rawTargets = ensureObject(targetValue, `${pathLabel}.transitions.${rawSource}`);
+      const targetEntries = Object.entries(rawTargets);
+      if (targetEntries.length === 0) {
+        throw new Error(`${pathLabel}.transitions.${rawSource} must define a target.`);
+      }
+      const targets: Record<string, { hostTotalBytes: number; runtimeTotalBytes: number }> = {};
+      for (const [rawTarget, transitionValue] of targetEntries) {
+        transitionCount += 1;
+        if (transitionCount > MAX_CAPACITY_TRANSITIONS) {
+          throw new Error(
+            `${pathLabel}.transitions exceeds the maximum of ${MAX_CAPACITY_TRANSITIONS} entries.`,
+          );
+        }
+        const target = parseCapacityProfileKey(
+          rawTarget,
+          `${pathLabel}.transitions.${rawSource} target key`,
+          declaredProfiles,
+        );
+        if (!Object.hasOwn(profiles, target)) {
+          throw new Error(
+            `${pathLabel}.transitions target '${target}' must have a profile estimate.`,
+          );
+        }
+        if (Object.hasOwn(targets, target)) {
+          throw new Error(
+            `${pathLabel}.transitions.${rawSource} contains aliases for '${target}'.`,
+          );
+        }
+        const transition = parseCapacityTransition(
+          transitionValue,
+          `${pathLabel}.transitions.${rawSource}.${rawTarget}`,
+        );
+        const sourceProfile = profiles[source];
+        const targetProfile = profiles[target];
+        if (
+          transition.hostTotalBytes <
+          Math.max(sourceProfile.host.steadyBytes, targetProfile.host.steadyBytes)
+        ) {
+          throw new Error(
+            `${pathLabel}.transitions.${rawSource}.${rawTarget}.hostTotalBytes must cover both steady host estimates.`,
+          );
+        }
+        if (
+          transition.runtimeTotalBytes <
+          Math.max(sourceProfile.runtime.steadyBytes, targetProfile.runtime.steadyBytes)
+        ) {
+          throw new Error(
+            `${pathLabel}.transitions.${rawSource}.${rawTarget}.runtimeTotalBytes must cover both steady runtime estimates.`,
+          );
+        }
+        targets[target] = transition;
+      }
+      transitions[source] = targets;
+    }
+  }
+
+  return {
+    version: 1,
+    profiles,
+    ...(transitions ? { transitions } : {}),
+  };
+}
+
+export function normalizeCapacityEstimates(estimates: CapacityEstimates): CapacityEstimates {
+  const profiles: CapacityEstimates["profiles"] = {};
+  for (const key of Object.keys(estimates.profiles).sort()) {
+    const estimate = estimates.profiles[key];
+    profiles[key] = {
+      host: {
+        steadyBytes: estimate.host.steadyBytes,
+        startupTotalBytes: estimate.host.startupTotalBytes,
+      },
+      runtime: {
+        steadyBytes: estimate.runtime.steadyBytes,
+        startupTotalBytes: estimate.runtime.startupTotalBytes,
+      },
+      operations: Object.fromEntries(
+        Object.keys(estimate.operations)
+          .sort()
+          .map((name) => [name, { ...estimate.operations[name] }]),
+      ),
+    };
+  }
+
+  let transitions: CapacityEstimates["transitions"];
+  if (estimates.transitions !== undefined) {
+    transitions = {};
+    for (const source of Object.keys(estimates.transitions).sort()) {
+      const targets: Record<string, { hostTotalBytes: number; runtimeTotalBytes: number }> = {};
+      for (const target of Object.keys(estimates.transitions[source]).sort()) {
+        const transition = estimates.transitions[source][target];
+        targets[target] = {
+          hostTotalBytes: transition.hostTotalBytes,
+          runtimeTotalBytes: transition.runtimeTotalBytes,
+        };
+      }
+      transitions[source] = targets;
+    }
+  }
+
+  return {
+    version: 1,
+    profiles,
+    ...(transitions ? { transitions } : {}),
+  };
+}
+
+export function capacityEstimatesDigest(estimates: CapacityEstimates): string {
+  return createHash("sha256")
+    .update(JSON.stringify(normalizeCapacityEstimates(estimates)), "utf8")
+    .digest("hex");
 }
 
 function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
   const root = ensureObject(raw, configPath);
   ensureAllowedKeys(
     root,
-    ["version", "devrouter", "project", "secretManager", "managedRuntime", "profiles", "apps"],
+    [
+      "version",
+      "devrouter",
+      "project",
+      "secretManager",
+      "managedRuntime",
+      "profiles",
+      "capacity",
+      "apps",
+    ],
     configPath,
   );
 
@@ -641,6 +1180,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
 
   const managedRuntime = parseManagedRuntime(root.managedRuntime, configPath);
   const profiles = parseProfiles(root.profiles, configPath, apps, managedRuntime);
+  const capacity = parseCapacityEstimates(root.capacity, configPath, profiles);
 
   return {
     version: 1,
@@ -652,6 +1192,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
     ...(secretManager ? { secretManager } : {}),
     ...(managedRuntime ? { managedRuntime } : {}),
     ...(profiles ? { profiles } : {}),
+    ...(capacity ? { capacity } : {}),
     apps,
   };
 }
@@ -977,10 +1518,10 @@ export function resolveProfile(
     return { name: canonicalName, profile: merged };
   };
 
-  if (profileOverride !== undefined) {
+  if (profileOverride !== undefined && (profileOverride !== "full" || profiles?.full)) {
     return mergeSelection(profileOverride);
   }
-  if (profiles) {
+  if (profiles && profileOverride === undefined) {
     const defaultName = Object.keys(profiles).find((name) => profiles[name].default);
     if (defaultName) {
       return {
@@ -1104,7 +1645,10 @@ export function getRepoConfigPath(repoPath?: string): string {
   return path.join(resolveRepoPath(repoPath), CONFIG_FILE_NAME);
 }
 
-export function loadRepoConfig(repoPath?: string): DevrouterConfig {
+export function loadRepoConfig(
+  repoPath?: string,
+  read = (file: string) => fs.readFileSync(file, "utf-8"),
+): DevrouterConfig {
   const resolvedRepoPath = resolveRepoPath(repoPath);
   const configPath = getRepoConfigPath(resolvedRepoPath);
   if (!fs.existsSync(configPath)) {
@@ -1113,7 +1657,7 @@ export function loadRepoConfig(repoPath?: string): DevrouterConfig {
     );
   }
 
-  const raw = fs.readFileSync(configPath, "utf-8");
+  const raw = read(configPath);
   const parsed = YAML.parse(raw) as DevrouterConfigWithUnknown | null;
   const config = parseConfig(parsed ?? {}, configPath);
 

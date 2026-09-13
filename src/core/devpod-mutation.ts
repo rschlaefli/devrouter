@@ -14,6 +14,14 @@ import {
   stopOwnedDevsyWorkspace,
 } from "./devsy-mutation";
 import { createStderrWaitReporter, withFileLockSync } from "./file-lock";
+import {
+  assertNetworkProviderBinding,
+  networkProviderEnvironment,
+  networkProviderStartupArguments,
+  type PrepareNetworkStart,
+} from "./network-provider-binding";
+import { networkProviderEffectOptions } from "./network-provider-effect";
+import { claimLifecycleEffect } from "./reliability-context";
 import { DEVROUTER_HOME } from "./router";
 import {
   readWorkspaceRuntimeConfig,
@@ -28,9 +36,13 @@ const DEVPOD_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devpod-mutation.loc
  */
 const DEVPOD_MUTATION_WAIT_MS = 1_800_000;
 
-export type OwnedDevpodMutationResult = { status: "changed" } | { status: "absent" };
+export type OwnedDevpodMutationResult =
+  | { status: "changed" }
+  | { status: "absent" }
+  | { status: "proven-absent" };
 
 export type DevpodStartOptions = {
+  prepareNetwork?: PrepareNetworkStart;
   repoPath: string;
   devpodId?: string;
   devcontainerPath?: string;
@@ -41,7 +53,7 @@ export type DevpodStartOptions = {
 
 export class DevpodStartPostconditionError extends Error {}
 
-function withMutationLock<T>(activity: string, target: string, operation: () => T): T {
+export function withMutationLock<T>(activity: string, target: string, operation: () => T): T {
   fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
   return withFileLockSync(
     DEVPOD_MUTATION_LOCK_FILE,
@@ -60,12 +72,24 @@ function commandFailure(result: ReturnType<typeof spawnSync>): string {
   return [result.error?.message, result.stdout, result.stderr].filter(Boolean).join("\n").trim();
 }
 
-function runDevpodAction(action: "stop" | "delete", devpodId: string, force = false): void {
+function runDevpodAction(
+  action: "stop" | "delete",
+  devpodId: string,
+  force = false,
+  repoPath?: string,
+): void {
   const args =
     action === "delete"
       ? [action, devpodId, ...(force ? ["--force"] : []), "--ignore-not-found"]
       : [action, devpodId];
-  const result = spawnSync("devpod", args, { encoding: "utf-8" });
+  claimLifecycleEffect();
+  const binding = repoPath
+    ? networkProviderEffectOptions("devpod", devpodId, repoPath)
+    : { args: [] };
+  const result = spawnSync("devpod", [...args, ...binding.args], {
+    encoding: "utf-8",
+    ...(binding.env ? { env: binding.env } : {}),
+  });
   if (result.status !== 0) {
     throw new Error(
       `devpod ${action}${force ? " --force" : ""} failed for '${devpodId}': ${commandFailure(result) || "unknown error"}`,
@@ -92,7 +116,7 @@ function mutateOwnedDevpodWorkspace(
     const before = inspectExactOwnership(devpodId, worktreePath);
     if (before.status === "absent") return { status: "absent" };
 
-    runDevpodAction(action, devpodId);
+    runDevpodAction(action, devpodId, false, worktreePath);
 
     let after = inspectExactOwnership(devpodId, worktreePath);
     if (action === "stop" && after.status !== "owned") {
@@ -107,7 +131,7 @@ function mutateOwnedDevpodWorkspace(
       }
       after = inspectExactOwnership(devpodId, worktreePath);
       if (after.status === "owned") {
-        runDevpodAction("delete", devpodId, true);
+        runDevpodAction("delete", devpodId, true, worktreePath);
         after = inspectExactOwnership(devpodId, worktreePath);
       }
       if (after.status !== "absent") {
@@ -160,6 +184,7 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
         quiet: options.quiet,
         workspace: options.workspace,
         inactivityTimeout: readWorkspaceRuntimeConfig().devsyInactivityTimeout,
+        prepareNetwork: options.prepareNetwork,
       });
       resetWorkspaceRuntimeCaches();
       return result;
@@ -185,11 +210,18 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
       throw new Error("Cannot recreate a DevPod before its exact id is known.");
     }
 
+    if (options.prepareNetwork && !devpodId)
+      throw new Error("Network allocation requires an exact provider ID before dispatch.");
+    const network = options.prepareNetwork?.(devpodId as string);
+    if (network)
+      assertNetworkProviderBinding(network.binding, network.evidence, network.firstAllocation);
     const args = ["up", options.repoPath];
     if (devpodId) args.push("--id", devpodId);
-    if (options.devcontainerPath) {
-      args.push("--devcontainer-path", options.devcontainerPath);
+    const devcontainerPath = network?.devcontainerPath ?? options.devcontainerPath;
+    if (devcontainerPath) {
+      args.push("--devcontainer-path", devcontainerPath);
     }
+    if (network) args.push(...networkProviderStartupArguments(network.binding));
     args.push("--open-ide=false");
     if (options.workspace) {
       args.push(
@@ -201,7 +233,9 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
     }
     if (options.recreate) args.push("--recreate");
 
-    const env = { ...process.env };
+    const env = network
+      ? networkProviderEnvironment(network.binding, process.env)
+      : { ...process.env };
     if (options.workspace) {
       env.WORKSPACE = options.workspace.token;
       env.DEVROUTER_WORKSPACE = options.workspace.token;
@@ -214,12 +248,25 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
       delete env.DEVCONTAINER_COMPOSE_OVERLAY;
     }
 
+    claimLifecycleEffect();
+
+    network?.beforeDispatch?.();
     const result = spawnSync("devpod", args, {
       stdio: options.quiet ? ["inherit", 2, "inherit"] : "inherit",
       env,
     });
     if (result.status !== 0) {
-      throw new Error(`devpod up failed for '${devpodId ?? options.repoPath}'.`);
+      resetWorkspaceRuntimeCaches();
+      if (network) {
+        network.retainUncertain();
+        throw new DevpodStartPostconditionError(
+          "Network-bound provider start failed; claim and binding require reconciliation.",
+        );
+      }
+      const message = `devpod up failed for '${devpodId ?? options.repoPath}'.`;
+      // A failed provider command may still consume the managed configuration.
+      if (options.devcontainerPath) throw new DevpodStartPostconditionError(message);
+      throw new Error(message);
     }
 
     try {
@@ -238,6 +285,7 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
       resetWorkspaceRuntimeCaches();
       return devpodId;
     } catch (error) {
+      network?.retainUncertain();
       const message = error instanceof Error ? error.message : String(error);
       throw new DevpodStartPostconditionError(message);
     }

@@ -4,6 +4,460 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.77] - 2026-09-12
+
+### Fixed
+
+- Ordinary managed ensure prepares TLS certificate coverage for resolved proxy
+  hostnames before provider startup and container-side repository hooks. It
+  preserves existing certificate names under the shared lock, awaits coverage
+  before startup, and reports refreshes from either startup or route publication.
+  Admission refusals and retained-runtime repair keep their existing behavior.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.77.md
+
+## [0.0.76] - 2026-09-12
+
+### Fixed
+
+- Initial managed stop resolves historical combined profile selections to their
+  canonical name while preserving raw journal authority. Reordered, repeated and
+  whitespace-padded selections no longer cause a false profile mismatch.
+- First-transition rollback preserves generated configuration after capturing a
+  degraded stop baseline, while restoring prior running resources. Repair still
+  refuses manual configuration drift, unexpected resources and unknown ownership.
+  This prevents new inconsistent rollback state; it does not adopt historical
+  generated-file mismatches without producing evidence.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.76.md
+
+## [0.0.75] - 2026-09-12
+
+### Fixed
+
+- Canonical stop after interrupted initial managed Devsy startup selects the
+  drained ensure operation's recorded profile. It validates the complete selected
+  service population, generated configuration and every container's recorded
+  Compose hash before stopping exact containers. This permits recovery before
+  managed runtime state exists without falling back to the default profile.
+- Journal, provider, Docker daemon and container ownership are revalidated around
+  each stop. Missing or changed evidence, extra services, live workers and
+  containers that survive or restart remain refusals. Existing positive-absence
+  and retained-runtime recovery paths remain available.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.75.md
+
+## [0.0.74] - 2026-09-12
+
+### Fixed
+
+- Canonical stop can recover a linked managed Devsy checkout whose startup
+  failed before provider registration. It requires exact ownership and fresh
+  proof that workers, registrations, runtime containers and routes are absent;
+  unknown evidence and surviving resources remain refusals. Completed startup
+  outcomes are preserved while successful stop permits a later ensure.
+- Devsy-only installations can prove legacy registration absence without
+  installing DevPod. A missing executable permits a bounded read-only scan of
+  every local legacy context; malformed, unreadable, conflicting or changing
+  evidence fails closed. Stop JSON preserves `runtimeAbsent: true` and human
+  output no longer claims a missing provider was stopped.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.74.md
+
+## [0.0.73] - 2026-09-11
+
+### Added
+
+- Optional bounded automatic recovery for capacity-managed environments. A new
+  `recovery` block in the capacity policy enables a supervisor that reacts to a
+  positively failed required capability with one journal-admitted corrective
+  `ensure`, bounded by per-scope process and service restart counts, an
+  aggregate corrective-action cap, and a rolling observation window. The block
+  is absent by default, so recovery stays disabled and existing policy files and
+  lifecycle behavior are unchanged until an operator opts in. Parking and
+  controlled resume remain model-only: nothing emits those events yet. There is
+  no OOM detection, so a container-local OOM still surfaces only as a failed
+  capability.
+
+### Fixed
+
+- A capacity-enrolled operation no longer loses effect authority on an
+  unobservable capacity sample. Renewal wrote a zero deadline before each
+  attempt and again on failure, so one missing, stale, or unknown sample revoked
+  authority mid-start and every later command ended with `Capacity effect
+  authority is absent or stale.` Renewal now extends only when every reserved
+  domain has a usable sample; a collection gap or a thrown renewal leaves the
+  granted deadline intact and it still expires on its own. Ownership evidence now
+  compares environment identity (`environmentId`, enrollment, compose project,
+  DevPod ID, stop baseline) instead of whole journal records, so the controller
+  rewriting its own bookkeeping no longer reports `unknown` for a healthy
+  runtime. The runtime probe budget now covers two daemon reads plus
+  per-container sizing.
+- The controller observation collector now reports a required managed process
+  that has positively exited as a failed capability instead of `unknown`, so
+  bounded recovery can act on it. The process observation script exits `3` to
+  prove positive absence while malformed, oversized, symlinked, or unstable
+  state stays `unknown`; a positively absent required process marks the app
+  capability `infrastructure: "failed"` and skips its HTTP readiness probe while
+  the container-level runtime capability stays healthy.
+- Capacity-enrolled `exec` now returns the wrapped command's output. The
+  controller captures a supervised worker's stdout/stderr into its bounded
+  buffer and the client exposes it through `onOutput`, but the CLI never
+  forwarded it: every enrolled `devrouter exec` produced the command's exit
+  status and no output. The controller-supervised path now streams each bounded
+  page to the same stdout/stderr streams as the local path and reports a single
+  notice when the controller's output buffer dropped earlier bytes. The manual
+  (unmanaged) path is unchanged.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.73.md
+
+## [0.0.72] - 2026-09-10
+
+### Fixed
+
+- A capacity-managed lifecycle journal no longer refuses every later command
+  once it holds the 128-entry cap. Rollover was reachable only for manual
+  execution policy, so an enrolled checkout that accumulated 128 settled
+  operations was permanently wedged; the next admitted `ensure` failed with
+  `Managed lifecycle transition is blocked.` Both policies now share the same
+  conservative rollover guards: duplicate and conflict checks run first, only a
+  settled drained `COMPLETED`/`NOT_LAUNCHED`/`INTERRUPTED` entry is retired, the
+  current operation and the latest `ensure` result are retained, one entry is
+  freed per accepted replacement, and the request is refused when nothing
+  qualifies.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.72.md
+
+## [0.0.71] - 2026-09-10
+
+### Fixed
+
+- Enrolled `ensure` and `exec` now bind to the controller correctly.
+  Supervised binds sent an empty requirement list that the controller protocol
+  rejects, and the observation binding validated the wire envelope instead of
+  its result. Both defects kept every capacity-enrolled checkout from starting
+  or running commands, and both shipped in 0.0.69 and 0.0.70.
+- The controller now writes the bounded single-line cause of a failed operation
+  submit or watch to stderr instead of reporting only the generic
+  `request-unavailable` refusal.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.71.md
+
+## [0.0.70] - 2026-09-10
+
+### Fixed
+
+- Host-port claim reporting collapses a holder's wildcard bind reported per
+  address family (0.0.0.0 and ::) into one conflict, so ensure refusals and the
+  `repo.host-port-claims` doctor check count each distinct conflicting binding
+  once.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.70.md
+
+## [0.0.69] - 2026-09-10
+
+### Added
+
+- Refuse managed `ensure` before any session, config write, or provider start
+  when a configured fixed published host binding (an explicit `host:port`
+  compose binding; ephemeral bindings are exempt by design) is already held by
+  a running container. The refusal returns `hostPortConflicts` in the
+  `--json` result, exits nonzero, and names per conflict the desired binding,
+  the holding container, its compose project, and the owning workspace when
+  attributable through compose labels and workspace ownership records.
+  Detection renders the effective Compose model with the exact interpolation
+  environment the start would use (profile services included) and inspects
+  live holders with one `docker ps` plus one batched `docker inspect`.
+  Consumer-declared bindings are never rewritten or offset; the refusal is
+  the product. Unverifiable evidence (render or Docker failure) also refuses
+  fail-closed instead of risking a late raw bind failure after a full
+  provider bootstrap.
+- Report configured versus live fixed host-port bindings as the read-only
+  `repo.host-port-claims` doctor check: conflicts are errors naming the
+  holder and owning workspace, repos without `managedRuntime` are skipped,
+  and unavailable evidence warns instead of failing doctor.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.69.md
+
+## [0.0.68] - 2026-09-10
+
+### Changed
+
+- Lock acquisition now reports actionable process-identity diagnostics. The
+  error names the failing inspection stage (procfs read result or ps exit,
+  signal, or spawn error), the activity and exact lock path, a portable
+  reproduction command (`LC_ALL=C ps -o lstart= -o command= -p
+  <any-live-pid>`), and the permitted-host-context remediation, while locks
+  stay fail-closed and no identity fallback is attempted. Raw stderr from the
+  inspection is still not echoed. `devrouter controller` commands additionally
+  print the underlying failure cause on stderr while keeping the stable
+  `controller-unavailable` JSON contract on stdout.
+
+### Added
+
+- Capacity admission for enrolled managed checkouts behind an explicitly
+  enabled operator policy: the controller admits `ensure` and `exec` before
+  dispatch, the CLI follows the decision with bounded reconnecting waits that
+  survive controller restarts, worker results are journalled atomically, and
+  `stop` bypasses admission. Behavior is unchanged without
+  `capacity-policy.json` under Devrouter home (ADR 0008). The policy
+  `scheduling.clientWaitSeconds`, `maxClientWaitSeconds`, `watchSeconds`, and
+  `sampleIntervalSeconds` knobs are validated and reserved for future runtime
+  binding; runtime constants remain authoritative.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.68.md
+
+## [0.0.67] - 2026-09-10
+
+### Fixed
+
+- Make the reliability journal incapable of deadlocking lifecycle commands.
+  Rollover now retires a drained `INTERRUPTED` entry like any settled result
+  (still retaining the current operation and the latest ensure result), so a
+  journal saturated at 128 entries can no longer permanently refuse every
+  command behind a crashed ensure. A property suite saturates the journal,
+  interrupts an operation at every lifecycle step, and asserts at least one
+  canonical command progresses, including randomized crash walks.
+- Complete canonical `devrouter stop` for retained managed Devsy state without
+  a stop baseline when a guard-ordered `stop --delete` or external teardown
+  removed the registration: when both provider registries positively lack the
+  ID and path, Devsy reports the runtime `not-found`, and the compose, runner,
+  and workspace populations are empty across two stable observations, the stop
+  settles as proven-absent and only routes are freed. Ownership conflicts and
+  unreadable evidence still fail closed without mutation.
+- Admit interrupted-ensure recovery after a completed stop proof regardless of
+  whether `desired` records `running` or `stopped-by-user`; a finished stop is
+  proof the workspace is quiescent.
+- Name the blocking field and remediation on every manual-policy lifecycle
+  admission refusal instead of a bare "Lifecycle admission is blocked."
+- Guard version skew: reliability records are stamped with the writing CLI
+  version, and a record written by a newer CLI is refused with an explicit
+  upgrade instruction before any lifecycle step instead of new refusals
+  mid-flight.
+
+### Added
+
+- Add `devrouter workspace journal settle [path]` as the first-class escape
+  hatch for unrecoverable records: it settles a lifecycle operation whose
+  worker is provably gone as `INTERRUPTED` and drained under the workspace
+  lifecycle lock. Settlement never claims anything about workloads, routes, or
+  registrations, so agents never need to hand-edit `~/.config/devrouter`.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.67.md
+
+## [0.0.66] - 2026-09-09
+
+### Fixed
+
+- Complete managed stop for an exact linked workspace whose Devsy registration
+  was replaced with a new UID after all original containers are positively
+  absent. The replacement generation must select plain local Docker and resolve
+  to the pinned baseline daemon with both the old and new runner populations
+  empty across two full observation passes. Any residual population, daemon
+  drift, competing registration, or ownership change remains a fail-closed
+  diagnostic error, and the absence path performs no provider, container, or
+  source mutation. This releases a workspace whose lifecycle journal is stuck
+  in `stopping` so a later `ensure` can be admitted again.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.66.md
+
+## [0.0.65] - 2026-09-09
+
+### Added
+
+- Add read-only Docker network capacity and retained-ownership diagnostics to
+  `doctor` and `workspace cleanup`, separating active endpoints from retained
+  container references without cleanup suggestions or ambient endpoint
+  substitution.
+- Add opt-in daemon-bound subnet allocation for new managed linked-workspace
+  Compose networks: an operator-owned `network-policy.json` scoped to the
+  Docker daemon identity, a `/26` default prefix with `/25` and `/24`
+  overrides, endpoint-demand admission across the full service/profile union,
+  durable fenced subnet claims, and a persisted provider Docker destination
+  verified on later effects.
+- Warn before legacy starts only on positively observed default-pool exhaustion
+  from an explicitly qualified provider destination.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.65.md
+
+## [0.0.64] - 2026-09-09
+
+### Fixed
+
+- Wait for healthy lifecycle work before canonical ensure admission, preserving
+  request identity, cancellation and stop fencing without replaying commands.
+- Explain unavailable or sandbox-denied process inspection in lock diagnostics
+  without weakening ownership checks.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.64.md
+
+## [0.0.63] - 2026-09-09
+
+### Fixed
+
+- Wait for healthy lifecycle workers before canonical tooling execution without
+  restarting the retained runtime or replaying uncertain commands.
+- Complete stop for a linked Devsy workspace whose saved baseline proves its
+  registration and original containers absent. Revalidate exact ownership and
+  daemon identity, remove only its routes, and preserve retained history.
+  Accept Docker's single empty line only with the exact missing-container error;
+  tolerate an uninstalled competing DevPod executable only for spawn ENOENT.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.63.md
+
+## [0.0.62] - 2026-09-09
+
+### Fixed
+
+- Restore manual tooling execution after a drained interrupted ensure on an
+  exactly proven retained Devsy Docker runtime. Revalidate provider, container,
+  daemon and source identity before each command without recreating services or
+  rewriting configuration. Preserve interrupted startup history and never replay
+  uncertain execution. Retain the latest preparation result through history rollover.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.62.md
+
+## [0.0.61] - 2026-09-08
+
+### Fixed
+
+- Record exact stop ownership before application readiness for managed Devsy
+  environments using local Unix Docker endpoints. Stop can then tolerate changed
+  or missing repository configuration while preserving containers and volumes.
+  Other recognized Docker transports retain legacy stop behavior with a notice;
+  invalid retained ownership never falls back. Startup now requires complete
+  project ownership before application launch, reports capture failures as
+  startup errors, and reports progress while waiting for the provider lock.
+- Keep manual ensure and exec usable after 128 settled operations by retiring
+  bounded completed history under a fresh lifecycle fence. Preserve uncertain
+  work and reject delayed requests from the retired fence.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.61.md
+
+## [0.0.60] - 2026-09-08
+
+### Fixed
+
+- Preserve a coherent degraded replacement record after external runtime reset
+  and failed recreation, only after exact ownership, complete service population
+  and unchanged configuration proof. Retain data and remove unusable routes.
+- Preserve lifecycle fencing during reset cleanup and skip startup adapters for
+  empty rollback process sets.
+
+### Added
+
+- Foreground controller observation with independent infrastructure/application
+  readiness, durable session fencing and bounded event subscriptions. Observation
+  does not perform capacity admission or autonomous recovery.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.60.md
+
+## [0.0.59] - 2026-09-07
+
+### Fixed
+
+- After successful managed process preparation, allow a bounded natural drain
+  for short-lived children before application startup. Persistent children still
+  fail preparation and use the existing owned-group cleanup.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.59.md
+
+## [0.0.58] - 2026-09-07
+
+### Fixed
+
+- A degraded retained environment can transition directly to a different requested
+  profile after exact ownership checks, without restarting failed processes that
+  the requested profile excludes. Failed transitions retain degraded evidence and
+  data without replaying the failed baseline.
+
+### Added
+
+- Optional `managedRuntime.devcontainer.prepareCommand` runs literal host argv
+  once before Compose inspection under lifecycle serialization and stop fencing.
+  The foreground command has a sixty-second bound and must preserve `.devrouter.yml`.
+  This prepares generated inputs; it does not reconcile changed retained mounts.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.58.md
+
+## [0.0.57] - 2026-09-07
+
+### Fixed
+
+- Managed lifecycle journals accept comma-separated profile selections. Combined
+  profiles no longer fail with `Invalid reliability event` before reconciliation.
+  Individual identity validation and repository profile resolution remain intact.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.57.md
+
+## [0.0.56] - 2026-09-07
+
+### Fixed
+
+- Ordinary managed ensure automatically recovers eligible retained degraded
+  runtimes after exact ownership and configuration proof. Failed startup preserves
+  recovery configuration while runtime absence is unproven.
+- Durable lifecycle workers fence late work after stop and preserve definite
+  command outcomes across transport failures. Unknown arbitrary execution is
+  never silently replayed.
+- Status distinguishes stopped runtime from historical transition failures.
+- Exact retained Devsy stop tolerates unapplied Compose service edits while
+  preserving ownership, membership, mount and container identity checks.
+
+### Added
+
+- HTTP proxy applications may declare bounded same-origin readiness paths,
+  accepted statuses and content type. Application errors retain tools and routes
+  for code repair and produce a nonzero application outcome.
+- A pure reliability state model and installed synthetic lifecycle qualification
+  support later controller and capacity work; these policies are not activated.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.56.md
+
 ## [0.0.55] - 2026-09-05
 
 ### Fixed

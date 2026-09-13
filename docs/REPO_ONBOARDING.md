@@ -53,6 +53,10 @@ attaches the exact checkout, delivers the matching runtime helper, invokes the
 repository-owned adapter, proves readiness, and publishes routes. The mutating
 `verify --live --yes` form is only a compatibility check after startup.
 
+Declare an [application readiness contract](./DEVCONTAINER.md#application-readiness-contracts)
+when a responding root route is insufficient. A failed declared contract retains
+tools and routes for application debugging and returns a nonzero ensure result.
+
 Consumer images contain no Devrouter package or helper. See
 [Fronting a devcontainer](./DEVCONTAINER.md) for the canonical Compose overlay,
 network aliases, managed process contract, TCP clients, and teardown.
@@ -412,6 +416,7 @@ explicit artifact-write flags are supplied.
 - Each HTTP route is exercised through its real `https://*.localhost` URL.
 - Each TCP route is exercised with a direct-TLS/SNI-capable client.
 - Managed devcontainers include static verify, `ensure --json`, route evidence, and exact-container `exec` evidence.
+- Enrolled checkouts under an enabled capacity policy report controller admission for `ensure` and `exec`; unenrolled repositories are unaffected.
 - Skipped live checks name the missing prerequisite and residual risk.
 
 The [routing example](../examples/routing/README.md), [managed devcontainer

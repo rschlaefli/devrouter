@@ -1,9 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  assertManagedStopCheckoutAbsent,
+  assertManagedStopContainersAbsent,
   hasExactComposeIdentity,
   inspectManagedStopContainers,
+  inspectManagedStopDaemon,
+  inspectManagedStopRunnerId,
   inspectWorkspaceContainers,
+  resolveManagedStopEndpoint,
+  stopPinnedManagedContainer,
+  supportsManagedStopBaseline,
 } from "../devpod-environment";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
@@ -390,3 +397,306 @@ function managedSnapshotLine(
     networks: overrides.networks ?? {},
   });
 }
+
+describe("pinned managed stop Docker operations", () => {
+  describe("assertManagedStopContainersAbsent", () => {
+    const endpoint = "unix:///synthetic.sock";
+    const firstId = "a".repeat(64);
+    const secondId = "b".repeat(64);
+
+    it("pins each exact ID and accepts only an exact missing-object response", () => {
+      vi.stubEnv("DOCKER_CONTEXT", "other");
+      vi.stubEnv("DOCKER_HOST", "unix:///other.sock");
+      vi.mocked(spawnSync)
+        .mockReturnValueOnce({
+          status: 1,
+          stdout: "",
+          stderr: `Error: No such object: ${firstId}\n`,
+          error: undefined,
+          signal: null,
+        } as never)
+        .mockReturnValueOnce({
+          status: 1,
+          stdout: "",
+          stderr: `error: no such object: ${secondId}`,
+          error: undefined,
+          signal: null,
+        } as never);
+      try {
+        expect(assertManagedStopContainersAbsent(endpoint, [firstId, secondId])).toBeUndefined();
+        expect(spawnSync).toHaveBeenCalledTimes(2);
+        const [command, args, options] = vi.mocked(spawnSync).mock.calls[0];
+        expect(command).toBe("docker");
+        expect(args).toEqual(["--host", endpoint, "inspect", "--format", "{{.Id}}", firstId]);
+        expect(options?.encoding).toBe("utf-8");
+        expect(options?.timeout).toBe(5_000);
+        expect(options?.maxBuffer).toBe(1024 * 1024);
+        expect(Object.hasOwn(options?.env ?? {}, "DOCKER_CONTEXT")).toBe(false);
+        expect(Object.hasOwn(options?.env ?? {}, "DOCKER_HOST")).toBe(false);
+        expect(vi.mocked(spawnSync).mock.calls[1][1]).toEqual([
+          "--host",
+          endpoint,
+          "inspect",
+          "--format",
+          "{{.Id}}",
+          secondId,
+        ]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it.each(["", "\n", "\r\n"])("accepts the missing-object output terminator %j", (stdout) => {
+      vi.mocked(spawnSync).mockReturnValueOnce({
+        status: 1,
+        stdout,
+        stderr: `error: no such object: ${firstId}\n`,
+      } as never);
+      expect(() => assertManagedStopContainersAbsent(endpoint, [firstId])).not.toThrow();
+    });
+    it.each([" ", "\n\n", "unexpected\n"])("rejects unrelated stdout %j", (stdout) => {
+      vi.mocked(spawnSync).mockReturnValueOnce({
+        status: 1,
+        stdout,
+        stderr: `error: no such object: ${firstId}\n`,
+      } as never);
+      expect(() => assertManagedStopContainersAbsent(endpoint, [firstId])).toThrow();
+    });
+
+    it.each([
+      ["empty ids", [] as string[]],
+      ["duplicate ids", [firstId, firstId]],
+      ["short id", ["a"]],
+      ["uppercase id", ["A".repeat(64)]],
+      ["too many ids", Array.from({ length: 257 }, () => firstId)],
+    ])("rejects %s before invoking Docker", (_name, ids) => {
+      expect(() => assertManagedStopContainersAbsent(endpoint, ids)).toThrow();
+      expect(spawnSync).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["an existing stopped container", { status: 0, stdout: `${firstId}\n`, stderr: "" }],
+      [
+        "a nonempty stdout response",
+        { status: 1, stdout: `${firstId}\n`, stderr: `error: no such object: ${firstId}` },
+      ],
+      ["a wrong-ID error", { status: 1, stdout: "", stderr: `error: no such object: ${secondId}` }],
+      ["a permission error", { status: 1, stdout: "", stderr: "permission denied\n" }],
+      [
+        "mixed stderr output",
+        { status: 1, stdout: "", stderr: `error: no such object: ${firstId}\nextra\n` },
+      ],
+      [
+        "a non-missing exit status",
+        { status: 2, stdout: "", stderr: `error: no such object: ${firstId}` },
+      ],
+      [
+        "a spawn error",
+        { status: null, stdout: null, stderr: null, error: new Error("spawn failed") },
+      ],
+      ["a signal", { status: null, stdout: null, stderr: "", signal: "SIGTERM" }],
+      [
+        "a timeout result",
+        {
+          status: null,
+          stdout: null,
+          stderr: "",
+          error: new Error("ETIMEDOUT"),
+          signal: "SIGTERM",
+        },
+      ],
+    ] as const)("rejects %s", (_name, result) => {
+      vi.mocked(spawnSync).mockReturnValueOnce(result as never);
+      expect(() => assertManagedStopContainersAbsent(endpoint, [firstId])).toThrow();
+    });
+  });
+
+  it("pins every population request despite ambient Docker selection", () => {
+    vi.stubEnv("DOCKER_CONTEXT", "other");
+    vi.stubEnv("DOCKER_HOST", "unix:///other.sock");
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "", stderr: "" } as never);
+    try {
+      expect(inspectManagedStopContainers("fixture", "unix:///synthetic.sock")).toEqual([]);
+      expect(spawnSync).toHaveBeenCalledTimes(2);
+      for (const call of vi.mocked(spawnSync).mock.calls) {
+        expect(call[1]?.slice(0, 2)).toEqual(["--host", "unix:///synthetic.sock"]);
+        const options = call[2] as { env: NodeJS.ProcessEnv };
+        expect(options.env.DOCKER_CONTEXT).toBeUndefined();
+        expect(options.env.DOCKER_HOST).toBeUndefined();
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reads only the daemon and runner identifiers and stops one exact ID", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify("synthetic-daemon"),
+        stderr: "",
+      } as never)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify("synthetic-runner"),
+        stderr: "",
+      } as never)
+      .mockReturnValueOnce({ status: 0, stdout: "", stderr: "" } as never);
+    expect(inspectManagedStopDaemon("unix:///synthetic.sock")).toBe("synthetic-daemon");
+    expect(inspectManagedStopRunnerId("unix:///synthetic.sock", "a".repeat(64))).toBe(
+      "synthetic-runner",
+    );
+    stopPinnedManagedContainer("unix:///synthetic.sock", "a".repeat(64));
+    expect(spawnSync).toHaveBeenLastCalledWith(
+      "docker",
+      ["--host", "unix:///synthetic.sock", "stop", "a".repeat(64)],
+      expect.objectContaining({ timeout: 30_000 }),
+    );
+    expect(() => stopPinnedManagedContainer("unix:///synthetic.sock", "short-id")).toThrow(Error);
+    expect(spawnSync).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects unavailable daemon evidence without exposing provider output", () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: "synthetic-private-output",
+      stderr: "",
+    } as never);
+    let failure: unknown;
+    try {
+      inspectManagedStopDaemon("unix:///synthetic.sock");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).not.toContain("synthetic-private-output");
+  });
+
+  it.each([
+    "tcp://synthetic.example:2376",
+    "ssh://fixture@synthetic.example",
+    "npipe:////./pipe/docker_engine",
+  ])("recognizes %s without enabling pinned local operations", (endpoint) => {
+    vi.stubEnv("DOCKER_CONTEXT", "");
+    vi.stubEnv("DOCKER_HOST", endpoint);
+    try {
+      expect(resolveManagedStopEndpoint()).toBe(endpoint);
+      expect(supportsManagedStopBaseline(endpoint)).toBe(false);
+      expect(() => inspectManagedStopDaemon(endpoint)).toThrow(Error);
+      expect(spawnSync).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([
+    "",
+    "tcp://",
+    "tcp://host:99999",
+    "tcp://host:abc",
+    "unknown://host",
+    "unix://relative",
+    "ssh://",
+    "tcp://host\n",
+  ])("rejects malformed endpoint %j", (endpoint) => {
+    expect(() => supportsManagedStopBaseline(endpoint)).toThrow(Error);
+  });
+
+  it("does not fall back to DOCKER_HOST when selected context evidence is unavailable", () => {
+    vi.stubEnv("DOCKER_CONTEXT", "synthetic");
+    vi.stubEnv("DOCKER_HOST", "tcp://synthetic.example:2376");
+    vi.mocked(spawnSync).mockReturnValue({ status: 1, stdout: "", stderr: "" } as never);
+    try {
+      expect(resolveManagedStopEndpoint).toThrow(Error);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("resolves the selected endpoint once before pinning", () => {
+    vi.stubEnv("DOCKER_CONTEXT", "synthetic");
+    vi.stubEnv("DOCKER_HOST", "tcp://ignored.example:2376");
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify("unix:///synthetic.sock"),
+      stderr: "",
+    } as never);
+    try {
+      expect(resolveManagedStopEndpoint()).toBe("unix:///synthetic.sock");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("pinned checkout absence", () => {
+  const endpoint = "unix:///tmp/docker.sock";
+  const repo = "/workspace/fixture";
+  const id = "a".repeat(64);
+  const other = "b".repeat(64);
+  const row = () => ({
+    id,
+    labels: {
+      "com.docker.compose.project.working_dir": null,
+      "devcontainer.local_folder": null,
+      "vsch.local.folder": null,
+    } as Record<string, string | null>,
+    mounts: [] as { Type: string; Source: string }[],
+  });
+  function arrange(value: unknown, final = id) {
+    vi.mocked(spawnSync)
+      .mockReset()
+      .mockReturnValueOnce({ status: 0, stdout: id } as never)
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(value) } as never)
+      .mockReturnValueOnce({ status: 0, stdout: final } as never);
+  }
+  it("proves a stable unrelated population with every read pinned", () => {
+    arrange(row());
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).not.toThrow();
+    for (const [, args] of vi.mocked(spawnSync).mock.calls)
+      expect(args?.slice(0, 2)).toEqual(["--host", endpoint]);
+  });
+  it.each([
+    "com.docker.compose.project.working_dir",
+    "devcontainer.local_folder",
+    "vsch.local.folder",
+    "mount",
+  ])("refuses residue identified by %s regardless of running state", (key) => {
+    const value = row();
+    if (key === "mount") value.mounts = [{ Type: "bind", Source: repo }];
+    else
+      value.labels[key] =
+        key === "com.docker.compose.project.working_dir" ? `${repo}/.devcontainer` : repo;
+    arrange(value);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow(/remaining checkout/);
+  });
+  it.each([
+    null,
+    {},
+    { ...row(), mounts: null },
+    { ...row(), labels: {} },
+    { ...row(), id: other },
+  ])("refuses incomplete inspection", (value) => {
+    arrange(value);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow();
+  });
+  it("refuses a changing population", () => {
+    arrange(row(), other);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow();
+  });
+  it("refuses an omitted inspection row", () => {
+    arrange(row());
+    vi.mocked(spawnSync)
+      .mockReset()
+      .mockReturnValueOnce({ status: 0, stdout: id } as never)
+      .mockReturnValueOnce({ status: 0, stdout: "" } as never);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow();
+  });
+  it("requires a second empty listing", () => {
+    vi.mocked(spawnSync)
+      .mockReset()
+      .mockReturnValueOnce({ status: 0, stdout: "" } as never)
+      .mockReturnValueOnce({ status: 1, stdout: "" } as never);
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).toThrow();
+  });
+});

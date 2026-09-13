@@ -20,12 +20,16 @@ import {
 import {
   hasExactComposeIdentity,
   inspectWorkspaceContainers,
+  resolveManagedStopEndpoint,
+  supportsManagedStopBaseline,
   type WorkspaceContainerSnapshot,
   workspaceAppContainers,
 } from "./devpod-environment";
 import { DevpodStartPostconditionError, startDevpodWorkspace } from "./devpod-mutation";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
+import { withMutationLockAsync as withDevsyMutationLock } from "./devsy-mutation";
 import { createStderrWaitReporter, withFileLock } from "./file-lock";
+import { detectHostPortClaimConflicts, type HostPortClaimConflict } from "./host-port-claims";
 import {
   type HostRouteInput,
   listHostRouteState,
@@ -33,6 +37,7 @@ import {
   replaceHostRoutesForRepo,
 } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
+import { runManagedHostPreparation } from "./managed-host-preparation";
 import {
   type ManagedPostStartPlan,
   resolveManagedPostStartPlan,
@@ -46,9 +51,24 @@ import {
   writeManagedRuntimeState,
 } from "./managed-runtime-state";
 import { collectManagedRuntimeStatus } from "./managed-runtime-status";
-import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
+import { captureManagedStopBaseline, proveRetainedManagedStop } from "./managed-stop-recovery";
+import { inspectLegacyNetworkCapacity } from "./network-diagnostics";
+import { networkDockerOptions, withNetworkEffectGuard } from "./network-effect-scope";
+import {
+  assertRetainedNetworkConfiguration,
+  createManagedNetworkSession,
+  type ManagedNetworkSession,
+} from "./network-managed";
+import { recoverUnattachedNetworkReservation } from "./network-recovery";
+import {
+  claimLifecycleEffect,
+  clearActiveLifecycleStartupWitness,
+  withLifecycleOperationLock,
+} from "./reliability-lifecycle";
+import { loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, DEVROUTER_HOME, TCP_PROTOCOL_REGISTRY } from "./router";
+import { ensureTLSHostsCovered } from "./tls";
 import {
   ensureTraefikRoutesLoaded,
   ensureTraefikRoutesMatch,
@@ -60,7 +80,6 @@ import {
   isLinkedWorktree,
   readPersistedWorkspace,
   sameWorkspacePath,
-  withWorkspaceLifecycleLock,
   wsFromBranch,
 } from "./workspace";
 import {
@@ -89,6 +108,12 @@ export type WorkspaceEnsureResult = {
   recreated: boolean;
   tlsRefreshed: boolean;
   managedRuntime?: ManagedRuntimeStatus;
+  applicationReadiness?: {
+    status: "ready" | "application-error";
+    checks: { app: string; ok: boolean; status?: number; checkedAt: string }[];
+  };
+  /** Present only when admission refused to start over fixed host-port conflicts. */
+  hostPortConflicts?: HostPortClaimConflict[];
 };
 
 type EnvironmentTarget =
@@ -263,7 +288,10 @@ function stopDroppedManagedServices(
       );
     }
     const match = matches[0];
-    if (match?.state.Running) stopExactManagedService(match.id, service);
+    if (match?.state.Running) {
+      claimLifecycleEffect();
+      stopExactManagedService(match.id, service);
+    }
   }
 }
 
@@ -349,6 +377,7 @@ function restorePreviousManagedConfig(options: {
       "The previous managed Dev Container configuration fingerprint no longer matches the current source.",
     );
   }
+  claimLifecycleEffect();
   writeManagedDevcontainerConfig(restoredPlan);
 }
 
@@ -367,6 +396,7 @@ function restoreFirstTransitionManagedConfig(options: {
     },
     linked: options.linked,
   });
+  claimLifecycleEffect();
   writeManagedDevcontainerConfig(restoredPlan);
 }
 
@@ -542,7 +572,7 @@ async function waitForContainerPreflight(
         const workspaceEnv = spawnSync(
           "docker",
           ["exec", appContainer.id, "printenv", "WORKSPACE"],
-          { encoding: "utf-8" },
+          { encoding: "utf-8", ...networkDockerOptions() },
         );
         if (workspaceEnv.status !== 0 || workspaceEnv.stdout.trim() !== target.workspace) {
           throw new Error(
@@ -552,7 +582,7 @@ async function waitForContainerPreflight(
         const devrouterWorkspaceEnv = spawnSync(
           "docker",
           ["exec", appContainer.id, "printenv", "DEVROUTER_WORKSPACE"],
-          { encoding: "utf-8" },
+          { encoding: "utf-8", ...networkDockerOptions() },
         );
         if (
           devrouterWorkspaceEnv.status !== 0 ||
@@ -574,7 +604,7 @@ async function waitForContainerPreflight(
           "rev-parse",
           "--show-toplevel",
         ],
-        { encoding: "utf-8" },
+        { encoding: "utf-8", ...networkDockerOptions() },
       );
       if (
         gitCheck.status !== 0 ||
@@ -598,16 +628,53 @@ async function waitForHttpRoutes(
   repoPath: string,
   apps: DevrouterProxyApp[],
   timeoutMs: number,
-): Promise<void> {
+): Promise<WorkspaceEnsureResult["applicationReadiness"]> {
   const pending = new Map(
     apps.filter((app) => app.protocol === "http").map((app) => [app.name, app] as const),
   );
   const failures = new Map<string, string>();
+  const checks = new Map<
+    string,
+    NonNullable<WorkspaceEnsureResult["applicationReadiness"]>["checks"][number]
+  >();
   const deadline = Date.now() + timeoutMs;
+  const readiness = (): WorkspaceEnsureResult["applicationReadiness"] =>
+    checks.size
+      ? {
+          status: Array.from(checks.values()).every((check) => check.ok)
+            ? "ready"
+            : "application-error",
+          checks: Array.from(checks.values()),
+        }
+      : undefined;
 
   do {
+    for (const app of apps) {
+      if (app.protocol === "http" && app.readiness) pending.set(app.name, app);
+    }
     for (const [name, app] of pending) {
-      const result = probeHttpRoute(app.host, { repoPath });
+      const remainingMs = deadline - Date.now();
+      if (app.readiness && remainingMs <= 250 && checks.has(name)) continue;
+      const result =
+        app.readiness && remainingMs <= 250
+          ? { ok: false, details: "Application probe deadline reached." }
+          : probeHttpRoute(app.host, {
+              repoPath,
+              ...(app.readiness
+                ? {
+                    readiness: app.readiness,
+                    maxTimeSeconds: Math.min(5, (remainingMs - 250) / 1_000),
+                  }
+                : {}),
+            });
+      if (app.readiness) {
+        checks.set(name, {
+          app: name,
+          ok: result.ok,
+          ...(result.status !== undefined ? { status: result.status } : {}),
+          checkedAt: new Date().toISOString(),
+        });
+      }
       if (result.ok) {
         pending.delete(name);
         failures.delete(name);
@@ -616,12 +683,14 @@ async function waitForHttpRoutes(
       }
     }
     if (pending.size === 0) {
-      return;
+      return readiness();
     }
     if (Date.now() < deadline) {
-      await sleep(POLL_INTERVAL_MS);
+      await sleep(Math.min(POLL_INTERVAL_MS, deadline - Date.now()));
     }
   } while (Date.now() < deadline);
+
+  if (Array.from(pending.values()).every((app) => app.readiness)) return readiness();
 
   throw new Error(
     `HTTP route readiness timed out: ${Array.from(pending.keys())
@@ -630,7 +699,7 @@ async function waitForHttpRoutes(
   );
 }
 
-function resolveLinkedTarget(repoPath: string): EnvironmentTarget {
+export function resolveLinkedTarget(repoPath: string): EnvironmentTarget {
   const snapshots = getWorkspaceRegistrySnapshots();
   const providerWorkspaces = [
     ...(snapshots.devpod ?? []),
@@ -719,6 +788,7 @@ function assertRepairBaseline(options: {
   profile: string;
   processes: string[];
   routes: HostRouteState[];
+  verifyRetainedProcesses?: boolean;
   workspace?: { token: string; gitCommonDir: string };
 }): WorkspaceContainerSnapshot[] {
   const { repoPath, target, state, plan, config, profile, processes } = options;
@@ -808,15 +878,14 @@ function assertRepairBaseline(options: {
   )?.Destination;
   if (!workspacePath) throw new Error("Repair cannot prove the primary workspace mount.");
   for (const name of primary.state.Running ? (config.managedRuntime?.processes ?? []) : []) {
-    if (
-      !processes.includes(name) &&
-      runManagedProcessAction({
-        container: { id: primary.id, workspacePath },
-        name,
-        action: "status",
-        quiet: true,
-      }) !== "stopped"
-    ) {
+    if (processes.includes(name) && !options.verifyRetainedProcesses) continue;
+    const processStatus = runManagedProcessAction({
+      container: { id: primary.id, workspacePath },
+      name,
+      action: "status",
+      quiet: true,
+    });
+    if (processStatus !== "stopped" && !(processes.includes(name) && processStatus === "running")) {
       throw new Error(`Repair refuses unexpected or unproven process '${name}'.`);
     }
   }
@@ -895,7 +964,9 @@ export async function workspaceEnsure(
     }
   }
 
-  const ensureLocked = async (): Promise<WorkspaceEnsureResult> => {
+  let network: ManagedNetworkSession | undefined;
+  const ensureNetworkLocked = async (): Promise<WorkspaceEnsureResult> => {
+    network = undefined;
     let repairMutationStarted = false;
     let retainedRepairContainers: WorkspaceContainerSnapshot[] = [];
     let environmentStarted = false;
@@ -913,6 +984,9 @@ export async function workspaceEnsure(
     let managedConfigWritten = false;
     let managedWorkspaceEnv: { token: string; gitCommonDir: string } | undefined;
     let firstTransitionBaseline: FirstTransitionBaseline | undefined;
+    let detachedState: ManagedRuntimeState | undefined;
+    let resetCandidateState: ManagedRuntimeState | undefined;
+    let capturedStopState: ManagedRuntimeState | undefined;
     const routeLoadOptions = {
       initialTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 3_000),
       recoveryTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 10_000),
@@ -959,12 +1033,8 @@ export async function workspaceEnsure(
           previousManagedState &&
           !hasExactManagedComposeProject(repoPath, previousManagedState)
         ) {
+          detachedState = previousManagedState;
           previousManagedState = undefined;
-        }
-        if (!options.repair && previousManagedState?.status === "degraded") {
-          throw new Error(
-            "Managed runtime state is degraded; refusing a new profile transition until drift is repaired. Inspect status, then use ensure --repair for the recorded profile.",
-          );
         }
         if (previousManagedState && previousManagedState.devpodId !== target.devpodId) {
           throw new Error(
@@ -1017,6 +1087,40 @@ export async function workspaceEnsure(
           });
         }
       }
+      if (managedPlan) {
+        // Fixed published bindings are machine-global: detect live collisions
+        // before any session, config write, or provider start so the refusal
+        // is fast and attributed instead of Docker's late raw bind failure.
+        let hostPortConflicts: HostPortClaimConflict[] = [];
+        try {
+          hostPortConflicts = detectHostPortClaimConflicts({
+            repoPath,
+            plan: managedPlan,
+            workspace: managedWorkspaceEnv,
+          });
+        } catch (error) {
+          throw new Error(
+            `Managed admission could not verify fixed host-port claims before start: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        if (hostPortConflicts.length > 0) {
+          return {
+            kind: target.kind,
+            repoPath,
+            ...(target.kind === "linked" ? { workspace: target.workspace } : {}),
+            profile: runtime.profile,
+            // A refusal precedes the provider start, so the exact id may not
+            // be known yet on a primary checkout.
+            devpodId: devpodId ?? "(absent)",
+            urls: [],
+            recreated: false,
+            tlsRefreshed: false,
+            hostPortConflicts,
+          };
+        }
+      }
       const apps = proxyAppsFromConfig(runtime.config);
       const parsedUpstreams = apps.map((app) => parseUpstream(app.upstream));
       const aliasPrefix =
@@ -1044,7 +1148,52 @@ export async function workspaceEnsure(
           workspace: managedWorkspaceEnv,
         });
       }
-      if (managedPlan && !options.repair) {
+      if (managedPlan) {
+        network = createManagedNetworkSession({
+          repoPath,
+          provider: resolveWorkspaceRuntimeOrDefault(repoPath),
+          workspace: managedWorkspaceEnv,
+          hadExactProvider: target.hadExactDevpod,
+          request: managedRuntime?.network,
+          plan: () => managedPlan as ManagedDevcontainerPlan,
+          replacePlan: (next) => {
+            managedPlan = next;
+            claimLifecycleEffect();
+            writeManagedDevcontainerConfig(next);
+            managedConfigWritten = true;
+          },
+        });
+        if (network && options.repair)
+          throw new Error(
+            "Claimed network repair requires exact retained-network reconciliation; automatic repair is unavailable.",
+          );
+      }
+      let earlyTlsRefreshed = false;
+      if (!options.repair) {
+        // Repository startup hooks may call namespaced HTTPS endpoints before routes publish.
+        claimLifecycleEffect();
+        earlyTlsRefreshed = (
+          await ensureTLSHostsCovered(
+            apps.map((app) => app.host),
+            { repoPath },
+          )
+        ).refreshed;
+      }
+      if (managedPlan && !options.repair && !network) {
+        if (
+          !target.hadExactDevpod &&
+          devpodId &&
+          inspectLegacyNetworkCapacity({
+            provider: resolveWorkspaceRuntimeOrDefault(repoPath),
+            providerId: devpodId,
+            repoPath,
+          })
+        ) {
+          process.stderr.write(
+            "Warning: the configured provider Docker endpoint has exhausted default address pools. Existing network reuse may still succeed. Run devrouter doctor for capacity and ownership diagnostics. Stop and worktree removal do not release subnets; do not prune automatically.\n",
+          );
+        }
+        claimLifecycleEffect();
         writeManagedDevcontainerConfig(managedPlan);
         managedConfigWritten = true;
       }
@@ -1059,6 +1208,7 @@ export async function workspaceEnsure(
             repoPath,
             devpodId: requestedTarget.devpodId,
             devcontainerPath: managedPlan?.generatedRelativePath,
+            ...(network ? { prepareNetwork: network.prepare } : {}),
             recreate,
             quiet: options.quiet,
             ...(requestedTarget.kind === "linked"
@@ -1111,7 +1261,9 @@ export async function workspaceEnsure(
             if (stopped.length > 0) {
               repairMutationStarted = true;
               transitionPhase = "service-start";
+              claimLifecycleEffect();
               const result = spawnSync("docker", ["start", ...stopped.map((entry) => entry.id)], {
+                ...networkDockerOptions(),
                 encoding: "utf-8",
                 timeout: DEFAULT_READINESS_TIMEOUT_MS,
                 stdio: options.quiet ? ["ignore", 2, "inherit"] : "inherit",
@@ -1162,6 +1314,7 @@ export async function workspaceEnsure(
           );
         }
 
+        network?.prove(managedComposeProject, container.id);
         const missingServices: string[] = [];
         for (const service of managedPlan.desiredServices) {
           const matches = exactWorkspaceServiceContainers(
@@ -1182,7 +1335,8 @@ export async function workspaceEnsure(
           assertRetainedRepairContainers(repoPath, managedPlan, retainedRepairContainers);
           repairMutationStarted = true;
         }
-        if (!options.repair)
+        if (!options.repair) {
+          claimLifecycleEffect();
           startExactManagedServices({
             plan: managedPlan,
             composeProject: managedComposeProject,
@@ -1190,6 +1344,7 @@ export async function workspaceEnsure(
             quiet: options.quiet,
             workspace: managedWorkspaceEnv,
           });
+        }
         await waitForManagedServices(
           managedPlan,
           repoPath,
@@ -1200,11 +1355,92 @@ export async function workspaceEnsure(
         );
         container = await preflight(options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
         managedContainer = container;
+        if (devpodId && resolveWorkspaceRuntimeOrDefault(repoPath) === "devsy") {
+          const captureEndpoint = resolveManagedStopEndpoint();
+          if (!supportsManagedStopBaseline(captureEndpoint)) {
+            process.stderr.write(
+              "Notice: this Docker transport uses legacy managed stop; configuration-drift recovery requires a local Unix endpoint.\n",
+            );
+          } else {
+            const capturePlan = managedPlan;
+            const captureProject = managedComposeProject;
+            const captureId = devpodId;
+            const capturePrimaryId = container.id;
+            const capture = () => {
+              const state: ManagedRuntimeState = {
+                version: 1,
+                repoPath,
+                ...(target.workspace !== undefined ? { workspace: target.workspace } : {}),
+                devpodId: captureId,
+                composeProject: captureProject,
+                profile: runtime.profile,
+                desired: {
+                  apps: apps.map((app) => app.name).sort(),
+                  services: [...capturePlan.desiredProfileServices].sort(),
+                  processes: [...desiredProcesses].sort(),
+                },
+                sourceConfigSha256: capturePlan.sourceConfigSha256,
+                effectiveConfigSha256: capturePlan.effectiveConfigSha256,
+                status: "degraded",
+                transitionPhase: "process-start",
+                updatedAt: new Date().toISOString(),
+              };
+              try {
+                state.stopBaseline = captureManagedStopBaseline(
+                  state,
+                  capturePlan,
+                  capturePrimaryId,
+                  captureEndpoint,
+                );
+              } catch (cause) {
+                throw new Error(
+                  `Managed startup cannot verify retained container ownership. New application startup and route publication have not proceeded. ${cause instanceof Error ? cause.message : String(cause)}`,
+                  { cause },
+                );
+              }
+              claimLifecycleEffect();
+              writeManagedRuntimeState(state);
+              capturedStopState = state;
+              // The strict baseline is durable; the startup witness's accounting
+              // authority ends here and never outlives the generation it proved.
+              clearActiveLifecycleStartupWitness();
+            };
+            // Repair already holds this same provider lock beneath the workspace lock.
+            if (options.repair) capture();
+            else
+              await withDevsyMutationLock("Capture managed stop ownership", repoPath, async () =>
+                capture(),
+              );
+          }
+        }
+        if (detachedState && devpodId) {
+          resetCandidateState = {
+            version: 1,
+            repoPath,
+            ...(target.workspace !== undefined ? { workspace: target.workspace } : {}),
+            devpodId,
+            composeProject: managedComposeProject,
+            profile: runtime.profile,
+            desired: {
+              apps: apps.map((app) => app.name).sort(),
+              services: [...managedPlan.desiredProfileServices].sort(),
+              processes: [...desiredProcesses].sort(),
+            },
+            sourceConfigSha256: managedPlan.sourceConfigSha256,
+            effectiveConfigSha256: managedPlan.effectiveConfigSha256,
+            ...(capturedStopState?.stopBaseline
+              ? { stopBaseline: capturedStopState.stopBaseline }
+              : {}),
+            status: "degraded",
+            updatedAt: new Date().toISOString(),
+          };
+        }
       }
 
       if (options.repair && managedPlan)
         assertRetainedRepairContainers(repoPath, managedPlan, retainedRepairContainers);
       transitionPhase = "process-start";
+      claimLifecycleEffect();
       runManagedPostStart({
         plan: managedPostStart,
         container,
@@ -1231,6 +1467,7 @@ export async function workspaceEnsure(
             }
             continue;
           }
+          claimLifecycleEffect();
           runManagedProcessAction({
             container,
             name: process,
@@ -1265,6 +1502,7 @@ export async function workspaceEnsure(
       }
 
       transitionPhase = "route-publication";
+      claimLifecycleEffect();
       const publication = await replacePublishedProxyRoutes(
         repoPath,
         runtime.config,
@@ -1279,8 +1517,9 @@ export async function workspaceEnsure(
         removedRoutesForReplacement(previousRoutes.map(routeInputFromState), publication.routes),
         routeLoadOptions,
       );
+      let applicationReadiness: WorkspaceEnsureResult["applicationReadiness"];
       try {
-        await waitForHttpRoutes(
+        applicationReadiness = await waitForHttpRoutes(
           repoPath,
           apps,
           options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
@@ -1289,12 +1528,14 @@ export async function workspaceEnsure(
         if (managedPlan) {
           throw error;
         }
+        claimLifecycleEffect();
         replaceHostRoutesForRepo(repoPath, []);
         await ensureTraefikRoutesRemoved(candidateRoutes, routeLoadOptions);
         if (!target.hadExactDevpod || recreated) {
           throw error;
         }
         const recoveredContainer = await recreateAndPreflight();
+        claimLifecycleEffect();
         runManagedPostStart({
           plan: managedPostStart,
           container: recoveredContainer,
@@ -1302,9 +1543,10 @@ export async function workspaceEnsure(
           profile: runtime.profile,
         });
         recreated = true;
+        claimLifecycleEffect();
         replaceHostRoutesForRepo(repoPath, publication.routes);
         await ensureTraefikRoutesLoaded(publication.routes, routeLoadOptions);
-        await waitForHttpRoutes(
+        applicationReadiness = await waitForHttpRoutes(
           repoPath,
           apps,
           options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
@@ -1340,10 +1582,24 @@ export async function workspaceEnsure(
           },
           sourceConfigSha256: managedPlan.sourceConfigSha256,
           effectiveConfigSha256: managedPlan.effectiveConfigSha256,
+          ...(capturedStopState?.stopBaseline
+            ? { stopBaseline: capturedStopState.stopBaseline }
+            : {}),
           status: "ready",
           updatedAt: new Date().toISOString(),
         };
-        if (!options.repair) writeManagedRuntimeState(candidateState);
+        if (!options.repair) {
+          const persist = () => {
+            if (capturedStopState) proveRetainedManagedStop(capturedStopState);
+            claimLifecycleEffect();
+            writeManagedRuntimeState(candidateState as ManagedRuntimeState);
+          };
+          if (capturedStopState)
+            await withDevsyMutationLock("Publish managed runtime state", repoPath, async () =>
+              persist(),
+            );
+          else persist();
+        }
       }
       const managedRuntimeStatus = managedPlan
         ? collectManagedRuntimeStatus({
@@ -1360,6 +1616,8 @@ export async function workspaceEnsure(
         resolveRepairTarget(repoPath, linked);
         if (managedRuntimeStatus?.status !== "ready")
           throw new Error("Repaired candidate runtime did not pass final readiness validation.");
+        if (capturedStopState) proveRetainedManagedStop(capturedStopState);
+        claimLifecycleEffect();
         writeManagedRuntimeState(candidateState);
       }
       return {
@@ -1370,10 +1628,94 @@ export async function workspaceEnsure(
         devpodId,
         urls,
         recreated,
-        tlsRefreshed: publication.tlsRefreshed,
+        tlsRefreshed: earlyTlsRefreshed || publication.tlsRefreshed,
+        ...(applicationReadiness ? { applicationReadiness } : {}),
         ...(managedRuntimeStatus ? { managedRuntime: managedRuntimeStatus } : {}),
       };
     } catch (error) {
+      if (network?.retained()) {
+        throw new Error(
+          `Network-bound transition did not reach readiness. Retain runtime, binding and claim for exact repair. ${error instanceof Error ? error.message : "Unknown failure."}`,
+        );
+      }
+      if (detachedState) {
+        const failures: string[] = [];
+        const resetWorkspace = detachedState.workspace;
+        // Routes from the deleted generation are not a healthy rollback target.
+        try {
+          const routes = listHostRouteState().filter((route) =>
+            sameWorkspacePath(route.repoPath, repoPath),
+          );
+          if (routes.some((route) => route.workspace !== resetWorkspace)) {
+            throw new Error("Reset recovery found a foreign workspace route.");
+          }
+          claimLifecycleEffect();
+          replaceHostRoutesForRepo(repoPath, []);
+          await ensureTraefikRoutesRemoved([...routes, ...candidateRoutes], {
+            ...routeLoadOptions,
+            allowRestart: false,
+          });
+        } catch (cleanupError) {
+          failures.push(
+            `routes: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+          );
+        }
+        if (managedContainer) {
+          for (const name of managedProcessRegistry) {
+            try {
+              claimLifecycleEffect();
+              runManagedProcessAction({
+                container: managedContainer,
+                name,
+                action: "stop",
+                quiet: options.quiet,
+              });
+            } catch (cleanupError) {
+              failures.push(
+                `process '${name}': ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+              );
+            }
+          }
+        }
+        if (resetCandidateState && managedPlan && managedContainer && managedComposeProject) {
+          try {
+            await waitForManagedServices(
+              managedPlan,
+              repoPath,
+              managedComposeProject,
+              managedPlan.desiredServices,
+              managedContainer.id,
+              0,
+            );
+            assertManagedContainerConfigUnchanged({
+              plan: managedPlan,
+              containers: inspectWorkspaceContainers({ composeProject: managedComposeProject }),
+              workspace: managedWorkspaceEnv,
+            });
+            if (inspectManagedDevcontainerGeneratedConfig(managedPlan).status !== "valid") {
+              throw new Error("Reset candidate configuration changed before recovery persistence.");
+            }
+            claimLifecycleEffect();
+            writeManagedRuntimeState({
+              ...resetCandidateState,
+              transitionPhase,
+              updatedAt: new Date().toISOString(),
+            });
+          } catch (stateError) {
+            failures.push(
+              `state: ${stateError instanceof Error ? stateError.message : String(stateError)}`,
+            );
+          }
+        } else {
+          failures.push(
+            "candidate ownership and complete service population were not proved; recovery state was not replaced",
+          );
+        }
+        const original = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `${original} Reset candidate retained for recovery.${failures.length ? ` Recovery incomplete: ${failures.join("; ")}.` : " State is degraded."}`,
+        );
+      }
       if (options.repair && !repairMutationStarted) throw error;
       if (options.repair && repairMutationStarted && previousManagedState && managedPlan) {
         const failures: string[] = [];
@@ -1385,6 +1727,7 @@ export async function workspaceEnsure(
               .filter((route) => sameWorkspacePath(route.repoPath, repoPath))
               .map(routeInputFromState);
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
+            claimLifecycleEffect();
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
             await ensureTraefikRoutesMatch(rollbackRoutes, routeLoadOptions);
             await ensureTraefikRoutesRemoved(
@@ -1398,7 +1741,7 @@ export async function workspaceEnsure(
           }
         }
         try {
-          markManagedRuntimeDegraded(previousManagedState, transitionPhase);
+          markManagedRuntimeDegraded(capturedStopState ?? previousManagedState, transitionPhase);
         } catch (stateError) {
           failures.push(
             `state: ${stateError instanceof Error ? stateError.message : String(stateError)}`,
@@ -1428,6 +1771,16 @@ export async function workspaceEnsure(
                 linked,
                 previousState: previousManagedState,
               });
+            } else if (capturedStopState) {
+              // The durable degraded state describes the attempted generation.
+              // Keep its configuration while restoring the previous running resources.
+              if (
+                capturedStopState.sourceConfigSha256 !== managedPlan.sourceConfigSha256 ||
+                capturedStopState.effectiveConfigSha256 !== managedPlan.effectiveConfigSha256 ||
+                inspectManagedDevcontainerGeneratedConfig(managedPlan).status !== "valid"
+              ) {
+                throw new Error("Captured managed configuration changed during rollback.");
+              }
             } else if (managedRuntimeConfig) {
               restoreFirstTransitionManagedConfig({
                 repoPath,
@@ -1443,26 +1796,29 @@ export async function workspaceEnsure(
           );
         }
         try {
-          const previousAllServices = [
-            managedPlan.primaryService,
-            ...managedPlan.baseServices,
-            ...previousServices,
-          ];
-          startExactManagedServices({
-            plan: managedPlan,
-            composeProject: managedComposeProject,
-            services: previousAllServices,
-            quiet: options.quiet,
-            workspace: managedWorkspaceEnv,
-          });
-          await waitForManagedServices(
-            managedPlan,
-            repoPath,
-            managedComposeProject,
-            previousAllServices,
-            managedContainer.id,
-            options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
-          );
+          if (previousManagedState?.status !== "degraded") {
+            const previousAllServices = [
+              managedPlan.primaryService,
+              ...managedPlan.baseServices,
+              ...previousServices,
+            ];
+            claimLifecycleEffect();
+            startExactManagedServices({
+              plan: managedPlan,
+              composeProject: managedComposeProject,
+              services: previousAllServices,
+              quiet: options.quiet,
+              workspace: managedWorkspaceEnv,
+            });
+            await waitForManagedServices(
+              managedPlan,
+              repoPath,
+              managedComposeProject,
+              previousAllServices,
+              managedContainer.id,
+              options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+            );
+          }
         } catch (rollbackError) {
           rollbackErrors.push(
             `services: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
@@ -1473,15 +1829,19 @@ export async function workspaceEnsure(
           if (!managedPostStartPlan) {
             throw new Error("Managed post-start plan disappeared during rollback.");
           }
-          runManagedPostStart({
-            plan: managedPostStartPlan,
-            container: managedContainer,
-            quiet: options.quiet,
-            profile: previousManagedState?.profile ?? "full",
-            processes: previousProcesses,
-          });
+          if (previousProcesses.length > 0 && previousManagedState?.status !== "degraded") {
+            claimLifecycleEffect();
+            runManagedPostStart({
+              plan: managedPostStartPlan,
+              container: managedContainer,
+              quiet: options.quiet,
+              profile: previousManagedState?.profile ?? "full",
+              processes: previousProcesses,
+            });
+          }
           for (const process of managedProcessRegistry) {
             if (previousProcessSet.has(process)) continue;
+            claimLifecycleEffect();
             runManagedProcessAction({
               container: managedContainer,
               name: process,
@@ -1509,7 +1869,10 @@ export async function workspaceEnsure(
             if (matches.length > 1) {
               throw new Error(`service '${service}' has multiple exact containers`);
             }
-            if (matches[0]?.state.Running) stopExactManagedService(matches[0].id, service);
+            if (matches[0]?.state.Running) {
+              claimLifecycleEffect();
+              stopExactManagedService(matches[0].id, service);
+            }
           }
           assertDroppedManagedServicesStopped(
             {
@@ -1533,6 +1896,7 @@ export async function workspaceEnsure(
         if (candidateRoutesPublished) {
           try {
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
+            claimLifecycleEffect();
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
             await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
             await ensureTraefikRoutesRemoved(
@@ -1545,9 +1909,12 @@ export async function workspaceEnsure(
             );
           }
         }
-        if (rollbackErrors.length > 0 && previousManagedState) {
+        if (
+          previousManagedState &&
+          (rollbackErrors.length > 0 || previousManagedState.status === "degraded")
+        ) {
           try {
-            markManagedRuntimeDegraded(previousManagedState, failedPhase);
+            markManagedRuntimeDegraded(capturedStopState ?? previousManagedState, failedPhase);
           } catch (stateError) {
             rollbackErrors.push(
               `state: ${stateError instanceof Error ? stateError.message : String(stateError)}`,
@@ -1558,7 +1925,9 @@ export async function workspaceEnsure(
         const suffix =
           rollbackErrors.length > 0
             ? ` Rollback left degraded drift: ${rollbackErrors.join("; ")}.`
-            : " Candidate runtime was rolled back.";
+            : previousManagedState?.status === "degraded"
+              ? " Candidate resources were reconciled; the retained runtime remains degraded."
+              : " Candidate runtime was rolled back.";
         throw new Error(`${original}${suffix}`);
       }
       if (managedPlan) {
@@ -1574,6 +1943,7 @@ export async function workspaceEnsure(
                 previousState: previousManagedState,
               });
             } else if (!environmentStarted) {
+              claimLifecycleEffect();
               removeManagedDevcontainerConfig(managedPlan);
             }
           } catch (rollbackError) {
@@ -1585,6 +1955,7 @@ export async function workspaceEnsure(
         if (candidateRoutesPublished) {
           try {
             const rollbackRoutes = previousRoutes.map(routeInputFromState);
+            claimLifecycleEffect();
             replaceHostRoutesForRepo(repoPath, rollbackRoutes);
             await ensureTraefikRoutesLoaded(rollbackRoutes, routeLoadOptions);
             await ensureTraefikRoutesRemoved(
@@ -1608,6 +1979,7 @@ export async function workspaceEnsure(
       }
       if (environmentStarted) {
         try {
+          claimLifecycleEffect();
           replaceHostRoutesForRepo(repoPath, []);
           await ensureTraefikRoutesRemoved(candidateRoutes, routeLoadOptions);
         } catch (cleanupError) {
@@ -1620,20 +1992,95 @@ export async function workspaceEnsure(
       throw error;
     }
   };
-  return withWorkspaceLifecycleLock(repoPath, async () => {
-    if (!options.repair) return ensureLocked();
-    const runtime = resolveWorkspaceRuntimeOrDefault(repoPath);
-    fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
-    return withFileLock(
-      path.join(DEVROUTER_HOME, `${runtime}-mutation.lock`),
-      {
-        activity: "Managed runtime repair",
-        target: repoPath,
-        fair: true,
-        waitMs: 1_800_000,
-        onWait: createStderrWaitReporter("Managed runtime repair", repoPath),
-      },
-      ensureLocked,
+  const ensureLocked = (): Promise<WorkspaceEnsureResult> =>
+    withNetworkEffectGuard(
+      () => network?.guard(),
+      ensureNetworkLocked,
+      () => network?.endpoint,
     );
+  return withLifecycleOperationLock(repoPath, async () => {
+    const preparationConfig = loadRepoConfig(repoPath);
+    if (!options.repair)
+      recoverUnattachedNetworkReservation(repoPath, Boolean(preparationConfig.managedRuntime));
+    assertRetainedNetworkConfiguration({
+      repoPath,
+      managedRuntime: Boolean(preparationConfig.managedRuntime),
+      repair: Boolean(options.repair),
+    });
+    if (preparationConfig.managedRuntime?.devcontainer.prepareCommand) {
+      claimLifecycleEffect();
+      await runManagedHostPreparation(repoPath, preparationConfig);
+      claimLifecycleEffect();
+    }
+    const repairLocked = () => {
+      const runtime = resolveWorkspaceRuntimeOrDefault(repoPath);
+      fs.mkdirSync(DEVROUTER_HOME, { recursive: true });
+      return withFileLock(
+        path.join(DEVROUTER_HOME, `${runtime}-mutation.lock`),
+        {
+          activity: "Managed runtime repair",
+          target: repoPath,
+          fair: true,
+          waitMs: 1_800_000,
+          onWait: createStderrWaitReporter("Managed runtime repair", repoPath),
+        },
+        ensureLocked,
+      );
+    };
+    if (options.repair) return repairLocked();
+    const workspace = linked ? readPersistedWorkspace(repoPath) : undefined;
+    const retained = readManagedRuntimeState(repoPath, workspace);
+    if (retained?.status !== "degraded" || !hasExactManagedComposeProject(repoPath, retained))
+      return ensureLocked();
+
+    const requestedOptions = options;
+    const desiredProfile = loadRuntimeConfig(
+      repoPath,
+      linked ? workspace : "",
+      requestedOptions.profile,
+    ).profile;
+    if (desiredProfile !== retained.profile) {
+      const target = resolveRepairTarget(repoPath, linked);
+      const baseline = loadRuntimeConfig(repoPath, linked ? workspace : "", retained.profile);
+      const plan = inspectManagedDevcontainerConfig({
+        repoPath,
+        config: baseline.config,
+        profile: baseline.resolvedProfile,
+        linked,
+      });
+      if (!baseline.config.managedRuntime)
+        throw new Error("Recovery requires the retained managed configuration.");
+      assertRepairBaseline({
+        repoPath,
+        target,
+        state: retained,
+        plan,
+        config: baseline.config,
+        profile: baseline.profile,
+        processes: desiredManagedProcesses(
+          baseline.config.managedRuntime,
+          baseline.resolvedProfile,
+        ),
+        routes: listHostRouteState().filter((route) => sameWorkspacePath(route.repoPath, repoPath)),
+        verifyRetainedProcesses: true,
+        workspace:
+          target.kind === "linked"
+            ? { token: target.workspace, gitCommonDir: target.gitCommonDir }
+            : undefined,
+      });
+      claimLifecycleEffect();
+      return ensureLocked();
+    }
+    options = { ...requestedOptions, repair: true, profile: retained.profile, open: false };
+    let repaired: WorkspaceEnsureResult;
+    try {
+      repaired = await repairLocked();
+    } finally {
+      options = requestedOptions;
+    }
+    claimLifecycleEffect();
+    if (desiredProfile !== repaired.profile) return ensureLocked();
+    if (options.open) openUrls(repaired.urls);
+    return repaired;
   });
 }

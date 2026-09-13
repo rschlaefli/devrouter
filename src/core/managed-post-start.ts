@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { assertManagedDevcontainerLifecycle } from "./devcontainer-config";
+import { networkDockerOptions } from "./network-effect-scope";
 
 const MANAGED_MARKER = "devrouter:managed devcontainer";
 const MANAGED_ADAPTER_PATH = ".devcontainer/post-start.sh";
@@ -71,7 +72,7 @@ function deliverRuntimeFile(
   const result = spawnSync(
     "docker",
     ["exec", "-i", containerId, "sh", "-c", renderDeliveryScript(targetPath)],
-    { input: contents, encoding: "utf-8" },
+    { input: contents, encoding: "utf-8", ...networkDockerOptions() },
   );
   if (result.status !== 0) {
     const details = commandFailure(result);
@@ -204,7 +205,10 @@ export function runManagedPostStart(options: {
       options.plan.adapterPath,
       runtimeAdapterPath,
     ],
-    { stdio: options.quiet ? ["ignore", 2, "inherit"] : "inherit" },
+    {
+      stdio: options.quiet ? ["ignore", 2, "inherit"] : "inherit",
+      ...networkDockerOptions(),
+    },
   );
   if (started.status !== 0) {
     const details = commandFailure(started);
@@ -244,6 +248,7 @@ export function runManagedProcessAction(options: {
     {
       encoding: "utf-8",
       stdio: options.action === "status" ? ["ignore", "pipe", "pipe"] : ["ignore", 2, "inherit"],
+      ...networkDockerOptions(),
     },
   );
   if (options.action === "stop") {
