@@ -199,27 +199,38 @@ it.each([
 });
 
 it.each([
-  "join",
-  "observe",
-])("requires durable marker synchronization before a fresh-instance %s retry", (retry) => {
+  { stage: "snapshot", retry: "join" },
+  { stage: "snapshot", retry: "observe" },
+  { stage: "marker", retry: "join" },
+  { stage: "marker", retry: "observe" },
+])("requires durable $stage synchronization before a fresh-instance $retry retry", ({
+  stage,
+  retry,
+}) => {
   const { directory } = fixture();
   const budgets = { host: budget, guest: budget };
   const samples = { host: sample, guest: sample };
   const sync = fs.fsyncSync.bind(fs);
-  let markerWriting = false;
+  let interruptedWriting = false;
   const failure = vi.spyOn(fs, "fsyncSync").mockImplementation((fd) => {
-    if (markerWriting && fs.fstatSync(fd).isDirectory())
+    if (interruptedWriting && fs.fstatSync(fd).isDirectory())
       throw new Error("injected directory sync failure");
     sync(fd);
   });
   const interrupted = new CapacityStore(directory, (file, bytes) => {
-    if (path.basename(file) === "capacity-ledger.established") markerWriting = true;
+    if (
+      path.basename(file) ===
+      (stage === "snapshot" ? "capacity-reservations.json" : "capacity-ledger.established")
+    )
+      interruptedWriting = true;
     writeFileAtomically(file, bytes);
   });
   expect(() => interrupted.reserve(request, budgets, samples, 100, 15, undefined, 0)).toThrow();
   const ledger = path.join(directory, "capacity-reservations.json");
   const before = fs.readFileSync(ledger);
-  expect(fs.existsSync(path.join(directory, "capacity-ledger.established"))).toBe(true);
+  expect(fs.existsSync(path.join(directory, "capacity-ledger.established"))).toBe(
+    stage === "marker",
+  );
   const repeat = () => {
     const restarted = new CapacityStore(directory);
     return retry === "join"

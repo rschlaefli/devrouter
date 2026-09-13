@@ -214,7 +214,8 @@ fixture and live evidence separately; unknown/skipped is never a pass.
 
 Status: implementing slice 4 source prerequisites. Diagnostics, submission and recovery
 fences, durable human protection, consumer consent and controller store-loss refusal
-are committed and reviewed through78ddda0. Capacity ledger-loss repair is next. Goal active.
+are committed and reviewed through78ddda0. Capacity ledger-loss repair is implemented
+and CI-proven at001548c; review requested post-rename snapshot fault coverage. Goal active.
 All seven slices retain integrated or live obligations. Required delivery is
 released and installed 0.1.0 with full roadmap qualification; achieved baseline
 is published 0.0.78, global installation last verified at 0.0.77.
@@ -228,7 +229,8 @@ was supplied. Other owner-retained manual-verification environments are protecte
 Planner construction completed. Round 1 requested explicit accountable owners,
 portfolio obligations, derived-delta checkpoint, ADR binding and Q evidence
 ownership; all five findings were accepted in this revision. The same planner approved the corrected draft in round 3; implementation reviews remain required. Prior roadmap reviews covered direction
-only. Current next action: complete the internally reviewed capacity ledger-loss correction, then continue exact-set parking and full-roadmap integration. Historical ownership and live qualification remain open.
+only. Current next action: close the capacity durability test correction, then implement
+positive legacy-journal loss detection and continue exact-set parking and full-roadmap integration. Historical ownership and live qualification remain open.
 
 ### Active diagnostic deltas
 
@@ -1327,3 +1329,11 @@ Opengrep210rules/1sourcefile reports0findings. Existing2Biome infos unchanged.
 No consumer runtime or global install; no remaining shell watchers at commit.
 Independent simplification/correctness review and exact CI are next. Positive
 legacy history and explicit operator forward recovery remain required Q32 work.
+
+Capacity slice review found no current defect and requested direct first-snapshot
+post-rename directory-sync failure coverage. Extend the existing join/observation
+retry cases across snapshot and marker stages; no production behavior change.
+The two new cases must reject acknowledgment under persistent sync failure and
+then preserve exact charges/revision on a durable retry. CI34763207992 passed
+at001548c, including installed controller/capacity qualification. Next legacy
+regression is separately uncommitted and excluded from this correction receipt.
