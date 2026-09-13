@@ -333,3 +333,74 @@ it("stays idle when a capability outside the required set fails", async () => {
   await flush();
   expect(recover).not.toHaveBeenCalled();
 });
+
+it.each([
+  "stale",
+  "future",
+  "released",
+  "reacquired",
+  "changed-environment",
+])("does not recover from a rejected observation (%s)", async (reason) => {
+  const { sessions, first, batch } = fixture();
+  batch.capabilities[0].infrastructure = "failed";
+  let now = 100;
+  let finish!: (value: ControllerObservationBatch) => void;
+  const recover = vi.fn(async () => {});
+  const monitor = new ControllerMonitor(
+    sessions,
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    async (operation) => operation(),
+    () => now,
+    (_identity, _revision, publish) => publish(batch.journal),
+    recover,
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  if (reason === "stale") now = 15_100;
+  if (reason === "future") batch.sampledAtMs = 101;
+  if (reason === "released" || reason === "reacquired") {
+    sessions.release(first, 100, Date.now());
+    if (reason === "reacquired") sessions.acquire("one", environment, ["runtime"], 100, Date.now());
+  }
+  if (reason === "changed-environment")
+    batch.environment = { ...environment, fingerprint: "c".repeat(64) };
+  finish(batch);
+  await flush();
+  expect(recover).not.toHaveBeenCalled();
+});
+
+it("recovers only capabilities still required by a matching live consumer", async () => {
+  const { sessions, first, batch } = fixture();
+  sessions.acquire("two", environment, ["app:web"], 100, Date.now());
+  batch.capabilities[0].infrastructure = "failed";
+  batch.capabilities.push({
+    capability: controllerCapability("app:web"),
+    infrastructure: "failed",
+    application: "unverified",
+    observedAtMs: 0,
+    validForMs: 15_000,
+  });
+  let finish!: (value: ControllerObservationBatch) => void;
+  const recover = vi.fn(async (_env: unknown, _failed: string[], _signal: AbortSignal) => {});
+  const monitor = new ControllerMonitor(
+    sessions,
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    async (operation) => operation(),
+    () => 100,
+    (_identity, _revision, publish) => publish(batch.journal),
+    recover,
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  sessions.release(first, 100, Date.now());
+  finish(batch);
+  await flush();
+  expect(recover).toHaveBeenCalledOnce();
+  expect(recover.mock.calls[0][1]).toEqual([controllerCapability("app:web")]);
+});

@@ -381,7 +381,7 @@ a generic unpinned controller consumer, while live session leases/requirements
 are owned by ControllerSessions. Parking cannot safely trust that synthetic
 consumer as a live task or pin. The derived controller design must bridge exact
 session generation/lease and stop fences before adding automatic stop/resume.
-A read-only advisor is running on this seam and residual-charge/pressure design.
+The read-only advisor completed; dispositions are recorded in the next section.
 
 ### Session submission fencing prerequisite
 
@@ -429,3 +429,31 @@ Run focused three suites, typecheck, Biome and Knip. No live runtime is needed.
 This prerequisite does not claim complete parking, live lease-to-journal sync,
 human pins, or actual harness enforcement. Review this derived delta internally
 before implementation and continue the approved batch.
+
+
+### Recovery observation prerequisite
+
+Main owns existing `src/core/controller-monitor.ts` and
+`src/core/__tests__/controller-monitor.test.ts`; executor retains submission paths.
+The callback after serialized observation publication currently cannot tell that
+publication rejected a stale or changed batch, or every observed consumer expired.
+Reuse observation freshness, exact session binding and journal publication proof.
+Recovery receives only failed capabilities still required by live matching batch
+consumers after a successful publication. Reject future timestamps as unknown.
+Never recover from released/reacquired consumers, stale/environment-changed batches,
+failed persistence, or unavailable journal proof. Keep valid remaining consumers
+independent: releasing one consumer does not suppress another's required recovery.
+
+This is an extension of the existing observation/recovery composition, with no new
+schema, policy, pin behavior or mutation permission. Pass the original batch abort
+signal, never a newer batch's signal. Recovery still revalidates its own operation
+and policy; full asynchronous recovery-session fencing remains in the later bridge.
+Acceptance: failing-then-passing existing monitor suite regressions for stale,
+future, released, reacquired and environment-changed batches; remaining live
+consumer filtering, source typecheck and formatter. No runtime or new test file.
+
+
+Recovery observation planner approved the derived delta. Five new baseline cases
+failed as expected; after the fix all sixteen monitor tests pass. The sixth new
+case proves that releasing one consumer filters only its required capabilities.
+Typecheck, focused Biome and Knip pass. Exact immutable slice review follows commit.

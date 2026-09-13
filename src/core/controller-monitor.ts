@@ -120,6 +120,7 @@ export class ControllerMonitor {
               this.stopped ||
               abort.signal.aborted ||
               batch.sampledAtMs < now ||
+              batch.sampledAtMs > commitTime ||
               commitTime - batch.sampledAtMs >= 15_000 ||
               JSON.stringify(batch.environment) !== JSON.stringify(environment)
             )
@@ -162,21 +163,26 @@ export class ControllerMonitor {
               }
               this.sessions.publish(bindings, projections, commitTime, Date.now());
             });
+            if (this.recover === undefined || this.stopped || abort.signal.aborted) return;
+            const required = new Set<string>();
+            for (const binding of bindings) {
+              try {
+                const consumer = this.sessions.validate(binding);
+                for (const selector of consumer.requirements)
+                  required.add(controllerCapability(selector));
+              } catch {
+                // Released or replaced consumers cannot authorize recovery from this batch.
+              }
+            }
+            const failed = batch.capabilities
+              .filter(
+                (capability) =>
+                  capability.infrastructure === "failed" && required.has(capability.capability),
+              )
+              .map((capability) => capability.capability);
+            if (failed.length > 0)
+              void this.recover(batch.environment, failed, abort.signal).catch(() => {});
           });
-          if (this.recover === undefined || this.stopped) return;
-          const required = new Set(requirements.map(controllerCapability));
-          const failed = batch.capabilities
-            .filter(
-              (capability) =>
-                capability.infrastructure === "failed" && required.has(capability.capability),
-            )
-            .map((capability) => capability.capability);
-          if (failed.length > 0)
-            void this.recover(
-              batch.environment,
-              failed,
-              this.active.get(environment.id)?.signal ?? abort.signal,
-            ).catch(() => {});
         })
         .catch(async (error) => {
           if (!this.stopped)
