@@ -36,17 +36,59 @@ export type ControllerRecovery = (
   revalidate: () => { journalRevision: number; failedCapabilities: string[] },
 ) => Promise<void>;
 
+/**
+ * The controller's bounded capacity entry point. The monitor supplies the live
+ * observation and demand proofs; the controller owns policy, victim choice,
+ * admission and worker dispatch. Returning true means the pass changed durable
+ * lifecycle intent, so the monitor stops after one victim per pass.
+ */
+export type ControllerCapacityDirective = {
+  park: (
+    environment: ControllerEnvironment,
+    journalRevision: number,
+    observation: (journal: ReliabilityOperationRecord) => ControllerParkingObservation,
+    signal: AbortSignal,
+  ) => Promise<boolean>;
+  parkedStop: (environment: ControllerEnvironment, signal: AbortSignal) => Promise<boolean>;
+  resume: (
+    environment: ControllerEnvironment,
+    journalRevision: number,
+    liveDemand: () => string[],
+    signal: AbortSignal,
+  ) => Promise<boolean>;
+};
+
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { ControllerBinding, ControllerSessions } from "./controller-sessions";
 import type { ControllerProjection, ControllerSession } from "./controller-store";
-import { withReliabilityObservationFence } from "./reliability-operation-store";
+import {
+  readReliabilityOperation,
+  withReliabilityObservationFence,
+} from "./reliability-operation-store";
 import { projectReliability } from "./reliability-output";
 
 export function controllerCapability(selector: string): string {
   return selector === "runtime"
     ? "runtime"
     : `app-${createHash("sha256").update(selector).digest("hex")}`;
+}
+
+/**
+ * Deterministic consumer identity for one live session binding. Every request
+ * from one session keeps the same consumer, so a reconnect under the same
+ * generation stays idempotent and a lost session can never be impersonated.
+ */
+export function sessionConsumerId(input: {
+  store: string;
+  epoch: number;
+  session: string;
+  generation: string;
+}): string {
+  const { store, epoch, session, generation } = input;
+  return `session-${createHash("sha256")
+    .update(JSON.stringify([store, epoch, session, generation]))
+    .digest("hex")}`;
 }
 
 export type ControllerParkingObservation =
@@ -97,6 +139,8 @@ type ParkingObservation = {
 export class ControllerMonitor {
   private active = new Map<string, AbortController>();
   private lastStarted = new Map<string, number>();
+  private capacityActive = new Set<string>();
+  private lastCapacity = new Map<string, number>();
   private stopped = false;
   private parkingObservations = new Map<string, ParkingObservation>();
   constructor(
@@ -106,6 +150,10 @@ export class ControllerMonitor {
     private readonly clock = () => Math.floor(performance.now()),
     private readonly fence = withReliabilityObservationFence,
     private readonly recover?: ControllerRecovery,
+    private readonly capacity?: ControllerCapacityDirective,
+    private readonly readJournal: (
+      identity: ReliabilityIdentity,
+    ) => ReliabilityOperationRecord | undefined = readReliabilityOperation,
   ) {}
   stop(): void {
     this.stopped = true;
@@ -215,8 +263,93 @@ export class ControllerMonitor {
     }
     return "unusable-consumers-proven";
   }
+  /**
+   * Exact live demand for one environment. Unknown or drifting session state
+   * throws instead of returning an empty set, because a resume that cannot prove
+   * demand must stay parked.
+   */
+  private liveConsumerIds(environment: ControllerEnvironment): string[] {
+    const evidence = this.parkingObservations.get(environment.id);
+    const snapshot = this.sessions.read();
+    if (!evidence || evidence.store !== snapshot.store || evidence.epoch !== snapshot.epoch)
+      throw new Error("Controller demand evidence is unavailable.");
+    if (evidence.parkingRevision !== snapshot.parkingRevision)
+      throw new Error("Controller demand binding changed.");
+    const consumers = snapshot.sessions.filter(
+      (session) => session.environmentId === environment.id,
+    );
+    if (!isDeepStrictEqual(parkingConsumers(consumers), evidence.consumers))
+      throw new Error("Controller demand set changed.");
+    return consumers.map((session) =>
+      sessionConsumerId({
+        store: snapshot.store,
+        epoch: snapshot.epoch,
+        session: session.id,
+        generation: session.generation,
+      }),
+    );
+  }
+  /**
+   * One bounded capacity decision per pass. The controller owns policy, victim
+   * eligibility, admission and dispatch; this pass only supplies the live proof
+   * it holds, keeps at most one victim in flight per incarnation, and never
+   * retries an environment it just acted on.
+   */
+  private async capacityPass(): Promise<void> {
+    if (this.stopped || !this.capacity) return;
+    const snapshot = this.sessions.read();
+    const now = this.clock();
+    for (const environment of snapshot.environments) {
+      if (this.stopped) return;
+      if (this.capacityActive.has(environment.id)) continue;
+      const evidence = this.parkingObservations.get(environment.id);
+      if (!evidence || !isDeepStrictEqual(evidence.environment, environment)) continue;
+      if (now - (this.lastCapacity.get(environment.id) ?? -Infinity) < 5000) continue;
+      this.lastCapacity.set(environment.id, now);
+      this.capacityActive.add(environment.id);
+      const abort = new AbortController();
+      let acted = false;
+      try {
+        await this.serialize(async () => {
+          if (this.stopped || abort.signal.aborted || !this.capacity) return;
+          const record = this.readJournal(evidence.identity);
+          if (!record) return;
+          if (record.state.executionPolicy !== "capacity-managed") return;
+          if (record.state.desired === "parked-for-capacity") {
+            const settled =
+              record.state.stopProof.workloadsStopped && record.state.stopProof.routesRemoved;
+            acted = settled
+              ? await this.capacity.resume(
+                  environment,
+                  record.revision,
+                  () => this.liveConsumerIds(environment),
+                  abort.signal,
+                )
+              : await this.capacity.parkedStop(environment, abort.signal);
+            return;
+          }
+          if (record.state.desired !== "running") return;
+          acted = await this.capacity.park(
+            environment,
+            record.revision,
+            (journal) => this.parkingObservation(environment, journal),
+            abort.signal,
+          );
+        });
+      } catch {
+        // A refused or failed decision leaves the environment untouched; the next
+        // pass re-proves observation, pressure and demand before acting again.
+      } finally {
+        this.capacityActive.delete(environment.id);
+      }
+      // One victim per pass keeps a capacity decision subordinate to the next
+      // observation rather than draining the whole host in one tick.
+      if (acted) return;
+    }
+  }
   tick(): void {
     if (this.stopped) return;
+    void this.capacityPass();
     const snapshot = this.sessions.read();
     const current = new Set(snapshot.environments.map((env) => env.id));
     for (const [id, abort] of this.active) if (!current.has(id)) abort.abort();

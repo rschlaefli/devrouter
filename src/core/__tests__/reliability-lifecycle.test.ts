@@ -3168,9 +3168,24 @@ describe("bounded parking and resume preparation", () => {
     ).toBeUndefined();
   });
 
-  it("resumes through waiting admission and releases a consumer without a live session", async () => {
+  it("resumes through waiting admission only while every parked consumer is live", async () => {
     const { lifecycle, store, identity, controller } = await settledParkFixture();
     const before = store.readReliabilityOperation(identity)!;
+    expect(
+      lifecycle.prepareResumeLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 1,
+        journalRevision: before.revision,
+        profile: "full",
+        actionLimit: 3,
+        liveDemand: () => [],
+      }),
+    ).toBeUndefined();
+    expect(store.readReliabilityOperation(identity)!.state.consumers).toEqual(
+      before.state.consumers,
+    );
+    const afterRefusal = store.readReliabilityOperation(identity)!;
     fixture.newLifecycleIds.mockReturnValue({
       requestId: "resume-request",
       operationId: "resume-operation",
@@ -3180,7 +3195,7 @@ describe("bounded parking and resume preparation", () => {
       identity,
       controller,
       policyRevision: 1,
-      journalRevision: before.revision,
+      journalRevision: afterRefusal.revision,
       profile: "full",
       actionLimit: 3,
       liveDemand: () => ["agent"],

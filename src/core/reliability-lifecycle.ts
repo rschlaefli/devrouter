@@ -420,8 +420,11 @@ export function prepareParkLifecycleOperation(input: {
   policyRevision: number;
   /** Journal revision the producing observation proved; a changed revision is refused. */
   journalRevision: number;
-  /** Re-proves the live parking observation under the transaction that commits it. */
-  observationSatisfied: () => boolean;
+  /**
+   * Re-proves the live parking observation under the transaction that commits
+   * it, against the exact record the decision will persist.
+   */
+  observationSatisfied: (journal: ReliabilityOperationRecord) => boolean;
 }): { operationId: string; request: LifecycleWorkerRequest } | undefined {
   const ids = newLifecycleIds();
   return updateReliabilityOperation(input.identity, (record) => {
@@ -439,7 +442,7 @@ export function prepareParkLifecycleOperation(input: {
     // preparation cannot wedge every later park behind its evidence.
     reconcileDrained(record);
     if (record.worker) return undefined;
-    if (!input.observationSatisfied()) return undefined;
+    if (!input.observationSatisfied(record)) return undefined;
     const transition = stepReliability(
       record.state,
       { ...reliabilityFence(record.state), type: "park" },
@@ -544,8 +547,9 @@ export function restoreParkedIntentAfterFailedResume(input: {
  * an intent change that requests capacity rather than one that presumes it: the
  * journal returns to waiting and the ordinary admission path reserves against
  * real domain budgets. Demand is re-proven as a live consumer set inside this
- * transaction, and consumers that no longer have a live session are released
- * so a lost consumer can never start work on its own.
+ * transaction, so a consumer whose session is gone can never start work on its
+ * own. The journal keeps that demand: a later ensure supersedes parked intent
+ * instead of this path silently deleting it.
  */
 export function prepareResumeLifecycleOperation(input: {
   identity: ReliabilityIdentity;
@@ -581,15 +585,10 @@ export function prepareResumeLifecycleOperation(input: {
       // work for a consumer whose session state is unknown.
       return undefined;
     }
-    for (const consumer of [...record.state.consumers]) {
-      if (live.has(consumer.id)) continue;
-      const released = stepReliability(
-        record.state,
-        { ...reliabilityFence(record.state), type: "release", consumerId: consumer.id },
-        Date.now(),
-      );
-      if (released.outcome === "accepted") record.state = released.state;
-    }
+    // Every parked consumer must still hold a live session. Missing demand is
+    // never repaired here: releasing it would quietly delete the only durable
+    // record that a consumer asked for this environment.
+    if (record.state.consumers.some((consumer) => !live.has(consumer.id))) return undefined;
     const decision = decideRecovery({
       state: record.state,
       nowMs: Date.now(),

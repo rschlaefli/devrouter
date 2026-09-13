@@ -14,19 +14,23 @@ import { capacityRequest } from "./capacity-request";
 import { publishQueuedStartupWitness } from "./capacity-startup-witness";
 import type { CapacityPoolReservation } from "./capacity-store";
 import { createControllerBindingResolver, readControllerEvidence } from "./controller-binding";
-import type { ControllerRecovery } from "./controller-monitor";
+import type { ControllerCapacityDirective, ControllerRecovery } from "./controller-monitor";
 import type {
   ControllerOperations,
   ControllerResolver,
   ControllerStartup,
 } from "./controller-server";
-import { ControllerStore } from "./controller-store";
+import { type ControllerEnvironment, ControllerStore } from "./controller-store";
 import { resolveRunningWorkspaceContainer } from "./devpod-environment";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
 import { reliabilityFence } from "./reliability-contract";
 import {
   prepareManagedLifecycleOperation,
+  prepareParkLifecycleOperation,
   prepareRecoveryLifecycleOperation,
+  prepareResumeLifecycleOperation,
+  reconcileParkedLifecycleStop,
+  restoreParkedIntentAfterFailedResume,
   retireQueuedLifecycle,
   settlePreparedLifecycleCapacity,
 } from "./reliability-lifecycle";
@@ -37,6 +41,7 @@ import {
   readReliabilityOperation,
   updateReliabilityOperation,
 } from "./reliability-operation-store";
+import { runLifecycleWorker } from "./reliability-worker";
 import { loadRepoConfig } from "./repo-config";
 
 /** Own transient requests independently of client connections within one controller incarnation. */
@@ -324,6 +329,215 @@ export function createCapacityController(options: {
       }
     }
   };
+  const readPressure = ({
+    hostDomain,
+    runtimeDomain,
+  }: {
+    hostDomain: string;
+    runtimeDomain: string;
+  }) => {
+    assertCurrent();
+    const now = checkedClock();
+    const runtime = policy.domains[runtimeDomain];
+    if (
+      policy.domains[hostDomain]?.kind !== "host" ||
+      runtime?.kind !== "runtime" ||
+      runtime.hostDomain !== hostDomain
+    )
+      throw new Error("Capacity pressure domain pair is invalid.");
+    const domains = tracker.read([hostDomain, runtimeDomain], now);
+    const values = Object.values(domains);
+    const known = values.every((entry) => entry.pressure !== "unknown");
+    return {
+      domains,
+      normalDwellSatisfied:
+        known &&
+        values.every(
+          (entry) =>
+            entry.pressure === "normal" &&
+            entry.observedDurationMs >= policy.recovery.resumeDwellSeconds * 1000,
+        ),
+      sustainedPressure:
+        known &&
+        values.some(
+          (entry) =>
+            entry.pressure === "pressured" &&
+            entry.observedDurationMs >= policy.recovery.observationSeconds * 1000,
+        ),
+    };
+  };
+
+  /**
+   * Resolve the exact enrolled runtime a capacity decision may act on. Parking
+   * and resume reuse the operator ensure's enrollment, domain, and reservation
+   * rules, so a controller decision never rests on weaker evidence than the
+   * command it replaces. The caller re-proves pressure against these domains.
+   */
+  const resolveCapacityTarget = async (environment: ControllerEnvironment, signal: AbortSignal) => {
+    const current = readCapacityPolicy(options.directory);
+    if (current?.admissions !== "enabled" || !isDeepStrictEqual(current, policy)) return undefined;
+    let resolved: Awaited<ReturnType<typeof resolveCapacityEnrollment>>;
+    try {
+      resolved = await resolveCapacityEnrollment(
+        current,
+        { path: environment.repoPath, profile: environment.profile, require: [] },
+        signal,
+        bindingResolver,
+      );
+    } catch {
+      return undefined;
+    }
+    if (signal.aborted || !isDeepStrictEqual(resolved.environment, environment)) return undefined;
+    if (!isDeepStrictEqual(readCapacityPolicy(options.directory), current)) return undefined;
+    const runtime = current.domains[resolved.enrollment.runtimeDomain];
+    if (
+      runtime?.kind !== "runtime" ||
+      runtime.hostDomain !== resolved.enrollment.hostDomain ||
+      current.domains[runtime.hostDomain]?.kind !== "host" ||
+      !current.enrollments.some((entry) => isDeepStrictEqual(entry, resolved.enrollment))
+    )
+      return undefined;
+    return { current, resolved, runtime };
+  };
+
+  const capacityIdentity = (environment: ControllerEnvironment) => ({
+    repoPath: environment.repoPath,
+    workspace: environment.workspace || null,
+    provider: environment.provider,
+  });
+
+  const capacityPool = (
+    runtime: { daemonId: string; hostDomain: string; hostChargeCeilingBytes: number },
+    runtimeDomain: string,
+  ) => ({
+    daemonId: runtime.daemonId,
+    runtimeDomain,
+    hostDomain: runtime.hostDomain,
+    hostChargeCeilingBytes: runtime.hostChargeCeilingBytes,
+  });
+
+  /**
+   * The controller's bounded capacity entry point. Parking releases capacity for
+   * an environment whose live consumers proved it unusable; resume returns that
+   * environment once all-domain headroom dwells normal. Both are inert unless
+   * the operator enables recovery, both commit under the journal lock, and both
+   * drive exactly one non-destructive worker so a crash leaves re-provable
+   * intent rather than a fabricated result.
+   */
+  const capacity: ControllerCapacityDirective = {
+    async park(environment, journalRevision, observation, signal) {
+      const bounded = AbortSignal.any([signal, lifetime.signal]);
+      if (bounded.aborted || !policy.recovery.enabled) return false;
+      const target = await resolveCapacityTarget(environment, bounded);
+      if (!target || bounded.aborted) return false;
+      let sustained: boolean;
+      try {
+        sustained = readPressure({
+          hostDomain: target.resolved.enrollment.hostDomain,
+          runtimeDomain: target.resolved.enrollment.runtimeDomain,
+        }).sustainedPressure;
+      } catch {
+        return false;
+      }
+      if (!sustained) return false;
+      const identity = capacityIdentity(environment);
+      const prepared = prepareParkLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: target.current.revision,
+        journalRevision,
+        observationSatisfied: (journal) => observation(journal) === "unusable-consumers-proven",
+      });
+      if (!prepared) return false;
+      // A park stop is not a user stop: it keeps parked intent on the journal and
+      // proves cessation before the charge is released.
+      await runLifecycleWorker(prepared.request);
+      return true;
+    },
+    async parkedStop(environment, signal) {
+      const bounded = AbortSignal.any([signal, lifetime.signal]);
+      if (bounded.aborted) return false;
+      // A committed park owes the environment a physical stop even if recovery
+      // was switched off afterwards; refusing here would strand a held charge.
+      const current = readCapacityPolicy(options.directory);
+      if (current?.admissions !== "enabled" || !isDeepStrictEqual(current, policy)) return false;
+      const request = reconcileParkedLifecycleStop({
+        identity: capacityIdentity(environment),
+        controller,
+        policyRevision: current.revision,
+      });
+      if (!request || bounded.aborted) return false;
+      await runLifecycleWorker(request);
+      return true;
+    },
+    async resume(environment, journalRevision, liveDemand, signal) {
+      const bounded = AbortSignal.any([signal, lifetime.signal]);
+      if (bounded.aborted || !policy.recovery.enabled) return false;
+      const target = await resolveCapacityTarget(environment, bounded);
+      if (!target || bounded.aborted) return false;
+      let headroom: boolean;
+      try {
+        headroom = readPressure({
+          hostDomain: target.resolved.enrollment.hostDomain,
+          runtimeDomain: target.resolved.enrollment.runtimeDomain,
+        }).normalDwellSatisfied;
+      } catch {
+        return false;
+      }
+      if (!headroom) return false;
+      const identity = capacityIdentity(environment);
+      const record = readReliabilityOperation(identity);
+      if (!record) return false;
+      const prepared = prepareResumeLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: target.current.revision,
+        journalRevision,
+        profile: environment.profile,
+        actionLimit: policy.recovery.maxCorrectiveActions,
+        liveDemand,
+      });
+      if (!prepared) return false;
+      const charge = capacityRequest(target.resolved.estimates, target.resolved.enrollment, {
+        environmentId: record.state.environmentId,
+        profile: environment.profile,
+        ...(record.activeProfile ? { activeProfile: record.activeProfile } : {}),
+        kind: "ensure",
+      });
+      try {
+        queue.enqueue(
+          prepared.request,
+          {
+            ...charge,
+            operationId: prepared.operationId,
+            reservationId: randomUUID(),
+            policyRevision: target.current.revision,
+          },
+          {
+            estimates: target.resolved.estimates,
+            enrollment: target.resolved.enrollment,
+            pool: capacityPool(target.runtime, target.resolved.enrollment.runtimeDomain),
+          },
+        );
+      } catch {
+        // A queue that cannot hold the resume must not leave running intent
+        // behind: retire the exact operation, then return to parked intent so a
+        // later pass re-proves cessation instead of resuming from nothing.
+        try {
+          retireQueuedLifecycle(prepared.request);
+          restoreParkedIntentAfterFailedResume({
+            identity,
+            controller,
+            request: prepared.request,
+          });
+        } catch {
+          // Retain uncertainty: the journal keeps the conservative parked state.
+        }
+      }
+      return true;
+    },
+  };
+
   return {
     async submit(request, environment, signal, validate) {
       signal = AbortSignal.any([signal, lifetime.signal]);
@@ -492,37 +706,8 @@ export function createCapacityController(options: {
       settlePreparations();
       await queue.tick({ observeIdle: policy.recovery.enabled });
     },
-    pressureEvidence: ({ hostDomain, runtimeDomain }) => {
-      assertCurrent();
-      const now = checkedClock();
-      const runtime = policy.domains[runtimeDomain];
-      if (
-        policy.domains[hostDomain]?.kind !== "host" ||
-        runtime?.kind !== "runtime" ||
-        runtime.hostDomain !== hostDomain
-      )
-        throw new Error("Capacity pressure domain pair is invalid.");
-      const domains = tracker.read([hostDomain, runtimeDomain], now);
-      const values = Object.values(domains);
-      const known = values.every((entry) => entry.pressure !== "unknown");
-      return {
-        domains,
-        normalDwellSatisfied:
-          known &&
-          values.every(
-            (entry) =>
-              entry.pressure === "normal" &&
-              entry.observedDurationMs >= policy.recovery.resumeDwellSeconds * 1000,
-          ),
-        sustainedPressure:
-          known &&
-          values.some(
-            (entry) =>
-              entry.pressure === "pressured" &&
-              entry.observedDurationMs >= policy.recovery.observationSeconds * 1000,
-          ),
-      };
-    },
+    pressureEvidence: readPressure,
+    capacity,
     /**
      * Open or advance one bounded automatic recovery for an environment whose
      * required capability has positively failed. It is inert unless the

@@ -3,13 +3,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  type ControllerCapacityDirective,
   ControllerMonitor,
   type ControllerObservationBatch,
   controllerCapability,
+  sessionConsumerId,
 } from "../controller-monitor";
 import { ControllerSessions } from "../controller-sessions";
 import { ControllerStore } from "../controller-store";
 import { createReliabilityState } from "../reliability-contract";
+import type { ReliabilityOperationRecord } from "../reliability-operation-store";
 
 const directories: string[] = [];
 const monitors: ControllerMonitor[] = [];
@@ -835,4 +838,148 @@ it("does not retain an in-flight batch after its environment was released", asyn
   finish(batch);
   await flush();
   expect(monitor.parkingObservation(environment, batch.journal)).toBe("observation-unavailable");
+});
+
+/**
+ * One committed parking observation plus the exact journal a capacity pass reads.
+ * The directive is injected, so these tests observe the proof the monitor hands
+ * the controller rather than re-testing controller policy.
+ */
+async function capacityPassFixture(options: {
+  desired: "running" | "parked-for-capacity";
+  settled?: boolean;
+}) {
+  const f = fixture();
+  const time = { now: 100 };
+  const wall = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => wall + time.now - 100);
+  f.sessions.setParkingConsent(f.first, 0, "allow-unusable", 100, Date.now());
+  f.batch.capabilities[0].infrastructure = "failed";
+  // The pass reads the same journal the observation committed, so the proof is
+  // evaluated against the revision the environment actually published.
+  const journal = f.batch.journal as unknown as { version: number; revision: number };
+  journal.version = 2;
+  journal.revision = 7;
+  const state = createReliabilityState("environment", 0);
+  state.desired = options.desired;
+  state.phase = options.desired === "parked-for-capacity" ? "idle" : "stable";
+  state.profile = "web";
+  state.admission = "waiting";
+  state.stopProof = {
+    workloadsStopped: options.settled === true,
+    routesRemoved: options.settled === true,
+  };
+  f.batch.journal.state = state;
+  const record = f.batch.journal as unknown as ReliabilityOperationRecord;
+  const calls: {
+    kind: string;
+    revision: number;
+    proof?: string;
+    demand?: string[] | undefined;
+    error?: string;
+  }[] = [];
+  const demand: { run?: () => string[] } = {};
+  const directive: ControllerCapacityDirective = {
+    park: vi.fn(async (_environment, revision, observation) => {
+      calls.push({ kind: "park", revision, proof: observation(record) });
+      return true;
+    }),
+    parkedStop: vi.fn(async () => {
+      calls.push({ kind: "parkedStop", revision: record.revision });
+      return true;
+    }),
+    resume: vi.fn(async (_environment, revision, liveDemand) => {
+      demand.run = liveDemand;
+      let value: string[] | undefined;
+      let error: string | undefined;
+      try {
+        value = liveDemand();
+      } catch (failure) {
+        error = failure instanceof Error ? failure.message : String(failure);
+      }
+      calls.push({ kind: "resume", revision, demand: value, ...(error ? { error } : {}) });
+      return true;
+    }),
+  };
+  const monitor = new ControllerMonitor(
+    f.sessions,
+    async () => f.batch,
+    async (operation) => operation(),
+    () => time.now,
+    (_identity, _revision, publish) => publish(f.batch.journal),
+    undefined,
+    directive,
+    () => record,
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  await flush();
+  // Park eligibility is only meaningful for running intent; a parked environment
+  // correctly reports protected intent instead.
+  if (options.desired === "running")
+    expect(monitor.parkingObservation(environment, record)).toBe("unusable-consumers-proven");
+  monitor.tick();
+  await flush();
+  return { ...f, time, journal: record, calls, demand, directive, monitor };
+}
+
+it("parks a running environment once with the live observation proof", async () => {
+  const f = await capacityPassFixture({ desired: "running" });
+  expect(f.directive.park).toHaveBeenCalledTimes(1);
+  expect(f.calls).toEqual([{ kind: "park", revision: 7, proof: "unusable-consumers-proven" }]);
+  f.time.now += 1_000;
+  f.monitor.tick();
+  await flush();
+  expect(f.directive.park).toHaveBeenCalledTimes(1);
+});
+
+it("refuses to park when the environment proved a usable consumer", async () => {
+  const f = await capacityPassFixture({ desired: "running" });
+  f.batch.capabilities[0].infrastructure = "healthy";
+  // A committed batch is retained independently, so the refusal requires a fresh
+  // observation: re-collect, then let the next pass decide against it.
+  f.time.now += 6_000;
+  f.batch.sampledAtMs = f.time.now;
+  f.monitor.tick();
+  await flush();
+  f.time.now += 6_000;
+  f.batch.sampledAtMs = f.time.now;
+  f.monitor.tick();
+  await flush();
+  expect(f.directive.park).toHaveBeenCalledTimes(3);
+  expect(f.calls.at(-1)).toEqual({
+    kind: "park",
+    revision: 7,
+    proof: "consumer-usable",
+  });
+});
+
+it("resumes a settled park with exact live demand and re-drives an unsettled one", async () => {
+  const settled = await capacityPassFixture({ desired: "parked-for-capacity", settled: true });
+  expect(settled.directive.resume).toHaveBeenCalledTimes(1);
+  const live = settled.sessions.read().sessions[0];
+  expect(settled.calls[0]).toEqual({
+    kind: "resume",
+    revision: 7,
+    demand: [
+      sessionConsumerId({
+        store: settled.sessions.read().store,
+        epoch: settled.sessions.read().epoch,
+        session: live.id,
+        generation: live.generation,
+      }),
+    ],
+  });
+  const unsettled = await capacityPassFixture({ desired: "parked-for-capacity" });
+  expect(unsettled.directive.parkedStop).toHaveBeenCalledTimes(1);
+  expect(unsettled.directive.resume).not.toHaveBeenCalled();
+});
+
+it("refuses resume demand when the consumer set changed after the observation", async () => {
+  const f = await capacityPassFixture({ desired: "parked-for-capacity", settled: true });
+  const demand = f.demand.run;
+  expect(demand).toBeDefined();
+  const added = f.sessions.acquire("late", environment, ["runtime"], 100, Date.now());
+  f.sessions.setParkingConsent(added, 0, "allow-unusable", 100, Date.now());
+  expect(() => demand!()).toThrow(/demand/);
 });

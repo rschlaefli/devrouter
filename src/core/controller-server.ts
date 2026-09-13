@@ -1,13 +1,14 @@
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import type { ControllerBindingFingerprint } from "./controller-binding";
 import {
+  type ControllerCapacityDirective,
   ControllerMonitor,
   type ControllerObservationCollector,
   type ControllerRecovery,
   controllerCapability,
+  sessionConsumerId,
 } from "./controller-monitor";
 import { type ControllerRequest, parseControllerRequest } from "./controller-protocol";
 import { ControllerSessions } from "./controller-sessions";
@@ -88,9 +89,7 @@ function sessionConsumer(input: {
   const requiredCapabilities = [...new Set(requirements)].sort().map(controllerCapability);
   // Hash only the session identity: every request from one session keeps the
   // same consumer, so a reconnect under the same generation stays idempotent.
-  const id = `session-${createHash("sha256")
-    .update(JSON.stringify([store, epoch, session, generation]))
-    .digest("hex")}`;
+  const id = sessionConsumerId({ store, epoch, session, generation });
   return { id, requiredCapabilities, pinned: false };
 }
 
@@ -98,6 +97,7 @@ export type ControllerOperations = {
   tick?: () => Promise<void>;
   close?: () => void;
   recover?: ControllerRecovery;
+  capacity?: ControllerCapacityDirective;
   submit: (
     request: Extract<ControllerRequest, { method: "operation-submit" }>,
     environment: ControllerEnvironment,
@@ -196,6 +196,7 @@ export async function runController(options: {
           undefined,
           undefined,
           operations?.recover,
+          operations?.capacity,
         )
       : undefined;
     const server = net.createServer((socket) => {
