@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.79] - 2026-09-14
+
+### Fixed
+
+- Managed `ensure` accepts a devnet upstream alias whose owning container comes
+  from any Compose project inside the exact worktree, instead of requiring the
+  `.devcontainer` overlay that serves the workspace app. The workspace app
+  container still has to come from the managed overlay, and a container from
+  another worktree is still rejected. Repositories that serve a declared proxy
+  upstream from a workspace-local dependency overlay no longer fail preflight.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.79.md
+
 ## [0.0.78] - 2026-09-13
 
 ### Fixed

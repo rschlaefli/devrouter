@@ -295,8 +295,13 @@ host port — the devnet alias is the collision-free path.)
 
 For managed `devrouter ensure`, every HTTP and TCP upstream must begin with the
 resolved checkout alias prefix. Use `${WORKSPACE}-<service>:<port>` with matching
-`${WORKSPACE:-<project>}-<service>` Compose aliases. Generic route-only
-`devrouter app run` remains available for intentionally external upstreams.
+`${WORKSPACE:-<project>}-<service>` Compose aliases. Each alias must resolve to
+exactly one running container owned by that exact worktree: the workspace app
+comes from the `.devcontainer` overlay `ensure` drives, while an upstream may be
+served by another Compose project inside the same checkout, such as a
+workspace-local dependency overlay. A container from a different worktree is
+rejected. Generic route-only `devrouter app run` remains available for
+intentionally external upstreams.
 
 ## 3. Preserve linked-worktree Git metadata
 
