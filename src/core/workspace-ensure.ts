@@ -168,6 +168,29 @@ function assertOverlay(container: WorkspaceContainerSnapshot, repoPath: string):
   }
 }
 
+/**
+ * Managed upstream containers may belong to any Compose project owned by the
+ * exact worktree, not only the `.devcontainer` overlay: a repository can serve
+ * a declared devnet alias from a dependency overlay it keeps elsewhere in the
+ * checkout. The workspace app container still has to come from the managed
+ * overlay, because that attachment is what `ensure` proves and drives.
+ */
+function assertWorktreeOwnership(container: WorkspaceContainerSnapshot, repoPath: string): void {
+  const workingDir = container.labels["com.docker.compose.project.working_dir"];
+  if (!workingDir || !isInsideWorktree(workingDir, repoPath)) {
+    throw new Error(`Container '${container.id}' does not belong to the exact worktree.`);
+  }
+}
+
+function isInsideWorktree(candidate: string, repoPath: string): boolean {
+  const normalizedCandidate = comparableWorkspacePath(candidate);
+  const normalizedRoot = comparableWorkspacePath(repoPath);
+  return (
+    normalizedCandidate === normalizedRoot ||
+    normalizedCandidate.startsWith(`${normalizedRoot}${path.sep}`)
+  );
+}
+
 function assertReady(container: WorkspaceContainerSnapshot, label: string): void {
   if (!container.state.Running) {
     throw new Error(`${label} container '${container.id}' is not running.`);
@@ -535,7 +558,7 @@ export function validateWorkspaceContainers(
       );
     }
     if (options.target.kind === "linked") {
-      assertOverlay(matches[0], options.repoPath);
+      assertWorktreeOwnership(matches[0], options.repoPath);
     }
     assertReady(matches[0], `Workspace upstream '${host}'`);
   }
