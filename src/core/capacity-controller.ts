@@ -26,7 +26,9 @@ import type {
 } from "./controller-server";
 import { type ControllerEnvironment, ControllerStore } from "./controller-store";
 import { resolveRunningWorkspaceContainer } from "./devpod-environment";
+import { parseUpstream } from "./host-routes";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
+import { recoverySelectors } from "./recovery-budget";
 import { reliabilityFence } from "./reliability-contract";
 import {
   prepareManagedLifecycleOperation,
@@ -46,7 +48,32 @@ import {
   updateReliabilityOperation,
 } from "./reliability-operation-store";
 import { runLifecycleWorker } from "./reliability-worker";
-import { loadRepoConfig } from "./repo-config";
+import { loadRepoConfig, loadRuntimeConfig } from "./repo-config";
+
+/**
+ * Capability selectors the prepared plan can attribute, split by dimension. An
+ * app whose upstream alias names a declared retained service is bounded by the
+ * service limit; every other routed app is served by the repository process
+ * group and is bounded by the process limit. Unreadable configuration yields no
+ * selectors, which leaves the aggregate ceiling in force.
+ */
+function recoverySelectorsFor(input: { repoPath: string; workspace: string; profile: string }): {
+  process: string[];
+  service: string[];
+} {
+  const { config } = loadRuntimeConfig(input.repoPath, input.workspace, input.profile);
+  const registry = config.managedRuntime?.devcontainer;
+  return recoverySelectors({
+    apps: config.apps.flatMap((app) => {
+      if (app.kind !== "app" || app.runtime !== "proxy" || app.protocol !== "http") return [];
+      if (!("upstream" in app) || typeof app.upstream !== "string") return [];
+      if (app.readiness === undefined) return [];
+      return [{ name: app.name, upstreamHost: parseUpstream(app.upstream).host }];
+    }),
+    aliasPrefix: input.workspace,
+    services: registry ? [...registry.baseServices, ...registry.profileServices] : [],
+  });
+}
 
 /** Own transient requests independently of client connections within one controller incarnation. */
 export function createCapacityController(options: {
@@ -796,6 +823,19 @@ export function createCapacityController(options: {
       };
       let prepared: ReturnType<typeof prepareRecoveryLifecycleOperation>;
       try {
+        // Attribute the producing failure to one declared resource before the
+        // journal transaction claims it. Unreadable configuration keeps the
+        // aggregate ceiling instead of guessing a unit.
+        let selectors = { process: [] as string[], service: [] as string[] };
+        try {
+          selectors = recoverySelectorsFor({
+            repoPath: environment.repoPath,
+            workspace: environment.workspace,
+            profile: environment.profile,
+          });
+        } catch {
+          selectors = { process: [], service: [] };
+        }
         prepared = prepareRecoveryLifecycleOperation({
           identity,
           controller,
@@ -803,6 +843,15 @@ export function createCapacityController(options: {
           journalRevision: proof.journalRevision,
           actionLimit: policy.recovery.maxCorrectiveActions,
           failedCapabilities: required,
+          recoveryLimits: {
+            maxProcessRestarts: policy.recovery.maxProcessRestarts,
+            maxServiceRestarts: policy.recovery.maxServiceRestarts,
+            windowSeconds: policy.recovery.windowSeconds,
+          },
+          recoverySelectors: selectors,
+          // Capacity-wait exclusion is not observable in this incarnation yet;
+          // the budget module then falls back to the conservative wall duration.
+          activeElapsedMs: null,
           profile: environment.profile,
           incidentId: `incident-${randomUUID()}`,
         });

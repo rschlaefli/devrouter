@@ -19,6 +19,7 @@ import {
   observeControllerBinding,
   submitControllerOperation,
 } from "./controller-client";
+import { controllerCapability } from "./controller-monitor";
 import { ControllerStore } from "./controller-store";
 import {
   inspectManagedStopContainers,
@@ -33,6 +34,7 @@ import { listHostRouteState } from "./host-routes";
 import { proveInitialManagedDevsyAbsence } from "./managed-devsy-stop";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
 import { managedStopRouteReferences, proveManagedStop } from "./managed-stop-recovery";
+import { deriveRecoveryUnit } from "./recovery-budget";
 import { claimLifecycleEffect, installLifecycleEffectClaim } from "./reliability-context";
 import {
   type ReliabilityConsumer,
@@ -345,6 +347,12 @@ export function prepareRecoveryLifecycleOperation(input: {
   journalRevision: number;
   actionLimit: number;
   failedCapabilities: string[];
+  /** Bounded per-kind limits and window from the operator policy. */
+  recoveryLimits: { maxProcessRestarts: number; maxServiceRestarts: number; windowSeconds: number };
+  /** Repository-declared capability selectors, split by the plan dimension that backs them. */
+  recoverySelectors: { process: string[]; service: string[] };
+  /** Capacity-wait-excluded active duration since the incident start; null when unobservable. */
+  activeElapsedMs: number | null;
   profile: string;
   incidentId: string;
 }): { operationId: string; request: LifecycleWorkerRequest } | undefined {
@@ -375,6 +383,13 @@ export function prepareRecoveryLifecycleOperation(input: {
       failedCapabilities: input.failedCapabilities,
     });
     if (decision.action !== "start" && decision.action !== "continue") return undefined;
+    // The controller delivers capability hashes only, so the unit is recovered
+    // here by recomputing that hash over the repository-declared selectors.
+    const unit = deriveRecoveryUnit({
+      capabilities: input.failedCapabilities,
+      selectors: input.recoverySelectors,
+      capabilityOf: controllerCapability,
+    });
     const transition = stepReliability(
       record.state,
       {
@@ -383,6 +398,9 @@ export function prepareRecoveryLifecycleOperation(input: {
         incidentId: decision.action === "continue" ? decision.incidentId : input.incidentId,
         actionLimit: input.actionLimit,
         operationId: ids.operationId,
+        unit: unit ?? null,
+        recoveryLimits: input.recoveryLimits,
+        activeElapsedMs: input.activeElapsedMs,
       },
       Date.now(),
     );

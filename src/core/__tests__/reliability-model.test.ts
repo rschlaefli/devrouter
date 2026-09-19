@@ -14,6 +14,12 @@ type Input = ReliabilityEvent extends infer Event
     : never
   : never;
 const consumer = { id: "agent", requiredCapabilities: ["api"], pinned: false };
+/** Operator-policy bounds and plan attribution every recovery event carries. */
+const recoveryClaim = {
+  unit: null,
+  recoveryLimits: { maxProcessRestarts: 2, maxServiceRestarts: 1, windowSeconds: 600 },
+  activeElapsedMs: null,
+} as const;
 const request = {
   type: "request",
   mode: "start",
@@ -52,6 +58,76 @@ const healthy = {
 } as const;
 
 describe("reliability transitions", () => {
+  it("charges the declared action unit and refuses beyond its per-kind bound", () => {
+    const limits = { maxProcessRestarts: 1, maxServiceRestarts: 1, windowSeconds: 600 };
+    const process = { key: `app-${"a".repeat(64)}`, kind: "process" } as const;
+    const service = { key: `app-${"b".repeat(64)}`, kind: "service" } as const;
+    let state = step(completed(), { type: "drained", operationId: "op" }).state;
+    const accepted = step(state, {
+      type: "recover",
+      incidentId: "incident",
+      actionLimit: 3,
+      operationId: "repair",
+      unit: process,
+      recoveryLimits: limits,
+      activeElapsedMs: null,
+    });
+    expect(accepted.outcome).toBe("accepted");
+    expect(accepted.state.incident).toMatchObject({
+      correctiveActionsTaken: 1,
+      units: [{ key: process.key, kind: "process", actions: 1, lastActionAtMs: 100 }],
+    });
+
+    state = step(accepted.state, { type: "drained", operationId: "repair" }).state;
+    const refused = step(state, {
+      type: "recover",
+      incidentId: "incident",
+      actionLimit: 3,
+      operationId: "repair-2",
+      unit: process,
+      recoveryLimits: limits,
+      activeElapsedMs: null,
+    });
+    expect(refused.outcome).toBe("blocked");
+    expect(refused.reason).toContain("unit-exhausted");
+    expect(refused.state.incident).toMatchObject({ correctiveActionsTaken: 1 });
+    expect(refused.state.operation?.id).toBe("repair");
+    expect(refused.state.operationHistory.some((entry) => entry.id === "repair-2")).toBe(false);
+
+    // A separate unit of another kind keeps its own allowance.
+    const other = step(state, {
+      type: "recover",
+      incidentId: "incident",
+      actionLimit: 3,
+      operationId: "repair-3",
+      unit: service,
+      recoveryLimits: limits,
+      activeElapsedMs: null,
+    });
+    expect(other.outcome).toBe("accepted");
+    expect(other.state.incident?.units).toEqual([
+      { key: process.key, kind: "process", actions: 1, lastActionAtMs: 100 },
+      { key: service.key, kind: "service", actions: 1, lastActionAtMs: 100 },
+    ]);
+  });
+
+  it("refuses a recovery outside the bounded window without erasing the incident", () => {
+    const state = step(completed(), { type: "drained", operationId: "op" }).state;
+    const windowed = {
+      type: "recover",
+      incidentId: "incident",
+      actionLimit: 3,
+      operationId: "repair",
+      unit: null,
+      recoveryLimits: { maxProcessRestarts: 2, maxServiceRestarts: 1, windowSeconds: 600 },
+      activeElapsedMs: 900_000,
+    } as const;
+    const refused = stepReliability(state, { ...reliabilityFence(state), ...windowed }, 1_000);
+    expect(refused.outcome).toBe("blocked");
+    expect(refused.reason).toContain("window-closed");
+    expect(refused.state.incident).toBeNull();
+    expect(refused.state.operation?.id).toBe("op");
+  });
   it.each([
     "epoch",
     "runtime",
@@ -126,6 +202,7 @@ describe("reliability transitions", () => {
     const state = step(completed(), { type: "drained", operationId: "op" }).state;
     const recovery = {
       type: "recover",
+      ...recoveryClaim,
       incidentId: "incident",
       actionLimit: 2,
       operationId: "repair",
@@ -295,6 +372,7 @@ describe("reliability transitions", () => {
     expect(
       step(changed, {
         type: "recover",
+        ...recoveryClaim,
         incidentId: "incident",
         actionLimit: 2,
         operationId: "retry",
@@ -367,17 +445,21 @@ describe("reliability transitions", () => {
     let state = step(completed(), { type: "drained", operationId: "op" }).state;
     const recover = {
       type: "recover",
+      ...recoveryClaim,
       incidentId: "incident",
       actionLimit: 1,
       operationId: "repair",
     } as const;
     state = step(state, recover).state;
+    // The claim charges the incident in the same write that opens recovery, so a
+    // preparation that never dispatches still spends the bound it consumed.
+    expect(state.incident?.correctiveActionsTaken).toBe(1);
     state = step(state, { type: "observation", observation: healthy }).state;
     expect(state.phase).toBe("recovering");
     state = step(state, { type: "epoch", nextEpoch: 2 }).state;
     state = step(state, { type: "admission", result: "admitted" }).state;
     state = step(state, { type: "dispatch" }).state;
-    expect(state.incident?.correctiveActionsTaken).toBe(0);
+    expect(state.incident?.correctiveActionsTaken).toBe(1);
     state = step(state, { type: "dispatch-persisted", operationId: "repair" }).state;
     expect(state.incident?.correctiveActionsTaken).toBe(1);
     expect(step(state, { type: "rearm", incidentId: "incident" }).outcome).toBe("blocked");
@@ -406,6 +488,7 @@ describe("reliability transitions", () => {
     };
     const decision = step(state, {
       type: "recover",
+      ...recoveryClaim,
       incidentId: "incident",
       actionLimit: 2,
       operationId: "repair",
@@ -424,6 +507,7 @@ describe("reliability transitions", () => {
     let state = step(completed(), { type: "drained", operationId: "op" }).state;
     state = step(state, {
       type: "recover",
+      ...recoveryClaim,
       incidentId: "incident",
       actionLimit: 2,
       operationId: "repair",
@@ -431,6 +515,7 @@ describe("reliability transitions", () => {
     state.operation = { ...state.operation!, drained: true, status: "NOT_STARTED" };
     const decision = step(state, {
       type: "recover",
+      ...recoveryClaim,
       incidentId: "incident",
       actionLimit: 2,
       operationId: "repair-2",
@@ -452,6 +537,7 @@ describe("reliability transitions", () => {
     expect(
       step(state, {
         type: "recover",
+        ...recoveryClaim,
         incidentId: "incident",
         actionLimit: 2,
         operationId: "repair",
@@ -527,6 +613,7 @@ describe("manual operation lifecycle", () => {
     expect(
       step(drained(), {
         type: "recover",
+        ...recoveryClaim,
         operationId: "repair",
         incidentId: "incident",
         actionLimit: 1,
@@ -1151,6 +1238,7 @@ describe("capacity-managed recovery history rollover", () => {
 
   const recover = {
     type: "recover",
+    ...recoveryClaim,
     incidentId: "incident",
     actionLimit: 3,
     operationId: "repair",
@@ -1173,10 +1261,11 @@ describe("capacity-managed recovery history rollover", () => {
       drained: false,
     });
     expect(accepted.state.phase).toBe("recovering");
-    // The incident opens with its full budget; a preparation consumes nothing.
-    expect(accepted.state.incident).toEqual({
+    // The incident opens at its configured ceiling and the accepted recovery
+    // claims its first action in the same write.
+    expect(accepted.state.incident).toMatchObject({
       id: "incident",
-      correctiveActionsTaken: 0,
+      correctiveActionsTaken: 1,
       actionLimit: 3,
     });
     // Rollover fences the environment with the runtime generation and keeps the
@@ -1329,7 +1418,12 @@ describe("capacity-managed recovery history rollover", () => {
   });
 
   it("preserves pending and completed deduplication before any retirement", () => {
-    const incident = { type: "recover", incidentId: "incident", actionLimit: 3 } as const;
+    const incident = {
+      type: "recover",
+      ...recoveryClaim,
+      incidentId: "incident",
+      actionLimit: 3,
+    } as const;
     const full = saturatedManaged();
     full.incident = { id: "incident", correctiveActionsTaken: 0, actionLimit: 3 };
     full.phase = "recovering";

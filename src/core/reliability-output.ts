@@ -130,6 +130,15 @@ export function projectReliability(state: ReliabilityState, consumerId: string, 
           id: state.incident.id,
           correctiveActionsTaken: state.incident.correctiveActionsTaken,
           actionLimit: state.incident.actionLimit,
+          startedAtMs: state.incident.startedAtMs ?? null,
+          // Opaque capability keys with bounded per-kind action counts; the
+          // projection never carries a selector or process identity.
+          units: (state.incident.units ?? []).map((unit) => ({
+            key: unit.key,
+            kind: unit.kind,
+            actions: unit.actions,
+            lastActionAtMs: unit.lastActionAtMs,
+          })),
         }
       : null,
   };

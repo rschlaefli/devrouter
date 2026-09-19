@@ -2,9 +2,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { controllerCapability } from "../controller-monitor";
 import type { ReliabilityEvent } from "../reliability-contract";
 import type { ReliabilityIdentity } from "../reliability-operation-store";
 import type { LifecycleWorkerRequest } from "../reliability-worker";
+
+/** Operator-policy bounds and plan selectors every recovery preparation carries. */
+const recoveryBudget = {
+  recoveryLimits: { maxProcessRestarts: 2, maxServiceRestarts: 1, windowSeconds: 600 },
+  recoverySelectors: { process: [] as string[], service: [] as string[] },
+  activeElapsedMs: null as number | null,
+};
 
 const fixture = vi.hoisted(() => ({
   initialAbsence: vi.fn(),
@@ -2729,6 +2737,7 @@ describe("bounded recovery preparation", () => {
         journalRevision: before.revision,
         actionLimit: 3,
         failedCapabilities: ["app-dead"],
+        ...recoveryBudget,
         profile: "full",
         incidentId: "rollover-incident",
       });
@@ -2752,10 +2761,12 @@ describe("bounded recovery preparation", () => {
       intentRevision: before.state.intentRevision,
       runtimeGeneration: before.state.runtimeGeneration + 1,
     });
-    expect(after.state.incident).toEqual({
+    // The accepted recovery claims one action in the same transaction that opens
+    // the incident; rollover itself never rewrites the budget.
+    expect(after.state.incident).toMatchObject({
       id: "rollover-incident",
       actionLimit: 3,
-      correctiveActionsTaken: 0,
+      correctiveActionsTaken: 1,
     });
     expect(after.revision).toBe(before.revision + 1);
     expect(after.capacity).toEqual(before.capacity);
@@ -2771,6 +2782,78 @@ describe("bounded recovery preparation", () => {
     expect(after.result).toEqual(before.result);
     expect(after.startupWitness).toEqual(before.startupWitness);
     expect(after.capacity).toEqual(before.capacity);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
+  it("claims the plan-attributed action unit in the recovery transaction", async () => {
+    const { lifecycle, store, identity, controller } = await enrolledRecoveryFixture();
+    const before = store.readReliabilityOperation(identity)!;
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "unit-request",
+      operationId: "unit-operation",
+      workerId: "unit-worker",
+    });
+    const prepared = lifecycle.prepareRecoveryLifecycleOperation({
+      identity,
+      controller,
+      policyRevision: 1,
+      journalRevision: before.revision,
+      actionLimit: 3,
+      failedCapabilities: ["runtime", controllerCapability("app:web")],
+      recoveryLimits: { maxProcessRestarts: 2, maxServiceRestarts: 1, windowSeconds: 600 },
+      recoverySelectors: { process: ["app:web"], service: ["app:blob"] },
+      activeElapsedMs: null,
+      profile: "full",
+      incidentId: "unit-incident",
+    });
+    expect(prepared).toBeDefined();
+    const after = store.readReliabilityOperation(identity)!;
+    expect(after.state.incident).toMatchObject({
+      id: "unit-incident",
+      correctiveActionsTaken: 1,
+      units: [{ key: controllerCapability("app:web"), kind: "process", actions: 1 }],
+    });
+  });
+
+  it("refuses a spent action unit without changing the environment", async () => {
+    const { lifecycle, store, identity, controller } = await enrolledRecoveryFixture();
+    const key = controllerCapability("app:web");
+    store.updateReliabilityOperation(identity, (record) => {
+      record.state.incident = {
+        id: "unit-incident",
+        correctiveActionsTaken: 1,
+        actionLimit: 3,
+        startedAtMs: Date.now(),
+        units: [{ key, kind: "process", actions: 2, lastActionAtMs: Date.now() }],
+      };
+      record.state.phase = "recovering";
+      record.state.desired = "running";
+    });
+    const before = store.readReliabilityOperation(identity)!;
+    fixture.newLifecycleIds.mockReturnValue({
+      requestId: "unit-request",
+      operationId: "unit-operation",
+      workerId: "unit-worker",
+    });
+    expect(
+      lifecycle.prepareRecoveryLifecycleOperation({
+        identity,
+        controller,
+        policyRevision: 1,
+        journalRevision: before.revision,
+        actionLimit: 3,
+        failedCapabilities: [controllerCapability("app:web")],
+        recoveryLimits: { maxProcessRestarts: 2, maxServiceRestarts: 1, windowSeconds: 600 },
+        recoverySelectors: { process: ["app:web"], service: ["app:blob"] },
+        activeElapsedMs: null,
+        profile: "full",
+        incidentId: "unit-incident",
+      }),
+    ).toBeUndefined();
+    const after = store.readReliabilityOperation(identity)!;
+    expect(after.state.incident).toEqual(before.state.incident);
+    expect(after.state.operation).toEqual(before.state.operation);
+    expect(after.state.operationHistory).toEqual(before.state.operationHistory);
     expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
   });
 
@@ -2798,6 +2881,7 @@ describe("bounded recovery preparation", () => {
         journalRevision: before.revision,
         actionLimit: 3,
         failedCapabilities: ["app-dead"],
+        ...recoveryBudget,
         profile: "full",
         incidentId: "rollover-incident",
       }),
@@ -2845,6 +2929,7 @@ describe("bounded recovery preparation", () => {
       journalRevision: store.readReliabilityOperation(identity)!.revision,
       actionLimit: 3,
       failedCapabilities: ["app-dead"],
+      ...recoveryBudget,
       profile: "full",
       incidentId: "incident-test",
     });
@@ -2878,6 +2963,7 @@ describe("bounded recovery preparation", () => {
       journalRevision: store.readReliabilityOperation(identity)!.revision,
       actionLimit: 3,
       failedCapabilities: ["app-dead"],
+      ...recoveryBudget,
       profile: "full",
       incidentId: "incident-test",
     });
@@ -2896,6 +2982,7 @@ describe("bounded recovery preparation", () => {
       journalRevision: store.readReliabilityOperation(identity)!.revision,
       actionLimit: 3,
       failedCapabilities: ["app-dead"],
+      ...recoveryBudget,
       profile: "full",
       incidentId: "incident-test",
     });
@@ -2917,6 +3004,7 @@ describe("bounded recovery preparation", () => {
         journalRevision: store.readReliabilityOperation(identity)!.revision,
         actionLimit: 3,
         failedCapabilities: ["app-dead"],
+        ...recoveryBudget,
         profile: "full",
         incidentId: "incident-test",
       }),
@@ -2934,6 +3022,7 @@ describe("bounded recovery preparation", () => {
         journalRevision: before.revision + 1,
         actionLimit: 3,
         failedCapabilities: ["app-dead"],
+        ...recoveryBudget,
         profile: "full",
         incidentId: "incident-test",
       }),

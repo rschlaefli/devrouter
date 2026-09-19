@@ -39,10 +39,30 @@ export type ReliabilityOperation = {
   exitCode: number | null;
 };
 
+/**
+ * Durable per-action-unit history inside one incident. The key stays the opaque
+ * capability hash the controller delivered; the kind only selects the bounded
+ * per-kind limit that applies.
+ */
+export type ReliabilityIncidentUnit = {
+  key: string;
+  kind: "process" | "service";
+  actions: number;
+  lastActionAtMs: number;
+};
+
 export type ReliabilityIncident = {
   id: string;
   correctiveActionsTaken: number;
   actionLimit: number;
+  /**
+   * Wall-clock start of the bounded correction window. Absent in records written
+   * before the field existed; those keep their counters and start the window on
+   * their first later action.
+   */
+  startedAtMs?: number;
+  /** Bounded, key-unique per-unit history. Absent in records written before it existed. */
+  units?: ReliabilityIncidentUnit[];
 };
 
 export type ReliabilityState = ReliabilityFence & {
@@ -117,7 +137,26 @@ export type ReliabilityEvent = ReliabilityFence &
     | { type: "stop-proof"; workloadsStopped: boolean; routesRemoved: boolean }
     | { type: "epoch"; nextEpoch: number }
     | { type: "runtime"; nextGeneration: number }
-    | { type: "recover"; incidentId: string; actionLimit: number; operationId: string }
+    | {
+        type: "recover";
+        incidentId: string;
+        actionLimit: number;
+        operationId: string;
+        /**
+         * Action unit the lifecycle layer attributed to the producing failed
+         * capability. Null when the prepared plan cannot attribute it, in which
+         * case only the aggregate ceiling bounds the action.
+         */
+        unit: { key: string; kind: "process" | "service" } | null;
+        /** Bounded per-kind limits and window from the operator policy. */
+        recoveryLimits: {
+          maxProcessRestarts: number;
+          maxServiceRestarts: number;
+          windowSeconds: number;
+        };
+        /** Capacity-wait-excluded active duration since the incident start; null when unobservable. */
+        activeElapsedMs: number | null;
+      }
     | { type: "rearm"; incidentId: string }
   );
 
@@ -181,6 +220,16 @@ function validOperation(value: unknown): boolean {
       "COMPLETION_UNKNOWN",
     ]) &&
     (value.status === "COMPLETED" ? isReliabilityCounter(value.exitCode) : value.exitCode === null)
+  );
+}
+
+function validIncidentUnit(value: unknown): boolean {
+  return (
+    record(value) &&
+    isReliabilityId(value.key) &&
+    (value.kind === "process" || value.kind === "service") &&
+    isReliabilityCounter(value.actions) &&
+    isReliabilityCounter(value.lastActionAtMs)
   );
 }
 
@@ -278,7 +327,13 @@ export function assertReliabilityState(value: unknown): asserts value is Reliabi
         isReliabilityCounter(value.incident.correctiveActionsTaken) &&
         isReliabilityCounter(value.incident.actionLimit) &&
         value.incident.actionLimit > 0 &&
-        value.incident.correctiveActionsTaken <= value.incident.actionLimit));
+        value.incident.correctiveActionsTaken <= value.incident.actionLimit &&
+        (value.incident.startedAtMs === undefined ||
+          isReliabilityCounter(value.incident.startedAtMs)) &&
+        (value.incident.units === undefined ||
+          (boundedArray(value.incident.units) &&
+            uniqueIds(value.incident.units, "key") &&
+            value.incident.units.every(validIncidentUnit)))));
   if (!valid) throw new Error("Invalid reliability state.");
 }
 

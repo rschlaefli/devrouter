@@ -15,6 +15,13 @@ type Input = ReliabilityEvent extends infer Event
 
 const consumer = { id: "manual-cli", requiredCapabilities: [], pinned: false };
 
+/** Operator-policy bounds and plan attribution every recovery event carries. */
+const recoveryClaim = {
+  unit: null,
+  recoveryLimits: { maxProcessRestarts: 2, maxServiceRestarts: 1, windowSeconds: 600 },
+  activeElapsedMs: null,
+} as const;
+
 function step(state: ReliabilityState, event: Input, nowMs = 100) {
   return stepReliability(
     state,
@@ -232,19 +239,22 @@ describe("reliability journal liveness under a saturated cap", () => {
       const operationId = `managed-recovery-${attempt}`;
       const recovery = step(state, {
         type: "recover",
+        ...recoveryClaim,
         incidentId: "incident",
         actionLimit: attempt === 0 ? 3 : 9,
         operationId,
       });
       expect(recovery.outcome).toBe("accepted");
       expect(recovery.state.operationHistory).toHaveLength(128);
-      expect(recovery.state.incident?.correctiveActionsTaken).toBe(attempt);
+      expect(recovery.state.incident?.correctiveActionsTaken).toBe(attempt + 1);
       const admitted = step(recovery.state, { type: "admission", result: "admitted" });
       state = finish(admitted.state, operationId);
       expect(state.incident).toEqual({
         id: "incident",
         actionLimit: 3,
         correctiveActionsTaken: attempt + 1,
+        startedAtMs: 100,
+        units: [],
       });
       expect(state.operationHistory).toHaveLength(128);
     }

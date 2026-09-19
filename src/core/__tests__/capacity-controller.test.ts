@@ -20,6 +20,7 @@ const fixture = vi.hoisted(() => ({
   settle: vi.fn(),
   evidence: vi.fn(),
   config: vi.fn(),
+  runtimeConfig: vi.fn(),
   charge: vi.fn(),
   enqueue: vi.fn(),
   list: vi.fn(),
@@ -71,7 +72,10 @@ vi.mock("../controller-binding", async (original) => ({
   ...(await original<typeof import("../controller-binding")>()),
   readControllerEvidence: fixture.evidence,
 }));
-vi.mock("../repo-config", () => ({ loadRepoConfig: fixture.config }));
+vi.mock("../repo-config", () => ({
+  loadRepoConfig: fixture.config,
+  loadRuntimeConfig: fixture.runtimeConfig,
+}));
 vi.mock("../capacity-request", () => ({ capacityRequest: fixture.charge }));
 vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.policy }));
 vi.mock("../capacity-enrollment", () => ({
@@ -103,6 +107,7 @@ beforeEach(() => {
     domains: { host: { kind: "host" }, runtime: submissionRuntime },
   });
   fixture.list.mockReturnValue([]);
+  fixture.runtimeConfig.mockReturnValue({ config: { apps: [] } });
   fixture.incarnation.mockReturnValue({ store: "store", epoch: 1 });
   fixture.snapshot.mockReturnValue({ revision: 7, reservations: [], pools: [] });
   fixture.merge.mockReturnValue({ changed: true, revision: 8 });
@@ -222,11 +227,42 @@ function recoveryFixture() {
     recovery: {
       enabled: true,
       maxCorrectiveActions: 3,
+      maxProcessRestarts: 2,
+      maxServiceRestarts: 1,
+      windowSeconds: 600,
       observationSeconds: 30,
       resumeDwellSeconds: 300,
     },
     enrollments: [recoveryEnrollment],
     domains: { host: { kind: "host" }, runtime: recoveryRuntime },
+  });
+  fixture.runtimeConfig.mockReturnValue({
+    config: {
+      apps: [
+        {
+          name: "admin",
+          kind: "app",
+          host: "admin.fixture.localhost",
+          protocol: "http",
+          runtime: "proxy",
+          upstream: "fixture-postgres:8080",
+          readiness: { path: "/health" },
+        },
+        {
+          name: "web",
+          kind: "app",
+          host: "web.fixture.localhost",
+          protocol: "http",
+          runtime: "proxy",
+          upstream: "fixture-app:3000",
+          readiness: { path: "/health" },
+        },
+      ],
+      managedRuntime: {
+        devcontainer: { baseServices: ["postgres"], profileServices: [] },
+        processes: ["app"],
+      },
+    },
   });
   fixture.resolve.mockResolvedValue({
     environment,
@@ -991,6 +1027,8 @@ it("opens a bounded recovery for a failed capability when policy enables it", as
       actionLimit: 3,
       failedCapabilities: ["app-dead"],
       profile: "full",
+      recoveryLimits: { maxProcessRestarts: 2, maxServiceRestarts: 1, windowSeconds: 600 },
+      recoverySelectors: { process: ["app:web"], service: ["app:admin"] },
     }),
   );
   expect(fixture.enqueue).toHaveBeenCalledWith(
@@ -1006,6 +1044,24 @@ it("opens a bounded recovery for a failed capability when policy enables it", as
         hostChargeCeilingBytes: 60,
       },
     },
+  );
+});
+
+it("keeps the aggregate ceiling when the repository configuration is unreadable", async () => {
+  recoveryFixture();
+  fixture.runtimeConfig.mockImplementation(() => {
+    throw new Error("synthetic unreadable configuration");
+  });
+
+  await controller().recover(
+    environment,
+    ["app-dead"],
+    new AbortController().signal,
+    recoveryProof(),
+  );
+
+  expect(fixture.prepareRecovery).toHaveBeenCalledWith(
+    expect.objectContaining({ recoverySelectors: { process: [], service: [] } }),
   );
 });
 

@@ -1,3 +1,4 @@
+import { claimRecoveryUnit } from "./recovery-budget";
 import {
   assertReliabilityState,
   isReliabilityCounter,
@@ -133,7 +134,17 @@ function assertReliabilityEvent(value: unknown): asserts value is ReliabilityEve
         isReliabilityId(value.incidentId) &&
         isReliabilityCounter(value.actionLimit) &&
         value.actionLimit > 0 &&
-        isReliabilityId(value.operationId);
+        isReliabilityId(value.operationId) &&
+        (value.unit === null ||
+          (record(value.unit) &&
+            isReliabilityId(value.unit.key) &&
+            (value.unit.kind === "process" || value.unit.kind === "service"))) &&
+        record(value.recoveryLimits) &&
+        isReliabilityCounter(value.recoveryLimits.maxProcessRestarts) &&
+        isReliabilityCounter(value.recoveryLimits.maxServiceRestarts) &&
+        isReliabilityCounter(value.recoveryLimits.windowSeconds) &&
+        value.recoveryLimits.windowSeconds > 0 &&
+        (value.activeElapsedMs === null || isReliabilityCounter(value.activeElapsedMs));
       break;
     case "rearm":
       valid = isReliabilityId(value.incidentId);
@@ -158,7 +169,10 @@ function cloneOperation(operation: ReliabilityOperation): ReliabilityOperation {
 }
 
 function cloneIncident(incident: ReliabilityIncident): ReliabilityIncident {
-  return { ...incident };
+  return {
+    ...incident,
+    ...(incident.units ? { units: incident.units.map((unit) => ({ ...unit })) } : {}),
+  };
 }
 
 function cloneState(state: ReliabilityState): ReliabilityState {
@@ -589,21 +603,7 @@ function handleDispatchPersisted(
       `dispatch persistence requires desired 'running' (desired='${state.desired}'); the operation outcome is unknown.`,
     );
   }
-  if (
-    state.phase === "recovering" &&
-    state.incident !== null &&
-    state.incident.correctiveActionsTaken >= state.incident.actionLimit
-  ) {
-    return unchanged(state, "blocked");
-  }
-
   state.operation = { ...state.operation, status: "DISPATCH_RECORDED", exitCode: null };
-  if (state.phase === "recovering" && state.incident !== null) {
-    state.incident = {
-      ...state.incident,
-      correctiveActionsTaken: state.incident.correctiveActionsTaken + 1,
-    };
-  }
   return transition(state, "accepted", [effect(state, "launch", event.operationId)]);
 }
 
@@ -894,6 +894,7 @@ function handleGenerationChange(
 function handleRecover(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "recover" }>,
+  nowMs: number,
 ): ReliabilityTransition {
   if (state.executionPolicy === "manual" || state.desired !== "running")
     return unchanged(state, "blocked");
@@ -970,13 +971,29 @@ function handleRecover(
       `journal holds ${state.operationHistory.length} entries and every retirable entry is the current operation or the latest ensure.`,
     );
 
-  if (createsIncident) {
-    state.incident = {
-      id: event.incidentId,
-      correctiveActionsTaken: 0,
-      actionLimit: event.actionLimit,
-    };
-  }
+  // Claim the action unit and the aggregate counter in this same durable write,
+  // immediately before the mutation the recovery schedules. A refused claim
+  // leaves the incident, history and operation slot untouched.
+  const incident = createsIncident
+    ? {
+        id: event.incidentId,
+        correctiveActionsTaken: 0,
+        actionLimit: event.actionLimit,
+      }
+    : (state.incident as ReliabilityIncident);
+  const claim = claimRecoveryUnit({
+    incident,
+    limits: event.recoveryLimits,
+    unit: event.unit ?? undefined,
+    nowMs,
+    activeElapsedMs: event.activeElapsedMs,
+  });
+  if (!claim.ok)
+    return blocked(
+      state,
+      `recovery budget refused the action (${claim.reason})${event.unit ? ` for ${event.unit.kind} unit ${event.unit.key}` : ""}.`,
+    );
+  state.incident = claim.incident;
 
   if (retired !== -1) state.operationHistory.splice(retired, 1);
   state.runtimeGeneration = runtimeGeneration;
@@ -1079,7 +1096,7 @@ function applyReliabilityEvent(
     case "runtime":
       return handleGenerationChange(next, "runtime", event.nextGeneration);
     case "recover":
-      return handleRecover(next, event);
+      return handleRecover(next, event, nowMs);
     case "rearm":
       return handleRearm(next, event);
   }
