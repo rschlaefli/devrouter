@@ -367,6 +367,33 @@ ownership; all five findings were accepted in this revision. The same planner ap
 only. Current next action: implement the internally hardened
 positive legacy-journal loss detection and continue exact-set parking and full-roadmap integration. Historical ownership and live qualification remain open.
 
+### Pruned managed population stop (delivered)
+
+A consumer checkout proved the next blocking class: Docker pruning removed every
+managed container while its Devsy registration survived. `devrouter stop`
+re-proved the retained population, found it empty, and refused; the journal stayed
+in `stopping`, so admission kept refusing `ensure` and neither command could
+advance. Recreating the containers cannot recover this, because a recreate yields
+new container IDs that the same identity proof refuses, and `stop --delete`
+worked only by discarding the registration.
+
+Delivered at `90c4188`: `proveManagedStop` settles an unchanged registration whose
+saved containers, checkout container population and provider runner are positively
+absent across two stable observations as proven-absent. The pinned endpoint and
+daemon must still match the baseline, the provider must still select the local
+Docker command, and the retained generation must be unchanged across inspection.
+Every other combination keeps the retained proof and its refusal, including a
+partially surviving population, a replacement with a foreign ID and a primary
+checkout. The recorded baseline and interrupted history remain; only routes are
+freed, and the result reports `runtimeAbsent` without a provider mutation.
+
+Regression evidence: 13 consequential tests in `managed-stop-recovery.test.ts`
+cover the pruned positive plus eleven refusals. Full suite 2585 tests in 143 files
+passes with two workers; typecheck, repository Biome, Knip, docs policy, knowledge
+validation, build and the isolated packed CLI smoke are clean. This is source
+evidence only: no consumer runtime was touched, so no affected checkout is
+reported as recovered.
+
 ### Scoped recovery budget contract (derived delta, pending implementation)
 
 This is the named action-scope contract the next slice requires before coding.

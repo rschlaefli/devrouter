@@ -452,7 +452,15 @@ external teardown that removed the registration is the symmetric absence case:
 when both provider registries positively lack the ID and path, Devsy reports the
 runtime `not-found`, and the compose, runner, and workspace populations are
 empty across two stable observations, the stop completes as proven-absent and
-only routes are freed. If provider stop
+only routes are freed. An external prune that removed every workload while the
+registration survives is the same absence case with an unchanged owner: stop
+completes as proven-absent only when the recorded identity still matches exactly,
+the pinned endpoint and daemon still match, the provider still selects the local
+Docker command, the saved container IDs, the checkout container population and
+the provider runner are positively absent across two stable observations, and the
+retained generation is unchanged. Every other combination keeps the
+retained-population refusal, so a surviving workload or an adopted replacement is
+never reported as a completed stop. If provider stop
 fails, eligible residual cleanup may still run, but its original failure remains
 nonzero and routes remain intact. This does not change legacy or delete paths.
 
