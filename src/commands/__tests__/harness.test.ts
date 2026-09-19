@@ -227,6 +227,9 @@ describe("runHarnessCommand gate", () => {
         observe,
         claim,
         settle,
+        // A fixed clock keeps the recorded wait deterministic; the wall clock
+        // can cross a millisecond boundary while the loop runs.
+        now: () => 500,
         sleep: async () => {},
       }),
     );
