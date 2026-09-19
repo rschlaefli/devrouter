@@ -600,6 +600,57 @@ source builds. Evidence: 2616 tests pass, and synthetic doctor runs warned for
 0.0.79 installs on this host. Harness enforcement (W9) remains the next slice
 toward 0.1.0.
 
+### Harness gate and hook-contract qualification (delivered source)
+
+Slice 5 opened with the required harness API qualification. The installed Claude
+Code 2.1.278 was exercised against a local mock Messages API (its OAuth token is
+expired, so a live model turn needs the user to re-authenticate), with a real
+`PreToolUse` hook process. Five findings, each reproduced:
+
+1. A `PreToolUse` hook fires even for a pre-approved tool
+   (`--allowedTools Bash(echo:*)`), and its `deny` overrides that pre-approval.
+2. A sleeping hook blocks the tool call with no model turns: three seconds of
+   hook sleep produced a 3.7s gap between the two API calls of the turn.
+3. `permissionDecision: "deny"` prevents execution and the reason string reaches
+   the model as that tool's result.
+4. The hook payload carries `session_id`, `prompt_id`, `tool_use_id`, `cwd`,
+   `tool_name`, `tool_input` and `permission_mode`.
+5. Hook `timeout` is not a gate: a hook that overran its configured 5s timeout
+   was not honored, and the tool proceeded under the harness's normal permission
+   rules. The gate must therefore finish inside its hook timeout, and the bundled
+   snippet sets a timeout above the wait budget.
+
+Branch `rs/harness-gate` adds `devrouter harness gate`, the deterministic
+enforced-wait boundary those findings select. It observes the exact checkout's
+durable phase through the existing reliability journal, defers inside the hook
+process under a bounded budget, allows the tool once the phase settles, refuses
+once with recovery guidance when the budget is exhausted, always passes lifecycle
+commands through, and fails open when journal evidence is unreadable because
+blocking agent tooling on unreadable devrouter state is the failure mode this
+boundary exists to remove. Focused coverage is 16 unit tests: the phase table,
+deferral until settlement, budget exhaustion, a zero budget, unknown evidence,
+the repo-root walk, passthrough, and both output contracts.
+
+Live chain proof (2026-09-19) wired that build as the real `PreToolUse` hook of
+Claude Code 2.1.278 running against the local mock Messages API, with a fixture
+checkout and a test-owned journal written through the reliability store. Four
+scenarios passed: a settled journal allowed the tool and the model turn finished
+in 2.2s; a `stopping` journal that settled after 6s under the 30s budget
+returned `deferred-allow` ("settled after 6.0s") with the tool executing
+afterwards and no model turns consumed while the hook blocked (the API gap grew
+to 6.3s with the same four requests); a `starting` journal under a 5s budget
+returned one `deny` naming the phase, which reached the model as an errored
+tool result with no execution; and a deleted journal allowed the tool, proving
+the fail-open path end to end. The proof also caught that the progress line
+announced a deferral for the already-settled `stable` phase; the announcement
+now fires only for transitional phases. Reproducible assets sit in
+`/private/tmp/dr-harness-probe/chain/` (`run-gate-chain.sh`, `journal.mjs`,
+`hook-gate.sh`, `settings-gate.json`) and need no credentials.
+
+Cancellation fencing, continuation dedup, a second harness and the live
+two-environment Q36 journey remain open. The mock Messages API qualifier path
+stays reusable for them without credentials.
+
 ### Active diagnostic deltas
 
 Main owns `src/core/workspace-ensure.ts`, its existing test suite, the affected failure-rule paragraph in `docs/knowledge/managed-environment-lifecycle.md`, and the unreleased changelog entry. Add fixed

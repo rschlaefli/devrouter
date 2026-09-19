@@ -1,0 +1,208 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { HarnessGateObservation } from "../../core/harness-gate";
+import { type HarnessGateDependencies, runHarnessCommand } from "../harness";
+
+function stdoutLines(): string[] {
+  return vi.mocked(process.stdout.write).mock.calls.map((call) => String(call[0]));
+}
+
+function lastStdoutJson(): Record<string, unknown> {
+  const lines = stdoutLines();
+  return JSON.parse(lines[lines.length - 1] ?? "{}") as Record<string, unknown>;
+}
+
+function hookPayload(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "pnpm test" },
+    cwd: "/repo",
+    ...overrides,
+  });
+}
+
+function dependencies(overrides: Partial<HarnessGateDependencies> = {}): HarnessGateDependencies {
+  return {
+    stdin: async () => hookPayload(),
+    observe: vi.fn((): HarnessGateObservation => ({ phase: "stable" })),
+    stderr: vi.fn(),
+    ...overrides,
+  };
+}
+
+describe("runHarnessCommand gate", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-harness-command-test-"));
+    vi.clearAllMocks();
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("prints the harness hook decision for a settled environment", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const observe = vi.fn((): HarnessGateObservation => ({ phase: "stable" }));
+    const stderr = vi.fn();
+
+    await runHarnessCommand(
+      "gate",
+      {},
+      undefined,
+      dependencies({ stdin: async () => hookPayload({ cwd: repoRoot }), observe, stderr }),
+    );
+
+    expect(lastStdoutJson()).toMatchObject({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        permissionDecisionReason: "devrouter: environment settled.",
+      },
+    });
+    expect(observe).toHaveBeenCalledWith(path.resolve(repoRoot));
+    const printed = stderr.mock.calls.map((call) => String(call[0]));
+    expect(printed.join("\n")).not.toContain("deferring");
+  });
+
+  it("defers while the environment is transitional and allows after it settles", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const phases = ["starting", "verifying", "stable"] as const;
+    let index = 0;
+    const observe = vi.fn(
+      (): HarnessGateObservation => ({ phase: phases[Math.min(index++, phases.length - 1)] }),
+    );
+    const stderr = vi.fn();
+
+    await runHarnessCommand(
+      "gate",
+      { json: true, waitBudgetMs: "30000" },
+      undefined,
+      dependencies({
+        stdin: async () => hookPayload({ cwd: repoRoot }),
+        observe,
+        stderr,
+        sleep: async () => {},
+      }),
+    );
+
+    expect(lastStdoutJson()).toMatchObject({
+      decision: "deferred-allow",
+      reason: "settled-after-wait",
+      observations: 3,
+      observedPhase: "stable",
+      checkout: path.resolve(repoRoot),
+    });
+    const printed = stderr.mock.calls.map((call) => String(call[0]));
+    expect(printed[0]).toContain("starting in progress");
+    expect(printed[0]).toContain("without model turns");
+  });
+
+  it("refuses once with recovery guidance when the budget is exhausted", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+
+    await runHarnessCommand(
+      "gate",
+      { waitBudgetMs: "1000" },
+      undefined,
+      dependencies({
+        stdin: async () => hookPayload({ cwd: repoRoot }),
+        observe: (): HarnessGateObservation => ({ phase: "stopping" }),
+        sleep: async () => {},
+      }),
+    );
+
+    const output = lastStdoutJson() as {
+      hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
+    };
+    expect(output.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain("still stopping");
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
+      "Do not retry automatically",
+    );
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("passes a devrouter lifecycle command through without observing", async () => {
+    const observe = vi.fn((): HarnessGateObservation => ({ phase: "stopping" }));
+
+    await runHarnessCommand(
+      "gate",
+      {},
+      undefined,
+      dependencies({
+        stdin: async () =>
+          hookPayload({ tool_input: { command: "pnpm devrouter ensure . --json" }, cwd: tmpDir }),
+        observe,
+      }),
+    );
+
+    expect(observe).not.toHaveBeenCalled();
+    expect(lastStdoutJson()).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "allow" },
+    });
+  });
+
+  it("allows an unmanaged checkout, an invalid payload and a missing directory", async () => {
+    const observe = vi.fn((): HarnessGateObservation => ({ phase: "stopping" }));
+
+    await runHarnessCommand(
+      "gate",
+      { json: true },
+      undefined,
+      dependencies({ stdin: async () => hookPayload({ cwd: tmpDir }), observe }),
+    );
+    expect(lastStdoutJson()).toMatchObject({ decision: "allow", reason: "unmanaged-checkout" });
+
+    await runHarnessCommand(
+      "gate",
+      { json: true },
+      undefined,
+      dependencies({ stdin: async () => "not json", observe }),
+    );
+    expect(lastStdoutJson()).toMatchObject({ decision: "allow", reason: "hook-payload-invalid" });
+
+    await runHarnessCommand(
+      "gate",
+      { json: true },
+      undefined,
+      dependencies({ stdin: async () => hookPayload({ cwd: "/does/not/exist" }), observe }),
+    );
+    expect(lastStdoutJson()).toMatchObject({ decision: "allow", reason: "unmanaged-checkout" });
+    expect(observe).not.toHaveBeenCalled();
+  });
+
+  it("gates non-shell tools through the same decision path", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const observe = vi.fn((): HarnessGateObservation => ({ phase: "idle" }));
+
+    await runHarnessCommand(
+      "gate",
+      {},
+      repoRoot,
+      dependencies({
+        stdin: async () => hookPayload({ tool_name: "Read", tool_input: { file_path: "a" } }),
+        observe,
+      }),
+    );
+
+    expect(observe).toHaveBeenCalledWith(path.resolve(repoRoot));
+    expect(lastStdoutJson()).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "allow" },
+    });
+  });
+});
