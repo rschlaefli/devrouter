@@ -16,7 +16,9 @@
 #               refused once with phase and recovery guidance, and never runs.
 #   neighbour - "neighbour" stays usable while "affected" is still transitional:
 #               its identical tool call is allowed immediately, with no wait and
-#               no change to the transitional checkout.
+#               no change to the transitional checkout. A separate bounded
+#               direct gate probe then proves the allowed call really observed a
+#               settled phase instead of a fail-open decision.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -360,6 +362,7 @@ const requests = read("api-requests-" + label + ".jsonl")
 const ledger = readJson("ledger-" + label + ".json") ?? {};
 const entries = Array.isArray(ledger.entries) ? ledger.entries : [];
 const entry = entries.find((candidate) => candidate.toolUseId === payload.tool_use_id);
+const gateProbe = readJson("neighbour-probe.json") ?? {};
 const affectedBefore = readJson("affected-before-" + label + ".json") ?? {};
 const affectedAfter = readJson("affected-after-" + label + ".json") ?? {};
 const neighbourBefore = readJson("neighbour-before-" + label + ".json") ?? {};
@@ -418,6 +421,11 @@ if (mode === "deferral") {
   check(entry?.state === "refused", "the continuation ledger recorded " + entry?.state);
   check(entry?.phase === "starting", "the gate observed " + entry?.phase);
   check(entry?.budgetMs === 3000, "the recorded budget was " + entry?.budgetMs + "ms");
+  check(Number(entry?.waitedMs) > 0, "the recorded wait was " + entry?.waitedMs + "ms");
+  check(
+    Number(transcript.duration_ms) >= Number(entry?.waitedMs ?? 0),
+    "the run (" + transcript.duration_ms + "ms) was shorter than the enforced wait (" + entry?.waitedMs + "ms)",
+  );
   check(denials.length === 1, "expected exactly one harness denial, saw " + denials.length);
   check(denials[0]?.tool_input?.command === probeCommand, "the denied call was " + JSON.stringify(denials[0]?.tool_input));
   check(!executed, "the refused tool call ran anyway");
@@ -434,6 +442,10 @@ if (mode === "deferral") {
   check(affectedAfter.phase === "starting", "the transitional checkout settled: " + affectedAfter.phase);
   check(affectedAfter.sha256 === affectedBefore.sha256, "the transitional checkout changed while the neighbour ran");
   check(affectedAfter.revision === affectedBefore.revision, "the transitional checkout advanced while the neighbour ran");
+  check(real(gateProbe.checkout ?? "") === real(neighbour), "the direct probe reported " + gateProbe.checkout + ", expected the neighbour checkout");
+  check(gateProbe.reason === "settled", "the direct probe reason was " + gateProbe.reason);
+  check(gateProbe.observedPhase === "stable", "the direct probe observed " + gateProbe.observedPhase);
+  check(Number(gateProbe.waitedMs) < 1000, "the direct probe waited " + gateProbe.waitedMs + "ms");
 } else {
   failures.push("unknown scenario: " + mode);
 }
@@ -461,6 +473,15 @@ console.log(
     affectedPhase: affectedAfter.phase,
     neighbourPhase: neighbourAfter.phase,
     neighbourRecordStable: neighbourBefore.sha256 === neighbourAfter.sha256,
+    observedGate:
+      mode === "neighbour"
+        ? {
+            reason: gateProbe.reason,
+            observedPhase: gateProbe.observedPhase,
+            waitedMs: gateProbe.waitedMs,
+            checkout: gateProbe.checkout,
+          }
+        : null,
     checkoutsClean: dirtyAffected === "" && dirtyNeighbour === "",
     failures,
   }),
@@ -471,7 +492,8 @@ ASSERT_EOF
 journal() { HOME="$HOME_DIR" DR_JOURNEY_SRC="$ROOT/src/core" "$TSX" "$JOURNAL" "$@"; }
 
 run_scenario() {
-  local mode="$1" label="$2" budget="$3"
+  local mode="$1" budget="$2"
+  local label="$mode"
   local probe="$WORK/probe-$label.marker"
   local probe_command="echo GATE-OK >> $probe"
   local trace="$WORK/api-requests-$label.jsonl"
@@ -508,15 +530,20 @@ run_scenario() {
     settle_pid=$!
   fi
 
-  (
-    cd "$gated"
-    HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
-    DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
-    ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
-    "$CLAUDE" -p "Run exactly this command with the Bash tool, then stop: $probe_command" \
-      --output-format json --max-turns 3 --allowedTools "Bash(echo:*)" \
-      --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
-  )
+  # A harness failure must not end the run under set -e: the work directory is
+  # kept on failure on purpose, and the assertions print what actually happened.
+  if ! (
+    cd "$gated" &&
+      HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+      DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+      ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+      "$CLAUDE" -p "Run exactly this command with the Bash tool, then stop: $probe_command" \
+        --output-format json --max-turns 3 --allowedTools "Bash(echo:*)" \
+        --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+  ); then
+    echo "the harness run for '$label' failed; see $WORK/claude-$label.err" >&2
+    FAILED=1
+  fi
   if [ -n "$settle_pid" ]; then wait "$settle_pid" || true; fi
 
   journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
@@ -525,15 +552,24 @@ run_scenario() {
   git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
   git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
 
+  if [ "$mode" = "neighbour" ]; then
+    # The hook output hides the observed phase, so a fail-open decision also
+    # reads as "environment settled.". Ask the gate directly, with no tool id,
+    # for the same checkout and record its own phase evidence.
+    DR_PROBE_CWD="$NEIGHBOUR" "$NODE" -e 'process.stdout.write(JSON.stringify({hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:"echo GATE-PROBE"},cwd:process.env.DR_PROBE_CWD}))' > "$WORK/neighbour-probe-payload.json"
+    HOME="$HOME_DIR" "$NODE" "$DIST" harness gate --json --wait-budget-ms 1000 \
+      < "$WORK/neighbour-probe-payload.json" > "$WORK/neighbour-probe.json" 2> "$WORK/neighbour-probe.err" || FAILED=1
+  fi
+
   DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$mode" "$label" "$WORK" "$AFFECTED" "$NEIGHBOUR" "$probe_command" || FAILED=1
 }
 
 echo "--- scenario 1: a transitioning checkout defers the tool call until it settles"
-run_scenario deferral deferral 30000
+run_scenario deferral 30000
 echo "--- scenario 2: a transition that outlasts the budget is refused once, with recovery guidance"
-run_scenario refusal refusal 3000
+run_scenario refusal 3000
 echo "--- scenario 3: the neighbour checkout stays usable during that transition"
-run_scenario neighbour neighbour 5000
+run_scenario neighbour 5000
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
 echo "--- raw logs: $WORK"

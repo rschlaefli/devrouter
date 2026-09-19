@@ -746,18 +746,24 @@ print one JSON evidence line and exit nonzero on any failed assertion:
 2. Refusal. The gated checkout stays `starting` past a 3s budget. One `deny`
    named the phase and `devrouter status .`; the harness recorded exactly one
    denial carrying the probe command and never executed it; the entry settled
-   `refused` with `waitedMs` 2018; the checkout stayed `starting`.
+   `refused` with `waitedMs` 2021, and its positive recorded wait with a
+   harness `duration_ms` 3994 at or above it bound the refusal timing
+   independently; the checkout stayed `starting`.
 3. Protected neighbour. While `starting` persisted on the gated checkout, the
    identical tool call in the neighbour checkout was allowed immediately with
    'environment settled.', wrote its marker, and left the transitional record
-   byte-identical (same `sha256`, same revision).
+   byte-identical (same `sha256`, same revision). That output hides the
+   observed phase, so a separate bounded direct probe (`harness gate --json`,
+   no tool id) also had to report `reason: settled` and
+   `observedPhase: stable` for the neighbour checkout before the scenario
+   passed, so a fail-open decision could not pass as a settled one.
 
 The acceptance claim, zero agent infrastructure repair, is asserted rather than
 assumed: exactly one model-issued tool call, that call being the synthetic probe,
 empty `git status --porcelain` for both checkouts, the gate's ledger keyed by the
 exact checkout the harness reported, and the neighbour's lifecycle record hash and
 phase unchanged in every scenario. Evidence: three `failures: []` lines from the
-2026-09-20 run, with raw artifacts under `/private/tmp/dr-journey-run6`.
+2026-09-20 run, with raw artifacts under `/private/tmp/dr-journey-run7`.
 
 The journey found a real defect. The gate measured its wait from before its first
 observation, and resolving a checkout's identity against the provider registries
