@@ -3,10 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DiagnosticCheck } from "../types";
 import {
-  DEVSY_AGENT_SETUP_COMMAND,
   type DevsyAgentInspection,
   devsyAgentRepairSuggestion,
   inspectDevsyAgent,
+  SUPPORTED_DEVSY_RANGE,
 } from "./devsy-agent";
 import { compareSemver } from "./repo-config";
 import {
@@ -204,15 +204,17 @@ function devsyAgentCheck(inspection: DevsyAgentInspection): DiagnosticCheck {
     `source=${inspection.source}`,
     ...(inspection.installedVersion ? [`version=${inspection.installedVersion}`] : []),
     ...(inspection.asset ? [`asset=${inspection.asset.name}`] : []),
+    ...(inspection.manifestOrigin ? [`manifest=${inspection.manifestOrigin}`] : []),
+    `supported=${SUPPORTED_DEVSY_RANGE}`,
   ].join(", ");
   if (inspection.state === "ready") {
     if (inspection.drift) {
       return {
         id: "global.devsy-agent",
         level: "warn",
-        summary: `Devsy ${inspection.drift.installed} is newer than the Devrouter-verified ${inspection.drift.supported} agent, so the host CLI manages its own agent.`,
+        summary: `Devsy ${inspection.drift.installed} governs its own agent; Devrouter injects no agent for it.`,
         details,
-        suggestion: `Devrouter injects its verified agent only for Devsy ${inspection.drift.supported}. To use that pairing, install Devsy ${inspection.drift.supported} and run: ${DEVSY_AGENT_SETUP_COMMAND}`,
+        suggestion: `Run: devrouter setup --yes --workspace-runtime devsy to verify and inject the official Devsy ${inspection.drift.installed} agent for managed starts`,
       };
     }
     return {
@@ -225,9 +227,9 @@ function devsyAgentCheck(inspection: DevsyAgentInspection): DiagnosticCheck {
 
   const summary =
     inspection.state === "missing"
-      ? "Managed Devsy agent source is missing."
+      ? "No verified Devsy agent is cached for the installed Devsy version."
       : inspection.state === "stale"
-        ? "Devsy agent source is stale for this Devrouter release."
+        ? "The installed Devsy version is outside the supported range."
         : "Devsy agent source is invalid.";
   return {
     id: "global.devsy-agent",

@@ -6,8 +6,21 @@ import path from "node:path";
 import { createStderrWaitReporter, withFileLock } from "./file-lock";
 import { CACHE_DIR, DEVROUTER_HOME } from "./router";
 
-export const SUPPORTED_DEVSY_VERSION = "1.16.2";
+/**
+ * Devrouter injects the official Devsy Linux agent instead of letting a cold
+ * start discover it. The committed manifest pins the release whose assets were
+ * reviewed in this repository; other official releases inside the supported
+ * range are resolved from their published release metadata and verified
+ * against the SHA-256 digest GitHub reports for that asset.
+ */
+export const PINNED_DEVSY_AGENT_VERSION = "1.16.2";
+export const SUPPORTED_DEVSY_MIN_VERSION = "1.16.2";
+export const SUPPORTED_DEVSY_MAX_VERSION = "2.0.0";
+export const SUPPORTED_DEVSY_RANGE = `>=${SUPPORTED_DEVSY_MIN_VERSION} <${SUPPORTED_DEVSY_MAX_VERSION}`;
 export const DEVSY_AGENT_SETUP_COMMAND = "devrouter setup --yes --workspace-runtime devsy";
+export const DEVSY_RELEASE_TAG_PREFIX = "v";
+export const DEVSY_RELEASE_METADATA_BASE_URL =
+  "https://api.github.com/repos/devsy-org/devsy/releases/tags";
 
 export type DevsyAgentAsset = {
   githubAssetId: number;
@@ -44,6 +57,7 @@ export type DevsyAgentSource = "explicit" | "managed" | "host";
 
 /** A host CLI newer than the verified pin, together with the pin. */
 export type DevsyAgentDrift = { installed: string; supported: string };
+export type DevsyAgentManifestOrigin = "pinned" | "release";
 
 export type DevsyAgentInspection = {
   state: DevsyAgentState;
@@ -53,9 +67,17 @@ export type DevsyAgentInspection = {
   asset?: DevsyAgentAsset;
   installedVersion?: string;
   drift?: DevsyAgentDrift;
+  manifestOrigin?: DevsyAgentManifestOrigin;
+};
+
+export type DevsyAgentManifest = {
+  version: string;
+  origin: DevsyAgentManifestOrigin;
+  assets: readonly DevsyAgentAsset[];
 };
 
 export type PreparedDevsyAgent = {
+  version: string;
   binaryPath?: string;
   source: DevsyAgentSource;
   asset?: DevsyAgentAsset;
@@ -102,25 +124,239 @@ function parseVersion(output: string | undefined): string | undefined {
   )?.[1];
 }
 
-/** Compare numeric version cores; prerelease and build metadata compare equal. */
-function compareVersionCore(left: string, right: string): number {
-  const core = (value: string) =>
-    value
-      .split(/[-+]/, 1)[0]
-      .split(".")
-      .map((part) => Number.parseInt(part, 10));
-  const leftParts = core(left);
-  const rightParts = core(right);
-  for (let index = 0; index < 3; index += 1) {
-    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-    if (difference !== 0) return difference > 0 ? 1 : -1;
+type DevsySemver = { major: number; minor: number; patch: number; prerelease: string[] };
+
+function parseSemver(value: string): DevsySemver | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+    value.trim(),
+  );
+  if (!match) return undefined;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] ? match[4].split(".") : [],
+  };
+}
+
+function comparePrerelease(left: readonly string[], right: readonly string[]): number {
+  if (left.length === 0 && right.length === 0) return 0;
+  if (left.length === 0) return 1;
+  if (right.length === 0) return -1;
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const leftPart = left[index];
+    const rightPart = right[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    const leftNumeric = /^\d+$/.test(leftPart);
+    const rightNumeric = /^\d+$/.test(rightPart);
+    if (leftNumeric && rightNumeric) {
+      const difference = Number(leftPart) - Number(rightPart);
+      if (difference !== 0) return difference < 0 ? -1 : 1;
+      continue;
+    }
+    if (leftNumeric) return -1;
+    if (rightNumeric) return 1;
+    if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;
   }
   return 0;
 }
 
+function compareSemver(left: DevsySemver, right: DevsySemver): number {
+  for (const part of ["major", "minor", "patch"] as const) {
+    if (left[part] !== right[part]) return left[part] < right[part] ? -1 : 1;
+  }
+  return comparePrerelease(left.prerelease, right.prerelease);
+}
+
+/**
+ * A release inside `SUPPORTED_DEVSY_RANGE`. Prereleases count as supported when
+ * their version triple stays below the ceiling, so a stable Devsy bump never
+ * needs a Devrouter release while a next-major prerelease stays blocked.
+ */
+export function isSupportedDevsyVersion(version: string | undefined): boolean {
+  const parsed = version === undefined ? undefined : parseSemver(version);
+  const minimum = parseSemver(SUPPORTED_DEVSY_MIN_VERSION);
+  const maximum = parseSemver(SUPPORTED_DEVSY_MAX_VERSION);
+  if (!parsed || !minimum || !maximum) return false;
+  if (compareSemver(parsed, minimum) < 0) return false;
+  if (
+    parsed.prerelease.length > 0 &&
+    parsed.major === maximum.major &&
+    parsed.minor === maximum.minor &&
+    parsed.patch === maximum.patch
+  ) {
+    return false;
+  }
+  return compareSemver(parsed, maximum) < 0;
+}
+
+type DevsyAgentManifestRecord = {
+  version: 1;
+  devsyVersion: string;
+  origin: "release";
+  resolvedAt: string;
+  assets: DevsyAgentAsset[];
+};
+
+const DEVSY_AGENT_MANIFEST_FILE = "manifest.json";
+const DEVSY_AGENT_ASSET_NAMES = ["devsy-linux-arm64", "devsy-linux-amd64"] as const;
+
+function isDevsyAgentAsset(value: unknown): value is DevsyAgentAsset {
+  if (!value || typeof value !== "object") return false;
+  const asset = value as Record<string, unknown>;
+  return (
+    typeof asset.githubAssetId === "number" &&
+    Number.isSafeInteger(asset.githubAssetId) &&
+    typeof asset.name === "string" &&
+    typeof asset.size === "number" &&
+    Number.isSafeInteger(asset.size) &&
+    asset.size > 0 &&
+    typeof asset.sha256 === "string" &&
+    /^[0-9a-f]{64}$/.test(asset.sha256) &&
+    typeof asset.url === "string" &&
+    asset.url.startsWith("https://")
+  );
+}
+
+/** Machine-local verified manifest for one resolved Devsy release. */
+export function devsyAgentManifestPath(cacheRoot: string, devsyVersion: string): string {
+  return path.join(cacheRoot, `v${devsyVersion}`, DEVSY_AGENT_MANIFEST_FILE);
+}
+
+function readManifestRecord(
+  cacheRoot: string,
+  devsyVersion: string,
+): DevsyAgentManifest | undefined {
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(devsyAgentManifestPath(cacheRoot, devsyVersion), "utf-8"),
+    ) as Partial<DevsyAgentManifestRecord>;
+    if (parsed.version !== 1 || parsed.devsyVersion !== devsyVersion) return undefined;
+    if (parsed.origin !== "release") return undefined;
+    if (!Array.isArray(parsed.assets) || parsed.assets.length === 0) return undefined;
+    if (!parsed.assets.every(isDevsyAgentAsset)) return undefined;
+    return { version: devsyVersion, origin: "release", assets: parsed.assets };
+  } catch {
+    return undefined;
+  }
+}
+
+function writeManifestRecord(cacheRoot: string, manifest: DevsyAgentManifest): void {
+  const target = devsyAgentManifestPath(cacheRoot, manifest.version);
+  const directory = path.dirname(target);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const temporary = path.join(
+    directory,
+    `.${DEVSY_AGENT_MANIFEST_FILE}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  const record: DevsyAgentManifestRecord = {
+    version: 1,
+    devsyVersion: manifest.version,
+    origin: "release",
+    resolvedAt: new Date().toISOString(),
+    assets: [...manifest.assets],
+  };
+  try {
+    fs.writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+    fs.renameSync(temporary, target);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
+function pinnedManifest(version: string): DevsyAgentManifest | undefined {
+  return version === PINNED_DEVSY_AGENT_VERSION
+    ? { version, origin: "pinned", assets: DEVSY_AGENT_ASSETS }
+    : undefined;
+}
+
+function manifestForVersion(
+  resolved: ReturnType<typeof resolvedOptions>,
+  version: string,
+): DevsyAgentManifest | undefined {
+  if (resolved.assets) return { version, origin: "pinned", assets: resolved.assets };
+  return pinnedManifest(version) ?? readManifestRecord(resolved.cacheRoot, version);
+}
+
+/**
+ * Reads the release metadata GitHub publishes for one Devsy tag and keeps only
+ * the official Linux agent assets whose SHA-256 digest it reports. A release
+ * without a verifiable digest is refused instead of trusted.
+ */
+export async function resolveReleaseDevsyAgentManifest(
+  version: string,
+  fetcher: typeof fetch,
+): Promise<DevsyAgentManifest> {
+  const url = `${DEVSY_RELEASE_METADATA_BASE_URL}/${DEVSY_RELEASE_TAG_PREFIX}${version}`;
+  let response: Response;
+  try {
+    response = await fetcher(url, { headers: { accept: "application/vnd.github+json" } });
+  } catch (error) {
+    throw new Error(`Devsy ${version} release metadata could not be read: ${errorMessage(error)}`);
+  }
+  if (!response.ok) {
+    throw new Error(`Devsy ${version} release metadata is unavailable (HTTP ${response.status}).`);
+  }
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw new Error(`Devsy ${version} release metadata is not valid JSON: ${errorMessage(error)}`);
+  }
+  const release = payload as { tag_name?: unknown; assets?: unknown };
+  if (release?.tag_name !== `${DEVSY_RELEASE_TAG_PREFIX}${version}`) {
+    throw new Error(`Devsy ${version} release metadata reported an unexpected tag.`);
+  }
+  if (!Array.isArray(release.assets)) {
+    throw new Error(`Devsy ${version} release metadata reported no assets.`);
+  }
+
+  const assets: DevsyAgentAsset[] = [];
+  for (const entry of release.assets) {
+    const candidate = (entry ?? {}) as Record<string, unknown>;
+    const name = candidate.name;
+    if (
+      typeof name !== "string" ||
+      !DEVSY_AGENT_ASSET_NAMES.some((assetName) => assetName === name)
+    )
+      continue;
+    const id = candidate.id;
+    const size = candidate.size;
+    const digest = candidate.digest;
+    const downloadUrl = candidate.browser_download_url;
+    if (
+      typeof id !== "number" ||
+      !Number.isSafeInteger(id) ||
+      typeof size !== "number" ||
+      !Number.isSafeInteger(size) ||
+      size <= 0
+    ) {
+      throw new Error(`Devsy ${version} reported an unusable ${String(name)} asset.`);
+    }
+    const sha256 =
+      typeof digest === "string" && digest.startsWith("sha256:")
+        ? digest.slice("sha256:".length).toLowerCase()
+        : "";
+    if (!/^[0-9a-f]{64}$/.test(sha256)) {
+      throw new Error(
+        `Devsy ${version} does not publish a SHA-256 digest for ${String(name)}; Devrouter cannot verify this release.`,
+      );
+    }
+    if (typeof downloadUrl !== "string" || !downloadUrl.startsWith("https://")) {
+      throw new Error(`Devsy ${version} reported an unusable ${String(name)} download URL.`);
+    }
+    assets.push({ githubAssetId: id, name, size, sha256, url: downloadUrl });
+  }
+  if (assets.length === 0) {
+    throw new Error(`Devsy ${version} publishes no official Linux agent asset.`);
+  }
+  return { version, origin: "release", assets };
+}
+
 export function devsyAgentRepairSuggestion(inspection: DevsyAgentInspection): string {
   if (inspection.state === "stale") {
-    return `Install Devsy ${SUPPORTED_DEVSY_VERSION} for a supported host, then run: ${DEVSY_AGENT_SETUP_COMMAND}`;
+    return `Install a supported Devsy release (${SUPPORTED_DEVSY_RANGE}) for a supported host, then run: ${DEVSY_AGENT_SETUP_COMMAND}`;
   }
   return inspection.source === "explicit"
     ? `Fix or unset DEVSY_AGENT_BINARY, then run: ${DEVSY_AGENT_SETUP_COMMAND}`
@@ -140,8 +376,12 @@ function nativeAssetName(platform: NodeJS.Platform, arch: string): string | unde
   return undefined;
 }
 
-function managedBinaryPath(cacheRoot: string, asset: DevsyAgentAsset): string {
-  return path.join(cacheRoot, `v${SUPPORTED_DEVSY_VERSION}`, asset.name);
+function managedBinaryPath(
+  cacheRoot: string,
+  devsyVersion: string,
+  asset: DevsyAgentAsset,
+): string {
+  return path.join(cacheRoot, `v${devsyVersion}`, asset.name);
 }
 
 function hashOpenFile(file: number): string {
@@ -190,10 +430,8 @@ function inspectBinary(
 
 function resolvedOptions(
   options: DevsyAgentOptions,
-): Required<
-  Pick<DevsyAgentOptions, "env" | "platform" | "arch" | "cacheRoot" | "lockPath" | "assets">
-> &
-  Pick<DevsyAgentOptions, "versionOutput" | "nativeAssetName"> {
+): Required<Pick<DevsyAgentOptions, "env" | "platform" | "arch" | "cacheRoot" | "lockPath">> &
+  Pick<DevsyAgentOptions, "versionOutput" | "nativeAssetName" | "assets"> {
   return {
     env: options.env ?? process.env,
     platform: options.platform ?? process.platform,
@@ -201,7 +439,7 @@ function resolvedOptions(
     versionOutput: options.versionOutput ?? installedVersionOutput(),
     cacheRoot: options.cacheRoot ?? path.join(CACHE_DIR, "devsy", "agents"),
     lockPath: options.lockPath ?? DEVSY_AGENT_CACHE_LOCK,
-    assets: options.assets ?? DEVSY_AGENT_ASSETS,
+    assets: options.assets,
     nativeAssetName: options.nativeAssetName,
   };
 }
@@ -212,64 +450,77 @@ export function inspectDevsyAgent(options: DevsyAgentOptions = {}): DevsyAgentIn
   const explicitPath = resolved.env.DEVSY_AGENT_BINARY?.trim();
   const source: DevsyAgentSource = explicitPath ? "explicit" : "managed";
 
-  // An older, unparseable, or prerelease variant of the pin stays unsupported:
-  // the release only claims the surface it verified. A newer host CLI is
-  // accepted and governs its own agent below.
-  if (
-    installedVersion === undefined ||
-    (installedVersion !== SUPPORTED_DEVSY_VERSION &&
-      compareVersionCore(installedVersion, SUPPORTED_DEVSY_VERSION) <= 0)
-  ) {
+  if (!installedVersion) {
     return {
       state: "stale",
       source,
-      reason: installedVersion
-        ? `installed Devsy ${installedVersion} is not supported by this Devrouter release`
-        : "the supported Devsy version is not available",
-      installedVersion,
+      reason: `the installed Devsy version could not be determined; Devrouter supports ${SUPPORTED_DEVSY_RANGE}`,
     };
   }
 
-  if (explicitPath) {
+  if (!isSupportedDevsyVersion(installedVersion)) {
     return {
-      ...inspectBinary(explicitPath, resolved.assets, "invalid"),
+      state: "stale",
       source,
-      binaryPath: explicitPath,
+      reason: `installed Devsy ${installedVersion} is outside the supported range ${SUPPORTED_DEVSY_RANGE}`,
       installedVersion,
     };
   }
 
-  if (installedVersion !== SUPPORTED_DEVSY_VERSION) {
-    // Devsy.app updates itself, so a newer CLI must not block managed starts.
-    // Devrouter injects nothing for it: the host CLI governs its own agent,
-    // because pairing it with the pinned agent is an unverified splice.
+  const manifest = manifestForVersion(resolved, installedVersion);
+  if (!manifest) {
+    if (explicitPath) {
+      return {
+        ...inspectBinary(explicitPath, resolved.assets ?? DEVSY_AGENT_ASSETS, "invalid"),
+        source,
+        binaryPath: explicitPath,
+        installedVersion,
+      };
+    }
+    // No verified manifest is recorded for this release yet. Devrouter injects
+    // nothing rather than splicing in an unverified binary, so the host CLI
+    // governs its own agent. An explicit setup resolves, verifies and records
+    // the official agent for this release.
     return {
       state: "ready",
       source: "host",
-      reason: `installed Devsy ${installedVersion} is newer than the verified ${SUPPORTED_DEVSY_VERSION} agent; the host CLI governs its own agent`,
+      reason: `no verified Devsy ${installedVersion} agent manifest is recorded yet; the host CLI governs its own agent`,
       installedVersion,
-      drift: { installed: installedVersion, supported: SUPPORTED_DEVSY_VERSION },
+      drift: { installed: installedVersion, supported: PINNED_DEVSY_AGENT_VERSION },
     };
   }
 
   const expectedName =
     resolved.nativeAssetName ?? nativeAssetName(resolved.platform, resolved.arch);
-  const asset = resolved.assets.find((candidate) => candidate.name === expectedName);
+  const asset = manifest.assets.find((candidate) => candidate.name === expectedName);
   if (!asset) {
     return {
       state: "stale",
       source,
-      reason: `this Devrouter release has no pinned Devsy agent for ${resolved.platform}/${resolved.arch}`,
+      reason: `Devsy ${installedVersion} has no official agent for ${resolved.platform}/${resolved.arch}`,
       installedVersion,
+      manifestOrigin: manifest.origin,
     };
   }
-  const binaryPath = managedBinaryPath(resolved.cacheRoot, asset);
+
+  if (explicitPath) {
+    return {
+      ...inspectBinary(explicitPath, [asset], "invalid"),
+      source,
+      binaryPath: explicitPath,
+      installedVersion,
+      manifestOrigin: manifest.origin,
+    };
+  }
+
+  const binaryPath = managedBinaryPath(resolved.cacheRoot, installedVersion, asset);
   return {
     ...inspectBinary(binaryPath, [asset], "missing"),
     source,
     binaryPath,
     asset,
     installedVersion,
+    manifestOrigin: manifest.origin,
   };
 }
 
@@ -393,7 +644,7 @@ async function downloadAndPublish(
     const writeChunk = async (chunk: Uint8Array): Promise<void> => {
       size += chunk.byteLength;
       if (size > asset.size) {
-        throw new Error("Devsy agent download exceeded the pinned size");
+        throw new Error("Devsy agent download exceeded the expected size");
       }
       digest.update(chunk);
       await writeAll(handle as FileHandle, chunk, size - chunk.byteLength);
@@ -445,28 +696,56 @@ async function downloadAndPublish(
   }
 }
 
+type ReadyDevsyAgentInspection = DevsyAgentInspection & {
+  state: "ready";
+  installedVersion: string;
+};
+
+function isReadyInspection(
+  inspection: DevsyAgentInspection,
+): inspection is ReadyDevsyAgentInspection {
+  return inspection.state === "ready" && inspection.installedVersion !== undefined;
+}
+
+function preparedFromInspection(inspection: ReadyDevsyAgentInspection): PreparedDevsyAgent {
+  return {
+    version: inspection.installedVersion,
+    binaryPath: inspection.binaryPath,
+    source: inspection.source,
+    asset: inspection.asset,
+    changed: false,
+    transport: "existing",
+  };
+}
+
+function expectedAgentName(resolved: ReturnType<typeof resolvedOptions>): string | undefined {
+  return resolved.nativeAssetName ?? nativeAssetName(resolved.platform, resolved.arch);
+}
+
+/** Pinned or previously recorded manifest first; published release metadata last. */
+async function loadOrResolveManifest(
+  resolved: ReturnType<typeof resolvedOptions>,
+  version: string,
+  options: PrepareDevsyAgentOptions,
+): Promise<DevsyAgentManifest> {
+  const manifest = manifestForVersion(resolved, version);
+  if (manifest) return manifest;
+  const release = await resolveReleaseDevsyAgentManifest(version, options.fetcher ?? fetch);
+  writeManifestRecord(resolved.cacheRoot, release);
+  return release;
+}
+
 export async function prepareDevsyAgent(
   options: PrepareDevsyAgentOptions = {},
 ): Promise<PreparedDevsyAgent> {
   const resolved = resolvedOptions(options);
   const inspectOptions: DevsyAgentOptions = resolved;
   const before = inspectDevsyAgent(inspectOptions);
-  if (before.state === "ready") {
-    return {
-      binaryPath: before.binaryPath,
-      source: before.source,
-      asset: before.asset,
-      changed: false,
-      transport: "existing",
-    };
-  }
-  if (
-    before.source === "explicit" ||
-    before.state === "stale" ||
-    !before.binaryPath ||
-    !before.asset
-  ) {
-    throw new DevsyAgentReadinessError(before);
+  if (before.state === "stale") throw new DevsyAgentReadinessError(before);
+  // A host-governed CLI is ready with nothing injected, but this explicit
+  // setup path still resolves and records the verified agent for its release.
+  if (isReadyInspection(before) && before.source !== "host") {
+    return preparedFromInspection(before);
   }
 
   const lock =
@@ -487,54 +766,52 @@ export async function prepareDevsyAgent(
 
   return lock(async () => {
     const current = inspectDevsyAgent(inspectOptions);
-    if (current.state === "ready") {
-      return {
-        binaryPath: current.binaryPath,
-        source: current.source,
-        asset: current.asset,
-        changed: false,
-        transport: "existing",
-      };
+    if (current.state === "stale") throw new DevsyAgentReadinessError(current);
+    if (isReadyInspection(current) && current.source !== "host") {
+      return preparedFromInspection(current);
     }
-    if (
-      current.source === "explicit" ||
-      current.state === "stale" ||
-      !current.binaryPath ||
-      !current.asset
-    ) {
-      throw new DevsyAgentReadinessError(current);
+
+    const version = current.installedVersion;
+    if (!version) throw new DevsyAgentReadinessError(current);
+    const manifest = await loadOrResolveManifest(resolved, version, options);
+
+    if (current.source === "explicit") {
+      // An operator-provided binary stays authoritative, but only once the
+      // official manifest for this Devsy release proves what it must equal.
+      const verified = inspectDevsyAgent(inspectOptions);
+      if (isReadyInspection(verified)) return preparedFromInspection(verified);
+      throw new DevsyAgentReadinessError(verified);
+    }
+
+    const asset = manifest.assets.find(
+      (candidate) => candidate.name === expectedAgentName(resolved),
+    );
+    if (!asset) {
+      throw new DevsyAgentReadinessError({
+        state: "stale",
+        source: current.source,
+        reason: `Devsy ${version} has no official agent for ${resolved.platform}/${resolved.arch}`,
+        installedVersion: version,
+        manifestOrigin: manifest.origin,
+      });
     }
 
     const transport = await downloadAndPublish(
-      current.asset,
-      current.binaryPath,
+      asset,
+      managedBinaryPath(resolved.cacheRoot, version, asset),
       options.fetcher ?? fetch,
       options.githubCliDownloader ?? downloadWithGitHubCli,
     );
     const published = inspectDevsyAgent(inspectOptions);
-    if (published.state !== "ready" || !published.binaryPath || !published.asset) {
-      throw new DevsyAgentReadinessError(published);
-    }
-    return {
-      binaryPath: published.binaryPath,
-      source: published.source,
-      asset: published.asset,
-      changed: true,
-      transport,
-    };
+    if (!isReadyInspection(published)) throw new DevsyAgentReadinessError(published);
+    return { ...preparedFromInspection(published), changed: true, transport };
   });
 }
 
 export function requireReadyDevsyAgent(options: DevsyAgentOptions = {}): PreparedDevsyAgent {
   const inspection = inspectDevsyAgent(options);
-  // A newer host CLI is ready without a Devrouter-selected binary; the caller
-  // only injects an agent when one was verified.
-  if (inspection.state !== "ready") throw new DevsyAgentReadinessError(inspection);
-  return {
-    binaryPath: inspection.binaryPath,
-    source: inspection.source,
-    asset: inspection.asset,
-    changed: false,
-    transport: "existing",
-  };
+  // A host-governed CLI is ready without a Devrouter-selected binary; the
+  // caller only injects an agent when one was verified.
+  if (!isReadyInspection(inspection)) throw new DevsyAgentReadinessError(inspection);
+  return preparedFromInspection(inspection);
 }

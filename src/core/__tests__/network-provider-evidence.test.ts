@@ -12,6 +12,7 @@ let fail = false;
 let registered = true;
 let defaultProvider = true;
 let shared: Record<string, unknown>;
+let providerVersion = "v1.16.2";
 function providerDefinition(provider: string) {
   return {
     name: "docker",
@@ -43,11 +44,12 @@ beforeEach(() => {
   saved = { DOCKER_HOST: { value: endpoint } };
   contexts = [{ name: "synthetic-context", default: true }];
   fail = false;
+  providerVersion = "v1.16.2";
   vi.mocked(spawnSync).mockImplementation(((provider: string, args: string[]) => {
     if (fail) return { status: 1, stdout: "synthetic-private-marker" };
     let value: unknown;
     if (args[0] === "--version" || args[0] === "version")
-      return { status: 0, stdout: provider === "devsy" ? "v1.16.2" : "v0.6.15" };
+      return { status: 0, stdout: provider === "devsy" ? providerVersion : "v0.6.15" };
     if (args[0] === "context") value = contexts;
     else {
       expect(args).toContain("synthetic-context");
@@ -103,6 +105,24 @@ describe("provider binding evidence collection", () => {
       inspectNetworkProviderBinding(input);
     } catch (error) {
       expect(String(error)).not.toContain("synthetic-private-marker");
+    }
+  });
+  it("qualifies in-range Devsy releases and refuses versions outside the range", () => {
+    const input = {
+      provider: "devsy" as const,
+      providerId: "synthetic",
+      repoPath: "/synthetic",
+      endpoint,
+    };
+    providerVersion = "v1.19.0";
+    expect(inspectNetworkProviderBinding(input)).toMatchObject({
+      versionQualified: true,
+      endpoint,
+    });
+
+    for (const unsupported of ["v1.15.9", "v2.0.0"]) {
+      providerVersion = unsupported;
+      expect(() => inspectNetworkProviderBinding(input)).toThrow(/could not be qualified/);
     }
   });
 });
