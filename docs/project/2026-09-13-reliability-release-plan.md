@@ -740,6 +740,159 @@ passes, a foreign-worktree upstream still refuses, and the existing overlay,
 alias and mount refusals are unchanged. The superseded draft is closed with a
 comment pointing at this landed change.
 
+### Capacity lost-history forward reconciliation — frozen derived contract (rev 2)
+
+The delivered diagnosis slices prove loss and refuse; nothing yet lets an
+operator end the state. An environment whose stop proof succeeded against a
+positively absent ledger stays in `stopping` forever, its journal keeps a
+capacity binding no durable row can satisfy, and every admission and controller
+pass refuses, so agents can neither start new work nor finish the stop. The
+roadmap's Q32 row ("no invented clean state") and the legacy-slice obligation
+("explicit operator forward recovery remains required Q32 work") own this slice.
+
+Two coupled halves with one writer each; no fabricated provenance, no charge
+release for anything that may still run, no schema or policy change.
+
+Planner round 1 (2026-09-20) returned REVISE. All three blockers and the
+should-fix note are accepted and folded into this revision:
+
+- **B1 — absence is not the same as loss.** The store throws
+  `capacity-ledger-lost` both for a positively absent ledger
+  (`capacity-store.ts:246-250`) and for one present below the journal floor
+  (`:269`), while corrupt markers, unsafe owner or mode, invalid bytes and
+  enumeration failures throw other errors. The store gains one classification
+  used by both halves: `inspect()` returns `pristine` (no file, no evidence),
+  `absent` (file positively absent, evidence exists), `stale` (present, below
+  the floor) or `intact`, and `read()` becomes a thin projection over it so
+  every existing caller, error code and message is unchanged. Only `absent`
+  permits stop completion; every other outcome refuses as it does today.
+- **B2 — clearing the last binding erases the floor.** The floor is the
+  highest `capacity.snapshotRevision ?? 1` among records that still carry a
+  binding (`reliability-operation-store.ts:688-697`), and the
+  `capacity-ledger.established` marker is written only by a ledger commit, so
+  clearing the last binding on a markerless store would read as a fresh
+  install (`capacity-store.ts:246-250`). Completion therefore writes that
+  marker as a durable loss witness through the store's own fsynced write path,
+  under the capacity file lock, and only after re-proving absence inside that
+  lock. Order is explicit: journal stop-proof retains the binding with
+  `validUntilMs = 0` (the existing v2 branch), then the witness, then the
+  journal confirmation clears the binding. A crash between witness and clear
+  leaves marker plus binding, and a retried stop re-proves and re-witnesses; a
+  crash after the clear still leaves the marker, so every later read refuses
+  as lost until reconciliation. No new field and no schema change.
+- **B3 — a reset revision can match pre-reconciliation work.** Zero bindings
+  imply floor 0, so a baseline written at `floor` would reset the revision to
+  0 and could match a holder that read 0 earlier: pool collection holds its
+  revision across the whole observation window (`capacity-controller.ts:191-201`
+  read, `:237` merge) and admission commits only after its journal transaction
+  (`reliability-lifecycle.ts:1060-1087`). The baseline is written at
+  `revision = floor + 1`, strictly greater than any revision observable before
+  reconciliation, so every pre-reconciliation holder fails the equality fence.
+  Both authoritative checks — the journal re-enumeration of unsettled bindings
+  and the ledger re-proof — run inside the one capacity-lock transaction
+  (`reconcileLostHistory`), because reads are lock-free while every commit
+  re-reads under the lock. Lock order is unchanged and now stated: lifecycle
+  transactions take the journal lock and only read the ledger; reconciliation
+  takes the capacity lock and only reads journal files; neither nests the
+  other.
+- **Should-fix — zero bindings is not zero charges.** Admission commits its
+  ledger reservation (`capacity.reserve`) before it writes the journal binding
+  (`bindLifecycleCapacity`), and a stop settlement releases the ledger row
+  before the journal confirmation clears the binding
+  (`reliability-lifecycle.ts:1650-1675`). Reconciliation therefore claims only
+  that no journal-visible charge remains; a charge that was never
+  journal-bound, or was already ledger-released, is exactly what the lost
+  ledger destroyed. That wording goes into the command output, the changelog
+  and the knowledge concept, and acceptance gains the interleavings and crash
+  orderings named above.
+
+1. **Stop completion when the ledger is positively absent.**
+   `src/core/reliability-lifecycle.ts` proves physical cessation first and only
+   then settles anything. After the journal stop-proof, the settlement step
+   asks the store's classification: `absent` writes the loss witness and
+   completes without a ledger write, and the journal confirmation then nulls
+   the capacity binding exactly as a settled stop does. `intact` keeps today's
+   `settleEnvironmentAfterStop` path with its revision fence and bounded
+   retry. `stale`, `pristine`, `capacity-history-unprovable` and every
+   evidence failure (enumeration, unsafe marker, permissions, symlink,
+   invalid bytes) refuse, as do live workers, changed evidence and unsettled
+   fences. No new record field: the completed stop proof, the journal binding
+   and the writable controller state are the evidence.
+
+2. **Baseline reconciliation once no charge remains.**
+   `devrouter capacity reconcile --yes --json`, a local command that never
+   needs a running controller and only touches machines-local files under the
+  existing locks.
+
+   It refuses, with fixed typed reasons and no mutation, when journal
+   enumeration is invalid or unsafe (`capacity-history-unprovable`), when any
+   enumerated record still carries a non-null capacity binding — including one
+   already under settlement with `validUntilMs = 0` — as
+   `capacity-charges-pending`, naming the exact blocking environments in their
+   ordinary `devrouter stop <path>` recovery form; when the ledger reads
+   `intact` or `pristine`, meaning there is no loss to reconcile, as
+   `capacity-history-intact`; and without `--yes` as
+   `capacity-reconcile-confirmation-required`.
+
+   Otherwise one `reconcileLostHistory` transaction under the existing capacity
+   file lock re-enumerates the journals, re-proves the ledger positively absent
+   at that instant, and writes a fresh
+   `{version:1, revision:<floor+1>, reservations:[]}` snapshot plus the
+   existing established marker through the store's own commit path. It reports
+   `{reconciled:true, revision, unresolved:0}`. The floor is the existing
+   journal-derived minimum revision; nothing claims reservations, pools or
+   history were restored, and the report says only that no journal-visible
+   charge remained. A concurrent controller pass cannot lose a write: pool
+   observation and admission already fail closed on the lost ledger, they
+   commit under the same lock, and the baseline revision is strictly greater
+   than any pre-reconciliation revision, so every holder of earlier state
+   fails its equality fence instead of matching the baseline.
+
+Paths: `src/core/capacity-store.ts` (`inspect()`, the write path for the loss
+witness and `reconcileLostHistory`, each following the existing lock/commit
+pattern), `src/core/reliability-operation-store.ts` (extend the existing floor
+enumeration with one read of unsettled capacity bindings shared by both halves
+and by the CLI), `src/core/reliability-lifecycle.ts` (stop settlement branch),
+`src/commands/capacity.ts` (new local command handler) and `src/cli.ts` (new
+`capacity` group with the single `reconcile` subcommand; no other module),
+`src/core/doctor.ts` (the `global.capacity-ledger` suggestion names
+the reconcile command), their existing test files plus
+`src/commands/__tests__/capacity.test.ts`,
+`docs/knowledge/managed-environment-lifecycle.md`, `docs/DEVCONTAINER.md` if
+its diagnostics paragraph changes, `CHANGELOG.md`, this plan. No new schema,
+IPC method, policy field, dependency or default behavior change.
+
+Limits, stated in output and documentation: journals are bounded and rolled
+over, so an environment whose records were rolled away or deleted cannot be
+enumerated; a total loss of journals is not distinguishable from first use;
+reconciliation reconstructs no charges, pools or provenance and is not
+disaster recovery.
+
+Acceptance. Red regression: an environment whose stop proof succeeded against a
+positively absent ledger stays `stopping` today and completes after the
+change. An intact ledger keeps today's settlement semantics, including
+revision fencing and `CapacitySnapshotChangedError` retries. Corrupt marker,
+wrong owner or mode, symlink, oversized or invalid bytes, and enumeration
+failures keep refusing in both halves. Reconcile refuses while any binding
+remains and lists the exact blocking environments; refuses as
+`capacity-history-intact` once a valid or pristine ledger exists; refuses
+without `--yes`; after reconciliation admission works and the first new
+reservation is admitted exactly once at revision floor+2, above the baseline.
+The crash orderings and interleavings are covered: a completion whose witness
+write lands and whose journal clear does not leaves both marker and binding so
+a retried stop completes it; a holder that read revision 0 before
+reconciliation fails its fence against the floor+1 baseline; a charge whose
+journal binding appears during the reconciliation lock makes the journal
+re-enumeration refuse, and one committed after it lands at floor+2 without
+resurrecting a pre-loss row. Tests extend the existing capacity store,
+reliability operation store, reliability lifecycle and command suites with
+synthetic stores; no prose pinning.
+
+Route: main. The required planner challenge preceded source as rev 1 (REVISE)
+and rev 2 carries the corrections; one planner round-2 challenge on this
+revision precedes source, and the immutable simplifier and slice review follow
+on the committed range.
+
 ### Active diagnostic deltas
 
 Main owns `src/core/workspace-ensure.ts`, its existing test suite, the affected failure-rule paragraph in `docs/knowledge/managed-environment-lifecycle.md`, and the unreleased changelog entry. Add fixed
