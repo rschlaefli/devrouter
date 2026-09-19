@@ -93,6 +93,41 @@ describe("waitForHarnessGate", () => {
     });
   });
 
+  it("does not charge the first observation to the wait budget", async () => {
+    const clock = createClock();
+    const sleep: number[] = [];
+    let first = true;
+
+    const decision = await waitForHarnessGate({
+      observe: () => {
+        if (first) {
+          first = false;
+          // A cold hook process resolves the checkout's identity before it can
+          // read a phase; that setup is not part of the wait.
+          clock.advance(5_000);
+          return { phase: "starting" };
+        }
+        return { phase: "stable" };
+      },
+      budgetMs: 4_000,
+      pollIntervalMs: 2_000,
+      now: clock.now,
+      sleep: async (ms) => {
+        sleep.push(ms);
+        await clock.sleep(ms);
+      },
+    });
+
+    expect(sleep).toEqual([2_000]);
+    expect(decision).toMatchObject({
+      decision: "deferred-allow",
+      reason: "settled-after-wait",
+      waitedMs: 2_000,
+      observations: 2,
+      observedPhase: "stable",
+    });
+  });
+
   it("refuses once when the transition outlasts the budget", async () => {
     const clock = createClock();
     const sleep: number[] = [];

@@ -377,6 +377,14 @@ ownership; all five findings were accepted in this revision. The same planner ap
 only. Current next action: implement the internally hardened
 positive legacy-journal loss detection and continue exact-set parking and full-roadmap integration. Historical ownership and live qualification remain open.
 
+Slice 5 now has its two-environment journey. `scripts/qualify-harness-journey.sh`
+runs the installed Claude Code harness against a mock Messages API with the
+shipped gate as the repository `PreToolUse` hook, and all three scenarios pass
+with clean checkouts, an unmoved neighbour and no agent infrastructure repair; the
+journey exposed and fixed a phantom wait that counted the gate's own cold identity
+resolution against the wait budget. Published baseline and both global installs
+are 0.0.79; 0.1.0 remains the terminal condition.
+
 ### Pruned managed population stop (delivered)
 
 A consumer checkout proved the next blocking class: Docker pruning removed every
@@ -718,6 +726,61 @@ claim failed open and repeat protection was silently off. The module now creates
 the directory first, reports an unrecorded claim to the hook's stderr instead of
 pretending it was recorded, and carries a regression test that fails if the
 directory is not created before the lock is taken.
+
+### Two-environment harness journey (delivered)
+
+Slice 5 closed the Q36 gap with `scripts/qualify-harness-journey.sh` (also
+`pnpm qualify:harness-journey`). It builds a fixture repository with two linked
+worktrees, commits `.devrouter.yml` into both, and drives the installed Claude
+Code harness against a local mock Messages API while the shipped
+`devrouter harness gate` serves as that repository's `PreToolUse` hook. No
+credentials or model access are needed, and the script skips with a named reason
+when the build, the harness CLI, Node or tsx is unavailable. Three scenarios each
+print one JSON evidence line and exit nonzero on any failed assertion:
+
+1. Deferral. The gated checkout is `stopping` and settles while the hook waits.
+   The gate allowed after an enforced wait (`granted`, `phase: stopping`,
+   `budgetMs: 30000`, `waitedMs: 6030`), the single tool call ran afterwards, the
+   harness recorded no permission denial, and `duration_ms` 8169 against
+   `duration_api_ms` 32 shows the wait consumed no model time.
+2. Refusal. The gated checkout stays `starting` past a 3s budget. One `deny`
+   named the phase and `devrouter status .`; the harness recorded exactly one
+   denial carrying the probe command and never executed it; the entry settled
+   `refused` with `waitedMs` 2018; the checkout stayed `starting`.
+3. Protected neighbour. While `starting` persisted on the gated checkout, the
+   identical tool call in the neighbour checkout was allowed immediately with
+   'environment settled.', wrote its marker, and left the transitional record
+   byte-identical (same `sha256`, same revision).
+
+The acceptance claim, zero agent infrastructure repair, is asserted rather than
+assumed: exactly one model-issued tool call, that call being the synthetic probe,
+empty `git status --porcelain` for both checkouts, the gate's ledger keyed by the
+exact checkout the harness reported, and the neighbour's lifecycle record hash and
+phase unchanged in every scenario. Evidence: three `failures: []` lines from the
+2026-09-20 run, with raw artifacts under `/private/tmp/dr-journey-run6`.
+
+The journey found a real defect. The gate measured its wait from before its first
+observation, and resolving a checkout's identity against the provider registries
+costs about 1.7s on a cold hook process on this host: measurement per step gave
+`comparableWorkspacePath` 0ms, `resolveWorktreeWorkspace` 5ms,
+`resolveWorkspaceRuntimeOrDefault` 1678ms and `readReliabilityOperation` 6ms, with
+every later observation at roughly 5ms. A call under a 3s budget was therefore
+refused as 'still starting after waiting 1.7s' without ever deferring, and because
+the claim precedes the first sleep, that refusal left no continuation entry. The
+wait clock now starts at the first observation, so the budget bounds the actual
+wait and `waitedMs` reports it; the same call defers 2.0s, refuses once and
+settles `refused`. `harness-gate.test.ts` carries the regression.
+
+One earlier attempt misread the harness: a fixture whose worktrees were created
+before `.devrouter.yml` was committed made the gate's walk-up find no managed
+checkout, which read as the harness reporting the git repository root. The hook
+payload carries the worktree the harness runs in, and the journey now proves that
+through `payload.cwd` together with the ledger key.
+
+Residual scope: the journey covers the ordinary wait and the budget refusal in a
+real harness. Cancellation and redirect fencing (Q30) stays covered by the direct
+signal proof recorded above, because this harness cannot be observed to cancel a
+wait; a second harness and the non-Node consumer remain slice 6.
 
 ### Live consumer dogfood findings (2026-09-19)
 

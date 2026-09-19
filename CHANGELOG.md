@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- A harness-gated tool call no longer counts the gate's own first observation as
+  wait time. Resolving a checkout's identity against the provider registries costs
+  about 1.7s on a cold hook process on this host, and that setup was charged to the
+  wait budget: a short-budget call was refused as "still starting after waiting
+  1.7s" without ever deferring, and the refusal left no continuation entry for a
+  re-delivered call. The wait clock now starts at the first observation, so the
+  budget bounds the actual wait and the reported `waitedMs` matches it.
+
 - A managed `stop` whose physical cessation is already proven against a
   positively absent capacity ledger completes instead of staying in `stopping`
   forever. The store records the durable loss witness under the capacity lock
