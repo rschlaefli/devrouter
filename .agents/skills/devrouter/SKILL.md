@@ -323,6 +323,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter profile plan --repo <path> [--profile <selection>] --contract <repo-relative-yaml> [--output <path>] [--json]`: validate repository-owned resource policy and emit literal bindings without runtime access
 - `devrouter stop [path] [--delete] [--json]`: stop the exact workspace runtime and remove exact routes; `--delete` explicitly deletes its ownership-proven data without removing the checkout
 - `devrouter exec [path] -- <command...>`: literal one-shot command inside the exact running workspace runtime
+- `devrouter harness gate [--repo <path>] [--wait-budget-ms <ms>] [--json]`: defer one harness tool call until this checkout's lifecycle phase settles; prints the harness permission decision
 - `devrouter up` / `devrouter down`: start/stop shared Traefik router
 - `devrouter status`: router/container/network/TLS health
 - `devrouter doctor [--repo .]`: deep diagnostics (global + repo)
@@ -373,6 +374,34 @@ with ready tooling; choose requirements for the actual work. Continue using
 `ensure`, `exec`, and `stop` for lifecycle actions: observation does not authorize
 automatic recovery, capacity admission, or command replay. Releasing observation
 preserves the runtime, so still stop the exact environment after runtime work.
+
+## Agent harness gating
+
+A managed consumer can gate agent tool calls so a command never starts while the
+checkout's environment is mid-transition. Wire `devrouter harness gate` as a
+Claude Code `PreToolUse` hook:
+
+    {
+      "hooks": {
+        "PreToolUse": [
+          { "matcher": "Bash", "hooks": [
+            { "type": "command", "command": "devrouter harness gate", "timeout": 90 }
+          ] }
+        ]
+      }
+    }
+
+The hook reads the harness payload on stdin, defers inside the hook process while
+the checkout's durable phase is `queued`, `starting`, `verifying`, `recovering`
+or `stopping`, and prints the harness permission decision. The deferral consumes
+no model turns because the harness is blocked on the hook. `--wait-budget-ms`
+bounds the wait (default 30000); a phase that outlasts it returns one `deny` that
+names the phase and asks the agent not to retry automatically. Lifecycle
+commands (`devrouter ...`) always pass through, and unreadable journal evidence
+is allowed rather than blocking the agent. Set the harness hook `timeout` above
+the wait budget: an overrunning hook is not honored, and the tool proceeds under
+the harness's normal permission rules. Use `--json` for the devrouter decision
+envelope with wait metrics.
 
 ## Validation workflow
 

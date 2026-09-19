@@ -247,6 +247,22 @@ program
     }),
   );
 
+const harnessCommand = program
+  .command("harness")
+  .description("Agent harness integration for managed environments");
+harnessCommand
+  .command("gate")
+  .description("Defer one harness tool call until this checkout's lifecycle phase settles")
+  .option("--repo <path>", "Repository path (defaults to the harness payload cwd)")
+  .option("--wait-budget-ms <ms>", "Bounded defer budget in milliseconds before one refusal")
+  .option("--json", "Print the devrouter decision envelope instead of the hook decision")
+  .action(
+    withErrorHandling(async (options: { repo?: string; waitBudgetMs?: string; json?: boolean }) => {
+      const { runHarnessCommand } = await import("./commands/harness");
+      await runHarnessCommand("gate", options, options.repo);
+    }),
+  );
+
 program
   .command("doctor")
   .alias("verify")

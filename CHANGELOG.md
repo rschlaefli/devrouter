@@ -13,6 +13,16 @@ All notable changes to this project are documented in this file.
   version wrote. The comparison is read-only, names each install's version and
   path, and is skipped for unstamped source builds.
 
+- `devrouter harness gate` defers one agent-harness tool call while the
+  checkout's durable lifecycle phase is `queued`, `starting`, `verifying`,
+  `recovering` or `stopping`, then allows it once the phase settles. The wait
+  happens inside the harness hook process, so no model turns are consumed. A
+  phase that outlasts `--wait-budget-ms` (default 30000) returns one `deny` that
+  names the phase and asks the agent not to retry automatically. `devrouter`
+  lifecycle commands pass through, and unreadable journal evidence is allowed
+  rather than blocking the agent. Wire it as a `PreToolUse` hook whose timeout
+  exceeds the wait budget: an overrunning hook is not honored.
+
 ## [0.0.79] - 2026-09-19
 
 ### Added
