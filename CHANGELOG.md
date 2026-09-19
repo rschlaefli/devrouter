@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.79] - 2026-09-19
+
 ### Added
 
 - `devrouter status` reports the durable lifecycle intent of a managed
@@ -57,6 +59,26 @@ All notable changes to this project are documented in this file.
   selections, while preserving existing resource membership.
 - Ensure and stop workers report bounded, values-free lifecycle stages on stderr,
   with elapsed receipt age and explicit stale or unknown evidence.
+- A managed stop whose Docker population was pruned or externally removed now
+  settles as proven-absent when the registration, pinned endpoint and daemon,
+  provider configuration and whole baselined population are positively unchanged
+  and absent across two stable observations. A surviving container, an adopted
+  replacement, a changed registration or unreadable Docker evidence keeps the
+  existing refusal and the recorded baseline.
+- Automatic recovery is bounded by the declared policy: `maxProcessRestarts` and
+  `maxServiceRestarts` limit the exact process or retained service the producing
+  capability names, `windowSeconds` closes the incident window, and
+  `maxCorrectiveActions` remains the aggregate ceiling. An exhausted or expired
+  budget refuses before any mutation, and an unknown completion consumes its
+  claim without refund.
+- `devrouter doctor` reports the installed CLI version and the repository pin
+  separately, so an older repository pin is informational rather than a runtime
+  failure, and a managed `full` profile that widens declared dimensions names the
+  dimensions and the named-default remedy.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.79.md
 
 ## [0.0.78] - 2026-09-13
 
