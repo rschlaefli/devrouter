@@ -325,11 +325,14 @@ The installed Devsy harness surface is delivered and live-qualified under
 `Installed Devsy harness version policy (delivered)`: a host CLI newer than the
 pin is accepted, governs its own agent, and doctor reports the drift as a
 non-blocking warning, so managed environments start again on this host. Next
-slice: release 0.1.0 preparation. Remaining open items listed with the portfolio
+slice: harness enforcement and M1 qualification, with 0.1.0 as the terminal
+release. Remaining open items listed with the portfolio
 still apply — production park/resume, lost-identity/history reconciliation,
 actual harness enforcement, consumer breadth and measured optimization — and the
-branch push is blocked by the host SSH agent, so nothing has reached the remote
-or a consumer yet.
+release has since shipped: 0.0.79 is merged, published and installed, and the
+recorded consumer stop settled under live proof (see `0.0.79 release and consumer
+dogfood`). Host SSH signing still refuses, so repository pushes use the
+authenticated `gh` credential helper over HTTPS.
 
 The agent-facing status gap is implemented (status slice, follow-on to
 `404fc8d`). `devrouter status` now attaches a read-only `reliability` block for a
