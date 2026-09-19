@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- A fixed host-port conflict whose holder is the shared `devrouter-traefik`
+  router no longer tells the agent to stop or reconfigure the holder. The
+  refusal and the `repo.host-port-claims` doctor check now name the consumer's
+  own published binding as the side to change, because the router owns its
+  platform entrypoint ports and must keep running while the dependency can move
+  to a devrouter TCP protocol route.
+
 - Managed `ensure` accepts a devnet upstream served by any Compose project
   owned by the exact worktree, such as a workspace-local dependency overlay kept
   outside `.devcontainer`. Previously every upstream alias had to come from the

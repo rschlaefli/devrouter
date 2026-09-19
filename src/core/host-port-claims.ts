@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { type ManagedDevcontainerPlan, managedComposeEnvironment } from "./devcontainer-profile";
 import { networkDockerOptions } from "./network-effect-scope";
+import { ROUTER_CONTAINER_NAME } from "./router";
 import { comparableWorkspacePath, sameWorkspacePath } from "./workspace";
 import { listWorkspaceOwnership } from "./workspace-ownership";
 
@@ -345,6 +346,9 @@ function holderAttribution(holder: HolderSnapshot, repoPath: string): HolderAttr
 }
 
 function remediationFor(holder: HolderSnapshot, attribution: HolderAttribution): string {
+  if (holder.name === ROUTER_CONTAINER_NAME) {
+    return "The shared devrouter router owns this port as a platform entrypoint and must keep running; change the consumer's fixed host binding, or route the dependency through devrouter's TCP protocol route, then run ensure again.";
+  }
   if (attribution.holderWorktreePath) {
     return `Stop the holding workspace with 'devrouter stop ${attribution.holderWorktreePath}', or override the consumer's published host binding through its own configuration, then run ensure again.`;
   }
