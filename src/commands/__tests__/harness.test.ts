@@ -205,4 +205,144 @@ describe("runHarnessCommand gate", () => {
       hookSpecificOutput: { permissionDecision: "allow" },
     });
   });
+
+  it("claims a gated call before deferring and settles the granted wait", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const phases = ["stopping", "stable"] as const;
+    let index = 0;
+    const observe = vi.fn(
+      (): HarnessGateObservation => ({ phase: phases[Math.min(index++, phases.length - 1)] }),
+    );
+    const claim = vi.fn(() => ({ kind: "claimed" as const }));
+    const settle = vi.fn();
+
+    await runHarnessCommand(
+      "gate",
+      { json: true, waitBudgetMs: "30000" },
+      undefined,
+      dependencies({
+        stdin: async () => hookPayload({ cwd: repoRoot, tool_use_id: "toolu_gate_1" }),
+        observe,
+        claim,
+        settle,
+        sleep: async () => {},
+      }),
+    );
+
+    expect(claim).toHaveBeenCalledWith(path.resolve(repoRoot), {
+      toolUseId: "toolu_gate_1",
+      payloadSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      phase: "stopping",
+      budgetMs: 30_000,
+    });
+    expect(settle).toHaveBeenCalledWith(path.resolve(repoRoot), "toolu_gate_1", {
+      state: "granted",
+      waitedMs: 0,
+    });
+    expect(lastStdoutJson()).toMatchObject({ decision: "deferred-allow" });
+  });
+
+  it.each([
+    ["granted", /already permitted/],
+    ["interrupted", /wait was cancelled/],
+    ["refused", /already refused/],
+  ] as const)("refuses a replayed call whose claim is %s", async (state, expected) => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const observe = vi.fn((): HarnessGateObservation => ({ phase: "idle" }));
+    const claim = vi.fn();
+    const settle = vi.fn();
+
+    await runHarnessCommand(
+      "gate",
+      {},
+      undefined,
+      dependencies({
+        stdin: async () => hookPayload({ cwd: repoRoot, tool_use_id: "toolu_gate_1" }),
+        observe,
+        claim,
+        lookup: () => ({ state, settledAtMs: Date.now() - 5_000 }),
+        settle,
+      }),
+    );
+
+    const output = lastStdoutJson() as {
+      hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
+    };
+    expect(output.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(output.hookSpecificOutput.permissionDecisionReason).toMatch(expected);
+    expect(claim).not.toHaveBeenCalled();
+    expect(observe).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("keeps the wait-only behavior for payloads without a tool_use_id", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const observe = vi.fn((): HarnessGateObservation => ({ phase: "idle" }));
+    const claim = vi.fn();
+    const settle = vi.fn();
+
+    await runHarnessCommand(
+      "gate",
+      { json: true },
+      undefined,
+      dependencies({ stdin: async () => hookPayload({ cwd: repoRoot }), observe, claim, settle }),
+    );
+
+    expect(claim).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
+    expect(lastStdoutJson()).toMatchObject({ decision: "allow", reason: "settled" });
+  });
+
+  it("settles the claim as interrupted when the harness cancels the hook", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const settle = vi.fn();
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("exit-interrupted");
+    }) as never);
+    let current = 0;
+
+    const run = runHarnessCommand(
+      "gate",
+      { json: true, waitBudgetMs: "4000" },
+      undefined,
+      dependencies({
+        stdin: async () => hookPayload({ cwd: repoRoot, tool_use_id: "toolu_gate_2" }),
+        observe: (): HarnessGateObservation => ({ phase: "stopping" }),
+        claim: () => ({ kind: "claimed" }),
+        settle,
+        now: () => current,
+        sleep: async (ms: number) => {
+          current += ms;
+        },
+      }),
+    );
+
+    await Promise.resolve();
+    let raised: unknown;
+    try {
+      process.emit("SIGTERM");
+    } catch (error) {
+      raised = error;
+    }
+    expect(raised).toBeInstanceOf(Error);
+    expect(settle.mock.calls[0]).toEqual([
+      path.resolve(repoRoot),
+      "toolu_gate_2",
+      {
+        state: "interrupted",
+      },
+    ]);
+    expect(exit).toHaveBeenCalledWith(143);
+    exit.mockRestore();
+    process.removeAllListeners("SIGTERM");
+    await run;
+  });
 });

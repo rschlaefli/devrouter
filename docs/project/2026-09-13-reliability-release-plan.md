@@ -651,6 +651,74 @@ Cancellation fencing, continuation dedup, a second harness and the live
 two-environment Q36 journey remain open. The mock Messages API qualifier path
 stays reusable for them without credentials.
 
+### Harness continuation fencing — frozen derived contract
+
+Slice 5 continues with the missing half of the enforcing wait: cancellation
+fencing, snapshot reconnect and one-time continuation. The delivered gate
+decides every tool call independently, so a harness that re-delivers the same
+call after a grant, or that resumes a call whose deferral it cancelled, can
+double-apply a mutating command. The roadmap's S7 acceptance names this
+(one-time continuation) and its risk row names the failure (duplicate
+continuation, cancelled task resume).
+
+Existing paths: `src/core/harness-gate.ts` (phase observation and wait),
+`src/commands/harness.ts` (payload parsing, decisions, output),
+`src/core/file-lock.ts` (`withFileLockSync`), `src/core/atomic-file.ts`
+(`writeFileAtomically`), `src/core/router.ts` (`DEVROUTER_HOME`),
+`src/core/workspace.ts` (`comparableWorkspacePath`). New path:
+`src/core/harness-continuation.ts`, the only writer of the ledger, with
+`src/core/__tests__/harness-continuation.test.ts`. `commands/harness.ts`
+extends its existing single writer; no new command or flag.
+
+Contract. A bounded private ledger under
+`$DEVROUTER_HOME/harness/<sha256(realpath)>.json` records at most one entry per
+harness `tool_use_id`, and only for calls whose wait actually started. Settled,
+unknown, unmanaged, passthrough and invalid-payload decisions stay
+side-effect-free.
+
+- The gate claims the call before deferring. A repeat of the same
+  `tool_use_id` returns exactly one deny whose reason distinguishes "already
+  permitted" from "cancelled mid-wait" and asks the agent to verify whether it
+  ran and to issue a new call if it did not. Repeats never wait again, so a
+  reconnect cannot extend or restart the wait.
+- The claim records the payload SHA-256 (the tool input as delivered), the
+  observed phase, the budget and claim time. The entry settles to `granted` or
+  `refused` with the waited time when the wait finishes, and to `interrupted`
+  when the hook process receives SIGINT or SIGTERM while waiting.
+- Entries expire after 24 hours and the ledger keeps the newest 64. Unreadable,
+  foreign-schema or oversized evidence is treated as absent; the call then
+  proceeds under the ordinary wait contract. Ledger failures never change the
+  decision outcome or block the agent.
+- A payload without `tool_use_id` cannot be keyed, so it keeps the wait-only
+  behavior. The limitation is documented rather than approximated by hashing
+  the command, which would collide with deliberate repeats.
+
+Acceptance: unit tests for claim-before-wait, replay deny for `granted` and
+`interrupted` entries, expiry and bound pruning, unreadable evidence, missing
+`tool_use_id`, signal handling and the unchanged settled, unknown and
+passthrough paths; direct-CLI live proof over the built binary (deferred grant,
+replay deny, SIGTERM mid-wait then replay, fresh call unaffected); typecheck,
+Biome, Knip, full suite and package smoke. Stop condition: if the harness cannot
+be observed to re-deliver the same `tool_use_id`, publish the ledger as
+hook-replay protection and name the execution-deduplication limitation in the
+skill and changelog instead of claiming more.
+
+Live proof (2026-09-19) over the built binary against the fixture journal: a
+`stopping` call was claimed, deferred 7.6s and settled `granted` with its
+`waitedMs`; replaying that call returned the "already permitted" refusal; a new
+call in the settled environment was allowed normally; SIGTERM to the gate
+process exited 143 and settled the claim `interrupted`; and replaying the
+cancelled call returned the cancellation refusal. The Claude Code chain then
+re-ran all four hook scenarios against this build with per-call tool ids and
+passed unchanged, so the ledger did not regress the ordinary wait path.
+
+The direct proof found a defect the mocked unit tests could not: the ledger
+acquired its file lock before the private `harness/` directory existed, so every
+claim failed open and repeat protection was silently off. The module now creates
+the directory first, reports an unrecorded claim to the hook's stderr instead of
+pretending it was recorded, and carries a regression test that fails if the
+directory is not created before the lock is taken.
+
 ### Active diagnostic deltas
 
 Main owns `src/core/workspace-ensure.ts`, its existing test suite, the affected failure-rule paragraph in `docs/knowledge/managed-environment-lifecycle.md`, and the unreleased changelog entry. Add fixed
