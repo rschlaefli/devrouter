@@ -50,12 +50,13 @@ export const DEVSY_AGENT_ASSETS: readonly DevsyAgentAsset[] = [
 export type DevsyAgentState = "ready" | "missing" | "stale" | "invalid";
 /**
  * Where the agent binary comes from. `managed` is the Devrouter-verified cache
- * entry for the pinned CLI, `explicit` is an operator-supplied path, and `host`
- * means a newer host CLI governs its own agent with nothing injected.
+ * entry for an installed release, `explicit` is an operator-supplied path, and
+ * `host` means the installed release has no verified manifest recorded yet, so
+ * the host CLI governs its own agent with nothing injected.
  */
 export type DevsyAgentSource = "explicit" | "managed" | "host";
 
-/** A host CLI newer than the verified pin, together with the pin. */
+/** An installed release without a verified manifest, together with the pin. */
 export type DevsyAgentDrift = { installed: string; supported: string };
 export type DevsyAgentManifestOrigin = "pinned" | "release";
 

@@ -54,8 +54,11 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
    collides, then persist the checkout token within the same repository-local
    transaction.
 3. Load the in-memory runtime config and reject any managed HTTP or TCP proxy upstream outside the checkout's alias namespace.
-4. For Devsy, validate the pinned agent source before entering the provider
-   queue. Missing, stale, or invalid sources fail with the exact setup repair;
+4. For Devsy, validate the official agent source for the installed release
+   before entering the provider queue. Devrouter supports releases inside
+   `>=1.16.2 <2.0.0`, keeps the committed manifest for the reviewed release,
+   and otherwise requires the SHA-256 digest GitHub publishes for the release
+   asset. Missing, stale, or invalid sources fail with the exact setup repair;
    the verified path enters only the copied CLI child environment.
 5. For managed runtimes, resolve the fixed published host bindings of the
    effective Compose model (`src/core/host-port-claims.ts`) with the same
@@ -475,8 +478,9 @@ fails, eligible residual cleanup may still run, but its original failure remains
 nonzero and routes remain intact. This does not change legacy or delete paths.
 
 - A Devsy start never performs implicit agent acquisition. Use
-  `devrouter setup --yes --workspace-runtime devsy`; doctor checks the resulting
-  readiness state without network access.
+  `devrouter setup --yes --workspace-runtime devsy`, and rerun it after a Devsy
+  update so the cache holds the agent for the installed release; doctor checks
+  the resulting readiness state without network access.
 - Ambiguous Git paths, duplicate runtime IDs, owner conflicts, foreign aliases, dirty worktrees, and provider reassignments fail before destructive follow-up.
 - Provider mutation succeeds before route removal; a provider failure retains routes and ownership. After canonical removal, stop/delete still fails closed if bounded Traefik inspection plus one serialized restart cannot prove the routers unloaded.
 - Full down removes runtime, routes, worktree, then owner record. Failures stop that sequence and preserve later state.

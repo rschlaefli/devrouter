@@ -13,3 +13,4 @@ bundle; this index only lists the accepted decisions.
 - [ADR 0007: Keep CI profile planning repository-owned](./0007-keep-ci-profile-planning-repository-owned.md)
 - [ADR 0008: Model reliability before runtime activation](./0008-model-reliability-before-runtime-activation.md)
 - [ADR 0009: Preserve Compose network ownership while reserving workspace subnets](./0009-preserve-compose-network-ownership.md)
+- [ADR 0010: Support verified Devsy releases across a 1.x range](./0010-supported-devsy-version-range.md)
