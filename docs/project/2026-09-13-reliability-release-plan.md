@@ -719,6 +719,52 @@ the directory first, reports an unrecorded claim to the hook's stderr instead of
 pretending it was recorded, and carries a regression test that fails if the
 directory is not created before the lock is taken.
 
+### Live consumer dogfood findings (2026-09-19)
+
+The original consumer task re-ran the recorded recovery path on the released
+0.0.79 CLI and reported live proof: cold `ensure` succeeded with 11 routes,
+`devrouter stop` returned `stopped: true` with `freedRoutes: 11`, the
+workspace left no containers or routes behind, and the checkout's staged merge
+and worktree Git state were untouched. The pre-registration stop blocker is
+therefore closed under live proof from its owner; this task only recorded it.
+The same report names three follow-ups:
+
+1. A warm re-ensure exited 1 while the identical cold run passed: the
+   repository-owned post-start adapter started `klicker-dev` and then waited
+   its own 90-second auth readiness contract, timing out with `curl 7` while
+   `/tmp/dev.log` stayed empty; every other phase those runs printed was the
+   adapter's or the application's. `ensure --repair` restarted
+   `klicker-local-mcp` and `klicker-dev` and passed. The devrouter process
+   helper had verified its own start (PID and ownership), so no devrouter
+   source defect is claimed: the adapter's start path does not check that the
+   process stays alive, and the application died silently. Disposition: handed
+   back to the consumer task as its repository's adapter/app defect, with the
+   contract reminder that the adapter owns post-start liveness and log-tail
+   reporting. If a future run shows a devrouter process-helper start that is
+   not actually alive, this reopens as a helper defect.
+2. `devrouter stop <primary checkout>` returned exit 0 with
+   `{"stopped": false, "freedRoutes": 0}` while, per the report, a
+   stop-incomplete attention cleared afterwards. The result is honest for a
+   primary checkout with no exact registration (nothing was stopped and no
+   routes matched), and no state-clearing path exists on that branch of
+   `environment-stop.ts`; the observation is not reproduced and no source
+   change is made. A reproducer with the before/after `status --json` is
+   requested before treating this as a defect.
+3. `repo.host-port-claims` reported an error because the consumer declares a
+   fixed Postgres binding on `5432`, which the shared `devrouter-traefik`
+   container legitimately owns. The conflict is real and stays an error, but
+   the remediation was wrong: it told the agent to stop or reconfigure the
+   holding container, which for the platform router is never correct.
+
+The router-holder remediation is fixed here. `remediationFor` in
+`src/core/host-port-claims.ts` and the `repo.host-port-claims` suggestion in
+`devcontainer-diagnostics.ts` now name the consumer's own published binding as
+the side to change and say the router must keep running. Existing paths and one
+writer; no new module. Acceptance: the new router-held conflict test asserts the
+consumer-binding remediation and the absence of the stop-the-holder wording in
+both the ensure refusal and the doctor check, and the existing foreign-holder,
+standalone-holder and attribution tests stay unchanged.
+
 ### Active diagnostic deltas
 
 Main owns `src/core/workspace-ensure.ts`, its existing test suite, the affected failure-rule paragraph in `docs/knowledge/managed-environment-lifecycle.md`, and the unreleased changelog entry. Add fixed

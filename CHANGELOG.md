@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- A fixed host-port conflict whose holder is the shared `devrouter-traefik`
+  router no longer tells the agent to stop or reconfigure the holder. The
+  refusal and the `repo.host-port-claims` doctor check now name the consumer's
+  own published binding as the side to change, because the router owns its
+  platform entrypoint ports and must keep running while the dependency can move
+  to a devrouter TCP protocol route.
+
 ### Added
 
 - `devrouter doctor` compares every `devrouter` executable on PATH with the

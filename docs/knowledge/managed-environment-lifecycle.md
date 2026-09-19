@@ -65,7 +65,10 @@ Managed lifecycle commands bind one primary or linked Git checkout to one exact 
    holder container, compose project, and owning workspace when attributable).
    Ephemeral bindings are exempt and consumer bindings are never rewritten.
    Unverifiable evidence refuses fail-closed; `doctor` reports the same
-   comparison read-only as `repo.host-port-claims`.
+   comparison read-only as `repo.host-port-claims`. When the holder is the
+   shared devrouter router, the refusal names the consumer's binding as the side
+   to change: the router owns its platform entrypoint ports and must keep
+   running, while the dependency can move to a devrouter TCP protocol route.
    After admission, ordinary `ensure` prepares TLS coverage for the resolved
    proxy hostnames before provider startup or repository hooks. The existing
    certificate lock preserves coverage for other checkouts; retained-runtime

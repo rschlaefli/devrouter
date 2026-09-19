@@ -349,6 +349,31 @@ describe("detectHostPortClaimConflicts", () => {
     expect(conflicts[0].remediation).toContain("standalone-postgres");
   });
 
+  it("names the consumer binding when the shared router holds the port", () => {
+    configureDetection({
+      rendered: () =>
+        renderedModel({
+          postgres: {
+            ports: [{ target: 5432, published: "5432", protocol: "tcp" }],
+          },
+        }),
+      ps: () => dockerResult("def456\n"),
+      holders: () =>
+        dockerResult(
+          `${holderLine("def456", "devrouter-traefik", {
+            composeProject: "devrouter",
+            ports: { "5432/tcp": [{ HostIp: "", HostPort: "5432" }] },
+          })}\n`,
+        ),
+    });
+    const conflicts = detectHostPortClaimConflicts({ repoPath: REPO, plan: PLAN });
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].holderContainer).toBe("devrouter-traefik");
+    expect(conflicts[0].remediation).toContain("must keep running");
+    expect(conflicts[0].remediation).toContain("consumer's fixed host binding");
+    expect(conflicts[0].remediation).not.toContain("Stop or reconfigure");
+  });
+
   it("reports one conflict when the holder binds the port on both address families", () => {
     configureDetection({
       rendered: () =>

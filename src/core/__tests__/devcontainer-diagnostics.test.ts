@@ -280,6 +280,27 @@ describe("repo.host-port-claims check", () => {
     expect(check?.details).toContain("Cannot connect to the Docker daemon");
   });
 
+  it("points a router-held conflict at the consumer binding", () => {
+    vi.mocked(detectHostPortClaimConflicts).mockReturnValue([
+      {
+        service: "postgres",
+        hostIp: "127.0.0.1",
+        hostPort: 5432,
+        protocol: "tcp",
+        holderContainer: "devrouter-traefik",
+        remediation: "placeholder",
+      },
+    ]);
+
+    const checks = buildDevcontainerChecks(tmpDir, managedConfig(), "feature");
+    const check = checks.find((entry) => entry.id === "repo.host-port-claims");
+
+    expect(check?.level).toBe("error");
+    expect(check?.suggestion).toContain("must keep running");
+    expect(check?.suggestion).toContain("consumer's own published binding");
+    expect(check?.suggestion).not.toContain("Stop the holding workspace");
+  });
+
   it("passes the workspace interpolation env for linked checkouts", () => {
     vi.mocked(isLinkedWorktree).mockReturnValue(true);
     vi.mocked(resolveGitCommonDir).mockReturnValue("/tmp/host-port-claims-doctor/common");
