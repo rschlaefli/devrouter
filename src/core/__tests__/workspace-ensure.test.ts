@@ -161,10 +161,18 @@ function container(
   id: string,
   service: string,
   aliases: string[],
-  options: { mountRepo?: boolean; running?: boolean; health?: string; overlay?: boolean } = {},
+  options: {
+    mountRepo?: boolean;
+    running?: boolean;
+    health?: string;
+    overlay?: boolean;
+    workingDir?: string;
+  } = {},
 ): WorkspaceContainerSnapshot {
-  const overlay =
-    options.overlay === false
+  const workingDir = options.workingDir ?? `${repoPath}/.devcontainer`;
+  const overlay = options.workingDir
+    ? `${workingDir}/providers.compose.json`
+    : options.overlay === false
       ? `${repoPath}/.devcontainer/docker-compose.yml`
       : `${repoPath}/.devcontainer/docker-compose.yml,${repoPath}/.devcontainer/docker-compose.devrouter.yml`;
   return {
@@ -175,7 +183,7 @@ function container(
     },
     labels: {
       "com.docker.compose.project": "workspace-project",
-      "com.docker.compose.project.working_dir": `${repoPath}/.devcontainer`,
+      "com.docker.compose.project.working_dir": workingDir,
       "com.docker.compose.project.config_files": overlay,
       "com.docker.compose.service": service,
     },
@@ -296,6 +304,48 @@ describe("validateWorkspaceContainers", () => {
         },
       }),
     ).toThrow("docker-compose.devrouter.yml");
+  });
+
+  it("accepts an upstream container served from another project of the same worktree", () => {
+    const app = container("app-id", "app", ["feature-app"], { mountRepo: true });
+    const blob = container("blob-id", "blob", ["feature-azurite"], {
+      workingDir: `${repoPath}/.local-kb`,
+    });
+
+    expect(
+      validateWorkspaceContainers([app, blob], {
+        repoPath,
+        upstreamHosts: ["feature-app", "feature-azurite"],
+        target: {
+          kind: "linked",
+          workspace,
+          devpodId: workspace,
+          hadExactDevpod: true,
+          gitCommonDir: "/repo/.git",
+        },
+      }),
+    ).toEqual({ id: "app-id", workspacePath: "/workspaces/repo" });
+  });
+
+  it("rejects an upstream container owned by a different worktree", () => {
+    const app = container("app-id", "app", ["feature-app"], { mountRepo: true });
+    const blob = container("foreign-blob-id", "blob", ["feature-azurite"], {
+      workingDir: "/repo/trees/other/.local-kb",
+    });
+
+    expect(() =>
+      validateWorkspaceContainers([app, blob], {
+        repoPath,
+        upstreamHosts: ["feature-app", "feature-azurite"],
+        target: {
+          kind: "linked",
+          workspace,
+          devpodId: workspace,
+          hadExactDevpod: true,
+          gitCommonDir: "/repo/.git",
+        },
+      }),
+    ).toThrow("does not belong to the exact worktree");
   });
 
   it("rejects a missing or ambiguous workspace alias", () => {
