@@ -130,8 +130,11 @@ check against available lifecycle history. `capacity-ledger-lost` means survivin
 evidence proves ledger history is missing or regressed;
 `capacity-history-unprovable` means safe history inspection failed. Admission
 refuses both states. Preserve the ledger and journals and restore verified
-history before retrying; clearing metadata is not a recovery procedure. This
-check does not prove runtime health or complete historical provenance.
+history before retrying; clearing metadata is not a recovery procedure. When
+that check classifies the ledger as positively absent, `devrouter capacity
+reconcile --yes` is the forward recovery: it refuses while any journal
+settlement is outstanding, then publishes a fresh empty baseline. This check
+does not prove runtime health or complete historical provenance.
 
 ## Foreground consumer sessions
 

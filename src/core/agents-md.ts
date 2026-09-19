@@ -307,6 +307,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - \`devrouter stop [path] [--delete] [--json]\`: stop the exact workspace runtime and remove exact routes; \`--delete\` explicitly deletes its ownership-proven data without removing the checkout
 - \`devrouter exec [path] -- <command...>\`: literal one-shot command inside the exact running workspace runtime
 - \`devrouter harness gate [--repo <path>] [--wait-budget-ms <ms>] [--json]\`: defer one harness tool call until this checkout's lifecycle phase settles; prints the harness permission decision
+- \`devrouter capacity reconcile --yes [--json]\`: replace a provably absent capacity ledger with a fresh empty baseline once no journal-visible charge remains
 - \`devrouter up\` / \`devrouter down\`: start/stop shared Traefik router
 - \`devrouter status\`: router/container/network/TLS health
 - \`devrouter doctor [--repo .]\`: deep diagnostics (global + repo)

@@ -13,7 +13,11 @@ import {
   readCapacityPolicy,
 } from "./capacity-policy";
 import { type CapacityAdmissionContext, capacitySteadyCharge } from "./capacity-request";
-import { type CapacityReservation, CapacitySnapshotChangedError } from "./capacity-store";
+import {
+  CapacityHistoryError,
+  type CapacityReservation,
+  CapacitySnapshotChangedError,
+} from "./capacity-store";
 import {
   followControllerOperation,
   observeControllerBinding,
@@ -1651,8 +1655,26 @@ export function proveLifecycleStopped(): void {
       const capacity = createLifecycleCapacityStore(path.join(DEVROUTER_HOME, "controller"));
       for (let attempt = 0; ; attempt++) {
         try {
-          capacity.settleEnvironmentAfterStop(settlement, capacity.read().revision);
-          break;
+          const state = capacity.inspect();
+          if (state.kind === "intact") {
+            capacity.settleEnvironmentAfterStop(settlement, state.revision);
+            break;
+          }
+          // Physical cessation is already proven above, so a positively absent
+          // ledger cannot hold a row for this environment. The witness must be
+          // durable before the confirmation below clears the binding: without
+          // it a markerless store would read as a fresh install.
+          if (state.kind === "absent") {
+            capacity.recordLedgerLoss();
+            break;
+          }
+          // A pristine store holds no history and no journal can bind it, so
+          // this settlement is the empty fence a stop has always published.
+          if (state.kind === "pristine") {
+            capacity.settleEnvironmentAfterStop(settlement, 0);
+            break;
+          }
+          throw new CapacityHistoryError("capacity-ledger-lost");
         } catch (error) {
           if (!(error instanceof CapacitySnapshotChangedError) || attempt >= 2) throw error;
         }

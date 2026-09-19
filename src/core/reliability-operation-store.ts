@@ -687,15 +687,44 @@ export function createLifecycleCapacityStore(
 ): CapacityStore {
   return new CapacityStore(directory, undefined, () => {
     try {
-      let revision = 0;
-      for (const record of listReliabilityOperations()) {
-        if (record.capacity) revision = Math.max(revision, record.capacity.snapshotRevision ?? 1);
-      }
-      return revision;
+      return listUnsettledCapacityBindings().floor;
     } catch {
       throw new CapacityHistoryError("capacity-history-unprovable");
     }
   });
+}
+
+/** A durable capacity charge whose ledger row cannot be proven to exist. */
+export type UnsettledCapacityBinding = {
+  environmentId: string;
+  repoPath: string;
+  workspace: string | null;
+};
+
+/**
+ * Enumerate the journal bindings that still block reconciliation and derive
+ * the same journal floor `createLifecycleCapacityStore` fences reads with.
+ * A binding whose authority is already revoked for settlement stays listed;
+ * only the stop confirmation clears it. Enumeration is read-only and takes no
+ * journal transaction lock, so callers must not assume it excludes a
+ * publication that is still in flight.
+ */
+export function listUnsettledCapacityBindings(): {
+  floor: number;
+  bindings: UnsettledCapacityBinding[];
+} {
+  let floor = 0;
+  const bindings: UnsettledCapacityBinding[] = [];
+  for (const record of listReliabilityOperations()) {
+    if (!record.capacity) continue;
+    floor = Math.max(floor, record.capacity.snapshotRevision ?? 1);
+    bindings.push({
+      environmentId: record.state.environmentId,
+      repoPath: record.identity.repoPath,
+      workspace: record.identity.workspace,
+    });
+  }
+  return { floor, bindings };
 }
 
 /** Called inside the journal transaction, before accepting a lifecycle effect. */

@@ -87,6 +87,21 @@ controllerCommand
     }),
   );
 
+const capacityCommand = program
+  .command("capacity")
+  .description("Inspect machines-local capacity ledger state");
+capacityCommand
+  .command("reconcile")
+  .description("Replace a provably lost capacity ledger with a fresh empty baseline")
+  .option("--yes")
+  .option("--json")
+  .action(
+    withErrorHandling(async (options: Record<string, unknown>) => {
+      const { runCapacityCommand } = await import("./commands/capacity");
+      await runCapacityCommand("reconcile", options);
+    }),
+  );
+
 program
   .command("init")
   .description("Print an AI onboarding prompt template for adapting a repository to devrouter")

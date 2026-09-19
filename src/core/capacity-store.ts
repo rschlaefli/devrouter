@@ -20,12 +20,25 @@ export type CapacityPoolReservation = {
   hostDomain: string;
   hostChargeCeilingBytes: number;
 };
-type Snapshot = {
+export type CapacityLedgerSnapshot = {
   version: 1;
   revision: number;
   reservations: CapacityReservation[];
   pools?: CapacityPoolReservation[];
 };
+type Snapshot = CapacityLedgerSnapshot;
+
+/**
+ * Durable ledger classification. `absent` is a positive physical-absence proof
+ * that recorded history existed; `pristine` is a store that never held history;
+ * `stale` is a snapshot the surviving journal evidence has outrun. Only absence
+ * can be reconciled, and every other state refuses exactly as `read()` does.
+ */
+export type CapacityLedgerState =
+  | { kind: "pristine" }
+  | { kind: "absent" }
+  | { kind: "stale"; revision: number }
+  | { kind: "intact"; revision: number; snapshot: CapacityLedgerSnapshot };
 const MAX_BYTES = 1_048_576;
 
 export class CapacityHistoryError extends Error {
@@ -192,6 +205,8 @@ export class CapacityStore {
   private file: string;
   private establishedFile: string;
   private observedLedger = false;
+  /** Identity of the snapshot file read last, so a replacement cannot reuse its revision. */
+  private ledgerGeneration?: string;
   constructor(
     private directory: string,
     private write = writeFileAtomically,
@@ -233,7 +248,7 @@ export class CapacityStore {
     }
   }
 
-  read(): Snapshot {
+  inspect(): CapacityLedgerState {
     // Read journal evidence first: a concurrent admission publishes its ledger
     // before its journal, so the later ledger cannot legitimately trail this floor.
     const minimumRevision = this.minimumRevision();
@@ -246,9 +261,9 @@ export class CapacityStore {
       );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        if (established || this.observedLedger || minimumRevision > 0)
-          throw new CapacityHistoryError("capacity-ledger-lost");
-        return { version: 1, revision: 0, reservations: [] };
+        this.ledgerGeneration = undefined;
+        if (established || this.observedLedger || minimumRevision > 0) return { kind: "absent" };
+        return { kind: "pristine" };
       }
       throw error;
     }
@@ -266,19 +281,42 @@ export class CapacityStore {
       if (count > MAX_BYTES) throw new Error("Capacity reservation snapshot exceeds byte limit.");
       const value: unknown = JSON.parse(buffer.subarray(0, count).toString("utf8"));
       validate(value);
-      if (value.revision < minimumRevision) throw new CapacityHistoryError("capacity-ledger-lost");
+      this.ledgerGeneration = `${stat.dev}:${stat.ino}`;
+      if (value.revision < minimumRevision) return { kind: "stale", revision: value.revision };
       this.observedLedger = true;
-      return value;
+      return { kind: "intact", revision: value.revision, snapshot: value };
     } finally {
       fs.closeSync(descriptor);
     }
   }
 
+  read(): Snapshot {
+    const state = this.inspect();
+    if (state.kind === "intact") return state.snapshot;
+    if (state.kind === "pristine") return { version: 1, revision: 0, reservations: [] };
+    throw new CapacityHistoryError("capacity-ledger-lost");
+  }
+
   private establish(): void {
     if (!this.readEstablished()) this.write(this.establishedFile, '{"version":1}\n');
+    this.syncDurability([this.file, this.establishedFile, this.directory]);
+  }
+
+  /**
+   * Witness for a ledger that is positively absent. The marker records that
+   * history existed here, so no later process can read the store as a fresh
+   * install and start admitting; the snapshot stays absent until reconciliation.
+   * The caller holds the capacity lock and has proven environment cessation.
+   */
+  private establishMarkerOnly(): void {
+    if (!this.readEstablished()) this.write(this.establishedFile, '{"version":1}\n');
+    this.syncDurability([this.establishedFile, this.directory]);
+  }
+
+  private syncDurability(files: string[]): void {
     // A visible marker can survive a failed directory sync. No-op retries must
     // complete durability too, including when a new process handles the retry.
-    for (const file of [this.file, this.establishedFile, this.directory]) {
+    for (const file of files) {
       const descriptor = fs.openSync(
         file,
         fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
@@ -299,7 +337,13 @@ export class CapacityStore {
   }
 
   private readForMutation(): Snapshot {
+    // The identity read before this mutation is the caller's evidence.
+    const expectedGeneration = this.ledgerGeneration;
     const snapshot = this.read();
+    // Reconciliation publishes a fresh baseline, so the revision number alone
+    // cannot fence a caller that read the lost ledger before it was replaced.
+    if (expectedGeneration !== undefined && expectedGeneration !== this.ledgerGeneration)
+      throw new CapacitySnapshotChangedError();
     if (this.observedLedger) this.establish();
     return snapshot;
   }
@@ -307,7 +351,91 @@ export class CapacityStore {
   private commit(snapshot: Snapshot): void {
     this.write(this.file, serializeSnapshot(snapshot));
     this.observedLedger = true;
+    this.rememberGeneration();
     this.establish();
+  }
+
+  /** Remember the published snapshot identity for the next generation fence. */
+  private rememberGeneration(): void {
+    try {
+      const stat = fs.statSync(this.file);
+      this.ledgerGeneration = stat.isFile() ? `${stat.dev}:${stat.ino}` : undefined;
+    } catch {
+      this.ledgerGeneration = undefined;
+    }
+  }
+
+  /**
+   * Durable evidence that recorded history is gone, for a stop whose physical
+   * cessation is already proven. The caller holds that proof; this writes no
+   * row and asserts nothing about any other environment's charge.
+   */
+  recordLedgerLoss(): void {
+    assertPrivateDirectory(this.directory);
+    withFileLockSync(
+      `${this.file}.lock`,
+      { activity: "capacity loss witness", waitMs: 100 },
+      () => {
+        if (this.inspect().kind !== "absent")
+          throw new CapacityHistoryError("capacity-ledger-lost");
+        this.establishMarkerOnly();
+      },
+    );
+  }
+
+  /**
+   * Replace a provably absent ledger with a fresh baseline under the capacity
+   * lock. `plan` runs inside the lock with the authoritative classification and
+   * re-verifies the caller's evidence, returning the baseline to write or
+   * undefined to refuse without mutation. `confirm` runs in the same lock after
+   * the write; returning false withdraws the fresh snapshot, so the store reads
+   * as lost again instead of publishing a baseline the caller cannot stand behind.
+   */
+  reconcileLostHistory(
+    plan: (
+      state: CapacityLedgerState,
+    ) => { revision: number; pools?: CapacityPoolReservation[] } | undefined,
+    confirm: () => boolean,
+  ): { reconciled: boolean; revision?: number } {
+    assertPrivateDirectory(this.directory);
+    return withFileLockSync(
+      `${this.file}.lock`,
+      { activity: "capacity reconciliation", waitMs: 100 },
+      () => {
+        const baseline = plan(this.inspect());
+        if (!baseline) return { reconciled: false };
+        if (!Number.isSafeInteger(baseline.revision) || baseline.revision < 1)
+          throw new Error("Invalid capacity reconciliation revision.");
+        const pools = structuredClone(baseline.pools ?? []);
+        validatePools(pools);
+        const snapshot: Snapshot =
+          pools.length === 0
+            ? { version: 1, revision: baseline.revision, reservations: [] }
+            : { version: 1, revision: baseline.revision, reservations: [], pools };
+        validate(snapshot);
+        this.commit(snapshot);
+        if (confirm()) return { reconciled: true, revision: snapshot.revision };
+        this.withdrawSnapshot();
+        return { reconciled: false };
+      },
+    );
+  }
+
+  /** Remove a snapshot this store just wrote, keeping the loss witness durable. */
+  private withdrawSnapshot(): void {
+    try {
+      fs.unlinkSync(this.file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    this.observedLedger = false;
+    this.ledgerGeneration = undefined;
+    const directory = fs.openSync(this.directory, "r");
+    try {
+      fs.fsyncSync(directory);
+    } finally {
+      fs.closeSync(directory);
+    }
   }
 
   /**

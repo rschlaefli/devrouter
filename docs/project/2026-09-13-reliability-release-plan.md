@@ -786,7 +786,7 @@ passes, a foreign-worktree upstream still refuses, and the existing overlay,
 alias and mount refusals are unchanged. The superseded draft is closed with a
 comment pointing at this landed change.
 
-### Capacity lost-history forward reconciliation — frozen derived contract (rev 2)
+### Capacity lost-history forward reconciliation — frozen derived contract (rev 2, delivered)
 
 The delivered diagnosis slices prove loss and refuse; nothing yet lets an
 operator end the state. An environment whose stop proof succeeded against a
@@ -852,6 +852,74 @@ should-fix note are accepted and folded into this revision:
   and the knowledge concept, and acceptance gains the interleavings and crash
   orderings named above.
 
+Planner round 2 (2026-09-20) returned REVISE on those corrections. Verified
+against source; three findings accepted with one narrowed and two
+should-fixes taken:
+
+- **Revision reuse (accepted, corrected).** The floor is a lower bound, not a
+  historical maximum, so `floor + 1` can still equal a revision a pre-loss
+  holder legitimately carries — pool observation commits revisions with no
+  journal binding at all (`capacity-controller.ts:191-237`), and the fresh
+  baseline for a marker-only loss is revision 1. Correction: every locked
+  mutation also fences the *ledger generation*. `inspect()` records the
+  snapshot file identity (`dev:ino` from the already-open descriptor) of the
+  read that produced the caller's revision, every mutator compares that
+  recorded identity with the one it re-reads under the lock and throws the
+  existing `CapacitySnapshotChangedError` on replacement, and `commit()`
+  refreshes it after a successful write. Because every commit replaces the file
+  atomically, a replacement covers both deletion-and-recreation and any
+  concurrent commit, so a numeric collision can no longer match. No schema or
+  signature change: the identity lives in the store instance, and a caller that
+  never read falls back to the numeric fence it has today.
+- **Pool ceilings (accepted, corrected).** `evaluateCapacity` defaults pools to
+  `[]` and only supplied ceilings enter the sum (`capacity-accounting.ts:43,96-103`),
+  `mergePools` only ever adds or raises a ceiling (`capacity-store.ts:157-181`),
+  and the controller can serve cached samples without a fresh observation
+  (`capacity-controller.ts:252-263`). A baseline with no pools would therefore
+  remove the only host protection for a running runtime domain until a later
+  observation. Correction: reconciliation performs its own pool observation
+  inside the lock, through the same probe the controller uses, and writes the
+  positively observed ceilings into the baseline; a declared runtime domain
+  that cannot be observed refuses the whole reconciliation as
+  `capacity-pools-unresolved` without a write. No ceiling is invented: values
+  come from the active policy exactly as the controller writes them. A machine
+  whose runtime is gone removes that domain from the policy first; pool
+  cessation proofs remain follow-up work because `settlePoolAfterCessation` has
+  no production caller.
+- **Journal publication during reconciliation (accepted as a bounded residual,
+  narrowed).** A binder could in principle publish a binding after the
+  reconciliation enumeration. Source check: `updateReliabilityOperation` runs
+  the caller callback and `persist()` inside one synchronous journal critical
+  section and rejects async callbacks (`reliability-operation-store.ts:899-936`),
+  and `bindLifecycleCapacity` validates against the ledger inside that same
+  section (`reliability-lifecycle.ts:1365-1403`), so publication after
+  validation requires a process suspension that spans the entire loss and
+  recovery. Serializing validation-through-publication would require taking the
+  capacity lock inside a journal transaction, the reverse of the ordering the
+  lifecycle deliberately keeps; that is a larger change than this slice and
+  carries its own risk. Correction taken instead: after writing the baseline,
+  one more journal enumeration runs inside the same lock and, if any binding
+  appeared, the fresh snapshot is withdrawn (deleted, marker kept) and the
+  command refuses with the ordinary `capacity-charges-pending` list, so the
+  race lands on the normal stop-then-retry path. The remaining suspension-scale
+  window is stated in Limits with its fail-closed consequence.
+- **Marker-only durability (accepted).** `establish()` opens and fsyncs the
+  snapshot before the marker and directory, so it cannot serve a witness write
+  when the snapshot is absent. Correction: a dedicated witness path writes the
+  marker atomically, then fsyncs marker and directory, and re-fsyncs both when
+  the marker already exists, covering the retry after a failed directory sync.
+  Journal confirmation follows only after that sync succeeds.
+- **Command contract (accepted).** Refusals follow `ensure`
+  (`src/commands/ensure.ts:21-24`, its test at `:46-91`): one newline-terminated
+  structured object on stdout, `process.exitCode = 1`, success leaves the exit
+  code unset. Expected refusals are `{version:1, ok:false, reason, ...}` with
+  the blocking environment identities and repo paths, and human recovery
+  commands rendered as quoted argv a shell can run; success stays
+  `{version:1, ok:true, reconciled:true, revision, unresolved:0}`. `stale` and
+  unsafe evidence refuse without overwriting anything. The doctor suggestion
+  recommends reconciliation only when the store classifies the ledger as
+  positively absent and keeps the preserve-and-restore wording otherwise.
+
 1. **Stop completion when the ledger is positively absent.**
    `src/core/reliability-lifecycle.ts` proves physical cessation first and only
    then settles anything. After the journal stop-proof, the settlement step
@@ -880,11 +948,13 @@ should-fix note are accepted and folded into this revision:
    `capacity-history-intact`; and without `--yes` as
    `capacity-reconcile-confirmation-required`.
 
-   Otherwise one `reconcileLostHistory` transaction under the existing capacity
-   file lock re-enumerates the journals, re-proves the ledger positively absent
-   at that instant, and writes a fresh
-   `{version:1, revision:<floor+1>, reservations:[]}` snapshot plus the
-   existing established marker through the store's own commit path. It reports
+  Otherwise one `reconcileLostHistory` transaction under the existing capacity
+  file lock re-enumerates the journals, re-proves the ledger positively absent
+   at that instant, observes the declared runtime pools, and writes a fresh
+   `{version:1, revision:<floor+1>, reservations:[], pools:<observed>}`
+   snapshot plus the existing established marker through the store's own commit
+   path, then re-enumerates the journals once more inside the same lock and
+   withdraws the snapshot again if a binding appeared. It reports
    `{reconciled:true, revision, unresolved:0}`. The floor is the existing
    journal-derived minimum revision; nothing claims reservations, pools or
    history were restored, and the report says only that no journal-visible
@@ -901,6 +971,8 @@ enumeration with one read of unsettled capacity bindings shared by both halves
 and by the CLI), `src/core/reliability-lifecycle.ts` (stop settlement branch),
 `src/commands/capacity.ts` (new local command handler) and `src/cli.ts` (new
 `capacity` group with the single `reconcile` subcommand; no other module),
+`src/core/capacity-docker-probe.ts` (reused read-only during reconciliation to
+positively observe the declared pool ceilings),
 `src/core/doctor.ts` (the `global.capacity-ledger` suggestion names
 the reconcile command), their existing test files plus
 `src/commands/__tests__/capacity.test.ts`,
@@ -912,7 +984,13 @@ Limits, stated in output and documentation: journals are bounded and rolled
 over, so an environment whose records were rolled away or deleted cannot be
 enumerated; a total loss of journals is not distinguishable from first use;
 reconciliation reconstructs no charges, pools or provenance and is not
-disaster recovery.
+disaster recovery. A runtime domain that cannot be observed blocks
+reconciliation rather than being assumed absent. One residual race remains: a
+binding whose validation already succeeded and whose publication is delayed by
+a process suspension spanning the whole recovery can still appear after the
+post-write confirmation. That leaves a fail-closed refusal and a blocked
+reconciliation attempt, never a false clean state, and the slice names it
+instead of claiming serialization it does not have.
 
 Acceptance. Red regression: an environment whose stop proof succeeded against a
 positively absent ledger stays `stopping` today and completes after the
@@ -938,6 +1016,20 @@ Route: main. The required planner challenge preceded source as rev 1 (REVISE)
 and rev 2 carries the corrections; one planner round-2 challenge on this
 revision precedes source, and the immutable simplifier and slice review follow
 on the committed range.
+
+Implementation notes (2026-09-20). Three details of the frozen text are
+recorded as delivered, because the executable artifacts differ from a literal
+reading: (1) a pristine store keeps today's settlement, so the stop publishes
+the empty revision fence it always published, and only an absent ledger takes
+the new witness path; stale and every evidence failure still refuse. (2) The
+declared-runtime pool probe is asynchronous and runs immediately before the
+locked transaction rather than inside it; its only write inputs are the
+policy's domain identity and ceiling, an unobservable domain still refuses
+without a write, and the locked plan re-proves absence and the journal floor
+regardless. (3) The command preflights the store classification and the journal
+bindings before that probe, so a reachability failure cannot mask a pending
+charge or a nothing-to-reconcile state; the authoritative checks stay inside
+the transaction.
 
 ### Active diagnostic deltas
 
