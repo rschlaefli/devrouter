@@ -110,28 +110,35 @@ and cleanup.
   and the `[Unreleased]` changelog entry: done.
 - Checks on 2026-09-19: `pnpm check`, `pnpm knip`, `pnpm typecheck`,
   `pnpm check:docs-policy`, `pnpm check:knowledge`, and `pnpm build` pass.
-  Vitest passes 2639/2639 in 146 files with `--no-file-parallelism`; under
-  full file parallelism only `controller-server.test.ts` "replays valid
-  cursors" hits its 5s timeout, then passes standalone and serially, so the
-  failure is worker contention in an unrelated file. `pnpm test:process`
-  skips on macOS because Linux `/proc` is unavailable.
+  Vitest passes 2639/2639 in 146 files with `--no-file-parallelism` on the
+  rebased head and 2657/2657 in 147 files after integrating current `main`;
+  CI run 35471841423 is green for merge commit `c7e8966`. Under full file
+  parallelism only `controller-server.test.ts` "replays valid cursors" hit
+  its 5s timeout, then passed standalone, serially, and in CI, so the failure
+  was worker contention in an unrelated file. `pnpm test:process` skips on
+  macOS because Linux `/proc` is unavailable.
 - Rebase integration: upstream 0.0.79 (`d7395bc`) shipped a competing fallback
   in which any Devsy CLI newer than the verified pin is accepted as `ready`
   with nothing injected. The merged design keeps digest-verified per-release
   injection whenever a manifest is recorded and keeps host governance only as
   the no-manifest fallback, so neither `doctor` nor `ensure` can inject an
-  unverified binary. The trust anchor above is unchanged.
+  unverified binary. The trust anchor above is unchanged. Current `main` was
+  integrated again after #105 (`e1ef9ea`) landed; only the `[Unreleased]`
+  changelog conflicted, and both entries are kept.
 - Live probes, read-only: the resolver returned the published `v1.19.0` Linux
-  assets with SHA-256 digests; on the rebased head, the built CLI's `doctor`
-  against a real Devsy `1.19.0` checkout reports `global.devsy-agent` warn
-  `state=ready, source=host, version=1.19.0, supported=>=1.16.2 <2.0.0` with
-  the `setup --workspace-runtime devsy` suggestion, instead of the previous
-  stale version refusal. `setup` itself did not run, so no agent was
-  downloaded and no manifest was recorded in machine state.
+  assets with SHA-256 digests; on the rebased and post-merge builds, the built
+  CLI's `doctor` against a real Devsy `1.19.0` checkout reports
+  `global.devsy-agent` warn `state=ready, source=host, version=1.19.0,
+  supported=>=1.16.2 <2.0.0` with the `setup --workspace-runtime devsy`
+  suggestion, instead of the previous stale version refusal. `setup` itself
+  did not run, so no agent was downloaded and no manifest was recorded in
+  machine state.
 - Trust-anchor delta for un-pinned releases is recorded in ADR 0010 and stays
   flagged for maintainer review. This session runs the standard execution mode
   without an eligible subagent route, so no independent simplifier or
   final-review pass ran; main-session diff inspection stands in.
-- Delivery: standing implementation delivery — ordinary push of this
-  non-protected task branch and a draft PR. Merge, release, publication,
-  workspace start, and cleanup remain withheld.
+- Delivery: standing implementation delivery — ordinary pushes of this
+  non-protected task branch and draft
+  [PR #106](https://github.com/rschlaefli/devrouter/pull/106) with green CI on
+  `c7e8966`. Merge, release, publication, workspace start, and cleanup remain
+  withheld.
