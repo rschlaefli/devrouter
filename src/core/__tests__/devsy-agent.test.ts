@@ -93,10 +93,13 @@ describe("Devsy agent manifest", () => {
     });
   });
 
-  it("fails closed for unsupported versions and native mappings", () => {
+  it("fails closed for older, prerelease, unparseable and unmapped versions", () => {
     expect(
-      inspectDevsyAgent({ versionOutput: "v1.17.0", env: {}, cacheRoot: tmpDir }),
-    ).toMatchObject({ state: "stale", installedVersion: "1.17.0" });
+      inspectDevsyAgent({ versionOutput: "v1.15.0", env: {}, cacheRoot: tmpDir }),
+    ).toMatchObject({ state: "stale", installedVersion: "1.15.0" });
+    expect(
+      inspectDevsyAgent({ versionOutput: "devsy development build", env: {}, cacheRoot: tmpDir }),
+    ).toMatchObject({ state: "stale" });
     expect(
       inspectDevsyAgent({
         versionOutput: "devsy v1.16.2-beta.1",
@@ -115,6 +118,43 @@ describe("Devsy agent manifest", () => {
         cacheRoot: tmpDir,
       }),
     ).toMatchObject({ state: "stale" });
+  });
+
+  it("accepts a newer host CLI without selecting a Devrouter agent", () => {
+    const inspection = inspectDevsyAgent({
+      versionOutput: "devsy v1.19.0",
+      env: {},
+      cacheRoot: tmpDir,
+    });
+
+    expect(inspection).toMatchObject({
+      state: "ready",
+      source: "host",
+      installedVersion: "1.19.0",
+      drift: { installed: "1.19.0", supported: "1.16.2" },
+    });
+    expect(inspection.binaryPath).toBeUndefined();
+    expect(inspection.asset).toBeUndefined();
+    expect(
+      requireReadyDevsyAgent({ versionOutput: "v1.19.0", env: {}, cacheRoot: tmpDir }),
+    ).toMatchObject({ source: "host", changed: false, transport: "existing" });
+  });
+
+  it("still validates an explicit agent under a newer host CLI", () => {
+    const contents = Buffer.from("verified explicit agent");
+    const asset = fixtureAsset("test-agent", contents);
+    const binaryPath = path.join(tmpDir, "operator-agent");
+    fs.writeFileSync(binaryPath, contents);
+    const options = { ...baseOptions(asset), versionOutput: "devsy v1.19.0" };
+
+    expect(
+      inspectDevsyAgent({ ...options, env: { DEVSY_AGENT_BINARY: binaryPath } }),
+    ).toMatchObject({ state: "ready", source: "explicit", binaryPath, asset });
+
+    fs.writeFileSync(binaryPath, Buffer.from("substituted contents"));
+    expect(
+      inspectDevsyAgent({ ...options, env: { DEVSY_AGENT_BINARY: binaryPath } }),
+    ).toMatchObject({ state: "invalid", source: "explicit" });
   });
 
   it.each([
@@ -206,10 +246,11 @@ describe("prepareDevsyAgent", () => {
       changed: true,
       transport: "https",
     });
-    expect(fs.readFileSync(result.binaryPath)).toEqual(contents);
-    expect(fs.statSync(result.binaryPath).mode & 0o777).toBe(0o700);
+    const binaryPath = result.binaryPath ?? "";
+    expect(fs.readFileSync(binaryPath)).toEqual(contents);
+    expect(fs.statSync(binaryPath).mode & 0o777).toBe(0o700);
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(fs.readdirSync(path.dirname(result.binaryPath))).toEqual([asset.name]);
+    expect(fs.readdirSync(path.dirname(binaryPath))).toEqual([asset.name]);
   });
 
   it("reuses an already verified managed source without network access", async () => {
@@ -225,6 +266,25 @@ describe("prepareDevsyAgent", () => {
       binaryPath,
       changed: false,
       transport: "existing",
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("prepares nothing for a newer host CLI that governs its own agent", async () => {
+    const asset = fixtureAsset("test-agent", Buffer.from("agent"));
+    const fetcher = vi.fn();
+
+    await expect(
+      prepareDevsyAgent({
+        ...baseOptions(asset),
+        versionOutput: "devsy v1.19.0",
+        fetcher,
+      }),
+    ).resolves.toMatchObject({
+      source: "host",
+      changed: false,
+      transport: "existing",
+      asset: undefined,
     });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -296,7 +356,7 @@ describe("prepareDevsyAgent", () => {
 
     expect(result).toMatchObject({ changed: true, transport: "github-cli" });
     expect(githubCliDownloader).toHaveBeenCalledWith(asset, expect.any(Function));
-    expect(fs.readFileSync(result.binaryPath)).toEqual(contents);
+    expect(fs.readFileSync(result.binaryPath ?? "")).toEqual(contents);
   });
 
   it("reports both acquisition transports when the GitHub CLI fallback fails", async () => {

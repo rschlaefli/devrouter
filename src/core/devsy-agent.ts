@@ -35,7 +35,15 @@ export const DEVSY_AGENT_ASSETS: readonly DevsyAgentAsset[] = [
 ] as const;
 
 export type DevsyAgentState = "ready" | "missing" | "stale" | "invalid";
-export type DevsyAgentSource = "explicit" | "managed";
+/**
+ * Where the agent binary comes from. `managed` is the Devrouter-verified cache
+ * entry for the pinned CLI, `explicit` is an operator-supplied path, and `host`
+ * means a newer host CLI governs its own agent with nothing injected.
+ */
+export type DevsyAgentSource = "explicit" | "managed" | "host";
+
+/** A host CLI newer than the verified pin, together with the pin. */
+export type DevsyAgentDrift = { installed: string; supported: string };
 
 export type DevsyAgentInspection = {
   state: DevsyAgentState;
@@ -44,12 +52,13 @@ export type DevsyAgentInspection = {
   binaryPath?: string;
   asset?: DevsyAgentAsset;
   installedVersion?: string;
+  drift?: DevsyAgentDrift;
 };
 
 export type PreparedDevsyAgent = {
-  binaryPath: string;
+  binaryPath?: string;
   source: DevsyAgentSource;
-  asset: DevsyAgentAsset;
+  asset?: DevsyAgentAsset;
   changed: boolean;
   transport: "existing" | "https" | "github-cli";
 };
@@ -91,6 +100,22 @@ function parseVersion(output: string | undefined): string | undefined {
   return output?.match(
     /\bv?(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)\b/,
   )?.[1];
+}
+
+/** Compare numeric version cores; prerelease and build metadata compare equal. */
+function compareVersionCore(left: string, right: string): number {
+  const core = (value: string) =>
+    value
+      .split(/[-+]/, 1)[0]
+      .split(".")
+      .map((part) => Number.parseInt(part, 10));
+  const leftParts = core(left);
+  const rightParts = core(right);
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference > 0 ? 1 : -1;
+  }
+  return 0;
 }
 
 export function devsyAgentRepairSuggestion(inspection: DevsyAgentInspection): string {
@@ -187,7 +212,14 @@ export function inspectDevsyAgent(options: DevsyAgentOptions = {}): DevsyAgentIn
   const explicitPath = resolved.env.DEVSY_AGENT_BINARY?.trim();
   const source: DevsyAgentSource = explicitPath ? "explicit" : "managed";
 
-  if (installedVersion !== SUPPORTED_DEVSY_VERSION) {
+  // An older, unparseable, or prerelease variant of the pin stays unsupported:
+  // the release only claims the surface it verified. A newer host CLI is
+  // accepted and governs its own agent below.
+  if (
+    installedVersion === undefined ||
+    (installedVersion !== SUPPORTED_DEVSY_VERSION &&
+      compareVersionCore(installedVersion, SUPPORTED_DEVSY_VERSION) <= 0)
+  ) {
     return {
       state: "stale",
       source,
@@ -204,6 +236,19 @@ export function inspectDevsyAgent(options: DevsyAgentOptions = {}): DevsyAgentIn
       source,
       binaryPath: explicitPath,
       installedVersion,
+    };
+  }
+
+  if (installedVersion !== SUPPORTED_DEVSY_VERSION) {
+    // Devsy.app updates itself, so a newer CLI must not block managed starts.
+    // Devrouter injects nothing for it: the host CLI governs its own agent,
+    // because pairing it with the pinned agent is an unverified splice.
+    return {
+      state: "ready",
+      source: "host",
+      reason: `installed Devsy ${installedVersion} is newer than the verified ${SUPPORTED_DEVSY_VERSION} agent; the host CLI governs its own agent`,
+      installedVersion,
+      drift: { installed: installedVersion, supported: SUPPORTED_DEVSY_VERSION },
     };
   }
 
@@ -406,7 +451,7 @@ export async function prepareDevsyAgent(
   const resolved = resolvedOptions(options);
   const inspectOptions: DevsyAgentOptions = resolved;
   const before = inspectDevsyAgent(inspectOptions);
-  if (before.state === "ready" && before.binaryPath && before.asset) {
+  if (before.state === "ready") {
     return {
       binaryPath: before.binaryPath,
       source: before.source,
@@ -442,7 +487,7 @@ export async function prepareDevsyAgent(
 
   return lock(async () => {
     const current = inspectDevsyAgent(inspectOptions);
-    if (current.state === "ready" && current.binaryPath && current.asset) {
+    if (current.state === "ready") {
       return {
         binaryPath: current.binaryPath,
         source: current.source,
@@ -482,9 +527,9 @@ export async function prepareDevsyAgent(
 
 export function requireReadyDevsyAgent(options: DevsyAgentOptions = {}): PreparedDevsyAgent {
   const inspection = inspectDevsyAgent(options);
-  if (inspection.state !== "ready" || !inspection.binaryPath || !inspection.asset) {
-    throw new DevsyAgentReadinessError(inspection);
-  }
+  // A newer host CLI is ready without a Devrouter-selected binary; the caller
+  // only injects an agent when one was verified.
+  if (inspection.state !== "ready") throw new DevsyAgentReadinessError(inspection);
   return {
     binaryPath: inspection.binaryPath,
     source: inspection.source,

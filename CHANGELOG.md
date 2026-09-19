@@ -30,6 +30,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- A Devsy CLI newer than the verified pin no longer blocks managed starts. That
+  host CLI governs its own agent, Devrouter injects nothing, and `devrouter
+  doctor` reports the drift as a non-blocking warning that names both versions.
+  An older or unparseable CLI stays unsupported, and an explicit
+  `DEVSY_AGENT_BINARY` keeps its exact validation.
+
 - A committed capacity park now finishes even when the controller restarts or the
   last consumer session expires: the monitor re-drives an incomplete
   `parked-for-capacity` stop from the durable journal by identity instead of

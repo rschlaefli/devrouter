@@ -22,6 +22,16 @@ and private cache. Devrouter does not write the private cache or change the
 desktop app environment. The desktop app and CLI remain complementary views of
 the shared Devsy registry, while Devrouter owns deterministic CLI automation.
 
+Amendment (2026-09-19). The pinned version is a floor for the installed CLI. A
+newer host CLI is accepted and governs its own agent: Devrouter injects nothing
+for it, because pairing the newer CLI with the pinned agent is an unverified
+splice in either direction, and `devrouter doctor` reports the drift as a
+non-blocking warning that names both versions. An older, unparseable, or
+prerelease variant of the pin remains unsupported, and an operator-provided
+`DEVSY_AGENT_BINARY` keeps its authority and exact validation in every case. The
+amendment followed a host whose desktop app updated itself past the pin and
+therefore could not start any managed environment.
+
 Why: Devrouter can now fail before a partial workspace start, report one
 actionable readiness state, and avoid trusting an undocumented provider cache.
 Versioned Devrouter state makes the supply-chain boundary explicit and permits

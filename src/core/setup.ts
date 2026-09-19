@@ -169,13 +169,22 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
   if (requestedWorkspaceRuntime === "devsy") {
     try {
       const prepared = await prepareDevsyAgent();
+      const asset = prepared.asset;
       actions.push(
         action(prepared.changed ? "performed" : "skipped", {
           id: "global.devsy-agent",
-          summary: prepared.changed
-            ? `Downloaded and verified ${prepared.asset.name} for Devsy.`
-            : `Verified the ${prepared.source} Devsy agent source.`,
-          details: `version=${SUPPORTED_DEVSY_VERSION}, asset=${prepared.asset.name}, source=${prepared.source}, transport=${prepared.transport}`,
+          summary:
+            prepared.changed && asset
+              ? `Downloaded and verified ${asset.name} for Devsy.`
+              : prepared.source === "host"
+                ? "The host Devsy CLI manages its own agent; no Devrouter-managed agent is required."
+                : `Verified the ${prepared.source} Devsy agent source.`,
+          details: [
+            `version=${SUPPORTED_DEVSY_VERSION}`,
+            ...(asset ? [`asset=${asset.name}`] : []),
+            `source=${prepared.source}`,
+            `transport=${prepared.transport}`,
+          ].join(", "),
         }),
       );
     } catch (error) {

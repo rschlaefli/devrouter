@@ -411,6 +411,36 @@ describe("startDevsyWorkspace", () => {
     expect(process.env.DEVSY_AGENT_BINARY).toBe(originalProcessValue);
   });
 
+  it("injects nothing, and drops an inherited value, when a newer host CLI governs its own agent", async () => {
+    const originalProcessValue = process.env.DEVSY_AGENT_BINARY;
+    process.env.DEVSY_AGENT_BINARY = "/stale/inherited-agent";
+    vi.mocked(requireReadyDevsyAgent).mockReturnValueOnce({
+      source: "host",
+      changed: false,
+      transport: "existing",
+    });
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        return listResult();
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    try {
+      await startDevsyWorkspace({ repoPath: "/repo/feature", devsyId: "feature" });
+    } finally {
+      if (originalProcessValue === undefined) delete process.env.DEVSY_AGENT_BINARY;
+      else process.env.DEVSY_AGENT_BINARY = originalProcessValue;
+    }
+
+    const upCall = vi
+      .mocked(spawn)
+      .mock.calls.find(([command, args]) => command === "devsy" && (args as string[])[1] === "up");
+    const upOptions = upCall?.[2] as { env?: NodeJS.ProcessEnv } | undefined;
+    expect(upOptions?.env?.DEVSY_AGENT_BINARY).toBeUndefined();
+  });
+
   it("passes --recreate and cleans workspace env without a workspace", async () => {
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];

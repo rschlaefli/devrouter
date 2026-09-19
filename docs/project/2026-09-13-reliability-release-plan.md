@@ -319,12 +319,17 @@ incident: the recovery write claims the one declared resource the producing
 capability names together with the aggregate count, and refuses without a write
 when the per-kind allowance, the aggregate cap or the incident window is
 exhausted. Section 9.3's meaning is unchanged; the named action-scope contract
-is recorded under `Scoped recovery budget (delivered)`. Next slice: the
-installed Devsy harness surface. The host runs Devsy CLI 1.19.0 while the
-release pins `SUPPORTED_DEVSY_VERSION = 1.16.2`, so doctor reports
-`global.devsy-agent` as an error and every managed start refuses before any
-provider mutation; no managed environment can be created or recovered on this
-host until that policy has a qualified answer.
+is recorded under `Scoped recovery budget (delivered)`.
+
+The installed Devsy harness surface is delivered and live-qualified under
+`Installed Devsy harness version policy (delivered)`: a host CLI newer than the
+pin is accepted, governs its own agent, and doctor reports the drift as a
+non-blocking warning, so managed environments start again on this host. Next
+slice: release 0.1.0 preparation. Remaining open items listed with the portfolio
+still apply — production park/resume, lost-identity/history reconciliation,
+actual harness enforcement, consumer breadth and measured optimization — and the
+branch push is blocked by the host SSH agent, so nothing has reached the remote
+or a consumer yet.
 
 The agent-facing status gap is implemented (status slice, follow-on to
 `404fc8d`). `devrouter status` now attaches a read-only `reliability` block for a
@@ -477,6 +482,73 @@ site passes the policy limits and the derived selectors and that an unreadable
 configuration degrades to the aggregate ceiling. This is source evidence only;
 no consumer runtime was touched, and the branch push is still blocked by the
 host SSH agent.
+
+### Installed Devsy harness version policy (delivered)
+
+Problem. Devsy.app updates itself, so the host CLI can move ahead of the
+release pin at any time. This host runs Devsy 1.19.0 while
+`SUPPORTED_DEVSY_VERSION` is `1.16.2`; `inspectDevsyAgent` compares for equality,
+so `global.devsy-agent` is an error and `requireReadyDevsyAgent` throws before
+`startDevsyWorkspace` takes the mutation lock. No managed environment can be
+created or recovered on this host — the class of failure the 0.1.0 goal calls
+out — while stop, delete and ordinary reads still work.
+
+Qualified surface (live, read-only, 2026-09-19, CLI 1.19.0). `devsy --version`
+still prints a parseable `v1.19.0`; `devsy workspace list --result-format json
+--skip-pro` returns the same array shape with `id`, `uid`, `source.localFolder`,
+`provider.name`, `provider.options.DOCKER_PATH.value`, `context` and `lastUsed`;
+`workspace up --help` still documents `--devcontainer`, `--id`,
+`--provider-option`, `--recreate`, `--workspace-env` and `--ide-launch`;
+`workspace delete` keeps `--force` and `--ignore-not-found`; `workspace status`
+keeps JSON output. The 1.19.0 binary still references `DEVSY_AGENT_BINARY`, and
+the verified v1.16.2 Linux agent is present in the managed cache.
+
+Contract. Three tiers, compared on the numeric version core. A version older
+than the pin stays `stale` and refuses: the release does not claim an unverified
+older surface. The exact pin keeps today's behavior: the managed, hash-verified
+agent is injected through `DEVSY_AGENT_BINARY`. A newer version is `ready` with
+an explicit drift record naming both versions; Devrouter injects nothing and the
+host CLI governs its own agent, because pairing the newer CLI with the pinned
+agent is an unverified splice in either direction. Doctor reports the drift as a
+non-blocking `warn` that names both versions and states the agent is not
+Devrouter-verified; it never blocks `ensure`. An operator-supplied
+`DEVSY_AGENT_BINARY` keeps its authority in every tier and is validated exactly
+as today. An unparseable version stays `stale`. No download behavior changes.
+
+Paths. Existing only, one writer: main. `src/core/devsy-agent.ts` (tiering,
+drift record, repair text), `src/core/devsy-mutation.ts` (inject only a verified
+agent), `src/core/tool-diagnostics.ts` (warn tier), plus
+`src/core/__tests__/devsy-agent.test.ts` and
+`src/core/__tests__/tool-diagnostics.test.ts`. No new module or dependency.
+
+Acceptance. Unit tests cover the three tiers, an explicit binary in each tier,
+an unparseable version, and the repair suggestion. A live synthetic
+qualification starts a managed workspace on this host under the drift tier,
+proves the runtime reaches the running state, and then stops and deletes it with
+the ordinary commands. Stop conditions: if neither agent strategy starts a
+workspace under 1.19.0, stop and re-present the policy instead of weakening
+verification; if the newer CLI ignores an explicit `DEVSY_AGENT_BINARY`, keep
+that tier fail-closed and report it.
+
+Delivered with this change. Live qualification on this host, all in
+`/private/tmp/devrouter-devsy-drift-qualify` with the built local CLI: doctor
+reports `global.devsy-agent` as `warn` with `state=ready, source=host,
+version=1.19.0` instead of the former error; `ensure` started the workspace with
+the host-governed agent, reached `ready` with container id `f1715727400e`, and
+returned the primary result; `exec` printed `drift-qualified` inside the running
+workspace; `stop` returned `stopped: true`; `devsy workspace delete` plus
+re-inspection proved the registration and containers absent, and the scratch
+paths were removed. Two fixture lessons worth keeping for later harness
+qualification: an image-only devcontainer carries no Compose identity, and a
+Compose-based one must declare the workspace bind itself. Both failures were the
+fixture rather than the CLI version, and devrouter's existing identity proof
+surfaced each one precisely.
+
+Related host condition observed during qualification: `doctor` reports
+`global.capacity-ledger` as `capacity-history-unprovable` (error) while a primary
+legacy `ensure` still starts and stops normally. That residual history gap
+belongs to the lost-identity/history reconciliation slice; the qualification
+neither cleared nor repaired it.
 
 ### Active diagnostic deltas
 

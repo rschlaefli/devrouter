@@ -36,7 +36,9 @@ Devrouter does not write Devsy's private cache or alter the desktop app environm
 explicit `DEVSY_AGENT_BINARY` remains authoritative, but must match a pinned
 official asset exactly. `devrouter doctor` checks readiness without network
 access; a missing, stale, or invalid source stops `ensure` before the Devsy
-mutation queue or provider is touched.
+mutation queue or provider is touched. A host Devsy CLI newer than the verified
+pin is not stale: it governs its own agent, Devrouter injects nothing, and
+doctor reports the drift as a warning while managed starts proceed.
 
 > Use the current devrouter release. The end-to-end onboarding
 > playbook + reference templates + gotchas live in the
