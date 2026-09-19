@@ -349,6 +349,64 @@ function proveReplacementStopAbsence(
   assertEmptyPopulation();
 }
 
+/**
+ * An external prune or teardown can remove every managed workload while the
+ * Devsy registration survives. The retained proof cannot accept the resulting
+ * population and no proof may adopt replacements, so an unchanged registration
+ * settles only through repeated positive absence of the exact baselined
+ * containers, the checkout's container population and the provider runner.
+ */
+function proveAbsentPopulationStop(
+  state: ManagedRuntimeState,
+  baseline: ManagedStopBaseline,
+  expected: ReturnType<typeof identityOf>,
+): void {
+  const observation = () => {
+    const owner = inspectDevsyWorkspaceOwnership(
+      listDevsyWorkspaces(),
+      state.devpodId,
+      state.repoPath,
+    );
+    if (owner.status !== "owned")
+      throw new Error("Absent stop registration changed during inspection.");
+    const current = identityOf(owner.workspace);
+    if (!isDeepStrictEqual(current, expected))
+      throw new Error("Absent stop registration identity changed during inspection.");
+    if (resolveManagedStopEndpoint() !== baseline.endpoint)
+      throw new Error("Stop endpoint changed.");
+    if (inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId)
+      throw new Error("Stop daemon changed.");
+    proveLocalDockerSelection(owner.workspace);
+    return current;
+  };
+  const assertAbsentPopulation = () => {
+    assertManagedStopContainersAbsent(
+      baseline.endpoint,
+      baseline.containers.map((container) => container.id),
+    );
+    if (
+      inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0 ||
+      inspectManagedStopWorkspaceIds(baseline.endpoint, baseline.composeDirectory).length !== 0 ||
+      inspectProviderRunnerContainers(
+        baseline.endpoint,
+        managedRunnerId(baseline.uid, baseline.providerId),
+      ).length !== 0
+    )
+      throw new Error("Absent stop observed a remaining workspace population.");
+  };
+  const before = observation();
+  if (!isDeepStrictEqual(readManagedRuntimeState(state.repoPath, state.workspace), state))
+    throw new Error("Retained stop generation changed.");
+  assertAbsentPopulation();
+  const after = observation();
+  if (
+    !isDeepStrictEqual(after, before) ||
+    !isDeepStrictEqual(readManagedRuntimeState(state.repoPath, state.workspace), state)
+  )
+    throw new Error("Absent stop authority changed during inspection.");
+  assertAbsentPopulation();
+}
+
 /** Caller holds the workspace and provider locks. No current config is used as historical evidence. */
 export function proveManagedStop(state: ManagedRuntimeState): ManagedStopProof {
   const baseline = validateManagedStopBaseline(state.stopBaseline, state);
@@ -361,6 +419,18 @@ export function proveManagedStop(state: ManagedRuntimeState): ManagedStopProof {
     const identityKeys = ["context", "providerId", "uid", "sourcePath", "sourceContainer"] as const;
     const current = identityOf(owner.workspace);
     const changed = identityKeys.filter((key) => baseline[key] !== current[key]);
+    // An unchanged registration whose whole population is gone is the prune
+    // case, not a replacement: prove absence before the retained proof demands
+    // the containers a prune already deleted.
+    if (
+      changed.length === 0 &&
+      state.workspace !== undefined &&
+      isLinkedWorktree(state.repoPath) &&
+      inspectManagedStopContainers(baseline.project, baseline.endpoint).length === 0
+    ) {
+      proveAbsentPopulationStop(state, baseline, current);
+      return { status: "proven-absent", containers: [] };
+    }
     if (
       changed.length === 1 &&
       changed[0] === "uid" &&

@@ -588,3 +588,126 @@ describe("baseline-backed replacement registration", () => {
     expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(state);
   });
 });
+
+describe("baseline-backed absent population", () => {
+  function pruned() {
+    fixture.linked = true;
+    fixture.owner.providerName = "docker";
+    state.workspace = "feature";
+    persist();
+    containers = [];
+    vi.mocked(docker.inspectManagedStopContainers).mockImplementation(() => []);
+    vi.mocked(docker.inspectManagedStopWorkspaceIds).mockImplementation(() => []);
+  }
+
+  function remainingContainer() {
+    return {
+      id: "e".repeat(64),
+      state: {
+        Running: true,
+        Status: "running" as const,
+        Paused: false as const,
+        Restarting: false as const,
+        Dead: false as const,
+      },
+      labels: {
+        "com.docker.compose.project": state.composeProject,
+        "com.docker.compose.service": "app",
+        "com.docker.compose.project.working_dir": plan.composeDirectory,
+        "com.docker.compose.project.config_files": plan.composeFiles.join(","),
+        "com.docker.compose.config-hash": "synthetic",
+      },
+      mounts: [],
+      networks: {},
+    };
+  }
+
+  it("proves an unchanged registration whose population was pruned", () => {
+    pruned();
+    const previous = structuredClone(state);
+    const stopProvider = vi.fn();
+    expect(
+      stopRetainedManagedDevsyWorkspace({
+        repoPath: state.repoPath,
+        devsyId: state.devpodId,
+        stopProvider,
+      }),
+    ).toBe("proven-absent");
+    expect(docker.assertManagedStopContainersAbsent).toHaveBeenCalledWith(
+      endpoint,
+      previous.stopBaseline!.containers.map((container) => container.id),
+    );
+    expect(docker.inspectProviderRunnerContainers).toHaveBeenCalledWith(
+      endpoint,
+      fixture.owner.uid,
+    );
+    expect(stopProvider).not.toHaveBeenCalled();
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+    expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(previous);
+  });
+
+  it("settles the canonical managed stop without container cessation", () => {
+    pruned();
+    expect(proveManagedStop(state)).toEqual({ status: "proven-absent", containers: [] });
+    expect(stopFromManagedBaseline(state)).toBe("proven-absent");
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+    expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(state);
+  });
+
+  it.each([
+    "baseline-container",
+    "project-population",
+    "workspace-population",
+    "runner",
+    "endpoint",
+    "daemon",
+    "provider-config",
+    "primary-checkout",
+    "registration-removed-mid",
+    "identity-changed-mid",
+    "state-changed-mid",
+  ])("rejects absent-population uncertainty: %s", (failure) => {
+    pruned();
+    if (failure === "baseline-container")
+      vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+        throw new Error("exists");
+      });
+    if (failure === "project-population")
+      vi.mocked(docker.inspectManagedStopContainers).mockImplementation(() => [
+        remainingContainer(),
+      ]);
+    if (failure === "workspace-population")
+      vi.mocked(docker.inspectManagedStopWorkspaceIds).mockReturnValue(["e".repeat(64)]);
+    if (failure === "runner")
+      vi.mocked(docker.inspectProviderRunnerContainers).mockReturnValue(["e".repeat(64)]);
+    if (failure === "endpoint")
+      vi.mocked(docker.resolveManagedStopEndpoint).mockReturnValue("unix:///other.sock");
+    if (failure === "daemon") vi.mocked(docker.inspectManagedStopDaemon).mockReturnValue("other");
+    if (failure === "provider-config")
+      fs.writeFileSync(
+        path.join(process.env.DEVSY_HOME!, "contexts/default/providers/docker/provider.json"),
+        JSON.stringify({
+          name: "docker",
+          agent: { driver: "docker", docker: { path: "docker-custom" } },
+        }),
+      );
+    if (failure === "primary-checkout") {
+      fixture.linked = false;
+      state.workspace = undefined;
+    }
+    if (failure === "registration-removed-mid")
+      vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+        fixture.missing = true;
+      });
+    if (failure === "identity-changed-mid")
+      vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+        fixture.owner.uid = "abcdefghijklmnop";
+      });
+    if (failure === "state-changed-mid")
+      vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+        writeManagedRuntimeState({ ...state, updatedAt: "2026-09-09T02:00:00Z" });
+      });
+    expect(() => proveManagedStop(state)).toThrow(Error);
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+});
