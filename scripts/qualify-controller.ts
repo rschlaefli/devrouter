@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { controllerRequest } from "../src/core/controller-client";
 import { createReliabilityState } from "../src/core/reliability-contract";
 
 async function main() {
@@ -341,18 +342,40 @@ else { fs.appendFileSync(${JSON.stringify(mutations)},JSON.stringify({provider,a
     const eventsBeforeRestart =
       JSON.parse(fs.readFileSync(path.join(routerHome, "controller", "snapshot.json"), "utf8"))
         .nextSequence - 1;
+    const firstPid = controller?.pid;
     await stop("SIGKILL");
     await start();
-    const replacement = command(
-      "observe",
-      checkout,
-      "--session",
-      "two",
-      "--profile",
-      "full",
-      "--require",
-      "runtime",
-    ).result;
+    const restartedPid = controller?.pid;
+    let reconnect:
+      | {
+          ok: boolean;
+          result: { store: string; epoch: number; session: string; generation: string };
+        }
+      | undefined;
+    await controllerRequest(
+      path.dirname(socketPath),
+      {
+        method: "observe",
+        path: checkout,
+        session: "two",
+        profile: "full",
+        require: ["app:web"],
+        reconnect: second,
+      },
+      (response) => {
+        reconnect = response as NonNullable<typeof reconnect>;
+      },
+    );
+    assert.ok(reconnect);
+    assert.equal(reconnect.ok, true);
+    const replacement = reconnect.result;
+    const resumedSnapshot = JSON.parse(
+      fs.readFileSync(path.join(routerHome, "controller", "snapshot.json"), "utf8"),
+    );
+    assert.equal(resumedSnapshot.retainedSessions.length, 0);
+    assert.equal(resumedSnapshot.sessions[0].parkingConsent, "protected");
+    assert.equal(resumedSnapshot.sessions[0].consentRevision, 0);
+    assert.notEqual(firstPid, restartedPid);
     assert.equal(replacement.store, second.store);
     assert.equal(replacement.epoch, second.epoch + 1);
     assert.notEqual(replacement.generation, second.generation);
@@ -375,7 +398,32 @@ else { fs.appendFileSync(${JSON.stringify(mutations)},JSON.stringify({provider,a
       { cwd: root, env, encoding: "utf8", timeout: 5000 },
     );
     assert.notEqual(stale.status, 0);
-    evidence.push("observer restart invalidates prior session epoch and generation");
+    evidence.push(
+      "separate packed controller processes reconnect exact retained consumer with fresh protected generation and reject stale renewal",
+    );
+    await stop();
+    fs.appendFileSync(path.join(checkout, ".devrouter.yml"), "\n# changed synthetic binding\n");
+    await start();
+    await assert.rejects(
+      controllerRequest(
+        path.dirname(socketPath),
+        {
+          method: "observe",
+          path: checkout,
+          session: "two",
+          profile: "full",
+          require: ["app:web"],
+          reconnect: replacement,
+        },
+        () => {},
+      ),
+    );
+    const changedSnapshot = JSON.parse(
+      fs.readFileSync(path.join(routerHome, "controller", "snapshot.json"), "utf8"),
+    );
+    assert.equal(changedSnapshot.sessions.length, 0);
+    assert.equal(changedSnapshot.retainedSessions.length, 1);
+    evidence.push("changed configuration refuses reconnect and preserves unresolved consumer");
     await stop();
     assert.equal(fs.existsSync(socketPath), false);
     assert.equal(fs.existsSync(mutations), false);
@@ -392,6 +440,7 @@ else { fs.appendFileSync(${JSON.stringify(mutations)},JSON.stringify({provider,a
       controllerStopped: true,
       unexpectedProviderCalls: 0,
       continuousObservationQualified: true,
+      crossProcessReconnectQualified: true,
       providerReadCalls: fs.readFileSync(calls, "utf8").trim().split("\n").length,
       elapsedMs: Math.round(performance.now() - qualificationStartedAt),
       maximumObservedRssKiB,

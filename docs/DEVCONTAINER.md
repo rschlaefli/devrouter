@@ -36,7 +36,9 @@ Devrouter does not write Devsy's private cache or alter the desktop app environm
 explicit `DEVSY_AGENT_BINARY` remains authoritative, but must match a pinned
 official asset exactly. `devrouter doctor` checks readiness without network
 access; a missing, stale, or invalid source stops `ensure` before the Devsy
-mutation queue or provider is touched.
+mutation queue or provider is touched. A host Devsy CLI newer than the verified
+pin is not stale: it governs its own agent, Devrouter injects nothing, and
+doctor reports the drift as a warning while managed starts proceed.
 
 > Use the current devrouter release. The end-to-end onboarding
 > playbook + reference templates + gotchas live in the
@@ -123,6 +125,14 @@ full; it is not silently discarded.
 These commands provide manual lifecycle coordination. They do not enroll the
 machine in resource admission, prevent OOM, or enable capacity-managed parking/recovery.
 
+`devrouter doctor` includes `global.capacity-ledger`, a read-only consistency
+check against available lifecycle history. `capacity-ledger-lost` means surviving
+evidence proves ledger history is missing or regressed;
+`capacity-history-unprovable` means safe history inspection failed. Admission
+refuses both states. Preserve the ledger and journals and restore verified
+history before retrying; clearing metadata is not a recovery procedure. This
+check does not prove runtime health or complete historical provenance.
+
 ## Foreground consumer sessions
 
 `devrouter controller run` owns a private local socket and durable session snapshot
@@ -155,10 +165,45 @@ or release a replacement session. Watch reconnection uses `--after <epoch>:<sequ
 and `--after-store <store>` for bounded replay. A gap requires accepting the current
 snapshot instead of relying on retained events as fresh readiness evidence.
 
+An exact old binding can release its retained consumer intent after expiry,
+restart, or configuration drift. This also supports bindings from before
+fingerprint-key enrollment. It leaves any newer same-name session intact and
+grants no runtime or parking authority. A repeated release refuses; a lost
+acknowledgement cannot establish whether withdrawal persisted. Unknown history
+and consumers whose bindings are lost still require explicit reconciliation.
+Bindings are capabilities within the controller's existing same-user boundary;
+status exposes live bindings to other processes running as that user.
+
 Releasing a session, letting its lease expire, or stopping the foreground observer
 leaves application runtimes and data intact. Continue using explicit `ensure`,
 `exec`, and `stop` for lifecycle actions. Consumer sessions grant no automatic
 recovery, capacity admission, or agent-command replay authority.
+
+### Explicit environment protection
+
+An existing exact session and journal support `controller protection-status`.
+Pass `--session`, `--store`, `--epoch`, and `--generation` from observation. The
+response includes the durable pin and its revision, live consumer counts and
+continuity evidence. `parkingObservation` explains whether the latest complete
+consumer observation satisfies that prerequisite. `unusable-consumers-proven`
+requires explicit consent and positive infrastructure failure for every live
+consumer; unknown capabilities, application errors, stale evidence and unresolved
+consumers refuse. This result grants no parking permission. Reads never renew
+leases or change lifecycle intent.
+
+`controller protection-pin` takes the same binding plus `--pinned true|false`
+and `--expected-protection-revision <number>` from protection status. It records
+an explicit operator instruction after fresh ownership and session validation.
+A pin survives stop/start, session release and controller restart. It never
+starts a runtime or overrides an explicit stop. A conflicting revision requires
+reading the current protection and deciding whether the change is still intended.
+If a response is lost, the same value and expected pin revision can recover the
+receipt without another write, provided the exact session remains valid.
+
+All current live observers remain protected. Continuity loss has a sixty-second
+monotonic grace followed by required revalidation; neither classification grants
+permission to stop or resume an environment. Automatic parking is not activated
+by these commands.
 
 ## How it works: `devnet`
 

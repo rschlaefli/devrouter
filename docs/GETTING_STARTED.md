@@ -41,7 +41,10 @@ the same report with active endpoint and retained-container counts. These reads
 do not allocate or delete networks. A stopped workspace can retain its subnet;
 zero active endpoints is not proof that a network is safe to remove.
 If `DEVSY_AGENT_BINARY` is set, Devrouter validates that source instead and
-never replaces it.
+never replaces it. A host Devsy CLI newer than the verified pin is accepted: it
+governs its own agent, Devrouter injects nothing for it, and `devrouter doctor`
+reports the drift as a warning instead of blocking a managed start. An older
+Devsy CLI is unsupported and stays an error.
 
 Quick checks:
 

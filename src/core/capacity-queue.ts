@@ -2,13 +2,18 @@ import { isDeepStrictEqual } from "node:util";
 import type { CapacityDomainSample } from "./capacity-accounting";
 import { readCapacityPolicy } from "./capacity-policy";
 import type { CapacityAdmissionContext } from "./capacity-request";
-import type { CapacityReservation } from "./capacity-store";
+import { CapacityHistoryError, type CapacityReservation } from "./capacity-store";
+import { reliabilityFence } from "./reliability-contract";
 import {
   admitLifecycleCapacity,
   renewLifecycleCapacity,
+  restoreParkedIntentAfterFailedResume,
   retireQueuedLifecycle,
 } from "./reliability-lifecycle";
-import type { CapacityControllerIdentity } from "./reliability-operation-store";
+import {
+  type CapacityControllerIdentity,
+  readReliabilityOperation,
+} from "./reliability-operation-store";
 import {
   LifecycleOutput,
   type LifecycleWorkerRequest,
@@ -22,6 +27,8 @@ type Entry = {
   phase: "queued" | "running" | "terminal";
   reason: string | null;
   expiresAt: number;
+  /** True when the entry is the ensure that automatic resume requested. */
+  autoResume: boolean;
   output: LifecycleOutput;
   abort: AbortController;
   waiters: Set<() => void>;
@@ -65,6 +72,7 @@ export class CapacityQueue {
     request: LifecycleWorkerRequest,
     reservation: CapacityReservation,
     admission?: CapacityAdmissionContext,
+    autoResume = false,
   ): string {
     if (this.closed) throw new Error("Capacity queue is closed.");
     if (request.kind === "stop" || request.operationId !== reservation.operationId)
@@ -82,7 +90,8 @@ export class CapacityQueue {
       if (
         !isDeepStrictEqual(existingRequest, incomingRequest) ||
         !isDeepStrictEqual(existing.reservation, reservation) ||
-        !isDeepStrictEqual(existing.admission, admission)
+        !isDeepStrictEqual(existing.admission, admission) ||
+        existing.autoResume !== autoResume
       )
         throw new Error("Operation reference belongs to another accepted request.");
       return request.operationId;
@@ -114,6 +123,7 @@ export class CapacityQueue {
       phase: "queued",
       reason: null,
       expiresAt: performance.now() + this.limits.lifetimeMs,
+      autoResume,
       output: new LifecycleOutput(),
       abort: new AbortController(),
       waiters: new Set(),
@@ -181,7 +191,7 @@ export class CapacityQueue {
     });
   }
 
-  async tick(): Promise<void> {
+  async tick(options: { observeIdle?: boolean } = {}): Promise<void> {
     if (this.ticking || this.closed) return;
     this.ticking = true;
     try {
@@ -190,6 +200,7 @@ export class CapacityQueue {
           this.retire(entry, "queue-expired");
       }
       if (
+        !options.observeIdle &&
         ![...this.entries.values()].some(
           (entry) =>
             (entry.phase === "queued" && performance.now() < entry.expiresAt) ||
@@ -209,7 +220,13 @@ export class CapacityQueue {
         return;
       }
       const policyBytes = JSON.stringify(policy);
-      const samples = await this.options.collect();
+      let samples: Record<string, CapacityDomainSample>;
+      try {
+        samples = await this.options.collect();
+      } catch (error) {
+        this.pause(error instanceof CapacityHistoryError ? error.code : "collection-unavailable");
+        return;
+      }
       if (this.closed) return;
       if (this.options.controller) {
         for (const entry of this.entries.values()) {
@@ -257,7 +274,38 @@ export class CapacityQueue {
             this.options.controller,
             entry.admission,
           );
-        } catch {
+        } catch (error) {
+          if (error instanceof CapacityHistoryError) {
+            entry.reason = error.code;
+            try {
+              const record = readReliabilityOperation(entry.request.identity);
+              const operation =
+                record?.state.operation?.id === entry.request.operationId
+                  ? record.state.operation
+                  : record?.state.operationHistory.find(
+                      (operation) => operation.id === entry.request.operationId,
+                    );
+              if (
+                record &&
+                (!isDeepStrictEqual(reliabilityFence(record.state), entry.request.fence) ||
+                  record.state.operation?.id !== entry.request.operationId) &&
+                operation?.drained &&
+                ["NOT_STARTED", "NOT_LAUNCHED"].includes(operation.status) &&
+                record.worker?.operationId !== entry.request.operationId
+              ) {
+                // Durable supersession and drainage suffice to retire this transient
+                // request. A history failure must not rewrite the surviving journal.
+                entry.reason = "intent-superseded";
+                entry.phase = "terminal";
+                entry.request.command = undefined;
+                this.finish(entry);
+              }
+            } catch {
+              // Unavailable history cannot prove a queued worker absent.
+            }
+            if (entry.phase === "queued") for (const domain of domains) waitingDomains.add(domain);
+            continue;
+          }
           try {
             if (retireQueuedLifecycle(entry.request, true)) {
               entry.reason = "intent-superseded";
@@ -320,12 +368,27 @@ export class CapacityQueue {
   private retire(entry: Entry, reason: string): void {
     try {
       retireQueuedLifecycle(entry.request);
-      entry.reason = reason;
-      entry.phase = "terminal";
-      entry.request.command = undefined;
-      this.finish(entry);
     } catch {
       entry.reason = "retirement-unproven";
+      return;
     }
+    // A resume that never dispatched has no home for its running intent. Return
+    // it to the park it came from so a later pass re-proves cessation and demand
+    // instead of leaving the environment wedged in intent no worker will honor.
+    if (entry.autoResume && this.options.controller) {
+      try {
+        restoreParkedIntentAfterFailedResume({
+          identity: entry.request.identity,
+          controller: this.options.controller,
+          request: entry.request,
+        });
+      } catch {
+        // Retain the conservative running intent; a later ensure supersedes it.
+      }
+    }
+    entry.reason = reason;
+    entry.phase = "terminal";
+    entry.request.command = undefined;
+    this.finish(entry);
   }
 }

@@ -1,3 +1,4 @@
+import { claimRecoveryUnit } from "./recovery-budget";
 import {
   assertReliabilityState,
   isReliabilityCounter,
@@ -133,7 +134,17 @@ function assertReliabilityEvent(value: unknown): asserts value is ReliabilityEve
         isReliabilityId(value.incidentId) &&
         isReliabilityCounter(value.actionLimit) &&
         value.actionLimit > 0 &&
-        isReliabilityId(value.operationId);
+        isReliabilityId(value.operationId) &&
+        (value.unit === null ||
+          (record(value.unit) &&
+            isReliabilityId(value.unit.key) &&
+            (value.unit.kind === "process" || value.unit.kind === "service"))) &&
+        record(value.recoveryLimits) &&
+        isReliabilityCounter(value.recoveryLimits.maxProcessRestarts) &&
+        isReliabilityCounter(value.recoveryLimits.maxServiceRestarts) &&
+        isReliabilityCounter(value.recoveryLimits.windowSeconds) &&
+        value.recoveryLimits.windowSeconds > 0 &&
+        (value.activeElapsedMs === null || isReliabilityCounter(value.activeElapsedMs));
       break;
     case "rearm":
       valid = isReliabilityId(value.incidentId);
@@ -158,7 +169,10 @@ function cloneOperation(operation: ReliabilityOperation): ReliabilityOperation {
 }
 
 function cloneIncident(incident: ReliabilityIncident): ReliabilityIncident {
-  return { ...incident };
+  return {
+    ...incident,
+    ...(incident.units ? { units: incident.units.map((unit) => ({ ...unit })) } : {}),
+  };
 }
 
 function cloneState(state: ReliabilityState): ReliabilityState {
@@ -245,6 +259,20 @@ function possibleDispatch(operation: ReliabilityOperation | null): boolean {
 function pendingCommand(operation: ReliabilityOperation | null): boolean {
   return (
     operation !== null && !["COMPLETED", "NOT_LAUNCHED", "INTERRUPTED"].includes(operation.status)
+  );
+}
+
+/** Preserve the current operation and latest startup proof when retiring settled history. */
+function retirableEntryIndex(state: ReliabilityState): number {
+  const latestEnsureId = [...state.operationHistory]
+    .reverse()
+    .find((entry) => entry.kind === "ensure")?.id;
+  return state.operationHistory.findIndex(
+    (entry) =>
+      entry.id !== state.operation?.id &&
+      entry.id !== latestEnsureId &&
+      entry.drained &&
+      ["COMPLETED", "NOT_LAUNCHED", "INTERRUPTED"].includes(entry.status),
   );
 }
 
@@ -458,16 +486,7 @@ function handleOperationRequest(
     // a full journal is most likely to hold, and excluding it deadlocked every
     // command behind a saturated journal. The latest ensure result is still
     // retained because it supersedes older interrupted startup evidence.
-    const latestEnsureId = [...state.operationHistory]
-      .reverse()
-      .find((entry) => entry.kind === "ensure")?.id;
-    retired = state.operationHistory.findIndex(
-      (entry) =>
-        entry.id !== state.operation?.id &&
-        entry.id !== latestEnsureId &&
-        entry.drained &&
-        ["COMPLETED", "NOT_LAUNCHED", "INTERRUPTED"].includes(entry.status),
-    );
+    retired = retirableEntryIndex(state);
     if (retired === -1)
       return blocked(
         state,
@@ -531,11 +550,10 @@ function handleAdmission(
     return unchanged(state, "blocked");
   }
   if (state.admission === event.result) return unchanged(state, "joined");
-  if (
-    state.desired === "parked-for-capacity" &&
-    event.result === "admitted" &&
-    (!state.stopProof.workloadsStopped || !state.stopProof.routesRemoved)
-  )
+  // Parked intent holds no reservation, so no producer may report one. The
+  // resume transition returns to waiting and earns admission through the
+  // ordinary queue path against a real reservation.
+  if (state.desired === "parked-for-capacity" && event.result === "admitted")
     return unchanged(state, "blocked");
 
   state.admission = event.result;
@@ -585,21 +603,7 @@ function handleDispatchPersisted(
       `dispatch persistence requires desired 'running' (desired='${state.desired}'); the operation outcome is unknown.`,
     );
   }
-  if (
-    state.phase === "recovering" &&
-    state.incident !== null &&
-    state.incident.correctiveActionsTaken >= state.incident.actionLimit
-  ) {
-    return unchanged(state, "blocked");
-  }
-
   state.operation = { ...state.operation, status: "DISPATCH_RECORDED", exitCode: null };
-  if (state.phase === "recovering" && state.incident !== null) {
-    state.incident = {
-      ...state.incident,
-      correctiveActionsTaken: state.incident.correctiveActionsTaken + 1,
-    };
-  }
   return transition(state, "accepted", [effect(state, "launch", event.operationId)]);
 }
 
@@ -804,7 +808,6 @@ function handleResume(
     !state.stopProof.workloadsStopped ||
     !state.stopProof.routesRemoved ||
     state.consumers.length === 0 ||
-    state.admission !== "admitted" ||
     state.profile === null ||
     (state.incident !== null &&
       state.incident.correctiveActionsTaken >= state.incident.actionLimit) ||
@@ -816,6 +819,19 @@ function handleResume(
     return unchanged(state, "blocked");
   }
 
+  // Resume mints a fresh journal entry, so it may reuse neither an existing ID
+  // nor a saturated journal slot. A full history retires exactly one eligible
+  // settled entry and refuses unchanged when nothing qualifies, as recovery does.
+  if (state.operationHistory.some((entry) => entry.id === event.operationId))
+    return unchanged(state, "conflict");
+  const rollover = state.operationHistory.length >= RELIABILITY_MAX_ITEMS;
+  const retired = rollover ? retirableEntryIndex(state) : -1;
+  if (rollover && retired === -1)
+    return blocked(
+      state,
+      `journal holds ${state.operationHistory.length} entries and every retirable entry is the current operation or the latest ensure.`,
+    );
+
   const intentRevision = advance(state.intentRevision);
   const runtimeGeneration = advance(state.runtimeGeneration);
   if (intentRevision === null || runtimeGeneration === null) return unchanged(state, "blocked");
@@ -824,9 +840,10 @@ function handleResume(
   state.runtimeGeneration = runtimeGeneration;
   state.desired = "running";
   state.phase = "queued";
+  state.admission = "waiting";
   state.stopProof = { workloadsStopped: false, routesRemoved: false };
   state.observations = [];
-  state.chargeHeld = true;
+  state.chargeHeld = false;
   state.operation = {
     id: event.operationId,
     kind: "ensure",
@@ -839,6 +856,13 @@ function handleResume(
     operationId: event.operationId,
     intentRevision,
   }));
+  if (retired !== -1) state.operationHistory.splice(retired, 1);
+  state.operationHistory.push({
+    ...state.operation,
+    key: event.operationId,
+    profile: state.profile,
+    consumer: cloneConsumer(state.consumers[0]),
+  });
   return transition(state, "accepted");
 }
 
@@ -870,9 +894,11 @@ function handleGenerationChange(
 function handleRecover(
   state: ReliabilityState,
   event: Extract<ReliabilityEvent, { type: "recover" }>,
+  nowMs: number,
 ): ReliabilityTransition {
   if (state.executionPolicy === "manual" || state.desired !== "running")
     return unchanged(state, "blocked");
+  if (state.phase === "stopping") return unchanged(state, "blocked");
   if (possibleDispatch(state.operation)) return unchanged(state, "blocked");
 
   // A drained operation that never launched holds no live effect, so a later
@@ -900,42 +926,91 @@ function handleRecover(
     }
   }
 
-  if (state.incident === null) {
-    if (operation?.status === "NOT_STARTED") return unchanged(state, "blocked");
-    if (operation?.id === event.operationId) return unchanged(state, "conflict");
-    state.incident = {
-      id: event.incidentId,
-      correctiveActionsTaken: 0,
-      actionLimit: event.actionLimit,
-    };
-  }
+  const createsIncident = state.incident === null;
 
-  if (!operation || operation.status === "COMPLETED" || operation.status === "INTERRUPTED") {
-    const runtimeGeneration = advance(state.runtimeGeneration);
-    if (runtimeGeneration === null) return unchanged(state, "blocked");
-    // The recovery ensure inherits the environment's current identity, so its
-    // journal entry needs a known profile and at least one declared consumer.
-    const consumer = state.consumers[0];
-    if (state.profile === null || consumer === undefined) return unchanged(state, "blocked");
-    // A saturated journal cannot hold the new entry; the next operator ensure
-    // rolls it over, and recovery stays inert until then.
-    if (state.operationHistory.length >= RELIABILITY_MAX_ITEMS) return unchanged(state, "blocked");
-    state.runtimeGeneration = runtimeGeneration;
-    state.observations = [];
-    state.operation = {
-      id: event.operationId,
-      kind: "ensure",
-      drained: false,
-      status: "NOT_STARTED",
-      exitCode: null,
-    };
-    state.operationHistory.push({
-      ...state.operation,
-      key: event.operationId,
-      profile: state.profile,
-      consumer: cloneConsumer(consumer),
-    });
-  }
+  // Refuse before changing the incident or history. Completion alone does not
+  // prove the worker drained, and interrupted exec may have unknown side effects.
+  const replaceable =
+    operation === null ||
+    (operation.drained &&
+      (operation.status === "COMPLETED" ||
+        (operation.status === "INTERRUPTED" && operation.kind === "ensure")));
+  if (!replaceable) return unchanged(state, "blocked");
+
+  // The recovery ensure inherits the environment's current identity, so its
+  // journal entry needs a known profile and at least one declared consumer.
+  const consumer = state.consumers[0];
+  if (state.profile === null || consumer === undefined) return unchanged(state, "blocked");
+  // Recovering the operation already occupying the slot is not a replacement,
+  // and a journal entry is addressable by both history ID and key, so the fresh
+  // operation may reuse neither one. A stranded preparation awaiting
+  // replacement still holds its slot, so its evidence must be superseded under a
+  // new ID rather than replayed.
+  if (
+    state.operation?.id === event.operationId ||
+    state.operationHistory.some(
+      (entry) => entry.id === event.operationId || entry.key === event.operationId,
+    )
+  )
+    return unchanged(state, "conflict");
+  // Reuse recovery's generation bump as the rollover fence; the intent revision
+  // stays unchanged, so outstanding requests are not re-fenced.
+  const runtimeGeneration = advance(state.runtimeGeneration);
+  if (runtimeGeneration === null) return unchanged(state, "blocked");
+  // A saturated journal cannot hold the new entry on its own. Recovery retires
+  // exactly one eligible settled entry instead of requiring an operator ensure
+  // to make space, and refuses unchanged when nothing qualifies. The current
+  // operation and the latest ensure stay retained exactly as for every ordinary
+  // request, even when the current operation is the stranded slot being
+  // superseded.
+  const rollover = state.operationHistory.length >= RELIABILITY_MAX_ITEMS;
+  const retired = rollover ? retirableEntryIndex(state) : -1;
+  if (rollover && retired === -1)
+    return blocked(
+      state,
+      `journal holds ${state.operationHistory.length} entries and every retirable entry is the current operation or the latest ensure.`,
+    );
+
+  // Claim the action unit and the aggregate counter in this same durable write,
+  // immediately before the mutation the recovery schedules. A refused claim
+  // leaves the incident, history and operation slot untouched.
+  const incident = createsIncident
+    ? {
+        id: event.incidentId,
+        correctiveActionsTaken: 0,
+        actionLimit: event.actionLimit,
+      }
+    : (state.incident as ReliabilityIncident);
+  const claim = claimRecoveryUnit({
+    incident,
+    limits: event.recoveryLimits,
+    unit: event.unit ?? undefined,
+    nowMs,
+    activeElapsedMs: event.activeElapsedMs,
+  });
+  if (!claim.ok)
+    return blocked(
+      state,
+      `recovery budget refused the action (${claim.reason})${event.unit ? ` for ${event.unit.kind} unit ${event.unit.key}` : ""}.`,
+    );
+  state.incident = claim.incident;
+
+  if (retired !== -1) state.operationHistory.splice(retired, 1);
+  state.runtimeGeneration = runtimeGeneration;
+  state.observations = [];
+  state.operation = {
+    id: event.operationId,
+    kind: "ensure",
+    drained: false,
+    status: "NOT_STARTED",
+    exitCode: null,
+  };
+  state.operationHistory.push({
+    ...state.operation,
+    key: event.operationId,
+    profile: state.profile,
+    consumer: cloneConsumer(consumer),
+  });
   state.phase = "recovering";
   return transition(state, "accepted");
 }
@@ -1021,7 +1096,7 @@ function applyReliabilityEvent(
     case "runtime":
       return handleGenerationChange(next, "runtime", event.nextGeneration);
     case "recover":
-      return handleRecover(next, event);
+      return handleRecover(next, event, nowMs);
     case "rearm":
       return handleRearm(next, event);
   }
@@ -1124,7 +1199,6 @@ export function decideRecovery(input: {
       state.stopProof.workloadsStopped &&
       state.stopProof.routesRemoved &&
       state.consumers.length > 0 &&
-      state.admission === "admitted" &&
       state.profile !== null &&
       (state.incident === null ||
         state.incident.correctiveActionsTaken < state.incident.actionLimit) &&

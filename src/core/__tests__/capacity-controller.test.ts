@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createCapacityController } from "../capacity-controller";
+import { controllerCapability, environmentIdentity } from "../controller-monitor";
+import type { ControllerSessionValidator } from "../controller-server";
 
 const fixture = vi.hoisted(() => ({
   policy: vi.fn(),
   enroll: vi.fn(),
+  resolve: vi.fn(),
   status: vi.fn(),
   wait: vi.fn(),
   page: vi.fn(),
@@ -17,6 +20,7 @@ const fixture = vi.hoisted(() => ({
   settle: vi.fn(),
   evidence: vi.fn(),
   config: vi.fn(),
+  runtimeConfig: vi.fn(),
   charge: vi.fn(),
   enqueue: vi.fn(),
   list: vi.fn(),
@@ -27,6 +31,11 @@ const fixture = vi.hoisted(() => ({
   collection: vi.fn(),
   witness: vi.fn(),
   running: vi.fn(),
+  park: vi.fn(),
+  resumePrepare: vi.fn(),
+  reconcileStop: vi.fn(),
+  restoreParked: vi.fn(),
+  worker: vi.fn(),
 }));
 vi.mock("../capacity-startup-witness", () => ({
   publishQueuedStartupWitness: fixture.witness,
@@ -35,32 +44,44 @@ vi.mock("../devpod-environment", () => ({
   resolveRunningWorkspaceContainer: fixture.running,
 }));
 vi.mock("../capacity-docker-probe", () => ({ readDockerCapacityInfo: fixture.info }));
-vi.mock("../capacity-store", () => ({
-  CapacityStore: class {
-    read = fixture.snapshot;
-    mergeObservedPools = fixture.merge;
-  },
-}));
 vi.mock("../controller-store", () => ({
   ControllerStore: class {
     read = fixture.incarnation;
   },
 }));
 vi.mock("../reliability-operation-store", () => ({
+  createLifecycleCapacityStore: () => ({
+    read: fixture.snapshot,
+    mergeObservedPools: fixture.merge,
+  }),
   readReliabilityOperation: fixture.journal,
   listReliabilityOperations: fixture.list,
 }));
 vi.mock("../reliability-lifecycle", () => ({
   prepareManagedLifecycleOperation: fixture.prepare,
   prepareRecoveryLifecycleOperation: fixture.prepareRecovery,
+  prepareParkLifecycleOperation: fixture.park,
+  prepareResumeLifecycleOperation: fixture.resumePrepare,
+  reconcileParkedLifecycleStop: fixture.reconcileStop,
+  restoreParkedIntentAfterFailedResume: fixture.restoreParked,
   retireQueuedLifecycle: fixture.retire,
   settlePreparedLifecycleCapacity: fixture.settle,
 }));
-vi.mock("../controller-binding", () => ({ readControllerEvidence: fixture.evidence }));
-vi.mock("../repo-config", () => ({ loadRepoConfig: fixture.config }));
+vi.mock("../reliability-worker", () => ({ runLifecycleWorker: fixture.worker }));
+vi.mock("../controller-binding", async (original) => ({
+  ...(await original<typeof import("../controller-binding")>()),
+  readControllerEvidence: fixture.evidence,
+}));
+vi.mock("../repo-config", () => ({
+  loadRepoConfig: fixture.config,
+  loadRuntimeConfig: fixture.runtimeConfig,
+}));
 vi.mock("../capacity-request", () => ({ capacityRequest: fixture.charge }));
 vi.mock("../capacity-policy", () => ({ readCapacityPolicy: fixture.policy }));
-vi.mock("../capacity-enrollment", () => ({ enrollCapacityLifecycle: fixture.enroll }));
+vi.mock("../capacity-enrollment", () => ({
+  enrollCapacityLifecycle: fixture.enroll,
+  resolveCapacityEnrollment: fixture.resolve,
+}));
 vi.mock("../lifecycle-operation-status", () => ({ readLifecycleOperationStatus: fixture.status }));
 vi.mock("../capacity-queue", () => ({
   CapacityQueue: class {
@@ -80,10 +101,13 @@ beforeEach(() => {
   fixture.policy.mockReturnValue({
     revision: 1,
     admissions: "enabled",
+    scheduling: { sampleIntervalSeconds: 1, maxSampleAgeSeconds: 15 },
+    recovery: { enabled: false, observationSeconds: 30, resumeDwellSeconds: 300 },
     enrollments: [submissionEnrollment],
     domains: { host: { kind: "host" }, runtime: submissionRuntime },
   });
   fixture.list.mockReturnValue([]);
+  fixture.runtimeConfig.mockReturnValue({ config: { apps: [] } });
   fixture.incarnation.mockReturnValue({ store: "store", epoch: 1 });
   fixture.snapshot.mockReturnValue({ revision: 7, reservations: [], pools: [] });
   fixture.merge.mockReturnValue({ changed: true, revision: 8 });
@@ -120,6 +144,7 @@ function controller(
   ) => Promise<
     Record<string, import("../capacity-accounting").CapacityDomainSample>
   > = async () => ({}),
+  clock = () => ({ wallMs: 100, monotonicMs: 100 }),
 ) {
   return createCapacityController({
     directory: "/tmp/synthetic-controller",
@@ -130,8 +155,144 @@ function controller(
       consumeStartup: () => {},
     },
     collect,
+    clock,
   });
 }
+
+const submissionValidator: ControllerSessionValidator = () => ({
+  id: "synthetic-consumer",
+  requiredCapabilities: [],
+  pinned: false,
+});
+
+function submissionFixture() {
+  fixture.enroll.mockResolvedValue({
+    environment,
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
+  fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
+  fixture.charge.mockReturnValue({ environmentId: "env", totals: { host: 1 } });
+  fixture.status.mockReturnValue({ operationId: "accepted", phase: "queued" });
+  fixture.prepare.mockReturnValue({
+    operationId: "accepted",
+    request: {
+      operationId: "accepted",
+      requestId: "stable",
+      fence: { environmentId: "env", intentRevision: 1, runtimeGeneration: 1, controllerEpoch: 1 },
+    },
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolveValue) => {
+    resolve = resolveValue;
+  });
+  return { promise, resolve };
+}
+
+/** Synthetic provider facts for the recovery path; the resolver never writes. */
+const recoveryEnrollment = {
+  hostDomain: "host",
+  runtimeDomain: "runtime",
+  gitCommonDir: "/fixture/.git",
+  providerId: "provider",
+  estimatesDigest: "d".repeat(64),
+};
+const recoveryRuntime = {
+  kind: "runtime" as const,
+  daemonId: "synthetic.daemon",
+  hostDomain: "host",
+  hostChargeCeilingBytes: 60,
+  endpoint: "/tmp/synthetic-controller/d.sock",
+};
+const recoveryDurableEnrollment = {
+  policyRevision: 1,
+  gitCommonDir: recoveryEnrollment.gitCommonDir,
+  providerId: recoveryEnrollment.providerId,
+  hostDomain: recoveryEnrollment.hostDomain,
+  runtimeDomain: recoveryEnrollment.runtimeDomain,
+  endpoint: recoveryRuntime.endpoint,
+  daemonId: recoveryRuntime.daemonId,
+  estimatesDigest: recoveryEnrollment.estimatesDigest,
+};
+const recoveryEstimates = { host: { steadyBytes: 1 } };
+
+function recoveryFixture() {
+  fixture.policy.mockReturnValue({
+    revision: 1,
+    admissions: "enabled",
+    scheduling: { sampleIntervalSeconds: 1, maxSampleAgeSeconds: 15 },
+    recovery: {
+      enabled: true,
+      maxCorrectiveActions: 3,
+      maxProcessRestarts: 2,
+      maxServiceRestarts: 1,
+      windowSeconds: 600,
+      observationSeconds: 30,
+      resumeDwellSeconds: 300,
+    },
+    enrollments: [recoveryEnrollment],
+    domains: { host: { kind: "host" }, runtime: recoveryRuntime },
+  });
+  fixture.runtimeConfig.mockReturnValue({
+    config: {
+      apps: [
+        {
+          name: "admin",
+          kind: "app",
+          host: "admin.fixture.localhost",
+          protocol: "http",
+          runtime: "proxy",
+          upstream: "fixture-postgres:8080",
+          readiness: { path: "/health" },
+        },
+        {
+          name: "web",
+          kind: "app",
+          host: "web.fixture.localhost",
+          protocol: "http",
+          runtime: "proxy",
+          upstream: "fixture-app:3000",
+          readiness: { path: "/health" },
+        },
+      ],
+      managedRuntime: {
+        devcontainer: { baseServices: ["postgres"], profileServices: [] },
+        processes: ["app"],
+      },
+    },
+  });
+  fixture.resolve.mockResolvedValue({
+    environment,
+    enrollment: recoveryEnrollment,
+    estimates: recoveryEstimates,
+  });
+  fixture.journal.mockReturnValue({
+    state: { environmentId: "env", operation: null },
+    activeProfile: null,
+    enrollment: recoveryDurableEnrollment,
+  });
+  fixture.hasOperation.mockReturnValue(false);
+  fixture.charge.mockReturnValue({ environmentId: "env", totals: { host: 1 } });
+  fixture.prepareRecovery.mockReturnValue({
+    operationId: "recovered",
+    request: { operationId: "recovered", requestId: "recovery" },
+  });
+}
+
+/** Stand-in for the monitor's producing-observation closure. */
+function recoveryProof(failedCapabilities = ["app-dead"]) {
+  return () => ({ journalRevision: 1, failedCapabilities });
+}
+
+const submission = {
+  ...binding,
+  method: "operation-submit" as const,
+  kind: "ensure" as const,
+  requestId: "stable",
+};
 
 function policyEnrollment(repoPath: string) {
   return { repoPath, workspace: null, provider: "devsy" as const };
@@ -159,7 +320,12 @@ function preparedRecord(overrides: { worker?: unknown; drained?: boolean } = {})
 it("settles a completed drained ensure before queue tick", async () => {
   const enrollment = policyEnrollment("/fixture");
   const estimates = { host: { steadyBytes: 1 } };
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
+  fixture.policy.mockReturnValue({
+    ...fixture.policy(),
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [enrollment],
+  });
   fixture.journal.mockReturnValue(preparedRecord());
   fixture.evidence.mockReturnValue(Buffer.from("synthetic"));
   fixture.config.mockReturnValue({ capacity: estimates });
@@ -185,7 +351,12 @@ it.each([
   ["undrained", { drained: false }],
 ] as const)("does not settle an ensure with %s evidence", async (_label, overrides) => {
   const enrollment = policyEnrollment("/fixture");
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
+  fixture.policy.mockReturnValue({
+    ...fixture.policy(),
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [enrollment],
+  });
   fixture.journal.mockReturnValue(preparedRecord(overrides));
 
   const active = controller();
@@ -197,6 +368,7 @@ it.each([
 
 it("skips preparation settlement when the operator policy changes", async () => {
   const initial = {
+    ...fixture.policy(),
     revision: 1,
     admissions: "enabled",
     enrollments: [policyEnrollment("/fixture")],
@@ -217,7 +389,12 @@ it("continues settling independent enrollments after one enrollment fails", asyn
   const bad = policyEnrollment("/bad");
   const good = policyEnrollment("/good");
   const estimates = { guest: { steadyBytes: 2 } };
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [bad, good] });
+  fixture.policy.mockReturnValue({
+    ...fixture.policy(),
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [bad, good],
+  });
   fixture.journal.mockImplementation((target: { repoPath: string }) => {
     if (target.repoPath === bad.repoPath) throw new Error("bad enrollment");
     return preparedRecord();
@@ -251,7 +428,12 @@ it("continues queue handling when settlement cannot read the policy", async () =
 
 it("skips preparation settlement after the controller closes", async () => {
   const enrollment = policyEnrollment("/fixture");
-  fixture.policy.mockReturnValue({ revision: 1, admissions: "enabled", enrollments: [enrollment] });
+  fixture.policy.mockReturnValue({
+    ...fixture.policy(),
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [enrollment],
+  });
   fixture.journal.mockReturnValue(preparedRecord());
 
   const active = controller();
@@ -319,6 +501,7 @@ it("does not begin enrollment after operator policy is paused", async () => {
       { ...binding, method: "operation-submit", requestId: "request", kind: "ensure" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).rejects.toThrow();
   expect(fixture.enroll).not.toHaveBeenCalled();
@@ -340,6 +523,7 @@ it("cancels in-flight enrollment when its owning controller closes", async () =>
     { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
     environment,
     new AbortController().signal,
+    submissionValidator,
   );
   expect(enrollmentSignal?.aborted).toBe(false);
   active.close();
@@ -360,6 +544,7 @@ it("does not prepare work if policy changes while enrollment resolves", async ()
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).rejects.toThrow("policy changed");
   expect(fixture.prepare).not.toHaveBeenCalled();
@@ -393,6 +578,7 @@ it.each([
     { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
     environment,
     new AbortController().signal,
+    submissionValidator,
   );
   if (reject) {
     await expect(result).rejects.toThrow("queue full");
@@ -426,6 +612,7 @@ it("publishes the queued startup witness before enqueueing an ensure", async () 
     providerId: "provider",
   };
   fixture.policy.mockReturnValue({
+    ...fixture.policy(),
     revision: 1,
     admissions: "enabled",
     enrollments: [policyEnrollmentWithProvider],
@@ -457,6 +644,7 @@ it("publishes the queued startup witness before enqueueing an ensure", async () 
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).resolves.toBeDefined();
   expect(fixture.witness).toHaveBeenCalledOnce();
@@ -496,6 +684,7 @@ it("retires the queued intent when startup witness publication fails", async () 
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).rejects.toThrow("witness fence changed");
   expect(fixture.retire).toHaveBeenCalledWith(prepared);
@@ -525,6 +714,7 @@ it("publishes no startup witness for exec submissions", async () => {
     },
     environment,
     new AbortController().signal,
+    submissionValidator,
   );
   expect(fixture.witness).not.toHaveBeenCalled();
   expect(fixture.enqueue).toHaveBeenCalledOnce();
@@ -550,6 +740,7 @@ it("does not enqueue a second payload when durable preparation joins", async () 
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).resolves.toMatchObject({ operation: { operationId: "accepted" } });
   expect(fixture.enqueue).not.toHaveBeenCalled();
@@ -575,9 +766,14 @@ it("rejects conflicting repeated operation metadata while the accepted payload i
     requestId: "stable",
     operation: "small",
   };
-  await active.submit(request, environment, new AbortController().signal);
+  await active.submit(request, environment, new AbortController().signal, submissionValidator);
   await expect(
-    active.submit({ ...request, operation: "large" }, environment, new AbortController().signal),
+    active.submit(
+      { ...request, operation: "large" },
+      environment,
+      new AbortController().signal,
+      submissionValidator,
+    ),
   ).rejects.toThrow("conflicts");
   expect(fixture.enqueue).toHaveBeenCalledOnce();
 });
@@ -596,6 +792,7 @@ it.each([
     },
   });
   fixture.policy.mockReturnValue({
+    ...fixture.policy(),
     revision: 1,
     admissions: "enabled",
     enrollments: [submissionEnrollment],
@@ -613,6 +810,7 @@ it.each([
       { ...binding, method: "operation-submit", kind: "ensure", requestId: "stable" },
       environment,
       new AbortController().signal,
+      submissionValidator,
     ),
   ).rejects.toThrow(Error);
   expect(fixture.prepare).not.toHaveBeenCalled();
@@ -638,7 +836,14 @@ function collectionPolicy(count = 1) {
       daemonId: `daemon-${i}`,
       hostDomain: i === 0 ? "host" : "independent",
     };
-  const policy = { revision: 1, admissions: "enabled", enrollments: [], domains };
+  const policy = {
+    revision: 1,
+    admissions: "enabled",
+    enrollments: [],
+    domains,
+    scheduling: { sampleIntervalSeconds: 1, maxSampleAgeSeconds: 15 },
+    recovery: { enabled: false, observationSeconds: 30, resumeDwellSeconds: 300 },
+  };
   fixture.policy.mockReturnValue(policy);
   return policy;
 }
@@ -752,7 +957,7 @@ it.each(["close", "timeout"])("bounds four in-flight probes and drains on %s", a
   } else expect(fixture.merge).toHaveBeenCalledWith([], 7);
 });
 
-it("drains a cooperative sample collector on close before tick rejects", async () => {
+it("retains a closing collector slot until its underlying work drains", async () => {
   collectionPolicy();
   fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
   let started!: (signal: AbortSignal) => void;
@@ -795,56 +1000,43 @@ it("drains a cooperative sample collector on close before tick rejects", async (
   expect(signal.aborted).toBe(false);
   active.close();
   expect(signal.aborted).toBe(true);
-  expect(events).toEqual(["aborted"]);
-  finishDrain();
   await completion;
-  expect(events).toEqual(["aborted", "drained", "tick-rejected"]);
+  expect(events).toEqual(["aborted", "tick-rejected"]);
+  finishDrain();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(events).toEqual(["aborted", "tick-rejected", "drained"]);
   expect(fixture.merge).not.toHaveBeenCalled();
   expect(launch).not.toHaveBeenCalled();
 });
 
 it("opens a bounded recovery for a failed capability when policy enables it", async () => {
-  fixture.policy.mockReturnValue({
-    revision: 1,
-    admissions: "enabled",
-    recovery: { enabled: true, maxCorrectiveActions: 3 },
-    enrollments: [submissionEnrollment],
-    domains: { host: { kind: "host" }, runtime: submissionRuntime },
-  });
-  fixture.enroll.mockResolvedValue({
+  recoveryFixture();
+
+  await controller().recover(
     environment,
-    estimates: { host: { steadyBytes: 1 } },
-    enrollment: submissionEnrollment,
-  });
-  fixture.journal.mockReturnValue({ state: { environmentId: "env", operation: null } });
-  fixture.hasOperation.mockReturnValue(false);
-  fixture.charge.mockReturnValue({
-    environmentId: "env",
-    totals: { host: 1 },
-    startup: false,
-    heavy: false,
-  });
-  fixture.prepareRecovery.mockReturnValue({
-    operationId: "recovered",
-    request: { operationId: "recovered", requestId: "recovery" },
-  });
+    ["app-dead"],
+    new AbortController().signal,
+    recoveryProof(),
+  );
 
-  await controller().recover(environment, ["app-dead"], new AbortController().signal);
-
+  expect(fixture.enroll).not.toHaveBeenCalled();
   expect(fixture.prepareRecovery).toHaveBeenCalledWith(
     expect.objectContaining({
       policyRevision: 1,
+      journalRevision: 1,
       actionLimit: 3,
       failedCapabilities: ["app-dead"],
       profile: "full",
+      recoveryLimits: { maxProcessRestarts: 2, maxServiceRestarts: 1, windowSeconds: 600 },
+      recoverySelectors: { process: ["app:web"], service: ["app:admin"] },
     }),
   );
   expect(fixture.enqueue).toHaveBeenCalledWith(
     expect.objectContaining({ operationId: "recovered" }),
     expect.objectContaining({ operationId: "recovered", policyRevision: 1, totals: { host: 1 } }),
     {
-      estimates: { host: { steadyBytes: 1 } },
-      enrollment: submissionEnrollment,
+      estimates: recoveryEstimates,
+      enrollment: recoveryEnrollment,
       pool: {
         daemonId: "synthetic.daemon",
         hostDomain: "host",
@@ -855,40 +1047,589 @@ it("opens a bounded recovery for a failed capability when policy enables it", as
   );
 });
 
+it("keeps the aggregate ceiling when the repository configuration is unreadable", async () => {
+  recoveryFixture();
+  fixture.runtimeConfig.mockImplementation(() => {
+    throw new Error("synthetic unreadable configuration");
+  });
+
+  await controller().recover(
+    environment,
+    ["app-dead"],
+    new AbortController().signal,
+    recoveryProof(),
+  );
+
+  expect(fixture.prepareRecovery).toHaveBeenCalledWith(
+    expect.objectContaining({ recoverySelectors: { process: [], service: [] } }),
+  );
+});
+
 it("is inert when policy leaves automatic recovery disabled", async () => {
   fixture.policy.mockReturnValue({
     revision: 1,
     admissions: "enabled",
-    recovery: { enabled: false },
-    enrollments: [submissionEnrollment],
-    domains: { host: { kind: "host" }, runtime: submissionRuntime },
+    scheduling: { sampleIntervalSeconds: 1, maxSampleAgeSeconds: 15 },
+    recovery: { enabled: false, observationSeconds: 30, resumeDwellSeconds: 300 },
+    enrollments: [recoveryEnrollment],
+    domains: { host: { kind: "host" }, runtime: recoveryRuntime },
   });
-  await controller().recover(environment, ["app-dead"], new AbortController().signal);
-  expect(fixture.enroll).not.toHaveBeenCalled();
+  await controller().recover(
+    environment,
+    ["app-dead"],
+    new AbortController().signal,
+    recoveryProof(),
+  );
+  expect(fixture.resolve).not.toHaveBeenCalled();
   expect(fixture.prepareRecovery).not.toHaveBeenCalled();
 });
 
 it("leaves an operation the queue still owns alone", async () => {
-  fixture.policy.mockReturnValue({
-    revision: 1,
-    admissions: "enabled",
-    recovery: { enabled: true, maxCorrectiveActions: 3 },
-    enrollments: [submissionEnrollment],
-    domains: { host: { kind: "host" }, runtime: submissionRuntime },
-  });
-  fixture.enroll.mockResolvedValue({
-    environment,
-    estimates: {},
-    enrollment: submissionEnrollment,
-  });
+  recoveryFixture();
   fixture.journal.mockReturnValue({
     state: { environmentId: "env", operation: { id: "inflight" } },
+    activeProfile: null,
+    enrollment: recoveryDurableEnrollment,
   });
   fixture.hasOperation.mockReturnValue(true);
 
-  await controller().recover(environment, ["app-dead"], new AbortController().signal);
+  await controller().recover(
+    environment,
+    ["app-dead"],
+    new AbortController().signal,
+    recoveryProof(),
+  );
 
   expect(fixture.hasOperation).toHaveBeenCalledWith("inflight");
   expect(fixture.prepareRecovery).not.toHaveBeenCalled();
   expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+it("prepares and enqueues nothing when the held session proof fails", async () => {
+  recoveryFixture();
+  let valid = true;
+  const proof = () => {
+    if (!valid) throw new Error("observation invalidated");
+    return { journalRevision: 1, failedCapabilities: ["app-dead"] };
+  };
+  const started = deferred<void>();
+  const held = deferred<void>();
+  fixture.resolve.mockImplementation(async () => {
+    started.resolve();
+    await held.promise;
+    return {
+      environment,
+      enrollment: recoveryEnrollment,
+      estimates: recoveryEstimates,
+    };
+  });
+
+  const pending = controller().recover(
+    environment,
+    ["app-dead"],
+    new AbortController().signal,
+    proof,
+  );
+  await started.promise;
+  valid = false;
+  held.resolve();
+  await pending;
+
+  expect(fixture.prepareRecovery).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+it("recovers only the failures a surviving consumer still requires", async () => {
+  recoveryFixture();
+  let calls = 0;
+  const proof = () => {
+    calls += 1;
+    return {
+      journalRevision: 1,
+      failedCapabilities: calls === 1 ? ["app-dead", "app-released"] : ["app-dead"],
+    };
+  };
+
+  await controller().recover(
+    environment,
+    ["app-dead", "app-released"],
+    new AbortController().signal,
+    proof,
+  );
+
+  expect(fixture.prepareRecovery).toHaveBeenCalledWith(
+    expect.objectContaining({ failedCapabilities: ["app-dead"], journalRevision: 1 }),
+  );
+  expect(fixture.enqueue).toHaveBeenCalledOnce();
+});
+
+it("never broadens the producing failure set from a later observation", async () => {
+  recoveryFixture();
+  let calls = 0;
+  const proof = () => {
+    calls += 1;
+    return {
+      journalRevision: 1,
+      failedCapabilities: calls === 1 ? ["app-dead"] : ["app-other"],
+    };
+  };
+
+  await controller().recover(environment, ["app-dead"], new AbortController().signal, proof);
+
+  expect(fixture.prepareRecovery).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+it("does not prepare or enqueue an ensure whose session is released during enrollment", async () => {
+  submissionFixture();
+  const validator = vi.fn(submissionValidator);
+  validator.mockReturnValueOnce({
+    id: "synthetic-consumer",
+    requiredCapabilities: [],
+    pinned: false,
+  });
+  validator.mockImplementationOnce(() => {
+    throw new Error("session released during enrollment");
+  });
+  await expect(
+    controller().submit(submission, environment, new AbortController().signal, validator),
+  ).rejects.toThrow("session released during enrollment");
+  expect(validator.mock.calls.length).toBeGreaterThanOrEqual(2);
+  expect(fixture.prepare).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+  expect(fixture.retire).not.toHaveBeenCalled();
+});
+
+it("retires the exact undispatched request when the generation changes during witness", async () => {
+  submissionFixture();
+  const witnessHeld = deferred<void>();
+  const witnessEntered = deferred<void>();
+  let validateCalls = 0;
+  const validator = vi.fn<ControllerSessionValidator>(() => {
+    validateCalls += 1;
+    if (validateCalls >= 3) throw new Error("session generation changed");
+    return { id: "synthetic-consumer", requiredCapabilities: [], pinned: false };
+  });
+  fixture.witness.mockImplementation(async () => {
+    witnessEntered.resolve();
+    await witnessHeld.promise;
+  });
+  const pending = controller().submit(
+    submission,
+    environment,
+    new AbortController().signal,
+    validator,
+  );
+  await witnessEntered.promise;
+  witnessHeld.resolve();
+  await expect(pending).rejects.toThrow("session generation changed");
+  expect(validateCalls).toBe(3);
+  expect(fixture.retire).toHaveBeenCalledWith(fixture.prepare.mock.results[0].value.request);
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+it("maps current session requirements onto the submitted consumer", async () => {
+  submissionFixture();
+  const consumer = {
+    id: "hashed-binding",
+    requiredCapabilities: [controllerCapability("app:web"), "runtime"],
+    pinned: false,
+  };
+  const validator = vi.fn(() => consumer);
+  await expect(
+    controller().submit(submission, environment, new AbortController().signal, validator),
+  ).resolves.toMatchObject({ operation: { operationId: "accepted", phase: "queued" } });
+  expect(validator).toHaveBeenCalledTimes(3);
+  expect(validator).toHaveBeenCalledWith();
+  expect(fixture.prepare).toHaveBeenCalledWith(expect.objectContaining({ consumer }));
+});
+
+it("refuses a submission whose enrollment resolves a different environment", async () => {
+  submissionFixture();
+  fixture.enroll.mockResolvedValue({
+    environment: { ...environment, repoPath: "/elsewhere" },
+    estimates: {},
+    enrollment: submissionEnrollment,
+  });
+  const validator = vi.fn(submissionValidator);
+  await expect(
+    controller().submit(submission, environment, new AbortController().signal, validator),
+  ).rejects.toThrow("Capacity submission binding changed.");
+  expect(fixture.prepare).not.toHaveBeenCalled();
+  expect(fixture.enqueue).not.toHaveBeenCalled();
+});
+
+function pressureFixture() {
+  const policy = collectionPolicy();
+  policy.recovery.enabled = true;
+  policy.recovery.observationSeconds = 2;
+  policy.recovery.resumeDwellSeconds = 3;
+  let now = { wallMs: 10_000, monotonicMs: 10_000 };
+  fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
+  const sample = (pressure: "normal" | "pressured" | "unknown" = "normal") => ({
+    ...collectedSample,
+    sampledAtMs: now.wallMs,
+    pressure,
+  });
+  const collect = vi.fn(async () => ({ host: sample(), "runtime-0": sample() }));
+  const active = controller(collect, () => ({ ...now }));
+  return {
+    policy,
+    active,
+    collect,
+    sample,
+    advance: (ms: number) => {
+      now = { wallMs: now.wallMs + ms, monotonicMs: now.monotonicMs + ms };
+    },
+    jumpWall: (ms: number) => {
+      now.wallMs += ms;
+    },
+    evidence: () => active.pressureEvidence({ hostDomain: "host", runtimeDomain: "runtime-0" }),
+  };
+}
+
+it("shares collection and cached cadence without extending observed dwell", async () => {
+  const context = pressureFixture();
+  const first = fixture.collection();
+  const second = fixture.collection();
+  expect(first).toBe(second);
+  await first;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  context.advance(999);
+  await fixture.collection();
+  expect(context.collect).toHaveBeenCalledTimes(1);
+  expect(context.evidence().domains.host.observedDurationMs).toBe(0);
+  context.advance(1);
+  await fixture.collection();
+  expect(context.collect).toHaveBeenCalledTimes(2);
+  expect(context.evidence().domains.host.observedDurationMs).toBe(1000);
+  context.active.close();
+});
+
+it("requires complete continuous evidence for normal dwell and sustained pressure", async () => {
+  const context = pressureFixture();
+  for (let tick = 0; tick <= 3; tick++) {
+    await fixture.collection();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(context.evidence().normalDwellSatisfied).toBe(tick === 3);
+    if (tick < 3) context.advance(1000);
+  }
+  context.collect.mockImplementation(async () => ({
+    host: context.sample("pressured"),
+    "runtime-0": context.sample(),
+  }));
+  for (let tick = 0; tick <= 2; tick++) {
+    context.advance(1000);
+    await fixture.collection();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(context.evidence().sustainedPressure).toBe(tick === 2);
+    expect(context.evidence().normalDwellSatisfied).toBe(false);
+  }
+  context.collect.mockImplementation(async () => ({
+    host: context.sample("pressured"),
+    "runtime-0": context.sample("unknown"),
+  }));
+  context.advance(1000);
+  await fixture.collection();
+  expect(context.evidence().sustainedPressure).toBe(false);
+  context.active.close();
+});
+
+it("expires completed dwell on reads and refuses changed live authority", async () => {
+  const context = pressureFixture();
+  for (let tick = 0; tick <= 3; tick++) {
+    await fixture.collection();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (tick < 3) context.advance(1000);
+  }
+  expect(context.evidence().normalDwellSatisfied).toBe(true);
+  context.advance(15_000);
+  expect(context.evidence().normalDwellSatisfied).toBe(true);
+  context.advance(1);
+  expect(context.evidence().normalDwellSatisfied).toBe(false);
+  context.policy.recovery.resumeDwellSeconds = 1;
+  expect(context.evidence).toThrow();
+  context.policy.recovery.resumeDwellSeconds = 3;
+  expect(context.evidence).toThrow();
+  context.active.close();
+});
+
+it.each([
+  "timeout",
+  "clock-read",
+  "close",
+])("retains an unresponsive collector slot after %s", async (cause) => {
+  vi.useFakeTimers();
+  const context = pressureFixture();
+  let finish!: (value: Awaited<ReturnType<typeof context.collect>>) => void;
+  let started!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let signal!: AbortSignal;
+  context.collect.mockImplementation(
+    (input?: AbortSignal) =>
+      new Promise((resolve) => {
+        signal = input!;
+        finish = resolve;
+        started();
+      }),
+  );
+  const pending = fixture.collection();
+  const rejected = expect(pending).rejects.toThrow();
+  await entered;
+  if (cause === "timeout") {
+    context.advance(15_000);
+    await vi.advanceTimersByTimeAsync(15_000);
+  } else if (cause === "clock-read") {
+    context.jumpWall(2001);
+    expect(context.evidence().normalDwellSatisfied).toBe(false);
+  } else context.active.close();
+  await rejected;
+  expect(signal.aborted).toBe(true);
+  await expect(fixture.collection()).rejects.toThrow();
+  expect(context.collect).toHaveBeenCalledTimes(1);
+  expect(fixture.merge).not.toHaveBeenCalled();
+  finish({ host: context.sample(), "runtime-0": context.sample() });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fixture.merge).not.toHaveBeenCalled();
+  if (cause !== "close") expect(context.evidence().normalDwellSatisfied).toBe(false);
+  context.active.close();
+});
+
+it("handles late collector rejection and starts fresh only after drain and cadence", async () => {
+  vi.useFakeTimers();
+  const context = pressureFixture();
+  let fail!: (error: Error) => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  context.collect.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+        entered();
+      }),
+  );
+  const pending = fixture.collection();
+  const rejected = expect(pending).rejects.toThrow();
+  await started;
+  context.advance(15_000);
+  await vi.advanceTimersByTimeAsync(15_000);
+  await rejected;
+  await expect(fixture.collection()).rejects.toThrow();
+  fail(new Error("late synthetic failure"));
+  await vi.advanceTimersByTimeAsync(0);
+  await fixture.collection();
+  expect(context.collect).toHaveBeenCalledTimes(2);
+  expect(context.evidence().domains.host.observedDurationMs).toBe(0);
+  context.active.close();
+});
+
+it.each([
+  false,
+  true,
+])("samples idle environments only when recovery is enabled=%s", async (enabled) => {
+  const context = pressureFixture();
+  context.active.close();
+  context.policy.recovery.enabled = enabled;
+  const active = controller();
+  await active.tick();
+  expect(fixture.tick).toHaveBeenCalledWith({ observeIdle: enabled });
+  active.close();
+});
+
+/**
+ * A controller incarnation whose cloned policy already enrolls the capacity
+ * target. The enrolment has to exist before startup: the target resolver
+ * re-reads the live policy and refuses a decision when it differs from the
+ * clone, so adding an enrolment afterwards is a policy change rather than a
+ * fixture shortcut. None of the refused paths below reach worker dispatch,
+ * which is why the lifecycle preparation mocks stay untouched.
+ */
+const capacityEnrollment = {
+  hostDomain: "host",
+  runtimeDomain: "runtime-0",
+  gitCommonDir: "/fixture/.git",
+  providerId: "provider",
+  estimatesDigest: "c".repeat(64),
+};
+
+function capacityPolicyFixture(
+  options: {
+    recoveryEnabled?: boolean;
+    enroll?: boolean;
+    collect?: (
+      signal: AbortSignal,
+    ) => Promise<Record<string, import("../capacity-accounting").CapacityDomainSample>>;
+    clock?: () => { wallMs: number; monotonicMs: number };
+  } = {},
+) {
+  const base = collectionPolicy();
+  const policy = {
+    ...base,
+    recovery: {
+      ...base.recovery,
+      enabled: options.recoveryEnabled ?? true,
+      observationSeconds: 2,
+      resumeDwellSeconds: 3,
+    },
+    enrollments: (options.enroll ?? true) ? [capacityEnrollment] : [],
+  };
+  fixture.policy.mockReturnValue(policy);
+  fixture.resolve.mockResolvedValue({
+    environment,
+    enrollment: capacityEnrollment,
+    estimates: { host: { steadyBytes: 1 } },
+  });
+  const active = controller(options.collect, options.clock);
+  if (!active.capacity) throw new Error("Capacity directive is unavailable.");
+  return { policy, active, capacity: active.capacity };
+}
+
+const capacitySignal = () => new AbortController().signal;
+
+it("refuses to park while automatic recovery is disabled", async () => {
+  const context = capacityPolicyFixture({ recoveryEnabled: false });
+  await expect(
+    context.capacity.park(environment, 1, () => "unusable-consumers-proven", capacitySignal()),
+  ).resolves.toBe(false);
+  expect(fixture.resolve).not.toHaveBeenCalled();
+  context.active.close();
+});
+
+it("refuses to park an environment the policy does not enroll", async () => {
+  const context = capacityPolicyFixture({ enroll: false });
+  await expect(
+    context.capacity.park(environment, 1, () => "unusable-consumers-proven", capacitySignal()),
+  ).resolves.toBe(false);
+  expect(fixture.resolve).toHaveBeenCalledTimes(1);
+  context.active.close();
+});
+
+it("refuses to park without sustained pressure evidence", async () => {
+  const context = capacityPolicyFixture();
+  await expect(
+    context.capacity.park(environment, 1, () => "unusable-consumers-proven", capacitySignal()),
+  ).resolves.toBe(false);
+  // The enrolled target resolved, so the refusal came from the pressure gate.
+  expect(fixture.resolve).toHaveBeenCalledTimes(1);
+  context.active.close();
+});
+
+it("refuses to resume while headroom has not dwelled normal", async () => {
+  const context = capacityPolicyFixture();
+  await expect(context.capacity.resume(environment, 1, () => [], capacitySignal())).resolves.toBe(
+    false,
+  );
+  expect(fixture.resolve).toHaveBeenCalledTimes(1);
+  context.active.close();
+});
+
+it("refuses a parked stop once the operator policy changed", async () => {
+  const context = capacityPolicyFixture();
+  fixture.policy.mockReturnValue({ ...context.policy, revision: 2 });
+  await expect(
+    context.capacity.parkedStop(environmentIdentity(environment), capacitySignal()),
+  ).resolves.toBe(false);
+  context.active.close();
+});
+
+/**
+ * The success paths below are the only ones that reach worker dispatch. The
+ * refused paths above return before it, so these mocks are consulted here only.
+ * Each decision must rest on pressure the tracker itself accumulated across
+ * distinct observations, never on a caller-supplied shortcut. The drain between
+ * collections matches the real cadence path: the collector slot clears on its
+ * own microtask, so an unawaited second read would reuse the first result.
+ */
+const pressuredSample = (wallMs: number) => ({
+  sampledAtMs: wallMs,
+  pressure: "pressured" as const,
+  unmanagedBytes: 4,
+  sharedBytes: 3,
+  ownedBytes: {},
+});
+const normalSample = (wallMs: number) => ({
+  sampledAtMs: wallMs,
+  pressure: "normal" as const,
+  unmanagedBytes: 4,
+  sharedBytes: 3,
+  ownedBytes: {},
+});
+const drainCollection = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+it("parks an enrolled pressured environment by committing intent and driving one stop", async () => {
+  const clock = { wallMs: 10_000, monotonicMs: 10_000 };
+  fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
+  fixture.park.mockReturnValue({ request: { intent: "park" } });
+  const context = capacityPolicyFixture({
+    collect: async () => ({
+      host: pressuredSample(clock.wallMs),
+      "runtime-0": pressuredSample(clock.wallMs),
+    }),
+    clock: () => ({ ...clock }),
+  });
+  // Observations 1s apart reach the 2s sustained-pressure window on the third.
+  await fixture.collection();
+  await drainCollection();
+  for (let tick = 0; tick < 2; tick++) {
+    clock.wallMs += 1000;
+    clock.monotonicMs += 1000;
+    await fixture.collection();
+    await drainCollection();
+  }
+
+  const observation = () => "unusable-consumers-proven" as const;
+  await expect(context.capacity.park(environment, 1, observation, capacitySignal())).resolves.toBe(
+    true,
+  );
+  expect(fixture.park).toHaveBeenCalledTimes(1);
+  const options = fixture.park.mock.calls[0][0];
+  expect(options.identity).toEqual(environmentIdentity(environment));
+  expect(options.policyRevision).toBe(1);
+  expect(options.journalRevision).toBe(1);
+  // The failed-capability proof is the controller's own journal gate.
+  expect(options.observationSatisfied({})).toBe(true);
+  expect(fixture.worker).toHaveBeenCalledWith({ intent: "park" });
+  context.active.close();
+});
+
+it("resumes a parked environment by enqueuing one automatic resume", async () => {
+  const clock = { wallMs: 10_000, monotonicMs: 10_000 };
+  fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
+  fixture.journal.mockReturnValue({ state: { environmentId: "env" }, activeProfile: null });
+  fixture.charge.mockReturnValue({ environmentId: "env", totals: { host: 1 } });
+  fixture.resumePrepare.mockReturnValue({
+    operationId: "resume-op",
+    request: { intent: "resume" },
+  });
+  const context = capacityPolicyFixture({
+    collect: async () => ({
+      host: normalSample(clock.wallMs),
+      "runtime-0": normalSample(clock.wallMs),
+    }),
+    clock: () => ({ ...clock }),
+  });
+  // Observations 1s apart reach the 3s normal-dwell window on the fourth.
+  await fixture.collection();
+  await drainCollection();
+  for (let tick = 0; tick < 3; tick++) {
+    clock.wallMs += 1000;
+    clock.monotonicMs += 1000;
+    await fixture.collection();
+    await drainCollection();
+  }
+
+  await expect(context.capacity.resume(environment, 1, () => [], capacitySignal())).resolves.toBe(
+    true,
+  );
+  expect(fixture.enqueue).toHaveBeenCalledTimes(1);
+  const [request, charge, , autoResume] = fixture.enqueue.mock.calls[0];
+  expect(request).toEqual({ intent: "resume" });
+  expect(charge.operationId).toBe("resume-op");
+  // The automatic-resume flag is what lets an expired queue entry return to parked intent.
+  expect(autoResume).toBe(true);
+  context.active.close();
 });

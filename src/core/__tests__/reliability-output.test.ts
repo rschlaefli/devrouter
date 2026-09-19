@@ -1,6 +1,60 @@
 import { describe, expect, it } from "vitest";
 import { createReliabilityState, type ReliabilityState } from "../reliability-contract";
-import { encodeReliability, projectReliability } from "../reliability-output";
+import { encodeReliability, projectReliability, reliabilityAttention } from "../reliability-output";
+
+describe("reliability attention", () => {
+  const base = () => ({
+    ...createReliabilityState("environment-1", 1),
+    desired: "running" as const,
+    phase: "stable" as const,
+    admission: "admitted" as const,
+  });
+  const stopped = (workloadsStopped: boolean, routesRemoved: boolean) => ({
+    ...createReliabilityState("environment-1", 1),
+    desired: "parked-for-capacity" as const,
+    stopProof: { workloadsStopped, routesRemoved },
+  });
+
+  it("reports a durable obstruction for every non-progressing lifecycle state", () => {
+    expect(reliabilityAttention(stopped(true, true))).toBe("capacity-parked");
+    expect(reliabilityAttention(stopped(true, false))).toBe("stop-incomplete");
+    expect(reliabilityAttention({ ...base(), admission: "waiting" })).toBe("capacity-waiting");
+    expect(reliabilityAttention({ ...base(), admission: "denied-unadmittable" })).toBe(
+      "unadmittable",
+    );
+    expect(
+      reliabilityAttention({
+        ...base(),
+        operation: {
+          id: "operation-1",
+          kind: "ensure",
+          drained: true,
+          status: "INTERRUPTED",
+          exitCode: null,
+        },
+      }),
+    ).toBe("operation-unknown");
+    expect(reliabilityAttention({ ...base(), phase: "recovering" })).toBe("recovering");
+    expect(reliabilityAttention({ ...base(), phase: "starting" })).toBe("starting");
+  });
+
+  it("reports no obstruction for settled stop intent or unencumbered running intent", () => {
+    expect(
+      reliabilityAttention({
+        ...createReliabilityState("environment-1", 1),
+        stopProof: { workloadsStopped: true, routesRemoved: true },
+      }),
+    ).toBeUndefined();
+    expect(reliabilityAttention(base())).toBeUndefined();
+    expect(
+      reliabilityAttention({
+        ...base(),
+        desired: "stopped-by-user",
+        phase: "stopping",
+      }),
+    ).toBe("stop-incomplete");
+  });
+});
 
 function readyState(): ReliabilityState {
   return {

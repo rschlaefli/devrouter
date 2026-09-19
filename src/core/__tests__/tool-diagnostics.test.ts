@@ -21,11 +21,18 @@ const runtimeState = vi.hoisted(() => ({
   requestedRepoPath: undefined as string | undefined,
   ownershipProblem: undefined as string | undefined,
   agent: {
-    state: "missing" as "ready" | "missing" | "stale" | "invalid",
-    source: "managed" as "managed" | "explicit",
+    state: "missing",
+    source: "managed",
     reason: "the selected source is missing",
     installedVersion: "1.16.2",
     asset: { name: "devsy-linux-arm64" },
+  } as {
+    state: "ready" | "missing" | "stale" | "invalid";
+    source: "managed" | "explicit" | "host";
+    reason: string;
+    installedVersion?: string;
+    asset?: { name: string };
+    drift?: { installed: string; supported: string };
   },
 }));
 
@@ -236,6 +243,27 @@ describe("buildGlobalToolChecks", () => {
     expect(check?.suggestion).toBe(
       "Fix or unset DEVSY_AGENT_BINARY, then run: devrouter setup --yes --workspace-runtime devsy",
     );
+  });
+
+  it("warns, without blocking, when the host CLI is newer than the verified pin", () => {
+    writePackageJson();
+    runtimeState.resolution = { runtime: "devsy", source: "machine-config" };
+    runtimeState.agent = {
+      state: "ready",
+      source: "host",
+      reason: "installed Devsy 1.19.0 is newer than the verified 1.16.2 agent",
+      installedVersion: "1.19.0",
+      drift: { installed: "1.19.0", supported: "1.16.2" },
+    };
+
+    const check = buildGlobalToolChecks(tmpDir).find((entry) => entry.id === "global.devsy-agent");
+
+    expect(check).toMatchObject({ level: "warn" });
+    expect(check?.summary).toBe(
+      "Devsy 1.19.0 is newer than the Devrouter-verified 1.16.2 agent, so the host CLI manages its own agent.",
+    );
+    expect(check?.suggestion).toContain("devrouter setup --yes --workspace-runtime devsy");
+    expect(JSON.stringify(check)).not.toContain(tmpDir);
   });
 
   it("repairs a stale explicit source by replacing the unsupported Devsy CLI", () => {

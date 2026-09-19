@@ -112,6 +112,117 @@ afterEach(() => {
 });
 
 describe("worker dispatch acknowledgement", () => {
+  it("keeps exec output free of progress and ignores mixed progress completion", async () => {
+    const setup = prepared();
+    const output = new LifecycleOutput();
+    const pending = runLifecycleWorker(setup.request, {
+      signal: new AbortController().signal,
+      output,
+    });
+    await ready(setup.child);
+    setup.child.emit("message", { lifecycleProgress: "provider", ok: true, value: "bad" });
+    setup.child.emit("message", { lifecycleProgress: "provider" });
+    setup.child.emit("message", { ok: true, value: 8 });
+    setup.close();
+    await expect(pending).resolves.toBe(8);
+    expect(output.read().chunks).toEqual([]);
+  });
+
+  it.each([
+    "normal",
+    "backpressure",
+    "throw",
+  ])("isolates direct progress sink %s from lifecycle completion", async (mode) => {
+    const setup = prepared();
+    setup.request.kind = "ensure";
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => {
+      if (mode === "throw") throw new Error("output unavailable");
+      return true;
+    });
+    vi.spyOn(process.stderr, "writableNeedDrain", "get").mockReturnValue(mode === "backpressure");
+    const pending = runLifecycleWorker(setup.request);
+    await ready(setup.child);
+    setup.child.emit("message", { lifecycleProgress: "provider" });
+    setup.child.emit("message", { ok: true, value: 9 });
+    setup.close();
+    await expect(pending).resolves.toBe(9);
+    expect(write).toHaveBeenCalledTimes(mode === "backpressure" ? 0 : 1);
+    if (mode === "normal")
+      expect(JSON.parse(String(write.mock.calls[0][0]))).toMatchObject({ phase: "provider" });
+  });
+
+  it("stops periodic progress after worker completion", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
+    const setup = prepared();
+    setup.request.kind = "ensure";
+    const output = new LifecycleOutput();
+    const pending = runLifecycleWorker(setup.request, {
+      signal: new AbortController().signal,
+      output,
+    });
+    await ready(setup.child);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(JSON.parse(output.read().chunks[0].data.toString()).evidence).toBe("unknown");
+    setup.child.emit("message", { lifecycleProgress: "preparation" });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(JSON.parse(output.read().chunks.at(-1)!.data.toString()).evidence).toBe("stale");
+    setup.child.emit("message", { ok: true, value: 1 });
+    setup.close();
+    await pending;
+    const count = output.read().chunks.length;
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(output.read().chunks).toHaveLength(count);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("suppresses progress after cancellation and clears timers after drainage", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
+    const setup = prepared();
+    setup.request.kind = "stop";
+    const signal = new AbortController();
+    const output = new LifecycleOutput();
+    const pending = runLifecycleWorker(setup.request, { signal: signal.signal, output });
+    const rejection = expect(pending).rejects.toThrow();
+    await ready(setup.child);
+    setup.child.emit("message", { lifecycleProgress: "stop" });
+    signal.abort();
+    setup.child.emit("message", { lifecycleProgress: "route-removal" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(output.read().chunks).toHaveLength(1);
+    setup.close();
+    await rejection;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("forwards only allowlisted last-stage evidence into supervised stderr", async () => {
+    const setup = prepared();
+    setup.request.kind = "ensure";
+    const output = new LifecycleOutput();
+    const pending = runLifecycleWorker(setup.request, {
+      signal: new AbortController().signal,
+      output,
+    });
+    await ready(setup.child);
+    setup.child.emit("message", { lifecycleProgress: "preparation" });
+    setup.child.emit("message", { lifecycleProgress: "secret-value" });
+    setup.child.emit("message", { lifecycleProgress: "provider", ok: true, value: "bad" });
+    setup.child.emit("message", { ok: true, value: 7 });
+    setup.close();
+    await expect(pending).resolves.toBe(7);
+    const chunks = output.read().chunks;
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].stream).toBe("stderr");
+    const progress = JSON.parse(chunks[0].data.toString());
+    expect(progress).toMatchObject({
+      type: "lifecycle-progress",
+      phase: "preparation",
+      role: "repository-preparation",
+      evidence: "recent",
+    });
+    setup.child.emit("message", { lifecycleProgress: "provider" });
+    expect(output.read().chunks).toHaveLength(1);
+  });
+
   it.each([
     1, 2,
   ])("never sends work after capacity validation fails at boundary %s", async (boundary) => {

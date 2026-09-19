@@ -94,6 +94,15 @@ and gives concurrent creators 60 seconds to serialize; the machine-global
 provider mutation lock waits up to thirty minutes in arrival order with throttled stderr progress
 lines; ordinary ownership transactions retain their short wait.
 
+Ensure and stop workers emit best-effort `lifecycle-progress` JSON lines on stderr
+at stage changes and every ten seconds. Each line contains an allowlisted phase,
+the responsible role, monotonic elapsed receipt age, and recent, stale or unknown
+evidence. Thirty seconds without a new stage receipt makes that evidence stale;
+it does not prove a dead worker. Liveness remains unknown, and `readiness` names
+the checking stage rather than successful readiness. Exec output is unchanged.
+Controller invocations retain these lines in their existing bounded output buffer.
+Progress delivery never grants lifecycle authority or changes operation results.
+
 ## Profile transitions
 
 The native Dev Container view remains full: its source configuration describes
@@ -160,6 +169,14 @@ service/process statuses, fingerprints, and values-free drift. A fully stopped
 exact runtime is a normal stopped state, not evidence that another workspace's
 resources may be reclaimed.
 
+For a managed environment with a durable reliability journal, `devrouter status`
+also reports the lifecycle intent, phase, capacity admission and charge, the
+corrective-action budget with its window start and per-unit action counts, and,
+when the recorded intent cannot progress on its own, a fixed attention reason
+with the supported recovery commands for that exact checkout. The block is
+read-only and is omitted when provider or journal evidence is unavailable, so a
+parked or waiting environment stays explainable without a live consumer session.
+
 ## Continuous observation
 
 The foreground controller observes explicitly enrolled managed linked checkouts.
@@ -174,6 +191,55 @@ See [foreground consumer sessions](../DEVCONTAINER.md#foreground-consumer-sessio
 for enrollment, lease renewal, restart handling, and event continuity. Releasing
 the last consumer preserves application data and runtime state; the caller still
 owns the normal exact-stop lifecycle.
+
+Controller protection status combines current exact session demand with a durable
+operator pin in the existing environment journal. Explicit pin changes require
+current ownership and session proof after the journal lock is acquired. Pin state
+survives lease release, controller restart and lifecycle operations; only an
+explicit pin update clears it. A pin never requests startup or overrides user stop.
+Continuity loss remains unknown through a sixty-second monotonic grace and then
+requires revalidation. Grace expiry never establishes that parking is safe.
+Fresh sessions and reconnected sessions default to protected. The IPC
+`parking-consent` method changes only the exact live binding with a consent
+revision check. Explicit release acknowledges one exact live or retained consumer,
+including after configuration drift, and advances the complete-consumer-set fence.
+It preserves newer same-name leases and does not change runtime state, pins or
+unknown history. A persistence failure leaves acknowledgement uncertain; release
+retries refuse when the tuple is already absent. Expiry, binding drift,
+clock discontinuity and controller restart instead retain unresolved protection.
+Those records are bounded and never evicted to make room. Ordinary observation of
+changed configuration can continue while the older consumer remains unresolved.
+
+An optional exact previous binding on `observe` can reconcile only that retained
+consumer, after fresh persisted ownership and identical environment and requirement
+proof. It creates a new protected generation. A private store-bound fingerprint key
+preserves equality across process restarts. Proof callbacks revalidate its durable
+provenance and their original incarnation before held work can publish or recover.
+Bindings predating key enrollment cannot reconnect, but their exact original tuple
+can withdraw retained intent. Lost identities remain unresolved. Protection status exposes consent and
+uncertainty counts; `consentSatisfied` proves only the consumer-consent prerequisite.
+`parkingObservation` additionally compares the original complete consumer set
+with current live bindings, consent revisions and published observation evidence.
+It revalidates the producing journal and persisted ownership under the existing
+journal fence without acquiring another lock. Each consumer needs a positively
+failed required infrastructure capability; unknown requirements, application
+errors, human pins, protected intent and unsettled operations veto. A later
+failed probe invalidates earlier proof even within its freshness window. Restart
+requires fresh observations. This is one prerequisite only; pressure policy,
+reservation safety and intent-preserving stop/resume remain separately required.
+These interfaces do not activate parking or provide a reusable execution permit.
+
+The controller's private `store-identity.json` binds its durable snapshot to one
+store and private fingerprint key. Snapshot version3 records only the key/store
+digest and enrollment epoch. Startup acknowledges only after both files are durable;
+a valid version1/2 snapshot enrolls without discarding its history. Interrupted
+enrollment resumes the same key. Missing, changed, downgraded or unsafe upgraded
+provenance refuses instead of silently changing binding identity. Missing snapshot bytes with a
+surviving identity or other controller artifact refuse startup. A read-only
+preflight preserves stale lock evidence across repeated refusals. Restore verified
+matching history when available; deleting metadata does not prove that retained
+consumers or resources are gone. Complete deletion of every local artifact cannot
+be distinguished from first initialization by this local evidence alone.
 
 ## Manual operation journal
 
@@ -227,6 +293,22 @@ under Devrouter home, keep the manual lifecycle. See
 [ADR 0008](../adr/0008-model-reliability-before-runtime-activation.md) for the
 source contract and activation boundaries.
 
+The capacity ledger has its own private `capacity-ledger.established` marker,
+independent of the controller process. Reads never enroll a ledger; locked
+mutations establish existing valid history or persist a new ledger before its
+marker. Successful mutation acknowledgments, including idempotent joins, require
+durable files and directory metadata. Missing marked history refuses admission
+and settlement without clearing charges. Production reads also compare the ledger
+revision with surviving validated lifecycle bindings, including pre-marker history.
+Journals are read first, so a concurrent admission cannot create false revision
+regression. Pool observation uses the same guard before writing a ledger. Unknown
+journal evidence refuses machine admission; it cannot be scoped to a trustworthy
+domain. Queue and doctor distinguish `capacity-ledger-lost` from
+`capacity-history-unprovable` without exposing historical identifiers or values.
+Neither a marker nor a surviving journal proves history after deletion of every
+artifact or rollback beyond the available evidence. Restoring a verified ledger
+preserves its retained charges; deleting metadata does not prove capacity is available.
+
 The policy's optional `recovery` block carries the bounded corrective-action
 budget: per-scope process and service restart allowances, the aggregate action
 cap an incident may not exceed, the incident window, the observation bound, and
@@ -240,6 +322,39 @@ observed as failed instead of relying on persisted observations. The monitor
 supplies those to `prepareRecoveryLifecycleOperation`, which opens one
 journal-admitted corrective ensure through the same capacity queue an operator
 command uses, and never supersedes an operation the queue still owns.
+
+Automatic recovery uses the same conservative history retirement as ordinary
+requests when the128-entry journal fills. It retains the current operation and
+latest ensure, requires a drained settled retirement candidate, and advances the
+runtime generation before returning a replacement for admission. Refused recovery
+does not open an incident or retire history. An existing incident keeps its
+original action limit, and every corrective action is claimed by the recovery
+preparation write: the lifecycle layer derives the one declared resource the
+producing capability names — a logical process from the managed process set or a
+retained service from the resolved service set — from the repository-declared
+selectors, and the same write increments that unit and the aggregate count. The
+claim refuses `window-closed`, `unit-exhausted` or `budget-exhausted` before any
+mutation, so a failed or foreign journal write leaves the incident, history and
+operation slot untouched. A capability the plan cannot attribute keeps the
+aggregate ceiling alone, unknown completion keeps its claim instead of refunding
+it, and unobservable active time falls back to the conservative wall duration
+since the incident start. Unknown or undrained commands cannot be replaced
+through rollover.
+
+The controller shares one bounded collector between admission and recovery-enabled
+idle sampling, using the policy sample interval. A timeout rejects waiting callers
+but retains the collector slot until its underlying work drains. Later samples
+cannot overlap that work or publish its late result. Policy or controller identity
+changes invalidate this instance's sampling authority.
+
+Pressure duration uses distinct fresh samples and monotonic observation intervals
+within one controller incarnation. Unknown domains, expired samples, clock jumps
+and sleep gaps clear duration evidence; reads never accrue time. Normal resume
+dwell requires both the exact host and runtime domains to remain normal. Sustained
+pressure requires known evidence in both domains and continuous pressure in one.
+These internal predicates grant no parking permission or runtime action. The
+current runtime adapter reports host pressure, which does not prove guest OOM
+prevention.
 
 ## Stop, delete, and inspect
 
@@ -303,7 +418,11 @@ captured generated configuration while restoring the prior running resources.
 It refuses generated drift rather than overwriting it. Same-profile repair still
 requires exact configuration and resource proofs; prior out-of-profile resources
 can therefore prevent repair. Legacy contradictory configuration without a
-producing receipt is not adopted automatically.
+producing receipt is not adopted automatically. Repair baseline refusals identify
+profile, app/service/process sets, source/effective configuration, or generated-file
+evidence with fixed `MANAGED_REPAIR_BASELINE_MISMATCH` reason codes. Unreadable
+generated evidence remains unavailable; no configuration values or fingerprints
+are included in these codes.
 
 A valid baseline also permits stop for a ledger-owned linked checkout with missing
 registration when every saved ID is positively absent on the saved daemon and
@@ -343,7 +462,15 @@ external teardown that removed the registration is the symmetric absence case:
 when both provider registries positively lack the ID and path, Devsy reports the
 runtime `not-found`, and the compose, runner, and workspace populations are
 empty across two stable observations, the stop completes as proven-absent and
-only routes are freed. If provider stop
+only routes are freed. An external prune that removed every workload while the
+registration survives is the same absence case with an unchanged owner: stop
+completes as proven-absent only when the recorded identity still matches exactly,
+the pinned endpoint and daemon still match, the provider still selects the local
+Docker command, the saved container IDs, the checkout container population and
+the provider runner are positively absent across two stable observations, and the
+retained generation is unchanged. Every other combination keeps the
+retained-population refusal, so a surviving workload or an adopted replacement is
+never reported as a completed stop. If provider stop
 fails, eligible residual cleanup may still run, but its original failure remains
 nonzero and routes remain intact. This does not change legacy or delete paths.
 

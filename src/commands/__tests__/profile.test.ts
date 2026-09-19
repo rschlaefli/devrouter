@@ -37,6 +37,18 @@ const plan: ProfilePlanReport = {
   bindings: { filters: ["--filter=api", "--filter=web"] },
 };
 
+const noticeReport: ProfileResolutionReport = {
+  ...report,
+  notices: [
+    {
+      code: "MANAGED_FULL_PROFILE_EXPANSION",
+      profile: "full",
+      dimensions: ["apps", "processes"],
+      remedy: { code: "SET_NAMED_DEFAULT_PROFILE", profiles: ["manage", "pwa"] },
+    },
+  ],
+};
+
 afterEach(() => {
   vi.clearAllMocks();
 });
@@ -73,6 +85,30 @@ describe("runProfileResolveCommand", () => {
     } finally {
       writeSpy.mockRestore();
     }
+  });
+
+  it("renders managed full expansion notices in the human summary", async () => {
+    vi.mocked(resolveProfileReport).mockReturnValue(noticeReport);
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    try {
+      await runProfileResolveCommand({ repo: "/repo" });
+      const output = writeSpy.mock.calls.map((call) => String(call[0])).join("");
+      expect(output).toContain("MANAGED_FULL_PROFILE_EXPANSION");
+      expect(output).toContain("apps, processes");
+      expect(output).toContain("SET_NAMED_DEFAULT_PROFILE");
+      expect(output).toContain("manage, pwa");
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+
+  it("forwards managed full expansion notices in JSON output", async () => {
+    vi.mocked(resolveProfileReport).mockReturnValue(noticeReport);
+
+    await runProfileResolveCommand({ repo: "/repo", json: true });
+
+    expect(printJSON).toHaveBeenCalledWith(noticeReport);
   });
 });
 

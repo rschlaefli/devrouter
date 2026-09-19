@@ -3,6 +3,7 @@ import { deleteOwnedDevpodWorkspace, stopOwnedDevpodWorkspace } from "../devpod-
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "../devpod-workspaces";
 import { environmentStop } from "../environment-stop";
 import { removeHostRoutesWhere } from "../host-routes";
+import { reportLifecycleProgress } from "../lifecycle-progress";
 import { readManagedRuntimeState } from "../managed-runtime-state";
 import { ensureTraefikRoutesRemoved } from "../traefik-route-health";
 import {
@@ -12,6 +13,8 @@ import {
 } from "../workspace";
 import { workspaceDeleteOwnedPath, workspaceStopOwnedPath } from "../workspace-lifecycle";
 import { listGitWorktrees, listWorkspaceOwnership } from "../workspace-ownership";
+
+vi.mock("../lifecycle-progress", () => ({ reportLifecycleProgress: vi.fn() }));
 
 vi.mock("../devpod-workspaces", () => ({
   listDevpodWorkspaces: vi.fn(),
@@ -95,6 +98,7 @@ describe("environmentStop", () => {
       return removed;
     });
     vi.mocked(stopOwnedDevpodWorkspace).mockImplementation(() => {
+      expect(reportLifecycleProgress).toHaveBeenLastCalledWith("stop");
       events.push("stop");
       return { status: "changed" };
     });
@@ -114,6 +118,7 @@ describe("environmentStop", () => {
       expect.objectContaining({ name: "web", repoPath: "/repo" }),
     ]);
     expect(events).toEqual(["stop", "routes"]);
+    expect(reportLifecycleProgress).toHaveBeenLastCalledWith("route-removal");
   });
 
   it("fails closed when Traefik does not unload a removed primary route", async () => {
@@ -231,6 +236,7 @@ describe("environmentStop", () => {
       quiet: true,
       repoPath: "/repo",
     });
+    expect(reportLifecycleProgress).toHaveBeenCalledExactlyOnceWith("stop");
     expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(removeHostRoutesWhere).not.toHaveBeenCalled();

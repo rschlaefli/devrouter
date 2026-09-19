@@ -4,6 +4,82 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.0.79] - 2026-09-19
+
+### Added
+
+- `devrouter status` reports the durable lifecycle intent of a managed
+  environment alongside its runtime state: intent, phase, capacity admission and
+  charge, corrective-action budget, and a fixed attention reason with the runnable
+  recovery steps for that exact checkout. A parked, waiting, blocked or
+  mid-operation environment is therefore explainable without a live session. The
+  block is omitted when provider or journal evidence is unavailable, and it never
+  mutates lifecycle state.
+
+- Controller sessions support explicit per-binding capacity-parking consent and
+  exact retained-session reconnect. Defaults remain protected. Snapshot version2
+  retains unresolved consumers across lease loss and restart. Reading legacy
+  version1 preserves unknown history; controller startup durably migrates it.
+  Older CLIs refuse version2: do not delete snapshots to downgrade or clear
+  uncertainty. Exact fingerprint continuity and operator reconciliation remain
+  prerequisites for seamless restart recovery; consent alone starts no runtime.
+
+- Controller protection status and explicit human pin updates preserve operator
+  protection independently of operation history and session leases. Pin updates
+  require exact current ownership, session and revision evidence. Once a pin
+  record is written, older CLIs refuse that journal; retain it and use a
+  compatible CLI rather than deleting protection state to downgrade.
+
+### Fixed
+
+- A Devsy CLI newer than the verified pin no longer blocks managed starts. That
+  host CLI governs its own agent, Devrouter injects nothing, and `devrouter
+  doctor` reports the drift as a non-blocking warning that names both versions.
+  An older or unparseable CLI stays unsupported, and an explicit
+  `DEVSY_AGENT_BINARY` keeps its exact validation.
+
+- A committed capacity park now finishes even when the controller restarts or the
+  last consumer session expires: the monitor re-drives an incomplete
+  `parked-for-capacity` stop from the durable journal by identity instead of
+  requiring a live session, so the environment can no longer hold its charge in an
+  unobservable stopping phase. An automatic resume that expires in the capacity
+  queue now returns to parked intent rather than leaving running intent no worker
+  honors, and the capacity pass carries its own lifetime signal so shutdown
+  cancels a retired decision.
+
+- Controller release accepts an exact retained consumer binding after expiry,
+  restart or configuration drift, including pre-enrollment bindings. It preserves
+  newer same-name leases, human pins and runtime state. Unknown history and lost
+  identities remain unresolved; a repeated or unacknowledged release has no
+  inferred success receipt.
+- Retained-runtime repair identifies which baseline dimensions prevent recovery,
+  including unavailable generated-file evidence, without changing ownership or
+  resource checks.
+- Profile reports explain when a declared managed `full` profile expands finite
+  selections, while preserving existing resource membership.
+- Ensure and stop workers report bounded, values-free lifecycle stages on stderr,
+  with elapsed receipt age and explicit stale or unknown evidence.
+- A managed stop whose Docker population was pruned or externally removed now
+  settles as proven-absent when the registration, pinned endpoint and daemon,
+  provider configuration and whole baselined population are positively unchanged
+  and absent across two stable observations. A surviving container, an adopted
+  replacement, a changed registration or unreadable Docker evidence keeps the
+  existing refusal and the recorded baseline.
+- Automatic recovery is bounded by the declared policy: `maxProcessRestarts` and
+  `maxServiceRestarts` limit the exact process or retained service the producing
+  capability names, `windowSeconds` closes the incident window, and
+  `maxCorrectiveActions` remains the aggregate ceiling. An exhausted or expired
+  budget refuses before any mutation, and an unknown completion consumes its
+  claim without refund.
+- `devrouter doctor` reports the installed CLI version and the repository pin
+  separately, so an older repository pin is informational rather than a runtime
+  failure, and a managed `full` profile that widens declared dimensions names the
+  dimensions and the named-default remedy.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.79.md
+
 ## [0.0.78] - 2026-09-13
 
 ### Fixed

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DiagnosticCheck } from "../types";
 import {
+  DEVSY_AGENT_SETUP_COMMAND,
   type DevsyAgentInspection,
   devsyAgentRepairSuggestion,
   inspectDevsyAgent,
@@ -202,6 +203,15 @@ function devsyAgentCheck(inspection: DevsyAgentInspection): DiagnosticCheck {
     ...(inspection.asset ? [`asset=${inspection.asset.name}`] : []),
   ].join(", ");
   if (inspection.state === "ready") {
+    if (inspection.drift) {
+      return {
+        id: "global.devsy-agent",
+        level: "warn",
+        summary: `Devsy ${inspection.drift.installed} is newer than the Devrouter-verified ${inspection.drift.supported} agent, so the host CLI manages its own agent.`,
+        details,
+        suggestion: `Devrouter injects its verified agent only for Devsy ${inspection.drift.supported}. To use that pairing, install Devsy ${inspection.drift.supported} and run: ${DEVSY_AGENT_SETUP_COMMAND}`,
+      };
+    }
     return {
       id: "global.devsy-agent",
       level: "ok",

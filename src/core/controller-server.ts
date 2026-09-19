@@ -1,10 +1,15 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import type { ControllerBindingFingerprint } from "./controller-binding";
 import {
+  type ControllerCapacityDirective,
   ControllerMonitor,
   type ControllerObservationCollector,
   type ControllerRecovery,
+  controllerCapability,
+  environmentIdentity,
+  sessionConsumerId,
 } from "./controller-monitor";
 import { type ControllerRequest, parseControllerRequest } from "./controller-protocol";
 import { ControllerSessions } from "./controller-sessions";
@@ -15,6 +20,12 @@ import {
 } from "./controller-store";
 import { withFileLock } from "./file-lock";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
+import type { ReliabilityConsumer } from "./reliability-contract";
+import {
+  readReliabilityOperation,
+  setReliabilityHumanPin,
+  withReliabilityObservationFence,
+} from "./reliability-operation-store";
 
 const FRAME_BYTES = 65_536;
 function privateDirectory(directory: string) {
@@ -55,16 +66,44 @@ function validateOwnedFile(file: string, socket: boolean) {
 export type ControllerResolver = (
   request: { path: string; profile: string; require: string[] },
   signal: AbortSignal,
+  capturePersisted?: (revalidate: () => boolean) => void,
 ) => Promise<ControllerEnvironment>;
+
+/**
+ * Synchronous liveness proof for one consumer binding. It ticks the controller
+ * clocks, validates the exact store/epoch/generation binding against the
+ * expected environment, and derives a bounded consumer identity from the
+ * session identity plus requirements. It never awaits, so a caller that runs it
+ * immediately before enqueue cannot be interleaved with a later release or
+ * expiry, and watch or recovery never reuse it.
+ */
+export type ControllerSessionValidator = () => ReliabilityConsumer;
+
+function sessionConsumer(input: {
+  store: string;
+  epoch: number;
+  session: string;
+  generation: string;
+  requirements: string[];
+}): ReliabilityConsumer {
+  const { store, epoch, session, generation, requirements } = input;
+  const requiredCapabilities = [...new Set(requirements)].sort().map(controllerCapability);
+  // Hash only the session identity: every request from one session keeps the
+  // same consumer, so a reconnect under the same generation stays idempotent.
+  const id = sessionConsumerId({ store, epoch, session, generation });
+  return { id, requiredCapabilities, pinned: false };
+}
 
 export type ControllerOperations = {
   tick?: () => Promise<void>;
   close?: () => void;
   recover?: ControllerRecovery;
+  capacity?: ControllerCapacityDirective;
   submit: (
     request: Extract<ControllerRequest, { method: "operation-submit" }>,
     environment: ControllerEnvironment,
     signal: AbortSignal,
+    validate: ControllerSessionValidator,
   ) => Promise<unknown>;
   watch: (
     request: Extract<ControllerRequest, { method: "operation-watch" }>,
@@ -82,12 +121,21 @@ export type ControllerStartup = {
 export async function runController(options: {
   directory: string;
   signal: AbortSignal;
-  resolve: ControllerResolver;
+  resolve?: ControllerResolver;
   collect?: ControllerObservationCollector;
+  createBindings?: (fingerprint: ControllerBindingFingerprint) => {
+    resolve: ControllerResolver;
+    collect: ControllerObservationCollector;
+  };
   onListening?: () => void;
   operations?: ControllerOperations;
-  createOperations?: (controller: ControllerStartup) => ControllerOperations | undefined;
+  createOperations?: (
+    controller: ControllerStartup,
+    resolve: ControllerResolver,
+  ) => ControllerOperations | undefined;
 }): Promise<void> {
+  if (options.createBindings ? options.resolve || options.collect : !options.resolve)
+    throw new Error("Controller bindings require one owner.");
   if (options.operations && options.createOperations)
     throw new Error("Controller operations have multiple owners.");
   const socketPath = path.join(options.directory, "control.sock");
@@ -101,24 +149,35 @@ export async function runController(options: {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+  const store = new ControllerStore(options.directory, undefined, true);
+  store.assertStartup();
   await withFileLock(lockPath, { activity: "controller ownership", waitMs: 0 }, async () => {
-    if (validateOwnedFile(socketPath, true)) fs.unlinkSync(socketPath);
-    const sessions = new ControllerSessions(new ControllerStore(options.directory));
+    const staleSocket = validateOwnedFile(socketPath, true);
+    const sessions = new ControllerSessions(store);
+    if (staleSocket) fs.unlinkSync(socketPath);
     const incarnation = sessions.read();
+    const { resolve, collect } = options.createBindings?.(store.bindingFingerprint()) ?? {
+      resolve: options.resolve,
+      collect: options.collect,
+    };
+    if (!resolve) throw new Error("Controller binding resolver is unavailable.");
     let startupAvailable = true;
     let operations: ControllerOperations | undefined;
     try {
       operations =
-        options.createOperations?.({
-          directory: options.directory,
-          store: incarnation.store,
-          epoch: incarnation.epoch,
-          consumeStartup: (directory) => {
-            if (!startupAvailable || directory !== options.directory)
-              throw new Error("Controller startup authority is unavailable.");
-            startupAvailable = false;
+        options.createOperations?.(
+          {
+            directory: options.directory,
+            store: incarnation.store,
+            epoch: incarnation.epoch,
+            consumeStartup: (directory) => {
+              if (!startupAvailable || directory !== options.directory)
+                throw new Error("Controller startup authority is unavailable.");
+              startupAvailable = false;
+            },
           },
-        }) ?? options.operations;
+          resolve,
+        ) ?? options.operations;
     } finally {
       startupAvailable = false;
     }
@@ -126,10 +185,10 @@ export async function runController(options: {
     let serial = Promise.resolve();
     const monotonic = () => Math.floor(performance.now());
     let fatal: Error | undefined;
-    const monitor = options.collect
+    const monitor = collect
       ? new ControllerMonitor(
           sessions,
-          options.collect,
+          collect,
           (operation) => {
             const pending = serial.then(operation);
             serial = pending.catch(() => {});
@@ -138,6 +197,7 @@ export async function runController(options: {
           undefined,
           undefined,
           operations?.recover,
+          operations?.capacity,
         )
       : undefined;
     const server = net.createServer((socket) => {
@@ -288,6 +348,129 @@ export async function runController(options: {
           socket.destroy();
           return;
         }
+        if (request.method === "protection-status" || request.method === "protection-pin") {
+          const protectionRequest = request;
+          const cancellation = new AbortController();
+          const cancel = () => cancellation.abort();
+          const expiresAt = monotonic() + 3000;
+          const deadline = setTimeout(cancel, 3000);
+          socket.once("close", cancel);
+          options.signal.addEventListener("abort", cancel, { once: true });
+          const assertActive = () => {
+            if (
+              cancellation.signal.aborted ||
+              options.signal.aborted ||
+              socket.destroyed ||
+              monotonic() >= expiresAt
+            )
+              throw new Error("Protection request expired or cancelled.");
+          };
+          const initial = serial.then(() => {
+            assertActive();
+            sessions.tick(monotonic(), Date.now());
+            const session = sessions.validate(protectionRequest);
+            const environment = sessions
+              .read()
+              .environments.find((entry) => entry.id === session.environmentId);
+            if (!environment) throw new Error("Protection environment unavailable.");
+            const identity = environmentIdentity(environment);
+            const journal = readReliabilityOperation(identity);
+            if (!journal) throw new Error("Protection journal unavailable.");
+            return {
+              environment,
+              identity,
+              revision: journal.revision,
+              requirements: session.requirements,
+            };
+          });
+          serial = initial.then(
+            () => {},
+            () => {},
+          );
+          void initial
+            .then(async ({ environment, identity, revision, requirements }) => {
+              let persisted: (() => boolean) | undefined;
+              const resolved = await resolve(
+                {
+                  path: environment.repoPath,
+                  profile: environment.profile,
+                  require: requirements,
+                },
+                cancellation.signal,
+                (validator) => {
+                  persisted = validator;
+                },
+              );
+              assertActive();
+              if (!persisted || JSON.stringify(resolved) !== JSON.stringify(environment))
+                throw new Error("Protection ownership evidence unavailable or changed.");
+              const proof = persisted;
+              const finish = serial.then(() => {
+                const revalidate = () => {
+                  assertActive();
+                  sessions.tick(monotonic(), Date.now());
+                  const session = sessions.validate(protectionRequest);
+                  const current = sessions
+                    .read()
+                    .environments.find((entry) => entry.id === session.environmentId);
+                  if (JSON.stringify(current) !== JSON.stringify(environment) || !proof())
+                    throw new Error("Protection persisted ownership changed.");
+                };
+                let demand: ReturnType<ControllerSessions["protection"]> | undefined;
+                const validate = () => {
+                  revalidate();
+                  demand = sessions.protection(environment, monotonic(), Date.now());
+                };
+                const receipt =
+                  protectionRequest.method === "protection-pin"
+                    ? setReliabilityHumanPin(
+                        identity,
+                        revision,
+                        protectionRequest.expectedProtectionRevision,
+                        protectionRequest.pinned,
+                        validate,
+                      )
+                    : withReliabilityObservationFence(identity, revision, (journal) => {
+                        validate();
+                        return {
+                          journalRevision: journal.revision,
+                          parkingObservation:
+                            monitor?.parkingObservation(environment, journal) ??
+                            "observation-unavailable",
+                          protection: journal.consumerProtection ?? {
+                            version: 1,
+                            revision: 0,
+                            humanPinned: false,
+                          },
+                        };
+                      });
+                send({
+                  version: 1,
+                  id: protectionRequest.id,
+                  ok: true,
+                  result: { ...receipt, ...demand },
+                });
+              });
+              serial = finish.catch(() => {});
+              await finish;
+            })
+            .catch(() => {
+              if (!socket.destroyed)
+                send({
+                  version: 1,
+                  id: protectionRequest.id,
+                  ok: false,
+                  error: "request-unavailable",
+                });
+            })
+            .finally(() => {
+              clearTimeout(deadline);
+              socket.removeListener("close", cancel);
+              options.signal.removeEventListener("abort", cancel);
+              pending = false;
+            });
+          return;
+        }
         if (request.method === "operation-submit" || request.method === "operation-watch") {
           const operationRequest = request;
           const abort = new AbortController();
@@ -301,12 +484,13 @@ export async function runController(options: {
           let deadline: ReturnType<typeof setTimeout> | undefined;
           let environment: ControllerEnvironment;
           const validate = serial.then(() => {
+            if (!operations) throw new Error("Managed operations unavailable.");
             sessions.tick(monotonic(), Date.now());
             const session = sessions.validate(operationRequest);
             const bound = sessions
               .read()
               .environments.find((entry) => entry.id === session.environmentId);
-            if (!bound || !operations) throw new Error("Managed operations unavailable.");
+            if (!bound) throw new Error("Session environment is unavailable.");
             environment = bound;
           });
           serial = validate.catch(() => {});
@@ -317,7 +501,25 @@ export async function runController(options: {
               if (!operations) throw new Error("Managed operations unavailable.");
               const handler =
                 operationRequest.method === "operation-submit"
-                  ? operations.submit(operationRequest, environment, abort.signal)
+                  ? operations.submit(operationRequest, environment, abort.signal, () => {
+                      // Revalidate the original binding immediately before submission.
+                      if (abort.signal.aborted)
+                        throw new Error("Session validation was cancelled.");
+                      sessions.tick(monotonic(), Date.now());
+                      const session = sessions.validate(operationRequest);
+                      const bound = sessions
+                        .read()
+                        .environments.find((entry) => entry.id === session.environmentId);
+                      if (!bound || JSON.stringify(bound) !== JSON.stringify(environment))
+                        throw new Error("Session environment binding changed.");
+                      return sessionConsumer({
+                        store: operationRequest.store,
+                        epoch: operationRequest.epoch,
+                        session: operationRequest.session,
+                        generation: operationRequest.generation,
+                        requirements: session.requirements,
+                      });
+                    })
                   : operations.watch(operationRequest, environment, abort.signal);
               const result = await Promise.race([
                 handler,
@@ -373,28 +575,63 @@ export async function runController(options: {
             const timedOut = new Promise<never>((_resolve, reject) => {
               rejectDeadline = reject;
             });
+            const expiresAt = monotonic() + 3000;
             const deadline = setTimeout(() => {
               abort();
               rejectDeadline(new Error("Resolver deadline exceeded."));
             }, 3000);
             try {
+              let persisted: (() => boolean) | undefined;
               const environment = await Promise.race([
-                options.resolve(request, controller.signal),
+                resolve(
+                  request,
+                  controller.signal,
+                  request.reconnect
+                    ? (proof) => {
+                        persisted = proof;
+                      }
+                    : undefined,
+                ),
                 timedOut,
               ]);
               if (controller.signal.aborted || socket.destroyed)
                 throw new Error("Observation binding unavailable.");
-              result = sessions.acquire(
-                request.session,
-                environment,
-                request.require,
-                monotonic(),
-                Date.now(),
-              );
+              if (request.reconnect) {
+                if (
+                  options.signal.aborted ||
+                  monotonic() >= expiresAt ||
+                  !persisted ||
+                  !persisted()
+                )
+                  throw new Error("Reconnect ownership evidence unavailable or changed.");
+                result = sessions.reconnect(
+                  request.reconnect,
+                  environment,
+                  request.require,
+                  monotonic(),
+                  Date.now(),
+                );
+              } else {
+                result = sessions.acquire(
+                  request.session,
+                  environment,
+                  request.require,
+                  monotonic(),
+                  Date.now(),
+                );
+              }
             } finally {
               clearTimeout(deadline);
               socket.removeListener("close", abort);
             }
+          } else if (request.method === "parking-consent") {
+            result = sessions.setParkingConsent(
+              request,
+              request.expectedConsentRevision,
+              request.parkingConsent,
+              monotonic(),
+              Date.now(),
+            );
           } else if (request.method === "renew") {
             result = sessions.renew(request, monotonic(), Date.now());
           } else if (request.method === "release") {
@@ -427,11 +664,7 @@ export async function runController(options: {
             result = {
               operation:
                 readLifecycleOperationStatus(
-                  {
-                    repoPath: environment.repoPath,
-                    workspace: environment.workspace || null,
-                    provider: environment.provider,
-                  },
+                  environmentIdentity(environment),
                   request.operationId,
                 ) ?? null,
             };

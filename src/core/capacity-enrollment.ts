@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { type CapacityPolicy, readCapacityPolicy } from "./capacity-policy";
-import { readControllerEvidence, resolveControllerBinding } from "./controller-binding";
+import { createControllerBindingResolver, readControllerEvidence } from "./controller-binding";
 import { runControllerProbe } from "./controller-probe";
+import type { ControllerResolver } from "./controller-server";
 import { enrollStoppedLifecycle, readReliabilityOperation } from "./reliability-operation-store";
 import { capacityEstimatesDigest, loadRepoConfig } from "./repo-config";
 import { DEVROUTER_HOME } from "./router";
@@ -12,8 +13,9 @@ export async function resolveCapacityEnrollment(
   policy: CapacityPolicy,
   request: { path: string; profile: string; require: string[] },
   signal: AbortSignal,
+  bindingResolver: ControllerResolver = createControllerBindingResolver(),
 ) {
-  const environment = await resolveControllerBinding(request, signal);
+  const environment = await bindingResolver(request, signal);
   const common = (
     await runControllerProbe(
       "git",
@@ -37,7 +39,7 @@ export async function resolveCapacityEnrollment(
   const estimates = loadRepoConfig(environment.repoPath, () => bytes).capacity;
   if (!estimates || capacityEstimatesDigest(estimates) !== enrollment.estimatesDigest)
     throw new Error("Capacity estimates differ from the enrolled revision.");
-  const current = await resolveControllerBinding(request, signal);
+  const current = await bindingResolver(request, signal);
   if (
     JSON.stringify(current) !== JSON.stringify(environment) ||
     readControllerEvidence(file) !== bytes
@@ -53,6 +55,7 @@ export async function enrollCapacityLifecycle(
   request: { path: string; profile: string; require: string[] },
   signal: AbortSignal,
   directory = path.join(DEVROUTER_HOME, "controller"),
+  bindingResolver: ControllerResolver = createControllerBindingResolver(),
 ) {
   const expectedPolicy = JSON.stringify(policy);
   if (
@@ -60,7 +63,7 @@ export async function enrollCapacityLifecycle(
     JSON.stringify(readCapacityPolicy(directory)) !== expectedPolicy
   )
     throw new Error("Capacity enrollment policy is not current and enabled.");
-  const resolved = await resolveCapacityEnrollment(policy, request, signal);
+  const resolved = await resolveCapacityEnrollment(policy, request, signal, bindingResolver);
   const { environment, enrollment } = resolved;
   const runtime = policy.domains[enrollment.runtimeDomain];
   if (policy.admissions !== "enabled" || runtime?.kind !== "runtime")

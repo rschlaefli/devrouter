@@ -28,6 +28,17 @@ type Snapshot = {
 };
 const MAX_BYTES = 1_048_576;
 
+export class CapacityHistoryError extends Error {
+  constructor(readonly code: "capacity-ledger-lost" | "capacity-history-unprovable") {
+    super(
+      code === "capacity-ledger-lost"
+        ? "Capacity ledger history is lost; restore verified capacity-reservations.json."
+        : "Capacity history cannot be proven; inspect the private lifecycle journals.",
+    );
+    this.name = "CapacityHistoryError";
+  }
+}
+
 export class CapacitySnapshotChangedError extends Error {
   constructor() {
     super("Capacity snapshot changed.");
@@ -179,17 +190,66 @@ function serializeSnapshot(snapshot: Snapshot): string {
 /** One short all-domain transaction; lifecycle and provider locks stay outside it. */
 export class CapacityStore {
   private file: string;
-  constructor(private directory: string) {
+  private establishedFile: string;
+  private observedLedger = false;
+  constructor(
+    private directory: string,
+    private write = writeFileAtomically,
+    private minimumRevision: () => number = () => 0,
+  ) {
     this.file = path.join(directory, "capacity-reservations.json");
+    this.establishedFile = path.join(directory, "capacity-ledger.established");
+  }
+
+  private readEstablished(): boolean {
+    let descriptor: number;
+    try {
+      descriptor = fs.openSync(
+        this.establishedFile,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+    try {
+      const stat = fs.fstatSync(descriptor);
+      if (
+        !stat.isFile() ||
+        stat.uid !== process.getuid?.() ||
+        (stat.mode & 0o077) !== 0 ||
+        stat.size > 4096
+      )
+        throw new Error("Unsafe capacity ledger marker.");
+      const bytes = Buffer.alloc(4097);
+      const count = fs.readSync(descriptor, bytes, 0, bytes.length, 0);
+      if (count > 4096) throw new Error("Capacity ledger marker exceeds byte limit.");
+      const marker: unknown = JSON.parse(bytes.subarray(0, count).toString("utf8"));
+      object(marker, ["version"]);
+      if (marker.version !== 1) throw new Error("Invalid capacity ledger marker.");
+      return true;
+    } finally {
+      fs.closeSync(descriptor);
+    }
   }
 
   read(): Snapshot {
+    // Read journal evidence first: a concurrent admission publishes its ledger
+    // before its journal, so the later ledger cannot legitimately trail this floor.
+    const minimumRevision = this.minimumRevision();
+    const established = this.readEstablished();
     let descriptor: number;
     try {
-      descriptor = fs.openSync(this.file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      descriptor = fs.openSync(
+        this.file,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+      );
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        if (established || this.observedLedger || minimumRevision > 0)
+          throw new CapacityHistoryError("capacity-ledger-lost");
         return { version: 1, revision: 0, reservations: [] };
+      }
       throw error;
     }
     try {
@@ -206,10 +266,48 @@ export class CapacityStore {
       if (count > MAX_BYTES) throw new Error("Capacity reservation snapshot exceeds byte limit.");
       const value: unknown = JSON.parse(buffer.subarray(0, count).toString("utf8"));
       validate(value);
+      if (value.revision < minimumRevision) throw new CapacityHistoryError("capacity-ledger-lost");
+      this.observedLedger = true;
       return value;
     } finally {
       fs.closeSync(descriptor);
     }
+  }
+
+  private establish(): void {
+    if (!this.readEstablished()) this.write(this.establishedFile, '{"version":1}\n');
+    // A visible marker can survive a failed directory sync. No-op retries must
+    // complete durability too, including when a new process handles the retry.
+    for (const file of [this.file, this.establishedFile, this.directory]) {
+      const descriptor = fs.openSync(
+        file,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+      );
+      try {
+        const stat = fs.fstatSync(descriptor);
+        if (
+          (file === this.directory ? !stat.isDirectory() : !stat.isFile()) ||
+          stat.uid !== process.getuid?.() ||
+          (stat.mode & 0o077) !== 0
+        )
+          throw new Error("Unsafe capacity ledger durability artifact.");
+        fs.fsyncSync(descriptor);
+      } finally {
+        fs.closeSync(descriptor);
+      }
+    }
+  }
+
+  private readForMutation(): Snapshot {
+    const snapshot = this.read();
+    if (this.observedLedger) this.establish();
+    return snapshot;
+  }
+
+  private commit(snapshot: Snapshot): void {
+    this.write(this.file, serializeSnapshot(snapshot));
+    this.observedLedger = true;
+    this.establish();
   }
 
   /**
@@ -228,7 +326,7 @@ export class CapacityStore {
       `${this.file}.lock`,
       { activity: "capacity settlement", waitMs: 100 },
       () => {
-        const snapshot = this.read();
+        const snapshot = this.readForMutation();
         if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
         if (snapshot.revision === Number.MAX_SAFE_INTEGER)
           throw new Error("Capacity reservation revision exhausted.");
@@ -238,7 +336,7 @@ export class CapacityStore {
         if (index >= 0) snapshot.reservations.splice(index, 1);
         snapshot.revision++;
         validate(snapshot);
-        writeFileAtomically(this.file, serializeSnapshot(snapshot));
+        this.commit(snapshot);
         return { settled: index >= 0, revision: snapshot.revision };
       },
     );
@@ -257,16 +355,19 @@ export class CapacityStore {
       `${this.file}.lock`,
       { activity: "capacity pool observation", waitMs: 100 },
       () => {
-        const snapshot = this.read();
+        const snapshot = this.readForMutation();
         if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
         const merged = structuredClone(snapshot.pools ?? []);
-        if (!mergePools(merged, pools)) return { changed: false, revision: snapshot.revision };
+        if (!mergePools(merged, pools)) {
+          if (!this.observedLedger) this.commit(snapshot);
+          return { changed: false, revision: snapshot.revision };
+        }
         if (snapshot.revision === Number.MAX_SAFE_INTEGER)
           throw new Error("Capacity reservation revision exhausted.");
         snapshot.pools = merged;
         snapshot.revision++;
         validate(snapshot);
-        writeFileAtomically(this.file, serializeSnapshot(snapshot));
+        this.commit(snapshot);
         return { changed: true, revision: snapshot.revision };
       },
     );
@@ -289,7 +390,7 @@ export class CapacityStore {
       `${this.file}.lock`,
       { activity: "capacity pool settlement", waitMs: 100 },
       () => {
-        const snapshot = this.read();
+        const snapshot = this.readForMutation();
         if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
         const pools = snapshot.pools ?? [];
         const index = pools.findIndex((pool) => pool.daemonId === identity.daemonId);
@@ -311,7 +412,7 @@ export class CapacityStore {
         if (pool) pools.splice(index, 1);
         snapshot.revision++;
         validate(snapshot);
-        writeFileAtomically(this.file, serializeSnapshot(snapshot));
+        this.commit(snapshot);
         return { settled: !!pool, revision: snapshot.revision };
       },
     );
@@ -327,7 +428,7 @@ export class CapacityStore {
       `${this.file}.lock`,
       { activity: "capacity phase settlement", waitMs: 100 },
       () => {
-        const snapshot = this.read();
+        const snapshot = this.readForMutation();
         if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
         const index = snapshot.reservations.findIndex(
           (entry) => entry.environmentId === target.environmentId,
@@ -355,7 +456,7 @@ export class CapacityStore {
         snapshot.reservations[index] = structuredClone(target);
         snapshot.revision++;
         validate(snapshot);
-        writeFileAtomically(this.file, serializeSnapshot(snapshot));
+        this.commit(snapshot);
       },
     );
   }
@@ -388,7 +489,7 @@ export class CapacityStore {
       `${this.file}.lock`,
       { activity: "capacity reservation", waitMs: 100 },
       () => {
-        const snapshot = this.read();
+        const snapshot = this.readForMutation();
         if (snapshot.revision !== expectedRevision) throw new CapacitySnapshotChangedError();
         const pools = structuredClone(snapshot.pools ?? []);
         const poolChanged = mergePools(pools, requestedPool === undefined ? [] : [requestedPool]);
@@ -449,7 +550,7 @@ export class CapacityStore {
           snapshot.reservations[snapshot.reservations.indexOf(existing)] = structuredClone(request);
         else snapshot.reservations.push(structuredClone(request));
         validate(snapshot);
-        writeFileAtomically(this.file, serializeSnapshot(snapshot));
+        this.commit(snapshot);
         return { admitted: true as const, revision: snapshot.revision, joined: false };
       },
     );

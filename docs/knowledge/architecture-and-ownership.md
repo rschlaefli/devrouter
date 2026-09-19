@@ -55,8 +55,11 @@ Devrouter connects repository intent to local runtime and routing systems. It do
   the owner record.
 - Consumer images contain no devrouter installation or version pin. [ADR 0002](../adr/0002-keep-devrouter-out-of-consumer-images.md) owns the boundary.
 - Devrouter verifies the supported Devsy agent in versioned machine state and
-  injects it only into CLI child processes. Devsy retains ownership of its
-  workspaces, desktop registry view, and private cache. [ADR 0006](../adr/0006-devrouter-owned-devsy-agent-acquisition.md)
+  injects it only into CLI child processes for the exact pinned CLI. A host CLI
+  newer than the pin governs its own agent with nothing injected, and doctor
+  reports that drift without blocking; an older CLI stays unsupported. Devsy
+  retains ownership of its workspaces, desktop registry view, and private
+  cache. [ADR 0006](../adr/0006-devrouter-owned-devsy-agent-acquisition.md)
   owns this boundary.
 - Repository lifecycle locks remain outer; workspace runtime provider mutation is serialized machine-wide and revalidated inside that boundary. [ADR 0003](../adr/0003-serialize-devpod-provider-mutations.md) owns the ordering.
 - The Traefik dynamic file is canonical for one route generation; JSON is a compatibility mirror. [ADR 0004](../adr/0004-single-artifact-route-state.md) owns recovery behavior.

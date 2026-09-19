@@ -33,7 +33,10 @@ type ControllerMethod =
   | "watch"
   | "operation-status"
   | "operation-submit"
-  | "operation-watch";
+  | "operation-watch"
+  | "protection-status"
+  | "protection-pin"
+  | "parking-consent";
 
 export type ControllerHandshakeRequest = {
   version: 1;
@@ -49,6 +52,7 @@ export type ControllerObserveRequest = {
   session: string;
   profile: string;
   require: string[];
+  reconnect?: { session: string; store: string; epoch: number; generation: string };
 };
 
 export type ControllerRenewRequest = {
@@ -126,7 +130,21 @@ export type ControllerOperationWatchRequest = {
   output?: ControllerOutputCursor;
 };
 
+export type ControllerProtectionRequest =
+  | (Omit<ControllerRenewRequest, "method"> & { method: "protection-status" })
+  | (Omit<ControllerRenewRequest, "method"> & {
+      method: "protection-pin";
+      expectedProtectionRevision: number;
+      pinned: boolean;
+    });
+
 export type ControllerRequest =
+  | ControllerProtectionRequest
+  | (Omit<ControllerRenewRequest, "method"> & {
+      method: "parking-consent";
+      expectedConsentRevision: number;
+      parkingConsent: "protected" | "allow-unusable";
+    })
   | (Omit<ControllerRenewRequest, "method"> & { method: "operation-status"; operationId: string })
   | ControllerHandshakeRequest
   | ControllerObserveRequest
@@ -367,13 +385,78 @@ export function parseControllerRequest(input: unknown): ControllerRequest {
       case "handshake":
         return parseHeader(input, "handshake", []);
       case "observe": {
-        const header = parseHeader(input, "observe", ["path", "session", "profile", "require"]);
+        const header = parseHeader(
+          input,
+          "observe",
+          ["path", "session", "profile", "require"],
+          ["reconnect"],
+        );
+        let reconnect: ControllerObserveRequest["reconnect"];
+        if (Object.hasOwn(input, "reconnect")) {
+          if (!isRecord(input.reconnect)) invalidRequest();
+          assertFields(input.reconnect, ["session", "store", "epoch", "generation"]);
+          reconnect = {
+            session: parseId(input.reconnect.session),
+            store: parseId(input.reconnect.store),
+            epoch: parseTimeout(input.reconnect.epoch),
+            generation: parseId(input.reconnect.generation),
+          };
+          if (reconnect.session !== input.session) invalidRequest();
+        }
         return {
           ...header,
           path: parsePath(input.path),
           session: parseId(input.session),
           profile: parseProfile(input.profile),
           require: parseRequirements(input.require),
+          ...(reconnect ? { reconnect } : {}),
+        };
+      }
+      case "parking-consent": {
+        const header = parseHeader(input, "parking-consent", [
+          "session",
+          "store",
+          "epoch",
+          "generation",
+          "expectedConsentRevision",
+          "parkingConsent",
+        ]);
+        if (input.parkingConsent !== "protected" && input.parkingConsent !== "allow-unusable")
+          invalidRequest();
+        return {
+          ...header,
+          session: parseId(input.session),
+          store: parseId(input.store),
+          epoch: parseTimeout(input.epoch),
+          generation: parseId(input.generation),
+          expectedConsentRevision: parseTimeout(input.expectedConsentRevision),
+          parkingConsent: input.parkingConsent,
+        };
+      }
+      case "protection-status":
+      case "protection-pin": {
+        const header = parseHeader(input, input.method, [
+          "session",
+          "store",
+          "epoch",
+          "generation",
+          ...(input.method === "protection-pin" ? ["expectedProtectionRevision", "pinned"] : []),
+        ]);
+        const binding = {
+          ...header,
+          session: parseId(input.session),
+          store: parseId(input.store),
+          epoch: parseTimeout(input.epoch),
+          generation: parseId(input.generation),
+        };
+        if (input.method === "protection-status")
+          return { ...binding, method: "protection-status" };
+        if (typeof input.pinned !== "boolean") invalidRequest();
+        return {
+          ...binding,
+          method: "protection-pin",
+          expectedProtectionRevision: parseTimeout(input.expectedProtectionRevision),
+          pinned: input.pinned,
         };
       }
       case "renew":

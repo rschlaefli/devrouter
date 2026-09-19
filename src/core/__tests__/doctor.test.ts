@@ -3,11 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagedRuntimeStatus, RouterStatus } from "../../types";
+import { CapacityHistoryError } from "../capacity-store";
 import { buildDoctorReport } from "../doctor";
+import { createLifecycleCapacityStore } from "../reliability-operation-store";
 import { collectRouterStatus } from "../status";
 import { getTLSHostCoverage } from "../tls";
 import { inspectWorkspaceGc } from "../workspace-gc";
 import { resolveGitCommonDir } from "../workspace-ownership";
+
+vi.mock("../reliability-operation-store", () => ({
+  createLifecycleCapacityStore: vi.fn(() => ({ read: () => ({ revision: 0, reservations: [] }) })),
+}));
 
 vi.mock("../status", () => ({
   collectRouterStatus: vi.fn(),
@@ -87,6 +93,7 @@ function writeRepoFiles(options: {
   composeEnv: string;
   hostCommand?: string;
   hostName?: string;
+  managedProfiles?: string;
 }): void {
   const hostName = options.hostName ?? "web.localhost";
   const hostAppBlock = options.hostCommand
@@ -106,7 +113,7 @@ function writeRepoFiles(options: {
   fs.writeFileSync(
     path.join(tmpDir, ".devrouter.yml"),
     `version: 1
-apps:
+${options.managedProfiles ?? ""}apps:
 ${hostAppBlock}
   - name: db
     host: db.localhost
@@ -414,10 +421,9 @@ apps: []
     const report = await buildDoctorReport({ repo: tmpDir });
     const check = report.checks.find((c) => c.id === "repo.cli-outdated");
     expect(check?.level).toBe("error");
-    expect(check?.summary).toContain(
-      "Installed CLI (0.0.24) is older than required repo version (0.0.25)",
-    );
-    expect(check?.suggestion).toContain("npm install -g @devrouter/cli");
+    expect(check?.details).toContain("installedVersion=0.0.24");
+    expect(check?.details).toContain("repoVersion=0.0.25");
+    expect(check?.details).toContain("repoVersionRelation=newer");
 
     vi.unstubAllGlobals();
   });
@@ -438,9 +444,118 @@ apps: []
     const report = await buildDoctorReport({ repo: tmpDir });
     const check = report.checks.find((c) => c.id === "repo.cli-outdated");
     expect(check?.level).toBe("ok");
-    expect(check?.summary).toContain("Installed CLI version is compatible");
+    expect(check?.details).toContain("installedVersion=0.0.25");
+    expect(check?.details).toContain("repoVersion=0.0.25");
+    expect(check?.details).toContain("repoVersionRelation=equal");
 
     vi.unstubAllGlobals();
+  });
+
+  it("keeps an older repo version pin as a non-failing, distinguishable diagnostic", async () => {
+    vi.stubGlobal("__VERSION__", "0.0.25");
+    fs.writeFileSync(
+      path.join(tmpDir, ".devrouter.yml"),
+      `version: 1
+devrouter:
+  version: 0.0.24
+apps: []
+`,
+      "utf-8",
+    );
+    vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const check = report.checks.find((c) => c.id === "repo.cli-outdated");
+
+    expect(check?.level).toBe("ok");
+    expect(check?.details).toContain("installedVersion=0.0.25");
+    expect(check?.details).toContain("repoVersion=0.0.24");
+    expect(check?.details).toContain("repoVersionRelation=older");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("reports missing installed and repo versions explicitly as unknown", async () => {
+    writeRepoFiles({ composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust" });
+    vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const check = report.checks.find((c) => c.id === "repo.cli-outdated");
+
+    expect(check?.level).toBe("ok");
+    expect(check?.details).toContain("installedVersion=unknown");
+    expect(check?.details).toContain("repoVersion=unknown");
+    expect(check?.details).toContain("repoVersionRelation=unknown");
+  });
+
+  it("warns with fixed expansion dimensions and the named-default remedy for a managed full profile", async () => {
+    writeRepoFiles({
+      composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust",
+      hostCommand: "pnpm dev",
+      managedProfiles: `managedRuntime:
+  devcontainer:
+    baseServices:
+      - postgres
+    profileServices:
+      - mailhog
+  processes:
+    - web
+profiles:
+  manage:
+    apps:
+      - web
+    devcontainerServices:
+      - mailhog
+    processes:
+      - web
+  full:
+    apps:
+      - '*'
+    default: true
+`,
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    const expansionChecks = report.checks.filter((check) => check.id === "repo.profile-expansion");
+
+    expect(expansionChecks).toHaveLength(1);
+    expect(expansionChecks[0]?.level).toBe("warn");
+    expect(expansionChecks[0]?.details).toContain("notice=MANAGED_FULL_PROFILE_EXPANSION");
+    expect(expansionChecks[0]?.details).toContain("dimensions=devcontainerServices,processes");
+    expect(expansionChecks[0]?.details).not.toContain("mailhog");
+    expect(expansionChecks[0]?.suggestion).toContain("SET_NAMED_DEFAULT_PROFILE");
+    expect(expansionChecks[0]?.suggestion).toContain("manage");
+  });
+
+  it("omits the profile expansion diagnostic when the managed full profile selects every dimension", async () => {
+    writeRepoFiles({
+      composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust",
+      hostCommand: "pnpm dev",
+      managedProfiles: `managedRuntime:
+  devcontainer:
+    baseServices:
+      - postgres
+    profileServices:
+      - mailhog
+  processes:
+    - web
+profiles:
+  full:
+    apps:
+      - '*'
+    devcontainerServices:
+      - '*'
+    processes:
+      - '*'
+    default: true
+`,
+    });
+    vi.mocked(collectRouterStatus).mockResolvedValue(makeStatus(tmpDir, true));
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+
+    expect(report.checks.some((check) => check.id === "repo.profile-expansion")).toBe(false);
   });
 
   it("reports a ready managed runtime as an ok diagnostic", async () => {
@@ -490,4 +605,29 @@ apps: []
       suggestion: `Inspect: dev status --repo ${tmpDir}; resolve the reported drift before retrying ensure.`,
     });
   });
+});
+
+it.each([
+  "capacity-ledger-lost",
+  "capacity-history-unprovable",
+] as const)("reports %s without raw history evidence", async (code) => {
+  vi.mocked(createLifecycleCapacityStore).mockImplementationOnce(() => {
+    throw new CapacityHistoryError(code);
+  });
+  const report = await buildDoctorReport({ repo: tmpDir });
+  expect(report.checks.find((check) => check.id === "global.capacity-ledger")).toMatchObject({
+    level: "error",
+    details: code,
+  });
+});
+
+it("redacts an arbitrary capacity history read failure", async () => {
+  const privateValue = "synthetic-private-history-value";
+  vi.mocked(createLifecycleCapacityStore).mockImplementationOnce(() => {
+    throw new Error(privateValue);
+  });
+  const report = await buildDoctorReport({ repo: tmpDir });
+  const check = report.checks.find((check) => check.id === "global.capacity-ledger");
+  expect(check).toMatchObject({ level: "error", details: "capacity-history-unprovable" });
+  expect(JSON.stringify(check)).not.toContain(privateValue);
 });

@@ -535,8 +535,8 @@ import {processBirthIdentity} from ${JSON.stringify(path.join(source, "src/core/
 const childProcess = require('node:child_process');
 const fork = childProcess.fork;
 childProcess.fork = (...args) => { const child = fork(...args); require('node:fs').appendFileSync(${JSON.stringify(`${fixture}.workers`)}, JSON.stringify({pid:child.pid,birth:processBirthIdentity(child.pid)})+'\\n'); child.on('message', message => { console.error(JSON.stringify({workerMessage:message})); if(message.ok===false)require('node:fs').writeFileSync(${JSON.stringify(`${fixture}.worker-error`)},message.message); }); return child; };
-import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/commands/controller"))};\nimport {createCapacityController} from ${JSON.stringify(path.join(source, "src/core/capacity-controller"))};\nvoid runControllerCommand('run',{},undefined,{createOperations:controller=>{
-  const operations=createCapacityController({directory:controller.directory,controller,collect:async signal=>{if(signal.aborted)throw new Error('cancelled');const telemetry=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(telemetry)},'utf8'));const sample=telemetry.phase==='fresh'?{...telemetry.sample,sampledAtMs:Date.now()}:telemetry.sample;require('node:fs').appendFileSync(${JSON.stringify(`${fixture}.telemetry-observations`)},JSON.stringify({phase:telemetry.phase,sampledAtMs:sample.sampledAtMs})+'\\n');return {host:sample,runtime:sample}}});
+import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/commands/controller"))};\nimport {createCapacityController} from ${JSON.stringify(path.join(source, "src/core/capacity-controller"))};\nvoid runControllerCommand('run',{},undefined,{createOperations:(controller,bindingResolver)=>{
+  const operations=createCapacityController({directory:controller.directory,controller,bindingResolver,collect:async signal=>{if(signal.aborted)throw new Error('cancelled');const telemetry=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(telemetry)},'utf8'));const sample=telemetry.phase==='fresh'?{...telemetry.sample,sampledAtMs:Date.now()}:telemetry.sample;require('node:fs').appendFileSync(${JSON.stringify(`${fixture}.telemetry-observations`)},JSON.stringify({phase:telemetry.phase,sampledAtMs:sample.sampledAtMs})+'\\n');return {host:sample,runtime:sample}}});
   const watch=operations.watch;
   operations.watch=async (request,environment,signal)=>{
     if(request.timeout!==30)return watch(request,environment,signal);
@@ -756,15 +756,18 @@ import {runControllerCommand} from ${JSON.stringify(path.join(source, "src/comma
       if (
         pending.operation.operationId === first.operation.operationId &&
         pending.operation.phase === "queued" &&
-        pending.operation.reason === "stale"
+        pending.operation.reason === "unknown"
       ) {
         stalePending = pending;
         break;
       }
     }
-    assert.ok(stalePending, "Coordinator never reported stale telemetry for the queued operation.");
+    assert.ok(
+      stalePending,
+      "Coordinator never refused the queued operation after stale samples were discarded.",
+    );
     assert.equal(stalePending.operation.phase, "queued");
-    assert.equal(stalePending.operation.reason, "stale");
+    assert.equal(stalePending.operation.reason, "unknown");
     assert.equal(stalePending.operation.operationId, first.operation.operationId);
     const staleEntries = JSON.parse(fs.readFileSync(fixture, "utf8")) as Array<{
       starts: number;

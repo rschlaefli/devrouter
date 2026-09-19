@@ -51,7 +51,7 @@ controllerCommand
       await runControllerCommand("observe", options, repo);
     }),
   );
-for (const method of ["renew", "release", "watch"]) {
+for (const method of ["renew", "release", "watch", "protection-status", "protection-pin"]) {
   const command = controllerCommand
     .command(method)
     .requiredOption("--session <id>")
@@ -59,6 +59,10 @@ for (const method of ["renew", "release", "watch"]) {
     .requiredOption("--epoch <n>")
     .requiredOption("--generation <id>")
     .option("--json");
+  if (method === "protection-pin")
+    command
+      .requiredOption("--pinned <true|false>")
+      .requiredOption("--expected-protection-revision <number>");
   if (method === "watch")
     command
       .option("--after <cursor>")

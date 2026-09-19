@@ -315,7 +315,10 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
     const env = network
       ? networkProviderEnvironment(network.binding, process.env)
       : { ...process.env };
-    env.DEVSY_AGENT_BINARY = agent.binaryPath;
+    // A newer host CLI governs its own agent; only a verified Devrouter agent is
+    // injected, and an inherited value never survives without that verification.
+    if (agent.binaryPath) env.DEVSY_AGENT_BINARY = agent.binaryPath;
+    else delete env.DEVSY_AGENT_BINARY;
     if (options.workspace) {
       env.WORKSPACE = options.workspace.token;
       env.DEVROUTER_WORKSPACE = options.workspace.token;
@@ -340,7 +343,9 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
       let message = `devsy workspace up failed for '${devsyId ?? options.repoPath}'.`;
       if (result.error?.message) message += ` ${result.error.message}`;
       if (AGENT_ACQUISITION_RE.test(result.stderrTail)) {
-        message += ` Devsy rejected the verified agent source. Run: ${DEVSY_AGENT_SETUP_COMMAND}`;
+        message += agent.binaryPath
+          ? ` Devsy rejected the verified agent source. Run: ${DEVSY_AGENT_SETUP_COMMAND}`
+          : " Devsy could not acquire an agent binary for this host CLI.";
       }
       if (failedStartMayHaveAttached(devsyId, options.repoPath)) {
         throw new DevsyStartPostconditionError(message);
