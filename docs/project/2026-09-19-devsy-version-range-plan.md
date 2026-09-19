@@ -1,8 +1,8 @@
 # Devsy 1.x compatibility implementation plan
 
 Date: 2026-09-19. Branch: `rs/devsy-version-range`, rebased onto `origin/main`
-`d7395bc` (0.0.79). Target: `main`. PR: draft, opened from this branch under
-standing implementation delivery.
+`d7395bc` (0.0.79). Target: `main`. PR: draft
+[#106](https://github.com/rschlaefli/devrouter/pull/106).
 
 ## Approval summary
 
