@@ -110,23 +110,24 @@ and cleanup.
   and the `[Unreleased]` changelog entry: done.
 - Checks on 2026-09-19: `pnpm check`, `pnpm knip`, `pnpm typecheck`,
   `pnpm check:docs-policy`, `pnpm check:knowledge`, and `pnpm build` pass.
-  Vitest passes 2274/2274 with `--no-file-parallelism`; under full file
-  parallelism only `controller-server.test.ts` "replays valid cursors" hits
-  its 5s timeout, then passes standalone and serially, so the failure is worker
-  contention in an unrelated file. `pnpm test:process` skips on macOS because
-  Linux `/proc` is unavailable.
+  Vitest passes 2639/2639 in 146 files with `--no-file-parallelism`; under
+  full file parallelism only `controller-server.test.ts` "replays valid
+  cursors" hits its 5s timeout, then passes standalone and serially, so the
+  failure is worker contention in an unrelated file. `pnpm test:process`
+  skips on macOS because Linux `/proc` is unavailable.
 - Rebase integration: upstream 0.0.79 (`d7395bc`) shipped a competing fallback
   in which any Devsy CLI newer than the verified pin is accepted as `ready`
   with nothing injected. The merged design keeps digest-verified per-release
   injection whenever a manifest is recorded and keeps host governance only as
   the no-manifest fallback, so neither `doctor` nor `ensure` can inject an
   unverified binary. The trust anchor above is unchanged.
-- Live probes, both read-only: the changed resolver returns the published
-  `v1.19.0` Linux assets with SHA-256 digests; the changed build's `doctor`
-  against a real Devsy `1.19.0` checkout reports
-  `state=missing, version=1.19.0, supported=>=1.16.2 <2.0.0` instead of the
-  previous unsupported-version refusal (the second error, managed runtime
-  drift, pre-exists in that checkout).
+- Live probes, read-only: the resolver returned the published `v1.19.0` Linux
+  assets with SHA-256 digests; on the rebased head, the built CLI's `doctor`
+  against a real Devsy `1.19.0` checkout reports `global.devsy-agent` warn
+  `state=ready, source=host, version=1.19.0, supported=>=1.16.2 <2.0.0` with
+  the `setup --workspace-runtime devsy` suggestion, instead of the previous
+  stale version refusal. `setup` itself did not run, so no agent was
+  downloaded and no manifest was recorded in machine state.
 - Trust-anchor delta for un-pinned releases is recorded in ADR 0010 and stays
   flagged for maintainer review. This session runs the standard execution mode
   without an eligible subagent route, so no independent simplifier or
