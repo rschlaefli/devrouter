@@ -6,6 +6,7 @@ import { inspectManagedDevcontainerConfig } from "./devcontainer-profile";
 import { detectHostPortClaimConflicts } from "./host-port-claims";
 import { resolveManagedPostStartPlan } from "./managed-post-start";
 import { loadRuntimeConfig } from "./repo-config";
+import { ROUTER_CONTAINER_NAME } from "./router";
 import { isLinkedWorktree } from "./workspace";
 import { resolveGitCommonDir } from "./workspace-ownership";
 
@@ -192,8 +193,9 @@ function buildHostPortClaimsCheck(repoPath: string, workspace?: string): Diagnos
             (conflict.holderWorkspace ? ` (workspace '${conflict.holderWorkspace}')` : ""),
         )
         .join("; "),
-      suggestion:
-        "Stop the holding workspace or change the consumer's own published binding, then run ensure again. Devrouter never rewrites consumer-declared host bindings.",
+      suggestion: conflicts.some((conflict) => conflict.holderContainer === ROUTER_CONTAINER_NAME)
+        ? "The shared devrouter router owns its entrypoint ports and must keep running; change the consumer's own published binding or route that dependency through devrouter's TCP protocol route, then run ensure again. Devrouter never rewrites consumer-declared host bindings."
+        : "Stop the holding workspace or change the consumer's own published binding, then run ensure again. Devrouter never rewrites consumer-declared host bindings.",
     };
   } catch (error) {
     return {
