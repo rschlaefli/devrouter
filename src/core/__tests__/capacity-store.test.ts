@@ -924,3 +924,121 @@ it("rechecks history inside the mutation lock after an earlier pristine read", (
   ).toThrow();
   expect(fs.existsSync(path.join(directory, "capacity-reservations.json"))).toBe(false);
 });
+
+it("classifies physical absence separately from a pristine store and a stale snapshot", () => {
+  const pristine = fixture();
+  expect(pristine.store.inspect()).toEqual({ kind: "pristine" });
+
+  const witness = path.join(pristine.directory, "capacity-ledger.established");
+  fs.writeFileSync(witness, '{"version":1}\n', { mode: 0o600 });
+  expect(pristine.store.inspect()).toEqual({ kind: "absent" });
+  expect(() => pristine.store.read()).toThrow(/Capacity ledger history is lost/);
+
+  const snapshot = path.join(pristine.directory, "capacity-reservations.json");
+  fs.writeFileSync(snapshot, JSON.stringify({ version: 1, revision: 4, reservations: [] }), {
+    mode: 0o600,
+  });
+  expect(pristine.store.inspect()).toEqual({
+    kind: "intact",
+    revision: 4,
+    snapshot: { version: 1, revision: 4, reservations: [] },
+  });
+  const below = new CapacityStore(pristine.directory, undefined, () => 5);
+  expect(below.inspect()).toEqual({ kind: "stale", revision: 4 });
+  expect(() => below.read()).toThrow(/Capacity ledger history is lost/);
+});
+
+it("fences a replacement that reuses the revision a caller already read", () => {
+  const { directory, store } = fixture();
+  const budgets = { host: budget, guest: budget };
+  const samples = { host: sample, guest: sample };
+  expect(store.reserve(request, budgets, samples, 100, 15, undefined, 0).admitted).toBe(true);
+  const ledger = path.join(directory, "capacity-reservations.json");
+  const revision = store.read().revision;
+  // Reconciliation publishes a new baseline; deleting and recreating the file
+  // keeps the number a numeric-only fence would accept.
+  fs.unlinkSync(ledger);
+  fs.writeFileSync(ledger, JSON.stringify({ version: 1, revision, reservations: [] }), {
+    mode: 0o600,
+  });
+  expect(() => store.mergeObservedPools([], revision)).toThrow(CapacitySnapshotChangedError);
+});
+
+it("records a durable loss witness without publishing a row", () => {
+  const { directory } = fixture();
+  const snapshot = path.join(directory, "capacity-reservations.json");
+  const witness = path.join(directory, "capacity-ledger.established");
+  const store = new CapacityStore(directory, undefined, () => 2);
+
+  store.recordLedgerLoss();
+
+  expect(fs.existsSync(snapshot)).toBe(false);
+  expect(JSON.parse(fs.readFileSync(witness, "utf8"))).toEqual({ version: 1 });
+  expect(store.inspect()).toEqual({ kind: "absent" });
+});
+
+it("re-fsyncs a visible witness before acknowledging a retried loss", () => {
+  const { directory } = fixture();
+  const witness = path.join(directory, "capacity-ledger.established");
+  fs.writeFileSync(witness, '{"version":1}\n', { mode: 0o600 });
+  const store = new CapacityStore(directory, undefined, () => 1);
+  const sync = fs.fsyncSync.bind(fs);
+  const failure = vi.spyOn(fs, "fsyncSync").mockImplementation((descriptor) => {
+    if (fs.fstatSync(descriptor).isDirectory()) throw new Error("injected directory sync failure");
+    sync(descriptor);
+  });
+
+  expect(() => store.recordLedgerLoss()).toThrow("injected directory sync failure");
+  failure.mockRestore();
+  expect(() => store.recordLedgerLoss()).not.toThrow();
+  expect(fs.existsSync(witness)).toBe(true);
+});
+
+it("refuses a loss witness while a snapshot still satisfies the surviving floor", () => {
+  const { directory } = fixture();
+  const store = new CapacityStore(directory, undefined, () => 1);
+  fs.writeFileSync(
+    path.join(directory, "capacity-reservations.json"),
+    JSON.stringify({ version: 1, revision: 1, reservations: [] }),
+    { mode: 0o600 },
+  );
+
+  expect(() => store.recordLedgerLoss()).toThrow(/Capacity ledger history is lost/);
+});
+
+it("reconciles an absent ledger and withdraws the baseline when confirmation fails", () => {
+  const { directory } = fixture();
+  const witness = path.join(directory, "capacity-ledger.established");
+  const snapshot = path.join(directory, "capacity-reservations.json");
+  fs.writeFileSync(witness, '{"version":1}\n', { mode: 0o600 });
+  const store = new CapacityStore(directory, undefined, () => 0);
+  const pool: CapacityPoolReservation = {
+    daemonId: "daemon-one",
+    runtimeDomain: "guest",
+    hostDomain: "host",
+    hostChargeCeilingBytes: 30,
+  };
+
+  const reconciled = store.reconcileLostHistory(
+    (state) => {
+      expect(state.kind).toBe("absent");
+      return { revision: 4, pools: [pool] };
+    },
+    () => true,
+  );
+  expect(reconciled).toEqual({ reconciled: true, revision: 4 });
+  expect(JSON.parse(fs.readFileSync(snapshot, "utf8"))).toEqual({
+    version: 1,
+    revision: 4,
+    reservations: [],
+    pools: [pool],
+  });
+
+  const withdrawn = store.reconcileLostHistory(
+    () => ({ revision: 1 }),
+    () => false,
+  );
+  expect(withdrawn).toEqual({ reconciled: false });
+  expect(fs.existsSync(snapshot)).toBe(false);
+  expect(fs.existsSync(witness)).toBe(true);
+});

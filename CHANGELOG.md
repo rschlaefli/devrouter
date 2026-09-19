@@ -6,6 +6,16 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- A managed `stop` whose physical cessation is already proven against a
+  positively absent capacity ledger completes instead of staying in `stopping`
+  forever. The store records the durable loss witness under the capacity lock
+  and the journal confirmation clears the binding, so a charge no surviving
+  durable row can satisfy no longer blocks `ensure`. An intact ledger keeps
+  today's settlement and revision fencing, and every other ledger
+  classification still refuses. `devrouter doctor` offers this recovery only
+  when the ledger is positively absent and keeps the preserve-and-restore
+  wording otherwise.
+
 - A fixed host-port conflict whose holder is the shared `devrouter-traefik`
   router no longer tells the agent to stop or reconfigure the holder. The
   refusal and the `repo.host-port-claims` doctor check now name the consumer's
@@ -24,6 +34,18 @@ All notable changes to this project are documented in this file.
   checkout is still rejected.
 
 ### Added
+
+- `devrouter capacity reconcile --yes [--json]` replaces a provably absent
+  capacity ledger with a fresh empty baseline. Under the capacity lock it
+  re-reads the journals, re-proves absence, observes the declared runtime
+  domains so the baseline keeps their pool ceilings, and publishes one snapshot
+  at `journal floor + 1` so no earlier reader can match its revision. It
+  refuses without `--yes`, while any journal binding remains (listing each
+  blocking environment with its runnable `devrouter stop <path>`), when the
+  ledger is intact or pristine, when a declared runtime domain cannot be
+  observed, and when journal enumeration is not trustworthy. The report claims
+  only that no journal-visible charge remained; a charge that was never
+  journal-bound cannot be reconstructed.
 
 - `devrouter doctor` compares every `devrouter` executable on PATH with the
   running CLI (`global.cli-path`). It warns when another install is newer than

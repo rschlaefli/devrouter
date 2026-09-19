@@ -2183,6 +2183,45 @@ describe("reliability lifecycle supervision", () => {
     expect(() => lifecycle.prepareLifecycleOperation("ensure", identity.repoPath)).not.toThrow();
   });
 
+  it("completes a proven stop when the ledger is positively absent", async () => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedStopRequest();
+    const { DEVROUTER_HOME } = await import("../router");
+    const directory = path.join(DEVROUTER_HOME, "controller");
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    store.updateReliabilityOperation(identity, (record) => {
+      record.version = 2;
+      record.capacity = {
+        reservationId: "reservation-lost",
+        operationId: "stop-operation",
+        workerId: "stop-worker",
+        policyRevision: 1,
+        snapshotRevision: 3,
+        validUntilMs: Date.now() + 60_000,
+      };
+    });
+    const ledger = path.join(directory, "capacity-reservations.json");
+    const witness = path.join(directory, "capacity-ledger.established");
+    fs.writeFileSync(witness, '{"version":1}\n', { mode: 0o600 });
+    expect(fs.existsSync(ledger)).toBe(false);
+
+    await expect(
+      lifecycle.executeLifecycleWorker(request, async () => {
+        lifecycle.proveLifecycleStopped();
+      }),
+    ).resolves.toBeUndefined();
+
+    const record = store.readReliabilityOperation(identity);
+    expect(record?.capacity).toBeNull();
+    expect(record?.state).toMatchObject({
+      phase: "idle",
+      stopProof: { workloadsStopped: true, routesRemoved: true },
+    });
+    // No row was invented, and the witness keeps every later read refusing.
+    expect(fs.existsSync(ledger)).toBe(false);
+    expect(fs.readFileSync(witness, "utf8")).toBe('{"version":1}\n');
+  });
+
   it("bounds settlement contention without publishing stop proof", async () => {
     setProcessConnected(true);
     const { lifecycle, request, store, identity } = await seedStopRequest();

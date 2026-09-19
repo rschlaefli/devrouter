@@ -344,13 +344,21 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       summary: "Capacity ledger is consistent with available lifecycle history.",
     });
   } catch (error) {
+    const absent = (() => {
+      try {
+        return createLifecycleCapacityStore().inspect().kind === "absent";
+      } catch {
+        return false;
+      }
+    })();
     addCheck(checks, {
       id: "global.capacity-ledger",
       level: "error",
       summary: "Capacity ledger history is unavailable for safe admission.",
       details: error instanceof CapacityHistoryError ? error.code : "capacity-history-unprovable",
-      suggestion:
-        "Preserve ledger and lifecycle records; restore verified history before retrying admission.",
+      suggestion: absent
+        ? "Preserve ledger and lifecycle records; with every enrolled environment stopped, run: devrouter capacity reconcile --yes"
+        : "Preserve ledger and lifecycle records; restore verified history before retrying admission.",
     });
   }
 

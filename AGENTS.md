@@ -87,6 +87,7 @@ Supported routing:
 - `devrouter harness gate` (`--repo`, `--wait-budget-ms`, `--json`; agent-harness `PreToolUse` hook)
 - `devrouter app add` (`--kind app|dependency`), `devrouter app ls`, `devrouter app run` (`--env`, `--workspace`), `devrouter app exec` (`--shell`, `--env`, `--workspace`), `devrouter app rm` (`--keep-config`)
 - `devrouter workspace up` (`<branch>`, `--path`, `--no-devpod`, `--open`), `devrouter workspace ensure` (`[path]`, `--open`, `--repair`, `--json`, compatibility alias), `devrouter workspace ls` (`--json`), `devrouter workspace cleanup` (`--repo`, `--inactive-for` default `30d`, `--check-merged`, `--measure-size`, `--json`, report-only), `devrouter workspace stop` (`<workspace|branch>`), `devrouter workspace down` (`<workspace|branch>`, `--keep-worktree`), `devrouter workspace gc` (`--json`, `--yes`), `devrouter workspace journal settle` (`[path]`, `--json`)
+- `devrouter capacity reconcile` (`--yes`, `--json`; replaces a provably absent capacity ledger with a fresh empty baseline once no journal-visible charge remains)
 
 ## Repository map
 
@@ -120,6 +121,8 @@ Supported routing:
 - `src/core/workspace-ensure.ts`: fail-closed `workspace ensure` engine (exact-path DevPod discovery/start, runtime proof, atomic route reconciliation)
 - `src/core/reliability-model.ts`: pure reliability transition model (journal rollover, interrupted-ensure reconciliation, settlement)
 - `src/core/workspace-journal-settle.ts`: `devrouter workspace journal settle` engine (first-class settlement of a provably lost lifecycle worker)
+- `src/core/capacity-store.ts`: capacity ledger classification, settlement, durable loss witness, and locked lost-history reconciliation
+- `src/commands/capacity.ts`: `devrouter capacity reconcile` command handler
 - `src/core/harness-gate.ts`: harness tool-call deferral while a checkout's durable lifecycle phase is transitional
 - `src/core/harness-continuation.ts`: durable per-checkout ledger of gated harness calls that refuses a re-delivered `tool_use_id`
 - `src/commands/harness.ts`: `devrouter harness gate` command handler

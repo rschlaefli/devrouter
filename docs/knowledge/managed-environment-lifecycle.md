@@ -312,6 +312,23 @@ Neither a marker nor a surviving journal proves history after deletion of every
 artifact or rollback beyond the available evidence. Restoring a verified ledger
 preserves its retained charges; deleting metadata does not prove capacity is available.
 
+A stop whose physical cessation is already proven completes against a
+positively absent ledger without inventing a row: the store records the loss
+witness under the capacity lock and the journal confirmation then clears the
+binding, so a charge no durable row can satisfy no longer holds the environment
+in `stopping`. Every other classification — intact, stale, pristine, unprovable
+or unsafe evidence — keeps the existing refusal. `devrouter capacity reconcile
+--yes` is the forward recovery for a provably absent ledger: under the same
+lock it re-reads the journals, re-proves absence, observes the declared runtime
+domains so the baseline keeps their pool ceilings, and publishes one fresh
+snapshot at `journal floor + 1` with no reservations. It refuses without
+`--yes`, while any journal binding remains (naming each blocking environment
+with its own `devrouter stop <path>` command), when the ledger is intact or
+pristine, and when a declared runtime domain cannot be observed. Its report
+claims only that no journal-visible charge remained: a charge that was never
+journal-bound, or was already ledger-released, cannot be reconstructed from the
+journals, and bounded journals do not retain rolled-away records.
+
 The policy's optional `recovery` block carries the bounded corrective-action
 budget: per-scope process and service restart allowances, the aggregate action
 cap an incident may not exceed, the incident window, the observation bound, and
