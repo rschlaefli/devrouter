@@ -171,11 +171,11 @@ resources may be reclaimed.
 
 For a managed environment with a durable reliability journal, `devrouter status`
 also reports the lifecycle intent, phase, capacity admission and charge, the
-corrective-action budget, and, when the recorded intent cannot progress on its
-own, a fixed attention reason with the supported recovery commands for that exact
-checkout. The block is read-only and is omitted when provider or journal evidence
-is unavailable, so a parked or waiting environment stays explainable without a
-live consumer session.
+corrective-action budget with its window start and per-unit action counts, and,
+when the recorded intent cannot progress on its own, a fixed attention reason
+with the supported recovery commands for that exact checkout. The block is
+read-only and is omitted when provider or journal evidence is unavailable, so a
+parked or waiting environment stays explainable without a live consumer session.
 
 ## Continuous observation
 
@@ -328,8 +328,18 @@ requests when the128-entry journal fills. It retains the current operation and
 latest ensure, requires a drained settled retirement candidate, and advances the
 runtime generation before returning a replacement for admission. Refused recovery
 does not open an incident or retire history. An existing incident keeps its
-original action limit and count; only persisted corrective dispatch spends an
-action. Unknown or undrained commands cannot be replaced through rollover.
+original action limit, and every corrective action is claimed by the recovery
+preparation write: the lifecycle layer derives the one declared resource the
+producing capability names — a logical process from the managed process set or a
+retained service from the resolved service set — from the repository-declared
+selectors, and the same write increments that unit and the aggregate count. The
+claim refuses `window-closed`, `unit-exhausted` or `budget-exhausted` before any
+mutation, so a failed or foreign journal write leaves the incident, history and
+operation slot untouched. A capability the plan cannot attribute keeps the
+aggregate ceiling alone, unknown completion keeps its claim instead of refunding
+it, and unobservable active time falls back to the conservative wall duration
+since the incident start. Unknown or undrained commands cannot be replaced
+through rollover.
 
 The controller shares one bounded collector between admission and recovery-enabled
 idle sampling, using the policy sample interval. A timeout rejects waiting callers

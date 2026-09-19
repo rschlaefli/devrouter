@@ -313,16 +313,18 @@ clean over the repository, and 385 tests pass across the eight capacity,
 controller and reliability files. The full suite still carries the watch gap
 fixture above, so it is not yet a green signal on this host.
 
-Next slice: scoped and windowed recovery budgets. Policy already parses
-`maxProcessRestarts`, `maxServiceRestarts` and `windowSeconds`, and roadmap
-section 9.3 fixes their meaning: two corrective restarts of one logical process,
-one retained service restart at broader scope, three corrective actions across the
-uninterrupted incident, and a bounded active recovery and observation time
-excluding capacity waiting, reset only after a sustained healthy interval. The
-runtime consumes only `maxCorrectiveActions`, because action-scope proof and a
-durable action claim at each mutation boundary do not exist yet. The named
-action-scope contract is now recorded under `Scoped recovery budget contract`;
-implementation remains open.
+Scoped and windowed recovery budgets are delivered at `08c8910`. Policy's
+`maxProcessRestarts`, `maxServiceRestarts` and `windowSeconds` now bound one
+incident: the recovery write claims the one declared resource the producing
+capability names together with the aggregate count, and refuses without a write
+when the per-kind allowance, the aggregate cap or the incident window is
+exhausted. Section 9.3's meaning is unchanged; the named action-scope contract
+is recorded under `Scoped recovery budget (delivered)`. Next slice: the
+installed Devsy harness surface. The host runs Devsy CLI 1.19.0 while the
+release pins `SUPPORTED_DEVSY_VERSION = 1.16.2`, so doctor reports
+`global.devsy-agent` as an error and every managed start refuses before any
+provider mutation; no managed environment can be created or recovered on this
+host until that policy has a qualified answer.
 
 The agent-facing status gap is implemented (status slice, follow-on to
 `404fc8d`). `devrouter status` now attaches a read-only `reliability` block for a
@@ -394,12 +396,12 @@ validation, build and the isolated packed CLI smoke are clean. This is source
 evidence only: no consumer runtime was touched, so no affected checkout is
 reported as recovered.
 
-### Scoped recovery budget contract (derived delta, pending implementation)
+### Scoped recovery budget (delivered)
 
-This is the named action-scope contract the next slice requires before coding.
-Policy already parses `maxProcessRestarts`, `maxServiceRestarts` and
-`windowSeconds`; runtime consumes only `maxCorrectiveActions`, so the parsed
-limits are reserved rather than enforced and no consumer may claim otherwise.
+This was the named action-scope contract the slice required before coding.
+Originally policy parsed `maxProcessRestarts`, `maxServiceRestarts` and
+`windowSeconds` while runtime consumed only `maxCorrectiveActions`, so the parsed
+limits were reserved rather than enforced and no consumer could claim otherwise.
 
 Contract. The action unit is the repository-declared resource a corrective
 mutation will touch: one logical process from the managed process set, or one
@@ -449,6 +451,32 @@ require inferring commands from a process listing, if the claim cannot be made
 durable under the existing journal lock, if enforcement would weaken any
 fail-closed check for live workers, unknown ownership or surviving resources, or
 if it would require a contract version bump or a data migration.
+
+Delivered at `08c8910`. `recoverySelectors` splits the repository-declared
+`app:<name>` selectors by the plan dimension that backs them — an upstream alias
+naming a declared retained service is a service unit, every other ready proxied
+app is a process unit — and `deriveRecoveryUnit` recovers the unit key by
+recomputing `controllerCapability` over those selectors and matching the
+producing failed capability inside the journal transaction. `claimRecoveryUnit`
+increments the unit record and `correctiveActionsTaken` in the same write,
+refuses `window-closed`, `unit-exhausted` or `budget-exhausted` without mutating
+the incident, history or operation slot, and never refunds an unknown completion.
+Unattributable capabilities and unreadable configuration keep the aggregate
+ceiling alone; `activeElapsedMs` is `null` today because capacity waiting is not
+yet observable to the claim, so the window falls back to conservative wall
+duration. The dispatch-time increment moved to this claim, so an incident opens
+at one action once the recovery it admitted is prepared. The projection carries
+`startedAtMs` and bounded unit records with opaque keys only, and
+`assertReliabilityState` validates the additive fields without a contract bump.
+
+Regression evidence: 13 `recovery-budget` tests plus updated model, lifecycle,
+liveness and capacity-controller suites; the full suite passes 2603 tests in 144
+files with two workers; typecheck, repository Biome, Knip, docs policy and
+knowledge validation are clean. The capacity-controller suite proves the call
+site passes the policy limits and the derived selectors and that an unreadable
+configuration degrades to the aggregate ceiling. This is source evidence only;
+no consumer runtime was touched, and the branch push is still blocked by the
+host SSH agent.
 
 ### Active diagnostic deltas
 
