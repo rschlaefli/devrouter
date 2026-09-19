@@ -121,6 +121,7 @@ Supported routing:
 - `src/core/reliability-model.ts`: pure reliability transition model (journal rollover, interrupted-ensure reconciliation, settlement)
 - `src/core/workspace-journal-settle.ts`: `devrouter workspace journal settle` engine (first-class settlement of a provably lost lifecycle worker)
 - `src/core/harness-gate.ts`: harness tool-call deferral while a checkout's durable lifecycle phase is transitional
+- `src/core/harness-continuation.ts`: durable per-checkout ledger of gated harness calls that refuses a re-delivered `tool_use_id`
 - `src/commands/harness.ts`: `devrouter harness gate` command handler
 - `src/core/managed-post-start.ts`: managed-adapter migration guard plus runtime-only process-helper delivery and invocation in the exact validated container
 - `src/core/environment-stop.ts`: non-destructive exact-checkout stop lifecycle
@@ -165,6 +166,7 @@ Supported routing:
 - `src/core/__tests__/reliability-liveness.test.ts`: saturated-journal liveness property tests (incident crash repro + randomized walks)
 - `src/core/__tests__/workspace-journal-settle.test.ts`: unit tests for journal settlement under worker-loss proof
 - `src/core/__tests__/harness-gate.test.ts`: unit tests for the phase table, deferral, budget exhaustion and evidence handling
+- `src/core/__tests__/harness-continuation.test.ts`: unit tests for the continuation ledger (claims, replays, settlement, expiry, bounds and unsafe evidence)
 - `src/commands/__tests__/harness.test.ts`: unit tests for the hook payload, output contracts and progress output
 - `src/core/__tests__/doctor.test.ts`: unit tests for diagnostics (TLS, Postgres credential checks, host-command wrapper precedence, TLS host coverage)
 - `src/core/__tests__/docker-error-guidance.test.ts`: unit tests for disk-space remediation messaging

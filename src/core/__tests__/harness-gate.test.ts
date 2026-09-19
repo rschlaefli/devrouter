@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   findHarnessGateRepoRoot,
   HARNESS_GATE_DEFAULT_BUDGET_MS,
@@ -203,5 +203,50 @@ describe("findHarnessGateRepoRoot", () => {
     fs.mkdirSync(repoRoot, { recursive: true });
 
     expect(readHarnessGateObservation(repoRoot)).toMatchObject({ phase: "unknown" });
+  });
+
+  it("claims once before the first deferral and refuses a replay", async () => {
+    const clock = createClock();
+    const claim = vi.fn(() => ({
+      kind: "replay" as const,
+      state: "granted" as const,
+      settledAtMs: 500,
+    }));
+
+    const decision = await waitForHarnessGate({
+      observe: scriptedObservations([{ phase: "stopping" }, { phase: "stable" }]),
+      budgetMs: 30_000,
+      now: clock.now,
+      sleep: clock.sleep,
+      claim,
+    });
+
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(decision).toMatchObject({
+      decision: "refuse",
+      reason: "continuation-replay",
+      observedPhase: "stopping",
+      continuation: { state: "granted", settledAtMs: 500 },
+    });
+    expect(clock.now()).toBe(0);
+  });
+
+  it("does not claim a settled phase or a spent budget", async () => {
+    const settledClaim = vi.fn();
+    await waitForHarnessGate({
+      observe: scriptedObservations([{ phase: "stable" }]),
+      budgetMs: 30_000,
+      claim: settledClaim,
+    });
+    expect(settledClaim).not.toHaveBeenCalled();
+
+    const spentClaim = vi.fn();
+    const spent = await waitForHarnessGate({
+      observe: scriptedObservations([{ phase: "starting" }]),
+      budgetMs: 0,
+      claim: spentClaim,
+    });
+    expect(spentClaim).not.toHaveBeenCalled();
+    expect(spent).toMatchObject({ decision: "refuse", reason: "budget-exhausted" });
   });
 });
