@@ -585,6 +585,21 @@ and `devrouter workspace ls` reporting `present devpod:owned 0 route(s)` with
 `Runtime status stopped`. No consumer container, volume, worktree or staged
 change was touched, and the citation checkout was neither inspected nor modified.
 
+### CLI path shadow diagnosis (delivered)
+
+The stale-install hazard recorded above became a first-class non-blocking
+diagnosis on branch `rs/cli-path-diagnosis`: `devrouter doctor` reports
+`global.cli-path` by enumerating every executable `devrouter` on `PATH`,
+deduplicating by realpath, and comparing each install with the running CLI. It
+warns when another install is newer than the CLI that is diagnosing, or when the
+shell-resolved install differs; it stays `ok` when every install matches. The
+probe is a read-only `-V` that tolerates the non-zero exit version printing
+still produces outside a repo, and the whole comparison is skipped for unstamped
+source builds. Evidence: 2616 tests pass, and synthetic doctor runs warned for
+0.0.70 and 0.0.99 installed first on `PATH` while staying `ok` for the two real
+0.0.79 installs on this host. Harness enforcement (W9) remains the next slice
+toward 0.1.0.
+
 ### Active diagnostic deltas
 
 Main owns `src/core/workspace-ensure.ts`, its existing test suite, the affected failure-rule paragraph in `docs/knowledge/managed-environment-lifecycle.md`, and the unreleased changelog entry. Add fixed
