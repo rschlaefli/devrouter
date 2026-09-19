@@ -362,6 +362,14 @@ the wait budget: an overrunning hook is not honored, and the tool proceeds under
 the harness's normal permission rules. Use \`--json\` for the devrouter decision
 envelope with wait metrics.
 
++Gated calls are keyed by the harness \`tool_use_id\` and recorded durably. If the
+harness re-delivers a call it already granted or cancelled, the gate returns one
+refusal naming the earlier decision instead of waiting again, because that call
+may already have run; the agent should verify it and issue a new call. Entries
+expire after 24 hours, the ledger keeps the newest 64 per checkout, and an
+unreadable or unwritable ledger never blocks the agent. Payloads without a
+\`tool_use_id\` keep the wait-only behavior.
+
 ## Validation workflow
 
 For devcontainer onboarding:

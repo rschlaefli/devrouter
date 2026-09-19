@@ -33,10 +33,22 @@ export type HarnessGateReason =
   | "settled"
   | "settled-after-wait"
   | "budget-exhausted"
+  | "continuation-replay"
   | "evidence-unavailable"
   | "unmanaged-checkout"
   | "devrouter-command"
   | "hook-payload-invalid";
+
+/**
+ * Durable claim outcome for a gated call. The harness can re-deliver a call
+ * whose wait it granted or cancelled, so a repeat must refuse instead of
+ * waiting again.
+ */
+export type HarnessGateContinuationState = "granted" | "refused" | "interrupted";
+
+export type HarnessGateClaim =
+  | { kind: "claimed" }
+  | { kind: "replay"; state: HarnessGateContinuationState; settledAtMs?: number };
 
 export type HarnessGateDecision = {
   version: 1;
@@ -45,6 +57,7 @@ export type HarnessGateDecision = {
   waitedMs: number;
   observations: number;
   observedPhase: HarnessGatePhase;
+  continuation?: { state: HarnessGateContinuationState; settledAtMs?: number };
 };
 
 export const HARNESS_GATE_DEFAULT_BUDGET_MS = 30_000;
@@ -112,6 +125,12 @@ export async function waitForHarnessGate(options: {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   onObservation?: (observation: HarnessGateObservation, waitedMs: number) => void;
+  /**
+   * Claim the call before the first deferral. A replay returns one refusal
+   * without waiting again; a claim that cannot be recorded still allows the
+   * ordinary wait, so ledger trouble never blocks the agent.
+   */
+  claim?: (observation: HarnessGateObservation) => HarnessGateClaim;
 }): Promise<HarnessGateDecision> {
   const now = options.now ?? (() => Date.now());
   const sleep =
@@ -147,6 +166,20 @@ export async function waitForHarnessGate(options: {
         observations,
         observedPhase: observation.phase,
       };
+    }
+    if (!deferred && options.claim) {
+      const claim = options.claim(observation);
+      if (claim.kind === "replay") {
+        return {
+          version: 1,
+          decision: "refuse",
+          reason: "continuation-replay",
+          waitedMs,
+          observations,
+          observedPhase: observation.phase,
+          continuation: { state: claim.state, settledAtMs: claim.settledAtMs },
+        };
+      }
     }
     deferred = true;
     await sleep(Math.min(interval, budget - waitedMs));

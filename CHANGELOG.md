@@ -23,6 +23,14 @@ All notable changes to this project are documented in this file.
   rather than blocking the agent. Wire it as a `PreToolUse` hook whose timeout
   exceeds the wait budget: an overrunning hook is not honored.
 
+- `devrouter harness gate` also remembers each gated call by its harness
+  `tool_use_id`. A call the harness re-delivers after a granted or cancelled
+  wait returns one refusal that names the earlier decision, so a resumed
+  session cannot silently repeat a command that may already have run. Entries
+  expire after 24 hours, each checkout keeps the newest 64, and an unreadable or
+  unwritable ledger never blocks the agent. Payloads without a `tool_use_id`
+  keep the wait-only behavior.
+
 ## [0.0.79] - 2026-09-19
 
 ### Added
