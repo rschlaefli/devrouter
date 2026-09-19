@@ -137,12 +137,19 @@ export async function waitForHarnessGate(options: {
     options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const interval = Math.max(1, options.pollIntervalMs ?? HARNESS_GATE_POLL_INTERVAL_MS);
   const budget = Math.max(0, Math.min(options.budgetMs, HARNESS_GATE_MAX_BUDGET_MS));
-  const started = now();
+  // The wait clock starts at the first observation. Resolving a checkout's
+  // identity against the provider registries can take seconds on a cold hook
+  // process, and charging that setup to the wait would refuse a call that
+  // never waited and report a wait that never happened.
+  let started: number | undefined;
   let observations = 0;
   let deferred = false;
 
   for (;;) {
     const observation = options.observe();
+    if (started === undefined) {
+      started = now();
+    }
     observations += 1;
     options.onObservation?.(observation, now() - started);
     if (!isTransitionalHarnessPhase(observation.phase)) {

@@ -150,6 +150,9 @@ Supported routing:
 - `scripts/smoke-routing.sh`: end-to-end routing smoke script
 - `scripts/smoke-devcontainer.sh`: live DevPod/devcontainer smoke script
 - `scripts/package-smoke.sh`: isolated packed CLI distribution smoke
+- `scripts/qualify-harness-journey.sh`: two-environment agent journey over the
+  real Claude Code hook and a mock Messages API (deferral, one refusal, protected
+  neighbour), asserting zero agent infrastructure repair and clean checkouts
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `devrouter upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
@@ -255,4 +258,6 @@ Supported routing:
 12. `pnpm routing:smoke` for full route showcase/regression smoke
 13. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
 14. `pnpm devcontainer:smoke down` after live devcontainer verification
-15. Update docs for any behavior/surface changes
+15. `pnpm qualify:harness-journey` when the Claude Code CLI is available, for the
+    two-environment agent journey (deferral, one refusal, protected neighbour)
+16. Update docs for any behavior/surface changes
