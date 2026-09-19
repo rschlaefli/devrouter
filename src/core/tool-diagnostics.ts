@@ -8,12 +8,15 @@ import {
   devsyAgentRepairSuggestion,
   inspectDevsyAgent,
 } from "./devsy-agent";
+import { compareSemver } from "./repo-config";
 import {
   inspectWorkspaceRuntimeConfig,
   readWorkspaceRuntimeConfig,
   resolveWorkspaceRuntimeDetailed,
   WorkspaceRuntimeOwnershipError,
 } from "./workspace-runtime";
+
+declare const __VERSION__: string;
 
 type CommandResult = {
   ok: boolean;
@@ -235,6 +238,166 @@ function devsyAgentCheck(inspection: DevsyAgentInspection): DiagnosticCheck {
   };
 }
 
+const CLI_PATH_PROBE_TIMEOUT_MS = 5_000;
+const INSTALLED_CLI_VERSION_RE = /Installed CLI version:\s*(\S+)/;
+
+type CliPathEntry = {
+  executable: string;
+  version?: string;
+  running: boolean;
+};
+
+export type CliPathCheckOptions = {
+  pathValue?: string;
+  runningEntry?: string;
+  runningVersion?: string;
+  probeVersion?: (executable: string) => string | undefined;
+};
+
+function realpathOrUndefined(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    return fs.realpathSync(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function isExecutableFile(filePath: string): boolean {
+  try {
+    if (!fs.statSync(filePath).isFile()) {
+      return false;
+    }
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function displayPath(filePath: string): string {
+  const home = process.env.HOME;
+  if (!home || home.length < 2 || !filePath.startsWith(`${home}${path.sep}`)) {
+    return filePath;
+  }
+  return `~${filePath.slice(home.length)}`;
+}
+
+// `devrouter -V` prints the stamped CLI version on its first line; the repo
+// pin and upgrade target follow it and are not part of this comparison. The
+// command still exits non-zero outside a repo, after printing the version, so
+// only a spawn failure makes the probe unusable.
+function probeInstalledCliVersion(executable: string): string | undefined {
+  const result = spawnSync(executable, ["-V"], {
+    encoding: "utf-8",
+    timeout: CLI_PATH_PROBE_TIMEOUT_MS,
+  });
+  if (result.error) {
+    return undefined;
+  }
+  return INSTALLED_CLI_VERSION_RE.exec(outputFromResult(result) ?? "")?.[1];
+}
+
+// Stale installs of Devrouter are a documented recovery hazard: a shell that
+// resolves an older binary runs an older lifecycle engine against state a newer
+// CLI already wrote. Report every install a fresh shell could reach, and warn
+// when it disagrees with the CLI that is diagnosing.
+export function buildCliPathCheck(options: CliPathCheckOptions = {}): DiagnosticCheck {
+  const id = "global.cli-path";
+  const runningVersion =
+    options.runningVersion ?? (typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev");
+  if (runningVersion === "0.0.0-dev") {
+    return {
+      id,
+      level: "ok",
+      summary: "Devrouter runs from an unstamped build, so PATH installs are not compared.",
+      details: "installedVersion=unknown; comparison=skipped",
+    };
+  }
+
+  const runningEntry = realpathOrUndefined(options.runningEntry ?? process.argv[1]);
+  const probeVersion = options.probeVersion ?? probeInstalledCliVersion;
+  const entries: CliPathEntry[] = [];
+  const seen = new Set<string>();
+  for (const dir of (options.pathValue ?? process.env.PATH ?? "").split(path.delimiter)) {
+    if (dir.length === 0) {
+      continue;
+    }
+    const executable = path.join(dir, "devrouter");
+    if (!isExecutableFile(executable)) {
+      continue;
+    }
+    const resolved = realpathOrUndefined(executable) ?? executable;
+    if (seen.has(resolved)) {
+      continue;
+    }
+    seen.add(resolved);
+    const running = runningEntry !== undefined && resolved === runningEntry;
+    entries.push({
+      executable,
+      running,
+      version: running ? runningVersion : probeVersion(executable),
+    });
+  }
+
+  const shellInstall = entries[0];
+  if (!shellInstall) {
+    return {
+      id,
+      level: "ok",
+      summary: "No devrouter executable is on PATH.",
+      details: `runningVersion=${runningVersion}`,
+    };
+  }
+
+  const details = entries
+    .slice(0, 4)
+    .map(
+      (entry) =>
+        `${displayPath(entry.executable)}=${entry.version ?? "unknown"}${entry.running ? " (running)" : ""}`,
+    )
+    .join(", ");
+
+  let newestVersion: string | undefined;
+  for (const entry of entries) {
+    if (entry.version === undefined) {
+      continue;
+    }
+    if (newestVersion === undefined || compareSemver(entry.version, newestVersion) > 0) {
+      newestVersion = entry.version;
+    }
+  }
+
+  if (newestVersion !== undefined && compareSemver(newestVersion, runningVersion) > 0) {
+    return {
+      id,
+      level: "warn",
+      summary: `Another Devrouter install on PATH (${newestVersion}) is newer than the running CLI (${runningVersion}).`,
+      details,
+      suggestion: `Update the installs so one version serves every shell: npm install -g @devrouter/cli@${newestVersion}`,
+    };
+  }
+
+  if (!shellInstall.running && shellInstall.version !== runningVersion) {
+    return {
+      id,
+      level: "warn",
+      summary: `devrouter on PATH resolves to a different install (${shellInstall.version ?? "unknown version"}) than the running CLI (${runningVersion}).`,
+      details,
+      suggestion: `Align the installs so shell commands run the same CLI: npm install -g @devrouter/cli@${runningVersion}`,
+    };
+  }
+
+  return {
+    id,
+    level: "ok",
+    summary: "Devrouter installs on PATH match the running CLI.",
+    details: `${details}; runningVersion=${runningVersion}`,
+  };
+}
+
 export function buildGlobalToolChecks(repoPath: string): DiagnosticCheck[] {
   // Devsy emits telemetry even for version and registry reads. Diagnostics are
   // synchronous, so this scopes the inherited opt-out to the complete probe.
@@ -373,6 +536,8 @@ function buildGlobalToolChecksWithoutTelemetry(repoPath: string): DiagnosticChec
         ? "Run: devrouter setup --yes --workspace-runtime <devpod|devsy>"
         : undefined,
   });
+
+  checks.push(buildCliPathCheck());
 
   checks.push(nodeToolchainCheck(repoPath));
 

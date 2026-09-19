@@ -383,6 +383,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- `devrouter doctor --repo <REPO_PATH>` warns on risky pre-wrapper DB assignments before `run --` for host apps that depend on postgres.",
     "- With TLS enabled, `devrouter doctor --repo <REPO_PATH>` also warns on cert SAN mismatches for configured hosts (`repo.tls-host-coverage`).",
     "- `devrouter doctor --repo <REPO_PATH>` errors on configured fixed host-port bindings already held by running containers (`repo.host-port-claims`) and warns when that comparison is unavailable.",
+    "- `devrouter doctor` compares every `devrouter` executable on PATH with the running CLI (`global.cli-path`) and warns when a shell would silently run a different version.",
     "- Robust one-shot migrate example (argv-safe, no nested shell quoting): `devrouter app exec <name> --repo <REPO_PATH> --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload migrate`.",
     "- Robust one-shot seed example: `devrouter app exec <name> --repo <REPO_PATH> --yes -- infisical run --projectId <id> --env=<env> -- pnpm payload seed`.",
     "- Environment probe/debug example (run before migrations): `devrouter app exec <name> --repo <REPO_PATH> --yes -- printenv DB_URL DB_HOST DB_PORT DB_SHADOW_URL`.",

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildGlobalToolChecks } from "../tool-diagnostics";
+import { buildCliPathCheck, buildGlobalToolChecks } from "../tool-diagnostics";
 
 const spawnSyncMock = vi.fn();
 const runtimeState = vi.hoisted(() => ({
@@ -130,6 +130,7 @@ describe("buildGlobalToolChecks", () => {
       ["global.mkcert", "ok"],
       ["global.devpod", "ok"],
       ["global.workspace-runtime-config", "ok"],
+      ["global.cli-path", "ok"],
       ["global.node-toolchain", "ok"],
     ]);
   });
@@ -384,5 +385,157 @@ describe("buildGlobalToolChecks", () => {
     expect(byId.get("global.workspace-runtime-config")?.details).toContain(
       "runtime='docker' is not a supported workspace runtime.",
     );
+  });
+});
+
+function writeFakeInstall(dir: string): string {
+  fs.mkdirSync(dir, { recursive: true });
+  const executable = path.join(dir, "devrouter");
+  fs.writeFileSync(executable, "#!/bin/sh\nexit 0\n", "utf-8");
+  fs.chmodSync(executable, 0o755);
+  return fs.realpathSync(executable);
+}
+
+describe("buildCliPathCheck", () => {
+  it("skips the comparison for an unstamped build without probing PATH", () => {
+    const bin = path.join(tmpDir, "bin");
+    writeFakeInstall(bin);
+    const probeVersion = vi.fn(() => "9.9.9");
+
+    const check = buildCliPathCheck({
+      runningVersion: "0.0.0-dev",
+      pathValue: bin,
+      probeVersion,
+    });
+
+    expect(check).toMatchObject({ id: "global.cli-path", level: "ok" });
+    expect(check.details).toContain("comparison=skipped");
+    expect(probeVersion).not.toHaveBeenCalled();
+  });
+
+  it("warns when another install on PATH is newer than the running CLI", () => {
+    const newerBin = path.join(tmpDir, "bin-newer");
+    writeFakeInstall(newerBin);
+    const runningBin = path.join(tmpDir, "bin-running");
+    const running = writeFakeInstall(runningBin);
+
+    const check = buildCliPathCheck({
+      pathValue: [newerBin, runningBin].join(path.delimiter),
+      runningEntry: running,
+      runningVersion: "0.0.79",
+      probeVersion: (executable) =>
+        executable === path.join(newerBin, "devrouter") ? "0.0.80" : "0.0.79",
+    });
+
+    expect(check).toMatchObject({ id: "global.cli-path", level: "warn" });
+    expect(check.summary).toContain("0.0.80");
+    expect(check.summary).toContain("0.0.79");
+    expect(check.suggestion).toContain("npm install -g @devrouter/cli@0.0.80");
+    expect(check.details).toContain("(running)");
+  });
+
+  it("warns when the shell resolves a different install than the running CLI", () => {
+    const shellBin = path.join(tmpDir, "bin-shell");
+    writeFakeInstall(shellBin);
+    const runningBin = path.join(tmpDir, "bin-running");
+    const running = writeFakeInstall(runningBin);
+
+    const check = buildCliPathCheck({
+      pathValue: [shellBin, runningBin].join(path.delimiter),
+      runningEntry: running,
+      runningVersion: "0.0.79",
+      probeVersion: () => "0.0.77",
+    });
+
+    expect(check).toMatchObject({ id: "global.cli-path", level: "warn" });
+    expect(check.summary).toContain("resolves to a different install");
+    expect(check.summary).toContain("0.0.77");
+    expect(check.suggestion).toContain("npm install -g @devrouter/cli@0.0.79");
+  });
+
+  it("warns when the shell-resolved install cannot report its version", () => {
+    const shellBin = path.join(tmpDir, "bin-shell");
+    writeFakeInstall(shellBin);
+
+    const check = buildCliPathCheck({
+      pathValue: shellBin,
+      runningEntry: path.join(tmpDir, "missing", "devrouter"),
+      runningVersion: "0.0.79",
+      probeVersion: () => undefined,
+    });
+
+    expect(check).toMatchObject({ id: "global.cli-path", level: "warn" });
+    expect(check.details).toContain("unknown");
+  });
+
+  it("reads the version line from a probe that exits non-zero outside a repo", () => {
+    const shellBin = path.join(tmpDir, "bin-shell");
+    writeFakeInstall(shellBin);
+    const runningBin = path.join(tmpDir, "bin-running");
+    const running = writeFakeInstall(runningBin);
+    spawnSyncMock.mockImplementation((command: string) =>
+      command === path.join(shellBin, "devrouter")
+        ? result(1, "Installed CLI version: 0.0.70\n", "Error: Missing .devrouter.yml")
+        : result(0, "Installed CLI version: 0.0.79\n"),
+    );
+
+    const check = buildCliPathCheck({
+      pathValue: [shellBin, runningBin].join(path.delimiter),
+      runningEntry: running,
+      runningVersion: "0.0.79",
+    });
+
+    expect(check).toMatchObject({ id: "global.cli-path", level: "warn" });
+    expect(check.summary).toContain("0.0.70");
+  });
+
+  it("stays silent when every install on PATH matches the running CLI", () => {
+    const firstBin = path.join(tmpDir, "bin-a");
+    writeFakeInstall(firstBin);
+    const secondBin = path.join(tmpDir, "bin-b");
+    const running = writeFakeInstall(secondBin);
+
+    const check = buildCliPathCheck({
+      pathValue: [firstBin, secondBin].join(path.delimiter),
+      runningEntry: running,
+      runningVersion: "0.0.79",
+      probeVersion: () => "0.0.79",
+    });
+
+    expect(check).toMatchObject({ id: "global.cli-path", level: "ok" });
+    expect(check.summary).toBe("Devrouter installs on PATH match the running CLI.");
+  });
+
+  it("counts a symlinked executable once", () => {
+    const realBin = path.join(tmpDir, "bin-real");
+    const running = writeFakeInstall(realBin);
+    const aliasBin = path.join(tmpDir, "bin-alias");
+    fs.mkdirSync(aliasBin, { recursive: true });
+    fs.symlinkSync(running, path.join(aliasBin, "devrouter"));
+
+    const check = buildCliPathCheck({
+      pathValue: [realBin, aliasBin].join(path.delimiter),
+      runningEntry: running,
+      runningVersion: "0.0.79",
+      probeVersion: () => "0.0.79",
+    });
+
+    expect(check.level).toBe("ok");
+    expect(check.details).toContain(realBin);
+    expect(check.details).not.toContain(aliasBin);
+  });
+
+  it("reports when no devrouter executable is on PATH", () => {
+    const emptyBin = path.join(tmpDir, "bin-empty");
+    fs.mkdirSync(emptyBin, { recursive: true });
+
+    const check = buildCliPathCheck({
+      pathValue: emptyBin,
+      runningVersion: "0.0.79",
+      probeVersion: () => undefined,
+    });
+
+    expect(check).toMatchObject({ id: "global.cli-path", level: "ok" });
+    expect(check.summary).toBe("No devrouter executable is on PATH.");
   });
 });

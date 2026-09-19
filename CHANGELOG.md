@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `devrouter doctor` compares every `devrouter` executable on PATH with the
+  running CLI (`global.cli-path`). It warns when another install is newer than
+  the CLI that is diagnosing, or when the shell-resolved install differs, so a
+  stale binary cannot silently run other lifecycle rules against state a newer
+  version wrote. The comparison is read-only, names each install's version and
+  path, and is skipped for unstamped source builds.
+
 ## [0.0.79] - 2026-09-19
 
 ### Added
