@@ -13,6 +13,16 @@ All notable changes to this project are documented in this file.
   platform entrypoint ports and must keep running while the dependency can move
   to a devrouter TCP protocol route.
 
+- Managed `ensure` accepts a devnet upstream served by any Compose project
+  owned by the exact worktree, such as a workspace-local dependency overlay kept
+  outside `.devcontainer`. Previously every upstream alias had to come from the
+  managed overlay, so a repository that serves a declared alias from its own
+  dependency Compose project failed preflight with `Container '<id>' does not
+  belong to the exact worktree` even though the container did belong to that
+  checkout. The workspace app container keeps the strict overlay proof, and a
+  container owned by a different worktree or by a shared project outside the
+  checkout is still rejected.
+
 ### Added
 
 - `devrouter doctor` compares every `devrouter` executable on PATH with the

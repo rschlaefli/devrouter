@@ -765,6 +765,27 @@ consumer-binding remediation and the absence of the stop-the-holder wording in
 both the ensure refusal and the doctor check, and the existing foreign-holder,
 standalone-holder and attribution tests stay unchanged.
 
+### Worktree-owned upstream acceptance (delivered)
+
+An unmerged draft, PR #101, carried a bounded `ensure` acceptance fix with a
+stale 0.0.79 release commit on top. The source change is rebased onto current
+main without the release artifacts: a linked managed checkout may serve a
+declared devnet upstream from any Compose project owned by the exact worktree,
+not only the `.devcontainer` overlay `ensure` drives. The workspace app
+container keeps the strict overlay proof, and containers owned by another
+worktree or by a shared project outside the checkout are still refused with the
+existing message.
+
+Existing paths: `src/core/workspace-ensure.ts` (`assertWorktreeOwnership`
+replaces `assertOverlay` for linked-upstream aliases; one writer, no new
+module), `src/core/__tests__/workspace-ensure.test.ts`, `docs/DEVCONTAINER.md`,
+`docs/knowledge/managed-environment-lifecycle.md`, `CHANGELOG.md`. Portfolio:
+readiness and preparation row, refusal/progress row for the unchanged app
+container proof. Acceptance: the new same-worktree dependency-overlay case
+passes, a foreign-worktree upstream still refuses, and the existing overlay,
+alias and mount refusals are unchanged. The superseded draft is closed with a
+comment pointing at this landed change.
+
 ### Active diagnostic deltas
 
 Main owns `src/core/workspace-ensure.ts`, its existing test suite, the affected failure-rule paragraph in `docs/knowledge/managed-environment-lifecycle.md`, and the unreleased changelog entry. Add fixed
