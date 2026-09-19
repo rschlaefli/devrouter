@@ -550,6 +550,38 @@ legacy `ensure` still starts and stops normally. That residual history gap
 belongs to the lost-identity/history reconciliation slice; the qualification
 neither cleared nor repaired it.
 
+### 0.0.79 release and consumer dogfood (delivered)
+
+PR #100 merged to `main` as `d34b9c8` after CI run 35467954321 passed on the
+release head; [v0.0.79](https://github.com/rschlaefli/devrouter/releases/tag/v0.0.79)
+was published through the repository workflow (run 35468199788), and the registry
+serves `@devrouter/cli@0.0.79` with `latest` moved. This patch release ships the
+delivered reliability contracts. The 0.1.0 milestone keeps its full-roadmap
+terminal condition, so harness enforcement (W9), consumer and harness breadth
+(M2–M3), production park/resume enrollment and lost-history reconciliation stay
+open.
+
+Two global installs exist on this host and both now resolve to 0.0.79: the
+Homebrew npm prefix `/opt/homebrew/lib/node_modules/@devrouter/cli`, which is
+first on the default PATH, and the Volta image prefix. The stale Homebrew install
+resolved the consumer's first stop attempt to 0.0.77, which refused correctly for
+its older proof. Upgrade both prefixes after a release and check `devrouter -V`
+from the consumer checkout, because a repository Volta pin changes PATH
+resolution and can hide a stale install.
+
+Consumer dogfood used the recorded pruned-population case
+`/Users/rschlae/Git/klicker/klicker-uzh/trees/rs/custom-chat-modes` (journal
+`7b441a9e…`, `desired: stopped-by-user`, phase `stopping`, nine baselined
+containers, Devsy registration surviving with `uid default-rs-01923` on pinned
+endpoint `unix:///Users/rschlae/.orbstack/run/docker.sock`, daemon `ded85e46…`).
+`devrouter stop` on the released CLI settled it as proven-absent: `stopped: true`,
+`runtimeAbsent: true`, six routes freed, journal now `idle` with `stopProof
+{ workloadsStopped: true, routesRemoved: true }` written by 0.0.79, no workspace
+reference left in the Traefik dynamic file or host-route state, zero live routers,
+and `devrouter workspace ls` reporting `present devpod:owned 0 route(s)` with
+`Runtime status stopped`. No consumer container, volume, worktree or staged
+change was touched, and the citation checkout was neither inspected nor modified.
+
 ### Active diagnostic deltas
 
 Main owns `src/core/workspace-ensure.ts`, its existing test suite, the affected failure-rule paragraph in `docs/knowledge/managed-environment-lifecycle.md`, and the unreleased changelog entry. Add fixed
