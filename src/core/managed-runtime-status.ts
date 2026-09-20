@@ -1,6 +1,7 @@
 import type {
   DevrouterConfig,
   DevrouterProfile,
+  ManagedMountNesting,
   ManagedReliabilityReason,
   ManagedReliabilityStatus,
   ManagedRuntimeResourceStatus,
@@ -18,6 +19,7 @@ import {
   workspaceAppContainers,
 } from "./devpod-environment";
 import { listHostRouteState } from "./host-routes";
+import { observeManagedMountNesting } from "./managed-mount-nesting";
 import { runManagedProcessAction } from "./managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
 import { readReliabilityOperation } from "./reliability-operation-store";
@@ -147,6 +149,7 @@ type RuntimeInspection = {
   activeServices: string[];
   activeProcesses: string[];
   drift: string[];
+  mountNesting?: ManagedMountNesting;
 };
 
 const EMPTY_RESOURCES = {
@@ -421,6 +424,11 @@ function inspectManagedRuntime(options: {
     (mount) => mount.Type === "bind" && sameWorkspacePath(mount.Source, repoPath),
   )?.Destination;
   const primaryActive = Boolean(primary?.state.Running);
+  // The nested-mount observation is read from the container's own namespace, so
+  // it is only attempted while the exact primary container is running. It stays
+  // outside `drift`: an unwound mount is reported to the operator and never
+  // blocks lifecycle admission.
+  const mountNesting = primary && primaryActive ? observeManagedMountNesting(primary) : undefined;
   if (generatedConfigMissing && (state || primaryActive || managedServicesActive)) {
     drift.push("managed generated Dev Container configuration is missing");
   }
@@ -500,6 +508,7 @@ function inspectManagedRuntime(options: {
     activeServices: sortedUnique(activeServices),
     activeProcesses: sortedUnique(activeProcesses),
     drift,
+    ...(mountNesting ? { mountNesting } : {}),
   };
 }
 
@@ -705,6 +714,7 @@ export function collectManagedRuntimeStatus(options: {
     baseServiceStatuses: inspection.baseStatuses,
     processStatuses: inspection.processStatuses,
     drift: sortedUnique(drift),
+    ...(inspection.mountNesting ? { mountNesting: inspection.mountNesting } : {}),
     ...(inspection.plan?.sourceConfigSha256 || state?.sourceConfigSha256
       ? { sourceConfigSha256: inspection.plan?.sourceConfigSha256 ?? state?.sourceConfigSha256 }
       : {}),

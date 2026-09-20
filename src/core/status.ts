@@ -177,6 +177,11 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
     nextSteps.push(`Run: dev app ls --repo ${repo.path}`);
     nextSteps.push("Run: dev app run <name> --repo <path> --yes");
     nextSteps.push("Run: dev ls");
+    if (repo.managedRuntime?.mountNesting?.status === "unwound") {
+      nextSteps.push(
+        `Run: devrouter stop ${repo.path} and then devrouter ensure ${repo.path} to re-apply the unwound nested mount`,
+      );
+    }
   }
 
   const files = getRouterFileLayout();
