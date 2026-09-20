@@ -5,10 +5,11 @@ Status: source correction verified on draft PR #121; publication and release pen
 `CapacityStore` fenced a replacement snapshot with `dev:ino`, the identity of the
 file it read last, so a caller that had already read one revision could still
 mutate a store whose snapshot had been deleted and recreated when the filesystem
-reused the inode number. CI reproduced the reuse: the ordinary push run passed at
-one revision while the loaded dispatch run failed `fences a replacement that
-reuses the revision a caller already read` with "expected function to throw an
-error, but it didn't".
+reused the inode number. CI reproduced the reuse twice: the loaded dispatch run
+at `7467786` on PR #121 and the docs-only run at `c281acc` on PR #120 both failed
+`fences a replacement that reuses the revision a caller already read` with
+expected function to throw an error, but it didn't, while the ordinary push run
+at the same source revision passed.
 
 Identity now carries a SHA-256 digest of the exact snapshot bytes next to the
 device and inode, so a replacement is fenced by what the snapshot contains. The
