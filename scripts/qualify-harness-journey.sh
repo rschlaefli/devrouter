@@ -53,6 +53,13 @@
 #               this script aims at the gate. The command must not run and the
 #               identical re-delivery must refuse against whatever the cancelled
 #               call recorded.
+#   redirect  - a settled call's own id is re-delivered with a different command,
+#               so a redirected or superseded call must not run under the original
+#               grant. The harness leg records whether the client even delivers a
+#               repeated id; the direct probes pin the product boundary itself,
+#               because the granted id with a changed payload must refuse and the
+#               same command under a fresh id must be allowed once the checkout is
+#               settled.
 #   hook-timeout - the harness's own hook timeout is deliberately set below the
 #               wait budget, so the harness abandons the gating hook before it
 #               decides. The cell records whether the harness then ran the call
@@ -140,6 +147,7 @@ write_evidence() {
       "concurrent",
       "nested",
       "cancelled",
+      "redirect",
       "hook-timeout",
     ].map((name) => {
       let asserted = null;
@@ -241,6 +249,7 @@ start_mock() {
   DR_MOCK_PORT="$PORT" DR_MOCK_TRACE="$trace" DR_MOCK_TOOL_COMMAND="$tool_command" \
     DR_MOCK_TOOL_MATCH="$tool_match" DR_MOCK_TOOL_COMMAND_2="$second_command" \
     DR_MOCK_NESTED="${DR_MOCK_NESTED:-}" DR_MOCK_FLIP="${DR_MOCK_FLIP:-}" \
+    DR_MOCK_TOOL_ID="${DR_MOCK_TOOL_ID:-}" DR_MOCK_REDIRECT="${DR_MOCK_REDIRECT:-}" \
     "$NODE" "$MOCK" >> "$WORK/mock.log" 2>&1 &
   MOCK_PID=$!
   for _ in $(seq 1 60); do
@@ -461,7 +470,13 @@ const port = Number(process.env.DR_MOCK_PORT ?? 8791);
 const trace = process.env.DR_MOCK_TRACE;
 const toolCommand = process.env.DR_MOCK_TOOL_COMMAND;
 const secondCommand = process.env.DR_MOCK_TOOL_COMMAND_2 ?? "";
+// The redirect scenario re-delivers the settled call's own id with a different
+// command, so its two scripted calls carry one fixed id instead of the
+// per-request id this mock otherwise derives.
+const toolId = process.env.DR_MOCK_TOOL_ID ?? "";
+const redirectCommand = process.env.DR_MOCK_REDIRECT ?? "";
 let requests = 0;
+let redirectTurns = 0;
 // A scenario may script a tool the harness advertises instead of a shell
 // command. The request carries the harness's own tool list, so the name is read
 // from there rather than guessed per client. Codex advertises an MCP server as a
@@ -529,7 +544,9 @@ http
           hasError: !/Process exited with code 0/.test(String(item.output ?? "")),
           text: String(item.output ?? "").slice(0, 400),
         }));
-      const kind = toolResults.length > 0 ? "message" : "tool_call";
+      const redirectFirst = redirectCommand !== "" && redirectTurns === 0;
+      const redirectReplay = redirectCommand !== "" && redirectTurns === 1 && toolResults.length > 0;
+      const kind = redirectFirst || redirectReplay ? "tool_call" : toolResults.length > 0 ? "message" : "tool_call";
       const response = {
         id: "resp_" + requests,
         object: "response",
@@ -547,12 +564,15 @@ http
         // processes overlap the same gate. Every other scenario scripts one.
         const commands = scripted
           ? [null]
-          : [toolCommand, secondCommand].filter((value) => value !== "");
+          : redirectReplay
+            ? [redirectCommand]
+            : [toolCommand, secondCommand].filter((value) => value !== "");
+        if (redirectFirst || redirectReplay) redirectTurns += 1;
         const calls = commands.map((command, index) => {
           const item = {
             type: "function_call",
             id: "fc_" + requests + "_" + index + "_" + runId,
-            call_id: "call_" + requests + "_" + index + "_" + runId,
+            call_id: toolId || "call_" + requests + "_" + index + "_" + runId,
             name: scripted ? scripted.name : "exec_command",
             ...(scripted?.namespace ? { namespace: scripted.namespace } : {}),
             arguments: "",
@@ -653,6 +673,10 @@ const port = Number(process.env.DR_MOCK_PORT ?? 8791);
 const trace = process.env.DR_MOCK_TRACE;
 const toolCommand = process.env.DR_MOCK_TOOL_COMMAND;
 const secondCommand = process.env.DR_MOCK_TOOL_COMMAND_2 ?? "";
+// The redirect scenario re-delivers the settled call's own id with a different
+// command, so its two scripted calls carry one fixed id instead of random ones.
+const toolId = process.env.DR_MOCK_TOOL_ID ?? "";
+const redirectCommand = process.env.DR_MOCK_REDIRECT ?? "";
 // The nested scenario scripts a subagent that runs two shell calls, and it
 // flips the checkout to a transitional phase immediately before the second one,
 // so the refusal cannot race the call it refuses. The subagent is the request
@@ -661,6 +685,7 @@ const secondCommand = process.env.DR_MOCK_TOOL_COMMAND_2 ?? "";
 const nested = process.env.DR_MOCK_NESTED === "1";
 const flip = process.env.DR_MOCK_FLIP ? JSON.parse(process.env.DR_MOCK_FLIP) : null;
 let toolTurns = 0;
+let redirectTurns = 0;
 let firstSystem;
 let nestedCalls = 0;
 
@@ -673,7 +698,7 @@ function callMessage(id, model, tool) {
     content: [
       {
         type: "tool_use",
-        id: "toolu_" + Math.random().toString(36).slice(2, 10),
+        id: toolId || "toolu_" + Math.random().toString(36).slice(2, 10),
         name: tool.name,
         input: tool.input,
       },
@@ -820,6 +845,20 @@ http
         } else {
           message = { id, type: "message", role: "assistant", model, content: [{ type: "text", text: "JOURNEY-DONE" }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } };
         }
+      } else if (redirectCommand && redirectTurns === 0) {
+        // The first call waits on a transitional checkout and is granted once it
+        // settles; the second repeats that call's id under a changed command.
+        redirectTurns = 1;
+        message = callMessage(id, model, {
+          name: "Bash",
+          input: { command: toolCommand, description: "journey" },
+        });
+      } else if (redirectCommand && redirectTurns === 1) {
+        redirectTurns = 2;
+        message = callMessage(id, model, {
+          name: "Bash",
+          input: { command: redirectCommand, description: "journey" },
+        });
       } else if (summary.toolResults.length > 0 || toolTurns >= 1) {
         message = { id, type: "message", role: "assistant", model, content: [{ type: "text", text: "JOURNEY-DONE" }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } };
       } else {
@@ -1106,6 +1145,108 @@ if (mode === "cancelled") {
         continuation: replay.continuation ?? null,
       },
       checkoutsClean: dirtyAffected === "",
+      failures,
+    }),
+  );
+  if (failures.length) process.exit(1);
+  process.exit(0);
+}
+
+// A settled grant belongs to the call it decided. Re-delivering that call's own
+// id under a different command must refuse instead of running on the earlier
+// grant, while the same command under a fresh id is still allowed once the
+// checkout is settled. Whether the client itself delivers a repeated id is
+// recorded rather than required, so the cell keeps the harness's own behavior
+// visible and pins the product boundary with the two direct probes either way.
+if (mode === "redirect") {
+  const redirectLedger = readJson("ledger-" + label + ".json") ?? {};
+  const settled = Array.isArray(redirectLedger.entries) ? redirectLedger.entries : [];
+  const deliveries = read("hook-payload-" + label + ".json.records")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  const grantedId =
+    deliveries.find((record) => typeof record.tool_use_id === "string" && record.tool_use_id !== "")
+      ?.tool_use_id ??
+    payload.tool_use_id ??
+    "";
+  const repeated = deliveries.filter((record) => record.tool_use_id === grantedId);
+  const deliveredCommands = [
+    ...new Set(repeated.map((record) => record.tool_input?.command ?? record.tool_input?.cmd ?? "")),
+  ];
+  const replayProbe = readJson("redirect-probe-replay.json") ?? {};
+  const allowProbe = readJson("redirect-probe-allow.json") ?? {};
+  const harnessExit = Number.parseInt(read("redirect-exit.txt").trim(), 10);
+  const markerLines = marker.trim() === "" ? [] : marker.trim().split("\n");
+  const claims = settled.filter((entry) => entry.toolUseId === grantedId);
+  const refusals = hookLines
+    .map((line) => JSON.parse(line.split("\t")[2] ?? "{}").hookSpecificOutput ?? {})
+    .map((output) => output.permissionDecisionReason ?? output.additionalContext ?? "")
+    .filter((text) => /not re-evaluated/.test(text));
+  check(Number.isSafeInteger(harnessExit), "the harness exit status was not recorded");
+  check(grantedId !== "", "the gate never received the call the redirect repeats");
+  check(repeated.length >= 1, "the harness delivered no payload for the granted id");
+  check(claims.length === 1, "the granted id recorded " + claims.length + " continuations");
+  check(claims[0]?.state === "granted", "the granted id settled as " + claims[0]?.state);
+  check(Number(claims[0]?.waitedMs) >= 1000, "the granted wait was " + claims[0]?.waitedMs + "ms");
+  check(replayProbe.decision === "refuse", "the changed command decided " + replayProbe.decision);
+  check(replayProbe.reason === "continuation-replay", "the changed command reason was " + replayProbe.reason);
+  check(
+    replayProbe.continuation?.state === "granted",
+    "the changed command reported " + replayProbe.continuation?.state,
+  );
+  check(
+    real(replayProbe.checkout ?? "") === real(affected),
+    "the changed command ran against " + replayProbe.checkout,
+  );
+  check(allowProbe.decision === "allow", "the fresh id decided " + allowProbe.decision);
+  check(allowProbe.reason === "settled", "the fresh id reported " + allowProbe.reason);
+  check(allowProbe.observedPhase === "stable", "the fresh id observed " + allowProbe.observedPhase);
+  check(!markerLines.includes("REDIRECTED"), "the changed command ran: " + JSON.stringify(marker));
+  check(executed, "the granted call never ran");
+  check(dirtyAffected === "", "the redirect checkout was modified: " + dirtyAffected);
+  check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeighbour);
+  check(affectedAfter.phase === "stable", "the redirect checkout left phase " + affectedAfter.phase);
+  // The client asked the model for the second call, so a run that never reached
+  // it failed before the observation could be made.
+  check(requests.length >= 2, "the harness made " + requests.length + " model request(s), so the repeated call was never reached");
+  // When the client really re-delivered the settled id under a changed command,
+  // that delivery must be the recorded refusal and must not have run.
+  const redirected = repeated.length >= 2 && deliveredCommands.length >= 2;
+  if (redirected) {
+    check(refusals.length >= 1, "the repeated id was delivered but never refused as a settled call");
+    check(
+      denials.some((denial) => /REDIRECTED/.test(denial.tool_input?.command ?? denial.tool_input?.cmd ?? "")),
+      "the harness did not deny the repeated id: " + JSON.stringify(denials),
+    );
+  }
+  console.log(
+    JSON.stringify({
+      scenario: mode,
+      label,
+      harness,
+      harnessExit,
+      harnessTerminalReason: transcript.terminal_reason ?? null,
+      grantedId,
+      modelRequests: requests.length,
+      deliveredForGrantedId: repeated.length,
+      deliveredCommands,
+      clientRedelivered: redirected,
+      grantedClaim: claims[0] ?? null,
+      changedCommandProbe: {
+        decision: replayProbe.decision,
+        reason: replayProbe.reason,
+        continuation: replayProbe.continuation ?? null,
+      },
+      freshIdProbe: {
+        decision: allowProbe.decision,
+        reason: allowProbe.reason,
+        observedPhase: allowProbe.observedPhase,
+      },
+      toolExecuted: executed,
+      redirected: markerLines.includes("REDIRECTED"),
+      checkoutsClean: dirtyAffected === "" && dirtyNeighbour === "",
       failures,
     }),
   );
@@ -1905,6 +2046,148 @@ run_cancelled_scenario() {
   cat "$WORK/assert-$label.json"
 }
 
+# A client can re-deliver a settled call's own id under a changed command, which
+# would run a redirected or superseded call on the earlier grant. The harness leg
+# records what the client actually delivers; the two direct probes pin the
+# product boundary, because the granted id with a changed command must refuse as
+# a continuation replay and the same command under a fresh id must be allowed
+# once the checkout is settled.
+run_redirect_scenario() {
+  local label="redirect"
+  local probe="$WORK/probe-$label.marker"
+  local probe_command="echo GATE-OK >> $probe"
+  local redirect_command="echo REDIRECTED >> $probe"
+  local trace="$WORK/api-requests-$label.jsonl"
+  local gated="$AFFECTED"
+  local budget=30000
+  local tool_id="toolu_journey_redirect"
+  local harness_tool="Bash"
+  if [ "$HARNESS" = "codex" ]; then
+    tool_id="call_journey_redirect"
+    harness_tool="exec_command"
+  fi
+
+  rm -f "$probe" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
+    "$WORK/hook-payload-$label.json" "$WORK/hook-payload-$label.json.records" \
+    "$WORK/redirect-exit.txt" "$WORK/redirect-probe-replay.json" "$WORK/redirect-probe-allow.json"
+
+  journal "$NEIGHBOUR" set stable >/dev/null
+  journal "$AFFECTED" set starting >/dev/null
+  journal "$AFFECTED" show > "$WORK/affected-before-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-before-$label.json"
+
+  # The mock scripts one id twice: the first call waits on the transitional
+  # checkout and is granted once it settles, the second repeats that id under a
+  # different command.
+  DR_MOCK_TOOL_ID="$tool_id" DR_MOCK_REDIRECT="$redirect_command" \
+    start_mock "$probe_command" "$trace"
+
+  # The gate announces its wait on stderr; settle the checkout three seconds
+  # after that announcement, so the first call is granted on a real transition
+  # and the repeated one arrives against a settled checkout.
+  (
+    for _ in $(seq 1 240); do
+      [ -s "$WORK/hook-gate-$label.log.err" ] && break
+      sleep 0.25
+    done
+    sleep 3
+    journal "$AFFECTED" set stable >/dev/null
+  ) &
+  local settle_pid=$!
+
+  # The client's own handling of a repeated id is this cell's observation, not
+  # its assertion, so a harness failure is recorded rather than treated as the
+  # result; the direct probes below decide the product boundary.
+  local started_ms ended_ms exit_code
+  started_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+  set +e
+  if [ "$HARNESS" = "codex" ]; then
+    (
+      cd "$gated" &&
+        HOME="$HOME_DIR" CODEX_HOME="$HOME_DIR" JOURNEY_API_KEY=journey \
+        DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        "$CODEX" exec --skip-git-repo-check --sandbox workspace-write -C "$gated" \
+          --dangerously-bypass-hook-trust \
+          "Run exactly this command with the shell tool, then stop: $probe_command" \
+          < /dev/null > "$WORK/codex-$label.out" 2> "$WORK/codex-$label.err"
+    )
+  else
+    (
+      cd "$gated" &&
+        HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+        "$CLAUDE" -p "Run exactly this command with the Bash tool, then stop: $probe_command" \
+          --output-format json --max-turns 4 --allowedTools "Bash(echo:*)" \
+          --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+    )
+  fi
+  exit_code=$?
+  set -e
+  printf '%s' "$exit_code" > "$WORK/redirect-exit.txt"
+  wait "$settle_pid" || true
+  ended_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+  if [ "$HARNESS" = "codex" ]; then
+    DR_CODEX_EXIT="$exit_code" DR_CODEX_STARTED_MS="$started_ms" DR_CODEX_ENDED_MS="$ended_ms" \
+      "$NODE" "$CODEX_SUMMARY" "$WORK" "$label" > "$WORK/codex-$label.json"
+  fi
+
+  # A client can stop waiting for its hook before the hook settles, so the
+  # granted claim is read only once it carries a settlement.
+  wait_for_ledger_settlement "$gated" "$label" 40
+
+  journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
+  journal "$gated" ledger > "$WORK/ledger-$label.json"
+  git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
+  git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
+
+  # Both direct probes re-enter the gate with the recorded delivery's own field
+  # names and checkout, so only the id and the command differ between them.
+  DR_PROBE_SOURCE="$WORK/hook-payload-$label.json" \
+    DR_PROBE_REPLAY="$WORK/redirect-probe-replay-payload.json" \
+    DR_PROBE_ALLOW="$WORK/redirect-probe-allow-payload.json" \
+    DR_PROBE_TOOL_ID="$tool_id" DR_PROBE_FRESH_ID="${tool_id}-fresh" \
+    DR_PROBE_COMMAND="$redirect_command" DR_PROBE_CWD="$AFFECTED" \
+    DR_PROBE_TOOL_NAME="$harness_tool" \
+    "$NODE" -e '
+      const fs = require("node:fs");
+      const fallback = () => ({
+        hook_event_name: "PreToolUse",
+        tool_name: process.env.DR_PROBE_TOOL_NAME,
+        tool_input: {},
+        cwd: process.env.DR_PROBE_CWD,
+        tool_use_id: process.env.DR_PROBE_TOOL_ID,
+      });
+      let payload = fallback();
+      try {
+        payload = JSON.parse(fs.readFileSync(process.env.DR_PROBE_SOURCE, "utf8"));
+      } catch {
+        payload = fallback();
+      }
+      const toolInput = { ...(payload.tool_input ?? {}) };
+      // Claude Code spells the shell command "command"; the Codex CLI spells the
+      // same field "cmd". The probe rewrites whichever key the harness used.
+      if ("cmd" in toolInput) toolInput.cmd = process.env.DR_PROBE_COMMAND;
+      else toolInput.command = process.env.DR_PROBE_COMMAND;
+      const changed = { ...payload, tool_input: toolInput };
+      fs.writeFileSync(process.env.DR_PROBE_REPLAY, JSON.stringify(changed));
+      fs.writeFileSync(
+        process.env.DR_PROBE_ALLOW,
+        JSON.stringify({ ...changed, tool_use_id: process.env.DR_PROBE_FRESH_ID }),
+      );
+    '
+  HOME="$HOME_DIR" "$NODE" "$DIST" harness gate --json --wait-budget-ms 1000 \
+    < "$WORK/redirect-probe-replay-payload.json" > "$WORK/redirect-probe-replay.json" 2> "$WORK/redirect-probe-replay.err" || FAILED=1
+  HOME="$HOME_DIR" "$NODE" "$DIST" harness gate --json --wait-budget-ms 1000 \
+    < "$WORK/redirect-probe-allow-payload.json" > "$WORK/redirect-probe-allow.json" 2> "$WORK/redirect-probe-allow.err" || FAILED=1
+
+  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
+    "$NEIGHBOUR" "$probe_command" "$HARNESS" > "$WORK/assert-$label.json" || FAILED=1
+  cat "$WORK/assert-$label.json"
+}
+
 # The harness's hook timeout bounds how long it waits for the gate, so a timeout
 # below the wait budget abandons the gating hook before it decides. Nothing here
 # interrupts the run: the harness's own timeout does. The assertion records what
@@ -2335,7 +2618,9 @@ else
 fi
 echo "--- scenario 10: cancelling the harness mid-wait leaves the call unexecuted and refused on resend"
 run_cancelled_scenario
-echo "--- scenario 11: a hook timeout below the wait budget abandons the gating hook"
+echo "--- scenario 11: a settled grant is refused when its id returns under a changed command"
+run_redirect_scenario
+echo "--- scenario 12: a hook timeout below the wait budget abandons the gating hook"
 run_hook_timeout_scenario
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
