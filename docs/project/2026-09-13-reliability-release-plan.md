@@ -3128,6 +3128,36 @@ cancellation/replay observation, and RF08/RF09's live fault matrix stay open.
 Merging PR #121, releasing the corrected revision and republishing the installed
 CLI remain separate authorized actions.
 
+#### Live harness journey evidence (2026-09-20)
+
+`scripts/qualify-harness-journey.sh` was run with Claude Code 2.1.278 against its
+own local mock model, so no credentials, provider access or model spend were
+involved. Three runs: one against the untouched `7765c14` build and two against
+the corrected `05f8c0c` build. Each run creates its own temporary fixture
+checkouts and `HOME`, and touched no live workspace or journal.
+
+| Scenario | `7765c14` | `05f8c0c` run 1 | `05f8c0c` run 2 |
+| --- | --- | --- | --- |
+| deferral | pass | harness produced no tool call | pass |
+| refusal | pass | pass | pass |
+| neighbour | 1 failure | 1 failure | 1 failure |
+
+Both gate-relevant scenarios pass on the corrected revision: the deferred call
+ran once after a 6.0 s enforced wait and reported `settled-after-wait`, and the
+refusal was delivered as exactly one denial whose tool never executed. Run 1's
+deferral failure produced a one-turn, 70 ms transcript with no hook payload at
+all, so the gate was never reached; it did not reproduce on the second run. That
+harness-startup flake belongs to RF13's durable-proof work rather than to this
+package.
+
+The neighbour scenario fails the same assertion on both revisions — "the gate
+keyed `<harness>/<sha>.json` instead of the gated checkout" — so it is a
+pre-existing journey-script defect, not a regression from this package. The cell
+cannot count as qualified until its owner disposes of that discrepancy.
+
+The Codex journey has not been run against the corrected revision, so the
+two-harness confirmation RF03 asks for stays partially open.
+
 #### Qualification, operator and consumer follow-up
 
 All entries remain open unless their status explicitly says investigation.
