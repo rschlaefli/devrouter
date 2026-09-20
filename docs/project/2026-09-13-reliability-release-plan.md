@@ -2836,8 +2836,13 @@ Open or partial rows and what they mean for the release claim:
   harnesses re-delivered the call's own id under a changed command, the gate
   refused it as `continuation-replay` against the recorded `granted` state, the
   changed command never ran, and the same command under a fresh id was allowed
-  once the checkout was settled. Only a runtime-dependent browser or MCP tool
-  stays open.
+  once the checkout was settled. A runtime-dependent MCP tool is qualified too:
+  the journey's opt-in `runtime-tool` cell starts a disposable managed
+  devcontainer, refuses the call while that start is transitional, allows it once
+  the checkout is settled while checking the delivered value against the value
+  the runner reads back from the container, and lets the tool fail once the
+  runtime is stopped instead of fabricating a result. The gate decides on the
+  checkout's phase rather than on which client exposes the tool.
 - Q07 and Q08 are not applicable as OOM questions because no OOM classifier
   exists; the underlying requirements are carried by the headroom, dwell and
   admission contracts above and by process-absence evidence.
