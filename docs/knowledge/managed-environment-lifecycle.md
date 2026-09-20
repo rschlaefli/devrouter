@@ -456,15 +456,18 @@ evidence with fixed `MANAGED_REPAIR_BASELINE_MISMATCH` reason codes. Unreadable
 generated evidence remains unavailable; no configuration values or fingerprints
 are included in these codes.
 
-A valid baseline also permits stop for a ledger-owned linked checkout with missing
-registration when every saved ID is positively absent on the saved daemon and
+A valid baseline also permits stop for a checkout whose registration has
+disappeared when every saved ID is positively absent on the saved daemon and
 project, directory and provider-runner populations are empty. Fresh checks of both
-registries, present Git ownership and the retained generation bracket that proof.
-The absent result does not report a provider mutation. Route cleanup revalidates
-under the provider lock; retries and final settlement independently prove live
-absence of retained desired app router names across both protocols. Routes outside
-that retained set prevent cleanup. The baseline and interrupted history remain.
-This exception does not apply to primary checkouts or legacy records.
+registries and the retained generation bracket that proof. A linked checkout
+proves identity through its ownership record plus present Git ownership; a primary
+checkout has no ownership record by construction, so its retained generation's own
+checkout path and provider identity are the equivalent evidence. The absent result
+does not report a provider mutation. Route cleanup revalidates under the provider
+lock; retries and final settlement independently prove live absence of retained
+desired app router names across both protocols. Routes outside that retained set
+prevent cleanup. The baseline and interrupted history remain. Legacy records
+without a baseline stay outside this proof.
 
 A failed startup before registration also permits canonical stop for a present
 ledger-owned linked managed Devsy checkout without retained state. Two observations
@@ -479,7 +482,8 @@ opt-in read of every local legacy context under `DEVPOD_HOME` (default `~/.devpo
 proves absence without installing it. Missing or empty registries are accepted;
 unreadable, partial, malformed, symlinked, or changing evidence is refused.
 The stop reports `runtimeAbsent: true` without a provider mutation.
-Primary, unowned and registered workspaces retain their existing stop paths.
+This no-baseline exception stays linked-only; primary, unowned and registered
+workspaces keep their existing stop paths.
 
 For retained managed Devsy state without that baseline, reversible stop proves the complete captured
 Compose population under the workspace and provider locks. Provider and primary
