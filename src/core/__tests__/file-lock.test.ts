@@ -253,19 +253,28 @@ describe("file lock ownership", () => {
   it("reports a stable queue position while an earlier fair waiter leads", () => {
     const progress: LockWaitProgress[] = [];
     withFileLockSync(lockPath, { activity: "outer" }, () => {
-      expect(() =>
-        withFileLockSync(
-          lockPath,
-          {
-            activity: "inner",
-            fair: true,
-            waitMs: 80,
-            progressIntervalMs: 20,
-            onWait: (item) => progress.push(item),
-          },
-          () => undefined,
-        ),
-      ).toThrow();
+      // Drive the wait budget from a mocked clock. A real progress interval can
+      // expire before the first poll callback runs, which made this assertion
+      // depend on host scheduling instead of the reported queue position.
+      let now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => (now += 10));
+      try {
+        expect(() =>
+          withFileLockSync(
+            lockPath,
+            {
+              activity: "inner",
+              fair: true,
+              waitMs: 500,
+              progressIntervalMs: 1,
+              onWait: (item) => progress.push(item),
+            },
+            () => undefined,
+          ),
+        ).toThrow();
+      } finally {
+        clock.mockRestore();
+      }
     });
 
     expect(progress.length).toBeGreaterThanOrEqual(1);
