@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomically } from "./atomic-file";
@@ -301,9 +302,10 @@ export class CapacityStore {
       const buffer = Buffer.alloc(MAX_BYTES + 1);
       const count = fs.readSync(descriptor, buffer, 0, buffer.length, 0);
       if (count > MAX_BYTES) throw new Error("Capacity reservation snapshot exceeds byte limit.");
-      const value: unknown = JSON.parse(buffer.subarray(0, count).toString("utf8"));
+      const bytes = buffer.subarray(0, count);
+      const value: unknown = JSON.parse(bytes.toString("utf8"));
       validate(value);
-      this.ledgerGeneration = `${stat.dev}:${stat.ino}`;
+      this.ledgerGeneration = this.generationIdentity(stat, bytes);
       if (value.revision < minimumRevision) return { kind: "stale", revision: value.revision };
       this.observedLedger = true;
       return { kind: "intact", revision: value.revision, snapshot: value };
@@ -371,20 +373,31 @@ export class CapacityStore {
   }
 
   private commit(snapshot: Snapshot): void {
-    this.write(this.file, serializeSnapshot(snapshot));
+    const contents = serializeSnapshot(snapshot);
+    this.write(this.file, contents);
     this.observedLedger = true;
-    this.rememberGeneration();
+    this.rememberGeneration(contents);
     this.establish();
   }
 
   /** Remember the published snapshot identity for the next generation fence. */
-  private rememberGeneration(): void {
+  private rememberGeneration(contents: string): void {
     try {
       const stat = fs.statSync(this.file);
-      this.ledgerGeneration = stat.isFile() ? `${stat.dev}:${stat.ino}` : undefined;
+      this.ledgerGeneration = stat.isFile() ? this.generationIdentity(stat, contents) : undefined;
     } catch {
       this.ledgerGeneration = undefined;
     }
+  }
+
+  /**
+   * File identity plus content digest. Deleting and recreating the snapshot can
+   * reuse its inode number, so the inode alone cannot fence a replacement that
+   * reuses a revision number.
+   */
+  private generationIdentity(stat: fs.Stats, contents: Buffer | string): string {
+    const digest = createHash("sha256").update(contents).digest("hex");
+    return `${stat.dev}:${stat.ino}:${digest}`;
   }
 
   /**

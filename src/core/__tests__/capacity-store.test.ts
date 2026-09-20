@@ -964,6 +964,21 @@ it("fences a replacement that reuses the revision a caller already read", () => 
   expect(() => store.mergeObservedPools([], revision)).toThrow(CapacitySnapshotChangedError);
 });
 
+it("fences a snapshot rewritten in place under the revision a caller already read", () => {
+  const { directory, store } = fixture();
+  const budgets = { host: budget, guest: budget };
+  const samples = { host: sample, guest: sample };
+  expect(store.reserve(request, budgets, samples, 100, 15, undefined, 0).admitted).toBe(true);
+  const ledger = path.join(directory, "capacity-reservations.json");
+  const revision = store.read().revision;
+  // A reused inode number survives delete and recreate, so the fence has to
+  // compare what the snapshot contains rather than only the file it landed in.
+  fs.writeFileSync(ledger, JSON.stringify({ version: 1, revision, reservations: [] }), {
+    mode: 0o600,
+  });
+  expect(() => store.mergeObservedPools([], revision)).toThrow(CapacitySnapshotChangedError);
+});
+
 it("records a durable loss witness without publishing a row", () => {
   const { directory } = fixture();
   const snapshot = path.join(directory, "capacity-reservations.json");
