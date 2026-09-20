@@ -137,8 +137,42 @@ and cleanup.
   flagged for maintainer review. This session runs the standard execution mode
   without an eligible subagent route, so no independent simplifier or
   final-review pass ran; main-session diff inspection stands in.
-- Delivery: standing implementation delivery — ordinary pushes of this
-  non-protected task branch and draft
+- Delivery: standing implementation delivery — ordinary pushes of the
+  non-protected task branch and a draft
   [PR #106](https://github.com/rschlaefli/devrouter/pull/106) with green CI on
-  `c7e8966`. Merge, release, publication, workspace start, and cleanup remain
-  withheld.
+  `c7e8966`. That PR merged to `main` as `7f53c74` on 2026-09-20T09:24:17Z.
+  The release commit shipped separately as
+  [PR #112](https://github.com/rschlaefli/devrouter/pull/112) (`ff91850`) with
+  CI runs 35502518731 and 35502674474 green, and GitHub release
+  [v0.0.80](https://github.com/rschlaefli/devrouter/releases/tag/v0.0.80)
+  published it at 09:34:13Z. That release event published
+  `@devrouter/cli@0.0.80` with provenance: run 35502687940 logs the npm OIDC
+  audience exchange and `Published package` at 09:37:34Z, and the registry
+  holds two attestation signatures whose subject digest matches
+  `dist.integrity`.
+- Registry propagation: the packument recorded 0.0.80 at 09:39:40Z while the
+  tarball only answered `200` at 09:43:51Z. During that gap `npm install`
+  failed with `E404` after `ETARGET`, and `volta install` reported the
+  version as absent from the package registry. The version was already
+  registered, so another publish would have been refused as a duplicate. Every
+  install below ran after the tarball was downloadable, and nothing was
+  unpublished.
+- Local adoption on this host: `devrouter` is installed three times — the
+  `~/.local` npm prefix, the volta package behind `~/.volta/bin`, and a stale
+  `npm install -g` copy inside volta's node image that `doctor`'s new
+  `global.cli-path` check flagged. All three moved to 0.0.80, and to 0.1.0
+  after that concurrent release published. `global.cli-path` now reports ok
+  with `~/.volta/tools/image/node/24.16.0/bin/devrouter=0.1.0,
+  ~/.volta/bin/devrouter=0.1.0, ~/.local/bin/devrouter=0.1.0` against running
+  version 0.1.0.
+- Live consumer check, read-only, against the `klicker-uzh` checkout whose
+  `.devrouter.yml` records 0.0.72: `devrouter -V` reports the installed CLI
+  version, that local repo version and the next upgrade target, and `doctor`
+  reports `global.devsy-agent` warn with `state=ready, source=host,
+  version=1.19.0, supported=>=1.16.2 <2.0.0` plus the `setup
+  --workspace-runtime devsy` suggestion. An in-range Devsy release is therefore
+  ready with a warning and nothing is injected. `setup` did not run, so no
+  manifest was recorded and no agent was downloaded.
+- Still withheld: the `setup --workspace-runtime devsy` adoption step stays a
+  user-run action, and the merged task branches and worktrees need separate
+  cleanup approval.
