@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/qualify-slow-dependency-recovery.sh` (`pnpm qualify:slow-dependency`)
+  produces the four dependency outcomes the reliability roadmap's Q06 row names
+  against a synthetic consumer: a dependency that becomes healthy only after
+  `DR_Q06_SLOW_SECONDS`, one that never becomes healthy on a cold start, the same
+  unhealthy dependency already running, and a dependency that has exited. It
+  asserts that a slow dependency is waited for rather than failed early, that a
+  dependency which never becomes healthy produces a bounded failure naming the
+  unhealthy container instead of an open-ended block, and that no outcome
+  recreates or restarts the dependency. Elapsed time, container identity and the
+  provider's verdict are printed as evidence.
+
 ## [0.1.0] - 2026-09-20
 
 ### Added

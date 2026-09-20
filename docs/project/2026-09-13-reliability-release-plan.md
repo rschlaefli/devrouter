@@ -2768,7 +2768,7 @@ two OOM-labelled rows are dispositioned as not applicable instead of unproven.
 | Q03 | `controller-http-readiness.test.ts` propagates cancellation instead of classifying it as an application failure and preserves the readiness status classification; `workspace-ensure.test.ts` carries captured ownership through final readiness under the provider lock | source | Proven at source |
 | Q04 | `reliability-recovery.test.ts` opens an incident when a required capability fails; `controller-monitor.test.ts` asks the operations owner to recover it | source | Proven at source |
 | Q05 | `reliability-model.test.ts` keeps consumers independently ready when another requires a failing capability; `controller-monitor.test.ts` stays idle for a capability outside the required set | source | Proven at source |
-| Q06 | `controller-monitor.test.ts` does not replace timed-out batches whose probes have not drained and keeps only two batches active; `capacity-accounting.test.ts` never extends a duration on read and ends a window at its wall-age boundary | source | Partial: deadline and grace are covered, a dependency that recovers slowly has no producing run |
+| Q06 | `controller-monitor.test.ts` does not replace timed-out batches whose probes have not drained and keeps only two batches active; `capacity-accounting.test.ts` never extends a duration on read and ends a window at its wall-age boundary; `scripts/qualify-slow-dependency-recovery.sh` produces the row's four provider outcomes against a synthetic consumer | source, live | Proven: the 2026-09-20 run waited 41.9s for a slow dependency, failed in 7.5s on a never-healthy one, left an unchanged unhealthy container untouched and started an exited one once, with RestartCount 0 throughout |
 | Q07 | none | - | Not applicable: no OOM classification exists; the equivalent mechanism is declared headroom plus dwell, covered under Q10 and Q12 |
 | Q08 | `controller-process-observation.test.ts` reports the probe's positive absence as a missing process and refuses ambiguous evidence; `reliability-recovery.test.ts` requires an incident and an allowance before acting | source | Not applicable as an OOM question; proven as process-absence evidence |
 | Q09 | `capacity-request.test.ts` rejects undersized default operation authority; `capacity-policy.test.ts` allows an allowance at the boundary and reserves it from runtime budgets | source | Proven at source |
@@ -2802,8 +2802,6 @@ two OOM-labelled rows are dispositioned as not applicable instead of unproven.
 
 Open or partial rows and what they mean for the release claim:
 
-- Q06 has no slow-recovery run. The deadline and the no-amplification contract are
-  covered at source, but the recovery behaviour itself is unmeasured.
 - Q20 has source coverage for clock discontinuity, sleep and grace resets, and no
   real host-suspend observation.
 - Q26 is half not applicable: resources are discovered from Docker and Git rather
@@ -2816,9 +2814,10 @@ Open or partial rows and what they mean for the release claim:
 
 Source rows prove the contract and its failure handling in this repository's
 suite and are not claims about an installed artifact. The installed and live
-columns carry the release's behavioural claim. Requalifying Q06, Q20 and Q30
-needs a bounded observation harness that does not exist yet, so they stay open
-rather than approximated.
+columns carry the release's behavioural claim. Q06 was requalified after the
+release by the slow-dependency fixture recorded below. Requalifying Q20 and Q30
+still needs a bounded observation harness that does not exist yet, so they stay
+open rather than approximated.
 
 ### Release 0.1.0 preparation (slice 7)
 
@@ -2892,3 +2891,41 @@ observation and the post-start liveness contract of its repository adapter. No
 recovery is claimed from this side: the pre-registration blocker stays closed
 only under the consumer's own live proof, and its staged merge and worktree Git
 state were not touched.
+### Slow and failing dependency lifecycle — Q06 live qualification (2026-09-20)
+
+Q06 was the one applicable acceptance row whose behavioural half stayed unmeasured
+at the 0.1.0 release: its deadline and no-amplification contracts were covered at
+source, but no run had produced a dependency that recovers slowly.
+`scripts/qualify-slow-dependency-recovery.sh` (`pnpm qualify:slow-dependency`)
+now produces the row's four outcomes against a synthetic consumer whose only
+dependency is a container the fixture itself controls, and it asserts the contract
+rather than only printing measurements.
+
+The 2026-09-20 run against the installed 0.1.0 CLI (fixture `devrouter-q06-fixture`,
+`DR_Q06_SLOW_SECONDS=40`, cap 90s, `failed: false`):
+
+- slow: the dependency became healthy only after the 40s budget. The start waited
+  and published the route after 41896ms with the dependency's `RestartCount` at 0,
+  so grace is honoured instead of failing early.
+- never: a dependency that never becomes healthy failed in 7548ms with the
+  provider's own verdict naming the unhealthy container, published no route and
+  left the container exactly as created — a bounded deadline with an actionable
+  message rather than an open-ended block.
+- unchanged: the same unhealthy dependency already running was not recreated; the
+  start reused container `4c7fb1544975` with its original start timestamp after
+  1403ms.
+- stopped: an exited dependency was started exactly once, with the same container
+  identity and a new start timestamp, and the wait ended in a bounded failure after
+  7507ms.
+- Across all four rounds the dependency's `RestartCount` stayed 0 and the route was
+  released by the fixture's own teardown, which is the row's no-amplification
+  evidence.
+
+Two observations are recorded rather than fixed. A start that waits for a slow
+dependency prints no progress line while it waits; the provider's output appears
+when the wait fails. And an already-running dependency is accepted on its running
+state alone, so a running-but-unhealthy dependency does not block the
+application's start. Neither changes an authority or a readiness claim: the route
+a start publishes is still proved by the application's own readiness contract, and
+the consumer that declares a dependency healthcheck owns what that healthcheck
+means.
