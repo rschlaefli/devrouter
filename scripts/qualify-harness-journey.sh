@@ -48,6 +48,11 @@
 #               settled, the fixture turns the checkout transitional before the
 #               second, and that call must be refused without running, so a
 #               nested call cannot bypass the gate protecting its checkout.
+#   cancelled - Claude Code only: the CLI itself is interrupted while its own
+#               hook waits, so the cancellation signal is the one the harness
+#               sends rather than one this script aims at the gate. The command
+#               must not run and the identical re-delivery must refuse against
+#               whatever the cancelled call recorded.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -128,6 +133,7 @@ write_evidence() {
       "parallel",
       "concurrent",
       "nested",
+      "cancelled",
     ].map((name) => {
       let asserted = null;
       try {
@@ -979,6 +985,58 @@ if (mode === "interrupted") {
   process.exit(0);
 }
 
+// The harness cancelled its own call while the hook was waiting. Whatever the
+// gate recorded, the cancelled command must not have run and the identical
+// re-delivery must refuse against that record instead of deciding again.
+if (mode === "cancelled") {
+  const cancelledLedger = readJson("ledger-" + label + ".json") ?? {};
+  const settled = Array.isArray(cancelledLedger.entries) ? cancelledLedger.entries : [];
+  const cancelled = settled.filter((entry) => entry.toolUseId === payload.tool_use_id);
+  const replay = readJson("replay-" + label + ".json") ?? {};
+  const exitCode = Number.parseInt(read("cancelled-exit.txt").trim(), 10);
+  const harnessOut = readJson((harness === "codex" ? "codex-" : "claude-") + label + ".json") ?? {};
+  // The CLI reports the aborted tool call in its own transcript; its exit
+  // status is recorded as evidence because print mode exits 0 on a cancel.
+  check(
+    harnessOut.terminal_reason === "aborted_tools",
+    "the cancelled harness reported terminal_reason " + harnessOut.terminal_reason,
+  );
+  check(cancelled.length === 1, "the cancelled call recorded " + cancelled.length + " continuation(s)");
+  check(cancelled[0]?.state === "interrupted", "the cancelled call settled as " + cancelled[0]?.state);
+  check(typeof cancelled[0]?.waitedMs !== "number", "the cancelled call claimed a settled duration");
+  check(replay.decision === "refuse", "the re-delivered call decided " + replay.decision);
+  check(replay.reason === "continuation-replay", "the re-delivery reason was " + replay.reason);
+  check(
+    replay.continuation?.state === "interrupted",
+    "the re-delivery reported " + replay.continuation?.state,
+  );
+  check(!fs.existsSync(work + "/probe-" + label + ".marker"), "the cancelled call's command ran");
+  check(dirtyAffected === "", "the cancelled checkout was modified: " + dirtyAffected);
+  check(
+    affectedAfter.phase === "starting",
+    "the cancelled checkout left phase " + affectedAfter.phase,
+  );
+  console.log(
+    JSON.stringify({
+      scenario: mode,
+      label,
+      harness,
+      harnessExit: exitCode,
+      harnessTerminalReason: harnessOut.terminal_reason ?? null,
+      recorded: cancelled[0] ?? null,
+      replay: {
+        decision: replay.decision,
+        reason: replay.reason,
+        continuation: replay.continuation ?? null,
+      },
+      checkoutsClean: dirtyAffected === "",
+      failures,
+    }),
+  );
+  if (failures.length) process.exit(1);
+  process.exit(0);
+}
+
 // Two hook processes that decide at the same instant for one checkout: the
 // overlap is the product boundary's own, so the ledger must hold one granted
 // claim per call and no call may be refused as a replay of the other.
@@ -1652,6 +1710,82 @@ run_interruption_scenario() {
   cat "$WORK/assert-$label.json"
 }
 
+# The real harness owns the cancellation: the CLI is interrupted while its own
+# hook is still waiting, so the signal the gate sees is the one the harness
+# sends. The call must leave no executed command, and its identical re-delivery
+# must be refused whatever the gate recorded, so a cancelled call can never be
+# completed later by a resend.
+run_cancelled_scenario() {
+  local label="cancelled"
+  local probe="$WORK/probe-$label.marker"
+  local probe_command="echo GATE-OK >> $probe"
+  local trace="$WORK/api-requests-$label.jsonl"
+  local gated="$AFFECTED"
+  local budget=30000
+
+  rm -f "$probe" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
+    "$WORK/hook-payload-$label.json" "$WORK/hook-payload-$label.json.records" \
+    "$WORK/cancelled-exit.txt"
+
+  journal "$NEIGHBOUR" set stable >/dev/null
+  journal "$AFFECTED" set starting >/dev/null
+  start_mock "$probe_command" "$trace"
+
+  # Job control puts the harness and its hook in one process group, so the
+  # interrupt lands the way a user cancellation does: on the CLI and on the
+  # gate process it owns.
+  set +e
+  set -m
+  (
+    cd "$gated" &&
+      HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+      DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+      ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+      "$CLAUDE" -p "Run exactly this command with the Bash tool, then stop: $probe_command" \
+        --output-format json --max-turns 3 --allowedTools "Bash(echo:*)" \
+        --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+  ) &
+  local harness_pid=$!
+  set +m
+
+  # Interrupt only once the hook is really waiting, so the signal lands during
+  # the gate's wait instead of before the call exists.
+  for _ in $(seq 1 240); do
+    [ -s "$WORK/hook-gate-$label.log.err" ] && break
+    sleep 0.25
+  done
+  sleep 1
+  kill -INT -"$harness_pid" >/dev/null 2>&1 || kill -INT "$harness_pid" >/dev/null 2>&1 || true
+
+  local waited=0
+  while kill -0 "$harness_pid" >/dev/null 2>&1 && [ "$waited" -lt 80 ]; do
+    sleep 0.25
+    waited=$((waited + 1))
+  done
+  if kill -0 "$harness_pid" >/dev/null 2>&1; then
+    kill -KILL -"$harness_pid" >/dev/null 2>&1 || true
+  fi
+  wait "$harness_pid"
+  local exit_code=$?
+  set -e
+  printf '%s' "$exit_code" > "$WORK/cancelled-exit.txt"
+
+  journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
+  journal "$gated" ledger > "$WORK/ledger-$label.json"
+  git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
+  git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
+
+  # The identical re-delivery must refuse against whatever the cancelled call
+  # recorded, so a resending harness cannot complete the cancelled command.
+  HOME="$HOME_DIR" "$NODE" "$DIST" harness gate --json --wait-budget-ms 1000 \
+    < "$WORK/hook-payload-$label.json" > "$WORK/replay-$label.json" 2> "$WORK/replay-$label.err" || true
+
+  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
+    "$NEIGHBOUR" "$probe_command" "$HARNESS" > "$WORK/assert-$label.json" || FAILED=1
+  cat "$WORK/assert-$label.json"
+}
+
 run_nonshell_scenario() {
   local label="$1" phase="$2" budget="$3"
   local trace="$WORK/api-requests-$label.jsonl"
@@ -1952,8 +2086,11 @@ run_concurrent_scenario
 if [ "$HARNESS" = "claude" ]; then
   echo "--- scenario 9: a subagent's shell call is refused once the checkout turns transitional"
   run_nested_scenario
+  echo "--- scenario 10: cancelling the harness mid-wait leaves the call unexecuted and refused on resend"
+  run_cancelled_scenario
 else
   echo "--- scenario 9: nested subagent calls are not applicable to the Codex CLI"
+  echo "--- scenario 10: harness-initiated cancellation is not recorded for the Codex CLI yet"
 fi
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
