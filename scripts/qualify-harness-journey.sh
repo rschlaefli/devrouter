@@ -53,6 +53,12 @@
 #               this script aims at the gate. The command must not run and the
 #               identical re-delivery must refuse against whatever the cancelled
 #               call recorded.
+#   hook-timeout - the harness's own hook timeout is deliberately set below the
+#               wait budget, so the harness abandons the gating hook before it
+#               decides. The cell records whether the harness then ran the call
+#               under its normal permission rules and asserts what stays true
+#               either way: the abandoned call never becomes a granted wait, its
+#               command runs at most once, and no checkout is modified.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -134,6 +140,7 @@ write_evidence() {
       "concurrent",
       "nested",
       "cancelled",
+      "hook-timeout",
     ].map((name) => {
       let asserted = null;
       try {
@@ -988,6 +995,58 @@ if (mode === "interrupted") {
 // The harness cancelled its own call while the hook was waiting. Whatever the
 // gate recorded, the cancelled command must not have run and the identical
 // re-delivery must refuse against that record instead of deciding again.
+//
+// The hook-timeout path is the same boundary from the other side: the harness
+// gives up on its own hook, so no decision of the gate's ever reaches the call.
+// What the harness does next is its own policy and the cell records it, while
+// the invariant that must survive either policy is that the abandoned call
+// never becomes a granted wait and its command runs at most once.
+if (mode === "hook-timeout") {
+  const timeoutLedger = readJson("ledger-" + label + ".json") ?? {};
+  const settled = Array.isArray(timeoutLedger.entries) ? timeoutLedger.entries : [];
+  const abandoned = settled.filter((entry) => entry.toolUseId === payload.tool_use_id);
+  const markerLines = marker.trim() === "" ? 0 : marker.trim().split("\n").length;
+  const harnessExit = Number.parseInt(read("hook-timeout-exit.txt").trim(), 10);
+  const killed = read("hook-timeout-killed.txt").trim() === "1";
+  const hookStderr = read("hook-gate-" + label + ".log.err").trim();
+  check(
+    typeof payload.tool_use_id === "string" && payload.tool_use_id.length > 0,
+    "the gate never received the abandoned call",
+  );
+  check(
+    hookStderr.includes("deferring this tool call"),
+    "the gate never announced the wait the harness abandoned it in",
+  );
+  check(Number.isSafeInteger(harnessExit), "the harness exit status was not recorded");
+  check(abandoned.length <= 1, "the abandoned call recorded " + abandoned.length + " claims");
+  check(abandoned[0]?.state !== "granted", "the abandoned call settled as a granted wait");
+  check(markerLines <= 1, "the abandoned call's command ran " + markerLines + " time(s)");
+  check(dirtyAffected === "", "the hook-timeout checkout was modified: " + dirtyAffected);
+  check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeighbour);
+  check(
+    affectedAfter.phase === "starting",
+    "the hook-timeout checkout left phase " + affectedAfter.phase,
+  );
+  console.log(
+    JSON.stringify({
+      scenario: mode,
+      label,
+      harness,
+      harnessExit,
+      harnessTerminalReason: transcript.terminal_reason ?? null,
+      hookTimeoutSeconds: Number(process.env.DR_JOURNEY_HOOK_TIMEOUT ?? "0"),
+      waitBudgetMs: Number(process.env.DR_JOURNEY_WAIT_BUDGET ?? "0"),
+      harnessKilled: killed,
+      toolExecuted: markerLines > 0,
+      recorded: abandoned[0] ?? null,
+      checkoutsClean: dirtyAffected === "" && dirtyNeighbour === "",
+      failures,
+    }),
+  );
+  if (failures.length) process.exit(1);
+  process.exit(0);
+}
+
 if (mode === "cancelled") {
   const cancelledLedger = readJson("ledger-" + label + ".json") ?? {};
   const settled = Array.isArray(cancelledLedger.entries) ? cancelledLedger.entries : [];
@@ -1727,6 +1786,24 @@ run_interruption_scenario() {
   cat "$WORK/assert-$label.json"
 }
 
+# A harness can stop waiting for its hook before the hook finishes settling, so
+# the ledger is read as evidence only once the recorded claim settles or the
+# waiting budget has demonstrably elapsed.
+wait_for_ledger_settlement() {
+  local checkout="$1" label="$2" attempts="$3"
+  [ -f "$WORK/hook-payload-$label.json" ] || return 0
+  local id probe="$WORK/ledger-probe-$label.json" waited=0
+  id="$("$NODE" -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(p.tool_use_id??""))' "$WORK/hook-payload-$label.json")"
+  while [ "$waited" -lt "$attempts" ]; do
+    journal "$checkout" ledger > "$probe" 2>/dev/null || true
+    if "$NODE" -e 'const fs=require("node:fs");const id=process.argv[2];try{const l=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const e=(l.entries??[]).find((x)=>x.toolUseId===id);process.exit(e&&typeof e.settledAtMs==="number"?0:1)}catch{process.exit(1)}' "$probe" "$id"; then
+      break
+    fi
+    sleep 0.25
+    waited=$((waited + 1))
+  done
+}
+
 # The real harness owns the cancellation: the CLI is interrupted while its own
 # hook is still waiting, so the signal the gate sees is the one the harness
 # sends. The call must leave no executed command, and its identical re-delivery
@@ -1810,18 +1887,7 @@ run_cancelled_scenario() {
   # A harness can exit before its hook finishes settling, so wait for the
   # cancelled call's continuation record to reach a settled state before the
   # ledger is read as evidence.
-  if [ -f "$WORK/hook-payload-$label.json" ]; then
-    local cancelled_id ledger_probe="$WORK/ledger-probe-$label.json" settle_waited=0
-    cancelled_id="$("$NODE" -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(p.tool_use_id??""))' "$WORK/hook-payload-$label.json")"
-    while [ "$settle_waited" -lt 40 ]; do
-      journal "$gated" ledger > "$ledger_probe" 2>/dev/null || true
-      if "$NODE" -e 'const fs=require("node:fs");const id=process.argv[2];try{const l=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const e=(l.entries??[]).find((x)=>x.toolUseId===id);process.exit(e&&typeof e.settledAtMs==="number"?0:1)}catch{process.exit(1)}' "$ledger_probe" "$cancelled_id"; then
-        break
-      fi
-      sleep 0.25
-      settle_waited=$((settle_waited + 1))
-    done
-  fi
+  wait_for_ledger_settlement "$gated" "$label" 40
 
   journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
   journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
@@ -1836,6 +1902,131 @@ run_cancelled_scenario() {
 
   DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
     "$NEIGHBOUR" "$probe_command" "$HARNESS" > "$WORK/assert-$label.json" || FAILED=1
+  cat "$WORK/assert-$label.json"
+}
+
+# The harness's hook timeout bounds how long it waits for the gate, so a timeout
+# below the wait budget abandons the gating hook before it decides. Nothing here
+# interrupts the run: the harness's own timeout does. The assertion records what
+# the harness then did with the call and pins what holds either way: the
+# abandoned call never becomes a granted wait and its command runs at most once.
+run_hook_timeout_scenario() {
+  local label="hook-timeout"
+  local probe="$WORK/probe-$label.marker"
+  local probe_command="echo GATE-OK >> $probe"
+  local trace="$WORK/api-requests-$label.jsonl"
+  local gated="$AFFECTED"
+  local budget=8000
+  local hook_timeout=3
+  local short_config="$WORK/hook-timeout-config.json"
+
+  rm -f "$probe" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
+    "$WORK/hook-payload-$label.json" "$WORK/hook-payload-$label.json.records" \
+    "$WORK/hook-timeout-exit.txt" "$WORK/hook-timeout-killed.txt"
+
+  journal "$NEIGHBOUR" set stable >/dev/null
+  journal "$AFFECTED" set starting >/dev/null
+  start_mock "$probe_command" "$trace"
+
+  # The shipped wiring keeps the hook timeout above the wait budget; this cell
+  # deliberately inverts that relationship to observe the consequence. The Codex
+  # CLI reads one fixed hooks.json, so the short timeout replaces that file; the
+  # cell runs last, after every other scenario has used the shipped value.
+  if [ "$HARNESS" = "codex" ]; then
+    cat > "$HOOKS" <<HOOKS_EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [{ "type": "command", "command": "$HOOK", "timeout": $hook_timeout }]
+      }
+    ]
+  }
+}
+HOOKS_EOF
+  else
+    cat > "$short_config" <<SETTINGS_EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [{ "type": "command", "command": "$HOOK", "timeout": $hook_timeout }]
+      }
+    ]
+  }
+}
+SETTINGS_EOF
+  fi
+
+  local started_ms ended_ms exit_code harness_pid killed=0 waited=0
+  started_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+  set +e
+  set -m
+  if [ "$HARNESS" = "codex" ]; then
+    (
+      cd "$gated" &&
+        HOME="$HOME_DIR" CODEX_HOME="$HOME_DIR" JOURNEY_API_KEY=journey \
+        DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        "$CODEX" exec --skip-git-repo-check --sandbox workspace-write -C "$gated" \
+          --dangerously-bypass-hook-trust \
+          "Run exactly this command with the shell tool, then stop: $probe_command" \
+          < /dev/null > "$WORK/codex-$label.out" 2> "$WORK/codex-$label.err"
+    ) &
+  else
+    (
+      cd "$gated" &&
+        HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+        "$CLAUDE" -p "Run exactly this command with the Bash tool, then stop: $probe_command" \
+          --output-format json --max-turns 3 --allowedTools "Bash" \
+          --settings "$short_config" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+    ) &
+  fi
+  harness_pid=$!
+  set +m
+
+  # Let the harness reach the hook, then wait for the harness's own timeout to
+  # elapse instead of interrupting anything: the abandoned wait is the subject.
+  for _ in $(seq 1 40); do
+    [ -s "$WORK/hook-gate-$label.log.err" ] && break
+    sleep 0.25
+  done
+  while kill -0 "$harness_pid" >/dev/null 2>&1 && [ "$waited" -lt 240 ]; do
+    sleep 0.25
+    waited=$((waited + 1))
+  done
+  if kill -0 "$harness_pid" >/dev/null 2>&1; then
+    killed=1
+    kill -KILL -"$harness_pid" >/dev/null 2>&1 || true
+  fi
+  wait "$harness_pid"
+  exit_code=$?
+  set -e
+  printf '%s' "$exit_code" > "$WORK/hook-timeout-exit.txt"
+  printf '%s' "$killed" > "$WORK/hook-timeout-killed.txt"
+  ended_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+  if [ "$HARNESS" = "codex" ]; then
+    DR_CODEX_EXIT="$exit_code" DR_CODEX_STARTED_MS="$started_ms" DR_CODEX_ENDED_MS="$ended_ms" \
+      "$NODE" "$CODEX_SUMMARY" "$WORK" "$label" > "$WORK/codex-$label.json"
+  fi
+
+  # An abandoned hook can outlive its harness and settle on its own, so the claim
+  # is read only after the waiting budget has had time to elapse.
+  wait_for_ledger_settlement "$gated" "$label" 60
+
+  journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
+  journal "$gated" ledger > "$WORK/ledger-$label.json"
+  git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
+  git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
+
+  DR_JOURNEY_HOME="$HOME_DIR" DR_JOURNEY_HOOK_TIMEOUT="$hook_timeout" DR_JOURNEY_WAIT_BUDGET="$budget" \
+    "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" "$NEIGHBOUR" "$probe_command" "$HARNESS" \
+    > "$WORK/assert-$label.json" || FAILED=1
   cat "$WORK/assert-$label.json"
 }
 
@@ -2144,6 +2335,8 @@ else
 fi
 echo "--- scenario 10: cancelling the harness mid-wait leaves the call unexecuted and refused on resend"
 run_cancelled_scenario
+echo "--- scenario 11: a hook timeout below the wait budget abandons the gating hook"
+run_hook_timeout_scenario
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
 echo "--- raw logs: $WORK"
