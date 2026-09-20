@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { collectDockerNetworkInventory, type NetworkInventoryReader } from "../network-inventory";
+import {
+  collectDockerNetworkInventory,
+  NETWORK_TEMPLATE,
+  type NetworkInventoryReader,
+} from "../network-inventory";
 
 const endpoint = "unix:///tmp/synthetic-docker.sock";
 const networkId = "a".repeat(64);
@@ -133,6 +137,38 @@ describe("pinned read-only Docker network inventory", () => {
     const result = collect(read);
     expect(result.status).toBe("unknown");
     expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("keeps every network record one complete JSON object", () => {
+    // The daemon applies the template, so only this literal decides whether the
+    // reader ever sees a parseable record. A dropped brace once degraded every
+    // capacity read to unknown without failing a test.
+    const parsed = JSON.parse(NETWORK_TEMPLATE.replace(/\{\{[^}]*\}\}/g, '"synthetic"')) as
+      | Record<string, unknown>
+      | string;
+    expect(typeof parsed).toBe("object");
+    expect(Object.keys(parsed as Record<string, unknown>).sort()).toEqual([
+      "activeEndpoints",
+      "driver",
+      "id",
+      "ipam",
+      "name",
+      "network",
+      "project",
+    ]);
+  });
+
+  it("treats a partial record as unprovable instead of zero usage", () => {
+    const base = fixture();
+    const read = vi.fn<NetworkInventoryReader>((target, args, timeout) =>
+      args[0] === "network" && args[1] === "inspect"
+        ? base(target, args, timeout).replace(/\}$/, "")
+        : base(target, args, timeout),
+    );
+    const result = collect(read);
+    expect(result.status).toBe("unknown");
+    expect(result.networks).toEqual([]);
+    expect(result.reasons).toContain("Docker network inventory contains a malformed record.");
   });
 
   it("rejects unsupported endpoints without invoking Docker", () => {

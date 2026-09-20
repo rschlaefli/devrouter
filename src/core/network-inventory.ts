@@ -33,8 +33,9 @@ class NetworkInventoryError extends Error {}
 const MAX_IDS = 4096;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const FULL_ID = /^[a-f0-9]{64}$/;
-const NETWORK_TEMPLATE =
-  '{"id":{{json .Id}},"name":{{json .Name}},"driver":{{json .Driver}},"ipam":{{json .IPAM.Config}},"activeEndpoints":{{len .Containers}},"project":{{json (index .Labels "com.docker.compose.project")}},"network":{{json (index .Labels "com.docker.compose.network")}}';
+/** One JSON object per inspected network; the reader parses it line by line. */
+export const NETWORK_TEMPLATE =
+  '{"id":{{json .Id}},"name":{{json .Name}},"driver":{{json .Driver}},"ipam":{{json .IPAM.Config}},"activeEndpoints":{{len .Containers}},"project":{{json (index .Labels "com.docker.compose.project")}},"network":{{json (index .Labels "com.docker.compose.network")}}}';
 const CONTAINER_TEMPLATE = '{"id":{{json .Id}},"networks":{{json .NetworkSettings.Networks}}}';
 
 function readDocker(endpoint: string, args: string[], timeoutMs: number): string {
@@ -76,7 +77,16 @@ function id(value: unknown): string {
 
 function rows(output: string): unknown[] {
   const trimmed = output.trim();
-  return trimmed ? trimmed.split(/\r?\n/).map((line) => JSON.parse(line) as unknown) : [];
+  return trimmed ? trimmed.split(/\r?\n/).map((line) => parseRecord(line)) : [];
+}
+
+/** A partial daemon record is unprovable evidence, never a zero-usage one. */
+function parseRecord(line: string): unknown {
+  try {
+    return JSON.parse(line) as unknown;
+  } catch {
+    throw new NetworkInventoryError("Docker network inventory contains a malformed record.");
+  }
 }
 
 function ids(output: string): string[] {
@@ -133,7 +143,7 @@ export function collectDockerNetworkInventory(
       return output;
     };
     const info = record(
-      JSON.parse(
+      parseRecord(
         read(["info", "--format", '{"id":{{json .ID}},"pools":{{json .DefaultAddressPools}}}']),
       ),
     );
