@@ -4099,6 +4099,44 @@ Evidence from this machine on 2026-09-20 (`74dfd8e`, OrbStack 29.4.0):
   `unwound` reading. Receipts:
   `/private/tmp/devrouter-live-env-receipts/mount-unwind/`.
 
+### Mount-table read scoped to nested mounts (2026-09-21, `2e789ad`)
+
+Status: **implemented, locally qualified and pushed on PR #125; merge, release
+and installation stay separate authorised steps.**
+
+`74dfd8e` read every running managed container's own mount table on each
+`status`, `doctor`, `ensure` and `--json` call. Only a configured mount nested
+inside another can be unwound, so a container whose configuration nests none
+answers `not-applicable` whatever that read returns. The synthetic provider
+fixtures behind `pnpm qualify:capacity` and `pnpm qualify:lifecycle` refuse any
+command they do not model, so the unconditional read failed both harnesses with
+`AssertionError: Unexpected provider command occurred`, and the recorded calls
+were `docker exec <id> cat /proc/self/mountinfo`. The status answer itself stayed
+non-blocking as designed, while ordinary CI failed in the `check` job at
+`pnpm qualify:capacity` for `5129601a` (run 35538869371) and `09982fd` (run
+35540408099).
+
+`observeManagedMountNesting` now decides whether a configured mount is nested
+before it reads the container's own namespace. The nested, effective, unwound
+and unverified outcomes are unchanged, including the fail-closed `unverified`
+report for a read the observation still needs.
+
+Evidence on this machine on 2026-09-21 (`2e789ad`, Node 24.17.0, pnpm 11.6.0):
+
+- A/B on one tree: with only `src/core/managed-mount-nesting.ts` reverted,
+  `pnpm qualify:lifecycle` failed with the assertion above and recorded four
+  refused `docker exec` calls in `fixture.json.unexpected`, while the fixed tree
+  passed all 31 evidence rows; the capacity fixture recorded two refused calls
+  (`dr-cap-s6Tnkr/provider.json.unexpected`).
+- Three tests cover the boundary: a container that nests no mount reports
+  `not-applicable` without running a subprocess, a nested mount still reads the
+  container's own table, and a refused read stays `unverified` instead of
+  failing its caller.
+- The full checklist is green at the same source with `dirty: false`: docs
+  policy, knowledge, Biome, knip, typecheck, `pnpm test` (149 files, 2,731
+  tests), build, package smoke, and the controller, capacity and lifecycle
+  qualifications. Log:
+  `/private/tmp/devrouter-capacity-tripwire-validation.log`.
 ### Refused stop after an externally replaced population (fixed)
 
 Status: **implemented at `618fc5f`, regression-covered, and reproduced live in
