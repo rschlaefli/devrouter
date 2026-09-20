@@ -3092,11 +3092,41 @@ IDs identify backlog entries, not new modules or branches.
 | RF05 / P3 — Preserve uncertainty in hook output | `permitReason` in `src/commands/harness.ts` says `environment settled` for passthrough, unmanaged and invalid-payload decisions. `waitForHarnessGate` also treats unknown phase as settled. These paths need not have observed the environment. | Keep the intended advisory fail-open behavior, but distinguish bypass, unmanaged and unavailable evidence from observed settlement in structured decisions and both harness envelopes. Assert classification and observation behavior rather than exact prose. W1/W7/W9, Q21/Q29. |
 | RF06 / P3 — Stabilize queue-progress verification | [The push CI run](https://github.com/rschlaefli/devrouter/actions/runs/35506176174) failed `file-lock.test.ts`'s stable queue-position case at `progress.length >= 1`; the same release revision and focused rerun passed. Its real 80ms wait can expire before a progress callback. | Make the timing assertion deterministic or synchronize on the observed wait boundary. Retain real process-identity and lock-exclusion coverage. Prove queue position and progress without relying on an 80ms scheduling window; do not suppress the assertion or rely on CI reruns. W1/W8, Q13/Q19. |
 
-These corrections form the next bounded source package. Add only tests that
-exercise their observable contracts. Review the integrated diff and run the
-repository's applicable gates; use an installed CLI for command parsing and
-harness-envelope assertions. A release receipt must identify the corrected
-revision and keep open qualification rows visible.
+#### Corrected package (2026-09-20)
+
+**RF01–RF06 are implemented** on branch `rs/reliability-guidance-and-gate-corrections`
+at `05f8c0c` ([PR #121](https://github.com/rschlaefli/devrouter/pull/121)), which is
+open as a draft and not merged or released. The published 0.1.1 still carries the
+reproduced defects.
+
+| ID | Disposition |
+| --- | --- |
+| RF01 | implemented — recovery lines emit `devrouter doctor --repo <checkout>`, keep the positional form for the lifecycle commands, and single-quote a path that needs it. Unit coverage asserts the emitted form; a built-CLI run from another directory selected `/private/tmp/devrouter rf01 fixture with space` as its `repoPath`, while the previous form reported the caller's directory instead. |
+| RF02 | implemented — the gate parses each shell segment's leading command word, skips `env`/assignment prefixes and the `npx`/`pnpm exec`/`npm exec`/`yarn` launchers, and compares the executable basename. Built-CLI proof: `devrouter stop .`, `/opt/homebrew/bin/devrouter stop .`, `./node_modules/.bin/devrouter ensure . --json`, `pnpm exec devrouter status --json` and `cd /x && devrouter ensure .` all answered `allow`/`devrouter-command` with no observation, while `echo /opt/homebrew/bin/devrouter` still observed the transition and refused. |
+| RF03 | implemented — the wait spends the remaining budget and observes once more at the deadline. Deterministic tests cover a sub-interval budget, a settle exactly on the deadline, and a budget that is not a multiple of the interval; the built CLI refused a 1500 ms budget at 1500 ms (2 observations) and a 5000 ms budget at 5000 ms (4 observations). |
+| RF04 | implemented as guidance alignment — the parked recovery lines name the foreground controller, the read-only status form and the intent release; `devrouter ensure` still refuses `parked-for-capacity`. Joining that path under the admission contract remains unimplemented and is not claimed. |
+| RF05 | implemented — `waitForHarnessGate` returns `evidence-unavailable` for an unknown phase, and the hook envelope gives passthrough, unmanaged, invalid-payload and unavailable evidence their own wording instead of "environment settled". |
+| RF06 | implemented — the fair-waiter queue-progress case drives its budget from a controlled clock instead of an 80 ms scheduling window, and the real process-identity and lock-exclusion coverage is retained. |
+
+Evidence produced on `05f8c0c`:
+
+- Focused `harness-gate`, `harness` command, `managed-runtime-status` and
+  `file-lock` suites: 84 passed.
+- Full suite: 2447 passed / 250 failed across 14 files, identical to the
+  untouched `7765c14` baseline (2434 passed / 250 failed). The change adds 13
+  passing tests and no new failure; the failures are environmental, because this
+  sandbox denies `ps` and the file-lock boundary fails closed without process
+  identity.
+- `biome check`, `knip`, `tsc --noEmit`, docs policy, knowledge validation, the
+  `tsup` build and `scripts/package-smoke.sh` passed.
+- The built-CLI proof used a synthetic checkout and a temporary `HOME`; no live
+  workspace, journal or machine state was touched.
+
+Limits of this package: no real agent-harness journey has run against the
+corrected revision, so RF02's and RF03's installed-harness confirmation, RF07's
+cancellation/replay observation, and RF08/RF09's live fault matrix stay open.
+Merging PR #121, releasing the corrected revision and republishing the installed
+CLI remain separate authorized actions.
 
 #### Qualification, operator and consumer follow-up
 
@@ -3116,11 +3146,12 @@ an operator's or another task's environment.
 
 #### Order, completion and preserved authority
 
-Immediate next work is RF01–RF06, with RF07's investigation informing any later
-continuation change. RF10 read-only diagnosis and RF11 owner coordination can
-proceed independently. RF08 integrates RF09's applicable fault cases and RF07's
-harness proof; RF12 extends the resulting accepted cell. RF13 accompanies each
-package so evidence is preserved as it is produced.
+RF01–RF06 are implemented on PR #121 and await merge and release. Next work is
+RF07's cancellation/replay investigation, with the RF10 read-only diagnosis and
+the RF11 owner coordination proceeding independently. RF08 integrates RF09's
+applicable fault cases and RF07's harness proof; RF12 extends the resulting
+accepted cell. RF13 accompanies each package so evidence is preserved as it is
+produced.
 
 For each entry, record its disposition, implementing PR/revision, producing
 command/run, artifact version, observed outcome and remaining limitations here.
