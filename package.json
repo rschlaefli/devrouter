@@ -35,6 +35,7 @@
     "qualify:harness-journey": "./scripts/qualify-harness-journey.sh",
     "qualify:codex-journey": "DR_JOURNEY_HARNESS=codex ./scripts/qualify-harness-journey.sh",
     "qualify:non-node": "./scripts/qualify-non-node-consumer.sh",
+    "qualify:slow-dependency": "./scripts/qualify-slow-dependency-recovery.sh",
     "test:process": "bash scripts/test-devrouter-process.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",
