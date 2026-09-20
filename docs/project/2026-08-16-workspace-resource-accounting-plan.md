@@ -379,3 +379,16 @@ over the integrated branch after the full sequence passes.
   Reproduce with the cleanup smoke's fixture harness, its cleanup trap disabled
   and the extra runs appended after the exact-call assertions so the allowlists
   stay intact. Full sequence green at `d2d27fa`: 586 tests across 55 files.
+- `2026-08-29`: Closure resumed because this Progress record stopped before
+  delivery. Live GitHub and Git evidence now establishes that
+  [PR #30](https://github.com/rschlaefli/devrouter/pull/30) merged exact branch
+  head `8eda6aa` into `main` as
+  [`f176a67`](https://github.com/rschlaefli/devrouter/commit/f176a6672328fe2a4d1da039a05ffb7f0a68cdf2),
+  with the required CI check passing and publish skipping. The package then
+  shipped in [v0.0.36](https://github.com/rschlaefli/devrouter/releases/tag/v0.0.36)
+  and npm reports `@devrouter/cli@0.0.36`. Status is terminal: all slices and
+  required reviews remain complete, required delivery was `pr_ready`, achieved
+  delivery is `released`, and no package work remains. Slice review: not
+  required — this closure changes project records only. Next action is parent
+  roadmap planning; no product, runtime, publication, or deployment action was
+  performed during reconciliation.
