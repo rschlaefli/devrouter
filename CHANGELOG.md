@@ -4,6 +4,81 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- The consumer contract is qualified against a runtime that has no Node
+  toolchain. `scripts/qualify-non-node-consumer.sh` (`pnpm qualify:non-node`)
+  builds a synthetic Python consumer from the standard library alone, whose
+  single `.devrouter.yml` declares a routed host application and a routed
+  Postgres dependency. It asserts semantic readiness over the published TLS
+  route, the dependency environment the process actually received, the
+  `envMap` alias, that the route disappears again after a non-destructive stop,
+  and that the fixture's own Compose project and volume are released. Each round
+  also records measured readiness, the consumer's peak resident memory, its
+  container memory and whether it reused the running dependency container.
+
+- `devrouter harness gate` serves the Codex CLI as well as Claude Code. It
+  identifies the requesting harness from its hook payload and answers in that
+  harness's accepted shape: an allowed call stays `permissionDecision: allow`
+  for Claude Code, while Codex receives a plain completion carrying the same
+  guidance as `additionalContext`, because Codex reports an `allow` decision
+  as unsupported hook output and would otherwise run the tool behind a failed
+  hook. A refusal is one `deny` in both. `scripts/qualify-harness-journey.sh`
+  now drives either harness through the same three-scenario journey
+  (`DR_JOURNEY_HARNESS`), and `pnpm qualify:codex-journey` selects the second
+  one.
+
+## [0.0.80] - 2026-09-20
+
+### Added
+
+- `devrouter capacity reconcile --yes [--json]` replaces a provably absent
+  capacity ledger with a fresh empty baseline. Under the capacity lock it
+  re-reads the journals, re-proves absence, observes the declared runtime
+  domains so the baseline keeps their pool ceilings, and publishes one snapshot
+  at `journal floor + 1` so no earlier reader can match its revision. It
+  refuses without `--yes`, while any journal binding remains (listing each
+  blocking environment with its runnable `devrouter stop <path>`), when the
+  ledger is intact or pristine, when a declared runtime domain cannot be
+  observed, and when journal enumeration is not trustworthy. The report claims
+  only that no journal-visible charge remained; a charge that was never
+  journal-bound cannot be reconstructed.
+
+- `devrouter doctor` compares every `devrouter` executable on PATH with the
+  running CLI (`global.cli-path`). It warns when another install is newer than
+  the CLI that is diagnosing, or when the shell-resolved install differs, so a
+  stale binary cannot silently run other lifecycle rules against state a newer
+  version wrote. The comparison is read-only, names each install's version and
+  path, and is skipped for unstamped source builds.
+
+- `devrouter harness gate` defers one agent-harness tool call while the
+  checkout's durable lifecycle phase is `queued`, `starting`, `verifying`,
+  `recovering` or `stopping`, then allows it once the phase settles. The wait
+  happens inside the harness hook process, so no model turns are consumed. A
+  phase that outlasts `--wait-budget-ms` (default 30000) returns one `deny` that
+  names the phase and asks the agent not to retry automatically. `devrouter`
+  lifecycle commands pass through, and unreadable journal evidence is allowed
+  rather than blocking the agent. Wire it as a `PreToolUse` hook whose timeout
+  exceeds the wait budget: an overrunning hook is not honored.
+
+- Devrouter supports installed Devsy releases in the range `>=1.16.2 <2.0.0`
+  instead of one exact version. For a release it has not pinned, an explicit
+  `setup --workspace-runtime devsy` resolves the official Linux agent from the
+  published release metadata, requires the SHA-256 digest GitHub reports for that
+  asset, and records the verified manifest in Devrouter machine state so
+  `doctor` and `ensure` stay network-free. Without a recorded manifest a newer
+  in-range CLI governs its own agent and Devrouter injects nothing, and a release
+  without a published digest is never injected. An explicit
+  `DEVSY_AGENT_BINARY` must match the official asset for the installed release.
+
+- `devrouter harness gate` also remembers each gated call by its harness
+  `tool_use_id`. A call the harness re-delivers after a granted or cancelled
+  wait returns one refusal that names the earlier decision, so a resumed
+  session cannot silently repeat a command that may already have run. Entries
+  expire after 24 hours, each checkout keeps the newest 64, and an unreadable or
+  unwritable ledger never blocks the agent. Payloads without a `tool_use_id`
+  keep the wait-only behavior.
+
 ### Fixed
 
 - A harness-gated tool call no longer counts the gate's own first observation as
@@ -42,66 +117,9 @@ All notable changes to this project are documented in this file.
   container owned by a different worktree or by a shared project outside the
   checkout is still rejected.
 
-### Added
+### Agent Adaptation Prompt
 
-- The consumer contract is qualified against a runtime that has no Node
-  toolchain. `scripts/qualify-non-node-consumer.sh` (`pnpm qualify:non-node`)
-  builds a synthetic Python consumer from the standard library alone, whose
-  single `.devrouter.yml` declares a routed host application and a routed
-  Postgres dependency. It asserts semantic readiness over the published TLS
-  route, the dependency environment the process actually received, the
-  `envMap` alias, that the route disappears again after a non-destructive stop,
-  and that the fixture's own Compose project and volume are released. Each round
-  also records measured readiness, the consumer's peak resident memory, its
-  container memory and whether it reused the running dependency container.
-
-- `devrouter capacity reconcile --yes [--json]` replaces a provably absent
-  capacity ledger with a fresh empty baseline. Under the capacity lock it
-  re-reads the journals, re-proves absence, observes the declared runtime
-  domains so the baseline keeps their pool ceilings, and publishes one snapshot
-  at `journal floor + 1` so no earlier reader can match its revision. It
-  refuses without `--yes`, while any journal binding remains (listing each
-  blocking environment with its runnable `devrouter stop <path>`), when the
-  ledger is intact or pristine, when a declared runtime domain cannot be
-  observed, and when journal enumeration is not trustworthy. The report claims
-  only that no journal-visible charge remained; a charge that was never
-  journal-bound cannot be reconstructed.
-
-- `devrouter doctor` compares every `devrouter` executable on PATH with the
-  running CLI (`global.cli-path`). It warns when another install is newer than
-  the CLI that is diagnosing, or when the shell-resolved install differs, so a
-  stale binary cannot silently run other lifecycle rules against state a newer
-  version wrote. The comparison is read-only, names each install's version and
-  path, and is skipped for unstamped source builds.
-
-- `devrouter harness gate` defers one agent-harness tool call while the
-  checkout's durable lifecycle phase is `queued`, `starting`, `verifying`,
-  `recovering` or `stopping`, then allows it once the phase settles. The wait
-  happens inside the harness hook process, so no model turns are consumed. A
-  phase that outlasts `--wait-budget-ms` (default 30000) returns one `deny` that
-  names the phase and asks the agent not to retry automatically. `devrouter`
-  lifecycle commands pass through, and unreadable journal evidence is allowed
-  rather than blocking the agent. Wire it as a `PreToolUse` hook whose timeout
-  exceeds the wait budget: an overrunning hook is not honored.
-
-- `devrouter harness gate` also remembers each gated call by its harness
-  `tool_use_id`. A call the harness re-delivers after a granted or cancelled
-  wait returns one refusal that names the earlier decision, so a resumed
-  session cannot silently repeat a command that may already have run. Entries
-  expire after 24 hours, each checkout keeps the newest 64, and an unreadable or
-  unwritable ledger never blocks the agent. Payloads without a `tool_use_id`
-  keep the wait-only behavior.
-
-- `devrouter harness gate` serves the Codex CLI as well as Claude Code. It
-  identifies the requesting harness from its hook payload and answers in that
-  harness's accepted shape: an allowed call stays `permissionDecision: allow`
-  for Claude Code, while Codex receives a plain completion carrying the same
-  guidance as `additionalContext`, because Codex reports an `allow` decision
-  as unsupported hook output and would otherwise run the tool behind a failed
-  hook. A refusal is one `deny` in both. `scripts/qualify-harness-journey.sh`
-  now drives either harness through the same three-scenario journey
-  (`DR_JOURNEY_HARNESS`), and `pnpm qualify:codex-journey` selects the second
-  one.
+Agent adaptation prompt: ./upgrade-prompts/0.0.80.md
 
 ## [0.0.79] - 2026-09-19
 

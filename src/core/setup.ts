@@ -4,7 +4,6 @@ import {
   DevsyAgentReadinessError,
   devsyAgentRepairSuggestion,
   prepareDevsyAgent,
-  SUPPORTED_DEVSY_VERSION,
 } from "./devsy-agent";
 import { ensureNetwork, isContainerRunning, networkExists } from "./docker";
 import { buildDoctorReport } from "./doctor";
@@ -180,7 +179,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
                 ? "The host Devsy CLI manages its own agent; no Devrouter-managed agent is required."
                 : `Verified the ${prepared.source} Devsy agent source.`,
           details: [
-            `version=${SUPPORTED_DEVSY_VERSION}`,
+            `version=${prepared.version}`,
             ...(asset ? [`asset=${asset.name}`] : []),
             `source=${prepared.source}`,
             `transport=${prepared.transport}`,

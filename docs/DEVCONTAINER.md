@@ -27,18 +27,23 @@ in the app. On macOS, the app-bundled CLI lives under
 daemon handles workspace operations.
 
 Devrouter-launched Devsy workspaces also require one verified Linux agent.
-Prepare it once with `devrouter setup --yes --workspace-runtime devsy`.
-Devrouter stores the supported pinned asset under its own machine cache and
-passes the verified path only to the CLI child that starts the workspace. It
-uses direct HTTPS first and can use an authenticated GitHub CLI as a transport
-fallback for the same pinned asset; both paths enforce the same size and digest.
-Devrouter does not write Devsy's private cache or alter the desktop app environment. An
-explicit `DEVSY_AGENT_BINARY` remains authoritative, but must match a pinned
-official asset exactly. `devrouter doctor` checks readiness without network
-access; a missing, stale, or invalid source stops `ensure` before the Devsy
-mutation queue or provider is touched. A host Devsy CLI newer than the verified
-pin is not stale: it governs its own agent, Devrouter injects nothing, and
-doctor reports the drift as a warning while managed starts proceed.
+Prepare it once with `devrouter setup --yes --workspace-runtime devsy`, and
+rerun it after a Devsy update. Devrouter supports Devsy releases in the range
+`>=1.16.2 <2.0.0`. For the release reviewed in this repository it uses the
+committed manifest; for another in-range release, setup reads the published
+release metadata, requires the SHA-256 digest GitHub reports for that asset,
+and refuses to inject a release without one. Devrouter stores the verified
+asset under its own machine cache and passes the path only to the CLI child
+that starts the workspace. It uses direct HTTPS first and can use an
+authenticated GitHub CLI as a transport fallback for the same asset; both paths
+enforce the same size and digest. Devrouter does not write Devsy's private
+cache or alter the desktop app environment. An explicit `DEVSY_AGENT_BINARY`
+remains authoritative, but must match the official asset for the installed
+release exactly. `devrouter doctor` checks readiness without network access; a
+missing, stale, or invalid source stops `ensure` before the Devsy mutation
+queue or provider is touched. Until setup has verified the installed release, a
+host CLI inside the supported range governs its own agent: Devrouter injects
+nothing and doctor reports the drift as a warning while managed starts proceed.
 
 > Use the current devrouter release. The end-to-end onboarding
 > playbook + reference templates + gotchas live in the
