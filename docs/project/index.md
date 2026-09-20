@@ -5,7 +5,6 @@ Plans live here as dated execution records. Active records may change; delivered
 ## Active
 
 - [Devsy release range compatibility](./2026-09-19-devsy-version-range-plan.md) — replace the exact Devsy version pin with a verified `>=1.16.2 <2.0.0` range and resolve the official Linux agent for the installed release. Merged in [PR #106](https://github.com/rschlaefli/devrouter/pull/106) and released in 0.0.80, carried into 0.1.0; verified against a real Devsy 1.19.0 consumer, with verified-agent injection still a user-run setup step.
-- [Reliable managed sessions through 0.1.0](./2026-09-13-reliability-release-plan.md) — approved full-roadmap execution, qualification, Q01-Q36 disposition, release and local adoption.
 
 - [Capacity-managed lifecycle history rollover](./2026-09-10-capacity-history-rollover-plan.md) — extend conservative journal rollover to capacity-managed history so enrolled checkouts keep accepting ensure and exec past the 128-entry cap.
 - [Host-port claims](./2026-09-10-host-port-claims-plan.md) — admission-time detection and attribution of conflicting consumer-declared fixed host-port bindings, plus a read-only doctor check; release 0.0.68 on `rs/host-port-claims`.
@@ -33,6 +32,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Delivered history
 
+- [Reliable managed sessions through 0.1.0](./2026-09-13-reliability-release-plan.md) — durable lifecycle intent, capacity admission, controller observation, an enforcing harness gate and the Q01-Q36 disposition, released as 0.1.0 and followed by the 0.1.1 patch that surfaces a refused managed start; open qualification rows, consumer items and operator-owned findings stay recorded rather than claimed.
 - [Runtime-only proxy mode](./2026-06-13-proxy-runtime-plan.md) — introduced routing to externally managed upstreams.
 - [Workspace-agent-native workflow](./2026-06-25-pr-9-workspace-agent-native-plan.md) — established parallel-worktree routing and agent guidance.
 - [Architecture deepening](./2026-06-28-pr-10-architecture-deepening-plan.md) — separated command surfaces from runtime internals.
