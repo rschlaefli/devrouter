@@ -19,12 +19,123 @@ const MAX_HOOK_PAYLOAD_BYTES = 256 * 1024;
 const STDIN_TIMEOUT_MS = 5_000;
 const MAX_TOOL_USE_ID_LENGTH = 256;
 
+const DEVROUTER_EXECUTABLES = new Set(["devrouter", "devrouter-process"]);
+const LAUNCHER_WORDS = new Set(["npx", "pnpm", "npm", "yarn"]);
+const LAUNCHER_SUBCOMMANDS = new Set(["exec", "dlx"]);
+const COMMAND_WORD_LIMIT = 8;
+
+/**
+ * Split a command line at the operators that start a new command. Nothing else
+ * is interpreted: quoting is only tracked so a separator inside a quoted
+ * argument does not split the line, and an unfinished quote simply keeps the
+ * rest of the line together.
+ */
+function commandSegments(command: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  for (const char of command) {
+    if (quote) {
+      current += char;
+      if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (
+      char === ";" ||
+      char === "\n" ||
+      char === "&" ||
+      char === "|" ||
+      char === "(" ||
+      char === ")"
+    ) {
+      segments.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  segments.push(current);
+  return segments;
+}
+
+/** The leading words of one command segment with quoting removed. */
+function segmentWords(segment: string, limit: number): string[] {
+  const words: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  const flush = () => {
+    if (current) words.push(current);
+    current = "";
+  };
+  for (const char of segment) {
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+        continue;
+      }
+      current += char;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === " " || char === "\t") {
+      flush();
+      if (words.length >= limit) return words;
+      continue;
+    }
+    current += char;
+  }
+  flush();
+  return words;
+}
+
+/** The executable a command word names, whether bare, relative or absolute. */
+function executableName(word: string): string {
+  return word.slice(word.lastIndexOf("/") + 1);
+}
+
+/** The command word of one segment, skipping environment and launcher prefixes. */
+function commandWord(segment: string): string | undefined {
+  const words = segmentWords(segment, COMMAND_WORD_LIMIT);
+  let index = 0;
+  for (;;) {
+    const word = words[index];
+    if (word === undefined) return undefined;
+    if (word === "env" || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(word)) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  const launcher = words[index];
+  if (launcher !== undefined && LAUNCHER_WORDS.has(executableName(launcher))) {
+    index += 1;
+    const subcommand = words[index];
+    if (subcommand !== undefined && LAUNCHER_SUBCOMMANDS.has(subcommand)) index += 1;
+  }
+  return words[index];
+}
+
 /**
  * Lifecycle commands drive the transitions this gate defers on, so they always
- * pass through; deferring them would deadlock the environment they repair.
+ * pass through; deferring them would deadlock the environment they repair. The
+ * executable itself is recognized, including an absolute or checkout-local
+ * path and the package-manager launchers that can start it, so the same command
+ * passes through however the agent spells the binary.
  */
-const DEVROUTER_COMMAND_RE =
-  /(?:^|[\s;&|()])(?:npx\s+|pnpm\s+(?:exec\s+)?|npm\s+(?:exec\s+)?|yarn\s+)?devrouter(?:-process)?(?:\s|$)/;
+function isDevrouterLifecycleCommand(command: string): boolean {
+  return commandSegments(command).some((segment) => {
+    const word = commandWord(segment);
+    return word !== undefined && DEVROUTER_EXECUTABLES.has(executableName(word));
+  });
+}
 
 type HarnessHookPayload = {
   hook_event_name?: unknown;
@@ -127,11 +238,22 @@ function permitReason(decision: HarnessGateDecision): string {
     }
     return `devrouter: this tool call's wait was cancelled${age}; the harness may have run it. Verify whether it ran before issuing a new call.`;
   }
-  switch (decision.decision) {
-    case "refuse":
+  // Only an observation of a settled phase may claim settlement. Bypasses and
+  // missing evidence keep their own wording so the transcript never reports a
+  // check the gate did not perform.
+  switch (decision.reason) {
+    case "budget-exhausted":
       return `devrouter: the managed environment is still ${decision.observedPhase} after waiting ${seconds}s. Do not retry automatically; run 'devrouter status .' and continue once it settles.`;
-    case "deferred-allow":
+    case "settled-after-wait":
       return `devrouter: environment settled after ${seconds}s; the tool may run now.`;
+    case "devrouter-command":
+      return "devrouter: lifecycle command; the gate left it to the lifecycle engine and did not observe the environment.";
+    case "unmanaged-checkout":
+      return "devrouter: no managed checkout was found for this call; the gate did not observe environment state.";
+    case "hook-payload-invalid":
+      return "devrouter: the hook payload was unreadable; the gate did not observe environment state.";
+    case "evidence-unavailable":
+      return "devrouter: lifecycle evidence was unavailable; the gate observed no settled phase and the tool proceeds.";
     default:
       return "devrouter: environment settled.";
   }
@@ -221,7 +343,7 @@ export async function runHarnessCommand(
   const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
   const toolInput = isRecord(payload.tool_input) ? payload.tool_input : {};
   const command = typeof toolInput.command === "string" ? toolInput.command : "";
-  if (toolName === "Bash" && DEVROUTER_COMMAND_RE.test(command)) {
+  if (toolName === "Bash" && isDevrouterLifecycleCommand(command)) {
     const decision = gateDecision("allow", "devrouter-command");
     process.stdout.write(
       json ? `${JSON.stringify(decision)}\n` : `${hookOutput(decision, kind)}\n`,

@@ -154,17 +154,23 @@ export async function waitForHarnessGate(options: {
     options.onObservation?.(observation, now() - started);
     if (!isTransitionalHarnessPhase(observation.phase)) {
       const waitedMs = now() - started;
+      // An unknown phase is missing evidence rather than an observed
+      // settlement. The call still proceeds, but the decision keeps the
+      // distinction so no caller reports a check that never happened.
+      let reason: HarnessGateReason = deferred ? "settled-after-wait" : "settled";
+      if (observation.phase === "unknown") reason = "evidence-unavailable";
       return {
         version: 1,
         decision: deferred ? "deferred-allow" : "allow",
-        reason: deferred ? "settled-after-wait" : "settled",
+        reason,
         waitedMs,
         observations,
         observedPhase: observation.phase,
       };
     }
     const waitedMs = now() - started;
-    if (waitedMs + interval > budget) {
+    const remainingMs = budget - waitedMs;
+    if (remainingMs <= 0) {
       return {
         version: 1,
         decision: "refuse",
@@ -189,7 +195,10 @@ export async function waitForHarnessGate(options: {
       }
     }
     deferred = true;
-    await sleep(Math.min(interval, budget - waitedMs));
+    // Wait the remaining budget even when it is shorter than one poll
+    // interval; refusing at the first partial interval spent no time at all and
+    // refused waits that would have settled inside the granted budget.
+    await sleep(Math.min(interval, remainingMs));
   }
 }
 
