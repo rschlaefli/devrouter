@@ -364,6 +364,69 @@ async function seedStopRequest() {
   return { identity, lifecycle, request, store };
 }
 
+/** A running checkout whose latest ensure completed and drained. */
+async function seedCompletedEnsure() {
+  const { contract, lifecycle, model, store } = await loadLifecycleModules();
+  const identity: ReliabilityIdentity = {
+    repoPath: newCheckout(),
+    workspace: null,
+    provider: "devsy",
+  };
+  store.updateReliabilityOperation(identity, (record) => {
+    const request: ReliabilityEvent = {
+      ...contract.reliabilityFence(record.state),
+      type: "operation-request",
+      kind: "ensure",
+      key: "completed-ensure",
+      operationId: "completed-ensure",
+      profile: "full",
+      consumer: { id: "manual-cli", requiredCapabilities: [], pinned: false },
+      runtimeRunning: true,
+    };
+    let transition = model.stepReliability(record.state, request, 1);
+    expect(transition.outcome).toBe("accepted");
+    transition = model.stepReliability(
+      transition.state,
+      { ...contract.reliabilityFence(transition.state), type: "dispatch" },
+      2,
+    );
+    expect(transition.outcome).toBe("accepted");
+    transition = model.stepReliability(
+      transition.state,
+      {
+        ...contract.reliabilityFence(transition.state),
+        type: "dispatch-persisted",
+        operationId: "completed-ensure",
+      },
+      3,
+    );
+    expect(transition.outcome).toBe("accepted");
+    transition = model.stepReliability(
+      transition.state,
+      {
+        ...contract.reliabilityFence(transition.state),
+        type: "completion",
+        operationId: "completed-ensure",
+        exitCode: 0,
+      },
+      4,
+    );
+    expect(transition.outcome).toBe("accepted");
+    transition = model.stepReliability(
+      transition.state,
+      {
+        ...contract.reliabilityFence(transition.state),
+        type: "drained",
+        operationId: "completed-ensure",
+      },
+      5,
+    );
+    expect(transition.outcome).toBe("accepted");
+    record.state = transition.state;
+  });
+  return { contract, identity, lifecycle, model, store };
+}
+
 beforeEach(() => {
   for (const root of fixture.roots) {
     fs.rmSync(path.join(root, "controller"), { recursive: true, force: true });
@@ -1633,6 +1696,95 @@ describe("reliability lifecycle supervision", () => {
 
     release();
     await expect(pending).resolves.toEqual({ stopped: true });
+  });
+
+  it("withdraws a stop intent that refused before any stop work began", async () => {
+    const { contract, identity, lifecycle, model, store } = await seedCompletedEnsure();
+    const before = store.readReliabilityOperation(identity);
+    fixture.runLifecycleWorker.mockRejectedValue(
+      new Error("Retained container population or immutable identity changed."),
+    );
+
+    await expect(
+      lifecycle.superviseLifecycle("stop", identity.repoPath, { delete: true }),
+    ).rejects.toThrow("Retained container population or immutable identity changed.");
+
+    const withdrawn = store.readReliabilityOperation(identity);
+    expect(withdrawn?.state).toEqual(before?.state);
+    expect(withdrawn?.stopWorkStarted ?? null).toBeNull();
+    // The withdrawn journal admits the command the stopping phase refused.
+    const admission = model.stepReliability(
+      withdrawn!.state,
+      {
+        ...contract.reliabilityFence(withdrawn!.state),
+        type: "operation-request",
+        kind: "exec",
+        key: "after-withdrawal",
+        operationId: "after-withdrawal",
+        profile: "full",
+        consumer: { id: "manual-cli", requiredCapabilities: [], pinned: false },
+        runtimeRunning: true,
+      },
+      Date.now(),
+    );
+    expect(admission.outcome).toBe("accepted");
+  });
+
+  it("keeps a stop intent whose worker recorded the pre-mutation boundary", async () => {
+    const { identity, lifecycle, store } = await seedCompletedEnsure();
+    fixture.runLifecycleWorker.mockImplementation(async () => {
+      store.updateReliabilityOperation(identity, (record) => {
+        record.stopWorkStarted = true;
+      });
+      throw new Error("Workspace routes remain published after stop.");
+    });
+
+    await expect(lifecycle.superviseLifecycle("stop", identity.repoPath)).rejects.toThrow(
+      "Workspace routes remain published after stop.",
+    );
+
+    expect(store.readReliabilityOperation(identity)).toMatchObject({
+      stopWorkStarted: true,
+      state: { desired: "stopped-by-user", phase: "stopping" },
+    });
+  });
+
+  it("keeps a recorded stop intent when a repeated stop refuses", async () => {
+    const { identity, lifecycle, store } = await seedCompletedEnsure();
+    const prepared = lifecycle.prepareLifecycleOperation("stop", identity.repoPath);
+    const stopping = store.readReliabilityOperation(identity);
+    expect(prepared.fence.intentRevision).toBe(stopping?.state.intentRevision);
+    fixture.runLifecycleWorker.mockRejectedValue(new Error("Stop refused."));
+
+    await expect(lifecycle.superviseLifecycle("stop", identity.repoPath)).rejects.toThrow(
+      "Stop refused.",
+    );
+
+    expect(store.readReliabilityOperation(identity)?.state).toEqual(stopping?.state);
+  });
+
+  it("records the pre-mutation stop boundary before the stop may change anything", async () => {
+    setProcessConnected(true);
+    const { identity, lifecycle, request, store } = await seedStopRequest();
+
+    await expect(
+      lifecycle.executeLifecycleWorker(request, async () => {
+        expect(store.readReliabilityOperation(identity)?.stopWorkStarted).toBe(true);
+        lifecycle.proveLifecycleStopped();
+        return "stopped";
+      }),
+    ).resolves.toBe("stopped");
+    const settled = store.readReliabilityOperation(identity);
+    expect(settled).toMatchObject({
+      state: {
+        desired: "stopped-by-user",
+        phase: "idle",
+        stopProof: { workloadsStopped: true, routesRemoved: true },
+      },
+    });
+    // A settled record must drop the boundary: the released CLI refuses records
+    // with fields it does not know, so the marker may only exist mid-stop.
+    expect(settled && Object.hasOwn(settled, "stopWorkStarted")).toBe(false);
   });
 
   it.each([

@@ -461,7 +461,7 @@ function handleOperationRequest(
   if (state.phase === "stopping" || state.desired === "parked-for-capacity")
     return blocked(
       state,
-      `phase is '${state.phase}' with desired '${state.desired}'; wait for the running stop to finish.`,
+      `phase is '${state.phase}' with desired '${state.desired}'; wait for the running stop to finish, or when no stop worker is running rerun 'devrouter stop <path> --delete', removing the exact provider registration first when the stop cannot prove the recorded population.`,
     );
   if (
     event.kind === "exec" &&
