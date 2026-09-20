@@ -3163,6 +3163,72 @@ pre-existing ledger-key assertion. Both gate-relevant scenarios therefore hold
 on two harness integrations for the corrected build, and the neighbour cell
 stays open on its own pre-existing defect.
 
+#### Durable journey proof and machine diagnostics (2026-09-20)
+
+Status: **RF13 implemented and locally qualified; RF10 source diagnostics
+implemented and live-reproduced read-only**. Both sit on
+`rs/reliability-guidance-and-gate-corrections`
+([PR #121](https://github.com/rschlaefli/devrouter/pull/121)) and are not merged
+or released, so the published 0.1.1 and the installed CLI still carry the
+neighbour journey defect and the collapsed capacity marker.
+
+RF13 — journey proof. The neighbour scenario compared the ledger path against the
+gated checkout without canonicalizing either side. That scenario deliberately
+writes no ledger, so both values stayed unresolved caller paths, and the fixture
+root inherited `$TMPDIR`'s trailing separator
+(`.../T//devrouter-harness-journey.XXXXXX`); the assertion failed on that doubled
+separator rather than on a wrong ledger key. `6d72964` makes the fixture root
+physical (`pwd -P`, which also matches the physical paths the harness itself
+reports), compares physical paths, and adds two pieces of durable proof:
+
+- `DR_JOURNEY_EVIDENCE=<path>` writes one sanitized summary: outcome, per-scenario
+  assertions, the exact source revision, the built bundle's SHA-256, the harness
+  version and the Node version. It carries no credentials and no model output.
+- Exit 3 now means "prerequisite unavailable" and writes `outcome: skipped` with
+  every scenario `not-run`, so an unrun cell cannot be read as a pass.
+
+Evidence at `6d72964`: Claude Code 2.1.278 passed deferral, refusal and the
+previously failing neighbour cell; Codex `0.155.0-alpha.9.2` passed the same
+three against the same mock model with no credentials. Ordinary CI already carries
+the deterministic command-form and wait-budget regressions
+(`src/commands/__tests__/harness.test.ts`, `src/core/__tests__/harness-gate.test.ts`).
+The workflow adds the bounded live cell: the `harness-journey` job in
+`.github/workflows/ci.yml` runs on the `workflow_dispatch` input
+`harness_journey`, installs `@anthropic-ai/claude-code@2`, runs the journey with
+evidence output, uploads the summary artifact, and fails on exit 3.
+[Dispatched run 35509449423](https://github.com/rschlaefli/devrouter/actions/runs/35509449423)
+passed `check` and `harness-journey` on `6d72964`.
+
+RF10 — machine blockers. `CapacityHistoryError` now carries a bounded
+`CapacityHistoryCause` and, for a single offending entry, its sanitized name;
+`listReliabilityOperations` raises `ReliabilityJournalError` with that
+classification instead of discarding it; doctor prints the cause and location and
+keys its suggestion to the cause; and the network check names the missing evidence
+instead of only its consequence. The same read-only doctor probe on this host now
+reports:
+
+- `global.capacity-ledger: error` with details
+  `capacity-history-unprovable; journal-entry-unsupported; at
+  23fe529a….stuck-stopping-20260914T1720.bak` and the suggestion to move that
+  unrecognised entry out of the private reliability journal directory while
+  preserving its contents.
+- `global.network-capacity: warn` with
+  `Allocation readiness: unknown. Missing evidence: Docker network inventory is
+  unknown; retained container references are unknown; route evidence is
+  incomplete or unknown.`
+
+The exact invalid history is therefore an operator backup file left inside
+`~/.config/devrouter/reliability/`, and one such entry blocks every capacity read
+machine-wide. The supported recovery prepared for operator review is to move that
+`.bak` file out of the journal directory, keep it, and re-run `devrouter doctor`;
+`capacity reconcile --yes` stays limited to positively absent history and does not
+apply here. Machine policy and operator state are separate live effects, so the
+file was left in place and no ledger, journal, policy or runtime state was
+touched. Fail-closed behavior stays covered by tests: a corrupt entry is
+`journal-invalid`, a loose-mode or oversized entry is `journal-entry-unsafe`, an
+unreadable entry is `journal-unreadable`, and no record content reaches the
+report.
+
 #### Qualification, operator and consumer follow-up
 
 All entries remain open unless their status explicitly says investigation.
@@ -3174,10 +3240,10 @@ an operator's or another task's environment.
 | RF07 / P2 — Cancellation and replay; Devrouter/harness owner | Investigation: a hook terminated during first observation has not yet claimed a continuation. Duplicate execution is a hypothesis, not reproduced; current fencing explicitly covers calls whose wait started. Q30 has only direct signal/source evidence. | Observe cancellation, redirect and hook timeout before claim, during wait and after grant in each supported actual harness. Record whether the tool ran and reject continuation of a superseded task. Change claim timing only after its semantics are resolved; preserve ordinary settled-call behavior and uncertain-write non-replay. Include parallel/nested calls and a genuinely runtime-dependent browser/MCP tool in Q29; a shell command named `exec_command` does not by itself prove that seam. W9, Q22/Q29–Q31. |
 | RF08 / P1 acceptance — Complete the integrated canary; Devrouter owner with the exact consumer owner | M1 is not closed by the current Q36 evidence. `scripts/qualify-harness-journey.sh` directly changes journal phases and runs a scripted tool through a real harness. Its neighbour record stays unchanged, but it does not exercise the full live failure/parking/resume sequence. Separate ordinary consumer startup/stop proof does not supply the missing integration. | Select an explicitly authorized installed platform/provider, consumer/profile and harness with two environments. Prove semantic readiness, required-process death, persistent pressure through the qualified injection boundary, safe parking, retained data/dirty source, fresh admission and resume, and actual neighbour functionality with zero agent-authored infrastructure repair. Keep source, installed and real-provider evidence separate. Apply twenty routine and ten selected fault repetitions or justify the scoped alternative before the run. W2–W9/S1–S8, M1, Q01–Q36. |
 | RF09 / P1 acceptance — Reconcile the fault matrix; Devrouter owner | Many Q rows have source-only receipts although the release gate requires installed/live layers. Q20 sleep/wake and Q30 cancellation remain live-open. Q07's OOM retention/admission obligation and Q08's no-false-OOM obligation cannot both be discharged by absence of an OOM classifier. Q26's missing quarantine subsystem needs an explicit scope disposition. | Reassess each original required result and evidence layer, preserving passing source evidence. Exercise container-local OOM/SIGKILL and retention in an authorized disposable runner, without requiring a speculative classifier. Qualify sleep/wake, unavailable provider, interruption/unknown completion, partial stop, corruption and pressure as applicable. Mark unsupported cells and absent quarantine behavior explicitly; narrowing the approved outcome needs a recorded decision. Do not convert missing implementation or missing fixtures into a passing/not-applicable row. W3–W5/W8/W9, M1–M2. |
-| RF10 / P2 — Explain and recover machine blockers; operator with Devrouter diagnostic owner | Fresh installed doctor reported `global.capacity-ledger=capacity-history-unprovable` and unknown network-allocation readiness. Devsy 1.19.0 governing its own agent is a non-blocking warning. `createLifecycleCapacityStore` collapses journal-enumeration failures into one cause, leaving little actionable detail. | Add bounded, values-free cause/location diagnostics sufficient to identify the exact invalid history or missing network evidence. Prove unreadable/corrupt/unknown state remains fail-closed. Prepare an exact supported recovery for operator review; `capacity reconcile --yes` applies only to positively absent history under its existing proof, not generic unprovable history. Preserve evidence and surviving charges. Setup/injection, policy changes and recovery are separate live effects. W1/W6a/W7, Q21/Q32/Q35. |
+| RF10 / P2 — Explain and recover machine blockers; operator with Devrouter diagnostic owner | **Implemented on PR #121; not merged or released.** The installed 0.1.1 still prints the bare `capacity-history-unprovable`. The corrected build names the bounded cause, the offending journal entry and a cause-keyed recovery, and the network check names the three missing evidence inputs; the exact invalid history is an operator `.bak` file inside the private reliability journal directory. Remaining: merge and release, then operator recovery under its own authority. | Add bounded, values-free cause/location diagnostics sufficient to identify the exact invalid history or missing network evidence. Prove unreadable/corrupt/unknown state remains fail-closed. Prepare an exact supported recovery for operator review; `capacity reconcile --yes` applies only to positively absent history under its existing proof, not generic unprovable history. Preserve evidence and surviving charges. Setup/injection, policy changes and recovery are separate live effects. W1/W6a/W7, Q21/Q32/Q35. |
 | RF11 / P2 — Close consumer adoption with live proof; existing Klicker task owner | Task `01a06930-fdea-70f1-bebf-9514b07e23a0` has not supplied a terminal recovery receipt to this review. The earlier 0.0.51 observation came from its project devDependency; global 0.1.1 does not change that pin. The 5432 claim decision and the `stopped:false, freedRoutes:0` before/after reproducer remain with that owner. Adapter liveness PR #6170 is merged source evidence only. | Owner verifies executable resolution in the actual cwd, updates its package/config pins through its own source lane, resolves its binding, then records ensure, semantic smoke, stop and final exact routes/provider/resources. Return any reproduced CLI defect here. Preserve the staged merge and all other workspaces; exclude PRD, ingestion and rollout work. W1/W4/W7, M1–M2. |
 | RF12 / P2 — Finish measured breadth and efficiency; Devrouter/consumer owners | Python cold/warm cohorts and two harness integrations establish useful breadth. Three rounds per cohort measured roughly 6.8s cold and 2.3s warm; cold reused an existing dependency container. This is a baseline, not proof of a new optimization or completion of M2–M3. | Measure stopped-resume and fault-recovery cohorts separately, preparation reuse, phase timings, memory and first-attempt failures. Qualify profile changes, host/container alternation and browser/auth behavior in the selected cells. Deliver only evidence-driven profile/artifact improvements, reporting before/after on the same workload. Keep extra providers/headless adapters conditional on selected scope; cross-host/cloud scheduling remains separate. W4–W8/W6b, M2–M3. |
-| RF13 / P2 — Keep proof durable and release claims accurate; Devrouter owner | The roadmap was indexed under Delivered while acceptance gaps persisted. Existing CI runs unit/process, package, controller and capacity checks, but not the actual harness/provider journeys. Raw journey evidence currently lives in temporary directories. | Keep this follow-up active and publication receipts delivered. Retain sanitized producing-run summaries with immutable source/package and harness/provider versions. Add the relevant deterministic command/gate regressions to ordinary CI; arrange a bounded opt-in or release qualification job for authorized live cells with explicit pass/fail/skip outcomes. A skipped prerequisite is not acceptance. Record required/manual cells and retention rather than making every PR run shared runtimes. W7–W9, all milestones. |
+| RF13 / P2 — Keep proof durable and release claims accurate; Devrouter owner | **Implemented and locally qualified on PR #121 (`6d72964`); not merged or released.** The neighbour assertion defect is fixed, the journey writes a sanitized summary with source revision, bundle hash and harness/runtime versions, exit 3 marks a skip as `not-run`, and the opt-in `harness-journey` CI job passed its first dispatch. Remaining: carry the fix through merge and release, and keep the required live cells recorded. | Keep this follow-up active and publication receipts delivered. Retain sanitized producing-run summaries with immutable source/package and harness/provider versions. Add the relevant deterministic command/gate regressions to ordinary CI; arrange a bounded opt-in or release qualification job for authorized live cells with explicit pass/fail/skip outcomes. A skipped prerequisite is not acceptance. Record required/manual cells and retention rather than making every PR run shared runtimes. W7–W9, all milestones. |
 
 #### Order, completion and preserved authority
 
@@ -3192,12 +3258,14 @@ into one cause with no location, so an operator cannot tell which history is
 unreadable or which network evidence is missing. The diagnostic improvement and
 any recovery remain open; no ledger, policy or runtime state was touched.
 
-RF01–RF06 are implemented on PR #121 and await merge and release. Next work is
-RF07's cancellation/replay investigation, with the RF10 read-only diagnosis and
-the RF11 owner coordination proceeding independently. RF08 integrates RF09's
-applicable fault cases and RF07's harness proof; RF12 extends the resulting
-accepted cell. RF13 accompanies each package so evidence is preserved as it is
-produced.
+RF01–RF06 are implemented on PR #121 and await merge and release, joined there on
+the same branch by the RF13 journey-proof fix (`6d72964`) and the RF10
+diagnostics. Next work is RF07's cancellation/replay observation and the RF08/RF09
+acceptance cell, which needs an explicitly authorized installed platform,
+consumer, profile and two environments. RF10's operator recovery stays with the
+operator and the machine-policy boundary, RF11 stays with the Klicker task owner,
+and RF12 extends whichever cell RF08/RF09 accept. RF13 now accompanies each
+package with a retained summary.
 
 For each entry, record its disposition, implementing PR/revision, producing
 command/run, artifact version, observed outcome and remaining limitations here.
