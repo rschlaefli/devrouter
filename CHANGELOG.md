@@ -44,6 +44,17 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- The consumer contract is qualified against a runtime that has no Node
+  toolchain. `scripts/qualify-non-node-consumer.sh` (`pnpm qualify:non-node`)
+  builds a synthetic Python consumer from the standard library alone, whose
+  single `.devrouter.yml` declares a routed host application and a routed
+  Postgres dependency. It asserts semantic readiness over the published TLS
+  route, the dependency environment the process actually received, the
+  `envMap` alias, that the route disappears again after a non-destructive stop,
+  and that the fixture's own Compose project and volume are released. Each round
+  also records measured readiness, the consumer's peak resident memory, its
+  container memory and whether it reused the running dependency container.
+
 - `devrouter capacity reconcile --yes [--json]` replaces a provably absent
   capacity ledger with a fresh empty baseline. Under the capacity lock it
   re-reads the journals, re-proves absence, observes the declared runtime

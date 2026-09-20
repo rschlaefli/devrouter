@@ -2648,3 +2648,98 @@ Volta approved the bounded correction and is closed. Optional AGY rival remains
 unpassed because discovery lacked authentication and hit sandbox cache/log errors.
 Linux helper skipsmacOS; CI owns that check. Immutable slice reviews and exact CI
 follow. Previous binding-continuity CI34768531727 is green at b4a7f67.
+
+### Second harness and non-Node consumer (slice 6, delivered)
+
+Slice 6 opened with the two breadth obligations the plan names. Both are fixture
+work with no runtime ownership of another task: nothing here starts, stops or
+reconfigures a consumer environment, and the shared router keeps running.
+
+**Second actual harness.** The installed Codex CLI accepts a `PreToolUse` hook
+but not the envelope Claude Code uses. `harness gate` now identifies the
+requesting harness from its payload (`turn_id` present means Codex) and answers
+in that harness's accepted shape: a refusal stays one `deny` in both, an allowed
+Claude call keeps `permissionDecision: allow`, and an allowed Codex call returns a
+plain completion whose guidance travels as `additionalContext`. The Codex CLI
+reports an `allow` decision as unsupported hook output while still running the
+tool, so serving the Claude envelope there would have left the gate advisory
+while looking successful.
+
+`scripts/qualify-harness-journey.sh` now runs either harness through the same
+three scenarios (`DR_JOURNEY_HARNESS=claude|codex`, `pnpm qualify:codex-journey`).
+The Codex path adds evidence the first harness cannot produce: the client itself
+must report the hook as completed or blocked and never failed, which is the only
+proof that the envelope was accepted rather than ignored. Evidence for both
+harnesses, with `failures: []` on all six scenario lines:
+
+| Scenario | Codex | Claude |
+| --- | --- | --- |
+| Deferral | allowed after `waitedMs` 6058 in `stopping`, tool executed, 2 turns, hook outcomes completed 1 / blocked 0 / failed 0 | allowed after the enforced wait, tool executed, no denial |
+| Budget refusal | one `deny` naming the phase, tool never executed, hook outcomes completed 0 / blocked 1 / failed 0 | one `deny`, tool never executed, entry settled `refused` |
+| Protected neighbour | allowed immediately as settled, transitional record byte-identical | same |
+
+Codex evidence is `/private/tmp/dr-codex-journey-3`, the Claude re-run under the
+shared script is `/private/tmp/dr-claude-journey-1`. The Codex client is
+0.155.0-alpha.9.2 through the `codex.opencodex-real` binary, because
+`/opt/homebrew/bin/codex` is an opencodex shim. The model provider is a local
+mock Responses API, so no credentials or model access are involved. Source
+changes: `src/commands/harness.ts` (harness detection plus per-harness
+envelope), `src/commands/__tests__/harness.test.ts` (two new tests: the Codex
+allow envelope carries no `permissionDecision`; an exhausted Codex wait still
+denies), the journey script, the bundled skill and its embedded copy in
+`src/core/agents-md.ts`, the onboarding prompt and `package.json`. Committed as
+`f6f5163`.
+
+**Non-Node consumer.** `scripts/qualify-non-node-consumer.sh`
+(`pnpm qualify:non-node`) builds a synthetic Python consumer whose only
+dependency is the standard library: one `.devrouter.yml` declaring a routed host
+application and a routed Postgres dependency, a Compose project for the
+dependency, and a service that answers `/healthz` and reports the dependency
+environment it actually received. It asserts, from artifacts the fixture itself
+produced, that `repo inspect` validates the config with no error-level issue
+(the missing Node manifest stays a warning), that the route resolves over TLS
+through the URL `devrouter ls --json` publishes, that the consumer process
+reports a Python runtime with `DB_HOST`, `DB_PORT`, `DB_URL`,
+`DB_SHADOW_URL` and the `envMap` alias `DATABASE_URL` equal to `DB_URL`, that
+the route is gone after a non-destructive stop, and that the fixture's own
+Compose project and synthetic volume are released.
+
+Measured evidence from `/private/tmp/dr-non-node-6` (three cold and three warm
+rounds, `failed: false`, exit 0; the raw per-round logs stay in that directory):
+
+| Cohort | min | median | max |
+| --- | --- | --- | --- |
+| Cold (dependency stopped first) | 6696ms | 6827ms | 6909ms |
+| Warm (dependency inherited) | 2291ms | 2291ms | 2524ms |
+
+Both cohorts reused one dependency container identity across all six rounds
+(`571d6c9de1a8`), so the warm cohort measures real reuse rather than a
+recreated database, and the cold cohort measures a dependency start on an
+existing container instead of an image pull or volume initialization. The ready
+consumer reported a peak resident memory of 22.1–22.3MB, and its dependency
+container held 17.1–27.0MiB at readiness. Two defects the fixture found in
+itself were fixed before this evidence: readiness was first probed over plain
+HTTP, which redirects to TLS and produced a false sub-100ms "ready", and the
+fixture drove its dependency under a Compose project name devrouter does not
+use, so its stop and leftover assertions were vacuous while a container
+survived. The fixture now derives the same project name devrouter does, and its
+teardown assertion is meaningful.
+
+Sample size: three rounds per cohort instead of the roadmap default of twenty,
+because each round stops and starts a real Postgres and a real host process.
+The fixture is deterministic in its assertions and the cohorts differ only in
+whether the dependency is inherited; the recorded spread (cold 213ms, warm
+233ms across three rounds) is narrow enough that more repetitions would refine
+the median, not the conclusion. This is a recorded scoped alternative for an
+expensive fixture, not a waiver of the M1 qualification counts.
+
+Q rows affected by this slice: Q01 and Q02 are requalified for the non-Node
+cell by the cold and warm cohorts above, Q29 is requalified in a second claimed
+harness mode by the Codex journey, and Q24 is requalified for a consumer with
+no Node toolchain at all. Nothing here changes Q30: cancellation and redirect
+fencing stay covered by the direct signal proof, because this harness cannot be
+observed to cancel a wait.
+
+Residual slice 6 work: the measured baseline now exists for readiness and
+memory, and profile or artifact optimization must cite it. Q01–Q36 disposition
+and the 0.1.0 release remain.
