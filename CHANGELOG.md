@@ -4,43 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-
-- A harness-gated tool call no longer counts the gate's own first observation as
-  wait time. Resolving a checkout's identity against the provider registries costs
-  about 1.7s on a cold hook process on this host, and that setup was charged to the
-  wait budget: a short-budget call was refused as "still starting after waiting
-  1.7s" without ever deferring, and the refusal left no continuation entry for a
-  re-delivered call. The wait clock now starts immediately after the first
-  observation, so the budget bounds the actual wait and the reported `waitedMs`
-  matches it.
-
-- A managed `stop` whose physical cessation is already proven against a
-  positively absent capacity ledger completes instead of staying in `stopping`
-  forever. The store records the durable loss witness under the capacity lock
-  and the journal confirmation clears the binding, so a charge no surviving
-  durable row can satisfy no longer blocks `ensure`. An intact ledger keeps
-  today's settlement and revision fencing, and every other ledger
-  classification still refuses. `devrouter doctor` offers this recovery only
-  when the ledger is positively absent and keeps the preserve-and-restore
-  wording otherwise.
-
-- A fixed host-port conflict whose holder is the shared `devrouter-traefik`
-  router no longer tells the agent to stop or reconfigure the holder. The
-  refusal and the `repo.host-port-claims` doctor check now name the consumer's
-  own published binding as the side to change, because the router owns its
-  platform entrypoint ports and must keep running while the dependency can move
-  to a devrouter TCP protocol route.
-
-- Managed `ensure` accepts a devnet upstream served by any Compose project
-  owned by the exact worktree, such as a workspace-local dependency overlay kept
-  outside `.devcontainer`. Previously every upstream alias had to come from the
-  managed overlay, so a repository that serves a declared alias from its own
-  dependency Compose project failed preflight with `Container '<id>' does not
-  belong to the exact worktree` even though the container did belong to that
-  checkout. The workspace app container keeps the strict overlay proof, and a
-  container owned by a different worktree or by a shared project outside the
-  checkout is still rejected.
+## [0.0.80] - 2026-09-20
 
 ### Added
 
@@ -90,6 +54,48 @@ All notable changes to this project are documented in this file.
   expire after 24 hours, each checkout keeps the newest 64, and an unreadable or
   unwritable ledger never blocks the agent. Payloads without a `tool_use_id`
   keep the wait-only behavior.
+
+### Fixed
+
+- A harness-gated tool call no longer counts the gate's own first observation as
+  wait time. Resolving a checkout's identity against the provider registries costs
+  about 1.7s on a cold hook process on this host, and that setup was charged to the
+  wait budget: a short-budget call was refused as "still starting after waiting
+  1.7s" without ever deferring, and the refusal left no continuation entry for a
+  re-delivered call. The wait clock now starts immediately after the first
+  observation, so the budget bounds the actual wait and the reported `waitedMs`
+  matches it.
+
+- A managed `stop` whose physical cessation is already proven against a
+  positively absent capacity ledger completes instead of staying in `stopping`
+  forever. The store records the durable loss witness under the capacity lock
+  and the journal confirmation clears the binding, so a charge no surviving
+  durable row can satisfy no longer blocks `ensure`. An intact ledger keeps
+  today's settlement and revision fencing, and every other ledger
+  classification still refuses. `devrouter doctor` offers this recovery only
+  when the ledger is positively absent and keeps the preserve-and-restore
+  wording otherwise.
+
+- A fixed host-port conflict whose holder is the shared `devrouter-traefik`
+  router no longer tells the agent to stop or reconfigure the holder. The
+  refusal and the `repo.host-port-claims` doctor check now name the consumer's
+  own published binding as the side to change, because the router owns its
+  platform entrypoint ports and must keep running while the dependency can move
+  to a devrouter TCP protocol route.
+
+- Managed `ensure` accepts a devnet upstream served by any Compose project
+  owned by the exact worktree, such as a workspace-local dependency overlay kept
+  outside `.devcontainer`. Previously every upstream alias had to come from the
+  managed overlay, so a repository that serves a declared alias from its own
+  dependency Compose project failed preflight with `Container '<id>' does not
+  belong to the exact worktree` even though the container did belong to that
+  checkout. The workspace app container keeps the strict overlay proof, and a
+  container owned by a different worktree or by a shared project outside the
+  checkout is still rejected.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.0.80.md
 
 ## [0.0.79] - 2026-09-19
 
