@@ -2891,6 +2891,11 @@ observation and the post-start liveness contract of its repository adapter. No
 recovery is claimed from this side: the pre-registration blocker stays closed
 only under the consumer's own live proof, and its staged merge and worktree Git
 state were not touched.
+
+Consumer response: the notified task ran one completed turn after the message and
+returned to idle. Its report text is not relayed between tasks, so its own
+transcript remains the evidence for its environment; this record carries the
+notification, the observed turn and the recovery path only.
 ### Slow and failing dependency lifecycle — Q06 live qualification (2026-09-20)
 
 Q06 was the one applicable acceptance row whose behavioural half stayed unmeasured
