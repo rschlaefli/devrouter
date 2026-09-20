@@ -38,6 +38,10 @@
  * project must survive every transition untouched. Nothing is retried: a
  * first-attempt failure is evidence, not noise.
  *
+ * The last cohort removes the generated managed profile after the environment
+ * exists and requires `stop --delete` to restore that recorded artifact and
+ * settle, because the provider resolves the path recorded at registration.
+ *
  * The machine's real HOME is used on purpose, like an operator session, so the
  * real provider state and reliability journal are in play. The fixture path is
  * stable, so repeated runs reuse one journal record; that record survives the
@@ -62,6 +66,7 @@ const IMAGE_TAG = "devrouter-profile-alternation:local";
 const WORKSPACE_FOLDER = "/workspaces/profile-alternation";
 const PROFILE_SERVICE = "worker";
 const POST_CREATE_COUNT = ".devrouter-post-create-count";
+const GENERATED_PROFILE = ".devcontainer/devcontainer.devrouter.json";
 const PREPARE_MILLIS = 2000;
 const NPM_INSTALL_ARGS = [
   "install",
@@ -625,7 +630,7 @@ async function main() {
     fs.writeFileSync(
       path.join(fixture, ".gitignore"),
       [
-        ".devcontainer/devcontainer.devrouter.json",
+        GENERATED_PROFILE,
         ".devcontainer/docker-compose.devrouter-network.yml",
         "node_modules/",
         POST_CREATE_COUNT,
@@ -1182,6 +1187,29 @@ async function main() {
     facts.resume = { ...resumeFacts, routeProbe: resumeRoute };
     evidence.push(
       "a non-destructive stop retained the container and both install trees, and the resume prepared the process again",
+    );
+
+    // Removing the generated profile after the environment exists must not
+    // strand the checkout: Devsy resolves the config by the recorded path, so
+    // stop --delete has to restore the exact recorded artifact first.
+    const generatedProfile = path.join(fixture, GENERATED_PROFILE);
+    fs.rmSync(generatedProfile);
+    assert.equal(fs.existsSync(generatedProfile), false, "the fixture lost its generated profile");
+    const restored = await runDevrouter(["stop", fixture, "--delete", "--json"]);
+    assert.equal(restored.exitCode, 0, `stop --delete failed: ${restored.stderrTail}`);
+    assert.equal(appContainerId(fixture), undefined, "the delete must remove the exact container");
+    assert.equal(routeEntry(), undefined, "the delete must remove the route");
+    assert.ok(
+      fs.existsSync(generatedProfile),
+      "the delete must restore the recorded generated profile",
+    );
+    const restoredJournal = journalState();
+    assert.equal(restoredJournal?.phase, "idle");
+    assert.equal(restoredJournal?.desired, "stopped-by-user");
+    cohorts["generated-profile-restore"] = cohort("missing generated profile", restored);
+    facts["generated-profile-restore"] = { journal: restoredJournal };
+    evidence.push(
+      "a generated profile removed after the environment existed was restored before the provider delete, and the stop settled its journal",
     );
   } catch (error) {
     failure = error;
