@@ -24,6 +24,15 @@
 #               execute the same mutating call twice. The granted and refused
 #               scenarios also replay their exact captured payloads and must
 #               refuse those instead of re-deciding them.
+#   nonshell-allow - the scripted call is not a shell command at all: the model
+#               asks for a tool served by a test-owned MCP server while the
+#               checkout is settled, so the hook must allow it and the server
+#               must record its side effect.
+#   nonshell  - the same non-shell call while the checkout is transitional: the
+#               hook must refuse it and the MCP server must write nothing, so
+#               the refusal suppressed the side effect instead of only being
+#               rendered in the transcript. This cell runs after the allowed
+#               cell, which proves the tool itself works in this run.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -94,7 +103,14 @@ write_evidence() {
     const fs = require("node:fs");
     const path = require("node:path");
     const work = process.env.DR_EVIDENCE_WORK || "";
-    const scenarios = ["deferral", "refusal", "neighbour", "interrupted"].map((name) => {
+    const scenarios = [
+      "deferral",
+      "refusal",
+      "neighbour",
+      "interrupted",
+      "nonshell-allow",
+      "nonshell",
+    ].map((name) => {
       let asserted = null;
       try {
         asserted = JSON.parse(fs.readFileSync(path.join(work, "assert-" + name + ".json"), "utf8"));
@@ -173,6 +189,9 @@ SETTINGS="$WORK/settings.json"
 HOOKS="$HOME_DIR/hooks.json"
 CODEX_CONFIG="$HOME_DIR/config.toml"
 MOCK="$WORK/mock-api.mjs"
+MCP_SERVER="$WORK/mcp-marker.mjs"
+MCP_CONFIG="$WORK/mcp.json"
+MCP_MARKER="$WORK/mcp-marker.marker"
 FAILED=0
 MOCK_PID=""
 
@@ -185,10 +204,11 @@ cleanup() {
 trap cleanup EXIT
 
 start_mock() {
-  local tool_command="$1" trace="$2"
+  local tool_command="$1" trace="$2" tool_match="${3:-}"
   if [ -n "$MOCK_PID" ]; then kill "$MOCK_PID" >/dev/null 2>&1 || true; fi
   : > "$trace"
   DR_MOCK_PORT="$PORT" DR_MOCK_TRACE="$trace" DR_MOCK_TOOL_COMMAND="$tool_command" \
+    DR_MOCK_TOOL_MATCH="$tool_match" \
     "$NODE" "$MOCK" >> "$WORK/mock.log" 2>&1 &
   MOCK_PID=$!
   for _ in $(seq 1 60); do
@@ -275,18 +295,75 @@ printf '%s\n' "$out"
 HOOK_EOF
 chmod +x "$HOOK"
 
+cat > "$MCP_SERVER" <<'MCP_SERVER_EOF'
+// Minimal stdio MCP server with exactly one tool, so the journey can prove that
+// a tool call which is not a shell command is decided by the same PreToolUse
+// hook. It speaks newline-delimited JSON-RPC and implements only what a client
+// needs to list and call that one tool.
+import fs from "node:fs";
+
+const marker = process.env.DR_MCP_MARKER;
+let buffer = "";
+
+function respond(id, result) {
+  if (id === undefined || id === null) return;
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+}
+
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  for (;;) {
+    const index = buffer.indexOf("\n");
+    if (index < 0) return;
+    const line = buffer.slice(0, index).trim();
+    buffer = buffer.slice(index + 1);
+    if (!line) continue;
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (message.method === "initialize") {
+      respond(message.id, {
+        protocolVersion: "2024-11-05",
+        capabilities: { tools: {} },
+        serverInfo: { name: "marker", version: "1.0.0" },
+      });
+    } else if (message.method === "tools/list") {
+      respond(message.id, {
+        tools: [
+          {
+            name: "write_marker",
+            description: "Append one line to the test-owned marker file.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          },
+        ],
+      });
+    } else if (message.method === "tools/call") {
+      fs.appendFileSync(marker, "GATE-OK\n");
+      respond(message.id, { content: [{ type: "text", text: "GATE-OK" }] });
+    } else if (message.method === "ping") {
+      respond(message.id, {});
+    }
+  }
+});
+MCP_SERVER_EOF
+
 # Each harness reads its hook configuration from its own place: Claude Code from
 # the settings file passed on the command line, the Codex CLI from
-# $CODEX_HOME/hooks.json. The matcher names the shell tool in both, and the
-# timeout stays above the largest wait budget so the harness never abandons a
-# gating hook mid-wait.
+# $CODEX_HOME/hooks.json. Both use the matcher the shipped guidance recommends,
+# so the journey qualifies the documented wiring itself: every tool the model can
+# call is decided here, not only its shell. The timeout stays above the largest
+# wait budget so the harness never abandons a gating hook mid-wait.
 if [ "$HARNESS" = "codex" ]; then
   cat > "$HOOKS" <<HOOKS_EOF
 {
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "exec_command|Bash|shell",
+        "matcher": ".*",
         "hooks": [{ "type": "command", "command": "$HOOK", "timeout": 180 }]
       }
     ]
@@ -302,6 +379,12 @@ name = "journey"
 base_url = "http://127.0.0.1:$PORT/v1"
 wire_api = "responses"
 env_key = "JOURNEY_API_KEY"
+
+[mcp_servers.marker]
+command = "$NODE"
+args = ["$MCP_SERVER"]
+env = { DR_MCP_MARKER = "$MCP_MARKER" }
+default_tools_approval_mode = "approve"
 CODEX_CONFIG_EOF
 else
   cat > "$SETTINGS" <<SETTINGS_EOF
@@ -309,13 +392,24 @@ else
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": ".*",
         "hooks": [{ "type": "command", "command": "$HOOK", "timeout": 120 }]
       }
     ]
   }
 }
 SETTINGS_EOF
+  cat > "$MCP_CONFIG" <<MCP_CONFIG_EOF
+{
+  "mcpServers": {
+    "marker": {
+      "command": "$NODE",
+      "args": ["$MCP_SERVER"],
+      "env": { "DR_MCP_MARKER": "$MCP_MARKER" }
+    }
+  }
+}
+MCP_CONFIG_EOF
 fi
 
 if [ "$HARNESS" = "codex" ]; then
@@ -331,6 +425,26 @@ const port = Number(process.env.DR_MOCK_PORT ?? 8791);
 const trace = process.env.DR_MOCK_TRACE;
 const toolCommand = process.env.DR_MOCK_TOOL_COMMAND;
 let requests = 0;
+// A scenario may script a tool the harness advertises instead of a shell
+// command. The request carries the harness's own tool list, so the name is read
+// from there rather than guessed per client. Codex advertises an MCP server as a
+// namespace tool that holds its functions, and a call to one of them carries the
+// namespace beside the function name.
+function matchedTool(parsed) {
+  const match = process.env.DR_MOCK_TOOL_MATCH;
+  if (!match) return null;
+  const tools = Array.isArray(parsed.tools) ? parsed.tools : [];
+  for (const tool of tools) {
+    const name = typeof tool?.name === "string" ? tool.name : "";
+    const nested = Array.isArray(tool?.tools) ? tool.tools : [];
+    for (const candidate of nested) {
+      const innerName = typeof candidate?.name === "string" ? candidate.name : "";
+      if (innerName.includes(match)) return { name: innerName, namespace: name };
+    }
+    if (name.includes(match)) return { name };
+  }
+  return null;
+}
 // Each scenario starts a fresh mock against the same checkouts, and the gate's
 // continuation ledger is keyed by tool-call id, so the ids must not repeat.
 const runId = Math.random().toString(36).slice(2, 8);
@@ -391,17 +505,20 @@ http
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
       sse(res, "response.created", { type: "response.created", response });
       if (kind === "tool_call") {
+        const scripted = matchedTool(parsed);
+        const toolArguments = JSON.stringify(scripted ? {} : { cmd: toolCommand });
         const item = {
           type: "function_call",
           id: "fc_" + requests + "_" + runId,
           call_id: "call_" + requests + "_" + runId,
-          name: "exec_command",
+          name: scripted ? scripted.name : "exec_command",
+          ...(scripted?.namespace ? { namespace: scripted.namespace } : {}),
           arguments: "",
           status: "in_progress",
         };
         const call = {
           ...item,
-          arguments: JSON.stringify({ cmd: toolCommand }),
+          arguments: toolArguments,
           status: "completed",
         };
         sse(res, "response.output_item.added", { type: "response.output_item.added", output_index: 0, item });
@@ -409,7 +526,7 @@ http
           type: "response.function_call_arguments.delta",
           item_id: item.id,
           output_index: 0,
-          delta: JSON.stringify({ cmd: toolCommand }),
+          delta: toolArguments,
         });
         sse(res, "response.output_item.done", { type: "response.output_item.done", output_index: 0, item: call });
         sse(res, "response.completed", {
@@ -478,6 +595,25 @@ const port = Number(process.env.DR_MOCK_PORT ?? 8791);
 const trace = process.env.DR_MOCK_TRACE;
 const toolCommand = process.env.DR_MOCK_TOOL_COMMAND;
 let toolTurns = 0;
+
+// A scenario may script a tool the harness advertises instead of a shell
+// command. The request carries the harness's own tool list, so the name is read
+// from there rather than guessed per client.
+function matchedTool(parsed) {
+  const match = process.env.DR_MOCK_TOOL_MATCH;
+  if (!match) return null;
+  const tools = Array.isArray(parsed.tools) ? parsed.tools : [];
+  for (const tool of tools) {
+    const name = typeof tool?.name === "string" ? tool.name : "";
+    const nested = Array.isArray(tool?.tools) ? tool.tools : [];
+    for (const candidate of nested) {
+      const innerName = typeof candidate?.name === "string" ? candidate.name : "";
+      if (innerName.includes(match)) return { name: innerName, namespace: name };
+    }
+    if (name.includes(match)) return { name };
+  }
+  return null;
+}
 
 function summarize(messages) {
   const toolUses = [];
@@ -566,6 +702,7 @@ http
         message = { id, type: "message", role: "assistant", model, content: [{ type: "text", text: "JOURNEY-DONE" }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } };
       } else {
         toolTurns += 1;
+        const scripted = matchedTool(parsed);
         message = {
           id,
           type: "message",
@@ -575,8 +712,8 @@ http
             {
               type: "tool_use",
               id: "toolu_" + Math.random().toString(36).slice(2, 10),
-              name: "Bash",
-              input: { command: toolCommand, description: "journey" },
+              name: scripted ? scripted.name : "Bash",
+              input: scripted ? {} : { command: toolCommand, description: "journey" },
             },
           ],
           stop_reason: "tool_use",
@@ -723,6 +860,105 @@ if (mode === "interrupted") {
       },
       cancelledWait: cancelled[0] ?? null,
       checkoutsClean: dirtyAffected === "",
+      failures,
+    }),
+  );
+  if (failures.length) process.exit(1);
+  process.exit(0);
+}
+
+// A tool call that is not a shell command travels the same decision path: the
+// hook must observe the MCP tool, allow it once the checkout settles, and refuse
+// it while the checkout is transitional with that refusal reaching the model.
+// The MCP server writes its marker only when the call really executes, so the
+// file states are the side-effect evidence rather than a second reading of the
+// transcript. The allowed cell runs first, so the refusal cell is read against a
+// tool this run just observed to work.
+if (mode === "nonshell" || mode === "nonshell-allow") {
+  const refusal = mode === "nonshell";
+  const markerPath = work + "/mcp-marker.marker";
+  const markerText = fs.existsSync(markerPath) ? fs.readFileSync(markerPath, "utf8") : "";
+  const hookOutcomes = transcript.hook_outcomes ?? {};
+  check(
+    transcript.is_error !== true && transcript.subtype === "success",
+    "the harness run reported an error: " + JSON.stringify(transcript.subtype ?? transcript.is_error),
+  );
+  check(transcript.terminal_reason === "completed", "the harness run did not finish: " + transcript.terminal_reason);
+  check(
+    typeof payload.tool_name === "string" && payload.tool_name.length > 0,
+    "the hook payload carried no tool name",
+  );
+  check(
+    !["Bash", "exec_command", "shell"].includes(payload.tool_name ?? ""),
+    "the scenario delivered the shell tool " + payload.tool_name,
+  );
+  check(
+    /marker/.test(payload.tool_name ?? ""),
+    "the hook payload carried " + payload.tool_name + " instead of the MCP tool",
+  );
+  check(typeof payload.tool_use_id === "string" && payload.tool_use_id.length > 0, "the hook payload carried no tool_use_id");
+  check(real(payload.cwd ?? "") === real(gated), "the harness reported " + payload.cwd + ", expected the gated checkout " + gated);
+  check(hookLines.length === 1, "expected exactly one gated non-shell call, saw " + hookLines.length);
+  check(callIds.length === 1, "expected one tool call from the model, saw " + callIds.length);
+  check(
+    toolUses.every((call) => /marker/.test(call.name)),
+    "the model called " + toolUses.map((call) => call.name).join(", "),
+  );
+  check(!fs.existsSync(work + "/probe-" + label + ".marker"), "the shell probe ran");
+  check(dirtyAffected === "", "the affected checkout was modified: " + dirtyAffected);
+  check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeighbour);
+  check(neighbourBefore.sha256 === neighbourAfter.sha256, "the neighbour lifecycle record changed");
+  check(neighbourAfter.phase === "stable", "the neighbour phase is " + neighbourAfter.phase);
+  if (refusal) {
+    check(hookSpecific.permissionDecision === "deny", "the gate decided " + hookSpecific.permissionDecision + ": " + reason);
+    check(/still starting/.test(reason), "the refusal did not name the phase: " + reason);
+    check(markerText === "", "the refused MCP tool ran: " + JSON.stringify(markerText));
+    check(
+      toolResults.some((result) => String(result.text).includes("devrouter")),
+      "the refusal did not reach the model: " + JSON.stringify(toolResults),
+    );
+    check(
+      entries.some((candidate) => candidate.toolUseId === payload.tool_use_id && candidate.state === "refused"),
+      "the continuation ledger did not record the refusal",
+    );
+    check(affectedAfter.phase === "starting", "the affected phase is " + affectedAfter.phase);
+    if (harness === "codex") {
+      check(hookOutcomes.blocked === 1, "the harness recorded " + hookOutcomes.blocked + " blocked hook decisions");
+      check(hookOutcomes.completed === 0, "a refused call also reported a completed hook decision");
+    } else {
+      check(denials.length === 1, "expected exactly one harness denial, saw " + denials.length);
+      check(
+        denials[0]?.tool_name === payload.tool_name,
+        "the harness denied " + denials[0]?.tool_name + " instead of " + payload.tool_name,
+      );
+    }
+  } else {
+    allows();
+    check(reason === "devrouter: environment settled.", "the settled non-shell call was not allowed: " + reason);
+    // The ledger belongs to the checkout and keeps the earlier scenarios'
+    // decisions, so this asserts about this call rather than the whole file.
+    check(
+      !entries.some((candidate) => candidate.toolUseId === payload.tool_use_id),
+      "a settled non-shell call was gated: " + JSON.stringify(entries),
+    );
+    check(markerText === "GATE-OK\n", "the allowed MCP tool wrote " + JSON.stringify(markerText));
+    check(affectedAfter.phase === "stable", "the affected phase is " + affectedAfter.phase);
+    if (harness === "codex") {
+      check(hookOutcomes.completed === 1, "the harness recorded " + hookOutcomes.completed + " completed hook decisions");
+    } else {
+      check(denials.length === 0, "the harness recorded a denial: " + JSON.stringify(denials));
+    }
+  }
+  console.log(
+    JSON.stringify({
+      scenario: mode,
+      label,
+      harness,
+      tool: payload.tool_name ?? null,
+      decision: hookSpecific.permissionDecision ?? null,
+      reason,
+      marker: markerText.trim() === "" ? null : markerText.trim(),
+      checkoutsClean: dirtyAffected === "" && dirtyNeighbour === "",
       failures,
     }),
   );
@@ -1100,6 +1336,71 @@ run_interruption_scenario() {
   cat "$WORK/assert-$label.json"
 }
 
+run_nonshell_scenario() {
+  local label="$1" phase="$2" budget="$3"
+  local trace="$WORK/api-requests-$label.jsonl"
+  rm -f "$MCP_MARKER" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
+    "$WORK/hook-payload-$label.json" "$WORK/probe-$label.marker"
+
+  journal "$NEIGHBOUR" set stable >/dev/null
+  journal "$AFFECTED" set "$phase" >/dev/null
+  journal "$AFFECTED" show > "$WORK/affected-before-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-before-$label.json"
+
+  # The mock reads the harness's own advertised tool list and scripts that MCP
+  # tool, so the scenario does not guess how each client spells a server tool.
+  start_mock "" "$trace" "marker"
+
+  if [ "$HARNESS" = "codex" ]; then
+    local started_ms ended_ms exit_code
+    started_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    set +e
+    (
+      cd "$AFFECTED" &&
+        HOME="$HOME_DIR" CODEX_HOME="$HOME_DIR" JOURNEY_API_KEY=journey \
+        DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        "$CODEX" exec --skip-git-repo-check --sandbox workspace-write -C "$AFFECTED" \
+          --dangerously-bypass-hook-trust \
+          "Call the marker MCP tool write_marker once, then stop." \
+          < /dev/null > "$WORK/codex-$label.out" 2> "$WORK/codex-$label.err"
+    )
+    exit_code=$?
+    set -e
+    ended_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    if [ "$exit_code" != "0" ]; then
+      echo "the harness run for '$label' exited $exit_code; see $WORK/codex-$label.err" >&2
+      FAILED=1
+    fi
+    DR_CODEX_EXIT="$exit_code" DR_CODEX_STARTED_MS="$started_ms" DR_CODEX_ENDED_MS="$ended_ms" \
+      "$NODE" "$CODEX_SUMMARY" "$WORK" "$label" > "$WORK/codex-$label.json"
+  else
+    if ! (
+      cd "$AFFECTED" &&
+        HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+        "$CLAUDE" -p "Call the marker MCP tool write_marker once, then stop." \
+          --output-format json --max-turns 3 \
+          --mcp-config "$MCP_CONFIG" --strict-mcp-config --allowedTools "mcp__marker__write_marker" \
+          --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+    ); then
+      echo "the harness run for '$label' failed; see $WORK/claude-$label.err" >&2
+      FAILED=1
+    fi
+  fi
+
+  journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
+  journal "$AFFECTED" ledger > "$WORK/ledger-$label.json"
+  git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
+  git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
+
+  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
+    "$NEIGHBOUR" "" "$HARNESS" > "$WORK/assert-$label.json" || FAILED=1
+  cat "$WORK/assert-$label.json"
+}
+
 echo "--- harness: $HARNESS"
 echo "--- scenario 1: a transitioning checkout defers the tool call until it settles"
 run_scenario deferral 30000
@@ -1109,6 +1410,10 @@ echo "--- scenario 3: the neighbour checkout stays usable during that transition
 run_scenario neighbour 5000
 echo "--- scenario 4: a cancelled wait is recorded and its re-delivery is refused"
 run_interruption_scenario
+echo "--- scenario 5: the MCP tool works while its checkout is settled"
+run_nonshell_scenario nonshell-allow stable 5000
+echo "--- scenario 6: the same non-shell MCP tool call is refused mid-transition"
+run_nonshell_scenario nonshell starting 3000
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
 echo "--- raw logs: $WORK"

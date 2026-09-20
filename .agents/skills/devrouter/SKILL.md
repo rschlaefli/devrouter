@@ -386,25 +386,29 @@ checkout's environment is mid-transition. Wire `devrouter harness gate` as a
     {
       "hooks": {
         "PreToolUse": [
-          { "matcher": "Bash", "hooks": [
+          { "matcher": ".*", "hooks": [
             { "type": "command", "command": "devrouter harness gate", "timeout": 90 }
           ] }
         ]
       }
     }
 
-The Codex CLI reads the same hook from `$CODEX_HOME/hooks.json`, where the shell
-tool is named `exec_command`:
+The Codex CLI reads the same hook from `$CODEX_HOME/hooks.json`:
 
     {
       "hooks": {
         "PreToolUse": [
-          { "matcher": "exec_command|Bash|shell", "hooks": [
+          { "matcher": ".*", "hooks": [
             { "type": "command", "command": "devrouter harness gate", "timeout": 180 }
           ] }
         ]
       }
     }
+
+`.*` matches every tool, including the shell, file-editing and MCP tools a model
+can point at the environment. The gate answers a settled checkout immediately, so
+the price is one short-lived process per gated call; narrow the matcher when that
+price matters more than covering every tool.
 
 The gate identifies the requesting harness from its payload and answers in that
 harness's accepted shape: a refusal is a `deny` in both, while an allowed call is
