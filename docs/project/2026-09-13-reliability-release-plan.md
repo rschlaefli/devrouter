@@ -1,5 +1,12 @@
 # Reliable managed sessions through Devrouter 0.1.0
 
+**Current status (2026-09-20): release delivered; reliability acceptance remains
+active.** Versions 0.1.0 and 0.1.1 are published and installed. The
+[post-release review and follow-up backlog](#post-release-reliability-review-and-follow-up-2026-09-20)
+records reproduced defects, qualification gaps and the evidence required to close
+the original roadmap. Earlier delivered headings describe their bounded source
+or release outcomes; they do not establish complete M1–M3 acceptance.
+
 ## Approval summary
 
 The user approved execution of the complete consolidated reliability roadmap
@@ -787,6 +794,15 @@ Residual scope: the journey covers the ordinary wait and the budget refusal in a
 real harness. Cancellation and redirect fencing (Q30) stays covered by the direct
 signal proof recorded above, because this harness cannot be observed to cancel a
 wait; a second harness and the non-Node consumer remain slice 6.
+
+The journey has since grown from these first scenarios to twelve cells for
+Claude Code and eleven decided cells for Codex, including the budget refusal,
+the cancelled wait, the non-shell MCP call, two overlapping calls, a subagent
+call, a cancellation that the CLI itself initiates, a settled call's own id
+returning under a changed command and a hook timeout short enough to abandon
+the gating wait. The current cell set, the pinned harness facts
+and the retained evidence are recorded under "Harness gate breadth and lifecycle
+passthrough (2026-09-20)" and in the fault matrix.
 
 ### Live consumer dogfood findings (2026-09-19)
 
@@ -2769,8 +2785,8 @@ two OOM-labelled rows are dispositioned as not applicable instead of unproven.
 | Q04 | `reliability-recovery.test.ts` opens an incident when a required capability fails; `controller-monitor.test.ts` asks the operations owner to recover it | source | Proven at source |
 | Q05 | `reliability-model.test.ts` keeps consumers independently ready when another requires a failing capability; `controller-monitor.test.ts` stays idle for a capability outside the required set | source | Proven at source |
 | Q06 | `controller-monitor.test.ts` does not replace timed-out batches whose probes have not drained and keeps only two batches active; `capacity-accounting.test.ts` never extends a duration on read and ends a window at its wall-age boundary; `scripts/qualify-slow-dependency-recovery.sh` produces the row's four provider outcomes against a synthetic consumer | source, live | Proven: the 2026-09-20 run waited 41.9s for a slow dependency, failed in 7.5s on a never-healthy one, left an unchanged unhealthy container untouched and started an exited one once, with RestartCount 0 throughout |
-| Q07 | none | - | Not applicable: no OOM classification exists; the equivalent mechanism is declared headroom plus dwell, covered under Q10 and Q12 |
-| Q08 | `controller-process-observation.test.ts` reports the probe's positive absence as a missing process and refuses ambiguous evidence; `reliability-recovery.test.ts` requires an incident and an allowance before acting | source | Not applicable as an OOM question; proven as process-absence evidence |
+| Q07 | `scripts/qualify-killed-runtime-recovery.sh` ends a routed container under a 64 MB limit and asserts the kernel's OOM kill (exit 137, OOMKilled true) retains the container and its published route instead of silently recreating either; the equivalent admission mechanism is declared headroom plus dwell, covered under Q10 and Q12 | live | Not applicable as an OOM-classification question; the container-local OOM cell is qualified at `bb72cb6` |
+| Q08 | `controller-process-observation.test.ts` reports the probe's positive absence as a missing process and refuses ambiguous evidence; `reliability-recovery.test.ts` requires an incident and an allowance before acting | source, live | Not applicable as an OOM question; proven as process-absence evidence, and the SIGKILL cell of `scripts/qualify-killed-runtime-recovery.sh` shows a real kill is reported at exit 137 with `oom=false` and no devrouter statement classifying it as an OOM kill |
 | Q09 | `capacity-request.test.ts` rejects undersized default operation authority; `capacity-policy.test.ts` allows an allowance at the boundary and reserves it from runtime budgets | source | Proven at source |
 | Q10 | `capacity-accounting.test.ts` accrues dwell only across continuous same-pressure samples; `capacity-controller.test.ts` parks a pressured environment by committing intent and driving one stop | source | Proven at source; pressure is injected through the qualified boundary, never host exhaustion |
 | Q11 | `capacity-store.test.ts` denies competing pools without persisting either reservation; `network-capacity.test.ts` never double counts overlapping pool declarations | source | Proven at source |
@@ -2791,10 +2807,10 @@ two OOM-labelled rows are dispositioned as not applicable instead of unproven.
 | Q26 | `profile-plan.test.ts` atomically replaces an output symlink without changing its target; `managed-post-start.test.ts` does not follow a repository adapter symlink on the host; `paths.test.ts` refuses repo-relative traversal; `reliability-operation-store.test.ts` rejects symlinked journal entries | source | Partial: no quarantine subsystem exists to test, the symlink half is proven |
 | Q27 | `reliability-worker.test.ts` forwards only allowlisted last-stage evidence and pages output within a byte bound; `reliability-lifecycle.test.ts` keeps command args, environment and output out of the persisted record | source | Proven at source |
 | Q28 | `tool-diagnostics.test.ts` warns when another install on PATH is newer than the running CLI or when the shell resolves a different one; `reliability-operation-store.test.ts` refuses records from a newer CLI; `scripts/package-smoke.sh` and `scripts/qualify-network-package.cjs` | source, installed | Proven at source and in the installed package qualifiers |
-| Q29 | `harness-gate.test.ts` and `commands/__tests__/harness.test.ts`; `scripts/qualify-harness-journey.sh` for Claude Code and for Codex, including the non-shell `exec_command` tool | source, live | Proven in both claimed harness modes |
-| Q30 | `harness-continuation.test.ts` replays an existing gated call instead of claiming it again and settles a waiting claim once; `reliability-model.test.ts` never overturns an explicit stop | source | Proven at source; the live layer stays open because the qualified harness cannot be observed to cancel a wait |
+| Q29 | `harness-gate.test.ts` and `commands/__tests__/harness.test.ts` cover the phase table, the continuation ledger, the non-shell decision path and both harness payload shapes for the lifecycle passthrough; `scripts/qualify-harness-journey.sh` runs twelve cells for Claude Code and eleven decided cells for Codex, whose `nonshell-allow`/`nonshell` cells drive a real MCP server tool through the hook, whose `parallel`/`concurrent` cells decide two calls that overlap one checkout with the same payload twice under distinct ids, whose Claude-only `nested` cell refuses a subagent's shell call once the checkout turns transitional, whose `cancelled` cell interrupts each CLI while its own hook is still waiting, whose `redirect` cell re-delivers one settled call's own id under a changed command and records that both real clients do deliver the repeated id, and whose `hook-timeout` cell inverts the shipped wiring on purpose (a 3s hook timeout under an 8s budget) so the harness abandons the wait before the gate decides; `agents-md.test.ts` asserts that every shipped `devrouter harness gate` hook declares at least twice the 30s default wait budget | source, live | Proven in both claimed harness modes at `134a992` (Claude Code 2.1.278 12/12, Codex 0.155.0-alpha.9.2 11/11 with `nested` recorded not-run because the Codex CLI exposes no subagent tool); a tool whose result depends on the live environment stays open |
+| Q30 | `harness-continuation.test.ts` replays an existing gated call instead of claiming it again and settles a waiting claim once; `reliability-model.test.ts` never overturns an explicit stop; `scripts/qualify-harness-journey.sh` kills the shipped gate mid-wait at 1.5s of a 30s budget, records `interrupted` with no duration, refuses the identical re-delivery as `continuation-replay`, leaves the command unexecuted, records the same refusal for a non-shell MCP call, grants two overlapping claims keyed by call identity, settles a refused subagent call, records a harness-initiated cancellation in each harness so the resend is refused, records a hook timeout that abandons the gating wait before any decision, after which the call runs under the harness's own permission rules while its claim never becomes `granted`, and re-delivers one settled call's own id under a changed command once the checkout is settled, so the granted id must refuse as a replay while the same command under a fresh id is still allowed | source, live | Live layer proven for a cancelled gate wait at `7467786`, for the non-shell replay at `40b23f0`, for two overlapping calls at `72f14db`, for the nested refusal at `ca2483b` and for interrupting the real CLI mid-wait at `1af4680`, where Claude Code settles the claim `interrupted` while the Codex CLI kills its hook so the claim stays `waiting` and the identical re-delivery maps it to `interrupted`, for a hook timeout below the wait budget at `ff7efc4`, where both harnesses ran the command under their own permission rules while the abandoned claim stayed short of `granted` (`interrupted` for Claude Code, `waiting` for Codex), and for a settled grant whose own id returned under a changed command at `134a992`, where both harnesses delivered the repeated id and the gate refused it as `continuation-replay` against the recorded `granted` state while the changed command never ran and the same command under a fresh id was allowed on the settled checkout; a runtime-dependent browser or MCP tool remains open |
 | Q31 | `controller-server.test.ts` replays valid cursors, gaps a replaced store and disconnects a subscriber at the output bound while other clients stay responsive; `controller-protocol.test.ts` fences reconnects | source | Proven at source |
-| Q32 | `controller-store.test.ts` preserves corruption and refuses startup; `capacity-store.test.ts` refuses new admission after an established ledger disappears; `host-routes-state.test.ts` fails closed on corrupt canonical metadata; `devrouter capacity reconcile --yes` is the delivered operator forward recovery | source, installed | Proven at source with the forward-recovery command covered in the installed capacity qualifier |
+| Q32 | `controller-store.test.ts` preserves corruption and refuses startup; `capacity-store.test.ts` refuses new admission after an established ledger disappears and fences a snapshot rewritten in place under the revision a caller already read; `host-routes-state.test.ts` fails closed on corrupt canonical metadata; `devrouter capacity reconcile --yes` is the delivered operator forward recovery | source, installed | Proven at source with the forward-recovery command covered in the installed capacity qualifier; the in-place fence replaced a `dev:ino` identity whose inode reuse CI reproduced at `7467786` on PR #121 and at `ce65d5c`, `14be44d`, `53c11df` and `a46eea7` on the main-based PR #120, while other runs of the same revisions passed |
 | Q33 | `controller-monitor.test.ts` refuses to park when the environment proved a usable consumer and vetoes a usable second consumer; `reliability-recovery.test.ts` never recommends an action for unmanaged or user-stopped environments | source | Proven at source |
 | Q34 | `recovery-budget.test.ts` bounds each kind separately, keeps the aggregate ceiling and never refunds a claim; `reliability-recovery.test.ts` blocks once the incident budget is exhausted | source | Proven at source |
 | Q35 | `capacity-host-probe.test.ts` adds declared host allowance and one shared pool independently and rejects late or cancelled evidence; `capacity-accounting.test.ts` drops only the domains a collection omits or contradicts | source | Proven at source |
@@ -2807,17 +2823,46 @@ Open or partial rows and what they mean for the release claim:
 - Q26 is half not applicable: resources are discovered from Docker and Git rather
   than through a quarantining watcher chain, so there is no quarantine path to
   qualify.
-- Q30 keeps its live layer open for the stated harness limitation.
+- Q30 is proven live for a cancelled gate wait (the journey kills the shipped
+  gate mid-wait and its re-delivery is refused), for parallel and nested calls,
+  and for a real harness-initiated cancellation in both harnesses: interrupting
+  the Claude CLI settles the claim as `interrupted`, while the Codex CLI kills
+  its hook process outright so the claim stays `waiting` and the identical
+  re-delivery maps it to `interrupted` and refuses it. A hook timeout below
+  the wait budget is now observed rather than assumed: the harness abandons the
+  gate, no decision of devrouter's reaches the call, and the shipped wiring
+  carries a guard that fails when a recommended timeout stops leaving headroom
+  above the 30s default budget. A settled grant is now observed as well: both
+  harnesses re-delivered the call's own id under a changed command, the gate
+  refused it as `continuation-replay` against the recorded `granted` state, the
+  changed command never ran, and the same command under a fresh id was allowed
+  once the checkout was settled. Only a runtime-dependent browser or MCP tool
+  stays open.
 - Q07 and Q08 are not applicable as OOM questions because no OOM classifier
   exists; the underlying requirements are carried by the headroom, dwell and
   admission contracts above and by process-absence evidence.
 
+PR #121 adds `scripts/qualify-killed-runtime-recovery.sh`
+(`pnpm qualify:killed-runtime`) for the container-local death cells of RF09. At
+`bb72cb6` it produced both deaths against a routed, 64 MB-limited container:
+SIGKILL left `status=exited exit=137 oom=false restarts=0` and the kernel's OOM
+kill left `status=exited exit=137 oom=true restarts=0`. In both cells the
+container and its published route stayed as inspectable evidence, the route
+stopped serving instead of reporting success, no devrouter statement classified
+the death as an OOM kill, and the same container restarted with the route
+serving again. The cell needs Docker and the mkcert root CA; host suspend (Q20)
+and the harness-initiated cancellation seams stay open.
+
 Source rows prove the contract and its failure handling in this repository's
 suite and are not claims about an installed artifact. The installed and live
 columns carry the release's behavioural claim. Q06 was requalified after the
-release by the slow-dependency fixture recorded below. Requalifying Q20 and Q30
-still needs a bounded observation harness that does not exist yet, so they stay
-open rather than approximated.
+release by the slow-dependency fixture recorded below. Q29, Q30 and Q32 gained
+their 2026-09-20 evidence from PR #121, including the hook-timeout cell that
+records what a harness does when it abandons the gate and the redirect cell that
+records what both harnesses do when a settled call's own id returns under a
+changed command. Requalifying Q20 still
+needs a bounded observation harness that does not exist yet, so it stays open rather than
+approximated.
 
 ### Release 0.1.0 preparation (slice 7)
 
@@ -3041,3 +3086,471 @@ evidence, asks for the `repo.managedRuntime.reliability` block after its own
 ensure, and leaves the before/after `status --json` reproducer and the 5432
 claim decision with that task. No consumer recovery is claimed from this side,
 and its staged merge and worktree Git state were not touched.
+
+### Post-release reliability review and follow-up (2026-09-20)
+
+Status: **active, findings persisted; fixes and further qualification pending**.
+The user requested that all findings and improvements from the latest CLI review
+remain part of the roadmap. This section is the current follow-up backlog for
+the governing [roadmap in PR #57](https://github.com/rschlaefli/devrouter/pull/57),
+at `d2e69e2e5815fb74bf46401bf3cef5a8ab7eaeed`. It retains that roadmap's
+W0–W9, S1–S8, M0–M3 and Q01–Q36 obligations. `docs/project/` remains the
+single project-artifacts root.
+
+#### Review baseline and evidence
+
+Reviewed main: `7765c1414bc9122ccf939f3550fa0b4dbad660c5`; published 0.1.1:
+`3622b8315594a68f4cb9a6036b318a4961180313`. Executable source, scripts,
+workflow, package definition and lockfile are identical between those revisions.
+The registry's latest version and all three local global installations reported
+0.1.1. CLI and lifecycle-worker bundle hashes matched across the installs and
+the retained release build. [Release CI](https://github.com/rschlaefli/devrouter/actions/runs/35506198134)
+and [main CI](https://github.com/rschlaefli/devrouter/actions/runs/35506817733)
+passed. These facts establish publication and installation, not consumer recovery.
+
+The review ran 63 tests across managed-runtime status, ensure output, reliability
+liveness and file-lock suites, plus 37 harness gate, continuation and command
+tests; all passed. Additional read-only installed-CLI probes reproduced RF01.
+Injected phase/clock probes reproduced RF02's command-form distinction and denial,
+RF03 and RF04 without modifying a live journal. Passing tests
+currently encode some faulty behavior, so test counts alone cannot close these
+findings. No consumer source, runtime or machine policy was changed by the review.
+
+#### Confirmed defects and immediate corrections
+
+All items below are open. The Devrouter maintenance owner owns source changes;
+IDs identify backlog entries, not new modules or branches.
+
+| ID / priority | Finding and evidence | Required result and acceptance |
+| --- | --- | --- |
+| RF01 / P2 — Diagnose the intended checkout | `reliabilityRecovery` in `src/core/managed-runtime-status.ts` emits `devrouter doctor <path>`, but `src/cli.ts` declares only `--repo <path>`. From a different cwd, installed 0.1.1 silently diagnosed that cwd and missed the fixture's fixed-port conflict. The `--repo` form found it. | Emit the supported form with safe path handling. Execute the suggested diagnostic against a synthetic checkout from a different cwd, including a path with spaces, and assert the selected repo and structured conflict. Replace the test that merely matches the incorrect prose. Preserve the shared router; carry the conflict-specific consumer-binding remedy instead of suggesting its shutdown. W1/W7, Q28. |
+| RF02 / P2 — Let lifecycle commands reach their owner | `DEVROUTER_COMMAND_RE` in `src/commands/harness.ts` recognizes bare `devrouter`, but misses absolute and checkout-local executable paths. With injected `stopping`, bare `devrouter stop .` passed through while `/opt/homebrew/bin/devrouter stop .` was denied. | Recognize supported direct executable and launcher forms, including quoted paths, without executing or broadly interpreting shell text. Prove status, stop and ensure reach their own lifecycle checks during a transition; unrelated calls still defer. Inspect wrapper forms before claiming support. W9, Q29. |
+| RF03 / P2 — Honor the full wait budget | `waitForHarnessGate` refuses when `waitedMs + pollInterval > budget`. A 1500ms budget refused at 0ms despite settling at 300ms; a 5000ms budget refused at 4000ms despite settling at 4500ms. | Wait the remaining partial interval and refuse only at the deadline. Deterministic tests cover zero, sub-interval and non-multiple budgets, final observation, and no deadline overrun. Re-run both installed harness journeys with a hook timeout accounting for initialization and wait. W9, Q29. |
+| RF04 / P2 — Make parked-state recovery truthful | Status promises that `devrouter ensure <path>` waits for free capacity. The actual operation-request path in `src/core/reliability-model.ts` rejects `parked-for-capacity`, even at idle with complete stop proof; the controller submission path uses that transition. | Align guidance with the supported controller wait/resume path, or implement joining that path under the existing admission contract. Prove an installed parked ensure either follows the same incident safely or returns truthful next steps. It must not bypass headroom dwell, duplicate startup, reset budgets, or revive user-stopped intent. W1/W6a/W9, Q14–Q15. |
+| RF05 / P3 — Preserve uncertainty in hook output | `permitReason` in `src/commands/harness.ts` says `environment settled` for passthrough, unmanaged and invalid-payload decisions. `waitForHarnessGate` also treats unknown phase as settled. These paths need not have observed the environment. | Keep the intended advisory fail-open behavior, but distinguish bypass, unmanaged and unavailable evidence from observed settlement in structured decisions and both harness envelopes. Assert classification and observation behavior rather than exact prose. W1/W7/W9, Q21/Q29. |
+| RF06 / P3 — Stabilize queue-progress verification | [The push CI run](https://github.com/rschlaefli/devrouter/actions/runs/35506176174) failed `file-lock.test.ts`'s stable queue-position case at `progress.length >= 1`; the same release revision and focused rerun passed. Its real 80ms wait can expire before a progress callback. | Make the timing assertion deterministic or synchronize on the observed wait boundary. Retain real process-identity and lock-exclusion coverage. Prove queue position and progress without relying on an 80ms scheduling window; do not suppress the assertion or rely on CI reruns. W1/W8, Q13/Q19. |
+
+#### Corrected package (2026-09-20)
+
+**RF01–RF06 are implemented** on branch `rs/reliability-guidance-and-gate-corrections`
+at `05f8c0c` ([PR #121](https://github.com/rschlaefli/devrouter/pull/121)), which is
+open as a draft and not merged or released. The published 0.1.1 still carries the
+reproduced defects.
+
+| ID | Disposition |
+| --- | --- |
+| RF01 | implemented — recovery lines emit `devrouter doctor --repo <checkout>`, keep the positional form for the lifecycle commands, and single-quote a path that needs it. Unit coverage asserts the emitted form; a built-CLI run from another directory selected `/private/tmp/devrouter rf01 fixture with space` as its `repoPath`, while the previous form reported the caller's directory instead. |
+| RF02 | implemented — the gate parses each shell segment's leading command word, skips `env`/assignment prefixes and the `npx`/`pnpm exec`/`npm exec`/`yarn` launchers, and compares the executable basename. Built-CLI proof: `devrouter stop .`, `/opt/homebrew/bin/devrouter stop .`, `./node_modules/.bin/devrouter ensure . --json`, `pnpm exec devrouter status --json` and `cd /x && devrouter ensure .` all answered `allow`/`devrouter-command` with no observation, while `echo /opt/homebrew/bin/devrouter` still observed the transition and refused. |
+| RF03 | implemented — the wait spends the remaining budget and observes once more at the deadline. Deterministic tests cover a sub-interval budget, a settle exactly on the deadline, and a budget that is not a multiple of the interval; the built CLI refused a 1500 ms budget at 1500 ms (2 observations) and a 5000 ms budget at 5000 ms (4 observations). |
+| RF04 | implemented as guidance alignment — the parked recovery lines name the foreground controller, the read-only status form and the intent release; `devrouter ensure` still refuses `parked-for-capacity`. Joining that path under the admission contract remains unimplemented and is not claimed. |
+| RF05 | implemented — `waitForHarnessGate` returns `evidence-unavailable` for an unknown phase, and the hook envelope gives passthrough, unmanaged, invalid-payload and unavailable evidence their own wording instead of "environment settled". |
+| RF06 | implemented — the fair-waiter queue-progress case drives its budget from a controlled clock instead of an 80 ms scheduling window, and the real process-identity and lock-exclusion coverage is retained. |
+
+Evidence produced on `05f8c0c`:
+
+- Focused `harness-gate`, `harness` command, `managed-runtime-status` and
+  `file-lock` suites: 84 passed.
+- Full suite: 2447 passed / 250 failed across 14 files, identical to the
+  untouched `7765c14` baseline (2434 passed / 250 failed). The change adds 13
+  passing tests and no new failure; the failures are environmental, because this
+  sandbox denies `ps` and the file-lock boundary fails closed without process
+  identity.
+- `biome check`, `knip`, `tsc --noEmit`, docs policy, knowledge validation, the
+  `tsup` build and `scripts/package-smoke.sh` passed.
+- The built-CLI proof used a synthetic checkout and a temporary `HOME`; no live
+  workspace, journal or machine state was touched.
+
+Limits of this package: no real agent-harness journey has run against the
+corrected revision, so RF02's and RF03's installed-harness confirmation, RF07's
+cancellation/replay observation, and RF08/RF09's live fault matrix stay open.
+Merging PR #121, releasing the corrected revision and republishing the installed
+CLI remain separate authorized actions.
+
+#### Live harness journey evidence (2026-09-20)
+
+`scripts/qualify-harness-journey.sh` was run with Claude Code 2.1.278 against its
+own local mock model, so no credentials, provider access or model spend were
+involved. Three runs: one against the untouched `7765c14` build and two against
+the corrected `05f8c0c` build. Each run creates its own temporary fixture
+checkouts and `HOME`, and touched no live workspace or journal.
+
+| Scenario | `7765c14` | `05f8c0c` run 1 | `05f8c0c` run 2 |
+| --- | --- | --- | --- |
+| deferral | pass | harness produced no tool call | pass |
+| refusal | pass | pass | pass |
+| neighbour | 1 failure | 1 failure | 1 failure |
+
+Both gate-relevant scenarios pass on the corrected revision: the deferred call
+ran once after a 6.0 s enforced wait and reported `settled-after-wait`, and the
+refusal was delivered as exactly one denial whose tool never executed. Run 1's
+deferral failure produced a one-turn, 70 ms transcript with no hook payload at
+all, so the gate was never reached; it did not reproduce on the second run. That
+harness-startup flake belongs to RF13's durable-proof work rather than to this
+package.
+
+The neighbour scenario fails the same assertion on both revisions — "the gate
+keyed `<harness>/<sha>.json` instead of the gated checkout" — so it is a
+pre-existing journey-script defect, not a regression from this package. The cell
+cannot count as qualified until its owner disposes of that discrepancy.
+
+The Codex journey was then run against the corrected revision with the same mock
+model and no provider access: deferral passed (one call, executed after a 6.0 s
+enforced wait, `settled-after-wait`), refusal passed (one denial, tool never
+executed, "still starting after waiting 3.0s"), and neighbour failed the same
+pre-existing ledger-key assertion. Both gate-relevant scenarios therefore hold
+on two harness integrations for the corrected build, and the neighbour cell
+stays open on its own pre-existing defect.
+
+#### Durable journey proof and machine diagnostics (2026-09-20)
+
+Status: **RF13 implemented and locally qualified; RF10 source diagnostics
+implemented and live-reproduced read-only**. Both sit on
+`rs/reliability-guidance-and-gate-corrections`
+([PR #121](https://github.com/rschlaefli/devrouter/pull/121)) and are not merged
+or released, so the published 0.1.1 and the installed CLI still carry the
+neighbour journey defect and the collapsed capacity marker.
+
+RF13 — journey proof. The neighbour scenario compared the ledger path against the
+gated checkout without canonicalizing either side. That scenario deliberately
+writes no ledger, so both values stayed unresolved caller paths, and the fixture
+root inherited `$TMPDIR`'s trailing separator
+(`.../T//devrouter-harness-journey.XXXXXX`); the assertion failed on that doubled
+separator rather than on a wrong ledger key. `6d72964` makes the fixture root
+physical (`pwd -P`, which also matches the physical paths the harness itself
+reports), compares physical paths, and adds two pieces of durable proof:
+
+- `DR_JOURNEY_EVIDENCE=<path>` writes one sanitized summary: outcome, per-scenario
+  assertions, the exact source revision, the built bundle's SHA-256, the harness
+  version and the Node version. It carries no credentials and no model output.
+- Exit 3 now means "prerequisite unavailable" and writes `outcome: skipped` with
+  every scenario `not-run`, so an unrun cell cannot be read as a pass.
+
+Evidence at `6d72964`: Claude Code 2.1.278 passed deferral, refusal and the
+previously failing neighbour cell; Codex `0.155.0-alpha.9.2` passed the same
+three against the same mock model with no credentials. Ordinary CI already carries
+the deterministic command-form and wait-budget regressions
+(`src/commands/__tests__/harness.test.ts`, `src/core/__tests__/harness-gate.test.ts`).
+The workflow adds the bounded live cell: the `harness-journey` job in
+`.github/workflows/ci.yml` runs on the `workflow_dispatch` input
+`harness_journey`, installs `@anthropic-ai/claude-code@2`, runs the journey with
+evidence output, uploads the summary artifact, and fails on exit 3.
+[Dispatched run 35509449423](https://github.com/rschlaefli/devrouter/actions/runs/35509449423)
+passed `check` and `harness-journey` on `6d72964`.
+
+RF10 — machine blockers. `CapacityHistoryError` now carries a bounded
+`CapacityHistoryCause` and, for a single offending entry, its sanitized name;
+`listReliabilityOperations` raises `ReliabilityJournalError` with that
+classification instead of discarding it; doctor prints the cause and location and
+keys its suggestion to the cause; and the network check names the missing evidence
+instead of only its consequence. The same read-only doctor probe on this host now
+reports:
+
+- `global.capacity-ledger: error` with details
+  `capacity-history-unprovable; journal-entry-unsupported; at
+  23fe529a….stuck-stopping-20260914T1720.bak` and the suggestion to move that
+  unrecognised entry out of the private reliability journal directory while
+  preserving its contents.
+- `global.network-capacity: warn` with
+  `Allocation readiness: unknown. Missing evidence: Docker network inventory is
+  unknown; retained container references are unknown; route evidence is
+  incomplete or unknown.`
+
+The exact invalid history is therefore an operator backup file left inside
+`~/.config/devrouter/reliability/`, and one such entry blocks every capacity read
+machine-wide. The supported recovery prepared for operator review is to move that
+`.bak` file out of the journal directory, keep it, and re-run `devrouter doctor`;
+`capacity reconcile --yes` stays limited to positively absent history and does not
+apply here. Machine policy and operator state are separate live effects, so the
+file was left in place and no ledger, journal, policy or runtime state was
+touched. Fail-closed behavior stays covered by tests: a corrupt entry is
+`journal-invalid`, a loose-mode or oversized entry is `journal-entry-unsafe`, an
+unreadable entry is `journal-unreadable`, and no record content reaches the
+report.
+
+#### Harness gate breadth and lifecycle passthrough (2026-09-20)
+
+Status: **implemented and locally qualified on
+`rs/reliability-guidance-and-gate-corrections`
+([PR #121](https://github.com/rschlaefli/devrouter/pull/121)); not merged or
+released.** Six commits, `097bdb7`, `40b23f0`, `72f14db`, `ca2483b`,
+`fbfb5ca` and `1af4680`, close the non-shell, overlap, nested and cancellation
+halves of Q29 and correct a defect the qualification itself exposed.
+
+Lifecycle passthrough defect (`097bdb7`). The gate's contract says lifecycle
+commands (`devrouter ...`) always pass through, and the shipped guidance names
+Codex's shell tool as `exec_command`. The bypass nevertheless required
+`tool_name === "Bash"` and read only `tool_input.command`, while the Codex CLI
+delivers `exec_command` with `tool_input.cmd`. Under Codex, `devrouter stop` or
+`devrouter status` issued while the checkout was transitional was therefore
+deferred for the whole wait budget and could return the refusal that tells the
+agent not to retry — the gate could block the repair command it exists to leave
+alone. The bypass now reads both spellings without depending on the tool name,
+and `src/commands/__tests__/harness.test.ts` carries a regression for two
+Codex-shaped payloads. That regression was falsified against the old condition:
+the old code called the observer and returned the wrong reason.
+
+Non-shell seam qualification (`40b23f0`). The journey proved the gate only for
+each harness's shell tool, and the recommended wiring in `src/core/agents-md.ts`
+and the bundled skill matched just `Bash` (Claude Code) or
+`exec_command|Bash|shell` (Codex). The journey now writes a test-owned stdio MCP
+server with one tool and scripts a call to it from the harness's own advertised
+tool list, so the scenario never guesses how a client spells a server tool:
+
+- `nonshell-allow` — settled checkout: the hook observes
+  `mcp__marker__write_marker`, allows it, and the MCP server writes exactly one
+  marker line.
+- `nonshell` — transitional checkout: the identical call is refused with the
+  phase and recovery text, that refusal reaches the model, the continuation
+  ledger records `refused`, and the MCP server writes nothing.
+
+The allowed cell runs first, so the refusal cell is read against a tool the same
+run just observed to work.
+
+Overlap qualification (`72f14db`). Two calls that reach the gate at the same
+time were never decided by the journey, and the continuation ledger is the only
+thing that keeps a re-delivered call from running twice, so the overlap is
+qualified at both levels:
+
+- `parallel` — the mock scripts two shell calls in one model turn. On this host
+  Claude Code executed the two `Bash` calls sequentially: the first waited
+  12.1s for the settlement and the second, delivered after the first returned,
+  was allowed immediately as settled. Both ran exactly once, neither was
+  refused, and the ledger held one granted claim for the single announced wait.
+- `concurrent` — two hook processes start at the same instant with the same
+  payload and distinct tool-call ids, so the overlap is the product boundary's
+  own instead of an artifact of how a harness sequences its calls. Both
+  observed `starting`, both settled `deferred-allow`/`settled-after-wait`
+  after about 4.0s, and the ledger held two `granted` claims.
+
+The concurrent cell was falsified against a ledger that keyed the claim on the
+payload digest instead of the tool-call id: the second call was refused as
+`continuation-replay` with `waitedMs` 0 and the cell failed four assertions,
+while every other cell still passed.
+
+Nested-call qualification (`ca2483b`, Claude Code only). A subagent runs its
+own tool calls through the same hook the parent uses, and nothing proved that
+its calls reached the gate. The `nested` cell scripts the harness's own
+subagent tool: the subagent's first shell call arrives while the checkout is
+settled and is allowed, the model fixture then turns the checkout transitional
+immediately before scripting the second call, and that call is refused with the
+phase and recovery text. The fixture flips the phase itself rather than racing a
+watcher, so the refusal cannot be sequenced after the call it refuses. Removing
+the transition falsifies the cell: the second call was allowed, ran, wrote its
+marker, settled no claim and failed seven assertions, while every other cell
+still passed. On this host Claude Code delivered the subagent's call as
+`tool_name: Bash` with the same checkout as the parent. The Codex CLI exposes no
+subagent tool, so the summary records the cell as `not-run` there rather than as
+a pass.
+
+Harness-initiated cancellation (`fbfb5ca`, extended to both harnesses at
+`1af4680`). The earlier cancellation cell killed the gate itself; nothing
+proved that a real harness cancel reaches the hook it owns. The `cancelled`
+cell starts the CLI with a 30s hook budget on a transitional checkout, waits
+for the hook's own wait announcement, then interrupts the CLI's process group.
+The deferred command never ran and the identical re-delivery was refused as
+`continuation-replay` in both harnesses, but the two CLIs treat the hook
+differently. Claude Code forwards the interrupt: it reported
+`terminal_reason: aborted_tools` and the hook settled the claim `interrupted`
+1.3s into its budget with no duration. The Codex CLI reported exit code 1 with
+`terminal_reason: incomplete` and killed its hook process outright, so the
+durable claim stays `waiting`; the gate maps a still-waiting claim to
+`interrupted` when the identical call is re-delivered, refuses it, and never
+overwrites the record. The cell asserts each CLI's own transcript, the recorded
+claim, the clean checkout and the refusal, so a harness that silently drops its
+hook or reports the cancelled call as complete fails the run, and the Codex leg
+accepts `waiting` only because a waiting claim can never become a granted wait.
+All cells run last, so the earlier scenarios' evidence is unchanged. Both
+harnesses ran the full set at `1af4680` against the local mock model, with no
+credentials or provider spend:
+
+| Harness | Version | Result | Retained summary |
+| --- | --- | --- | --- |
+| Claude Code | 2.1.278 | 11/11 pass | `/private/tmp/dr-claude-ff7efc4-evidence.json` |
+| Codex CLI | 0.155.0-alpha.9.2 | 10 pass, nested not-run | `/private/tmp/dr-codex-ff7efc4-evidence.json` |
+
+Both summaries name revision
+`ff7efc41c69ee2bd666eda0ca783407d89bd48fc` and the same bundle SHA-256
+`f431223a5cd7eb85e59844576937e7182629c7ea83e6df31ede70990a8a679e6` as
+`ca2483b`, plus the harness version and the Node version. The earlier ten-cell
+pair stays at `/private/tmp/dr-claude-1af4680-evidence.json` and
+`/private/tmp/dr-codex-1af4680-evidence.json`, preceded by
+`/private/tmp/dr-claude-ca2483b-evidence.json`,
+`/private/tmp/dr-codex-ca2483b-evidence.json`,
+`/private/tmp/dr-claude-72f14db-evidence.json` and
+`/private/tmp/dr-codex-72f14db-evidence.json`. Harness facts the qualifier
+pinned, each reproduced on this host:
+
+- `.*` is a valid matcher in both harnesses and reaches every tool the model can
+  call. The shipped Claude Code and Codex samples now use it and state the
+  price: one short-lived process per gated call, with narrow matchers left to
+  consumers that prefer the lower cost.
+- Claude Code delivers an MCP call with
+  `tool_name: mcp__marker__write_marker` plus an `mcp_server` field. Codex
+  advertises an MCP server as a namespace tool
+  (`{type: "namespace", name: "mcp__marker", tools: [...]}`), calls it with the
+  function name plus a top-level `namespace` field, and reports the same
+  `mcp__marker__write_marker` tool name to the hook.
+- Codex refuses MCP calls under `approval: never` unless the server sets
+  `default_tools_approval_mode = "approve"`. The journey fixture sets it, so
+  the allowed cell is a real positive control rather than a silently blocked
+  call.
+- Claude Code delivered two `Bash` calls from one turn sequentially in headless
+  mode, so a harness-level cell alone cannot prove an overlapping wait; the
+  concurrent cell exists because the product boundary owns that guarantee.
+
+The remaining Q29 and Q30 cell is a tool whose success depends on the live
+managed environment, which belongs to RF08's authorized installed cell or to a
+dedicated bounded fixture.
+
+#### Hook-timeout consequence (2026-09-20, `ff7efc4`)
+
+Hook `timeout` is not a gate. The findings recorded earlier show a hook that
+overruns its configured timeout is abandoned and the tool then proceeds under
+the harness's normal permission rules, which is why the shipped wiring keeps its
+timeout above the wait budget. Nothing had observed the consequence of violating
+that relationship on a transitional checkout. The `hook-timeout` cell inverts it
+on purpose (a 3s hook timeout under an 8s budget) and runs last, so every earlier
+scenario used the shipped value; the Codex leg rewrites only the fixture's own
+`HOME/hooks.json` and the Claude leg passes a short settings file, so no live
+harness configuration was touched. Nothing interrupts the run either: the
+harness's own timeout ends the wait.
+
+| Harness | Version | Harness result | Gate outcome | Command |
+| --- | --- | --- | --- | --- |
+| Claude Code | 2.1.278 | exit 0, `terminal_reason: completed` | claim settled `interrupted` | ran under the harness's own permission rules |
+| Codex CLI | 0.155.0-alpha.9.2 | exit 0, `terminal_reason: completed` | claim stayed `waiting` | ran under the harness's own permission rules |
+
+A hook timeout below the budget therefore does defeat the gate: the abandoned
+wait never decides, the harness neither blocks the call nor reports the lost
+decision to the model, and the command runs. The cell asserts only what must
+hold whatever the harness does — the gate received the payload and announced the
+deferral, the call recorded at most one claim, that claim was never `granted`,
+the command wrote at most one marker line, both checkouts stayed clean and the
+affected checkout stayed `starting` — and records the rest as observation. It is
+a qualification of the boundary, not a defect claim against either CLI: the
+harness applies its own policy when its hook does not answer.
+
+What the product controls is the shipped wiring, so
+`src/core/__tests__/agents-md.test.ts` now reads the generated skill file, finds
+every `devrouter harness gate` hook in it and fails when a declared timeout is
+below twice the 30s default wait budget. Setting a sample timeout to 20s
+falsified that guard. The cell reuses the cancelled cell's settlement wait,
+factored into one helper, so both cells read the ledger only after the recorded
+claim settles or the observation budget has demonstrably elapsed.
+
+Evidence: `/private/tmp/dr-claude-ff7efc4-evidence.json` and
+`/private/tmp/dr-codex-ff7efc4-evidence.json`, both at revision
+`ff7efc41c69ee2bd666eda0ca783407d89bd48fc` with bundle SHA-256 `f431223a…`.
+
+#### Redirected call id after a grant (2026-09-20, `134a992`)
+
+The journey already refused an identical re-delivery of a granted call, but
+nothing observed a settled call's own id returning under a different command.
+That is the redirect or superseded-call shape: a client or model that reuses
+the id would otherwise run the new command on the earlier grant. The `redirect`
+cell scripts one id twice — the first call waits on the transitional checkout
+and is granted once it settles, the second repeats that id under a changed
+command — and records what the client actually delivers instead of requiring a
+particular client policy. Both harnesses delivered the repeated id, and the
+gate refused it:
+
+| Harness | Version | Delivered for the granted id | Gate outcome | Command |
+| --- | --- | --- | --- | --- |
+| Claude Code | 2.1.278 | two payloads under one id | `continuation-replay` against the recorded `granted` state | the changed command never ran |
+| Codex CLI | 0.155.0-alpha.9.2 | two payloads under one id | `continuation-replay` against the recorded `granted` state | the changed command never ran |
+
+Because the client's own delivery policy is outside the product's control, the
+cell pins the boundary with two direct probes that re-enter the gate with the
+recorded delivery's own field names, checkout and id: the granted id with the
+changed command refuses with `continuation-replay` and the recorded `granted`
+state, and the same command under a fresh id is allowed with `settled` on the
+now-stable checkout. The granted call itself ran exactly once, the changed
+command wrote nothing, both checkouts stayed clean and the affected checkout
+ended `stable`.
+
+Evidence: `/private/tmp/dr-claude-134a992-evidence.json` and
+`/private/tmp/dr-codex-134a992-evidence.json`, both at revision
+`134a992eb761d4a3cf4699fedcbd6b9cde0ab204` with the unchanged bundle SHA-256
+`f431223a…`. Claude Code passed 12/12 cells; the Codex CLI passed 11 decided
+cells with `nested` recorded not-run. The `ff7efc4` summaries above stay as the
+narrower hook-timeout record.
+
+#### Qualification, operator and consumer follow-up
+
+All entries remain open unless their status explicitly says investigation.
+Priority here orders the remaining reliability outcome, not permission to mutate
+an operator's or another task's environment.
+
+| ID / priority / owner | Remaining work and evidence | Acceptance and boundary |
+| --- | --- | --- |
+| RF07 / P2 — Cancellation and replay; Devrouter/harness owner | **Implemented and locally qualified on PR #121 (`7467786`); not merged or released.** The journey gained an `interrupted` scenario that kills the shipped gate during its wait and replays the exact payload: the ledger records `interrupted` with no claimed `waitedMs`, the identical re-delivery is refused as `continuation-replay` against the recorded state, and the command never runs. The granted and refused calls also replay their exact captured payloads and must refuse with their recorded outcome, so a resending harness cannot execute one mutating call twice. Claude Code 2.1.278 and Codex 0.155.0-alpha.9.2 passed all four scenarios, and the `cancelled` cell now interrupts each real CLI while its own hook waits (`fbfb5ca`, extended to the Codex CLI at `1af4680`): Claude Code settles the claim `interrupted`, while the Codex CLI kills its hook so the claim stays `waiting` and the identical re-delivery maps it to `interrupted` and refuses it. Both harnesses ran the full set at `1af4680` against the local mock provider with no credentials or spend, and the retained summaries name revision `1af4680493f766b068bb8a4c4b5062d168bd2630` and bundle SHA-256 `f431223a…`; the earlier Codex summary stays at revision `7467786` with bundle SHA-256 `84ca0577…`. Claim timing was not changed; the cancellation-after-grant path is now refused by reproduced evidence instead of reasoning. The `hook-timeout` cell added at `ff7efc4` inverts the shipped relationship on purpose (3s hook timeout under an 8s budget) and runs last, so every earlier cell used the shipped value; both harnesses then ran the command under their own permission rules while the abandoned claim never became `granted` (Claude Code settled it `interrupted`, the Codex claim stayed `waiting`), the affected phase stayed `starting`, both checkouts stayed clean and no command ran twice. A guard in `agents-md.test.ts` now fails when any shipped hook timeout drops below twice the 30s default wait budget. The `redirect` cell added at `134a992` scripts one id twice, so a settled call's own id returns under a changed command: both harnesses delivered the repeated id, the gate refused it as `continuation-replay` against the recorded `granted` state, the changed command never ran, and the same command under a fresh id was allowed once the checkout was settled. Remaining for this row: a tool whose success depends on the live managed environment. | Observe cancellation, redirect and hook timeout before claim, during wait and after grant in each supported actual harness. Record whether the tool ran and reject continuation of a superseded task. Change claim timing only after its semantics are resolved; preserve ordinary settled-call behavior and uncertain-write non-replay. Include parallel/nested calls and a genuinely runtime-dependent browser/MCP tool in Q29; a shell command named `exec_command` does not by itself prove that seam. W9, Q22/Q29–Q31. |
+| RF08 / P1 acceptance — Complete the integrated canary; Devrouter owner with the exact consumer owner | M1 is not closed by the current Q36 evidence. `scripts/qualify-harness-journey.sh` directly changes journal phases and runs a scripted tool through a real harness. Its neighbour record stays unchanged, but it does not exercise the full live failure/parking/resume sequence. Separate ordinary consumer startup/stop proof does not supply the missing integration. | Select an explicitly authorized installed platform/provider, consumer/profile and harness with two environments. Prove semantic readiness, required-process death, persistent pressure through the qualified injection boundary, safe parking, retained data/dirty source, fresh admission and resume, and actual neighbour functionality with zero agent-authored infrastructure repair. Keep source, installed and real-provider evidence separate. Apply twenty routine and ten selected fault repetitions or justify the scoped alternative before the run. W2–W9/S1–S8, M1, Q01–Q36. |
+| RF09 / P1 acceptance — Reconcile the fault matrix; Devrouter owner | **Reconciliation pass on 2026-09-20 (PR #120; evidence on PR #121).** Q30 moved from source-only to live for a cancelled gate wait, Q29 and Q32 gained the journey and the content-digest fence, and Q29's non-shell, overlap and nested seams are now qualified: the journey drives a real MCP server tool through the hook in both harnesses, refused mid-transition and allowed once settled (`40b23f0`); two cells decide two calls over one checkout, including the same payload under distinct ids (`72f14db`); a Claude-only cell refuses a subagent's shell call once the checkout turns transitional (`ca2483b`), and a cell interrupts each supported CLI during its own hook's wait (`fbfb5ca`, extended to Codex at `1af4680`), where Claude Code settles the claim as `interrupted` while the Codex CLI kills its hook so the claim stays `waiting` until the re-delivery maps it to `interrupted` and refuses; Codex records only the subagent cell not-run. Both harnesses also ran a hook timeout below the wait budget (`ff7efc4`), which abandons the gate and leaves the call to the harness's own permission rules while the claim stays short of `granted`, and both re-delivered a settled call's own id under a changed command (`134a992`), which the gate refused as `continuation-replay` against the recorded `granted` state while the changed command never ran. The container-local OOM/SIGKILL cell is qualified at `bb72cb6` through `pnpm qualify:killed-runtime`. Still live-open: Q20 host suspend and a tool whose result depends on the live managed environment. Q07/Q08 stay not applicable as OOM questions because the product documents that it neither detects nor prevents OOM; Q26 has no quarantine path to qualify. | Reassess each original required result and evidence layer, preserving passing source evidence. Exercise container-local OOM/SIGKILL and retention in an authorized disposable runner, without requiring a speculative classifier. Qualify sleep/wake, unavailable provider, interruption/unknown completion, partial stop, corruption and pressure as applicable. Mark unsupported cells and absent quarantine behavior explicitly; narrowing the approved outcome needs a recorded decision. Do not convert missing implementation or missing fixtures into a passing/not-applicable row. W3–W5/W8/W9, M1–M2. |
+| RF10 / P2 — Explain and recover machine blockers; operator with Devrouter diagnostic owner | **Implemented on PR #121; not merged or released.** The installed 0.1.1 still prints the bare `capacity-history-unprovable`. The corrected build names the bounded cause, the offending journal entry and a cause-keyed recovery, and the network check names the three missing evidence inputs; the exact invalid history is an operator `.bak` file inside the private reliability journal directory. Remaining: merge and release, then operator recovery under its own authority. | Add bounded, values-free cause/location diagnostics sufficient to identify the exact invalid history or missing network evidence. Prove unreadable/corrupt/unknown state remains fail-closed. Prepare an exact supported recovery for operator review; `capacity reconcile --yes` applies only to positively absent history under its existing proof, not generic unprovable history. Preserve evidence and surviving charges. Setup/injection, policy changes and recovery are separate live effects. W1/W6a/W7, Q21/Q32/Q35. |
+| RF11 / P2 — Close consumer adoption with live proof; existing Klicker task owner | Task `01a06930-fdea-70f1-bebf-9514b07e23a0` has not supplied a terminal recovery receipt to this review. The earlier 0.0.51 observation came from its project devDependency; global 0.1.1 does not change that pin. The 5432 claim decision and the `stopped:false, freedRoutes:0` before/after reproducer remain with that owner. Adapter liveness PR #6170 is merged source evidence only. | Owner verifies executable resolution in the actual cwd, updates its package/config pins through its own source lane, resolves its binding, then records ensure, semantic smoke, stop and final exact routes/provider/resources. Return any reproduced CLI defect here. Preserve the staged merge and all other workspaces; exclude PRD, ingestion and rollout work. W1/W4/W7, M1–M2. |
+| RF12 / P2 — Finish measured breadth and efficiency; Devrouter/consumer owners | Python cold/warm cohorts and two harness integrations establish useful breadth. Three rounds per cohort measured roughly 6.8s cold and 2.3s warm; cold reused an existing dependency container. This is a baseline, not proof of a new optimization or completion of M2–M3. | Measure stopped-resume and fault-recovery cohorts separately, preparation reuse, phase timings, memory and first-attempt failures. Qualify profile changes, host/container alternation and browser/auth behavior in the selected cells. Deliver only evidence-driven profile/artifact improvements, reporting before/after on the same workload. Keep extra providers/headless adapters conditional on selected scope; cross-host/cloud scheduling remains separate. W4–W8/W6b, M2–M3. |
+| RF13 / P2 — Keep proof durable and release claims accurate; Devrouter owner | **Implemented and locally qualified on PR #121 (`6d72964`); not merged or released.** The neighbour assertion defect is fixed, the journey writes a sanitized summary with source revision, bundle hash and harness/runtime versions, exit 3 marks a skip as `not-run`, and the opt-in `harness-journey` CI job passed its first dispatch. Remaining: carry the fix through merge and release, and keep the required live cells recorded. | Keep this follow-up active and publication receipts delivered. Retain sanitized producing-run summaries with immutable source/package and harness/provider versions. Add the relevant deterministic command/gate regressions to ordinary CI; arrange a bounded opt-in or release qualification job for authorized live cells with explicit pass/fail/skip outcomes. A skipped prerequisite is not acceptance. Record required/manual cells and retention rather than making every PR run shared runtimes. W7–W9, all milestones. |
+
+#### Order, completion and preserved authority
+
+RF10's read-only half was refreshed on 2026-09-20 with the installed 0.1.1
+(`/Users/rschlae/.volta/tools/image/node/24.17.0/bin/devrouter`) against this
+repository. It reproduced `global.capacity-ledger: error: Capacity ledger history
+is unavailable for safe admission` whose `details` field carries only
+`capacity-history-unprovable`, plus `global.network-capacity: warn ... Allocation
+readiness: unknown` and the non-blocking `global.devsy-agent` warning. The bare
+marker confirms RF10's complaint that a journal-enumeration failure is collapsed
+into one cause with no location, so an operator cannot tell which history is
+unreadable or which network evidence is missing. The diagnostic improvement and
+any recovery remain open; no ledger, policy or runtime state was touched.
+
+RF01–RF06 are implemented on PR #121 and await merge and release, joined there on
+the same branch by the RF13 journey-proof fix (`6d72964`), the RF10 diagnostics,
+the RF07 cancellation/replay qualification (`7467786`), the capacity
+content-digest fence (`697b5da`), the container-local death qualifier
+(`bb72cb6`) and its durable lesson (`fb06f8a`), the Codex lifecycle-passthrough
+fix (`097bdb7`), the non-shell qualification with the all-tools matcher
+guidance (`40b23f0`) and the eight-cell qualification that adds two overlapping
+calls per run (`72f14db`), the ten-cell qualification whose Claude-only
+`nested` cell refuses a subagent's shell call (`ca2483b`) and whose `cancelled`
+cell interrupts the CLI during its own hook's wait in both harnesses
+(`fbfb5ca`, extended to the Codex CLI at `1af4680`) and whose `hook-timeout`
+cell observes a harness that abandons the gate before it decides (`ff7efc4`,
+guarded at source by the shipped-wiring timeout assertion) and whose `redirect`
+cell refuses a settled call's own id re-delivered under a changed command in
+both harnesses (`134a992`). Next work is the RF08/RF09 acceptance cell, which
+needs an explicitly authorized installed platform, consumer, profile and two
+environments. RF09's container-local OOM/SIGKILL, non-shell, overlap, nested,
+cancellation, redirect and hook-timeout harness cells are now qualified, so what
+remains there is Q20 host suspend and
+a tool whose result depends on the live environment. RF10's operator recovery stays with the operator and the machine-policy
+boundary, RF11 stays with the Klicker task owner (coordination sent 2026-09-20),
+and RF12 extends whichever cell RF08/RF09 accept. RF13 now accompanies each
+package with a retained summary.
+
+PR #120's own CI fails intermittently at the same capacity-store assertion on
+its main-based heads (`ce65d5c`, `14be44d`, `53c11df`, `a46eea7` at the time of
+writing) because a docs-only branch carries no fence correction; the defect and
+its fix live on PR #121. Merge #121 first, then rebase #120, before expecting a
+green run there.
+
+For each entry, record its disposition, implementing PR/revision, producing
+command/run, artifact version, observed outcome and remaining limitations here.
+Use `open`, `investigating`, `implemented`, `qualified`, or explicitly
+`deferred/unsupported` with a reason and decision owner. A merge or passing unit
+suite can establish implementation; it cannot establish live qualification.
+Retain original failed first attempts in reliability measurements.
+
+The terminal condition remains the approved roadmap outcome: applicable M1–M3
+contracts implemented and qualified, safe ownership/resource/worker refusals
+preserved, published and installed artifacts verified, and consumer status
+supported by live evidence. A finite machine may legitimately refuse or wait;
+the requirement is truthful state, bounded supported recovery and no routine
+agent-written infrastructure repair, not a promise that every environment starts.
+
+This update persists and reconciles work; it starts no implementation or runtime
+action. Earlier scoped authority remains in force. New exact live fault targets,
+enrollment, destructive cleanup, machine policy and consumer-owned changes retain
+their existing boundaries. The docs-only update changes no executable contract
+or knowledge concept; validation is docs policy, knowledge/link checks, staged
+data hygiene and diff inspection.
