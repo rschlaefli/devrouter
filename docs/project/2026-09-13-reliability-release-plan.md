@@ -3807,7 +3807,9 @@ qualification in `scripts/qualify-network-package.cjs` answers with closed
 synthetic Docker responses on purpose. Validation at `a2b4f92`: Biome, Knip,
 typecheck, the full suite (2733 tests in 149 files), `pnpm build`,
 `scripts/package-smoke.sh`, the built bundle's own doctor run and the live
-daemon read above. Remaining: publish and install a release that carries
+daemon read above. PR #125's CI is green at `1b61c7d`
+([run 35545979851](https://github.com/rschlaefli/devrouter/actions/runs/35545979851)).
+Remaining: publish and install a release that carries
 the correction, then re-read `devrouter doctor` on the installed artifact; the
 0.1.2 network-capacity claim was inaccurate while it shipped.
 
