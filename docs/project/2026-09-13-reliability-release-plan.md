@@ -3275,14 +3275,17 @@ any recovery remain open; no ledger, policy or runtime state was touched.
 
 RF01–RF06 are implemented on PR #121 and await merge and release, joined there on
 the same branch by the RF13 journey-proof fix (`6d72964`), the RF10 diagnostics,
-the RF07 cancellation/replay qualification (`7467786`) and the capacity
-content-digest fence (`697b5da`). Next work is the
+the RF07 cancellation/replay qualification (`7467786`), the capacity
+content-digest fence (`697b5da`), the container-local death qualifier
+(`bb72cb6`) and its durable lesson (`fb06f8a`). Next work is the
 RF08/RF09 acceptance cell, which needs an explicitly authorized installed
-platform, consumer, profile and two environments. RF10's operator recovery stays
-with the operator and the machine-policy boundary, RF07's parallel/nested and
-runtime-dependent seams extend whichever cell accepts them, RF11 stays with the
-Klicker task owner, and RF12 extends whichever cell RF08/RF09 accept. RF13 now
-accompanies each package with a retained summary.
+platform, consumer, profile and two environments. RF09's container-local
+OOM/SIGKILL cell is now qualified, so what remains there is Q20 host suspend and
+the harness-initiated cancellation, parallel/nested and runtime-dependent seams
+of Q29/Q30. RF10's operator recovery stays with the operator and the machine-policy
+boundary, RF11 stays with the Klicker task owner (coordination sent 2026-09-20),
+and RF12 extends whichever cell RF08/RF09 accept. RF13 now accompanies each
+package with a retained summary.
 
 For each entry, record its disposition, implementing PR/revision, producing
 command/run, artifact version, observed outcome and remaining limitations here.
