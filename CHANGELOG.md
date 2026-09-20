@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-20
+
 ### Fixed
 
 - A managed `ensure` that admission refuses on a fixed published host-port
@@ -27,6 +29,10 @@ All notable changes to this project are documented in this file.
   unhealthy container instead of an open-ended block, and that no outcome
   recreates or restarts the dependency. Elapsed time, container identity and the
   provider's verdict are printed as evidence.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.1.1.md
 
 ## [0.1.0] - 2026-09-20
 
