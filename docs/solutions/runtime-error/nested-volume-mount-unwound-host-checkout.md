@@ -83,9 +83,10 @@ the configured mount table, re-reads `/proc/self/mountinfo` before and after the
 host install, and fails with the container, the configured mounts and the
 effective mounts when the nested volume is no longer there. Item 29 of
 `.agents/skills/devcontainer-onboarding/GOTCHAS.md` carries the same check for
-anyone scaffolding the pattern, and the reliability roadmap tracks a read-only
-diagnostic that reports the condition from `devrouter status` or `doctor`
-without blocking.
+anyone scaffolding the pattern, and the read-only diagnostic shipped at
+`74dfd8e` reports the condition from `devrouter status` and
+`devrouter doctor`, naming the container, the destination and the restart
+recovery, without blocking admission.
 
 Operators who hit it restart the exact container, or leave and re-enter the
 environment with `devrouter stop <path>` and `devrouter ensure <path>` for a
