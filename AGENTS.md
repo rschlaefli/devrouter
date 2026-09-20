@@ -152,9 +152,16 @@ Supported routing:
 - `scripts/package-smoke.sh`: isolated packed CLI distribution smoke
 - `scripts/qualify-harness-journey.sh`: two-environment agent journey over the
   real Claude Code hook and a mock Messages API (deferral, one refusal, protected
-  neighbour), asserting zero agent infrastructure repair and clean checkouts;
+  neighbour, cancelled wait with a refused re-delivery), asserting zero agent
+  infrastructure repair and clean checkouts;
   `DR_JOURNEY_EVIDENCE` writes a sanitized run summary, and exit 3 means a
   prerequisite was unavailable, so a skip is never read as a pass
+- `scripts/qualify-killed-runtime-recovery.sh`: container-local death cells for a
+  routed Docker application (SIGKILL without OOM, then a kernel OOM kill under a
+  64 MB limit), asserting the death is not reported as healthy, the container and
+  its route are retained instead of silently recreated, no devrouter output
+  claims an OOM classification, and the ordinary restart/release paths recover;
+  exit 3 means a prerequisite was unavailable, so a skip is never read as a pass
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `devrouter upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
@@ -261,5 +268,8 @@ Supported routing:
 13. `pnpm devcontainer:smoke` when DevPod is available for live devcontainer verification
 14. `pnpm devcontainer:smoke down` after live devcontainer verification
 15. `pnpm qualify:harness-journey` when the Claude Code CLI is available, for the
-    two-environment agent journey (deferral, one refusal, protected neighbour)
-16. Update docs for any behavior/surface changes
+    two-environment agent journey (deferral, one refusal, protected neighbour,
+    cancelled wait)
+16. `pnpm qualify:killed-runtime` when Docker and the mkcert root CA are available,
+    for the container-local SIGKILL and OOM cells
+17. Update docs for any behavior/surface changes
