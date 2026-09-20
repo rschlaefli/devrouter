@@ -43,6 +43,11 @@
 #               boundary's own: each call waits on its own identity, both settle
 #               as granted, and a harness that serializes its calls cannot hide
 #               a false replay refusal behind its own sequencing.
+#   nested    - Claude Code only: a subagent runs its own shell calls through
+#               the same hook. Its first call is allowed while the checkout is
+#               settled, the fixture turns the checkout transitional before the
+#               second, and that call must be refused without running, so a
+#               nested call cannot bypass the gate protecting its checkout.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -122,6 +127,7 @@ write_evidence() {
       "nonshell",
       "parallel",
       "concurrent",
+      "nested",
     ].map((name) => {
       let asserted = null;
       try {
@@ -221,6 +227,7 @@ start_mock() {
   : > "$trace"
   DR_MOCK_PORT="$PORT" DR_MOCK_TRACE="$trace" DR_MOCK_TOOL_COMMAND="$tool_command" \
     DR_MOCK_TOOL_MATCH="$tool_match" DR_MOCK_TOOL_COMMAND_2="$second_command" \
+    DR_MOCK_NESTED="${DR_MOCK_NESTED:-}" DR_MOCK_FLIP="${DR_MOCK_FLIP:-}" \
     "$NODE" "$MOCK" >> "$WORK/mock.log" 2>&1 &
   MOCK_PID=$!
   for _ in $(seq 1 60); do
@@ -627,12 +634,41 @@ cat > "$MOCK" <<'MOCK_EOF'
 // refused one.
 import http from "node:http";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const port = Number(process.env.DR_MOCK_PORT ?? 8791);
 const trace = process.env.DR_MOCK_TRACE;
 const toolCommand = process.env.DR_MOCK_TOOL_COMMAND;
 const secondCommand = process.env.DR_MOCK_TOOL_COMMAND_2 ?? "";
+// The nested scenario scripts a subagent that runs two shell calls, and it
+// flips the checkout to a transitional phase immediately before the second one,
+// so the refusal cannot race the call it refuses. The subagent is the request
+// whose system prompt differs from the first request's: a subagent runs its own
+// conversation against a reduced tool set.
+const nested = process.env.DR_MOCK_NESTED === "1";
+const flip = process.env.DR_MOCK_FLIP ? JSON.parse(process.env.DR_MOCK_FLIP) : null;
 let toolTurns = 0;
+let firstSystem;
+let nestedCalls = 0;
+
+function callMessage(id, model, tool) {
+  return {
+    id,
+    type: "message",
+    role: "assistant",
+    model,
+    content: [
+      {
+        type: "tool_use",
+        id: "toolu_" + Math.random().toString(36).slice(2, 10),
+        name: tool.name,
+        input: tool.input,
+      },
+    ],
+    stop_reason: "tool_use",
+    usage: { input_tokens: 10, output_tokens: 5 },
+  };
+}
 
 // A scenario may script a tool the harness advertises instead of a shell
 // command. The request carries the harness's own tool list, so the name is read
@@ -735,8 +771,43 @@ http
       );
       const model = parsed.model || "journey-model";
       const id = "msg_" + Math.random().toString(36).slice(2, 10);
+      const systemText =
+        typeof parsed.system === "string" ? parsed.system : JSON.stringify(parsed.system ?? "");
+      if (firstSystem === undefined) firstSystem = systemText;
+      const subagent = systemText !== firstSystem;
       let message;
-      if (summary.toolResults.length > 0 || toolTurns >= 1) {
+      if (nested) {
+        const worked = summary.toolResults.length > 0;
+        if (!subagent && !worked) {
+          message = callMessage(id, model, {
+            name: "Agent",
+            input: {
+              description: "nested journey subagent",
+              prompt: "Run exactly this command with the Bash tool, then stop: " + toolCommand,
+              subagent_type: "general-purpose",
+            },
+          });
+        } else if (subagent && !worked) {
+          nestedCalls += 1;
+          message = callMessage(id, model, {
+            name: "Bash",
+            input: { command: toolCommand, description: "journey" },
+          });
+        } else if (subagent && nestedCalls === 1) {
+          nestedCalls += 1;
+          // The environment turns transitional before this call is scripted, so
+          // the nested refusal is sequenced instead of raced.
+          if (flip) {
+            execFileSync(flip.argv[0], flip.argv.slice(1), { env: { ...process.env, ...flip.env } });
+          }
+          message = callMessage(id, model, {
+            name: "Bash",
+            input: { command: secondCommand, description: "journey" },
+          });
+        } else {
+          message = { id, type: "message", role: "assistant", model, content: [{ type: "text", text: "JOURNEY-DONE" }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } };
+        }
+      } else if (summary.toolResults.length > 0 || toolTurns >= 1) {
         message = { id, type: "message", role: "assistant", model, content: [{ type: "text", text: "JOURNEY-DONE" }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } };
       } else {
         toolTurns += 1;
@@ -971,6 +1042,76 @@ if (mode === "concurrent") {
 // file states are the side-effect evidence rather than a second reading of the
 // transcript. The allowed cell runs first, so the refusal cell is read against a
 // tool this run just observed to work.
+// A subagent's shell calls reach the same hook the parent's calls reach. The
+// fixture settles the checkout for the subagent's first call and turns it
+// transitional before the second, so a nested call cannot bypass the gate that
+// protects the checkout it runs against.
+if (mode === "nested") {
+  const records = read("hook-payload-" + label + ".json.records")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  const decisions = hookLines.map((line) => {
+    const fields = line.split("\t");
+    const output = fields[2] ? JSON.parse(fields[2]) : {};
+    return output.hookSpecificOutput ?? {};
+  });
+  const tools = records.map((record) => record.tool_name);
+  const inner = records.filter((record) => record.tool_name === "Bash");
+  const innerIds = inner.map((record) => record.tool_use_id);
+  const claims = entries.filter((candidate) => innerIds.includes(candidate.toolUseId));
+  const markerA = read("probe-nested-a.marker");
+  const markerB = read("probe-nested-b.marker");
+  const refusal = decisions[2]?.permissionDecisionReason ?? "";
+  const refusalReached = requests
+    .flatMap((request) => request.toolResults ?? [])
+    .some((result) => /still starting|devrouter/.test(String(result.text)));
+  check(transcript.is_error !== true && transcript.subtype === "success", "the harness run reported an error");
+  check(transcript.terminal_reason === "completed", "the harness run did not finish: " + transcript.terminal_reason);
+  check(tools.length === 3, "the hook received " + tools.length + " payloads instead of three");
+  check(tools[0] === "Agent", "the first hook payload carried " + tools[0]);
+  check(inner.length === 2, "the subagent delivered " + inner.length + " shell calls instead of two");
+  check(hookLines.length === 3, "the gate decided " + hookLines.length + " payloads instead of three");
+  check(
+    records.every((record) => real(record.cwd ?? "") === real(affected)),
+    "a nested call reported a checkout other than the gated one",
+  );
+  check(decisions[0]?.permissionDecision === "allow", "the subagent was not started");
+  check(decisions[1]?.permissionDecision === "allow", "the settled nested call was not allowed: " + JSON.stringify(decisions[1]));
+  check(decisions[2]?.permissionDecision === "deny", "the transitional nested call decided " + decisions[2]?.permissionDecision);
+  check(/still starting/.test(refusal), "the nested refusal did not name the phase: " + refusal);
+  check(/devrouter status/.test(refusal), "the nested refusal did not name the recovery: " + refusal);
+  check(markerA === "GATE-OK\n", "the settled nested call wrote " + JSON.stringify(markerA));
+  check(markerB === "", "the refused nested call ran: " + JSON.stringify(markerB));
+  check(
+    claims.length === 1 && claims[0].state === "refused",
+    "the nested refusal settled as " + JSON.stringify(claims.map((claim) => claim.state)),
+  );
+  check(refusalReached, "the nested refusal did not reach the model");
+  check(affectedAfter.phase === "starting", "the affected phase is " + affectedAfter.phase);
+  check(dirtyAffected === "", "the affected checkout was modified: " + dirtyAffected);
+  check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeighbour);
+  check(neighbourBefore.sha256 === neighbourAfter.sha256, "the neighbour lifecycle record changed");
+  console.log(
+    JSON.stringify({
+      scenario: mode,
+      label,
+      harness,
+      tools,
+      decisions: decisions.map((decision) => decision.permissionDecision ?? "context"),
+      marker: markerA.trim() || null,
+      refusedMarker: markerB.trim() || null,
+      refusal: refusal.slice(0, 120),
+      claims: claims.map((claim) => ({ id: claim.toolUseId, state: claim.state, phase: claim.phase })),
+      checkoutsClean: dirtyAffected === "" && dirtyNeighbour === "",
+      failures,
+    }),
+  );
+  if (failures.length) process.exit(1);
+  process.exit(0);
+}
+
 if (mode === "parallel") {
   const records = read("hook-payload-" + label + ".json.records")
     .trim()
@@ -1643,6 +1784,60 @@ run_concurrent_scenario() {
   cat "$WORK/assert-$label.json"
 }
 
+# A subagent runs its own tool calls through the same hook the parent uses. The
+# model fixture scripts the harness's own subagent tool, lets the subagent run
+# one shell call while the checkout is settled, and turns the checkout
+# transitional immediately before scripting the second call. That second call
+# must be refused with the phase and recovery text, must not execute, and must
+# settle in the ledger as refused.
+run_nested_scenario() {
+  local label="nested"
+  local probe_a="$WORK/probe-nested-a.marker"
+  local probe_b="$WORK/probe-nested-b.marker"
+  local command_a="echo GATE-OK >> $probe_a"
+  local command_b="echo GATE-OK >> $probe_b"
+  local trace="$WORK/api-requests-$label.jsonl"
+  rm -f "$probe_a" "$probe_b" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
+    "$WORK/hook-payload-$label.json" "$WORK/hook-payload-$label.json.records"
+
+  journal "$NEIGHBOUR" set stable >/dev/null
+  journal "$AFFECTED" set stable >/dev/null
+  journal "$AFFECTED" show > "$WORK/affected-before-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-before-$label.json"
+
+  # The fixture's own transition, handed to the model fixture so it cannot race
+  # the nested call it is meant to precede.
+  local flip
+  flip="$(DR_FLIP_TSX="$TSX" DR_FLIP_JOURNAL="$JOURNAL" DR_FLIP_CHECKOUT="$AFFECTED" \
+    DR_FLIP_HOME="$HOME_DIR" DR_FLIP_SRC="$ROOT/src/core" \
+    "$NODE" -e 'process.stdout.write(JSON.stringify({argv:[process.env.DR_FLIP_TSX,process.env.DR_FLIP_JOURNAL,process.env.DR_FLIP_CHECKOUT,"set","starting"],env:{HOME:process.env.DR_FLIP_HOME,DR_JOURNEY_SRC:process.env.DR_FLIP_SRC}}))')"
+
+  DR_MOCK_NESTED=1 DR_MOCK_FLIP="$flip" start_mock "$command_a" "$trace" "" "$command_b"
+
+  if ! (
+    cd "$AFFECTED" &&
+      HOME="$HOME_DIR" DR_GATE_BUDGET=3000 DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+      DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+      ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+      "$CLAUDE" -p "Use the Agent tool to have a subagent run the two commands it is given, then stop." \
+        --output-format json --max-turns 8 --allowedTools "Agent" \
+        --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+  ); then
+    echo "the harness run for '$label' failed; see $WORK/claude-$label.err" >&2
+    FAILED=1
+  fi
+
+  journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
+  journal "$AFFECTED" ledger > "$WORK/ledger-$label.json"
+  git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
+  git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
+
+  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
+    "$NEIGHBOUR" "" "claude" > "$WORK/assert-$label.json" || FAILED=1
+  cat "$WORK/assert-$label.json"
+}
+
 # Two tool calls in one model turn overlap the same gate. Both must wait for the
 # same settlement and run exactly once, and neither may be refused as a replay
 # of the other: the ledger keys on the call's own identity, so two calls that
@@ -1754,6 +1949,12 @@ echo "--- scenario 7: two calls in one turn overlap the gate and each runs exact
 run_parallel_scenario
 echo "--- scenario 8: two hook processes that decide at the same instant both settle"
 run_concurrent_scenario
+if [ "$HARNESS" = "claude" ]; then
+  echo "--- scenario 9: a subagent's shell call is refused once the checkout turns transitional"
+  run_nested_scenario
+else
+  echo "--- scenario 9: nested subagent calls are not applicable to the Codex CLI"
+fi
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
 echo "--- raw logs: $WORK"
