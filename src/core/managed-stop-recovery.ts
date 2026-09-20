@@ -233,23 +233,46 @@ export type ManagedStopProof =
   | { status: "retained"; containers: ReturnType<typeof proveRetainedManagedStop> }
   | { status: "proven-absent"; containers: [] };
 
-function absentRegistrationIdentity(state: ManagedRuntimeState) {
+type AbsentStopRegistrationIdentity =
+  | {
+      kind: "linked";
+      record: NonNullable<ReturnType<typeof readWorkspaceOwnership>>;
+      gitCommonDir: string;
+    }
+  | { kind: "primary"; repoPath: string; devpodId: string };
+
+/**
+ * Identity evidence for a registration that is already gone. Linked checkouts
+ * prove it through their workspace-ownership ledger; a primary checkout has no
+ * ledger entry by construction, so its retained state's exact checkout and
+ * provider identity are the equivalent evidence. Both still require every
+ * registration and workload population for that exact identity to stay absent.
+ */
+function absentRegistrationIdentity(state: ManagedRuntimeState): AbsentStopRegistrationIdentity {
   resetWorkspaceRuntimeCaches();
   if (resolveWorkspaceRuntimeOrDefault(state.repoPath) !== "devsy")
     throw new Error("Stop provider changed.");
-  if (!state.workspace || !isLinkedWorktree(state.repoPath))
-    throw new Error("Absent stop requires a linked workspace.");
-  const record = readWorkspaceOwnership(state.repoPath, state.workspace);
-  if (
-    !record ||
-    record.workspace !== state.workspace ||
-    record.devpodId !== state.devpodId ||
-    !sameWorkspacePath(record.worktreePath, state.repoPath) ||
-    resolveWorktreeWorkspace(state.repoPath) !== state.workspace ||
-    inspectWorkspaceOwnership(record, listGitWorktrees(state.repoPath), undefined).ownerStatus !==
-      "present"
-  )
-    throw new Error("Absent stop workspace ownership changed.");
+  const linked = isLinkedWorktree(state.repoPath);
+  if (linked !== (state.workspace !== undefined))
+    throw new Error("Absent stop requires the exact workspace identity.");
+  let identity: AbsentStopRegistrationIdentity;
+  if (linked) {
+    const workspace = state.workspace as string;
+    const record = readWorkspaceOwnership(state.repoPath, workspace);
+    if (
+      !record ||
+      record.workspace !== workspace ||
+      record.devpodId !== state.devpodId ||
+      !sameWorkspacePath(record.worktreePath, state.repoPath) ||
+      resolveWorktreeWorkspace(state.repoPath) !== workspace ||
+      inspectWorkspaceOwnership(record, listGitWorktrees(state.repoPath), undefined).ownerStatus !==
+        "present"
+    )
+      throw new Error("Absent stop workspace ownership changed.");
+    identity = { kind: "linked", record, gitCommonDir: resolveGitCommonDir(state.repoPath) };
+  } else {
+    identity = { kind: "primary", repoPath: state.repoPath, devpodId: state.devpodId };
+  }
   for (const entries of [
     listDevsyWorkspaces(),
     listDevpodWorkspacesRaw({ allowMissingExecutable: true }),
@@ -263,7 +286,7 @@ function absentRegistrationIdentity(state: ManagedRuntimeState) {
     )
       throw new Error("Absent stop requires both provider registrations to remain absent.");
   }
-  return { record, gitCommonDir: resolveGitCommonDir(state.repoPath) };
+  return identity;
 }
 
 function replacementObservation(state: ManagedRuntimeState) {
@@ -421,11 +444,12 @@ export function proveManagedStop(state: ManagedRuntimeState): ManagedStopProof {
     const changed = identityKeys.filter((key) => baseline[key] !== current[key]);
     // An unchanged registration whose whole population is gone is the prune
     // case, not a replacement: prove absence before the retained proof demands
-    // the containers a prune already deleted.
+    // the containers a prune already deleted. Primary checkouts qualify here as
+    // well, because the proof below still requires the exact registration,
+    // Compose project, Compose directory and provider-runner populations to be
+    // empty on the saved daemon.
     if (
       changed.length === 0 &&
-      state.workspace !== undefined &&
-      isLinkedWorktree(state.repoPath) &&
       inspectManagedStopContainers(baseline.project, baseline.endpoint).length === 0
     ) {
       proveAbsentPopulationStop(state, baseline, current);
