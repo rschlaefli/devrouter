@@ -168,6 +168,13 @@ Supported routing:
   first-attempt exit codes while reading container identity, retained data and
   adapter invocations from Docker; exit 3 means a prerequisite was unavailable,
   so a skip is never read as a pass
+- `scripts/qualify-process-preparation.ts`: preparation reuse for a
+  repository-owned process in a routed consumer, covering cold preparation,
+  unchanged reuse, a changed runtime identity, a stopped resume, an unowned
+  process refusal, the stop-then-ensure recovery and an externally pruned
+  container population, with preparation counts and process identity read inside
+  the container and the route fetched as an independent readiness proof; exit 3
+  means a prerequisite was unavailable, so a skip is never read as a pass
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `devrouter upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
@@ -280,4 +287,7 @@ Supported routing:
     for the container-local SIGKILL and OOM cells
 17. `pnpm qualify:cohorts` when Docker and the devsy provider are available, for
     the stopped-resume and fault-recovery lifecycle cohorts
-18. Update docs for any behavior/surface changes
+18. `pnpm qualify:preparation` when Docker and the devsy provider are available,
+    for preparation reuse, unowned-process refusal and recovery in a routed
+    consumer
+19. Update docs for any behavior/surface changes

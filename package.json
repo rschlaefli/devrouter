@@ -38,6 +38,7 @@
     "qualify:slow-dependency": "./scripts/qualify-slow-dependency-recovery.sh",
     "qualify:killed-runtime": "./scripts/qualify-killed-runtime-recovery.sh",
     "qualify:cohorts": "node --import tsx scripts/qualify-lifecycle-cohorts.ts",
+    "qualify:preparation": "node --import tsx scripts/qualify-process-preparation.ts",
     "test:process": "bash scripts/test-devrouter-process.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",
