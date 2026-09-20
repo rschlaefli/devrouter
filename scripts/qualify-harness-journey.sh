@@ -80,6 +80,16 @@
 #               stopped and its route released: the tool cannot reach anything
 #               and records the failure, so its result depends on the live
 #               environment instead of on fixture state.
+#   browser-allow - the same live environment read by a real browser: the
+#               model asks for a third test-owned MCP tool whose handler renders
+#               the published route in a headless browser and records the text
+#               that page shows, so the gated call is a browser-driven tool and
+#               the value it records was rendered by that browser. The cell
+#               records the missing prerequisite instead of passing when no
+#               browser binary is available.
+#   browser-refuse - the same browser tool while the checkout is transitional:
+#               the gate refuses it once, the browser never starts, and the
+#               container answers nothing.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -146,6 +156,26 @@ LIVE_HOST_LABEL="live-env"
 LIVE_CA="$(mkcert -CAROOT 2>/dev/null || true)/rootCA.pem"
 LIVE_STARTED=0
 
+# The browser behind the browser-driven cells. It is discovered rather than
+# assumed, and a cell that finds none records the missing prerequisite instead
+# of passing; DR_JOURNEY_BROWSER selects an exact binary.
+browser_candidate() {
+  local candidate
+  for candidate in "$DR_JOURNEY_BROWSER" \
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+    "$(command -v google-chrome || true)" \
+    "$(command -v google-chrome-stable || true)" \
+    "$(command -v chromium || true)" \
+    "$(command -v chromium-browser || true)"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+JOURNEY_BROWSER="$(browser_candidate || true)"
+
 # Sanitized run summary for the caller's own evidence retention. The per-scenario
 # results are read back from the assertion artifacts, so the summary restates
 # real checks instead of a second opinion about the run.
@@ -182,6 +212,8 @@ write_evidence() {
       "live-allow",
       "live-refuse",
       "live-unavailable",
+      "browser-allow",
+      "browser-refuse",
       "hook-timeout",
     ].map((name) => {
       let asserted = null;
@@ -413,19 +445,24 @@ HOOK_EOF
 chmod +x "$HOOK"
 
 cat > "$MCP_SERVER" <<'MCP_SERVER_EOF'
-// Minimal stdio MCP server with exactly one tool, so the journey can prove that
-// a tool call which is not a shell command is decided by the same PreToolUse
-// hook. It speaks newline-delimited JSON-RPC and implements only what a client
-// needs to list and call its tools. The marker tool writes a fixed line; the
-// live tool really fetches the published route of the running fixture
-// application and records the token that container is serving, so its result
-// cannot come from fixture state.
+// Minimal stdio MCP server with three test-owned tools, so the journey can
+// prove that a tool call which is not a shell command is decided by the same
+// PreToolUse hook. It speaks newline-delimited JSON-RPC and implements only
+// what a client needs to list and call its tools. The marker tool writes a
+// fixed line; the live tool really fetches the published route of the running
+// fixture application; the browser tool renders that same route in a real
+// browser and records the text the page shows. Both live tools record the
+// token that container is serving, so neither result can come from fixture
+// state.
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import https from "node:https";
 
 const marker = process.env.DR_MCP_MARKER;
 const liveUrlFile = process.env.DR_MCP_LIVE_URL_FILE ?? "";
 const liveCaFile = process.env.DR_MCP_LIVE_CA ?? "";
+const browserBinary = process.env.DR_MCP_BROWSER ?? "";
+const browserProfile = process.env.DR_MCP_BROWSER_PROFILE ?? "";
 let buffer = "";
 
 function respond(id, result) {
@@ -468,6 +505,109 @@ async function readLiveToken() {
   }
 }
 
+// A real browser render of the live environment. The browser is launched
+// against the published route, so the value this tool records was produced by
+// a browser engine that had to reach the container through the machine's real
+// Traefik and TLS setup. A headless browser on this machine can print the
+// rendered document and then fail to exit, so the render is complete once the
+// closing html tag has arrived and the process is stopped at that point
+// instead of waiting for an exit that may never come. The mock keychain keeps
+// the browser from blocking on a login keychain the journey's isolated home
+// does not have, and the browser still verifies the route against the
+// machine's own trust store.
+function renderLiveRoute() {
+  return new Promise((resolve, reject) => {
+    let url = "";
+    try {
+      url = fs.readFileSync(liveUrlFile, "utf8").trim();
+    } catch {
+      url = "";
+    }
+    if (!url) {
+      reject(new Error("no published route was recorded"));
+      return;
+    }
+    if (!browserBinary) {
+      reject(new Error("no browser binary was configured"));
+      return;
+    }
+    let profile = "";
+    if (browserProfile) {
+      try {
+        fs.mkdirSync(browserProfile, { recursive: true });
+        profile = fs.mkdtempSync(browserProfile + "/run-");
+      } catch {
+        profile = "";
+      }
+    }
+    const child = spawn(
+      browserBinary,
+      [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-extensions",
+        "--use-mock-keychain",
+        "--password-store=basic",
+        "--virtual-time-budget=5000",
+        ...(profile ? ["--user-data-dir=" + profile] : []),
+        "--dump-dom",
+        url,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let dom = "";
+    // Both pipes are drained on purpose: an unread stderr fills up and blocks
+    // the browser instead of letting the render finish.
+    let diagnostics = "";
+    let settled = false;
+    let timer;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The browser already exited, so there is nothing to stop.
+      }
+      if (error) {
+        const detail = diagnostics.trim().split("\n").slice(-2).join(" ");
+        reject(new Error(detail ? error.message + " (" + detail + ")" : error.message));
+      } else {
+        resolve(dom);
+      }
+    };
+    timer = setTimeout(() => finish(new Error("the browser did not finish within 30s")), 30000);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      dom += chunk;
+      if (dom.includes("</html>")) finish();
+    });
+    child.stderr.on("data", (chunk) => {
+      if (diagnostics.length < 2000) diagnostics += chunk;
+    });
+    child.on("error", (error) => finish(error));
+    child.on("close", () => finish());
+  });
+}
+
+async function readLiveTokenBrowser() {
+  try {
+    const dom = await renderLiveRoute();
+    const rendered = String(dom)
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!rendered) throw new Error("the browser rendered an empty page");
+    return "LIVE-TOKEN " + rendered;
+  } catch (error) {
+    return "LIVE-UNREACHABLE " + (error instanceof Error ? error.message : String(error));
+  }
+}
+
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
@@ -502,12 +642,18 @@ process.stdin.on("data", (chunk) => {
             description: "Fetch the published route of the running application and record its token.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
           },
+          {
+            name: "read_live_token_browser",
+            description: "Render the published route in a real browser and record the token it shows.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          },
         ],
       });
     } else if (message.method === "tools/call") {
-      if (message.params?.name === "read_live_token") {
+      if (message.params?.name === "read_live_token" || message.params?.name === "read_live_token_browser") {
         const id = message.id;
-        void readLiveToken().then((line) => {
+        const read = message.params?.name === "read_live_token" ? readLiveToken() : readLiveTokenBrowser();
+        void read.then((line) => {
           fs.appendFileSync(marker, line + "\n");
           respond(id, {
             content: [{ type: "text", text: line }],
@@ -557,7 +703,7 @@ env_key = "JOURNEY_API_KEY"
 [mcp_servers.marker]
 command = "$NODE"
 args = ["$MCP_SERVER"]
-env = { DR_MCP_MARKER = "$MCP_MARKER", DR_MCP_LIVE_URL_FILE = "$WORK/live-route-url.txt", DR_MCP_LIVE_CA = "$LIVE_CA" }
+env = { DR_MCP_MARKER = "$MCP_MARKER", DR_MCP_LIVE_URL_FILE = "$WORK/live-route-url.txt", DR_MCP_LIVE_CA = "$LIVE_CA", DR_MCP_BROWSER = "$JOURNEY_BROWSER", DR_MCP_BROWSER_PROFILE = "$WORK/browser-profile" }
 default_tools_approval_mode = "approve"
 CODEX_CONFIG_EOF
 else
@@ -582,7 +728,9 @@ SETTINGS_EOF
       "env": {
         "DR_MCP_MARKER": "$MCP_MARKER",
         "DR_MCP_LIVE_URL_FILE": "$WORK/live-route-url.txt",
-        "DR_MCP_LIVE_CA": "$LIVE_CA"
+        "DR_MCP_LIVE_CA": "$LIVE_CA",
+        "DR_MCP_BROWSER": "$JOURNEY_BROWSER",
+        "DR_MCP_BROWSER_PROFILE": "$WORK/browser-profile"
       }
     }
   }
@@ -1702,14 +1850,24 @@ if (mode === "nonshell" || mode === "nonshell-allow") {
   process.exit(0);
 }
 
-// The live-environment cells decide one MCP tool whose handler really reads the
-// running application: the value it records can only come from the container
+// The live-environment cells decide MCP tools whose handlers really read the
+// running application: the value they record can only come from the container
 // that is serving it, and the container's own verbose log names each request it
-// answered. The allowed cell reads the live token, the refused cell must reach
-// neither the environment nor its marker, and the third cell repeats the allowed
-// call after the application and its route are gone, so a result that depended
-// on fixture state would be exposed here instead of passing.
-if (mode === "live-allow" || mode === "live-refuse" || mode === "live-unavailable") {
+// answered. The allowed cells read the live token over HTTP and through a real
+// browser, each refused cell must reach neither the environment nor its marker,
+// and the last cell repeats the allowed call after the application and its route
+// are gone, so a result that depended on fixture state would be exposed here
+// instead of passing.
+if (
+  mode === "live-allow" ||
+  mode === "live-refuse" ||
+  mode === "live-unavailable" ||
+  mode === "browser-allow" ||
+  mode === "browser-refuse"
+) {
+  const browser = mode.startsWith("browser-");
+  const toolName = browser ? "read_live_token_browser" : "read_live_token";
+  const calledTool = (name) => String(name ?? "").endsWith(toolName);
   const liveMarker = read("mcp-marker.marker");
   const liveContainer = read("live-container.txt").trim();
   const liveToken = read("live-token.txt").trim();
@@ -1727,7 +1885,7 @@ if (mode === "live-allow" || mode === "live-refuse" || mode === "live-unavailabl
   );
   check(transcript.terminal_reason === "completed", "the harness run did not finish: " + transcript.terminal_reason);
   check(
-    /read_live_token/.test(payload.tool_name ?? ""),
+    calledTool(payload.tool_name),
     "the hook payload carried " + payload.tool_name + " instead of the live-environment tool",
   );
   check(typeof payload.tool_use_id === "string" && payload.tool_use_id.length > 0, "the hook payload carried no tool_use_id");
@@ -1735,14 +1893,16 @@ if (mode === "live-allow" || mode === "live-refuse" || mode === "live-unavailabl
   check(hookLines.length === 1, "expected exactly one gated live call, saw " + hookLines.length);
   check(callIds.length === 1, "expected one live tool call from the model, saw " + callIds.length);
   check(
-    toolUses.every((call) => /read_live_token/.test(call.name)),
+    toolUses.every((call) => calledTool(call.name)),
     "the model called " + toolUses.map((call) => call.name).join(", "),
   );
   check(dirtyAffected === "", "the affected checkout was modified: " + dirtyAffected);
   check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeighbour);
   check(neighbourBefore.sha256 === neighbourAfter.sha256, "the neighbour lifecycle record changed");
   check(neighbourAfter.phase === "stable", "the neighbour phase is " + neighbourAfter.phase);
-  if (mode === "live-refuse") {
+  if (mode === "live-refuse" || mode === "browser-refuse") {
+    // A refused browser call is refused before the browser starts, so the
+    // container must answer nothing at all.
     check(hookSpecific.permissionDecision === "deny", "the gate decided " + hookSpecific.permissionDecision + ": " + reason);
     check(/still starting/.test(reason), "the refusal did not name the phase: " + reason);
     check(/devrouter status/.test(reason), "the refusal did not name the recovery: " + reason);
@@ -1767,7 +1927,7 @@ if (mode === "live-allow" || mode === "live-refuse" || mode === "live-unavailabl
     } else {
       check(denials.length === 1, "expected exactly one harness denial, saw " + denials.length);
     }
-  } else if (mode === "live-allow") {
+  } else if (mode === "live-allow" || mode === "browser-allow") {
     allows();
     check(reason === "devrouter: environment settled.", "the settled live call was not allowed: " + reason);
     check(liveRoute.startsWith("https://"), "the live environment published " + JSON.stringify(liveRoute));
@@ -1777,7 +1937,17 @@ if (mode === "live-allow" || mode === "live-refuse" || mode === "live-unavailabl
       liveMarker === "LIVE-TOKEN " + liveToken + "\n",
       "the live tool recorded " + JSON.stringify(liveMarker) + " instead of the running container's token",
     );
-    check(liveDelta === 1, "the allowed live call made " + liveDelta + " request(s), expected exactly one");
+    if (browser) {
+      // A browser may fetch more than one resource for the page it renders, so
+      // the count proves the live environment answered at least once and the
+      // rendered token proves which page it answered.
+      check(
+        liveDelta >= 1,
+        "the allowed browser call made " + liveDelta + " request(s), expected at least one",
+      );
+    } else {
+      check(liveDelta === 1, "the allowed live call made " + liveDelta + " request(s), expected exactly one");
+    }
     check(
       !entries.some((candidate) => candidate.toolUseId === payload.tool_use_id),
       "a settled live-environment call was gated: " + JSON.stringify(entries),
@@ -2797,7 +2967,7 @@ live_environment_stop() {
 }
 
 run_live_environment_scenario() {
-  local label="$1" phase="$2" budget="$3"
+  local label="$1" phase="$2" budget="$3" tool="${4:-read_live_token}"
   local trace="$WORK/api-requests-$label.jsonl"
   local container before after
   rm -f "$MCP_MARKER" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
@@ -2822,7 +2992,7 @@ run_live_environment_scenario() {
   fi
   before="$(live_request_count "$container")"
 
-  start_mock "" "$trace" "read_live_token"
+  start_mock "" "$trace" "$tool"
 
   if [ "$HARNESS" = "codex" ]; then
     local started_ms ended_ms exit_code
@@ -2835,7 +3005,7 @@ run_live_environment_scenario() {
         DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
         "$CODEX" exec --skip-git-repo-check --sandbox workspace-write -C "$AFFECTED" \
           --dangerously-bypass-hook-trust \
-          "Call the marker MCP tool read_live_token once, then stop." \
+          "Call the marker MCP tool $tool once, then stop." \
           < /dev/null > "$WORK/codex-$label.out" 2> "$WORK/codex-$label.err"
     )
     exit_code=$?
@@ -2853,9 +3023,9 @@ run_live_environment_scenario() {
         HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
         DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
         ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
-        "$CLAUDE" -p "Call the marker MCP tool read_live_token once, then stop." \
+        "$CLAUDE" -p "Call the marker MCP tool $tool once, then stop." \
           --output-format json --max-turns 3 \
-          --mcp-config "$MCP_CONFIG" --strict-mcp-config --allowedTools "mcp__marker__read_live_token" \
+          --mcp-config "$MCP_CONFIG" --strict-mcp-config --allowedTools "mcp__marker__$tool" \
           --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
     ); then
       echo "the harness run for '$label' failed; see $WORK/claude-$label.err" >&2
@@ -2880,22 +3050,23 @@ run_live_environment_scenario() {
   cat "$WORK/assert-$label.json"
 }
 
-# One live environment, three decisions: the settled checkout may read it, the
-# transitional checkout must not reach it, and an allowed call must fail once it
-# is gone. The cells run in that order on the same application, so the positive
-# control is the same tool the refusal and the missing-environment cells decide.
+# One live environment, five decisions: the settled checkout may read it over
+# HTTP and through a real browser, the transitional checkout must reach it
+# neither way, and an allowed call must fail once it is gone. The cells run in
+# that order on the same application, so each positive control is the same tool
+# its own refusal and missing-environment cells decide.
 run_live_environment_cells() {
   local why label
   why="$(live_prerequisite_reason)"
   if [ -n "$why" ]; then
-    for label in live-allow live-refuse live-unavailable; do
+    for label in live-allow live-refuse live-unavailable browser-allow browser-refuse; do
       printf '{"scenario":"%s","skipped":"%s","failures":[]}\n' "$label" "$why" > "$WORK/assert-$label.json"
     done
     printf 'live-environment cells not run: %s\n' "$why"
     return 0
   fi
   if ! live_environment_start; then
-    for label in live-allow live-refuse live-unavailable; do
+    for label in live-allow live-refuse live-unavailable browser-allow browser-refuse; do
       printf '{"scenario":"%s","failures":["the routed live fixture did not start"]}\n' "$label" > "$WORK/assert-$label.json"
     done
     FAILED=1
@@ -2904,6 +3075,18 @@ run_live_environment_cells() {
   fi
   run_live_environment_scenario live-allow stable 5000
   run_live_environment_scenario live-refuse starting 3000
+  # The browser cells share this environment. A browser that is not installed
+  # records why instead of passing, because the browser-driven seam stays
+  # unqualified without one.
+  if [ -z "$JOURNEY_BROWSER" ]; then
+    for label in browser-allow browser-refuse; do
+      printf '{"scenario":"%s","skipped":"no supported browser binary was found","failures":[]}\n' "$label" > "$WORK/assert-$label.json"
+    done
+    printf 'browser-driven cells not run: no supported browser binary was found\n'
+  else
+    run_live_environment_scenario browser-allow stable 5000 read_live_token_browser
+    run_live_environment_scenario browser-refuse starting 3000 read_live_token_browser
+  fi
   live_environment_stop
   run_live_environment_scenario live-unavailable stable 5000
 }
@@ -3150,8 +3333,9 @@ echo "--- scenario 10: cancelling the harness mid-wait leaves the call unexecute
 run_cancelled_scenario
 echo "--- scenario 11: a settled grant is refused when its id returns under a changed command"
 run_redirect_scenario
-echo "--- scenario 12: an MCP tool reads the live managed environment, is refused mid-transition,"
-echo "---              and cannot fabricate that value once the environment is gone"
+echo "--- scenario 12: MCP tools read the live managed environment over HTTP and through a"
+echo "---              real browser, are refused mid-transition, and cannot fabricate that"
+echo "---              value once the environment is gone"
 run_live_environment_cells
 echo "--- scenario 13: a hook timeout below the wait budget abandons the gating hook"
 run_hook_timeout_scenario
