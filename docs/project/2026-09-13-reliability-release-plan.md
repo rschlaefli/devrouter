@@ -3493,7 +3493,10 @@ Status: **qualified on both harnesses at revision
 `a7f8df601c6eed6c028973108f19f4734f423142` with the unchanged bundle SHA-256
 `6de1b11e3073e81a980d27b707276bf64bc0983c9accf8ad6dfd66485a2c4ff0`; the
 three cells record `not-run` with a reason when Docker, its daemon or the mkcert
-root CA is unavailable, so an unrun environment can never read as a pass.**
+root CA is unavailable, so an unrun environment can never read as a pass. The
+opt-in `harness-journey` CI job therefore stays green while a live cell records
+`not-run`; the uploaded evidence names the reason, so an acceptance reader must
+read the cells rather than the job colour.**
 
 The Q29/Q30 cell that stayed open was a tool whose success depends on the live
 managed environment. The journey's twelfth scenario closes it without touching a
