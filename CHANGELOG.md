@@ -4,6 +4,46 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-20
+
+### Fixed
+
+- Recovery guidance for a refused managed start emits the supported
+  `devrouter doctor --repo <checkout>` form and single-quotes a path that needs
+  it, so the suggested diagnostic inspects the intended checkout from any
+  working directory instead of the caller's current directory.
+- The harness gate recognizes its own lifecycle commands as direct executables
+  and through the `npx`, `pnpm exec`, `npm exec` and `yarn` launchers,
+  including `env` and assignment prefixes. During a transition, `devrouter
+  status`, `stop` and `ensure` reach their own bounded checks while unrelated
+  calls still defer.
+- The gate wait spends the full remaining budget and observes once more at the
+  deadline instead of refusing whenever the next poll interval would overrun it.
+- Hook decisions distinguish passthrough, unmanaged, invalid-payload and
+  unavailable evidence from an observed settled phase, and the human envelope no
+  longer reports "environment settled" for evidence it never observed.
+- `devrouter doctor` names the bounded cause and the offending journal entry
+  when capacity-history enumeration is unprovable, and the network-capacity check
+  names the evidence inputs it is missing instead of collapsing every failure
+  into one bare marker.
+- Capacity snapshot replacement is fenced by content digest, so a reused inode
+  cannot let a stale snapshot pass the presence check.
+
+### Added
+
+- `scripts/qualify-killed-runtime-recovery.sh` (`pnpm qualify:killed-runtime`)
+  qualifies container-local SIGKILL and OOM recovery, and the harness journey
+  gains cells for non-shell MCP calls, overlapping calls, a subagent call,
+  harness-initiated cancellation, a repeated call id under a changed command and
+  a hook timeout below the wait budget.
+- The harness journey is an opt-in `harness-journey` CI job that retains a
+  sanitized run summary with the source revision, bundle hash and harness
+  versions; exit 3 records a skip as not-run.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.1.2.md
+
 ## [0.1.1] - 2026-09-20
 
 ### Fixed
