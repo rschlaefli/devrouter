@@ -3,7 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { writeFileAtomically } from "./atomic-file";
-import { CapacityHistoryError, type CapacityReservation, CapacityStore } from "./capacity-store";
+import {
+  type CapacityHistoryCause,
+  CapacityHistoryError,
+  type CapacityReservation,
+  CapacityStore,
+} from "./capacity-store";
 import { ControllerStore } from "./controller-store";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { withFileLockSync } from "./file-lock";
@@ -681,6 +686,40 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
   }
 }
 
+/**
+ * One lifecycle-journal enumeration failure with its bounded classification and,
+ * when a single entry produced it, that entry's sanitized name. The capacity
+ * fence turns this into an operator-readable refusal instead of discarding it.
+ */
+export class ReliabilityJournalError extends Error {
+  constructor(
+    readonly cause: CapacityHistoryCause,
+    readonly location: string | null,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ReliabilityJournalError";
+  }
+}
+
+const MAX_REPORTED_ENTRY_NAME = 160;
+
+/** Fixed, values-free guard message raised by the bounded journal reader. */
+class JournalFileGuardError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "JournalFileGuardError";
+  }
+}
+
+/** Bounded, values-free spelling of one offending journal entry. */
+function journalEntryLocation(name: string): string {
+  const printable = name.replace(/[^A-Za-z0-9._-]/g, "?");
+  return printable.length > MAX_REPORTED_ENTRY_NAME
+    ? `${printable.slice(0, MAX_REPORTED_ENTRY_NAME - 3)}...`
+    : printable;
+}
+
 /** Read ledger state against surviving lifecycle admission history. */
 export function createLifecycleCapacityStore(
   directory = path.join(DEVROUTER_HOME, "controller"),
@@ -688,8 +727,14 @@ export function createLifecycleCapacityStore(
   return new CapacityStore(directory, undefined, () => {
     try {
       return listUnsettledCapacityBindings().floor;
-    } catch {
-      throw new CapacityHistoryError("capacity-history-unprovable");
+    } catch (error) {
+      throw error instanceof ReliabilityJournalError
+        ? new CapacityHistoryError("capacity-history-unprovable", error.cause, error.location)
+        : new CapacityHistoryError(
+            "capacity-history-unprovable",
+            "journal-enumeration-failed",
+            null,
+          );
     }
   });
 }
@@ -798,11 +843,12 @@ function readBoundedPrivateJson(file: string, label: string): unknown | undefine
       stat.size > MAX_RECORD_BYTES ||
       (stat.mode & 0o077) !== 0
     ) {
-      throw new Error(`${label} is not a bounded private file.`);
+      throw new JournalFileGuardError(`${label} is not a bounded private file.`);
     }
     const bytes = Buffer.alloc(MAX_RECORD_BYTES + 1);
     const count = fs.readSync(descriptor, bytes, 0, bytes.length, 0);
-    if (count > MAX_RECORD_BYTES) throw new Error(`${label} exceeds its byte limit.`);
+    if (count > MAX_RECORD_BYTES)
+      throw new JournalFileGuardError(`${label} exceeds its byte limit.`);
     return JSON.parse(bytes.subarray(0, count).toString("utf8"));
   } finally {
     fs.closeSync(descriptor);
@@ -811,7 +857,11 @@ function readBoundedPrivateJson(file: string, label: string): unknown | undefine
 
 function assertReliabilityEnumerationTime(startedAtMs: number): void {
   if (performance.now() - startedAtMs > MAX_RELIABILITY_ENUMERATION_MS)
-    throw new Error("Reliability journal enumeration exceeded its time limit.");
+    throw new ReliabilityJournalError(
+      "journal-enumeration-timeout",
+      null,
+      "Reliability journal enumeration exceeded its time limit.",
+    );
 }
 
 function reliabilityDirectory(): string {
@@ -836,23 +886,57 @@ export function listReliabilityOperations(): ReliabilityOperationRecord[] {
     stat = fs.lstatSync(directory);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
+    throw new ReliabilityJournalError(
+      "journal-directory-unreadable",
+      null,
+      "Reliability journal directory could not be read.",
+    );
   }
   if (!stat.isDirectory() || stat.isSymbolicLink())
-    throw new Error("Reliability journal directory is unsafe.");
+    throw new ReliabilityJournalError(
+      "journal-directory-unsafe",
+      null,
+      "Reliability journal directory is unsafe.",
+    );
   if (stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0)
-    throw new Error("Reliability journal directory is not private.");
+    throw new ReliabilityJournalError(
+      "journal-directory-unsafe",
+      null,
+      "Reliability journal directory is not private.",
+    );
 
   const entries: fs.Dirent[] = [];
-  const handle = fs.opendirSync(directory);
+  let handle: fs.Dir;
+  try {
+    handle = fs.opendirSync(directory);
+  } catch {
+    throw new ReliabilityJournalError(
+      "journal-directory-unreadable",
+      null,
+      "Reliability journal directory could not be read.",
+    );
+  }
   try {
     for (;;) {
       assertReliabilityEnumerationTime(startedAtMs);
-      const entry = handle.readSync();
+      let entry: fs.Dirent | null;
+      try {
+        entry = handle.readSync();
+      } catch {
+        throw new ReliabilityJournalError(
+          "journal-directory-unreadable",
+          null,
+          "Reliability journal directory could not be read.",
+        );
+      }
       if (!entry) break;
       entries.push(entry);
       if (entries.length > MAX_RELIABILITY_DIRECTORY_ENTRIES)
-        throw new Error("Reliability journal directory exceeds its entry limit.");
+        throw new ReliabilityJournalError(
+          "journal-enumeration-limit",
+          null,
+          "Reliability journal directory exceeds its entry limit.",
+        );
     }
   } finally {
     handle.closeSync();
@@ -862,31 +946,95 @@ export function listReliabilityOperations(): ReliabilityOperationRecord[] {
   for (const entry of entries) {
     assertReliabilityEnumerationTime(startedAtMs);
     if (entry.isSymbolicLink())
-      throw new Error("Reliability journal directory contains a symlink.");
+      throw new ReliabilityJournalError(
+        "journal-entry-unsupported",
+        journalEntryLocation(entry.name),
+        "Reliability journal directory contains a symlink.",
+      );
     if (!entry.isFile())
-      throw new Error("Reliability journal directory contains an unsupported entry.");
+      throw new ReliabilityJournalError(
+        "journal-entry-unsupported",
+        journalEntryLocation(entry.name),
+        "Reliability journal directory contains an unsupported entry.",
+      );
     if (
       RELIABILITY_LOCK_NAME_RE.test(entry.name) ||
       RELIABILITY_ATOMIC_TEMP_NAME_RE.test(entry.name)
     )
       continue;
     const match = RELIABILITY_JOURNAL_NAME_RE.exec(entry.name);
-    if (!match) throw new Error("Reliability journal directory contains an unsupported entry.");
+    if (!match)
+      throw new ReliabilityJournalError(
+        "journal-entry-unsupported",
+        journalEntryLocation(entry.name),
+        "Reliability journal directory contains an unsupported entry.",
+      );
     journals.push({ name: entry.name, key: match[1] });
   }
   if (journals.length > MAX_RELIABILITY_JOURNALS)
-    throw new Error("Reliability journal directory exceeds its journal limit.");
+    throw new ReliabilityJournalError(
+      "journal-enumeration-limit",
+      null,
+      "Reliability journal directory exceeds its journal limit.",
+    );
   journals.sort((left, right) => left.name.localeCompare(right.name));
 
   const records: ReliabilityOperationRecord[] = [];
   for (const journal of journals) {
     assertReliabilityEnumerationTime(startedAtMs);
     const file = path.join(directory, journal.name);
-    const identity = journalIdentity(readBoundedPrivateJson(file, "Reliability journal"));
-    if (identityKey(identity) !== journal.key)
-      throw new Error("Reliability journal filename does not match its identity.");
-    const record = readReliabilityOperation(identity);
-    if (!record) throw new Error("Reliability journal disappeared during enumeration.");
+    let raw: unknown;
+    try {
+      raw = readBoundedPrivateJson(file, "Reliability journal");
+    } catch (error) {
+      const fsCode = (error as NodeJS.ErrnoException | undefined)?.code;
+      const cause: CapacityHistoryCause =
+        error instanceof JournalFileGuardError
+          ? "journal-entry-unsafe"
+          : error instanceof SyntaxError || !fsCode
+            ? "journal-invalid"
+            : "journal-unreadable";
+      throw new ReliabilityJournalError(
+        cause,
+        journalEntryLocation(journal.name),
+        error instanceof JournalFileGuardError
+          ? error.message
+          : cause === "journal-invalid"
+            ? "Reliability journal entry is invalid."
+            : "Reliability journal entry could not be read.",
+      );
+    }
+    if (raw === undefined)
+      throw new ReliabilityJournalError(
+        "journal-unstable",
+        journalEntryLocation(journal.name),
+        "Reliability journal disappeared during enumeration.",
+      );
+    let identity: ReliabilityIdentity;
+    let record: ReliabilityOperationRecord | undefined;
+    try {
+      identity = journalIdentity(raw);
+      if (identityKey(identity) !== journal.key)
+        throw new ReliabilityJournalError(
+          "journal-identity-mismatch",
+          journalEntryLocation(journal.name),
+          "Reliability journal filename does not match its identity.",
+        );
+      record = readReliabilityOperation(identity);
+    } catch (error) {
+      if (error instanceof ReliabilityJournalError) throw error;
+      throw new ReliabilityJournalError(
+        "journal-invalid",
+        journalEntryLocation(journal.name),
+        "Reliability journal entry is invalid.",
+      );
+    }
+    if (!record)
+      throw new ReliabilityJournalError(
+        "journal-unstable",
+        journalEntryLocation(journal.name),
+        "Reliability journal disappeared during enumeration.",
+      );
     records.push(record);
     assertReliabilityEnumerationTime(startedAtMs);
   }

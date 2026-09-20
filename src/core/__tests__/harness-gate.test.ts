@@ -128,7 +128,7 @@ describe("waitForHarnessGate", () => {
     });
   });
 
-  it("refuses once when the transition outlasts the budget", async () => {
+  it("refuses once at the deadline when the transition outlasts the budget", async () => {
     const clock = createClock();
     const sleep: number[] = [];
 
@@ -143,12 +143,14 @@ describe("waitForHarnessGate", () => {
       },
     });
 
-    expect(sleep).toEqual([2_000, 2_000]);
+    // The final partial interval is spent instead of refused, so the wait ends
+    // on the granted budget rather than one interval short of it.
+    expect(sleep).toEqual([2_000, 2_000, 1_000]);
     expect(decision).toMatchObject({
       decision: "refuse",
       reason: "budget-exhausted",
-      waitedMs: 4_000,
-      observations: 3,
+      waitedMs: 5_000,
+      observations: 4,
       observedPhase: "stopping",
     });
   });
@@ -175,7 +177,7 @@ describe("waitForHarnessGate", () => {
     });
   });
 
-  it("treats unknown evidence as settled instead of blocking the agent", async () => {
+  it("reports unknown evidence as unavailable instead of settled", async () => {
     const clock = createClock();
 
     const decision = await waitForHarnessGate({
@@ -187,8 +189,82 @@ describe("waitForHarnessGate", () => {
 
     expect(decision).toMatchObject({
       decision: "allow",
-      reason: "settled",
+      reason: "evidence-unavailable",
       observedPhase: "unknown",
+    });
+  });
+
+  it("waits the remaining partial interval before refusing", async () => {
+    const clock = createClock();
+    const sleep: number[] = [];
+
+    const decision = await waitForHarnessGate({
+      observe: () => ({ phase: "stopping" }),
+      budgetMs: 1_500,
+      pollIntervalMs: 2_000,
+      now: clock.now,
+      sleep: async (ms) => {
+        sleep.push(ms);
+        await clock.sleep(ms);
+      },
+    });
+
+    expect(sleep).toEqual([1_500]);
+    expect(decision).toMatchObject({
+      decision: "refuse",
+      reason: "budget-exhausted",
+      waitedMs: 1_500,
+      observations: 2,
+    });
+  });
+
+  it("still observes the phase when a settle lands on the deadline", async () => {
+    const clock = createClock();
+    const sleep: number[] = [];
+    const observe = scriptedObservations([{ phase: "stopping" }, { phase: "idle" }]);
+
+    const decision = await waitForHarnessGate({
+      observe,
+      budgetMs: 1_500,
+      pollIntervalMs: 2_000,
+      now: clock.now,
+      sleep: async (ms) => {
+        sleep.push(ms);
+        await clock.sleep(ms);
+      },
+    });
+
+    expect(sleep).toEqual([1_500]);
+    expect(decision).toMatchObject({
+      decision: "deferred-allow",
+      reason: "settled-after-wait",
+      waitedMs: 1_500,
+      observedPhase: "idle",
+    });
+  });
+
+  it("spends a budget that is not a multiple of the interval without overrunning it", async () => {
+    const clock = createClock();
+    const sleep: number[] = [];
+
+    const decision = await waitForHarnessGate({
+      observe: () => ({ phase: "recovering" }),
+      budgetMs: 5_000,
+      pollIntervalMs: 3_000,
+      now: clock.now,
+      sleep: async (ms) => {
+        sleep.push(ms);
+        await clock.sleep(ms);
+      },
+    });
+
+    expect(sleep).toEqual([3_000, 2_000]);
+    expect(sleep.reduce((total, ms) => total + ms, 0)).toBe(5_000);
+    expect(decision).toMatchObject({
+      decision: "refuse",
+      reason: "budget-exhausted",
+      waitedMs: 5_000,
+      observations: 3,
     });
   });
 

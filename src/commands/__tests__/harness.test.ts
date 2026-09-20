@@ -187,7 +187,14 @@ describe("runHarnessCommand gate", () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it("passes a devrouter lifecycle command through without observing", async () => {
+  it.each([
+    "devrouter stop .",
+    "/opt/homebrew/bin/devrouter stop .",
+    "./node_modules/.bin/devrouter ensure . --json",
+    "pnpm exec devrouter status --json",
+    "npx devrouter ensure .",
+    "cd /repo && devrouter stop .",
+  ])("passes the lifecycle command %s through without observing", async (command) => {
     const observe = vi.fn((): HarnessGateObservation => ({ phase: "stopping" }));
 
     await runHarnessCommand(
@@ -195,8 +202,7 @@ describe("runHarnessCommand gate", () => {
       {},
       undefined,
       dependencies({
-        stdin: async () =>
-          hookPayload({ tool_input: { command: "pnpm devrouter ensure . --json" }, cwd: tmpDir }),
+        stdin: async () => hookPayload({ tool_input: { command }, cwd: tmpDir }),
         observe,
       }),
     );
@@ -205,6 +211,118 @@ describe("runHarnessCommand gate", () => {
     expect(lastStdoutJson()).toMatchObject({
       hookSpecificOutput: { permissionDecision: "allow" },
     });
+  });
+
+  it.each([
+    "devrouter stop .",
+    "pnpm exec devrouter status --json",
+  ])("passes the lifecycle command %s through from the Codex shell tool", async (command) => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const observe = vi.fn((): HarnessGateObservation => ({ phase: "stopping" }));
+
+    await runHarnessCommand(
+      "gate",
+      { waitBudgetMs: "1000" },
+      undefined,
+      dependencies({
+        stdin: async () =>
+          JSON.stringify({
+            hook_event_name: "PreToolUse",
+            turn_id: "turn_journey_1",
+            tool_name: "exec_command",
+            tool_input: { cmd: command },
+            cwd: repoRoot,
+          }),
+        observe,
+        sleep: async () => {},
+      }),
+    );
+
+    expect(observe).not.toHaveBeenCalled();
+    // The Codex CLI rejects an allow decision, so the passthrough is a bare
+    // completion whose context still names the reason.
+    const output = lastStdoutJson() as {
+      hookSpecificOutput: { permissionDecision?: string; additionalContext?: string };
+    };
+    expect(output.hookSpecificOutput.permissionDecision).toBeUndefined();
+    expect(output.hookSpecificOutput.additionalContext).toContain("lifecycle command");
+  });
+
+  it.each([
+    "echo /opt/homebrew/bin/devrouter",
+    "cat devrouter",
+    "pnpm exec tsc --noEmit",
+  ])("still defers the unrelated command %s", async (command) => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const observe = vi.fn((): HarnessGateObservation => ({ phase: "stable" }));
+
+    await runHarnessCommand(
+      "gate",
+      {},
+      undefined,
+      dependencies({
+        stdin: async () => hookPayload({ tool_input: { command }, cwd: repoRoot }),
+        observe,
+      }),
+    );
+
+    expect(observe).toHaveBeenCalledWith(path.resolve(repoRoot));
+  });
+
+  it("classifies bypass and unavailable evidence instead of reporting a settlement", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const classify = async (input: {
+      cwd: string;
+      phase: HarnessGateObservation["phase"];
+      command?: string;
+    }): Promise<string> => {
+      const observe = vi.fn((): HarnessGateObservation => ({ phase: input.phase }));
+      await runHarnessCommand(
+        "gate",
+        { json: true },
+        undefined,
+        dependencies({
+          stdin: async () =>
+            hookPayload({
+              cwd: input.cwd,
+              ...(input.command ? { tool_input: { command: input.command } } : {}),
+            }),
+          observe,
+        }),
+      );
+      return String(lastStdoutJson().reason);
+    };
+
+    expect(await classify({ cwd: repoRoot, phase: "stable" })).toBe("settled");
+    expect(await classify({ cwd: repoRoot, phase: "stopping", command: "devrouter stop ." })).toBe(
+      "devrouter-command",
+    );
+    expect(await classify({ cwd: tmpDir, phase: "stopping" })).toBe("unmanaged-checkout");
+    expect(await classify({ cwd: repoRoot, phase: "unknown" })).toBe("evidence-unavailable");
+
+    // The rendered envelope carries the same distinction.
+    await runHarnessCommand(
+      "gate",
+      {},
+      undefined,
+      dependencies({
+        stdin: async () => hookPayload({ cwd: tmpDir }),
+        observe: vi.fn((): HarnessGateObservation => ({ phase: "stopping" })),
+      }),
+    );
+    const envelope = lastStdoutJson() as {
+      hookSpecificOutput: { permissionDecisionReason?: string };
+    };
+    expect(envelope.hookSpecificOutput.permissionDecisionReason).toBeTruthy();
+    expect(envelope.hookSpecificOutput.permissionDecisionReason).not.toContain(
+      "environment settled",
+    );
   });
 
   it("allows an unmanaged checkout, an invalid payload and a missing directory", async () => {

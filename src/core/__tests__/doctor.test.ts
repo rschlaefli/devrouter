@@ -631,3 +631,21 @@ it("redacts an arbitrary capacity history read failure", async () => {
   expect(check).toMatchObject({ level: "error", details: "capacity-history-unprovable" });
   expect(JSON.stringify(check)).not.toContain(privateValue);
 });
+
+it("names the bounded journal cause and entry of an unprovable history", async () => {
+  vi.mocked(createLifecycleCapacityStore).mockImplementationOnce(() => {
+    throw new CapacityHistoryError(
+      "capacity-history-unprovable",
+      "journal-entry-unsupported",
+      "23fe529a.stuck-stopping-20260914T1720.bak",
+    );
+  });
+  const report = await buildDoctorReport({ repo: tmpDir });
+  const check = report.checks.find((entry) => entry.id === "global.capacity-ledger");
+  expect(check).toMatchObject({
+    level: "error",
+    details:
+      "capacity-history-unprovable; journal-entry-unsupported; at 23fe529a.stuck-stopping-20260914T1720.bak",
+  });
+  expect(check?.suggestion).toContain("Move the named unrecognised entry");
+});

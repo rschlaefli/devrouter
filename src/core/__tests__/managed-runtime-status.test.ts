@@ -682,8 +682,10 @@ describe("collectManagedRuntimeStatus", () => {
       incident: null,
       attention: { reason: "capacity-parked" },
     });
-    expect(result.reliability?.attention?.recovery.join(" ")).toContain("devrouter ensure");
-    expect(result.reliability?.attention?.recovery.join(" ")).toContain(repoPath);
+    const recovery = result.reliability?.attention?.recovery.join(" ") ?? "";
+    expect(recovery).toContain("foreground controller");
+    expect(recovery).toContain(`devrouter status --repo ${repoPath} --json`);
+    expect(recovery).toContain(`devrouter stop ${repoPath}`);
   });
 
   it("reports an unresolved lifecycle operation as needing a stop and repair", () => {
@@ -749,8 +751,40 @@ describe("collectManagedRuntimeStatus", () => {
       attention: { reason: "start-refused" },
     });
     const recovery = result.reliability?.attention?.recovery.join(" ") ?? "";
-    expect(recovery).toContain(`devrouter doctor ${repoPath}`);
+    expect(recovery).toContain(`devrouter doctor --repo ${repoPath}`);
     expect(recovery).toContain(`devrouter ensure ${repoPath}`);
+  });
+
+  it("quotes a checkout path so its recovery commands select the intended repository", () => {
+    const spacedRepoPath = "/repo/trees/feature with space";
+    setupManagedRuntime({
+      containers: [],
+      reliability: {
+        ...createReliabilityState("environment-feature", 1, "manual"),
+        desired: "running",
+        phase: "stable",
+        operation: {
+          id: "operation-feature",
+          kind: "ensure",
+          drained: true,
+          status: "COMPLETED",
+          exitCode: 1,
+        },
+      },
+      result: refusedResult(),
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath: spacedRepoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+    });
+
+    expect(result.reliability?.attention).toMatchObject({ reason: "start-refused" });
+    const recovery = result.reliability?.attention?.recovery.join(" ") ?? "";
+    expect(recovery).toContain("devrouter doctor --repo '/repo/trees/feature with space'");
+    expect(recovery).toContain("devrouter ensure '/repo/trees/feature with space'");
   });
 
   it("does not report a refused start after the recorded intent is released", () => {
