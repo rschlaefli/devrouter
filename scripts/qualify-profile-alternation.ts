@@ -11,8 +11,9 @@
  *                    retained container without replaying environment creation
  *   lean-warm        ensure --profile lean stops the dropped profile service
  *                    after exact ownership proof, without touching the primary
- *   alternation      a host-side install and a container-side install stay
- *                    isolated by the named node_modules volume
+ *   alternation      the exact container mounts the named node_modules volume
+ *                    over its node_modules path, and a host-side install and a
+ *                    container-side install stay isolated in both directions
  *   unknown-profile  an undefined profile refuses before any mutation
  *   full-again       the retained container takes the profile service back
  *   full-reuse       an unchanged profile keeps the owned process
@@ -31,9 +32,10 @@
  * Each cohort records wall time, the streamed phase timeline, peak CLI resident
  * memory, the container's memory at readiness and its first-attempt exit code.
  * Container identity, creation timestamp, service population, owned volume set,
- * preparation counts and the helper's recorded process identity are read from
- * Docker instead of trusted from devrouter's own report, and the published route
- * is fetched over the machine's real TLS setup as an independent readiness proof.
+ * mount table, preparation counts and the helper's recorded process identity are
+ * read from Docker instead of trusted from devrouter's own report, and the
+ * published route is fetched over the machine's real TLS setup as an independent
+ * readiness proof.
  * A foreign container that shares the profile service's Compose label but not its
  * project must survive every transition untouched. Nothing is retried: a
  * first-attempt failure is evidence, not noise.
@@ -321,6 +323,53 @@ async function main() {
       .sort();
   }
 
+  function containerMounts(id: string) {
+    const raw = dockerOut(["inspect", "-f", "{{json .Mounts}}", id]);
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error(`docker inspect returned no mount table for ${id}`);
+    return parsed.map((entry) => {
+      const record = asRecord(entry);
+      return {
+        type: text(record?.Type) ?? "unknown",
+        name: text(record?.Name) ?? null,
+        source: text(record?.Source) ?? null,
+        destination: text(record?.Destination) ?? null,
+      };
+    });
+  }
+
+  // The isolation cell only means something if the exact container really
+  // mounts the named volume over its node_modules path. A missing or replaced
+  // mount writes the container install straight into the fixture checkout, so
+  // the assertion reports the observed mount table instead of a bare boolean.
+  function assertWorkspaceIsolation(id: string, project: string) {
+    const mounts = containerMounts(id);
+    const detail = JSON.stringify(mounts);
+    const workspace = mounts.find((mount) => mount.destination === WORKSPACE_FOLDER);
+    const nodeModules = mounts.find(
+      (mount) => mount.destination === `${WORKSPACE_FOLDER}/node_modules`,
+    );
+    const workspaceSource = workspace?.source ?? "";
+    assert.ok(
+      workspace?.type === "bind" &&
+        workspaceSource.length > 0 &&
+        fs.existsSync(workspaceSource) &&
+        fs.realpathSync(workspaceSource) === fs.realpathSync(fixture),
+      `container ${id} does not bind-mount the fixture at ${WORKSPACE_FOLDER}: ${detail}`,
+    );
+    assert.equal(
+      nodeModules?.type,
+      "volume",
+      `container ${id} does not mount ${WORKSPACE_FOLDER}/node_modules as a volume: ${detail}`,
+    );
+    assert.equal(
+      nodeModules?.name,
+      `${project}_node_modules`,
+      `container ${id} mounts an unexpected node_modules volume: ${detail}`,
+    );
+    return mounts;
+  }
+
   function preparationRuns(id: string) {
     return execIn(id, `cat ${ADAPTER_LOG}.prepare 2>/dev/null || true`)
       .split("\n")
@@ -566,6 +615,7 @@ async function main() {
       memory: containerMemory(id),
       services: { [PROFILE_SERVICE]: serviceFacts(project, PROFILE_SERVICE) },
       volumes: volumeNames(project),
+      mounts: containerMounts(id),
       adapter: adapterStats(id),
       preparations: preparationRuns(id),
       helper,
@@ -957,6 +1007,7 @@ async function main() {
 
     // Host/container alternation: the named node_modules volume must keep the
     // two install trees separate in both directions.
+    const alternationMounts = assertWorkspaceIsolation(containerId, composeProject);
     const hostInstall = run("npm", [...NPM_INSTALL_ARGS, "./local-host-dep"], fixture, 300_000);
     requireOk(hostInstall, "npm", ["install"]);
     const hostMarker = fs
@@ -986,7 +1037,11 @@ async function main() {
       `${WORKSPACE_FOLDER}/node_modules/host-dep`,
     );
     assert.equal(containerSeesHostDep, "absent");
-    assert.equal(fs.existsSync(hostDependencyPath("container-dep")), false);
+    assert.equal(
+      fs.existsSync(hostDependencyPath("container-dep")),
+      false,
+      `the container install reached the fixture checkout; container ${containerId} mounts ${JSON.stringify(alternationMounts)}`,
+    );
     cohorts["alternation-exec"] = cohort("container-side install", containerInstall);
     facts.alternation = {
       hostNpm: hostNpm.status === 0 ? hostNpm.stdout.trim() : "unknown",
@@ -995,6 +1050,7 @@ async function main() {
       containerSeesHostDep,
       hostMarker,
       hostSeesContainerDep: false,
+      mounts: alternationMounts,
     };
     evidence.push(
       "a host install and a container install stayed isolated by the named node_modules volume in both directions",
