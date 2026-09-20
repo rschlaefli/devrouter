@@ -186,6 +186,11 @@ A start that admission refuses before any provider mutation leaves the journal
 recording `running` while no runtime exists. The status block names that as
 `start-refused` with the read-only `devrouter doctor` check and the consumer-side
 fix, and an explicit `stop` releases both the intent and the reason.
+Each recovery line carries the exact checkout in the form its command accepts:
+`--repo` for `doctor`, positionally for the lifecycle commands, and quoted when
+the path would otherwise split into several shell words. A parked checkout names
+the foreground controller that resumes it, because `devrouter ensure` refuses while
+the journal stays parked.
 
 ## Continuous observation
 

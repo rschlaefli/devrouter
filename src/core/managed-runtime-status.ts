@@ -26,29 +26,46 @@ import { sameWorkspacePath } from "./workspace";
 import { resolveWorkspaceRuntimeForReport } from "./workspace-runtime";
 
 /**
+ * One checkout path as a word an agent can paste into a shell unchanged. A
+ * path without shell metacharacters stays bare so the common line reads plainly.
+ */
+function recoveryPath(repoPath: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(repoPath)) return repoPath;
+  return `'${repoPath.replaceAll("'", "'\\''")}'`;
+}
+
+/**
  * The supported recovery path for one durable attention reason, in order. An
  * agent that sees a non-ready environment must be able to run these directly
- * instead of guessing at lifecycle intent.
+ * instead of guessing at lifecycle intent. `devrouter doctor` accepts a
+ * checkout only through `--repo`, while the lifecycle commands take it
+ * positionally; a recovery line that mixes the two diagnoses the wrong
+ * checkout whenever the agent is not already standing in the target.
  */
 function reliabilityRecovery(reason: ManagedReliabilityReason, repoPath: string): string[] {
+  const checkout = recoveryPath(repoPath);
   switch (reason) {
     case "stop-incomplete":
     case "operation-unknown":
-      return [`Run: devrouter stop ${repoPath}`, `Run: devrouter ensure ${repoPath} --repair`];
+      return [`Run: devrouter stop ${checkout}`, `Run: devrouter ensure ${checkout} --repair`];
     case "start-refused":
       return [
-        `Run: devrouter doctor ${repoPath} to read the refused fixed host-port claim and its holder`,
-        `Stop the holding workspace or change this repository's own published binding, then run: devrouter ensure ${repoPath}`,
+        `Run: devrouter doctor --repo ${checkout} to read the refused fixed host-port claim and its holder`,
+        `Stop the holding workspace or change this repository's own published binding, then run: devrouter ensure ${checkout}`,
       ];
     case "unadmittable":
       return [
-        `Run: devrouter stop ${repoPath}`,
-        `Lower the requested capacity in .devrouter.yml, then run: devrouter ensure ${repoPath}`,
+        `Run: devrouter stop ${checkout}`,
+        `Lower the requested capacity in .devrouter.yml, then run: devrouter ensure ${checkout}`,
       ];
     case "capacity-parked":
-      return [`Run: devrouter ensure ${repoPath} (waits for capacity to free up)`];
+      return [
+        "Parked for host capacity: the enrolled foreground controller resumes this checkout after its pressure dwell and live-consumer checks pass.",
+        `Inspect the parked intent with: devrouter status --repo ${checkout} --json`,
+        `'devrouter ensure' refuses while the journal stays parked; release the intent instead with: devrouter stop ${checkout}`,
+      ];
     case "capacity-waiting":
-      return [`Run: devrouter ensure ${repoPath} (still queued until capacity frees up)`];
+      return [`Run: devrouter ensure ${checkout} (still queued until capacity frees up)`];
     default:
       return [];
   }
