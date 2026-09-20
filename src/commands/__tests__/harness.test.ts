@@ -73,6 +73,58 @@ describe("runHarnessCommand gate", () => {
     expect(printed.join("\n")).not.toContain("deferring");
   });
 
+  it("renders the Codex hook envelope for an allowed call", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+
+    await runHarnessCommand(
+      "gate",
+      {},
+      undefined,
+      dependencies({
+        stdin: async () =>
+          hookPayload({ cwd: repoRoot, prompt_id: undefined, turn_id: "01a0bdf9-turn" }),
+        observe: (): HarnessGateObservation => ({ phase: "stable" }),
+      }),
+    );
+
+    const output = lastStdoutJson() as {
+      hookSpecificOutput: {
+        hookEventName: string;
+        permissionDecision?: string;
+        additionalContext?: string;
+      };
+    };
+    expect(output.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+    expect(output.hookSpecificOutput.permissionDecision).toBeUndefined();
+    expect(output.hookSpecificOutput.additionalContext).toBe("devrouter: environment settled.");
+  });
+
+  it("refuses an exhausted Codex wait with a deny envelope", async () => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+
+    await runHarnessCommand(
+      "gate",
+      { waitBudgetMs: "1000" },
+      undefined,
+      dependencies({
+        stdin: async () =>
+          hookPayload({ cwd: repoRoot, prompt_id: undefined, turn_id: "01a0bdf9-turn" }),
+        observe: (): HarnessGateObservation => ({ phase: "starting" }),
+        sleep: async () => {},
+      }),
+    );
+
+    const output = lastStdoutJson() as {
+      hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
+    };
+    expect(output.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain("still starting");
+  });
+
   it("defers while the environment is transitional and allows after it settles", async () => {
     const repoRoot = path.join(tmpDir, "repo");
     fs.mkdirSync(repoRoot, { recursive: true });

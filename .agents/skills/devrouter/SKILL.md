@@ -381,7 +381,7 @@ preserves the runtime, so still stop the exact environment after runtime work.
 
 A managed consumer can gate agent tool calls so a command never starts while the
 checkout's environment is mid-transition. Wire `devrouter harness gate` as a
-Claude Code `PreToolUse` hook:
+`PreToolUse` hook. Claude Code reads it from a settings file:
 
     {
       "hooks": {
@@ -393,7 +393,26 @@ Claude Code `PreToolUse` hook:
       }
     }
 
-The hook reads the harness payload on stdin, defers inside the hook process while
+The Codex CLI reads the same hook from `$CODEX_HOME/hooks.json`, where the shell
+tool is named `exec_command`:
+
+    {
+      "hooks": {
+        "PreToolUse": [
+          { "matcher": "exec_command|Bash|shell", "hooks": [
+            { "type": "command", "command": "devrouter harness gate", "timeout": 180 }
+          ] }
+        ]
+      }
+    }
+
+The gate identifies the requesting harness from its payload and answers in that
+harness's accepted shape: a refusal is a `deny` in both, while an allowed call is
+`permissionDecision: allow` for Claude Code and Codex receives a bare completion
+carrying the same guidance as `additionalContext`, because Codex rejects an
+`allow` decision as unsupported hook output.
+
+
 the checkout's durable phase is `queued`, `starting`, `verifying`, `recovering`
 or `stopping`, and prints the harness permission decision. The deferral consumes
 no model turns because the harness is blocked on the hook. `--wait-budget-ms`
@@ -405,7 +424,7 @@ the wait budget: an overrunning hook is not honored, and the tool proceeds under
 the harness's normal permission rules. Use `--json` for the devrouter decision
 envelope with wait metrics.
 
-+Gated calls are keyed by the harness `tool_use_id` and recorded durably. If the
+Gated calls are keyed by the harness `tool_use_id` and recorded durably. If the
 harness re-delivers a call it already granted or cancelled, the gate returns one
 refusal naming the earlier decision instead of waiting again, because that call
 may already have run; the agent should verify it and issue a new call. Entries

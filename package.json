@@ -33,6 +33,7 @@
     "qualify:controller": "node --import tsx scripts/qualify-controller.ts",
     "qualify:stop-drift": "node --import tsx scripts/qualify-config-drift-stop.ts",
     "qualify:harness-journey": "./scripts/qualify-harness-journey.sh",
+    "qualify:codex-journey": "DR_JOURNEY_HARNESS=codex ./scripts/qualify-harness-journey.sh",
     "test:process": "bash scripts/test-devrouter-process.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",

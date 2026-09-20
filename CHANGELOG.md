@@ -81,6 +81,17 @@ All notable changes to this project are documented in this file.
   unwritable ledger never blocks the agent. Payloads without a `tool_use_id`
   keep the wait-only behavior.
 
+- `devrouter harness gate` serves the Codex CLI as well as Claude Code. It
+  identifies the requesting harness from its hook payload and answers in that
+  harness's accepted shape: an allowed call stays `permissionDecision: allow`
+  for Claude Code, while Codex receives a plain completion carrying the same
+  guidance as `additionalContext`, because Codex reports an `allow` decision
+  as unsupported hook output and would otherwise run the tool behind a failed
+  hook. A refusal is one `deny` in both. `scripts/qualify-harness-journey.sh`
+  now drives either harness through the same three-scenario journey
+  (`DR_JOURNEY_HARNESS`), and `pnpm qualify:codex-journey` selects the second
+  one.
+
 ## [0.0.79] - 2026-09-19
 
 ### Added
