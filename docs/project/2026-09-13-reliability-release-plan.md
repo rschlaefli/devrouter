@@ -1,5 +1,12 @@
 # Reliable managed sessions through Devrouter 0.1.0
 
+**Current status (2026-09-20): release delivered; reliability acceptance remains
+active.** Versions 0.1.0 and 0.1.1 are published and installed. The
+[post-release review and follow-up backlog](#post-release-reliability-review-and-follow-up-2026-09-20)
+records reproduced defects, qualification gaps and the evidence required to close
+the original roadmap. Earlier delivered headings describe their bounded source
+or release outcomes; they do not establish complete M1–M3 acceptance.
+
 ## Approval summary
 
 The user approved execution of the complete consolidated reliability roadmap
@@ -3041,3 +3048,97 @@ evidence, asks for the `repo.managedRuntime.reliability` block after its own
 ensure, and leaves the before/after `status --json` reproducer and the 5432
 claim decision with that task. No consumer recovery is claimed from this side,
 and its staged merge and worktree Git state were not touched.
+
+### Post-release reliability review and follow-up (2026-09-20)
+
+Status: **active, findings persisted; fixes and further qualification pending**.
+The user requested that all findings and improvements from the latest CLI review
+remain part of the roadmap. This section is the current follow-up backlog for
+the governing [roadmap in PR #57](https://github.com/rschlaefli/devrouter/pull/57),
+at `d2e69e2e5815fb74bf46401bf3cef5a8ab7eaeed`. It retains that roadmap's
+W0–W9, S1–S8, M0–M3 and Q01–Q36 obligations. `docs/project/` remains the
+single project-artifacts root.
+
+#### Review baseline and evidence
+
+Reviewed main: `7765c1414bc9122ccf939f3550fa0b4dbad660c5`; published 0.1.1:
+`3622b8315594a68f4cb9a6036b318a4961180313`. Executable source, scripts,
+workflow, package definition and lockfile are identical between those revisions.
+The registry's latest version and all three local global installations reported
+0.1.1. CLI and lifecycle-worker bundle hashes matched across the installs and
+the retained release build. [Release CI](https://github.com/rschlaefli/devrouter/actions/runs/35506198134)
+and [main CI](https://github.com/rschlaefli/devrouter/actions/runs/35506817733)
+passed. These facts establish publication and installation, not consumer recovery.
+
+The review ran 63 tests across managed-runtime status, ensure output, reliability
+liveness and file-lock suites, plus 37 harness gate, continuation and command
+tests; all passed. Additional read-only installed-CLI probes reproduced RF01.
+Injected phase/clock probes reproduced RF02's command-form distinction and denial,
+RF03 and RF04 without modifying a live journal. Passing tests
+currently encode some faulty behavior, so test counts alone cannot close these
+findings. No consumer source, runtime or machine policy was changed by the review.
+
+#### Confirmed defects and immediate corrections
+
+All items below are open. The Devrouter maintenance owner owns source changes;
+IDs identify backlog entries, not new modules or branches.
+
+| ID / priority | Finding and evidence | Required result and acceptance |
+| --- | --- | --- |
+| RF01 / P2 — Diagnose the intended checkout | `reliabilityRecovery` in `src/core/managed-runtime-status.ts` emits `devrouter doctor <path>`, but `src/cli.ts` declares only `--repo <path>`. From a different cwd, installed 0.1.1 silently diagnosed that cwd and missed the fixture's fixed-port conflict. The `--repo` form found it. | Emit the supported form with safe path handling. Execute the suggested diagnostic against a synthetic checkout from a different cwd, including a path with spaces, and assert the selected repo and structured conflict. Replace the test that merely matches the incorrect prose. Preserve the shared router; carry the conflict-specific consumer-binding remedy instead of suggesting its shutdown. W1/W7, Q28. |
+| RF02 / P2 — Let lifecycle commands reach their owner | `DEVROUTER_COMMAND_RE` in `src/commands/harness.ts` recognizes bare `devrouter`, but misses absolute and checkout-local executable paths. With injected `stopping`, bare `devrouter stop .` passed through while `/opt/homebrew/bin/devrouter stop .` was denied. | Recognize supported direct executable and launcher forms, including quoted paths, without executing or broadly interpreting shell text. Prove status, stop and ensure reach their own lifecycle checks during a transition; unrelated calls still defer. Inspect wrapper forms before claiming support. W9, Q29. |
+| RF03 / P2 — Honor the full wait budget | `waitForHarnessGate` refuses when `waitedMs + pollInterval > budget`. A 1500ms budget refused at 0ms despite settling at 300ms; a 5000ms budget refused at 4000ms despite settling at 4500ms. | Wait the remaining partial interval and refuse only at the deadline. Deterministic tests cover zero, sub-interval and non-multiple budgets, final observation, and no deadline overrun. Re-run both installed harness journeys with a hook timeout accounting for initialization and wait. W9, Q29. |
+| RF04 / P2 — Make parked-state recovery truthful | Status promises that `devrouter ensure <path>` waits for free capacity. The actual operation-request path in `src/core/reliability-model.ts` rejects `parked-for-capacity`, even at idle with complete stop proof; the controller submission path uses that transition. | Align guidance with the supported controller wait/resume path, or implement joining that path under the existing admission contract. Prove an installed parked ensure either follows the same incident safely or returns truthful next steps. It must not bypass headroom dwell, duplicate startup, reset budgets, or revive user-stopped intent. W1/W6a/W9, Q14–Q15. |
+| RF05 / P3 — Preserve uncertainty in hook output | `permitReason` in `src/commands/harness.ts` says `environment settled` for passthrough, unmanaged and invalid-payload decisions. `waitForHarnessGate` also treats unknown phase as settled. These paths need not have observed the environment. | Keep the intended advisory fail-open behavior, but distinguish bypass, unmanaged and unavailable evidence from observed settlement in structured decisions and both harness envelopes. Assert classification and observation behavior rather than exact prose. W1/W7/W9, Q21/Q29. |
+| RF06 / P3 — Stabilize queue-progress verification | [The push CI run](https://github.com/rschlaefli/devrouter/actions/runs/35506176174) failed `file-lock.test.ts`'s stable queue-position case at `progress.length >= 1`; the same release revision and focused rerun passed. Its real 80ms wait can expire before a progress callback. | Make the timing assertion deterministic or synchronize on the observed wait boundary. Retain real process-identity and lock-exclusion coverage. Prove queue position and progress without relying on an 80ms scheduling window; do not suppress the assertion or rely on CI reruns. W1/W8, Q13/Q19. |
+
+These corrections form the next bounded source package. Add only tests that
+exercise their observable contracts. Review the integrated diff and run the
+repository's applicable gates; use an installed CLI for command parsing and
+harness-envelope assertions. A release receipt must identify the corrected
+revision and keep open qualification rows visible.
+
+#### Qualification, operator and consumer follow-up
+
+All entries remain open unless their status explicitly says investigation.
+Priority here orders the remaining reliability outcome, not permission to mutate
+an operator's or another task's environment.
+
+| ID / priority / owner | Remaining work and evidence | Acceptance and boundary |
+| --- | --- | --- |
+| RF07 / P2 — Cancellation and replay; Devrouter/harness owner | Investigation: a hook terminated during first observation has not yet claimed a continuation. Duplicate execution is a hypothesis, not reproduced; current fencing explicitly covers calls whose wait started. Q30 has only direct signal/source evidence. | Observe cancellation, redirect and hook timeout before claim, during wait and after grant in each supported actual harness. Record whether the tool ran and reject continuation of a superseded task. Change claim timing only after its semantics are resolved; preserve ordinary settled-call behavior and uncertain-write non-replay. Include parallel/nested calls and a genuinely runtime-dependent browser/MCP tool in Q29; a shell command named `exec_command` does not by itself prove that seam. W9, Q22/Q29–Q31. |
+| RF08 / P1 acceptance — Complete the integrated canary; Devrouter owner with the exact consumer owner | M1 is not closed by the current Q36 evidence. `scripts/qualify-harness-journey.sh` directly changes journal phases and runs a scripted tool through a real harness. Its neighbour record stays unchanged, but it does not exercise the full live failure/parking/resume sequence. Separate ordinary consumer startup/stop proof does not supply the missing integration. | Select an explicitly authorized installed platform/provider, consumer/profile and harness with two environments. Prove semantic readiness, required-process death, persistent pressure through the qualified injection boundary, safe parking, retained data/dirty source, fresh admission and resume, and actual neighbour functionality with zero agent-authored infrastructure repair. Keep source, installed and real-provider evidence separate. Apply twenty routine and ten selected fault repetitions or justify the scoped alternative before the run. W2–W9/S1–S8, M1, Q01–Q36. |
+| RF09 / P1 acceptance — Reconcile the fault matrix; Devrouter owner | Many Q rows have source-only receipts although the release gate requires installed/live layers. Q20 sleep/wake and Q30 cancellation remain live-open. Q07's OOM retention/admission obligation and Q08's no-false-OOM obligation cannot both be discharged by absence of an OOM classifier. Q26's missing quarantine subsystem needs an explicit scope disposition. | Reassess each original required result and evidence layer, preserving passing source evidence. Exercise container-local OOM/SIGKILL and retention in an authorized disposable runner, without requiring a speculative classifier. Qualify sleep/wake, unavailable provider, interruption/unknown completion, partial stop, corruption and pressure as applicable. Mark unsupported cells and absent quarantine behavior explicitly; narrowing the approved outcome needs a recorded decision. Do not convert missing implementation or missing fixtures into a passing/not-applicable row. W3–W5/W8/W9, M1–M2. |
+| RF10 / P2 — Explain and recover machine blockers; operator with Devrouter diagnostic owner | Fresh installed doctor reported `global.capacity-ledger=capacity-history-unprovable` and unknown network-allocation readiness. Devsy 1.19.0 governing its own agent is a non-blocking warning. `createLifecycleCapacityStore` collapses journal-enumeration failures into one cause, leaving little actionable detail. | Add bounded, values-free cause/location diagnostics sufficient to identify the exact invalid history or missing network evidence. Prove unreadable/corrupt/unknown state remains fail-closed. Prepare an exact supported recovery for operator review; `capacity reconcile --yes` applies only to positively absent history under its existing proof, not generic unprovable history. Preserve evidence and surviving charges. Setup/injection, policy changes and recovery are separate live effects. W1/W6a/W7, Q21/Q32/Q35. |
+| RF11 / P2 — Close consumer adoption with live proof; existing Klicker task owner | Task `01a06930-fdea-70f1-bebf-9514b07e23a0` has not supplied a terminal recovery receipt to this review. The earlier 0.0.51 observation came from its project devDependency; global 0.1.1 does not change that pin. The 5432 claim decision and the `stopped:false, freedRoutes:0` before/after reproducer remain with that owner. Adapter liveness PR #6170 is merged source evidence only. | Owner verifies executable resolution in the actual cwd, updates its package/config pins through its own source lane, resolves its binding, then records ensure, semantic smoke, stop and final exact routes/provider/resources. Return any reproduced CLI defect here. Preserve the staged merge and all other workspaces; exclude PRD, ingestion and rollout work. W1/W4/W7, M1–M2. |
+| RF12 / P2 — Finish measured breadth and efficiency; Devrouter/consumer owners | Python cold/warm cohorts and two harness integrations establish useful breadth. Three rounds per cohort measured roughly 6.8s cold and 2.3s warm; cold reused an existing dependency container. This is a baseline, not proof of a new optimization or completion of M2–M3. | Measure stopped-resume and fault-recovery cohorts separately, preparation reuse, phase timings, memory and first-attempt failures. Qualify profile changes, host/container alternation and browser/auth behavior in the selected cells. Deliver only evidence-driven profile/artifact improvements, reporting before/after on the same workload. Keep extra providers/headless adapters conditional on selected scope; cross-host/cloud scheduling remains separate. W4–W8/W6b, M2–M3. |
+| RF13 / P2 — Keep proof durable and release claims accurate; Devrouter owner | The roadmap was indexed under Delivered while acceptance gaps persisted. Existing CI runs unit/process, package, controller and capacity checks, but not the actual harness/provider journeys. Raw journey evidence currently lives in temporary directories. | Keep this follow-up active and publication receipts delivered. Retain sanitized producing-run summaries with immutable source/package and harness/provider versions. Add the relevant deterministic command/gate regressions to ordinary CI; arrange a bounded opt-in or release qualification job for authorized live cells with explicit pass/fail/skip outcomes. A skipped prerequisite is not acceptance. Record required/manual cells and retention rather than making every PR run shared runtimes. W7–W9, all milestones. |
+
+#### Order, completion and preserved authority
+
+Immediate next work is RF01–RF06, with RF07's investigation informing any later
+continuation change. RF10 read-only diagnosis and RF11 owner coordination can
+proceed independently. RF08 integrates RF09's applicable fault cases and RF07's
+harness proof; RF12 extends the resulting accepted cell. RF13 accompanies each
+package so evidence is preserved as it is produced.
+
+For each entry, record its disposition, implementing PR/revision, producing
+command/run, artifact version, observed outcome and remaining limitations here.
+Use `open`, `investigating`, `implemented`, `qualified`, or explicitly
+`deferred/unsupported` with a reason and decision owner. A merge or passing unit
+suite can establish implementation; it cannot establish live qualification.
+Retain original failed first attempts in reliability measurements.
+
+The terminal condition remains the approved roadmap outcome: applicable M1–M3
+contracts implemented and qualified, safe ownership/resource/worker refusals
+preserved, published and installed artifacts verified, and consumer status
+supported by live evidence. A finite machine may legitimately refuse or wait;
+the requirement is truthful state, bounded supported recovery and no routine
+agent-written infrastructure repair, not a promise that every environment starts.
+
+This update persists and reconciles work; it starts no implementation or runtime
+action. Earlier scoped authority remains in force. New exact live fault targets,
+enrollment, destructive cleanup, machine policy and consumer-owned changes retain
+their existing boundaries. The docs-only update changes no executable contract
+or knowledge concept; validation is docs policy, knowledge/link checks, staged
+data hygiene and diff inspection.
