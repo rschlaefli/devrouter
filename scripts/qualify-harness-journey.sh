@@ -38,6 +38,15 @@
 # JSON evidence line and exits nonzero when an assertion fails; raw logs stay
 # under the work directory (DR_JOURNEY_WORK, kept on failure and removed on
 # success).
+#
+# Exit codes: 0 every scenario passed, 1 an assertion failed, 3 a prerequisite
+# was unavailable and no scenario ran. A skip is not a pass, so a caller that
+# records acceptance must reject 3 instead of reading it as success.
+#
+# DR_JOURNEY_EVIDENCE=<path> writes one sanitized run summary there: the
+# outcome, the per-scenario assertions, the exact source revision and built
+# bundle hash, and the harness and runtime versions. It carries no credentials
+# and no model output.
 set -eo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -56,8 +65,71 @@ PORT="$DR_JOURNEY_PORT"
 if [ -z "$PORT" ]; then PORT=8791; fi
 MOCK_HEALTH="/api/hello"
 if [ "$HARNESS" = "codex" ]; then MOCK_HEALTH="/healthz"; fi
+EVIDENCE="$DR_JOURNEY_EVIDENCE"
+HARNESS_VERSION=""
 
-skip() { printf '%s\n' "$1"; exit 0; }
+# Sanitized run summary for the caller's own evidence retention. The per-scenario
+# results are read back from the assertion artifacts, so the summary restates
+# real checks instead of a second opinion about the run.
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+write_evidence() {
+  local outcome="$1" reason="$2"
+  [ -n "$EVIDENCE" ] || return 0
+  [ -n "$NODE" ] || return 0
+  DR_EVIDENCE_PATH="$EVIDENCE" \
+    DR_EVIDENCE_OUTCOME="$outcome" \
+    DR_EVIDENCE_REASON="$reason" \
+    DR_EVIDENCE_WORK="$WORK" \
+    DR_EVIDENCE_HARNESS="$HARNESS" \
+    DR_EVIDENCE_HARNESS_VERSION="$HARNESS_VERSION" \
+    DR_EVIDENCE_REVISION="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)" \
+    DR_EVIDENCE_DIST_SHA256="$("$NODE" -e 'const c=require("node:crypto"),f=require("node:fs");process.stdout.write(c.createHash("sha256").update(f.readFileSync(process.argv[1])).digest("hex"))' "$DIST" 2>/dev/null || true)" \
+    DR_EVIDENCE_STARTED_AT="$STARTED_AT" \
+    "$NODE" -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const work = process.env.DR_EVIDENCE_WORK || "";
+    const scenarios = ["deferral", "refusal", "neighbour"].map((name) => {
+      let asserted = null;
+      try {
+        asserted = JSON.parse(fs.readFileSync(path.join(work, "assert-" + name + ".json"), "utf8"));
+      } catch {
+        asserted = null;
+      }
+      if (!asserted) return { scenario: name, outcome: "not-run", failures: [] };
+      const failures = Array.isArray(asserted.failures) ? asserted.failures : [];
+      return { scenario: name, outcome: failures.length > 0 ? "fail" : "pass", failures };
+    });
+    const summary = {
+      schema: "devrouter.harness-journey.v1",
+      outcome: process.env.DR_EVIDENCE_OUTCOME,
+      reason: process.env.DR_EVIDENCE_REASON || null,
+      devrouter: {
+        revision: process.env.DR_EVIDENCE_REVISION || null,
+        distSha256: process.env.DR_EVIDENCE_DIST_SHA256 || null,
+      },
+      harness: {
+        name: process.env.DR_EVIDENCE_HARNESS || null,
+        version: process.env.DR_EVIDENCE_HARNESS_VERSION || null,
+      },
+      node: process.version,
+      provider: "local mock model API; no credentials and no model access",
+      scenarios,
+      startedAt: process.env.DR_EVIDENCE_STARTED_AT || null,
+      finishedAt: new Date().toISOString(),
+    };
+    const target = process.env.DR_EVIDENCE_PATH;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, JSON.stringify(summary, null, 2) + "\n");
+    ' || true
+  printf 'evidence: %s\n' "$EVIDENCE"
+}
+
+skip() {
+  printf '%s\n' "$1"
+  write_evidence skipped "$1"
+  exit 3
+}
 [ -f "$DIST" ] || skip "Harness journey skipped: build dist/devrouter.js first (pnpm build)."
 [ -n "$NODE" ] || skip "Harness journey skipped: node is unavailable."
 [ -x "$TSX" ] || skip "Harness journey skipped: tsx is unavailable (run pnpm install)."
@@ -65,6 +137,11 @@ case "$HARNESS" in
   claude) [ -n "$CLAUDE" ] || skip "Harness journey skipped: the claude CLI is unavailable." ;;
   codex) [ -n "$CODEX" ] || skip "Harness journey skipped: the codex CLI is unavailable." ;;
   *) skip "Harness journey skipped: DR_JOURNEY_HARNESS=$HARNESS is neither claude nor codex." ;;
+esac
+
+case "$HARNESS" in
+  claude) HARNESS_VERSION="$("$CLAUDE" --version 2>/dev/null | head -n 1 || true)" ;;
+  codex) HARNESS_VERSION="$("$CODEX" --version 2>/dev/null | head -n 1 || true)" ;;
 esac
 
 WORK="$DR_JOURNEY_WORK"
@@ -75,6 +152,10 @@ else
   if [ -z "$TMP_BASE" ]; then TMP_BASE=/tmp; fi
   WORK="$(mktemp -d "$TMP_BASE/devrouter-harness-journey.XXXXXX")"
 fi
+# $TMPDIR may end in a separator and /var is a symlink on macOS, so make the
+# fixture root physical: the harness reports physical paths, and evidence,
+# assertions and the product's own ledger keys must all agree on one spelling.
+WORK="$(cd "$WORK" && pwd -P)"
 HOME_DIR="$WORK/home"
 REPO="$WORK/fixture"
 AFFECTED="$REPO/trees/affected"
@@ -512,6 +593,7 @@ cat > "$ASSERT" <<'ASSERT_EOF'
 // Assert one journey scenario from its real artifacts and print its evidence.
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 
 const mode = process.argv[2];
 const label = process.argv[3];
@@ -620,8 +702,15 @@ check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeig
 check(typeof neighbourBefore.sha256 === "string" && neighbourBefore.sha256.length === 64, "the neighbour lifecycle record was missing");
 check(neighbourBefore.sha256 === neighbourAfter.sha256, "the neighbour lifecycle record changed");
 check(neighbourAfter.phase === "stable", "the neighbour phase is " + neighbourAfter.phase);
+// The neighbour scenario writes no ledger, so both sides stay caller paths and
+// only their physical spelling is comparable. Without that normalization a
+// leading-separator difference in $TMPDIR reads as a wrong ledger key.
+const canonical = (target) => path.resolve(target ? real(target) : "");
 const expectedLedger = process.env.DR_JOURNEY_HOME + "/.config/devrouter/harness/" + keyOf(gated) + ".json";
-check(real(ledger.path ?? "") === real(expectedLedger), "the gate keyed " + ledger.path + " instead of the gated checkout");
+check(
+  canonical(ledger.path) === canonical(expectedLedger),
+  "the gate keyed " + ledger.path + " instead of the gated checkout's " + expectedLedger,
+);
 
 if (mode === "deferral") {
   const waited = Number((reason.match(/settled after ([0-9.]+)s/) ?? [])[1] ?? 0);
@@ -914,4 +1003,5 @@ run_scenario neighbour 5000
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
 echo "--- raw logs: $WORK"
+if [ "$FAILED" = "0" ]; then write_evidence pass ""; else write_evidence fail ""; fi
 exit "$FAILED"

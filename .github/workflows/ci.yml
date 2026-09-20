@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      harness_journey:
+        description: Run the opt-in enforcing harness journey against its local mock model
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   check:
@@ -37,6 +42,39 @@ jobs:
         timeout-minutes: 5
       - run: pnpm qualify:capacity
         timeout-minutes: 5
+
+  harness-journey:
+    # Opt-in qualification of the real agent-harness journey. The journey drives
+    # an actual harness CLI against its own local mock model API, so it needs no
+    # credentials, provider access or model spend. It stays out of ordinary
+    # pushes because it installs a harness CLI and takes several minutes. The
+    # script exits 3 when a prerequisite is unavailable and the job fails on
+    # purpose: an unrun cell is not acceptance.
+    if: github.event_name == 'workflow_dispatch' && inputs.harness_journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Install the harness CLI
+        run: npm install --global @anthropic-ai/claude-code@2
+      - name: Run the enforcing harness journey
+        env:
+          DR_JOURNEY_HARNESS: claude
+          DR_JOURNEY_EVIDENCE: harness-journey-evidence.json
+        run: pnpm qualify:harness-journey
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: harness-journey-evidence
+          path: harness-journey-evidence.json
+          if-no-files-found: warn
 
   publish:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)

@@ -152,7 +152,9 @@ Supported routing:
 - `scripts/package-smoke.sh`: isolated packed CLI distribution smoke
 - `scripts/qualify-harness-journey.sh`: two-environment agent journey over the
   real Claude Code hook and a mock Messages API (deferral, one refusal, protected
-  neighbour), asserting zero agent infrastructure repair and clean checkouts
+  neighbour), asserting zero agent infrastructure repair and clean checkouts;
+  `DR_JOURNEY_EVIDENCE` writes a sanitized run summary, and exit 3 means a
+  prerequisite was unavailable, so a skip is never read as a pass
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `devrouter upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
