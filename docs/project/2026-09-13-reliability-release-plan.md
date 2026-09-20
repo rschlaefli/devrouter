@@ -3155,8 +3155,13 @@ keyed `<harness>/<sha>.json` instead of the gated checkout" — so it is a
 pre-existing journey-script defect, not a regression from this package. The cell
 cannot count as qualified until its owner disposes of that discrepancy.
 
-The Codex journey has not been run against the corrected revision, so the
-two-harness confirmation RF03 asks for stays partially open.
+The Codex journey was then run against the corrected revision with the same mock
+model and no provider access: deferral passed (one call, executed after a 6.0 s
+enforced wait, `settled-after-wait`), refusal passed (one denial, tool never
+executed, "still starting after waiting 3.0s"), and neighbour failed the same
+pre-existing ledger-key assertion. Both gate-relevant scenarios therefore hold
+on two harness integrations for the corrected build, and the neighbour cell
+stays open on its own pre-existing defect.
 
 #### Qualification, operator and consumer follow-up
 
