@@ -48,11 +48,11 @@
 #               settled, the fixture turns the checkout transitional before the
 #               second, and that call must be refused without running, so a
 #               nested call cannot bypass the gate protecting its checkout.
-#   cancelled - Claude Code only: the CLI itself is interrupted while its own
-#               hook waits, so the cancellation signal is the one the harness
-#               sends rather than one this script aims at the gate. The command
-#               must not run and the identical re-delivery must refuse against
-#               whatever the cancelled call recorded.
+#   cancelled - the CLI itself is interrupted while its own hook waits, so the
+#               cancellation signal is the one the harness sends rather than one
+#               this script aims at the gate. The command must not run and the
+#               identical re-delivery must refuse against whatever the cancelled
+#               call recorded.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -995,14 +995,31 @@ if (mode === "cancelled") {
   const replay = readJson("replay-" + label + ".json") ?? {};
   const exitCode = Number.parseInt(read("cancelled-exit.txt").trim(), 10);
   const harnessOut = readJson((harness === "codex" ? "codex-" : "claude-") + label + ".json") ?? {};
-  // The CLI reports the aborted tool call in its own transcript; its exit
-  // status is recorded as evidence because print mode exits 0 on a cancel.
+  // Each CLI reports the aborted call in its own transcript: Claude Code names
+  // the abort and exits 0 from print mode, while the Codex adapter derives its
+  // incomplete terminal reason from the interrupted exit status.
   check(
-    harnessOut.terminal_reason === "aborted_tools",
-    "the cancelled harness reported terminal_reason " + harnessOut.terminal_reason,
+    harness === "codex"
+      ? harnessOut.exitCode !== 0 && harnessOut.terminal_reason === "incomplete"
+      : harnessOut.terminal_reason === "aborted_tools",
+    "the cancelled harness reported " +
+      JSON.stringify({
+        exitCode: harnessOut.exitCode ?? null,
+        terminal_reason: harnessOut.terminal_reason ?? null,
+      }),
   );
   check(cancelled.length === 1, "the cancelled call recorded " + cancelled.length + " continuation(s)");
-  check(cancelled[0]?.state === "interrupted", "the cancelled call settled as " + cancelled[0]?.state);
+  // Claude Code forwards the interrupt, so the hook settles its claim before it
+  // exits. The Codex CLI kills the hook process outright, so the claim stays
+  // waiting until a re-delivery maps it to interrupted; both are truthful
+  // records of a cancelled call, and neither is ever a decided wait.
+  const recordedState = cancelled[0]?.state;
+  check(
+    harness === "codex"
+      ? recordedState === "waiting" || recordedState === "interrupted"
+      : recordedState === "interrupted",
+    "the cancelled call settled as " + recordedState,
+  );
   check(typeof cancelled[0]?.waitedMs !== "number", "the cancelled call claimed a settled duration");
   check(replay.decision === "refuse", "the re-delivered call decided " + replay.decision);
   check(replay.reason === "continuation-replay", "the re-delivery reason was " + replay.reason);
@@ -1734,17 +1751,32 @@ run_cancelled_scenario() {
   # Job control puts the harness and its hook in one process group, so the
   # interrupt lands the way a user cancellation does: on the CLI and on the
   # gate process it owns.
+  local started_ms ended_ms
+  started_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
   set +e
   set -m
-  (
-    cd "$gated" &&
-      HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
-      DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
-      ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
-      "$CLAUDE" -p "Run exactly this command with the Bash tool, then stop: $probe_command" \
-        --output-format json --max-turns 3 --allowedTools "Bash(echo:*)" \
-        --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
-  ) &
+  if [ "$HARNESS" = "codex" ]; then
+    (
+      cd "$gated" &&
+        HOME="$HOME_DIR" CODEX_HOME="$HOME_DIR" JOURNEY_API_KEY=journey \
+        DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        "$CODEX" exec --skip-git-repo-check --sandbox workspace-write -C "$gated" \
+          --dangerously-bypass-hook-trust \
+          "Run exactly this command with the shell tool, then stop: $probe_command" \
+          < /dev/null > "$WORK/codex-$label.out" 2> "$WORK/codex-$label.err"
+    ) &
+  else
+    (
+      cd "$gated" &&
+        HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+        "$CLAUDE" -p "Run exactly this command with the Bash tool, then stop: $probe_command" \
+          --output-format json --max-turns 3 --allowedTools "Bash(echo:*)" \
+          --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+    ) &
+  fi
   local harness_pid=$!
   set +m
 
@@ -1769,6 +1801,27 @@ run_cancelled_scenario() {
   local exit_code=$?
   set -e
   printf '%s' "$exit_code" > "$WORK/cancelled-exit.txt"
+  ended_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+  if [ "$HARNESS" = "codex" ]; then
+    DR_CODEX_EXIT="$exit_code" DR_CODEX_STARTED_MS="$started_ms" DR_CODEX_ENDED_MS="$ended_ms" \
+      "$NODE" "$CODEX_SUMMARY" "$WORK" "$label" > "$WORK/codex-$label.json"
+  fi
+
+  # A harness can exit before its hook finishes settling, so wait for the
+  # cancelled call's continuation record to reach a settled state before the
+  # ledger is read as evidence.
+  if [ -f "$WORK/hook-payload-$label.json" ]; then
+    local cancelled_id ledger_probe="$WORK/ledger-probe-$label.json" settle_waited=0
+    cancelled_id="$("$NODE" -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(p.tool_use_id??""))' "$WORK/hook-payload-$label.json")"
+    while [ "$settle_waited" -lt 40 ]; do
+      journal "$gated" ledger > "$ledger_probe" 2>/dev/null || true
+      if "$NODE" -e 'const fs=require("node:fs");const id=process.argv[2];try{const l=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const e=(l.entries??[]).find((x)=>x.toolUseId===id);process.exit(e&&typeof e.settledAtMs==="number"?0:1)}catch{process.exit(1)}' "$ledger_probe" "$cancelled_id"; then
+        break
+      fi
+      sleep 0.25
+      settle_waited=$((settle_waited + 1))
+    done
+  fi
 
   journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
   journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
@@ -2086,12 +2139,11 @@ run_concurrent_scenario
 if [ "$HARNESS" = "claude" ]; then
   echo "--- scenario 9: a subagent's shell call is refused once the checkout turns transitional"
   run_nested_scenario
-  echo "--- scenario 10: cancelling the harness mid-wait leaves the call unexecuted and refused on resend"
-  run_cancelled_scenario
 else
   echo "--- scenario 9: nested subagent calls are not applicable to the Codex CLI"
-  echo "--- scenario 10: harness-initiated cancellation is not recorded for the Codex CLI yet"
 fi
+echo "--- scenario 10: cancelling the harness mid-wait leaves the call unexecuted and refused on resend"
+run_cancelled_scenario
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
 echo "--- raw logs: $WORK"
