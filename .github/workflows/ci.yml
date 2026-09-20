@@ -42,6 +42,8 @@ jobs:
         timeout-minutes: 5
       - run: pnpm qualify:capacity
         timeout-minutes: 5
+      - run: pnpm qualify:lifecycle
+        timeout-minutes: 10
 
   harness-journey:
     # Opt-in qualification of the real agent-harness journey. The journey drives

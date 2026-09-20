@@ -4137,6 +4137,12 @@ Evidence on this machine on 2026-09-21 (`2e789ad`, Node 24.17.0, pnpm 11.6.0):
   tests), build, package smoke, and the controller, capacity and lifecycle
   qualifications. Log:
   `/private/tmp/devrouter-capacity-tripwire-validation.log`.
+- The ordinary `check` job now runs `pnpm qualify:lifecycle` next to
+  `pnpm qualify:capacity`, so the installed synthetic proof this map names for
+  durable lifecycle journals guards every push instead of only the local
+  qualification runs. That harness failed on the same refusal, so the step
+  closes the regression as well as the coverage gap RF13 recorded.
+
 ### Refused stop after an externally replaced population (fixed)
 
 Status: **implemented at `618fc5f`, regression-covered, and reproduced live in
