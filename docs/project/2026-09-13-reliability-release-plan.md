@@ -1,7 +1,7 @@
 # Reliable managed sessions through Devrouter 0.1.0
 
 **Current status (2026-09-20): release delivered; reliability acceptance remains
-active.** Versions 0.1.0 and 0.1.1 are published and installed. The
+active.** Versions 0.1.0, 0.1.1 and 0.1.2 are published and installed. The
 [post-release review and follow-up backlog](#post-release-reliability-review-and-follow-up-2026-09-20)
 records reproduced defects, qualification gaps and the evidence required to close
 the original roadmap. Earlier delivered headings describe their bounded source
@@ -3089,7 +3089,10 @@ and its staged merge and worktree Git state were not touched.
 
 ### Post-release reliability review and follow-up (2026-09-20)
 
-Status: **active, findings persisted; fixes and further qualification pending**.
+Status: **active; the reviewed corrections shipped in 0.1.2 and are installed.**
+Remaining acceptance: RF08's explicitly authorized integrated canary, RF09's Q20
+host suspend and live-environment tool, RF10's operator journal recovery, RF11's
+consumer adoption and RF12's measured breadth.
 The user requested that all findings and improvements from the latest CLI review
 remain part of the roadmap. This section is the current follow-up backlog for
 the governing [roadmap in PR #57](https://github.com/rschlaefli/devrouter/pull/57),
@@ -3133,9 +3136,9 @@ IDs identify backlog entries, not new modules or branches.
 #### Corrected package (2026-09-20)
 
 **RF01–RF06 are implemented** on branch `rs/reliability-guidance-and-gate-corrections`
-at `05f8c0c` ([PR #121](https://github.com/rschlaefli/devrouter/pull/121)), which is
-open as a draft and not merged or released. The published 0.1.1 still carries the
-reproduced defects.
+at `05f8c0c` ([PR #121](https://github.com/rschlaefli/devrouter/pull/121)); the branch
+was merged as `abcc233` and released in 0.1.2 (record at the end of this section).
+At the time of this review the published 0.1.1 still carried the reproduced defects.
 
 | ID | Disposition |
 | --- | --- |
@@ -3483,13 +3486,13 @@ an operator's or another task's environment.
 
 | ID / priority / owner | Remaining work and evidence | Acceptance and boundary |
 | --- | --- | --- |
-| RF07 / P2 — Cancellation and replay; Devrouter/harness owner | **Implemented and locally qualified on PR #121 (`7467786`); not merged or released.** The journey gained an `interrupted` scenario that kills the shipped gate during its wait and replays the exact payload: the ledger records `interrupted` with no claimed `waitedMs`, the identical re-delivery is refused as `continuation-replay` against the recorded state, and the command never runs. The granted and refused calls also replay their exact captured payloads and must refuse with their recorded outcome, so a resending harness cannot execute one mutating call twice. Claude Code 2.1.278 and Codex 0.155.0-alpha.9.2 passed all four scenarios, and the `cancelled` cell now interrupts each real CLI while its own hook waits (`fbfb5ca`, extended to the Codex CLI at `1af4680`): Claude Code settles the claim `interrupted`, while the Codex CLI kills its hook so the claim stays `waiting` and the identical re-delivery maps it to `interrupted` and refuses it. Both harnesses ran the full set at `1af4680` against the local mock provider with no credentials or spend, and the retained summaries name revision `1af4680493f766b068bb8a4c4b5062d168bd2630` and bundle SHA-256 `f431223a…`; the earlier Codex summary stays at revision `7467786` with bundle SHA-256 `84ca0577…`. Claim timing was not changed; the cancellation-after-grant path is now refused by reproduced evidence instead of reasoning. The `hook-timeout` cell added at `ff7efc4` inverts the shipped relationship on purpose (3s hook timeout under an 8s budget) and runs last, so every earlier cell used the shipped value; both harnesses then ran the command under their own permission rules while the abandoned claim never became `granted` (Claude Code settled it `interrupted`, the Codex claim stayed `waiting`), the affected phase stayed `starting`, both checkouts stayed clean and no command ran twice. A guard in `agents-md.test.ts` now fails when any shipped hook timeout drops below twice the 30s default wait budget. The `redirect` cell added at `134a992` scripts one id twice, so a settled call's own id returns under a changed command: both harnesses delivered the repeated id, the gate refused it as `continuation-replay` against the recorded `granted` state, the changed command never ran, and the same command under a fresh id was allowed once the checkout was settled. Remaining for this row: a tool whose success depends on the live managed environment. | Observe cancellation, redirect and hook timeout before claim, during wait and after grant in each supported actual harness. Record whether the tool ran and reject continuation of a superseded task. Change claim timing only after its semantics are resolved; preserve ordinary settled-call behavior and uncertain-write non-replay. Include parallel/nested calls and a genuinely runtime-dependent browser/MCP tool in Q29; a shell command named `exec_command` does not by itself prove that seam. W9, Q22/Q29–Q31. |
+| RF07 / P2 — Cancellation and replay; Devrouter/harness owner | **Implemented and locally qualified on PR #121 (`7467786`); merged as `abcc233` and released in 0.1.2.** The journey gained an `interrupted` scenario that kills the shipped gate during its wait and replays the exact payload: the ledger records `interrupted` with no claimed `waitedMs`, the identical re-delivery is refused as `continuation-replay` against the recorded state, and the command never runs. The granted and refused calls also replay their exact captured payloads and must refuse with their recorded outcome, so a resending harness cannot execute one mutating call twice. Claude Code 2.1.278 and Codex 0.155.0-alpha.9.2 passed all four scenarios, and the `cancelled` cell now interrupts each real CLI while its own hook waits (`fbfb5ca`, extended to the Codex CLI at `1af4680`): Claude Code settles the claim `interrupted`, while the Codex CLI kills its hook so the claim stays `waiting` and the identical re-delivery maps it to `interrupted` and refuses it. Both harnesses ran the full set at `1af4680` against the local mock provider with no credentials or spend, and the retained summaries name revision `1af4680493f766b068bb8a4c4b5062d168bd2630` and bundle SHA-256 `f431223a…`; the earlier Codex summary stays at revision `7467786` with bundle SHA-256 `84ca0577…`. Claim timing was not changed; the cancellation-after-grant path is now refused by reproduced evidence instead of reasoning. The `hook-timeout` cell added at `ff7efc4` inverts the shipped relationship on purpose (3s hook timeout under an 8s budget) and runs last, so every earlier cell used the shipped value; both harnesses then ran the command under their own permission rules while the abandoned claim never became `granted` (Claude Code settled it `interrupted`, the Codex claim stayed `waiting`), the affected phase stayed `starting`, both checkouts stayed clean and no command ran twice. A guard in `agents-md.test.ts` now fails when any shipped hook timeout drops below twice the 30s default wait budget. The `redirect` cell added at `134a992` scripts one id twice, so a settled call's own id returns under a changed command: both harnesses delivered the repeated id, the gate refused it as `continuation-replay` against the recorded `granted` state, the changed command never ran, and the same command under a fresh id was allowed once the checkout was settled. Remaining for this row: a tool whose success depends on the live managed environment. | Observe cancellation, redirect and hook timeout before claim, during wait and after grant in each supported actual harness. Record whether the tool ran and reject continuation of a superseded task. Change claim timing only after its semantics are resolved; preserve ordinary settled-call behavior and uncertain-write non-replay. Include parallel/nested calls and a genuinely runtime-dependent browser/MCP tool in Q29; a shell command named `exec_command` does not by itself prove that seam. W9, Q22/Q29–Q31. |
 | RF08 / P1 acceptance — Complete the integrated canary; Devrouter owner with the exact consumer owner | M1 is not closed by the current Q36 evidence. `scripts/qualify-harness-journey.sh` directly changes journal phases and runs a scripted tool through a real harness. Its neighbour record stays unchanged, but it does not exercise the full live failure/parking/resume sequence. Separate ordinary consumer startup/stop proof does not supply the missing integration. | Select an explicitly authorized installed platform/provider, consumer/profile and harness with two environments. Prove semantic readiness, required-process death, persistent pressure through the qualified injection boundary, safe parking, retained data/dirty source, fresh admission and resume, and actual neighbour functionality with zero agent-authored infrastructure repair. Keep source, installed and real-provider evidence separate. Apply twenty routine and ten selected fault repetitions or justify the scoped alternative before the run. W2–W9/S1–S8, M1, Q01–Q36. |
 | RF09 / P1 acceptance — Reconcile the fault matrix; Devrouter owner | **Reconciliation pass on 2026-09-20 (PR #120; evidence on PR #121).** Q30 moved from source-only to live for a cancelled gate wait, Q29 and Q32 gained the journey and the content-digest fence, and Q29's non-shell, overlap and nested seams are now qualified: the journey drives a real MCP server tool through the hook in both harnesses, refused mid-transition and allowed once settled (`40b23f0`); two cells decide two calls over one checkout, including the same payload under distinct ids (`72f14db`); a Claude-only cell refuses a subagent's shell call once the checkout turns transitional (`ca2483b`), and a cell interrupts each supported CLI during its own hook's wait (`fbfb5ca`, extended to Codex at `1af4680`), where Claude Code settles the claim as `interrupted` while the Codex CLI kills its hook so the claim stays `waiting` until the re-delivery maps it to `interrupted` and refuses; Codex records only the subagent cell not-run. Both harnesses also ran a hook timeout below the wait budget (`ff7efc4`), which abandons the gate and leaves the call to the harness's own permission rules while the claim stays short of `granted`, and both re-delivered a settled call's own id under a changed command (`134a992`), which the gate refused as `continuation-replay` against the recorded `granted` state while the changed command never ran. The container-local OOM/SIGKILL cell is qualified at `bb72cb6` through `pnpm qualify:killed-runtime`. Still live-open: Q20 host suspend and a tool whose result depends on the live managed environment. Q07/Q08 stay not applicable as OOM questions because the product documents that it neither detects nor prevents OOM; Q26 has no quarantine path to qualify. | Reassess each original required result and evidence layer, preserving passing source evidence. Exercise container-local OOM/SIGKILL and retention in an authorized disposable runner, without requiring a speculative classifier. Qualify sleep/wake, unavailable provider, interruption/unknown completion, partial stop, corruption and pressure as applicable. Mark unsupported cells and absent quarantine behavior explicitly; narrowing the approved outcome needs a recorded decision. Do not convert missing implementation or missing fixtures into a passing/not-applicable row. W3–W5/W8/W9, M1–M2. |
-| RF10 / P2 — Explain and recover machine blockers; operator with Devrouter diagnostic owner | **Implemented on PR #121; not merged or released.** The installed 0.1.1 still prints the bare `capacity-history-unprovable`. The corrected build names the bounded cause, the offending journal entry and a cause-keyed recovery, and the network check names the three missing evidence inputs; the exact invalid history is an operator `.bak` file inside the private reliability journal directory. Remaining: merge and release, then operator recovery under its own authority. | Add bounded, values-free cause/location diagnostics sufficient to identify the exact invalid history or missing network evidence. Prove unreadable/corrupt/unknown state remains fail-closed. Prepare an exact supported recovery for operator review; `capacity reconcile --yes` applies only to positively absent history under its existing proof, not generic unprovable history. Preserve evidence and surviving charges. Setup/injection, policy changes and recovery are separate live effects. W1/W6a/W7, Q21/Q32/Q35. |
+| RF10 / P2 — Explain and recover machine blockers; operator with Devrouter diagnostic owner | **Implemented on PR #121; merged as `abcc233` and released in 0.1.2.** The installed 0.1.1 still prints the bare `capacity-history-unprovable`. The corrected build names the bounded cause, the offending journal entry and a cause-keyed recovery, and the network check names the three missing evidence inputs; the exact invalid history is an operator `.bak` file inside the private reliability journal directory. Remaining: the operator's own file move, which the installed 0.1.2 diagnostic now names. | Add bounded, values-free cause/location diagnostics sufficient to identify the exact invalid history or missing network evidence. Prove unreadable/corrupt/unknown state remains fail-closed. Prepare an exact supported recovery for operator review; `capacity reconcile --yes` applies only to positively absent history under its existing proof, not generic unprovable history. Preserve evidence and surviving charges. Setup/injection, policy changes and recovery are separate live effects. W1/W6a/W7, Q21/Q32/Q35. |
 | RF11 / P2 — Close consumer adoption with live proof; existing Klicker task owner | Task `01a06930-fdea-70f1-bebf-9514b07e23a0` has not supplied a terminal recovery receipt to this review. The earlier 0.0.51 observation came from its project devDependency; global 0.1.1 does not change that pin. The 5432 claim decision and the `stopped:false, freedRoutes:0` before/after reproducer remain with that owner. Adapter liveness PR #6170 is merged source evidence only. | Owner verifies executable resolution in the actual cwd, updates its package/config pins through its own source lane, resolves its binding, then records ensure, semantic smoke, stop and final exact routes/provider/resources. Return any reproduced CLI defect here. Preserve the staged merge and all other workspaces; exclude PRD, ingestion and rollout work. W1/W4/W7, M1–M2. |
 | RF12 / P2 — Finish measured breadth and efficiency; Devrouter/consumer owners | Python cold/warm cohorts and two harness integrations establish useful breadth. Three rounds per cohort measured roughly 6.8s cold and 2.3s warm; cold reused an existing dependency container. This is a baseline, not proof of a new optimization or completion of M2–M3. | Measure stopped-resume and fault-recovery cohorts separately, preparation reuse, phase timings, memory and first-attempt failures. Qualify profile changes, host/container alternation and browser/auth behavior in the selected cells. Deliver only evidence-driven profile/artifact improvements, reporting before/after on the same workload. Keep extra providers/headless adapters conditional on selected scope; cross-host/cloud scheduling remains separate. W4–W8/W6b, M2–M3. |
-| RF13 / P2 — Keep proof durable and release claims accurate; Devrouter owner | **Implemented and locally qualified on PR #121 (`6d72964`); not merged or released.** The neighbour assertion defect is fixed, the journey writes a sanitized summary with source revision, bundle hash and harness/runtime versions, exit 3 marks a skip as `not-run`, and the opt-in `harness-journey` CI job passed its first dispatch. Remaining: carry the fix through merge and release, and keep the required live cells recorded. | Keep this follow-up active and publication receipts delivered. Retain sanitized producing-run summaries with immutable source/package and harness/provider versions. Add the relevant deterministic command/gate regressions to ordinary CI; arrange a bounded opt-in or release qualification job for authorized live cells with explicit pass/fail/skip outcomes. A skipped prerequisite is not acceptance. Record required/manual cells and retention rather than making every PR run shared runtimes. W7–W9, all milestones. |
+| RF13 / P2 — Keep proof durable and release claims accurate; Devrouter owner | **Implemented and locally qualified on PR #121 (`6d72964`); merged as `abcc233` and released in 0.1.2.** The neighbour assertion defect is fixed, the journey writes a sanitized summary with source revision, bundle hash and harness/runtime versions, exit 3 marks a skip as `not-run`, and the opt-in `harness-journey` CI job passed its first dispatch. Remaining: keep the required live cells recorded as RF08/RF09 qualify. | Keep this follow-up active and publication receipts delivered. Retain sanitized producing-run summaries with immutable source/package and harness/provider versions. Add the relevant deterministic command/gate regressions to ordinary CI; arrange a bounded opt-in or release qualification job for authorized live cells with explicit pass/fail/skip outcomes. A skipped prerequisite is not acceptance. Record required/manual cells and retention rather than making every PR run shared runtimes. W7–W9, all milestones. |
 
 #### Order, completion and preserved authority
 
@@ -3504,8 +3507,8 @@ into one cause with no location, so an operator cannot tell which history is
 unreadable or which network evidence is missing. The diagnostic improvement and
 any recovery remain open; no ledger, policy or runtime state was touched.
 
-RF01–RF06 are implemented on PR #121 and await merge and release, joined there on
-the same branch by the RF13 journey-proof fix (`6d72964`), the RF10 diagnostics,
+RF01–RF06 were merged as `abcc233` and released in 0.1.2 (PR #122, `6b57b0d`),
+joined on the same branch by the RF13 journey-proof fix (`6d72964`), the RF10 diagnostics,
 the RF07 cancellation/replay qualification (`7467786`), the capacity
 content-digest fence (`697b5da`), the container-local death qualifier
 (`bb72cb6`) and its durable lesson (`fb06f8a`), the Codex lifecycle-passthrough
@@ -3531,8 +3534,8 @@ package with a retained summary.
 PR #120's own CI fails intermittently at the same capacity-store assertion on
 its main-based heads (`ce65d5c`, `14be44d`, `53c11df`, `a46eea7` at the time of
 writing) because a docs-only branch carries no fence correction; the defect and
-its fix live on PR #121. Merge #121 first, then rebase #120, before expecting a
-green run there.
+its fix lived on PR #121. Both were merged after the correction landed: #121 as
+`abcc233` and #120 as `ae350f2`.
 
 For each entry, record its disposition, implementing PR/revision, producing
 command/run, artifact version, observed outcome and remaining limitations here.
@@ -3554,3 +3557,59 @@ enrollment, destructive cleanup, machine policy and consumer-owned changes retai
 their existing boundaries. The docs-only update changes no executable contract
 or knowledge concept; validation is docs policy, knowledge/link checks, staged
 data hygiene and diff inspection.
+
+#### Post-release corrections release and installation — 0.1.2 (2026-09-20)
+
+The reviewed corrections were merged and released, so the installed artifact now
+carries them:
+
+- PR #121 (`fix(reliability): correct recovery guidance, diagnostics and the
+  harness gate`) squashed to
+  `abcc233b7e92088263fbb9dbdd6a96b95b2d6358`. PR #120, which first persisted
+  these findings, squashed to
+  `ae350f26d56033a023d1a0d7c9148147fda1be40`. PR #122
+  (`chore(release): prepare 0.1.2`) squashed to
+  `6b57b0d20739d0d5adde8a2547b54c3b0d551bb4`, bumping `package.json` and both
+  example `.devrouter.yml` pins and adding the `[0.1.2]` changelog section with
+  `upgrade-prompts/0.1.2.md`.
+- Release [v0.1.2](https://github.com/rschlaefli/devrouter/releases/tag/v0.1.2)
+  triggered [workflow 35522248020](https://github.com/rschlaefli/devrouter/actions/runs/35522248020):
+  `check` passed in 2m23s and `publish` reported
+  `Published package @devrouter/cli@0.1.2` in 17s at 16:20:13Z. The release
+  PR's own CI was
+  [run 35522090860](https://github.com/rschlaefli/devrouter/actions/runs/35522090860)
+  on `f51a2fe`, whose tree equals the released `6b57b0d`.
+- Validation at that revision: docs policy, knowledge, Biome, Knip, typecheck,
+  the build, `scripts/package-smoke.sh` and the full suite (2704 tests in 148
+  files) passed locally with a host process context.
+- Registry: `@devrouter/cli@0.1.2` moved `latest` at about 16:27Z after the
+  packument's five-minute edge TTL, with
+  `dist.shasum = 0ebcb7bc9cbda9722f63881fa45b7eeeebe3d253` and
+  `dist.integrity = sha512-wzcnxlOkhpgXOWhVw5PO8/0GmnpCgTpdE/zPPrncV2d0JDO/VmaIGRbp8ureTfRu7lGvt0jBqpHXwhlUbhmKTg==`.
+  The published tarball's `dist/devrouter.js` is SHA-256
+  `f4d0840b82a83cc9fc2d9b70593ea651094f89cba7010928208e43e553415dcd` and its
+  `dist/devrouter-lifecycle-worker.js` is
+  `d7d32993c23720d91b0901272c94bbe4e3af36370e459ad1340884cdc4c440b2`, equal to
+  a local build of the released tree, so the published bundle is the reviewed
+  source.
+- Installs: `/opt/homebrew/bin/devrouter` and the Volta image copy at
+  `~/.volta/tools/image/node/24.17.0/bin/devrouter` report 0.1.2, and the
+  Volta package store this repository's Node 24.16.0 pin resolves was updated to
+  0.1.2 as well; the installed Homebrew bundle hash matches the tarball.
+- Live receipt on the installed 0.1.2 with a host process context:
+  `global.cli-path` is `ok` with the running install at 0.1.2,
+  `global.devsy-agent` stays a non-blocking `warn` at 1.19.0, and
+  `global.capacity-ledger` now names the bounded cause and the exact entry —
+  `capacity-history-unprovable; journal-entry-unsupported; at
+  23fe529a30eb1b61c71ad42a1fac07b29848784a3fd9eb626643a5aaf789f0c9.stuck-stopping-20260914T1720.bak`
+  — with the cause-keyed suggestion to move that unrecognised entry out of the
+  private reliability journal directory while preserving its contents.
+
+Dispositions after this release: RF01–RF07, RF10's source half and RF13 are
+merged and released. RF10's operator recovery is named by the installed product
+and awaits the operator's own file move. RF08's integrated canary still needs an
+explicitly authorized installed platform, consumer, profile and two
+environments; RF09 keeps Q20 host suspend and the live-environment tool open;
+RF11 stays with the Klicker task owner and RF12 extends whichever RF08/RF09 cell
+is accepted. Merging, releasing and installation were performed under the
+approved roadmap batch, and no consumer workspace was touched.
