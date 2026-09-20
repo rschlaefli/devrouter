@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Docker network inventory template closes the JSON object it opens, so the
+  daemon's records parse again instead of every capacity read reporting unknown
+  inventory; a partial record is now named as malformed evidence, and the
+  template's scaffolding has a regression test.
+
 ## [0.1.2] - 2026-09-20
 
 ### Fixed

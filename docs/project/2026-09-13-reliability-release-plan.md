@@ -3752,6 +3752,65 @@ withdrawn by `618fc5f` with a live A/B receipt. Merging,
 releasing and installation were performed under the approved roadmap batch, and
 no consumer workspace was touched.
 
+## Unparsable network inventory blocked capacity evidence (2026-09-21, `a2b4f92`)
+
+Status: **implemented and verified locally from source at
+`a2b4f92`; publication and release are pending, so the installed 0.1.2 still
+carries the defect.**
+
+Working the RF09/RF10 evidence surfaced a shipped defect that no test covered.
+The Docker network format template in `src/core/network-inventory.ts` opened a
+JSON object and never closed it, so every record the daemon returned was a
+partial object and `JSON.parse` failed on every line. The inventory therefore
+reported `unknown` with the generic reason
+`Docker network inventory is unavailable or malformed.` on every machine since
+`#74`, including the released 0.1.2.
+
+The blast radius reached past the diagnostic. With unknown inventory,
+`global.network-capacity` can never reach `ok`, `hasExhaustedDockerPools` can
+never be true, and `src/core/network-managed.ts` refuses managed allocation with
+`Network inventory is unknown; allocation is blocked.`, so a capacity-enrolled
+repository could not allocate a subnet because of a template typo. 0.1.2's
+improved wording named the missing input without revealing that the input could
+not be read at all, which is the failure mode RF13 exists to prevent.
+
+Exact evidence on this machine, read-only:
+
+- Shipped function before the fix:
+  `{"status":"unknown","endpoint":"unix:///Users/rschlae/.orbstack/run/docker.sock","daemon":"ded85e46-31f","pools":31,"networks":0,"reasons":["Docker network inventory is unavailable or malformed."]}`.
+- The daemon's own output from the shipped template ended `...,"network":"default"`
+  with no closing brace for all sixteen networks, while the neighbouring
+  container template closed correctly and parsed 52 of 52 records.
+- Installed 0.1.2 `devrouter doctor`:
+  `global.network-capacity  WARN  ... Missing evidence: Docker network inventory
+  is unknown; retained container references are unknown; route evidence is
+  incomplete or unknown.`
+- After the correction, the same read against the same daemon returns
+  `{"status":"complete","pools":31,"networks":16,"withRetained":10,"reasons":[]}`,
+  and the source build's doctor reports
+  `global.network-capacity  OK  Docker default pools have unoccupied capacity;
+  managed allocation is not configured.` Route evidence stays unknown by design
+  on a virtualized daemon, so the allocation gate below that boundary is
+  unchanged and still fail-closed.
+
+The correction closes the template, classifies a partial record as bounded
+`contains a malformed record` evidence instead of the generic reason, and adds
+two regressions: one renders the template's literal scaffolding through the same
+replacement the daemon performs and requires one complete JSON object (it fails
+against the shipped string), and one feeds a parsed-but-partial record and
+requires `unknown` rather than zero usage. The durable lesson is recorded in
+[the unparsable network records entry](../solutions/runtime-error/unparsable-network-records-block-capacity.md).
+
+The suite could not have caught this: `network-inventory.test.ts` injects the
+reader, so the daemon's template is never exercised by a fixture, and the packed
+qualification in `scripts/qualify-network-package.cjs` answers with closed
+synthetic Docker responses on purpose. Validation at `a2b4f92`: Biome, Knip,
+typecheck, the full suite (2733 tests in 149 files), `pnpm build`,
+`scripts/package-smoke.sh`, the built bundle's own doctor run and the live
+daemon read above. Remaining: publish and install a release that carries
+the correction, then re-read `devrouter doctor` on the installed artifact; the
+0.1.2 network-capacity claim was inaccurate while it shipped.
+
 ## RF12 lifecycle-cohort measurement (2026-09-20, `1c42592`)
 
 Status: **implemented and measured at source revision
