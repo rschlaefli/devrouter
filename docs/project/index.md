@@ -5,7 +5,7 @@ Plans live here as dated execution records. Active records may change; delivered
 ## Active
 
 - [Devsy release range compatibility](./2026-09-19-devsy-version-range-plan.md) — replace the exact Devsy version pin with a verified `>=1.16.2 <2.0.0` range and resolve the official Linux agent for the installed release. Draft [PR #106](https://github.com/rschlaefli/devrouter/pull/106).
-- [Reliable managed sessions through 0.1.0](./2026-09-13-reliability-release-plan.md) — approved full-roadmap execution, qualification, release and local adoption.
+- [Reliable managed sessions through 0.1.0](./2026-09-13-reliability-release-plan.md) — approved full-roadmap execution, qualification, Q01-Q36 disposition, release and local adoption.
 
 - [Capacity-managed lifecycle history rollover](./2026-09-10-capacity-history-rollover-plan.md) — extend conservative journal rollover to capacity-managed history so enrolled checkouts keep accepting ensure and exec past the 128-entry cap.
 - [Host-port claims](./2026-09-10-host-port-claims-plan.md) — admission-time detection and attribution of conflicting consumer-declared fixed host-port bindings, plus a read-only doctor check; release 0.0.68 on `rs/host-port-claims`.
