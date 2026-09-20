@@ -40,6 +40,7 @@
     "qualify:cohorts": "node --import tsx scripts/qualify-lifecycle-cohorts.ts",
     "qualify:preparation": "node --import tsx scripts/qualify-process-preparation.ts",
     "qualify:profiles": "node --import tsx scripts/qualify-profile-alternation.ts",
+    "qualify:host-suspend": "node --import tsx scripts/qualify-host-suspend.ts",
     "test:process": "bash scripts/test-devrouter-process.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",
