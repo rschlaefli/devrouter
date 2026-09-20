@@ -66,6 +66,21 @@
 #               under its normal permission rules and asserts what stays true
 #               either way: the abandoned call never becomes a granted wait, its
 #               command runs at most once, and no checkout is modified.
+#   runtime-tool - opt-in (DR_JOURNEY_LIVE_MANAGED=1) and last-but-one, because it
+#               starts a real devrouter-managed devcontainer in a disposable
+#               fixture: a non-shell MCP tool whose result and side effect live
+#               inside that container. Three deliveries of one call prove the
+#               seam: while the managed start is genuinely transitional the gate
+#               must refuse it and the tool must not reach the runtime, once the
+#               checkout is settled the same call runs inside the live container
+#               and its returned value must equal the value read back from that
+#               container by the runner, and once the runtime is stopped the same
+#               call is allowed by the gate and must fail instead of fabricating
+#               a result. The fixture's repository adapter delays the managed
+#               start by a bounded, fixture-owned interval, so the transitional
+#               window is one this cell controls rather than one it races. The
+#               cell records not-run unless it is asked for and its prerequisites
+#               are present.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -148,6 +163,7 @@ write_evidence() {
       "nested",
       "cancelled",
       "redirect",
+      "runtime-tool",
       "hook-timeout",
     ].map((name) => {
       let asserted = null;
@@ -157,6 +173,15 @@ write_evidence() {
         asserted = null;
       }
       if (!asserted) return { scenario: name, outcome: "not-run", failures: [] };
+      // An opt-in cell that did not run records its own not-run outcome instead
+      // of reading as a pass it never earned.
+      if (asserted.outcome === "not-run")
+        return {
+          scenario: name,
+          outcome: "not-run",
+          reason: typeof asserted.reason === "string" ? asserted.reason : null,
+          failures: [],
+        };
       const failures = Array.isArray(asserted.failures) ? asserted.failures : [];
       return { scenario: name, outcome: failures.length > 0 ? "fail" : "pass", failures };
     });
@@ -206,6 +231,12 @@ esac
 
 WORK="$DR_JOURNEY_WORK"
 if [ -n "$WORK" ]; then
+  # A named work directory is kept on failure, so it already holds one run's
+  # fixture and receipts. Reusing it would fail inside the fixture setup and
+  # overwrite that evidence, so refuse before anything runs.
+  if [ -d "$WORK" ] && [ -n "$(ls -A "$WORK" 2>/dev/null)" ]; then
+    skip "Harness journey skipped: DR_JOURNEY_WORK=$WORK is not empty; point at a new directory or remove it."
+  fi
   mkdir -p "$WORK"
 else
   TMP_BASE="$TMPDIR"
@@ -231,6 +262,23 @@ MOCK="$WORK/mock-api.mjs"
 MCP_SERVER="$WORK/mcp-marker.mjs"
 MCP_CONFIG="$WORK/mcp.json"
 MCP_MARKER="$WORK/mcp-marker.marker"
+# The runtime-tool cell owns one disposable devrouter-managed checkout, its
+# evidence directory and its own harness configuration, so nothing it does can
+# reach the fixture checkouts the deterministic cells use or the operator's own
+# agent configuration.
+LIVE_MANAGED="$DR_JOURNEY_LIVE_MANAGED"
+LIVE_IMAGE="${DR_JOURNEY_LIVE_IMAGE:-mcr.microsoft.com/devcontainers/base:debian}"
+LIVE_ADAPTER_SLEEP="${DR_JOURNEY_LIVE_ADAPTER_SLEEP:-25}"
+LIVE_ROOT="$WORK/live-managed"
+LIVE_CHECKOUT="$LIVE_ROOT/repo"
+LIVE_HOME="${DR_JOURNEY_LIVE_HOME:-$HOME}"
+LIVE_WORK="$WORK/live-managed-evidence"
+LIVE_MCP_TRACE="$LIVE_WORK/mcp-trace.jsonl"
+LIVE_MCP_CONFIG="$WORK/live-mcp.json"
+LIVE_CLAUDE_HOME="$WORK/live-claude-home"
+LIVE_CODEX_HOME="$WORK/live-codex-home"
+LIVE_ASSERT="$WORK/assert-runtime-tool.mjs"
+LIVE_PHASE_WAIT="$WORK/live-phase-wait.mjs"
 FAILED=0
 MOCK_PID=""
 
@@ -238,6 +286,11 @@ cleanup() {
   if [ -n "$MOCK_PID" ]; then kill "$MOCK_PID" >/dev/null 2>&1 || true; fi
   git -C "$REPO" worktree remove --force "$AFFECTED" >/dev/null 2>&1 || true
   git -C "$REPO" worktree remove --force "$NEIGHBOUR" >/dev/null 2>&1 || true
+  # Safety net for the opt-in cell: its own teardown already releases the exact
+  # workspace, so this only runs when the cell failed part-way.
+  if [ -n "$LIVE_MANAGED" ] && [ -d "$LIVE_CHECKOUT" ]; then
+    HOME="$LIVE_HOME" "$NODE" "$DIST" stop "$LIVE_CHECKOUT" --delete >/dev/null 2>&1 || true
+  fi
   if [ "$FAILED" = "0" ] && [ -z "$DR_JOURNEY_WORK" ]; then rm -rf "$WORK"; fi
 }
 trap cleanup EXIT
@@ -280,6 +333,15 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 
 const core = process.env.DR_JOURNEY_SRC;
+// The bundled CLI compiles its package version into __VERSION__; this helper
+// runs straight from source instead. It presents the version of the build under
+// test rather than the development fallback, because the live cell's journal is
+// written by that build and the store refuses a record a newer CLI wrote.
+try {
+  globalThis.__VERSION__ = JSON.parse(fs.readFileSync(core + "/../../package.json", "utf8")).version;
+} catch {
+  globalThis.__VERSION__ = "0.0.0-dev";
+}
 const store = await import(core + "/reliability-operation-store.ts");
 const continuation = await import(core + "/harness-continuation.ts");
 const workspace = await import(core + "/workspace.ts");
@@ -341,18 +403,55 @@ HOOK_EOF
 chmod +x "$HOOK"
 
 cat > "$MCP_SERVER" <<'MCP_SERVER_EOF'
-// Minimal stdio MCP server with exactly one tool, so the journey can prove that
-// a tool call which is not a shell command is decided by the same PreToolUse
-// hook. It speaks newline-delimited JSON-RPC and implements only what a client
-// needs to list and call that one tool.
+// Minimal stdio MCP server with the tools the journey needs: a host-side marker,
+// so the non-shell cells prove that a tool call which is not a shell command is
+// decided by the same PreToolUse hook, and — when the opt-in runtime cell
+// configures it — a probe whose result and side effect exist only inside a
+// running devrouter-managed container. It speaks newline-delimited JSON-RPC and
+// implements only what a client needs to list and call those tools.
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const marker = process.env.DR_MCP_MARKER;
+const runtime = {
+  checkout: process.env.DR_MCP_RUNTIME_CHECKOUT ?? "",
+  home: process.env.DR_MCP_RUNTIME_HOME ?? "",
+  node: process.env.DR_MCP_RUNTIME_NODE ?? process.execPath,
+  dist: process.env.DR_MCP_RUNTIME_DIST ?? "",
+  trace: process.env.DR_MCP_RUNTIME_TRACE ?? "",
+};
+// The probe value is generated inside the container and written to a
+// container-local path, so the runner can read it back through Docker and
+// compare it with what the harness delivered without trusting either report.
+const RUNTIME_PROBE =
+  'v=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d " \\n"); printf %s "$v" > /tmp/devrouter-runtime-tool.probe; printf %s "$v"';
 let buffer = "";
 
 function respond(id, result) {
   if (id === undefined || id === null) return;
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+}
+
+function probeRuntime() {
+  try {
+    const stdout = execFileSync(
+      runtime.node,
+      [runtime.dist, "exec", runtime.checkout, "--", "sh", "-c", RUNTIME_PROBE],
+      { env: { ...process.env, HOME: runtime.home }, encoding: "utf8" },
+    );
+    const value = stdout.trim();
+    if (runtime.trace)
+      fs.appendFileSync(runtime.trace, JSON.stringify({ at: new Date().toISOString(), ok: true, value }) + "\n");
+    return { content: [{ type: "text", text: "RUNTIME-PROBE=" + value }] };
+  } catch (error) {
+    const message = String(error?.stderr || error?.message || error).trim().slice(0, 400);
+    if (runtime.trace)
+      fs.appendFileSync(
+        runtime.trace,
+        JSON.stringify({ at: new Date().toISOString(), ok: false, error: message }) + "\n",
+      );
+    return { content: [{ type: "text", text: "RUNTIME-PROBE-FAILED: " + message }], isError: true };
+  }
 }
 
 process.stdin.setEncoding("utf8");
@@ -377,18 +476,29 @@ process.stdin.on("data", (chunk) => {
         serverInfo: { name: "marker", version: "1.0.0" },
       });
     } else if (message.method === "tools/list") {
-      respond(message.id, {
-        tools: [
-          {
-            name: "write_marker",
-            description: "Append one line to the test-owned marker file.",
-            inputSchema: { type: "object", properties: {}, additionalProperties: false },
-          },
-        ],
-      });
+      const tools = [
+        {
+          name: "write_marker",
+          description: "Append one line to the test-owned marker file.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+      ];
+      if (runtime.checkout) {
+        tools.push({
+          name: "read_runtime_probe",
+          description: "Run a probe inside the managed runtime and return the value it wrote there.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        });
+      }
+      respond(message.id, { tools });
     } else if (message.method === "tools/call") {
-      fs.appendFileSync(marker, "GATE-OK\n");
-      respond(message.id, { content: [{ type: "text", text: "GATE-OK" }] });
+      const name = typeof message.params?.name === "string" ? message.params.name : "";
+      if (name.includes("runtime")) {
+        respond(message.id, probeRuntime());
+      } else {
+        fs.appendFileSync(marker, "GATE-OK\n");
+        respond(message.id, { content: [{ type: "text", text: "GATE-OK" }] });
+      }
     } else if (message.method === "ping") {
       respond(message.id, {});
     }
@@ -539,11 +649,23 @@ http
         }));
       const toolResults = input
         .filter((item) => item?.type === "function_call_output")
-        .map((item) => ({
-          toolUseId: item.call_id ?? "",
-          hasError: !/Process exited with code 0/.test(String(item.output ?? "")),
-          text: String(item.output ?? "").slice(0, 400),
-        }));
+        .map((item) => {
+          // Codex answers a shell call with process text and an MCP call with
+          // structured content, so this reads both into the one transcript the
+          // assertions see. Stringifying the content blocks directly would
+          // record "[object Object]" instead of the value the tool returned.
+          const output = item.output;
+          const text = Array.isArray(output)
+            ? output
+                .map((part) => (typeof part?.text === "string" ? part.text : JSON.stringify(part ?? "")))
+                .join("\n")
+            : String(output ?? "");
+          return {
+            toolUseId: item.call_id ?? "",
+            hasError: !/Process exited with code 0/.test(String(output ?? "")),
+            text: text.slice(0, 400),
+          };
+        });
       const redirectFirst = redirectCommand !== "" && redirectTurns === 0;
       const redirectReplay = redirectCommand !== "" && redirectTurns === 1 && toolResults.length > 0;
       const kind = redirectFirst || redirectReplay ? "tool_call" : toolResults.length > 0 ? "message" : "tool_call";
@@ -1784,6 +1906,199 @@ console.log(
 );
 CODEX_SUMMARY_EOF
 
+cat > "$LIVE_PHASE_WAIT" <<'LIVE_PHASE_WAIT_EOF'
+// Wait until the managed checkout's durable lifecycle phase is transitional, so
+// the runtime cell's refusal half is sequenced against a real start or stop
+// instead of racing one. Prints the observed phase; exits 4 when the deadline
+// passes without one.
+import fs from "node:fs";
+
+const file = process.argv[2];
+const deadline = Date.now() + Number(process.argv[3] ?? "120000");
+const transitional = new Set(["queued", "starting", "verifying", "recovering", "stopping"]);
+for (;;) {
+  let phase = null;
+  try {
+    phase = JSON.parse(fs.readFileSync(file, "utf8")).state?.phase ?? null;
+  } catch {}
+  if (phase && transitional.has(phase)) {
+    process.stdout.write(phase);
+    break;
+  }
+  if (Date.now() > deadline) {
+    process.stdout.write(phase ?? "unknown");
+    process.exitCode = 4;
+    break;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250));
+}
+LIVE_PHASE_WAIT_EOF
+
+cat > "$LIVE_ASSERT" <<'LIVE_ASSERT_EOF'
+// Assert the opt-in runtime-tool cell from its real artifacts only: the shipped
+// gate's own hook log and payloads, the harness transcripts, the mock model's
+// request traces, the durable lifecycle journal, the continuation ledger, the
+// MCP server's own trace, and the container state the runner read through Docker
+// instead of through the product.
+import fs from "node:fs";
+
+const work = process.argv[2];
+const checkout = process.argv[3];
+const harness = process.argv[4] ?? "claude";
+const failures = [];
+const check = (condition, message) => {
+  if (!condition) failures.push(message);
+};
+const read = (name) => {
+  const target = work + "/" + name;
+  return fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
+};
+const readJson = (name) => {
+  try {
+    return JSON.parse(read(name) || "null");
+  } catch {
+    return null;
+  }
+};
+const lines = (name) => read(name).trim().split("\n").filter(Boolean);
+const valueOf = (name) => read(name).trim();
+// A managed checkout is settled, and a settled checkout is what lets a
+// runtime-dependent tool call run at all.
+const settledPhase = (phase) => ["stable", "stopped", "idle"].includes(phase);
+const halves = {};
+
+for (const label of ["runtime-starting", "runtime-live", "runtime-absent"]) {
+  const gateLines = lines("hook-gate-" + label + ".log");
+  const gateFields = (gateLines.at(-1) ?? "").split("\t");
+  const gateOutput = gateFields[2] ? JSON.parse(gateFields[2]) : {};
+  const gateSpecific = gateOutput.hookSpecificOutput ?? {};
+  const decision = gateSpecific.permissionDecision ?? null;
+  const reason = gateSpecific.permissionDecisionReason ?? gateSpecific.additionalContext ?? "";
+  const before = lines("mcp-before-" + label + ".jsonl");
+  const after = lines("mcp-after-" + label + ".jsonl");
+  const delta = after.slice(before.length).map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return null;
+    }
+  });
+  const requests = lines("api-requests-" + label + ".jsonl").map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return {};
+    }
+  });
+  const toolResults = requests.flatMap((request) => request.toolResults ?? []);
+  const payload = readJson("hook-payload-" + label + ".json") ?? {};
+  const ledger = readJson("ledger-" + label + ".json") ?? {};
+  const entries = Array.isArray(ledger.entries) ? ledger.entries : [];
+  const claim = entries.find((entry) => entry.toolUseId === payload.tool_use_id) ?? null;
+  const container = readJson("container-" + label + ".json") ?? {};
+  const beforePhase = (readJson("affected-before-" + label + ".json") ?? {}).phase ?? null;
+  const afterPhase = (readJson("affected-after-" + label + ".json") ?? {}).phase ?? null;
+  const dirty = valueOf("affected-dirty-" + label + ".txt");
+  const allowed =
+    harness === "codex"
+      ? decision === null && typeof gateSpecific.additionalContext === "string"
+      : decision === "allow";
+  halves[label] = {
+    phaseBefore: beforePhase,
+    phaseAfter: afterPhase,
+    decision,
+    reason,
+    mcpCalls: delta.length,
+    mcp: delta[0] ?? null,
+    claim: claim?.state ?? null,
+    container: container.containerId ? "present" : "absent",
+    checkoutClean: dirty === "",
+  };
+
+  check(gateLines.length >= 1, label + ": the gate decided nothing for this call");
+  check(dirty === "", label + ": the managed checkout was modified: " + dirty);
+
+  if (label === "runtime-starting") {
+    // A managed start is transitional, and a transitional checkout must refuse
+    // the call instead of letting a runtime-dependent tool run mid-transition.
+    check(
+      ["queued", "starting", "verifying", "recovering", "stopping"].includes(beforePhase),
+      label + ": the recorded phase before the call was " + beforePhase,
+    );
+    check(decision === "deny", label + ": the gate decided " + decision + ": " + reason);
+    check(delta.length === 0, label + ": the refused call still reached the runtime " + delta.length + " time(s)");
+    check(
+      !container.containerId || !container.probe,
+      label + ": the refused call left a probe value inside the container",
+    );
+    check(claim === null || claim.state === "refused", label + ": the claim settled as " + claim?.state);
+  }
+
+  if (label === "runtime-live") {
+    // The settled checkout must let the call through, and the value the harness
+    // delivered must be the value that exists inside the live container.
+    check(allowed, label + ": the gate did not allow the call: " + decision + " " + reason);
+    check(settledPhase(beforePhase), label + ": the running checkout was not settled: " + beforePhase);
+    check(settledPhase(afterPhase), label + ": the managed phase ended " + afterPhase);
+    check(delta.length === 1, label + ": the tool ran " + delta.length + " time(s)");
+    check(delta[0]?.ok === true, label + ": the tool reported " + JSON.stringify(delta[0] ?? null));
+    check(/^[0-9a-f]{32}$/.test(String(delta[0]?.value ?? "")), label + ": the tool value was " + delta[0]?.value);
+    check(container.containerId !== undefined && container.containerId !== "", label + ": no container was mounted from the checkout");
+    check(container.probe === delta[0]?.value, label + ": the container read back " + container.probe + ", not " + delta[0]?.value);
+    check(
+      toolResults.some((result) => String(result.text ?? "").includes(String(delta[0]?.value ?? "\u0000"))),
+      label + ": the harness never received the container value",
+    );
+    check(
+      claim === null || claim.state === "granted",
+      label + ": the claim settled as " + claim?.state,
+    );
+  }
+
+  if (label === "runtime-absent") {
+    // Stopped is settled, so the gate allows the call; the tool must then fail
+    // instead of producing a value no running runtime could have produced.
+    check(allowed, label + ": the gate did not allow the call: " + decision + " " + reason);
+    check(settledPhase(beforePhase), label + ": the stopped checkout was not settled: " + beforePhase);
+    check(delta.length === 1, label + ": the tool ran " + delta.length + " time(s)");
+    check(delta[0]?.ok === false, label + ": the tool claimed success without a runtime: " + JSON.stringify(delta[0] ?? null));
+    check(container.containerId === "", label + ": a container was still mounted from the stopped checkout");
+    check(
+      toolResults.some((result) => String(result.text ?? "").includes("RUNTIME-PROBE-FAILED")),
+      label + ": the harness never saw the tool fail",
+    );
+  }
+}
+
+const stopJournal = readJson("stop-journal.json") ?? {};
+check(settledPhase(stopJournal.phase), "the stopped checkout was left in phase " + stopJournal.phase);
+const finalJournal = readJson("final-journal.json") ?? {};
+check(settledPhase(finalJournal.phase), "the released checkout was left in phase " + finalJournal.phase);
+const teardown = readJson("teardown.json") ?? {};
+check(teardown.deleted === true, "the disposable workspace was not released: " + JSON.stringify(teardown));
+const released = readJson("container-teardown.json") ?? {};
+check(released.containerId === "", "a container outlived the released workspace: " + released.containerId);
+// The refusal half is only meaningful if the managed start really was
+// transitional while the call arrived, and the rest of the cell only if that
+// start succeeded in the first place.
+const startPhase = (readJson("managed-start-phase.json") ?? {}).phase ?? null;
+check(
+  ["queued", "starting", "verifying", "recovering", "stopping"].includes(startPhase),
+  "the managed start never reported a transitional phase: " + startPhase,
+);
+const ensure = readJson("ensure-summary.json") ?? {};
+check(ensure.exit === 0, "the managed start did not succeed: " + JSON.stringify(ensure));
+
+console.log(
+  JSON.stringify(
+    { scenario: "runtime-tool", harness, checkout, halves, failures },
+    null,
+    2,
+  ),
+);
+if (failures.length) process.exit(1);
+LIVE_ASSERT_EOF
+
 
 run_scenario() {
   local mode="$1" budget="$2"
@@ -2593,6 +2908,255 @@ run_parallel_scenario() {
   cat "$WORK/assert-$label.json"
 }
 
+# --- opt-in runtime-tool cell -------------------------------------------------
+# One disposable devrouter-managed checkout whose started container is the live
+# environment a non-shell MCP tool depends on. Everything here is fixture-owned:
+# the repository, the adapter that delays its own managed start, the container,
+# and a harness configuration whose HOME is the operator's only so the product's
+# real machine state and lifecycle journal stay in play. No other workspace is
+# read, started, stopped or configured by this cell.
+
+live_journal() { HOME="$LIVE_HOME" DR_JOURNEY_SRC="$ROOT/src/core" "$TSX" "$JOURNAL" "$@"; }
+
+live_journal_field() {
+  local field="$1"
+  live_journal "$LIVE_CHECKOUT" show 2>/dev/null | DR_FIELD="$field" "$NODE" -e '
+    let raw = "";
+    process.stdin.on("data", (chunk) => (raw += chunk));
+    process.stdin.on("end", () => {
+      try { process.stdout.write(JSON.parse(raw)[process.env.DR_FIELD] ?? ""); } catch {}
+    });
+  '
+}
+
+live_container_id() {
+  local id
+  for id in $(docker ps -q 2>/dev/null); do
+    if docker inspect -f '{{range .Mounts}}{{.Source}} {{end}}' "$id" 2>/dev/null | grep -qF "$LIVE_CHECKOUT"; then
+      printf '%s' "$id"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Read the container through Docker, so the value the harness delivered can be
+# compared with the value that exists in the live environment without trusting
+# the product's or the model's report of it.
+live_container_snapshot() {
+  local target="$1" id probe=""
+  id="$(live_container_id || true)"
+  if [ -n "$id" ]; then probe="$(docker exec "$id" cat /tmp/devrouter-runtime-tool.probe 2>/dev/null || true)"; fi
+  printf '{"containerId":"%s","probe":"%s"}\n' "$id" "$probe" > "$target"
+}
+
+live_snapshot_trace() {
+  if [ -f "$LIVE_MCP_TRACE" ]; then cat "$LIVE_MCP_TRACE" > "$1"; else : > "$1"; fi
+}
+
+prepare_live_fixture() {
+  rm -rf "$LIVE_ROOT"
+  mkdir -p "$LIVE_CHECKOUT/.devcontainer" "$LIVE_WORK"
+  printf 'version: 1\napps: []\n' > "$LIVE_CHECKOUT/.devrouter.yml"
+  cat > "$LIVE_CHECKOUT/.devcontainer/devcontainer.json" <<LIVE_CONFIG_EOF
+{
+  "name": "journey-live-runtime-tool",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/journey-live-runtime-tool"
+}
+LIVE_CONFIG_EOF
+  cat > "$LIVE_CHECKOUT/.devcontainer/docker-compose.yml" <<LIVE_COMPOSE_EOF
+services:
+  app:
+    image: $LIVE_IMAGE
+    init: true
+    command: sleep infinity
+    volumes:
+      - ..:/workspaces/journey-live-runtime-tool:cached
+    working_dir: /workspaces/journey-live-runtime-tool
+LIVE_COMPOSE_EOF
+  # The repository-owned adapter is what devrouter delivers and runs inside the
+  # container before readiness, so its bounded sleep is what makes the managed
+  # start's transitional phase observable instead of instantaneous.
+  cat > "$LIVE_CHECKOUT/.devcontainer/post-start.sh" <<LIVE_ADAPTER_EOF
+#!/usr/bin/env bash
+# devrouter:managed devcontainer
+set -euo pipefail
+
+: "\${DEVROUTER_PROCESS_HELPER:?Run devrouter ensure to start this managed application process.}"
+printf '%s\n' started >> /tmp/journey-live-runtime-tool-adapter
+sleep $LIVE_ADAPTER_SLEEP
+LIVE_ADAPTER_EOF
+  chmod +x "$LIVE_CHECKOUT/.devcontainer/post-start.sh"
+  git -C "$LIVE_CHECKOUT" init -q
+  git -C "$LIVE_CHECKOUT" add -A
+  git -C "$LIVE_CHECKOUT" -c user.email=journey@devrouter.local -c user.name=devrouter-journey \
+    commit -qm "runtime tool fixture"
+  # The live cell owns the harness configuration that advertises the runtime
+  # probe, so the deterministic cells keep their single marker tool and neither
+  # side can call into the other's fixtures.
+  cat > "$LIVE_MCP_CONFIG" <<LIVE_MCP_EOF
+{
+  "mcpServers": {
+    "marker": {
+      "command": "$NODE",
+      "args": ["$MCP_SERVER"],
+      "env": {
+        "DR_MCP_MARKER": "$MCP_MARKER",
+        "DR_MCP_RUNTIME_CHECKOUT": "$LIVE_CHECKOUT",
+        "DR_MCP_RUNTIME_HOME": "$LIVE_HOME",
+        "DR_MCP_RUNTIME_NODE": "$NODE",
+        "DR_MCP_RUNTIME_DIST": "$DIST",
+        "DR_MCP_RUNTIME_TRACE": "$LIVE_MCP_TRACE"
+      }
+    }
+  }
+}
+LIVE_MCP_EOF
+  # The Codex leg needs its own CODEX_HOME so the live cell never reads or writes
+  # the operator's agent configuration; its content is the fixture's own and
+  # carries the same runtime probe this cell configures.
+  rm -rf "$LIVE_CODEX_HOME" "$LIVE_CLAUDE_HOME"
+  mkdir -p "$LIVE_CODEX_HOME" "$LIVE_CLAUDE_HOME"
+  cat > "$LIVE_CODEX_HOME/config.toml" <<LIVE_CODEX_EOF
+model = "journey-model"
+model_provider = "journey"
+
+[model_providers.journey]
+name = "journey"
+base_url = "http://127.0.0.1:$PORT/v1"
+wire_api = "responses"
+env_key = "JOURNEY_API_KEY"
+
+[mcp_servers.marker]
+command = "$NODE"
+args = ["$MCP_SERVER"]
+env = { DR_MCP_MARKER = "$MCP_MARKER", DR_MCP_RUNTIME_CHECKOUT = "$LIVE_CHECKOUT", DR_MCP_RUNTIME_HOME = "$LIVE_HOME", DR_MCP_RUNTIME_NODE = "$NODE", DR_MCP_RUNTIME_DIST = "$DIST", DR_MCP_RUNTIME_TRACE = "$LIVE_MCP_TRACE" }
+default_tools_approval_mode = "approve"
+LIVE_CODEX_EOF
+  cp "$HOOKS" "$LIVE_CODEX_HOME/hooks.json" 2>/dev/null || true
+}
+
+run_live_harness() {
+  local label="$1" budget="$2"
+  local prompt="Call the runtime MCP tool read_runtime_probe once, then stop."
+  local trace="$LIVE_WORK/api-requests-$label.jsonl"
+  rm -f "$LIVE_WORK/hook-gate-$label.log" "$LIVE_WORK/hook-gate-$label.log.err" \
+    "$LIVE_WORK/hook-payload-$label.json" "$LIVE_WORK/hook-payload-$label.json.records"
+  live_journal "$LIVE_CHECKOUT" show > "$LIVE_WORK/affected-before-$label.json" 2>/dev/null || true
+  live_snapshot_trace "$LIVE_WORK/mcp-before-$label.jsonl"
+
+  start_mock "" "$trace" "runtime"
+
+  if [ "$HARNESS" = "codex" ]; then
+    local started_ms ended_ms exit_code
+    started_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    set +e
+    (
+      cd "$LIVE_CHECKOUT" &&
+        HOME="$LIVE_HOME" CODEX_HOME="$LIVE_CODEX_HOME" JOURNEY_API_KEY=journey \
+        DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$LIVE_WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$LIVE_WORK/hook-payload-$label.json" \
+        "$CODEX" exec --skip-git-repo-check --sandbox workspace-write -C "$LIVE_CHECKOUT" \
+          --dangerously-bypass-hook-trust \
+          "$prompt" \
+          < /dev/null > "$LIVE_WORK/codex-$label.out" 2> "$LIVE_WORK/codex-$label.err"
+    )
+    exit_code=$?
+    set -e
+    ended_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    DR_CODEX_EXIT="$exit_code" DR_CODEX_STARTED_MS="$started_ms" DR_CODEX_ENDED_MS="$ended_ms" \
+      "$NODE" "$CODEX_SUMMARY" "$LIVE_WORK" "$label" > "$LIVE_WORK/codex-$label.json"
+  else
+    if ! (
+      cd "$LIVE_CHECKOUT" &&
+        HOME="$LIVE_HOME" CLAUDE_CONFIG_DIR="$LIVE_CLAUDE_HOME" \
+        DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$LIVE_WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$LIVE_WORK/hook-payload-$label.json" \
+        ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+        "$CLAUDE" -p "$prompt" --output-format json --max-turns 3 \
+          --mcp-config "$LIVE_MCP_CONFIG" --strict-mcp-config --allowedTools "mcp__marker__read_runtime_probe" \
+          --settings "$SETTINGS" > "$LIVE_WORK/claude-$label.json" 2> "$LIVE_WORK/claude-$label.err"
+    ); then
+      echo "the live harness run for '$label' failed; see $LIVE_WORK/claude-$label.err" >&2
+      FAILED=1
+    fi
+  fi
+
+  live_snapshot_trace "$LIVE_WORK/mcp-after-$label.jsonl"
+  live_journal "$LIVE_CHECKOUT" show > "$LIVE_WORK/affected-after-$label.json" 2>/dev/null || true
+  live_journal "$LIVE_CHECKOUT" ledger > "$LIVE_WORK/ledger-$label.json" 2>/dev/null || true
+  git -C "$LIVE_CHECKOUT" status --porcelain > "$LIVE_WORK/affected-dirty-$label.txt" 2>/dev/null || true
+}
+
+run_runtime_tool_scenario() {
+  local reason=""
+  if [ -z "$LIVE_MANAGED" ]; then
+    reason="opt-in cell: set DR_JOURNEY_LIVE_MANAGED=1"
+  elif ! command -v docker >/dev/null 2>&1; then
+    reason="docker is unavailable"
+  elif ! docker info >/dev/null 2>&1; then
+    reason="the Docker daemon is not reachable"
+  elif ! command -v devsy >/dev/null 2>&1 && ! command -v devpod >/dev/null 2>&1; then
+    reason="neither the devsy nor the devpod CLI is available"
+  elif ! docker image inspect "$LIVE_IMAGE" >/dev/null 2>&1; then
+    reason="the fixture image $LIVE_IMAGE is not present locally"
+  fi
+  if [ -n "$reason" ]; then
+    printf '{"scenario":"runtime-tool","outcome":"not-run","reason":"%s","halves":{},"failures":[]}\n' "$reason" \
+      > "$WORK/assert-runtime-tool.json"
+    printf 'runtime-tool: not-run (%s)\n' "$reason"
+    return 0
+  fi
+
+  mkdir -p "$LIVE_WORK"
+  : > "$LIVE_MCP_TRACE"
+  prepare_live_fixture
+  local journal_file
+  journal_file="$(live_journal_field file)"
+
+  # Half 1: the managed start is genuinely transitional while the call is
+  # delivered, so the gate must refuse it and the runtime must see nothing.
+  (
+    HOME="$LIVE_HOME" "$NODE" "$DIST" ensure "$LIVE_CHECKOUT" --json \
+      > "$LIVE_WORK/ensure.json" 2> "$LIVE_WORK/ensure.log"
+    printf '%s' "$?" > "$LIVE_WORK/ensure.exit"
+  ) &
+  local ensure_pid=$!
+  local observed_phase
+  observed_phase="$("$NODE" "$LIVE_PHASE_WAIT" "$journal_file" 120000 || true)"
+  printf '{"phase":"%s"}\n' "$observed_phase" > "$LIVE_WORK/managed-start-phase.json"
+  run_live_harness runtime-starting 3000
+  live_container_snapshot "$LIVE_WORK/container-runtime-starting.json"
+  wait "$ensure_pid" || true
+  printf '{"exit":%s}\n' "$(cat "$LIVE_WORK/ensure.exit" 2>/dev/null || printf 'null')" > "$LIVE_WORK/ensure-summary.json"
+
+  # Half 2: the settled checkout with its managed container running.
+  run_live_harness runtime-live 30000
+  live_container_snapshot "$LIVE_WORK/container-runtime-live.json"
+
+  # Half 3: stopped is a settled phase, so the gate allows the call and the tool
+  # must fail rather than report a value no running runtime could produce.
+  HOME="$LIVE_HOME" "$NODE" "$DIST" stop "$LIVE_CHECKOUT" --json \
+    > "$LIVE_WORK/stop.json" 2> "$LIVE_WORK/stop.log" || true
+  live_journal "$LIVE_CHECKOUT" show > "$LIVE_WORK/stop-journal.json" 2>/dev/null || true
+  run_live_harness runtime-absent 30000
+  live_container_snapshot "$LIVE_WORK/container-runtime-absent.json"
+
+  # Teardown: the disposable workspace is released through the product's own
+  # exact-owner cleanup, so no registration or container outlives the cell.
+  HOME="$LIVE_HOME" "$NODE" "$DIST" stop "$LIVE_CHECKOUT" --delete --json \
+    > "$LIVE_WORK/teardown.json" 2> "$LIVE_WORK/teardown.log" || true
+  live_container_snapshot "$LIVE_WORK/container-teardown.json"
+  live_journal "$LIVE_CHECKOUT" show > "$LIVE_WORK/final-journal.json" 2>/dev/null ||
+    printf '{}\n' > "$LIVE_WORK/final-journal.json"
+
+  "$NODE" "$LIVE_ASSERT" "$LIVE_WORK" "$LIVE_CHECKOUT" "$HARNESS" \
+    > "$WORK/assert-runtime-tool.json" || FAILED=1
+  cat "$WORK/assert-runtime-tool.json"
+}
+
 echo "--- harness: $HARNESS"
 echo "--- scenario 1: a transitioning checkout defers the tool call until it settles"
 run_scenario deferral 30000
@@ -2620,7 +3184,9 @@ echo "--- scenario 10: cancelling the harness mid-wait leaves the call unexecute
 run_cancelled_scenario
 echo "--- scenario 11: a settled grant is refused when its id returns under a changed command"
 run_redirect_scenario
-echo "--- scenario 12: a hook timeout below the wait budget abandons the gating hook"
+echo "--- scenario 12: a runtime-dependent MCP tool runs only in a settled managed environment"
+run_runtime_tool_scenario
+echo "--- scenario 13: a hook timeout below the wait budget abandons the gating hook"
 run_hook_timeout_scenario
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
