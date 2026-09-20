@@ -340,10 +340,18 @@ export async function runHarnessCommand(
 
   kind = detectHarnessHook(payload);
 
-  const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
   const toolInput = isRecord(payload.tool_input) ? payload.tool_input : {};
-  const command = typeof toolInput.command === "string" ? toolInput.command : "";
-  if (toolName === "Bash" && isDevrouterLifecycleCommand(command)) {
+  // Claude Code delivers the shell command as `command`; the Codex CLI delivers
+  // the same field as `cmd` on its `exec_command` tool. Both spellings are read
+  // without depending on the tool name, so the lifecycle passthrough holds in
+  // either harness instead of deferring the command that repairs the checkout.
+  const command =
+    typeof toolInput.command === "string"
+      ? toolInput.command
+      : typeof toolInput.cmd === "string"
+        ? toolInput.cmd
+        : "";
+  if (isDevrouterLifecycleCommand(command)) {
     const decision = gateDecision("allow", "devrouter-command");
     process.stdout.write(
       json ? `${JSON.stringify(decision)}\n` : `${hookOutput(decision, kind)}\n`,

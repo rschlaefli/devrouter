@@ -214,6 +214,43 @@ describe("runHarnessCommand gate", () => {
   });
 
   it.each([
+    "devrouter stop .",
+    "pnpm exec devrouter status --json",
+  ])("passes the lifecycle command %s through from the Codex shell tool", async (command) => {
+    const repoRoot = path.join(tmpDir, "repo");
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, ".devrouter.yml"), "version: 1\n", "utf-8");
+    const observe = vi.fn((): HarnessGateObservation => ({ phase: "stopping" }));
+
+    await runHarnessCommand(
+      "gate",
+      { waitBudgetMs: "1000" },
+      undefined,
+      dependencies({
+        stdin: async () =>
+          JSON.stringify({
+            hook_event_name: "PreToolUse",
+            turn_id: "turn_journey_1",
+            tool_name: "exec_command",
+            tool_input: { cmd: command },
+            cwd: repoRoot,
+          }),
+        observe,
+        sleep: async () => {},
+      }),
+    );
+
+    expect(observe).not.toHaveBeenCalled();
+    // The Codex CLI rejects an allow decision, so the passthrough is a bare
+    // completion whose context still names the reason.
+    const output = lastStdoutJson() as {
+      hookSpecificOutput: { permissionDecision?: string; additionalContext?: string };
+    };
+    expect(output.hookSpecificOutput.permissionDecision).toBeUndefined();
+    expect(output.hookSpecificOutput.additionalContext).toContain("lifecycle command");
+  });
+
+  it.each([
     "echo /opt/homebrew/bin/devrouter",
     "cat devrouter",
     "pnpm exec tsc --noEmit",
