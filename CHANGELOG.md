@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- The consumer contract is qualified against a runtime that has no Node
+  toolchain. `scripts/qualify-non-node-consumer.sh` (`pnpm qualify:non-node`)
+  builds a synthetic Python consumer from the standard library alone, whose
+  single `.devrouter.yml` declares a routed host application and a routed
+  Postgres dependency. It asserts semantic readiness over the published TLS
+  route, the dependency environment the process actually received, the
+  `envMap` alias, that the route disappears again after a non-destructive stop,
+  and that the fixture's own Compose project and volume are released. Each round
+  also records measured readiness, the consumer's peak resident memory, its
+  container memory and whether it reused the running dependency container.
+
+- `devrouter harness gate` serves the Codex CLI as well as Claude Code. It
+  identifies the requesting harness from its hook payload and answers in that
+  harness's accepted shape: an allowed call stays `permissionDecision: allow`
+  for Claude Code, while Codex receives a plain completion carrying the same
+  guidance as `additionalContext`, because Codex reports an `allow` decision
+  as unsupported hook output and would otherwise run the tool behind a failed
+  hook. A refusal is one `deny` in both. `scripts/qualify-harness-journey.sh`
+  now drives either harness through the same three-scenario journey
+  (`DR_JOURNEY_HARNESS`), and `pnpm qualify:codex-journey` selects the second
+  one.
+
 ## [0.0.80] - 2026-09-20
 
 ### Added

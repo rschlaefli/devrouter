@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Qualify the enforcing agent-harness journey across two managed checkouts.
 #
-# A real Claude Code harness runs against a local mock Messages API inside a
-# fixture repository with two linked worktrees, "affected" and "neighbour". Each
+# A real agent harness runs against a local mock model API inside a fixture
+# repository with two linked worktrees, "affected" and "neighbour". Each
 # worktree carries its own .devrouter.yml, so the pair is exactly the two
 # environments a devrouter-managed repository exposes. The shipped
 # "devrouter harness gate" is that repository's PreToolUse hook, so every tool
@@ -27,29 +27,45 @@
 # infrastructure repair, so a dirty checkout, a second tool call, a consumed
 # model turn while waiting, or a moved neighbour all fail the run.
 #
-# Neither credentials nor model access are needed: ANTHROPIC_BASE_URL points at a
-# local server that speaks the Messages API with a scripted conversation. Each
-# scenario prints one JSON evidence line and exits nonzero when an assertion
-# fails; raw logs stay under the work directory (DR_JOURNEY_WORK, kept on failure
-# and removed on success).
+# DR_JOURNEY_HARNESS selects the harness: claude (default) or codex. Both run the
+# same three scenarios through the same shipped gate. Only the mock protocol, the
+# hook configuration and the harness invocation differ, so a second harness
+# either honors the same product contract or fails the same assertions.
+#
+# Neither credentials nor model access are needed: ANTHROPIC_BASE_URL (Claude
+# Code) or a local model_provider (Codex) points at a server that speaks the
+# harness's own protocol with a scripted conversation. Each scenario prints one
+# JSON evidence line and exits nonzero when an assertion fails; raw logs stay
+# under the work directory (DR_JOURNEY_WORK, kept on failure and removed on
+# success).
 set -eo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$DR_JOURNEY_DIST"
 if [ -z "$DIST" ]; then DIST="$ROOT/dist/devrouter.js"; fi
+HARNESS="$DR_JOURNEY_HARNESS"
+if [ -z "$HARNESS" ]; then HARNESS=claude; fi
 CLAUDE="$DR_JOURNEY_CLAUDE"
 if [ -z "$CLAUDE" ]; then CLAUDE="$(command -v claude || true)"; fi
+CODEX="$DR_JOURNEY_CODEX"
+if [ -z "$CODEX" ]; then CODEX="$(command -v codex.opencodex-real || command -v codex || true)"; fi
 NODE="$DR_JOURNEY_NODE"
 if [ -z "$NODE" ]; then NODE="$(command -v node || true)"; fi
 TSX="$ROOT/node_modules/.bin/tsx"
 PORT="$DR_JOURNEY_PORT"
 if [ -z "$PORT" ]; then PORT=8791; fi
+MOCK_HEALTH="/api/hello"
+if [ "$HARNESS" = "codex" ]; then MOCK_HEALTH="/healthz"; fi
 
 skip() { printf '%s\n' "$1"; exit 0; }
 [ -f "$DIST" ] || skip "Harness journey skipped: build dist/devrouter.js first (pnpm build)."
-[ -n "$CLAUDE" ] || skip "Harness journey skipped: the claude CLI is unavailable."
 [ -n "$NODE" ] || skip "Harness journey skipped: node is unavailable."
 [ -x "$TSX" ] || skip "Harness journey skipped: tsx is unavailable (run pnpm install)."
+case "$HARNESS" in
+  claude) [ -n "$CLAUDE" ] || skip "Harness journey skipped: the claude CLI is unavailable." ;;
+  codex) [ -n "$CODEX" ] || skip "Harness journey skipped: the codex CLI is unavailable." ;;
+  *) skip "Harness journey skipped: DR_JOURNEY_HARNESS=$HARNESS is neither claude nor codex." ;;
+esac
 
 WORK="$DR_JOURNEY_WORK"
 if [ -n "$WORK" ]; then
@@ -65,8 +81,11 @@ AFFECTED="$REPO/trees/affected"
 NEIGHBOUR="$REPO/trees/neighbour"
 JOURNAL="$WORK/journal.mjs"
 ASSERT="$WORK/assert-journey.mjs"
+CODEX_SUMMARY="$WORK/summarize-codex.mjs"
 HOOK="$WORK/hook-gate.sh"
 SETTINGS="$WORK/settings.json"
+HOOKS="$HOME_DIR/hooks.json"
+CODEX_CONFIG="$HOME_DIR/config.toml"
 MOCK="$WORK/mock-api.mjs"
 FAILED=0
 MOCK_PID=""
@@ -87,10 +106,10 @@ start_mock() {
     "$NODE" "$MOCK" >> "$WORK/mock.log" 2>&1 &
   MOCK_PID=$!
   for _ in $(seq 1 60); do
-    curl -fsS -o /dev/null "http://127.0.0.1:$PORT/api/hello" 2>/dev/null && return 0
+    curl -fsS -o /dev/null "http://127.0.0.1:$PORT$MOCK_HEALTH" 2>/dev/null && return 0
     sleep 0.25
   done
-  echo "mock Messages API did not start" >&2
+  echo "the mock model API did not start" >&2
   return 1
 }
 
@@ -170,7 +189,36 @@ printf '%s\n' "$out"
 HOOK_EOF
 chmod +x "$HOOK"
 
-cat > "$SETTINGS" <<SETTINGS_EOF
+# Each harness reads its hook configuration from its own place: Claude Code from
+# the settings file passed on the command line, the Codex CLI from
+# $CODEX_HOME/hooks.json. The matcher names the shell tool in both, and the
+# timeout stays above the largest wait budget so the harness never abandons a
+# gating hook mid-wait.
+if [ "$HARNESS" = "codex" ]; then
+  cat > "$HOOKS" <<HOOKS_EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "exec_command|Bash|shell",
+        "hooks": [{ "type": "command", "command": "$HOOK", "timeout": 180 }]
+      }
+    ]
+  }
+}
+HOOKS_EOF
+  cat > "$CODEX_CONFIG" <<CODEX_CONFIG_EOF
+model = "journey-model"
+model_provider = "journey"
+
+[model_providers.journey]
+name = "journey"
+base_url = "http://127.0.0.1:$PORT/v1"
+wire_api = "responses"
+env_key = "JOURNEY_API_KEY"
+CODEX_CONFIG_EOF
+else
+  cat > "$SETTINGS" <<SETTINGS_EOF
 {
   "hooks": {
     "PreToolUse": [
@@ -182,7 +230,156 @@ cat > "$SETTINGS" <<SETTINGS_EOF
   }
 }
 SETTINGS_EOF
+fi
 
+if [ "$HARNESS" = "codex" ]; then
+cat > "$MOCK" <<'MOCK_RESPONSES_EOF'
+// Minimal Responses API server with one scripted tool turn, so the Codex CLI can
+// be driven without credentials or model access. Every model request is recorded
+// as one trace line in the same normalized shape the Messages mock produces, so
+// the assertions read either harness without a second parser.
+import http from "node:http";
+import fs from "node:fs";
+
+const port = Number(process.env.DR_MOCK_PORT ?? 8791);
+const trace = process.env.DR_MOCK_TRACE;
+const toolCommand = process.env.DR_MOCK_TOOL_COMMAND;
+let requests = 0;
+// Each scenario starts a fresh mock against the same checkouts, and the gate's
+// continuation ledger is keyed by tool-call id, so the ids must not repeat.
+const runId = Math.random().toString(36).slice(2, 8);
+
+function commandOf(argumentsText) {
+  try {
+    const parsed = JSON.parse(argumentsText ?? "{}");
+    return typeof parsed?.cmd === "string" ? parsed.cmd : "";
+  } catch {
+    return "";
+  }
+}
+
+function sse(res, type, data) {
+  res.write("event: " + type + "\ndata: " + JSON.stringify(data) + "\n\n");
+}
+
+http
+  .createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+      // Readiness only: it must never look like a model request in the trace.
+      if (pathname === "/healthz") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("{}");
+        return;
+      }
+      const startedAt = Date.now();
+      requests += 1;
+      const parsed = JSON.parse(body || "{}");
+      const input = Array.isArray(parsed.input) ? parsed.input : [];
+      const toolUses = input
+        .filter((item) => item?.type === "function_call")
+        .map((item) => ({
+          id: item.call_id ?? item.id ?? "",
+          name: item.name ?? "",
+          command: commandOf(item.arguments),
+        }));
+      const toolResults = input
+        .filter((item) => item?.type === "function_call_output")
+        .map((item) => ({
+          toolUseId: item.call_id ?? "",
+          hasError: !/Process exited with code 0/.test(String(item.output ?? "")),
+          text: String(item.output ?? "").slice(0, 400),
+        }));
+      const kind = toolResults.length > 0 ? "message" : "tool_call";
+      const response = {
+        id: "resp_" + requests,
+        object: "response",
+        created_at: Math.floor(Date.now() / 1000),
+        status: "in_progress",
+        model: parsed.model ?? "journey-model",
+        output: [],
+        usage: null,
+      };
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+      sse(res, "response.created", { type: "response.created", response });
+      if (kind === "tool_call") {
+        const item = {
+          type: "function_call",
+          id: "fc_" + requests + "_" + runId,
+          call_id: "call_" + requests + "_" + runId,
+          name: "exec_command",
+          arguments: "",
+          status: "in_progress",
+        };
+        const call = {
+          ...item,
+          arguments: JSON.stringify({ cmd: toolCommand }),
+          status: "completed",
+        };
+        sse(res, "response.output_item.added", { type: "response.output_item.added", output_index: 0, item });
+        sse(res, "response.function_call_arguments.delta", {
+          type: "response.function_call_arguments.delta",
+          item_id: item.id,
+          output_index: 0,
+          delta: JSON.stringify({ cmd: toolCommand }),
+        });
+        sse(res, "response.output_item.done", { type: "response.output_item.done", output_index: 0, item: call });
+        sse(res, "response.completed", {
+          type: "response.completed",
+          response: {
+            ...response,
+            status: "completed",
+            output: [call],
+            usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+          },
+        });
+      } else {
+        const item = {
+          type: "message",
+          id: "msg_" + requests,
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: "JOURNEY-DONE", annotations: [] }],
+        };
+        sse(res, "response.output_item.added", { type: "response.output_item.added", output_index: 0, item });
+        sse(res, "response.output_text.delta", {
+          type: "response.output_text.delta",
+          item_id: item.id,
+          output_index: 0,
+          content_index: 0,
+          delta: "JOURNEY-DONE",
+        });
+        sse(res, "response.output_item.done", { type: "response.output_item.done", output_index: 0, item });
+        sse(res, "response.completed", {
+          type: "response.completed",
+          response: {
+            ...response,
+            status: "completed",
+            output: [item],
+            usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25 },
+          },
+        });
+      }
+      res.end();
+      // Measured after the client consumed the stream, so the number is the
+      // mock's own service time rather than its first write.
+      fs.appendFileSync(
+        trace,
+        JSON.stringify({
+          at: new Date().toISOString(),
+          tookMs: Date.now() - startedAt,
+          kind,
+          toolUses,
+          toolResults,
+        }) + "\n",
+      );
+    });
+  })
+  .listen(port, "127.0.0.1");
+MOCK_RESPONSES_EOF
+else
 cat > "$MOCK" <<'MOCK_EOF'
 // Minimal Messages API server with one scripted tool turn, so a real harness can
 // be driven without credentials or model access. Every request is recorded as
@@ -309,6 +506,7 @@ http
   })
   .listen(port, "127.0.0.1");
 MOCK_EOF
+fi
 
 cat > "$ASSERT" <<'ASSERT_EOF'
 // Assert one journey scenario from its real artifacts and print its evidence.
@@ -321,6 +519,7 @@ const work = process.argv[4];
 const affected = process.argv[5];
 const neighbour = process.argv[6];
 const probeCommand = process.argv[7];
+const harness = process.argv[8] ?? "claude";
 
 const failures = [];
 const check = (condition, message) => {
@@ -347,12 +546,30 @@ const real = (target) => {
 const keyOf = (target) => createHash("sha256").update(real(target)).digest("hex");
 
 const gated = mode === "neighbour" ? neighbour : affected;
-const transcript = readJson("claude-" + label + ".json") ?? {};
+// Both harnesses are normalized into the same transcript shape by the runner,
+// so every shared assertion below means the same thing in either one.
+const transcript = readJson((harness === "codex" ? "codex-" : "claude-") + label + ".json") ?? {};
 const hookLines = read("hook-gate-" + label + ".log").trim().split("\n").filter(Boolean);
 const hookFields = (hookLines.at(-1) ?? "").split("\t");
 const hookOutput = hookFields[2] ? JSON.parse(hookFields[2]) : {};
 const hookSpecific = hookOutput.hookSpecificOutput ?? {};
-const reason = hookSpecific.permissionDecisionReason ?? "";
+// Claude Code returns a decision with its reason; Codex accepts only a deny
+// decision, so an allowed call travels as additionalContext instead. Reading
+// both keeps one assertion set for the guidance text either way.
+const reason = hookSpecific.permissionDecisionReason ?? hookSpecific.additionalContext ?? "";
+const allows = () => {
+  if (harness === "codex") {
+    check(
+      hookSpecific.permissionDecision === undefined,
+      "the Codex allow carried permissionDecision " + hookSpecific.permissionDecision,
+    );
+    check(typeof hookSpecific.additionalContext === "string", "the Codex allow carried no additionalContext");
+    return;
+  }
+  check(hookSpecific.permissionDecision === "allow", "the gate decided " + hookSpecific.permissionDecision + ": " + reason);
+};
+// The shell tool is named for the model's own function surface in each harness.
+const shellTool = harness === "codex" ? "exec_command" : "Bash";
 const payload = readJson("hook-payload-" + label + ".json") ?? {};
 const requests = read("api-requests-" + label + ".jsonl")
   .trim()
@@ -384,10 +601,17 @@ check(payload.tool_name === "Bash", "the hook payload carried tool " + payload.t
 check(typeof payload.tool_use_id === "string" && payload.tool_use_id.length > 0, "the hook payload carried no tool_use_id");
 check(real(payload.cwd ?? "") === real(gated), "the harness reported " + payload.cwd + ", expected the gated checkout " + gated);
 check(hookLines.length === 1, "expected exactly one gated tool call, saw " + hookLines.length);
+// A harness that rejects the hook envelope still runs the tool, which would make
+// the decision advisory. The Codex client reports that case explicitly, so it is
+// asserted here and again per scenario instead of being assumed away.
+const hookOutcomes = transcript.hook_outcomes ?? {};
+if (harness === "codex") {
+  check(hookOutcomes.failed === 0, "the harness rejected the gate's hook output");
+}
 
 // Zero infrastructure repair: one model call, and it is the synthetic probe.
 check(callIds.length === 1, "expected one tool call from the model, saw " + callIds.length);
-check(toolUses.every((call) => call.name === "Bash"), "the model used a tool other than Bash");
+check(toolUses.every((call) => call.name === shellTool), "the model used a tool other than " + shellTool);
 check(toolUses.every((call) => call.command === probeCommand), "the model issued an unexpected command: " + toolUses.map((call) => call.command).join(", "));
 check(dirtyAffected === "", "the affected checkout was modified: " + dirtyAffected);
 check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeighbour);
@@ -401,7 +625,7 @@ check(real(ledger.path ?? "") === real(expectedLedger), "the gate keyed " + ledg
 
 if (mode === "deferral") {
   const waited = Number((reason.match(/settled after ([0-9.]+)s/) ?? [])[1] ?? 0);
-  check(hookSpecific.permissionDecision === "allow", "the gate decided " + hookSpecific.permissionDecision + ": " + reason);
+  allows();
   check(/settled after [0-9.]+s; the tool may run now/.test(reason), "the deferral was not reported: " + reason);
   check(waited >= 1, "the enforced wait was too short to prove a deferral: " + waited + "s");
   check(entry?.state === "granted", "the continuation ledger recorded " + entry?.state);
@@ -414,6 +638,10 @@ if (mode === "deferral") {
   check(affectedAfter.phase === "stable", "the affected phase is " + affectedAfter.phase);
   check(Number(transcript.duration_ms) >= waited * 1000, "the run (" + transcript.duration_ms + "ms) was shorter than the enforced wait");
   check(Number(transcript.duration_api_ms) < 2000, "the wait consumed model time: " + transcript.duration_api_ms + "ms of API time");
+  if (harness === "codex") {
+    check(hookOutcomes.completed === 1, "the harness recorded " + hookOutcomes.completed + " completed hook decisions");
+    check(Number(transcript.num_turns) === 2, "the wait consumed " + transcript.num_turns + " model requests");
+  }
 } else if (mode === "refusal") {
   check(hookSpecific.permissionDecision === "deny", "the gate decided " + hookSpecific.permissionDecision + ": " + reason);
   check(/still starting after waiting [0-9.]+s/.test(reason), "the refusal did not name the phase: " + reason);
@@ -432,8 +660,12 @@ if (mode === "deferral") {
   check(resultFor(callIds[0])?.hasError === true, "the refusal was not delivered as an errored tool result");
   check(/still starting/.test(resultFor(callIds[0])?.text ?? ""), "the refusal reason did not reach the model");
   check(affectedAfter.phase === "starting", "the affected phase is " + affectedAfter.phase);
+  if (harness === "codex") {
+    check(hookOutcomes.blocked === 1, "the harness recorded " + hookOutcomes.blocked + " blocked hook decisions");
+    check(hookOutcomes.completed === 0, "a refused call also reported a completed hook decision");
+  }
 } else if (mode === "neighbour") {
-  check(hookSpecific.permissionDecision === "allow", "the gate decided " + hookSpecific.permissionDecision + ": " + reason);
+  allows();
   check(reason === "devrouter: environment settled.", "the neighbour call was not allowed immediately: " + reason);
   check(entries.length === 0, "the neighbour call was gated: " + JSON.stringify(entries));
   check(denials.length === 0, "the harness recorded a permission denial: " + JSON.stringify(denials));
@@ -446,6 +678,9 @@ if (mode === "deferral") {
   check(gateProbe.reason === "settled", "the direct probe reason was " + gateProbe.reason);
   check(gateProbe.observedPhase === "stable", "the direct probe observed " + gateProbe.observedPhase);
   check(Number(gateProbe.waitedMs) < 1000, "the direct probe waited " + gateProbe.waitedMs + "ms");
+  if (harness === "codex") {
+    check(hookOutcomes.completed === 1, "the harness recorded " + hookOutcomes.completed + " completed hook decisions");
+  }
 } else {
   failures.push("unknown scenario: " + mode);
 }
@@ -454,8 +689,13 @@ console.log(
   JSON.stringify({
     scenario: mode,
     label,
+    harness,
     gated,
     permissionDecision: hookSpecific.permissionDecision,
+    hookEnvelope: {
+      permissionDecision: hookSpecific.permissionDecision ?? null,
+      additionalContext: hookSpecific.additionalContext ?? null,
+    },
     reason,
     payloadCwd: payload.cwd,
     toolUseId: payload.tool_use_id,
@@ -463,10 +703,12 @@ console.log(
       ? { state: entry.state, phase: entry.phase, budgetMs: entry.budgetMs, waitedMs: entry.waitedMs }
       : null,
     harness: {
+      name: harness,
       numTurns: transcript.num_turns,
       durationMs: transcript.duration_ms,
       durationApiMs: transcript.duration_api_ms,
       denials: denials.map((denial) => denial.tool_input?.command ?? denial.tool_name),
+      hookOutcomes,
     },
     calls: toolUses.map((call) => ({ id: call.id, command: call.command })),
     toolExecuted: executed,
@@ -490,6 +732,77 @@ if (failures.length) process.exit(1);
 ASSERT_EOF
 
 journal() { HOME="$HOME_DIR" DR_JOURNEY_SRC="$ROOT/src/core" "$TSX" "$JOURNAL" "$@"; }
+cat > "$CODEX_SUMMARY" <<'CODEX_SUMMARY_EOF'
+// Normalize one Codex CLI run into the transcript shape the journey assertions
+// read, so both harnesses answer the same questions.
+//
+// The Codex CLI prints no JSON transcript of its own, so each field maps to a
+// real artifact: the exit status of the harness process, the wall clock measured
+// around it, the model requests the mock served (its own service time), and the
+// blocked-hook lines from the harness log. Nothing is inferred from the product's
+// own output, and the gate's ledger and journal evidence stay the primary proof.
+import fs from "node:fs";
+
+const work = process.argv[2];
+const label = process.argv[3];
+const read = (name) => {
+  const target = work + "/" + name;
+  return fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
+};
+
+const exitCode = Number(process.env.DR_CODEX_EXIT ?? "1");
+const startedMs = Number(process.env.DR_CODEX_STARTED_MS ?? "0");
+const endedMs = Number(process.env.DR_CODEX_ENDED_MS ?? "0");
+const harnessLog = read("codex-" + label + ".err");
+const requests = read("api-requests-" + label + ".jsonl")
+  .trim()
+  .split("\n")
+  .filter(Boolean)
+  .map((line) => JSON.parse(line));
+
+const blockedPrefix = "Command blocked by PreToolUse hook: ";
+const commandMarker = ". Command: ";
+const permission_denials = [];
+for (const line of harnessLog.split("\n")) {
+  const at = line.indexOf(blockedPrefix);
+  if (at < 0) continue;
+  const rest = line.slice(at + blockedPrefix.length);
+  const cut = rest.lastIndexOf(commandMarker);
+  if (cut < 0) continue;
+  permission_denials.push({
+    tool_name: "Bash",
+    tool_input: { command: rest.slice(cut + commandMarker.length).trim() },
+    reason: rest.slice(0, cut),
+  });
+}
+
+const answered = requests.some((request) => request.kind === "message");
+console.log(
+  JSON.stringify({
+    harness: "codex",
+    exitCode,
+    is_error: exitCode !== 0,
+    subtype: exitCode === 0 ? "success" : "error:exit-" + exitCode,
+    terminal_reason: exitCode === 0 && answered ? "completed" : "incomplete",
+    duration_ms: endedMs - startedMs,
+    duration_api_ms: requests.reduce((total, request) => total + Number(request.tookMs ?? 0), 0),
+    num_turns: requests.length,
+    permission_denials,
+    hook_outcomes: {
+      // The harness reports how it resolved the gate's output. "Failed" is the
+      // outcome this adapter exists to avoid: the client ran the tool but
+      // rejected the hook envelope, which would make the decision advisory.
+      completed: harnessLog.split("\n").filter((line) => line.includes("hook: PreToolUse Completed")).length,
+      blocked: harnessLog.split("\n").filter((line) => line.includes("hook: PreToolUse Blocked")).length,
+      failed: harnessLog.split("\n").filter((line) => line.includes("hook: PreToolUse Failed")).length,
+    },
+    harness_failures: harnessLog
+      .split("\n")
+      .filter((line) => line.includes("hook: PreToolUse Failed")),
+  }),
+);
+CODEX_SUMMARY_EOF
+
 
 run_scenario() {
   local mode="$1" budget="$2"
@@ -532,17 +845,42 @@ run_scenario() {
 
   # A harness failure must not end the run under set -e: the work directory is
   # kept on failure on purpose, and the assertions print what actually happened.
-  if ! (
-    cd "$gated" &&
-      HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
-      DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
-      ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
-      "$CLAUDE" -p "Run exactly this command with the Bash tool, then stop: $probe_command" \
-        --output-format json --max-turns 3 --allowedTools "Bash(echo:*)" \
-        --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
-  ); then
-    echo "the harness run for '$label' failed; see $WORK/claude-$label.err" >&2
-    FAILED=1
+  if [ "$HARNESS" = "codex" ]; then
+    local started_ms ended_ms exit_code
+    started_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    set +e
+    (
+      cd "$gated" &&
+        HOME="$HOME_DIR" CODEX_HOME="$HOME_DIR" JOURNEY_API_KEY=journey \
+        DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        "$CODEX" exec --skip-git-repo-check --sandbox workspace-write -C "$gated" \
+          --dangerously-bypass-hook-trust \
+          "Run exactly this command with the shell tool, then stop: $probe_command" \
+          < /dev/null > "$WORK/codex-$label.out" 2> "$WORK/codex-$label.err"
+    )
+    exit_code=$?
+    set -e
+    ended_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    if [ "$exit_code" != "0" ]; then
+      echo "the harness run for '$label' exited $exit_code; see $WORK/codex-$label.err" >&2
+      FAILED=1
+    fi
+    DR_CODEX_EXIT="$exit_code" DR_CODEX_STARTED_MS="$started_ms" DR_CODEX_ENDED_MS="$ended_ms" \
+      "$NODE" "$CODEX_SUMMARY" "$WORK" "$label" > "$WORK/codex-$label.json"
+  else
+    if ! (
+      cd "$gated" &&
+        HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+        "$CLAUDE" -p "Run exactly this command with the Bash tool, then stop: $probe_command" \
+          --output-format json --max-turns 3 --allowedTools "Bash(echo:*)" \
+          --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+    ); then
+      echo "the harness run for '$label' failed; see $WORK/claude-$label.err" >&2
+      FAILED=1
+    fi
   fi
   if [ -n "$settle_pid" ]; then wait "$settle_pid" || true; fi
 
@@ -561,9 +899,12 @@ run_scenario() {
       < "$WORK/neighbour-probe-payload.json" > "$WORK/neighbour-probe.json" 2> "$WORK/neighbour-probe.err" || FAILED=1
   fi
 
-  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$mode" "$label" "$WORK" "$AFFECTED" "$NEIGHBOUR" "$probe_command" || FAILED=1
+  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$mode" "$label" "$WORK" "$AFFECTED" \
+    "$NEIGHBOUR" "$probe_command" "$HARNESS" > "$WORK/assert-$mode.json" || FAILED=1
+  cat "$WORK/assert-$mode.json"
 }
 
+echo "--- harness: $HARNESS"
 echo "--- scenario 1: a transitioning checkout defers the tool call until it settles"
 run_scenario deferral 30000
 echo "--- scenario 2: a transition that outlasts the budget is refused once, with recovery guidance"

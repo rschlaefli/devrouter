@@ -34,6 +34,14 @@ type HarnessHookPayload = {
   cwd?: unknown;
 };
 
+/**
+ * The hook envelope differs between agent harnesses. Claude Code accepts
+ * permissionDecision allow or deny; Codex honors deny but reports an allow
+ * decision as an unsupported hook output, so an allowed call there is expressed
+ * as an ordinary completion, optionally carrying additional context.
+ */
+export type HarnessHookKind = "claude" | "codex";
+
 export type HarnessGateDependencies = {
   stdin?: () => Promise<string>;
   observe?: (repoRoot: string) => HarnessGateObservation;
@@ -61,6 +69,16 @@ export type HarnessContinuationClaimInput = {
   phase: string;
   budgetMs: number;
 };
+
+/**
+ * Identify the harness from its payload, so the same harness gate command works
+ * in either one with no repository configuration. Claude Code delivers a
+ * prompt_id; Codex delivers a per-turn turn_id.
+ */
+export function detectHarnessHook(payload: Record<string, unknown>): HarnessHookKind {
+  const turnId = payload.turn_id;
+  return typeof turnId === "string" && turnId.length > 0 ? "codex" : "claude";
+}
 
 function readStdin(): Promise<string> {
   if (process.stdin.isTTY) {
@@ -119,11 +137,34 @@ function permitReason(decision: HarnessGateDecision): string {
   }
 }
 
-function hookOutput(decision: HarnessGateDecision): string {
+/**
+ * Render the hook decision in the requesting harness's accepted shape. A
+ * refusal is a deny in both. An allowed call is permissionDecision allow for
+ * Claude Code; Codex rejects that value, so it receives a bare completion and
+ * the settled guidance travels as additionalContext.
+ */
+function hookOutput(decision: HarnessGateDecision, kind: HarnessHookKind): string {
+  if (decision.decision === "refuse") {
+    return JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: permitReason(decision),
+      },
+    });
+  }
+  if (kind === "codex") {
+    return JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: permitReason(decision),
+      },
+    });
+  }
   return JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
-      permissionDecision: decision.decision === "refuse" ? "deny" : "allow",
+      permissionDecision: "allow",
       permissionDecisionReason: permitReason(decision),
     },
   });
@@ -158,6 +199,8 @@ export async function runHarnessCommand(
   const observe = dependencies.observe ?? readHarnessGateObservation;
   const raw = await (dependencies.stdin ?? readStdin)();
 
+  // The requesting harness decides the accepted output envelope.
+  let kind: HarnessHookKind = "claude";
   let payload: HarnessHookPayload | undefined;
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -167,16 +210,22 @@ export async function runHarnessCommand(
   }
   if (!payload) {
     const decision = gateDecision("allow", "hook-payload-invalid");
-    process.stdout.write(json ? `${JSON.stringify(decision)}\n` : `${hookOutput(decision)}\n`);
+    process.stdout.write(
+      json ? `${JSON.stringify(decision)}\n` : `${hookOutput(decision, kind)}\n`,
+    );
     return;
   }
+
+  kind = detectHarnessHook(payload);
 
   const toolName = typeof payload.tool_name === "string" ? payload.tool_name : "";
   const toolInput = isRecord(payload.tool_input) ? payload.tool_input : {};
   const command = typeof toolInput.command === "string" ? toolInput.command : "";
   if (toolName === "Bash" && DEVROUTER_COMMAND_RE.test(command)) {
     const decision = gateDecision("allow", "devrouter-command");
-    process.stdout.write(json ? `${JSON.stringify(decision)}\n` : `${hookOutput(decision)}\n`);
+    process.stdout.write(
+      json ? `${JSON.stringify(decision)}\n` : `${hookOutput(decision, kind)}\n`,
+    );
     return;
   }
 
@@ -186,7 +235,9 @@ export async function runHarnessCommand(
   const repoRoot = sessionCwd ? findHarnessGateRepoRoot(sessionCwd) : undefined;
   if (!repoRoot) {
     const decision = gateDecision("allow", "unmanaged-checkout");
-    process.stdout.write(json ? `${JSON.stringify(decision)}\n` : `${hookOutput(decision)}\n`);
+    process.stdout.write(
+      json ? `${JSON.stringify(decision)}\n` : `${hookOutput(decision, kind)}\n`,
+    );
     return;
   }
 
@@ -262,7 +313,7 @@ export async function runHarnessCommand(
       process.stdout.write(
         json
           ? `${JSON.stringify({ ...decision, checkout: repoRoot })}\n`
-          : `${hookOutput(decision)}\n`,
+          : `${hookOutput(decision, kind)}\n`,
       );
       return;
     }
@@ -321,6 +372,8 @@ export async function runHarnessCommand(
     );
   }
   process.stdout.write(
-    json ? `${JSON.stringify({ ...decision, checkout: repoRoot })}\n` : `${hookOutput(decision)}\n`,
+    json
+      ? `${JSON.stringify({ ...decision, checkout: repoRoot })}\n`
+      : `${hookOutput(decision, kind)}\n`,
   );
 }
