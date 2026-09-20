@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { classifyManagedMountNesting, parseMountinfoDestinations } from "../managed-mount-nesting";
+import { spawnSync } from "node:child_process";
+import { describe, expect, it, vi } from "vitest";
+import {
+  classifyManagedMountNesting,
+  observeManagedMountNesting,
+  parseMountinfoDestinations,
+} from "../managed-mount-nesting";
+
+vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
 const WORKSPACE = {
   Type: "bind",
@@ -112,5 +119,42 @@ describe("classifyManagedMountNesting", () => {
     expect(observation.checked).toEqual([]);
     expect(observation.unwound).toEqual([]);
     expect(observation.reason).toBeTruthy();
+  });
+});
+
+describe("observeManagedMountNesting", () => {
+  it("reports nothing to check without reading a container that nests no mount", () => {
+    vi.mocked(spawnSync).mockClear();
+    const observation = observeManagedMountNesting({ id: "abc123", mounts: [WORKSPACE] });
+    expect(observation.status).toBe("not-applicable");
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  it("reads the container's own mount table once a configured mount is nested", () => {
+    vi.mocked(spawnSync).mockClear();
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: mountinfoLine("/workspaces/affected"),
+      stderr: "",
+    } as never);
+    const observation = observeManagedMountNesting({
+      id: "abc123",
+      mounts: [WORKSPACE, NODE_MODULES],
+    });
+    expect(vi.mocked(spawnSync).mock.calls[0]?.slice(0, 2)).toEqual([
+      "docker",
+      ["exec", "abc123", "cat", "/proc/self/mountinfo"],
+    ]);
+    expect(observation.status).toBe("unwound");
+  });
+
+  it("reports a refused mount-table read as unverified rather than failing the caller", () => {
+    vi.mocked(spawnSync).mockClear();
+    vi.mocked(spawnSync).mockReturnValue({ status: 90, stdout: "", stderr: "" } as never);
+    const observation = observeManagedMountNesting({
+      id: "abc123",
+      mounts: [WORKSPACE, NODE_MODULES],
+    });
+    expect(observation.status).toBe("unverified");
   });
 });

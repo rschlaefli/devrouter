@@ -43,6 +43,20 @@ export function parseMountinfoDestinations(text: string): string[] {
 }
 
 /**
+ * Whether the configured mount at this index sits inside another configured
+ * mount, and can therefore be unwound while `docker inspect` keeps reporting it.
+ */
+function isNestedIndex(destinations: string[], index: number): boolean {
+  return destinations.some(
+    (candidate, other) => other !== index && isNestedWithin(destinations[index] ?? "", candidate),
+  );
+}
+
+function configuredDestinations(configured: ConfiguredMount[]): string[] {
+  return configured.map((mount) => normalizeDestination(mount.Destination));
+}
+
+/**
  * Compare each nested configured mount with the mount table the container's
  * own namespace reports. Only nested mounts are compared, because that is the
  * shape the host file-sharing layer can unwind while `docker inspect` keeps
@@ -54,12 +68,8 @@ export function classifyManagedMountNesting(
   effectiveDestinations: string[] | null,
   containerId?: string,
 ): ManagedMountNesting {
-  const destinations = configured.map((mount) => normalizeDestination(mount.Destination));
-  const nested = configured.filter((_mount, index) =>
-    destinations.some(
-      (candidate, other) => other !== index && isNestedWithin(destinations[index] ?? "", candidate),
-    ),
-  );
+  const destinations = configuredDestinations(configured);
+  const nested = configured.filter((_mount, index) => isNestedIndex(destinations, index));
   const identity = containerId ? { container: containerId } : {};
   if (nested.length === 0) {
     return { status: "not-applicable", checked: [], unwound: [], reason: NESTED_MOUNT_REASON };
@@ -125,9 +135,11 @@ export function observeManagedMountNesting(
   container: Pick<WorkspaceContainerSnapshot, "id" | "mounts">,
   options: { timeoutMs?: number } = {},
 ): ManagedMountNesting {
-  return classifyManagedMountNesting(
-    container.mounts,
-    readContainerMountinfo(container.id, options),
-    container.id,
-  );
+  const destinations = configuredDestinations(container.mounts);
+  // Only a nested mount can be unwound, so a container that configures none
+  // reports not-applicable without a read it could not use.
+  const effective = destinations.some((_destination, index) => isNestedIndex(destinations, index))
+    ? readContainerMountinfo(container.id, options)
+    : null;
+  return classifyManagedMountNesting(container.mounts, effective, container.id);
 }
