@@ -11,7 +11,10 @@
  *            Traefik and TLS stack, starts the shipped controller with an
  *            isolated home over a synthetic provider fixture, acquires one
  *            session, and records the pre-suspend state together with the
- *            machine's own power log. It then prints how to suspend.
+ *            machine's own power log. The session stays live because the
+ *            fixture keeps renewing it, exactly as a watching consumer would,
+ *            until the suspend interrupts that heartbeat. It then prints how
+ *            to suspend.
  *   verify   reads that record, requires a real Sleep/Wake pair from the
  *            machine's own power log that happened after prepare, and only then
  *            asserts what the wake produced: the pre-suspend session was
@@ -40,7 +43,8 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { updateReliabilityOperation } from "../src/core/reliability-operation-store";
+import { createReliabilityState } from "../src/core/reliability-contract";
+import type { ReliabilityOperationRecord } from "../src/core/reliability-operation-store";
 
 const ROOT = process.cwd();
 const NODE = process.execPath;
@@ -52,7 +56,9 @@ const CHECKPOINT = path.join(WORK, "checkpoint.json");
 const RECEIPT = path.join(WORK, "receipt.json");
 const LIVE_HOST = "host-suspend.localhost";
 const LIVE_APP = "web";
-const LIVE_PROJECT = "devrouter-host-suspend-live";
+// Traefik's docker router namespace is machine-global, so the fixture claims its
+// own router id instead of colliding with another checkout's "web" app.
+const LIVE_ROUTER = "hostsuspend-fixture";
 const SESSION = "suspend";
 
 type PowerEvent = { kind: "sleep" | "wake"; atMs: number; line: string };
@@ -116,6 +122,9 @@ function command(
     cwd: options.cwd ?? ROOT,
     env: options.env ?? process.env,
     encoding: "utf8",
+    // The machine's power log is the one command here whose output runs past
+    // the 1 MiB spawn default, so the bound is raised for every fixture call.
+    maxBuffer: 64 * 1024 * 1024,
     timeout: 120_000,
   });
   if (result.status !== 0 && !options.allowFailure) {
@@ -131,9 +140,13 @@ function cli(args: string[], options: { env?: NodeJS.ProcessEnv; allowFailure?: 
 
 function cliJson(args: string[], env?: NodeJS.ProcessEnv): Record<string, unknown> {
   const result = cli([...args, "--json"], env ? { env } : {});
-  const line = result.stdout.trim().split("\n").filter(Boolean).at(-1) ?? "";
-  if (!line) throw new Error(`devrouter ${args.join(" ")} printed no result.`);
-  return JSON.parse(line) as Record<string, unknown>;
+  // Commands print either one compact line or one indented document, so the
+  // document starts at the first line that opens a JSON value.
+  const lines = result.stdout.split("\n");
+  const start = lines.findIndex((line) => /^[[{]/.test(line.trim()));
+  const text = start === -1 ? "" : lines.slice(start).join("\n").trim();
+  if (!text) throw new Error(`devrouter ${args.join(" ")} printed no result.`);
+  return JSON.parse(text) as Record<string, unknown>;
 }
 
 type Binding = { session: string; store: string; epoch: number; generation: string };
@@ -175,6 +188,35 @@ function fileSha256(file: string): string {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * The controller home is a fixture, so its reliability journal is written
+ * straight into that home. The product's own writer resolves its directory from
+ * the harness process home and would place the record in the operator's real
+ * machine state, while the record shape still comes from the product contract
+ * so the fixture controller reads exactly what it expects.
+ */
+function writeFixtureJournal(home: string, checkout: string) {
+  const directory = path.join(home, ".config", "devrouter", "reliability");
+  const file = path.join(directory, `${sha256(checkout)}.json`);
+  if (!file.startsWith(`${home}${path.sep}`))
+    fail(`refusing to write a fixture journal outside ${home}.`);
+  const record: ReliabilityOperationRecord = {
+    version: 1,
+    identity: { repoPath: checkout, workspace: "fixture", provider: "devsy" },
+    revision: 0,
+    state: {
+      ...createReliabilityState(sha256(checkout), 0, "manual"),
+      desired: "running",
+      phase: "stable",
+    },
+    worker: null,
+    effectSequence: 0,
+    outcome: null,
+  };
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, `${JSON.stringify(record)}\n`, { mode: 0o600 });
 }
 
 /** The machine's own power log is the only accepted suspend evidence. */
@@ -220,6 +262,18 @@ function liveRouteUrl(): string {
   return "";
 }
 
+/** The fixture's own compose working directory is its machine identity. */
+function liveLabelFilter(): string {
+  return `label=com.docker.compose.project.working_dir=${path.join(WORK, "live")}`;
+}
+
+function liveContainers(): string[] {
+  const result = command("docker", ["ps", "-aq", "--filter", liveLabelFilter()], {
+    allowFailure: true,
+  });
+  return (result.stdout ?? "").trim().split("\n").filter(Boolean);
+}
+
 function liveContainer(): string {
   const result = command(
     "docker",
@@ -227,22 +281,13 @@ function liveContainer(): string {
       "ps",
       "-aq",
       "--filter",
-      `label=com.docker.compose.project=${LIVE_PROJECT}`,
+      liveLabelFilter(),
       "--filter",
       "label=com.docker.compose.service=web",
     ],
     { allowFailure: true },
   );
   return (result.stdout ?? "").trim().split("\n").filter(Boolean)[0] ?? "";
-}
-
-function liveContainers(): string[] {
-  const result = command(
-    "docker",
-    ["ps", "-aq", "--filter", `label=com.docker.compose.project=${LIVE_PROJECT}`],
-    { allowFailure: true },
-  );
-  return (result.stdout ?? "").trim().split("\n").filter(Boolean);
 }
 
 function liveComposeFiles(container: string): string {
@@ -281,7 +326,69 @@ function releaseLiveFixture(checkpoint: Checkpoint) {
   });
 }
 
-async function stopController(pid: number) {
+/** The session lease only lasts 30 seconds, so a live consumer must renew. */
+const HEARTBEAT_MS = 10_000;
+
+/**
+ * Renewal runs in its own detached process: the operator suspends minutes after
+ * prepare, so without this heartbeat the lease would simply expire long before
+ * the sleep and the wake would prove nothing about continuity. The renewer
+ * stops on the first refused renewal, which is what a client sees after a wake.
+ */
+const HEARTBEAT_SOURCE = [
+  "const { execFileSync } = require('node:child_process');",
+  "const spec = JSON.parse(process.env.DR_HS_RENEW);",
+  "const args = [",
+  "  spec.dist, 'controller', 'renew',",
+  "  '--session', spec.session, '--store', spec.store,",
+  "  '--epoch', String(spec.epoch), '--generation', spec.generation, '--json',",
+  "];",
+  "const env = { HOME: spec.home, PATH: spec.path, LC_ALL: 'C', NODE_OPTIONS: '', DOCKER_HOST: spec.dockerHost };",
+  "const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));",
+  "process.on('SIGTERM', () => process.exit(0));",
+  "(async () => {",
+  "  for (;;) {",
+  "    try {",
+  "      execFileSync(spec.node, args, { env, encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] });",
+  "      process.stdout.write(new Date().toISOString() + ' renewed ' + spec.session + '\\n');",
+  "    } catch (error) {",
+  "      const cause = String((error && error.message) || error).split('\\n')[0];",
+  "      process.stdout.write(new Date().toISOString() + ' renew refused: ' + cause + '\\n');",
+  "      process.exit(0);",
+  "    }",
+  "    await sleep(spec.intervalMs);",
+  "  }",
+  "})();",
+].join("\n");
+
+function startHeartbeat(binding: Binding, home: string, bin: string): void {
+  const log = fs.openSync(path.join(WORK, "heartbeat.log"), "a");
+  const child = spawn(NODE, ["-e", HEARTBEAT_SOURCE, "devrouter-host-suspend-heartbeat", DIST], {
+    env: {
+      ...process.env,
+      DR_HS_RENEW: JSON.stringify({
+        node: NODE,
+        dist: DIST,
+        home,
+        path: `${bin}:/usr/bin:/bin`,
+        dockerHost: `unix://${WORK}/absent.sock`,
+        session: binding.session,
+        store: binding.store,
+        epoch: binding.epoch,
+        generation: binding.generation,
+        intervalMs: HEARTBEAT_MS,
+      }),
+    },
+    detached: true,
+    stdio: ["ignore", log, log],
+  });
+  child.unref();
+  const pid = child.pid ?? 0;
+  if (!pid) fail("the fixture heartbeat did not start.");
+  fs.writeFileSync(path.join(WORK, "heartbeat.pid"), String(pid));
+}
+
+async function stopProcess(pid: number) {
   try {
     process.kill(pid, "SIGTERM");
   } catch {
@@ -299,29 +406,32 @@ async function stopController(pid: number) {
   try {
     process.kill(pid, "SIGKILL");
   } catch {
-    // The controller stopped between the probe and the signal.
+    // The process stopped between the probe and the signal.
   }
+}
+
+/** A recorded pid is signalled only after its command line proves it is ours. */
+async function stopOwnedPid(pidFile: string, marker: string[]) {
+  if (!fs.existsSync(pidFile)) return;
+  const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+  if (!Number.isSafeInteger(pid) || pid <= 1) return;
+  const probe = command("/bin/ps", ["-o", "command=", "-p", String(pid)], { allowFailure: true });
+  const line = `${probe.stdout ?? ""}`;
+  if (!marker.every((part) => line.includes(part))) return;
+  await stopProcess(pid);
 }
 
 /**
  * A half-finished run owns this scratch root, so preparing again clears it. The
- * pid is only signalled after its command line proves it is this cell's
- * controller; a reused pid never becomes a kill target.
+ * recorded pids are only signalled after their command lines prove they are
+ * this cell's processes; a reused pid never becomes a kill target.
  */
 async function resetWorkRoot() {
   if (!fs.existsSync(WORK)) return;
   if (!path.basename(WORK).startsWith("dr-host-suspend"))
     fail(`refusing to reuse ${WORK}; this cell only owns its own scratch root.`);
-  const pidFile = path.join(WORK, "controller.pid");
-  if (fs.existsSync(pidFile)) {
-    const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
-    const probe =
-      Number.isSafeInteger(pid) && pid > 1
-        ? command("/bin/ps", ["-o", "command=", "-p", String(pid)], { allowFailure: true })
-        : undefined;
-    const line = `${probe?.stdout ?? ""}`;
-    if (line.includes(DIST) && line.includes("controller run")) await stopController(pid);
-  }
+  await stopOwnedPid(path.join(WORK, "heartbeat.pid"), ["devrouter-host-suspend-heartbeat", DIST]);
+  await stopOwnedPid(path.join(WORK, "controller.pid"), [DIST, "controller run"]);
   const live = path.join(WORK, "live");
   if (fs.existsSync(live))
     cli(["app", "rm", LIVE_APP, "--repo", live, "--keep-config"], { allowFailure: true });
@@ -342,6 +452,8 @@ async function resetWorkRoot() {
     "live",
     "controller.pid",
     "controller.log",
+    "heartbeat.pid",
+    "heartbeat.log",
     "provider-calls.jsonl",
     "unexpected-provider-call.jsonl",
   ])
@@ -413,8 +525,6 @@ async function startLiveFixture(live: string, ca: string) {
     path.join(live, ".devrouter.yml"),
     [
       "version: 1",
-      "project:",
-      `  name: ${LIVE_PROJECT}`,
       "apps:",
       `  - name: ${LIVE_APP}`,
       `    host: ${LIVE_HOST}`,
@@ -423,6 +533,7 @@ async function startLiveFixture(live: string, ca: string) {
       "    docker:",
       "      service: web",
       "      internalPort: 8080",
+      `      router: ${LIVE_ROUTER}`,
       "      composeFiles:",
       "        - docker-compose.yml",
       "",
@@ -475,15 +586,8 @@ async function prepare() {
   for (const directory of [home, bin, control]) fs.mkdirSync(directory, { recursive: true });
 
   const composeDirectory = path.join(checkout, ".devcontainer");
-  fs.mkdirSync(composeDirectory, { recursive: true });
   const composeFile = path.join(composeDirectory, "compose.yml");
-  fs.writeFileSync(
-    composeFile,
-    "services:\n  app:\n    image: fixture\n  db:\n    image: fixture\n",
-  );
   const source = JSON.stringify({ service: "app", dockerComposeFile: "compose.yml" });
-  fs.writeFileSync(path.join(composeDirectory, "devcontainer.json"), source);
-  fs.writeFileSync(path.join(composeDirectory, "devcontainer.devrouter.json"), source);
   command("git", ["init", "--quiet", control]);
   command("git", [
     "-C",
@@ -497,7 +601,15 @@ async function prepare() {
     "-m",
     "fixture",
   ]);
+  // The worktree has to exist before anything is written inside it.
   command("git", ["-C", control, "worktree", "add", "-b", "fixture", checkout]);
+  fs.mkdirSync(composeDirectory, { recursive: true });
+  fs.writeFileSync(
+    composeFile,
+    "services:\n  app:\n    image: fixture\n  db:\n    image: fixture\n",
+  );
+  fs.writeFileSync(path.join(composeDirectory, "devcontainer.json"), source);
+  fs.writeFileSync(path.join(composeDirectory, "devcontainer.devrouter.json"), source);
   const gitDir = command("git", ["-C", checkout, "rev-parse", "--absolute-git-dir"]).stdout.trim();
   const common = path.join(control, ".git");
   fs.mkdirSync(path.join(common, "devrouter", "workspaces"), { recursive: true });
@@ -558,16 +670,8 @@ async function prepare() {
       updatedAt: new Date().toISOString(),
     }),
   );
-  // Both the observation resolver and the protection evidence read this journal,
-  // so the fixture writes it through the product's own record writer instead of
-  // hand-rolling the path, identity and file mode it has to match.
-  updateReliabilityOperation(
-    { repoPath: checkout, workspace: "fixture", provider: "devsy" },
-    (record) => {
-      record.state.desired = "running";
-      record.state.phase = "stable";
-    },
-  );
+  // Both the observation resolver and the protection evidence read this record.
+  writeFixtureJournal(home, checkout);
   writeStubProviders(bin, {
     checkout,
     composeDirectory,
@@ -614,6 +718,13 @@ async function prepare() {
   }
   if (!connected) fail(`the fixture controller never listened on ${socket}.`);
 
+  // The live fixture comes up before the session is acquired: the lease only
+  // lasts 30 seconds, so no provider work may sit between acquisition and the
+  // pre-suspend reading that follows it.
+  const { token, url, container } = await startLiveFixture(path.join(WORK, "live"), ca);
+  const composeFiles = liveComposeFiles(container);
+  if (!composeFiles) fail("the live fixture container carries no compose file set.");
+
   const observed = cliJson(
     [
       "controller",
@@ -642,17 +753,24 @@ async function prepare() {
   if (!(status.result?.sessions ?? []).some((entry) => entry.id === SESSION))
     fail("the acquired session is absent from the controller snapshot.");
 
-  const { token, url, container } = await startLiveFixture(path.join(WORK, "live"), ca);
-  const composeFiles = liveComposeFiles(container);
-  if (!composeFiles) fail("the live fixture container carries no compose file set.");
   // The last reading before the operator suspends also anchors the grace-window
-  // comparison verify makes, so take it once everything else is in place.
+  // comparison verify makes, so take it once everything else is in place and
+  // keep its own timestamp: the checkpoint is written a heartbeat later.
+  const protectionReadAtMs = Date.now();
   const protection = cliJson(protectionArgs(binding), controllerEnv) as {
     result?: Record<string, unknown>;
   };
   const protectionResult = protection.result ?? {};
   if (typeof protectionResult.continuity !== "string")
     fail("the fixture controller returned no protection reading before the suspend.");
+  // The operator suspends minutes later, so the session needs the same live
+  // heartbeat a watching consumer would send. One full interval proves the
+  // heartbeat, not the just-issued lease, is what keeps it alive.
+  startHeartbeat(binding, home, bin);
+  await delay(HEARTBEAT_MS + 2_000);
+  const heartbeatLog = fs.readFileSync(path.join(WORK, "heartbeat.log"), "utf8");
+  if (!heartbeatLog.includes("renewed"))
+    fail(`the fixture heartbeat produced no renewal: ${heartbeatLog.trim().slice(-200)}`);
   const checkpoint: Checkpoint = {
     schema: "devrouter.host-suspend.checkpoint.v1",
     preparedAtMs: Date.now(),
@@ -670,7 +788,7 @@ async function prepare() {
       session: SESSION,
     },
     protection: {
-      measuredAtMs: Date.now(),
+      measuredAtMs: protectionReadAtMs,
       continuity: String(protectionResult.continuity),
       graceRemainingMs: Number(protectionResult.graceRemainingMs),
       liveConsumers: Number(protectionResult.liveConsumers),
@@ -714,7 +832,6 @@ async function verify() {
     NODE_OPTIONS: "",
     DOCKER_HOST: `unix://${WORK}/absent.sock`,
   } satisfies NodeJS.ProcessEnv;
-  const pid = Number(fs.readFileSync(path.join(WORK, "controller.pid"), "utf8").trim());
   try {
     const binding = checkpoint.controller;
     const status = cliJson(["controller", "status"], controllerEnv) as {
@@ -855,7 +972,11 @@ async function verify() {
     if (recovered) facts.push("the ordinary app-run path recovered the fixture after the wake");
   } finally {
     releaseLiveFixture(checkpoint);
-    await stopController(pid);
+    await stopOwnedPid(path.join(WORK, "heartbeat.pid"), [
+      "devrouter-host-suspend-heartbeat",
+      DIST,
+    ]);
+    await stopOwnedPid(path.join(WORK, "controller.pid"), [DIST, "controller run"]);
   }
 
   const receipt = {
@@ -887,5 +1008,7 @@ async function main() {
 }
 
 void main().catch((error) => {
+  // The failing frame is the whole diagnostic for an unexpected fixture error.
+  if (error instanceof Error && error.stack) process.stderr.write(`${error.stack}\n`);
   fail(error instanceof Error ? error.message : String(error));
 });
