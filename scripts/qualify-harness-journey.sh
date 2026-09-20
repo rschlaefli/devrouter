@@ -33,6 +33,16 @@
 #               the refusal suppressed the side effect instead of only being
 #               rendered in the transcript. This cell runs after the allowed
 #               cell, which proves the tool itself works in this run.
+#   parallel  - the model asks for two shell calls in one turn while the
+#               checkout is transitional. Each call is decided on its own
+#               identity: both wait for the same settlement, both run exactly
+#               once, and neither is refused as a replay of the other. The
+#               ledger must settle every claim the two hooks recorded.
+#   concurrent - two hook processes decide at the same instant for one checkout,
+#               with no harness in the loop, so the overlap is the product
+#               boundary's own: each call waits on its own identity, both settle
+#               as granted, and a harness that serializes its calls cannot hide
+#               a false replay refusal behind its own sequencing.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -42,7 +52,7 @@
 # model turn while waiting, or a moved neighbour all fail the run.
 #
 # DR_JOURNEY_HARNESS selects the harness: claude (default) or codex. Both run the
-# same three scenarios through the same shipped gate. Only the mock protocol, the
+# same scenarios through the same shipped gate. Only the mock protocol, the
 # hook configuration and the harness invocation differ, so a second harness
 # either honors the same product contract or fails the same assertions.
 #
@@ -110,6 +120,8 @@ write_evidence() {
       "interrupted",
       "nonshell-allow",
       "nonshell",
+      "parallel",
+      "concurrent",
     ].map((name) => {
       let asserted = null;
       try {
@@ -204,11 +216,11 @@ cleanup() {
 trap cleanup EXIT
 
 start_mock() {
-  local tool_command="$1" trace="$2" tool_match="${3:-}"
+  local tool_command="$1" trace="$2" tool_match="${3:-}" second_command="${4:-}"
   if [ -n "$MOCK_PID" ]; then kill "$MOCK_PID" >/dev/null 2>&1 || true; fi
   : > "$trace"
   DR_MOCK_PORT="$PORT" DR_MOCK_TRACE="$trace" DR_MOCK_TOOL_COMMAND="$tool_command" \
-    DR_MOCK_TOOL_MATCH="$tool_match" \
+    DR_MOCK_TOOL_MATCH="$tool_match" DR_MOCK_TOOL_COMMAND_2="$second_command" \
     "$NODE" "$MOCK" >> "$WORK/mock.log" 2>&1 &
   MOCK_PID=$!
   for _ in $(seq 1 60); do
@@ -289,6 +301,10 @@ cat > "$HOOK" <<'HOOK_EOF'
 # tool call may run now, must wait, or must be refused once.
 payload="$(cat)"
 printf '%s' "$payload" > "$DR_JOURNEY_HOOK_PAYLOAD"
+# One scenario delivers two calls in a single turn, so every payload is also
+# appended to a records file; the last-payload file keeps its meaning for the
+# scenarios that replay exactly one captured payload.
+printf '%s\n' "$payload" >> "$DR_JOURNEY_HOOK_PAYLOAD.records"
 out=$(printf '%s' "$payload" | "$DR_JOURNEY_NODE" "$DR_JOURNEY_DIST" harness gate --wait-budget-ms "$DR_GATE_BUDGET" 2>>"$DR_JOURNEY_HOOK_LOG.err")
 printf '%s\t%s\t%s\n' "$(date +%s)" "$DR_GATE_BUDGET" "$out" >> "$DR_JOURNEY_HOOK_LOG"
 printf '%s\n' "$out"
@@ -424,6 +440,7 @@ import fs from "node:fs";
 const port = Number(process.env.DR_MOCK_PORT ?? 8791);
 const trace = process.env.DR_MOCK_TRACE;
 const toolCommand = process.env.DR_MOCK_TOOL_COMMAND;
+const secondCommand = process.env.DR_MOCK_TOOL_COMMAND_2 ?? "";
 let requests = 0;
 // A scenario may script a tool the harness advertises instead of a shell
 // command. The request carries the harness's own tool list, so the name is read
@@ -506,35 +523,55 @@ http
       sse(res, "response.created", { type: "response.created", response });
       if (kind === "tool_call") {
         const scripted = matchedTool(parsed);
-        const toolArguments = JSON.stringify(scripted ? {} : { cmd: toolCommand });
-        const item = {
-          type: "function_call",
-          id: "fc_" + requests + "_" + runId,
-          call_id: "call_" + requests + "_" + runId,
-          name: scripted ? scripted.name : "exec_command",
-          ...(scripted?.namespace ? { namespace: scripted.namespace } : {}),
-          arguments: "",
-          status: "in_progress",
-        };
-        const call = {
-          ...item,
-          arguments: toolArguments,
-          status: "completed",
-        };
-        sse(res, "response.output_item.added", { type: "response.output_item.added", output_index: 0, item });
-        sse(res, "response.function_call_arguments.delta", {
-          type: "response.function_call_arguments.delta",
-          item_id: item.id,
-          output_index: 0,
-          delta: toolArguments,
+        // One scenario scripts two shell calls in the same turn, so their hook
+        // processes overlap the same gate. Every other scenario scripts one.
+        const commands = scripted
+          ? [null]
+          : [toolCommand, secondCommand].filter((value) => value !== "");
+        const calls = commands.map((command, index) => {
+          const item = {
+            type: "function_call",
+            id: "fc_" + requests + "_" + index + "_" + runId,
+            call_id: "call_" + requests + "_" + index + "_" + runId,
+            name: scripted ? scripted.name : "exec_command",
+            ...(scripted?.namespace ? { namespace: scripted.namespace } : {}),
+            arguments: "",
+            status: "in_progress",
+          };
+          return {
+            index,
+            item,
+            call: {
+              ...item,
+              arguments: JSON.stringify(scripted ? {} : { cmd: command }),
+              status: "completed",
+            },
+          };
         });
-        sse(res, "response.output_item.done", { type: "response.output_item.done", output_index: 0, item: call });
+        for (const one of calls) {
+          sse(res, "response.output_item.added", {
+            type: "response.output_item.added",
+            output_index: one.index,
+            item: one.item,
+          });
+          sse(res, "response.function_call_arguments.delta", {
+            type: "response.function_call_arguments.delta",
+            item_id: one.item.id,
+            output_index: one.index,
+            delta: one.call.arguments,
+          });
+          sse(res, "response.output_item.done", {
+            type: "response.output_item.done",
+            output_index: one.index,
+            item: one.call,
+          });
+        }
         sse(res, "response.completed", {
           type: "response.completed",
           response: {
             ...response,
             status: "completed",
-            output: [call],
+            output: calls.map((one) => one.call),
             usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
           },
         });
@@ -594,6 +631,7 @@ import fs from "node:fs";
 const port = Number(process.env.DR_MOCK_PORT ?? 8791);
 const trace = process.env.DR_MOCK_TRACE;
 const toolCommand = process.env.DR_MOCK_TOOL_COMMAND;
+const secondCommand = process.env.DR_MOCK_TOOL_COMMAND_2 ?? "";
 let toolTurns = 0;
 
 // A scenario may script a tool the harness advertises instead of a shell
@@ -703,19 +741,22 @@ http
       } else {
         toolTurns += 1;
         const scripted = matchedTool(parsed);
+        // One scenario scripts two shell calls in the same turn, so their hook
+        // processes overlap the same gate. Every other scenario scripts one.
+        const commands = scripted
+          ? [null]
+          : [toolCommand, secondCommand].filter((value) => value !== "");
         message = {
           id,
           type: "message",
           role: "assistant",
           model,
-          content: [
-            {
-              type: "tool_use",
-              id: "toolu_" + Math.random().toString(36).slice(2, 10),
-              name: scripted ? scripted.name : "Bash",
-              input: scripted ? {} : { command: toolCommand, description: "journey" },
-            },
-          ],
+          content: commands.map((command) => ({
+            type: "tool_use",
+            id: "toolu_" + Math.random().toString(36).slice(2, 10),
+            name: scripted ? scripted.name : "Bash",
+            input: scripted ? {} : { command, description: "journey" },
+          })),
           stop_reason: "tool_use",
           usage: { input_tokens: 10, output_tokens: 5 },
         };
@@ -867,6 +908,62 @@ if (mode === "interrupted") {
   process.exit(0);
 }
 
+// Two hook processes that decide at the same instant for one checkout: the
+// overlap is the product boundary's own, so the ledger must hold one granted
+// claim per call and no call may be refused as a replay of the other.
+if (mode === "concurrent") {
+  const payloadA = readJson("hook-payload-" + label + "-a.json") ?? {};
+  const payloadB = readJson("hook-payload-" + label + "-b.json") ?? {};
+  const decisionA = readJson("gate-" + label + "-a.json") ?? {};
+  const decisionB = readJson("gate-" + label + "-b.json") ?? {};
+  const announcedA = (read("gate-" + label + "-a.err").match(/deferring this tool call/g) ?? []).length;
+  const announcedB = (read("gate-" + label + "-b.err").match(/deferring this tool call/g) ?? []).length;
+  const ids = [payloadA.tool_use_id, payloadB.tool_use_id];
+  const claims = entries.filter((candidate) => ids.includes(candidate.toolUseId));
+  check(
+    announcedA === 1 && announcedB === 1,
+    "the two hooks announced " + announcedA + " and " + announcedB + " waits",
+  );
+  check(new Set(ids).size === 2, "the two hooks used the same tool_use_id");
+  for (const [name, decision] of [["a", decisionA], ["b", decisionB]]) {
+    check(decision.decision === "deferred-allow", "call " + name + " decided " + decision.decision);
+    check(decision.reason === "settled-after-wait", "call " + name + " reported " + decision.reason);
+    check(Number(decision.waitedMs) >= 1000, "call " + name + " waited " + decision.waitedMs + "ms");
+    check(real(decision.checkout ?? "") === real(affected), "call " + name + " ran against " + decision.checkout);
+  }
+  check(claims.length === 2, "the ledger recorded " + claims.length + " of two overlapping waits");
+  check(
+    claims.every((claim) => claim.state === "granted"),
+    "an overlapping call settled as " + claims.map((claim) => claim.state).join(","),
+  );
+  check(affectedAfter.phase === "stable", "the affected phase is " + affectedAfter.phase);
+  check(dirtyAffected === "", "the affected checkout was modified: " + dirtyAffected);
+  check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeighbour);
+  check(neighbourBefore.sha256 === neighbourAfter.sha256, "the neighbour lifecycle record changed");
+  check(
+    !fs.existsSync(work + "/probe-concurrent.marker"),
+    "the gate ran a command instead of deciding it",
+  );
+  console.log(
+    JSON.stringify({
+      scenario: mode,
+      label,
+      announcedWaits: { a: announcedA, b: announcedB },
+      decisions: [decisionA, decisionB].map((decision) => ({
+        decision: decision.decision,
+        reason: decision.reason,
+        waitedMs: decision.waitedMs,
+        observations: decision.observations,
+      })),
+      claims: claims.map((claim) => ({ id: claim.toolUseId, state: claim.state, waitedMs: claim.waitedMs })),
+      checkoutsClean: dirtyAffected === "" && dirtyNeighbour === "",
+      failures,
+    }),
+  );
+  if (failures.length) process.exit(1);
+  process.exit(0);
+}
+
 // A tool call that is not a shell command travels the same decision path: the
 // hook must observe the MCP tool, allow it once the checkout settles, and refuse
 // it while the checkout is transitional with that refusal reaching the model.
@@ -874,6 +971,83 @@ if (mode === "interrupted") {
 // file states are the side-effect evidence rather than a second reading of the
 // transcript. The allowed cell runs first, so the refusal cell is read against a
 // tool this run just observed to work.
+if (mode === "parallel") {
+  const records = read("hook-payload-" + label + ".json.records")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  const decisions = hookLines.map((line) => {
+    const fields = line.split("\t");
+    const output = fields[2] ? JSON.parse(fields[2]) : {};
+    return output.hookSpecificOutput ?? {};
+  });
+  // Each hook process announces its own deferral once, and announces it after
+  // observing a transitional phase, so this count is the number of calls that
+  // really entered the wait instead of the number the mock scripted.
+  const announced = (read("hook-gate-" + label + ".log.err").match(/deferring this tool call/g) ?? []).length;
+  const ids = records.map((record) => record.tool_use_id);
+  const claims = entries.filter((candidate) => ids.includes(candidate.toolUseId));
+  const markerA = read("probe-parallel-a.marker");
+  const markerB = read("probe-parallel-b.marker");
+  const hookOutcomes = transcript.hook_outcomes ?? {};
+  check(transcript.is_error !== true && transcript.subtype === "success", "the harness run reported an error");
+  check(transcript.terminal_reason === "completed", "the harness run did not finish: " + transcript.terminal_reason);
+  check(hookLines.length === 2, "the gate decided " + hookLines.length + " calls instead of two");
+  check(records.length === 2, "the hook received " + records.length + " payloads instead of two");
+  check(callIds.length === 2, "the model issued " + callIds.length + " tool calls instead of two");
+  check(new Set(ids).size === 2, "the two calls carried the same tool_use_id");
+  check(
+    ids.every((id) => typeof id === "string" && id.length > 0),
+    "a hook payload carried no tool_use_id",
+  );
+  check(
+    records.every((record) => real(record.cwd ?? "") === real(affected)),
+    "a hook payload reported a checkout other than the gated one",
+  );
+  check(announced >= 1, "neither call observed the transitional checkout; the positive control did not run");
+  for (const decision of decisions) {
+    check(
+      decision.permissionDecision !== "deny",
+      "a parallel call was refused: " + (decision.permissionDecisionReason ?? decision.additionalContext ?? ""),
+    );
+  }
+  // A call that arrives after the settlement is allowed without a claim, so the
+  // ledger must hold exactly one settled claim per announced wait - and every
+  // one of them must have ended as a grant rather than as a refusal.
+  check(claims.length === announced, "the ledger settled " + claims.length + " of " + announced + " announced waits");
+  check(
+    claims.every((claim) => claim.state === "granted"),
+    "a parallel call settled as " + claims.map((claim) => claim.state).join(","),
+  );
+  check(markerA === "GATE-OK\n", "the first call wrote " + JSON.stringify(markerA));
+  check(markerB === "GATE-OK\n", "the second call wrote " + JSON.stringify(markerB));
+  check(denials.length === 0, "the harness recorded a permission denial: " + JSON.stringify(denials));
+  if (harness === "codex") {
+    check(hookOutcomes.failed === 0, "the harness rejected the gate's hook output");
+    check(hookOutcomes.completed === 2, "the harness recorded " + hookOutcomes.completed + " completed hook decisions");
+  }
+  check(affectedAfter.phase === "stable", "the affected phase is " + affectedAfter.phase);
+  check(dirtyAffected === "", "the affected checkout was modified: " + dirtyAffected);
+  check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeighbour);
+  check(neighbourBefore.sha256 === neighbourAfter.sha256, "the neighbour lifecycle record changed");
+  console.log(
+    JSON.stringify({
+      scenario: mode,
+      label,
+      harness,
+      announcedWaits: announced,
+      calls: toolUses.map((call) => call.command),
+      claims: claims.map((claim) => ({ id: claim.toolUseId, state: claim.state, waitedMs: claim.waitedMs })),
+      markers: { a: markerA.trim() || null, b: markerB.trim() || null },
+      checkoutsClean: dirtyAffected === "" && dirtyNeighbour === "",
+      failures,
+    }),
+  );
+  if (failures.length) process.exit(1);
+  process.exit(0);
+}
+
 if (mode === "nonshell" || mode === "nonshell-allow") {
   const refusal = mode === "nonshell";
   const markerPath = work + "/mcp-marker.marker";
@@ -1203,7 +1377,8 @@ run_scenario() {
   local trace="$WORK/api-requests-$label.jsonl"
   local gated="$AFFECTED"
 
-  rm -f "$probe" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" "$WORK/hook-payload-$label.json"
+  rm -f "$probe" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
+    "$WORK/hook-payload-$label.json" "$WORK/hook-payload-$label.json.records"
 
   journal "$NEIGHBOUR" set stable >/dev/null
   if [ "$mode" = "neighbour" ]; then
@@ -1340,7 +1515,7 @@ run_nonshell_scenario() {
   local label="$1" phase="$2" budget="$3"
   local trace="$WORK/api-requests-$label.jsonl"
   rm -f "$MCP_MARKER" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
-    "$WORK/hook-payload-$label.json" "$WORK/probe-$label.marker"
+    "$WORK/hook-payload-$label.json" "$WORK/hook-payload-$label.json.records" "$WORK/probe-$label.marker"
 
   journal "$NEIGHBOUR" set stable >/dev/null
   journal "$AFFECTED" set "$phase" >/dev/null
@@ -1401,6 +1576,167 @@ run_nonshell_scenario() {
   cat "$WORK/assert-$label.json"
 }
 
+# Two hook processes decide at the same instant for the same checkout. A harness
+# may serialize the calls it delivers in one turn, so the overlap this cell
+# proves is the product boundary's own: each call is decided on its identity,
+# both settle as granted, and neither is refused as a replay of the other.
+run_concurrent_scenario() {
+  local label="concurrent"
+  # Both calls carry the same payload on purpose: they are two calls, not one
+  # repeated decision, so the ledger keys on the call's identity instead of on
+  # what the call happens to say. The gate only decides this cell, so the shared
+  # command has no side effect here.
+  local command_a="echo GATE-OK >> $WORK/probe-concurrent.marker"
+  local command_b="$command_a"
+  local payload_a="$WORK/hook-payload-$label-a.json"
+  local payload_b="$WORK/hook-payload-$label-b.json"
+  rm -f "$WORK/probe-concurrent.marker" \
+    "$WORK/gate-$label-a.json" "$WORK/gate-$label-b.json" \
+    "$WORK/gate-$label-a.err" "$WORK/gate-$label-b.err" "$payload_a" "$payload_b"
+
+  journal "$NEIGHBOUR" set stable >/dev/null
+  journal "$AFFECTED" set starting >/dev/null
+  journal "$AFFECTED" show > "$WORK/affected-before-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-before-$label.json"
+
+  DR_PAYLOAD_ID=toolu_journey_concurrent_a DR_PAYLOAD_COMMAND="$command_a" DR_PAYLOAD_CWD="$AFFECTED" \
+    "$NODE" -e 'process.stdout.write(JSON.stringify({hook_event_name:"PreToolUse",tool_name:"Bash",tool_use_id:process.env.DR_PAYLOAD_ID,tool_input:{command:process.env.DR_PAYLOAD_COMMAND},cwd:process.env.DR_PAYLOAD_CWD}))' > "$payload_a"
+  DR_PAYLOAD_ID=toolu_journey_concurrent_b DR_PAYLOAD_COMMAND="$command_b" DR_PAYLOAD_CWD="$AFFECTED" \
+    "$NODE" -e 'process.stdout.write(JSON.stringify({hook_event_name:"PreToolUse",tool_name:"Bash",tool_use_id:process.env.DR_PAYLOAD_ID,tool_input:{command:process.env.DR_PAYLOAD_COMMAND},cwd:process.env.DR_PAYLOAD_CWD}))' > "$payload_b"
+
+  HOME="$HOME_DIR" "$NODE" "$DIST" harness gate --json --wait-budget-ms 30000 \
+    < "$payload_a" > "$WORK/gate-$label-a.json" 2> "$WORK/gate-$label-a.err" &
+  local pid_a=$!
+  HOME="$HOME_DIR" "$NODE" "$DIST" harness gate --json --wait-budget-ms 30000 \
+    < "$payload_b" > "$WORK/gate-$label-b.json" 2> "$WORK/gate-$label-b.err" &
+  local pid_b=$!
+
+  # Settle only once both processes have announced their wait, so the second
+  # claim is always recorded while the first wait is still open.
+  (
+    for _ in $(seq 1 240); do
+      count=0
+      for err in "$WORK/gate-$label-a.err" "$WORK/gate-$label-b.err"; do
+        if [ -f "$err" ]; then
+          count=$((count + $(grep -c 'deferring this tool call' "$err" || true)))
+        fi
+      done
+      if [ "$count" -ge 2 ]; then break; fi
+      sleep 0.25
+    done
+    sleep 1
+    journal "$AFFECTED" set stable >/dev/null
+  ) &
+  local settle_pid=$!
+  wait "$pid_a" || true
+  wait "$pid_b" || true
+  wait "$settle_pid" || true
+
+  journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
+  journal "$AFFECTED" ledger > "$WORK/ledger-$label.json"
+  git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
+  git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
+
+  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
+    "$NEIGHBOUR" "" "gate" > "$WORK/assert-$label.json" || FAILED=1
+  cat "$WORK/assert-$label.json"
+}
+
+# Two tool calls in one model turn overlap the same gate. Both must wait for the
+# same settlement and run exactly once, and neither may be refused as a replay
+# of the other: the ledger keys on the call's own identity, so two calls that
+# merely look alike are still two calls.
+run_parallel_scenario() {
+  local label="parallel"
+  local probe_a="$WORK/probe-parallel-a.marker"
+  local probe_b="$WORK/probe-parallel-b.marker"
+  local command_a="echo GATE-OK >> $probe_a"
+  local command_b="echo GATE-OK >> $probe_b"
+  local trace="$WORK/api-requests-$label.jsonl"
+  rm -f "$probe_a" "$probe_b" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
+    "$WORK/hook-payload-$label.json" "$WORK/hook-payload-$label.json.records"
+
+  journal "$NEIGHBOUR" set stable >/dev/null
+  journal "$AFFECTED" set stopping >/dev/null
+  journal "$AFFECTED" show > "$WORK/affected-before-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-before-$label.json"
+
+  start_mock "$command_a" "$trace" "" "$command_b"
+
+  # Settle once both hooks have announced their wait, so the cell observes an
+  # overlapping deferral whenever the harness delivers one. A harness that
+  # serializes the two calls still reaches its second call inside the
+  # transition, because the first one holds the checkout transitional until the
+  # budget expires.
+  (
+    for _ in $(seq 1 240); do
+      [ -s "$WORK/hook-gate-$label.log.err" ] && break
+      sleep 0.25
+    done
+    count=0
+    for _ in $(seq 1 24); do
+      if [ -f "$WORK/hook-gate-$label.log.err" ]; then
+        count="$(grep -c 'deferring this tool call' "$WORK/hook-gate-$label.log.err" || true)"
+      fi
+      if [ "$count" -ge 2 ]; then break; fi
+      sleep 0.25
+    done
+    sleep 2
+    journal "$AFFECTED" set stable >/dev/null
+  ) &
+  local settle_pid=$!
+
+  if [ "$HARNESS" = "codex" ]; then
+    local started_ms ended_ms exit_code
+    started_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    set +e
+    (
+      cd "$AFFECTED" &&
+        HOME="$HOME_DIR" CODEX_HOME="$HOME_DIR" JOURNEY_API_KEY=journey \
+        DR_GATE_BUDGET=30000 DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        "$CODEX" exec --skip-git-repo-check --sandbox workspace-write -C "$AFFECTED" \
+          --dangerously-bypass-hook-trust \
+          "Run exactly these two commands with the shell tool, then stop: $command_a ; $command_b" \
+          < /dev/null > "$WORK/codex-$label.out" 2> "$WORK/codex-$label.err"
+    )
+    exit_code=$?
+    set -e
+    ended_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    if [ "$exit_code" != "0" ]; then
+      echo "the harness run for '$label' exited $exit_code; see $WORK/codex-$label.err" >&2
+      FAILED=1
+    fi
+    DR_CODEX_EXIT="$exit_code" DR_CODEX_STARTED_MS="$started_ms" DR_CODEX_ENDED_MS="$ended_ms" \
+      "$NODE" "$CODEX_SUMMARY" "$WORK" "$label" > "$WORK/codex-$label.json"
+  else
+    if ! (
+      cd "$AFFECTED" &&
+        HOME="$HOME_DIR" DR_GATE_BUDGET=30000 DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+        "$CLAUDE" -p "Run exactly these two commands with the Bash tool, then stop: $command_a ; $command_b" \
+          --output-format json --max-turns 4 --allowedTools "Bash(echo:*)" \
+          --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+    ); then
+      echo "the harness run for '$label' failed; see $WORK/claude-$label.err" >&2
+      FAILED=1
+    fi
+  fi
+  wait "$settle_pid" || true
+
+  journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
+  journal "$AFFECTED" ledger > "$WORK/ledger-$label.json"
+  git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
+  git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
+
+  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
+    "$NEIGHBOUR" "" "$HARNESS" > "$WORK/assert-$label.json" || FAILED=1
+  cat "$WORK/assert-$label.json"
+}
+
 echo "--- harness: $HARNESS"
 echo "--- scenario 1: a transitioning checkout defers the tool call until it settles"
 run_scenario deferral 30000
@@ -1414,6 +1750,10 @@ echo "--- scenario 5: the MCP tool works while its checkout is settled"
 run_nonshell_scenario nonshell-allow stable 5000
 echo "--- scenario 6: the same non-shell MCP tool call is refused mid-transition"
 run_nonshell_scenario nonshell starting 3000
+echo "--- scenario 7: two calls in one turn overlap the gate and each runs exactly once"
+run_parallel_scenario
+echo "--- scenario 8: two hook processes that decide at the same instant both settle"
+run_concurrent_scenario
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
 echo "--- raw logs: $WORK"
