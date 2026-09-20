@@ -12,8 +12,10 @@
  *   lean-warm        ensure --profile lean stops the dropped profile service
  *                    after exact ownership proof, without touching the primary
  *   alternation      the exact container mounts the named node_modules volume
- *                    over its node_modules path, and a host-side install and a
- *                    container-side install stay isolated in both directions
+ *                    over its node_modules path and still has it mounted in its
+ *                    own namespace after the host install, and a host-side
+ *                    install and a container-side install stay isolated in both
+ *                    directions
  *   unknown-profile  an undefined profile refuses before any mutation
  *   full-again       the retained container takes the profile service back
  *   full-reuse       an unchanged profile keeps the owned process
@@ -32,8 +34,9 @@
  * Each cohort records wall time, the streamed phase timeline, peak CLI resident
  * memory, the container's memory at readiness and its first-attempt exit code.
  * Container identity, creation timestamp, service population, owned volume set,
- * mount table, preparation counts and the helper's recorded process identity are
- * read from Docker instead of trusted from devrouter's own report, and the
+ * configured mount table, the running container's own mount namespace,
+ * preparation counts and the helper's recorded process identity are read from
+ * Docker instead of trusted from devrouter's own report, and the
  * published route is fetched over the machine's real TLS setup as an independent
  * readiness proof.
  * A foreign container that shares the profile service's Compose label but not its
@@ -366,6 +369,40 @@ async function main() {
       nodeModules?.name,
       `${project}_node_modules`,
       `container ${id} mounts an unexpected node_modules volume: ${detail}`,
+    );
+    return mounts;
+  }
+
+  // A container's configured mounts and the mounts its namespace actually has
+  // are different things: a nested volume can be unwound while the container
+  // keeps running, and the path underneath (the host bind mount) then absorbs
+  // every container-side write. Only the container's own namespace shows that.
+  function effectiveWorkspaceMounts(id: string) {
+    return execIn(id, "cat /proc/self/mountinfo")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.split(" "))
+      .filter((fields) => fields[4]?.startsWith(WORKSPACE_FOLDER))
+      .map((fields) => {
+        const separator = fields.indexOf("-");
+        return {
+          destination: fields[4],
+          type: separator >= 0 ? fields[separator + 1] : "unknown",
+          source: separator >= 0 ? fields[separator + 2] : "unknown",
+        };
+      });
+  }
+
+  function assertVolumeStillEffective(id: string, context: string) {
+    const mounts = effectiveWorkspaceMounts(id);
+    const nodeModules = mounts.find(
+      (mount) => mount.destination === `${WORKSPACE_FOLDER}/node_modules`,
+    );
+    assert.ok(
+      nodeModules && nodeModules.type !== "virtiofs",
+      `${context}: the named node_modules volume is no longer mounted in container ${id} ` +
+        `(effective workspace mounts ${JSON.stringify(mounts)}); the host bind mount underneath ` +
+        "absorbs container-side writes. Restart the exact container to re-apply its mounts.",
     );
     return mounts;
   }
@@ -1008,12 +1045,21 @@ async function main() {
     // Host/container alternation: the named node_modules volume must keep the
     // two install trees separate in both directions.
     const alternationMounts = assertWorkspaceIsolation(containerId, composeProject);
+    assertVolumeStillEffective(containerId, "before the host install");
     const hostInstall = run("npm", [...NPM_INSTALL_ARGS, "./local-host-dep"], fixture, 300_000);
     requireOk(hostInstall, "npm", ["install"]);
     const hostMarker = fs
       .readFileSync(path.join(hostDependencyPath("host-dep"), "marker.txt"), "utf8")
       .trim();
     assert.equal(hostMarker, "host");
+    // A host-side install rewrites the checkout's node_modules directory. That
+    // is exactly the moment a nested volume mount can disappear on this
+    // machine's file sharing, so read the namespace again before trusting the
+    // container-side install to land in the volume.
+    const mountsAfterHostInstall = assertVolumeStillEffective(
+      containerId,
+      "after the host install",
+    );
     const containerInstall = await runDevrouter([
       "exec",
       fixture,
@@ -1040,7 +1086,7 @@ async function main() {
     assert.equal(
       fs.existsSync(hostDependencyPath("container-dep")),
       false,
-      `the container install reached the fixture checkout; container ${containerId} mounts ${JSON.stringify(alternationMounts)}`,
+      `the container install reached the fixture checkout; container ${containerId} configured ${JSON.stringify(alternationMounts)} and its namespace held ${JSON.stringify(mountsAfterHostInstall)}`,
     );
     cohorts["alternation-exec"] = cohort("container-side install", containerInstall);
     facts.alternation = {
@@ -1051,6 +1097,7 @@ async function main() {
       hostMarker,
       hostSeesContainerDep: false,
       mounts: alternationMounts,
+      effectiveMountsAfterHostInstall: mountsAfterHostInstall,
     };
     evidence.push(
       "a host install and a container install stayed isolated by the named node_modules volume in both directions",
