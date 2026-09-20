@@ -2934,3 +2934,59 @@ application's start. Neither changes an authority or a readiness claim: the rout
 a start publishes is still proved by the application's own readiness contract, and
 the consumer that declares a dependency healthcheck owns what that healthcheck
 means.
+
+### Admission-refused managed start and consumer dogfood status (2026-09-20)
+
+The live consumer's fixed Postgres binding on 5432 is a real conflict with the
+shared `devrouter-traefik`, so a managed `ensure` correctly refuses before any
+provider mutation. The refusal was silent afterwards: the journal records the
+intent as `running` while no runtime exists, so `devrouter status` returned
+`desired: running`, stable phase, `admission: not-applicable`, empty `active`
+and no drift, and `stop` refused for want of a registration. An agent had a
+blocked environment with no attention reason and no supported next step.
+
+Reproduced live on the released 0.1.0 CLI with a synthetic fixture whose compose
+file publishes `127.0.0.1:5432` while the shared Traefik container holds it.
+The refused ensure wrote `operation.status = COMPLETED`, `exitCode = 1` and the
+`hostPortConflicts` entries into `~/.config/devrouter/reliability/<hash>.json`,
+and the following `status --json` was the silent block above; `stop . --json`
+returned `{"stopped": false, "freedRoutes": 0}` and only then cleared the intent.
+The durable refusal evidence existed and nothing read it.
+
+Implemented in `src/core/managed-runtime-status.ts` (`refusedManagedStart` plus a
+new `start-refused` branch of `reliabilityRecovery`) and `src/types.ts`
+(`ManagedReliabilityReason`): status reads the persisted ensure result and
+reports `start-refused` when a refused operation left the running intent in
+place. Recovery names the read-only `devrouter doctor <repo>` check and the
+consumer-side fix, an explicit `stop` releases the intent and the reason, and an
+admitted ensure clears it. One writer per file and no new module; the existing
+journal-derived reasons keep precedence, and the lifecycle block is still
+omitted whenever provider or journal evidence is unavailable. Live-worker,
+unknown-ownership and surviving-resource refusals are unchanged.
+
+Evidence: three new `managed-runtime-status` cases (refused start, released
+intent, admitted start); 44 tests across the affected suites and the full suite
+(2684 tests, 148 files) pass; `biome`, `knip`, `tsc --noEmit`,
+`check-docs-policy` and `check-knowledge` pass. Live, with the branch CLI:
+refused ensure → `attention.reason = start-refused` with both recovery commands
+in JSON and human output; `doctor` `repo.host-port-claims` names the consumer
+binding; after `stop` the reason is gone.
+
+Consumer version report: the "0.0.51" that the consumer observed is not an
+installation defect. `~/.volta/bin/devrouter` is a Volta shim, and from inside
+the Klicker checkout it resolves the repository's own devDependency
+`@devrouter/cli@0.0.51`; from a directory outside the checkout the same shim
+reports 0.1.0. Every global installation verified 0.1.0 — the Homebrew
+`node_modules` copy and all three Volta package stores. Dogfooding 0.1.0
+therefore requires the consumer to bump its own pin, both the
+`package.json` devDependency and `.devrouter.yml` `devrouter.version`.
+
+Consumer status after the 2026-09-19 findings, as far as this side can verify:
+the post-start liveness item handed back to the consumer is closed in their
+source by PR uzh-bf/klicker-uzh#6170 ("fail startup fast when a managed process
+dies early"), merged 2026-09-20; no live recovery is claimed from that merge.
+The `{"stopped": false, "freedRoutes": 0}` reproducer has not arrived, so that
+observation still stands unreproduced. Their port-claim decision on 5432 remains
+open and stays a consumer-side choice; no `workspace journal settle` or capacity
+reconciliation has been run by them, and no ensure → stop-on-running pair has
+been produced yet. Their staged merge and worktree Git state were not touched.

@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- A managed `ensure` that admission refuses on a fixed published host-port
+  claim no longer looks like a clean running workspace. The refusal is recorded
+  before any provider mutation, so `devrouter status` previously reported
+  `desired: running` with stable phase, empty active resources and no drift,
+  and nothing told an agent that the intent could not progress. Status now
+  reports a `start-refused` attention reason with the read-only
+  `devrouter doctor` check and the consumer-side fix; an explicit `stop`
+  releases the intent and the reason, and a later admitted ensure clears it.
+
 ### Added
 
 - `scripts/qualify-slow-dependency-recovery.sh` (`pnpm qualify:slow-dependency`)

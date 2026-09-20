@@ -174,6 +174,7 @@ function setupManagedRuntime(options: {
   runtimeState?: ManagedRuntimeState;
   processStatuses?: Record<string, "running" | "stopped" | "foreign" | "drifted">;
   reliability?: ReliabilityState;
+  result?: { ok: true; value: unknown } | { ok: false; message: string } | null;
   provider?: "devpod" | "devsy";
 }): void {
   const plan = managedPlan();
@@ -203,11 +204,33 @@ function setupManagedRuntime(options: {
   vi.mocked(readManagedRuntimeState).mockReturnValue(options.runtimeState);
   vi.mocked(resolveWorkspaceRuntimeForReport).mockReturnValue(options.provider ?? "devsy");
   vi.mocked(readReliabilityOperation).mockReturnValue(
-    options.reliability ? ({ state: options.reliability } as never) : undefined,
+    options.reliability
+      ? ({ state: options.reliability, result: options.result ?? null } as never)
+      : undefined,
   );
   vi.mocked(runManagedProcessAction).mockImplementation(({ name }) => {
     return options.processStatuses?.[name] ?? "stopped";
   });
+}
+
+function refusedResult(): { ok: true; value: unknown } {
+  return {
+    ok: true,
+    value: {
+      repoPath,
+      urls: [],
+      hostPortConflicts: [
+        {
+          service: "postgres",
+          hostIp: "127.0.0.1",
+          hostPort: 5432,
+          protocol: "tcp",
+          holderContainer: "devrouter-traefik",
+          remediation: "Change the consumer's own fixed host binding.",
+        },
+      ],
+    },
+  };
 }
 
 beforeEach(() => {
@@ -693,6 +716,91 @@ describe("collectManagedRuntimeStatus", () => {
     const recovery = result.reliability?.attention?.recovery.join(" ") ?? "";
     expect(recovery).toContain(`devrouter stop ${repoPath}`);
     expect(recovery).toContain(`devrouter ensure ${repoPath}`);
+  });
+
+  it("reports a refused managed start as an actionable obstruction", () => {
+    setupManagedRuntime({
+      containers: [],
+      reliability: {
+        ...createReliabilityState("environment-feature", 1, "manual"),
+        desired: "running",
+        phase: "stable",
+        operation: {
+          id: "operation-feature",
+          kind: "ensure",
+          drained: true,
+          status: "COMPLETED",
+          exitCode: 1,
+        },
+      },
+      result: refusedResult(),
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+    });
+
+    expect(result.reliability).toMatchObject({
+      desired: "running",
+      admission: "not-applicable",
+      attention: { reason: "start-refused" },
+    });
+    const recovery = result.reliability?.attention?.recovery.join(" ") ?? "";
+    expect(recovery).toContain(`devrouter doctor ${repoPath}`);
+    expect(recovery).toContain(`devrouter ensure ${repoPath}`);
+  });
+
+  it("does not report a refused start after the recorded intent is released", () => {
+    setupManagedRuntime({
+      containers: [],
+      reliability: {
+        ...createReliabilityState("environment-feature", 1, "manual"),
+        desired: "stopped-by-user",
+        stopProof: { workloadsStopped: true, routesRemoved: true },
+      },
+      result: refusedResult(),
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+    });
+
+    expect(result.reliability?.attention).toBeUndefined();
+  });
+
+  it("keeps an admitted start free of obstruction", () => {
+    setupManagedRuntime({
+      containers: [container("app", { mountRepo: true }), container("postgres")],
+      runtimeState: state(),
+      reliability: {
+        ...createReliabilityState("environment-feature", 1, "manual"),
+        desired: "running",
+        phase: "stable",
+        operation: {
+          id: "operation-feature",
+          kind: "ensure",
+          drained: true,
+          status: "COMPLETED",
+          exitCode: 0,
+        },
+      },
+      result: { ok: true, value: { repoPath, urls: [] } },
+    });
+
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+    });
+
+    expect(result.reliability?.attention).toBeUndefined();
   });
 
   it("omits the lifecycle block when no provider or journal is available", () => {
