@@ -73,6 +73,16 @@ All notable changes to this project are documented in this file.
   rather than blocking the agent. Wire it as a `PreToolUse` hook whose timeout
   exceeds the wait budget: an overrunning hook is not honored.
 
+- Devrouter supports installed Devsy releases in the range `>=1.16.2 <2.0.0`
+  instead of one exact version. For a release it has not pinned, an explicit
+  `setup --workspace-runtime devsy` resolves the official Linux agent from the
+  published release metadata, requires the SHA-256 digest GitHub reports for that
+  asset, and records the verified manifest in Devrouter machine state so
+  `doctor` and `ensure` stay network-free. Without a recorded manifest a newer
+  in-range CLI governs its own agent and Devrouter injects nothing, and a release
+  without a published digest is never injected. An explicit
+  `DEVSY_AGENT_BINARY` must match the official asset for the installed release.
+
 - `devrouter harness gate` also remembers each gated call by its harness
   `tool_use_id`. A call the harness re-delivers after a granted or cancelled
   wait returns one refusal that names the earlier decision, so a resumed

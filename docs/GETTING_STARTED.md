@@ -26,13 +26,17 @@ devrouter setup --yes --workspace-runtime devsy
 devrouter doctor --json
 ```
 
-The explicit runtime selection downloads the matching supported Linux agent
-into Devrouter-owned state, verifies its pinned size and SHA-256 digest, and
-makes later starts network-independent. Generic setup does not download it.
-Direct HTTPS is the primary acquisition path. If that connection fails and an
-authenticated GitHub CLI is available, setup streams the same pinned release
-asset through GitHub's API and reports `transport=github-cli`.
-Doctor reports `ready`, `missing`, `stale`, or `invalid` without network access.
+The explicit runtime selection acquires the official Linux agent for the
+installed Devsy release into Devrouter-owned state, verifies its size and
+SHA-256 digest, and makes later starts network-independent. Generic setup does
+not download it. Devrouter supports Devsy releases in the range `>=1.16.2
+<2.0.0`; rerun setup after a Devsy update. For the release reviewed in this
+repository it uses the committed manifest, otherwise it requires the SHA-256
+digest GitHub publishes for the release asset and refuses a release without
+one. Direct HTTPS is the primary acquisition path. If that connection fails and
+an authenticated GitHub CLI is available, setup streams the same asset through
+GitHub's API and reports `transport=github-cli`. Doctor reports `ready`,
+`missing`, `stale`, or `invalid` without network access.
 
 Doctor also reads bounded Docker network metadata. Its network-capacity check
 distinguishes occupied default address pools from allocation readiness, which

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { inspectManagedStopDaemon } from "./devpod-environment";
+import { isSupportedDevsyVersion } from "./devsy-agent";
 import type { NetworkProviderBindingEvidence } from "./network-provider-binding";
 
 function object(value: unknown): Record<string, unknown> {
@@ -92,8 +93,11 @@ export function inspectNetworkProviderBinding(input: {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(providerContext)) throw new Error();
     const contextArgs = ["--context", providerContext];
     const version = read(provider, provider === "devsy" ? ["--version"] : ["version"]);
-    const expectedVersion = provider === "devsy" ? "1.16.2" : "0.6.15";
-    if (version.match(/\b(?:v)?(\d+\.\d+\.\d+)\b/)?.[1] !== expectedVersion) throw new Error();
+    const parsedVersion = version.match(/\b(?:v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/)?.[1];
+    // Devsy is qualified across its supported range; the provider-definition
+    // shape checks below remain the substantive evidence for either provider.
+    if (provider === "devsy" ? !isSupportedDevsyVersion(parsedVersion) : parsedVersion !== "0.6.15")
+      throw new Error();
     const definitions = object(
       JSON.parse(
         read(

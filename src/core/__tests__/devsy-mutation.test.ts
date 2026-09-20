@@ -35,6 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(stopRetainedManagedDevsyWorkspace).mockReset().mockReturnValue(false);
   vi.mocked(requireReadyDevsyAgent).mockReturnValue({
+    version: "1.16.2",
     binaryPath: "/managed/devsy-agent",
     source: "managed",
     asset: {
@@ -340,12 +341,12 @@ describe("startDevsyWorkspace", () => {
     [
       "stale",
       "managed",
-      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+      "Install a supported Devsy release (>=1.16.2 <2.0.0) for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
     ],
     [
       "stale",
       "explicit",
-      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+      "Install a supported Devsy release (>=1.16.2 <2.0.0) for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
     ],
     ["invalid", "managed", "Run: devrouter setup --yes --workspace-runtime devsy"],
     [
@@ -381,6 +382,7 @@ describe("startDevsyWorkspace", () => {
   it("keeps an explicit verified source unchanged in the child environment", async () => {
     const originalProcessValue = process.env.DEVSY_AGENT_BINARY;
     vi.mocked(requireReadyDevsyAgent).mockReturnValueOnce({
+      version: "1.16.2",
       binaryPath: "/operator/devsy-agent",
       source: "explicit",
       asset: {
@@ -415,6 +417,7 @@ describe("startDevsyWorkspace", () => {
     const originalProcessValue = process.env.DEVSY_AGENT_BINARY;
     process.env.DEVSY_AGENT_BINARY = "/stale/inherited-agent";
     vi.mocked(requireReadyDevsyAgent).mockReturnValueOnce({
+      version: "1.19.0",
       source: "host",
       changed: false,
       transport: "existing",

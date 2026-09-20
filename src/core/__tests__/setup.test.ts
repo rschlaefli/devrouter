@@ -76,6 +76,7 @@ beforeEach(() => {
   vi.mocked(isContainerRunning).mockResolvedValue(false);
   vi.mocked(runTool).mockReturnValue({ ok: true, output: "v1.0.0" });
   vi.mocked(prepareDevsyAgent).mockResolvedValue({
+    version: "1.16.2",
     binaryPath: "/managed/devsy-agent",
     source: "managed",
     asset: {
@@ -210,6 +211,7 @@ describe("runSetup", () => {
 
   it("reports an already verified Devsy source as skipped", async () => {
     vi.mocked(prepareDevsyAgent).mockResolvedValueOnce({
+      version: "1.16.2",
       binaryPath: "/managed/devsy-agent",
       source: "managed",
       asset: {
@@ -284,7 +286,7 @@ describe("runSetup", () => {
     const agentAction = report.actions.find((entry) => entry.id === "global.devsy-agent");
 
     expect(agentAction?.suggestion).toBe(
-      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+      "Install a supported Devsy release (>=1.16.2 <2.0.0) for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
     );
   });
 

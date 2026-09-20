@@ -2,6 +2,10 @@
 
 Status: Accepted
 
+Refined by [ADR 0010](./0010-supported-devsy-version-range.md): the supported
+release range replaces the exact version pin; the verification, ownership, and
+injection contract remains in force.
+
 Context: Devsy injects a Linux agent when a workspace starts. Its normal
 acquisition order can end in one collapsed `agent binary not found` error, so
 operators cannot distinguish a missing release asset, failed network request,

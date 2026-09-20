@@ -184,7 +184,7 @@ describe("buildGlobalToolChecks", () => {
     );
     expect(byId.get("global.devsy-agent")).toMatchObject({
       level: "error",
-      summary: "Managed Devsy agent source is missing.",
+      summary: "No verified Devsy agent is cached for the installed Devsy version.",
       suggestion: "Run: devrouter setup --yes --workspace-runtime devsy",
     });
     expect(byId.get("global.devsy-agent")?.details).not.toContain("/");
@@ -214,8 +214,8 @@ describe("buildGlobalToolChecks", () => {
 
   it.each([
     ["ready", "ok", "Devsy agent source is ready."],
-    ["missing", "error", "Managed Devsy agent source is missing."],
-    ["stale", "error", "Devsy agent source is stale for this Devrouter release."],
+    ["missing", "error", "No verified Devsy agent is cached for the installed Devsy version."],
+    ["stale", "error", "The installed Devsy version is outside the supported range."],
     ["invalid", "error", "Devsy agent source is invalid."],
   ] as const)("reports the Devsy agent %s state without paths", (state, level, summary) => {
     writePackageJson();
@@ -252,7 +252,8 @@ describe("buildGlobalToolChecks", () => {
     runtimeState.agent = {
       state: "ready",
       source: "host",
-      reason: "installed Devsy 1.19.0 is newer than the verified 1.16.2 agent",
+      reason:
+        "no verified Devsy 1.19.0 agent manifest is recorded yet; the host CLI governs its own agent",
       installedVersion: "1.19.0",
       drift: { installed: "1.19.0", supported: "1.16.2" },
     };
@@ -261,7 +262,7 @@ describe("buildGlobalToolChecks", () => {
 
     expect(check).toMatchObject({ level: "warn" });
     expect(check?.summary).toBe(
-      "Devsy 1.19.0 is newer than the Devrouter-verified 1.16.2 agent, so the host CLI manages its own agent.",
+      "Devsy 1.19.0 governs its own agent; Devrouter injects no agent for it.",
     );
     expect(check?.suggestion).toContain("devrouter setup --yes --workspace-runtime devsy");
     expect(JSON.stringify(check)).not.toContain(tmpDir);
@@ -280,7 +281,7 @@ describe("buildGlobalToolChecks", () => {
 
     const check = buildGlobalToolChecks(tmpDir).find((entry) => entry.id === "global.devsy-agent");
     expect(check?.suggestion).toBe(
-      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+      "Install a supported Devsy release (>=1.16.2 <2.0.0) for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
     );
   });
 

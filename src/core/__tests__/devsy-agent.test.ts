@@ -7,8 +7,10 @@ import {
   DEVSY_AGENT_ASSETS,
   type DevsyAgentAsset,
   DevsyAgentReadinessError,
+  devsyAgentManifestPath,
   devsyAgentRepairSuggestion,
   inspectDevsyAgent,
+  isSupportedDevsyVersion,
   prepareDevsyAgent,
   requireReadyDevsyAgent,
 } from "../devsy-agent";
@@ -93,6 +95,23 @@ describe("Devsy agent manifest", () => {
     });
   });
 
+  it("accepts the supported range and rejects everything outside it", () => {
+    expect(isSupportedDevsyVersion("1.16.2")).toBe(true);
+    expect(isSupportedDevsyVersion("1.19.0")).toBe(true);
+    expect(isSupportedDevsyVersion("1.20.0-beta.1")).toBe(true);
+    expect(isSupportedDevsyVersion("1.15.9")).toBe(false);
+    expect(isSupportedDevsyVersion("1.16.2-beta.1")).toBe(false);
+    expect(isSupportedDevsyVersion("2.0.0")).toBe(false);
+    expect(isSupportedDevsyVersion("2.0.0-beta.1")).toBe(false);
+    expect(isSupportedDevsyVersion(undefined)).toBe(false);
+
+    for (const versionOutput of ["v1.15.9", "v2.0.0", "devsy v2.0.0-beta.1"]) {
+      const inspection = inspectDevsyAgent({ versionOutput, env: {}, cacheRoot: tmpDir });
+      expect(inspection.state).toBe("stale");
+      expect(inspection.reason).toContain("outside the supported range");
+    }
+  });
+
   it("fails closed for older, prerelease, unparseable and unmapped versions", () => {
     expect(
       inspectDevsyAgent({ versionOutput: "v1.15.0", env: {}, cacheRoot: tmpDir }),
@@ -162,7 +181,7 @@ describe("Devsy agent manifest", () => {
     [
       "stale",
       "explicit",
-      "Install Devsy 1.16.2 for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
+      "Install a supported Devsy release (>=1.16.2 <2.0.0) for a supported host, then run: devrouter setup --yes --workspace-runtime devsy",
     ],
     [
       "invalid",
@@ -266,25 +285,6 @@ describe("prepareDevsyAgent", () => {
       binaryPath,
       changed: false,
       transport: "existing",
-    });
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it("prepares nothing for a newer host CLI that governs its own agent", async () => {
-    const asset = fixtureAsset("test-agent", Buffer.from("agent"));
-    const fetcher = vi.fn();
-
-    await expect(
-      prepareDevsyAgent({
-        ...baseOptions(asset),
-        versionOutput: "devsy v1.19.0",
-        fetcher,
-      }),
-    ).resolves.toMatchObject({
-      source: "host",
-      changed: false,
-      transport: "existing",
-      asset: undefined,
     });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -436,5 +436,141 @@ describe("prepareDevsyAgent", () => {
     const results = await Promise.all([first, second]);
     expect(results.map((result) => result.changed)).toEqual([true, false]);
     expect(fetcher).toHaveBeenCalledOnce();
+  });
+});
+
+describe("release-resolved Devsy agents", () => {
+  const releaseVersion = "1.19.0";
+
+  function metadataUrl(version: string): string {
+    return `https://api.github.com/repos/devsy-org/devsy/releases/tags/v${version}`;
+  }
+
+  function releaseFetcher(
+    contents: Buffer,
+    overrides: { digest?: string; omitDigest?: boolean } = {},
+  ): typeof fetch {
+    const sha256 = overrides.digest ?? createHash("sha256").update(contents).digest("hex");
+    return vi.fn(async (input: string | URL) => {
+      if (String(input) === metadataUrl(releaseVersion)) {
+        return Response.json({
+          tag_name: `v${releaseVersion}`,
+          assets: [
+            {
+              id: 7,
+              name: "devsy-linux-arm64",
+              size: contents.length,
+              ...(overrides.omitDigest ? {} : { digest: `sha256:${sha256}` }),
+              browser_download_url: `https://github.com/devsy-org/devsy/releases/download/v${releaseVersion}/devsy-linux-arm64`,
+            },
+          ],
+        });
+      }
+      return response(contents);
+    }) as unknown as typeof fetch;
+  }
+
+  function releaseOptions(fetcher: typeof fetch, version = releaseVersion) {
+    return {
+      versionOutput: `devsy v${version}`,
+      platform: "darwin" as const,
+      arch: "arm64",
+      cacheRoot: tmpDir,
+      lockPath: path.join(tmpDir, "agent.lock"),
+      env: {},
+      withLock: directLock,
+      fetcher,
+    };
+  }
+
+  it("resolves, verifies, and records the official agent for an in-range release", async () => {
+    const contents = Buffer.from("official linux agent");
+    const result = await prepareDevsyAgent(releaseOptions(releaseFetcher(contents)));
+
+    expect(result).toMatchObject({
+      version: releaseVersion,
+      changed: true,
+      transport: "https",
+    });
+    expect(result.binaryPath).toBe(path.join(tmpDir, `v${releaseVersion}`, "devsy-linux-arm64"));
+    expect(fs.readFileSync(result.binaryPath ?? "")).toEqual(contents);
+    expect(
+      JSON.parse(fs.readFileSync(devsyAgentManifestPath(tmpDir, releaseVersion), "utf-8")),
+    ).toMatchObject({
+      version: 1,
+      devsyVersion: releaseVersion,
+      origin: "release",
+      assets: [
+        {
+          githubAssetId: 7,
+          name: "devsy-linux-arm64",
+          size: contents.length,
+          sha256: createHash("sha256").update(contents).digest("hex"),
+        },
+      ],
+    });
+  });
+
+  it("reuses the recorded manifest without network access", async () => {
+    const contents = Buffer.from("official linux agent");
+    await prepareDevsyAgent(releaseOptions(releaseFetcher(contents)));
+
+    const offlineFetcher = vi.fn(async () => {
+      throw new Error("network is unavailable");
+    }) as unknown as typeof fetch;
+    expect(inspectDevsyAgent(releaseOptions(offlineFetcher))).toMatchObject({
+      state: "ready",
+      installedVersion: releaseVersion,
+      manifestOrigin: "release",
+    });
+
+    const replayed = await prepareDevsyAgent(releaseOptions(offlineFetcher));
+    expect(replayed).toMatchObject({ changed: false, transport: "existing" });
+    expect(offlineFetcher).not.toHaveBeenCalled();
+  });
+
+  it("refuses a release whose published asset has no SHA-256 digest", async () => {
+    const contents = Buffer.from("unverifiable agent");
+    await expect(
+      prepareDevsyAgent(releaseOptions(releaseFetcher(contents, { omitDigest: true }))),
+    ).rejects.toThrow(/does not publish a SHA-256 digest/);
+    expect(fs.existsSync(devsyAgentManifestPath(tmpDir, releaseVersion))).toBe(false);
+  });
+
+  it("refuses downloaded bytes that do not match the published digest", async () => {
+    const contents = Buffer.from("expected agent bytes");
+    await expect(
+      prepareDevsyAgent(releaseOptions(releaseFetcher(contents, { digest: "a".repeat(64) }))),
+    ).rejects.toThrow(/unexpected digest/);
+    expect(fs.existsSync(path.join(tmpDir, `v${releaseVersion}`, "devsy-linux-arm64"))).toBe(false);
+  });
+
+  it("verifies an explicit override against the official manifest of an in-range release", async () => {
+    const contents = Buffer.from("operator supplied agent");
+    const binaryPath = path.join(tmpDir, "operator-agent");
+    fs.writeFileSync(binaryPath, contents);
+
+    const accepted = await prepareDevsyAgent({
+      ...releaseOptions(releaseFetcher(contents)),
+      env: { DEVSY_AGENT_BINARY: binaryPath },
+    });
+    expect(accepted).toMatchObject({ version: releaseVersion, source: "explicit", changed: false });
+    expect(accepted.asset?.sha256).toBe(createHash("sha256").update(contents).digest("hex"));
+
+    fs.writeFileSync(binaryPath, Buffer.from("substituted agent"));
+    await expect(
+      prepareDevsyAgent({
+        ...releaseOptions(releaseFetcher(contents)),
+        env: { DEVSY_AGENT_BINARY: binaryPath },
+      }),
+    ).rejects.toThrow(DevsyAgentReadinessError);
+  });
+
+  it("rejects an out-of-range release before any network access", async () => {
+    const fetcher = vi.fn();
+    await expect(
+      prepareDevsyAgent(releaseOptions(fetcher as unknown as typeof fetch, "2.0.0")),
+    ).rejects.toThrow(DevsyAgentReadinessError);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
