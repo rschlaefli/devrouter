@@ -2990,3 +2990,54 @@ observation still stands unreproduced. Their port-claim decision on 5432 remains
 open and stays a consumer-side choice; no `workspace journal settle` or capacity
 reconciliation has been run by them, and no ensure → stop-on-running pair has
 been produced yet. Their staged merge and worktree Git state were not touched.
+
+### Admission-refused start release and installation — 0.1.1 (2026-09-20)
+
+The `start-refused` fix merged as `d2a3750` (PR #117) and the release artifacts
+merged as `3622b83` (`chore(release): prepare 0.1.1`, PR #118). Tag `v0.1.1`
+points at that revision and is published, not draft and not prerelease. The
+release event ran workflow 35506198134; the `check` job passed the full
+validation list and the `publish` job published `@devrouter/cli@0.1.1`.
+
+Artifact verification: the registry records
+`dist.integrity = sha512-Ha4w7q7LZFnkm60FT9QwlL1kdcnzzhx8NuUt5xWwyhHd+5jS1EZZlvdQWcdiK4e3ybGHavzimBgea9wWCg9YOQ==`
+and `dist.shasum = f70fed859a64ad44430be057a71e7e7f7fba35a3` for the version;
+the downloaded tarball's SHA-512 equals that integrity, and its
+`dist/devrouter.js` and `dist/devrouter-lifecycle-worker.js` are SHA-256
+identical to a local build of `c6b317d`, the release commit. Publication again
+did not reach this machine's edge at once: the version lookup returned E404 for
+roughly two minutes after the publish job reported success, and the ninth poll
+resolved.
+
+Installs: the Homebrew npm prefix and the Volta package store both moved to
+0.1.1, and `global.cli-path` reports all three PATH entries at 0.1.1 with
+`runningVersion` 0.1.1 while `repo.cli-outdated` is OK at
+`installedVersion` 0.1.1 equal to `repoVersion` 0.1.1. The Volta node 24.17.0
+image copy needed an explicit `--prefix`: that node image's own npm resolves the
+`/opt/homebrew/Cellar/node/26.9.0` prefix, so a plain `npm install -g` from
+Volta's node leaves the copy stale. Two live findings remain operator-owned and
+unchanged: `global.capacity-ledger` reports `capacity-history-unprovable`, and
+`global.network-capacity` reports unknown allocation readiness.
+
+Live proof on the released artifact, not the branch build: the synthetic fixture
+`/private/tmp/dr-refusal-repro`, whose compose file publishes `127.0.0.1:5432`
+while the shared router holds it, was driven with the installed 0.1.1 CLI.
+`ensure . --json` refused with `hostPortConflicts` naming
+`devrouter-traefik`; `status . --json` reported
+`repo.managedRuntime.reliability = {desired: running, phase: stable, attention:
+{reason: start-refused}}` with both recovery commands, and the human status
+printed `Lifecycle attention start-refused` with Recovery 1 and 2;
+`doctor .` reported `repo.host-port-claims` as an error naming the consumer
+binding, its holder and the router-keeps-running remediation; `stop .` left
+`desired: stopped-by-user` with no attention reason. The refusal itself is
+unchanged and fail-closed.
+
+Consumer coordination: task `01a06930-fdea-70f1-bebf-9514b07e23a0` was told
+that 0.1.1 is published and installed, that its "0.0.51" observation is its own
+pinned devDependency shadowing the Volta shim rather than an install defect, and
+that dogfooding requires it to bump both its `package.json` pin and its
+`.devrouter.yml` `devrouter.version`. The message carries the `start-refused`
+evidence, asks for the `repo.managedRuntime.reliability` block after its own
+ensure, and leaves the before/after `status --json` reproducer and the 5432
+claim decision with that task. No consumer recovery is claimed from this side,
+and its staged merge and worktree Git state were not touched.
