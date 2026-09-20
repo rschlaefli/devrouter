@@ -66,6 +66,20 @@
 #               under its normal permission rules and asserts what stays true
 #               either way: the abandoned call never becomes a granted wait, its
 #               command runs at most once, and no checkout is modified.
+#   live-allow - the model asks for a second test-owned MCP tool whose handler
+#               fetches the published route of a real routed Docker application
+#               in the affected worktree and records the token that application
+#               is serving. The checkout is settled, so the gate allows the
+#               call, exactly one request reaches the live container, and the
+#               token the tool read is the token that container holds.
+#   live-refuse - the same live-environment tool while the checkout is
+#               transitional: the gate refuses it once, no request reaches the
+#               running container, and no side effect is written, so the
+#               refusal suppressed a real read of the live environment.
+#   live-unavailable - the same call, allowed again, with the application
+#               stopped and its route released: the tool cannot reach anything
+#               and records the failure, so its result depends on the live
+#               environment instead of on fixture state.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -85,6 +99,15 @@
 # JSON evidence line and exits nonzero when an assertion fails; raw logs stay
 # under the work directory (DR_JOURNEY_WORK, kept on failure and removed on
 # success).
+#
+# The live-environment cells start a real routed Docker application through
+# devrouter in the affected worktree. That environment uses the operator's own
+# devrouter home on purpose, because the running Traefik stack, its certificate
+# and the compose cache live there, exactly as the profile-alternation
+# qualification does; the gate, the continuation ledger and the harness stay in
+# the journey's isolated home. The cells record 'not-run' with a reason when
+# Docker or the mkcert root CA is unavailable, and they never report a live read
+# they did not make.
 #
 # Exit codes: 0 every scenario passed, 1 an assertion failed, 3 a prerequisite
 # was unavailable and no scenario ran. A skip is not a pass, so a caller that
@@ -114,6 +137,14 @@ MOCK_HEALTH="/api/hello"
 if [ "$HARNESS" = "codex" ]; then MOCK_HEALTH="/healthz"; fi
 EVIDENCE="$DR_JOURNEY_EVIDENCE"
 HARNESS_VERSION=""
+
+# The routed fixture application the live-environment cells start, and the
+# certificate the machine's real Traefik serves it with. The cells are skipped
+# rather than failed when either prerequisite is missing.
+LIVE_APP="web"
+LIVE_HOST_LABEL="live-env"
+LIVE_CA="$(mkcert -CAROOT 2>/dev/null || true)/rootCA.pem"
+LIVE_STARTED=0
 
 # Sanitized run summary for the caller's own evidence retention. The per-scenario
 # results are read back from the assertion artifacts, so the summary restates
@@ -148,6 +179,9 @@ write_evidence() {
       "nested",
       "cancelled",
       "redirect",
+      "live-allow",
+      "live-refuse",
+      "live-unavailable",
       "hook-timeout",
     ].map((name) => {
       let asserted = null;
@@ -157,6 +191,10 @@ write_evidence() {
         asserted = null;
       }
       if (!asserted) return { scenario: name, outcome: "not-run", failures: [] };
+      // A cell whose live prerequisite was unavailable records why instead of
+      // passing, so a reader cannot mistake an unrun environment for evidence.
+      if (typeof asserted.skipped === "string")
+        return { scenario: name, outcome: "not-run", reason: asserted.skipped, failures: [] };
       const failures = Array.isArray(asserted.failures) ? asserted.failures : [];
       return { scenario: name, outcome: failures.length > 0 ? "fail" : "pass", failures };
     });
@@ -236,6 +274,7 @@ MOCK_PID=""
 
 cleanup() {
   if [ -n "$MOCK_PID" ]; then kill "$MOCK_PID" >/dev/null 2>&1 || true; fi
+  live_environment_stop
   git -C "$REPO" worktree remove --force "$AFFECTED" >/dev/null 2>&1 || true
   git -C "$REPO" worktree remove --force "$NEIGHBOUR" >/dev/null 2>&1 || true
   if [ "$FAILED" = "0" ] && [ -z "$DR_JOURNEY_WORK" ]; then rm -rf "$WORK"; fi
@@ -265,8 +304,41 @@ printf "trees/\n" > "$REPO/.gitignore"
 printf "fixture\n" > "$REPO/README.md"
 # Both checkouts carry the managed marker exactly as a real devrouter repository
 # does: the gate resolves the checkout from the directory the harness reports,
-# so a worktree without .devrouter.yml would read as unmanaged.
-printf "version: 1\napps: []\n" > "$REPO/.devrouter.yml"
+# so a worktree without .devrouter.yml would read as unmanaged. The same file
+# declares the routed Docker application the live-environment cells start, so
+# that environment is an ordinary devrouter-managed checkout rather than a
+# fixture-only invention. The application generates its own random token at
+# startup and serves it, and its verbose httpd logs one line per request, so the
+# cells can tell a real read of the live environment from a scripted marker.
+cat > "$REPO/.devrouter.yml" <<'CONFIG_EOF'
+version: 1
+project:
+  name: devrouter-journey-live
+apps:
+  - name: web
+    host: live-env.localhost
+    protocol: http
+    runtime: docker
+    docker:
+      service: web
+      internalPort: 8080
+      composeFiles:
+        - docker-compose.yml
+CONFIG_EOF
+cat > "$REPO/docker-compose.yml" <<'COMPOSE_EOF'
+services:
+  web:
+    image: busybox:1.36
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /srv
+        token=$$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+        printf '%s' "$$token" > /srv/token
+        printf '%s' "$$token" > /srv/index.html
+        exec httpd -v -f -p 8080 -h /srv
+COMPOSE_EOF
 git -C "$REPO" init -q
 git -C "$REPO" add -A
 git -C "$REPO" -c user.email=journey@devrouter.local -c user.name=devrouter-journey commit -qm "journey fixture"
@@ -344,15 +416,56 @@ cat > "$MCP_SERVER" <<'MCP_SERVER_EOF'
 // Minimal stdio MCP server with exactly one tool, so the journey can prove that
 // a tool call which is not a shell command is decided by the same PreToolUse
 // hook. It speaks newline-delimited JSON-RPC and implements only what a client
-// needs to list and call that one tool.
+// needs to list and call its tools. The marker tool writes a fixed line; the
+// live tool really fetches the published route of the running fixture
+// application and records the token that container is serving, so its result
+// cannot come from fixture state.
 import fs from "node:fs";
+import https from "node:https";
 
 const marker = process.env.DR_MCP_MARKER;
+const liveUrlFile = process.env.DR_MCP_LIVE_URL_FILE ?? "";
+const liveCaFile = process.env.DR_MCP_LIVE_CA ?? "";
 let buffer = "";
 
 function respond(id, result) {
   if (id === undefined || id === null) return;
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+}
+
+// A real read of the live environment: the request leaves this process, travels
+// through the machine's Traefik and TLS setup, and reaches the container, whose
+// verbose httpd records the request in its own log.
+function liveFetch(url, ca) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, { ca, timeout: 5000 }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: body.trim() }));
+    });
+    request.on("timeout", () => request.destroy(new Error("the live route timed out")));
+    request.on("error", reject);
+  });
+}
+
+async function readLiveToken() {
+  let url = "";
+  try {
+    url = fs.readFileSync(liveUrlFile, "utf8").trim();
+  } catch {
+    url = "";
+  }
+  try {
+    if (!url) throw new Error("no published route was recorded");
+    const ca = liveCaFile && fs.existsSync(liveCaFile) ? fs.readFileSync(liveCaFile) : undefined;
+    const response = await liveFetch(url, ca);
+    if (response.status !== 200) throw new Error("the live route answered " + response.status);
+    if (!response.body) throw new Error("the live route served an empty body");
+    return "LIVE-TOKEN " + response.body;
+  } catch (error) {
+    return "LIVE-UNREACHABLE " + (error instanceof Error ? error.message : String(error));
+  }
 }
 
 process.stdin.setEncoding("utf8");
@@ -384,11 +497,27 @@ process.stdin.on("data", (chunk) => {
             description: "Append one line to the test-owned marker file.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
           },
+          {
+            name: "read_live_token",
+            description: "Fetch the published route of the running application and record its token.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          },
         ],
       });
     } else if (message.method === "tools/call") {
-      fs.appendFileSync(marker, "GATE-OK\n");
-      respond(message.id, { content: [{ type: "text", text: "GATE-OK" }] });
+      if (message.params?.name === "read_live_token") {
+        const id = message.id;
+        void readLiveToken().then((line) => {
+          fs.appendFileSync(marker, line + "\n");
+          respond(id, {
+            content: [{ type: "text", text: line }],
+            ...(line.startsWith("LIVE-UNREACHABLE") ? { isError: true } : {}),
+          });
+        });
+      } else {
+        fs.appendFileSync(marker, "GATE-OK\n");
+        respond(message.id, { content: [{ type: "text", text: "GATE-OK" }] });
+      }
     } else if (message.method === "ping") {
       respond(message.id, {});
     }
@@ -428,7 +557,7 @@ env_key = "JOURNEY_API_KEY"
 [mcp_servers.marker]
 command = "$NODE"
 args = ["$MCP_SERVER"]
-env = { DR_MCP_MARKER = "$MCP_MARKER" }
+env = { DR_MCP_MARKER = "$MCP_MARKER", DR_MCP_LIVE_URL_FILE = "$WORK/live-route-url.txt", DR_MCP_LIVE_CA = "$LIVE_CA" }
 default_tools_approval_mode = "approve"
 CODEX_CONFIG_EOF
 else
@@ -450,7 +579,11 @@ SETTINGS_EOF
     "marker": {
       "command": "$NODE",
       "args": ["$MCP_SERVER"],
-      "env": { "DR_MCP_MARKER": "$MCP_MARKER" }
+      "env": {
+        "DR_MCP_MARKER": "$MCP_MARKER",
+        "DR_MCP_LIVE_URL_FILE": "$WORK/live-route-url.txt",
+        "DR_MCP_LIVE_CA": "$LIVE_CA"
+      }
     }
   }
 }
@@ -539,11 +672,24 @@ http
         }));
       const toolResults = input
         .filter((item) => item?.type === "function_call_output")
-        .map((item) => ({
-          toolUseId: item.call_id ?? "",
-          hasError: !/Process exited with code 0/.test(String(item.output ?? "")),
-          text: String(item.output ?? "").slice(0, 400),
-        }));
+        .map((item) => {
+          // This client delivers a shell result as one string and a successful
+          // non-shell tool result as content blocks. The trace keeps the text
+          // the model would read instead of the array's own spelling, and only
+          // a string result carries this client's success or block wording.
+          const blocks = Array.isArray(item.output) ? item.output : null;
+          const text = (blocks
+            ? blocks
+                .map((part) => (typeof part?.text === "string" ? part.text : JSON.stringify(part)))
+                .join("\n")
+            : String(item.output ?? "")
+          ).slice(0, 400);
+          return {
+            toolUseId: item.call_id ?? "",
+            hasError: blocks ? false : !/Process exited with code 0/.test(text),
+            text,
+          };
+        });
       const redirectFirst = redirectCommand !== "" && redirectTurns === 0;
       const redirectReplay = redirectCommand !== "" && redirectTurns === 1 && toolResults.length > 0;
       const kind = redirectFirst || redirectReplay ? "tool_call" : toolResults.length > 0 ? "message" : "tool_call";
@@ -1483,15 +1629,15 @@ if (mode === "nonshell" || mode === "nonshell-allow") {
     "the scenario delivered the shell tool " + payload.tool_name,
   );
   check(
-    /marker/.test(payload.tool_name ?? ""),
-    "the hook payload carried " + payload.tool_name + " instead of the MCP tool",
+    /write_marker/.test(payload.tool_name ?? ""),
+    "the hook payload carried " + payload.tool_name + " instead of the marker MCP tool",
   );
   check(typeof payload.tool_use_id === "string" && payload.tool_use_id.length > 0, "the hook payload carried no tool_use_id");
   check(real(payload.cwd ?? "") === real(gated), "the harness reported " + payload.cwd + ", expected the gated checkout " + gated);
   check(hookLines.length === 1, "expected exactly one gated non-shell call, saw " + hookLines.length);
   check(callIds.length === 1, "expected one tool call from the model, saw " + callIds.length);
   check(
-    toolUses.every((call) => /marker/.test(call.name)),
+    toolUses.every((call) => /write_marker/.test(call.name)),
     "the model called " + toolUses.map((call) => call.name).join(", "),
   );
   check(!fs.existsSync(work + "/probe-" + label + ".marker"), "the shell probe ran");
@@ -1548,6 +1694,135 @@ if (mode === "nonshell" || mode === "nonshell-allow") {
       decision: hookSpecific.permissionDecision ?? null,
       reason,
       marker: markerText.trim() === "" ? null : markerText.trim(),
+      checkoutsClean: dirtyAffected === "" && dirtyNeighbour === "",
+      failures,
+    }),
+  );
+  if (failures.length) process.exit(1);
+  process.exit(0);
+}
+
+// The live-environment cells decide one MCP tool whose handler really reads the
+// running application: the value it records can only come from the container
+// that is serving it, and the container's own verbose log names each request it
+// answered. The allowed cell reads the live token, the refused cell must reach
+// neither the environment nor its marker, and the third cell repeats the allowed
+// call after the application and its route are gone, so a result that depended
+// on fixture state would be exposed here instead of passing.
+if (mode === "live-allow" || mode === "live-refuse" || mode === "live-unavailable") {
+  const liveMarker = read("mcp-marker.marker");
+  const liveContainer = read("live-container.txt").trim();
+  const liveToken = read("live-token.txt").trim();
+  const liveRoute = read("live-route-url.txt").trim();
+  const [requestsBeforeRaw, requestsAfterRaw] = read("live-requests-" + label + ".txt")
+    .trim()
+    .split(/\s+/);
+  const requestsBefore = Number(requestsBeforeRaw ?? 0);
+  const requestsAfter = Number(requestsAfterRaw ?? 0);
+  const liveDelta = requestsAfter - requestsBefore;
+  const liveHookOutcomes = transcript.hook_outcomes ?? {};
+  check(
+    transcript.is_error !== true && transcript.subtype === "success",
+    "the harness run reported an error: " + JSON.stringify(transcript.subtype ?? transcript.is_error),
+  );
+  check(transcript.terminal_reason === "completed", "the harness run did not finish: " + transcript.terminal_reason);
+  check(
+    /read_live_token/.test(payload.tool_name ?? ""),
+    "the hook payload carried " + payload.tool_name + " instead of the live-environment tool",
+  );
+  check(typeof payload.tool_use_id === "string" && payload.tool_use_id.length > 0, "the hook payload carried no tool_use_id");
+  check(real(payload.cwd ?? "") === real(gated), "the harness reported " + payload.cwd + ", expected the gated checkout " + gated);
+  check(hookLines.length === 1, "expected exactly one gated live call, saw " + hookLines.length);
+  check(callIds.length === 1, "expected one live tool call from the model, saw " + callIds.length);
+  check(
+    toolUses.every((call) => /read_live_token/.test(call.name)),
+    "the model called " + toolUses.map((call) => call.name).join(", "),
+  );
+  check(dirtyAffected === "", "the affected checkout was modified: " + dirtyAffected);
+  check(dirtyNeighbour === "", "the neighbour checkout was modified: " + dirtyNeighbour);
+  check(neighbourBefore.sha256 === neighbourAfter.sha256, "the neighbour lifecycle record changed");
+  check(neighbourAfter.phase === "stable", "the neighbour phase is " + neighbourAfter.phase);
+  if (mode === "live-refuse") {
+    check(hookSpecific.permissionDecision === "deny", "the gate decided " + hookSpecific.permissionDecision + ": " + reason);
+    check(/still starting/.test(reason), "the refusal did not name the phase: " + reason);
+    check(/devrouter status/.test(reason), "the refusal did not name the recovery: " + reason);
+    check(liveRoute.startsWith("https://"), "the live environment published " + JSON.stringify(liveRoute));
+    check(liveMarker === "", "the refused live-environment tool ran: " + JSON.stringify(liveMarker));
+    check(liveDelta === 0, "the refused call reached the live environment " + liveDelta + " time(s)");
+    check(
+      liveContainer !== "" && liveContainer !== "absent",
+      "the refused cell ran without a live container: " + JSON.stringify(liveContainer),
+    );
+    check(
+      entries.some((candidate) => candidate.toolUseId === payload.tool_use_id && candidate.state === "refused"),
+      "the continuation ledger did not record the refusal",
+    );
+    check(
+      toolResults.some((result) => String(result.text).includes("devrouter")),
+      "the refusal did not reach the model: " + JSON.stringify(toolResults),
+    );
+    check(affectedAfter.phase === "starting", "the affected phase is " + affectedAfter.phase);
+    if (harness === "codex") {
+      check(liveHookOutcomes.blocked === 1, "the harness recorded " + liveHookOutcomes.blocked + " blocked hook decisions");
+    } else {
+      check(denials.length === 1, "expected exactly one harness denial, saw " + denials.length);
+    }
+  } else if (mode === "live-allow") {
+    allows();
+    check(reason === "devrouter: environment settled.", "the settled live call was not allowed: " + reason);
+    check(liveRoute.startsWith("https://"), "the live environment published " + JSON.stringify(liveRoute));
+    check(liveContainer !== "" && liveContainer !== "absent", "the allowed cell ran without a live container");
+    check(liveToken !== "", "the running container's token was never read back");
+    check(
+      liveMarker === "LIVE-TOKEN " + liveToken + "\n",
+      "the live tool recorded " + JSON.stringify(liveMarker) + " instead of the running container's token",
+    );
+    check(liveDelta === 1, "the allowed live call made " + liveDelta + " request(s), expected exactly one");
+    check(
+      !entries.some((candidate) => candidate.toolUseId === payload.tool_use_id),
+      "a settled live-environment call was gated: " + JSON.stringify(entries),
+    );
+    check(
+      toolResults.some((result) => String(result.text).includes("LIVE-TOKEN " + liveToken)),
+      "the live read did not reach the model: " + JSON.stringify(toolResults),
+    );
+    check(affectedAfter.phase === "stable", "the affected phase is " + affectedAfter.phase);
+    if (harness === "codex") {
+      check(liveHookOutcomes.completed === 1, "the harness recorded " + liveHookOutcomes.completed + " completed hook decisions");
+    } else {
+      check(denials.length === 0, "the harness recorded a denial: " + JSON.stringify(denials));
+    }
+  } else {
+    allows();
+    check(reason === "devrouter: environment settled.", "the settled live call was not allowed: " + reason);
+    check(liveContainer === "absent", "the environment was still present: " + JSON.stringify(liveContainer));
+    check(liveToken === "", "a token was read from a stopped environment: " + JSON.stringify(liveToken));
+    check(
+      /^LIVE-UNREACHABLE /.test(liveMarker),
+      "the allowed call produced " + JSON.stringify(liveMarker) + " without a live environment",
+    );
+    check(!liveMarker.includes("LIVE-TOKEN"), "the live tool produced a token without the live environment");
+    check(liveDelta === 0, "a stopped environment answered " + liveDelta + " request(s)");
+    check(affectedAfter.phase === "stable", "the affected phase is " + affectedAfter.phase);
+    if (harness === "codex") {
+      check(liveHookOutcomes.completed === 1, "the harness recorded " + liveHookOutcomes.completed + " completed hook decisions");
+    } else {
+      check(denials.length === 0, "the harness recorded a denial: " + JSON.stringify(denials));
+    }
+  }
+  console.log(
+    JSON.stringify({
+      scenario: mode,
+      label,
+      harness,
+      tool: payload.tool_name ?? null,
+      decision: hookSpecific.permissionDecision ?? null,
+      reason,
+      route: liveRoute || null,
+      container: liveContainer || null,
+      toolRecord: liveMarker.trim() === "" ? null : liveMarker.trim(),
+      liveToken: liveToken || null,
+      requests: { before: requestsBefore, after: requestsAfter },
       checkoutsClean: dirtyAffected === "" && dirtyNeighbour === "",
       failures,
     }),
@@ -2326,7 +2601,10 @@ run_nonshell_scenario() {
 
   # The mock reads the harness's own advertised tool list and scripts that MCP
   # tool, so the scenario does not guess how each client spells a server tool.
-  start_mock "" "$trace" "marker"
+  # The match names this cell's tool exactly: the same server also serves the
+  # live-environment tool, and a looser match would script whichever one the
+  # client happens to advertise first.
+  start_mock "" "$trace" "write_marker"
 
   if [ "$HARNESS" = "codex" ]; then
     local started_ms ended_ms exit_code
@@ -2376,6 +2654,258 @@ run_nonshell_scenario() {
   DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
     "$NEIGHBOUR" "" "$HARNESS" > "$WORK/assert-$label.json" || FAILED=1
   cat "$WORK/assert-$label.json"
+}
+
+# The live-environment cells start one real routed Docker application in the
+# affected worktree and decide one test-owned MCP tool that reads it over the
+# published route. The environment uses the operator's own devrouter home
+# because the running Traefik stack, its certificate and the compose cache live
+# there; the gate, the continuation ledger and the harness keep the journey's
+# isolated home. A cell whose live prerequisite is missing records why it did
+# not run, while a fixture that fails to start after those checks is a failure
+# instead of a skip.
+live_prerequisite_reason() {
+  command -v docker >/dev/null 2>&1 || { printf 'docker is unavailable'; return; }
+  docker info >/dev/null 2>&1 || { printf 'the Docker daemon is not reachable'; return; }
+  command -v curl >/dev/null 2>&1 || { printf 'curl is unavailable'; return; }
+  [ -f "$LIVE_CA" ] || { printf 'the mkcert root CA is unavailable (run devrouter tls install)'; return; }
+  printf ''
+}
+
+# The published route is read back from the product's own route list rather than
+# guessed, because a linked checkout namespaces the configured host with its
+# workspace token. The route is selected by the application name and that
+# namespaced host shape, and the container behind it must carry this fixture's
+# own compose file among its labels, so a route that belongs to anything else is
+# never mistaken for the live environment.
+live_container_is_fixture() {
+  local files
+  files="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$1" 2>/dev/null || true)"
+  case "$files" in *"$AFFECTED/docker-compose.yml"*) return 0 ;; esac
+  return 1
+}
+
+live_route_refresh() {
+  "$NODE" "$DIST" ls --json 2>/dev/null > "$WORK/live-ls.json" || true
+  "$NODE" -e '
+    const fs = require("node:fs");
+    let entry = { url: "", containerId: "", host: "" };
+    try {
+      const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const app = process.argv[2];
+      const label = process.argv[3];
+      const shape = new RegExp("^" + label + "(\\.[a-z0-9-]+)*\\.localhost$");
+      for (const route of data.routes ?? []) {
+        if (route.appName !== app) continue;
+        const host = (route.hosts ?? []).find((candidate) => shape.test(candidate));
+        if (!host) continue;
+        entry = { url: (route.urls ?? [])[0] ?? "", containerId: route.containerId ?? "", host };
+        break;
+      }
+    } catch {
+      entry = { url: "", containerId: "", host: "" };
+    }
+    process.stdout.write(JSON.stringify(entry));
+  ' "$WORK/live-ls.json" "$LIVE_APP" "$LIVE_HOST_LABEL" > "$WORK/live-route-entry.json"
+  local container
+  container="$(live_route_field containerId)"
+  if [ -n "$container" ] && ! live_container_is_fixture "$container"; then
+    printf '{"url":"","containerId":"","host":""}' > "$WORK/live-route-entry.json"
+  fi
+}
+
+live_route_field() {
+  "$NODE" -e '
+    const fs = require("node:fs");
+    try {
+      const entry = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(String(entry[process.argv[2]] ?? ""));
+    } catch {
+      process.stdout.write("");
+    }
+  ' "$WORK/live-route-entry.json" "$1"
+}
+
+# The fixture container logs one line per answered request, so this count is the
+# environment's own record of a real read instead of a second reading of the
+# tool transcript.
+live_request_count() {
+  local container="$1"
+  if [ -z "$container" ]; then printf '0'; return; fi
+  docker logs "$container" 2>&1 | grep -c 'response:200' || true
+}
+
+live_environment_start() {
+  local url
+  "$NODE" "$DIST" app run "$LIVE_APP" --repo "$AFFECTED" > "$WORK/live-app-run.log" 2>&1 || return 1
+  LIVE_STARTED=1
+  for _ in $(seq 1 60); do
+    live_route_refresh
+    url="$(live_route_field url)"
+    # The container identity is recorded as soon as the fixture's own route
+    # names it, so teardown can still find the exact container if readiness
+    # never arrives.
+    if [ -n "$(live_route_field containerId)" ]; then
+      printf '%s' "$(live_route_field containerId)" > "$WORK/live-container-id.txt"
+    fi
+    if [ -n "$url" ]; then
+      printf '%s' "$url" > "$WORK/live-route-url.txt"
+      if curl -fsS --max-time 5 --cacert "$LIVE_CA" "$url" >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  echo "the live environment never answered on its published route; see $WORK/live-app-run.log" >&2
+  return 1
+}
+
+# Teardown touches only a container that carries this fixture's own compose
+# file, and it removes that container's own Compose project and volumes. A
+# container that outlived its project is removed by exact id, so the fixture can
+# never leak a workload it started.
+live_environment_stop() {
+  [ "$LIVE_STARTED" = "1" ] || return 0
+  LIVE_STARTED=0
+  [ -n "$NODE" ] && [ -n "$DIST" ] || return 0
+  local container project files args=() file project_name file_count=0
+  container="$(cat "$WORK/live-container-id.txt" 2>/dev/null || true)"
+  "$NODE" "$DIST" app rm "$LIVE_APP" --repo "$AFFECTED" --keep-config >/dev/null 2>&1 || true
+  command -v docker >/dev/null 2>&1 || return 0
+  if [ -z "$container" ]; then
+    # Compose derives the project from the checkout directory, which for this
+    # fixture is exactly the worktree's own directory name.
+    project_name="$(basename "$AFFECTED")"
+    container="$(docker ps -aq --filter "label=com.docker.compose.project=$project_name" 2>/dev/null | head -1 || true)"
+  fi
+  [ -n "$container" ] || return 0
+  live_container_is_fixture "$container" || return 0
+  project="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$container" 2>/dev/null || true)"
+  files="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$container" 2>/dev/null || true)"
+  local IFS=','
+  for file in $files; do
+    if [ -f "$file" ]; then
+      args+=("-f" "$file")
+      file_count=$((file_count + 1))
+    fi
+  done
+  if [ "$file_count" -gt 0 ] && [ -n "$project" ]; then
+    docker compose "${args[@]}" -p "$project" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  fi
+  if docker inspect "$container" >/dev/null 2>&1; then docker rm -f "$container" >/dev/null 2>&1 || true; fi
+  return 0
+}
+
+run_live_environment_scenario() {
+  local label="$1" phase="$2" budget="$3"
+  local trace="$WORK/api-requests-$label.jsonl"
+  local container before after
+  rm -f "$MCP_MARKER" "$WORK/hook-gate-$label.log" "$WORK/hook-gate-$label.log.err" \
+    "$WORK/hook-payload-$label.json" "$WORK/hook-payload-$label.json.records" "$WORK/probe-$label.marker"
+
+  journal "$NEIGHBOUR" set stable >/dev/null
+  journal "$AFFECTED" set "$phase" >/dev/null
+  journal "$AFFECTED" show > "$WORK/affected-before-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-before-$label.json"
+
+  # The environment is observed at the moment of the call rather than trusted
+  # from the bring-up, so the unavailability cell really reads its absence.
+  live_route_refresh
+  printf '%s' "$(live_route_field url)" > "$WORK/live-route-url.txt"
+  container="$(live_route_field containerId)"
+  if [ -n "$container" ]; then
+    printf '%s' "$container" > "$WORK/live-container.txt"
+    docker exec "$container" cat /srv/token > "$WORK/live-token.txt" 2>/dev/null || : > "$WORK/live-token.txt"
+  else
+    printf 'absent' > "$WORK/live-container.txt"
+    : > "$WORK/live-token.txt"
+  fi
+  before="$(live_request_count "$container")"
+
+  start_mock "" "$trace" "read_live_token"
+
+  if [ "$HARNESS" = "codex" ]; then
+    local started_ms ended_ms exit_code
+    started_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    set +e
+    (
+      cd "$AFFECTED" &&
+        HOME="$HOME_DIR" CODEX_HOME="$HOME_DIR" JOURNEY_API_KEY=journey \
+        DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        "$CODEX" exec --skip-git-repo-check --sandbox workspace-write -C "$AFFECTED" \
+          --dangerously-bypass-hook-trust \
+          "Call the marker MCP tool read_live_token once, then stop." \
+          < /dev/null > "$WORK/codex-$label.out" 2> "$WORK/codex-$label.err"
+    )
+    exit_code=$?
+    set -e
+    ended_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
+    if [ "$exit_code" != "0" ]; then
+      echo "the harness run for '$label' exited $exit_code; see $WORK/codex-$label.err" >&2
+      FAILED=1
+    fi
+    DR_CODEX_EXIT="$exit_code" DR_CODEX_STARTED_MS="$started_ms" DR_CODEX_ENDED_MS="$ended_ms" \
+      "$NODE" "$CODEX_SUMMARY" "$WORK" "$label" > "$WORK/codex-$label.json"
+  else
+    if ! (
+      cd "$AFFECTED" &&
+        HOME="$HOME_DIR" DR_GATE_BUDGET="$budget" DR_JOURNEY_NODE="$NODE" DR_JOURNEY_DIST="$DIST" \
+        DR_JOURNEY_HOOK_LOG="$WORK/hook-gate-$label.log" DR_JOURNEY_HOOK_PAYLOAD="$WORK/hook-payload-$label.json" \
+        ANTHROPIC_API_KEY=journey ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" \
+        "$CLAUDE" -p "Call the marker MCP tool read_live_token once, then stop." \
+          --output-format json --max-turns 3 \
+          --mcp-config "$MCP_CONFIG" --strict-mcp-config --allowedTools "mcp__marker__read_live_token" \
+          --settings "$SETTINGS" > "$WORK/claude-$label.json" 2> "$WORK/claude-$label.err"
+    ); then
+      echo "the harness run for '$label' failed; see $WORK/claude-$label.err" >&2
+      FAILED=1
+    fi
+  fi
+
+  # The tool's request only reaches the environment after the hook decides, so
+  # the count is read once the harness has finished with the call.
+  sleep 1
+  after="$(live_request_count "$container")"
+  printf '%s %s' "$before" "$after" > "$WORK/live-requests-$label.txt"
+
+  journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
+  journal "$NEIGHBOUR" show > "$WORK/neighbour-after-$label.json"
+  journal "$AFFECTED" ledger > "$WORK/ledger-$label.json"
+  git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
+  git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
+
+  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
+    "$NEIGHBOUR" "" "$HARNESS" > "$WORK/assert-$label.json" || FAILED=1
+  cat "$WORK/assert-$label.json"
+}
+
+# One live environment, three decisions: the settled checkout may read it, the
+# transitional checkout must not reach it, and an allowed call must fail once it
+# is gone. The cells run in that order on the same application, so the positive
+# control is the same tool the refusal and the missing-environment cells decide.
+run_live_environment_cells() {
+  local why label
+  why="$(live_prerequisite_reason)"
+  if [ -n "$why" ]; then
+    for label in live-allow live-refuse live-unavailable; do
+      printf '{"scenario":"%s","skipped":"%s","failures":[]}\n' "$label" "$why" > "$WORK/assert-$label.json"
+    done
+    printf 'live-environment cells not run: %s\n' "$why"
+    return 0
+  fi
+  if ! live_environment_start; then
+    for label in live-allow live-refuse live-unavailable; do
+      printf '{"scenario":"%s","failures":["the routed live fixture did not start"]}\n' "$label" > "$WORK/assert-$label.json"
+    done
+    FAILED=1
+    live_environment_stop
+    return 0
+  fi
+  run_live_environment_scenario live-allow stable 5000
+  run_live_environment_scenario live-refuse starting 3000
+  live_environment_stop
+  run_live_environment_scenario live-unavailable stable 5000
 }
 
 # Two hook processes decide at the same instant for the same checkout. A harness
@@ -2620,7 +3150,10 @@ echo "--- scenario 10: cancelling the harness mid-wait leaves the call unexecute
 run_cancelled_scenario
 echo "--- scenario 11: a settled grant is refused when its id returns under a changed command"
 run_redirect_scenario
-echo "--- scenario 12: a hook timeout below the wait budget abandons the gating hook"
+echo "--- scenario 12: an MCP tool reads the live managed environment, is refused mid-transition,"
+echo "---              and cannot fabricate that value once the environment is gone"
+run_live_environment_cells
+echo "--- scenario 13: a hook timeout below the wait budget abandons the gating hook"
 run_hook_timeout_scenario
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
