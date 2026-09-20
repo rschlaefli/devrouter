@@ -3146,6 +3146,17 @@ an operator's or another task's environment.
 
 #### Order, completion and preserved authority
 
+RF10's read-only half was refreshed on 2026-09-20 with the installed 0.1.1
+(`/Users/rschlae/.volta/tools/image/node/24.17.0/bin/devrouter`) against this
+repository. It reproduced `global.capacity-ledger: error: Capacity ledger history
+is unavailable for safe admission` whose `details` field carries only
+`capacity-history-unprovable`, plus `global.network-capacity: warn ... Allocation
+readiness: unknown` and the non-blocking `global.devsy-agent` warning. The bare
+marker confirms RF10's complaint that a journal-enumeration failure is collapsed
+into one cause with no location, so an operator cannot tell which history is
+unreadable or which network evidence is missing. The diagnostic improvement and
+any recovery remain open; no ledger, policy or runtime state was touched.
+
 RF01–RF06 are implemented on PR #121 and await merge and release. Next work is
 RF07's cancellation/replay investigation, with the RF10 read-only diagnosis and
 the RF11 owner coordination proceeding independently. RF08 integrates RF09's
