@@ -2819,3 +2819,33 @@ suite and are not claims about an installed artifact. The installed and live
 columns carry the release's behavioural claim. Requalifying Q06, Q20 and Q30
 needs a bounded observation harness that does not exist yet, so they stay open
 rather than approximated.
+
+### Release 0.1.0 preparation (slice 7)
+
+Slice 6 is merged as `d724096` (`feat(harness): qualify a second agent harness and a
+non-Node consumer`), integrated with the concurrently released 0.0.80 (`ff91850`,
+Devsy version range). The integration merge kept the released 0.0.80 section intact
+and returned this branch's two entries to `[Unreleased]`, and the bundled skill and
+its embedded copy in `src/core/agents-md.ts` were re-verified as identical after
+the merge (they differ only by the escaped backticks the embedded literal needs).
+
+This is the separate release-artifact commit the plan requires: `package.json` and
+both released example pins move to 0.1.0, `CHANGELOG.md` gains the `[0.1.0]`
+section with its single adaptation-prompt reference, and `upgrade-prompts/0.1.0.md`
+carries the adaptation guidance. No source, schema, command, flag or journal
+change is part of this commit.
+
+Local validation for the release commit: docs policy, knowledge validation, Biome,
+Knip and `tsc --noEmit` are clean; the build succeeds; `scripts/package-smoke.sh`
+packs `@devrouter/cli 0.1.0`, passes the negative member check and the closed
+network qualification (`networkPackageQualification: passed`, 16 Docker calls, 1
+retained-container inspection, 0 mutations), and verifies the installed package
+from a temporary cwd. `doctor --repo ./examples/routing` and `repo inspect` run
+clean against the example, and both report the installed 0.0.79 CLI against the
+example's pin, which the 0.1.0 installation resolves.
+
+Publication stays a separate, explicitly approved effect: the release commit is
+merged first, and the GitHub release for the tag publishes through the repository
+workflow. Global installation and the consumer notification follow the published
+artifact, and the consumer task is told the supported recovery path rather than
+being claimed as recovered from this side.

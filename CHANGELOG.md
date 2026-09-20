@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-20
+
 ### Added
 
 - The consumer contract is qualified against a runtime that has no Node
@@ -27,6 +29,10 @@ All notable changes to this project are documented in this file.
   now drives either harness through the same three-scenario journey
   (`DR_JOURNEY_HARNESS`), and `pnpm qualify:codex-journey` selects the second
   one.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.1.0.md
 
 ## [0.0.80] - 2026-09-20
 
