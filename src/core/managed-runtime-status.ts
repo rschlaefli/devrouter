@@ -35,6 +35,11 @@ function reliabilityRecovery(reason: ManagedReliabilityReason, repoPath: string)
     case "stop-incomplete":
     case "operation-unknown":
       return [`Run: devrouter stop ${repoPath}`, `Run: devrouter ensure ${repoPath} --repair`];
+    case "start-refused":
+      return [
+        `Run: devrouter doctor ${repoPath} to read the refused fixed host-port claim and its holder`,
+        `Stop the holding workspace or change this repository's own published binding, then run: devrouter ensure ${repoPath}`,
+      ];
     case "unadmittable":
       return [
         `Run: devrouter stop ${repoPath}`,
@@ -47,6 +52,21 @@ function reliabilityRecovery(reason: ManagedReliabilityReason, repoPath: string)
     default:
       return [];
   }
+}
+
+/**
+ * The persisted ensure result is the durable evidence that a managed start was
+ * refused before any provider mutation. A later admitted operation clears it,
+ * and an explicit stop releases the intent it explains.
+ */
+function refusedManagedStart(
+  result: NonNullable<ReturnType<typeof readReliabilityOperation>>["result"],
+): boolean {
+  if (result?.ok !== true) return false;
+  const value = result.value;
+  if (typeof value !== "object" || value === null) return false;
+  const conflicts = (value as { hostPortConflicts?: unknown }).hostPortConflicts;
+  return Array.isArray(conflicts) && conflicts.length > 0;
 }
 
 /**
@@ -76,7 +96,11 @@ function readReliabilityStatus(options: {
     return undefined;
   }
   if (!record) return undefined;
-  const reason = reliabilityAttention(record.state);
+  const reason =
+    reliabilityAttention(record.state) ??
+    (record.state.desired === "running" && refusedManagedStart(record.result)
+      ? "start-refused"
+      : undefined);
   return {
     desired: record.state.desired,
     phase: record.state.phase,

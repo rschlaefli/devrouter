@@ -182,6 +182,10 @@ when the recorded intent cannot progress on its own, a fixed attention reason
 with the supported recovery commands for that exact checkout. The block is
 read-only and is omitted when provider or journal evidence is unavailable, so a
 parked or waiting environment stays explainable without a live consumer session.
+A start that admission refuses before any provider mutation leaves the journal
+recording `running` while no runtime exists. The status block names that as
+`start-refused` with the read-only `devrouter doctor` check and the consumer-side
+fix, and an explicit `stop` releases both the intent and the reason.
 
 ## Continuous observation
 

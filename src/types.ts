@@ -89,6 +89,7 @@ export type ManagedRuntimeStatus = {
 export type ManagedReliabilityReason =
   | "stop-incomplete"
   | "operation-unknown"
+  | "start-refused"
   | "unadmittable"
   | "capacity-waiting"
   | "capacity-parked"
