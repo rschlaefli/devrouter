@@ -2844,8 +2844,51 @@ from a temporary cwd. `doctor --repo ./examples/routing` and `repo inspect` run
 clean against the example, and both report the installed 0.0.79 CLI against the
 example's pin, which the 0.1.0 installation resolves.
 
-Publication stays a separate, explicitly approved effect: the release commit is
-merged first, and the GitHub release for the tag publishes through the repository
-workflow. Global installation and the consumer notification follow the published
-artifact, and the consumer task is told the supported recovery path rather than
-being claimed as recovered from this side.
+Publication stayed a separate, explicitly approved effect and ran in that order:
+the release commit merged first, and the GitHub release published through the
+repository workflow.
+
+### Release 0.1.0 publication, artifact and installation (slice 7)
+
+Tag `v0.1.0` points at main `25a9ec3` and is published, not draft and not
+prerelease. The release event ran workflow 35503145787: the `check` job passed
+the full validation list and the `publish` job published
+`@devrouter/cli@0.1.0` with provenance.
+
+Artifact verification: the registry tarball's sha512
+(`sha512-BcaGmUico2AVva23HxhNnX/TrvRBkd8AWF09po01nsP4agedu2nPMC5ohJnMYoRDtq3i9I7CK/c8EKcj9I9aog==`)
+and sha1 (`c16db1e798e58ef892e42988140fa09af56fd6d8`) equal the `dist.integrity`
+and `dist.shasum` the registry records for the version, and the tarball's
+`dist/devrouter.js` and `dist/devrouter-lifecycle-worker.js` are sha256-identical
+to a local build of the tagged revision, whose tree is identical to the merge
+commit. Publication does not reach every reader at once: for the first minutes
+the packument on this machine's edge still reported 0.0.80 and the tarball path
+returned `{"error":"Not found"}`, so an initial install failed with `ETARGET`
+while the artifact was already live elsewhere. Re-read the packument before
+concluding anything from a version-lookup failure.
+
+Installs: both global installs moved from 0.0.79 to 0.1.0, the Homebrew npm
+prefix at `/opt/homebrew/lib/node_modules/@devrouter/cli` and the Volta node
+24.17.0 image copy at
+`~/.volta/tools/image/node/24.17.0/lib/node_modules/@devrouter/cli`.
+`volta install @devrouter/cli@0.1.0` additionally registers the package with
+Volta and shims it at `~/.volta/bin/devrouter`. `devrouter -V` run against the
+released example reports installed 0.1.0, `doctor --repo ./examples/routing`
+reports `global.cli-path` OK with all three PATH entries at 0.1.0 and
+`runningVersion` 0.1.0, and `repo.cli-outdated` OK with
+`installedVersion` 0.1.0 equal to `repoVersion` 0.1.0, which closes the
+example-pin gap the preparation slice recorded. Two live findings are unchanged
+and stay operator-owned: `global.capacity-ledger` reports
+`capacity-history-unprovable` and `global.network-capacity` reports unknown
+allocation readiness, while `global.devsy-agent` keeps its warning that Devsy
+1.19.0 governs its own agent.
+
+Consumer coordination: task `01a06930-fdea-70f1-bebf-9514b07e23a0` was notified
+with the 0.1.0 changes, the read-only first checks, the recorded recovery path
+(`workspace journal settle` → `status` → `stop`/`ensure`, each requiring its
+own terminal evidence) and the two items it owns, the before/after
+`status --json` reproducer for the `{"stopped": false, "freedRoutes": 0}`
+observation and the post-start liveness contract of its repository adapter. No
+recovery is claimed from this side: the pre-registration blocker stays closed
+only under the consumer's own live proof, and its staged merge and worktree Git
+state were not touched.
