@@ -2741,5 +2741,81 @@ fencing stay covered by the direct signal proof, because this harness cannot be
 observed to cancel a wait.
 
 Residual slice 6 work: the measured baseline now exists for readiness and
-memory, and profile or artifact optimization must cite it. Q01–Q36 disposition
+memory, and profile or artifact optimization must cite it. Q01-Q36 disposition
 and the 0.1.0 release remain.
+
+### Q01-Q36 disposition (slice 6)
+
+Slice 5 owed a disposition of every row of the roadmap's acceptance matrix; slice 6
+requalifies the rows its breadth work touches. This is that disposition. It names
+the layer that produced each result, because a source test proves the contract and
+its failure handling while an installed or live run proves behaviour on this host:
+
+- **source** - a deterministic test in this repository's suite.
+- **installed** - a qualifier that drives the packed or installed CLI.
+- **live** - a run against real host processes, the shared router, real Docker
+  state, a real agent harness or a real consumer checkout.
+
+A row is open when no producing evidence exists for the layer it needs. The
+repository has no OOM classifier at all: memory pressure is modelled as declared
+headroom, dwell and reservations rather than as a kill reason, which is why the
+two OOM-labelled rows are dispositioned as not applicable instead of unproven.
+
+| Q | Evidence | Layer | Status |
+| --- | --- | --- | --- |
+| Q01 | non-Node cold cohort (`scripts/qualify-non-node-consumer.sh`); installed synthetic lifecycle fixture (`scripts/qualify-lifecycle.ts`); recorded consumer cold `ensure` with 11 routes | live, installed | Proven for the non-Node fixture and the recorded consumer cell |
+| Q02 | non-Node warm cohort, one dependency container identity reused across all six rounds | live | Proven |
+| Q03 | `controller-http-readiness.test.ts` propagates cancellation instead of classifying it as an application failure and preserves the readiness status classification; `workspace-ensure.test.ts` carries captured ownership through final readiness under the provider lock | source | Proven at source |
+| Q04 | `reliability-recovery.test.ts` opens an incident when a required capability fails; `controller-monitor.test.ts` asks the operations owner to recover it | source | Proven at source |
+| Q05 | `reliability-model.test.ts` keeps consumers independently ready when another requires a failing capability; `controller-monitor.test.ts` stays idle for a capability outside the required set | source | Proven at source |
+| Q06 | `controller-monitor.test.ts` does not replace timed-out batches whose probes have not drained and keeps only two batches active; `capacity-accounting.test.ts` never extends a duration on read and ends a window at its wall-age boundary | source | Partial: deadline and grace are covered, a dependency that recovers slowly has no producing run |
+| Q07 | none | - | Not applicable: no OOM classification exists; the equivalent mechanism is declared headroom plus dwell, covered under Q10 and Q12 |
+| Q08 | `controller-process-observation.test.ts` reports the probe's positive absence as a missing process and refuses ambiguous evidence; `reliability-recovery.test.ts` requires an incident and an allowance before acting | source | Not applicable as an OOM question; proven as process-absence evidence |
+| Q09 | `capacity-request.test.ts` rejects undersized default operation authority; `capacity-policy.test.ts` allows an allowance at the boundary and reserves it from runtime budgets | source | Proven at source |
+| Q10 | `capacity-accounting.test.ts` accrues dwell only across continuous same-pressure samples; `capacity-controller.test.ts` parks a pressured environment by committing intent and driving one stop | source | Proven at source; pressure is injected through the qualified boundary, never host exhaustion |
+| Q11 | `capacity-store.test.ts` denies competing pools without persisting either reservation; `network-capacity.test.ts` never double counts overlapping pool declarations | source | Proven at source |
+| Q12 | `capacity-accounting.test.ts` retains occupied startup and heavy slots independently of observed bytes; `capacity-request.test.ts` uses the conservative heavy class for unknown operation names | source | Proven at source |
+| Q13 | `capacity-queue.test.ts` cancels only the caller wait while the accepted worker continues once; `reliability-lifecycle.test.ts` persists explicit stop intent before the worker supervisor waits | source | Proven at source |
+| Q14 | `capacity-queue.test.ts` rejects changed retained payloads without replacing the queued entry and joins an identical payload once; `reliability-model.test.ts` joins parked consumers without restart | source | Proven at source |
+| Q15 | `capacity-controller.test.ts` refuses to resume while headroom has not dwelled normal; `reliability-recovery.test.ts` resumes a parked environment only once every condition holds | source | Proven at source |
+| Q16 | `reliability-model.test.ts` and `reliability-output.test.ts` carry the explicit unadmittable result | source | Proven at source |
+| Q17 | `reliability-model.test.ts` stops before late readiness so attach can never undo a stop; `reliability-lifecycle.test.ts` persists an operation reference without dispatch and lets stop supersede it | source | Proven at source |
+| Q18 | `reliability-model.test.ts` shares consumers, respects every pin and releases without stopping; `controller-sessions.test.ts` releases only the selected consumer | source | Proven at source |
+| Q19 | `reliability-liveness.test.ts` admits ensure after a completed stop against a saturated journal and keeps progress across 200 seeded rounds; `controller-store.test.ts` advances the epoch with stable identity and retains sessions on restart; `scripts/qualify-controller.ts` | source, installed | Proven at source and in the installed controller qualifier |
+| Q20 | `controller-sessions.test.ts` invalidates sessions on scheduling and wall-clock discontinuities and resets protection grace on sleep; `capacity-accounting.test.ts` clears every window on a clock discontinuity | source | Proven at source; a real host suspend was never exercised |
+| Q21 | `capacity-ownership-resolver.test.ts` rejects provider drift before publication and does not probe the daemon after cancellation; `controller-monitor.test.ts` does not replace timed-out batches whose probes have not drained | source | Proven at source |
+| Q22 | `reliability-worker.test.ts` records interruption on worker loss while retaining an active process group and never forks an already-cancelled request; `devpod-exec.test.ts` does not classify a transport error after spawn as safe to replay | source | Proven at source |
+| Q23 | `managed-stop-recovery.test.ts` fails on changed membership after partial cessation and never adopts replacements; `environment-stop.test.ts` fails closed when Traefik does not unload a removed route | source | Proven at source |
+| Q24 | both harness journeys assert zero infrastructure repair per scenario; the non-Node fixture starts its own application outside devrouter's control | live | Proven |
+| Q25 | `managed-host-preparation.test.ts` kills the inherited process group of a bounded foreground command; `reliability-lifecycle.test.ts` does not resurrect interrupted preparation when settled tooling history rolls over; `file-lock.test.ts` never displaces the same live process instance and reclaims a record whose PID belongs to a different process birth | source | Proven at source |
+| Q26 | `profile-plan.test.ts` atomically replaces an output symlink without changing its target; `managed-post-start.test.ts` does not follow a repository adapter symlink on the host; `paths.test.ts` refuses repo-relative traversal; `reliability-operation-store.test.ts` rejects symlinked journal entries | source | Partial: no quarantine subsystem exists to test, the symlink half is proven |
+| Q27 | `reliability-worker.test.ts` forwards only allowlisted last-stage evidence and pages output within a byte bound; `reliability-lifecycle.test.ts` keeps command args, environment and output out of the persisted record | source | Proven at source |
+| Q28 | `tool-diagnostics.test.ts` warns when another install on PATH is newer than the running CLI or when the shell resolves a different one; `reliability-operation-store.test.ts` refuses records from a newer CLI; `scripts/package-smoke.sh` and `scripts/qualify-network-package.cjs` | source, installed | Proven at source and in the installed package qualifiers |
+| Q29 | `harness-gate.test.ts` and `commands/__tests__/harness.test.ts`; `scripts/qualify-harness-journey.sh` for Claude Code and for Codex, including the non-shell `exec_command` tool | source, live | Proven in both claimed harness modes |
+| Q30 | `harness-continuation.test.ts` replays an existing gated call instead of claiming it again and settles a waiting claim once; `reliability-model.test.ts` never overturns an explicit stop | source | Proven at source; the live layer stays open because the qualified harness cannot be observed to cancel a wait |
+| Q31 | `controller-server.test.ts` replays valid cursors, gaps a replaced store and disconnects a subscriber at the output bound while other clients stay responsive; `controller-protocol.test.ts` fences reconnects | source | Proven at source |
+| Q32 | `controller-store.test.ts` preserves corruption and refuses startup; `capacity-store.test.ts` refuses new admission after an established ledger disappears; `host-routes-state.test.ts` fails closed on corrupt canonical metadata; `devrouter capacity reconcile --yes` is the delivered operator forward recovery | source, installed | Proven at source with the forward-recovery command covered in the installed capacity qualifier |
+| Q33 | `controller-monitor.test.ts` refuses to park when the environment proved a usable consumer and vetoes a usable second consumer; `reliability-recovery.test.ts` never recommends an action for unmanaged or user-stopped environments | source | Proven at source |
+| Q34 | `recovery-budget.test.ts` bounds each kind separately, keeps the aggregate ceiling and never refunds a claim; `reliability-recovery.test.ts` blocks once the incident budget is exhausted | source | Proven at source |
+| Q35 | `capacity-host-probe.test.ts` adds declared host allowance and one shared pool independently and rejects late or cancelled evidence; `capacity-accounting.test.ts` drops only the domains a collection omits or contradicts | source | Proven at source |
+| Q36 | `scripts/qualify-harness-journey.sh` for both harnesses, each with an unmoved protected neighbour and byte-identical transitional record; recorded consumer cold `ensure` and stop with 11 routes freed | live | Proven |
+
+Open or partial rows and what they mean for the release claim:
+
+- Q06 has no slow-recovery run. The deadline and the no-amplification contract are
+  covered at source, but the recovery behaviour itself is unmeasured.
+- Q20 has source coverage for clock discontinuity, sleep and grace resets, and no
+  real host-suspend observation.
+- Q26 is half not applicable: resources are discovered from Docker and Git rather
+  than through a quarantining watcher chain, so there is no quarantine path to
+  qualify.
+- Q30 keeps its live layer open for the stated harness limitation.
+- Q07 and Q08 are not applicable as OOM questions because no OOM classifier
+  exists; the underlying requirements are carried by the headroom, dwell and
+  admission contracts above and by process-absence evidence.
+
+Source rows prove the contract and its failure handling in this repository's
+suite and are not claims about an installed artifact. The installed and live
+columns carry the release's behavioural claim. Requalifying Q06, Q20 and Q30
+needs a bounded observation harness that does not exist yet, so they stay open
+rather than approximated.
