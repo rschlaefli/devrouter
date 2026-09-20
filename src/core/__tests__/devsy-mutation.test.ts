@@ -10,12 +10,18 @@ import {
   stopOwnedDevsyWorkspace,
 } from "../devsy-mutation";
 import { withFileLock, withFileLockSync } from "../file-lock";
-import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
+import {
+  restoreRecordedManagedDevcontainerConfig,
+  stopRetainedManagedDevsyWorkspace,
+} from "../managed-devsy-stop";
 
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-devsy-mutation-test" }));
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
-vi.mock("../managed-devsy-stop", () => ({ stopRetainedManagedDevsyWorkspace: vi.fn() }));
+vi.mock("../managed-devsy-stop", () => ({
+  restoreRecordedManagedDevcontainerConfig: vi.fn(),
+  stopRetainedManagedDevsyWorkspace: vi.fn(),
+}));
 vi.mock("../devsy-agent", async (importOriginal) => ({
   ...(await importOriginal()),
   requireReadyDevsyAgent: vi.fn(),
@@ -34,6 +40,7 @@ vi.mock("../file-lock", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(stopRetainedManagedDevsyWorkspace).mockReset().mockReturnValue(false);
+  vi.mocked(restoreRecordedManagedDevcontainerConfig).mockReset().mockReturnValue(false);
   vi.mocked(requireReadyDevsyAgent).mockReturnValue({
     version: "1.16.2",
     binaryPath: "/managed/devsy-agent",
@@ -117,6 +124,51 @@ describe("Devsy mutation adapter", () => {
       throw error;
     });
     expect(() => stopOwnedDevsyWorkspace("feature", "/repo/feature")).toThrow(error);
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  it("restores the recorded generated profile before the provider mutation", () => {
+    let locked = false;
+    vi.mocked(withFileLockSync).mockImplementationOnce((_path, _options, operation) => {
+      locked = true;
+      try {
+        return operation();
+      } finally {
+        locked = false;
+      }
+    });
+    let callsAtRestore = -1;
+    vi.mocked(restoreRecordedManagedDevcontainerConfig).mockImplementationOnce((repoPath) => {
+      expect(locked).toBe(true);
+      expect(repoPath).toBe("/repo/feature");
+      callsAtRestore = vi.mocked(spawnSync).mock.calls.length;
+      return true;
+    });
+    let listCalls = 0;
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if ((command as string) === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
+        listCalls += 1;
+        return listResult(listCalls === 1 ? [owned] : []);
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+
+    expect(deleteOwnedDevsyWorkspace("feature", "/repo/feature")).toEqual({ status: "changed" });
+    expect(callsAtRestore).toBe(0);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "devsy",
+      ["workspace", "delete", "feature", "--ignore-not-found"],
+      { encoding: "utf-8" },
+    );
+  });
+
+  it("does not reach the provider when the recorded restore fails", () => {
+    vi.mocked(restoreRecordedManagedDevcontainerConfig).mockImplementationOnce(() => {
+      throw new Error("restore failed");
+    });
+
+    expect(() => deleteOwnedDevsyWorkspace("feature", "/repo/feature")).toThrow("restore failed");
     expect(spawnSync).not.toHaveBeenCalled();
   });
 

@@ -8,6 +8,7 @@ import {
   inspectManagedDevcontainerConfig,
   inspectManagedDevcontainerGeneratedConfig,
   stopExactManagedService,
+  writeManagedDevcontainerConfig,
 } from "../devcontainer-profile";
 import {
   assertManagedStopCheckoutAbsent,
@@ -31,7 +32,10 @@ import {
 } from "../devsy-workspaces";
 import { listHostRouteState } from "../host-routes";
 import { proveManagedComposePopulation } from "../managed-compose-population";
-import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
+import {
+  restoreRecordedManagedDevcontainerConfig,
+  stopRetainedManagedDevsyWorkspace,
+} from "../managed-devsy-stop";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "../managed-runtime-state";
 import { claimLifecycleEffect } from "../reliability-context";
 import {
@@ -62,6 +66,7 @@ vi.mock("../devcontainer-profile", () => ({
   inspectManagedDevcontainerConfig: vi.fn(),
   inspectManagedDevcontainerGeneratedConfig: vi.fn(),
   stopExactManagedService: vi.fn(),
+  writeManagedDevcontainerConfig: vi.fn(),
 }));
 vi.mock("../traefik-route-health", () => ({ assertTraefikRoutesRemoved: vi.fn() }));
 vi.mock("../host-routes", () => ({ listHostRouteState: vi.fn(() => []) }));
@@ -1291,5 +1296,77 @@ describe("absent-registration managed stop", () => {
       devpodStatus: "absent",
     } as never);
     expect(() => run()).toThrow("ownership changed during absence proof");
+  });
+});
+
+describe("recorded generated configuration restore", () => {
+  function managedRepo(name = "restore"): string {
+    const repo = fs.mkdtempSync(path.join(root, `${name}-`));
+    fs.writeFileSync(path.join(repo, ".devrouter.yml"), "version: 1\n", "utf-8");
+    return repo;
+  }
+
+  it("restores the exact recorded profile when the generated file is absent", () => {
+    const repo = managedRepo();
+    vi.mocked(inspectManagedDevcontainerGeneratedConfig)
+      .mockReturnValueOnce({ status: "missing" })
+      .mockReturnValueOnce({ status: "valid" });
+
+    expect(restoreRecordedManagedDevcontainerConfig(repo)).toBe(true);
+    expect(writeManagedDevcontainerConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ effectiveConfigSha256: hash, sourceConfigSha256: hash }),
+    );
+  });
+
+  it("leaves an existing generated profile untouched", () => {
+    const repo = managedRepo("present");
+
+    expect(restoreRecordedManagedDevcontainerConfig(repo)).toBe(false);
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+  });
+
+  it("does not invent a profile without a retained record", () => {
+    const repo = managedRepo("unrecorded");
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({ status: "missing" });
+
+    expect(restoreRecordedManagedDevcontainerConfig(repo)).toBe(false);
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+  });
+
+  it("does not restore a profile the current source no longer reproduces", () => {
+    const repo = managedRepo("changed");
+    vi.mocked(inspectManagedDevcontainerConfig).mockReturnValue({
+      ...plan,
+      effectiveConfigSha256: "b".repeat(64),
+    } as never);
+    vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({ status: "missing" });
+
+    expect(restoreRecordedManagedDevcontainerConfig(repo)).toBe(false);
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+  });
+
+  it("stays inert for a checkout without a managed profile", () => {
+    const repo = managedRepo("unmanaged");
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      profile: "web",
+      workspace: undefined,
+      resolvedProfile: { processes: ["web"] },
+      config: { apps: [] },
+    } as never);
+    vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({ status: "missing" });
+
+    expect(restoreRecordedManagedDevcontainerConfig(repo)).toBe(false);
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
+  });
+
+  it("stays inert when the retained record cannot be read", () => {
+    const repo = managedRepo("unreadable");
+    vi.mocked(readManagedRuntimeState).mockImplementation(() => {
+      throw new Error("Managed runtime state is unreadable.");
+    });
+
+    expect(restoreRecordedManagedDevcontainerConfig(repo)).toBe(false);
+    expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
   });
 });
