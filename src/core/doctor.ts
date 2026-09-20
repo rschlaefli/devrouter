@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
-import { CapacityHistoryError } from "./capacity-store";
+import { type CapacityHistoryCause, CapacityHistoryError } from "./capacity-store";
 import { listContainers } from "./docker";
 import { listHostRoutes } from "./host-routes";
 import { createLifecycleCapacityStore } from "./reliability-operation-store";
@@ -306,6 +306,42 @@ function collectNextSteps(checks: DiagnosticCheck[], statusNextSteps: string[]):
   return Array.from(steps.values());
 }
 
+/**
+ * Bounded, values-free detail for a refused capacity read. The classification
+ * and, when one entry caused it, that entry's sanitized name reach the operator;
+ * journal record contents never do.
+ */
+function capacityHistoryDetails(error: unknown): string {
+  if (!(error instanceof CapacityHistoryError)) return "capacity-history-unprovable";
+  const parts: string[] = [error.code];
+  if (error.cause) parts.push(error.cause);
+  if (error.location) parts.push(`at ${error.location}`);
+  return parts.join("; ");
+}
+
+const CAPACITY_RECOVERY_BY_CAUSE: Partial<Record<CapacityHistoryCause, string>> = {
+  "journal-entry-unsupported":
+    "Move the named unrecognised entry out of the private reliability journal directory, preserving its contents; it blocks every capacity read while it stays there.",
+  "journal-directory-unsafe":
+    "Restore private ownership and mode 0700 on the reliability journal directory, then retry.",
+  "journal-directory-unreadable":
+    "Restore read access to the reliability journal directory, then retry.",
+  "journal-invalid":
+    "Preserve the named journal entry and restore verified history before retrying admission.",
+  "journal-unreadable":
+    "Preserve the named journal entry and restore verified history before retrying admission.",
+  "journal-entry-unsafe":
+    "Restore private ownership, mode 0600 and a bounded size on the named journal entry, then retry.",
+};
+
+function capacityHistorySuggestion(error: unknown): string {
+  const cause = error instanceof CapacityHistoryError ? error.cause : null;
+  return (
+    (cause ? CAPACITY_RECOVERY_BY_CAUSE[cause] : undefined) ??
+    "Preserve ledger and lifecycle records; restore verified history before retrying admission."
+  );
+}
+
 export async function buildDoctorReport(options: DoctorOptions = {}): Promise<DoctorReport> {
   const checks: DiagnosticCheck[] = [];
   const fileLayout = getRouterFileLayout();
@@ -355,10 +391,10 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
       id: "global.capacity-ledger",
       level: "error",
       summary: "Capacity ledger history is unavailable for safe admission.",
-      details: error instanceof CapacityHistoryError ? error.code : "capacity-history-unprovable",
+      details: capacityHistoryDetails(error),
       suggestion: absent
         ? "Preserve ledger and lifecycle records; with every enrolled environment stopped, run: devrouter capacity reconcile --yes"
-        : "Preserve ledger and lifecycle records; restore verified history before retrying admission.",
+        : capacityHistorySuggestion(error),
     });
   }
 

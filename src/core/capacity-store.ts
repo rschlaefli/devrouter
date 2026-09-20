@@ -41,8 +41,30 @@ export type CapacityLedgerState =
   | { kind: "intact"; revision: number; snapshot: CapacityLedgerSnapshot };
 const MAX_BYTES = 1_048_576;
 
+/**
+ * Bounded, values-free reason a capacity read could not prove its history. A
+ * code and, at most, one journal entry name reach the operator; record contents
+ * never do.
+ */
+export type CapacityHistoryCause =
+  | "journal-directory-unreadable"
+  | "journal-directory-unsafe"
+  | "journal-entry-unsupported"
+  | "journal-enumeration-limit"
+  | "journal-enumeration-timeout"
+  | "journal-unreadable"
+  | "journal-entry-unsafe"
+  | "journal-invalid"
+  | "journal-identity-mismatch"
+  | "journal-unstable"
+  | "journal-enumeration-failed";
+
 export class CapacityHistoryError extends Error {
-  constructor(readonly code: "capacity-ledger-lost" | "capacity-history-unprovable") {
+  constructor(
+    readonly code: "capacity-ledger-lost" | "capacity-history-unprovable",
+    readonly cause: CapacityHistoryCause | null = null,
+    readonly location: string | null = null,
+  ) {
     super(
       code === "capacity-ledger-lost"
         ? "Capacity ledger history is lost; restore verified capacity-reservations.json."

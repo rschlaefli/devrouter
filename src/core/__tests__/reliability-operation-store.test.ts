@@ -1612,4 +1612,42 @@ describe("capacity history composition", () => {
     }
     expect(fs.existsSync(path.join(fixture.root, "controller"))).toBe(false);
   });
+
+  it("classifies an unsupported journal entry with its sanitized name", () => {
+    updateReliabilityOperation(identity, () => {});
+    const entry = "23fe529a.stuck-stopping-20260914T1720.bak";
+    fs.writeFileSync(
+      path.join(path.dirname(reliabilityOperationPath(identity)), entry),
+      "preserved\n",
+      {
+        mode: 0o600,
+      },
+    );
+    try {
+      createLifecycleCapacityStore().read();
+      throw new Error("Expected unavailable history");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "capacity-history-unprovable",
+        cause: "journal-entry-unsupported",
+        location: entry,
+      });
+    }
+  });
+
+  it("classifies a corrupt journal as invalid without leaking its contents", () => {
+    const privateValue = "synthetic-private-history-value";
+    updateReliabilityOperation(identity, () => {});
+    fs.writeFileSync(reliabilityOperationPath(identity), `{"history":"${privateValue}"`);
+    try {
+      createLifecycleCapacityStore().read();
+      throw new Error("Expected unavailable history");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "capacity-history-unprovable",
+        cause: "journal-invalid",
+      });
+      expect(JSON.stringify(error)).not.toContain(privateValue);
+    }
+  });
 });

@@ -78,5 +78,8 @@ describe("network diagnostic integration", () => {
     expect(result.allocation.status).toBe("unknown");
     expect(result.evidence.routes).toBe("unknown");
     expect(networkCapacityCheck(result).level).toBe("warn");
+    expect(networkCapacityCheck(result).details ?? "").toContain(
+      "Missing evidence: route evidence is incomplete or unknown",
+    );
   });
 });

@@ -70,6 +70,11 @@ export function networkCapacityCheck(report: NetworkCapacityInspection): Diagnos
   const managedDetails = managed
     ? ` Managed policy: ${managed.policy.status}; /${managed.policy.requestedPrefixLength} capacity: ${managed.configuredPolicyCapacity.status}; claims: ${managed.claims.reserved} reserved, ${managed.claims.attached} attached, ${managed.claims.uncertain} uncertain.`
     : "";
+  // Name the missing evidence instead of only its consequence, so an unknown
+  // readiness is actionable without reading raw Docker output. Bounded count and
+  // length keep one diagnostic line finite.
+  const blockers = report.allocation.blockers.slice(0, 4).map((blocker) => blocker.slice(0, 120));
+  const blockerDetails = blockers.length > 0 ? ` Missing evidence: ${blockers.join("; ")}.` : "";
   return {
     id: "global.network-capacity",
     level: legacyAvailable ? "ok" : "warn",
@@ -78,7 +83,7 @@ export function networkCapacityCheck(report: NetworkCapacityInspection): Diagnos
       : legacyAvailable
         ? "Docker default pools have unoccupied capacity; managed allocation is not configured."
         : "Network allocation readiness requires complete route and capacity evidence.",
-    details: `${report.pools.length} pool(s); ${retained} network(s) have no active endpoints but retain container references. Allocation readiness: ${report.allocation.status}.${managedDetails}`,
+    details: `${report.pools.length} pool(s); ${retained} network(s) have no active endpoints but retain container references. Allocation readiness: ${report.allocation.status}.${blockerDetails}${managedDetails}`,
     suggestion: exhausted
       ? "Existing network reuse can continue. Review operator-approved route-safe pools or exact ownership-aware recovery. Stop and worktree removal do not release subnets; do not prune automatically."
       : "Review complete Docker, LAN, VPN and guest route evidence before allocating a new subnet. Unknown evidence does not authorize cleanup.",
