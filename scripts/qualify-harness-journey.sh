@@ -19,6 +19,11 @@
 #               no change to the transitional checkout. A separate bounded
 #               direct gate probe then proves the allowed call really observed a
 #               settled phase instead of a fail-open decision.
+#   interrupted - a hook killed during its wait must record the uncertainty and
+#               refuse the identical re-delivery, so a cancelled wait can never
+#               execute the same mutating call twice. The granted and refused
+#               scenarios also replay their exact captured payloads and must
+#               refuse those instead of re-deciding them.
 #
 # Evidence comes from real artifacts only: the harness transcript (including its
 # own permission_denials), the hook payload, the hook decision, the mock request
@@ -89,7 +94,7 @@ write_evidence() {
     const fs = require("node:fs");
     const path = require("node:path");
     const work = process.env.DR_EVIDENCE_WORK || "";
-    const scenarios = ["deferral", "refusal", "neighbour"].map((name) => {
+    const scenarios = ["deferral", "refusal", "neighbour", "interrupted"].map((name) => {
       let asserted = null;
       try {
         asserted = JSON.parse(fs.readFileSync(path.join(work, "assert-" + name + ".json"), "utf8"));
@@ -676,6 +681,55 @@ const toolResults = requests.flatMap((request) => request.toolResults ?? []);
 const callIds = [...new Set(toolUses.map((call) => call.id))];
 const resultFor = (id) => toolResults.find((result) => result.toolUseId === id);
 
+// A killed hook records uncertainty instead of a decision, and the identical
+// re-delivery must refuse rather than wait or execute again. This path runs the
+// real gate process against a payload shaped exactly like the deliveries above,
+// with no harness in the loop.
+if (mode === "interrupted") {
+  const cancelledLedger = readJson("ledger-" + label + ".json") ?? {};
+  const settled = Array.isArray(cancelledLedger.entries) ? cancelledLedger.entries : [];
+  const cancelled = settled.filter((entry) => entry.toolUseId === payload.tool_use_id);
+  const replay = readJson("replay-" + label + ".json") ?? {};
+  check(cancelled.length === 1, "the cancelled wait recorded " + cancelled.length + " continuation(s)");
+  check(cancelled[0]?.state === "interrupted", "the cancelled wait settled as " + cancelled[0]?.state);
+  check(typeof cancelled[0]?.waitedMs !== "number", "the cancelled wait claimed a settled duration");
+  // A later cancelled wait must not overwrite or drop the earlier decisions.
+  const states = settled.map((entry) => entry.state).sort();
+  check(
+    states.join(",") === "granted,interrupted,refused",
+    "the ledger recorded " + states.join(",") + " instead of the three decisions",
+  );
+  check(replay.decision === "refuse", "the re-delivered call decided " + replay.decision);
+  check(replay.reason === "continuation-replay", "the re-delivery reason was " + replay.reason);
+  check(
+    replay.continuation?.state === "interrupted",
+    "the re-delivery reported " + replay.continuation?.state,
+  );
+  check(
+    real(replay.checkout ?? "") === real(affected),
+    "the re-delivery ran against " + replay.checkout + " instead of the gated checkout",
+  );
+  check(!fs.existsSync(work + "/probe-" + label + ".marker"), "the cancelled call's command ran");
+  check(dirtyAffected === "", "the interrupted checkout was modified: " + dirtyAffected);
+  console.log(
+    JSON.stringify({
+      scenario: mode,
+      label,
+      harness,
+      replay: {
+        decision: replay.decision,
+        reason: replay.reason,
+        continuation: replay.continuation ?? null,
+      },
+      cancelledWait: cancelled[0] ?? null,
+      checkoutsClean: dirtyAffected === "",
+      failures,
+    }),
+  );
+  if (failures.length) process.exit(1);
+  process.exit(0);
+}
+
 // The harness must have run to completion under the enforcing hook.
 check(transcript.is_error !== true && transcript.subtype === "success", "the harness run reported an error");
 check(transcript.terminal_reason === "completed", "the harness run did not finish: " + transcript.terminal_reason);
@@ -727,6 +781,12 @@ if (mode === "deferral") {
   check(affectedAfter.phase === "stable", "the affected phase is " + affectedAfter.phase);
   check(Number(transcript.duration_ms) >= waited * 1000, "the run (" + transcript.duration_ms + "ms) was shorter than the enforced wait");
   check(Number(transcript.duration_api_ms) < 2000, "the wait consumed model time: " + transcript.duration_api_ms + "ms of API time");
+  {
+    const replay = readJson("replay-" + label + ".json") ?? {};
+    check(replay.decision === "refuse", "the re-delivered call decided " + replay.decision);
+    check(replay.reason === "continuation-replay", "the re-delivery reason was " + replay.reason);
+    check(replay.continuation?.state === "granted", "the re-delivery reported " + replay.continuation?.state);
+  }
   if (harness === "codex") {
     check(hookOutcomes.completed === 1, "the harness recorded " + hookOutcomes.completed + " completed hook decisions");
     check(Number(transcript.num_turns) === 2, "the wait consumed " + transcript.num_turns + " model requests");
@@ -749,6 +809,12 @@ if (mode === "deferral") {
   check(resultFor(callIds[0])?.hasError === true, "the refusal was not delivered as an errored tool result");
   check(/still starting/.test(resultFor(callIds[0])?.text ?? ""), "the refusal reason did not reach the model");
   check(affectedAfter.phase === "starting", "the affected phase is " + affectedAfter.phase);
+  {
+    const replay = readJson("replay-" + label + ".json") ?? {};
+    check(replay.decision === "refuse", "the re-delivered call decided " + replay.decision);
+    check(replay.reason === "continuation-replay", "the re-delivery reason was " + replay.reason);
+    check(replay.continuation?.state === "refused", "the re-delivery reported " + replay.continuation?.state);
+  }
   if (harness === "codex") {
     check(hookOutcomes.blocked === 1, "the harness recorded " + hookOutcomes.blocked + " blocked hook decisions");
     check(hookOutcomes.completed === 0, "a refused call also reported a completed hook decision");
@@ -979,6 +1045,14 @@ run_scenario() {
   git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
   git -C "$NEIGHBOUR" status --porcelain > "$WORK/neighbour-dirty-$label.txt"
 
+  # Replay the exact payload the harness delivered. A granted or refused call must
+  # refuse the re-delivery with its recorded state instead of deciding again, so a
+  # harness that resends a call can never execute the same mutating command twice.
+  if [ "$mode" = "deferral" ] || [ "$mode" = "refusal" ]; then
+    HOME="$HOME_DIR" "$NODE" "$DIST" harness gate --json --wait-budget-ms 1000 \
+      < "$WORK/hook-payload-$label.json" > "$WORK/replay-$label.json" 2> "$WORK/replay-$label.err" || true
+  fi
+
   if [ "$mode" = "neighbour" ]; then
     # The hook output hides the observed phase, so a fail-open decision also
     # reads as "environment settled.". Ask the gate directly, with no tool id,
@@ -993,6 +1067,39 @@ run_scenario() {
   cat "$WORK/assert-$mode.json"
 }
 
+run_interruption_scenario() {
+  local label="interrupted"
+  local payload="$WORK/hook-payload-$label.json"
+  local probe="$WORK/probe-$label.marker"
+  rm -f "$probe" "$payload" "$WORK/replay-$label.json" "$WORK/gate-$label.out"
+
+  journal "$NEIGHBOUR" set stable >/dev/null
+  journal "$AFFECTED" set starting >/dev/null
+  # The harness delivers one fresh payload per call; this one has the shape and
+  # the id the earlier deliveries used, so the gate decides it exactly as it
+  # decides a harness call.
+  printf '%s' "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"tool_use_id\":\"toolu_journey_interrupted\",\"tool_input\":{\"command\":\"echo GATE-OK >> $probe\"},\"cwd\":\"$AFFECTED\"}" > "$payload"
+
+  HOME="$HOME_DIR" "$NODE" "$DIST" harness gate --json --wait-budget-ms 30000 \
+    < "$payload" > "$WORK/gate-$label.out" 2> "$WORK/gate-$label.err" &
+  local gate_pid=$!
+  sleep 1.5
+  kill -TERM "$gate_pid" >/dev/null 2>&1 || true
+  wait "$gate_pid" || true
+
+  # The identical re-delivery must refuse with the recorded uncertainty.
+  HOME="$HOME_DIR" "$NODE" "$DIST" harness gate --json --wait-budget-ms 1000 \
+    < "$payload" > "$WORK/replay-$label.json" 2> "$WORK/replay-$label.err" || true
+
+  journal "$AFFECTED" show > "$WORK/affected-after-$label.json"
+  journal "$AFFECTED" ledger > "$WORK/ledger-$label.json"
+  git -C "$AFFECTED" status --porcelain > "$WORK/affected-dirty-$label.txt"
+
+  DR_JOURNEY_HOME="$HOME_DIR" "$NODE" "$ASSERT" "$label" "$label" "$WORK" "$AFFECTED" \
+    "$NEIGHBOUR" "echo GATE-OK >> $probe" "$HARNESS" > "$WORK/assert-$label.json" || FAILED=1
+  cat "$WORK/assert-$label.json"
+}
+
 echo "--- harness: $HARNESS"
 echo "--- scenario 1: a transitioning checkout defers the tool call until it settles"
 run_scenario deferral 30000
@@ -1000,6 +1107,8 @@ echo "--- scenario 2: a transition that outlasts the budget is refused once, wit
 run_scenario refusal 3000
 echo "--- scenario 3: the neighbour checkout stays usable during that transition"
 run_scenario neighbour 5000
+echo "--- scenario 4: a cancelled wait is recorded and its re-delivery is refused"
+run_interruption_scenario
 echo "--- hook decisions"
 for log in "$WORK"/hook-gate-*.log; do echo "# $(basename "$log")"; cat "$log"; done
 echo "--- raw logs: $WORK"
