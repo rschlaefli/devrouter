@@ -12,6 +12,7 @@ import {
   stopPinnedManagedContainer,
   supportsManagedStopBaseline,
 } from "../devpod-environment";
+import { renderInspectFormatScaffold } from "./inspect-format-scaffold";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
@@ -60,6 +61,44 @@ describe("inspectWorkspaceContainers", () => {
     expect(template).toContain("mounts");
     expect(template).toContain("com.docker.compose.project.working_dir");
     expect(template).toContain('"sizeRw"');
+  });
+
+  it("keeps every inspect template one complete JSON object", () => {
+    // The daemon applies the template, so only this literal decides whether a
+    // snapshot can ever parse. A dropped brace once degraded every capacity
+    // read to unknown without failing a test.
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({ status: 0, stdout: "abc123\n", stderr: "" } as never)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: `${snapshotLine("abc123")}\n`,
+        stderr: "",
+      } as never);
+    inspectWorkspaceContainers();
+    const [, listed] = vi.mocked(spawnSync).mock.calls[1];
+    vi.mocked(spawnSync).mockClear();
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 0,
+      stdout: `${snapshotLine("abc123", { sizeRw: 10, sizeRootFs: 90 })}\n`,
+      stderr: "",
+    } as never);
+    inspectWorkspaceContainers({ withSize: true, ids: ["abc123"] });
+    const [, sized] = vi.mocked(spawnSync).mock.calls[0];
+    const snapshotKeys = (args: readonly string[] | undefined) => {
+      const at = args?.indexOf("--format") ?? -1;
+      return Object.keys(JSON.parse(renderInspectFormatScaffold(String(args?.[at + 1])))).sort();
+    };
+
+    expect(snapshotKeys(listed)).toEqual(["id", "labels", "mounts", "networks", "state"]);
+    expect(snapshotKeys(sized)).toEqual([
+      "id",
+      "labels",
+      "mounts",
+      "networks",
+      "sizeRootFs",
+      "sizeRw",
+      "state",
+    ]);
   });
 
   it("names the spawn failure when the docker binary is missing", () => {
@@ -147,6 +186,32 @@ ${managedSnapshotLine(createdId, composeProject, "created")}
     });
     expect(String((inspectCall[1] as string[])[2])).not.toContain("Env");
     expect(String((inspectCall[1] as string[])[2])).not.toContain("Config.Cmd");
+  });
+
+  it("keeps the managed-stop inspect template one complete JSON object", () => {
+    // This is the fail-closed ownership read, so a template that could never
+    // yield a record would hide behind the same fixtures as a passing one.
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce(dockerResult(`${runningId}\n`))
+      .mockReturnValueOnce(
+        dockerResult(`${managedSnapshotLine(runningId, composeProject, "running")}\n`),
+      )
+      .mockReturnValueOnce(dockerResult(`${runningId}\n`));
+    inspectManagedStopContainers(composeProject);
+    const rendered = JSON.parse(
+      renderInspectFormatScaffold(String(vi.mocked(spawnSync).mock.calls[1][1]?.[2])),
+    ) as { state: Record<string, unknown>; mounts: unknown };
+
+    expect(Object.keys(rendered).sort()).toEqual(["id", "labels", "mounts", "networks", "state"]);
+    expect(Object.keys(rendered.state).sort()).toEqual([
+      "Dead",
+      "Health",
+      "Paused",
+      "Restarting",
+      "Running",
+      "Status",
+    ]);
+    expect(Array.isArray(rendered.mounts)).toBe(true);
   });
 
   it("confirms an empty inventory independently without inspecting an empty id list", () => {

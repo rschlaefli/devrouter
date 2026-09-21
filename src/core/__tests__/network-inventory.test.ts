@@ -4,6 +4,7 @@ import {
   NETWORK_TEMPLATE,
   type NetworkInventoryReader,
 } from "../network-inventory";
+import { renderInspectFormatScaffold } from "./inspect-format-scaffold";
 
 const endpoint = "unix:///tmp/synthetic-docker.sock";
 const networkId = "a".repeat(64);
@@ -143,7 +144,7 @@ describe("pinned read-only Docker network inventory", () => {
     // The daemon applies the template, so only this literal decides whether the
     // reader ever sees a parseable record. A dropped brace once degraded every
     // capacity read to unknown without failing a test.
-    const parsed = JSON.parse(NETWORK_TEMPLATE.replace(/\{\{[^}]*\}\}/g, '"synthetic"')) as
+    const parsed = JSON.parse(renderInspectFormatScaffold(NETWORK_TEMPLATE)) as
       | Record<string, unknown>
       | string;
     expect(typeof parsed).toBe("object");
