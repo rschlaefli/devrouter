@@ -4872,11 +4872,59 @@ Dispositions: the five `stopping` transitional records audited above are now
 settleable by their own tasks on the installed CLI, because 0.1.3 carries
 `a906070`, `2f1f9ec` and `618fc5f`, while the four `recovering` rows still need
 only their owners' next `ensure`. RF08 waits on a named installed platform,
-consumer, profile and two environments. RF09 keeps Q20 host suspend open, because
-the observed system sleep is the operator's action. RF11 stays with the Klicker
+consumer, profile and two environments. RF09's Q20 host suspend passed on
+2026-09-21 and is recorded under *Host suspend qualified for Q20* below, where a
+repeat against the released bundle stays open. RF11 stays with the Klicker
 task `01a06930-fdea-70f1-bebf-9514b07e23a0`: its affected checkout
 `trees/rs/citation-stg-integration` was not touched, its staged merge belongs to
 that task, and no live recovery receipt exists yet. Q26's quarantine half still
 needs its recorded decision. Merge, release and installation ran under the
 approved 0.1.3 batch, and no consumer workspace, PRD, ingestion or Klicker
 rollout was touched.
+
+## Host suspend qualified for Q20 (RF09, 2026-09-21)
+
+The last live-open RF09 cell passed on a real suspend of this machine. The
+fixture was prepared at 2026-09-20T23:54:41Z and verified at
+2026-09-21T09:34:58Z with `pnpm qualify:host-suspend verify` (exit 0) against the
+machine's own power log, and every assertion held:
+
+- the machine slept between a recorded Sleep and the following Wake
+  (`2026-09-21 10:40:09 +0200`, 'Maintenance Sleep', one second to the wake
+  request);
+- the pre-suspend session is gone from the controller snapshot, and its
+  generation `ec4b7d2d` can neither be renewed nor obtain protection evidence
+  after the wake;
+- the same controller incarnation answered the wake, recorded that generation as
+  invalidated and retains it as unresolved evidence;
+- the retained consumer names `discontinuity` instead of an expired lease,
+  re-observation hands the same consumer a fresh generation on that same
+  incarnation, only the re-observed consumer counts as live, and parking consent
+  is not satisfied by a continuity break alone;
+- protection reports `revalidation-required` with a bounded grace of 0ms
+  remaining, `continuity-unknown` was superseded only after the reset window
+  elapsed (3278s awake), and the published route still served the fixture's
+  recorded 32-byte token after the wake.
+
+Receipt: `/private/tmp/dr-host-suspend/receipt.json`. `verify` tore the fixture
+down in its own `finally`: the controller and heartbeat processes are stopped,
+the fixture container is gone and `https://host-suspend.localhost/` answers 404
+again, so no fixture process is left for the next session to reconcile.
+
+Two evidence limits are recorded rather than smoothed over. First, the pass ran
+on the fixture's build, revision `1b61c7d` with `dist/devrouter.js` SHA-256
+`2f8a77825486bd00cc277eb85936f0c0cdade177b9817f322325a3e7903a07fb`, which is not
+the released 0.1.3 bundle (`cbc3b5b3…`): three source files changed in between
+(`src/core/devpod-registry.ts`, `src/core/devsy-workspaces.ts` and
+`src/core/workspace-runtime.ts`), along with tests, scripts and documentation.
+The continuity assertions exercise the controller, store and route rather than
+those provider-registration files, but an exact-artifact receipt still needs a
+fresh arm against the released bundle and a second real suspend. Second, the
+fixture's renewal heartbeat stopped being accepted at 06:44:56Z, about two hours
+before the sleep pair the receipt pins, and the power log records no sleep event
+in that window, so this run proves the post-wake continuity contract on a real
+suspend rather than a suspend interrupting a renewal that was still flowing.
+
+With this cell, RF09 has no live-open qualification left apart from that
+exact-artifact repeat; Q26's quarantine half remains the only undecided
+disposition.
