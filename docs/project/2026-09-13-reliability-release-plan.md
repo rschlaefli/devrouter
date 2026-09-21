@@ -3795,10 +3795,11 @@ Exact evidence on this machine, read-only:
 
 The correction closes the template, classifies a partial record as bounded
 `contains a malformed record` evidence instead of the generic reason, and adds
-two regressions: one renders the template's literal scaffolding through the same
-replacement the daemon performs and requires one complete JSON object (it fails
-against the shipped string), and one feeds a parsed-but-partial record and
-requires `unknown` rather than zero usage. The durable lesson is recorded in
+two regressions: one renders the template's literal scaffolding through the
+shared inspect-format renderer described in the next section and requires one
+complete JSON object (the renderer rejects the shipped string), and one feeds a
+parsed-but-partial record and requires `unknown` rather than zero usage. The
+durable lesson is recorded in
 [the unparsable network records entry](../solutions/runtime-error/unparsable-network-records-block-capacity.md).
 
 The suite could not have caught this: `network-inventory.test.ts` injects the
@@ -3812,6 +3813,66 @@ daemon read above. PR #125's CI is green at `1b61c7d`
 Remaining: publish and install a release that carries
 the correction, then re-read `devrouter doctor` on the installed artifact; the
 0.1.2 network-capacity claim was inaccurate while it shipped.
+
+## Daemon inspect templates audited and pinned (2026-09-21, `d86d371`)
+
+Status: **implemented and verified locally from source at `d86d371`;
+publication and release remain pending with the network correction.**
+
+The unparsable network template raised the obvious follow-up question: which
+other daemon format strings are validated only by fixtures that replace the
+daemon? Every `docker inspect --format` value on the reliability paths was
+therefore rendered against the live daemon (OrbStack at
+`unix:///Users/rschlae/.orbstack/run/docker.sock`, 52 containers, 16 networks)
+by reading the template literals out of the source, applying the same
+derivations the modules apply, and requiring one complete JSON record per
+object: `SAFE_INSPECT_TEMPLATE` and its `/}$/`-derived size sibling read with
+`--size`, the anchor-derived `OBSERVATION_INSPECT_TEMPLATE`,
+`MANAGED_STOP_INSPECT_TEMPLATE`, `HOST_PORT_INSPECT_TEMPLATE` and the
+connected-route network template. Each template was applied to five live
+objects and every record parsed with its exact key set, including `sizeRw` and
+`sizeRootFs` on the sized read and the five added state fields on the
+observation read.
+
+An earlier reading of a missing `sizeRw` was an artifact of the audit script,
+not of the product: the script inserted the size suffix through a string search
+instead of the module's `/}$/` anchor, so the suffix landed inside an action.
+Re-applying the derivation with regex semantics shows both the size and the
+observation anchor apply and the daemon returns complete records.
+
+That artifact stayed invisible to the suite for the same reason the shipped
+defect did, so the sweep leaves durable protection behind.
+`renderInspectFormatScaffold` renders a template's literal scaffolding — value
+actions become a placeholder, a conditional block keeps only its `else`
+branch — and the three test files that own those readers now require one
+complete JSON object with an exact key set, taking the real argv where the
+reader is injected and the exported literal where the template is shared.
+Contrast evidence: the same render of the shipped malformed network template is
+rejected with `Expected ',' or '}' after property value in JSON`, and breaking
+the size or observation derivation fails only the new assertions while every
+fixture-driven test still passes. Validation at `d86d371`: Biome, Knip,
+typecheck, the full suite (2736 tests in 149 files) and the live probes above.
+
+PR #125's CI is green at `d86d371` on its second attempt
+([run 35547248789](https://github.com/rschlaefli/devrouter/actions/runs/35547248789)).
+The first attempt failed the check job on an unrelated timeout:
+`src/commands/__tests__/workspace.test.ts` took 7315 ms for
+`prints the report-only cleanup command in JSON and human modes` against
+vitest's 5 s default, and the same revision passed when the failed job was
+re-run. The cleanup report reads live daemon capacity evidence on every
+invocation, so that test's cost follows the machine — 1312 ms on the previous
+green run, 7487 ms for the file under contention. `4da5639` gives the test a
+20 s budget, so a loaded runner no longer reds an unrelated package.
+
+One hygiene observation from the same sweep: 19
+`devpod-mutation.lock.<pid>.<uuid>.candidate` and
+`devsy-mutation.lock.<pid>.<uuid>.candidate` files dated 25 August to 12
+September sit in `~/.config/devrouter`. They are inert. The candidate file is
+written with an exclusive-create flag, used only as the link source inside one
+acquire, and removed in that acquire's `finally` block, and no code path
+enumerates the directory, so they are leftovers from killed processes rather
+than held locks or stale state. No change is warranted; this note exists so a
+later reader does not mistake them for a blocker.
 
 ## RF12 lifecycle-cohort measurement (2026-09-20, `1c42592`)
 
