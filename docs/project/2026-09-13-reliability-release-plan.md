@@ -4775,6 +4775,16 @@ recorded release pins, and `scripts/` is not part of the published file set.
   CLI RSS 72.0–74.7 MiB, and a teardown that removed the exact container and its
   route while leaving host files alone.
 
+The release checklist's remaining smoke items were run on the same head.
+`pnpm routing:smoke` passed: the host app, the docker app and the TLS-required
+Postgres route all served (`https://routing-host.localhost`,
+`https://routing-docker.localhost`,
+`postgres://routing-db.localhost:5432`). `pnpm devcontainer:smoke` cannot run
+on this host because the DevPod CLI is not installed (`missing required command:
+devpod`) and Devsy 1.19.0 is the provider here, so that checklist item stays
+unavailable rather than skipped silently; the live devcontainer coverage for this
+head is the Devsy-backed harness set above.
+
 A read-only scan of the same config directory found 19
 `devsy-mutation.lock.*.candidate` and `devpod-mutation.lock.*.candidate` files
 dated 2026-08-25 to 09-12. `acquireFileLock` removes its candidate in a
