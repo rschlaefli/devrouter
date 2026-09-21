@@ -130,7 +130,10 @@ async function main() {
     "devrouter-lifecycle-cohorts",
   );
   fs.mkdirSync(root, { recursive: true });
-  const fixture = path.join(root, "repo");
+  // The provider derives its workspace id from this folder's basename, so the
+  // name must stay unique per qualification fixture; a shared basename makes a
+  // run attach and mutate another fixture's container instead of its own.
+  const fixture = path.join(root, "cohorts-consumer");
   const image = process.env.DR_COHORT_IMAGE ?? "mcr.microsoft.com/devcontainers/base:debian";
   const evidencePath = process.env.DR_COHORT_EVIDENCE ?? path.join(root, "evidence.json");
   const journalFile = path.join(

@@ -226,7 +226,10 @@ async function main() {
     "devrouter-profile-alternation",
   );
   fs.mkdirSync(root, { recursive: true });
-  const fixture = path.join(root, "consumer");
+  // The provider derives its workspace id from this folder's basename, so the
+  // name must stay unique per qualification fixture; a shared basename makes a
+  // run attach and mutate another fixture's container instead of its own.
+  const fixture = path.join(root, "profile-alternation-consumer");
   const evidencePath = process.env.DR_PROFILE_EVIDENCE ?? path.join(root, "evidence.json");
   const journalFile = path.join(
     os.homedir(),

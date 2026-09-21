@@ -167,7 +167,10 @@ async function main() {
     "devrouter-process-preparation",
   );
   fs.mkdirSync(root, { recursive: true });
-  const fixture = path.join(root, "consumer");
+  // The provider derives its workspace id from this folder's basename, so the
+  // name must stay unique per qualification fixture; a shared basename makes a
+  // run attach and mutate another fixture's container instead of its own.
+  const fixture = path.join(root, "preparation-consumer");
   const workspaceFolder = "/workspaces/process-preparation";
   const evidencePath = process.env.DR_PREPARATION_EVIDENCE ?? path.join(root, "evidence.json");
   const journalFile = path.join(
