@@ -65,7 +65,8 @@ export function parseWorkspaceRuntime(value: string): WorkspaceRuntime {
 function isRuntimeInstalled(runtime: WorkspaceRuntime): boolean {
   // Each runtime only accepts one spelling: Devsy answers the global
   // --version flag, DevPod answers the version subcommand and rejects the
-  // flag. Neither probe touches a workspace registry.
+  // flag. Neither probe touches a workspace registry, so this startup is only
+  // worth paying where no registry read follows: runtime auto-detection.
   const probeArgs = runtime === "devsy" ? ["--version"] : ["version"];
   const probe = spawnSync(runtime, probeArgs, { encoding: "utf-8" });
   return probe.status === 0 && !probe.error;
@@ -174,6 +175,28 @@ export function writeWorkspaceRuntimeConfig(config: WorkspaceRuntimeConfig): voi
 }
 
 /**
+ * Read one runtime's registry. The read doubles as the installation probe:
+ * spawnSync reports a missing CLI as ENOENT, which is positive absence
+ * evidence, so a separate version startup would add a provider launch per
+ * snapshot without adding proof. A CLI that exists but cannot list its
+ * registry is recorded as unavailable so callers can degrade deliberately.
+ */
+function readRegistrySnapshot<T>(
+  runtime: WorkspaceRuntime,
+  read: () => T[],
+  snapshots: WorkspaceRegistrySnapshots,
+): T[] | undefined {
+  try {
+    return read();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return undefined;
+    snapshots.unavailable.push(runtime);
+    snapshots.errors[runtime] = error instanceof Error ? error.message : String(error);
+    return undefined;
+  }
+}
+
+/**
  * List both installed runtimes' registries once per process. Runtimes whose
  * CLI is missing are simply absent; a CLI that exists but cannot list its
  * registry is recorded as unavailable so callers can degrade deliberately.
@@ -181,22 +204,10 @@ export function writeWorkspaceRuntimeConfig(config: WorkspaceRuntimeConfig): voi
 export function getWorkspaceRegistrySnapshots(): WorkspaceRegistrySnapshots {
   if (cachedSnapshots) return cachedSnapshots;
   const snapshots: WorkspaceRegistrySnapshots = { unavailable: [], errors: {} };
-  if (isRuntimeInstalled("devsy")) {
-    try {
-      snapshots.devsy = listDevsyWorkspaces();
-    } catch (error) {
-      snapshots.unavailable.push("devsy");
-      snapshots.errors.devsy = error instanceof Error ? error.message : String(error);
-    }
-  }
-  if (isRuntimeInstalled("devpod")) {
-    try {
-      snapshots.devpod = listDevpodWorkspacesRaw();
-    } catch (error) {
-      snapshots.unavailable.push("devpod");
-      snapshots.errors.devpod = error instanceof Error ? error.message : String(error);
-    }
-  }
+  const devsy = readRegistrySnapshot("devsy", listDevsyWorkspaces, snapshots);
+  if (devsy !== undefined) snapshots.devsy = devsy;
+  const devpod = readRegistrySnapshot("devpod", listDevpodWorkspacesRaw, snapshots);
+  if (devpod !== undefined) snapshots.devpod = devpod;
   cachedSnapshots = snapshots;
   return snapshots;
 }

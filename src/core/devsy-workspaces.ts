@@ -35,9 +35,13 @@ export function listDevsyWorkspaces(): DevsyWorkspace[] {
       .filter(Boolean)
       .join("\n")
       .trim();
-    throw new Error(
+    // Keep the spawn failure code so a caller can classify a missing CLI
+    // (ENOENT) as absence while every other failure stays fail-closed.
+    const failure = new Error(
       `devsy workspace list failed: ${details || "devsy is not installed or unavailable"}`,
-    );
+    ) as NodeJS.ErrnoException;
+    if (result.error) failure.code = (result.error as NodeJS.ErrnoException).code;
+    throw failure;
   }
 
   let parsed: unknown;

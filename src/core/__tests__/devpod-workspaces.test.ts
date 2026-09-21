@@ -150,6 +150,15 @@ describe("DevPod workspace adapter", () => {
 });
 
 describe("optional competing DevPod executable", () => {
+  function thrownCode(run: () => unknown): string | undefined {
+    try {
+      run();
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code;
+    }
+    return undefined;
+  }
+
   it("accepts executable absence only when explicitly requested", () => {
     vi.mocked(spawnSync).mockReturnValue({
       status: null,
@@ -159,6 +168,7 @@ describe("optional competing DevPod executable", () => {
     } as never);
     expect(() => listDevpodWorkspacesRaw()).toThrow();
     expect(listDevpodWorkspacesRaw({ allowMissingExecutable: true })).toEqual([]);
+    expect(thrownCode(() => listDevpodWorkspacesRaw())).toBe("ENOENT");
   });
   it.each(["EACCES", "ETIMEDOUT", "EIO"])("rejects %s with optional enumeration", (code) => {
     vi.mocked(spawnSync).mockReturnValue({
@@ -168,6 +178,8 @@ describe("optional competing DevPod executable", () => {
       error: Object.assign(new Error("unavailable"), { code }),
     } as never);
     expect(() => listDevpodWorkspacesRaw({ allowMissingExecutable: true })).toThrow();
+    // Absence classification must key on the exact code, never on a bare failure.
+    expect(thrownCode(() => listDevpodWorkspacesRaw())).toBe(code);
   });
   it.each([
     { status: 1, stdout: "", stderr: "registry unavailable" },
