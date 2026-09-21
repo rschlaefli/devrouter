@@ -3818,8 +3818,9 @@ the correction, then re-read `devrouter doctor` on the installed artifact; the
 
 ## Daemon inspect templates audited and pinned (2026-09-21, `d86d371`)
 
-Status: **implemented and verified locally from source at `d86d371`;
-publication and release remain pending with the network correction.**
+Status: **implemented and verified locally from source at `d86d371` and
+`56d0556`; publication and release remain pending with the network
+correction.**
 
 The unparsable network template raised the obvious follow-up question: which
 other daemon format strings are validated only by fixtures that replace the
@@ -3854,6 +3855,35 @@ rejected with `Expected ',' or '}' after property value in JSON`, and breaking
 the size or observation derivation fails only the new assertions while every
 fixture-driven test still passes. Validation at `d86d371`: Biome, Knip,
 typecheck, the full suite (2736 tests in 149 files) and the live probes above.
+
+The same sweep completed the remaining fail-closed literals at `56d0556`. Two
+scalar reads and the checkout-absence inspection were still validated only by
+fixtures that replace the daemon, so `devpod-environment.test.ts` pins them
+too: the checkout template must render one complete object with `id`,
+`labels` (the three attribution keys) and an array `mounts`, and the endpoint
+and runner-binding templates must each render one JSON value. Removing one
+closing brace from the checkout literal and one from each scalar template fails
+only those two assertions — 2 failed, 79 passed — while every fixture-driven row
+still passes. Live renders on the same daemon back the assertions: the checkout
+template returned six complete records from six containers with mount counts 0,
+2, 0, 2, 1 and 37 and string-or-null label fields,
+`context inspect --format '{{json .Endpoints.docker.Host}}'` returned the
+OrbStack socket path as one JSON string, the runner-label read returned an empty
+JSON string for a container without `dev.containers.id`, and the
+connected-route network template returned three complete records.
+
+The provider CLI was audited in the same pass because it feeds the same
+parsers. Against the installed `devsy` 1.19.0,
+`workspace list --result-format json --skip-pro` returned 122 entries whose
+`id`/`source.localFolder` and optional fields match the reader,
+`workspace status` returned `{id, context, provider, state}` for running and
+stopped workspaces, a missing id exited 75 with `ERROR workspace not found`,
+`context list --result-format json` returned one default context, and
+`provider list` returned the Docker definition that
+`qualifyNetworkProviderDefinition` requires, including the exact
+`"${DEVSY}" internal sh -c "${COMMAND}"` command. No mismatch was found and
+no change is warranted; this note records the qualified contract so a later
+reader knows the shapes were checked live rather than assumed.
 
 PR #125's CI is green at `d86d371` on its second attempt
 ([run 35547248789](https://github.com/rschlaefli/devrouter/actions/runs/35547248789)).

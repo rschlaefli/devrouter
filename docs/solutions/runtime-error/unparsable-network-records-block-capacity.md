@@ -54,8 +54,10 @@ against the shipped string.
 - Treat a daemon format template as a protocol value: assert its scaffolding
   renders the object the reader parses, next to the tests for that reader. The
   shared renderer lives in `src/core/__tests__/inspect-format-scaffold.ts`; the
-  2026-09-21 sweep found the other five daemon templates correct and pinned each
-  one, including the two that are derived by string surgery at module load.
+  2026-09-21 sweep found every other template on these paths correct and pinned
+  each one, including the two derived by string surgery at module load, the
+  checkout-absence object with its range block, and the two scalar reads
+  (`56d0556`).
 - Classify a parse failure as its own bounded evidence. The generic
   "unavailable or malformed" reason hid a total failure for weeks; a named
   `contains a malformed record` reason points at the record instead of the
