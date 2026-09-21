@@ -65,7 +65,12 @@ import path from "node:path";
 const ADAPTER_LOG = "/tmp/devrouter-profile-adapter.log";
 const APP_LOG = "/tmp/devrouter-profile-app.log";
 const HELPER_STATE = "/tmp/devrouter-process-app.state";
-const ROUTE_HOST = "profiles-consumer.localhost";
+// One fixture directory is one environment: the project token that ${WORKSPACE}
+// resolves to, the devnet aliases and the route host all derive from this id, so
+// a fixture left running from an older revision cannot collide with this run's
+// alias or route.
+const FIXTURE_ID = "profile-alternation-consumer";
+const ROUTE_HOST = `profiles-${FIXTURE_ID}.localhost`;
 const APP_PORT = 3000;
 const IMAGE_TAG = "devrouter-profile-alternation:local";
 const WORKSPACE_FOLDER = "/workspaces/profile-alternation";
@@ -229,7 +234,7 @@ async function main() {
   // The provider derives its workspace id from this folder's basename, so the
   // name must stay unique per qualification fixture; a shared basename makes a
   // run attach and mutate another fixture's container instead of its own.
-  const fixture = path.join(root, "profile-alternation-consumer");
+  const fixture = path.join(root, FIXTURE_ID);
   const evidencePath = process.env.DR_PROFILE_EVIDENCE ?? path.join(root, "evidence.json");
   const journalFile = path.join(
     os.homedir(),
@@ -732,7 +737,7 @@ async function main() {
       [
         "version: 1",
         "project:",
-        "  name: profile-alternation",
+        `  name: ${FIXTURE_ID}`,
         "managedRuntime:",
         "  devcontainer:",
         "    baseServices: []",
@@ -787,7 +792,7 @@ async function main() {
         "    networks:",
         "      devnet:",
         "        aliases:",
-        "          - profile-alternation-app",
+        `          - ${FIXTURE_ID}-app`,
         "    volumes:",
         `      - ..:${WORKSPACE_FOLDER}:cached`,
         `      - node_modules:${WORKSPACE_FOLDER}/node_modules`,
@@ -799,7 +804,7 @@ async function main() {
         "    networks:",
         "      devnet:",
         "        aliases:",
-        `          - profile-alternation-${PROFILE_SERVICE}`,
+        `          - ${FIXTURE_ID}-${PROFILE_SERVICE}`,
         "",
         "networks:",
         "  devnet:",

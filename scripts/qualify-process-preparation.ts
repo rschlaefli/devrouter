@@ -49,7 +49,12 @@ const PREP_LOG = "/tmp/devrouter-preparation.log";
 const ADAPTER_LOG = "/tmp/devrouter-preparation-adapter.log";
 const APP_LOG = "/tmp/devrouter-preparation-app.log";
 const HELPER_STATE = "/tmp/devrouter-process-app.state";
-const ROUTE_HOST = "prep-consumer.localhost";
+// One fixture directory is one environment: the project token that ${WORKSPACE}
+// resolves to, the devnet aliases and the route host all derive from this id, so
+// a fixture left running from an older revision cannot collide with this run's
+// alias or route.
+const FIXTURE_ID = "preparation-consumer";
+const ROUTE_HOST = `prep-${FIXTURE_ID}.localhost`;
 const APP_PORT = 3000;
 const IMAGE_TAG = "devrouter-preparation-consumer:local";
 const PREPARE_MILLIS = 2000;
@@ -170,7 +175,7 @@ async function main() {
   // The provider derives its workspace id from this folder's basename, so the
   // name must stay unique per qualification fixture; a shared basename makes a
   // run attach and mutate another fixture's container instead of its own.
-  const fixture = path.join(root, "preparation-consumer");
+  const fixture = path.join(root, FIXTURE_ID);
   const workspaceFolder = "/workspaces/process-preparation";
   const evidencePath = process.env.DR_PREPARATION_EVIDENCE ?? path.join(root, "evidence.json");
   const journalFile = path.join(
@@ -512,7 +517,7 @@ async function main() {
       [
         "version: 1",
         "project:",
-        "  name: process-preparation",
+        `  name: ${FIXTURE_ID}`,
         "managedRuntime:",
         "  devcontainer:",
         "    baseServices: []",
@@ -556,7 +561,7 @@ async function main() {
         "    networks:",
         "      devnet:",
         "        aliases:",
-        "          - process-preparation-app",
+        `          - ${FIXTURE_ID}-app`,
         "    volumes:",
         `      - ..:${workspaceFolder}:cached`,
         `    working_dir: ${workspaceFolder}`,
