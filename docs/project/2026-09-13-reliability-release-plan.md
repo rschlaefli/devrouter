@@ -4033,6 +4033,19 @@ preparing, killing or duplicating anything. The pruned-population run shows the
 repaired primary stop branch settling a stop whose container was removed
 externally.
 
+Phase attribution from the same receipt, read from the recorded progress and
+provider timelines: the cold ensure spent 1.9s in validation before the provider
+phase began at 5.9s and ran to 19.1s, and the provider's own first event
+(`resolving_config`) only arrived at 10.3s, so most of that 13.3s window is
+Devsy's own startup and container work; injecting the agent then ran 1.9s and
+the repository lifecycle hook 1.0s. Service reconciliation took 11.9s, route
+publication 0.7s and the readiness phase 4.3s. The unchanged reuse spent 1.1s in
+validation, 6.8s in the provider phase, 8.2s reconciling services and 4.1s in
+readiness. The readiness loop probes immediately, exits on the first passing
+round and never sleeps before its first probe, so no measured phase points at a
+devrouter-side wait to remove. No optimization is justified by this evidence; a
+future measurement should name a devrouter-side phase before one is attempted.
+
 ### Profile changes and host/container alternation (2026-09-20, `51a1cb6`)
 
 Status: **qualified at source revision
