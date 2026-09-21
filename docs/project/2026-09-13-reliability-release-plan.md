@@ -3794,6 +3794,15 @@ Validation at that revision: docs policy, knowledge, Biome, Knip, typecheck, the
 full suite (2742 tests in 149 files), the build and the packed-distribution smoke
 (`devrouter-cli-0.1.3.tgz`, `{"networkPackageQualification":"passed"}`) all pass.
 
+Artifact identity for that release: at the same source tree `pnpm build` with
+`package.json` at 0.1.3 produces `dist/devrouter.js` with SHA-256
+`cbc3b5b3fbcf065b93d75cc5e542dad4ce563289337f49ec61e1c9e4720bd228` and
+`dist/devrouter-lifecycle-worker.js` with SHA-256
+`d0497dbbcf02005df0cba70abfbfe0d9c6ce328b373cc23e93d9735dd3ec140b`. Only
+documentation changed after the release commit, so the published tarball's two
+bundles must match these digests before the released artifact can be called the
+reviewed source.
+
 Publication is the remaining gated step, and it is also what releases the ten
 transitional records the machine-wide audit names: the three recovery fixes
 (`a906070`, `2f1f9ec`, `618fc5f`) are only on this branch, so an owner can settle
