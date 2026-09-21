@@ -3778,6 +3778,28 @@ withdrawn by `618fc5f` with a live A/B receipt. Merging,
 releasing and installation were performed under the approved roadmap batch, and
 no consumer workspace was touched.
 
+#### Release 0.1.3 preparation — awaiting publication (2026-09-21)
+
+The corrections merged after 0.1.2 sit unreleased on
+`rs/lifecycle-cohort-measurement` (45 commits ahead of `origin/main` at
+`e02442d`), so `878364b` prepares their patch release: `package.json` and both
+example pins move to 0.1.3, `CHANGELOG.md` gains the `[0.1.3]` section with the
+three managed-stop and managed-profile fixes, the repaired Docker network
+inventory template, the scoped mount-table read, the unwound-mount report and the
+removed provider version preflight, and `upgrade-prompts/0.1.3.md` carries the
+consumer instructions. No schema, flag, environment or journal migration changes
+in this release, so the bundled skill and the AI prompt need no update.
+
+Validation at that revision: docs policy, knowledge, Biome, Knip, typecheck, the
+full suite (2742 tests in 149 files), the build and the packed-distribution smoke
+(`devrouter-cli-0.1.3.tgz`, `{"networkPackageQualification":"passed"}`) all pass.
+
+Publication is the remaining gated step, and it is also what releases the ten
+transitional records the machine-wide audit names: the three recovery fixes
+(`a906070`, `2f1f9ec`, `618fc5f`) are only on this branch, so an owner can settle
+a stuck checkout only on a build that carries them. Merge, tag, publication and
+global installation were not authorized in this session and remain unchanged.
+
 ## Unparsable network inventory blocked capacity evidence (2026-09-21, `a2b4f92`)
 
 Status: **implemented and verified locally from source at
