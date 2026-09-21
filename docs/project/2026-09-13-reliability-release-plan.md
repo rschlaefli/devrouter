@@ -1,7 +1,7 @@
 # Reliable managed sessions through Devrouter 0.1.0
 
-**Current status (2026-09-20): release delivered; reliability acceptance remains
-active.** Versions 0.1.0, 0.1.1 and 0.1.2 are published and installed. The
+**Current status (2026-09-21): release delivered; reliability acceptance remains
+active.** Versions 0.1.0 through 0.1.3 are published and installed. The
 [post-release review and follow-up backlog](#post-release-reliability-review-and-follow-up-2026-09-20)
 records reproduced defects, qualification gaps and the evidence required to close
 the original roadmap. Earlier delivered headings describe their bounded source
@@ -3778,7 +3778,10 @@ withdrawn by `618fc5f` with a live A/B receipt. Merging,
 releasing and installation were performed under the approved roadmap batch, and
 no consumer workspace was touched.
 
-#### Release 0.1.3 preparation — awaiting publication (2026-09-21)
+#### Release 0.1.3 preparation (2026-09-21)
+
+Publication, artifact identity and installation are recorded under *Release 0.1.3
+publication, artifact and installation* at the end of this document.
 
 The corrections merged after 0.1.2 sit unreleased on
 `rs/lifecycle-cohort-measurement` (45 commits ahead of `origin/main` at
@@ -4716,10 +4719,10 @@ incident showed the same shape refusing `ensure`, so every `stopping` entry is
 a possible blockage for its own task until it is settled. The fixes that make
 those rows recoverable — absent-registration settlement (`a906070`), the
 generated-profile restore (`2f1f9ec`) and the refused-stop withdrawal
-(`618fc5f`) — sit on PR #125 and are unreleased, so each affected owner should
-run its documented recovery on a build that carries them: `devrouter stop` to
-the settled record, or `devrouter workspace journal settle` under its
-worker-loss proof. The missing `/private/tmp/chatbot-impl` checkout and the
+(`618fc5f`) — merged as `4bb7997` and shipped in 0.1.3, so each affected owner
+can run its documented recovery on the installed 0.1.3: `devrouter stop` to the
+settled record, or `devrouter workspace journal settle` under its worker-loss
+proof. The missing `/private/tmp/chatbot-impl` checkout and the
 retired `$TMPDIR` fixture record stay as historical evidence. This audit was
 read-only: no record, workspace, route or container was changed, and the eight
 klicker checkouts remain with their own tasks.
@@ -4820,3 +4823,60 @@ the lock, and they are inert: every acquisition writes a fresh
 `<lock>.<pid>.<uuid>.candidate` and never reads another process's file. An
 optional future sweep could remove candidates whose embedded process identity is
 gone; nothing in this pass depends on it and no file was removed.
+
+## Release 0.1.3 publication, artifact and installation (2026-09-21, `4bb7997`)
+
+PR #125 merged, and its release is published and installed, so the machine's CLI
+now carries the managed-stop, generated-profile and refused-stop corrections.
+
+- PR #125 (`fix(reliability): recover managed stops and repair capacity
+  evidence`) squashed to
+  `4bb79971538bdc667e6443aea3ddaa9488bb4c63` from 54 commits on
+  `rs/lifecycle-cohort-measurement`, replacing `e02442d` on `main`; the merge
+  deleted the branch's own origin ref.
+- Tag `v0.1.3` points at `4bb7997`, and release
+  [v0.1.3](https://github.com/rschlaefli/devrouter/releases/tag/v0.1.3)
+  triggered [workflow 35581003124](https://github.com/rschlaefli/devrouter/actions/runs/35581003124):
+  `check` passed in 5m15s with the three qualification steps in line
+  (`qualify:controller`, `qualify:capacity`, `qualify:lifecycle`), and `publish`
+  reported `✅ Published package @devrouter/cli@0.1.3` in 14s at 09:07:23Z.
+- Registry: the version document first answered at 09:09:34Z, so the 404 reads at
+  09:04:10Z (before the publish job) and at 09:07:34Z (eleven seconds after it)
+  were publication order and edge replication, not a failed publish. The
+  packument then reported `dist-tags.latest = 0.1.3`, `publishedAt =
+  2026-09-21T09:09:29.207Z`, `dist.shasum =
+  fe8b260271e3905b687e15175241ac31abd25561`, `dist.integrity =
+  sha512-gGN1DrctNH95CKBCkOrYf5V9DD2kJzLHmMwXQVHmrR7+bb7z200b5f0X3ZwCUVuKFE7iKrrtyhrDDAlFR4vU9w==`,
+  84 files and 2187175 unpacked bytes.
+- Installs: this machine carried three global copies, and two were still 0.1.2 —
+  the Volta user package behind `~/.volta/bin/devrouter` and the
+  Homebrew-prefixed npm install behind `/opt/homebrew/bin/devrouter`, beside the
+  npm prefix that the Volta Node image resolves. All three now report 0.1.3 and
+  all three carry the same bundle bytes: `dist/devrouter.js` SHA-256
+  `cbc3b5b3fbcf065b93d75cc5e542dad4ce563289337f49ec61e1c9e4720bd228` and
+  `dist/devrouter-lifecycle-worker.js` SHA-256
+  `d0497dbbcf02005df0cba70abfbfe0d9c6ce328b373cc23e93d9735dd3ec140b`, equal to
+  the qualified local build pinned under *Release 0.1.3 preparation* and to the
+  published tarball.
+- Live receipt on the installed 0.1.3 from this worktree:
+  `devrouter -V --repo ./examples/routing` reports installed 0.1.3, repo version
+  0.1.3 and no upgrade target, and `devrouter doctor --repo ./examples/routing`
+  reports `global.cli-path` `ok` with all three installs at 0.1.3 and
+  `global.capacity-ledger` `ok`. `global.devsy-agent` is the only non-blocking
+  `warn`, because Devsy 1.19.0 governs its own agent. `global.network-capacity`
+  reports default pool capacity as `ok` while keeping allocation readiness
+  `unknown` for incomplete route evidence, which is the recorded fail-closed
+  behaviour and not cleanup authorization.
+
+Dispositions: the five `stopping` transitional records audited above are now
+settleable by their own tasks on the installed CLI, because 0.1.3 carries
+`a906070`, `2f1f9ec` and `618fc5f`, while the four `recovering` rows still need
+only their owners' next `ensure`. RF08 waits on a named installed platform,
+consumer, profile and two environments. RF09 keeps Q20 host suspend open, because
+the observed system sleep is the operator's action. RF11 stays with the Klicker
+task `01a06930-fdea-70f1-bebf-9514b07e23a0`: its affected checkout
+`trees/rs/citation-stg-integration` was not touched, its staged merge belongs to
+that task, and no live recovery receipt exists yet. Q26's quarantine half still
+needs its recorded decision. Merge, release and installation ran under the
+approved 0.1.3 batch, and no consumer workspace, PRD, ingestion or Klicker
+rollout was touched.
