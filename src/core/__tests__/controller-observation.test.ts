@@ -9,6 +9,7 @@ import { readManagedRuntimeState } from "../managed-runtime-state";
 import { buildProfileResolutionReport } from "../profile-resolution";
 import { readReliabilityOperation } from "../reliability-operation-store";
 import { applyWorkspace, loadRepoConfig } from "../repo-config";
+import { renderInspectFormatScaffold } from "./inspect-format-scaffold";
 
 vi.mock("../controller-binding", () => ({
   captureControllerEvidence: vi.fn(),
@@ -274,4 +275,27 @@ it("revalidates the fingerprint capability when held publication proof is consum
     throw new Error("synthetic provenance loss");
   });
   expect(() => observed.revalidatePersisted()).toThrow();
+});
+
+it("keeps the observation inspect template one complete JSON object", async () => {
+  // The daemon applies the template, so only this literal decides whether a
+  // snapshot can ever parse. Every fixture below hands the parser well-formed
+  // records, so a template that never produced them would stay invisible.
+  await collect();
+  const inspect = vi
+    .mocked(runControllerProbe)
+    .mock.calls.find(([command, args]) => command === "docker" && args[0] === "inspect");
+  const rendered = JSON.parse(renderInspectFormatScaffold(String(inspect?.[1][2]))) as {
+    state: Record<string, unknown>;
+  };
+
+  expect(Object.keys(rendered.state).sort()).toEqual([
+    "Dead",
+    "Health",
+    "Paused",
+    "Restarting",
+    "Running",
+    "StartedAt",
+    "Status",
+  ]);
 });

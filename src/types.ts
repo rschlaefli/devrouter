@@ -53,6 +53,32 @@ export type ManagedRuntimeResourceStatus =
   | "foreign"
   | "drifted";
 
+/**
+ * One nested configured mount that the container's own namespace no longer
+ * reports. The configured mount it sits inside has become visible in its place,
+ * so container-side writes can land in the host checkout.
+ */
+export type ManagedMountNestingUnwound = {
+  destination: string;
+  source: string;
+  nestedWithin: string;
+};
+
+/**
+ * Read-only observation of a managed container's nested mounts. `docker
+ * inspect` keeps reporting the configured mounts after the host file-sharing
+ * layer unwinds a nested one, so the comparison uses the mount table the
+ * container's own namespace reports. An unreadable table is `unverified` with a
+ * reason, never a pass.
+ */
+export type ManagedMountNesting = {
+  status: "not-applicable" | "effective" | "unwound" | "unverified";
+  checked: string[];
+  unwound: ManagedMountNestingUnwound[];
+  container?: string;
+  reason?: string;
+};
+
 export type ManagedRuntimeStatus = {
   mode: "legacy" | "managed";
   status: "legacy" | "ready" | "starting" | "stopped" | "drifted" | "failed-transition";
@@ -79,6 +105,7 @@ export type ManagedRuntimeStatus = {
   effectiveConfigSha256?: string;
   transitionPhase?: string;
   reliability?: ManagedReliabilityStatus;
+  mountNesting?: ManagedMountNesting;
 };
 
 /**

@@ -23,7 +23,23 @@ function result(status: number | null, stdout = "") {
   return { status, stdout, stderr: "" };
 }
 
-/** Command-aware spawn mock: probes succeed, registry reads return bodies. */
+function missingExecutable(command: string) {
+  return {
+    status: null,
+    stdout: "",
+    stderr: "",
+    error: Object.assign(new Error(`spawnSync ${command} ENOENT`), { code: "ENOENT" }),
+  };
+}
+
+/** Every version-style startup the process paid for. */
+function versionProbes() {
+  return spawnSyncMock.mock.calls.filter(
+    ([, args]) => (args as string[])[0] === "--version" || (args as string[])[0] === "version",
+  );
+}
+
+/** Command-aware spawn mock: version probes answer, registry reads return bodies. */
 function mockRegistries(options: {
   devsyInstalled?: boolean;
   devpodInstalled?: boolean;
@@ -32,22 +48,24 @@ function mockRegistries(options: {
   devsyRegistryStatus?: number;
   devpodRegistryStatus?: number;
 }) {
+  const installed = (command: string) =>
+    (command === "devsy" ? options.devsyInstalled : options.devpodInstalled) === true;
   spawnSyncMock.mockImplementation((command: string, args: string[]) => {
     const probeArg = command === "devsy" ? "--version" : "version";
-    if (args[0] === probeArg) {
-      const installed = command === "devsy" ? options.devsyInstalled : options.devpodInstalled;
-      return result(installed ? 0 : 1);
-    }
+    if (args[0] === probeArg) return result(installed(command) ? 0 : 1);
     if (args[0] === "--version" || args[0] === "version") {
       return result(1);
     }
+    // A missing CLI fails its own registry read, exactly as the real spawn does.
     if (command === "devsy" && args.includes("list")) {
+      if (!installed(command)) return missingExecutable(command);
       return result(
         options.devsyRegistryStatus ?? 0,
         JSON.stringify(options.devsyWorkspaces ?? []),
       );
     }
     if (command === "devpod" && args[0] === "list") {
+      if (!installed(command)) return missingExecutable(command);
       return result(
         options.devpodRegistryStatus ?? 0,
         JSON.stringify(options.devpodWorkspaces ?? []),
@@ -276,5 +294,63 @@ describe("exact-path registry ownership", () => {
     const resolve = await loadRuntime();
     expect(resolve("/repo/ws").source).toBe("env");
     expect(spawnSyncMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("registry reads double as the installation probe", () => {
+  it("treats a missing runtime CLI as absence evidence", async () => {
+    readFileSyncMock.mockImplementation(() => JSON.stringify({ runtime: "devpod" }));
+    mockRegistries({
+      devsyInstalled: false,
+      devpodInstalled: true,
+      devpodWorkspaces: [{ id: "feature", source: { localFolder: "/repo/feature" } }],
+    });
+    const resolve = await loadRuntime();
+
+    expect(resolve("/repo/feature").runtime).toBe("devpod");
+    expect(resolve("/repo/feature").source).toBe("path-owner");
+  });
+
+  it("resolves exact-path ownership without paying a version startup", async () => {
+    readFileSyncMock.mockImplementation(() => JSON.stringify({ runtime: "devpod" }));
+    mockRegistries({
+      devsyInstalled: true,
+      devpodInstalled: true,
+      devsyWorkspaces: [{ id: "ws", source: { localFolder: "/repo/ws" } }],
+    });
+    const resolve = await loadRuntime();
+
+    expect(resolve("/repo/ws").runtime).toBe("devsy");
+    expect(resolve("/repo/ws").source).toBe("path-owner");
+    expect(versionProbes()).toEqual([]);
+  });
+
+  it("keeps the machine preference when neither CLI is installed", async () => {
+    readFileSyncMock.mockImplementation(() => JSON.stringify({ runtime: "devpod" }));
+    mockRegistries({ devsyInstalled: false, devpodInstalled: false });
+    const resolve = await loadRuntime();
+
+    expect(resolve("/repo/fresh").runtime).toBe("devpod");
+    expect(resolve("/repo/fresh").source).toBe("machine-config");
+    expect(versionProbes()).toEqual([]);
+  });
+
+  it("keeps an installed runtime whose registry read fails for another reason fail-closed", async () => {
+    readFileSyncMock.mockImplementation(() => JSON.stringify({ runtime: "devpod" }));
+    spawnSyncMock.mockImplementation((command: string, args: string[]) => {
+      if (command === "devsy" && args.includes("list")) {
+        return {
+          status: null,
+          stdout: "",
+          stderr: "",
+          error: Object.assign(new Error("not permitted"), { code: "EACCES" }),
+        };
+      }
+      if (command === "devpod" && args[0] === "list") return result(0, "[]");
+      return result(0);
+    });
+    const resolve = await loadRuntime();
+
+    expect(() => resolve("/repo/fresh")).toThrow(/Devsy workspace registry is unavailable/i);
   });
 });

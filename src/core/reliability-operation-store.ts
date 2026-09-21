@@ -100,6 +100,14 @@ export type ReliabilityOperationRecord = {
   revision: number;
   state: ReliabilityState;
   worker: { id: string; operationId: string; pid: number; birth: string } | null;
+  /**
+   * Durable pre-mutation boundary for the recorded stop intent. The stop worker
+   * sets it after its read-only proofs pass and immediately before it may change
+   * the environment, and settlement removes it again so a settled record stays
+   * readable by a released CLI that refuses unknown fields. A refusal, crash or
+   * withdrawal with this absent proves that the recorded stop ran no work.
+   */
+  stopWorkStarted?: boolean | null;
   effectSequence: number;
   outcome: (ExecutionOutcome & { operationId: string }) | null;
   /** CLI version that last wrote this record; absent in pre-0.0.67 records. */
@@ -395,6 +403,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     "revision",
     "state",
     "worker",
+    "stopWorkStarted",
     "effectSequence",
     "outcome",
     "result",
@@ -683,6 +692,11 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     ) {
       throw new Error("Reliability worker identity is invalid.");
     }
+  }
+  if (record.stopWorkStarted !== undefined && record.stopWorkStarted !== null) {
+    // Absent is the settled shape and a stop in flight records only the positive
+    // boundary; an explicit null is the same claim as absent.
+    if (record.stopWorkStarted !== true) throw new Error("Invalid stop work marker.");
   }
 }
 

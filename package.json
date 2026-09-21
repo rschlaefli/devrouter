@@ -1,6 +1,6 @@
 {
   "name": "@devrouter/cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local dev routing CLI with shared Traefik reverse proxy",
   "author": "Roland Schlaefli",
   "homepage": "https://github.com/rschlaefli/devrouter#readme",
@@ -37,6 +37,10 @@
     "qualify:non-node": "./scripts/qualify-non-node-consumer.sh",
     "qualify:slow-dependency": "./scripts/qualify-slow-dependency-recovery.sh",
     "qualify:killed-runtime": "./scripts/qualify-killed-runtime-recovery.sh",
+    "qualify:cohorts": "node --import tsx scripts/qualify-lifecycle-cohorts.ts",
+    "qualify:preparation": "node --import tsx scripts/qualify-process-preparation.ts",
+    "qualify:profiles": "node --import tsx scripts/qualify-profile-alternation.ts",
+    "qualify:host-suspend": "node --import tsx scripts/qualify-host-suspend.ts",
     "test:process": "bash scripts/test-devrouter-process.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",

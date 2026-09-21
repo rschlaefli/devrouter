@@ -442,10 +442,37 @@ describe("baseline-backed missing registration", () => {
       Buffer.byteLength(uid) === 16 || Buffer.byteLength(uid) === 40 ? uid : "fixture",
     );
   });
-  it("rejects primary checkout recovery", () => {
+  function primaryAbsent() {
     persist();
     fixture.missing = true;
-    expect(() => proveManagedStop(state)).toThrow();
+    containers = [];
+    vi.mocked(docker.inspectManagedStopContainers).mockImplementation(() => []);
+    vi.mocked(docker.inspectManagedStopWorkspaceIds).mockImplementation(() => []);
+  }
+  it("proves a primary checkout whose registration is gone", () => {
+    primaryAbsent();
+    expect(proveManagedStop(state)).toEqual({ status: "proven-absent", containers: [] });
+    expect(stopFromManagedBaseline(state)).toBe("proven-absent");
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+    expect(readManagedRuntimeState(state.repoPath)).toEqual(state);
+  });
+  it("rejects a primary checkout with a competing registration", () => {
+    primaryAbsent();
+    fixture.competitors = [{ id: "other", source: { localFolder: state.repoPath } }];
+    expect(() => proveManagedStop(state)).toThrow(Error);
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+  it("rejects a retained workspace identity that does not match the checkout", () => {
+    primaryAbsent();
+    state.workspace = "feature";
+    expect(() => proveManagedStop(state)).toThrow(/exact workspace identity/);
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+  it("rejects a linked checkout with no retained workspace identity", () => {
+    absent();
+    state.workspace = undefined;
+    expect(() => proveManagedStop(state)).toThrow(/exact workspace identity/);
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
   });
   it("rejects a retained generation changed during collection", () => {
     absent();

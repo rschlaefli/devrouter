@@ -949,6 +949,19 @@ describe("durable reliability records", () => {
     expect(readReliabilityOperation(identity)).toMatchObject({ revision: 1, effectSequence: 0 });
   });
 
+  it("stores only a positive stop work boundary", () => {
+    updateReliabilityOperation(identity, (record) => {
+      record.stopWorkStarted = true;
+    });
+    expect(readReliabilityOperation(identity)?.stopWorkStarted).toBe(true);
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.stopWorkStarted = false;
+      }),
+    ).toThrow("Invalid stop work marker.");
+    expect(readReliabilityOperation(identity)?.stopWorkStarted).toBe(true);
+  });
+
   it("recovers a post-rename error only by syncing the exact newly persisted record", async () => {
     const actual = await vi.importActual<typeof import("../atomic-file")>("../atomic-file");
     vi.mocked(writeFileAtomically).mockImplementationOnce((file, contents) => {

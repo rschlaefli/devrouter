@@ -80,5 +80,7 @@ describe("workspace commands outside Git", () => {
     const humanOutput = writes.mock.calls.map(([value]) => String(value)).join("");
     expect(humanOutput).toContain("Workspace cleanup report (read-only)");
     expect(humanOutput).toContain("No managed linked workspaces found.");
-  });
+    // Each invocation reads live daemon capacity evidence for the report, which
+    // took 7.3s on a contended CI runner against the 5s default.
+  }, 20_000);
 });

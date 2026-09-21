@@ -2798,17 +2798,17 @@ two OOM-labelled rows are dispositioned as not applicable instead of unproven.
 | Q17 | `reliability-model.test.ts` stops before late readiness so attach can never undo a stop; `reliability-lifecycle.test.ts` persists an operation reference without dispatch and lets stop supersede it | source | Proven at source |
 | Q18 | `reliability-model.test.ts` shares consumers, respects every pin and releases without stopping; `controller-sessions.test.ts` releases only the selected consumer | source | Proven at source |
 | Q19 | `reliability-liveness.test.ts` admits ensure after a completed stop against a saturated journal and keeps progress across 200 seeded rounds; `controller-store.test.ts` advances the epoch with stable identity and retains sessions on restart; `scripts/qualify-controller.ts` | source, installed | Proven at source and in the installed controller qualifier |
-| Q20 | `controller-sessions.test.ts` invalidates sessions on scheduling and wall-clock discontinuities and resets protection grace on sleep; `capacity-accounting.test.ts` clears every window on a clock discontinuity | source | Proven at source; a real host suspend was never exercised |
+| Q20 | `controller-sessions.test.ts` invalidates sessions on scheduling and wall-clock discontinuities and resets protection grace on sleep; `capacity-accounting.test.ts` clears every window on a clock discontinuity; `scripts/qualify-host-suspend.ts` drives the built controller through a real discontinuity and every wake assertion | source | Proven at source; the observation harness now exists and its wake assertions passed a bounded process-freeze dry run, but no real host suspend has been observed yet |
 | Q21 | `capacity-ownership-resolver.test.ts` rejects provider drift before publication and does not probe the daemon after cancellation; `controller-monitor.test.ts` does not replace timed-out batches whose probes have not drained | source | Proven at source |
 | Q22 | `reliability-worker.test.ts` records interruption on worker loss while retaining an active process group and never forks an already-cancelled request; `devpod-exec.test.ts` does not classify a transport error after spawn as safe to replay | source | Proven at source |
 | Q23 | `managed-stop-recovery.test.ts` fails on changed membership after partial cessation and never adopts replacements; `environment-stop.test.ts` fails closed when Traefik does not unload a removed route | source | Proven at source |
 | Q24 | both harness journeys assert zero infrastructure repair per scenario; the non-Node fixture starts its own application outside devrouter's control | live | Proven |
 | Q25 | `managed-host-preparation.test.ts` kills the inherited process group of a bounded foreground command; `reliability-lifecycle.test.ts` does not resurrect interrupted preparation when settled tooling history rolls over; `file-lock.test.ts` never displaces the same live process instance and reclaims a record whose PID belongs to a different process birth | source | Proven at source |
-| Q26 | `profile-plan.test.ts` atomically replaces an output symlink without changing its target; `managed-post-start.test.ts` does not follow a repository adapter symlink on the host; `paths.test.ts` refuses repo-relative traversal; `reliability-operation-store.test.ts` rejects symlinked journal entries | source | Partial: no quarantine subsystem exists to test, the symlink half is proven |
+| Q26 | `profile-plan.test.ts` atomically replaces an output symlink without changing its target; `managed-post-start.test.ts` does not follow a repository adapter symlink on the host; `paths.test.ts` refuses repo-relative traversal; `reliability-operation-store.test.ts` rejects symlinked journal entries | source | Partial: the symlink half is proven, and the quarantine half has no path to qualify; closing that half as unsupported waits on the owner's recorded decision |
 | Q27 | `reliability-worker.test.ts` forwards only allowlisted last-stage evidence and pages output within a byte bound; `reliability-lifecycle.test.ts` keeps command args, environment and output out of the persisted record | source | Proven at source |
 | Q28 | `tool-diagnostics.test.ts` warns when another install on PATH is newer than the running CLI or when the shell resolves a different one; `reliability-operation-store.test.ts` refuses records from a newer CLI; `scripts/package-smoke.sh` and `scripts/qualify-network-package.cjs` | source, installed | Proven at source and in the installed package qualifiers |
-| Q29 | `harness-gate.test.ts` and `commands/__tests__/harness.test.ts` cover the phase table, the continuation ledger, the non-shell decision path and both harness payload shapes for the lifecycle passthrough; `scripts/qualify-harness-journey.sh` runs twelve cells for Claude Code and eleven decided cells for Codex, whose `nonshell-allow`/`nonshell` cells drive a real MCP server tool through the hook, whose `parallel`/`concurrent` cells decide two calls that overlap one checkout with the same payload twice under distinct ids, whose Claude-only `nested` cell refuses a subagent's shell call once the checkout turns transitional, whose `cancelled` cell interrupts each CLI while its own hook is still waiting, whose `redirect` cell re-delivers one settled call's own id under a changed command and records that both real clients do deliver the repeated id, and whose `hook-timeout` cell inverts the shipped wiring on purpose (a 3s hook timeout under an 8s budget) so the harness abandons the wait before the gate decides; `agents-md.test.ts` asserts that every shipped `devrouter harness gate` hook declares at least twice the 30s default wait budget | source, live | Proven in both claimed harness modes at `134a992` (Claude Code 2.1.278 12/12, Codex 0.155.0-alpha.9.2 11/11 with `nested` recorded not-run because the Codex CLI exposes no subagent tool); a tool whose result depends on the live environment stays open |
-| Q30 | `harness-continuation.test.ts` replays an existing gated call instead of claiming it again and settles a waiting claim once; `reliability-model.test.ts` never overturns an explicit stop; `scripts/qualify-harness-journey.sh` kills the shipped gate mid-wait at 1.5s of a 30s budget, records `interrupted` with no duration, refuses the identical re-delivery as `continuation-replay`, leaves the command unexecuted, records the same refusal for a non-shell MCP call, grants two overlapping claims keyed by call identity, settles a refused subagent call, records a harness-initiated cancellation in each harness so the resend is refused, records a hook timeout that abandons the gating wait before any decision, after which the call runs under the harness's own permission rules while its claim never becomes `granted`, and re-delivers one settled call's own id under a changed command once the checkout is settled, so the granted id must refuse as a replay while the same command under a fresh id is still allowed | source, live | Live layer proven for a cancelled gate wait at `7467786`, for the non-shell replay at `40b23f0`, for two overlapping calls at `72f14db`, for the nested refusal at `ca2483b` and for interrupting the real CLI mid-wait at `1af4680`, where Claude Code settles the claim `interrupted` while the Codex CLI kills its hook so the claim stays `waiting` and the identical re-delivery maps it to `interrupted`, for a hook timeout below the wait budget at `ff7efc4`, where both harnesses ran the command under their own permission rules while the abandoned claim stayed short of `granted` (`interrupted` for Claude Code, `waiting` for Codex), and for a settled grant whose own id returned under a changed command at `134a992`, where both harnesses delivered the repeated id and the gate refused it as `continuation-replay` against the recorded `granted` state while the changed command never ran and the same command under a fresh id was allowed on the settled checkout; a runtime-dependent browser or MCP tool remains open |
+| Q29 | `harness-gate.test.ts` and `commands/__tests__/harness.test.ts` cover the phase table, the continuation ledger, the non-shell decision path and both harness payload shapes for the lifecycle passthrough; `scripts/qualify-harness-journey.sh` runs seventeen cells for Claude Code and sixteen decided cells for Codex, whose `nonshell-allow`/`nonshell` cells drive a real MCP server tool through the hook, whose `parallel`/`concurrent` cells decide two calls that overlap one checkout with the same payload twice under distinct ids, whose Claude-only `nested` cell refuses a subagent's shell call once the checkout turns transitional, whose `cancelled` cell interrupts each CLI while its own hook is still waiting, whose `redirect` cell re-delivers one settled call's own id under a changed command and records that both real clients do deliver the repeated id, whose `live-allow`/`live-refuse`/`live-unavailable` cells drive a real MCP tool that fetches the published route of the affected worktree's own routed Docker application through devrouter, so the settled read records the container's random startup token, the transitional refusal reaches neither the container nor its marker, and the same call after the application and its route are gone records the fetch failure instead of a value, whose `browser-allow`/`browser-refuse` cells render that same published route in a real headless browser so the value a browser-driven tool records was produced by a browser engine and its transitional refusal is refused before the browser starts, and whose `hook-timeout` cell inverts the shipped wiring on purpose (a 3s hook timeout under an 8s budget) so the harness abandons the wait before the gate decides; `agents-md.test.ts` asserts that every shipped `devrouter harness gate` hook declares at least twice the 30s default wait budget | source, live | Proven in both claimed harness modes at `1143fd6` (Claude Code 2.1.278 17/17, Codex 0.155.0-alpha.9.2 16/16 decided with `nested` recorded not-run because the Codex CLI exposes no subagent tool), including the live-environment read, its refusal, its absence and the browser-driven form of the same call, so no cell in this row stays open; the earlier fifteen-cell receipt at `a7f8df6` stays under `/private/tmp/devrouter-live-env-receipts/` |
+| Q30 | `harness-continuation.test.ts` replays an existing gated call instead of claiming it again and settles a waiting claim once; `reliability-model.test.ts` never overturns an explicit stop; `scripts/qualify-harness-journey.sh` kills the shipped gate mid-wait at 1.5s of a 30s budget, records `interrupted` with no duration, refuses the identical re-delivery as `continuation-replay`, leaves the command unexecuted, records the same refusal for a non-shell MCP call, grants two overlapping claims keyed by call identity, settles a refused subagent call, records a harness-initiated cancellation in each harness so the resend is refused, records a hook timeout that abandons the gating wait before any decision, after which the call runs under the harness's own permission rules while its claim never becomes `granted`, and re-delivers one settled call's own id under a changed command once the checkout is settled, so the granted id must refuse as a replay while the same command under a fresh id is still allowed | source, live | Live layer proven for a cancelled gate wait at `7467786`, for the non-shell replay at `40b23f0`, for two overlapping calls at `72f14db`, for the nested refusal at `ca2483b` and for interrupting the real CLI mid-wait at `1af4680`, where Claude Code settles the claim `interrupted` while the Codex CLI kills its hook so the claim stays `waiting` and the identical re-delivery maps it to `interrupted`, for a hook timeout below the wait budget at `ff7efc4`, where both harnesses ran the command under their own permission rules while the abandoned claim stayed short of `granted` (`interrupted` for Claude Code, `waiting` for Codex), and for a settled grant whose own id returned under a changed command at `134a992`, where both harnesses delivered the repeated id and the gate refused it as `continuation-replay` against the recorded `granted` state while the changed command never ran and the same command under a fresh id was allowed on the settled checkout; the live-environment cells added at `a7f8df6` close the MCP half, because the settled read records the running container's token through the published route, the refused call reaches neither the container nor its marker, and the same call after the application and its route are gone records `LIVE-UNREACHABLE`; the browser-driven form of the same call was added at `1143fd6`, where the settled read renders the published route in a real headless browser and records the container's token while the transitional call is refused before that browser starts, so no cell in this row stays open |
 | Q31 | `controller-server.test.ts` replays valid cursors, gaps a replaced store and disconnects a subscriber at the output bound while other clients stay responsive; `controller-protocol.test.ts` fences reconnects | source | Proven at source |
 | Q32 | `controller-store.test.ts` preserves corruption and refuses startup; `capacity-store.test.ts` refuses new admission after an established ledger disappears and fences a snapshot rewritten in place under the revision a caller already read; `host-routes-state.test.ts` fails closed on corrupt canonical metadata; `devrouter capacity reconcile --yes` is the delivered operator forward recovery | source, installed | Proven at source with the forward-recovery command covered in the installed capacity qualifier; the in-place fence replaced a `dev:ino` identity whose inode reuse CI reproduced at `7467786` on PR #121 and at `ce65d5c`, `14be44d`, `53c11df` and `a46eea7` on the main-based PR #120, while other runs of the same revisions passed |
 | Q33 | `controller-monitor.test.ts` refuses to park when the environment proved a usable consumer and vetoes a usable second consumer; `reliability-recovery.test.ts` never recommends an action for unmanaged or user-stopped environments | source | Proven at source |
@@ -2818,11 +2818,26 @@ two OOM-labelled rows are dispositioned as not applicable instead of unproven.
 
 Open or partial rows and what they mean for the release claim:
 
-- Q20 has source coverage for clock discontinuity, sleep and grace resets, and no
-  real host-suspend observation.
+- Q20 has source coverage for clock discontinuity, sleep and grace resets. Its
+  bounded observation harness (`pnpm qualify:host-suspend`,
+  `scripts/qualify-host-suspend.ts`, `5259590`) prepares a live session, a live
+  consumer heartbeat and a routed Docker fixture through the machine's own
+  Traefik and TLS stack, and it refuses to pass without a real `Sleep`/`Wake`
+  pair from the machine's own power log. No real host suspend has been observed
+  yet, so the row stays open.
 - Q26 is half not applicable: resources are discovered from Docker and Git rather
   than through a quarantining watcher chain, so there is no quarantine path to
-  qualify.
+  qualify. Its symlink half is proven at source. Closing the quarantine half as
+  unsupported narrows the approved outcome, so it stays pending the owner's
+  recorded decision instead of being closed here.
+  The pending decision is narrow: either record the quarantine half as
+  unsupported by design — devrouter performs no artifact archiving, writes only
+  declared outputs, and already refuses path escapes and symlinked journal
+  entries — or scope a quarantine feature (declared regenerable outputs,
+  operator authorization, writer exclusion, retention bound) that this roadmap
+  does not currently own. Recommended: the unsupported-by-design record, because
+  no quarantine behavior exists to qualify and the guard rails that protect user
+  data are proven. The row stays pending until the owner records it.
 - Q30 is proven live for a cancelled gate wait (the journey kills the shipped
   gate mid-wait and its re-delivery is refused), for parallel and nested calls,
   and for a real harness-initiated cancellation in both harnesses: interrupting
@@ -2836,8 +2851,11 @@ Open or partial rows and what they mean for the release claim:
   harnesses re-delivered the call's own id under a changed command, the gate
   refused it as `continuation-replay` against the recorded `granted` state, the
   changed command never ran, and the same command under a fresh id was allowed
-  once the checkout was settled. Only a runtime-dependent browser or MCP tool
-  stays open.
+  once the checkout was settled. The three live-environment cells that followed
+  close the HTTP half of that seam, and the two browser cells added at
+  `1143fd6` close the browser half: a real headless browser renders the
+  published route and records the container's token, while the transitional
+  call is refused before that browser starts.
 - Q07 and Q08 are not applicable as OOM questions because no OOM classifier
   exists; the underlying requirements are carried by the headroom, dwell and
   admission contracts above and by process-absence evidence.
@@ -2851,7 +2869,8 @@ container and its published route stayed as inspectable evidence, the route
 stopped serving instead of reporting success, no devrouter statement classified
 the death as an OOM kill, and the same container restarted with the route
 serving again. The cell needs Docker and the mkcert root CA; host suspend (Q20)
-and the harness-initiated cancellation seams stay open.
+is the remaining open seam there; the harness-initiated cancellation seams were
+closed by the cells recorded under RF09 below.
 
 Source rows prove the contract and its failure handling in this repository's
 suite and are not claims about an installed artifact. The installed and live
@@ -2860,9 +2879,44 @@ release by the slow-dependency fixture recorded below. Q29, Q30 and Q32 gained
 their 2026-09-20 evidence from PR #121, including the hook-timeout cell that
 records what a harness does when it abandons the gate and the redirect cell that
 records what both harnesses do when a settled call's own id returns under a
-changed command. Requalifying Q20 still
-needs a bounded observation harness that does not exist yet, so it stays open rather than
-approximated.
+changed command. Q20's bounded observation harness now exists and waits only
+for the observed macOS sleep: `scripts/qualify-host-suspend.ts`
+(`pnpm qualify:host-suspend`, prepared at `5259590`) brings up one routed Docker fixture through the
+machine's own Traefik and TLS stack, starts the shipped controller with an
+isolated home over synthetic providers, and holds one consumer session with the
+same live heartbeat a watching client sends, because the session lease only
+lasts 30 seconds. `prepare` armed that installation with the published route
+serving its recorded token and the heartbeat renewing every ten seconds, and
+`verify` refuses to pass without a real `Sleep`/`Wake` pair after the recorded
+preparation (exit 3 is a skip, not acceptance). The first version of the cell
+wrote its fixture journal through the product's own record writer, which
+resolves the store directory from the harness process home: the record landed
+in the operator's real `~/.config/devrouter/reliability`, where the fixture
+controller could not read it, so `5259590` writes the record straight into the
+isolated home with the contract's own state shape, refuses any path outside
+that home, and the stray record was moved out of the live directory with its
+contents preserved. The wake assertions were exercised on the built bundle by
+freezing both fixture processes for 25 seconds and resuming them, which left
+the pre-suspend session invalidated with retained reason `discontinuity`,
+refused both the stale renewal and the stale protection read, and handed the
+same consumer a fresh generation on the same store and epoch with
+`continuity-unknown`, one live consumer, one unresolved consumer and unmet
+parking consent. The macOS sleep itself remains unobserved, so Q20 stays open
+rather than approximated.
+
+The armed installation was re-prepared on the later revision `1b61c7d`
+(`dist/devrouter.js` SHA-256 `2f8a778…`, `preparedAt 2026-09-20T23:54:41Z`,
+checkpoint `/private/tmp/dr-host-suspend/checkpoint.json`), which supersedes the
+`5259590` checkpoint kept beside it, and it was still live on 2026-09-21: the
+controller process held the session over the isolated home, the heartbeat
+renewed it every ten seconds, and the published route served its recorded
+token. The machine also explains why no sleep has been observed yet:
+`pmset -g assertions` records `PreventUserIdleSystemSleep = 1` held by the
+Electron ChatGPT and Claude desktop apps, so idle sleep cannot happen while
+they run. The operator either quits them and lets the Mac idle, or triggers
+`pmset sleepnow`, then runs `pnpm qualify:host-suspend verify` after the wake.
+Exit 3 re-arms and asks again; a failed assertion is investigated, never
+papered over.
 
 ### Release 0.1.0 preparation (slice 7)
 
@@ -3091,8 +3145,13 @@ and its staged merge and worktree Git state were not touched.
 
 Status: **active; the reviewed corrections shipped in 0.1.2 and are installed.**
 Remaining acceptance: RF08's explicitly authorized integrated canary, RF09's Q20
-host suspend and live-environment tool, RF10's operator journal recovery, RF11's
-consumer adoption and RF12's measured breadth.
+host suspend and RF11's consumer adoption; RF10's operator journal recovery
+completed on 2026-09-21 (see *Follow-up receipts* below).
+RF12's stopped-resume, fault-recovery, preparation-reuse and profile/host
+alternation cohorts, the live-environment tool cells, their browser-driven
+form and the refused-stop withdrawal are measured, while any evidenced
+optimization stays open; the read-only unwound-nested-mount report shipped at
+`74dfd8e`.
 The user requested that all findings and improvements from the latest CLI review
 remain part of the roadmap. This section is the current follow-up backlog for
 the governing [roadmap in PR #57](https://github.com/rschlaefli/devrouter/pull/57),
@@ -3397,13 +3456,19 @@ pinned, each reproduced on this host:
   `default_tools_approval_mode = "approve"`. The journey fixture sets it, so
   the allowed cell is a real positive control rather than a silently blocked
   call.
+- Codex delivers a finished non-shell tool result to the model as content
+  blocks (`{type: "input_text", text}`), while a blocked call and a finished
+  shell command arrive as one string. The journey's Responses mock normalizes
+  both shapes, so a trace that only spelled the array would claim the result
+  never reached the model.
 - Claude Code delivered two `Bash` calls from one turn sequentially in headless
   mode, so a harness-level cell alone cannot prove an overlapping wait; the
   concurrent cell exists because the product boundary owns that guarantee.
 
-The remaining Q29 and Q30 cell is a tool whose success depends on the live
-managed environment, which belongs to RF08's authorized installed cell or to a
-dedicated bounded fixture.
+The remaining Q29 and Q30 cell — a tool whose success depends on the live
+managed environment — is closed by the bounded journey fixture recorded below
+(`a7f8df6`); RF08's authorized installed canary stays the place for the full
+failure, parking and resume sequence.
 
 #### Hook-timeout consequence (2026-09-20, `ff7efc4`)
 
@@ -3478,6 +3543,98 @@ Evidence: `/private/tmp/dr-claude-134a992-evidence.json` and
 cells with `nested` recorded not-run. The `ff7efc4` summaries above stay as the
 narrower hook-timeout record.
 
+#### Live managed-environment read, refusal and absence (2026-09-20, `a7f8df6`)
+
+Status: **qualified on both harnesses at revision
+`a7f8df601c6eed6c028973108f19f4734f423142` with the unchanged bundle SHA-256
+`6de1b11e3073e81a980d27b707276bf64bc0983c9accf8ad6dfd66485a2c4ff0`; the
+three cells record `not-run` with a reason when Docker, its daemon or the mkcert
+root CA is unavailable, so an unrun environment can never read as a pass. The
+opt-in `harness-journey` CI job therefore stays green while a live cell records
+`not-run`; the uploaded evidence names the reason, so an acceptance reader must
+read the cells rather than the job colour.**
+
+The Q29/Q30 cell that stayed open was a tool whose success depends on the live
+managed environment. The journey's twelfth scenario closes it without touching a
+consumer: the affected fixture worktree declares a routed Docker application
+(`runtime: docker`, host `live-env.localhost`, service `web`), `devrouter
+ensure` publishes it through the machine's own Traefik and TLS stack, and a
+second test-owned MCP tool (`read_live_token`) fetches that published route and
+records what it read. The container generates a random 16-byte token at startup,
+serves it at `/` and writes the same value to `/srv/token`, and runs a verbose
+`httpd`, so its own log counts every request it answered. The cells therefore
+depend on the running environment instead of fixture state:
+
+- `live-allow` (stable checkout, 5s budget): the call is allowed, the tool
+  records the container's token, the container's own log shows exactly one new
+  request, and the recorded value equals the token read back from the container.
+- `live-refuse` (transitional checkout, 3s budget): the call is refused with the
+  phase and the `devrouter status` guidance, the marker stays absent and the
+  container answered no additional request, so the refusal suppressed a real
+  read of the live environment.
+- `live-unavailable` (application and route released): the same call is allowed
+  again and records `LIVE-UNREACHABLE` with its reason instead of a value, so a
+  tool that depended on fixture state or a cached route could not pass.
+- `browser-allow` (stable checkout, 5s budget): the model asks for a second
+  test-owned MCP tool whose handler launches a discovered browser binary in
+  headless mode against the same published route and records the text that page
+  renders, so the value a browser-driven tool records was produced by a browser
+  engine. The call is allowed and the rendered text is the container's token.
+- `browser-refuse` (transitional checkout, 3s budget): the same browser tool is
+  refused with the phase and the `devrouter status` guidance, so the browser
+  never starts, the marker stays absent and the container answered nothing.
+
+| Harness | Version | Allowed read | Transitional call | After teardown |
+| --- | --- | --- | --- | --- |
+| Claude Code | 2.1.278 | allowed; recorded token `87f8be39…` matched the container; 1 new request | refused; no marker; 0 new requests | `LIVE-UNREACHABLE no published route was recorded` |
+| Codex CLI | 0.155.0-alpha.9.2 | allowed; recorded token `32f93d42…` matched the container; 1 new request | refused; no marker; 0 new requests | `LIVE-UNREACHABLE no published route was recorded` |
+
+The browser cells added at `1143fd6` read the same published route through a
+browser, so the value they record was rendered by a browser engine:
+
+| Harness | Version | Browser read | Transitional browser call |
+| --- | --- | --- | --- |
+| Claude Code | 2.1.278 | allowed; rendered token `dca8bf92…` matched the container; 1 new request | refused; the browser never started; no marker; 0 new requests |
+| Codex CLI | 0.155.0-alpha.9.2 | allowed; rendered token `ac06a4a4…` matched the container; 1 new request | refused; the browser never started; no marker; 0 new requests |
+
+The cells resolve the fixture's identity from the running system: in a linked
+worktree the host is namespaced (`live-env.localhost` becomes
+`live-env.<workspace>.localhost`) and the Compose project is the worktree
+directory name rather than `.devrouter.yml`'s `project.name`. The route is
+selected by app name and namespace pattern and then cross-checked against the
+container's own `com.docker.compose.project.config_files` label before anything
+is read or stopped, and the teardown removes only the exact container and route
+the cells proved.
+
+Evidence: `/private/tmp/devrouter-live-env-receipts/2026-09-20-live-environment-claude-a7f8df6.json`
+and `/private/tmp/devrouter-live-env-receipts/2026-09-20-live-environment-codex-a7f8df6.json`,
+both at revision `a7f8df601c6eed6c028973108f19f4734f423142`. Claude Code passed
+15/15 cells; the Codex CLI passed 14/14 decided cells with `nested` recorded
+not-run because that CLI exposes no subagent tool. The first Codex run at the
+same source revision found a harness boundary instead of a product defect: this
+client delivers a finished non-shell tool result to the model as `input_text`
+content blocks, so the Responses mock's trace spelled the array as
+`[object Object]` and the assertion could not see the token, while the client's
+own rollout recorded the token reaching the model. The mock now normalizes both
+shapes and the assertion reads the text the model would have read.
+
+The browser cells were added at `1143fd6` and qualified in both harnesses on
+2026-09-21:
+`/private/tmp/devrouter-live-env-receipts/2026-09-21-harness-journey-claude-1143fd6.json`
+(Claude Code 2.1.278, 17/17 cells) and
+`/private/tmp/devrouter-live-env-receipts/2026-09-21-harness-journey-codex-1143fd6.json`
+(Codex CLI 0.155.0-alpha.9.2, 16/16 decided cells with `nested` recorded
+not-run), both against bundle SHA-256 `a7b07e32…`. Two browser failure modes
+were diagnosed while building the cell. A headless Chrome that has printed the
+DOM can then fail to exit, so the cell completes at the closing `html` tag and
+stops the process instead of waiting for an exit that never comes. A headless
+browser started under the journey's isolated `HOME` blocks on a login keychain
+that home does not have, so the tool passes `--use-mock-keychain
+--password-store=basic` while the route is still validated against the
+machine's own trust store. A host whose browser cannot be discovered records
+both cells `not-run` with the reason, so an unqualified browser seam cannot read
+as a pass.
+
 #### Qualification, operator and consumer follow-up
 
 All entries remain open unless their status explicitly says investigation.
@@ -3486,12 +3643,12 @@ an operator's or another task's environment.
 
 | ID / priority / owner | Remaining work and evidence | Acceptance and boundary |
 | --- | --- | --- |
-| RF07 / P2 — Cancellation and replay; Devrouter/harness owner | **Implemented and locally qualified on PR #121 (`7467786`); merged as `abcc233` and released in 0.1.2.** The journey gained an `interrupted` scenario that kills the shipped gate during its wait and replays the exact payload: the ledger records `interrupted` with no claimed `waitedMs`, the identical re-delivery is refused as `continuation-replay` against the recorded state, and the command never runs. The granted and refused calls also replay their exact captured payloads and must refuse with their recorded outcome, so a resending harness cannot execute one mutating call twice. Claude Code 2.1.278 and Codex 0.155.0-alpha.9.2 passed all four scenarios, and the `cancelled` cell now interrupts each real CLI while its own hook waits (`fbfb5ca`, extended to the Codex CLI at `1af4680`): Claude Code settles the claim `interrupted`, while the Codex CLI kills its hook so the claim stays `waiting` and the identical re-delivery maps it to `interrupted` and refuses it. Both harnesses ran the full set at `1af4680` against the local mock provider with no credentials or spend, and the retained summaries name revision `1af4680493f766b068bb8a4c4b5062d168bd2630` and bundle SHA-256 `f431223a…`; the earlier Codex summary stays at revision `7467786` with bundle SHA-256 `84ca0577…`. Claim timing was not changed; the cancellation-after-grant path is now refused by reproduced evidence instead of reasoning. The `hook-timeout` cell added at `ff7efc4` inverts the shipped relationship on purpose (3s hook timeout under an 8s budget) and runs last, so every earlier cell used the shipped value; both harnesses then ran the command under their own permission rules while the abandoned claim never became `granted` (Claude Code settled it `interrupted`, the Codex claim stayed `waiting`), the affected phase stayed `starting`, both checkouts stayed clean and no command ran twice. A guard in `agents-md.test.ts` now fails when any shipped hook timeout drops below twice the 30s default wait budget. The `redirect` cell added at `134a992` scripts one id twice, so a settled call's own id returns under a changed command: both harnesses delivered the repeated id, the gate refused it as `continuation-replay` against the recorded `granted` state, the changed command never ran, and the same command under a fresh id was allowed once the checkout was settled. Remaining for this row: a tool whose success depends on the live managed environment. | Observe cancellation, redirect and hook timeout before claim, during wait and after grant in each supported actual harness. Record whether the tool ran and reject continuation of a superseded task. Change claim timing only after its semantics are resolved; preserve ordinary settled-call behavior and uncertain-write non-replay. Include parallel/nested calls and a genuinely runtime-dependent browser/MCP tool in Q29; a shell command named `exec_command` does not by itself prove that seam. W9, Q22/Q29–Q31. |
+| RF07 / P2 — Cancellation and replay; Devrouter/harness owner | **Implemented and locally qualified on PR #121 (`7467786`); merged as `abcc233` and released in 0.1.2.** The journey gained an `interrupted` scenario that kills the shipped gate during its wait and replays the exact payload: the ledger records `interrupted` with no claimed `waitedMs`, the identical re-delivery is refused as `continuation-replay` against the recorded state, and the command never runs. The granted and refused calls also replay their exact captured payloads and must refuse with their recorded outcome, so a resending harness cannot execute one mutating call twice. Claude Code 2.1.278 and Codex 0.155.0-alpha.9.2 passed all four scenarios, and the `cancelled` cell now interrupts each real CLI while its own hook waits (`fbfb5ca`, extended to the Codex CLI at `1af4680`): Claude Code settles the claim `interrupted`, while the Codex CLI kills its hook so the claim stays `waiting` and the identical re-delivery maps it to `interrupted` and refuses it. Both harnesses ran the full set at `1af4680` against the local mock provider with no credentials or spend, and the retained summaries name revision `1af4680493f766b068bb8a4c4b5062d168bd2630` and bundle SHA-256 `f431223a…`; the earlier Codex summary stays at revision `7467786` with bundle SHA-256 `84ca0577…`. Claim timing was not changed; the cancellation-after-grant path is now refused by reproduced evidence instead of reasoning. The `hook-timeout` cell added at `ff7efc4` inverts the shipped relationship on purpose (3s hook timeout under an 8s budget) and runs last, so every earlier cell used the shipped value; both harnesses then ran the command under their own permission rules while the abandoned claim never became `granted` (Claude Code settled it `interrupted`, the Codex claim stayed `waiting`), the affected phase stayed `starting`, both checkouts stayed clean and no command ran twice. A guard in `agents-md.test.ts` now fails when any shipped hook timeout drops below twice the 30s default wait budget. The `redirect` cell added at `134a992` scripts one id twice, so a settled call's own id returns under a changed command: both harnesses delivered the repeated id, the gate refused it as `continuation-replay` against the recorded `granted` state, the changed command never ran, and the same command under a fresh id was allowed once the checkout was settled. Remaining for this row: none. The live-environment cells added at `a7f8df6` make a test-owned MCP tool fetch the affected worktree's own routed application, so the settled call records the container's random token, the transitional refusal reaches neither the container nor its marker, and the same call once the application and its route are gone records the fetch failure instead of a value. The browser cells added at `1143fd6` render that same route in a real headless browser in both harnesses, so the browser-driven form of the call records the container's token and its transitional refusal is refused before the browser starts. | Observe cancellation, redirect and hook timeout before claim, during wait and after grant in each supported actual harness. Record whether the tool ran and reject continuation of a superseded task. Change claim timing only after its semantics are resolved; preserve ordinary settled-call behavior and uncertain-write non-replay. Include parallel/nested calls and a genuinely runtime-dependent browser/MCP tool in Q29; a shell command named `exec_command` does not by itself prove that seam. W9, Q22/Q29–Q31. |
 | RF08 / P1 acceptance — Complete the integrated canary; Devrouter owner with the exact consumer owner | M1 is not closed by the current Q36 evidence. `scripts/qualify-harness-journey.sh` directly changes journal phases and runs a scripted tool through a real harness. Its neighbour record stays unchanged, but it does not exercise the full live failure/parking/resume sequence. Separate ordinary consumer startup/stop proof does not supply the missing integration. | Select an explicitly authorized installed platform/provider, consumer/profile and harness with two environments. Prove semantic readiness, required-process death, persistent pressure through the qualified injection boundary, safe parking, retained data/dirty source, fresh admission and resume, and actual neighbour functionality with zero agent-authored infrastructure repair. Keep source, installed and real-provider evidence separate. Apply twenty routine and ten selected fault repetitions or justify the scoped alternative before the run. W2–W9/S1–S8, M1, Q01–Q36. |
-| RF09 / P1 acceptance — Reconcile the fault matrix; Devrouter owner | **Reconciliation pass on 2026-09-20 (PR #120; evidence on PR #121).** Q30 moved from source-only to live for a cancelled gate wait, Q29 and Q32 gained the journey and the content-digest fence, and Q29's non-shell, overlap and nested seams are now qualified: the journey drives a real MCP server tool through the hook in both harnesses, refused mid-transition and allowed once settled (`40b23f0`); two cells decide two calls over one checkout, including the same payload under distinct ids (`72f14db`); a Claude-only cell refuses a subagent's shell call once the checkout turns transitional (`ca2483b`), and a cell interrupts each supported CLI during its own hook's wait (`fbfb5ca`, extended to Codex at `1af4680`), where Claude Code settles the claim as `interrupted` while the Codex CLI kills its hook so the claim stays `waiting` until the re-delivery maps it to `interrupted` and refuses; Codex records only the subagent cell not-run. Both harnesses also ran a hook timeout below the wait budget (`ff7efc4`), which abandons the gate and leaves the call to the harness's own permission rules while the claim stays short of `granted`, and both re-delivered a settled call's own id under a changed command (`134a992`), which the gate refused as `continuation-replay` against the recorded `granted` state while the changed command never ran. The container-local OOM/SIGKILL cell is qualified at `bb72cb6` through `pnpm qualify:killed-runtime`. Still live-open: Q20 host suspend and a tool whose result depends on the live managed environment. Q07/Q08 stay not applicable as OOM questions because the product documents that it neither detects nor prevents OOM; Q26 has no quarantine path to qualify. | Reassess each original required result and evidence layer, preserving passing source evidence. Exercise container-local OOM/SIGKILL and retention in an authorized disposable runner, without requiring a speculative classifier. Qualify sleep/wake, unavailable provider, interruption/unknown completion, partial stop, corruption and pressure as applicable. Mark unsupported cells and absent quarantine behavior explicitly; narrowing the approved outcome needs a recorded decision. Do not convert missing implementation or missing fixtures into a passing/not-applicable row. W3–W5/W8/W9, M1–M2. |
-| RF10 / P2 — Explain and recover machine blockers; operator with Devrouter diagnostic owner | **Implemented on PR #121; merged as `abcc233` and released in 0.1.2.** The installed 0.1.1 still prints the bare `capacity-history-unprovable`. The corrected build names the bounded cause, the offending journal entry and a cause-keyed recovery, and the network check names the three missing evidence inputs; the exact invalid history is an operator `.bak` file inside the private reliability journal directory. Remaining: the operator's own file move, which the installed 0.1.2 diagnostic now names. | Add bounded, values-free cause/location diagnostics sufficient to identify the exact invalid history or missing network evidence. Prove unreadable/corrupt/unknown state remains fail-closed. Prepare an exact supported recovery for operator review; `capacity reconcile --yes` applies only to positively absent history under its existing proof, not generic unprovable history. Preserve evidence and surviving charges. Setup/injection, policy changes and recovery are separate live effects. W1/W6a/W7, Q21/Q32/Q35. |
-| RF11 / P2 — Close consumer adoption with live proof; existing Klicker task owner | Task `01a06930-fdea-70f1-bebf-9514b07e23a0` has not supplied a terminal recovery receipt to this review. The earlier 0.0.51 observation came from its project devDependency; global 0.1.1 does not change that pin. The 5432 claim decision and the `stopped:false, freedRoutes:0` before/after reproducer remain with that owner. Adapter liveness PR #6170 is merged source evidence only. | Owner verifies executable resolution in the actual cwd, updates its package/config pins through its own source lane, resolves its binding, then records ensure, semantic smoke, stop and final exact routes/provider/resources. Return any reproduced CLI defect here. Preserve the staged merge and all other workspaces; exclude PRD, ingestion and rollout work. W1/W4/W7, M1–M2. |
-| RF12 / P2 — Finish measured breadth and efficiency; Devrouter/consumer owners | Python cold/warm cohorts and two harness integrations establish useful breadth. Three rounds per cohort measured roughly 6.8s cold and 2.3s warm; cold reused an existing dependency container. This is a baseline, not proof of a new optimization or completion of M2–M3. | Measure stopped-resume and fault-recovery cohorts separately, preparation reuse, phase timings, memory and first-attempt failures. Qualify profile changes, host/container alternation and browser/auth behavior in the selected cells. Deliver only evidence-driven profile/artifact improvements, reporting before/after on the same workload. Keep extra providers/headless adapters conditional on selected scope; cross-host/cloud scheduling remains separate. W4–W8/W6b, M2–M3. |
+| RF09 / P1 acceptance — Reconcile the fault matrix; Devrouter owner | **Reconciliation pass on 2026-09-20 (PR #120; evidence on PR #121).** Q30 moved from source-only to live for a cancelled gate wait, Q29 and Q32 gained the journey and the content-digest fence, and Q29's non-shell, overlap and nested seams are now qualified: the journey drives a real MCP server tool through the hook in both harnesses, refused mid-transition and allowed once settled (`40b23f0`); two cells decide two calls over one checkout, including the same payload under distinct ids (`72f14db`); a Claude-only cell refuses a subagent's shell call once the checkout turns transitional (`ca2483b`), and a cell interrupts each supported CLI during its own hook's wait (`fbfb5ca`, extended to Codex at `1af4680`), where Claude Code settles the claim as `interrupted` while the Codex CLI kills its hook so the claim stays `waiting` until the re-delivery maps it to `interrupted` and refuses; Codex records only the subagent cell not-run. Both harnesses also ran a hook timeout below the wait budget (`ff7efc4`), which abandons the gate and leaves the call to the harness's own permission rules while the claim stays short of `granted`, and both re-delivered a settled call's own id under a changed command (`134a992`), which the gate refused as `continuation-replay` against the recorded `granted` state while the changed command never ran. The container-local OOM/SIGKILL cell is qualified at `bb72cb6` through `pnpm qualify:killed-runtime`. Still live-open: Q20 host suspend, whose bounded observation harness now exists at `scripts/qualify-host-suspend.ts` (`5259590`) and whose remaining step is the observed macOS sleep. The tool whose result depends on the live managed environment is qualified at `a7f8df6` through the three live-environment cells, and its browser-driven form at `1143fd6` through the two browser cells, which render the published route in a real headless browser. Q07/Q08 stay not applicable as OOM questions because the product documents that it neither detects nor prevents OOM; Q26 has no quarantine path to qualify. | Reassess each original required result and evidence layer, preserving passing source evidence. Exercise container-local OOM/SIGKILL and retention in an authorized disposable runner, without requiring a speculative classifier. Qualify sleep/wake, unavailable provider, interruption/unknown completion, partial stop, corruption and pressure as applicable. Mark unsupported cells and absent quarantine behavior explicitly; narrowing the approved outcome needs a recorded decision. Do not convert missing implementation or missing fixtures into a passing/not-applicable row. W3–W5/W8/W9, M1–M2. |
+| RF10 / P2 — Explain and recover machine blockers; operator with Devrouter diagnostic owner | **Implemented on PR #121; merged as `abcc233` and released in 0.1.2.** The installed 0.1.1 still prints the bare `capacity-history-unprovable`. The corrected build names the bounded cause, the offending journal entry and a cause-keyed recovery, and the network check names the three missing evidence inputs; the exact invalid history is an operator `.bak` file inside the private reliability journal directory. Remaining for this row: none. The operator's own file move completed on 2026-09-21 and the installed 0.1.2 `devrouter doctor` reports `global.capacity-ledger` OK (see *Follow-up receipts* below). | Add bounded, values-free cause/location diagnostics sufficient to identify the exact invalid history or missing network evidence. Prove unreadable/corrupt/unknown state remains fail-closed. Prepare an exact supported recovery for operator review; `capacity reconcile --yes` applies only to positively absent history under its existing proof, not generic unprovable history. Preserve evidence and surviving charges. Setup/injection, policy changes and recovery are separate live effects. W1/W6a/W7, Q21/Q32/Q35. |
+| RF11 / P2 — Close consumer adoption with live proof; existing Klicker task owner | Task `01a06930-fdea-70f1-bebf-9514b07e23a0` has not supplied a terminal recovery receipt to this review. The earlier 0.0.51 observation came from its project devDependency; global 0.1.1 does not change that pin. The 5432 claim decision and the `stopped:false, freedRoutes:0` before/after reproducer remain with that owner. A related primary-checkout stop defect was reproduced and fixed locally instead, and the fixed bundle returned `{"stopped": false, "deleted": true, "freedRoutes": 0}` for the already-deleted-registration shape while settling its journal (see *Primary managed stop recovery for absent registrations* below), so this owner should re-run its reproducer on a build that carries that fix. Adapter liveness PR #6170 is merged source evidence only. | Owner verifies executable resolution in the actual cwd, updates its package/config pins through its own source lane, resolves its binding, then records ensure, semantic smoke, stop and final exact routes/provider/resources. Return any reproduced CLI defect here. Preserve the staged merge and all other workspaces; exclude PRD, ingestion and rollout work. W1/W4/W7, M1–M2. |
+| RF12 / P2 — Finish measured breadth and efficiency; Devrouter/consumer owners | **Measurement pass on 2026-09-20 (`1c42592`).** `scripts/qualify-lifecycle-cohorts.ts` (`pnpm qualify:cohorts`) runs three cohorts on one disposable devsy-managed fixture at the machine's real provider state: a cold `ensure`, a non-destructive `stop` followed by a resume, and a `SIGKILL` followed by recovery. Three rounds measured cold 9.6–20.3s (median 11.7s), stop 8.1–12.4s (median 8.5s), resume 9.7–13.1s (median 12.2s) and recovery 9.7–12.4s (median 9.9s). Every run was a first-attempt exit 0, peak CLI resident memory stayed at 70–73 MiB, each ensure started the same retained container (`recreated:false`, container ID unchanged), and the adapter log grew 1 → 2 → 3 while the marker planted before the stop survived both the stop and the kill. The retained path therefore already reuses the container and its Compose project, and no devrouter-side optimization is evidenced yet: the provider pipeline dominates after 2.3–3.5s of pre-provider work. **Preparation-reuse pass on 2026-09-20 (`c258ae0`).** `scripts/qualify-process-preparation.ts` (`pnpm qualify:preparation`) measured eight runs on one disposable primary fixture: cold ensure 36.1s with one preparation, unchanged reuse 23.0s with the same process PID and no preparation, a changed runtime 28.1s with a second preparation, a non-destructive stop 35.1s, a stopped resume 25.1s with a third preparation, an unknown-ownership refusal (exit 1, two refused adapter attempts, no completion, no preparation, process and route intact), a stop-then-ensure recovery 20.0s with a fourth preparation, and a pruned-population stop 11.0s that settled `idle`/`stopped-by-user`. Peak CLI resident memory stayed at 73-75 MiB and every accepted run was a first-attempt exit 0. The same harness reproduced and now regression-covers the primary managed stop defect recorded below. The browser/auth behavior is now qualified in a selected cell at `1143fd6` (see the live-environment record above), so what stays open in this row is only any `before/after` optimization a later measurement justifies, and the 2026-09-21 phase attribution from the preparation receipt names Devsy startup, container work and Compose service reconciliation as the dominant costs, so a future optimization needs a named devrouter-side phase first; the 2026-09-21 provider-CLI measurement names one (see *Qualification fixture identity collision and measured provider-CLI cost* below); the read-only unwound-mount report shipped at `74dfd8e` as a non-blocking `status`/`doctor` observation (see below). **Profile-change and alternation pass on 2026-09-20 (`89d0961`, `2f1f9ec`, `be1e69f`, `5508d13`, `51a1cb6`).** `pnpm qualify:profiles` now runs twelve cohorts on one retained devsy-managed fixture: profile creation, addition, removal and re-addition of the profile service, host/container install alternation, an undefined-profile refusal, unchanged-profile reuse, an unrecorded-population refusal and its recovery, a non-destructive stop and resume, and a generated-profile removal that `stop --delete` must restore. The green receipt at `51a1cb6` measured `lean-cold` 25.8s, `full-warm` 27.1s, `lean-warm` 23.8s, the container-side install 4.3s, `full-again` 23.6s, `full-reuse` 21.3s, `unrecorded-recovery` 24.5s, `stop` 35.6s, `resume` 23.9s and the restore cohort 17.3s, with both refusals at exit 1 and peak CLI resident memory at 73.9-75.4 MiB; one container carried every cohort, `postCreateCount` stayed 1 and preparations advanced 1 to 2 to 3 to 3 to 4 to 4 to 4 to 5 to 6 because each profile change replaces the owned process once by design. The same harness found and now covers the missing-generated-profile recovery gap (fix `2f1f9ec`, `generated-profile-restore` cohort) and reads the running container's own namespace at the alternation cell, which caught the host file sharing silently unwinding the nested `node_modules` volume mount (three failing receipts; record below). **Refused-stop withdrawal (`618fc5f`).** An externally replaced managed population that made `stop --delete` refuse now withdraws the stop intent it wrote before its worker touched anything, so the journal returns to its pre-stop state and the next `ensure` proceeds without deleting the registration. Withdrawal requires the durable pre-mutation boundary to be absent, so a crash or refusal after mutation began keeps the fail-closed intent, and settlement removes the boundary again so the released CLI can still read the record. Live A/B: `/private/tmp/devrouter-live-env-receipts/stop-withdrawal/RECEIPT.md` (19 PASS, 0 FAIL). **Provider version preflight removed (`b472655`).** The phase attribution below named the provider startup as devrouter's own scheduling choice, and the slice now removes it: the `--version` startup that preceded every registry read is gone, and both registry leaves carry the spawn failure code so the read alone classifies a missing CLI as absence while every other failure stays unavailable and fail-closed. Same fixture and workload: cold ensure 26 → 18 provider invocations, retained ensure 26 → 18, `stop --delete` 22 → 16, all exit 0, with the provider's Docker work unchanged at 72 and 40 invocations. Remaining for this row: keep the qualification receipts and their CI coverage current; no further devrouter-side before/after optimization is evidenced. | Measure stopped-resume and fault-recovery cohorts separately, preparation reuse, phase timings, memory and first-attempt failures. Qualify profile changes, host/container alternation and browser/auth behavior in the selected cells. Deliver only evidence-driven profile/artifact improvements, reporting before/after on the same workload. Keep extra providers/headless adapters conditional on selected scope; cross-host/cloud scheduling remains separate. W4–W8/W6b, M2–M3. |
 | RF13 / P2 — Keep proof durable and release claims accurate; Devrouter owner | **Implemented and locally qualified on PR #121 (`6d72964`); merged as `abcc233` and released in 0.1.2.** The neighbour assertion defect is fixed, the journey writes a sanitized summary with source revision, bundle hash and harness/runtime versions, exit 3 marks a skip as `not-run`, and the opt-in `harness-journey` CI job passed its first dispatch. Remaining: keep the required live cells recorded as RF08/RF09 qualify. | Keep this follow-up active and publication receipts delivered. Retain sanitized producing-run summaries with immutable source/package and harness/provider versions. Add the relevant deterministic command/gate regressions to ordinary CI; arrange a bounded opt-in or release qualification job for authorized live cells with explicit pass/fail/skip outcomes. A skipped prerequisite is not acceptance. Record required/manual cells and retention rather than making every PR run shared runtimes. W7–W9, all milestones. |
 
 #### Order, completion and preserved authority
@@ -3524,10 +3681,11 @@ cell refuses a settled call's own id re-delivered under a changed command in
 both harnesses (`134a992`). Next work is the RF08/RF09 acceptance cell, which
 needs an explicitly authorized installed platform, consumer, profile and two
 environments. RF09's container-local OOM/SIGKILL, non-shell, overlap, nested,
-cancellation, redirect and hook-timeout harness cells are now qualified, so what
-remains there is Q20 host suspend and
-a tool whose result depends on the live environment. RF10's operator recovery stays with the operator and the machine-policy
-boundary, RF11 stays with the Klicker task owner (coordination sent 2026-09-20),
+cancellation, redirect, hook-timeout, live-environment and browser-driven
+harness cells are now qualified, so what remains there is Q20 host suspend,
+whose bounded observation harness is prepared at `5259590` and waits only for
+the observed sleep. RF10's operator recovery stays with the operator and the
+machine-policy boundary, RF11 stays with the Klicker task owner (coordination sent 2026-09-20),
 and RF12 extends whichever cell RF08/RF09 accept. RF13 now accompanies each
 package with a retained summary.
 
@@ -3607,9 +3765,1058 @@ carries them:
 
 Dispositions after this release: RF01–RF07, RF10's source half and RF13 are
 merged and released. RF10's operator recovery is named by the installed product
-and awaits the operator's own file move. RF08's integrated canary still needs an
+and completed on 2026-09-21 (see *Follow-up receipts* below). RF08's integrated
+canary still needs an
 explicitly authorized installed platform, consumer, profile and two
-environments; RF09 keeps Q20 host suspend and the live-environment tool open;
-RF11 stays with the Klicker task owner and RF12 extends whichever RF08/RF09 cell
-is accepted. Merging, releasing and installation were performed under the
-approved roadmap batch, and no consumer workspace was touched.
+environments; RF09 keeps only Q20 host suspend open, because the live-environment
+tool cells qualified above; RF11 stays with the Klicker task owner, and RF12 now
+has its own measured stopped-resume, fault-recovery, preparation-reuse and
+profile/host-alternation cohorts. The read-only unwound-nested-mount report
+shipped at `74dfd8e`, the browser/auth cell is qualified in both harnesses at
+`1143fd6`, and the externally replaced population that blocked stop is
+withdrawn by `618fc5f` with a live A/B receipt. Merging,
+releasing and installation were performed under the approved roadmap batch, and
+no consumer workspace was touched.
+
+#### Release 0.1.3 preparation — awaiting publication (2026-09-21)
+
+The corrections merged after 0.1.2 sit unreleased on
+`rs/lifecycle-cohort-measurement` (45 commits ahead of `origin/main` at
+`e02442d`), so `878364b` prepares their patch release: `package.json` and both
+example pins move to 0.1.3, `CHANGELOG.md` gains the `[0.1.3]` section with the
+three managed-stop and managed-profile fixes, the repaired Docker network
+inventory template, the scoped mount-table read, the unwound-mount report and the
+removed provider version preflight, and `upgrade-prompts/0.1.3.md` carries the
+consumer instructions. No schema, flag, environment or journal migration changes
+in this release, so the bundled skill and the AI prompt need no update.
+
+Validation at that revision: docs policy, knowledge, Biome, Knip, typecheck, the
+full suite (2742 tests in 149 files), the build and the packed-distribution smoke
+(`devrouter-cli-0.1.3.tgz`, `{"networkPackageQualification":"passed"}`) all pass.
+
+Artifact identity for that release: at the same source tree `pnpm build` with
+`package.json` at 0.1.3 produces `dist/devrouter.js` with SHA-256
+`cbc3b5b3fbcf065b93d75cc5e542dad4ce563289337f49ec61e1c9e4720bd228` and
+`dist/devrouter-lifecycle-worker.js` with SHA-256
+`d0497dbbcf02005df0cba70abfbfe0d9c6ce328b373cc23e93d9735dd3ec140b`. Only
+documentation changed after the release commit, so the published tarball's two
+bundles must match these digests before the released artifact can be called the
+reviewed source.
+
+The locally packed `devrouter-cli-0.1.3.tgz` (`npm pack` at that tree) carries
+both bundles at exactly those digests with `package.json` at 0.1.3, and the built
+CLI reports `Installed CLI version: 0.1.3`, `Local repo version
+(.../examples/routing/.devrouter.yml): 0.1.3` and `Next upgrade target: none`,
+so publication verification only has to compare the registry tarball against
+these digests and confirm the installed version.
+
+Publication is the remaining gated step, and it is also what releases the ten
+transitional records the machine-wide audit names: the three recovery fixes
+(`a906070`, `2f1f9ec`, `618fc5f`) are only on this branch, so an owner can settle
+a stuck checkout only on a build that carries them. Merge, tag, publication and
+global installation were not authorized in this session and remain unchanged.
+
+## Unparsable network inventory blocked capacity evidence (2026-09-21, `a2b4f92`)
+
+Status: **implemented and verified locally from source at
+`a2b4f92`; publication and release are pending, so the installed 0.1.2 still
+carries the defect.**
+
+Working the RF09/RF10 evidence surfaced a shipped defect that no test covered.
+The Docker network format template in `src/core/network-inventory.ts` opened a
+JSON object and never closed it, so every record the daemon returned was a
+partial object and `JSON.parse` failed on every line. The inventory therefore
+reported `unknown` with the generic reason
+`Docker network inventory is unavailable or malformed.` on every machine since
+`#74`, including the released 0.1.2.
+
+The blast radius reached past the diagnostic. With unknown inventory,
+`global.network-capacity` can never reach `ok`, `hasExhaustedDockerPools` can
+never be true, and `src/core/network-managed.ts` refuses managed allocation with
+`Network inventory is unknown; allocation is blocked.`, so a capacity-enrolled
+repository could not allocate a subnet because of a template typo. 0.1.2's
+improved wording named the missing input without revealing that the input could
+not be read at all, which is the failure mode RF13 exists to prevent.
+
+Exact evidence on this machine, read-only:
+
+- Shipped function before the fix:
+  `{"status":"unknown","endpoint":"unix:///Users/rschlae/.orbstack/run/docker.sock","daemon":"ded85e46-31f","pools":31,"networks":0,"reasons":["Docker network inventory is unavailable or malformed."]}`.
+- The daemon's own output from the shipped template ended `...,"network":"default"`
+  with no closing brace for all sixteen networks, while the neighbouring
+  container template closed correctly and parsed 52 of 52 records.
+- Installed 0.1.2 `devrouter doctor`:
+  `global.network-capacity  WARN  ... Missing evidence: Docker network inventory
+  is unknown; retained container references are unknown; route evidence is
+  incomplete or unknown.`
+- After the correction, the same read against the same daemon returns
+  `{"status":"complete","pools":31,"networks":16,"withRetained":10,"reasons":[]}`,
+  and the source build's doctor reports
+  `global.network-capacity  OK  Docker default pools have unoccupied capacity;
+  managed allocation is not configured.` Route evidence stays unknown by design
+  on a virtualized daemon, so the allocation gate below that boundary is
+  unchanged and still fail-closed.
+
+The correction closes the template, classifies a partial record as bounded
+`contains a malformed record` evidence instead of the generic reason, and adds
+two regressions: one renders the template's literal scaffolding through the
+shared inspect-format renderer described in the next section and requires one
+complete JSON object (the renderer rejects the shipped string), and one feeds a
+parsed-but-partial record and requires `unknown` rather than zero usage. The
+durable lesson is recorded in
+[the unparsable network records entry](../solutions/runtime-error/unparsable-network-records-block-capacity.md).
+
+The suite could not have caught this: `network-inventory.test.ts` injects the
+reader, so the daemon's template is never exercised by a fixture, and the packed
+qualification in `scripts/qualify-network-package.cjs` answers with closed
+synthetic Docker responses on purpose. Validation at `a2b4f92`: Biome, Knip,
+typecheck, the full suite (2733 tests in 149 files), `pnpm build`,
+`scripts/package-smoke.sh`, the built bundle's own doctor run and the live
+daemon read above. PR #125's CI is green at `1b61c7d`
+([run 35545979851](https://github.com/rschlaefli/devrouter/actions/runs/35545979851)).
+Remaining: publish and install a release that carries
+the correction, then re-read `devrouter doctor` on the installed artifact; the
+0.1.2 network-capacity claim was inaccurate while it shipped.
+
+## Daemon inspect templates audited and pinned (2026-09-21, `d86d371`)
+
+Status: **implemented and verified locally from source at `d86d371` and
+`56d0556`; publication and release remain pending with the network
+correction.**
+
+The unparsable network template raised the obvious follow-up question: which
+other daemon format strings are validated only by fixtures that replace the
+daemon? Every `docker inspect --format` value on the reliability paths was
+therefore rendered against the live daemon (OrbStack at
+`unix:///Users/rschlae/.orbstack/run/docker.sock`, 52 containers, 16 networks)
+by reading the template literals out of the source, applying the same
+derivations the modules apply, and requiring one complete JSON record per
+object: `SAFE_INSPECT_TEMPLATE` and its `/}$/`-derived size sibling read with
+`--size`, the anchor-derived `OBSERVATION_INSPECT_TEMPLATE`,
+`MANAGED_STOP_INSPECT_TEMPLATE`, `HOST_PORT_INSPECT_TEMPLATE` and the
+connected-route network template. Each template was applied to five live
+objects and every record parsed with its exact key set, including `sizeRw` and
+`sizeRootFs` on the sized read and the five added state fields on the
+observation read.
+
+An earlier reading of a missing `sizeRw` was an artifact of the audit script,
+not of the product: the script inserted the size suffix through a string search
+instead of the module's `/}$/` anchor, so the suffix landed inside an action.
+Re-applying the derivation with regex semantics shows both the size and the
+observation anchor apply and the daemon returns complete records.
+
+That artifact stayed invisible to the suite for the same reason the shipped
+defect did, so the sweep leaves durable protection behind.
+`renderInspectFormatScaffold` renders a template's literal scaffolding — value
+actions become a placeholder, a conditional block keeps only its `else`
+branch — and the three test files that own those readers now require one
+complete JSON object with an exact key set, taking the real argv where the
+reader is injected and the exported literal where the template is shared.
+Contrast evidence: the same render of the shipped malformed network template is
+rejected with `Expected ',' or '}' after property value in JSON`, and breaking
+the size or observation derivation fails only the new assertions while every
+fixture-driven test still passes. Validation at `d86d371`: Biome, Knip,
+typecheck, the full suite (2736 tests in 149 files) and the live probes above.
+The heads carrying this record are green: `9be685a` on
+[run 35548777238](https://github.com/rschlaefli/devrouter/actions/runs/35548777238)
+and `5697f70` on
+[run 35549004149](https://github.com/rschlaefli/devrouter/actions/runs/35549004149);
+the pin commit `56d0556` added the two assertions above to the same 149-file
+suite, which then ran 2738 tests green in a host context where the
+process-identity locks can call `ps`.
+
+The same sweep completed the remaining fail-closed literals at `56d0556`. Two
+scalar reads and the checkout-absence inspection were still validated only by
+fixtures that replace the daemon, so `devpod-environment.test.ts` pins them
+too: the checkout template must render one complete object with `id`,
+`labels` (the three attribution keys) and an array `mounts`, and the endpoint
+and runner-binding templates must each render one JSON value. Removing one
+closing brace from the checkout literal and one from each scalar template fails
+only those two assertions — 2 failed, 79 passed — while every fixture-driven row
+still passes. Live renders on the same daemon back the assertions: the checkout
+template returned six complete records from six containers with mount counts 0,
+2, 0, 2, 1 and 37 and string-or-null label fields,
+`context inspect --format '{{json .Endpoints.docker.Host}}'` returned the
+OrbStack socket path as one JSON string, the runner-label read returned an empty
+JSON string for a container without `dev.containers.id`, and the
+connected-route network template returned three complete records.
+
+The provider CLI was audited in the same pass because it feeds the same
+parsers. Against the installed `devsy` 1.19.0,
+`workspace list --result-format json --skip-pro` returned 122 entries whose
+`id`/`source.localFolder` and optional fields match the reader,
+`workspace status` returned `{id, context, provider, state}` for running and
+stopped workspaces, a missing id exited 75 with `ERROR workspace not found`,
+`context list --result-format json` returned one default context, and
+`provider list` returned the Docker definition that
+`qualifyNetworkProviderDefinition` requires, including the exact
+`"${DEVSY}" internal sh -c "${COMMAND}"` command. No mismatch was found and
+no change is warranted; this note records the qualified contract so a later
+reader knows the shapes were checked live rather than assumed.
+
+PR #125's CI is green at `d86d371` on its second attempt
+([run 35547248789](https://github.com/rschlaefli/devrouter/actions/runs/35547248789)).
+The first attempt failed the check job on an unrelated timeout:
+`src/commands/__tests__/workspace.test.ts` took 7315 ms for
+`prints the report-only cleanup command in JSON and human modes` against
+vitest's 5 s default, and the same revision passed when the failed job was
+re-run. The cleanup report reads live daemon capacity evidence on every
+invocation, so that test's cost follows the machine — 1312 ms on the previous
+green run, 7487 ms for the file under contention. `4da5639` gives the test a
+20 s budget, so a loaded runner no longer reds an unrelated package.
+
+One hygiene observation from the same sweep: 19
+`devpod-mutation.lock.<pid>.<uuid>.candidate` and
+`devsy-mutation.lock.<pid>.<uuid>.candidate` files dated 25 August to 12
+September sit in `~/.config/devrouter`. They are inert. The candidate file is
+written with an exclusive-create flag, used only as the link source inside one
+acquire, and removed in that acquire's `finally` block, and no code path
+enumerates the directory, so they are leftovers from killed processes rather
+than held locks or stale state. No change is warranted; this note exists so a
+later reader does not mistake them for a blocker.
+
+## RF12 lifecycle-cohort measurement (2026-09-20, `1c42592`)
+
+Status: **implemented and measured at source revision
+`1c425924fd71aa764c9ab13e995ac5ca7d624d57`; the measured bundle hash
+`f4d0840b82a83cc9fc2d9b70593ea651094f89cba7010928208e43e553415dcd` is the
+published 0.1.2 bundle.**
+
+`scripts/qualify-lifecycle-cohorts.ts` (`pnpm qualify:cohorts`) is the new
+observation harness for RF12's stopped-resume and fault-recovery cohorts. The
+fixture is one disposable devsy-managed checkout under
+`$TMPDIR/devrouter-lifecycle-cohorts` with a one-service Compose devcontainer and
+a repository adapter that appends a line to a log inside the container. Three
+cohorts run in order on that one workload, so their numbers stay comparable:
+
+1. `cold` — the first `ensure` creates the container and runs the adapter.
+2. `stopped-resume` — a non-destructive `stop` retains the container and its
+   data, and the next `ensure` starts the same retained container.
+3. `fault-recovery` — a `SIGKILL` leaves the journal healthy while the container
+   is dead, and the next `ensure` recovers the same container.
+
+Each cohort records wall time, the streamed phase timeline, the peak resident
+memory of the CLI process, the container's memory at readiness and its
+first-attempt exit code. Container identity, retained data and the adapter
+invocation count are read from Docker instead of trusted from devrouter's own
+report. Exit 3 marks a missing prerequisite (Docker, devsy or a built bundle)
+and is not a pass; the harness never retries.
+
+The machine's real HOME is used on purpose, like an operator session, so the
+real provider state and reliability journal are in play. The fixture path is
+stable, so the three rounds reused one journal record
+(`de920364b4c76e96af711e80d8d11ca5c322c352ff4c666bf9981f4eb164fa75.json`,
+final revision 268), which survives the final delete and is printed with the
+evidence.
+
+| Cohort | min | median | max |
+| --- | --- | --- | --- |
+| Cold ensure (creates the container) | 9620ms | 11661ms | 20271ms |
+| Non-destructive stop | 8058ms | 8547ms | 12378ms |
+| Stopped-resume ensure | 9749ms | 12150ms | 13097ms |
+| SIGKILL recovery ensure | 9747ms | 9943ms | 12391ms |
+| Final delete | 8382ms | 8558ms | 11270ms |
+
+Facts asserted in all three rounds:
+
+- every cohort was a first-attempt exit 0; no run needed a retry
+- peak resident memory of the CLI process stayed at 70–73 MiB
+- container memory at readiness, as `docker stats` point samples: cold
+  19.1–90.8 MiB, resume 16.7–160 MiB, recovery 17.1–17.6 MiB
+- each ensure started the same retained container (`recreated:false`, container
+  ID unchanged), without provider bootstrap or Compose creation
+- the adapter log grew 1 → 2 → 3 invocations, and the marker file planted
+  before the stop survived both the stop and the `SIGKILL`
+- `docker kill` was observed as exit 137 with `OOMKilled false`
+- the journal recorded `idle`/`stopped-by-user` after the stop and
+  `stable`/`running` after each ensure
+- the final delete removed the exact container; no container carrying the
+  fixture mount survived
+
+Phase timings come from the streamed events, which the CLI writes to stderr and
+the harness timestamps on arrival. Devrouter's pre-provider work takes 2.3–3.5s
+before the `provider` phase; the provider pipeline then dominates with
+`injecting_agent` 1.2–4.3s and `running_lifecycle_hook` 0.9–2.9s, after which
+`process-start`, `route-publication` and `readiness` complete within about
+half a second. The resume cohort is not measurably cheaper than a cold start
+(their medians differ by less than the observed spread), because the retained
+container still runs the provider's full start pipeline.
+
+Evidence-driven conclusion: the retained path already reuses the container and
+its Compose project, this measurement justifies no product change, and any
+future optimization needs the same workload measured before and after. The
+recorded scoped alternative is three rounds per cohort instead of the roadmap
+default of twenty, because every round stops, kills and recreates a real
+devcontainer; the fixture is deterministic in its assertions and the observed
+spread is reported above. Still open in RF12 after that pass: profile changes,
+host/container alternation and browser/auth behavior in the selected cells; all
+three are measured in the later passes recorded above.
+Preparation reuse is measured below, together with the stop-recovery defect
+that harness exposed.
+
+### Preparation reuse and pruned-population stop (2026-09-20, `c258ae0`)
+
+Status: **measured at source revision
+`c258ae0c2f2dce30ee93150b1303f2695fc4a1cb` with `dirty: false`; the measured
+bundle hash
+`539b79fb0647b3efeaeac55c503160e6e8825aeac055521aca0bd333f81bf475` is the same
+bundle that released the two stuck journals recorded below.**
+
+`scripts/qualify-process-preparation.ts` (`pnpm qualify:preparation`) measures
+repository-owned process preparation in a routed consumer. Its fixture is one
+disposable primary managed checkout under
+`$TMPDIR/devrouter-process-preparation/consumer` whose repository adapter passes
+`--prepare-command` to `devrouter-process ensure`; one retained container
+(`81e84d260782bf48f4ad2daa52a6f0f66b7acf269b0f99c5be24b6f37068924a`) carries all
+cohorts, and the published route is fetched over the machine's real TLS setup.
+
+| Run | wall | preparations | adapter | facts |
+| --- | --- | --- | --- | --- |
+| Cold ensure | 36124ms | 1 | 1/1, 3063ms | created the container, route probe ok |
+| Unchanged reuse | 23028ms | 1 | 2/2, 12ms | same PID 206, preparation skipped |
+| Changed runtime | 28128ms | 2 | 3/3, 2053ms | new PID 721, generation 2, route ok |
+| Non-destructive stop | 35120ms | - | - | retained the exited container, journal `idle`/`stopped-by-user` |
+| Stopped resume | 25080ms | 3 | 4/4, 3063ms | same container, new PID 194, route ok |
+| Unknown-ownership refusal | 17256ms | 3 | 6 starts / 4 completions | exit 1, two refused attempts, no preparation, PID 194 and route intact |
+| Stop-then-ensure recovery | 19988ms | 4 | 7/5, 2047ms | new PID 101, route ok |
+| Pruned-population stop | 10964ms | - | - | container removed externally; stop settled `idle`/`stopped-by-user` at revision 692 |
+
+Facts asserted in the green run: every accepted run was a first-attempt exit 0;
+peak CLI resident memory stayed at 73.4-74.9 MiB; container memory at readiness
+ranged from 32.7 to 152.4 MiB; preparations advanced 1, 1, 2, 3, 3, 4 across the
+cold, reuse, changed-runtime, resume, refusal and recovery runs; the helper
+record's PID changed only when the runtime identity changed; the refusal wrote
+two adapter start lines and no completion line; and the final delete removed the
+exact container and route. The receipt is
+`$TMPDIR/devrouter-process-preparation/evidence.json`, with the earlier
+stuck-journal run preserved at
+`/private/tmp/devrouter-preparation-receipts/2026-09-20-stuck-journal-release-and-refusal-count.json`.
+
+Evidence-driven conclusion: preparation reuse works and is measurable. An
+unchanged adapter identity reuses the owned process with a 12ms adapter replay
+and no preparation; a changed adapter identity stops the owned group, prepares
+again and launches the new generation; a stopped container resumes and prepares
+again because no owned process survived. The refusal is fail-closed: the adapter
+is attempted (and replayed once by the managed rollback) without completing,
+preparing, killing or duplicating anything. The pruned-population run shows the
+repaired primary stop branch settling a stop whose container was removed
+externally.
+
+Phase attribution from the same receipt, read from the recorded progress and
+provider timelines: the cold ensure spent 1.9s in validation before the provider
+phase began at 5.9s and ran to 19.1s, and the provider's own first event
+(`resolving_config`) only arrived at 10.3s, so most of that 13.3s window is
+Devsy's own startup and container work; injecting the agent then ran 1.9s and
+the repository lifecycle hook 1.0s. Service reconciliation took 11.9s, route
+publication 0.7s and the readiness phase 4.3s. The unchanged reuse spent 1.1s in
+validation, 6.8s in the provider phase, 8.2s reconciling services and 4.1s in
+readiness. The readiness loop probes immediately, exits on the first passing
+round and never sleeps before its first probe, so no measured phase points at a
+devrouter-side wait to remove. No optimization is justified by this evidence; a
+future measurement should name a devrouter-side phase before one is attempted.
+
+### Profile changes and host/container alternation (2026-09-20, `51a1cb6`)
+
+Status: **qualified at source revision
+`51a1cb691322b17973ae9c6a62a94e6bfc0546db` with `dirty: false`; the measured
+bundle hash `6de1b11e3073e81a980d27b707276bf64bc0983c9accf8ad6dfd66485a2c4ff0`
+carries the managed-profile restore fix committed in `2f1f9ec`.**
+
+`scripts/qualify-profile-alternation.ts` (`pnpm qualify:profiles`) runs twelve
+cohorts over one retained devsy-managed fixture whose compose shadows
+`node_modules` with a named volume: `lean-cold` creates the environment with the
+primary service only, `full-warm` adds the profile service to the retained
+container, `lean-warm` stops it again under exact ownership proof, the
+host/container alternation checks the named-volume isolation in both directions,
+an undefined profile must refuse before any mutation, `full-again` takes the
+service back, `full-reuse` proves an unchanged profile skips preparation, an
+unrecorded population outside the retained generation must block the transition
+until it is removed, a non-destructive stop and resume must retain the container,
+its volume and both install trees, and the last cohort removes the generated
+profile after the environment exists and requires `stop --delete` to restore it
+and settle.
+
+| Cohort | wall | peak CLI RSS | exit |
+| --- | --- | --- | --- |
+| `lean-cold` (creates the container) | 25760ms | 74.0 MiB | 0 |
+| `full-warm` (adds the profile service) | 27139ms | 75.4 MiB | 0 |
+| `lean-warm` (stops it again) | 23841ms | 75.2 MiB | 0 |
+| `alternation-exec` (container-side install) | 4308ms | 74.5 MiB | 0 |
+| `unknown-profile` | 3078ms | 74.3 MiB | 1 (refused) |
+| `full-again` | 23567ms | 74.8 MiB | 0 |
+| `full-reuse` (unchanged profile) | 21310ms | 75.0 MiB | 0 |
+| `unrecorded-population` | 15486ms | 74.7 MiB | 1 (refused) |
+| `unrecorded-recovery` | 24537ms | 74.7 MiB | 0 |
+| `stop` (non-destructive) | 35597ms | 74.1 MiB | 0 |
+| `resume` | 23853ms | 75.3 MiB | 0 |
+| `generated-profile-restore` | 17337ms | 73.9 MiB | 0 |
+
+Facts asserted in the green run: every accepted cohort was a first-attempt exit
+0 and both refusals exited 1 without mutating the runtime; one container
+(`49f1de149518`) and its creation timestamp carried every cohort; the owned
+volume set stayed `default-co-7092b_node_modules`; `postCreateCount` stayed 1;
+preparations advanced 1 → 2 → 3 → 3 → 4 → 4 → 4 → 5 → 6 across the profile
+changes, the refusal, the unrecorded-population recovery and the resume; the
+foreign service container survived every transition; the container-side install
+landed in the volume and the following namespace read still showed that volume at
+`/workspaces/profile-alternation/node_modules` with the workspace on the host
+share; and both the stop and the final restore settled the journal to
+`idle`/`stopped-by-user` after removing the exact container and route.
+
+Findings from this pass:
+
+- A profile change replaces the owned process exactly once by design. The helper
+  fingerprint records `DEVROUTER_PROFILE` and `DEVROUTER_PROCESS_SET`, so
+  `full-warm`, `lean-warm` and `full-again` each prepared once while the
+  unchanged `full-reuse` cohort kept the same process and skipped preparation.
+  That is the documented fail-closed rule, not drift.
+- The journal phase while a managed runtime is up is `stable`/`running`, with a
+  transient `recovering` after a refusal; `idle` appears only after stop or
+  settlement.
+- The unrecorded-population refusal is real fail-closed behavior: a container
+  claiming the workspace Compose directory outside the retained generation
+  blocked the transition while it and the route stayed up, and removing it
+  restored the documented change.
+- The recovery gap this pass found is fixed and regression-covered: a generated
+  profile removed while the registration survived used to strand the checkout in
+  `stopping` with `already-settled`/`COMPLETED` settlement and blocked admission
+  (see *Removed generated profile blocks stop* below).
+- The machine's file sharing can silently unwind the nested named volume in a
+  running container, so container-side installs reach the host checkout while
+  `docker inspect` still reports the volume; the alternation cell now reads the
+  running container's own namespace and reports that condition with the
+  container, its configured mounts and its effective mounts (see *Nested volume
+  mount unwound by the host runtime* below).
+
+## Primary managed stop recovery for absent registrations (2026-09-20, `a906070`)
+
+Status: **source fix and regressions committed, verified live on two stuck
+journals and on the clean measurement revision `c258ae0`; merge, release and
+installation are separate authorised steps.**
+
+The consumer symptom was an environment stuck in `stopping` after ensure failed
+before creating a Devsy registration: journal settlement answered
+`already-settled`/`COMPLETED` while `stop` demanded a registration that no longer
+existed and every later ensure was blocked. The RF12 preparation harness
+reproduced that symptom on a primary managed checkout in two shapes:
+
+1. Prune: ensure succeeded, an external prune removed the fixture container while
+   the Devsy registration survived, and `devrouter stop` refused with `Retained
+   container population or immutable identity changed.` The journal stayed at
+   `desired: stopped-by-user, phase: stopping, stopProof: {workloadsStopped:
+   false, routesRemoved: false}`, and `workspace journal settle` reported
+   `already-settled`.
+2. Guard-ordered delete: `devrouter stop --delete` deleted the Devsy registration
+   and the containers and then threw `Absent stop requires a linked workspace.`
+   during settlement, leaving the same `stopping` phase and the same blocked
+   ensure.
+
+Root cause: the absent-registration proof and the unchanged-registration prune
+branch both required a ledger-owned linked checkout. A primary checkout has no
+ownership ledger, so it could never settle a stop whose registration was already
+gone, even though its retained stop baseline recorded the exact provider identity
+it owned.
+
+Fix `a906070` gives the absent proof a discriminated identity: a linked checkout
+keeps proving its ownership record, worktree path, Git ownership and Git common
+directory, while a primary checkout proves the same thing through the retained
+generation's own checkout path and provider ID. An inconsistent pair (linked
+without a retained workspace, or primary with one) throws `Absent stop requires
+the exact workspace identity.` instead of choosing a proof. This removes the
+linked-only gate from the prune branch, which already re-checks registration
+identity, endpoint, daemon, provider selection and absent populations. Every
+fail-closed check survives: both provider registries must stay readable and clear
+of the exact ID and path, saved container IDs must be positively absent, project,
+directory and provider-runner populations must be empty across two stable
+observations, the retained generation must be unchanged, and no provider or
+container mutation is reported for a proven-absent stop.
+
+Live recovery receipts, both released by the measured bundle
+(`539b79fb0647b3efeaeac55c503160e6e8825aeac055521aca0bd333f81bf475`):
+
+- `$TMPDIR/devrouter-process-preparation/consumer` (journal
+  `790366b9ceb5608598e295753592fe2befab393ed4091a6fe7670be360073c71.json`), a
+  primary checkout whose registration and container were already gone and whose
+  journal was stuck in `stopping`: the rebuilt CLI reconciled it with
+  `{"kind": "primary", "stopped": false, "deleted": true, "freedRoutes": 0}` at
+  exit 0.
+- `$TMPDIR/devrouter-process-preparation/consumer-prune` (journal
+  `7640fc8089682278a67f31f8366aaa5ef97ed1f935ab1677cec64db6bd665d93.json`), a
+  primary checkout with a retained pruning baseline, a surviving registration and
+  a removed container: `devrouter stop <path> --json` returned exit 0 with
+  `{"kind": "primary", "stopped": false, "freedRoutes": 1}`, and the journal moved
+  to `phase: idle` with `stopProof: {workloadsStopped: true, routesRemoved: true}`
+  at revision 31.
+
+Regression cover: `src/core/__tests__/managed-stop-recovery.test.ts` (80 tests,
+including the proven primary checkout, a competing registration, and both
+inconsistent linked/primary identities) and the `qualify:preparation`
+`pruned-population stop` cohort, which removes the container externally and
+asserts exit 0, a settled journal and a freed route. Remaining: land the fix
+through the normal draft-PR, review, merge and release path, and have the Klicker
+consumer re-run its own reproducer on a build that carries it. No consumer
+workspace was touched.
+
+## Removed generated profile blocks stop and every later ensure (2026-09-20, `2f1f9ec`)
+
+Status: **source fix, regressions and live local recovery verified on a
+disposable fixture; publication and consumer-side recovery remain separate.**
+
+The profile-alternation pass found a third stuck shape. Devsy resolves a
+workspace's container configuration from the relative path recorded at
+registration — the ignored generated profile
+(`.devcontainer/devcontainer.devrouter.json`). When an interrupted or rolled-back
+transition, an operator cleanup or a consumer tool removed that file while the
+registration and the retained runtime survived, the provider refused every
+mutation with `devcontainer path ... does not exist`: `stop --delete` could not
+reach its own proofs or settle, `devrouter workspace journal settle` answered
+`already-settled` because the ensure operation it would join was `COMPLETED`, and
+lifecycle admission then blocked every later `ensure` with `Lifecycle admission
+is blocked. phase is 'stopping'`.
+
+Fix `2f1f9ec` restores the exact recorded artifact inside the provider mutation
+lock, before the stop proof and before any provider action, and only when the
+file is positively `missing`, the retained record is readable, the profile and
+workspace token still resolve to the same values, and the current source
+reproduces the recorded `sourceConfigSha256` and `effectiveConfigSha256`. A
+missing or unreadable record and a changed source leave the file and the
+environment untouched, so the existing ownership, population and identity proofs
+still decide; a restore that fails its own generated-config inspection refuses
+with `Managed Dev Container path '<path>' could not be restored from the recorded
+state.`
+
+Live recovery receipts on the fixture, all with the same bundle
+(`6de1b11e3073e81a980d27b707276bf64bc0983c9accf8ad6dfd66485a2c4ff0`):
+
+- A fixture left with a completed ensure, a removed generated profile and
+  `already-settled` settlement: the rebuilt CLI returned exit 0 with
+  `{"kind": "primary", "stopped": false, "deleted": true, "freedRoutes": 1}`,
+  moved the journal to `phase: idle`, `desired: stopped-by-user` with
+  `stopProof: {workloadsStopped: true, routesRemoved: true}`, and removed the
+  Devsy registration.
+- A full `ensure` followed by another removal and `stop --delete` returned the
+  same payload.
+- The `generated-profile-restore` cohort repeats that shape inside the
+  qualification run and asserts the restoration, the removed container and route
+  and the settled journal (`revision 1399`, `idle`/`stopped-by-user`).
+
+Regression cover: `src/core/__tests__/managed-devsy-stop.test.ts` (117 tests via
+`pnpm` selection, including the restore, a changed source, an unreadable record
+and a non-managed checkout) and `src/core/__tests__/devsy-mutation.test.ts` (31
+tests, including the restore running before the stop proof and the provider
+action). Remaining: land the fix through the normal draft-PR, review, merge and
+release path, and have the Klicker owner re-run its reproducer on a build that
+carries it. No consumer workspace was touched.
+
+## Nested volume mount unwound by the host runtime (2026-09-20, `51a1cb6`)
+
+Status: **reproduced on the machine's real provider and runtime; detected by the
+alternation cell; recovery path verified. The unwinding belongs to the host file
+sharing and the OCI runtime, so this pass records it instead of patching it.**
+
+The devcontainer pattern this repository scaffolds shadows `node_modules` with a
+named volume so host binaries cannot clobber the container's install tree
+(`src/core/devcontainer-write.ts`, `GOTCHAS.md` item 6). On this machine the
+shadowing is not durable: the nested mount can disappear from a running
+container while `docker inspect` keeps reporting it, so the workspace bind mount
+underneath becomes visible at `node_modules` and a container-side install writes
+Linux packages into the host checkout and prunes the host's own dependency tree.
+
+Evidence, all on 2026-09-20 with OrbStack `29.4.0` sharing the checkout through
+virtiofs:
+
+- The alternation cell failed in three runs before the namespace check existed
+  (`be1e69f` container `236df3134db4` project `default-co-be7d2`; `5508d13`
+  container `de27f0183f7f` project `default-co-b0065`; `51a1cb6` container
+  `5986bf6476b0` project `default-co-9c773`) with the host checkout rewritten by
+  the container-side install.
+- On the live fixture container `fec84c007f6e` (project `default-co-c560b`), the
+  namespace reported 1 nested mount on device `41` (btrfs volume) before a host
+  install and 0 mounts on device `35` (virtiofs host share) after it; a file
+  created on the host then appeared in the container immediately, and the next
+  container-side install reported `removed 1 package`, wrote
+  `container-dep -> ../local-container-dep` and `.package-lock.json` into the
+  host checkout and deleted the host's `host-dep` link.
+- `devrouter exec`, `ensure --profile lean` and `ensure --profile full` on that
+  container left the mount intact, and a plain `docker compose up` fixture with
+  the same nested layout under `$TMPDIR` unwound it in 1 of 3 trials, so neither
+  devrouter nor Devsy is required to trigger it.
+- The next hardened run failed with the mount already gone before the host
+  install happened at all (`before the host install: the named node_modules
+  volume is no longer mounted in container 5986bf6476b0...`), so the condition is
+  intermittent and independent of any host-side install.
+- `docker restart <container>` re-applied the nested mount (device `41`, empty
+  volume again), which is what `devrouter stop <path>` followed by `ensure
+  <path>` does for a retained container.
+
+The alternation cell now reads the running container's own namespace: it asserts
+the configured mount table, re-reads `/proc/self/mountinfo` before and after the
+host install, and fails with the container, its configured mounts and its
+effective mounts when the nested volume is gone. The green run at `51a1cb6`
+records both planes for the passing case (`default-co-7092b_node_modules` at
+`/workspaces/profile-alternation/node_modules` on btrfs, workspace on virtiofs).
+The full record, including the mask and the recovery path, is in
+[Nested volume mount unwound by the host runtime](../solutions/runtime-error/nested-volume-mount-unwound-host-checkout.md),
+and `GOTCHAS.md` item 29 carries the detection and recovery for anyone
+scaffolding the pattern.
+
+### Read-only nested-mount report (2026-09-20, `74dfd8e`)
+
+Status: **implemented, locally qualified and pushed on PR #125; merge, release
+and installation stay separate authorised steps.**
+
+`devrouter status`, `devrouter status --json`, `devrouter doctor` and the
+`ensure --json` result now compare each running managed container's configured
+mounts with the mount table in its own namespace and report a nested configured
+mount that is no longer effective. `classifyManagedMountNesting` in
+`src/core/managed-mount-nesting.ts` reads the fifth `/proc/self/mountinfo` field
+with its octal escapes, compares mount points at path boundaries, and answers
+`not-applicable`, `effective`, `unwound` or `unverified`; an unreadable table
+is `unverified` with a reason instead of a pass. The observation stays outside
+`drift`, so it never blocks admission: `doctor` raises
+`repo.managed-mount-nesting` as `warn` with the container, the destination, the
+mount underneath it and the `stop`-then-`ensure` restart recovery, `status`
+prints a `Mount nesting` row and adds the same next step, and a healthy
+container reports `ok` naming the container.
+
+Evidence from this machine on 2026-09-20 (`74dfd8e`, OrbStack 29.4.0):
+
+- The healthy path is live: an `ensure`-created fixture container
+  (project `default-co-c2632`) reported `effective` for
+  `/workspaces/profile-alternation/node_modules` in `ensure --json`,
+  `status`/`status --json` and an `ok` `repo.managed-mount-nesting` check,
+  while the same fixture's worker service reported no nested mount at all.
+- The observation re-reads live state: after twelve external
+  `docker compose --force-recreate` runs replaced the container,
+  `status --json` and `doctor --json` named the new container id and still
+  reported `effective`, and the same `doctor` run failed closed on the process
+  drift those recreations caused (`repo.managed-runtime` error).
+- The unwound branch is covered by the recorded incident evidence above and by
+  eight unit tests over path boundaries, octal escapes, trailing slashes, the
+  outermost containing mount and the unreadable table.
+- The condition did not reproduce during this slice: eighteen fresh container
+  creations (six `stop --delete`/`ensure` cycles and twelve Compose
+  force-recreates) all reported the nested mount, so this record claims no live
+  `unwound` reading. Receipts:
+  `/private/tmp/devrouter-live-env-receipts/mount-unwind/`.
+
+### Mount-table read scoped to nested mounts (2026-09-21, `2e789ad`)
+
+Status: **implemented, locally qualified and pushed on PR #125; merge, release
+and installation stay separate authorised steps.**
+
+`74dfd8e` read every running managed container's own mount table on each
+`status`, `doctor`, `ensure` and `--json` call. Only a configured mount nested
+inside another can be unwound, so a container whose configuration nests none
+answers `not-applicable` whatever that read returns. The synthetic provider
+fixtures behind `pnpm qualify:capacity` and `pnpm qualify:lifecycle` refuse any
+command they do not model, so the unconditional read failed both harnesses with
+`AssertionError: Unexpected provider command occurred`, and the recorded calls
+were `docker exec <id> cat /proc/self/mountinfo`. The status answer itself stayed
+non-blocking as designed, while ordinary CI failed in the `check` job at
+`pnpm qualify:capacity` for `5129601a` (run 35538869371) and `09982fd` (run
+35540408099).
+
+`observeManagedMountNesting` now decides whether a configured mount is nested
+before it reads the container's own namespace. The nested, effective, unwound
+and unverified outcomes are unchanged, including the fail-closed `unverified`
+report for a read the observation still needs.
+
+Evidence on this machine on 2026-09-21 (`2e789ad`, Node 24.17.0, pnpm 11.6.0):
+
+- A/B on one tree: with only `src/core/managed-mount-nesting.ts` reverted,
+  `pnpm qualify:lifecycle` failed with the assertion above and recorded four
+  refused `docker exec` calls in `fixture.json.unexpected`, while the fixed tree
+  passed all 31 evidence rows; the capacity fixture recorded two refused calls
+  (`dr-cap-s6Tnkr/provider.json.unexpected`).
+- Three tests cover the boundary: a container that nests no mount reports
+  `not-applicable` without running a subprocess, a nested mount still reads the
+  container's own table, and a refused read stays `unverified` instead of
+  failing its caller.
+- The full checklist is green at the same source with `dirty: false`: docs
+  policy, knowledge, Biome, knip, typecheck, `pnpm test` (149 files, 2,731
+  tests), build, package smoke, and the controller, capacity and lifecycle
+  qualifications. Log:
+  `/private/tmp/devrouter-capacity-tripwire-validation.log`.
+- The ordinary `check` job now runs `pnpm qualify:lifecycle` next to
+  `pnpm qualify:capacity`, so the installed synthetic proof this map names for
+  durable lifecycle journals guards every push instead of only the local
+  qualification runs. That harness failed on the same refusal, so the step
+  closes the regression as well as the coverage gap RF13 recorded.
+
+### Refused stop after an externally replaced population (fixed)
+
+Status: **implemented at `618fc5f`, regression-covered, and reproduced live in
+both directions on 2026-09-20; publication and consumer-side recovery remain
+separate.**
+
+An external `docker compose --force-recreate` of a managed container, or any
+other replacement of the recorded population that leaves the Devsy registration
+intact, stranded the checkout:
+
+1. `devrouter stop --delete` recorded the stop intent and then refused with
+   `Retained container population or immutable identity changed.` The journal
+   held `desired: stopped-by-user, phase: stopping, stopProof: {workloadsStopped:
+   false, routesRemoved: false}` with `worker: null` and the last operation
+   still the drained `COMPLETED` ensure.
+2. `devrouter workspace journal settle` answered `already-settled` with
+   `priorStatus: COMPLETED`, because settlement steps the recorded operation
+   rather than the abandoned phase.
+3. `devrouter ensure` and `devrouter ensure --repair` refused with
+   `Lifecycle admission is blocked. phase is 'stopping' with desired
+   'stopped-by-user'; wait for the running stop to finish.` although no worker
+   is running.
+
+This is the symptom family recorded for *Primary managed stop recovery for absent
+registrations* above with a new trigger: the recorded containers are gone, the
+registration is unchanged, and the Compose project still holds a population, so
+the retained proof (identities differ), the absent-population proof (the project
+is not empty) and the replacement proof (the registration uid did not change)
+all refuse.
+
+Validated operator recovery: remove the exact provider
+registration — `devsy workspace delete consumer` for the fixture, id
+`consumer`, source under `$TMPDIR/devrouter-profile-alternation` — and then run
+`devrouter stop <path> --delete` on a CLI that carries both this fix and the
+absent-registration fix `a906070`. The absent-registration proof settled the
+journal (`phase: idle`, `stopProof: {workloadsStopped: true, routesRemoved:
+true}`) and left no fixture container behind; the released 0.1.2 alone still
+refuses that absent primary stop with `Absent stop requires a linked
+workspace.`, which the live A/B reproduced.
+
+The shipped slice keeps the intent but withdraws it when the worker provably ran
+no work. `executeLifecycleWorker` records a durable pre-mutation boundary after
+its read-only proofs and immediately before a stop may change the environment,
+and `superviseLifecycle` withdraws the intent it wrote when the worker refuses
+with that boundary absent, the same fence, no registered worker, no stop proof
+and exactly the operation the intent recorded. A repeated stop that joins an
+already-recorded intent never withdraws it, so a crash or refusal after mutation
+began keeps the fail-closed intent for an explicit stop retry or settlement.
+Settlement removes the boundary again, so a settled record stays readable by the
+released CLI, whose record validation refuses unknown fields; that mattered
+because the first slice wrote an explicit `stopWorkStarted: null` that made
+0.1.2 refuse every lifecycle command for the checkout with `Reliability record
+contains unsupported fields.` The retained, absent-population and replacement
+proofs are unchanged, and the admission refusal now names the recovery rerun
+instead of only `wait for the running stop to finish`.
+
+Evidence: four new lifecycle tests and one store test cover the withdrawal, the
+retained boundary, the joining replay and the boundary lifecycle; the full
+checklist (`pnpm check:docs-policy`, `check:knowledge`, `check`, `knip`,
+`typecheck`, `test` with 2728 tests, `build`) is green at the same source. Live
+A/B on the disposable `$TMPDIR/devrouter-profile-alternation/consumer` fixture:
+the installed 0.1.2 reproduced the stranding exactly, and with the fixed build
+the same refusal left the journal withdrawn, the following `ensure` exited 0
+without deleting the registration or recreating the externally recreated
+container, and the released CLI still completed an `ensure` on the settled
+record. Receipts and per-step logs:
+`/private/tmp/devrouter-live-env-receipts/stop-withdrawal/RECEIPT.md`,
+`run4.log` (19 PASS, 0 FAIL); the earlier stuck-stop evidence stays in
+`/private/tmp/devrouter-live-env-receipts/mount-unwind/RECEIPT.md`. Owner:
+devrouter, RF12/RF13 follow-up.
+
+## Qualification fixture identity collision and measured provider-CLI cost (2026-09-21)
+
+Status: **the fixture defect is fixed and verified live from source; the
+provider-CLI measurement names the devrouter-side phase RF12 asked for.
+Publication and release remain pending with the network correction.**
+
+The phase attribution above left one open question: whether any devrouter-side
+phase could justify a before/after optimization. Answering it first exposed a
+defect in this plan's own harnesses rather than in the product.
+
+Two disposable fixtures were checkouts whose folder name was `consumer`
+(`$TMPDIR/devrouter-process-preparation/consumer` and
+`$TMPDIR/devrouter-profile-alternation/consumer`). The provider derives its
+workspace id from the checkout folder's basename, so both resolved to workspace
+id `consumer`, and only one registration can exist at a time. With the
+preparation fixture's registration deleted at its own teardown, the surviving
+registration named the profile-alternation path, so a rerun from the preparation
+path made `devsy workspace up` reuse that fixture's container: the provider
+pipeline reported container `29bf635d0101` with
+`remoteWorkspaceFolder: /workspaces/profile-alternation`, and `devrouter
+ensure` refused fail-closed after 10.2s with `Devsy did not attach
+'<process-preparation path>' after startup. Reset candidate retained for
+recovery. Recovery incomplete: candidate ownership and complete service
+population were not proved; recovery state was not replaced.` The refusal left
+phase `recovering`, `stopProof {workloadsStopped: false, routesRemoved:
+false}`, `worker: null` and no published route; nothing was deleted or
+degraded, and the neighbour fixture stayed healthy (`default-co-33140-app-1`
+`Up 3 hours`, provider workspace `consumer` `Running`,
+`https://profiles-consumer.localhost/` answering
+`{"ok":true,"pid":213,"generation":"1"}` before and after).
+
+The fix is in the harnesses, not in the product: each Devsy-backed fixture now
+has a unique basename, with the reason recorded where each path is built
+(`preparation-consumer`, `profile-alternation-consumer` and
+`cohorts-consumer`); the pruned-population fixture already used
+`consumer-prune`. The repaired preparation harness then ran green on its own new
+fixture: revision `91a22c4` with the harness change in the working tree
+(`dirty: true`), bundle SHA-256
+`2f8a77825486bd00cc277eb85936f0c0cdade177b9817f322325a3e7903a07fb`, fixture
+`$TMPDIR/devrouter-process-preparation/preparation-consumer`, provider id
+`preparation-consumer`, container `5ef675ae548f`. All eight cohorts were
+first-attempt exit 0 except the intended unknown-ownership refusal (exit 1,
+17.8s): cold 25.1s, unchanged reuse 21.0s, runtime change 23.4s, non-destructive
+stop 32.5s, stopped resume 26.1s, stop-then-ensure recovery 19.4s and
+pruned-population stop 10.8s, with peak CLI resident memory 73.0-73.7 MiB and the
+same nine assertions as the earlier green receipt. Teardown deleted the fixture
+registration, and the live neighbour registration, container and route were
+unchanged afterwards. Receipt:
+`$TMPDIR/devrouter-process-preparation/evidence.json`; run log
+`/private/tmp/dr-prep-fix-run.log`. The earlier refused ensure remains recorded
+in the old fixture path's journal (`790366b9...`, phase `recovering`); that
+checkout is no longer used by the harness, and its record is settled by a later
+run on the same path or by the documented settlement, not by editing files.
+
+### Provider CLI invocation cost (measured)
+
+With the fixture identity fixed, one cold ensure, one retained ensure and one
+`stop --delete` were measured on a disposable copy of the same fixture with PATH
+shims that timestamp every `docker` and `devsy` invocation. The provider CLI has
+a fixed per-invocation cost on this machine: `devsy --version` and
+`devsy workspace list --result-format json --skip-pro` each take 0.55-0.56s of
+real time with about 0.05s of CPU, so the cost is process startup, not work. A
+read-only `devrouter status --repo <fixture>` makes exactly two provider calls,
+one version probe and one registry read, about 1.1s, which confirms that the
+repeated `--version` plus `workspace list` pairs belong to devrouter's own
+ownership and agent probes.
+
+Measured wall time and provider invocations: cold ensure 25.6s with 26 provider
+invocations (about 14.3s, including one 4.2s `devsy workspace up`), retained
+ensure about 22s with 27 invocations (about 15.6s, including a 4.1s
+`workspace up` even though the container was reused), and `stop --delete`
+about 14s with 21 invocations (about 11.6s, including a 4.1s `workspace
+delete`). Devrouter's own Docker calls are not the cost: the retained ensure made
+73 of them in 4.3s, the largest 0.8s and most 15-140ms, and the cold ensure made
+76 in 7.4s where the largest single call is the 3.1s in-container adapter
+invocation that runs the fixture's own two-second preparation. The retained
+ensure's streamed phases were validation 2.7s, provider 3.7s, first
+service-start 10.0s, second service report 11.4s, the adapter reporting
+`'app' already matches this runtime` at 17.3s, route publication 17.8s and
+readiness 18.0-21.5s, so the repository adapter accounts for 8ms of the retained
+path and the window between service reconciliation and route publication is
+bounded ownership, process and route proofs, not a redundant call.
+
+RF12's open question is therefore answered by naming a devrouter-side phase: how
+many times a single action starts the provider CLI. About seventy percent of each
+action's wall time is provider-CLI latency, and the invocation count is
+devrouter's own scheduling choice, not the provider's container work. Reducing it
+is a new slice with a before/after on this same workload, and it must keep every
+ownership proof that guards a mutation boundary, the machine-global mutation
+lock, the retained/absent/replacement proofs and the fail-closed refusal paths:
+the candidate is deduplicating probes that repeat with no intervening mutation,
+not weakening what each boundary proves. The measurement does not by itself
+justify a product change yet.
+
+Artifacts:
+`/private/tmp/dr-docker-trace/{trace.log,devsy.log,trace-b-cold.events,trace-b-warm.events,trace-b-stop.events,trace-run.py,trace2-run.py}`
+and the two disposable trace fixtures under
+`$TMPDIR/devrouter-process-preparation/` (`trace-consumer`,
+`trace2-consumer`), left in place as evidence.
+
+### Redundant provider version preflight removed (`b472655`)
+
+Stack traces from a temporarily instrumented build attributed every provider call
+in one ensure. The parent CLI makes exactly two: one `devsy --version` and one
+`devsy workspace list`. The lifecycle worker makes the rest — eight more
+`--version` startups, fifteen registry reads and the single `workspace up` — and
+the reads land in `getWorkspaceRegistrySnapshots` through
+`resolveWorkspaceRuntimeDetailed`, four registration and postcondition proofs in
+managed stop recovery, `assertDevsyTarget`, the post-start ownership proof and
+`captureManagedStopBaseline`.
+
+Those repeated registry reads are deliberate and stay: every mutation boundary
+calls `resetWorkspaceRuntimeCaches()` first so its proof is fresh. The redundant
+part was the standalone `isRuntimeInstalled()` `--version` startup inside
+`getWorkspaceRegistrySnapshots()`, which ran before each of those reads and could
+only answer what the read answers by itself, because `spawnSync` reports a
+missing CLI as `ENOENT`.
+
+The slice removes that preflight and classifies `ENOENT` from
+`listDevsyWorkspaces()` and `listDevpodWorkspacesRaw()` as absence; both leaves
+now carry the spawn failure code on the error they throw. Every other outcome — a
+non-zero exit, a malformed body, `EACCES`, `EIO`, a timeout — still records the
+runtime as unavailable, so the conflict, unavailable-registry and replacement
+refusals are unchanged. `--version` keeps its two jobs where no registry read
+follows: runtime auto-detection, and the Devsy agent proof in the managed start
+path.
+
+Measured on the disposable `probe-consumer` fixture with the same PATH shims,
+before and after, one cold ensure, one retained ensure and one `stop --delete`:
+provider invocations cold 26 → 18, retained 26 → 18, stop 22 → 16, every step
+exit 0. The residual per-ensure `--version` is the agent proof. Wall time fell
+cold 25.9s → 19.7s, retained 22.9s → 17.2s and stop 18.0s → 14.4s on the same
+fixture, and the provider's own Docker work is untouched: 72 Docker invocations on
+the cold ensure before and after, 40 on the stop runs. `stop --delete` still
+reports `{stopped: false, deleted: true, freedRoutes: 1}`, and `pnpm test` passed
+all 2742 tests, with the classification pinned by four added runtime-resolution
+cases and two added error-code cases in the registry adapters.
+
+Artifacts:
+`/private/tmp/dr-probe-trace/{results-after.txt,devsy-after-{cold,warm,stop}.log,docker-after-{cold,warm,stop}.log}`.
+The pre-change shim logs in that directory were overwritten by the after-runs, so
+the before figures are the attribution pass's recorded counts.
+
+### Follow-up receipts (2026-09-21)
+
+The fixture fix and the measurement above were pushed as `047a545`, and
+[CI run 35550743528](https://github.com/rschlaefli/devrouter/actions/runs/35550743528)
+completed in 5m22s for that head with every step passing, including
+`pnpm qualify:controller`, `pnpm qualify:capacity` and `pnpm qualify:lifecycle`
+in the ordinary `check` job.
+
+The RF10 operator recovery ran the same day. The retained
+`23fe529a30eb1b61c71ad42a1fac07b29848784a3fd9eb626643a5aaf789f0c9.stuck-stopping-20260914T1720.bak`
+moved from `~/.config/devrouter/reliability/` into
+`~/.config/devrouter/incidents/` — preserved, never deleted, so the historical
+evidence stays readable outside the journal directory the CLI reads. Before the
+move, installed 0.1.2 reported `global.capacity-ledger` with
+`capacity-history-unprovable; journal-entry-unsupported` naming that exact
+entry; after the move the same command reports `global.capacity-ledger` OK
+(16 OK, 3 WARN, 0 ERROR; the remaining warnings are `global.devsy-agent`'s
+non-blocking advisory and `global.network-capacity`'s unknown-evidence
+refusal). No policy, setup or capacity state changed.
+
+The same pass audited every qualification script that references Devsy for the
+fixture defect fixed above: the three real-provider harnesses use unique
+basenames, `qualify-controller.ts`, `qualify-host-suspend.ts`,
+`qualify-capacity.ts` and `qualify-lifecycle.ts` drive synthetic provider
+shims, and `qualify-config-drift-stop.ts` uses a unique `mkdtemp` basename,
+so no remaining fixture can collide on a provider workspace id.
+
+### Machine-wide transitional-record audit (2026-09-21, read-only)
+
+The store enumerated for that audit was read again through
+`/private/tmp/dr-transitional-audit.js`, a read-only script that reports each
+record's phase, intent, operation, proof and target path. Ninety records existed
+at the first read and 92 after the same day's qualification fixtures were
+created; ten sit in a transitional phase with no recorded worker and
+`stopProof {workloadsStopped: false, routesRemoved: false}`. Every transitional
+record also proves its own intent: `stopping` always means `stopped-by-user`,
+`recovering` always means `running` under an interrupted `ensure`, no record
+carries a runtime generation, and the checkout path plus provider identity are
+the only identity a recovery has to re-prove.
+
+| Last written | Record | Phase | Operation (written by) | Checkout | Reviewed disposition |
+| --- | --- | --- | --- | --- | --- |
+| 09-08 08:22 | `ae40996e` | recovering | ensure/INTERRUPTED | `klicker/klicker-uzh/trees/rs/dependency-mount-startup-proof` | next `ensure` re-drives it; no settlement needed |
+| 09-08 11:09 | `1dd16322` | stopping | ensure/INTERRUPTED | `klicker/klicker-uzh/trees/rs/rag-chunk-display` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-08 22:38 | `6a72ea7a` | stopping | ensure/INTERRUPTED | `klicker/klicker-uzh/trees/rs/playwright-activity-retry-safety` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-09 15:16 | `d4a3a838` | stopping | ensure/INTERRUPTED | `klicker/klicker-uzh/trees/latex-chemistry-investigation` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-12 15:38 | `4e62b8a0` | stopping | exec/COMPLETED (0.0.73) | `klicker/klicker-uzh/trees/rs/chatbot-multiple-kb` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-13 13:04 | `345e66c4` | stopping | exec/COMPLETED (0.0.77) | `klicker/klicker-uzh/trees/rs/chatbot-kb-clean-runtime` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-13 17:24 | `93dde037` | recovering | ensure/INTERRUPTED (0.0.77) | `klicker/klicker-uzh/trees/rs/kb-imported-sources` | next `ensure` re-drives it; no settlement needed |
+| 09-15 10:51 | `36b81063` | stopping | none (checkout missing) | `/private/tmp/chatbot-impl/elearning/trees/elearning` | historical; no path-based recovery exists |
+| 09-20 12:50 | `c21006bd` | recovering | ensure/INTERRUPTED (0.1.0) | `klicker/klicker-uzh/trees/chat-citation-page-ranges` | next `ensure` re-drives it; no settlement needed |
+| 09-21 03:09 | `790366b9` | recovering | ensure/INTERRUPTED (0.1.2) | `$TMPDIR/devrouter-process-preparation/consumer` | next `ensure` re-drives it; the retired fixture needs no recovery |
+
+`handleRecover` refuses while the phase is `stopping`, and the 0.0.73
+incident showed the same shape refusing `ensure`, so every `stopping` entry is
+a possible blockage for its own task until it is settled. The fixes that make
+those rows recoverable — absent-registration settlement (`a906070`), the
+generated-profile restore (`2f1f9ec`) and the refused-stop withdrawal
+(`618fc5f`) — sit on PR #125 and are unreleased, so each affected owner should
+run its documented recovery on a build that carries them: `devrouter stop` to
+the settled record, or `devrouter workspace journal settle` under its
+worker-loss proof. The missing `/private/tmp/chatbot-impl` checkout and the
+retired `$TMPDIR` fixture record stay as historical evidence. This audit was
+read-only: no record, workspace, route or container was changed, and the eight
+klicker checkouts remain with their own tasks.
+
+### Live receipts refreshed and a retained-fixture alias collision (2026-09-21, `d5fbc2b`)
+
+The three Devsy-backed harnesses were re-run to keep RF12's receipts current.
+The bundle under test is the prepared 0.1.3 artifact and this pass changed it in
+no way: `dist/devrouter.js` sha256
+`cbc3b5b3fbcf065b93d75cc5e542dad4ce563289337f49ec61e1c9e4720bd228` and
+`dist/devrouter-lifecycle-worker.js` sha256
+`d0497dbbcf02005df0cba70abfbfe0d9c6ce328b373cc23e93d9735dd3ec140b` match the
+recorded release pins, and `scripts/` is not part of the published file set.
+
+- `pnpm qualify:cohorts` at `d5fbc2b` (clean tree, exit 0, six evidence lines):
+  cold 8.3s, stop 6.4s, stopped resume 8.6s, fault recovery 8.6s, peak CLI RSS
+  72.1–73.4 MiB, and the final delete removed the exact fixture container.
+- `pnpm qualify:preparation` at `d5fbc2b` (clean tree, exit 0, nine evidence
+  lines): cold 24.7s, unchanged reuse 16.6s, runtime change 18.8s, stop 22.7s,
+  stopped resume 20.3s, unknown-ownership refusal exit 1 after 13.7s with two
+  refused adapter attempts and no completion, stop-then-ensure recovery 14.1s,
+  pruned-population stop 9.3s that settled `idle`/`stopped-by-user` as
+  proven-absent, and a teardown that removed the exact container and its route;
+  peak CLI RSS 73.6–74.2 MiB.
+- The first `pnpm qualify:profiles` attempt refused at `lean-cold`: *Workspace
+  upstream 'profile-alternation-app' must resolve to exactly one running
+  container; found 2.* The cause was fixture identity, not product behaviour: the
+  previous generation of that fixture is still up on the same devnet (project
+  `default-co-33140`, workdir
+  `$TMPDIR/devrouter-profile-alternation/consumer`, five hours old) and it
+  declared the same constant project token, devnet alias and route host, so both
+  containers claimed `profile-alternation-app`. The retained fixture and its
+  `profiles-consumer.localhost` route entry were left untouched.
+- `d5fbc2b` derives the project token that `${WORKSPACE}` resolves to, the
+  devnet aliases and the route host from the fixture id in the profile-alternation
+  and process-preparation harnesses, so one fixture root is one environment. The
+  new run owns `profiles-profile-alternation-consumer.localhost`.
+- The next `pnpm qualify:profiles` run at `d5fbc2b` (clean tree) passed the
+  first three cohorts and then failed the alternation cell with the recorded
+  intermittent host-runtime unwinding: *before the host install: the named
+  node_modules volume is no longer mounted in container
+  `2ddc65fff49e368007620178241176f67284ee779ec56a2655dbf864fa4736b9`*. That is the
+  macOS file-sharing behaviour recorded under *Nested volume mount unwound by the
+  host runtime*, detected by the same assertion that was added for it, and the
+  receipt is kept rather than retried away.
+- The third `pnpm qualify:profiles` run at `d5fbc2b` (clean tree, exit 0,
+  twelve evidence lines, fixture container
+  `8f35e171d2a990b5a6defc02e61d51438cc897eea02b6b29d05b83847b091c05`): lean-cold
+  20.0s, full-warm 19.4s, lean-warm 19.1s, alternation-exec 3.0s,
+  undefined-profile refusal exit 1 after 2.0s, full-again 21.1s, full-reuse
+  16.8s, unrecorded-population refusal exit 1 after 12.6s, unrecorded recovery
+  21.0s, stop 24.9s, stopped resume 19.5s, generated-profile restore 14.0s, peak
+  CLI RSS 72.0–74.7 MiB, and a teardown that removed the exact container and its
+  route while leaving host files alone.
+
+The release checklist's remaining smoke items were run on the same head.
+`pnpm routing:smoke` passed: the host app, the docker app and the TLS-required
+Postgres route all served (`https://routing-host.localhost`,
+`https://routing-docker.localhost`,
+`postgres://routing-db.localhost:5432`). `pnpm devcontainer:smoke` cannot run
+on this host because the DevPod CLI is not installed (`missing required command:
+devpod`) and Devsy 1.19.0 is the provider here, so that checklist item stays
+unavailable rather than skipped silently; the live devcontainer coverage for this
+head is the Devsy-backed harness set above.
+
+The same head refreshed the four remaining live qualification harnesses, all at
+`7a960e0` with the same `dist/devrouter.js` sha256 `cbc3b5b3…`:
+
+- `pnpm qualify:killed-runtime` (RF09's container-local death cells): exit 0,
+  two cells. `sigkill` recorded `status=exited exit=137 oom=false restarts=0`
+  and `oom` recorded `status=exited exit=137 oom=true restarts=0`; the route
+  stayed inspectable and the ordinary restart/release path removed the exact
+  container.
+- `pnpm qualify:slow-dependency` (Q06): exit 0. `slow` started after a 42.2s
+  wait against one dependency with `restarts=0`, `never` failed bounded at 7.5s
+  with `is unhealthy`, `unchanged` reused the running dependency in 0.9s and
+  `stopped` failed in 6.9s; no round restarted or replaced the dependency.
+- `pnpm qualify:non-node` (M2 breadth): exit 0. Three cold/warm pairs, cold start
+  median 6.43s (6.43–6.72), warm start median 2.81s (2.56–2.82), peak consumer RSS
+  22.2 MiB, and every warm round reused the same Postgres container.
+- `scripts/qualify-config-drift-stop.ts` against `dist/devrouter.js` (the
+  config-drift stop recovery): exit 0 with `configurationDriftStop`,
+  `tmpfsMount`, `retainedData` and `finalStopped` all true at CLI sha256
+  `cbc3b5b3…`.
+
+Q20 stays the only live-open RF09 cell, and its armed fixture was re-verified
+read-only at 2026-09-21T02:53Z: the controller process had been up for 2h59m, the
+heartbeat had renewed at 02:53:42Z, and `https://host-suspend.localhost/` answered
+`http=200` with the fixture's 32-byte token. The remaining step is the observed
+system sleep, which is the operator's action; nothing on the devrouter side is
+waiting on source work.
+
+A read-only scan of the same config directory found 19
+`devsy-mutation.lock.*.candidate` and `devpod-mutation.lock.*.candidate` files
+dated 2026-08-25 to 09-12. `acquireFileLock` removes its candidate in a
+`finally`, so these are leftovers of processes killed while holding or awaiting
+the lock, and they are inert: every acquisition writes a fresh
+`<lock>.<pid>.<uuid>.candidate` and never reads another process's file. An
+optional future sweep could remove candidates whose embedded process identity is
+gone; nothing in this pass depends on it and no file was removed.

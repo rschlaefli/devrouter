@@ -6,7 +6,9 @@ import {
   assertManagedContainerConfigUnchanged,
   inspectManagedDevcontainerConfig,
   inspectManagedDevcontainerGeneratedConfig,
+  type ManagedDevcontainerPlan,
   stopExactManagedService,
+  writeManagedDevcontainerConfig,
 } from "./devcontainer-profile";
 import {
   assertManagedStopCheckoutAbsent,
@@ -393,6 +395,68 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
   if (stable().some((c) => c.state.Running))
     throw new Error("Initial managed stop left a workload running.");
   return true;
+}
+
+/**
+ * Devsy resolves a workspace's container configuration from the relative path
+ * recorded at registration, so a managed environment whose generated profile
+ * is absent refuses every provider mutation with `devcontainer path ... does
+ * not exist` even when its registration and retained state are intact. An
+ * interrupted or rolled-back transition can remove that ignored artifact while
+ * the registration survives, which strands the checkout: stop cannot settle it
+ * and admission blocks every later ensure.
+ *
+ * Restore the exact recorded artifact whenever the file is positively absent
+ * and the current source still reproduces the fingerprints the retained state
+ * recorded. Anything else, including an unreadable record or a changed source,
+ * leaves the environment untouched so the caller's own checks still decide.
+ */
+export function restoreRecordedManagedDevcontainerConfig(repoPath: string): boolean {
+  const plan = recordedManagedDevcontainerRestorePlan(repoPath);
+  if (!plan) return false;
+  writeManagedDevcontainerConfig(plan);
+  if (inspectManagedDevcontainerGeneratedConfig(plan).status !== "valid") {
+    throw new Error(
+      `Managed Dev Container path '${plan.generatedPath}' could not be restored from the recorded state.`,
+    );
+  }
+  return true;
+}
+
+function recordedManagedDevcontainerRestorePlan(
+  repoPath: string,
+): ManagedDevcontainerPlan | undefined {
+  try {
+    if (!fs.existsSync(path.join(repoPath, ".devrouter.yml"))) return undefined;
+    const linked = isLinkedWorktree(repoPath);
+    const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
+    const state = readManagedRuntimeState(repoPath, workspace);
+    if (!state) return undefined;
+    const runtime = loadRuntimeConfig(repoPath, workspace ?? "", state.profile);
+    if (
+      !runtime.config.managedRuntime ||
+      runtime.profile !== state.profile ||
+      runtime.workspace !== workspace
+    )
+      return undefined;
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath,
+      config: runtime.config,
+      profile: runtime.resolvedProfile,
+      linked,
+    });
+    if (inspectManagedDevcontainerGeneratedConfig(plan).status !== "missing") return undefined;
+    if (
+      plan.sourceConfigSha256 !== state.sourceConfigSha256 ||
+      plan.effectiveConfigSha256 !== state.effectiveConfigSha256
+    )
+      return undefined;
+    return plan;
+  } catch {
+    // The restore is an opportunistic repair; the mutation's own ownership and
+    // population proofs remain the authority on whether it may proceed.
+    return undefined;
+  }
 }
 
 /** Called only while the canonical caller holds the workspace and provider locks. */

@@ -33,7 +33,13 @@ export function listDevpodWorkspacesRaw(
       .filter(Boolean)
       .join("\n")
       .trim();
-    throw new Error(`devpod list failed: ${details || "devpod is not installed or unavailable"}`);
+    // Keep the spawn failure code so a caller can classify a missing CLI
+    // (ENOENT) as absence while every other failure stays fail-closed.
+    const failure = new Error(
+      `devpod list failed: ${details || "devpod is not installed or unavailable"}`,
+    ) as NodeJS.ErrnoException;
+    if (result.error) failure.code = (result.error as NodeJS.ErrnoException).code;
+    throw failure;
   }
 
   let parsed: unknown;

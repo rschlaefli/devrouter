@@ -162,6 +162,28 @@ Supported routing:
   its route are retained instead of silently recreated, no devrouter output
   claims an OOM classification, and the ordinary restart/release paths recover;
   exit 3 means a prerequisite was unavailable, so a skip is never read as a pass
+- `scripts/qualify-lifecycle-cohorts.ts`: stopped-resume and fault-recovery
+  cohorts on one disposable devsy-managed checkout, recording wall time, the
+  streamed phase timeline, peak CLI memory, container memory at readiness and
+  first-attempt exit codes while reading container identity, retained data and
+  adapter invocations from Docker; exit 3 means a prerequisite was unavailable,
+  so a skip is never read as a pass
+- `scripts/qualify-process-preparation.ts`: preparation reuse for a
+  repository-owned process in a routed consumer, covering cold preparation,
+  unchanged reuse, a changed runtime identity, a stopped resume, an unowned
+  process refusal, the stop-then-ensure recovery and an externally pruned
+  container population, with preparation counts and process identity read inside
+  the container and the route fetched as an independent readiness proof; exit 3
+  means a prerequisite was unavailable, so a skip is never read as a pass
+- `scripts/qualify-profile-alternation.ts`: supported profile changes and
+  host/container alternation on one disposable devsy-managed checkout, covering
+  a cold lean profile, a warm profile-service addition, an ownership-proven drop
+  that must leave a foreign service container untouched, host and container
+  installs isolated by a named `node_modules` volume, an undefined-profile
+  refusal, a warm re-addition and a stopped resume; container identity, creation
+  timestamp, service population, owned volumes and install trees are read from
+  Docker and the route is fetched as an independent readiness proof; exit 3
+  means a prerequisite was unavailable, so a skip is never read as a pass
 - `scripts/check-docs-policy.sh`: docs-policy guard for product-doc drift and changelog prompt reference integrity
 - `upgrade-prompts/*.md`: versioned agent adaptation prompts consumed by `devrouter upgrade`
 - `.agents/skills/devrouter/SKILL.md`: bundled skill (reference copy; embedded in CLI for distribution)
@@ -272,4 +294,12 @@ Supported routing:
     cancelled wait)
 16. `pnpm qualify:killed-runtime` when Docker and the mkcert root CA are available,
     for the container-local SIGKILL and OOM cells
-17. Update docs for any behavior/surface changes
+17. `pnpm qualify:cohorts` when Docker and the devsy provider are available, for
+    the stopped-resume and fault-recovery lifecycle cohorts
+18. `pnpm qualify:preparation` when Docker and the devsy provider are available,
+    for preparation reuse, unowned-process refusal and recovery in a routed
+    consumer
+19. `pnpm qualify:profiles` when Docker and the devsy provider are available,
+    for profile changes, host/container alternation and the undefined-profile
+    refusal on one managed checkout
+20. Update docs for any behavior/surface changes

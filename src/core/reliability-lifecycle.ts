@@ -44,6 +44,7 @@ import {
   type ReliabilityConsumer,
   type ReliabilityEvent,
   type ReliabilityFence,
+  type ReliabilityState,
   reliabilityFence,
 } from "./reliability-contract";
 import {
@@ -564,6 +565,84 @@ export function restoreParkedIntentAfterFailedResume(input: {
   });
 }
 
+/** Intent fields a stop write replaces; withdrawal restores exactly these. */
+export type LifecycleStopIntentSnapshot = Pick<
+  ReliabilityState,
+  | "intentRevision"
+  | "observationsAfterMs"
+  | "desired"
+  | "phase"
+  | "profile"
+  | "admission"
+  | "stopProof"
+  | "requests"
+  | "observations"
+  | "operation"
+>;
+
+/**
+ * One recorded stop intent and the state it replaced. `wroteIntent` is false
+ * when the write joined an intent that was already recorded.
+ */
+export type LifecycleStopIntent = {
+  fence: ReliabilityFence;
+  prior: LifecycleStopIntentSnapshot;
+  recordedOperation: ReliabilityState["operation"];
+  wroteIntent: boolean;
+};
+
+function snapshotLifecycleStopIntent(state: ReliabilityState): LifecycleStopIntentSnapshot {
+  return {
+    intentRevision: state.intentRevision,
+    observationsAfterMs: state.observationsAfterMs,
+    desired: state.desired,
+    phase: state.phase,
+    profile: state.profile,
+    admission: state.admission,
+    stopProof: { ...state.stopProof },
+    requests: state.requests.map((request) => ({ ...request })),
+    observations: state.observations.map((observation) => ({ ...observation })),
+    operation: state.operation ? { ...state.operation } : null,
+  };
+}
+
+/**
+ * Withdraw a recorded stop intent whose worker provably began no work, so a
+ * refused stop cannot strand the checkout in `stopping` while every later
+ * command waits for a stop that is not running. The withdrawal is refused
+ * unless the intent is untouched: same fence, no registered worker, no durable
+ * stop work boundary, no stop proof, and exactly the operation the intent
+ * recorded. Every other state keeps the fail-closed intent for an explicit stop
+ * retry or settlement.
+ */
+export function withdrawUnstartedLifecycleStop(input: {
+  identity: ReliabilityIdentity;
+  intent: LifecycleStopIntent;
+}): boolean {
+  return updateReliabilityOperation(input.identity, (record) => {
+    const state = record.state;
+    const intent = input.intent;
+    if (!intent.wroteIntent) return false;
+    if (!matchesFence(record, intent.fence)) return false;
+    if (record.worker || record.stopWorkStarted) return false;
+    if (state.desired !== "stopped-by-user" || state.phase !== "stopping") return false;
+    if (state.stopProof.workloadsStopped || state.stopProof.routesRemoved) return false;
+    if (!isDeepStrictEqual(state.operation, intent.recordedOperation)) return false;
+    const prior = intent.prior;
+    state.intentRevision = prior.intentRevision;
+    state.observationsAfterMs = prior.observationsAfterMs;
+    state.desired = prior.desired;
+    state.phase = prior.phase;
+    state.profile = prior.profile;
+    state.admission = prior.admission;
+    state.stopProof = { ...prior.stopProof };
+    state.requests = prior.requests.map((request) => ({ ...request }));
+    state.observations = prior.observations.map((observation) => ({ ...observation }));
+    state.operation = prior.operation ? { ...prior.operation } : null;
+    return true;
+  });
+}
+
 /**
  * Commit resumed intent and return the ensure the queue must admit. Resume is
  * an intent change that requests capacity rather than one that presumes it: the
@@ -801,12 +880,42 @@ export async function superviseLifecycle(
   const copiedOptions = { ...options };
   const copiedCommand = command ? [...command] : undefined;
   if (kind === "stop") {
-    const fence = updateReliabilityOperation(identity, (record) => {
+    const intent = updateReliabilityOperation(identity, (record): LifecycleStopIntent => {
       reconcileDrained(record);
+      const prior = snapshotLifecycleStopIntent(record.state);
       stepRecord(record, { ...reliabilityFence(record.state), type: "stop" });
-      return reliabilityFence(record.state);
+      return {
+        fence: reliabilityFence(record.state),
+        prior,
+        recordedOperation: record.state.operation ? { ...record.state.operation } : null,
+        wroteIntent: record.state.intentRevision !== prior.intentRevision,
+      };
     });
-    return runLifecycleWorker({ kind, repoPath, identity, ...ids, fence, options: copiedOptions });
+    try {
+      return await runLifecycleWorker({
+        kind,
+        repoPath,
+        identity,
+        ...ids,
+        fence: intent.fence,
+        options: copiedOptions,
+      });
+    } catch (error) {
+      // A stop that refused before its worker could touch the environment left
+      // nothing to wait for; keeping the intent would refuse every later command
+      // with "wait for the running stop to finish" while no stop is running.
+      // The withdrawal never masks the refusal that caused it.
+      try {
+        withdrawUnstartedLifecycleStop({ identity, intent });
+      } catch (withdrawal) {
+        process.stderr.write(
+          `Lifecycle stop intent could not be withdrawn: ${
+            withdrawal instanceof Error ? withdrawal.message : String(withdrawal)
+          }\n`,
+        );
+      }
+      throw error;
+    }
   }
   const initial =
     readReliabilityOperation(identity) ?? updateReliabilityOperation(identity, (record) => record);
@@ -1501,6 +1610,14 @@ export async function executeLifecycleWorker<T>(
           ] as string[];
           for (const project of stopProjects) inspectManagedStopContainers(project);
         }
+        // Every proof above is read-only. Record the boundary durably before the
+        // stop may change anything, so a later refusal, crash or withdrawal can
+        // tell "no work began" from "work may have begun".
+        updateReliabilityOperation(request.identity, (record) => {
+          if (!matchesFence(record, request.fence))
+            throw new Error("Lifecycle intent changed before stop work began.");
+          record.stopWorkStarted = true;
+        });
       } else {
         updateReliabilityOperation(request.identity, (record) => {
           stepRecord(record, {
@@ -1639,6 +1756,9 @@ export function proveLifecycleStopped(): void {
     const settlement = updateReliabilityOperation(request.identity, (record) => {
       if (!matchesFence(record, request.fence) || record.worker)
         throw new Error("Stop proof was superseded or an earlier worker remains.");
+      // Settlement releases the boundary: removing the field keeps a settled
+      // record readable by the released CLI, which refuses unknown fields.
+      delete record.stopWorkStarted;
       if (record.version === 2) {
         if (record.capacity) record.capacity.validUntilMs = 0;
         return record.state.environmentId;
@@ -1688,6 +1808,7 @@ export function proveLifecycleStopped(): void {
         )
           throw new Error("Capacity settlement was superseded before journal confirmation.");
         record.capacity = null;
+        delete record.stopWorkStarted;
         if (record.enrollment) {
           record.phaseSettlement = null;
           record.activeProfile = null;

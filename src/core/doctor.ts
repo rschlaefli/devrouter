@@ -550,6 +550,45 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
                   ? undefined
                   : `Run: dev ensure ${repo.path}`,
         });
+
+        const mountNesting = managedRuntime.mountNesting;
+        if (mountNesting && mountNesting.status !== "not-applicable") {
+          const container = mountNesting.container ?? "unknown";
+          const shortContainer = container === "unknown" ? container : container.slice(0, 12);
+          if (mountNesting.status === "unwound") {
+            const first = mountNesting.unwound[0];
+            addCheck(checks, {
+              id: "repo.managed-mount-nesting",
+              level: "warn",
+              summary: `Managed container ${shortContainer} no longer reports ${first?.destination ?? "a nested mount"} in its own mount table, so the mount underneath it is visible in the container.`,
+              details: [
+                `container=${container}`,
+                ...mountNesting.unwound.map(
+                  (entry) =>
+                    `unwound=${entry.destination} (source ${entry.source} inside ${entry.nestedWithin})`,
+                ),
+              ].join("; "),
+              suggestion: `Run: devrouter stop ${repo.path} and then devrouter ensure ${repo.path} to restart the exact container, which re-applies the nested mount.`,
+            });
+          } else if (mountNesting.status === "unverified") {
+            addCheck(checks, {
+              id: "repo.managed-mount-nesting",
+              level: "warn",
+              summary: `Managed container ${shortContainer} did not report its own mount table, so its nested mounts are unverified.`,
+              details: [
+                `container=${container}`,
+                `reason=${mountNesting.reason ?? "unknown"}`,
+              ].join("; "),
+              suggestion: `Run: devrouter exec ${repo.path} -- cat /proc/self/mountinfo to read the container's own mount table.`,
+            });
+          } else {
+            addCheck(checks, {
+              id: "repo.managed-mount-nesting",
+              level: "ok",
+              summary: `Managed container ${shortContainer} still reports ${mountNesting.checked.join(", ")} in its own mount table.`,
+            });
+          }
+        }
       }
 
       if (repo.appCount === 0) {

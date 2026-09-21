@@ -113,6 +113,21 @@ describe("Devsy workspace adapter", () => {
     expect(() => listDevsyWorkspaces()).toThrow(/devsy workspace list failed/);
 
     vi.mocked(spawnSync).mockReturnValue({
+      status: null,
+      stdout: "",
+      stderr: "",
+      error: Object.assign(new Error("spawnSync devsy ENOENT"), { code: "ENOENT" }),
+    } as never);
+    let missing: unknown;
+    try {
+      listDevsyWorkspaces();
+    } catch (error) {
+      missing = error;
+    }
+    // Callers classify executable absence on the spawn code alone.
+    expect((missing as NodeJS.ErrnoException).code).toBe("ENOENT");
+
+    vi.mocked(spawnSync).mockReturnValue({
       status: 0,
       stdout: "not json",
       stderr: "",

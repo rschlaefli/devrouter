@@ -203,6 +203,17 @@ function appendManagedRuntimeRows(rows: string[][], managedRuntime: ManagedRunti
   rows.push(["Effective config SHA-256", managedRuntime.effectiveConfigSha256 ?? "-"]);
   rows.push(["Transition phase", managedRuntime.transitionPhase ?? "-"]);
   rows.push(["Runtime drift", formatResourceNames(managedRuntime.drift)]);
+  if (managedRuntime.mountNesting && managedRuntime.mountNesting.status !== "not-applicable") {
+    const nesting = managedRuntime.mountNesting;
+    rows.push([
+      "Mount nesting",
+      nesting.status === "unwound"
+        ? `unwound: ${nesting.unwound.map((entry) => entry.destination).join(", ")} (restart the container to re-apply)`
+        : nesting.status === "unverified"
+          ? `unverified (${nesting.reason ?? "unknown"})`
+          : `effective (${nesting.checked.join(", ")})`,
+    ]);
+  }
   if (managedRuntime.reliability) {
     const reliability = managedRuntime.reliability;
     rows.push(["Lifecycle intent", reliability.desired]);

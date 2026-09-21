@@ -14,7 +14,10 @@ import {
   selectDevsyWorkspace,
 } from "./devsy-workspaces";
 import { createStderrWaitReporter, withFileLock, withFileLockSync } from "./file-lock";
-import { stopRetainedManagedDevsyWorkspace } from "./managed-devsy-stop";
+import {
+  restoreRecordedManagedDevcontainerConfig,
+  stopRetainedManagedDevsyWorkspace,
+} from "./managed-devsy-stop";
 import {
   assertNetworkProviderBinding,
   networkProviderEnvironment,
@@ -197,6 +200,11 @@ function mutateOwnedDevsyWorkspace(
   worktreePath: string,
 ): OwnedDevsyMutationResult {
   return withMutationLock(`Devsy ${action}`, worktreePath, () => {
+    // The provider resolves this workspace's container configuration by the
+    // path recorded at registration, so a generated profile removed by an
+    // interrupted transition must be restored before the provider is asked to
+    // mutate the exact registration.
+    restoreRecordedManagedDevcontainerConfig(worktreePath);
     if (action === "stop") {
       const stopped = stopRetainedManagedDevsyWorkspace({
         repoPath: worktreePath,
