@@ -4687,23 +4687,29 @@ so no remaining fixture can collide on a provider workspace id.
 
 ### Machine-wide transitional-record audit (2026-09-21, read-only)
 
-The same pass enumerated the private reliability store
-(`~/.config/devrouter/reliability/*.json`, 89 records) for entries that could
-refuse lifecycle admission. Ten sit in a transitional phase with no recorded
-worker and `stopProof {workloadsStopped: false, routesRemoved: false}`:
+The store enumerated for that audit was read again through
+`/private/tmp/dr-transitional-audit.js`, a read-only script that reports each
+record's phase, intent, operation, proof and target path. Ninety records existed
+at the first read and 92 after the same day's qualification fixtures were
+created; ten sit in a transitional phase with no recorded worker and
+`stopProof {workloadsStopped: false, routesRemoved: false}`. Every transitional
+record also proves its own intent: `stopping` always means `stopped-by-user`,
+`recovering` always means `running` under an interrupted `ensure`, no record
+carries a runtime generation, and the checkout path plus provider identity are
+the only identity a recovery has to re-prove.
 
-| Last written | Checkout | Phase | Operation | Directory |
-| --- | --- | --- | --- | --- |
-| 09-08 08:22 | `klicker/klicker-uzh/trees/rs/dependency-mount-startup-proof` | recovering | INTERRUPTED | present |
-| 09-08 11:09 | `klicker/klicker-uzh/trees/rs/rag-chunk-display` | stopping | INTERRUPTED | present |
-| 09-08 22:38 | `klicker/klicker-uzh/trees/rs/playwright-activity-retry-safety` | stopping | INTERRUPTED | present |
-| 09-09 15:16 | `klicker/klicker-uzh/trees/latex-chemistry-investigation` | stopping | INTERRUPTED | present |
-| 09-12 15:38 | `klicker/klicker-uzh/trees/rs/chatbot-multiple-kb` | stopping | COMPLETED | present |
-| 09-13 13:04 | `klicker/klicker-uzh/trees/rs/chatbot-kb-clean-runtime` | stopping | COMPLETED | present |
-| 09-13 17:24 | `klicker/klicker-uzh/trees/rs/kb-imported-sources` | recovering | INTERRUPTED | present |
-| 09-15 10:51 | `/private/tmp/chatbot-impl/elearning/trees/elearning` | stopping | none | missing |
-| 09-20 12:50 | `klicker/klicker-uzh/trees/chat-citation-page-ranges` | recovering | INTERRUPTED | present |
-| 09-21 03:09 | `$TMPDIR/devrouter-process-preparation/consumer` | recovering | INTERRUPTED | present |
+| Last written | Record | Phase | Operation (written by) | Checkout | Reviewed disposition |
+| --- | --- | --- | --- | --- | --- |
+| 09-08 08:22 | `ae40996e` | recovering | ensure/INTERRUPTED | `klicker/klicker-uzh/trees/rs/dependency-mount-startup-proof` | next `ensure` re-drives it; no settlement needed |
+| 09-08 11:09 | `1dd16322` | stopping | ensure/INTERRUPTED | `klicker/klicker-uzh/trees/rs/rag-chunk-display` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-08 22:38 | `6a72ea7a` | stopping | ensure/INTERRUPTED | `klicker/klicker-uzh/trees/rs/playwright-activity-retry-safety` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-09 15:16 | `d4a3a838` | stopping | ensure/INTERRUPTED | `klicker/klicker-uzh/trees/latex-chemistry-investigation` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-12 15:38 | `4e62b8a0` | stopping | exec/COMPLETED (0.0.73) | `klicker/klicker-uzh/trees/rs/chatbot-multiple-kb` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-13 13:04 | `345e66c4` | stopping | exec/COMPLETED (0.0.77) | `klicker/klicker-uzh/trees/rs/chatbot-kb-clean-runtime` | settle with `devrouter stop <checkout>` on a build carrying `a906070` |
+| 09-13 17:24 | `93dde037` | recovering | ensure/INTERRUPTED (0.0.77) | `klicker/klicker-uzh/trees/rs/kb-imported-sources` | next `ensure` re-drives it; no settlement needed |
+| 09-15 10:51 | `36b81063` | stopping | none (checkout missing) | `/private/tmp/chatbot-impl/elearning/trees/elearning` | historical; no path-based recovery exists |
+| 09-20 12:50 | `c21006bd` | recovering | ensure/INTERRUPTED (0.1.0) | `klicker/klicker-uzh/trees/chat-citation-page-ranges` | next `ensure` re-drives it; no settlement needed |
+| 09-21 03:09 | `790366b9` | recovering | ensure/INTERRUPTED (0.1.2) | `$TMPDIR/devrouter-process-preparation/consumer` | next `ensure` re-drives it; the retired fixture needs no recovery |
 
 `handleRecover` refuses while the phase is `stopping`, and the 0.0.73
 incident showed the same shape refusing `ensure`, so every `stopping` entry is
@@ -4711,9 +4717,69 @@ a possible blockage for its own task until it is settled. The fixes that make
 those rows recoverable — absent-registration settlement (`a906070`), the
 generated-profile restore (`2f1f9ec`) and the refused-stop withdrawal
 (`618fc5f`) — sit on PR #125 and are unreleased, so each affected owner should
-run its documented recovery on a build that carries them: `stop` to the
-settled record, or `workspace journal settle` under its worker-loss proof. The
-missing `/private/tmp/chatbot-impl` checkout and the retired `$TMPDIR` fixture
-record stay as historical evidence. This audit was read-only: no record,
-workspace, route or container was changed, and the eight klicker checkouts
-remain with their own tasks.
+run its documented recovery on a build that carries them: `devrouter stop` to
+the settled record, or `devrouter workspace journal settle` under its
+worker-loss proof. The missing `/private/tmp/chatbot-impl` checkout and the
+retired `$TMPDIR` fixture record stay as historical evidence. This audit was
+read-only: no record, workspace, route or container was changed, and the eight
+klicker checkouts remain with their own tasks.
+
+### Live receipts refreshed and a retained-fixture alias collision (2026-09-21, `d5fbc2b`)
+
+The three Devsy-backed harnesses were re-run to keep RF12's receipts current.
+The bundle under test is the prepared 0.1.3 artifact and this pass changed it in
+no way: `dist/devrouter.js` sha256
+`cbc3b5b3fbcf065b93d75cc5e542dad4ce563289337f49ec61e1c9e4720bd228` and
+`dist/devrouter-lifecycle-worker.js` sha256
+`d0497dbbcf02005df0cba70abfbfe0d9c6ce328b373cc23e93d9735dd3ec140b` match the
+recorded release pins, and `scripts/` is not part of the published file set.
+
+- `pnpm qualify:cohorts` at `d5fbc2b` (clean tree, exit 0, six evidence lines):
+  cold 8.3s, stop 6.4s, stopped resume 8.6s, fault recovery 8.6s, peak CLI RSS
+  72.1–73.4 MiB, and the final delete removed the exact fixture container.
+- `pnpm qualify:preparation` at `d5fbc2b` (clean tree, exit 0, nine evidence
+  lines): cold 24.7s, unchanged reuse 16.6s, runtime change 18.8s, stop 22.7s,
+  stopped resume 20.3s, unknown-ownership refusal exit 1 after 13.7s with two
+  refused adapter attempts and no completion, stop-then-ensure recovery 14.1s,
+  pruned-population stop 9.3s that settled `idle`/`stopped-by-user` as
+  proven-absent, and a teardown that removed the exact container and its route;
+  peak CLI RSS 73.6–74.2 MiB.
+- The first `pnpm qualify:profiles` attempt refused at `lean-cold`: *Workspace
+  upstream 'profile-alternation-app' must resolve to exactly one running
+  container; found 2.* The cause was fixture identity, not product behaviour: the
+  previous generation of that fixture is still up on the same devnet (project
+  `default-co-33140`, workdir
+  `$TMPDIR/devrouter-profile-alternation/consumer`, five hours old) and it
+  declared the same constant project token, devnet alias and route host, so both
+  containers claimed `profile-alternation-app`. The retained fixture and its
+  `profiles-consumer.localhost` route entry were left untouched.
+- `d5fbc2b` derives the project token that `${WORKSPACE}` resolves to, the
+  devnet aliases and the route host from the fixture id in the profile-alternation
+  and process-preparation harnesses, so one fixture root is one environment. The
+  new run owns `profiles-profile-alternation-consumer.localhost`.
+- The next `pnpm qualify:profiles` run at `d5fbc2b` (clean tree) passed the
+  first three cohorts and then failed the alternation cell with the recorded
+  intermittent host-runtime unwinding: *before the host install: the named
+  node_modules volume is no longer mounted in container
+  `2ddc65fff49e368007620178241176f67284ee779ec56a2655dbf864fa4736b9`*. That is the
+  macOS file-sharing behaviour recorded under *Nested volume mount unwound by the
+  host runtime*, detected by the same assertion that was added for it, and the
+  receipt is kept rather than retried away.
+- The third `pnpm qualify:profiles` run at `d5fbc2b` (clean tree, exit 0,
+  twelve evidence lines, fixture container
+  `8f35e171d2a990b5a6defc02e61d51438cc897eea02b6b29d05b83847b091c05`): lean-cold
+  20.0s, full-warm 19.4s, lean-warm 19.1s, alternation-exec 3.0s,
+  undefined-profile refusal exit 1 after 2.0s, full-again 21.1s, full-reuse
+  16.8s, unrecorded-population refusal exit 1 after 12.6s, unrecorded recovery
+  21.0s, stop 24.9s, stopped resume 19.5s, generated-profile restore 14.0s, peak
+  CLI RSS 72.0–74.7 MiB, and a teardown that removed the exact container and its
+  route while leaving host files alone.
+
+A read-only scan of the same config directory found 19
+`devsy-mutation.lock.*.candidate` and `devpod-mutation.lock.*.candidate` files
+dated 2026-08-25 to 09-12. `acquireFileLock` removes its candidate in a
+`finally`, so these are leftovers of processes killed while holding or awaiting
+the lock, and they are inert: every acquisition writes a fresh
+`<lock>.<pid>.<uuid>.candidate` and never reads another process's file. An
+optional future sweep could remove candidates whose embedded process identity is
+gone; nothing in this pass depends on it and no file was removed.
