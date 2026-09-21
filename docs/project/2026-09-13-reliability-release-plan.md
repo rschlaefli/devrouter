@@ -4785,6 +4785,26 @@ devpod`) and Devsy 1.19.0 is the provider here, so that checklist item stays
 unavailable rather than skipped silently; the live devcontainer coverage for this
 head is the Devsy-backed harness set above.
 
+The same head refreshed the four remaining live qualification harnesses, all at
+`7a960e0` with the same `dist/devrouter.js` sha256 `cbc3b5b3…`:
+
+- `pnpm qualify:killed-runtime` (RF09's container-local death cells): exit 0,
+  two cells. `sigkill` recorded `status=exited exit=137 oom=false restarts=0`
+  and `oom` recorded `status=exited exit=137 oom=true restarts=0`; the route
+  stayed inspectable and the ordinary restart/release path removed the exact
+  container.
+- `pnpm qualify:slow-dependency` (Q06): exit 0. `slow` started after a 42.2s
+  wait against one dependency with `restarts=0`, `never` failed bounded at 7.5s
+  with `is unhealthy`, `unchanged` reused the running dependency in 0.9s and
+  `stopped` failed in 6.9s; no round restarted or replaced the dependency.
+- `pnpm qualify:non-node` (M2 breadth): exit 0. Three cold/warm pairs, cold start
+  median 6.43s (6.43–6.72), warm start median 2.81s (2.56–2.82), peak consumer RSS
+  22.2 MiB, and every warm round reused the same Postgres container.
+- `scripts/qualify-config-drift-stop.ts` against `dist/devrouter.js` (the
+  config-drift stop recovery): exit 0 with `configurationDriftStop`,
+  `tmpfsMount`, `retainedData` and `finalStopped` all true at CLI sha256
+  `cbc3b5b3…`.
+
 Q20 stays the only live-open RF09 cell, and its armed fixture was re-verified
 read-only at 2026-09-21T02:53Z: the controller process had been up for 2h59m, the
 heartbeat had renewed at 02:53:42Z, and `https://host-suspend.localhost/` answered
