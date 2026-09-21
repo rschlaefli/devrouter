@@ -4603,3 +4603,36 @@ basenames, `qualify-controller.ts`, `qualify-host-suspend.ts`,
 `qualify-capacity.ts` and `qualify-lifecycle.ts` drive synthetic provider
 shims, and `qualify-config-drift-stop.ts` uses a unique `mkdtemp` basename,
 so no remaining fixture can collide on a provider workspace id.
+
+### Machine-wide transitional-record audit (2026-09-21, read-only)
+
+The same pass enumerated the private reliability store
+(`~/.config/devrouter/reliability/*.json`, 89 records) for entries that could
+refuse lifecycle admission. Ten sit in a transitional phase with no recorded
+worker and `stopProof {workloadsStopped: false, routesRemoved: false}`:
+
+| Last written | Checkout | Phase | Operation | Directory |
+| --- | --- | --- | --- | --- |
+| 09-08 08:22 | `klicker/klicker-uzh/trees/rs/dependency-mount-startup-proof` | recovering | INTERRUPTED | present |
+| 09-08 11:09 | `klicker/klicker-uzh/trees/rs/rag-chunk-display` | stopping | INTERRUPTED | present |
+| 09-08 22:38 | `klicker/klicker-uzh/trees/rs/playwright-activity-retry-safety` | stopping | INTERRUPTED | present |
+| 09-09 15:16 | `klicker/klicker-uzh/trees/latex-chemistry-investigation` | stopping | INTERRUPTED | present |
+| 09-12 15:38 | `klicker/klicker-uzh/trees/rs/chatbot-multiple-kb` | stopping | COMPLETED | present |
+| 09-13 13:04 | `klicker/klicker-uzh/trees/rs/chatbot-kb-clean-runtime` | stopping | COMPLETED | present |
+| 09-13 17:24 | `klicker/klicker-uzh/trees/rs/kb-imported-sources` | recovering | INTERRUPTED | present |
+| 09-15 10:51 | `/private/tmp/chatbot-impl/elearning/trees/elearning` | stopping | none | missing |
+| 09-20 12:50 | `klicker/klicker-uzh/trees/chat-citation-page-ranges` | recovering | INTERRUPTED | present |
+| 09-21 03:09 | `$TMPDIR/devrouter-process-preparation/consumer` | recovering | INTERRUPTED | present |
+
+`handleRecover` refuses while the phase is `stopping`, and the 0.0.73
+incident showed the same shape refusing `ensure`, so every `stopping` entry is
+a possible blockage for its own task until it is settled. The fixes that make
+those rows recoverable — absent-registration settlement (`a906070`), the
+generated-profile restore (`2f1f9ec`) and the refused-stop withdrawal
+(`618fc5f`) — sit on PR #125 and are unreleased, so each affected owner should
+run its documented recovery on a build that carries them: `stop` to the
+settled record, or `workspace journal settle` under its worker-loss proof. The
+missing `/private/tmp/chatbot-impl` checkout and the retired `$TMPDIR` fixture
+record stay as historical evidence. This audit was read-only: no record,
+workspace, route or container was changed, and the eight klicker checkouts
+remain with their own tasks.
