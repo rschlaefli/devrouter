@@ -3803,6 +3803,13 @@ documentation changed after the release commit, so the published tarball's two
 bundles must match these digests before the released artifact can be called the
 reviewed source.
 
+The locally packed `devrouter-cli-0.1.3.tgz` (`npm pack` at that tree) carries
+both bundles at exactly those digests with `package.json` at 0.1.3, and the built
+CLI reports `Installed CLI version: 0.1.3`, `Local repo version
+(.../examples/routing/.devrouter.yml): 0.1.3` and `Next upgrade target: none`,
+so publication verification only has to compare the registry tarball against
+these digests and confirm the installed version.
+
 Publication is the remaining gated step, and it is also what releases the ten
 transitional records the machine-wide audit names: the three recovery fixes
 (`a906070`, `2f1f9ec`, `618fc5f`) are only on this branch, so an owner can settle
