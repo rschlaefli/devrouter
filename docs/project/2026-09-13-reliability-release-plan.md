@@ -3877,6 +3877,13 @@ rejected with `Expected ',' or '}' after property value in JSON`, and breaking
 the size or observation derivation fails only the new assertions while every
 fixture-driven test still passes. Validation at `d86d371`: Biome, Knip,
 typecheck, the full suite (2736 tests in 149 files) and the live probes above.
+The heads carrying this record are green: `9be685a` on
+[run 35548777238](https://github.com/rschlaefli/devrouter/actions/runs/35548777238)
+and `5697f70` on
+[run 35549004149](https://github.com/rschlaefli/devrouter/actions/runs/35549004149);
+the pin commit `56d0556` added the two assertions above to the same 149-file
+suite, which then ran 2738 tests green in a host context where the
+process-identity locks can call `ps`.
 
 The same sweep completed the remaining fail-closed literals at `56d0556`. Two
 scalar reads and the checkout-absence inspection were still validated only by
