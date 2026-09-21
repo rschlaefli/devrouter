@@ -2830,6 +2830,14 @@ Open or partial rows and what they mean for the release claim:
   qualify. Its symlink half is proven at source. Closing the quarantine half as
   unsupported narrows the approved outcome, so it stays pending the owner's
   recorded decision instead of being closed here.
+  The pending decision is narrow: either record the quarantine half as
+  unsupported by design — devrouter performs no artifact archiving, writes only
+  declared outputs, and already refuses path escapes and symlinked journal
+  entries — or scope a quarantine feature (declared regenerable outputs,
+  operator authorization, writer exclusion, retention bound) that this roadmap
+  does not currently own. Recommended: the unsupported-by-design record, because
+  no quarantine behavior exists to qualify and the guard rails that protect user
+  data are proven. The row stays pending until the owner records it.
 - Q30 is proven live for a cancelled gate wait (the journey kills the shipped
   gate mid-wait and its re-delivery is refused), for parallel and nested calls,
   and for a real harness-initiated cancellation in both harnesses: interrupting
