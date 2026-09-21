@@ -692,6 +692,37 @@ describe("pinned managed stop Docker operations", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("keeps the endpoint and runner-binding templates one JSON value", () => {
+    // Both reads parse a single JSON scalar, so a dropped brace or a stray
+    // literal would refuse a stop the daemon could have answered.
+    vi.stubEnv("DOCKER_CONTEXT", "synthetic");
+    vi.stubEnv("DOCKER_HOST", "tcp://ignored.example:2376");
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify("unix:///synthetic.sock"),
+      stderr: "",
+    } as never);
+    try {
+      expect(resolveManagedStopEndpoint()).toBe("unix:///synthetic.sock");
+      expect(inspectManagedStopRunnerId("unix:///synthetic.sock", "a".repeat(64))).toBe(
+        "unix:///synthetic.sock",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const templates = vi.mocked(spawnSync).mock.calls.map(([, args]) => {
+      const at = args?.indexOf("--format") ?? -1;
+      return String(args?.[at + 1]);
+    });
+    expect(templates).toEqual([
+      "{{json .Endpoints.docker.Host}}",
+      '{{json (index .Config.Labels "dev.containers.id")}}',
+    ]);
+    for (const template of templates) {
+      expect(JSON.parse(renderInspectFormatScaffold(template))).toBe("synthetic");
+    }
+  });
 });
 
 describe("pinned checkout absence", () => {
@@ -720,6 +751,27 @@ describe("pinned checkout absence", () => {
     expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).not.toThrow();
     for (const [, args] of vi.mocked(spawnSync).mock.calls)
       expect(args?.slice(0, 2)).toEqual(["--host", endpoint]);
+  });
+  it("keeps the checkout-absence inspect template one complete JSON object", () => {
+    // The daemon applies this literal, so a dropped brace or an unbalanced
+    // range block would make every absence proof malformed while the fixture
+    // rows above still parse.
+    arrange(row());
+    expect(() => assertManagedStopCheckoutAbsent(endpoint, repo)).not.toThrow();
+    const inspectCall = vi
+      .mocked(spawnSync)
+      .mock.calls.find(([, args]) => args?.includes("inspect"));
+    const at = inspectCall?.[1]?.indexOf("--format") ?? -1;
+    const rendered = JSON.parse(
+      renderInspectFormatScaffold(String(inspectCall?.[1]?.[at + 1])),
+    ) as { labels: Record<string, unknown>; mounts: unknown };
+    expect(Object.keys(rendered).sort()).toEqual(["id", "labels", "mounts"]);
+    expect(Object.keys(rendered.labels).sort()).toEqual([
+      "com.docker.compose.project.working_dir",
+      "devcontainer.local_folder",
+      "vsch.local.folder",
+    ]);
+    expect(Array.isArray(rendered.mounts)).toBe(true);
   });
   it.each([
     "com.docker.compose.project.working_dir",
