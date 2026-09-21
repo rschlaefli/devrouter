@@ -4,12 +4,62 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-21
+
 ### Fixed
 
+- `stop --delete` settles a primary checkout whose Devsy registration is already
+  gone. The absent-registration proof accepted only ledger-owned linked
+  checkouts, so the mutation ran and the command still failed with "Absent stop
+  requires a linked workspace", leaving the journal in `stopping`, where
+  settlement reported already-settled and every later `ensure` was refused. A
+  primary checkout now proves the retained baseline by exact path and provider
+  identity instead.
+- A managed environment whose ignored generated profile was removed by an
+  interrupted or rolled-back transition restores that exact artifact from
+  retained state before a provider mutation, instead of refusing every `stop`
+  and `ensure` with `devcontainer path ... does not exist`. A missing or
+  unreadable record, or a changed source, still leaves the environment
+  untouched.
+- `stop --delete` against a managed population that changed outside devrouter
+  withdraws the stop intent it recorded when its worker refuses before touching
+  anything, so the journal returns to its pre-stop state and the next `ensure`
+  proceeds instead of being blocked by an abandoned `stopping` phase. A refusal
+  after the mutation boundary keeps the fail-closed intent.
 - The Docker network inventory template closes the JSON object it opens, so the
   daemon's records parse again instead of every capacity read reporting unknown
   inventory; a partial record is now named as malformed evidence, and the
   template's scaffolding has a regression test.
+- `status`, `doctor`, `ensure` and their JSON forms read a managed container's
+  mount table only when a configured mount actually nests, because a container
+  that configures no nested mount reports `not-applicable` either way; the
+  unconditional read also failed the synthetic-provider qualification
+  harnesses.
+
+### Enhanced
+
+- Lifecycle actions no longer start each provider CLI twice per registry read: a
+  missing CLI is classified from the registry read's own `ENOENT`, and every
+  other failure still records that registry as unavailable. On the retained
+  qualification fixture a cold or retained `ensure` drops from 26 to 18 provider
+  invocations and `stop --delete` from 22 to 16, with the same ownership proofs
+  and the same provider Docker work.
+- `status` and `doctor` report a configured mount that the host runtime unwound,
+  as a bounded non-blocking observation.
+
+### Added
+
+- Qualification harnesses for stopped-resume and fault-recovery cohorts
+  (`pnpm qualify:cohorts`), process-preparation reuse (`pnpm
+  qualify:preparation`) and profile changes with host/container alternation
+  (`pnpm qualify:profiles`), plus a host-suspend observation harness and two
+  browser cells in the harness journey.
+- The ordinary `check` job runs the installed synthetic lifecycle qualification
+  (`pnpm qualify:lifecycle`).
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.1.3.md
 
 ## [0.1.2] - 2026-09-20
 
