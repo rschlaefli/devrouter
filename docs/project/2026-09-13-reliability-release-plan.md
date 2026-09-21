@@ -4785,6 +4785,13 @@ devpod`) and Devsy 1.19.0 is the provider here, so that checklist item stays
 unavailable rather than skipped silently; the live devcontainer coverage for this
 head is the Devsy-backed harness set above.
 
+Q20 stays the only live-open RF09 cell, and its armed fixture was re-verified
+read-only at 2026-09-21T02:53Z: the controller process had been up for 2h59m, the
+heartbeat had renewed at 02:53:42Z, and `https://host-suspend.localhost/` answered
+`http=200` with the fixture's 32-byte token. The remaining step is the observed
+system sleep, which is the operator's action; nothing on the devrouter side is
+waiting on source work.
+
 A read-only scan of the same config directory found 19
 `devsy-mutation.lock.*.candidate` and `devpod-mutation.lock.*.candidate` files
 dated 2026-08-25 to 09-12. `acquireFileLock` removes its candidate in a
