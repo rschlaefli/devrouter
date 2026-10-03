@@ -487,7 +487,7 @@ under Active.
 - [x] Plan approval (2026-10-03). No native goal tool in this harness; this Progress list tracks the objective.
 - [x] Package A: draft PR rschlaefli/devrouter#126 (`73e302f`). Adds the
   `git-error` code for a failed Git probe, now in the code table.
-- [ ] Package B.
+- [x] Package B: draft PR rschlaefli/devrouter#127.
   - [x] B2 committed and reviewed (`8e16529`).
   - [x] B1 implemented. Corpus deviations: no bare origin (the classifier no
     longer reads upstreams, so an origin URL suffices); three forge modes
