@@ -4,6 +4,8 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Worktree lifecycle](./2026-10-03-worktree-lifecycle-plan.md) — safe `workspace down`, installable `worktree-reclaim` and `devrouter-setup` skills, and devrouter `cleanup --all-worktrees`, `reclaim` and `trim` bound to approved manifests.
+
 - [Reliability roadmap follow-up after 0.1.1](./2026-09-13-reliability-release-plan.md#post-release-reliability-review-and-follow-up-2026-09-20) — reproduced gate and recovery-guidance defects, deterministic verification, open M1–M3 qualification, machine diagnostics and consumer adoption. Releases 0.1.0/0.1.1 are delivered; complete reliability acceptance remains active.
 
 - [Devsy release range compatibility](./2026-09-19-devsy-version-range-plan.md) — replace the exact Devsy version pin with a verified `>=1.16.2 <2.0.0` range and resolve the official Linux agent for the installed release. Merged in [PR #106](https://github.com/rschlaefli/devrouter/pull/106) and released in 0.0.80, carried into 0.1.0; verified against a real Devsy 1.19.0 consumer, with verified-agent injection still a user-run setup step.
