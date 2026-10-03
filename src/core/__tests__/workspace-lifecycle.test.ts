@@ -40,6 +40,7 @@ import {
   listWorkspaceOwnership,
   removeWorkspaceOwnership,
 } from "../workspace-ownership";
+import { inspectLocalWorktreeSafety } from "../worktree-safety";
 
 vi.mock("../reliability-lifecycle", () => ({
   claimLifecycleEffect: vi.fn(),
@@ -52,6 +53,10 @@ vi.mock("../reliability-lifecycle", () => ({
 }));
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("../worktree-safety", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../worktree-safety")>()),
+  inspectLocalWorktreeSafety: vi.fn(() => ({ codes: [], examples: {} })),
+}));
 vi.mock("../devsy-mutation", () => ({
   withMutationLock: vi.fn((_a: string, _b: string, operation: () => unknown) => operation()),
 }));
@@ -412,13 +417,17 @@ describe("workspaceDown", () => {
       if (command === "git" && argv.includes("list")) {
         return { status: 0, stdout: PORCELAIN, stderr: "" } as never;
       }
-      if (command === "git" && argv.includes("status")) {
-        return { status: 0, stdout: "?? scratch.txt\n", stderr: "" } as never;
-      }
       return { status: 0, stdout: "", stderr: "" } as never;
     });
+    vi.mocked(inspectLocalWorktreeSafety).mockReturnValueOnce({
+      codes: ["untracked"],
+      examples: { untracked: ["scratch.txt"] },
+    });
 
-    await expect(workspaceDown("feat-a")).rejects.toThrow("uncommitted changes");
+    await expect(workspaceDown("feat-a")).rejects.toThrow(
+      "is not safe to remove: untracked (scratch.txt)",
+    );
+    expect(inspectLocalWorktreeSafety).toHaveBeenCalledWith("/main/repo-feat-a");
 
     expect(deleteOwnedDevpodWorkspace).not.toHaveBeenCalled();
     expect(stopOwnedDevpodWorkspace).not.toHaveBeenCalled();

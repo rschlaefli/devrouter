@@ -95,6 +95,7 @@ function dependencies(
     // Stubbed by default so a size-measuring test never reaches the real
     // collector and spawns docker against whatever the host happens to run.
     measureContainers: (worktreePaths) => new Map(worktreePaths.map((p) => [p, noContainers()])),
+    inspectLocalSafety: () => ({ codes: [], examples: {} }),
     ...overrides,
   };
 }
@@ -628,6 +629,22 @@ describe("workspace cleanup report and suggestions", () => {
     );
     expect(patchReport.workspaces[0].suggestions).toEqual([]);
     expect(patchReport.workspaces[0].reasons.join(" ")).toContain("advisory");
+  });
+
+  it("withholds full down from an exact merge whose worktree holds local state", () => {
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, checkMerged: true },
+      dependencies({
+        inspectIntegration: () => ({ status: "merged-exact", headSha }),
+        inspectLocalSafety: () => ({
+          codes: ["ignored-state"],
+          examples: { "ignored-state": ["uploads"] },
+        }),
+      }),
+    );
+    const row = report.workspaces[0];
+    expect(row.eligibleActions).not.toContain("devrouter workspace down feature --repo /repo");
+    expect(row.reasons.join(" ")).toContain("ignored-state (uploads)");
   });
 
   it("suggests exact GC only when the owner is missing and identity is safe", () => {

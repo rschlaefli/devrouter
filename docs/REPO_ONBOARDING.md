@@ -380,7 +380,7 @@ devrouter workspace ls
 | Command | Result |
 | --- | --- |
 | `workspace stop` | Stop the exact workspace runtime and remove routes; keep checkout, owner record, and data. |
-| `workspace down` | Delete runtime/routes; remove only a clean, unlocked worktree, then its record. |
+| `workspace down` | Delete runtime/routes; remove only an unlocked worktree with no local state (changes, untracked or unrecognized ignored files, detached HEAD, unfinished Git operation, submodules), then its record. |
 | `workspace down --keep-worktree` | Delete runtime/routes; retain checkout and owner record. |
 | `workspace cleanup --repo <repo> --inactive-for 30d --json` | Report-only ownership, workspace runtime registration/state, checkout, route, advisory activity, and integration evidence for managed linked workspaces; no `--yes` or apply mode. Add `--check-merged` to enable read-only origin and matching GitHub/GitLab checks. |
 | `workspace gc` | Report missing-owner candidates; mutate nothing. |

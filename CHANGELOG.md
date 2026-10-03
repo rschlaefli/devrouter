@@ -18,6 +18,18 @@ All notable changes to this project are documented in this file.
   verdict carries stable reason codes, and batch removal applies only an
   approved, hash-bound manifest.
 
+### Changed
+
+- `workspace down` refuses to remove a worktree that holds local state the
+  earlier check missed: ignored files outside the reproducible-output allowlist (such as uploads or local notes), a
+  detached HEAD, an index lock, an unfinished merge, rebase, cherry-pick,
+  revert or bisect, and initialized submodules. The error names each reason and
+  example paths; `--keep-worktree` still deletes only the runtime and routes.
+  A repository can declare more disposable ignored paths in the uncommitted
+  `<git-common-dir>/info/worktree-reclaim-disposable` file.
+- `workspace cleanup` suggests full `workspace down` for an exact merge only when
+  the same local-state check passes, and otherwise reports why.
+
 ## [0.1.3] - 2026-09-21
 
 ### Fixed
