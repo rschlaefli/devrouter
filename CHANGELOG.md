@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- The `devrouter-setup` skill guides first-time machine setup: read-only
+  detection of the Docker runtime, DevPod or Devsy, Node, mkcert, Git and the
+  forge CLIs, then one confirmed install or setup step at a time. A CI step
+  proves every shipped skill is listed by the pinned `skills` CLI, so
+  `npx skills add rschlaefli/devrouter` installs them.
+
 ## [0.1.3] - 2026-09-21
 
 ### Fixed
