@@ -428,7 +428,7 @@ classify_worktree() {
   fi
 
   if [ "${#codes[@]}" -gt 0 ]; then
-    printf 'KEEP\t%s\t%s\n' "$(printf '%s\n' "${codes[@]}" | sort -u | paste -sd, -)" "$reasons"
+    printf 'KEEP\t%s\t%s\n' "$(printf '%s\n' "${codes[@]}" | LC_ALL=C sort -u | paste -sd, -)" "$reasons"
   else
     printf 'RECLAIM\t-\tMERGED %s, clean, all commits shipped\n' "$change_ref"
   fi
