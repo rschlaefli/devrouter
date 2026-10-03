@@ -149,6 +149,7 @@ emits a stable reason code. Codes are machine values; wording is free.
 | Tracked changes | `dirty` |
 | Untracked files | `untracked` |
 | Ignored path not disposable | `ignored-state` |
+| A Git check failed (not a worktree, status, operation or lock probe) | `git-error` |
 | Runtime, ledger-less DevPod or route evidence on an unmanaged tree | `runtime-present` |
 | Forge not checked (no `--check-merged`) | `forge-not-checked` |
 | Forge unavailable after retries, or CLI missing | `forge-unavailable` |
@@ -160,6 +161,16 @@ emits a stable reason code. Codes are machine values; wording is free.
 
 - RECLAIM: no KEEP code applies, and the newest same-repository change for the
   branch is merged into any base. A deleted source branch is allowed.
+- "Newest" means the highest PR or MR number. Fork changes are excluded before
+  choosing: GitHub `isCrossRepository`, GitLab `source_project_id !=
+  target_project_id`.
+- Runtime evidence for `runtime-present` is any of: a devrouter ownership
+  record (`<git-common-dir>/devrouter/workspaces/*.json`, `worktreePath`), a
+  devrouter host route (`host-routes-state.json`, `repoPath`), a DevPod
+  (`devpod list --output json`, `source.localFolder`) or a Devsy workspace
+  (`devsy workspace list --result-format json --skip-pro`), each matched on the
+  exact real path. A source that exists but cannot be read also yields
+  `runtime-present`.
 - PRUNE: the registration's folder is gone. It is reported only.
 - Disposable ignored paths:
   - the built-in reproducible-cache list carried over from the source skill;
@@ -210,7 +221,8 @@ TypeScript. Package C adds the `worktrees` key.
 **Manifest.**
 
 - Kind `worktree-reclaim-manifest`, version 1, canonical JSON, SHA-256 content
-  address, strict schema.
+  address, strict schema. Canonical JSON means sorted keys, 2-space indent,
+  UTF-8 without ASCII escaping, and a trailing newline.
 - Field `action`: `reclaim` or `trim`. Trim rows list the exact paths to remove.
 - Each row binds candidate ID, repository, path, branch ref, HEAD, Git common
   dir and worktree Git dir.
@@ -250,7 +262,12 @@ TypeScript. Package C adds the `worktrees` key.
   any half-finished target.
 - Receipts: `<git-common-dir>/worktree-reclaim/receipts/<manifest-sha256>/<candidate-id>.json`,
   written by both tools after each completed target. On a re-run, a gone target
-  with a matching receipt counts as done.
+  with a matching receipt counts as done. A receipt is canonical JSON with
+  `kind: "worktree-reclaim-receipt"`, `schemaVersion: 1`, `tool`,
+  `manifestSha256`, `candidateId`, `path`, `branchRef`, `head`,
+  `completedAtEpoch` and `steps` (`worktree-removed`, then `branch-deleted`
+  unless the branch was kept). Matching compares kind, version, hash, candidate,
+  path and HEAD.
 
 **Veto command.**
 
@@ -275,7 +292,8 @@ devrouter, the skill reports trim as unavailable.
 
 **Skill delegation.** The skill uses devrouter when `devrouter` is on `PATH` and
 `devrouter workspace reclaim --help` succeeds. It then passes its session
-adapter as the veto command. Otherwise it runs its own scripts, and trees with
+adapter as the veto command, plus `--max-age`, which `workspace reclaim` must
+accept. `WORKTREE_RECLAIM_NO_DEVROUTER=1` forces the skill's own path. Otherwise it runs its own scripts, and trees with
 any runtime evidence stay KEEP with a hint to install devrouter.
 
 **Setup skill confirmations.** `devrouter-setup` detects first. It then asks
@@ -467,6 +485,14 @@ under Active.
   changes from the source skill, no force-push, `[Unreleased]` changelog, ADR,
   sanitized PR evidence.
 - [x] Plan approval (2026-10-03). No native goal tool in this harness; this Progress list tracks the objective.
-- [ ] Package A.
+- [x] Package A: draft PR rschlaefli/devrouter#126 (`73e302f`). Adds the
+  `git-error` code for a failed Git probe, now in the code table.
 - [ ] Package B.
+  - [x] B2 committed and reviewed (`8e16529`).
+  - [x] B1 implemented. Corpus deviations: no bare origin (the classifier no
+    longer reads upstreams, so an origin URL suffices); three forge modes
+    (`github`, `github-bulk`, `gitlab`) instead of two; an extra
+    `older-open-newer-merged` row. The corpus reads verdicts through
+    `read < <(...)`, which caught a bash 3.2 bug where a caller's temporary
+    `IFS` leaked into the classifier.
 - [ ] Package C.

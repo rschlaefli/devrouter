@@ -31,9 +31,10 @@ guide](./docs/REPO_ONBOARDING.md) before adapting an existing project.
 
 ## Five-minute first route
 
-Install the agent skills (setup, onboarding, usage) with `npx skills add
-rschlaefli/devrouter`, or add `-g` to install them for every project. The
-`devrouter-setup` skill walks through the steps below on a new machine.
+Install the agent skills (setup, onboarding, usage, worktree cleanup) with
+`npx skills add rschlaefli/devrouter`, or add `-g` to install them for every
+project. The `devrouter-setup` skill walks through the steps below on a new
+machine.
 
 Install the published CLI and prepare the machine:
 

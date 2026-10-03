@@ -11,6 +11,12 @@ All notable changes to this project are documented in this file.
   forge CLIs, then one confirmed install or setup step at a time. A CI step
   proves every shipped skill is listed by the pinned `skills` CLI, so
   `npx skills add rschlaefli/devrouter` installs them.
+- The `worktree-reclaim` skill audits Git worktrees in any repository, with or
+  without devrouter, and removes only those whose work is recoverable
+  elsewhere: newest same-repository PR/MR merged, tree clean, nothing
+  unshipped, and no devrouter, DevPod or Devsy state bound to the path. Every
+  verdict carries stable reason codes, and batch removal applies only an
+  approved, hash-bound manifest.
 
 ## [0.1.3] - 2026-09-21
 

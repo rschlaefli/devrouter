@@ -21,6 +21,7 @@ CURRENT_GUIDANCE_SURFACES=(
   "AGENTS.md"
   ".agents/skills/devrouter/SKILL.md"
   ".agents/skills/devrouter-setup/SKILL.md"
+  ".agents/skills/worktree-reclaim/SKILL.md"
   ".agents/skills/devcontainer-onboarding/SKILL.md"
   ".agents/skills/devcontainer-onboarding/GOTCHAS.md"
   ".agents/skills/devcontainer-onboarding/REFERENCE.md"

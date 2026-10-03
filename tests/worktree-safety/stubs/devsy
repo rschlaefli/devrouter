@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# `devsy workspace list --result-format json` stand-in backed by $CORPUS_DIR/devsy.json.
+[ -e "$CORPUS_DIR/devsy-down" ] && exit 1
+cat "$CORPUS_DIR/devsy.json" 2>/dev/null || echo '[]'
