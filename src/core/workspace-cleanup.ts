@@ -197,7 +197,7 @@ export type WorkspaceCleanupIntegrationEvidence = {
 };
 
 export type WorkspaceCleanupDependencies = {
-  inspectNetworkCapacity?: () => NetworkCapacityInspection;
+  inspectNetworkCapacity?: () => NetworkCapacityInspection | undefined;
   listOwnership?: (repoPath: string) => WorkspaceOwnershipRecord[];
   listWorktrees?: (repoPath: string) => GitWorktree[];
   listDevpods?: () => DevpodWorkspace[];
@@ -1339,11 +1339,96 @@ export function buildWorkspaceCleanupReport(
   };
 }
 
+type PathEvidence = { runtimeEvidence: string[]; active: boolean; runtimeRunning: boolean };
+
+/**
+ * Runtime and activity evidence for one exact worktree, read fresh for each
+ * apply target. A managed tree is evaluated through its own cleanup row only,
+ * so the cost does not grow with the number of worktrees in the repository.
+ */
+function readPathEvidence(
+  repoPath: string,
+  worktreePath: string,
+  inactiveFor: string,
+  dependencies: WorkspaceCleanupDependencies,
+): PathEvidence {
+  const records = (dependencies.listOwnership ?? listWorkspaceOwnership)(repoPath).filter(
+    (record) => sameWorkspacePath(record.worktreePath, worktreePath),
+  );
+  if (records.length > 0) {
+    const report = buildWorkspaceCleanupReport(
+      { repo: repoPath, inactiveFor },
+      { ...dependencies, listOwnership: () => records, inspectNetworkCapacity: () => undefined },
+    );
+    const evidence = report.workspaces.flatMap(managedRuntimeEvidence);
+    if (records.length > 1) evidence.push("ownership conflict");
+    return {
+      runtimeEvidence: evidence,
+      active: report.workspaces.some((row) => row.activity !== "quiet"),
+      runtimeRunning: report.workspaces.some(
+        (row) => !["absent", "stopped", "not-found"].includes(row.runtime),
+      ),
+    };
+  }
+  const sources = (dependencies.readRuntimeSources ?? readRuntimeSources)(repoPath);
+  const cutoffEpoch = Math.floor(Date.now() / 1000) - parseInactiveFor(inactiveFor).seconds;
+  const gitDir = spawnSync(
+    "git",
+    ["-C", worktreePath, "rev-parse", "--path-format=absolute", "--git-dir"],
+    { encoding: "utf-8", env: READ_ONLY_GIT_ENV },
+  ).stdout?.trim();
+  const latest = gitDir ? unmanagedActivityEpoch(worktreePath, gitDir) : undefined;
+  return {
+    runtimeEvidence: worktreeRuntimeEvidence(worktreePath, sources),
+    active: latest === undefined || latest >= cutoffEpoch,
+    runtimeRunning: false,
+  };
+}
+
+/** Classifies one exact worktree against fresh Git, runtime and activity evidence. */
+function classifyExactPath(
+  repoPath: string,
+  worktreePath: string,
+  evidence: PathEvidence,
+  forge: WorktreeForgeEvidence,
+  extraDisposablePatterns: string[],
+  dependencies: WorkspaceCleanupDependencies,
+): WorktreeSafetyResult {
+  const worktrees = (dependencies.listWorktrees ?? listGitWorktrees)(repoPath);
+  const worktree = worktrees.find((candidate) => sameWorkspacePath(candidate.path, worktreePath));
+  return (dependencies.classifySafety ?? classifyWorktreeSafety)({
+    worktreePath,
+    branch: worktree?.branch,
+    primary: worktrees[0] !== undefined && sameWorkspacePath(worktrees[0].path, worktreePath),
+    locked: worktree?.locked ?? false,
+    missing: !worktree || worktree.prunable || !fs.existsSync(worktreePath),
+    runtimeEvidence: evidence.runtimeEvidence,
+    forge,
+    extraDisposablePatterns,
+  });
+}
+
+/**
+ * Reads evidence once per target: `classify` reads it and `isActive`, which
+ * apply calls right after, reuses it.
+ */
+function evidenceCache(read: (worktreePath: string) => PathEvidence) {
+  const cached = new Map<string, PathEvidence>();
+  return {
+    fresh: (worktreePath: string) => {
+      const evidence = read(worktreePath);
+      cached.set(worktreePath, evidence);
+      return evidence;
+    },
+    last: (worktreePath: string) => cached.get(worktreePath) ?? read(worktreePath),
+  };
+}
+
 /**
  * The verdict context an approved reclaim re-checks each target against: one
- * fresh forge listing and one runtime snapshot per repository, taken at apply
- * start. `classify` re-reads Git state on every call, so the verdict reflects
- * the tree at the moment its lifecycle lock is held.
+ * forge listing per repository, taken at apply start, and Git, runtime and
+ * activity evidence read again for each exact path while its lifecycle lock
+ * is held.
  */
 export function prepareReclaimVerdicts(
   repo: string,
@@ -1361,73 +1446,33 @@ export function prepareReclaimVerdicts(
     evidence.status === "not-checked"
       ? { status: "unavailable", reason: "forge not checked" }
       : evidence;
-  let sources: WorktreeRuntimeSources | undefined;
-  const report = buildWorkspaceCleanupReport(
-    { repo: repoPath, inactiveFor, checkMerged: true, allWorktrees: true },
-    {
-      ...dependencies,
-      listForge: () => forge,
-      readRuntimeSources: (path) => {
-        sources = (dependencies.readRuntimeSources ?? readRuntimeSources)(path);
-        return sources;
-      },
-    },
-  );
-  const managed = report.workspaces;
   const disposable = fs.existsSync(path.join(repoPath, ".devrouter.yml"))
     ? (loadRepoConfig(repoPath).worktrees?.disposable ?? [])
     : [];
-  const cutoffEpoch = Math.floor(Date.parse(report.cutoff) / 1000);
+  const paths = evidenceCache((worktreePath) =>
+    readPathEvidence(repoPath, worktreePath, inactiveFor, dependencies),
+  );
   return {
     forge,
-    classify: (worktreePath) => {
-      const worktrees = (dependencies.listWorktrees ?? listGitWorktrees)(repoPath);
-      const worktree = worktrees.find((candidate) =>
-        sameWorkspacePath(candidate.path, worktreePath),
-      );
-      const row = managed.find((candidate) =>
-        sameWorkspacePath(candidate.worktreePath, worktreePath),
-      );
-      return (dependencies.classifySafety ?? classifyWorktreeSafety)({
+    classify: (worktreePath) =>
+      classifyExactPath(
+        repoPath,
         worktreePath,
-        branch: worktree?.branch,
-        primary: worktrees[0] !== undefined && sameWorkspacePath(worktrees[0].path, worktreePath),
-        locked: worktree?.locked ?? false,
-        missing: !worktree || worktree.prunable || !fs.existsSync(worktreePath),
-        runtimeEvidence: row
-          ? managedRuntimeEvidence(row)
-          : sources
-            ? worktreeRuntimeEvidence(worktreePath, sources)
-            : ["runtime sources unavailable"],
+        paths.fresh(worktreePath),
         forge,
-        extraDisposablePatterns: disposable,
-      });
-    },
-    isActive: (worktreePath) => isTreeActive(managed, worktreePath, cutoffEpoch),
+        disposable,
+        dependencies,
+      ),
+    isActive: (worktreePath) => paths.last(worktreePath).active,
   };
-}
-
-function isTreeActive(
-  managed: WorkspaceCleanupRow[],
-  worktreePath: string,
-  cutoffEpoch: number,
-): boolean {
-  const row = managed.find((candidate) => sameWorkspacePath(candidate.worktreePath, worktreePath));
-  if (row) return row.activity !== "quiet";
-  const gitDir = spawnSync(
-    "git",
-    ["-C", worktreePath, "rev-parse", "--path-format=absolute", "--git-dir"],
-    { encoding: "utf-8", env: READ_ONLY_GIT_ENV },
-  ).stdout?.trim();
-  const latest = gitDir ? unmanagedActivityEpoch(worktreePath, gitDir) : undefined;
-  return latest === undefined || latest >= cutoffEpoch;
 }
 
 /**
  * The checks an approved trim re-runs for each target: the local Git-safety
  * verdict with the repository's trim patterns counted as disposable, runtime
- * evidence, a running managed runtime, and the activity window. It never asks
- * the forge, because trimmed state is reproducible whatever the branch's fate.
+ * evidence, a running managed runtime, and the activity window, all read
+ * fresh for the exact path. It never asks the forge, because trimmed state is
+ * reproducible whatever the branch's fate.
  */
 export function prepareTrimChecks(
   repo: string,
@@ -1435,54 +1480,30 @@ export function prepareTrimChecks(
   dependencies: WorkspaceCleanupDependencies = {},
 ): TrimVerdictContext {
   const repoPath = resolveRepoPath(repo);
-  let sources: WorktreeRuntimeSources | undefined;
-  const report = buildWorkspaceCleanupReport(
-    { repo: repoPath, inactiveFor, allWorktrees: true },
-    {
-      ...dependencies,
-      readRuntimeSources: (path) => {
-        sources = (dependencies.readRuntimeSources ?? readRuntimeSources)(path);
-        return sources;
-      },
-    },
-  );
-  const managed = report.workspaces;
   const configured = fs.existsSync(path.join(repoPath, ".devrouter.yml"))
     ? loadRepoConfig(repoPath).worktrees
     : undefined;
   const patterns = configured?.trim ?? [];
-  const cutoffEpoch = Math.floor(Date.parse(report.cutoff) / 1000);
+  const paths = evidenceCache((worktreePath) =>
+    readPathEvidence(repoPath, worktreePath, inactiveFor, dependencies),
+  );
   return {
     patterns,
     blockers: (worktreePath) => {
-      const worktrees = (dependencies.listWorktrees ?? listGitWorktrees)(repoPath);
-      const worktree = worktrees.find((candidate) =>
-        sameWorkspacePath(candidate.path, worktreePath),
-      );
-      const row = managed.find((candidate) =>
-        sameWorkspacePath(candidate.worktreePath, worktreePath),
-      );
-      const verdict = (dependencies.classifySafety ?? classifyWorktreeSafety)({
+      const evidence = paths.fresh(worktreePath);
+      const verdict = classifyExactPath(
+        repoPath,
         worktreePath,
-        branch: worktree?.branch,
-        primary: worktrees[0] !== undefined && sameWorkspacePath(worktrees[0].path, worktreePath),
-        locked: worktree?.locked ?? false,
-        missing: !worktree || worktree.prunable || !fs.existsSync(worktreePath),
-        runtimeEvidence: row
-          ? managedRuntimeEvidence(row)
-          : sources
-            ? worktreeRuntimeEvidence(worktreePath, sources)
-            : ["runtime sources unavailable"],
-        forge: { status: "not-checked" },
-        extraDisposablePatterns: [...(configured?.disposable ?? []), ...patterns],
-      });
+        evidence,
+        { status: "not-checked" },
+        [...(configured?.disposable ?? []), ...patterns],
+        dependencies,
+      );
       const blockers: string[] = verdict.codes.filter((code) => code !== "forge-not-checked");
       if (verdict.verdict === "PRUNE") blockers.push("missing");
-      if (row && !["absent", "stopped", "not-found"].includes(row.runtime)) {
-        blockers.push("runtime-running");
-      }
+      if (evidence.runtimeRunning) blockers.push("runtime-running");
       return blockers;
     },
-    isActive: (worktreePath) => isTreeActive(managed, worktreePath, cutoffEpoch),
+    isActive: (worktreePath) => paths.last(worktreePath).active,
   };
 }

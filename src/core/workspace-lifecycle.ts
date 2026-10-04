@@ -592,13 +592,14 @@ export async function workspaceDeleteOwnedPath(
  * Removes one exact linked worktree for an approved reclaim: inside a single
  * lifecycle-lock acquisition it runs `verify`, deletes a managed runtime and
  * its routes, removes the worktree without `--force`, and drops its ownership
- * record. Each completed step is appended to `steps` as it finishes, so a
+ * record, then runs `afterRemove`. Each completed step is appended to `steps` as it finishes, so a
  * caller can report a half-finished target exactly.
  */
 export async function reclaimWorktreeExactPath(
   mainRepo: string,
   worktreePath: string,
   verify: () => void,
+  afterRemove: () => void,
   steps: string[],
 ): Promise<void> {
   await withLifecycleOperationLock(worktreePath, async () => {
@@ -636,6 +637,7 @@ export async function reclaimWorktreeExactPath(
       removeWorkspaceOwnership(mainRepo, record.workspace);
       steps.push("ownership-removed");
     }
+    afterRemove();
   });
 }
 

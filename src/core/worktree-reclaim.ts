@@ -99,8 +99,9 @@ function sortKeys(value: unknown): unknown {
   return value;
 }
 
+/** Orders by UTF-8 bytes, which matches Python's code-point string order. */
 function byteOrder(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+  return Buffer.compare(Buffer.from(left, "utf-8"), Buffer.from(right, "utf-8"));
 }
 
 /**
@@ -536,7 +537,7 @@ export type ReclaimSkipCode =
   | "active"
   | "veto-denied"
   | "lock-unavailable";
-export type ReclaimFailureCode = "teardown-failed" | "branch-moved" | "environment";
+export type ReclaimFailureCode = "teardown-failed" | "environment";
 
 export type ReclaimTargetOutcome = {
   id: string;
@@ -577,24 +578,35 @@ export type ReclaimApplyDependencies = {
   /** Fresh verdict context for one repository, built once at apply start. */
   prepare: (repo: string) => ReclaimVerdictContext;
   /**
-   * Runs `verify` and then removes the runtime (for a managed tree) and the
-   * worktree, inside one lifecycle-lock acquisition for the exact path.
-   * Returns the completed steps.
+   * Inside one lifecycle-lock acquisition for the exact path: runs `verify`,
+   * removes the runtime (for a managed tree) and the worktree, then runs
+   * `afterRemove`. Appends each completed step to `steps`.
    */
   removeWorktree: (
     candidate: ManifestCandidate,
     verify: () => void,
+    afterRemove: () => void,
     steps: string[],
   ) => Promise<void>;
   runVeto?: (command: string, worktreePath: string) => boolean;
   nowEpoch?: () => number;
 };
 
+/**
+ * Runs the veto command. A non-zero exit or a timeout denies the target; a
+ * command that can no longer be started is an environment failure.
+ */
 export function runVetoCommand(command: string, worktreePath: string): boolean {
   const result = spawnSync(command, [worktreePath], {
     stdio: ["ignore", "ignore", "inherit"],
     timeout: VETO_TIMEOUT_MS,
   });
+  const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  if (result.error && code !== "ETIMEDOUT") {
+    throw Object.assign(new Error(`veto command failed to run: ${result.error.message}`), {
+      reclaimCode: "environment" as const,
+    });
+  }
   return result.status === 0 && !result.error && result.signal === null;
 }
 
@@ -637,22 +649,31 @@ export function preflightManifestApply(
   return { manifest, manifestSha256, now };
 }
 
-function deleteBranchIfUnmoved(candidate: ManifestCandidate, steps: string[]): void {
-  const tip = gitLine(candidate.repo, ["rev-parse", "--verify", "--quiet", candidate.branchRef]);
-  if (tip === undefined) return;
-  if (tip !== candidate.head) {
-    throw Object.assign(
-      new Error(`branch ${candidate.branch} moved to ${tip}; it was kept for review`),
-      { reclaimCode: "branch-moved" as const },
-    );
+/**
+ * Deletes the branch only while it still points at the approved HEAD. The
+ * compare-and-delete is one `update-ref` call, so a concurrent commit keeps
+ * the branch. Returns a warning when the branch was kept.
+ */
+function deleteBranchIfUnmoved(candidate: ManifestCandidate, steps: string[]): string | undefined {
+  const exists = spawnSync(
+    "git",
+    ["-C", candidate.repo, "show-ref", "--verify", "--quiet", candidate.branchRef],
+    { encoding: "utf-8" },
+  );
+  if (exists.status === 1) return undefined;
+  if (exists.status !== 0) {
+    throw new Error(`cannot read branch ${candidate.branch}: ${(exists.stderr ?? "").trim()}`);
   }
-  const result = spawnSync("git", ["-C", candidate.repo, "branch", "-D", candidate.branch], {
-    encoding: "utf-8",
-  });
+  const result = spawnSync(
+    "git",
+    ["-C", candidate.repo, "update-ref", "-d", candidate.branchRef, candidate.head],
+    { encoding: "utf-8" },
+  );
   if (result.status !== 0) {
-    throw new Error(`git branch -D failed: ${(result.stderr ?? "").trim() || "unknown error"}`);
+    return `branch ${candidate.branch} no longer points at the approved HEAD; it was kept for review`;
   }
   steps.push("branch-deleted");
+  return undefined;
 }
 
 /**
@@ -708,7 +729,10 @@ export async function applyReclaimManifest(
       continue;
     }
 
+    let entered = false;
+    let verified = false;
     const verify = (): void => {
+      entered = true;
       const mismatch = identityMismatch(candidate, readWorktreeIdentity(candidate.path));
       if (mismatch) throw new ReclaimSkip("stale-identity", mismatch);
       const context = contextFor(candidate.repo);
@@ -731,6 +755,7 @@ export async function applyReclaimManifest(
       } else if (context.isActive(candidate.path)) {
         throw new ReclaimSkip("active", "activity inside the window");
       }
+      verified = true;
     };
 
     try {
@@ -739,24 +764,41 @@ export async function applyReclaimManifest(
         outcome.status = "would-reclaim";
         continue;
       }
-      await dependencies.removeWorktree(candidate, verify, outcome.steps);
-      deleteBranchIfUnmoved(candidate, outcome.steps);
+      let warning: string | undefined;
+      await dependencies.removeWorktree(
+        candidate,
+        verify,
+        () => {
+          warning = deleteBranchIfUnmoved(candidate, outcome.steps);
+        },
+        outcome.steps,
+      );
       writeReceipt(candidate, manifestSha256, outcome.steps, now);
       outcome.status = "reclaimed";
+      if (warning) outcome.reason = warning;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (error instanceof ReclaimSkip) {
-        outcome.code = error.code;
+      // The lifecycle lock does not wait. A held lock before `verify` started
+      // means another operation owns the tree right now; any later error,
+      // including a nested lock timeout, happened after teardown may have begun.
+      const skip =
+        error instanceof ReclaimSkip
+          ? error
+          : !entered && /gave up after waiting/.test(message)
+            ? new ReclaimSkip("lock-unavailable", message)
+            : undefined;
+      if (skip) {
+        outcome.code = skip.code;
         outcome.reason = message;
         // The same skip twice in a row from an unavailable lock points at a
         // stuck holder, not a stale target.
-        if (error.code === "lock-unavailable" && errorCodes.has(error.code)) stoppedEarly = true;
-        errorCodes.add(error.code);
+        if (skip.code === "lock-unavailable" && errorCodes.has(skip.code)) stoppedEarly = true;
+        errorCodes.add(skip.code);
         continue;
       }
       const code =
         (error as { reclaimCode?: ReclaimFailureCode }).reclaimCode ??
-        (outcome.steps.length ? "teardown-failed" : "environment");
+        (verified || outcome.steps.length ? "teardown-failed" : "environment");
       outcome.status = "failed";
       outcome.code = code;
       outcome.reason = message;

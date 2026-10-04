@@ -85,6 +85,8 @@ function dependencies(
     verdict: WorktreeSafetyResult;
     active: boolean;
     failOn: string;
+    nestedLockTimeoutOn: string;
+    moveBranchOn: string;
   }> = {},
 ): ReclaimApplyDependencies & { removed: string[] } {
   const removed: string[] = [];
@@ -95,15 +97,24 @@ function dependencies(
       classify: () => overrides.verdict ?? RECLAIM,
       isActive: () => overrides.active ?? false,
     }),
-    removeWorktree: async (candidate, verify, steps) => {
+    removeWorktree: async (candidate, verify, afterRemove, steps) => {
       verify();
       if (overrides.failOn === candidate.branch) {
         steps.push("runtime-deleted");
         throw new Error("simulated teardown failure");
       }
+      if (overrides.nestedLockTimeoutOn === candidate.branch) {
+        // A provider or route lock timing out inside the runtime teardown.
+        throw new Error("provider lifecycle is already running; gave up after waiting 0s");
+      }
       git(candidate.repo, "worktree", "remove", candidate.path);
       steps.push("worktree-removed");
       removed.push(candidate.branch);
+      if (overrides.moveBranchOn === candidate.branch) {
+        const moved = git(repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "late");
+        git(repo, "update-ref", candidate.branchRef, moved);
+      }
+      afterRemove();
     },
   };
 }
@@ -173,7 +184,7 @@ describe("reclaim manifests", () => {
 
     const { manifest } = readManifest(file);
     expect(manifest.candidates.map((candidate) => candidate.id)).toEqual(
-      candidates.map((candidate) => candidate.id).sort(),
+      candidates.map((candidate) => candidate.id),
     );
     const sha = hashOf(file);
     const python = spawnSync(
@@ -297,5 +308,36 @@ describe("applyReclaimManifest", () => {
         dependencies(),
       ),
     ).rejects.toThrow(/missing or not executable/);
+  });
+
+  it("keeps a branch that moved after approval but still records the reclaim", async () => {
+    const [alpha, beta] = [addWorktree("alpha"), addWorktree("beta")];
+    const file = writeManifest([alpha, beta]);
+    const sha256 = hashOf(file);
+    const report = await applyReclaimManifest(
+      { manifestFile: file, sha256, maxAgeSeconds: 86400, yes: true },
+      dependencies({ moveBranchOn: "alpha" }),
+    );
+    expect(report.targets).toMatchObject([
+      { status: "reclaimed", steps: ["worktree-removed"] },
+      { status: "reclaimed", steps: ["worktree-removed", "branch-deleted"] },
+    ]);
+    expect(report.targets[0].reason).toMatch(/kept for review/);
+    expect(git(repo, "branch", "--list", "alpha")).not.toBe("");
+    expect(fs.existsSync(receiptPath(alpha.commonDir, sha256, alpha.id))).toBe(true);
+  });
+
+  it("treats a lock timeout after verification as a failed teardown, not a skip", async () => {
+    const [alpha, beta] = [addWorktree("alpha"), addWorktree("beta")];
+    const file = writeManifest([alpha, beta]);
+    const report = await applyReclaimManifest(
+      { manifestFile: file, sha256: hashOf(file), maxAgeSeconds: 86400, yes: true },
+      dependencies({ nestedLockTimeoutOn: "alpha" }),
+    );
+    expect(report.stoppedEarly).toBe(true);
+    expect(report.targets).toMatchObject([
+      { status: "failed", code: "teardown-failed" },
+      { status: "not-attempted" },
+    ]);
   });
 });

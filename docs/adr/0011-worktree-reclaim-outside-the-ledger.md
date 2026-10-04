@@ -18,12 +18,13 @@ real path, branch ref, HEAD, Git common directory and worktree Git directory,
 and its ID is the SHA-256 of that identity. Devrouter and the skill share the
 format: either tool reads the other's manifests, and `hash` and `select`
 produce byte-identical output. Apply never discovers a target. It takes one
-forge listing and one runtime snapshot per repository at start, then, for
-each candidate inside one acquisition of that worktree's lifecycle lock,
-re-reads the identity, re-classifies the tree and runs the optional veto
-command. Teardown order is managed runtime and routes, `git worktree remove`
-without `--force`, ownership record, then `git branch -D` only while the
-branch tip still equals the approved HEAD. A completed target writes a receipt
+forge listing per repository at start. Then, for each candidate inside one
+acquisition of that worktree's lifecycle lock, it re-reads the identity, the
+Git state and that path's runtime and activity evidence, re-classifies the
+tree and runs the optional veto command. Teardown order is managed runtime and
+routes, `git worktree remove` without `--force`, ownership record, then the
+branch, deleted by one compare-and-delete `update-ref` only while it still
+points at the approved HEAD. A moved branch is kept and reported. A completed target writes a receipt
 under `<git-common-dir>/worktree-reclaim/receipts/<manifest-sha>/`, so a rerun
 reports it as done. A changed target is skipped; an error after teardown
 began stops the batch and names the completed steps.

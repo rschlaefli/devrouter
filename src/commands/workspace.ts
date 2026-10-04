@@ -222,23 +222,8 @@ export async function runWorkspaceReclaimCommand(options: {
     },
     {
       prepare: (repo) => prepareReclaimVerdicts(repo, inactiveFor),
-      removeWorktree: async (candidate, verify, steps) => {
-        try {
-          await reclaimWorktreeExactPath(candidate.repo, candidate.path, verify, steps);
-        } catch (error) {
-          // The lifecycle lock does not wait: a held lock means another
-          // operation owns the tree right now, so leave it for a later run.
-          if (
-            steps.length === 0 &&
-            error instanceof Error &&
-            !(error instanceof ReclaimSkip) &&
-            /gave up after waiting/.test(error.message)
-          ) {
-            throw new ReclaimSkip("lock-unavailable", error.message);
-          }
-          throw error;
-        }
-      },
+      removeWorktree: (candidate, verify, afterRemove, steps) =>
+        reclaimWorktreeExactPath(candidate.repo, candidate.path, verify, afterRemove, steps),
     },
   );
   if (options.json) {
