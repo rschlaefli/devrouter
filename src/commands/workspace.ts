@@ -1,10 +1,12 @@
 import fs from "node:fs";
+import path from "node:path";
 import { printJSON, printReclaimReport, printWorkspaceCleanupReport } from "../core/output";
-import { resolveRepoPath } from "../core/repo-config";
+import { loadRepoConfig, resolveRepoPath } from "../core/repo-config";
 import {
   buildWorkspaceCleanupReport,
   parseInactiveFor,
   prepareReclaimVerdicts,
+  prepareTrimChecks,
   type WorkspaceCleanupOptions,
 } from "../core/workspace-cleanup";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
@@ -25,6 +27,7 @@ import {
   selectManifest,
   sha256Hex,
 } from "../core/worktree-reclaim";
+import { applyTrimManifest, buildTrimManifest } from "../core/worktree-trim";
 import { resolveGitCheckoutPath } from "./environment-path";
 
 function resolveGitWorkspaceRepo(repoPath?: string): string {
@@ -73,15 +76,38 @@ export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }
 }
 
 export function runWorkspaceCleanupCommand(
-  options: WorkspaceCleanupOptions & { json?: boolean; manifest?: boolean; output?: string },
+  options: WorkspaceCleanupOptions & {
+    json?: boolean;
+    manifest?: boolean;
+    output?: string;
+    action?: "reclaim" | "trim";
+  },
 ): void {
   const repoPath = resolveGitWorkspaceRepo(options.repo);
   const report = buildWorkspaceCleanupReport({ ...options, repo: repoPath });
   if (options.manifest) {
-    if (!options.allWorktrees || !options.checkMerged) {
+    const action = options.action ?? "reclaim";
+    if (action !== "reclaim" && action !== "trim") {
+      throw new Error("--action must be reclaim or trim.");
+    }
+    if (action === "trim") {
+      if (!options.allWorktrees)
+        throw new Error("--manifest --action trim requires --all-worktrees.");
+    } else if (!options.allWorktrees || !options.checkMerged) {
       throw new Error("--manifest requires --all-worktrees and --check-merged.");
     }
-    const manifest = buildReclaimManifest(report, Math.floor(Date.now() / 1000));
+    const createdAtEpoch = Math.floor(Date.now() / 1000);
+    const worktrees = fs.existsSync(path.join(repoPath, ".devrouter.yml"))
+      ? loadRepoConfig(repoPath).worktrees
+      : undefined;
+    const manifest =
+      action === "trim"
+        ? buildTrimManifest(
+            report,
+            { trim: worktrees?.trim ?? [], disposable: worktrees?.disposable },
+            createdAtEpoch,
+          )
+        : buildReclaimManifest(report, createdAtEpoch);
     if (options.output) {
       fs.writeFileSync(options.output, manifest, { flag: "wx" });
       process.stdout.write(`${sha256Hex(manifest)}  ${options.output}\n`);
@@ -219,6 +245,34 @@ export async function runWorkspaceReclaimCommand(options: {
     printJSON(report);
   } else {
     printReclaimReport(report);
+  }
+  if (report.targets.some((target) => target.status === "failed")) process.exitCode = 1;
+}
+
+export async function runWorkspaceTrimCommand(options: {
+  manifest: string;
+  sha256: string;
+  maxAge?: string;
+  inactiveFor?: string;
+  vetoCommand?: string;
+  yes?: boolean;
+  json?: boolean;
+}): Promise<void> {
+  const inactiveFor = parseInactiveFor(options.inactiveFor ?? "14d").input;
+  const report = await applyTrimManifest(
+    {
+      manifestFile: options.manifest,
+      sha256: options.sha256,
+      maxAgeSeconds: parseInactiveFor(options.maxAge ?? "24h").seconds,
+      vetoCommand: options.vetoCommand,
+      yes: Boolean(options.yes),
+    },
+    { prepare: (repo) => prepareTrimChecks(repo, inactiveFor) },
+  );
+  if (options.json) {
+    printJSON(report);
+  } else {
+    printReclaimReport(report, "trim");
   }
   if (report.targets.some((target) => target.status === "failed")) process.exitCode = 1;
 }

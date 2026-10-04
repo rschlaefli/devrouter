@@ -716,6 +716,11 @@ workspaceCommand
     "Emit a canonical reclaim manifest of quiet RECLAIM trees (needs --all-worktrees --check-merged)",
   )
   .option("--output <file>", "Write the manifest to a new file and print its SHA-256")
+  .option(
+    "--action <action>",
+    "Manifest action: reclaim (needs --check-merged) or trim (declared worktrees.trim paths)",
+    "reclaim",
+  )
   .action(
     withErrorHandling(async (_options: unknown, command: Command) => {
       const options = command.opts<{
@@ -727,6 +732,7 @@ workspaceCommand
         json?: boolean;
         manifest?: boolean;
         output?: string;
+        action?: "reclaim" | "trim";
       }>();
       const { runWorkspaceCleanupCommand } = await import("./commands/workspace");
       runWorkspaceCleanupCommand({
@@ -738,6 +744,7 @@ workspaceCommand
         json: Boolean(options.json),
         manifest: Boolean(options.manifest),
         output: options.output,
+        action: options.action,
       });
     }),
   );
@@ -807,6 +814,41 @@ workspaceCommand
       }>();
       const { runWorkspaceReclaimCommand } = await import("./commands/workspace");
       await runWorkspaceReclaimCommand(options);
+    }),
+  );
+
+workspaceCommand
+  .command("trim")
+  .description(
+    "Remove the declared trim paths of an approved manifest, re-verifying each tree inside its lifecycle lock",
+  )
+  .requiredOption("--manifest <file>", "Approved trim manifest")
+  .requiredOption("--sha256 <hash>", "Approved SHA-256 of the manifest")
+  .option("--max-age <duration>", "Refuse a manifest older than this (Ns, Nm, Nh, Nd, Nw)", "24h")
+  .option(
+    "--inactive-for <duration>",
+    "Without a veto command, require no activity inside this window",
+    "14d",
+  )
+  .option(
+    "--veto-command <path>",
+    "Absolute path of an executable called with the worktree path; a non-zero exit skips it",
+  )
+  .option("--yes", "Trim; without it the command is a dry run")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{
+        manifest: string;
+        sha256: string;
+        maxAge?: string;
+        inactiveFor?: string;
+        vetoCommand?: string;
+        yes?: boolean;
+        json?: boolean;
+      }>();
+      const { runWorkspaceTrimCommand } = await import("./commands/workspace");
+      await runWorkspaceTrimCommand(options);
     }),
   );
 

@@ -45,6 +45,7 @@ import {
   type WorktreeSafetyVerdict,
   worktreeRuntimeEvidence,
 } from "./worktree-safety";
+import type { TrimVerdictContext } from "./worktree-trim";
 
 const DEFAULT_INACTIVE_FOR = "30d";
 const READ_ONLY_GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" };
@@ -1402,18 +1403,86 @@ export function prepareReclaimVerdicts(
         extraDisposablePatterns: disposable,
       });
     },
-    isActive: (worktreePath) => {
+    isActive: (worktreePath) => isTreeActive(managed, worktreePath, cutoffEpoch),
+  };
+}
+
+function isTreeActive(
+  managed: WorkspaceCleanupRow[],
+  worktreePath: string,
+  cutoffEpoch: number,
+): boolean {
+  const row = managed.find((candidate) => sameWorkspacePath(candidate.worktreePath, worktreePath));
+  if (row) return row.activity !== "quiet";
+  const gitDir = spawnSync(
+    "git",
+    ["-C", worktreePath, "rev-parse", "--path-format=absolute", "--git-dir"],
+    { encoding: "utf-8", env: READ_ONLY_GIT_ENV },
+  ).stdout?.trim();
+  const latest = gitDir ? unmanagedActivityEpoch(worktreePath, gitDir) : undefined;
+  return latest === undefined || latest >= cutoffEpoch;
+}
+
+/**
+ * The checks an approved trim re-runs for each target: the local Git-safety
+ * verdict with the repository's trim patterns counted as disposable, runtime
+ * evidence, a running managed runtime, and the activity window. It never asks
+ * the forge, because trimmed state is reproducible whatever the branch's fate.
+ */
+export function prepareTrimChecks(
+  repo: string,
+  inactiveFor: string,
+  dependencies: WorkspaceCleanupDependencies = {},
+): TrimVerdictContext {
+  const repoPath = resolveRepoPath(repo);
+  let sources: WorktreeRuntimeSources | undefined;
+  const report = buildWorkspaceCleanupReport(
+    { repo: repoPath, inactiveFor, allWorktrees: true },
+    {
+      ...dependencies,
+      readRuntimeSources: (path) => {
+        sources = (dependencies.readRuntimeSources ?? readRuntimeSources)(path);
+        return sources;
+      },
+    },
+  );
+  const managed = report.workspaces;
+  const configured = fs.existsSync(path.join(repoPath, ".devrouter.yml"))
+    ? loadRepoConfig(repoPath).worktrees
+    : undefined;
+  const patterns = configured?.trim ?? [];
+  const cutoffEpoch = Math.floor(Date.parse(report.cutoff) / 1000);
+  return {
+    patterns,
+    blockers: (worktreePath) => {
+      const worktrees = (dependencies.listWorktrees ?? listGitWorktrees)(repoPath);
+      const worktree = worktrees.find((candidate) =>
+        sameWorkspacePath(candidate.path, worktreePath),
+      );
       const row = managed.find((candidate) =>
         sameWorkspacePath(candidate.worktreePath, worktreePath),
       );
-      if (row) return row.activity !== "quiet";
-      const gitDir = spawnSync(
-        "git",
-        ["-C", worktreePath, "rev-parse", "--path-format=absolute", "--git-dir"],
-        { encoding: "utf-8", env: READ_ONLY_GIT_ENV },
-      ).stdout?.trim();
-      const latest = gitDir ? unmanagedActivityEpoch(worktreePath, gitDir) : undefined;
-      return latest === undefined || latest >= cutoffEpoch;
+      const verdict = (dependencies.classifySafety ?? classifyWorktreeSafety)({
+        worktreePath,
+        branch: worktree?.branch,
+        primary: worktrees[0] !== undefined && sameWorkspacePath(worktrees[0].path, worktreePath),
+        locked: worktree?.locked ?? false,
+        missing: !worktree || worktree.prunable || !fs.existsSync(worktreePath),
+        runtimeEvidence: row
+          ? managedRuntimeEvidence(row)
+          : sources
+            ? worktreeRuntimeEvidence(worktreePath, sources)
+            : ["runtime sources unavailable"],
+        forge: { status: "not-checked" },
+        extraDisposablePatterns: [...(configured?.disposable ?? []), ...patterns],
+      });
+      const blockers: string[] = verdict.codes.filter((code) => code !== "forge-not-checked");
+      if (verdict.verdict === "PRUNE") blockers.push("missing");
+      if (row && !["absent", "stopped", "not-found"].includes(row.runtime)) {
+        blockers.push("runtime-running");
+      }
+      return blockers;
     },
+    isActive: (worktreePath) => isTreeActive(managed, worktreePath, cutoffEpoch),
   };
 }

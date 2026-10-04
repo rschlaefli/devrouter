@@ -512,3 +512,11 @@ under Active.
     and `select` output is byte-identical to `manifest.py`. End-to-end, the
     skill's `apply-manifest.sh` delegates to devrouter with its session veto
     and reclaims one tree in 3.6 s.
+  - [x] C3: `workspace trim` and `cleanup --manifest --action trim`.
+    `worktree-trim.test.ts` (5 tests) covers: the manifest lists only declared
+    trim paths and omits trees with other ignored state; dry run changes
+    nothing; apply removes declared paths, writes a receipt and a rerun is
+    `already-done`; tracked files, symlinks and paths whose realpath escapes the
+    tree are kept; dirty, running, active and stale-identity targets are
+    skipped; a reclaim manifest is refused. Reclaim's preflight is now a shared
+    helper; `worktree-reclaim.test.ts` is unchanged.

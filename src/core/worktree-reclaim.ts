@@ -392,7 +392,7 @@ export function readWorktreeIdentity(worktreePath: string): WorktreeIdentity | u
   return { repo, path: real, branchRef, head, commonDir, gitDir };
 }
 
-function identityMismatch(expected: WorktreeIdentity, actual: WorktreeIdentity | undefined) {
+export function identityMismatch(expected: WorktreeIdentity, actual: WorktreeIdentity | undefined) {
   if (!actual) return "the worktree identity is unreadable";
   const changed = (["repo", "path", "branchRef", "head", "commonDir", "gitDir"] as const).filter(
     (key) => expected[key] !== actual[key],
@@ -423,7 +423,7 @@ export function unmanagedActivityEpoch(worktreePath: string, gitDir: string): nu
   return latest;
 }
 
-function isQuiet(
+export function isQuiet(
   row: { managed?: WorkspaceCleanupRow; worktreePath: string },
   gitDir: string,
   cutoffEpoch: number,
@@ -487,7 +487,7 @@ export function receiptPath(commonDir: string, manifestSha256: string, id: strin
   return path.join(commonDir, "worktree-reclaim", "receipts", manifestSha256, `${id}.json`);
 }
 
-function matchingReceipt(candidate: ManifestCandidate, manifestSha256: string): boolean {
+export function matchingReceipt(candidate: ManifestCandidate, manifestSha256: string): boolean {
   try {
     const receipt = JSON.parse(
       fs.readFileSync(receiptPath(candidate.commonDir, manifestSha256, candidate.id), "utf-8"),
@@ -505,7 +505,7 @@ function matchingReceipt(candidate: ManifestCandidate, manifestSha256: string): 
   }
 }
 
-function writeReceipt(
+export function writeReceipt(
   candidate: ManifestCandidate,
   manifestSha256: string,
   steps: string[],
@@ -607,6 +607,36 @@ function assertVetoCommand(command: string): void {
   }
 }
 
+/**
+ * The checks every apply runs before it looks at a target: hash, schema, age,
+ * action and a usable veto command. Returns the validated manifest and the
+ * apply time.
+ */
+export function preflightManifestApply(
+  options: { manifestFile: string; sha256: string; maxAgeSeconds: number; vetoCommand?: string },
+  action: ManifestAction,
+  nowEpoch?: () => number,
+): { manifest: WorktreeManifest; manifestSha256: string; now: number } {
+  const { raw, manifest } = readManifest(options.manifestFile);
+  const manifestSha256 = requireManifestHash(raw, options.sha256);
+  const now = nowEpoch?.() ?? Math.floor(Date.now() / 1000);
+  if (manifest.createdAtEpoch > now + FUTURE_TOLERANCE_SECONDS) {
+    throw new Error("manifest creation time is in the future");
+  }
+  const age = Math.max(0, now - manifest.createdAtEpoch);
+  if (age > options.maxAgeSeconds) {
+    throw new Error(`manifest is ${age}s old; maximum allowed age is ${options.maxAgeSeconds}s`);
+  }
+  const actual = manifest.action ?? "reclaim";
+  if (actual !== action) {
+    const other = action === "reclaim" ? "trim" : "reclaim";
+    throw new Error(`this is a ${other} manifest; apply it with \`devrouter workspace ${other}\``);
+  }
+  if (manifest.candidates.length === 0) throw new Error("approved manifest is empty");
+  if (options.vetoCommand) assertVetoCommand(options.vetoCommand);
+  return { manifest, manifestSha256, now };
+}
+
 function deleteBranchIfUnmoved(candidate: ManifestCandidate, steps: string[]): void {
   const tip = gitLine(candidate.repo, ["rev-parse", "--verify", "--quiet", candidate.branchRef]);
   if (tip === undefined) return;
@@ -641,21 +671,11 @@ export async function applyReclaimManifest(
   },
   dependencies: ReclaimApplyDependencies,
 ): Promise<ReclaimApplyReport> {
-  const { raw, manifest } = readManifest(options.manifestFile);
-  const manifestSha256 = requireManifestHash(raw, options.sha256);
-  const now = dependencies.nowEpoch?.() ?? Math.floor(Date.now() / 1000);
-  if (manifest.createdAtEpoch > now + FUTURE_TOLERANCE_SECONDS) {
-    throw new Error("manifest creation time is in the future");
-  }
-  const age = Math.max(0, now - manifest.createdAtEpoch);
-  if (age > options.maxAgeSeconds) {
-    throw new Error(`manifest is ${age}s old; maximum allowed age is ${options.maxAgeSeconds}s`);
-  }
-  if ((manifest.action ?? "reclaim") !== "reclaim") {
-    throw new Error("this is a trim manifest; apply it with `devrouter workspace trim`");
-  }
-  if (manifest.candidates.length === 0) throw new Error("approved manifest is empty");
-  if (options.vetoCommand) assertVetoCommand(options.vetoCommand);
+  const { manifest, manifestSha256, now } = preflightManifestApply(
+    options,
+    "reclaim",
+    dependencies.nowEpoch,
+  );
   const runVeto = dependencies.runVeto ?? runVetoCommand;
 
   const contexts = new Map<string, ReclaimVerdictContext>();

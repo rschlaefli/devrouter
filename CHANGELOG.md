@@ -32,6 +32,12 @@ All notable changes to this project are documented in this file.
   emits the manifest, and `workspace manifest hash|select` hash or narrow it.
   Manifests are interchangeable with the `worktree-reclaim` skill, which
   delegates to this command when devrouter is installed.
+- `workspace trim --manifest <file> --sha256 <hash>` removes only the ignored
+  paths that `worktrees.trim` declares from quiet linked worktrees, keeping the
+  worktree, its branch and any runtime. `workspace cleanup --all-worktrees
+  --manifest --action trim` emits the manifest. Apply is a dry run without
+  `--yes`, skips symlinks, paths outside the tree and paths with tracked files,
+  and re-checks each target inside its lifecycle lock.
 
 ### Changed
 

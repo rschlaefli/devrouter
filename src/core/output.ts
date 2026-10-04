@@ -15,7 +15,6 @@ import type {
   WorkspaceCleanupSafety,
   WorkspaceCleanupSize,
 } from "./workspace-cleanup";
-import type { ReclaimApplyReport } from "./worktree-reclaim";
 
 export function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -133,7 +132,20 @@ function printWorktreeVerdicts(report: WorkspaceCleanupReport): void {
   }
 }
 
-export function printReclaimReport(report: ReclaimApplyReport): void {
+export function printReclaimReport(
+  report: {
+    dryRun: boolean;
+    stoppedEarly: boolean;
+    targets: {
+      path: string;
+      status: string;
+      code?: string;
+      reason?: string;
+      steps: string[];
+    }[];
+  },
+  verb = "reclaim",
+): void {
   process.stdout.write(
     `${renderTable(
       ["WORKTREE", "OUTCOME", "DETAIL"],
@@ -147,7 +159,7 @@ export function printReclaimReport(report: ReclaimApplyReport): void {
     )}\n`,
   );
   if (report.dryRun) {
-    process.stdout.write("Dry run: nothing changed. Rerun with --yes to reclaim.\n");
+    process.stdout.write(`Dry run: nothing changed. Rerun with --yes to ${verb}.\n`);
   }
   if (report.stoppedEarly) {
     process.stdout.write("Stopped early: remaining targets were not attempted.\n");
