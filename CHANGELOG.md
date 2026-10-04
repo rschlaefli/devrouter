@@ -23,6 +23,15 @@ All notable changes to this project are documented in this file.
   `--check-merged` it lists the repository's pull or merge requests once per
   run; without it no tree is `RECLAIM`. The optional `.devrouter.yml` key
   `worktrees.disposable` declares more ignored paths that are safe to lose.
+- `workspace reclaim --manifest <file> --sha256 <hash>` removes the linked
+  worktrees of an approved manifest, managed or not. It is a dry run without
+  `--yes`, re-checks each target's identity, verdict and optional
+  `--veto-command` inside its lifecycle lock, deletes a branch only while its
+  tip still equals the approved HEAD, and writes receipts so a rerun is
+  idempotent. `workspace cleanup --all-worktrees --check-merged --manifest`
+  emits the manifest, and `workspace manifest hash|select` hash or narrow it.
+  Manifests are interchangeable with the `worktree-reclaim` skill, which
+  delegates to this command when devrouter is installed.
 
 ### Changed
 

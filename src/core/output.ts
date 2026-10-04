@@ -15,6 +15,7 @@ import type {
   WorkspaceCleanupSafety,
   WorkspaceCleanupSize,
 } from "./workspace-cleanup";
+import type { ReclaimApplyReport } from "./worktree-reclaim";
 
 export function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -129,6 +130,27 @@ function printWorktreeVerdicts(report: WorkspaceCleanupReport): void {
   );
   if (!report.checkMerged) {
     process.stdout.write("Forge not checked: rerun with --check-merged for RECLAIM verdicts.\n");
+  }
+}
+
+export function printReclaimReport(report: ReclaimApplyReport): void {
+  process.stdout.write(
+    `${renderTable(
+      ["WORKTREE", "OUTCOME", "DETAIL"],
+      report.targets.map((target) => [
+        target.path,
+        target.code ? `${target.status} (${target.code})` : target.status,
+        [target.reason, target.steps.length ? `completed: ${target.steps.join(", ")}` : undefined]
+          .filter(Boolean)
+          .join("; ") || "-",
+      ]),
+    )}\n`,
+  );
+  if (report.dryRun) {
+    process.stdout.write("Dry run: nothing changed. Rerun with --yes to reclaim.\n");
+  }
+  if (report.stoppedEarly) {
+    process.stdout.write("Stopped early: remaining targets were not attempted.\n");
   }
 }
 

@@ -1,18 +1,30 @@
-import { printJSON, printWorkspaceCleanupReport } from "../core/output";
+import fs from "node:fs";
+import { printJSON, printReclaimReport, printWorkspaceCleanupReport } from "../core/output";
 import { resolveRepoPath } from "../core/repo-config";
 import {
   buildWorkspaceCleanupReport,
+  parseInactiveFor,
+  prepareReclaimVerdicts,
   type WorkspaceCleanupOptions,
 } from "../core/workspace-cleanup";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
 import { settleWorkspaceJournal } from "../core/workspace-journal-settle";
 import {
+  reclaimWorktreeExactPath,
   workspaceDown,
   workspaceLs,
   workspaceStop,
   workspaceUp,
 } from "../core/workspace-lifecycle";
 import { resolveGitCommonDir } from "../core/workspace-ownership";
+import {
+  applyReclaimManifest,
+  buildReclaimManifest,
+  ReclaimSkip,
+  readManifest,
+  selectManifest,
+  sha256Hex,
+} from "../core/worktree-reclaim";
 import { resolveGitCheckoutPath } from "./environment-path";
 
 function resolveGitWorkspaceRepo(repoPath?: string): string {
@@ -61,10 +73,23 @@ export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }
 }
 
 export function runWorkspaceCleanupCommand(
-  options: WorkspaceCleanupOptions & { json?: boolean },
+  options: WorkspaceCleanupOptions & { json?: boolean; manifest?: boolean; output?: string },
 ): void {
   const repoPath = resolveGitWorkspaceRepo(options.repo);
   const report = buildWorkspaceCleanupReport({ ...options, repo: repoPath });
+  if (options.manifest) {
+    if (!options.allWorktrees || !options.checkMerged) {
+      throw new Error("--manifest requires --all-worktrees and --check-merged.");
+    }
+    const manifest = buildReclaimManifest(report, Math.floor(Date.now() / 1000));
+    if (options.output) {
+      fs.writeFileSync(options.output, manifest, { flag: "wx" });
+      process.stdout.write(`${sha256Hex(manifest)}  ${options.output}\n`);
+    } else {
+      process.stdout.write(manifest);
+    }
+    return;
+  }
   if (options.json) {
     printJSON(report);
     return;
@@ -137,4 +162,63 @@ export async function runWorkspaceJournalSettleCommand(options: {
   process.stdout.write(
     `Settled journal operation ${result.operationId} (was ${result.priorStatus})${workspaceLabel}; ensure and stop may proceed.\n`,
   );
+}
+
+export function runWorkspaceManifestHashCommand(file: string): void {
+  const { raw } = readManifest(file);
+  process.stdout.write(`${sha256Hex(raw)}\n`);
+}
+
+export function runWorkspaceManifestSelectCommand(
+  file: string,
+  options: { expectedSha256: string; id: string[] },
+): void {
+  process.stdout.write(selectManifest(file, options.expectedSha256, options.id));
+}
+
+export async function runWorkspaceReclaimCommand(options: {
+  manifest: string;
+  sha256: string;
+  maxAge?: string;
+  inactiveFor?: string;
+  vetoCommand?: string;
+  yes?: boolean;
+  json?: boolean;
+}): Promise<void> {
+  const inactiveFor = parseInactiveFor(options.inactiveFor ?? "24h").input;
+  const report = await applyReclaimManifest(
+    {
+      manifestFile: options.manifest,
+      sha256: options.sha256,
+      maxAgeSeconds: parseInactiveFor(options.maxAge ?? "24h").seconds,
+      vetoCommand: options.vetoCommand,
+      yes: Boolean(options.yes),
+    },
+    {
+      prepare: (repo) => prepareReclaimVerdicts(repo, inactiveFor),
+      removeWorktree: async (candidate, verify, steps) => {
+        try {
+          await reclaimWorktreeExactPath(candidate.repo, candidate.path, verify, steps);
+        } catch (error) {
+          // The lifecycle lock does not wait: a held lock means another
+          // operation owns the tree right now, so leave it for a later run.
+          if (
+            steps.length === 0 &&
+            error instanceof Error &&
+            !(error instanceof ReclaimSkip) &&
+            /gave up after waiting/.test(error.message)
+          ) {
+            throw new ReclaimSkip("lock-unavailable", error.message);
+          }
+          throw error;
+        }
+      },
+    },
+  );
+  if (options.json) {
+    printJSON(report);
+  } else {
+    printReclaimReport(report);
+  }
+  if (report.targets.some((target) => target.status === "failed")) process.exitCode = 1;
 }

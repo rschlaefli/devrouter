@@ -588,6 +588,57 @@ export async function workspaceDeleteOwnedPath(
   return mutateWorkspaceOwnedPath("delete", worktreePath, opts);
 }
 
+/**
+ * Removes one exact linked worktree for an approved reclaim: inside a single
+ * lifecycle-lock acquisition it runs `verify`, deletes a managed runtime and
+ * its routes, removes the worktree without `--force`, and drops its ownership
+ * record. Each completed step is appended to `steps` as it finishes, so a
+ * caller can report a half-finished target exactly.
+ */
+export async function reclaimWorktreeExactPath(
+  mainRepo: string,
+  worktreePath: string,
+  verify: () => void,
+  steps: string[],
+): Promise<void> {
+  await withLifecycleOperationLock(worktreePath, async () => {
+    verify();
+    const worktrees = identifyGitWorktrees(mainRepo);
+    const record = oneRecordMatch(
+      worktreePath,
+      listWorkspaceOwnership(mainRepo).filter((candidate) =>
+        sameWorkspacePath(candidate.worktreePath, worktreePath),
+      ),
+    );
+    if (record) {
+      await mutateWorkspaceRuntime(
+        "delete",
+        {
+          workspace: record.workspace,
+          worktreePath: record.worktreePath,
+          worktree: worktreeForRecord(worktrees, record),
+          record,
+        },
+        worktrees,
+        true,
+      );
+      steps.push("runtime-deleted");
+    }
+    const rm = spawnSync("git", ["-C", mainRepo, "worktree", "remove", worktreePath], {
+      encoding: "utf-8",
+    });
+    if (rm.status !== 0) {
+      const detail = [rm.error?.message, rm.stderr].filter(Boolean).join("\n").trim();
+      throw new Error(`git worktree remove failed: ${detail || "unknown error"}`);
+    }
+    steps.push("worktree-removed");
+    if (record) {
+      removeWorkspaceOwnership(mainRepo, record.workspace);
+      steps.push("ownership-removed");
+    }
+  });
+}
+
 export async function workspaceStop(
   target: string,
   opts: { quiet?: boolean; repoPath?: string } = {},

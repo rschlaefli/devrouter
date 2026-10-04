@@ -505,3 +505,10 @@ under Active.
     records whose worktree no longer exists report `PRUNE` (94 rows), which
     the skill cannot see. Two rows differed only because their PRs opened
     during the run; a fresh skill run agrees.
+  - [x] C2: `workspace reclaim`, `workspace manifest hash|select` and
+    `cleanup --manifest`. Apply tests cover hash and age refusal, dry run,
+    receipts and rerun, stale identity, changed verdict, veto and a
+    half-finished teardown. A skill-created manifest validates in devrouter
+    and `select` output is byte-identical to `manifest.py`. End-to-end, the
+    skill's `apply-manifest.sh` delegates to devrouter with its session veto
+    and reclaims one tree in 3.6 s.

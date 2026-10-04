@@ -30,6 +30,7 @@ import {
   type WorkspaceOwnershipRecord,
 } from "./workspace-ownership";
 import { getWorkspaceRegistrySnapshots } from "./workspace-runtime";
+import { type ReclaimVerdictContext, unmanagedActivityEpoch } from "./worktree-reclaim";
 import {
   classifyWorktreeSafety,
   describeLocalWorktreeSafety,
@@ -1334,5 +1335,85 @@ export function buildWorkspaceCleanupReport(
     workspaces: managedRows,
     worktrees: unmanaged,
     networkCapacity,
+  };
+}
+
+/**
+ * The verdict context an approved reclaim re-checks each target against: one
+ * fresh forge listing and one runtime snapshot per repository, taken at apply
+ * start. `classify` re-reads Git state on every call, so the verdict reflects
+ * the tree at the moment its lifecycle lock is held.
+ */
+export function prepareReclaimVerdicts(
+  repo: string,
+  inactiveFor: string,
+  dependencies: WorkspaceCleanupDependencies = {},
+): ReclaimVerdictContext {
+  const repoPath = resolveRepoPath(repo);
+  const evidence = readForgeEvidence(
+    repoPath,
+    true,
+    dependencies.commandRunner ?? defaultCommandRunner,
+    dependencies.listForge ?? ((identity) => listForgeChanges(identity)),
+  );
+  const forge: ForgeListing =
+    evidence.status === "not-checked"
+      ? { status: "unavailable", reason: "forge not checked" }
+      : evidence;
+  let sources: WorktreeRuntimeSources | undefined;
+  const report = buildWorkspaceCleanupReport(
+    { repo: repoPath, inactiveFor, checkMerged: true, allWorktrees: true },
+    {
+      ...dependencies,
+      listForge: () => forge,
+      readRuntimeSources: (path) => {
+        sources = (dependencies.readRuntimeSources ?? readRuntimeSources)(path);
+        return sources;
+      },
+    },
+  );
+  const managed = report.workspaces;
+  const disposable = fs.existsSync(path.join(repoPath, ".devrouter.yml"))
+    ? (loadRepoConfig(repoPath).worktrees?.disposable ?? [])
+    : [];
+  const cutoffEpoch = Math.floor(Date.parse(report.cutoff) / 1000);
+  return {
+    forge,
+    classify: (worktreePath) => {
+      const worktrees = (dependencies.listWorktrees ?? listGitWorktrees)(repoPath);
+      const worktree = worktrees.find((candidate) =>
+        sameWorkspacePath(candidate.path, worktreePath),
+      );
+      const row = managed.find((candidate) =>
+        sameWorkspacePath(candidate.worktreePath, worktreePath),
+      );
+      return (dependencies.classifySafety ?? classifyWorktreeSafety)({
+        worktreePath,
+        branch: worktree?.branch,
+        primary: worktrees[0] !== undefined && sameWorkspacePath(worktrees[0].path, worktreePath),
+        locked: worktree?.locked ?? false,
+        missing: !worktree || worktree.prunable || !fs.existsSync(worktreePath),
+        runtimeEvidence: row
+          ? managedRuntimeEvidence(row)
+          : sources
+            ? worktreeRuntimeEvidence(worktreePath, sources)
+            : ["runtime sources unavailable"],
+        forge,
+        extraDisposablePatterns: disposable,
+      });
+    },
+    isActive: (worktreePath) => {
+      const row = managed.find((candidate) =>
+        sameWorkspacePath(candidate.worktreePath, worktreePath),
+      );
+      if (row) return row.activity !== "quiet";
+      const gitDir = spawnSync(
+        "git",
+        ["-C", worktreePath, "rev-parse", "--path-format=absolute", "--git-dir"],
+        { encoding: "utf-8", env: READ_ONLY_GIT_ENV },
+      ).stdout?.trim();
+      const latest = gitDir ? unmanagedActivityEpoch(worktreePath, gitDir) : undefined;
+      return latest === undefined || latest >= cutoffEpoch;
+    },
   };
 }
