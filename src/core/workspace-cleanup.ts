@@ -1310,7 +1310,6 @@ export function buildWorkspaceCleanupReport(
     );
   const managedRows = rows.map((row) => ({
     ...row,
-    schemaVersion: 2 as const,
     safety: safetyFor(
       worktrees.find((candidate) => sameWorkspacePath(candidate.path, row.worktreePath)),
       row.worktreePath,

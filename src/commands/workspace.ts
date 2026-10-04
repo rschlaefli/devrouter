@@ -231,7 +231,9 @@ export async function runWorkspaceReclaimCommand(options: {
   } else {
     printReclaimReport(report);
   }
-  if (report.targets.some((target) => target.status === "failed")) process.exitCode = 1;
+  if (report.stoppedEarly || report.targets.some((target) => target.status === "failed")) {
+    process.exitCode = 1;
+  }
 }
 
 export async function runWorkspaceTrimCommand(options: {
@@ -259,5 +261,7 @@ export async function runWorkspaceTrimCommand(options: {
   } else {
     printReclaimReport(report, "trim");
   }
-  if (report.targets.some((target) => target.status === "failed")) process.exitCode = 1;
+  if (report.stoppedEarly || report.targets.some((target) => target.status === "failed")) {
+    process.exitCode = 1;
+  }
 }

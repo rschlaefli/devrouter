@@ -4,6 +4,7 @@ import path from "node:path";
 import { withLifecycleOperationLock } from "./reliability-lifecycle";
 import type { WorkspaceCleanupReport, WorkspaceCleanupRow } from "./workspace-cleanup";
 import {
+  byteOrder,
   candidateId,
   canonicalJson,
   identityMismatch,
@@ -27,10 +28,6 @@ import { inspectLocalWorktreeSafety, matchesWorktreePattern } from "./worktree-s
  * quiet linked worktrees while keeping the worktree, its branch and any
  * runtime. It shares the reclaim manifest format, receipts and outcome classes.
  */
-
-function byteOrder(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 /** Ignored paths as `git status` reports them, without the directory marker. */
 function listIgnoredPaths(worktreePath: string): string[] | undefined {
@@ -229,7 +226,12 @@ function trimOnePath(
     steps.push(`skipped-tracked:${relative}`);
     return;
   }
-  fs.rmSync(target, { recursive: true, force: true });
+  try {
+    fs.rmSync(target, { recursive: true, force: true });
+  } catch (error) {
+    steps.push(`partial:${relative}`);
+    throw error;
+  }
   steps.push(`removed:${relative}`);
 }
 
@@ -346,7 +348,9 @@ export async function applyTrimManifest(
         continue;
       }
       outcome.status = "failed";
-      outcome.code = outcome.steps.some((step) => step.startsWith("removed:"))
+      outcome.code = outcome.steps.some(
+        (step) => step.startsWith("removed:") || step.startsWith("partial:"),
+      )
         ? "teardown-failed"
         : "environment";
       outcome.reason = message;

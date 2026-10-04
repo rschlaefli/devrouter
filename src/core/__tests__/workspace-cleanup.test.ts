@@ -9,6 +9,7 @@ import {
   parseGitLabChanges,
   parseInactiveFor,
   parseRemoteIdentity,
+  prepareReclaimVerdicts,
   type WorkspaceCleanupActivityEvidence,
   type WorkspaceCleanupCommandResult,
   type WorkspaceCleanupDependencies,
@@ -953,5 +954,41 @@ describe("buildWorkspaceCleanupReport with --all-worktrees", () => {
     );
     expect(listForge).toHaveBeenCalledTimes(1);
     expect(listForge).toHaveBeenCalledWith({ provider: "github", project: "acme/devrouter" });
+  });
+
+  it("re-reads runtime evidence for each reclaim verdict", () => {
+    let sourcesRead = 0;
+    const context = prepareReclaimVerdicts(
+      "/repo",
+      "24h",
+      allWorktreeDependencies({
+        readRuntimeSources: () => {
+          sourcesRead += 1;
+          return {
+            ledgerPaths: [],
+            routes: sourcesRead > 1 ? [{ repoPath: "/repo/trees/loose" }] : [],
+            devpod: [],
+            devsy: [],
+            unavailable: [],
+          };
+        },
+      }),
+    );
+    expect(context.classify("/repo/trees/loose").verdict).toBe("RECLAIM");
+    const second = context.classify("/repo/trees/loose");
+    expect(second.verdict).toBe("KEEP");
+    expect(second.codes).toEqual(["runtime-present"]);
+  });
+
+  it("reports a managed tree's own activity to reclaim", () => {
+    const managedReport = buildWorkspaceCleanupReport(
+      { repo: "/repo", inactiveFor: "24h", allWorktrees: true },
+      allWorktreeDependencies(),
+    );
+    const context = prepareReclaimVerdicts("/repo", "24h", allWorktreeDependencies());
+    context.classify("/repo/trees/feature");
+    expect(context.isActive("/repo/trees/feature")).toBe(
+      managedReport.workspaces[0].activity !== "quiet",
+    );
   });
 });

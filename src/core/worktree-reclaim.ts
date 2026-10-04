@@ -100,7 +100,7 @@ function sortKeys(value: unknown): unknown {
 }
 
 /** Orders by UTF-8 bytes, which matches Python's code-point string order. */
-function byteOrder(left: string, right: string): number {
+export function byteOrder(left: string, right: string): number {
   return Buffer.compare(Buffer.from(left, "utf-8"), Buffer.from(right, "utf-8"));
 }
 
@@ -673,6 +673,13 @@ function deleteBranchIfUnmoved(candidate: ManifestCandidate, steps: string[]): s
     return `branch ${candidate.branch} no longer points at the approved HEAD; it was kept for review`;
   }
   steps.push("branch-deleted");
+  // `update-ref -d` keeps `branch.<name>.*`, which `git branch -D` removes; a
+  // later branch with the same name would inherit the stale upstream.
+  spawnSync(
+    "git",
+    ["-C", candidate.repo, "config", "--remove-section", `branch.${candidate.branch}`],
+    { encoding: "utf-8" },
+  );
   return undefined;
 }
 
