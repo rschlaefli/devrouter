@@ -31,7 +31,9 @@ All notable changes to this project are documented in this file.
   idempotent. `workspace cleanup --all-worktrees --check-merged --manifest`
   emits the manifest, and `workspace manifest hash|select` hash or narrow it.
   Manifests are interchangeable with the `worktree-reclaim` skill, which
-  delegates to this command when devrouter is installed.
+  delegates to this command when devrouter is installed. Its session veto
+  adds about 1.7 s per target, measured on a workstation with a warm session
+  index.
 - `workspace trim --manifest <file> --sha256 <hash>` removes only the ignored
   paths that `worktrees.trim` declares from quiet linked worktrees, keeping the
   worktree, its branch and any runtime. `workspace cleanup --all-worktrees

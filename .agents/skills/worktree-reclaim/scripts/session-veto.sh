@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Session veto for one worktree, usable as an external hook by tools that
-# delete worktrees (for example `devrouter workspace trim --session-veto`).
+# delete worktrees (for example `devrouter workspace reclaim --veto-command`).
 #
 # usage: session-veto.sh <worktree-path>
 #

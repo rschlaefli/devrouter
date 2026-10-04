@@ -120,6 +120,7 @@ describe("buildOnboardingPrompt", () => {
     expect(prompt).toContain("devrouter workspace stop <workspace|branch>");
     expect(prompt).toContain("devrouter workspace cleanup [--repo <path>] [--inactive-for 30d]");
     expect(prompt).toContain("devrouter workspace gc [--json] [--yes]");
+    expect(prompt).toContain("devrouter workspace reclaim|trim --manifest <file> --sha256 <hash>");
     expect(prompt).toContain("--check-merged alone enables read-only origin/forge checks");
     expect(prompt).toContain("`present`, `missing`, `locked`, or `conflict`");
     expect(prompt).toContain("Dirty or locked full down fails before side effects");

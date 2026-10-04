@@ -520,3 +520,11 @@ under Active.
     tree are kept; dirty, running, active and stale-identity targets are
     skipped; a reclaim manifest is refused. Reclaim's preflight is now a shared
     helper; `worktree-reclaim.test.ts` is unchanged.
+  - [x] C2 review fixes: per-path runtime and activity evidence inside the
+    lock (a full report took 3.5 min on the larger repository), branch
+    deletion by compare-and-delete `update-ref` inside the lock, receipts for
+    a kept branch, lock skips only before verification, and UTF-8 byte order.
+  - [x] C4: agent guidance in the devrouter skill, its embedded copy and the
+    onboarding prompt, `worktrees` declarations in REPO_ONBOARDING, and a
+    skill test that proves delegation with devrouter on `PATH`. The session
+    veto measured about 1.7 s per call over five warm runs.
