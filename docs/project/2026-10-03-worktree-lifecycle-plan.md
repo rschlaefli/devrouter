@@ -495,7 +495,7 @@ under Active.
     `older-open-newer-merged` row. The corpus reads verdicts through
     `read < <(...)`, which caught a bash 3.2 bug where a caller's temporary
     `IFS` leaked into the classifier.
-- [ ] Package C.
+- [x] Package C: draft PR #128, stacked on #127.
   - [x] C1: classifier, bulk forge listing, `--all-worktrees` (schema 3) and
     the `worktrees` config key. The TypeScript corpus passes all 34 scenarios
     under both forges. Parity with the imported skill on two repositories
@@ -528,3 +528,9 @@ under Active.
     onboarding prompt, `worktrees` declarations in REPO_ONBOARDING, and a
     skill test that proves delegation with devrouter on `PATH`. The session
     veto measured about 1.7 s per call over five warm runs.
+  - [x] Package gates: the final review found no critical or high issues
+    (ready with follow-ups). Fixed: UTF-8 order in trim manifests, branch
+    config removal, half-finished trim reporting, non-zero exit on an early
+    stop, and a test for per-target runtime evidence. Documented: reclaim
+    before trim. The simplifier's refactor of the shared apply loop was
+    declined because it would hide each command's safety rules.
