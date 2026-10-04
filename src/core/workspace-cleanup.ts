@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import type { HostRouteState } from "../types";
 import {
   type DevpodRuntimeStatus,
@@ -7,10 +8,11 @@ import {
   inspectDevpodRuntimeStatus,
   listDevpodWorkspacesFromSnapshots,
 } from "./devpod-workspaces";
+import { type ForgeIdentity, type ForgeListing, listForgeChanges } from "./forge-changes";
 import { readHostRouteStateReadOnly } from "./host-routes";
 import type { NetworkCapacityInspection } from "./network-diagnostics";
 import { inspectNetworkCapacity } from "./network-diagnostics";
-import { resolveRepoPath } from "./repo-config";
+import { loadRepoConfig, resolveRepoPath } from "./repo-config";
 import { comparableWorkspacePath, sameWorkspacePath } from "./workspace";
 import {
   measureContainerConsumption,
@@ -23,13 +25,24 @@ import {
   inspectWorkspaceOwnership,
   listGitWorktrees,
   listWorkspaceOwnership,
+  resolveGitCommonDir,
   type WorkspaceOwnerStatus,
   type WorkspaceOwnershipRecord,
 } from "./workspace-ownership";
+import { getWorkspaceRegistrySnapshots } from "./workspace-runtime";
 import {
+  classifyWorktreeSafety,
   describeLocalWorktreeSafety,
   inspectLocalWorktreeSafety,
+  readLedgerWorktreePaths,
+  type WorktreeForgeEvidence,
   type WorktreeLocalSafety,
+  type WorktreeRuntimeSources,
+  type WorktreeSafetyCode,
+  type WorktreeSafetyInput,
+  type WorktreeSafetyResult,
+  type WorktreeSafetyVerdict,
+  worktreeRuntimeEvidence,
 } from "./worktree-safety";
 
 const DEFAULT_INACTIVE_FOR = "30d";
@@ -126,10 +139,27 @@ export type WorkspaceCleanupRow = {
   reasons: string[];
   /** Present only when size collection was requested. */
   consumption?: WorkspaceCleanupConsumption;
+  /** Present with `--all-worktrees`: the Git-safety verdict for this tree. */
+  safety?: WorkspaceCleanupSafety;
+};
+
+export type WorkspaceCleanupSafety = {
+  verdict: WorktreeSafetyVerdict;
+  codes: WorktreeSafetyCode[];
+  reasons: string[];
+  change?: WorktreeSafetyResult["change"];
+};
+
+/** A linked worktree without a devrouter ownership record. */
+export type WorkspaceCleanupWorktreeRow = {
+  worktreePath: string;
+  branch: string | null;
+  safety: WorkspaceCleanupSafety;
 };
 
 export type WorkspaceCleanupReport = {
-  schemaVersion: 2;
+  /** 2 for managed workspaces only; 3 when `--all-worktrees` adds verdicts. */
+  schemaVersion: 2 | 3;
   generatedAt: string;
   repoPath: string;
   inactiveFor: string;
@@ -137,6 +167,8 @@ export type WorkspaceCleanupReport = {
   checkMerged: boolean;
   measureSize: boolean;
   workspaces: WorkspaceCleanupRow[];
+  /** Present with `--all-worktrees`: unmanaged linked worktrees. */
+  worktrees?: WorkspaceCleanupWorktreeRow[];
   networkCapacity?: NetworkCapacityInspection;
 };
 
@@ -145,6 +177,7 @@ export type WorkspaceCleanupOptions = {
   inactiveFor?: string;
   checkMerged?: boolean;
   measureSize?: boolean;
+  allWorktrees?: boolean;
   now?: Date;
 };
 
@@ -184,6 +217,9 @@ export type WorkspaceCleanupDependencies = {
   measureWorktree?: (worktreePath: string) => WorkspaceCleanupSize;
   measureContainers?: (worktreePaths: string[]) => Map<string, WorkspaceContainerConsumption>;
   inspectLocalSafety?: (worktreePath: string) => WorktreeLocalSafety;
+  listForge?: (identity: ForgeIdentity) => ForgeListing;
+  readRuntimeSources?: (repoPath: string) => WorktreeRuntimeSources;
+  classifySafety?: (input: WorktreeSafetyInput) => WorktreeSafetyResult;
 };
 
 export type WorkspaceCleanupCommandResult = {
@@ -1093,6 +1129,62 @@ function describeCause(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function readRuntimeSources(repoPath: string): WorktreeRuntimeSources {
+  let routes: HostRouteState[] | undefined;
+  try {
+    routes = readHostRouteStateReadOnly();
+  } catch {
+    routes = undefined;
+  }
+  const registries = getWorkspaceRegistrySnapshots();
+  return {
+    ledgerPaths: readLedgerWorktreePaths(resolveGitCommonDir(repoPath)),
+    routes,
+    devpod: registries.devpod,
+    devsy: registries.devsy,
+    unavailable: registries.unavailable,
+  };
+}
+
+// One forge listing serves every tree of the run. Without --check-merged no
+// forge call is made and no tree can be RECLAIM.
+function readForgeEvidence(
+  repoPath: string,
+  checkMerged: boolean,
+  commandRunner: WorkspaceCleanupCommandRunner,
+  listForge: (identity: ForgeIdentity) => ForgeListing,
+): WorktreeForgeEvidence {
+  if (!checkMerged) return { status: "not-checked" };
+  const origin = gitOutput(repoPath, ["config", "--get", "remote.origin.url"], commandRunner);
+  const identity = origin ? parseRemoteIdentity(origin) : undefined;
+  if (!identity) {
+    return { status: "unavailable", reason: "origin is not a supported GitHub or GitLab remote" };
+  }
+  return listForge({ provider: identity.provider, project: identity.project });
+}
+
+function toSafety(result: WorktreeSafetyResult): WorkspaceCleanupSafety {
+  return {
+    verdict: result.verdict,
+    codes: result.codes,
+    reasons: result.reasons,
+    ...(result.change ? { change: result.change } : {}),
+  };
+}
+
+// devrouter tears down the runtime it owns, so a ledger row's own DevPod and
+// routes are no reason to keep it. Only ownership or runtime evidence that
+// devrouter cannot reconcile counts.
+function managedRuntimeEvidence(row: WorkspaceCleanupRow): string[] {
+  const evidence: string[] = [];
+  if (row.ownership !== "present") evidence.push(`ownership ${row.ownership}`);
+  if (row.provider === "conflict" || row.provider === "unknown") {
+    evidence.push(`provider ${row.provider}`);
+  }
+  if (row.route === "conflict" || row.route === "unknown") evidence.push(`route ${row.route}`);
+  return evidence;
+}
+
 export function buildWorkspaceCleanupReport(
   options: WorkspaceCleanupOptions = {},
   dependencies: WorkspaceCleanupDependencies = {},
@@ -1176,15 +1268,71 @@ export function buildWorkspaceCleanupReport(
         : row;
     })
     .sort((left, right) => left.workspace.localeCompare(right.workspace));
-  return {
-    schemaVersion: 2,
+  const base = {
     generatedAt: now.toISOString(),
     repoPath,
     inactiveFor: duration.input,
     cutoff,
     checkMerged: Boolean(options.checkMerged),
     measureSize,
-    workspaces: rows,
-    networkCapacity: (dependencies.inspectNetworkCapacity ?? inspectNetworkCapacity)(),
+  };
+  const networkCapacity = (dependencies.inspectNetworkCapacity ?? inspectNetworkCapacity)();
+  if (!options.allWorktrees) {
+    return { schemaVersion: 2, ...base, workspaces: rows, networkCapacity };
+  }
+
+  const classify = dependencies.classifySafety ?? classifyWorktreeSafety;
+  const forge = readForgeEvidence(
+    repoPath,
+    Boolean(options.checkMerged),
+    commandRunner,
+    dependencies.listForge ?? ((identity) => listForgeChanges(identity)),
+  );
+  const sources = (dependencies.readRuntimeSources ?? readRuntimeSources)(repoPath);
+  const disposable = fs.existsSync(path.join(repoPath, ".devrouter.yml"))
+    ? (loadRepoConfig(repoPath).worktrees?.disposable ?? [])
+    : [];
+  const [primary, ...linked] = worktrees;
+  const safetyFor = (worktree: GitWorktree | undefined, worktreePath: string, evidence: string[]) =>
+    toSafety(
+      classify({
+        worktreePath,
+        branch: worktree?.branch,
+        primary: primary !== undefined && sameWorkspacePath(primary.path, worktreePath),
+        locked: worktree?.locked ?? false,
+        missing: !worktree || worktree.prunable || !fs.existsSync(worktreePath),
+        runtimeEvidence: evidence,
+        forge,
+        extraDisposablePatterns: disposable,
+      }),
+    );
+  const managedRows = rows.map((row) => ({
+    ...row,
+    schemaVersion: 2 as const,
+    safety: safetyFor(
+      worktrees.find((candidate) => sameWorkspacePath(candidate.path, row.worktreePath)),
+      row.worktreePath,
+      managedRuntimeEvidence(row),
+    ),
+  }));
+  const unmanaged = linked
+    .filter(
+      (worktree) =>
+        !records.some((record) => sameWorkspacePath(record.worktreePath, worktree.path)),
+    )
+    .map(
+      (worktree): WorkspaceCleanupWorktreeRow => ({
+        worktreePath: worktree.path,
+        branch: worktree.branch ?? null,
+        safety: safetyFor(worktree, worktree.path, worktreeRuntimeEvidence(worktree.path, sources)),
+      }),
+    )
+    .sort((left, right) => (left.worktreePath < right.worktreePath ? -1 : 1));
+  return {
+    schemaVersion: 3,
+    ...base,
+    workspaces: managedRows,
+    worktrees: unmanaged,
+    networkCapacity,
   };
 }

@@ -10,7 +10,11 @@ import type {
 import { renderTable } from "../util/table";
 import { formatAge } from "../util/timeago";
 import { networkCapacityCheck } from "./network-diagnostics";
-import type { WorkspaceCleanupReport, WorkspaceCleanupSize } from "./workspace-cleanup";
+import type {
+  WorkspaceCleanupReport,
+  WorkspaceCleanupSafety,
+  WorkspaceCleanupSize,
+} from "./workspace-cleanup";
 
 export function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -33,10 +37,12 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
         ["Merged check", report.checkMerged ? "enabled" : "disabled"],
         ["Size measurement", report.measureSize ? "enabled" : "disabled"],
         ["Managed workspaces", String(report.workspaces.length)],
+        ...(report.worktrees ? [["Unmanaged worktrees", String(report.worktrees.length)]] : []),
       ],
     )}\n`,
   );
 
+  if (report.worktrees) printWorktreeVerdicts(report);
   if (report.workspaces.length === 0) {
     process.stdout.write("\nNo managed linked workspaces found.\n");
     return;
@@ -78,6 +84,7 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
               .join("; ") || "none",
           ],
           ["Reasons", row.reasons.join(" | ") || "none"],
+          ...(row.safety ? [["Safety", formatSafety(row.safety)]] : []),
           ...(row.consumption
             ? [
                 ["Reclaimable total", formatCleanupSize(row.consumption.reclaimable)],
@@ -97,6 +104,31 @@ export function printWorkspaceCleanupReport(report: WorkspaceCleanupReport): voi
         ],
       )}\n`,
     );
+  }
+}
+
+function formatSafety(safety: WorkspaceCleanupSafety): string {
+  return safety.codes.length ? `${safety.verdict} (${safety.codes.join(", ")})` : safety.verdict;
+}
+
+function printWorktreeVerdicts(report: WorkspaceCleanupReport): void {
+  const rows = [
+    ...report.workspaces.map((row) => [row.worktreePath, row.branch ?? "-", row.safety]),
+    ...(report.worktrees ?? []).map((row) => [row.worktreePath, row.branch ?? "-", row.safety]),
+  ] as [string, string, WorkspaceCleanupSafety | undefined][];
+  if (rows.length === 0) return;
+  process.stdout.write(
+    `\n${renderTable(
+      ["WORKTREE", "BRANCH", "VERDICT"],
+      rows.map(([worktree, branch, safety]) => [
+        worktree,
+        branch,
+        safety ? formatSafety(safety) : "-",
+      ]),
+    )}\n`,
+  );
+  if (!report.checkMerged) {
+    process.stdout.write("Forge not checked: rerun with --check-merged for RECLAIM verdicts.\n");
   }
 }
 

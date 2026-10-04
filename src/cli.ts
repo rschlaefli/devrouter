@@ -706,6 +706,10 @@ workspaceCommand
   .option("--inactive-for <duration>", "Inactive threshold using Ns, Nm, Nh, Nd, or Nw", "30d")
   .option("--check-merged", "Enable read-only origin and GitHub/GitLab integration checks")
   .option("--measure-size", "Measure per-workspace storage consumption (slower, still read-only)")
+  .option(
+    "--all-worktrees",
+    "Add a Git-safety verdict for every linked worktree, managed or not (schema version 3)",
+  )
   .option("--json", "Output the stable cleanup report as JSON")
   .action(
     withErrorHandling(async (_options: unknown, command: Command) => {
@@ -714,6 +718,7 @@ workspaceCommand
         inactiveFor?: string;
         checkMerged?: boolean;
         measureSize?: boolean;
+        allWorktrees?: boolean;
         json?: boolean;
       }>();
       const { runWorkspaceCleanupCommand } = await import("./commands/workspace");
@@ -722,6 +727,7 @@ workspaceCommand
         inactiveFor: options.inactiveFor,
         checkMerged: Boolean(options.checkMerged),
         measureSize: Boolean(options.measureSize),
+        allWorktrees: Boolean(options.allWorktrees),
         json: Boolean(options.json),
       });
     }),

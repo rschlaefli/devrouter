@@ -259,6 +259,27 @@ describe("loadRepoConfig", () => {
     writeConfig(tmpDir, "version: 1\ndevrouter:\n  channel: stable\napps: []");
     expect(() => loadRepoConfig(tmpDir)).toThrow("devrouter.channel is not supported");
   });
+
+  it("loads worktree cleanup patterns", () => {
+    writeConfig(
+      tmpDir,
+      "version: 1\nworktrees:\n  disposable: ['**/uploads/tmp']\n  trim: ['**/.next']\napps: []",
+    );
+    expect(loadRepoConfig(tmpDir).worktrees).toEqual({
+      disposable: ["**/uploads/tmp"],
+      trim: ["**/.next"],
+    });
+  });
+
+  it.each([
+    "worktrees:\n  trim: ['/abs']",
+    "worktrees:\n  trim: ['../escape']",
+    "worktrees:\n  trim: '**/.next'",
+    "worktrees:\n  keep: []",
+  ])("rejects invalid worktree patterns: %s", (worktrees) => {
+    writeConfig(tmpDir, `version: 1\n${worktrees}\napps: []`);
+    expect(() => loadRepoConfig(tmpDir)).toThrow();
+  });
 });
 
 // ---- hostname validation ----

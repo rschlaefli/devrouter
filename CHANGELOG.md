@@ -17,6 +17,12 @@ All notable changes to this project are documented in this file.
   unshipped, and no devrouter, DevPod or Devsy state bound to the path. Every
   verdict carries stable reason codes, and batch removal applies only an
   approved, hash-bound manifest.
+- `workspace cleanup --all-worktrees` adds the same Git-safety verdict
+  (`RECLAIM`, `KEEP` or `PRUNE` with reason codes) for every linked worktree,
+  including ones devrouter does not manage, in report schema version 3. With
+  `--check-merged` it lists the repository's pull or merge requests once per
+  run; without it no tree is `RECLAIM`. The optional `.devrouter.yml` key
+  `worktrees.disposable` declares more ignored paths that are safe to lose.
 
 ### Changed
 

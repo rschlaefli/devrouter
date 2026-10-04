@@ -496,3 +496,12 @@ under Active.
     `read < <(...)`, which caught a bash 3.2 bug where a caller's temporary
     `IFS` leaked into the classifier.
 - [ ] Package C.
+  - [x] C1: classifier, bulk forge listing, `--all-worktrees` (schema 3) and
+    the `worktrees` config key. The TypeScript corpus passes all 34 scenarios
+    under both forges. Parity with the imported skill on two repositories
+    (97 and 260 registered trees): identical verdicts for every registered
+    tree, except two cases the contract expects. Managed rows drop the
+    skill's `runtime-present` (144 rows; other codes unchanged). Ledger
+    records whose worktree no longer exists report `PRUNE` (94 rows), which
+    the skill cannot see. Two rows differed only because their PRs opened
+    during the run; a fresh skill run agrees.

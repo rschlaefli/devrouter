@@ -865,3 +865,93 @@ describe("workspace cleanup report and suggestions", () => {
     });
   });
 });
+
+describe("buildWorkspaceCleanupReport with --all-worktrees", () => {
+  const primary = worktree({ path: "/repo", branch: "main" });
+  const unmanaged = worktree({ path: "/repo/trees/loose", branch: "loose" });
+
+  function allWorktreeDependencies(
+    overrides: Partial<WorkspaceCleanupDependencies> = {},
+  ): WorkspaceCleanupDependencies {
+    return dependencies({
+      listWorktrees: () => [primary, worktree(), unmanaged],
+      readRuntimeSources: () => ({
+        ledgerPaths: ["/repo/trees/feature"],
+        routes: [],
+        devpod: [],
+        devsy: [],
+        unavailable: [],
+      }),
+      classifySafety: (input) => ({
+        verdict: input.runtimeEvidence.length ? "KEEP" : "RECLAIM",
+        codes: input.runtimeEvidence.length ? ["runtime-present"] : [],
+        reasons: [...input.runtimeEvidence],
+      }),
+      ...overrides,
+    });
+  }
+
+  it("keeps schema version 2 without the flag", () => {
+    const report = buildWorkspaceCleanupReport({ repo: "/repo", now }, allWorktreeDependencies());
+    expect(report.schemaVersion).toBe(2);
+    expect(report.worktrees).toBeUndefined();
+    expect(report.workspaces[0].safety).toBeUndefined();
+  });
+
+  it("adds verdicts for managed rows and lists unmanaged linked worktrees only", () => {
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, allWorktrees: true },
+      allWorktreeDependencies(),
+    );
+    expect(report.schemaVersion).toBe(3);
+    expect(report.workspaces[0].safety?.verdict).toBe("RECLAIM");
+    expect(report.worktrees?.map((row) => row.worktreePath)).toEqual(["/repo/trees/loose"]);
+  });
+
+  it("keeps a managed row whose ownership devrouter cannot reconcile", () => {
+    const report = buildWorkspaceCleanupReport(
+      { repo: "/repo", now, allWorktrees: true },
+      allWorktreeDependencies({
+        inspectOwnership: () => ({ ownerStatus: "conflict", devpodStatus: "owned" }),
+      }),
+    );
+    expect(report.workspaces[0].safety?.codes).toEqual(["runtime-present"]);
+  });
+
+  it("does not call the forge without --check-merged", () => {
+    const listForge = vi.fn();
+    const seen: string[] = [];
+    buildWorkspaceCleanupReport(
+      { repo: "/repo", now, allWorktrees: true },
+      allWorktreeDependencies({
+        listForge,
+        classifySafety: (input) => {
+          seen.push(input.forge.status);
+          return { verdict: "KEEP", codes: ["forge-not-checked"], reasons: [] };
+        },
+      }),
+    );
+    expect(listForge).not.toHaveBeenCalled();
+    expect(new Set(seen)).toEqual(new Set(["not-checked"]));
+  });
+
+  it("lists the forge once per run with --check-merged", () => {
+    const listForge = vi.fn(() => ({
+      status: "listed" as const,
+      provider: "github" as const,
+      changes: [],
+    }));
+    buildWorkspaceCleanupReport(
+      { repo: "/repo", now, allWorktrees: true, checkMerged: true },
+      allWorktreeDependencies({
+        listForge,
+        commandRunner: (_command, args) =>
+          args.includes("remote.origin.url")
+            ? commandResult("git@github.com:acme/devrouter.git\n")
+            : commandResult(),
+      }),
+    );
+    expect(listForge).toHaveBeenCalledTimes(1);
+    expect(listForge).toHaveBeenCalledWith({ provider: "github", project: "acme/devrouter" });
+  });
+});

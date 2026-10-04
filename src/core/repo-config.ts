@@ -13,6 +13,7 @@ import type {
   DevrouterHttpReadiness,
   DevrouterManagedRuntime,
   DevrouterProfile,
+  DevrouterWorktreesConfig,
 } from "../types";
 import {
   DEPENDENCY_ONLY_RUNTIME,
@@ -26,6 +27,7 @@ import {
 } from "./capabilities";
 import { parseUpstream } from "./host-routes";
 import { resolveWorkspace, wsFromBranch } from "./workspace";
+import { isValidWorktreePattern } from "./worktree-safety";
 
 declare const __VERSION__: string;
 
@@ -1097,6 +1099,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
       "managedRuntime",
       "profiles",
       "capacity",
+      "worktrees",
       "apps",
     ],
     configPath,
@@ -1181,6 +1184,7 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
   const managedRuntime = parseManagedRuntime(root.managedRuntime, configPath);
   const profiles = parseProfiles(root.profiles, configPath, apps, managedRuntime);
   const capacity = parseCapacityEstimates(root.capacity, configPath, profiles);
+  const worktrees = parseWorktreesConfig(root.worktrees, configPath);
 
   return {
     version: 1,
@@ -1193,8 +1197,33 @@ function parseConfig(raw: unknown, configPath: string): DevrouterConfig {
     ...(managedRuntime ? { managedRuntime } : {}),
     ...(profiles ? { profiles } : {}),
     ...(capacity ? { capacity } : {}),
+    ...(worktrees ? { worktrees } : {}),
     apps,
   };
+}
+
+function parseWorktreesConfig(
+  value: unknown,
+  configPath: string,
+): DevrouterWorktreesConfig | undefined {
+  if (value === undefined) return undefined;
+  const raw = ensureObject(value, `${configPath}.worktrees`);
+  ensureAllowedKeys(raw, ["disposable", "trim"], `${configPath}.worktrees`);
+  const result: DevrouterWorktreesConfig = {};
+  for (const key of ["disposable", "trim"] as const) {
+    if (raw[key] === undefined) continue;
+    const label = `${configPath}.worktrees.${key}`;
+    if (!Array.isArray(raw[key])) throw new Error(`${label} must be an array of patterns.`);
+    result[key] = (raw[key] as unknown[]).map((pattern, index) => {
+      if (typeof pattern !== "string" || !isValidWorktreePattern(pattern)) {
+        throw new Error(
+          `${label}[${index}] must be a worktree-relative pattern without '..' or a leading '/'.`,
+        );
+      }
+      return pattern;
+    });
+  }
+  return result;
 }
 
 const PROFILE_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
