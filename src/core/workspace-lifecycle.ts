@@ -43,6 +43,7 @@ import {
   type WorkspaceOwnershipRecord,
   withWorkspaceOwnershipTransaction,
 } from "./workspace-ownership";
+import { describeLocalWorktreeSafety, inspectLocalWorktreeSafety } from "./worktree-safety";
 
 // Workspace lifecycle mutations fail closed: Git, ledger, DevPod source, and
 // route evidence must identify the same exact owner before resources change.
@@ -255,18 +256,10 @@ function assertFullDownPreflight(mainRepo: string, target: ResolvedWorkspaceTarg
       `Worktree '${target.worktreePath}' is locked; unlock it before workspace down.`,
     );
   }
-  const status = spawnSync(
-    "git",
-    ["-C", target.worktreePath, "status", "--porcelain", "--untracked-files=normal"],
-    { encoding: "utf-8" },
-  );
-  if (status.status !== 0) {
-    const detail = [status.error?.message, status.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`git status failed for '${target.worktreePath}': ${detail || "unknown error"}`);
-  }
-  if (status.stdout.trim()) {
+  const safety = inspectLocalWorktreeSafety(target.worktreePath);
+  if (safety.codes.length > 0) {
     throw new Error(
-      `Worktree '${target.worktreePath}' has uncommitted changes; use --keep-worktree or clean it before workspace down.`,
+      `Worktree '${target.worktreePath}' is not safe to remove: ${describeLocalWorktreeSafety(safety)}; use --keep-worktree or resolve it before workspace down.`,
     );
   }
 }
