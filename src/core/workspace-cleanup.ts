@@ -26,6 +26,11 @@ import {
   type WorkspaceOwnerStatus,
   type WorkspaceOwnershipRecord,
 } from "./workspace-ownership";
+import {
+  describeLocalWorktreeSafety,
+  inspectLocalWorktreeSafety,
+  type WorktreeLocalSafety,
+} from "./worktree-safety";
 
 const DEFAULT_INACTIVE_FOR = "30d";
 const READ_ONLY_GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" };
@@ -178,6 +183,7 @@ export type WorkspaceCleanupDependencies = {
   ) => WorkspaceCleanupIntegrationEvidence;
   measureWorktree?: (worktreePath: string) => WorkspaceCleanupSize;
   measureContainers?: (worktreePaths: string[]) => Map<string, WorkspaceContainerConsumption>;
+  inspectLocalSafety?: (worktreePath: string) => WorktreeLocalSafety;
 };
 
 export type WorkspaceCleanupCommandResult = {
@@ -832,6 +838,7 @@ function buildSuggestions(
   integration: WorkspaceCleanupIntegrationEvidence,
   worktree: GitWorktree | undefined,
   checkMerged: boolean,
+  inspectLocalSafety: () => WorktreeLocalSafety,
 ): { eligibleActions: string[]; suggestions: WorkspaceCleanupSuggestion[]; reasons: string[] } {
   const reasons: string[] = [];
   const eligibleActions: string[] = [];
@@ -889,7 +896,13 @@ function buildSuggestions(
     return { eligibleActions, suggestions, reasons };
   }
 
-  if (integration.status === "merged-exact" && integration.headSha) {
+  const localSafety =
+    integration.status === "merged-exact" && integration.headSha ? inspectLocalSafety() : undefined;
+  if (localSafety && localSafety.codes.length > 0) {
+    reasons.push(
+      `Full removal is not suggested because the worktree holds local state: ${describeLocalWorktreeSafety(localSafety)}.`,
+    );
+  } else if (localSafety) {
     eligibleActions.push(downCommand);
     suggestions.push({
       command: downCommand,
@@ -938,6 +951,7 @@ function buildRow(
   inspectOwnershipFn: NonNullable<WorkspaceCleanupDependencies["inspectOwnership"]>,
   inspectIntegrationFn: WorkspaceCleanupDependencies["inspectIntegration"],
   inspectRuntimeFn: NonNullable<WorkspaceCleanupDependencies["inspectDevpodRuntime"]>,
+  inspectLocalSafetyFn: NonNullable<WorkspaceCleanupDependencies["inspectLocalSafety"]>,
 ): WorkspaceCleanupRow {
   const ownershipEvidence = inspectOwnershipFn(record, worktrees, devpods);
   const providerOwnership = devpods?.find(
@@ -987,6 +1001,7 @@ function buildRow(
     integration,
     snapshot.worktree,
     checkMerged,
+    () => inspectLocalSafetyFn(record.worktreePath),
   );
   const reasons = [
     `ownership=${ownershipEvidence.ownerStatus}`,
@@ -1151,6 +1166,7 @@ export function buildWorkspaceCleanupReport(
         dependencies.inspectIntegration,
         dependencies.inspectDevpodRuntime ??
           ((devpodId: string) => inspectDevpodRuntimeStatus(devpodId, record.worktreePath)),
+        dependencies.inspectLocalSafety ?? inspectLocalWorktreeSafety,
       );
       return measureSize
         ? {

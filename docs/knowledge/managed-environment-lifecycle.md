@@ -7,6 +7,7 @@ status: active
 source_paths:
   - src/core/workspace.ts
   - src/core/workspace-lifecycle.ts
+  - src/core/worktree-safety.ts
   - src/core/workspace-ownership.ts
   - src/core/workspace-ensure.ts
   - src/core/environment-stop.ts
@@ -406,7 +407,7 @@ whose complete historical and provider evidence survives.
 | `devrouter stop <path>` | Stop the exact primary or linked environment, remove its canonical routes, and prove Traefik unloaded them. | Checkout and linked ownership record. |
 | `devrouter exec <path> -- <command>` | Execute once inside an already-running exact runtime. | All lifecycle state; it does not start or recreate. |
 | `devrouter workspace stop <target>` | Reversible stop for the resolved linked owner. | Worktree, branch, and owner record. |
-| `devrouter workspace down <target>` | Delete the exact provider runtime and routes, then remove a clean unlocked worktree unless retained. | Branch; worktree and record only when explicitly retained or teardown fails before removal. |
+| `devrouter workspace down <target>` | Delete the exact provider runtime and routes, then remove an unlocked worktree that holds no local state unless retained. | Branch; worktree and record only when explicitly retained or teardown fails before removal. |
 | `devrouter workspace ls` | Join live Git, ownership, workspace runtime, and route evidence by exact worktree path. | Read-only. |
 | `devrouter workspace cleanup --repo <repo> --inactive-for 30d --json` | Report orthogonal ownership, checkout, route, advisory activity, and integration evidence for managed linked workspaces; exact guarded commands are suggestions only. | Always report-only; no `--yes` or apply mode. `--check-merged` alone enables read-only origin and matching GitHub/GitLab checks. `--measure-size` adds storage consumption and remains read-only. |
 | `devrouter workspace gc` | Report missing-owner cleanup candidates; `--yes` revalidates and deletes only exact ledger-owned missing resources. | Git worktrees, branches, legacy/unowned resources, and conflicting owners. |
@@ -517,6 +518,7 @@ nonzero and routes remain intact. This does not change legacy or delete paths.
 - Ambiguous Git paths, duplicate runtime IDs, owner conflicts, foreign aliases, dirty worktrees, and provider reassignments fail before destructive follow-up.
 - Provider mutation succeeds before route removal; a provider failure retains routes and ownership. After canonical removal, stop/delete still fails closed if bounded Traefik inspection plus one serialized restart cannot prove the routers unloaded.
 - Full down removes runtime, routes, worktree, then owner record. Failures stop that sequence and preserve later state.
+- Before any of that, `src/core/worktree-safety.ts:inspectLocalWorktreeSafety` must find no local state in the worktree: no tracked change, untracked file, detached HEAD, index lock, unfinished merge/rebase/cherry-pick/revert/bisect, initialized submodule, or ignored path outside the reproducible-output allowlist. A repository adds local disposable patterns in `<git-common-dir>/info/worktree-reclaim-disposable`; the file is never committed, and lines in the earlier `*/path/` syntax still apply. `workspace cleanup` runs the same check before it suggests full down for an exact merge. Each failed check reports a stable reason code shared with the `worktree-reclaim` skill.
 - Garbage collection revalidates inside one ownership transaction; a workspace revived after a dry run is not mutated.
 
 ## Evidence and change guidance
