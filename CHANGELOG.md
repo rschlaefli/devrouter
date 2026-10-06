@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- The `devrouter-setup` skill guides first-time machine setup: read-only
+  detection of the Docker runtime, DevPod or Devsy, Node, mkcert, Git and the
+  forge CLIs, then one confirmed install or setup step at a time. A CI step
+  proves every shipped skill is listed by the pinned `skills` CLI, so
+  `npx skills add rschlaefli/devrouter` installs them.
+- The `worktree-reclaim` skill audits Git worktrees in any repository, with or
+  without devrouter, and removes only those whose work is recoverable
+  elsewhere: newest same-repository PR/MR merged, tree clean, nothing
+  unshipped, and no devrouter, DevPod or Devsy state bound to the path. Every
+  verdict carries stable reason codes, and batch removal applies only an
+  approved, hash-bound manifest.
+
 ### Changed
 
 - `workspace down` refuses to remove a worktree that holds local state the

@@ -32,10 +32,26 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:docs-policy
       - run: pnpm check:knowledge
+      - name: Shipped skills are installable
+        run: |
+          listing="$(npx -y skills@1.7.0 add . --list 2>&1)"
+          echo "$listing"
+          # One skill name per line, without box-drawing prefixes or colors.
+          names="$(sed -E 's/\x1b\[[0-9;?]*[a-zA-Z]//g; s/^[^A-Za-z0-9]*//; s/[[:space:]]+$//' <<<"$listing")"
+          missing=0
+          for file in .agents/skills/*/SKILL.md; do
+            name="$(basename "$(dirname "$file")")"
+            if ! grep -qxF -- "$name" <<<"$names"; then
+              echo "Skill not listed by skills CLI: $name" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
       - run: pnpm check
       - run: pnpm knip
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm test:skills
       - run: pnpm build
       - run: pnpm test:package
       - run: pnpm qualify:controller

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# `devpod list --output json` stand-in backed by $CORPUS_DIR/devpod.json.
+[ -e "$CORPUS_DIR/devpod-down" ] && exit 1
+cat "$CORPUS_DIR/devpod.json" 2>/dev/null || echo '[]'

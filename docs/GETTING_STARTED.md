@@ -6,6 +6,12 @@ secret-manager, workspace, and production-like consumer integration details.
 
 ## Prerequisites
 
+An agent can run this section for you: install the `devrouter-setup` skill with
+`npx skills add rschlaefli/devrouter`. It detects what is missing and asks
+before each install or setup command. Sandboxed agents need the global pnpm
+store and the repository `.git` folder writable; the skill states the Claude
+Code and Codex settings to change.
+
 - macOS
 - Docker daemon and Docker Compose v2
 - Node.js 24 or newer

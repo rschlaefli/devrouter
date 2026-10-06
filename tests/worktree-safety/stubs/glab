@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Stateful `glab api` stand-in: returns the merge requests for the requested
+# source branch from $CORPUS_DIR/prs.tsv as GitLab JSON. A cross-repository
+# row becomes a fork merge request (different source and target project).
+set -euo pipefail
+[ -e "$CORPUS_DIR/forge-down" ] && exit 1
+[ "${1:-}" = api ] || exit 1
+url=""
+for arg in "$@"; do case "$arg" in projects/*) url="$arg" ;; esac; done
+python3 - "$url" "$CORPUS_DIR/prs.tsv" <<'PY'
+import json, os, sys, urllib.parse
+query = urllib.parse.parse_qs(urllib.parse.urlsplit(sys.argv[1]).query)
+branch = query.get("source_branch", [""])[0]
+states = {"MERGED": "merged", "OPEN": "opened", "CLOSED": "closed"}
+out = []
+if os.path.exists(sys.argv[2]):
+    for line in open(sys.argv[2], encoding="utf-8"):
+        name, state, number, head, cross = line.rstrip("\n").split("\t")
+        if name != branch:
+            continue
+        out.append({
+            "iid": int(number),
+            "state": states[state],
+            "sha": head or None,
+            "source_project_id": 2 if cross == "true" else 1,
+            "target_project_id": 1,
+        })
+print(json.dumps(out))
+PY
