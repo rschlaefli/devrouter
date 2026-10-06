@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { type ForgeChange, type ForgeListing, newestSameRepositoryChange } from "./forge-changes";
+import { sameWorkspacePath } from "./workspace";
 
 /**
  * Local Git-safety evidence for deleting a worktree. Every failed check yields
@@ -19,6 +21,24 @@ export const WORKTREE_LOCAL_SAFETY_CODES = [
 ] as const;
 
 export type WorktreeLocalSafetyCode = (typeof WORKTREE_LOCAL_SAFETY_CODES)[number];
+
+/** Every KEEP reason code of the full verdict, local checks included. */
+export const WORKTREE_SAFETY_CODES = [
+  ...WORKTREE_LOCAL_SAFETY_CODES,
+  "primary",
+  "locked",
+  "runtime-present",
+  "forge-not-checked",
+  "forge-unavailable",
+  "no-change",
+  "change-open",
+  "change-closed",
+  "head-beyond-merge",
+  "active",
+] as const;
+
+export type WorktreeSafetyCode = (typeof WORKTREE_SAFETY_CODES)[number];
+export type WorktreeSafetyVerdict = "RECLAIM" | "KEEP" | "PRUNE";
 
 export type WorktreeLocalSafety = {
   codes: WorktreeLocalSafetyCode[];
@@ -269,4 +289,170 @@ export function describeLocalWorktreeSafety(safety: WorktreeLocalSafety): string
       return examples?.length ? `${code} (${examples.join(", ")})` : code;
     })
     .join("; ");
+}
+
+/** Forge evidence for one run: not requested, unavailable, or one bulk listing. */
+export type WorktreeForgeEvidence = { status: "not-checked" } | ForgeListing;
+
+export type WorktreeSafetyInput = {
+  worktreePath: string;
+  /** Branch name without `refs/heads/`; undefined for a detached registration. */
+  branch?: string;
+  primary: boolean;
+  locked: boolean;
+  /** The registration's folder is gone. */
+  missing: boolean;
+  /** Runtime evidence found for this exact path; any entry keeps the tree. */
+  runtimeEvidence: readonly string[];
+  forge: WorktreeForgeEvidence;
+  extraDisposablePatterns?: readonly string[];
+};
+
+export type WorktreeSafetyResult = {
+  verdict: WorktreeSafetyVerdict;
+  /** KEEP codes in byte order, matching the skill's classifier output. */
+  codes: WorktreeSafetyCode[];
+  reasons: string[];
+  change?: Pick<ForgeChange, "number" | "state">;
+};
+
+function gitSucceeds(worktreePath: string, args: string[]): string | undefined {
+  const result = git(worktreePath, args);
+  return result.ok ? result.stdout.trim() : undefined;
+}
+
+/**
+ * The full Git-safety verdict for one registered worktree. RECLAIM requires
+ * every local check to pass, no runtime evidence, and a newest same-repository
+ * change that is merged with the local HEAD at or behind its merged head.
+ * Every fact that cannot be established is a KEEP code. Read-only.
+ */
+export function classifyWorktreeSafety(input: WorktreeSafetyInput): WorktreeSafetyResult {
+  if (input.missing) {
+    return { verdict: "PRUNE", codes: [], reasons: ["the registered folder is gone"] };
+  }
+  if (gitSucceeds(input.worktreePath, ["rev-parse", "--git-dir"]) === undefined) {
+    return { verdict: "KEEP", codes: ["git-error"], reasons: ["not a readable Git worktree"] };
+  }
+  const local = inspectLocalWorktreeSafety(input.worktreePath, {
+    extraDisposablePatterns: input.extraDisposablePatterns,
+  });
+  const codes = new Set<WorktreeSafetyCode>(local.codes);
+  const reasons = local.codes.length ? [describeLocalWorktreeSafety(local)] : [];
+  const keep = (code: WorktreeSafetyCode, reason: string): void => {
+    codes.add(code);
+    reasons.push(reason);
+  };
+  const result = (change?: ForgeChange): WorktreeSafetyResult => {
+    const sorted = [...codes].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+    return {
+      verdict: sorted.length ? "KEEP" : "RECLAIM",
+      codes: sorted,
+      reasons,
+      ...(change ? { change: { number: change.number, state: change.state } } : {}),
+    };
+  };
+  if (input.primary) keep("primary", "primary checkout");
+  if (input.locked) keep("locked", "worktree locked");
+  if (input.runtimeEvidence.length) {
+    keep("runtime-present", `runtime evidence (${input.runtimeEvidence.join(", ")})`);
+  }
+
+  const head = gitSucceeds(input.worktreePath, ["rev-parse", "--verify", "HEAD"]);
+  const detached = !head || !input.branch || codes.has("detached");
+  if (detached) {
+    if (!codes.has("detached")) keep("detached", "detached or unreadable HEAD");
+    return result();
+  }
+
+  if (input.forge.status === "not-checked") {
+    keep("forge-not-checked", "forge not checked; rerun with --check-merged");
+    return result();
+  }
+  if (input.forge.status === "unavailable") {
+    keep("forge-unavailable", input.forge.reason);
+    return result();
+  }
+  const change = newestSameRepositoryChange(input.forge.changes, input.branch as string);
+  if (!change) {
+    keep("no-change", "no same-repository change for the branch");
+    return result();
+  }
+  if (change.state === "OPEN") keep("change-open", `change ${change.number} still open`);
+  else if (change.state === "CLOSED") {
+    keep("change-closed", `change ${change.number} closed without merge`);
+  } else if (!change.headSha) {
+    keep("head-beyond-merge", `merged change ${change.number} reports no head`);
+  } else if (
+    change.headSha !== head &&
+    !git(input.worktreePath, ["merge-base", "--is-ancestor", head, change.headSha]).ok
+  ) {
+    keep("head-beyond-merge", `local HEAD has commits beyond merged change ${change.number}`);
+  }
+  return result(change);
+}
+
+/**
+ * Runtime state sources for the evidence check. A source that exists but could
+ * not be read is passed as undefined (or listed in `unavailable`) and then
+ * counts as evidence for every tree, so an unreadable source fails closed.
+ */
+export type WorktreeRuntimeSources = {
+  ledgerPaths: readonly string[] | undefined;
+  routes: readonly { repoPath: string }[] | undefined;
+  devpod?: readonly { id: string; source: { localFolder?: string } }[];
+  devsy?: readonly { id: string; source: { localFolder?: string } }[];
+  unavailable: readonly string[];
+};
+
+/**
+ * Reads the `worktreePath` of every devrouter ownership record of a
+ * repository. Only the path matters here, so a record that fails the ledger's
+ * full validation still counts as runtime evidence. Undefined when unreadable.
+ */
+export function readLedgerWorktreePaths(gitCommonDir: string): string[] | undefined {
+  const directory = path.join(gitCommonDir, "devrouter", "workspaces");
+  let names: string[];
+  try {
+    names = fs.readdirSync(directory).filter((name) => name.endsWith(".json"));
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : undefined;
+  }
+  const paths: string[] = [];
+  for (const name of names.sort()) {
+    try {
+      const record = JSON.parse(fs.readFileSync(path.join(directory, name), "utf-8"));
+      if (typeof record?.worktreePath === "string") paths.push(record.worktreePath);
+    } catch {
+      return undefined;
+    }
+  }
+  return paths;
+}
+
+export function worktreeRuntimeEvidence(
+  worktreePath: string,
+  sources: WorktreeRuntimeSources,
+): string[] {
+  const evidence: string[] = [];
+  if (!sources.ledgerPaths) evidence.push("cannot list devrouter workspace records");
+  if (!sources.routes) evidence.push("cannot list devrouter routes");
+  for (const runtime of sources.unavailable) evidence.push(`cannot list ${runtime} workspaces`);
+  if (sources.ledgerPaths?.some((entry) => sameWorkspacePath(entry, worktreePath))) {
+    evidence.push("devrouter workspace record");
+  }
+  if (sources.routes?.some((route) => sameWorkspacePath(route.repoPath, worktreePath))) {
+    evidence.push("devrouter route");
+  }
+  for (const [label, workspaces] of [
+    ["DevPod", sources.devpod],
+    ["Devsy", sources.devsy],
+  ] as const) {
+    for (const workspace of workspaces ?? []) {
+      const folder = workspace.source.localFolder;
+      if (folder && sameWorkspacePath(folder, worktreePath))
+        evidence.push(`${label} ${workspace.id}`);
+    }
+  }
+  return evidence;
 }

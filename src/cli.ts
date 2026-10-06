@@ -706,7 +706,21 @@ workspaceCommand
   .option("--inactive-for <duration>", "Inactive threshold using Ns, Nm, Nh, Nd, or Nw", "30d")
   .option("--check-merged", "Enable read-only origin and GitHub/GitLab integration checks")
   .option("--measure-size", "Measure per-workspace storage consumption (slower, still read-only)")
+  .option(
+    "--all-worktrees",
+    "Add a Git-safety verdict for every linked worktree, managed or not (schema version 3)",
+  )
   .option("--json", "Output the stable cleanup report as JSON")
+  .option(
+    "--manifest",
+    "Emit a canonical reclaim manifest of quiet RECLAIM trees (needs --all-worktrees --check-merged)",
+  )
+  .option("--output <file>", "Write the manifest to a new file and print its SHA-256")
+  .option(
+    "--action <action>",
+    "Manifest action: reclaim (needs --check-merged) or trim (declared worktrees.trim paths)",
+    "reclaim",
+  )
   .action(
     withErrorHandling(async (_options: unknown, command: Command) => {
       const options = command.opts<{
@@ -714,7 +728,11 @@ workspaceCommand
         inactiveFor?: string;
         checkMerged?: boolean;
         measureSize?: boolean;
+        allWorktrees?: boolean;
         json?: boolean;
+        manifest?: boolean;
+        output?: string;
+        action?: "reclaim" | "trim";
       }>();
       const { runWorkspaceCleanupCommand } = await import("./commands/workspace");
       runWorkspaceCleanupCommand({
@@ -722,8 +740,115 @@ workspaceCommand
         inactiveFor: options.inactiveFor,
         checkMerged: Boolean(options.checkMerged),
         measureSize: Boolean(options.measureSize),
+        allWorktrees: Boolean(options.allWorktrees),
         json: Boolean(options.json),
+        manifest: Boolean(options.manifest),
+        output: options.output,
+        action: options.action,
       });
+    }),
+  );
+
+const manifestCommand = workspaceCommand
+  .command("manifest")
+  .description("Hash or narrow a content-addressed worktree reclaim manifest");
+
+manifestCommand
+  .command("hash")
+  .description("Validate a manifest and print its SHA-256")
+  .argument("<file>", "Manifest file")
+  .action(
+    withErrorHandling(async (file: string) => {
+      const { runWorkspaceManifestHashCommand } = await import("./commands/workspace");
+      runWorkspaceManifestHashCommand(file);
+    }),
+  );
+
+manifestCommand
+  .command("select")
+  .description("Print a canonical subset manifest of exact candidate IDs")
+  .argument("<file>", "Source manifest file")
+  .requiredOption("--expected-sha256 <hash>", "SHA-256 of the source manifest")
+  .requiredOption(
+    "--id <candidate-id>",
+    "Candidate ID to keep (repeatable)",
+    (value: string, previous: string[] = []) => [...previous, value],
+  )
+  .action(
+    withErrorHandling(async (file: string, _options: unknown, command: Command) => {
+      const options = command.opts<{ expectedSha256: string; id: string[] }>();
+      const { runWorkspaceManifestSelectCommand } = await import("./commands/workspace");
+      runWorkspaceManifestSelectCommand(file, options);
+    }),
+  );
+
+workspaceCommand
+  .command("reclaim")
+  .description(
+    "Remove the worktrees of an approved manifest, re-verifying each inside its lifecycle lock",
+  )
+  .requiredOption("--manifest <file>", "Approved reclaim manifest")
+  .requiredOption("--sha256 <hash>", "Approved SHA-256 of the manifest")
+  .option("--max-age <duration>", "Refuse a manifest older than this (Ns, Nm, Nh, Nd, Nw)", "24h")
+  .option(
+    "--inactive-for <duration>",
+    "Without a veto command, require no activity inside this window",
+    "24h",
+  )
+  .option(
+    "--veto-command <path>",
+    "Absolute path of an executable called with the worktree path; a non-zero exit skips it",
+  )
+  .option("--yes", "Reclaim; without it the command is a dry run")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{
+        manifest: string;
+        sha256: string;
+        maxAge?: string;
+        inactiveFor?: string;
+        vetoCommand?: string;
+        yes?: boolean;
+        json?: boolean;
+      }>();
+      const { runWorkspaceReclaimCommand } = await import("./commands/workspace");
+      await runWorkspaceReclaimCommand(options);
+    }),
+  );
+
+workspaceCommand
+  .command("trim")
+  .description(
+    "Remove the declared trim paths of an approved manifest, re-verifying each tree inside its lifecycle lock",
+  )
+  .requiredOption("--manifest <file>", "Approved trim manifest")
+  .requiredOption("--sha256 <hash>", "Approved SHA-256 of the manifest")
+  .option("--max-age <duration>", "Refuse a manifest older than this (Ns, Nm, Nh, Nd, Nw)", "24h")
+  .option(
+    "--inactive-for <duration>",
+    "Without a veto command, require no activity inside this window",
+    "14d",
+  )
+  .option(
+    "--veto-command <path>",
+    "Absolute path of an executable called with the worktree path; a non-zero exit skips it",
+  )
+  .option("--yes", "Trim; without it the command is a dry run")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{
+        manifest: string;
+        sha256: string;
+        maxAge?: string;
+        inactiveFor?: string;
+        vetoCommand?: string;
+        yes?: boolean;
+        json?: boolean;
+      }>();
+      const { runWorkspaceTrimCommand } = await import("./commands/workspace");
+      await runWorkspaceTrimCommand(options);
     }),
   );
 

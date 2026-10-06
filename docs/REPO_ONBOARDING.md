@@ -385,6 +385,21 @@ devrouter workspace ls
 | `workspace cleanup --repo <repo> --inactive-for 30d --json` | Report-only ownership, workspace runtime registration/state, checkout, route, advisory activity, and integration evidence for managed linked workspaces; no `--yes` or apply mode. Add `--check-merged` to enable read-only origin and matching GitHub/GitLab checks. |
 | `workspace gc` | Report missing-owner candidates; mutate nothing. |
 | `workspace gc --yes` | Revalidate and delete only exact ledger-owned missing resources and their records; never remove Git worktrees or branches. |
+| `workspace cleanup --all-worktrees --check-merged --manifest --output <file>` | Write a reclaim manifest of quiet linked worktrees, managed or not, whose newest pull or merge request merged and that hold no local state. Add `--action trim` for declared cache paths instead. |
+| `workspace reclaim\|trim --manifest <file> --sha256 <hash> --yes` | Apply the manifest a person approved by its SHA-256; each target is re-checked inside its lifecycle lock. |
+
+Declare a repository's reproducible worktree state in `.devrouter.yml` so
+reclaim does not keep trees for it and trim can remove it from kept trees:
+
+```yaml
+worktrees:
+  disposable: ["**/playwright-report"] # ignored paths that are safe to lose
+  trim: ["**/node_modules", "**/.next"] # paths `workspace trim` may remove
+```
+
+Built-in patterns already cover common dependency and build caches. Declare
+only paths a fresh install or build recreates; uploads, local notes and
+anything else unrecognized keep the tree.
 
 `workspace ls` reports `present`, `missing`, `locked`, or `conflict`. Ambiguous
 identity, foreign ownership, locks, and dirty destructive targets fail closed.

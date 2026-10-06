@@ -126,6 +126,23 @@ assert_contains "$result" "$WT_ONE"
 assert_not_contains "$result" "$WT_TWO"
 assert_contains "$result" "Dry run only"
 
+# With a capable devrouter on PATH the skill hands the approved manifest to
+# `devrouter workspace reclaim`, with its session check as the veto.
+DEVROUTER_STUB="$TEST_ROOT/devrouter-bin"
+mkdir -p "$DEVROUTER_STUB"
+make_stub "$DEVROUTER_STUB/devrouter" \
+  'if [ "$*" = "workspace reclaim --help" ]; then exit 0; fi' \
+  'printf "%s\n" "$@" > "$WORKTREE_RECLAIM_TEST_DELEGATED"'
+export WORKTREE_RECLAIM_TEST_DELEGATED="$TEST_ROOT/delegated.args"
+WORKTREE_RECLAIM_NO_DEVROUTER=0 PATH="$DEVROUTER_STUB:$PATH" \
+  "$SKILL_DIR/scripts/apply-manifest.sh" "$SUBSET" --sha256 "$SUBSET_HASH" --yes > /dev/null
+delegated=$(cat "$WORKTREE_RECLAIM_TEST_DELEGATED")
+assert_contains "$delegated" "--manifest"$'\n'"$SUBSET"
+assert_contains "$delegated" "--sha256"$'\n'"$SUBSET_HASH"
+assert_contains "$delegated" "--veto-command"$'\n'"$SKILL_DIR/scripts/session-veto.sh"
+assert_contains "$delegated" "--yes"
+[ -d "$WT_ONE" ] || fail "delegation must leave the skill's own teardown unused"
+
 export WORKTREE_RECLAIM_TEST_DEVPOD_FAIL=1
 if "$SKILL_DIR/scripts/apply-manifest.sh" "$SUBSET" --sha256 "$SUBSET_HASH" > "$TEST_ROOT/devpod-fail.out" 2>&1; then
   fail "expected unavailable DevPod ownership evidence to fail closed"
@@ -257,4 +274,4 @@ if "$SKILL_DIR/scripts/apply-manifest.sh" "$SUBSET" --sha256 "$SUBSET_HASH" > "$
 fi
 assert_contains "$(cat "$TEST_ROOT/gone.out")" "STALE $ID_ONE"
 
-printf 'PASS: manifest hash/age, exact selection, JSON report, trim refusal, live activity, all-target preflight, scoped apply, and receipts\n'
+printf 'PASS: manifest hash/age, exact selection, devrouter delegation, JSON report, trim refusal, live activity, all-target preflight, scoped apply, and receipts\n'

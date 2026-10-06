@@ -17,6 +17,29 @@ All notable changes to this project are documented in this file.
   unshipped, and no devrouter, DevPod or Devsy state bound to the path. Every
   verdict carries stable reason codes, and batch removal applies only an
   approved, hash-bound manifest.
+- `workspace cleanup --all-worktrees` adds the same Git-safety verdict
+  (`RECLAIM`, `KEEP` or `PRUNE` with reason codes) for every linked worktree,
+  including ones devrouter does not manage, in report schema version 3. With
+  `--check-merged` it lists the repository's pull or merge requests once per
+  run; without it no tree is `RECLAIM`. The optional `.devrouter.yml` key
+  `worktrees.disposable` declares more ignored paths that are safe to lose.
+- `workspace reclaim --manifest <file> --sha256 <hash>` removes the linked
+  worktrees of an approved manifest, managed or not. It is a dry run without
+  `--yes`, re-checks each target's identity, verdict and optional
+  `--veto-command` inside its lifecycle lock, deletes a branch only while its
+  tip still equals the approved HEAD, and writes receipts so a rerun is
+  idempotent. `workspace cleanup --all-worktrees --check-merged --manifest`
+  emits the manifest, and `workspace manifest hash|select` hash or narrow it.
+  Manifests are interchangeable with the `worktree-reclaim` skill, which
+  delegates to this command when devrouter is installed. Its session veto
+  adds about 1.7 s per target, measured on a workstation with a warm session
+  index.
+- `workspace trim --manifest <file> --sha256 <hash>` removes only the ignored
+  paths that `worktrees.trim` declares from quiet linked worktrees, keeping the
+  worktree, its branch and any runtime. `workspace cleanup --all-worktrees
+  --manifest --action trim` emits the manifest. Apply is a dry run without
+  `--yes`, skips symlinks, paths outside the tree and paths with tracked files,
+  and re-checks each target inside its lifecycle lock.
 
 ### Changed
 

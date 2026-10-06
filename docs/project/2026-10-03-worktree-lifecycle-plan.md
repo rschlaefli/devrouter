@@ -495,4 +495,42 @@ under Active.
     `older-open-newer-merged` row. The corpus reads verdicts through
     `read < <(...)`, which caught a bash 3.2 bug where a caller's temporary
     `IFS` leaked into the classifier.
-- [ ] Package C.
+- [x] Package C: draft PR #128, stacked on #127.
+  - [x] C1: classifier, bulk forge listing, `--all-worktrees` (schema 3) and
+    the `worktrees` config key. The TypeScript corpus passes all 34 scenarios
+    under both forges. Parity with the imported skill on two repositories
+    (97 and 260 registered trees): identical verdicts for every registered
+    tree, except two cases the contract expects. Managed rows drop the
+    skill's `runtime-present` (144 rows; other codes unchanged). Ledger
+    records whose worktree no longer exists report `PRUNE` (94 rows), which
+    the skill cannot see. Two rows differed only because their PRs opened
+    during the run; a fresh skill run agrees.
+  - [x] C2: `workspace reclaim`, `workspace manifest hash|select` and
+    `cleanup --manifest`. Apply tests cover hash and age refusal, dry run,
+    receipts and rerun, stale identity, changed verdict, veto and a
+    half-finished teardown. A skill-created manifest validates in devrouter
+    and `select` output is byte-identical to `manifest.py`. End-to-end, the
+    skill's `apply-manifest.sh` delegates to devrouter with its session veto
+    and reclaims one tree in 3.6 s.
+  - [x] C3: `workspace trim` and `cleanup --manifest --action trim`.
+    `worktree-trim.test.ts` (5 tests) covers: the manifest lists only declared
+    trim paths and omits trees with other ignored state; dry run changes
+    nothing; apply removes declared paths, writes a receipt and a rerun is
+    `already-done`; tracked files, symlinks and paths whose realpath escapes the
+    tree are kept; dirty, running, active and stale-identity targets are
+    skipped; a reclaim manifest is refused. Reclaim's preflight is now a shared
+    helper; `worktree-reclaim.test.ts` is unchanged.
+  - [x] C2 review fixes: per-path runtime and activity evidence inside the
+    lock (a full report took 3.5 min on the larger repository), branch
+    deletion by compare-and-delete `update-ref` inside the lock, receipts for
+    a kept branch, lock skips only before verification, and UTF-8 byte order.
+  - [x] C4: agent guidance in the devrouter skill, its embedded copy and the
+    onboarding prompt, `worktrees` declarations in REPO_ONBOARDING, and a
+    skill test that proves delegation with devrouter on `PATH`. The session
+    veto measured about 1.7 s per call over five warm runs.
+  - [x] Package gates: the final review found no critical or high issues
+    (ready with follow-ups). Fixed: UTF-8 order in trim manifests, branch
+    config removal, half-finished trim reporting, non-zero exit on an early
+    stop, and a test for per-target runtime evidence. Documented: reclaim
+    before trim. The simplifier's refactor of the shared apply loop was
+    declined because it would hide each command's safety rules.

@@ -151,9 +151,9 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   },
   {
     command:
-      "devrouter workspace cleanup [--repo <path>] [--inactive-for 30d] [--check-merged] [--measure-size] [--json]",
+      "devrouter workspace cleanup [--repo <path>] [--inactive-for 30d] [--check-merged] [--measure-size] [--all-worktrees] [--manifest [--action reclaim|trim] [--output <file>]] [--json]",
     purpose:
-      "Report-only evidence for managed linked workspaces; activity is advisory, --check-merged alone enables read-only origin/forge checks, and no --yes/apply path exists.",
+      "Report-only evidence for managed linked workspaces; activity is advisory, --check-merged alone enables read-only origin/forge checks, --all-worktrees adds RECLAIM/KEEP/PRUNE verdicts for every linked worktree, and --manifest emits an approval manifest instead of the report.",
   },
   {
     command: "devrouter workspace stop <workspace|branch>",
@@ -169,6 +169,12 @@ export const COMMAND_INTENTS: CommandIntent[] = [
     command: "devrouter workspace gc [--json] [--yes]",
     purpose:
       "Report missing owners without mutation by default; --yes deletes only exact eligible ledger-owned resources and records, never Git worktrees.",
+  },
+  {
+    command:
+      "devrouter workspace reclaim|trim --manifest <file> --sha256 <hash> [--veto-command <abs>] [--yes] [--json]",
+    purpose:
+      "Apply a person-approved manifest by its SHA-256; dry run without --yes, never adds targets, and re-checks each target inside its lifecycle lock.",
   },
   {
     command: "devrouter workspace journal settle [path] [--json]",
@@ -348,7 +354,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- The owner record survives linked-worktree removal and binds the exact path to its workspace-runtime ID. First use reconciles persisted metadata, the exact-path owner record, and both DevPod and Devsy registries. It preserves an established agreement, uses the readable sanitized identity when free, or claims a deterministic hash-suffixed fallback on collision before provider or route mutation. Later flags or `DEVROUTER_WORKSPACE` may repeat but cannot rename it. Unreadable or conflicting evidence fails closed. The primary checkout stays non-namespaced.",
     `- When a workspace is active: hosts auto-namespace (\`web.localhost\` → \`web.<ws>.localhost\`), \`${WORKSPACE_PLACEHOLDER}\` in \`upstream\` is substituted with the token, and the docker \`router\` key is suffixed per workspace. Managed ensure rejects every HTTP/TCP upstream outside that exact alias namespace before mutation. The runtime config is computed in memory only — the committed \`.devrouter.yml\` is never rewritten.`,
     "- TLS: namespaced hosts (`web.<ws>.localhost`) are not covered by the `*.localhost` wildcard; devrouter auto-extends the mkcert cert SANs for active hosts when TLS is enabled.",
-    "- Lifecycle: after one-time setup, use `devrouter ensure .` for both primary and linked checkouts; never branch on checkout kind or use live verify as startup. Managed consumer images contain no devrouter package/helper: ensure delivers its matching helper at runtime and invokes an exact captured snapshot of the repository-owned post-start adapter. Keep `.devrouter.yml` as the only consumer-side version pin. Use `devrouter stop .` for a non-destructive pause, `devrouter stop . --delete` only for explicit exact-owner cleanup without removing the checkout, and `devrouter exec . -- <command...>` for container commands. Never substitute raw DevPod/Devsy mutations; they bypass the machine-global ownership lock, which serializes provider mutations in a fair arrival-order queue and lets contenders wait up to thirty minutes with throttled stderr progress before failing with the queue position or holder PID and true durations. `workspace up` creates linked worktrees; destructive worktree removal and GC remain ledger-scoped.",
+    "- Lifecycle: after one-time setup, use `devrouter ensure .` for both primary and linked checkouts; never branch on checkout kind or use live verify as startup. Managed consumer images contain no devrouter package/helper: ensure delivers its matching helper at runtime and invokes an exact captured snapshot of the repository-owned post-start adapter. Keep `.devrouter.yml` as the only consumer-side version pin. Use `devrouter stop .` for a non-destructive pause, `devrouter stop . --delete` only for explicit exact-owner cleanup without removing the checkout, and `devrouter exec . -- <command...>` for container commands. Never substitute raw DevPod/Devsy mutations; they bypass the machine-global ownership lock, which serializes provider mutations in a fair arrival-order queue and lets contenders wait up to thirty minutes with throttled stderr progress before failing with the queue position or holder PID and true durations. `workspace up` creates linked worktrees; `down` and GC remain ledger-scoped, and `workspace reclaim|trim` act only on an approved manifest's exact candidates.",
     "- Managed agent harnesses can defer tool calls through `devrouter harness gate` wired as a `PreToolUse` hook (Claude Code settings, or `$CODEX_HOME/hooks.json` for the Codex CLI with the `exec_command` shell tool): it waits inside the hook process while the checkout's durable phase is queued, starting, verifying, recovering or stopping (no model turns), allows the tool once the phase settles, and refuses once with recovery guidance when `--wait-budget-ms` (default 30000) runs out. It identifies the requesting harness from its payload and answers in that harness's accepted shape, because Codex rejects an `allow` decision. It also records the gated call by harness tool-use id, so a call re-delivered after a granted or cancelled wait returns one refusal instead of repeating a command that may already have run. Lifecycle commands pass through, unreadable journal evidence is allowed rather than blocking the agent, and the hook timeout must exceed the wait budget.",
     "- After a drained interrupted ensure, manual exec can use an exactly proven retained Devsy runtime with the plain local Docker command. Revalidate identity for each tooling command until later preparation reconciles startup; preserve configuration, data and interrupted history. This does not repair absent stop baselines or provide OOM protection.",
     "- Busy ensure and exec wait up to thirty minutes for a positively identified active lifecycle worker on the same checkout, with stderr progress. Do not stop healthy work to make room. Commands stay serial; timeout or cancellation before admission leaves prior work untouched. A lifecycle fence change cancels admission, and uncertain execution is never replayed.",

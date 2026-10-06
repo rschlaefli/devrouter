@@ -259,7 +259,18 @@ export type DevrouterConfig = {
   managedRuntime?: DevrouterManagedRuntime;
   profiles?: Record<string, DevrouterProfile>;
   capacity?: CapacityEstimates;
+  worktrees?: DevrouterWorktreesConfig;
   apps: DevrouterApp[];
+};
+
+/**
+ * Worktree cleanup declarations, in the worktree pattern grammar: ignored
+ * paths that are safe to lose (`disposable`) and paths `workspace trim` may
+ * remove from a safe tree (`trim`).
+ */
+export type DevrouterWorktreesConfig = {
+  disposable?: string[];
+  trim?: string[];
 };
 
 export type DevrouterManagedRuntime = {
