@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-06
+
 ### Added
 
 - The `devrouter-setup` skill guides first-time machine setup: read-only
@@ -52,6 +54,10 @@ All notable changes to this project are documented in this file.
   `<git-common-dir>/info/worktree-reclaim-disposable` file.
 - `workspace cleanup` suggests full `workspace down` for an exact merge only when
   the same local-state check passes, and otherwise reports why.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.2.0.md
 
 ## [0.1.3] - 2026-09-21
 
