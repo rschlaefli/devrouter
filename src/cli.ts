@@ -214,13 +214,15 @@ program
   .argument("[path]", "Git checkout path (defaults to current directory)")
   .option("--json", "Output JSON")
   .option("--delete", "Delete the exact workspace runtime instead of preserving its data")
+  .option("--repair", "Recover a replaced managed population before stopping; preserves volumes")
   .action(
     withErrorHandling(async (repoPath: string | undefined, _options: unknown, command: Command) => {
-      const options = command.opts<{ delete?: boolean; json?: boolean }>();
+      const options = command.opts<{ delete?: boolean; repair?: boolean; json?: boolean }>();
       const { runStopCommand } = await import("./commands/stop");
       await runStopCommand({
         path: repoPath,
         delete: Boolean(options.delete),
+        repair: Boolean(options.repair),
         json: Boolean(options.json),
       });
     }),

@@ -25,6 +25,7 @@ import {
 } from "./controller-client";
 import { controllerCapability } from "./controller-monitor";
 import { ControllerStore } from "./controller-store";
+import { inspectManagedDevcontainerConfig } from "./devcontainer-profile";
 import {
   inspectManagedStopContainers,
   inspectWorkspaceContainers,
@@ -37,7 +38,11 @@ import { processBirthIdentity } from "./file-lock";
 import { listHostRouteState } from "./host-routes";
 import { proveInitialManagedDevsyAbsence } from "./managed-devsy-stop";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
-import { managedStopRouteReferences, proveManagedStop } from "./managed-stop-recovery";
+import {
+  managedStopRouteReferences,
+  proveManagedStop,
+  recoverManagedStopBaseline,
+} from "./managed-stop-recovery";
 import { deriveRecoveryUnit } from "./recovery-budget";
 import { claimLifecycleEffect, installLifecycleEffectClaim } from "./reliability-context";
 import {
@@ -73,6 +78,7 @@ import {
   runLifecycleWorker,
   workerGroupAbsent,
 } from "./reliability-worker";
+import { loadRuntimeConfig } from "./repo-config";
 import { DEVROUTER_HOME } from "./router";
 import { assertTraefikRoutesRemoved } from "./traefik-route-health";
 import {
@@ -1589,10 +1595,46 @@ export async function executeLifecycleWorker<T>(
           initialStopAbsence = withDevsyMutationLock("Verify initial stop", request.repoPath, () =>
             proveInitialManagedDevsyAbsence(request.repoPath),
           );
+        const markStopWorkStarted = () =>
+          updateReliabilityOperation(request.identity, (record) => {
+            if (!matchesFence(record, request.fence))
+              throw new Error("Lifecycle intent changed before stop work began.");
+            record.stopWorkStarted = true;
+          });
+        if (
+          request.options.repair &&
+          (!retained?.stopBaseline ||
+            request.options.delete ||
+            request.identity.provider !== "devsy")
+        )
+          throw new Error("Stop recovery requires a retained Devsy baseline and preserves data.");
         if (retained?.stopBaseline) {
-          stopBaselineState = retained;
-          withDevsyMutationLock("Verify retained stop", request.repoPath, () =>
-            proveManagedStop(retained),
+          stopBaselineState = withDevsyMutationLock(
+            "Verify retained stop",
+            request.repoPath,
+            () => {
+              const candidate = request.options.repair
+                ? recoverManagedStopBaseline(
+                    retained,
+                    () => {
+                      const runtime = loadRuntimeConfig(
+                        request.repoPath,
+                        request.identity.workspace ?? "",
+                        retained.profile,
+                      );
+                      return inspectManagedDevcontainerConfig({
+                        repoPath: request.repoPath,
+                        config: runtime.config,
+                        profile: runtime.resolvedProfile,
+                        linked: isLinkedWorktree(request.repoPath),
+                      });
+                    },
+                    markStopWorkStarted,
+                  )
+                : retained;
+              proveManagedStop(candidate);
+              return candidate;
+            },
           );
         } else {
           const containers = inspectWorkspaceContainers();
@@ -1610,14 +1652,10 @@ export async function executeLifecycleWorker<T>(
           ] as string[];
           for (const project of stopProjects) inspectManagedStopContainers(project);
         }
-        // Every proof above is read-only. Record the boundary durably before the
-        // stop may change anything, so a later refusal, crash or withdrawal can
-        // tell "no work began" from "work may have begun".
-        updateReliabilityOperation(request.identity, (record) => {
-          if (!matchesFence(record, request.fence))
-            throw new Error("Lifecycle intent changed before stop work began.");
-          record.stopWorkStarted = true;
-        });
+        // Ordinary proofs are read-only; explicit recovery records this boundary
+        // before persisting its replacement baseline. Both preserve stop intent
+        // after work begins, including a later refusal or worker interruption.
+        markStopWorkStarted();
       } else {
         updateReliabilityOperation(request.identity, (record) => {
           stepRecord(record, {
