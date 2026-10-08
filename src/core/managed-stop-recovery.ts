@@ -1,7 +1,10 @@
 import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { ManagedDevcontainerPlan } from "./devcontainer-profile";
+import {
+  assertManagedContainerConfigUnchanged,
+  type ManagedDevcontainerPlan,
+} from "./devcontainer-profile";
 import {
   assertManagedStopContainersAbsent,
   inspectManagedStopContainers,
@@ -16,7 +19,11 @@ import { listDevpodWorkspacesRaw } from "./devpod-registry";
 import { proveLocalDockerSelection } from "./devsy-exec-proof";
 import { inspectDevsyWorkspaceOwnership, listDevsyWorkspaces } from "./devsy-workspaces";
 import { proveManagedComposePopulation } from "./managed-compose-population";
-import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
+import {
+  type ManagedRuntimeState,
+  readManagedRuntimeState,
+  writeManagedRuntimeState,
+} from "./managed-runtime-state";
 import { type ManagedStopBaseline, validateManagedStopBaseline } from "./managed-stop-baseline";
 import { claimLifecycleEffect } from "./reliability-context";
 import { isLinkedWorktree, resolveWorktreeWorkspace, sameWorkspacePath } from "./workspace";
@@ -214,6 +221,124 @@ export function captureManagedStopBaseline(
   );
   prove(state, baseline);
   return baseline;
+}
+
+/** Explicit stop recovery; caller holds the checkout and provider mutation locks. */
+export function recoverManagedStopBaseline(
+  state: ManagedRuntimeState,
+  readPlan: () => ManagedDevcontainerPlan,
+  beforePersist: () => void,
+): ManagedRuntimeState {
+  const baseline = validateManagedStopBaseline(state.stopBaseline, state);
+  const plan = readPlan();
+  const owner = registration(state);
+  if (
+    Object.entries(owner).some(
+      ([key, value]) => baseline[key as keyof ManagedStopBaseline] !== value,
+    ) ||
+    baseline.sourceContainer
+  )
+    throw new Error("Stop recovery requires the unchanged provider registration.");
+  const observe = () => {
+    if (
+      !isDeepStrictEqual(readManagedRuntimeState(state.repoPath, state.workspace), state) ||
+      !isDeepStrictEqual(registration(state), owner) ||
+      !isDeepStrictEqual(readPlan(), plan) ||
+      resolveManagedStopEndpoint() !== baseline.endpoint ||
+      inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId ||
+      listDevpodWorkspacesRaw({ allowMissingExecutable: true }).some(
+        (entry) =>
+          entry.id === state.devpodId ||
+          sameWorkspacePath(entry.source.localFolder, state.repoPath),
+      )
+    )
+      throw new Error("Stop recovery authority changed.");
+    const currentOwner = inspectDevsyWorkspaceOwnership(
+      listDevsyWorkspaces(),
+      state.devpodId,
+      state.repoPath,
+    );
+    if (currentOwner.status !== "owned") throw new Error("Stop recovery owner is unavailable.");
+    proveLocalDockerSelection(currentOwner.workspace);
+    assertManagedStopContainersAbsent(
+      baseline.endpoint,
+      baseline.containers.map((container) => container.id),
+    );
+    const containers = inspectManagedStopContainers(baseline.project, baseline.endpoint);
+    if (
+      !isDeepStrictEqual(
+        containers.map((container) => container.labels["com.docker.compose.service"]).sort(),
+        [...plan.desiredServices].sort(),
+      )
+    )
+      throw new Error("Stop recovery requires the complete selected service population.");
+    const primary = containers.find(
+      (container) => container.labels["com.docker.compose.service"] === plan.primaryService,
+    );
+    if (
+      !primary ||
+      !isDeepStrictEqual(
+        inspectProviderRunnerContainers(
+          baseline.endpoint,
+          managedRunnerId(baseline.uid, baseline.providerId),
+        ).sort(),
+        [primary.id],
+      )
+    )
+      throw new Error("Stop recovery provider runner population changed.");
+    assertManagedContainerConfigUnchanged({
+      plan,
+      containers,
+      workspace: state.workspace
+        ? {
+            token: state.workspace,
+            gitCommonDir: resolveGitCommonDir(state.repoPath),
+          }
+        : undefined,
+    });
+    if (
+      !isDeepStrictEqual(registration(state), owner) ||
+      !isDeepStrictEqual(readManagedRuntimeState(state.repoPath, state.workspace), state) ||
+      !isDeepStrictEqual(readPlan(), plan) ||
+      resolveManagedStopEndpoint() !== baseline.endpoint ||
+      inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId
+    )
+      throw new Error("Stop recovery authority changed during configuration inspection.");
+    return containers;
+  };
+  const first = observe();
+  const candidate: ManagedRuntimeState = {
+    ...state,
+    sourceConfigSha256: plan.sourceConfigSha256,
+    effectiveConfigSha256: plan.effectiveConfigSha256,
+    status: "degraded",
+    transitionPhase: "stop-recovery",
+    updatedAt: new Date().toISOString(),
+    stopBaseline: undefined,
+  };
+  const primary = first.find(
+    (container) => container.labels["com.docker.compose.service"] === plan.primaryService,
+  );
+  if (!primary) throw new Error("Stop recovery primary is unavailable.");
+  candidate.stopBaseline = captureManagedStopBaseline(
+    candidate,
+    plan,
+    primary.id,
+    baseline.endpoint,
+  );
+  if (
+    !isDeepStrictEqual(
+      first.map(identity).sort((a, b) => compareText(a.id, b.id)),
+      observe()
+        .map(identity)
+        .sort((a, b) => compareText(a.id, b.id)),
+    )
+  )
+    throw new Error("Stop recovery population changed during inspection.");
+  beforePersist();
+  claimLifecycleEffect();
+  writeManagedRuntimeState(candidate);
+  return candidate;
 }
 
 /** Caller serializes with provider mutations; this proof never reads repository configuration. */

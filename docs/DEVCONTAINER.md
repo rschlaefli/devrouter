@@ -676,3 +676,18 @@ devrouter stop . --delete
   host gateway (`extra_hosts: ['oidc.myapp.localhost:host-gateway']`) and trust
   the mkcert CA in-container (`NODE_EXTRA_CA_CERTS`) — never disable TLS
   verification.
+
+### Recovering a replaced managed population
+
+If a retained stop baseline points to containers replaced outside the current
+lifecycle, ordinary stop refuses the changed population. Use
+`devrouter stop <checkout-path> --repair` for an explicit, non-destructive
+recovery. Recovery requires the unchanged exact provider registration and
+local Docker daemon, positive absence of every old container, no competing
+provider registration, and a complete replacement population matching the
+current selected Compose configuration and provider runner binding. Changing
+or incomplete evidence refuses before adopting a baseline or stopping anything.
+The new baseline is marked degraded, not ready, and its work boundary is
+recorded before persistence. Stop then uses the normal pinned-container proof.
+Volumes remain intact. `--repair` cannot be combined with `--delete`; after a
+successful recovery, an explicitly authorized ordinary deletion can follow.
