@@ -7,6 +7,7 @@ Use this page to choose the smallest authoritative document for the task.
 - [Getting started](./GETTING_STARTED.md): install devrouter and publish a first route.
 - [Repository onboarding](./REPO_ONBOARDING.md): inspect and adopt an existing consumer repository.
 - [Devcontainer integration](./DEVCONTAINER.md): connect a self-contained devcontainer (via DevPod or Devsy) through managed proxy routing.
+- [Cleaning up worktrees](./WORKTREE_CLEANUP.md): audit worktrees and remove only what is safe, including Docker leftovers of deleted worktrees.
 - [Root README](../README.md): product overview, runtime-model choice, and five-minute path.
 
 These manuals have separate jobs and describe supported current behavior. Link to

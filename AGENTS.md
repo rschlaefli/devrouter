@@ -27,6 +27,7 @@ copying behavior into every manual:
 - `docs/GETTING_STARTED.md` owns installation, machine setup, and the first route.
 - `docs/REPO_ONBOARDING.md` owns consumer-repository configuration and verification.
 - `docs/DEVCONTAINER.md` owns the managed devnet/proxy integration contract.
+- `docs/WORKTREE_CLEANUP.md` owns the team-facing worktree cleanup procedure.
 - Runnable `examples/*/README.md` files own their example-specific procedures.
 - `docs/knowledge/**` owns cross-cutting architecture, lifecycle, integration, and change guidance; update a concept only for a material semantic change.
 - `CHANGELOG.md` and `upgrade-prompts/*.md` own versioned release and adaptation guidance.
@@ -36,7 +37,7 @@ decision, or incident context in product manuals.
 
 ## Documentation policy
 
-1. Product manuals (`README.md`, `docs/GETTING_STARTED.md`, `docs/REPO_ONBOARDING.md`, `docs/DEVCONTAINER.md`, and `examples/*/README.md`) and active knowledge must describe current state only.
+1. Product manuals (`README.md`, `docs/GETTING_STARTED.md`, `docs/REPO_ONBOARDING.md`, `docs/DEVCONTAINER.md`, `docs/WORKTREE_CLEANUP.md`, and `examples/*/README.md`) and active knowledge must describe current state only.
 2. `docs/project/**`, `docs/adr/**`, and `docs/solutions/**` are status-labelled records and may retain historical context.
 3. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
 4. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.

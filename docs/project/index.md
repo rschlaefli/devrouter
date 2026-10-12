@@ -4,6 +4,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Worktree cleanup reliability and team documentation](./2026-10-12-cleanup-reliability-and-team-docs-plan.md) — `gc` for deleted checkouts, approved removal of Docker leftovers, the team cleanup guide, release 0.3.0 and Klicker adoption.
 - [Worktree lifecycle](./2026-10-03-worktree-lifecycle-plan.md) — safe `workspace down`, installable `worktree-reclaim` and `devrouter-setup` skills, and devrouter `cleanup --all-worktrees`, `reclaim` and `trim` bound to approved manifests.
 
 - [Reliability roadmap follow-up after 0.1.1](./2026-09-13-reliability-release-plan.md#post-release-reliability-review-and-follow-up-2026-09-20) — reproduced gate and recovery-guidance defects, deterministic verification, open M1–M3 qualification, machine diagnostics and consumer adoption. Releases 0.1.0/0.1.1 are delivered; complete reliability acceptance remains active.
