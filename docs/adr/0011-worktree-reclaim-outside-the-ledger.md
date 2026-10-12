@@ -50,3 +50,17 @@ Rejected alternatives:
 
 Revisit when the ledger adopts unmanaged worktrees for another reason, or when
 forge listings become too large to read once per repository.
+
+## Addendum (2026-10-12): Docker leftovers use their own manifest kind
+
+A deleted checkout can leave its Compose containers, volumes and networks
+behind, because provider deletion removes only the registration. These have no
+Git identity, so they cannot share the worktree manifest, whose candidates bind
+a branch, HEAD and Git directories. They get a separate
+`docker-leftover-manifest` bound to the Docker daemon ID and exact container,
+volume and network identities, applied by `workspace leftover`. Attribution
+requires a provider-created container naming a vanished checkout below the
+repository's `trees/` folder, so a stack devrouter cannot tie to this
+repository is reported but never removed. Unlike worktree reclaim, apply holds
+the provider mutation locks rather than a lifecycle lock, because no checkout
+remains to lock.

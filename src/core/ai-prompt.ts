@@ -151,9 +151,9 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   },
   {
     command:
-      "devrouter workspace cleanup [--repo <path>] [--inactive-for 30d] [--check-merged] [--measure-size] [--all-worktrees] [--manifest [--action reclaim|trim] [--output <file>]] [--json]",
+      "devrouter workspace cleanup [--repo <path>] [--inactive-for 30d] [--check-merged] [--measure-size] [--all-worktrees] [--manifest [--action reclaim|trim|leftover] [--output <file>]] [--json]",
     purpose:
-      "Report-only evidence for managed linked workspaces; activity is advisory, --check-merged alone enables read-only origin/forge checks, --all-worktrees adds RECLAIM/KEEP/PRUNE verdicts for every linked worktree, and --manifest emits an approval manifest instead of the report.",
+      "Report-only evidence for managed linked workspaces; activity is advisory, --check-merged alone enables read-only origin/forge checks, --all-worktrees adds RECLAIM/KEEP/PRUNE verdicts for every linked worktree and lists Docker leftovers of deleted checkouts, and --manifest emits an approval manifest instead of the report.",
   },
   {
     command: "devrouter workspace stop <workspace|branch>",
@@ -175,6 +175,11 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "devrouter workspace reclaim|trim --manifest <file> --sha256 <hash> [--veto-command <abs>] [--yes] [--json]",
     purpose:
       "Apply a person-approved manifest by its SHA-256; dry run without --yes, never adds targets, and re-checks each target inside its lifecycle lock.",
+  },
+  {
+    command: "devrouter workspace leftover --manifest <file> --sha256 <hash> [--yes] [--json]",
+    purpose:
+      "Remove the Docker containers, volumes and networks of a person-approved leftover manifest; dry run without --yes, and each stack is re-derived inside the provider locks and skipped if it changed.",
   },
   {
     command: "devrouter workspace journal settle [path] [--json]",

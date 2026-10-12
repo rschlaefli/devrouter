@@ -718,7 +718,7 @@ workspaceCommand
   .option("--output <file>", "Write the manifest to a new file and print its SHA-256")
   .option(
     "--action <action>",
-    "Manifest action: reclaim (needs --check-merged) or trim (declared worktrees.trim paths)",
+    "Manifest action: reclaim (needs --check-merged), trim (declared worktrees.trim paths) or leftover (Docker stacks of deleted checkouts)",
     "reclaim",
   )
   .action(
@@ -732,7 +732,7 @@ workspaceCommand
         json?: boolean;
         manifest?: boolean;
         output?: string;
-        action?: "reclaim" | "trim";
+        action?: "reclaim" | "trim" | "leftover";
       }>();
       const { runWorkspaceCleanupCommand } = await import("./commands/workspace");
       runWorkspaceCleanupCommand({
@@ -849,6 +849,30 @@ workspaceCommand
       }>();
       const { runWorkspaceTrimCommand } = await import("./commands/workspace");
       await runWorkspaceTrimCommand(options);
+    }),
+  );
+
+workspaceCommand
+  .command("leftover")
+  .description(
+    "Remove the Docker containers, volumes and networks of an approved leftover manifest, re-verifying each stack inside the provider locks",
+  )
+  .requiredOption("--manifest <file>", "Approved leftover manifest")
+  .requiredOption("--sha256 <hash>", "Approved SHA-256 of the manifest")
+  .option("--max-age <duration>", "Refuse a manifest older than this (Ns, Nm, Nh, Nd, Nw)", "24h")
+  .option("--yes", "Remove; without it the command is a dry run")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{
+        manifest: string;
+        sha256: string;
+        maxAge?: string;
+        yes?: boolean;
+        json?: boolean;
+      }>();
+      const { runWorkspaceLeftoverCommand } = await import("./commands/workspace");
+      runWorkspaceLeftoverCommand(options);
     }),
   );
 

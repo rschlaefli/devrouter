@@ -12,7 +12,7 @@ import {
   type LeftoverContext,
   readLeftoverManifest,
 } from "../docker-leftovers";
-import { sha256Hex } from "../worktree-reclaim";
+import { readManifest, sha256Hex } from "../worktree-reclaim";
 
 vi.mock("../devsy-mutation", () => ({ withMutationLock: vi.fn() }));
 vi.mock("../devpod-mutation", () => ({ withMutationLock: vi.fn() }));
@@ -279,6 +279,13 @@ describe("leftover manifests", () => {
     const live = { state: inventory(stack("gone", "/repo/trees/feature")) };
     expect(() => apply({ ...manifest, sha: "0".repeat(64) }, live, ctx)).toThrow(
       "SHA-256 mismatch",
+    );
+  });
+
+  it("is rejected by the worktree reclaim and trim manifest reader", () => {
+    const manifest = writeManifest(inventory(stack("gone", "/repo/trees/feature")), context([]));
+    expect(() => readManifest(manifest.file)).toThrow(
+      "manifest kind must be worktree-reclaim-manifest",
     );
   });
 

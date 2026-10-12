@@ -331,12 +331,13 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - \`devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]\`: create a worktree and start/prove it unless create-only mode is requested
 - \`devrouter workspace ensure [path] [--profile <name>] [--repair] [--open] [--json]\`: compatibility alias of \`devrouter ensure\`
 - \`devrouter workspace ls [--json]\`: list ownership, Git, workspace runtime, route, path, and branch evidence
-- \`devrouter workspace cleanup [--repo .] [--inactive-for 30d] [--check-merged] [--measure-size] [--all-worktrees] [--manifest [--action reclaim|trim] [--output <file>]] [--json]\`: report-only cleanup evidence and exact guarded suggestions; \`--manifest\` emits an approval manifest instead of the report
+- \`devrouter workspace cleanup [--repo .] [--inactive-for 30d] [--check-merged] [--measure-size] [--all-worktrees] [--manifest [--action reclaim|trim|leftover] [--output <file>]] [--json]\`: report-only cleanup evidence and exact guarded suggestions; \`--all-worktrees\` also lists Docker leftovers of deleted checkouts; \`--manifest\` emits an approval manifest instead of the report
 - \`devrouter workspace stop <workspace|branch>\`: stop DevPod and routes; preserve checkout, owner record, and data
 - \`devrouter workspace down <workspace|branch> [--keep-worktree]\`: delete runtime/routes and optionally remove the clean worktree and record
 - \`devrouter workspace gc [--json] [--yes]\`: report missing owners by default; apply exact eligible cleanup with \`--yes\`
 - \`devrouter workspace manifest hash|select <file>\`: print a manifest's SHA-256, or a canonical subset of exact candidate IDs (\`--expected-sha256\`, \`--id\`)
 - \`devrouter workspace reclaim|trim --manifest <file> --sha256 <hash> [--veto-command <abs>] [--yes] [--json]\`: apply an approved manifest; dry run without \`--yes\`
+- \`devrouter workspace leftover --manifest <file> --sha256 <hash> [--yes] [--json]\`: remove the Docker containers, volumes and networks of an approved leftover manifest; dry run without \`--yes\`
 
 ## Agent harness gating
 
