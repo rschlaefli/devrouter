@@ -208,5 +208,21 @@ Worktree `trees/cleanup-reliability-docs` on `rs/cleanup-reliability-docs` from
 - [x] Planner re-check (Fable, APPROVE); two minors folded in: separate
   next-step reasons for gc versus `git worktree prune`, and a fixed lock order.
   The dogfood checkout is already unregistered in Git (checked 2026-10-12).
-- [ ] Plan approval.
-- Next action: S1 after approval.
+- [x] Plan approval (2026-10-12), including merges and the exact dogfood
+  selectors.
+- [x] S1 guarded gc fallback (`0311749`); S2a leftover report (`780e1d5`); S2b
+  leftover manifest, apply and CLI surfaces (`77f2db2`); S3 team guide
+  (`3d80e38`). Packaging: about 1,900 substantive lines, one feature PR.
+  Deviation: the leftover module holds attribution, manifest and apply in one
+  file. `dev.containers.id` equals the Compose project name, so registration
+  checks match on the checkout path.
+- [x] Final review (`3d80e38`, READY WITH FIXES): live-worktree subfolder,
+  rerun after partial container removal, shared project names, anonymous
+  volumes. Fixed in `ff7e774`; the same reviewer confirmed READY. Full suite
+  green (check, knip, typecheck, 2,850+ tests, build, package smoke, skills,
+  docs policy).
+- [x] Draft PR [#131](https://github.com/rschlaefli/devrouter/pull/131).
+- [ ] Dogfood blocked on a ruling: after approval two more Klicker checkouts
+  were deleted, so `gc` now lists four eligible records instead of exactly
+  `test-playwright-flakiness`. The approved selector stops here.
+- Next action: merge #131 when CI passes, then S4 release 0.3.0, then S5.
