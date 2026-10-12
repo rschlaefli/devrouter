@@ -8,6 +8,12 @@ import {
   inspectDevpodRuntimeStatus,
   listDevpodWorkspacesFromSnapshots,
 } from "./devpod-workspaces";
+import {
+  type DockerLeftoverReport,
+  findDockerLeftovers,
+  readDockerInventory,
+  readLeftoverContext,
+} from "./docker-leftovers";
 import { type ForgeIdentity, type ForgeListing, listForgeChanges } from "./forge-changes";
 import { readHostRouteStateReadOnly } from "./host-routes";
 import type { NetworkCapacityInspection } from "./network-diagnostics";
@@ -171,8 +177,14 @@ export type WorkspaceCleanupReport = {
   workspaces: WorkspaceCleanupRow[];
   /** Present with `--all-worktrees`: unmanaged linked worktrees. */
   worktrees?: WorkspaceCleanupWorktreeRow[];
+  /** Present with `--all-worktrees`: Docker stacks left behind by deleted checkouts. */
+  dockerLeftovers?: WorkspaceCleanupDockerLeftovers;
   networkCapacity?: NetworkCapacityInspection;
 };
+
+export type WorkspaceCleanupDockerLeftovers =
+  | ({ status: "listed" } & DockerLeftoverReport)
+  | { status: "unavailable"; reason: string };
 
 export type WorkspaceCleanupOptions = {
   repo?: string;
@@ -222,6 +234,7 @@ export type WorkspaceCleanupDependencies = {
   listForge?: (identity: ForgeIdentity) => ForgeListing;
   readRuntimeSources?: (repoPath: string) => WorktreeRuntimeSources;
   classifySafety?: (input: WorktreeSafetyInput) => WorktreeSafetyResult;
+  readDockerLeftovers?: (repoPath: string) => DockerLeftoverReport;
 };
 
 export type WorkspaceCleanupCommandResult = {
@@ -1334,8 +1347,24 @@ export function buildWorkspaceCleanupReport(
     ...base,
     workspaces: managedRows,
     worktrees: unmanaged,
+    dockerLeftovers: readDockerLeftoverEvidence(repoPath, dependencies),
     networkCapacity,
   };
+}
+
+/** A Docker failure degrades only this section of an otherwise useful report. */
+function readDockerLeftoverEvidence(
+  repoPath: string,
+  dependencies: WorkspaceCleanupDependencies,
+): WorkspaceCleanupDockerLeftovers {
+  try {
+    const read =
+      dependencies.readDockerLeftovers ??
+      ((repo: string) => findDockerLeftovers(readDockerInventory(), readLeftoverContext(repo)));
+    return { status: "listed", ...read(repoPath) };
+  } catch (error) {
+    return { status: "unavailable", reason: describeCause(error) };
+  }
 }
 
 type PathEvidence = { runtimeEvidence: string[]; active: boolean; runtimeRunning: boolean };
