@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `workspace leftover` prints per-kind removal counts for each stack instead of
+  every removed object ID; the receipts and `--json` keep the full list.
+
 ## [0.3.0] - 2026-10-12
 
 ### Added

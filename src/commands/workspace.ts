@@ -242,12 +242,41 @@ export function runWorkspaceLeftoverCommand(options: {
       {
         dryRun: report.dryRun,
         stoppedEarly: false,
-        targets: report.targets.map((target) => ({ ...target, path: target.project })),
+        targets: report.targets.map((target) => ({
+          ...target,
+          path: target.project,
+          steps: summarizeLeftoverSteps(target.steps),
+        })),
       },
       "remove the leftovers",
     );
+    if (!report.dryRun && report.targets.some((target) => target.steps.length)) {
+      process.stdout.write(
+        "Each removed object is listed in the stack's receipt; use --json for the full list.\n",
+      );
+    }
   }
   if (report.targets.some((target) => target.status === "failed")) process.exitCode = 1;
+}
+
+/**
+ * Collapses `removed-container:<id>`-style steps into per-kind counts, such as
+ * `removed 7 container(s), 42 volume(s)`, so a stack fits on one table row.
+ */
+function summarizeLeftoverSteps(steps: string[]): string[] {
+  const counts = new Map<string, Map<string, number>>();
+  for (const step of steps) {
+    const [action, kind] = step.slice(0, step.indexOf(":")).split("-");
+    const byKind = counts.get(action) ?? new Map<string, number>();
+    byKind.set(kind, (byKind.get(kind) ?? 0) + 1);
+    counts.set(action, byKind);
+  }
+  return [...counts].map(
+    ([action, byKind]) =>
+      `${action === "gone" ? "already gone" : action} ${[...byKind]
+        .map(([kind, count]) => `${count} ${kind}(s)`)
+        .join(", ")}`,
+  );
 }
 
 export function runWorkspaceManifestSelectCommand(
