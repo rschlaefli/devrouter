@@ -112,8 +112,8 @@ function labelsOf(value: unknown): Record<string, string> {
 }
 
 /**
- * Every container (any container may mount a Compose volume), plus the
- * Compose-labelled volumes and networks, with the daemon identity that binds
+ * Every container and volume (any container may mount a Compose volume), plus
+ * the Compose-labelled networks, with the daemon identity that binds
  * an approved manifest to this Docker engine.
  */
 export function readDockerInventory(run: DockerRunner = defaultDockerRunner): DockerInventory {
@@ -138,11 +138,9 @@ export function readDockerInventory(run: DockerRunner = defaultDockerRunner): Do
         .map((mount) => mount.Name as string),
     };
   });
-  const volumeNames = listIds(
-    run,
-    ["volume", "ls", "-q", "--filter", `label=${PROJECT_LABEL}`],
-    "volumes",
-  );
+  // Every volume, so anonymous volumes (which carry no Compose label) can be
+  // listed in a manifest and found again after their container is gone.
+  const volumeNames = listIds(run, ["volume", "ls", "-q"], "volumes");
   const volumes = inspectAll(run, ["volume", "inspect"], volumeNames).map((raw) => {
     const entry = raw as { Name: string; Labels?: unknown; CreatedAt?: string };
     return { name: entry.Name, labels: labelsOf(entry.Labels), createdAt: entry.CreatedAt ?? "" };
@@ -211,33 +209,76 @@ function isInsideOrEqual(parent: string, child: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+/** Anonymous volumes have a 64-hex name and no Compose project label. */
+function isAnonymousVolume(volume: DockerVolume): boolean {
+  return /^[0-9a-f]{64}$/.test(volume.name) && !volume.labels[PROJECT_LABEL];
+}
+
 /**
- * Whether a vanished checkout lay inside this repository's `trees/` folder.
- * The label path must name a folder below `trees/` (as spelled or resolved),
- * be absent, and its nearest existing ancestor must still resolve inside the
- * real `trees/` folder, which rules out an unmounted volume or a re-pointed
- * symlink.
+ * Where a vanished checkout sits relative to this repository's `trees/`
+ * folder. The label path must name a folder below `trees/` (as spelled or
+ * resolved) and be absent, and its nearest existing ancestor must still
+ * resolve inside the real `trees/` folder, which rules out an unmounted volume
+ * or a re-pointed symlink. `inside-worktree` means an existing ancestor below
+ * `trees/` is itself a checkout, so only a subfolder of live work is missing.
  */
-function vanishedInsideTrees(checkout: string, context: LeftoverContext): boolean {
+function vanishedInsideTrees(
+  checkout: string,
+  context: LeftoverContext,
+): "vanished" | "inside-worktree" | "out-of-scope" {
   const treesReal = context.realpath(context.treesPath);
-  if (!treesReal) return false;
+  if (!treesReal) return "out-of-scope";
   const lexical = [context.treesPath, treesReal].some(
     (prefix) => checkout !== prefix && isInsideOrEqual(prefix, checkout),
   );
-  if (!lexical || context.exists(checkout)) return false;
+  if (!lexical || context.exists(checkout)) return "out-of-scope";
   let ancestor = path.dirname(checkout);
   while (!context.exists(ancestor)) {
     const parent = path.dirname(ancestor);
-    if (parent === ancestor) return false;
+    if (parent === ancestor) return "out-of-scope";
     ancestor = parent;
   }
   const ancestorReal = context.realpath(ancestor);
-  return ancestorReal !== undefined && isInsideOrEqual(treesReal, ancestorReal);
+  if (ancestorReal === undefined || !isInsideOrEqual(treesReal, ancestorReal)) {
+    return "out-of-scope";
+  }
+  for (let current = ancestor; ; current = path.dirname(current)) {
+    const real = context.realpath(current);
+    if (real === undefined || real === treesReal || !isInsideOrEqual(treesReal, real)) break;
+    if (context.exists(path.join(current, ".git"))) return "inside-worktree";
+  }
+  return "vanished";
 }
 
-function samePath(left: string, right: string, context: LeftoverContext): boolean {
-  const resolve = (file: string) => context.realpath(file) ?? path.resolve(file);
-  return path.resolve(left) === path.resolve(right) || resolve(left) === resolve(right);
+function resolved(file: string, context: LeftoverContext): string[] {
+  const real = context.realpath(file);
+  return real && real !== path.resolve(file) ? [path.resolve(file), real] : [path.resolve(file)];
+}
+
+/**
+ * How a registered path relates to the checkout: the same folder, or a
+ * checkout below `trees/` that contains it. The primary checkout contains
+ * `trees/` itself and so never counts as containing.
+ */
+function relation(
+  entry: string,
+  checkout: string,
+  context: LeftoverContext,
+): "same" | "contains" | undefined {
+  const entries = resolved(entry, context);
+  const checkouts = resolved(checkout, context);
+  if (entries.some((left) => checkouts.includes(left))) return "same";
+  const trees = resolved(context.treesPath, context);
+  const belowTrees = (left: string) =>
+    trees.some((root) => left !== root && isInsideOrEqual(root, left));
+  if (
+    entries.some(
+      (left) => belowTrees(left) && checkouts.some((right) => isInsideOrEqual(left, right)),
+    )
+  ) {
+    return "contains";
+  }
+  return undefined;
 }
 
 /** Classifies every Compose project on the engine against this repository. */
@@ -254,31 +295,43 @@ export function findDockerLeftovers(
   const leftovers: DockerLeftover[] = [];
   const blocked: DockerLeftoverBlocked[] = [];
   for (const [project, containers] of [...byProject].sort(([a], [b]) => byteOrder(a, b))) {
+    // Every container's working directory counts, so a project name shared
+    // with another checkout's containers never qualifies.
     const checkouts = new Set(
       containers
-        .filter(
-          (container) => container.labels[PROVIDER_LABEL] && container.labels[WORKING_DIR_LABEL],
-        )
+        .filter((container) => container.labels[WORKING_DIR_LABEL])
         .map((container) => checkoutOf(container.labels[WORKING_DIR_LABEL])),
     );
     if (checkouts.size !== 1) continue;
+    if (!containers.some((container) => container.labels[PROVIDER_LABEL])) continue;
     const [checkout] = checkouts;
-    if (!vanishedInsideTrees(checkout, context)) continue;
+    const scope = vanishedInsideTrees(checkout, context);
+    if (scope === "out-of-scope") continue;
     const block = (reason: string, next: DockerLeftoverBlocked["next"]) =>
       blocked.push({ project, checkout, reason, next });
+    if (scope === "inside-worktree") {
+      block("the missing folder lies inside an existing checkout", "investigate");
+      continue;
+    }
     if (!context.registriesReadable) {
       block("a provider registry could not be read", "investigate");
       continue;
     }
-    if (context.worktreePaths.some((entry) => samePath(entry, checkout, context))) {
+    const registered = (paths: string[]) =>
+      paths.map((entry) => relation(entry, checkout, context));
+    const all = [
+      ...registered(context.worktreePaths),
+      ...registered([...context.ownershipPaths, ...context.providerPaths]),
+    ];
+    if (all.includes("contains")) {
+      block("a registered checkout contains the missing folder", "investigate");
+      continue;
+    }
+    if (registered(context.worktreePaths).includes("same")) {
       block("Git still registers the vanished worktree", "git worktree prune");
       continue;
     }
-    if (
-      [...context.ownershipPaths, ...context.providerPaths].some((entry) =>
-        samePath(entry, checkout, context),
-      )
-    ) {
+    if (all.includes("same")) {
       block("a devrouter record or provider registration still names the checkout", "workspace gc");
       continue;
     }
@@ -304,6 +357,7 @@ function removableSet(
   inventory: DockerInventory,
 ): DockerLeftover {
   const own = new Set(containers.map((container) => container.id));
+  const mountedHere = new Set(containers.flatMap((container) => container.volumes));
   const mountedElsewhere = new Set(
     inventory.containers
       .filter((container) => !own.has(container.id))
@@ -318,9 +372,9 @@ function removableSet(
     volumes: inventory.volumes
       .filter(
         (volume) =>
-          volume.labels[PROJECT_LABEL] === project &&
-          volume.name.startsWith(`${project}_`) &&
-          !mountedElsewhere.has(volume.name),
+          !mountedElsewhere.has(volume.name) &&
+          ((volume.labels[PROJECT_LABEL] === project && volume.name.startsWith(`${project}_`)) ||
+            (isAnonymousVolume(volume) && mountedHere.has(volume.name))),
       )
       .map(({ name, createdAt }) => ({ name, createdAt }))
       .sort((a, b) => byteOrder(a.name, b.name)),
@@ -343,11 +397,14 @@ function unattributedVolumes(
   const mounted = new Set(inventory.containers.flatMap((container) => container.volumes));
   return inventory.volumes
     .filter(
-      (volume) => !byProject.has(volume.labels[PROJECT_LABEL] ?? "") && !mounted.has(volume.name),
+      (volume) =>
+        volume.labels[PROJECT_LABEL] !== undefined &&
+        !byProject.has(volume.labels[PROJECT_LABEL]) &&
+        !mounted.has(volume.name),
     )
     .map((volume) => ({
       name: volume.name,
-      project: volume.labels[PROJECT_LABEL] ?? "",
+      project: volume.labels[PROJECT_LABEL],
       reason: "no container of its Compose project remains, so no checkout can be proven",
     }))
     .sort((a, b) => byteOrder(a.name, b.name));
@@ -627,7 +684,13 @@ function currentRemovals(
       checkout: candidate.checkout,
       containers: [],
       volumes: inventory.volumes
-        .filter((volume) => ours(volume) && !mounted.has(volume.name))
+        .filter(
+          (volume) =>
+            !mounted.has(volume.name) &&
+            (ours(volume) ||
+              (isAnonymousVolume(volume) &&
+                candidate.volumes.some((approved) => approved.name === volume.name))),
+        )
         .map(({ name, createdAt }) => ({ name, createdAt })),
       networks: inventory.networks
         .filter((network) => ours(network) && network.attached === 0)
@@ -682,7 +745,7 @@ function removeMember(run: DockerRunner, args: string[], step: string, steps: st
  * Applies an approved leftover manifest. Without `yes` it is a dry run. Each
  * project is re-derived inside both provider mutation locks immediately before
  * removal; a changed project is skipped and the others continue. Containers go
- * first (with their anonymous volumes), then named volumes, then networks.
+ * first, then the approved named and anonymous volumes, then networks.
  */
 export function applyLeftoverManifest(
   options: { manifestFile: string; sha256: string; maxAgeSeconds: number; yes: boolean },
@@ -733,8 +796,19 @@ export function applyLeftoverManifest(
           outcome.reason = `${current.containers.length} container(s), ${current.volumes.length} volume(s), ${current.networks.length} network(s)`;
           return;
         }
-        for (const container of current.containers) {
-          removeMember(run, ["rm", "-v", container.id], `container:${container.id}`, outcome.steps);
+        // The provider-created container proves which checkout the stack
+        // belongs to, so it goes last: a rerun after a partial removal can
+        // then still attribute the remaining containers.
+        const proves = (id: string) =>
+          Boolean(
+            inventory.containers.find((container) => container.id === id)?.labels[PROVIDER_LABEL],
+          );
+        const ordered = [
+          ...current.containers.filter((container) => !proves(container.id)),
+          ...current.containers.filter((container) => proves(container.id)),
+        ];
+        for (const container of ordered) {
+          removeMember(run, ["rm", container.id], `container:${container.id}`, outcome.steps);
         }
         for (const volume of current.volumes) {
           removeMember(run, ["volume", "rm", volume.name], `volume:${volume.name}`, outcome.steps);

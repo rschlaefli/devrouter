@@ -13,7 +13,8 @@ All notable changes to this project are documented in this file.
   cannot be traced to any checkout.
 - `workspace cleanup --manifest --action leftover` and `workspace leftover
   --manifest <file> --sha256 <hash>` remove exactly the approved leftover
-  stacks. Removal is a dry run without `--yes`, re-checks each stack inside the
+  stacks, including their project and anonymous volumes. Removal is a dry run
+  without `--yes`, re-checks each stack inside the
   provider locks, skips a stack that changed, and finishes a partial removal on
   rerun. Volumes that cannot be traced to a deleted checkout are never removed.
 

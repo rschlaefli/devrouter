@@ -129,15 +129,19 @@ folder does not delete the stack, and removing the provider registration does
 not delete it either. The report lists a stack as a leftover only when all of
 these hold:
 
-- one of its containers was created by DevPod or Devsy and names a worktree
-  folder below `<repo>/trees/` that no longer exists;
+- all of its containers name the same worktree folder below `<repo>/trees/`,
+  at least one of them was created by DevPod or Devsy, and that folder no
+  longer exists;
+- the missing folder is not inside another worktree that still exists;
 - no Git worktree, devrouter record or provider registration still names that
   folder (otherwise the row says which command to run first);
 - every container of the stack is stopped.
 
 `workspace leftover` removes the stack's containers, then its volumes, then its
-networks. A volume is removed only when its name starts with the stack's
-project name and no other container uses it.
+networks. A volume is removed only when no other container uses it and either
+its name starts with the stack's project name or it is an anonymous volume
+that only this stack mounted. Every removed volume is listed in the manifest,
+and its data is gone afterwards.
 
 Volumes that no remaining container ties to a worktree are listed as
 unattributed with `--json` and never removed by devrouter. Remove one yourself

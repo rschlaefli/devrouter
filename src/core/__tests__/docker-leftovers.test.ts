@@ -167,6 +167,48 @@ describe("findDockerLeftovers", () => {
     expect(report.blocked).toMatchObject([{ project: "gone", next }]);
   });
 
+  it("blocks a missing subfolder of a worktree that still exists", () => {
+    const stackOfSubfolder = inventory(stack("sub", "/repo/trees/live/docker"));
+    const byGitEntry = findDockerLeftovers(
+      stackOfSubfolder,
+      context(["/repo/trees/live", "/repo/trees/live/.git"]),
+    );
+    expect(byGitEntry.leftovers).toEqual([]);
+    expect(byGitEntry.blocked).toMatchObject([{ project: "sub", next: "investigate" }]);
+    const byRegistration = findDockerLeftovers(
+      stackOfSubfolder,
+      context(["/repo/trees/live"], { ownershipPaths: ["/repo/trees/live"] }),
+    );
+    expect(byRegistration.leftovers).toEqual([]);
+    expect(byRegistration.blocked).toMatchObject([{ project: "sub", next: "investigate" }]);
+  });
+
+  it("ignores a project whose containers name more than one checkout", () => {
+    const shared = [
+      ...stack("shared", "/repo/trees/gone"),
+      container("shared", "other", { checkout: "/repo/trees/live" }),
+    ];
+    const report = findDockerLeftovers(inventory(shared), context(["/repo/trees/live"]));
+    expect(report.leftovers).toEqual([]);
+    expect(report.blocked).toEqual([]);
+  });
+
+  it("keeps anonymous volumes another stack also mounts", () => {
+    const anonymous = "b".repeat(64);
+    const base = inventory([
+      ...stack("gone", "/repo/trees/feature").map((entry) => ({
+        ...entry,
+        volumes: [...entry.volumes, anonymous],
+      })),
+      container("live", "app", { volumes: [anonymous] }),
+    ]);
+    const report = findDockerLeftovers(
+      { ...base, volumes: [...base.volumes, { name: anonymous, labels: {}, createdAt: "t" }] },
+      context([]),
+    );
+    expect(report.leftovers[0].volumes.map((entry) => entry.name)).not.toContain(anonymous);
+  });
+
   it("blocks a stack with a running container", () => {
     const report = findDockerLeftovers(
       inventory(stack("gone", "/repo/trees/feature", "running")),
@@ -306,12 +348,13 @@ describe("leftover manifests", () => {
       { status: "removed" },
     ]);
     expect(locks).toEqual(["gone"]);
-    expect(calls.map((args) => args.slice(0, 2).join(" "))).toEqual([
-      "rm -v",
-      "rm -v",
-      "volume rm",
-      "volume rm",
-      "network rm",
+    // The provider-created app container proves the checkout, so it goes last.
+    expect(calls).toEqual([
+      ["rm", "gone-postgres-id"],
+      ["rm", "gone-app-id"],
+      ["volume", "rm", "gone_node_modules"],
+      ["volume", "rm", "gone_pgdata"],
+      ["network", "rm", "gone-net-id"],
     ]);
     expect(live.state.containers).toEqual([]);
     expect(
@@ -336,6 +379,45 @@ describe("leftover manifests", () => {
     expect(apply(manifest, live, ctx, { yes: true }).targets).toMatchObject([
       { status: "already-done" },
     ]);
+  });
+
+  it("finishes on rerun when a container removal failed partway", () => {
+    const ctx = context([]);
+    const live = { state: inventory(stack("gone", "/repo/trees/feature")) };
+    const manifest = writeManifest(live.state, ctx);
+    const first = apply(manifest, live, ctx, {
+      yes: true,
+      run: fakeDocker(live, new Set(["gone-app-id"])),
+    });
+    expect(first.targets).toMatchObject([{ status: "failed", code: "teardown-failed" }]);
+    expect(live.state.containers.map((entry) => entry.id)).toEqual(["gone-app-id"]);
+    expect(apply(manifest, live, ctx, { yes: true }).targets).toMatchObject([
+      { status: "removed" },
+    ]);
+    expect(live.state.containers).toEqual([]);
+    expect(live.state.volumes).toEqual([]);
+  });
+
+  it("lists anonymous volumes in the manifest and removes them after their containers", () => {
+    const ctx = context([]);
+    const anonymous = "a".repeat(64);
+    const base = inventory(stack("gone", "/repo/trees/feature"));
+    const live = {
+      state: {
+        ...base,
+        containers: [
+          ...base.containers,
+          container("gone", "redis", { checkout: "/repo/trees/feature", volumes: [anonymous] }),
+        ],
+        volumes: [...base.volumes, { name: anonymous, labels: {}, createdAt: "t" }],
+      },
+    };
+    const manifest = writeManifest(live.state, ctx);
+    expect(
+      readLeftoverManifest(manifest.file).manifest.candidates[0].volumes.map((entry) => entry.name),
+    ).toContain(anonymous);
+    apply(manifest, live, ctx, { yes: true });
+    expect(live.state.volumes).toEqual([]);
   });
 
   it("skips a changed project and still removes the others", () => {
