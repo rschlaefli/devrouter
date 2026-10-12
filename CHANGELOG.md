@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-12
+
 ### Added
 
 - `workspace cleanup --all-worktrees` lists Docker leftovers: Compose stacks
@@ -23,6 +25,10 @@ All notable changes to this project are documented in this file.
 - `workspace gc` can now remove a Devsy workspace whose checkout folder was
   already deleted. When the ordinary provider delete fails, it forces the
   delete only if the folder is gone and the runtime is stopped or not found.
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.3.0.md
 
 ## [0.2.0] - 2026-10-06
 
