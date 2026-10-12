@@ -222,7 +222,18 @@ Worktree `trees/cleanup-reliability-docs` on `rs/cleanup-reliability-docs` from
   green (check, knip, typecheck, 2,850+ tests, build, package smoke, skills,
   docs policy).
 - [x] Draft PR [#131](https://github.com/rschlaefli/devrouter/pull/131).
-- [ ] Dogfood blocked on a ruling: after approval two more Klicker checkouts
-  were deleted, so `gc` now lists four eligible records instead of exactly
-  `test-playwright-flakiness`. The approved selector stops here.
-- Next action: merge #131 when CI passes, then S4 release 0.3.0, then S5.
+- [x] Merged #131 and release PR #132; v0.3.0 published to npm (S4).
+- [x] Klicker CI installs 0.3.0, then requires it as the minimum, in two
+  merged PRs (S5). The final AI review could not run because its review
+  model's credits were exhausted.
+- [x] Dogfood (2026-10-12) after a widened ruling covering all four `gc`
+  records. `gc` removed exactly those four, after waiting about six minutes
+  for another process's provider lock. The leftover manifest then listed
+  exactly the three stacks those records had blocked, with no blocked stacks.
+  Its dry run matched, and the apply removed 20 containers, 122 volumes and
+  3 networks (about 14 GB) and wrote one receipt per stack. Docker then listed
+  none of their objects.
+- [x] Dogfood findings: the apply table printed every removed object ID,
+  making rows unreadable; it now prints per-kind counts and points to the
+  receipts. A full `cleanup --all-worktrees` scan of about 150 worktrees took
+  more than five minutes; recorded for later, not changed here.
