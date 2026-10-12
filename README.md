@@ -116,6 +116,13 @@ Use devrouter lifecycle commands for managed environments. Raw DevPod or Devsy
 Devrouter auto-detects the installed workspace runtime CLI (DevPod or Devsy) and
 you can pin it with `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy`.
 
+## Cleaning up worktrees
+
+Agent sessions and devcontainers leave many worktrees, dependencies and Docker
+stacks behind. `devrouter workspace cleanup --all-worktrees --check-merged`
+reports which are safe to remove; removal applies only a list a person
+approved by its SHA-256. See [Cleaning up worktrees](./docs/WORKTREE_CLEANUP.md).
+
 ## Agent onboarding
 
 Generate the canonical, non-mutating onboarding prompt from a target repository:

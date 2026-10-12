@@ -174,6 +174,11 @@ when evidence is unreadable.
 Trim manifests (removing selected cache paths inside a kept tree) belong to
 `devrouter workspace trim`. This skill refuses them and has no trim of its own.
 
+Docker stacks left behind by a deleted checkout belong to devrouter as well:
+`devrouter workspace cleanup --all-worktrees` lists them, and
+`devrouter workspace leftover` removes an approved `docker-leftover-manifest`.
+This skill never removes containers or volumes and refuses that manifest kind.
+
 ## Reporting back
 
 Lead with what changed and what is left:

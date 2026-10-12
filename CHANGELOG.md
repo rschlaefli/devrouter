@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `workspace cleanup --all-worktrees` lists Docker leftovers: Compose stacks
+  whose devcontainer names a checkout below `trees/` that no longer exists,
+  with the containers, volumes and networks that would be removed, the stacks
+  still blocked by a registration (and the next step), and unused volumes that
+  cannot be traced to any checkout.
+- `workspace cleanup --manifest --action leftover` and `workspace leftover
+  --manifest <file> --sha256 <hash>` remove exactly the approved leftover
+  stacks, including their project and anonymous volumes. Removal is a dry run
+  without `--yes`, re-checks each stack inside the
+  provider locks, skips a stack that changed, and finishes a partial removal on
+  rerun. Volumes that cannot be traced to a deleted checkout are never removed.
+
+### Fixed
+
+- `workspace gc` can now remove a Devsy workspace whose checkout folder was
+  already deleted. When the ordinary provider delete fails, it forces the
+  delete only if the folder is gone and the runtime is stopped or not found.
+
 ## [0.2.0] - 2026-10-06
 
 ### Added

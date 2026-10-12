@@ -10,6 +10,7 @@ PRODUCT_DOCS=(
   "docs/GETTING_STARTED.md"
   "docs/DEVCONTAINER.md"
   "docs/REPO_ONBOARDING.md"
+  "docs/WORKTREE_CLEANUP.md"
   docs/knowledge/*.md
   "examples/routing/README.md"
   "examples/devcontainer/README.md"

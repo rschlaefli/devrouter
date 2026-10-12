@@ -130,6 +130,43 @@ function printWorktreeVerdicts(report: WorkspaceCleanupReport): void {
   if (!report.checkMerged) {
     process.stdout.write("Forge not checked: rerun with --check-merged for RECLAIM verdicts.\n");
   }
+  printDockerLeftovers(report);
+}
+
+function printDockerLeftovers(report: WorkspaceCleanupReport): void {
+  const leftovers = report.dockerLeftovers;
+  if (!leftovers) return;
+  if (leftovers.status === "unavailable") {
+    process.stdout.write(`\nDocker leftovers: not checked (${leftovers.reason}).\n`);
+    return;
+  }
+  const rows = [
+    ...leftovers.leftovers.map((entry) => [
+      entry.project,
+      entry.checkout,
+      `removable: ${entry.containers.length} container(s), ${entry.volumes.length} volume(s), ${entry.networks.length} network(s)`,
+    ]),
+    ...leftovers.blocked.map((entry) => [
+      entry.project,
+      entry.checkout,
+      `blocked: ${entry.reason}; next: ${entry.next}`,
+    ]),
+  ];
+  if (rows.length) {
+    process.stdout.write(
+      `\nDocker leftovers of deleted checkouts:\n${renderTable(["PROJECT", "CHECKOUT", "STATUS"], rows)}\n`,
+    );
+  }
+  if (leftovers.leftovers.length) {
+    process.stdout.write(
+      "Approve removal with `workspace cleanup --all-worktrees --manifest --action leftover --output <file>`, then `workspace leftover`.\n",
+    );
+  }
+  if (leftovers.unattributedVolumes.length) {
+    process.stdout.write(
+      `${leftovers.unattributedVolumes.length} unused Compose volume(s) cannot be traced to a checkout and are never removed by devrouter; list them with --json.\n`,
+    );
+  }
 }
 
 export function printReclaimReport(

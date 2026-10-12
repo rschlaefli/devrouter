@@ -1,5 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  applyLeftoverManifest,
+  buildLeftoverManifest,
+  findDockerLeftovers,
+  isLeftoverManifest,
+  readDockerInventory,
+  readLeftoverContext,
+  readLeftoverManifest,
+} from "../core/docker-leftovers";
 import { printJSON, printReclaimReport, printWorkspaceCleanupReport } from "../core/output";
 import { loadRepoConfig, resolveRepoPath } from "../core/repo-config";
 import {
@@ -75,20 +84,37 @@ export function runWorkspaceLsCommand(options: { repo?: string; json?: boolean }
   }
 }
 
+function writeManifestOutput(manifest: string, output?: string): void {
+  if (output) {
+    fs.writeFileSync(output, manifest, { flag: "wx" });
+    process.stdout.write(`${sha256Hex(manifest)}  ${output}\n`);
+  } else {
+    process.stdout.write(manifest);
+  }
+}
+
 export function runWorkspaceCleanupCommand(
   options: WorkspaceCleanupOptions & {
     json?: boolean;
     manifest?: boolean;
     output?: string;
-    action?: "reclaim" | "trim";
+    action?: "reclaim" | "trim" | "leftover";
   },
 ): void {
   const repoPath = resolveGitWorkspaceRepo(options.repo);
+  if (options.manifest && options.action === "leftover") {
+    const leftovers = findDockerLeftovers(readDockerInventory(), readLeftoverContext(repoPath));
+    writeManifestOutput(
+      buildLeftoverManifest(repoPath, leftovers, Math.floor(Date.now() / 1000)),
+      options.output,
+    );
+    return;
+  }
   const report = buildWorkspaceCleanupReport({ ...options, repo: repoPath });
   if (options.manifest) {
     const action = options.action ?? "reclaim";
     if (action !== "reclaim" && action !== "trim") {
-      throw new Error("--action must be reclaim or trim.");
+      throw new Error("--action must be reclaim, trim or leftover.");
     }
     if (action === "trim") {
       if (!options.allWorktrees)
@@ -108,12 +134,7 @@ export function runWorkspaceCleanupCommand(
             createdAtEpoch,
           )
         : buildReclaimManifest(report, createdAtEpoch);
-    if (options.output) {
-      fs.writeFileSync(options.output, manifest, { flag: "wx" });
-      process.stdout.write(`${sha256Hex(manifest)}  ${options.output}\n`);
-    } else {
-      process.stdout.write(manifest);
-    }
+    writeManifestOutput(manifest, options.output);
     return;
   }
   if (options.json) {
@@ -191,8 +212,42 @@ export async function runWorkspaceJournalSettleCommand(options: {
 }
 
 export function runWorkspaceManifestHashCommand(file: string): void {
-  const { raw } = readManifest(file);
+  let leftover = false;
+  try {
+    leftover = isLeftoverManifest(JSON.parse(fs.readFileSync(file, "utf-8")));
+  } catch {
+    // The validating reader below reports unreadable or malformed files.
+  }
+  const { raw } = leftover ? readLeftoverManifest(file) : readManifest(file);
   process.stdout.write(`${sha256Hex(raw)}\n`);
+}
+
+export function runWorkspaceLeftoverCommand(options: {
+  manifest: string;
+  sha256: string;
+  maxAge?: string;
+  yes?: boolean;
+  json?: boolean;
+}): void {
+  const report = applyLeftoverManifest({
+    manifestFile: options.manifest,
+    sha256: options.sha256,
+    maxAgeSeconds: parseInactiveFor(options.maxAge ?? "24h").seconds,
+    yes: Boolean(options.yes),
+  });
+  if (options.json) {
+    printJSON(report);
+  } else {
+    printReclaimReport(
+      {
+        dryRun: report.dryRun,
+        stoppedEarly: false,
+        targets: report.targets.map((target) => ({ ...target, path: target.project })),
+      },
+      "remove the leftovers",
+    );
+  }
+  if (report.targets.some((target) => target.status === "failed")) process.exitCode = 1;
 }
 
 export function runWorkspaceManifestSelectCommand(

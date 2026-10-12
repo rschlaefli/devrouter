@@ -194,6 +194,38 @@ function inspectExactOwnership(devsyId: string, worktreePath: string) {
   return ownership;
 }
 
+function checkoutVanished(worktreePath: string): boolean {
+  try {
+    fs.lstatSync(worktreePath);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT";
+  }
+}
+
+/**
+ * The provider's ordinary delete reads the devcontainer configuration from the
+ * registered checkout, so it fails once that folder is gone and the
+ * registration could never be removed. A forced delete is safe only when the
+ * folder is positively absent and the runtime is not running; anything else
+ * keeps the original failure.
+ */
+function deleteVanishedCheckoutRegistration(
+  devsyId: string,
+  worktreePath: string,
+  originalError: unknown,
+): void {
+  if (!checkoutVanished(worktreePath)) throw originalError;
+  const runtime = inspectDevsyRuntimeStatus(devsyId);
+  if (runtime !== "stopped" && runtime !== "not-found") throw originalError;
+  runDevsyAction("delete", devsyId, true, worktreePath);
+  if (inspectExactOwnership(devsyId, worktreePath).status !== "absent") {
+    throw new Error(
+      `Devsy workspace '${devsyId}' still owns vanished checkout '${worktreePath}' after forced provider delete.`,
+    );
+  }
+}
+
 function mutateOwnedDevsyWorkspace(
   action: "stop" | "delete",
   devsyId: string,
@@ -216,7 +248,13 @@ function mutateOwnedDevsyWorkspace(
     const before = inspectExactOwnership(devsyId, worktreePath);
     if (before.status === "absent") return { status: "absent" as const };
 
-    runDevsyAction(action, devsyId, false, worktreePath);
+    try {
+      runDevsyAction(action, devsyId, false, worktreePath);
+    } catch (error) {
+      if (action !== "delete") throw error;
+      deleteVanishedCheckoutRegistration(devsyId, worktreePath, error);
+      return { status: "changed" as const };
+    }
 
     let after = inspectExactOwnership(devsyId, worktreePath);
     if (action === "stop" && after.status !== "owned") {

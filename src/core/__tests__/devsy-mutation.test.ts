@@ -262,6 +262,65 @@ describe("Devsy mutation adapter", () => {
     ]);
   });
 
+  // The ordinary delete fails as Devsy does once the checkout's devcontainer
+  // configuration is gone; a forced delete removes the registration.
+  function failOrdinaryDelete(state: string, workspace: { id: string }) {
+    let deleted = false;
+    vi.mocked(spawnSync).mockImplementation((command, args) => {
+      const argv = (args as string[]) ?? [];
+      if (command === "devsy" && argv[1] === "list") return listResult(deleted ? [] : [workspace]);
+      if (command === "devsy" && argv[1] === "status") {
+        const stdout = JSON.stringify({ id: workspace.id, state });
+        return { status: 0, stdout, stderr: "" } as never;
+      }
+      if (command === "devsy" && argv[1] === "delete") {
+        if (!argv.includes("--force")) {
+          return { status: 1, stdout: "", stderr: "devcontainer config not found" } as never;
+        }
+        deleted = true;
+      }
+      return { status: 0, stdout: "", stderr: "" } as never;
+    });
+  }
+  const forcedDelete = ["workspace", "delete", "vanished", "--force", "--ignore-not-found"];
+  const vanished = { id: "vanished", source: { localFolder: "/nonexistent/devrouter/vanished" } };
+
+  it.each([
+    "Stopped",
+    "NotFound",
+  ])("force-deletes the registration of a vanished checkout whose runtime is %s", (state) => {
+    failOrdinaryDelete(state, vanished);
+    expect(deleteOwnedDevsyWorkspace("vanished", vanished.source.localFolder)).toEqual({
+      status: "changed",
+    });
+    expect(spawnSync).toHaveBeenCalledWith("devsy", forcedDelete, { encoding: "utf-8" });
+  });
+
+  it.each([
+    "Running",
+    "Busy",
+    "Unreadable",
+  ])("keeps the original failure for a vanished checkout whose runtime is %s", (state) => {
+    failOrdinaryDelete(state, vanished);
+    expect(() => deleteOwnedDevsyWorkspace("vanished", vanished.source.localFolder)).toThrow(
+      "devcontainer config not found",
+    );
+    expect(spawnSync).not.toHaveBeenCalledWith("devsy", forcedDelete, expect.anything());
+  });
+
+  it("never retries a failed delete while the checkout folder still exists", () => {
+    const present = { id: "feature", source: { localFolder: process.cwd() } };
+    failOrdinaryDelete("Stopped", present);
+    expect(() => deleteOwnedDevsyWorkspace("feature", process.cwd())).toThrow(
+      "devcontainer config not found",
+    );
+    expect(spawnSync).not.toHaveBeenCalledWith(
+      "devsy",
+      expect.arrayContaining(["--force"]),
+      expect.anything(),
+    );
+  });
+
   it("fails closed on a still-running workspace after delete", () => {
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];

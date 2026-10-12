@@ -19,6 +19,13 @@ import type { WorkspaceContainerConsumption } from "../workspace-consumption";
 import type { GitWorktree, WorkspaceOwnershipRecord } from "../workspace-ownership";
 
 vi.mock("../network-diagnostics", () => ({ inspectNetworkCapacity: vi.fn(() => undefined) }));
+vi.mock("../docker-leftovers", () => ({
+  findDockerLeftovers: vi.fn(),
+  readDockerInventory: vi.fn(() => {
+    throw new Error("docker is not read in unit tests");
+  }),
+  readLeftoverContext: vi.fn(),
+}));
 
 const now = new Date("2026-08-12T12:00:00.000Z");
 const old = "2026-06-01T12:00:00.000Z";

@@ -274,4 +274,12 @@ if "$SKILL_DIR/scripts/apply-manifest.sh" "$SUBSET" --sha256 "$SUBSET_HASH" > "$
 fi
 assert_contains "$(cat "$TEST_ROOT/gone.out")" "STALE $ID_ONE"
 
+# A Docker leftover manifest has no Git identity; the skill must never apply it.
+LEFTOVER="$TEST_ROOT/leftover.json"
+printf '{"candidateCount":0,"candidates":[],"createdAtEpoch":1,"daemonId":"d","kind":"docker-leftover-manifest","repo":"/r","schemaVersion":1}\n' > "$LEFTOVER"
+if python3 "$SKILL_DIR/scripts/manifest.py" hash "$LEFTOVER" > "$TEST_ROOT/leftover.out" 2>&1; then
+  fail "expected the skill to reject a docker-leftover-manifest"
+fi
+assert_contains "$(cat "$TEST_ROOT/leftover.out")" "manifest kind must be worktree-reclaim-manifest"
+
 printf 'PASS: manifest hash/age, exact selection, devrouter delegation, JSON report, trim refusal, live activity, all-target preflight, scoped apply, and receipts\n'
