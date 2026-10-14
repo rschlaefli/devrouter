@@ -1,6 +1,6 @@
 {
   "name": "@devrouter/cli",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Local dev routing CLI with shared Traefik reverse proxy",
   "author": "Roland Schlaefli",
   "homepage": "https://github.com/rschlaefli/devrouter#readme",
