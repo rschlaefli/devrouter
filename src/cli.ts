@@ -242,8 +242,10 @@ program
 
 program
   .command("env")
-  .description("Report the host-reachable URLs, TCP endpoints and CA path of one checkout")
-  .argument("[args...]", "[path] [--json]")
+  .description(
+    "Report one checkout's host-reachable URLs, TCP endpoints and CA path, or run a host command with them",
+  )
+  .argument("[args...]", "[path] [--json] | [path] -- <command...>")
   .allowUnknownOption(true)
   .action(
     withErrorHandling(async () => {

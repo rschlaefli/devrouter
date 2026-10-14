@@ -239,3 +239,37 @@ export async function collectHostEnvReport(repoPath: string): Promise<HostEnvRep
     },
   });
 }
+
+function variablePrefix(appName: string): string {
+  return `DEVROUTER_${appName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+}
+
+/**
+ * Variables `devrouter env -- <command>` adds to the child environment. The
+ * `DEVROUTER_` namespace never shadows a consumer variable, and the CA path is
+ * only offered when the caller has not chosen one.
+ */
+export function hostEnvVariables(
+  report: HostEnvReport,
+  processEnv: NodeJS.ProcessEnv,
+): Record<string, string> {
+  const variables: Record<string, string> = {};
+  if (report.workspace) variables.DEVROUTER_WORKSPACE = report.workspace;
+  if (report.caPath && processEnv.NODE_EXTRA_CA_CERTS === undefined) {
+    variables.NODE_EXTRA_CA_CERTS = report.caPath;
+  }
+  for (const app of report.apps) {
+    const prefix = variablePrefix(app.name);
+    if (app.protocol === "http") {
+      variables[`${prefix}_URL`] = app.url;
+      continue;
+    }
+    variables[`${prefix}_ROUTED_HOST`] = app.routed.host;
+    variables[`${prefix}_ROUTED_PORT`] = String(app.routed.port);
+    if (app.loopback) {
+      variables[`${prefix}_HOST`] = app.loopback.host;
+      variables[`${prefix}_PORT`] = String(app.loopback.port);
+    }
+  }
+  return variables;
+}
