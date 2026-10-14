@@ -241,6 +241,19 @@ program
   );
 
 program
+  .command("env")
+  .description("Report the host-reachable URLs, TCP endpoints and CA path of one checkout")
+  .argument("[args...]", "[path] [--json]")
+  .allowUnknownOption(true)
+  .action(
+    withErrorHandling(async () => {
+      const commandIndex = process.argv.indexOf("env", 2);
+      const { parseEnvInvocation, runEnvCommand } = await import("./commands/env");
+      await runEnvCommand(parseEnvInvocation(process.argv.slice(commandIndex + 1)));
+    }),
+  );
+
+program
   .command("down")
   .description("Stop the shared Traefik router stack")
   .action(
