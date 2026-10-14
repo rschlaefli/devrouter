@@ -136,6 +136,11 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Run literal argv inside the exact already-running workspace runtime and proven checkout mount.",
   },
   {
+    command: "devrouter env [path] [--json] | devrouter env [path] -- <command...>",
+    purpose:
+      "Report the checkout's host-reachable URLs, routed and loopback TCP endpoints and CA path without touching the runtime, or run a host command with them exported as DEVROUTER_* variables.",
+  },
+  {
     command: "devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]",
     purpose:
       "Create a git worktree for <branch>, then run the proven workspace startup unless --no-devpod is set.",

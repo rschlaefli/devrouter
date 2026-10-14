@@ -62,4 +62,5 @@ Run validation checklist items 1–8 after S3, then the live KlickerUZH check wi
 
 ## Progress
 
-- 2026-10-14: plan approved with both recommended decisions. Next: S1.
+- 2026-10-14: plan approved with both recommended decisions.
+- 2026-10-14: S1 (`9079326`) and S2 (`8af4cdf`) done: `host-env.test.ts` (4) and `env.test.ts` (5) added. S3 documentation done. Full suite: 2863/2864 passed. The one failure, `controller-server.test.ts` "live watch gap", is a load-timing flake: it passes 34/34 in three isolated runs and is unrelated to this change. Next: build, package smoke, live KlickerUZH check, self-review, draft PR.
