@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-14
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.4.0.md
+
 ### Added
 
 - `devrouter env [path] [--json]` reports a checkout's routed HTTPS URLs, the
