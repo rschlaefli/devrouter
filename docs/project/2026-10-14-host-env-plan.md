@@ -63,4 +63,9 @@ Run validation checklist items 1–8 after S3, then the live KlickerUZH check wi
 ## Progress
 
 - 2026-10-14: plan approved with both recommended decisions.
-- 2026-10-14: S1 (`9079326`) and S2 (`8af4cdf`) done: `host-env.test.ts` (4) and `env.test.ts` (5) added. S3 documentation done. Full suite: 2863/2864 passed. The one failure, `controller-server.test.ts` "live watch gap", is a load-timing flake: it passes 34/34 in three isolated runs and is unrelated to this change. Next: build, package smoke, live KlickerUZH check, self-review, draft PR.
+- 2026-10-14: S1 (`9079326`) and S2 (`8af4cdf`) done: `host-env.test.ts` (4) and `env.test.ts` (5) added. S3 documentation done. Full suite: 2863/2864 passed. The one failure, `controller-server.test.ts` "live watch gap", is a load-timing flake: it passes 34/34 in three isolated runs and is unrelated to this change. Build and `test:package` passed.
+- 2026-10-14 live check on KlickerUZH `trees/playwright-host-dx` (installed CLI 0.3.0 for ensure/stop; this branch's build for `env`):
+  - `env --json` reported version 1, workspace `enhance-playwright-host-dx`, namespaced URLs, and loopback `127.0.0.1:32825`, matching `docker port`.
+  - `env . -- psql …` connected through the loopback endpoint (`select 1`), with credentials from the repository's committed env and never printed.
+  - Not verified live: `active: true` and the routed TLS/SNI endpoint. The consumer's cold `ensure` hung in its own post-create build (`rollup -c` in `packages/graphql` sat idle after 33 s of CPU), so routes were never published. The ensure was interrupted, `devrouter stop` ran, and no containers remain.
+- End-of-package self-simplification and self-review (labeled self-review, not independent) found no changes to make. Checked: no runtime mutation (`ensureMkcert` only checks the binary exists), argv-only spawn, and every unproven loopback attribution returns a reason. Draft PR opened; release, merge and KlickerUZH delegation remain outside this approval.
