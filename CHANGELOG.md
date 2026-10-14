@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `devrouter env [path] [--json]` reports a checkout's routed HTTPS URLs, the
+  routed TLS/SNI and published loopback endpoints of its TCP apps, the workspace
+  token and the mkcert CA path. It reads state only and prints no credentials.
+- `devrouter env [path] -- <command...>` runs a host command without a shell,
+  with those endpoints exported as `DEVROUTER_*` variables (plus
+  `NODE_EXTRA_CA_CERTS` when unset), and returns the command's exit code.
+
 ## [0.3.1] - 2026-10-12
 
 ### Agent Adaptation Prompt

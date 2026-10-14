@@ -654,6 +654,28 @@ Plain `sslmode=require` (without `sslnegotiation=direct`) times out: libpq does 
 plaintext `SSLRequest` preamble first, so Traefik never sees the SNI. devrouter
 advertises ALPN `postgresql` automatically (libpq direct-SSL mandates it).
 
+Framework drivers such as node-postgres and Prisma always send that plaintext
+preamble, so they need a loopback port instead. Publish one on the upstream
+service (`ports: ['127.0.0.1::5432']`). `devrouter env` then reports it next
+to the routed endpoint:
+
+```bash
+devrouter env . --json    # URLs, routed + loopback TCP endpoints, CA path
+devrouter env . -- npx playwright test    # run a host tool with them exported
+```
+
+`devrouter env` reads state only and never starts or reconciles the runtime.
+Run `devrouter ensure .` first. The report contains no credentials. Host
+tools take the user and password from the repository's own committed
+development env. The exec form adds `DEVROUTER_WORKSPACE`,
+`DEVROUTER_<APP>_URL`, `DEVROUTER_<APP>_HOST`/`_PORT` (loopback) and
+`DEVROUTER_<APP>_ROUTED_HOST`/`_ROUTED_PORT`. It sets `NODE_EXTRA_CA_CERTS`
+to the mkcert CA only when the variable is unset. A loopback endpoint appears
+only when exactly one container of this checkout's `.devcontainer` Compose
+project carries the upstream alias on `devnet` and publishes the port on
+`127.0.0.1` or `::1`. Otherwise the report gives the reason
+(`not-found`, `ambiguous`, `not-running`, `not-published`, `unavailable`).
+
 ## 7. Verify / tear down
 
 ```bash

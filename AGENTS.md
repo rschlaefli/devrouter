@@ -85,7 +85,7 @@ Supported routing:
 - `devrouter upgrade` (`[version]`, `--repo <path>` optional; lists targets or prints target adaptation prompt)
 - `devrouter setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics)
 - `devrouter up`, `devrouter down`, `devrouter status`, `devrouter doctor` (alias: `devrouter verify`), `devrouter ls`, `devrouter open`, `devrouter logs`, `devrouter tls install`
-- `devrouter ensure` (`[path]`, `--open`, `--repair`, `--json`), `devrouter stop` (`[path]`, `--delete`, `--json`), `devrouter exec` (`[path] -- <command...>`)
+- `devrouter ensure` (`[path]`, `--open`, `--repair`, `--json`), `devrouter stop` (`[path]`, `--delete`, `--json`), `devrouter exec` (`[path] -- <command...>`), `devrouter env` (`[path]`, `--json`, or `[path] -- <command...>` on the host)
 - `devrouter profile resolve` (`--repo`, `--profile`, `--json`), `devrouter profile plan` (`--repo`, `--profile`, `--contract`, `--output`, `--json`)
 - `devrouter repo init`, `devrouter repo inspect` (`--json`), `devrouter repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `devrouter repo devcontainer verify` (`--live`, `--yes`, `--json`), `devrouter repo agents`
 - `devrouter harness gate` (`--repo`, `--wait-budget-ms`, `--json`; agent-harness `PreToolUse` hook)
@@ -136,6 +136,8 @@ Supported routing:
 - `src/core/managed-post-start.ts`: managed-adapter migration guard plus runtime-only process-helper delivery and invocation in the exact validated container
 - `src/core/environment-stop.ts`: non-destructive exact-checkout stop lifecycle
 - `src/core/devpod-exec.ts`: locked, exact-path one-shot DevPod execution
+- `src/core/host-env.ts`: read-only checkout host environment report (namespaced URLs, routed and exact-identity loopback TCP endpoints, CA path) and its `DEVROUTER_*` variable mapping
+- `src/commands/env.ts`: `devrouter env` report and argv-safe host command execution
 - `src/commands/workspace.ts`: `devrouter workspace` command handlers
 - `src/core/concurrency.ts`: concurrent run guard (`assertAppNotRunning`) + stale route eviction (`evictStaleHostRoutes` for dead PIDs; `evictOrphanedWorkspaceRoutes` for removed-worktree proxy routes)
 - `src/core/app-run.ts`: runtime orchestration, `startAppDependencies()` helper, `runConfiguredApp()`, `execWithAppEnv()`
@@ -218,6 +220,8 @@ Supported routing:
 - `src/core/__tests__/tls.test.ts`: unit tests for TLS SAN parsing, wildcard coverage, and host preservation logic
 - `src/core/__tests__/host-port-claims.test.ts`: unit tests for the fixed-port resolver, conflict matching, holder attribution, and evidence-failure refusals
 - `src/commands/__tests__/ensure.test.ts`: unit tests for ensure host-port refusal output (JSON shape, human attribution, exit codes)
+- `src/core/__tests__/host-env.test.ts`: unit tests for env report namespacing and fail-closed loopback attribution
+- `src/commands/__tests__/env.test.ts`: unit tests for env invocation parsing, variable mapping, and host command exit codes
 - `src/commands/__tests__/init.test.ts`: unit tests for `devrouter init` side-effect contract
 - `src/commands/__tests__/open.test.ts`: unit tests for `devrouter open` app-name fallback behavior
 - `src/commands/__tests__/repo-init.test.ts`: unit tests for `devrouter repo init` metadata initialization behavior
