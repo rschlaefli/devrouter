@@ -892,6 +892,24 @@ workspaceCommand
   );
 
 workspaceCommand
+  .command("idle")
+  .description("Report which running managed environments are idle, active, unknown, or protected")
+  .option("--repo <path>", "Only report checkouts of this repository (defaults to every checkout)")
+  .option("--idle-for <duration>", "Idle threshold using Ns, Nm, Nh, Nd, or Nw", "30m")
+  .option("--json", "Output the idle report as JSON")
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{ repo?: string; idleFor?: string; json?: boolean }>();
+      const { runWorkspaceIdleCommand } = await import("./commands/workspace");
+      runWorkspaceIdleCommand({
+        repo: options.repo,
+        idleFor: options.idleFor,
+        json: Boolean(options.json),
+      });
+    }),
+  );
+
+workspaceCommand
   .command("gc")
   .description("Report or clean missing ledger-owned workspace resources")
   .option("--repo <path>", "Main repository path (defaults to current directory)")

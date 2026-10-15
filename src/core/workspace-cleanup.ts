@@ -337,14 +337,17 @@ function workspaceCommand(
   ].join(" ");
 }
 
-export function parseInactiveFor(value = DEFAULT_INACTIVE_FOR): {
+export function parseInactiveFor(
+  value = DEFAULT_INACTIVE_FOR,
+  flag = "--inactive-for",
+): {
   input: string;
   seconds: number;
 } {
   const match = /^(?<amount>[1-9]\d*)(?<unit>[smhdw])$/.exec(value);
   if (!match?.groups) {
     throw new Error(
-      "--inactive-for must be a positive integer followed by s, m, h, d, or w (for example 30d).",
+      `${flag} must be a positive integer followed by s, m, h, d, or w (for example 30d).`,
     );
   }
   const amount = Number(match.groups.amount);
@@ -353,7 +356,7 @@ export function parseInactiveFor(value = DEFAULT_INACTIVE_FOR): {
   ];
   const seconds = amount * multiplier;
   if (!Number.isSafeInteger(seconds)) {
-    throw new Error("--inactive-for is too large.");
+    throw new Error(`${flag} is too large.`);
   }
   return { input: value, seconds };
 }

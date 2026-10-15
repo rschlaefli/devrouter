@@ -19,6 +19,7 @@ import {
   type WorkspaceCleanupOptions,
 } from "../core/workspace-cleanup";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
+import { buildWorkspaceIdleReport, type WorkspaceIdleOptions } from "../core/workspace-idle";
 import { settleWorkspaceJournal } from "../core/workspace-journal-settle";
 import {
   reclaimWorktreeExactPath,
@@ -142,6 +143,26 @@ export function runWorkspaceCleanupCommand(
     return;
   }
   printWorkspaceCleanupReport(report);
+}
+
+export function runWorkspaceIdleCommand(options: WorkspaceIdleOptions & { json?: boolean }): void {
+  const report = buildWorkspaceIdleReport({
+    repo: options.repo ? resolveGitWorkspaceRepo(options.repo) : undefined,
+    idleFor: options.idleFor,
+  });
+  if (options.json) {
+    printJSON(report);
+    return;
+  }
+  for (const warning of report.warnings) process.stderr.write(`Warning: ${warning}\n`);
+  if (report.rows.length === 0) {
+    process.stdout.write("No running managed environments.\n");
+    return;
+  }
+  for (const row of report.rows) {
+    const detail = row.reasons.length > 0 ? `\t${row.reasons.join("; ")}` : "";
+    process.stdout.write(`${row.status}\t${row.latestActivity ?? "-"}\t${row.repoPath}${detail}\n`);
+  }
 }
 
 export async function runWorkspaceDownCommand(

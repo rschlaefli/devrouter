@@ -435,6 +435,8 @@ describe("startDevsyWorkspace", () => {
       "WORKSPACE=feature",
       "--workspace-env",
       "DEVROUTER_WORKSPACE=feature",
+      "--provider-option",
+      "INACTIVITY_TIMEOUT=",
     ]);
     const upOptions = upCall?.[2] as { env?: Record<string, string | undefined> } | undefined;
     const upEnv = upOptions?.env ?? {};
@@ -582,6 +584,8 @@ describe("startDevsyWorkspace", () => {
       "feature",
       "--ide-launch",
       "skip",
+      "--provider-option",
+      "INACTIVITY_TIMEOUT=",
       "--recreate",
     ]);
     const options = upCall?.[2] as { env?: Record<string, string | undefined> } | undefined;
@@ -593,7 +597,7 @@ describe("startDevsyWorkspace", () => {
     expect((upCall?.[2] as { stdio?: unknown } | undefined)?.stdio).toEqual(["inherit", 2, "pipe"]);
   });
 
-  it("forwards the configured inactivity timeout as a provider option", async () => {
+  it("disables Devsy's own inactivity timeout with an explicit empty provider option", async () => {
     vi.mocked(spawnSync).mockImplementation((command, args) => {
       const argv = (args as string[]) ?? [];
       if (command === "devsy" && argv[0] === "workspace" && argv[1] === "list") {
@@ -605,7 +609,6 @@ describe("startDevsyWorkspace", () => {
     await startDevsyWorkspace({
       repoPath: "/repo/feature",
       devsyId: "feature",
-      inactivityTimeout: "30m",
     });
 
     const upCall = vi
@@ -620,7 +623,7 @@ describe("startDevsyWorkspace", () => {
       "--ide-launch",
       "skip",
       "--provider-option",
-      "INACTIVITY_TIMEOUT=30m",
+      "INACTIVITY_TIMEOUT=",
     ]);
   });
 

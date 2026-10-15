@@ -232,3 +232,19 @@ The live report in Slice 1 is read-only and may run against existing stacks.
   review (access-log source, launchd environment, separate keep-alive field,
   open-tab scenario); awaiting approval.
 - 2026-10-15: approved by the user with all recommended decisions; Slice 1 started.
+- 2026-10-15: Devsy v1.19.0 source closes the empty-timeout chain: a user-provided
+  empty `INACTIVITY_TIMEOUT` resolves to `""` (`computeOptionValue`, kept by
+  `keptByUserOrBefore`), so `containerInactivityTimeout` is empty and
+  `agentcontainer/setup.go` skips the daemon. Deliberate deviation: the live
+  proof moves to the Slice 4 disposable checkout. Journal file mtime stands in
+  for the last lifecycle operation, because journal records carry no
+  timestamps. Settled manual journals keep one consumer and one request, so
+  those are not vetoes; capacity-managed policy is.
+- 2026-10-15: Slice 1 complete. ADR 0012, `workspace idle` report and the empty
+  Devsy timeout. Live read-only run from the built CLI took 2 s and reported
+  both running stacks idle (last activity 7–8 days earlier) with all four
+  signals readable. Running from source (`tsx`) reports every journal
+  unreadable, because its `0.0.0-dev` version refuses journals written by newer
+  releases; live checks use the build. Checks: docs policy, knowledge, check,
+  knip, typecheck; full suite 2,879/2,880 with one timing flake in
+  `controller-server.test.ts` that passes on three isolated reruns.

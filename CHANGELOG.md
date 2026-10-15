@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `devrouter workspace idle [--repo <path>] [--idle-for 30m] [--json]` reports
+  each running managed environment as `active`, `idle`, `unknown` or
+  `protected`. It reads Traefik access-log requests for the checkout's routes,
+  the provider activity file, the reliability journal and route updates, and
+  changes nothing.
+
+### Changed
+
+- Devsy workspaces started by devrouter now pass an empty `INACTIVITY_TIMEOUT`,
+  which disables Devsy's own idle daemon. In devrouter's Compose layout that
+  daemon exited without stopping anything; devrouter now owns idle stop
+  (ADR 0012). The `devsyInactivityTimeout` setting no longer has an effect.
+
 ### Fixed
 
 - `devrouter stop <path>` on a linked worktree that devrouter never started now
