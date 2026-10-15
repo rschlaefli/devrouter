@@ -10,6 +10,7 @@ import {
   readLeftoverManifest,
 } from "../core/docker-leftovers";
 import { printJSON, printReclaimReport, printWorkspaceCleanupReport } from "../core/output";
+import { superviseLifecycle } from "../core/reliability-lifecycle";
 import { loadRepoConfig, resolveRepoPath } from "../core/repo-config";
 import {
   buildWorkspaceCleanupReport,
@@ -19,7 +20,13 @@ import {
   type WorkspaceCleanupOptions,
 } from "../core/workspace-cleanup";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
-import { buildWorkspaceIdleReport, type WorkspaceIdleOptions } from "../core/workspace-idle";
+import {
+  buildWorkspaceIdleReport,
+  type IdleStopOutcome,
+  stopIdleEnvironments,
+  type WorkspaceIdleOptions,
+  type WorkspaceIdleReport,
+} from "../core/workspace-idle";
 import { settleWorkspaceJournal } from "../core/workspace-journal-settle";
 import {
   reclaimWorktreeExactPath,
@@ -145,11 +152,25 @@ export function runWorkspaceCleanupCommand(
   printWorkspaceCleanupReport(report);
 }
 
-export function runWorkspaceIdleCommand(options: WorkspaceIdleOptions & { json?: boolean }): void {
-  const report = buildWorkspaceIdleReport({
+export async function runWorkspaceIdleCommand(
+  options: WorkspaceIdleOptions & { stop?: boolean; json?: boolean },
+): Promise<void> {
+  const query = {
     repo: options.repo ? resolveGitWorkspaceRepo(options.repo) : undefined,
     idleFor: options.idleFor,
-  });
+  };
+  let report: WorkspaceIdleReport;
+  let stops: IdleStopOutcome[] = [];
+  if (options.stop) {
+    const result = await stopIdleEnvironments(query, (repoPath, assertStopIntent) =>
+      superviseLifecycle("stop", repoPath, {}, undefined, { assertStopIntent }),
+    );
+    report = result;
+    stops = result.stops;
+  } else {
+    report = buildWorkspaceIdleReport(query);
+  }
+  if (stops.some((stop) => stop.outcome === "failed")) process.exitCode = 1;
   if (options.json) {
     printJSON(report);
     return;
@@ -162,6 +183,10 @@ export function runWorkspaceIdleCommand(options: WorkspaceIdleOptions & { json?:
   for (const row of report.rows) {
     const detail = row.reasons.length > 0 ? `\t${row.reasons.join("; ")}` : "";
     process.stdout.write(`${row.status}\t${row.latestActivity ?? "-"}\t${row.repoPath}${detail}\n`);
+  }
+  for (const stop of stops) {
+    const detail = stop.reason ? `: ${stop.reason}` : "";
+    process.stdout.write(`${stop.outcome}\t${stop.repoPath}${detail}\n`);
   }
 }
 

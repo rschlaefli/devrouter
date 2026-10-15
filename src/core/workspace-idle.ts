@@ -56,6 +56,8 @@ export type WorkspaceIdleRow = IdleClassification & {
   workspace: string | null;
   containerIds: string[];
   signals: IdleSignal[];
+  /** Journal revision the evidence was read at; null when no journal exists. */
+  journalRevision: number | null;
 };
 
 export type WorkspaceIdleReport = {
@@ -86,7 +88,31 @@ export type WorkspaceIdleDependencies = {
   gitCommonDir: (repoPath: string) => string | undefined;
 };
 
-export type WorkspaceIdleOptions = { repo?: string; idleFor?: string };
+export type WorkspaceIdleOptions = {
+  repo?: string;
+  idleFor?: string;
+  /** Restrict the report to this exact checkout. */
+  only?: string;
+};
+
+export type IdleStopOutcome = {
+  repoPath: string;
+  outcome: "stopped" | "skipped" | "failed";
+  reason?: string;
+};
+
+export type IdleStopResult = WorkspaceIdleReport & { stops: IdleStopOutcome[] };
+
+/**
+ * Stops one checkout through the supervised lifecycle stop. The assertion runs
+ * inside the journal transaction that records the stop intent.
+ */
+export type IdleStopper = (
+  repoPath: string,
+  assertStopIntent: (record: ReliabilityOperationRecord) => void,
+) => Promise<unknown>;
+
+class IdleStopSkipped extends Error {}
 
 function iso(ms: number): string {
   return new Date(ms).toISOString();
@@ -358,6 +384,7 @@ export function buildWorkspaceIdleReport(
     if (!candidates.has(key)) candidates.set(key, candidate);
   }
 
+  const onlyKey = options.only ? comparableWorkspacePath(options.only) : undefined;
   const repoCommonDir = options.repo ? dependencies.gitCommonDir(options.repo) : undefined;
   if (options.repo && !repoCommonDir) {
     throw new Error(`'${options.repo}' is not a Git repository.`);
@@ -371,6 +398,7 @@ export function buildWorkspaceIdleReport(
   for (const [key, repoPath] of [...candidates].sort(([left], [right]) =>
     left.localeCompare(right),
   )) {
+    if (onlyKey && key !== onlyKey) continue;
     if (!dependencies.isConfiguredCheckout(repoPath)) continue;
     if (repoCommonDir && dependencies.gitCommonDir(repoPath) !== repoCommonDir) continue;
     const running = workspaceAppContainers(containers, repoPath).filter(
@@ -410,6 +438,7 @@ export function buildWorkspaceIdleReport(
         null,
       containerIds: running.map((container) => container.id),
       signals,
+      journalRevision: record?.revision ?? null,
       ...classifyIdle(signals, journalVetoes(record), cutoffMs),
     });
   }
@@ -422,4 +451,51 @@ export function buildWorkspaceIdleReport(
     notRunning,
     warnings,
   };
+}
+
+/**
+ * Stop every idle environment of the report. Each candidate's evidence is read
+ * again immediately before its stop, and the stop intent is only recorded when
+ * the journal is unchanged since that read and still carries no veto. A skip
+ * or failure never blocks the remaining candidates.
+ */
+export async function stopIdleEnvironments(
+  options: WorkspaceIdleOptions,
+  stop: IdleStopper,
+  dependencies: WorkspaceIdleDependencies = defaultDependencies,
+): Promise<IdleStopResult> {
+  const report = buildWorkspaceIdleReport(options, dependencies);
+  const stops: IdleStopOutcome[] = [];
+  for (const candidate of report.rows.filter((row) => row.status === "idle")) {
+    const repoPath = candidate.repoPath;
+    try {
+      const fresh = buildWorkspaceIdleReport(
+        { idleFor: options.idleFor, only: repoPath },
+        dependencies,
+      ).rows[0];
+      if (fresh?.status !== "idle") {
+        stops.push({
+          repoPath,
+          outcome: "skipped",
+          reason: fresh ? `now ${fresh.status}` : "no longer running",
+        });
+        continue;
+      }
+      await stop(repoPath, (record) => {
+        if (record.revision !== (fresh.journalRevision ?? 0)) {
+          throw new IdleStopSkipped("lifecycle journal changed since the idle check");
+        }
+        const vetoes = journalVetoes(record);
+        if (vetoes.length > 0) throw new IdleStopSkipped(vetoes.join("; "));
+      });
+      stops.push({ repoPath, outcome: "stopped" });
+    } catch (error) {
+      stops.push({
+        repoPath,
+        outcome: error instanceof IdleStopSkipped ? "skipped" : "failed",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { ...report, stops };
 }

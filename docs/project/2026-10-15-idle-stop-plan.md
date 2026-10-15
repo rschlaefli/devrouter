@@ -248,3 +248,11 @@ The live report in Slice 1 is read-only and may run against existing stacks.
   releases; live checks use the build. Checks: docs policy, knowledge, check,
   knip, typecheck; full suite 2,879/2,880 with one timing flake in
   `controller-server.test.ts` that passes on three isolated reruns.
+- 2026-10-15: Slice 2 complete. `workspace idle --stop` re-reads each idle
+  candidate's evidence immediately before its stop, then
+  `superviseLifecycle("stop")` runs an `assertStopIntent` hook inside the
+  journal transaction that records the stop intent. The hook refuses when the
+  journal revision moved since that read or a journal veto appeared. The slow
+  evidence read stays outside the journal lock, because other writers wait at
+  most 2 s for it. Deliberate deviation: the live stop-and-resume check moves
+  to the Slice 4 qualification, so one disposable checkout covers both.

@@ -10,6 +10,7 @@ import {
   type IdleSignal,
   journalVetoes,
   parseTraefikAccessLog,
+  stopIdleEnvironments,
   type WorkspaceIdleDependencies,
 } from "../workspace-idle";
 
@@ -29,6 +30,7 @@ function journal(
 ): ReliabilityOperationRecord {
   return {
     identity: { repoPath, workspace: "feature", provider: "devsy" },
+    revision: 3,
     worker: null,
     state: {
       executionPolicy: "manual",
@@ -201,33 +203,33 @@ describe("journalVetoes", () => {
   });
 });
 
-describe("buildWorkspaceIdleReport", () => {
-  function dependencies(
-    overrides: Partial<WorkspaceIdleDependencies> = {},
-  ): WorkspaceIdleDependencies {
-    return {
-      now: () => NOW,
-      readRoutes: () => [route("/repo/trees/foo", "web"), route("/repo/trees/foo-bar", "web")],
-      readJournals: () => [journal("/repo/trees/foo"), journal("/repo/trees/foo-bar")],
-      journalModifiedMs: () => Date.parse(OLD),
-      registryPaths: () => [],
-      inspectContainers: () => [
-        container("c1", "/repo/trees/foo"),
-        container("c2", "/repo/trees/foo-bar"),
-      ],
-      statActivity: () => ({ status: 1, stdout: "", stderr: "No such file or directory" }),
-      readTraefik: () => ({
-        status: "ok",
-        newestByRouter: new Map([
-          [buildHostRouteRouterName("/repo/trees/foo-bar", "web"), Date.parse(RECENT)],
-        ]),
-      }),
-      isConfiguredCheckout: () => true,
-      gitCommonDir: () => "/repo/.git",
-      ...overrides,
-    };
-  }
+function dependencies(
+  overrides: Partial<WorkspaceIdleDependencies> = {},
+): WorkspaceIdleDependencies {
+  return {
+    now: () => NOW,
+    readRoutes: () => [route("/repo/trees/foo", "web"), route("/repo/trees/foo-bar", "web")],
+    readJournals: () => [journal("/repo/trees/foo"), journal("/repo/trees/foo-bar")],
+    journalModifiedMs: () => Date.parse(OLD),
+    registryPaths: () => [],
+    inspectContainers: () => [
+      container("c1", "/repo/trees/foo"),
+      container("c2", "/repo/trees/foo-bar"),
+    ],
+    statActivity: () => ({ status: 1, stdout: "", stderr: "No such file or directory" }),
+    readTraefik: () => ({
+      status: "ok",
+      newestByRouter: new Map([
+        [buildHostRouteRouterName("/repo/trees/foo-bar", "web"), Date.parse(RECENT)],
+      ]),
+    }),
+    isConfiguredCheckout: () => true,
+    gitCommonDir: () => "/repo/.git",
+    ...overrides,
+  };
+}
 
+describe("buildWorkspaceIdleReport", () => {
   it("credits HTTP traffic only to the exact checkout that owns the router", () => {
     const report = buildWorkspaceIdleReport({}, dependencies());
     expect(report.rows.map((row) => [row.repoPath, row.status])).toEqual([
@@ -251,5 +253,72 @@ describe("buildWorkspaceIdleReport", () => {
     );
     expect(report.rows.map((row) => row.repoPath)).toEqual(["/repo/trees/foo"]);
     expect(report.notRunning).toEqual(["/repo/trees/foo-bar"]);
+  });
+});
+
+describe("stopIdleEnvironments", () => {
+  const onlyFooIdle = () => dependencies();
+
+  it("stops an idle checkout when its journal is unchanged at the stop intent", async () => {
+    const stopped: string[] = [];
+    const result = await stopIdleEnvironments(
+      {},
+      async (repoPath, assert) => {
+        assert(journal(repoPath));
+        stopped.push(repoPath);
+      },
+      onlyFooIdle(),
+    );
+    expect(stopped).toEqual(["/repo/trees/foo"]);
+    expect(result.stops).toEqual([{ repoPath: "/repo/trees/foo", outcome: "stopped" }]);
+  });
+
+  it("skips a checkout whose journal changed between the check and the stop intent", async () => {
+    const result = await stopIdleEnvironments(
+      {},
+      async (repoPath, assert) => {
+        assert({ ...journal(repoPath), revision: 4 });
+      },
+      onlyFooIdle(),
+    );
+    expect(result.stops[0]).toMatchObject({ outcome: "skipped" });
+  });
+
+  it("skips a checkout that became active before the stop", async () => {
+    let reads = 0;
+    const deps = dependencies({
+      readTraefik: () => ({
+        status: "ok",
+        newestByRouter: new Map(
+          reads++ === 0
+            ? []
+            : ["/repo/trees/foo", "/repo/trees/foo-bar"].map((repo) => [
+                buildHostRouteRouterName(repo, "web"),
+                Date.parse(RECENT),
+              ]),
+        ),
+      }),
+    });
+    const stop = async () => {
+      throw new Error("must not stop");
+    };
+    const result = await stopIdleEnvironments({}, stop, deps);
+    expect(result.stops.map((entry) => [entry.repoPath, entry.outcome, entry.reason])).toEqual([
+      ["/repo/trees/foo", "skipped", "now active"],
+      ["/repo/trees/foo-bar", "skipped", "now active"],
+    ]);
+  });
+
+  it("keeps stopping other checkouts after one stop fails", async () => {
+    const deps = dependencies({ readTraefik: () => ({ status: "ok", newestByRouter: new Map() }) });
+    const result = await stopIdleEnvironments(
+      {},
+      async (repoPath, assert) => {
+        assert(journal(repoPath));
+        if (repoPath === "/repo/trees/foo") throw new Error("provider failed");
+      },
+      deps,
+    );
+    expect(result.stops.map((entry) => entry.outcome)).toEqual(["failed", "stopped"]);
   });
 });
