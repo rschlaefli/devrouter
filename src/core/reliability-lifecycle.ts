@@ -30,8 +30,10 @@ import {
   inspectWorkspaceContainers,
   resolveRunningWorkspaceContainer,
 } from "./devpod-environment";
+import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
 import { captureDevsyExecProof, type DevsyExecProof } from "./devsy-exec-proof";
 import { withMutationLock as withDevsyMutationLock } from "./devsy-mutation";
+import type { EnvironmentStopResult } from "./environment-stop";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { processBirthIdentity } from "./file-lock";
 import { listHostRouteState } from "./host-routes";
@@ -860,6 +862,22 @@ function installLifecycleWaitSignals(cancellation: { requested: boolean }): () =
   };
 }
 
+/**
+ * A linked checkout gets its persisted identity before any provider or route
+ * mutation, so without one devrouter never started anything for it. Stop then
+ * has nothing to do and must not claim an identity. A provider registration or
+ * host route that still references the exact path contradicts that, so it
+ * keeps the refusal instead of reporting an empty stop.
+ */
+function stopUnclaimedLinkedCheckout(repoPath: string): EnvironmentStopResult {
+  const devpod = selectDevpodWorkspace(listDevpodWorkspaces(repoPath), repoPath);
+  const routed = listHostRouteState().some((route) => sameWorkspacePath(route.repoPath, repoPath));
+  if (devpod || routed) {
+    throw new Error("Stop requires the existing linked workspace identity.");
+  }
+  return { kind: "linked", repoPath, stopped: false, runtimeAbsent: true, freedRoutes: 0 };
+}
+
 export async function superviseLifecycle(
   kind: LifecycleWorkerRequest["kind"],
   repoPath: string,
@@ -868,7 +886,7 @@ export async function superviseLifecycle(
 ): Promise<unknown> {
   repoPath = comparableWorkspacePath(repoPath);
   if (isLinkedWorktree(repoPath) && !readPersistedWorkspace(repoPath)) {
-    if (kind === "stop") throw new Error("Stop requires the existing linked workspace identity.");
+    if (kind === "stop") return stopUnclaimedLinkedCheckout(repoPath);
     resolveLinkedTarget(repoPath);
   }
   const identity: ReliabilityIdentity = {

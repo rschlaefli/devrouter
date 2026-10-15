@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `devrouter stop <path>` on a linked worktree that devrouter never started now
+  reports that there is nothing to stop and exits 0. It previously failed with
+  "Stop requires the existing linked workspace identity." It still refuses when
+  a DevPod registration or host route references the path.
+
 ## [0.4.0] - 2026-10-14
 
 ### Agent Adaptation Prompt

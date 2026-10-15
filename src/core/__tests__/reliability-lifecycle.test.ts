@@ -26,6 +26,7 @@ const fixture = vi.hoisted(() => ({
   inspectWorkspaceContainers: vi.fn(),
   resolveRunningWorkspaceContainer: vi.fn(),
   listHostRouteState: vi.fn(),
+  listDevpodWorkspaces: vi.fn(),
   readManagedRuntimeState: vi.fn(),
   proveRetainedManagedStop: vi.fn(),
   absent: false,
@@ -79,6 +80,11 @@ vi.mock("../file-lock", async (importOriginal) => {
 });
 
 vi.mock("../host-routes", () => ({ listHostRouteState: fixture.listHostRouteState }));
+vi.mock("../devpod-workspaces", () => ({
+  listDevpodWorkspaces: fixture.listDevpodWorkspaces,
+  selectDevpodWorkspace: (workspaces: { source: { localFolder: string } }[], repoPath: string) =>
+    workspaces.find((workspace) => workspace.source.localFolder === repoPath),
+}));
 
 vi.mock("../managed-devsy-stop", () => ({
   proveInitialManagedDevsyAbsence: fixture.initialAbsence,
@@ -1463,16 +1469,50 @@ afterAll(() => {
 });
 
 describe("reliability lifecycle supervision", () => {
-  it("rejects stop before allocating identity or dispatching for an unclaimed linked checkout", async () => {
+  it("reports an empty stop without allocating identity or dispatching for a never-started linked checkout", async () => {
     fixture.isLinkedWorktree.mockReturnValue(true);
+    fixture.listDevpodWorkspaces.mockReturnValue([]);
+    fixture.listHostRouteState.mockReturnValue([]);
     const lifecycle = await import("../reliability-lifecycle");
     await expect(
       lifecycle.superviseLifecycle("stop", "/synthetic/unclaimed-checkout"),
-    ).rejects.toThrow();
+    ).resolves.toEqual({
+      kind: "linked",
+      repoPath: "/synthetic/unclaimed-checkout",
+      stopped: false,
+      runtimeAbsent: true,
+      freedRoutes: 0,
+    });
     expect(fixture.resolveLinkedTarget).not.toHaveBeenCalled();
     expect(fixture.newLifecycleIds).not.toHaveBeenCalled();
     expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
     expect(fixture.inspectWorkspaceContainers).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      evidence: "a provider registration",
+      devpods: [{ id: "unclaimed", source: { localFolder: "/synthetic/unclaimed-checkout" } }],
+      routes: [],
+    },
+    {
+      evidence: "a host route",
+      devpods: [],
+      routes: [{ repoPath: "/synthetic/unclaimed-checkout" }],
+    },
+  ])("refuses stop for an unclaimed linked checkout that still has $evidence", async ({
+    devpods,
+    routes,
+  }) => {
+    fixture.isLinkedWorktree.mockReturnValue(true);
+    fixture.listDevpodWorkspaces.mockReturnValue(devpods);
+    fixture.listHostRouteState.mockReturnValue(routes);
+    const lifecycle = await import("../reliability-lifecycle");
+    await expect(
+      lifecycle.superviseLifecycle("stop", "/synthetic/unclaimed-checkout"),
+    ).rejects.toThrow("Stop requires the existing linked workspace identity.");
+    expect(fixture.newLifecycleIds).not.toHaveBeenCalled();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
   });
 
   it("passes the original fence and journal snapshot to atomic worker admission", async () => {

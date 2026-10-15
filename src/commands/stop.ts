@@ -16,7 +16,12 @@ export async function runStopCommand(options: {
     return;
   }
 
-  const label = result.kind === "primary" ? "Primary checkout" : `Workspace '${result.workspace}'`;
+  const label =
+    result.kind === "primary"
+      ? "Primary checkout"
+      : result.workspace
+        ? `Workspace '${result.workspace}'`
+        : `Checkout '${result.repoPath}'`;
   if (result.runtimeAbsent) {
     process.stdout.write(`${label} has no runtime or routes; stop is complete.\n`);
     return;
