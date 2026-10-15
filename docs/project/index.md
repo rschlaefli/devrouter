@@ -4,6 +4,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Idle stop for managed environments](./2026-10-15-idle-stop-plan.md) — devrouter owns idle stop: a read-only `workspace idle` report, an explicit `--stop` mode, an opt-in launchd sweep, an idle-only pin, and Devsy's own idle timeout disabled.
 - [Host environment for checkout-scoped host tools](./2026-10-14-host-env-plan.md) — `devrouter env [path] [--json]` reports a checkout's routed URLs, routed and loopback TCP endpoints and CA path, and `devrouter env [path] -- <command>` runs a host command with that environment.
 - [Worktree cleanup reliability and team documentation](./2026-10-12-cleanup-reliability-and-team-docs-plan.md) — `gc` for deleted checkouts, approved removal of Docker leftovers, the team cleanup guide, release 0.3.0 and Klicker adoption.
 - [Worktree lifecycle](./2026-10-03-worktree-lifecycle-plan.md) — safe `workspace down`, installable `worktree-reclaim` and `devrouter-setup` skills, and devrouter `cleanup --all-worktrees`, `reclaim` and `trim` bound to approved manifests.
