@@ -457,7 +457,7 @@ parking and the two pins veto. `--stop` reads each candidate's evidence again
 just before its stop, and `superviseLifecycle("stop")` records the intent only
 while the journal revision still matches that read. The slow evidence read stays
 outside the journal lock, whose other writers wait two seconds at most. The
-opt-in launchd agent from `setup --idle-stop` serializes sweeps with
+opt-in launchd agent from `setup --yes --idle-stop` serializes sweeps with
 `~/.config/devrouter/idle/sweep.lock` and records `last-sweep.json` for `doctor`.
 
 ## Failure rules

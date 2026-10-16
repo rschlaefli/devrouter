@@ -70,7 +70,6 @@ export function renderIdleSweepPlist(input: {
     "--stop",
     "--idle-for",
     input.idleFor,
-    "--json",
   ];
   const env = Object.entries(input.environment)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -242,7 +241,7 @@ export function idleSweepCheck(
       id: "global.idle-stop",
       level: "ok",
       summary: "Idle stop is off; idle environments keep running.",
-      suggestion: "Enable it with: devrouter setup --idle-stop 30m",
+      suggestion: "Enable it with: devrouter setup --yes --idle-stop 30m",
     };
   }
   const last = readLastSweep(paths);
@@ -265,7 +264,8 @@ export function idleSweepCheck(
       summary: "The last idle sweep could not inspect environments.",
       details: `finishedAt=${last.finishedAt}: ${last.error}`,
       suggestion:
-        "Rewrite the agent with the current tool paths: devrouter setup --idle-stop " + idleFor,
+        "Rewrite the agent with the current tool paths: devrouter setup --yes --idle-stop " +
+        idleFor,
     };
   }
   return {

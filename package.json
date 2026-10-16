@@ -32,6 +32,7 @@
     "qualify:capacity": "node --import tsx scripts/qualify-capacity.ts",
     "qualify:controller": "node --import tsx scripts/qualify-controller.ts",
     "qualify:stop-drift": "node --import tsx scripts/qualify-config-drift-stop.ts",
+    "qualify:idle-stop": "node --import tsx scripts/qualify-idle-stop.ts",
     "qualify:harness-journey": "./scripts/qualify-harness-journey.sh",
     "qualify:codex-journey": "DR_JOURNEY_HARNESS=codex ./scripts/qualify-harness-journey.sh",
     "qualify:non-node": "./scripts/qualify-non-node-consumer.sh",

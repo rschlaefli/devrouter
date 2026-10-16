@@ -123,13 +123,13 @@ To stop managed devcontainer environments nobody has used for a while, opt in
 to idle stop (macOS):
 
 ```bash
-devrouter setup --idle-stop 30m   # remove again with: devrouter setup --idle-stop off
+devrouter setup --yes --idle-stop 30m   # remove again with: devrouter setup --yes --idle-stop off
 ```
 
 Setup installs `~/Library/LaunchAgents/dev.devrouter.idle-stop.plist`, which runs
 `devrouter workspace idle --stop` every five minutes. It records the absolute
-`node`, `docker` and provider paths found at setup time, so rerun the command after
-moving or upgrading those tools. `devrouter doctor` reports the last sweep under
+`node`, `devrouter`, `docker` and provider paths found at setup time, so rerun the
+command after upgrading or moving any of them. `devrouter doctor` reports the last sweep under
 `global.idle-stop`.
 
 ## Prove the first route

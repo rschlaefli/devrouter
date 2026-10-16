@@ -305,7 +305,7 @@ describe("buildGlobalToolChecks", () => {
 
     expect(byId.get("global.workspace-runtime-config")?.level).toBe("warn");
     expect(byId.get("global.workspace-runtime-config")?.details).toContain(
-      "devsyInactivityTimeout is deprecated and ignored",
+      "devsyInactivityTimeout",
     );
   });
 

@@ -695,8 +695,10 @@ running managed environment as `active`, `idle`, `unknown` or `protected`. It
 reads four signals and changes nothing:
 
 - HTTP requests in Traefik's access log for the checkout's own routes;
-- the provider activity file, which `devrouter exec` and other SSH sessions touch;
-- the last write of the checkout's lifecycle journal (`ensure`, `exec`, `stop`);
+- the last write of the checkout's lifecycle journal, which every `ensure`,
+  `exec` and `stop` updates;
+- the provider activity file, when the provider records SSH sessions in it
+  (Devsy stops recording once its own idle timeout is disabled);
 - the last update of its published routes.
 
 An environment is `idle` only when every applicable signal is readable and older
@@ -709,7 +711,7 @@ a database client connecting through `:5432`, is not observed.
 It re-reads each candidate's evidence just before its stop and records the stop
 only while the lifecycle journal is unchanged since that read. A stopped
 environment keeps its volumes and resumes with `devrouter ensure`. The opt-in
-`devrouter setup --idle-stop <duration>` agent runs this every five minutes.
+`devrouter setup --yes --idle-stop <duration>` agent runs this every five minutes.
 
 `devrouter workspace pin [path]` keeps an environment running regardless of
 activity; `--off` removes the pin. The pin needs an existing lifecycle journal,

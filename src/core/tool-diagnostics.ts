@@ -504,7 +504,7 @@ function buildGlobalToolChecksWithoutTelemetry(repoPath: string): DiagnosticChec
   const configProblems = [...configInspection.problems];
   if (machineConfig.devsyInactivityTimeout) {
     configProblems.push(
-      "devsyInactivityTimeout is deprecated and ignored; devrouter owns idle stop (devrouter setup --idle-stop <duration>).",
+      "devsyInactivityTimeout is deprecated and ignored; devrouter owns idle stop (devrouter setup --yes --idle-stop <duration>; rerunning setup with --workspace-runtime drops the stored value).",
     );
   }
   const configDetails = configInspection.exists

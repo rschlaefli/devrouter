@@ -13,7 +13,7 @@ All notable changes to this project are documented in this file.
   changes nothing. `--stop` stops only `idle` environments through the normal
   `stop` path, after re-reading their evidence and confirming the lifecycle
   journal has not changed.
-- `devrouter setup --idle-stop <duration|off>` installs or removes a macOS
+- `devrouter setup --yes --idle-stop <duration|off>` installs or removes a macOS
   launchd agent that runs `workspace idle --stop` every five minutes.
   `devrouter doctor` reports it as `global.idle-stop`.
 - `devrouter workspace pin [path] [--off]` keeps one environment from idle stop.

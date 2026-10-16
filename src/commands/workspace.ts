@@ -209,6 +209,14 @@ export async function runWorkspaceIdleCommand(
     return;
   }
   for (const warning of report.warnings) process.stderr.write(`Warning: ${warning}\n`);
+  if (options.stop) {
+    // The launchd agent appends this output every sweep, so only stops are printed.
+    for (const stop of stops) {
+      const detail = stop.reason ? `: ${stop.reason}` : "";
+      process.stdout.write(`${report.generatedAt}\t${stop.outcome}\t${stop.repoPath}${detail}\n`);
+    }
+    return;
+  }
   if (report.rows.length === 0) {
     process.stdout.write("No running managed environments.\n");
     return;
@@ -216,10 +224,6 @@ export async function runWorkspaceIdleCommand(
   for (const row of report.rows) {
     const detail = row.reasons.length > 0 ? `\t${row.reasons.join("; ")}` : "";
     process.stdout.write(`${row.status}\t${row.latestActivity ?? "-"}\t${row.repoPath}${detail}\n`);
-  }
-  for (const stop of stops) {
-    const detail = stop.reason ? `: ${stop.reason}` : "";
-    process.stdout.write(`${stop.outcome}\t${stop.repoPath}${detail}\n`);
   }
 }
 

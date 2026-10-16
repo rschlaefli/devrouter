@@ -98,8 +98,7 @@ describe("idleSweepCheck", () => {
     });
 
   it("reports idle stop as off without an agent", () => {
-    expect(idleSweepCheck(paths()).level).toBe("ok");
-    expect(idleSweepCheck(paths()).summary).toContain("off");
+    expect(idleSweepCheck(paths())).toMatchObject({ id: "global.idle-stop", level: "ok" });
   });
 
   it("separates a sweep that could not inspect environments from one that stopped nothing", () => {

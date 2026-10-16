@@ -206,10 +206,9 @@ export function activitySignal(results: CommandResult[]): IdleSignal {
       .map((line) => line.trim())
       .filter((line) => /^\d+$/.test(line))
       .map(Number);
-    const missing = result.stderr
-      .split(/\r?\n/)
-      .filter((line) => line.trim().length > 0)
-      .every((line) => /no such file/i.test(line));
+    const stderrLines = result.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    const missing =
+      stderrLines.length > 0 && stderrLines.every((line) => /no such file/i.test(line));
     if (seconds.length === 0 && (result.status === 0 || !missing)) {
       return {
         source: "devsy.activity",
@@ -280,27 +279,33 @@ export function journalVetoes(record: ReliabilityOperationRecord | undefined): s
 
 function readTraefikWindow(cutoffMs: number): TraefikRequestWindow {
   const since = String(Math.floor(cutoffMs / 1000));
-  const run = (args: string[]) =>
+  const run = (args: string[], maxBuffer: number) =>
     spawnSync("docker", ["logs", "--timestamps", ...args, ROUTER_CONTAINER_NAME], {
       encoding: "utf-8",
-      maxBuffer: 256 * 1024 * 1024,
+      maxBuffer,
       ...networkDockerOptions(),
     });
-  // Traefik logs its own startup lines, so retained output from before the
-  // cutoff proves the access log covers the whole window.
-  const coverage = run(["--until", since, "--tail", "1"]);
-  if (coverage.status !== 0) {
+  // Traefik logs its own startup lines, so any retained output from before the
+  // cutoff proves the access log covers the whole window. Docker applies
+  // `--tail` before `--until`, so the read is bounded by the buffer instead:
+  // exceeding it ends the command early and still proves coverage.
+  const coverage = run(["--until", since], 4096);
+  const truncated = (coverage.error as NodeJS.ErrnoException | undefined)?.code === "ENOBUFS";
+  if (!truncated && coverage.status !== 0) {
     return {
       status: "unavailable",
       reason: (coverage.stderr || coverage.error?.message || "docker logs failed").trim(),
     };
   }
-  if (`${coverage.stdout}${coverage.stderr}`.trim().length === 0) {
+  if (!truncated && `${coverage.stdout}${coverage.stderr}`.trim().length === 0) {
     return { status: "unavailable", reason: "Traefik logs do not reach back to the cutoff" };
   }
-  const window = run(["--since", since]);
+  const window = run(["--since", since], 256 * 1024 * 1024);
   if (window.status !== 0) {
-    return { status: "unavailable", reason: (window.stderr || "docker logs failed").trim() };
+    return {
+      status: "unavailable",
+      reason: (window.stderr || window.error?.message || "docker logs failed").trim(),
+    };
   }
   return {
     status: "ok",

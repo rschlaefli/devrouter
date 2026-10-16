@@ -143,7 +143,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
         id: "global.devsy-inactivity-timeout",
         summary:
           "--devsy-inactivity-timeout is deprecated and has no effect; devrouter owns idle stop.",
-        suggestion: `Use: devrouter setup --idle-stop ${options.devsyInactivityTimeout}`,
+        suggestion: `Use: devrouter setup --yes --idle-stop ${options.devsyInactivityTimeout}`,
       }),
     );
   }
@@ -175,7 +175,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
           id: "global.idle-stop",
           summary: "Failed to configure idle stop.",
           details: error instanceof Error ? error.message : String(error),
-          suggestion: "Use: devrouter setup --idle-stop <duration|off>, for example 30m",
+          suggestion: "Use: devrouter setup --yes --idle-stop <duration|off>, for example 30m",
         }),
       );
     }
@@ -187,10 +187,8 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
       requestedWorkspaceRuntime = options.workspaceRuntime
         ? parseWorkspaceRuntime(options.workspaceRuntime)
         : undefined;
-      const next = {
-        runtime: requestedWorkspaceRuntime ?? existing.runtime,
-        devsyInactivityTimeout: existing.devsyInactivityTimeout,
-      };
+      // The deprecated Devsy timeout is dropped on rewrite; devrouter owns idle stop.
+      const next = { runtime: requestedWorkspaceRuntime ?? existing.runtime };
       writeWorkspaceRuntimeConfig(next);
       actions.push(
         action("performed", {

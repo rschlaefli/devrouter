@@ -151,6 +151,10 @@ describe("activitySignal", () => {
     expect(result.status).toBe("missing");
   });
 
+  it("treats an exec that ended without output as unavailable", () => {
+    expect(activitySignal([{ status: null, stdout: "", stderr: "" }]).status).toBe("unavailable");
+  });
+
   it("treats a failed exec as unavailable", () => {
     const result = activitySignal([{ status: 126, stdout: "", stderr: "OCI runtime exec failed" }]);
     expect(result.status).toBe("unavailable");

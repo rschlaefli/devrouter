@@ -1,7 +1,7 @@
 # ADR 0012: Devrouter owns idle stop for managed environments
 
-Status: Accepted; the read-only report is implemented, stop mode and the
-opt-in trigger follow in the same plan.
+Status: Accepted; report, stop mode, idle pin and the opt-in launchd trigger
+are implemented.
 
 Context: Managed devcontainer stacks keep running long after anyone uses them.
 Devsy offers an inactivity timeout, but in devrouter's Compose layout
@@ -23,8 +23,10 @@ reliability journal and its route update time. An environment is `idle` only
 when every applicable signal is readable and older than the threshold.
 Unreadable evidence makes it `unknown`. Lifecycle work in progress,
 controller-managed policy, parking and a person's pin make it `protected`.
-Only `idle` environments may be stopped, and a stop re-checks the evidence
-inside the checkout's lifecycle lock.
+Only `idle` environments may be stopped. A stop re-reads the evidence
+immediately before it starts and records its intent only inside a journal
+transaction that confirms the journal revision is unchanged since that read and
+still carries no veto.
 
 Why: One owner avoids two mechanisms racing to stop parts of the same stack.
 Devrouter already owns the whole stack, its routes and its journal, and only

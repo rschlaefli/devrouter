@@ -290,7 +290,7 @@ describe("runSetup", () => {
     );
   });
 
-  it("merges new preferences with the persisted machine config", async () => {
+  it("drops the deprecated stored Devsy timeout when it rewrites the machine config", async () => {
     const { readWorkspaceRuntimeConfig } = await import("../workspace-runtime");
     vi.mocked(readWorkspaceRuntimeConfig).mockReturnValueOnce({
       runtime: "devpod",
@@ -299,10 +299,7 @@ describe("runSetup", () => {
 
     await runSetup({ repo: "/repo", yes: true, workspaceRuntime: "devsy" });
 
-    expect(writeWorkspaceRuntimeConfig).toHaveBeenCalledWith({
-      runtime: "devsy",
-      devsyInactivityTimeout: "30m",
-    });
+    expect(writeWorkspaceRuntimeConfig).toHaveBeenCalledWith({ runtime: "devsy" });
   });
 
   it("fails the preference action on an unsupported runtime and keeps other actions", async () => {

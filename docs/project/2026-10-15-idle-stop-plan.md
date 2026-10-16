@@ -1,6 +1,6 @@
 # Idle stop for managed environments
 
-Status: approved 2026-10-15, executing. Branch `rs/idle-stop`, worktree
+Status: approved 2026-10-15; implemented and qualified, in draft PR #138. Branch `rs/idle-stop`, worktree
 `trees/rs/idle-stop`. Supersedes the unshipped idle slice (Slice 3) of
 [Profiles, leases, and resource lifecycle](./2026-08-24-profiles-leases-resource-plan.md).
 
@@ -267,3 +267,31 @@ The live report in Slice 1 is read-only and may run against existing stacks.
   needs it without loading the route modules. Plist generation, rewrite and
   removal are tested in a temp home with a fake `launchctl`; nothing was loaded
   into the real launchd domain.
+- 2026-10-16: Slice 4 complete. `pnpm qualify:idle-stop <cli>` on a disposable
+  Devsy checkout (60 s threshold, every sweep scoped with `--repo`) passed:
+  Devsy's idle daemon absent, HTTP and `exec` keep it active, untouched becomes
+  idle, a pin vetoes `--stop`, a browser tab left open on the example page
+  still goes idle, `--stop` stops it and frees its routes, and `ensure` resumes
+  it. The runtime was deleted afterwards. The first runs found two defects:
+  Docker applies `--tail` before `--until`, so the coverage probe reported
+  every window with recent traffic as unproven (fixed with a buffer-bounded
+  read). Devsy also stops recording SSH activity once its timeout is disabled,
+  so `exec` is observed through its journal write. The live unknown-evidence
+  refusal stays unit-covered, because breaking Traefik's log on a shared
+  machine would affect other stacks.
+- 2026-10-16: final review (self-delegated `final-reviewer`, report under
+  `_local/reviews/2026-10-16-idle-stop-final.md`). Accepted and fixed: coverage
+  probe, `--yes` missing from documented `setup --idle-stop` commands, empty
+  exec output counted as a missing activity file, the stored deprecated timeout
+  never cleared, sweep log growth (the agent now prints only stop outcomes),
+  the ADR wording, and two prose assertions. Declined: journal matching by full
+  identity, because journal files are keyed by repository path alone, so a path
+  has at most one record. Documented instead of changed: rerun setup after
+  upgrading devrouter. Simplification pass: the diff was reread for removable
+  code and nothing further was cut.
+- Validation: docs policy, knowledge, check, knip, typecheck, build, package
+  smoke, setup/doctor/inspect on `examples/routing`, and routing smoke passed.
+  The full suite passes apart from the load-dependent `controller-server` timing
+  flake, which passes in isolation. `pnpm devcontainer:smoke` needs the DevPod
+  CLI, which this machine lacks; the Devsy qualification covers the live
+  devcontainer path.
