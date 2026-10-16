@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-16
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.5.2.md
+
 ### Fixed
 
 - `workspace idle --stop` no longer writes a lifecycle progress line every ten
