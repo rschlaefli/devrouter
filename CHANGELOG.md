@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-16
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.5.0.md
+
 ### Added
 
 - `devrouter workspace idle [--repo <path>] [--idle-for 30m] [--json]` reports
