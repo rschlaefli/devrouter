@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-16
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.5.1.md
+
 ### Fixed
 
 - `ensure`, `exec`, `stop`, `status` and `workspace idle` no longer fail with
