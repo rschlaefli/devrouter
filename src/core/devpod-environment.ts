@@ -310,12 +310,27 @@ export function inspectManagedStopContainers(
   return snapshots;
 }
 
+function onlyVanished(stderr: string | null, ids: string[]): boolean {
+  const lines = (stderr ?? "").split(/\r?\n/).filter((line) => line.trim().length > 0);
+  return (
+    lines.length > 0 &&
+    lines.every((line) => {
+      const missing =
+        /^(?:error(?: response from daemon)?:\s*)?no such (?:object|container):\s*(\S+)\s*$/i.exec(
+          line.trim(),
+        )?.[1];
+      return missing !== undefined && ids.includes(missing);
+    })
+  );
+}
+
 export function inspectWorkspaceContainers(options?: {
   withSize?: boolean;
   ids?: string[];
   composeProject?: string;
 }): WorkspaceContainerSnapshot[] {
   let ids = options?.ids;
+  const listedAll = !ids;
   if (!ids) {
     const listed = spawnSync(
       "docker",
@@ -351,7 +366,11 @@ export function inspectWorkspaceContainers(options?: {
     ["inspect", ...(options?.withSize ? ["--size"] : []), "--format", template, ...ids],
     { encoding: "utf-8", ...networkDockerOptions() },
   );
-  if (inspected.status !== 0) {
+  // A listed container can be removed by any other stack before the inspect
+  // runs. Docker still prints every container it found and exits 1, so a
+  // listing treats those vanished containers as absent, as a listing taken a
+  // moment later would. An explicit id list stays strict.
+  if (inspected.status !== 0 && !(listedAll && onlyVanished(inspected.stderr, ids))) {
     throw new Error(
       `docker inspect failed: ${(inspected.stderr || inspected.stdout || "unknown error").trim()}`,
     );

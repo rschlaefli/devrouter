@@ -40,6 +40,32 @@ describe("inspectWorkspaceContainers", () => {
     expect(String(inspectArgs?.[2])).not.toContain("SizeRw");
   });
 
+  it("treats a listed container removed before the inspect as absent", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({ status: 0, stdout: "abc123\ndef456\n", stderr: "" } as never)
+      .mockReturnValueOnce({
+        status: 1,
+        stdout: `${snapshotLine("abc123")}\n`,
+        stderr: "error: no such object: def456\n",
+      } as never);
+
+    expect(inspectWorkspaceContainers()).toEqual([expect.objectContaining({ id: "abc123" })]);
+  });
+
+  it("still fails on other inspect errors and on vanished explicitly requested containers", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({ status: 0, stdout: "abc123\n", stderr: "" } as never)
+      .mockReturnValueOnce({ status: 1, stdout: "", stderr: "permission denied\n" } as never);
+    expect(() => inspectWorkspaceContainers()).toThrow("docker inspect failed");
+
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 1,
+      stdout: "",
+      stderr: "error: no such object: abc123\n",
+    } as never);
+    expect(() => inspectWorkspaceContainers({ ids: ["abc123"] })).toThrow("docker inspect failed");
+  });
+
   it("asks for sizes only on the named containers and keeps the shared fields", () => {
     vi.mocked(spawnSync).mockReturnValueOnce({
       status: 0,
