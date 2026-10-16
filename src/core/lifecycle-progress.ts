@@ -20,6 +20,16 @@ export function isLifecycleProgressPhase(value: unknown): value is LifecycleProg
 }
 
 let sender: ((phase: LifecycleProgressPhase) => void) | undefined;
+let heartbeatMuted = false;
+
+/** Unattended callers, such as the idle sweep, keep heartbeat lines out of their logs. */
+export function muteLifecycleProgressHeartbeat(): void {
+  heartbeatMuted = true;
+}
+
+export function lifecycleProgressHeartbeatMuted(): boolean {
+  return heartbeatMuted;
+}
 
 /** Install only inside ensure/stop workers; diagnostics never wait for IPC delivery. */
 export function installLifecycleProgressSender(

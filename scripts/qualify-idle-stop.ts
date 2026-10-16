@@ -157,6 +157,28 @@ try {
   dev("workspace", "pin", fixture, "--off", "--json");
   evidence.pinVetoesStop = true;
 
+  // Unreadable activity evidence is unknown, and unknown never stops. A `stat`
+  // earlier on PATH fails like an unreadable filesystem. Plain `docker exec`
+  // places it, because a `devrouter exec` session is itself activity.
+  const [container] = (row(idle()) as Row & { containerIds: string[] }).containerIds;
+  const activity = (...args: string[]) => run("docker", ["exec", container, ...args]);
+  activity(
+    "sh",
+    "-c",
+    "printf '#!/bin/sh\\necho \"stat: Input/output error\" >&2\\nexit 1\\n' > /usr/local/bin/stat && chmod +x /usr/local/bin/stat",
+  );
+  sleep(idleWaitMs);
+  const unknown = expectStatus(idle(), "unknown");
+  assert.ok(
+    unknown.reasons.some((reason) => reason.startsWith("devsy.activity:")),
+    JSON.stringify(unknown),
+  );
+  const unknownSweep = idle("--stop");
+  assert.equal(unknownSweep.stops?.length, 0);
+  assert.ok(row(idle()), "An environment with unknown evidence was stopped.");
+  activity("rm", "-f", "/usr/local/bin/stat");
+  evidence.unknownEvidenceRefusesStop = true;
+
   // A page left open in a browser tab, without further interaction.
   const browser = spawnSync("agent-browser", ["open", `https://${host}/`], {
     encoding: "utf-8",
@@ -169,7 +191,17 @@ try {
   if (evidence.openTab !== "idle") sleep(idleWaitMs);
 
   // An idle environment stops, frees its routes, and records the stop.
-  const sweep = idle("--stop");
+  // stderr is not a terminal here, as under launchd, so the sweep prints no
+  // lifecycle heartbeat lines.
+  const swept = spawnSync(
+    process.execPath,
+    [cli, "workspace", "idle", "--repo", fixture, "--idle-for", idleFor, "--stop", "--json"],
+    { cwd: fixture, env: environment, encoding: "utf-8", timeout: 600_000 },
+  );
+  assert.equal(swept.status, 0, swept.stderr);
+  assert.ok(!swept.stderr.includes("lifecycle-progress"), swept.stderr);
+  evidence.sweepOmitsHeartbeat = true;
+  const sweep = JSON.parse(swept.stdout) as Report;
   assert.deepEqual(sweep.stops, [{ repoPath: fixture, outcome: "stopped" }]);
   const after = idle();
   assert.equal(row(after), undefined);

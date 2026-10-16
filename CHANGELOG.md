@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `workspace idle --stop` no longer writes a lifecycle progress line every ten
+  seconds of each stop when its stderr is not a terminal, so the idle-stop
+  agent's `sweep.log` records only stop outcomes and errors. An interactive
+  sweep still shows progress.
+
 ## [0.5.1] - 2026-10-16
 
 ### Agent Adaptation Prompt
