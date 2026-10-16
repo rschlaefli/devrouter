@@ -174,7 +174,7 @@ describe("runSetup", () => {
     expect(report.nextSteps).toContain("Install mkcert, then run: devrouter setup --yes");
   });
 
-  it("persists workspace runtime preferences passed as setup flags", async () => {
+  it("persists the runtime preference and ignores the deprecated Devsy timeout", async () => {
     const report = await runSetup({
       repo: "/repo",
       yes: true,
@@ -182,10 +182,10 @@ describe("runSetup", () => {
       devsyInactivityTimeout: "30m",
     });
 
-    expect(writeWorkspaceRuntimeConfig).toHaveBeenCalledWith({
-      runtime: "devsy",
-      devsyInactivityTimeout: "30m",
-    });
+    expect(writeWorkspaceRuntimeConfig).toHaveBeenCalledWith({ runtime: "devsy" });
+    expect(report.actions).toContainEqual(
+      expect.objectContaining({ id: "global.devsy-inactivity-timeout", status: "skipped" }),
+    );
     expect(report.actions).toContainEqual(
       expect.objectContaining({
         id: "global.workspace-runtime-config",

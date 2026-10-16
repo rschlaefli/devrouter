@@ -256,3 +256,14 @@ The live report in Slice 1 is read-only and may run against existing stacks.
   evidence read stays outside the journal lock, because other writers wait at
   most 2 s for it. Deliberate deviation: the live stop-and-resume check moves
   to the Slice 4 qualification, so one disposable checkout covers both.
+- 2026-10-16: Slice 3 complete. `setup --idle-stop <duration|off>` writes the
+  launchd agent (absolute `node` and entry paths, tool `PATH`, `DOCKER_HOST` and
+  `DOCKER_CONTEXT`) and reloads it with `launchctl bootout`/`bootstrap`; the
+  sweep holds `~/.config/devrouter/idle/sweep.lock` and writes
+  `last-sweep.json`, which the `global.idle-stop` doctor check reads. The agent
+  state is the plist itself, so no new machine setting exists. The idle pin is
+  a new `idleProtection` journal field with its own validator, writer and
+  revision. `parseInactiveFor` moved to `src/core/duration.ts`, because setup
+  needs it without loading the route modules. Plist generation, rewrite and
+  removal are tested in a temp home with a fake `launchctl`; nothing was loaded
+  into the real launchd domain.

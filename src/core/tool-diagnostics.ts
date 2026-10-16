@@ -8,6 +8,7 @@ import {
   inspectDevsyAgent,
   SUPPORTED_DEVSY_RANGE,
 } from "./devsy-agent";
+import { idleSweepCheck } from "./idle-sweep";
 import { compareSemver } from "./repo-config";
 import {
   inspectWorkspaceRuntimeConfig,
@@ -482,9 +483,6 @@ function buildGlobalToolChecksWithoutTelemetry(repoPath: string): DiagnosticChec
     details: [
       firstLine(runtimeTool.output) ?? runtimeTool.error,
       `source=${runtimeResolution.source}`,
-      ...(machineConfig.devsyInactivityTimeout
-        ? [`devsyInactivityTimeout=${machineConfig.devsyInactivityTimeout}`]
-        : []),
     ]
       .filter(Boolean)
       .join(", "),
@@ -504,15 +502,9 @@ function buildGlobalToolChecksWithoutTelemetry(repoPath: string): DiagnosticChec
   }
 
   const configProblems = [...configInspection.problems];
-  // A Devsy timeout alongside a path-owned DevPod checkout is a valid mixed
-  // fleet: the timeout only governs new Devsy workspaces, so warn only when
-  // machine-level resolution itself fell back to DevPod.
-  const machineResolvedDevpod =
-    workspaceRuntime === "devpod" &&
-    (runtimeResolution.source === "auto-detect" || runtimeResolution.source === "default");
-  if (machineConfig.devsyInactivityTimeout && machineResolvedDevpod) {
+  if (machineConfig.devsyInactivityTimeout) {
     configProblems.push(
-      "devsyInactivityTimeout is configured but the active workspace runtime is DevPod.",
+      "devsyInactivityTimeout is deprecated and ignored; devrouter owns idle stop (devrouter setup --idle-stop <duration>).",
     );
   }
   const configDetails = configInspection.exists
@@ -538,6 +530,8 @@ function buildGlobalToolChecksWithoutTelemetry(repoPath: string): DiagnosticChec
         ? "Run: devrouter setup --yes --workspace-runtime <devpod|devsy>"
         : undefined,
   });
+
+  checks.push(idleSweepCheck());
 
   checks.push(buildCliPathCheck());
 

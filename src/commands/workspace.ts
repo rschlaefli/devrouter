@@ -9,6 +9,8 @@ import {
   readLeftoverContext,
   readLeftoverManifest,
 } from "../core/docker-leftovers";
+import { withFileLock } from "../core/file-lock";
+import { idleSweepPaths, summarizeSweep, writeLastSweep } from "../core/idle-sweep";
 import { printJSON, printReclaimReport, printWorkspaceCleanupReport } from "../core/output";
 import { superviseLifecycle } from "../core/reliability-lifecycle";
 import { loadRepoConfig, resolveRepoPath } from "../core/repo-config";
@@ -23,6 +25,7 @@ import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
 import {
   buildWorkspaceIdleReport,
   type IdleStopOutcome,
+  setIdlePin,
   stopIdleEnvironments,
   type WorkspaceIdleOptions,
   type WorkspaceIdleReport,
@@ -152,6 +155,24 @@ export function runWorkspaceCleanupCommand(
   printWorkspaceCleanupReport(report);
 }
 
+export function runWorkspacePinCommand(options: {
+  path?: string;
+  off?: boolean;
+  json?: boolean;
+}): void {
+  const repoPath = resolveGitCheckoutPath(options.path);
+  const protection = setIdlePin(repoPath, !options.off);
+  if (options.json) {
+    printJSON({ repoPath, ...protection });
+    return;
+  }
+  process.stdout.write(
+    protection.pinned
+      ? `Pinned '${repoPath}' against idle stop.\n`
+      : `Removed the idle pin from '${repoPath}'.\n`,
+  );
+}
+
 export async function runWorkspaceIdleCommand(
   options: WorkspaceIdleOptions & { stop?: boolean; json?: boolean },
 ): Promise<void> {
@@ -162,9 +183,21 @@ export async function runWorkspaceIdleCommand(
   let report: WorkspaceIdleReport;
   let stops: IdleStopOutcome[] = [];
   if (options.stop) {
-    const result = await stopIdleEnvironments(query, (repoPath, assertStopIntent) =>
-      superviseLifecycle("stop", repoPath, {}, undefined, { assertStopIntent }),
-    );
+    const paths = idleSweepPaths();
+    fs.mkdirSync(paths.directory, { recursive: true, mode: 0o700 });
+    // Several stops can outlast the agent interval; one sweep runs at a time.
+    const result = await withFileLock(paths.lock, { activity: "idle sweep" }, async () => {
+      try {
+        const swept = await stopIdleEnvironments(query, (repoPath, assertStopIntent) =>
+          superviseLifecycle("stop", repoPath, {}, undefined, { assertStopIntent }),
+        );
+        writeLastSweep(summarizeSweep(swept.idleFor, swept.stops), paths);
+        return swept;
+      } catch (error) {
+        writeLastSweep(summarizeSweep(options.idleFor ?? "30m", [], error), paths);
+        throw error;
+      }
+    });
     report = result;
     stops = result.stops;
   } else {

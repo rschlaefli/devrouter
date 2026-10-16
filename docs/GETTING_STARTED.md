@@ -119,6 +119,19 @@ devrouter logs --tail 50
 Traefik normally owns `:80` and `:443`. Activated TCP protocols also claim their
 shared standard port, such as `:5432` for PostgreSQL.
 
+To stop managed devcontainer environments nobody has used for a while, opt in
+to idle stop (macOS):
+
+```bash
+devrouter setup --idle-stop 30m   # remove again with: devrouter setup --idle-stop off
+```
+
+Setup installs `~/Library/LaunchAgents/dev.devrouter.idle-stop.plist`, which runs
+`devrouter workspace idle --stop` every five minutes. It records the absolute
+`node`, `docker` and provider paths found at setup time, so rerun the command after
+moving or upgrading those tools. `devrouter doctor` reports the last sweep under
+`global.idle-stop`.
+
 ## Prove the first route
 
 In a repository with an existing development command:

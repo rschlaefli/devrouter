@@ -7,6 +7,8 @@ import {
 } from "./devsy-agent";
 import { ensureNetwork, isContainerRunning, networkExists } from "./docker";
 import { buildDoctorReport } from "./doctor";
+import { parseInactiveFor } from "./duration";
+import { installIdleSweep, removeIdleSweep } from "./idle-sweep";
 import { loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import {
   DEVNET_NAME,
@@ -28,6 +30,7 @@ type SetupOptions = {
   yes?: boolean;
   workspaceRuntime?: string;
   devsyInactivityTimeout?: string;
+  idleStop?: string;
 };
 
 function action(status: SetupActionStatus, entry: Omit<SetupAction, "status">): SetupAction {
@@ -134,7 +137,51 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
   }
 
   let requestedWorkspaceRuntime: "devpod" | "devsy" | undefined;
-  if (options.workspaceRuntime !== undefined || options.devsyInactivityTimeout !== undefined) {
+  if (options.devsyInactivityTimeout !== undefined) {
+    actions.push(
+      action("skipped", {
+        id: "global.devsy-inactivity-timeout",
+        summary:
+          "--devsy-inactivity-timeout is deprecated and has no effect; devrouter owns idle stop.",
+        suggestion: `Use: devrouter setup --idle-stop ${options.devsyInactivityTimeout}`,
+      }),
+    );
+  }
+
+  if (options.idleStop !== undefined) {
+    try {
+      if (options.idleStop === "off") {
+        const removed = removeIdleSweep();
+        actions.push(
+          action(removed ? "performed" : "skipped", {
+            id: "global.idle-stop",
+            summary: removed ? "Removed the idle-stop agent." : "Idle stop was already off.",
+          }),
+        );
+      } else {
+        const idleFor = parseInactiveFor(options.idleStop, "--idle-stop").input;
+        const paths = installIdleSweep({ idleFor });
+        actions.push(
+          action("performed", {
+            id: "global.idle-stop",
+            summary: `Installed the idle-stop agent: environments idle for ${idleFor} stop every 5 minutes.`,
+            details: `Agent: ${paths.plist}. Log: ${paths.log}.`,
+          }),
+        );
+      }
+    } catch (error) {
+      actions.push(
+        action("failed", {
+          id: "global.idle-stop",
+          summary: "Failed to configure idle stop.",
+          details: error instanceof Error ? error.message : String(error),
+          suggestion: "Use: devrouter setup --idle-stop <duration|off>, for example 30m",
+        }),
+      );
+    }
+  }
+
+  if (options.workspaceRuntime !== undefined) {
     try {
       const existing = readWorkspaceRuntimeConfig();
       requestedWorkspaceRuntime = options.workspaceRuntime
@@ -142,13 +189,13 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
         : undefined;
       const next = {
         runtime: requestedWorkspaceRuntime ?? existing.runtime,
-        devsyInactivityTimeout: options.devsyInactivityTimeout ?? existing.devsyInactivityTimeout,
+        devsyInactivityTimeout: existing.devsyInactivityTimeout,
       };
       writeWorkspaceRuntimeConfig(next);
       actions.push(
         action("performed", {
           id: "global.workspace-runtime-config",
-          summary: `Persisted workspace runtime preferences (runtime=${next.runtime ?? "unset"}, devsyInactivityTimeout=${next.devsyInactivityTimeout ?? "unset"}).`,
+          summary: `Persisted workspace runtime preference (runtime=${next.runtime ?? "unset"}).`,
         }),
       );
     } catch (error) {
@@ -158,8 +205,7 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupReport>
           id: "global.workspace-runtime-config",
           summary: "Failed to persist workspace runtime preferences.",
           details: message,
-          suggestion:
-            "Use: devrouter setup --yes --workspace-runtime <devpod|devsy> [--devsy-inactivity-timeout <duration>]",
+          suggestion: "Use: devrouter setup --yes --workspace-runtime <devpod|devsy>",
         }),
       );
     }

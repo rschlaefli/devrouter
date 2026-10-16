@@ -8,17 +8,25 @@ import {
   workspaceAppContainers,
 } from "./devpod-environment";
 import { listMergedRuntimeWorkspaces } from "./devpod-workspaces";
+import { parseInactiveFor } from "./duration";
 import { buildHostRouteRouterName, readHostRouteStateReadOnly } from "./host-routes";
 import { networkDockerOptions } from "./network-effect-scope";
 import {
   listReliabilityOperations,
+  type ReliabilityIdleProtection,
   type ReliabilityOperationRecord,
   reliabilityOperationPath,
+  setReliabilityIdlePin,
 } from "./reliability-operation-store";
 import { ROUTER_CONTAINER_NAME } from "./router";
-import { comparableWorkspacePath } from "./workspace";
-import { parseInactiveFor } from "./workspace-cleanup";
+import {
+  comparableWorkspacePath,
+  isLinkedWorktree,
+  readPersistedWorkspace,
+  resolveWorktreeWorkspace,
+} from "./workspace";
 import { resolveGitCommonDir } from "./workspace-ownership";
+import { resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
 
 const DEFAULT_IDLE_FOR = "30m";
 // Devsy touches the first file; DevPod agents use the second.
@@ -266,6 +274,7 @@ export function journalVetoes(record: ReliabilityOperationRecord | undefined): s
     vetoes.push("capacity-managed by the controller");
   if (state.desired === "parked-for-capacity") vetoes.push("parked for capacity");
   if (record.consumerProtection?.humanPinned) vetoes.push("pinned by a person");
+  if (record.idleProtection?.pinned) vetoes.push("pinned against idle stop");
   return vetoes;
 }
 
@@ -498,4 +507,23 @@ export async function stopIdleEnvironments(
     }
   }
   return { ...report, stops };
+}
+
+/**
+ * Pin or unpin one checkout against idle stop. The pin lives in the checkout's
+ * lifecycle journal and is written only while a linked worktree still holds the
+ * workspace identity the journal was recorded under.
+ */
+export function setIdlePin(repoPath: string, pinned: boolean): ReliabilityIdleProtection {
+  const checkout = comparableWorkspacePath(repoPath);
+  const workspace = resolveWorktreeWorkspace(checkout) ?? null;
+  const linked = isLinkedWorktree(checkout);
+  return setReliabilityIdlePin(
+    { repoPath: checkout, workspace, provider: resolveWorkspaceRuntimeOrDefault(checkout) },
+    pinned,
+    () => {
+      if (linked && readPersistedWorkspace(checkout) !== workspace)
+        throw new Error(`Checkout '${checkout}' no longer holds workspace '${workspace}'.`);
+    },
+  );
 }

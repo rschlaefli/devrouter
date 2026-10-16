@@ -7,6 +7,7 @@ type SetupCommandOptions = {
   yes?: boolean;
   workspaceRuntime?: string;
   devsyInactivityTimeout?: string;
+  idleStop?: string;
 };
 
 export async function runSetupCommand(options: SetupCommandOptions): Promise<void> {
@@ -15,6 +16,7 @@ export async function runSetupCommand(options: SetupCommandOptions): Promise<voi
     yes: Boolean(options.yes),
     workspaceRuntime: options.workspaceRuntime,
     devsyInactivityTimeout: options.devsyInactivityTimeout,
+    idleStop: options.idleStop,
   });
 
   if (options.json) {
