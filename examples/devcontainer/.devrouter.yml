@@ -1,6 +1,6 @@
 version: 1
 devrouter:
-  version: 0.4.0
+  version: 0.5.0
 project:
   name: devcontainer-demo
 managedRuntime:
