@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `ensure`, `exec`, `stop`, `status` and `workspace idle` no longer fail with
+  "docker inspect failed: error: no such object" when any container on the
+  machine is removed between devrouter listing and inspecting containers, for
+  example while another checkout's stack is being recreated. A vanished
+  container is treated as absent; other inspect errors still fail.
+
 ## [0.5.0] - 2026-10-16
 
 ### Agent Adaptation Prompt
