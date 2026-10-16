@@ -94,6 +94,17 @@ export type ReliabilityConsumerProtection = {
   humanPinned: boolean;
 };
 
+/**
+ * A person's request to keep an environment running past the idle threshold.
+ * It only vetoes idle stop and grants nothing to capacity parking, which reads
+ * `consumerProtection` instead. Only the idle pin authority writes it.
+ */
+export type ReliabilityIdleProtection = {
+  version: 1;
+  revision: number;
+  pinned: boolean;
+};
+
 export type ReliabilityOperationRecord = {
   version: 1 | 2;
   identity: ReliabilityIdentity;
@@ -119,6 +130,7 @@ export type ReliabilityOperationRecord = {
    * pin, which is never permission to park.
    */
   consumerProtection?: ReliabilityConsumerProtection;
+  idleProtection?: ReliabilityIdleProtection;
   enrollment?: CapacityEnrollmentBinding;
   activeProfile?: string | null;
   capacity?: {
@@ -219,6 +231,18 @@ function validateConsumerProtection(record: ReliabilityOperationRecord): void {
     typeof protection.humanPinned !== "boolean"
   )
     throw new Error("Invalid consumer protection.");
+}
+
+function validateIdleProtection(record: ReliabilityOperationRecord): void {
+  const protection = record.idleProtection;
+  if (protection === undefined) return;
+  exactKeys(protection, ["version", "revision", "pinned"], "Invalid idle protection fields.");
+  if (
+    protection.version !== 1 ||
+    !isReliabilityCounter(protection.revision) ||
+    typeof protection.pinned !== "boolean"
+  )
+    throw new Error("Invalid idle protection.");
 }
 
 function validateCapacityPhaseSettlement(
@@ -409,6 +433,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     "result",
     "writtenByVersion",
     "consumerProtection",
+    "idleProtection",
     ...(record.version === 2
       ? [
           "capacity",
@@ -421,6 +446,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
       : []),
   ]);
   validateConsumerProtection(record);
+  validateIdleProtection(record);
   if (
     record.writtenByVersion !== undefined &&
     compareCliVersions(record.writtenByVersion, installedCliVersion()) > 0
@@ -1104,6 +1130,7 @@ export function updateReliabilityOperation<T>(
     const previousVersion = record.version;
     const previousEnrollment = record.enrollment && { ...record.enrollment };
     const previousProtection = structuredClone(record.consumerProtection);
+    const previousIdleProtection = structuredClone(record.idleProtection);
     const result = operation(record);
     if (result && typeof (result as { then?: unknown }).then === "function") {
       throw new Error("Reliability record updates must be synchronous.");
@@ -1115,6 +1142,8 @@ export function updateReliabilityOperation<T>(
       throw new Error("Durable capacity enrollment cannot be downgraded or replaced.");
     if (!isDeepStrictEqual(record.consumerProtection, previousProtection))
       throw new Error("Consumer protection is only writable through the dedicated pin authority.");
+    if (!isDeepStrictEqual(record.idleProtection, previousIdleProtection))
+      throw new Error("Idle protection is only writable through the idle pin authority.");
     record.writtenByVersion = installedCliVersion();
     validate(record, identity);
     record.revision += 1;
@@ -1303,5 +1332,37 @@ export function setReliabilityHumanPin(
       journalRevision: record.revision,
       protection: { ...record.consumerProtection },
     };
+  });
+}
+
+/**
+ * Set or clear the idle pin of an existing workspace journal. The write never
+ * initializes a missing journal, increments its own revision and the journal
+ * revision, and runs `revalidate` under the journal lock before persisting so
+ * the caller can re-check checkout ownership.
+ */
+export function setReliabilityIdlePin(
+  identity: ReliabilityIdentity,
+  pinned: boolean,
+  revalidate: () => void,
+): ReliabilityIdleProtection {
+  const before = readReliabilityOperation(identity);
+  if (!before)
+    throw new Error("No lifecycle journal exists for this checkout; run devrouter ensure first.");
+  return withReliabilityObservationFence(identity, before.revision, (record) => {
+    const revision = record.idleProtection?.revision ?? 0;
+    if (record.idleProtection?.pinned === pinned) {
+      revalidate();
+      return { ...record.idleProtection };
+    }
+    if (revision === Number.MAX_SAFE_INTEGER || record.revision === Number.MAX_SAFE_INTEGER)
+      throw new Error("Idle protection revision is exhausted.");
+    record.idleProtection = { version: 1, revision: revision + 1, pinned };
+    revalidate();
+    record.writtenByVersion = installedCliVersion();
+    validate(record, identity);
+    record.revision += 1;
+    persist(record);
+    return { ...record.idleProtection };
   });
 }

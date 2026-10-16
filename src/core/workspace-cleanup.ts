@@ -14,6 +14,7 @@ import {
   readDockerInventory,
   readLeftoverContext,
 } from "./docker-leftovers";
+import { parseInactiveFor } from "./duration";
 import { type ForgeIdentity, type ForgeListing, listForgeChanges } from "./forge-changes";
 import { readHostRouteStateReadOnly } from "./host-routes";
 import type { NetworkCapacityInspection } from "./network-diagnostics";
@@ -53,7 +54,8 @@ import {
 } from "./worktree-safety";
 import type { TrimVerdictContext } from "./worktree-trim";
 
-const DEFAULT_INACTIVE_FOR = "30d";
+export { parseInactiveFor };
+
 const READ_ONLY_GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" };
 const ACTIVITY_SOURCES = [
   "devpod.lastUsed",
@@ -335,27 +337,6 @@ function workspaceCommand(
     quoteCommandArg(repoPath),
     ...afterRepo,
   ].join(" ");
-}
-
-export function parseInactiveFor(value = DEFAULT_INACTIVE_FOR): {
-  input: string;
-  seconds: number;
-} {
-  const match = /^(?<amount>[1-9]\d*)(?<unit>[smhdw])$/.exec(value);
-  if (!match?.groups) {
-    throw new Error(
-      "--inactive-for must be a positive integer followed by s, m, h, d, or w (for example 30d).",
-    );
-  }
-  const amount = Number(match.groups.amount);
-  const multiplier = { s: 1, m: 60, h: 3600, d: 86400, w: 604800 }[
-    match.groups.unit as "s" | "m" | "h" | "d" | "w"
-  ];
-  const seconds = amount * multiplier;
-  if (!Number.isSafeInteger(seconds)) {
-    throw new Error("--inactive-for is too large.");
-  }
-  return { input: value, seconds };
 }
 
 export function evaluateWorkspaceActivity(

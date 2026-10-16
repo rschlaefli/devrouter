@@ -1789,6 +1789,23 @@ describe("reliability lifecycle supervision", () => {
     });
   });
 
+  it("records nothing and launches no worker when the stop-intent assertion refuses", async () => {
+    const { identity, lifecycle, store } = await seedCompletedEnsure();
+    const before = store.readReliabilityOperation(identity);
+
+    await expect(
+      lifecycle.superviseLifecycle("stop", identity.repoPath, {}, undefined, {
+        assertStopIntent: (record) => {
+          expect(record.revision).toBe(before?.revision);
+          throw new Error("journal changed");
+        },
+      }),
+    ).rejects.toThrow("journal changed");
+
+    expect(store.readReliabilityOperation(identity)).toEqual(before);
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+
   it("keeps a recorded stop intent when a repeated stop refuses", async () => {
     const { identity, lifecycle, store } = await seedCompletedEnsure();
     const prepared = lifecycle.prepareLifecycleOperation("stop", identity.repoPath);

@@ -41,6 +41,10 @@ vi.mock("../devsy-agent", async (importOriginal) => ({
   inspectDevsyAgent: vi.fn(() => runtimeState.agent),
 }));
 
+vi.mock("../idle-sweep", () => ({
+  idleSweepCheck: () => ({ id: "global.idle-stop", level: "ok", summary: "Idle stop is off." }),
+}));
+
 vi.mock("node:child_process", () => ({
   spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
 }));
@@ -130,6 +134,7 @@ describe("buildGlobalToolChecks", () => {
       ["global.mkcert", "ok"],
       ["global.devpod", "ok"],
       ["global.workspace-runtime-config", "ok"],
+      ["global.idle-stop", "ok"],
       ["global.cli-path", "ok"],
       ["global.node-toolchain", "ok"],
     ]);
@@ -285,7 +290,7 @@ describe("buildGlobalToolChecks", () => {
     );
   });
 
-  it("warns about a configured Devsy inactivity timeout while DevPod is active", () => {
+  it("warns that a stored Devsy inactivity timeout is ignored", () => {
     writePackageJson();
     runtimeState.resolution = { runtime: "devpod", source: "auto-detect" };
     runtimeState.config = { devsyInactivityTimeout: "30m" };
@@ -300,7 +305,7 @@ describe("buildGlobalToolChecks", () => {
 
     expect(byId.get("global.workspace-runtime-config")?.level).toBe("warn");
     expect(byId.get("global.workspace-runtime-config")?.details).toContain(
-      "devsyInactivityTimeout is configured but the active workspace runtime is DevPod",
+      "devsyInactivityTimeout",
     );
   });
 
@@ -329,23 +334,6 @@ describe("buildGlobalToolChecks", () => {
     expect(byId.get("global.devpod")?.summary).toBe(
       "Devsy is the active workspace runtime (source: path-owner).",
     );
-  });
-
-  it("does not warn about a Devsy timeout for a path-owned DevPod checkout", () => {
-    writePackageJson();
-    runtimeState.resolution = { runtime: "devpod", source: "path-owner" };
-    runtimeState.config = { devsyInactivityTimeout: "30m" };
-    runtimeState.inspection = {
-      exists: true,
-      config: { devsyInactivityTimeout: "30m" },
-      problems: [],
-    };
-
-    const checks = buildGlobalToolChecks(tmpDir);
-    const byId = new Map(checks.map((check) => [check.id, check]));
-
-    expect(runtimeState.requestedRepoPath).toBe(tmpDir);
-    expect(byId.get("global.workspace-runtime-config")?.level).toBe("ok");
   });
 
   it("reports ambiguous checkout ownership without hiding the configured runtime tool", () => {

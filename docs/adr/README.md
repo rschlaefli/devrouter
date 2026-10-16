@@ -15,3 +15,4 @@ bundle; this index only lists the accepted decisions.
 - [ADR 0009: Preserve Compose network ownership while reserving workspace subnets](./0009-preserve-compose-network-ownership.md)
 - [ADR 0010: Support verified Devsy releases across a 1.x range](./0010-supported-devsy-version-range.md)
 - [ADR 0011: Reclaim worktrees outside the ownership ledger through approved manifests](./0011-worktree-reclaim-outside-the-ledger.md)
+- [ADR 0012: Devrouter owns idle stop for managed environments](./0012-devrouter-owns-idle-stop.md)

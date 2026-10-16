@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `devrouter workspace idle [--repo <path>] [--idle-for 30m] [--json]` reports
+  each running managed environment as `active`, `idle`, `unknown` or
+  `protected`. It reads Traefik access-log requests for the checkout's routes,
+  the provider activity file, the reliability journal and route updates, and
+  changes nothing. `--stop` stops only `idle` environments through the normal
+  `stop` path, after re-reading their evidence and confirming the lifecycle
+  journal has not changed.
+- `devrouter setup --yes --idle-stop <duration|off>` installs or removes a macOS
+  launchd agent that runs `workspace idle --stop` every five minutes.
+  `devrouter doctor` reports it as `global.idle-stop`.
+- `devrouter workspace pin [path] [--off]` keeps one environment from idle stop.
+
+### Changed
+
+- Devsy workspaces started by devrouter now pass an empty `INACTIVITY_TIMEOUT`,
+  which disables Devsy's own idle daemon. In devrouter's Compose layout that
+  daemon exited without stopping anything; devrouter now owns idle stop
+  (ADR 0012). `--devsy-inactivity-timeout` and the stored
+  `devsyInactivityTimeout` setting are deprecated and have no effect; `setup`
+  and `doctor` say so.
+
 ### Fixed
 
 - `devrouter stop <path>` on a linked worktree that devrouter never started now

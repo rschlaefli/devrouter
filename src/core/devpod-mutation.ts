@@ -23,11 +23,7 @@ import {
 import { networkProviderEffectOptions } from "./network-provider-effect";
 import { claimLifecycleEffect } from "./reliability-context";
 import { DEVROUTER_HOME } from "./router";
-import {
-  readWorkspaceRuntimeConfig,
-  resetWorkspaceRuntimeCaches,
-  resolveWorkspaceRuntimeOrDefault,
-} from "./workspace-runtime";
+import { resetWorkspaceRuntimeCaches, resolveWorkspaceRuntimeOrDefault } from "./workspace-runtime";
 
 const DEVPOD_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devpod-mutation.lock");
 /**
@@ -183,7 +179,6 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
         recreate: options.recreate,
         quiet: options.quiet,
         workspace: options.workspace,
-        inactivityTimeout: readWorkspaceRuntimeConfig().devsyInactivityTimeout,
         prepareNetwork: options.prepareNetwork,
       });
       resetWorkspaceRuntimeCaches();

@@ -151,9 +151,10 @@ program
   .option("--repo <path>", "Repository path for final diagnostics (defaults to current directory)")
   .option("--yes", "Confirm non-interactive setup actions")
   .option("--workspace-runtime <runtime>", "Persist the machine workspace runtime (devpod|devsy)")
+  .option("--devsy-inactivity-timeout <duration>", "Deprecated and ignored; use --idle-stop")
   .option(
-    "--devsy-inactivity-timeout <duration>",
-    "Persist the Devsy inactivity shutdown duration (e.g. 30m)",
+    "--idle-stop <duration|off>",
+    "Install a launchd agent that stops managed environments idle this long (e.g. 30m), or remove it",
   )
   .option("--json", "Output JSON")
   .action(
@@ -163,6 +164,7 @@ program
         yes?: boolean;
         workspaceRuntime?: string;
         devsyInactivityTimeout?: string;
+        idleStop?: string;
         json?: boolean;
       }) => {
         const { runSetupCommand } = await import("./commands/setup");
@@ -888,6 +890,49 @@ workspaceCommand
       }>();
       const { runWorkspaceLeftoverCommand } = await import("./commands/workspace");
       runWorkspaceLeftoverCommand(options);
+    }),
+  );
+
+workspaceCommand
+  .command("idle")
+  .description("Report which running managed environments are idle, active, unknown, or protected")
+  .option("--repo <path>", "Only report checkouts of this repository (defaults to every checkout)")
+  .option("--idle-for <duration>", "Idle threshold using Ns, Nm, Nh, Nd, or Nw", "30m")
+  .option("--stop", "Stop idle environments through the supervised stop path")
+  .option("--json", "Output the idle report as JSON")
+  .action(
+    withErrorHandling(async (_options: unknown, command: Command) => {
+      const options = command.opts<{
+        repo?: string;
+        idleFor?: string;
+        stop?: boolean;
+        json?: boolean;
+      }>();
+      const { runWorkspaceIdleCommand } = await import("./commands/workspace");
+      await runWorkspaceIdleCommand({
+        repo: options.repo,
+        idleFor: options.idleFor,
+        stop: Boolean(options.stop),
+        json: Boolean(options.json),
+      });
+    }),
+  );
+
+workspaceCommand
+  .command("pin")
+  .description("Keep a running managed environment from being stopped as idle")
+  .argument("[path]", "Checkout path (defaults to current directory)")
+  .option("--off", "Remove the pin")
+  .option("--json", "Output JSON")
+  .action(
+    withErrorHandling(async (pathArg: string | undefined, _options: unknown, command: Command) => {
+      const options = command.opts<{ off?: boolean; json?: boolean }>();
+      const { runWorkspacePinCommand } = await import("./commands/workspace");
+      runWorkspacePinCommand({
+        path: pathArg,
+        off: Boolean(options.off),
+        json: Boolean(options.json),
+      });
     }),
   );
 

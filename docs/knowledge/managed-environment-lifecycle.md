@@ -12,6 +12,8 @@ source_paths:
   - src/core/workspace-ensure.ts
   - src/core/environment-stop.ts
   - src/core/workspace-gc.ts
+  - src/core/workspace-idle.ts
+  - src/core/idle-sweep.ts
   - src/core/devpod-mutation.ts
   - src/core/devpod-workspaces.ts
   - src/core/workspace-runtime.ts
@@ -411,6 +413,8 @@ whose complete historical and provider evidence survives.
 | `devrouter workspace down <target>` | Delete the exact provider runtime and routes, then remove an unlocked worktree that holds no local state unless retained. | Branch; worktree and record only when explicitly retained or teardown fails before removal. |
 | `devrouter workspace ls` | Join live Git, ownership, workspace runtime, and route evidence by exact worktree path. | Read-only. |
 | `devrouter workspace cleanup --repo <repo> --inactive-for 30d --json` | Report orthogonal ownership, checkout, route, advisory activity, and integration evidence for managed linked workspaces; exact guarded commands are suggestions only. | Always report-only; no `--yes` or apply mode. `--check-merged` alone enables read-only origin and matching GitHub/GitLab checks. `--measure-size` adds storage consumption and remains read-only. |
+| `devrouter workspace idle [--stop]` | Classify running environments as active, idle, unknown or protected; `--stop` stops only `idle` ones through the `stop` path. | Everything `stop` preserves; the report alone is read-only. |
+| `devrouter workspace pin <path> [--off]` | Set or clear the journal's idle pin, which vetoes idle stop. | Lifecycle intent and controller protection. |
 | `devrouter workspace gc` | Report missing-owner cleanup candidates; `--yes` revalidates and deletes only exact ledger-owned missing resources. | Git worktrees, branches, legacy/unowned resources, and conflicting owners. |
 | `devrouter workspace reclaim --manifest <file> --sha256 <hash>` | Dry run by default; `--yes` removes each approved candidate's managed runtime, worktree, ownership record and unmoved branch after re-checking it inside its lifecycle lock. | Every tree outside the manifest, and every candidate whose identity, verdict, activity or veto changed. |
 | `devrouter workspace trim --manifest <file> --sha256 <hash>` | Dry run by default; `--yes` removes only the manifest's listed ignored paths (declared in `worktrees.trim`) from each approved quiet tree after re-checking it inside its lifecycle lock. | The worktree, branch and runtime, every undeclared path, symlinks, paths outside the tree or holding tracked files, and every tree whose identity, safety verdict, runtime or activity changed. |
@@ -439,6 +443,22 @@ sizing walk that exceeds its deadline, or a size the daemon declines to report
 — is `unknown` with a reason rather than a partial or zero total, since a low
 total reads as "little to reclaim" and is the misleading direction here. A
 workspace with no attributed container is a measured zero, not unknown.
+
+Idle stop belongs to devrouter alone ([ADR 0012](../adr/0012-devrouter-owns-idle-stop.md)).
+Devsy workspaces start with an empty `INACTIVITY_TIMEOUT`, so the provider's own
+daemon never stops part of a stack. `workspace idle` requires every applicable
+signal to be readable and older than the threshold: Traefik access-log requests
+attributed by exact `@file` router name, the provider activity file read with
+`docker exec stat`, the journal file's modification time and route `updatedAt`.
+Journal records carry no timestamps, so the file time stands in for the last
+lifecycle write. Settled manual journals keep one consumer and one request,
+so only a live worker, an unsettled phase or operation, capacity-managed policy,
+parking and the two pins veto. `--stop` reads each candidate's evidence again
+just before its stop, and `superviseLifecycle("stop")` records the intent only
+while the journal revision still matches that read. The slow evidence read stays
+outside the journal lock, whose other writers wait two seconds at most. The
+opt-in launchd agent from `setup --yes --idle-stop` serializes sweeps with
+`~/.config/devrouter/idle/sweep.lock` and records `last-sweep.json` for `doctor`.
 
 ## Failure rules
 

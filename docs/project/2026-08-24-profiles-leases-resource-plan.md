@@ -60,6 +60,8 @@
 
 ### Slice 3: leases and idle lifecycle
 
+Superseded on 2026-10-15 by [Idle stop for managed environments](./2026-10-15-idle-stop-plan.md); this slice was never shipped.
+
 - Do: extend owner-record schema and touch points; add `workspace claim|heartbeat|release|pin|unpin`; add `workspace idle [--ttl] [--stop]` in `src/core/workspace-idle.ts` reusing `workspace-lifecycle.ts` stop path and the machine-global mutation lock.
 - Test: owner-record migration defaults, touch-point updates, TTL boundary math, exclusion of pinned/leased/dirty/locked, `--stop` stops only reported runtimes, lock contention fails closed.
 - Check: `pnpm typecheck && pnpm test -- workspace`.

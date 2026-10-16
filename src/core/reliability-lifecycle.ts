@@ -883,6 +883,13 @@ export async function superviseLifecycle(
   repoPath: string,
   options: LifecycleWorkerRequest["options"] = {},
   command?: string[],
+  hooks: {
+    /**
+     * Runs inside the journal transaction that records a stop intent; a throw
+     * aborts the stop before anything is written.
+     */
+    assertStopIntent?: (record: ReliabilityOperationRecord) => void;
+  } = {},
 ): Promise<unknown> {
   repoPath = comparableWorkspacePath(repoPath);
   if (isLinkedWorktree(repoPath) && !readPersistedWorkspace(repoPath)) {
@@ -899,6 +906,7 @@ export async function superviseLifecycle(
   const copiedCommand = command ? [...command] : undefined;
   if (kind === "stop") {
     const intent = updateReliabilityOperation(identity, (record): LifecycleStopIntent => {
+      hooks.assertStopIntent?.(record);
       reconcileDrained(record);
       const prior = snapshotLifecycleStopIntent(record.state);
       stepRecord(record, { ...reliabilityFence(record.state), type: "stop" });

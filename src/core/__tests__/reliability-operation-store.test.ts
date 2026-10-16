@@ -23,6 +23,7 @@ import {
   readReliabilityOperation,
   reliabilityOperationPath,
   setReliabilityHumanPin,
+  setReliabilityIdlePin,
   updateReliabilityOperation,
   withReliabilityObservationFence,
 } from "../reliability-operation-store";
@@ -1544,6 +1545,48 @@ describe("durable consumer protection pins", () => {
     expect(journalBytes()).toEqual(bytes);
     expect(readReliabilityOperation(identity)).toMatchObject({ revision: 1 });
     expect(readReliabilityOperation(identity)!.consumerProtection).toBeUndefined();
+  });
+});
+
+describe("idle protection pins", () => {
+  it("refuses to initialize a missing journal", () => {
+    expect(() => setReliabilityIdlePin(identity, true, () => undefined)).toThrow(
+      "No lifecycle journal exists",
+    );
+  });
+
+  it("pins and unpins with its own revision and leaves consumer protection alone", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    expect(setReliabilityIdlePin(identity, true, () => undefined)).toEqual({
+      version: 1,
+      revision: 1,
+      pinned: true,
+    });
+    expect(setReliabilityIdlePin(identity, false, () => undefined).revision).toBe(2);
+    const record = readReliabilityOperation(identity)!;
+    expect(record.idleProtection).toEqual({ version: 1, revision: 2, pinned: false });
+    expect(record.consumerProtection).toBeUndefined();
+  });
+
+  it("writes nothing when revalidation refuses", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const before = readReliabilityOperation(identity);
+    expect(() =>
+      setReliabilityIdlePin(identity, true, () => {
+        throw new Error("ownership changed");
+      }),
+    ).toThrow("ownership changed");
+    expect(readReliabilityOperation(identity)).toEqual(before);
+  });
+
+  it("keeps ordinary lifecycle writers from changing the pin", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    setReliabilityIdlePin(identity, true, () => undefined);
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        record.idleProtection = undefined;
+      }),
+    ).toThrow("Idle protection is only writable through the idle pin authority.");
   });
 });
 

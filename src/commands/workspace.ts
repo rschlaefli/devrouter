@@ -9,7 +9,10 @@ import {
   readLeftoverContext,
   readLeftoverManifest,
 } from "../core/docker-leftovers";
+import { withFileLock } from "../core/file-lock";
+import { idleSweepPaths, summarizeSweep, writeLastSweep } from "../core/idle-sweep";
 import { printJSON, printReclaimReport, printWorkspaceCleanupReport } from "../core/output";
+import { superviseLifecycle } from "../core/reliability-lifecycle";
 import { loadRepoConfig, resolveRepoPath } from "../core/repo-config";
 import {
   buildWorkspaceCleanupReport,
@@ -19,6 +22,14 @@ import {
   type WorkspaceCleanupOptions,
 } from "../core/workspace-cleanup";
 import { applyWorkspaceGc, inspectWorkspaceGc } from "../core/workspace-gc";
+import {
+  buildWorkspaceIdleReport,
+  type IdleStopOutcome,
+  setIdlePin,
+  stopIdleEnvironments,
+  type WorkspaceIdleOptions,
+  type WorkspaceIdleReport,
+} from "../core/workspace-idle";
 import { settleWorkspaceJournal } from "../core/workspace-journal-settle";
 import {
   reclaimWorktreeExactPath,
@@ -142,6 +153,78 @@ export function runWorkspaceCleanupCommand(
     return;
   }
   printWorkspaceCleanupReport(report);
+}
+
+export function runWorkspacePinCommand(options: {
+  path?: string;
+  off?: boolean;
+  json?: boolean;
+}): void {
+  const repoPath = resolveGitCheckoutPath(options.path);
+  const protection = setIdlePin(repoPath, !options.off);
+  if (options.json) {
+    printJSON({ repoPath, ...protection });
+    return;
+  }
+  process.stdout.write(
+    protection.pinned
+      ? `Pinned '${repoPath}' against idle stop.\n`
+      : `Removed the idle pin from '${repoPath}'.\n`,
+  );
+}
+
+export async function runWorkspaceIdleCommand(
+  options: WorkspaceIdleOptions & { stop?: boolean; json?: boolean },
+): Promise<void> {
+  const query = {
+    repo: options.repo ? resolveGitWorkspaceRepo(options.repo) : undefined,
+    idleFor: options.idleFor,
+  };
+  let report: WorkspaceIdleReport;
+  let stops: IdleStopOutcome[] = [];
+  if (options.stop) {
+    const paths = idleSweepPaths();
+    fs.mkdirSync(paths.directory, { recursive: true, mode: 0o700 });
+    // Several stops can outlast the agent interval; one sweep runs at a time.
+    const result = await withFileLock(paths.lock, { activity: "idle sweep" }, async () => {
+      try {
+        const swept = await stopIdleEnvironments(query, (repoPath, assertStopIntent) =>
+          superviseLifecycle("stop", repoPath, {}, undefined, { assertStopIntent }),
+        );
+        writeLastSweep(summarizeSweep(swept.idleFor, swept.stops), paths);
+        return swept;
+      } catch (error) {
+        writeLastSweep(summarizeSweep(options.idleFor ?? "30m", [], error), paths);
+        throw error;
+      }
+    });
+    report = result;
+    stops = result.stops;
+  } else {
+    report = buildWorkspaceIdleReport(query);
+  }
+  if (stops.some((stop) => stop.outcome === "failed")) process.exitCode = 1;
+  if (options.json) {
+    printJSON(report);
+    return;
+  }
+  for (const warning of report.warnings) process.stderr.write(`Warning: ${warning}\n`);
+  if (options.stop) {
+    // The launchd agent appends this output every sweep, so only stops are printed.
+    for (const stop of stops) {
+      const detail = stop.reason ? `: ${stop.reason}` : "";
+      process.stdout.write(`${report.generatedAt}\t${stop.outcome}\t${stop.repoPath}${detail}\n`);
+    }
+    return;
+  }
+  if (report.rows.length === 0) {
+    process.stdout.write("No running managed environments.\n");
+    return;
+  }
+  for (const row of report.rows) {
+    const detail = row.reasons.length > 0 ? `\t${row.reasons.join("; ")}` : "";
+    process.stdout.write(`${row.status}\t${row.latestActivity ?? "-"}\t${row.repoPath}${detail}\n`);
+  }
 }
 
 export async function runWorkspaceDownCommand(

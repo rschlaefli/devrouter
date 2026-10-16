@@ -688,6 +688,39 @@ devrouter stop .
 devrouter stop . --delete
 ```
 
+### Idle stop
+
+`devrouter workspace idle [--repo <path>] [--idle-for 30m] [--json]` reports each
+running managed environment as `active`, `idle`, `unknown` or `protected`. It
+reads four signals and changes nothing:
+
+- HTTP requests in Traefik's access log for the checkout's own routes;
+- the last write of the checkout's lifecycle journal, which every `ensure`,
+  `exec` and `stop` updates;
+- the provider activity file, when the provider records SSH sessions in it
+  (Devsy stops recording once its own idle timeout is disabled);
+- the last update of its published routes.
+
+An environment is `idle` only when every applicable signal is readable and older
+than the threshold. A missing or rotated Traefik log, or a failed probe, gives
+`unknown`. A running lifecycle command, controller-managed capacity, parking, a
+controller protection pin or an idle pin gives `protected`. TCP traffic, such as
+a database client connecting through `:5432`, is not observed.
+
+`--stop` stops `idle` environments through the same path as `devrouter stop`.
+It re-reads each candidate's evidence just before its stop and records the stop
+only while the lifecycle journal is unchanged since that read. A stopped
+environment keeps its volumes and resumes with `devrouter ensure`. The opt-in
+`devrouter setup --yes --idle-stop <duration>` agent runs this every five minutes.
+
+`devrouter workspace pin [path]` keeps an environment running regardless of
+activity; `--off` removes the pin. The pin needs an existing lifecycle journal,
+so run `ensure` first. It is separate from `controller protection-pin` and grants
+nothing to capacity parking.
+
+Devrouter starts Devsy workspaces with an empty `INACTIVITY_TIMEOUT`, so Devsy's
+own idle daemon never stops one container of a running stack.
+
 ## Notes
 
 - Nothing is published on the host — the `*.localhost` hosts are the only access

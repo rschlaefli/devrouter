@@ -49,12 +49,6 @@ export type DevsyStartOptions = {
   recreate?: boolean;
   quiet?: boolean;
   workspace?: { token: string; gitCommonDir: string };
-  /**
-   * Machine-configured inactivity shutdown forwarded as a Devsy provider
-   * option. Omitted when unset so Devsy keeps any per-workspace option the
-   * desktop app already stored for this workspace.
-   */
-  inactivityTimeout?: string;
 };
 
 export class DevsyStartPostconditionError extends Error {}
@@ -353,9 +347,10 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
         `DEVROUTER_WORKSPACE=${options.workspace.token}`,
       );
     }
-    if (options.inactivityTimeout) {
-      args.push("--provider-option", `INACTIVITY_TIMEOUT=${options.inactivityTimeout}`);
-    }
+    // Devrouter owns idle stop for managed stacks (ADR 0012). An explicit empty
+    // value overrides any provider-level or previously stored timeout, so
+    // Devsy's own idle daemon never stops one container of a running stack.
+    args.push("--provider-option", "INACTIVITY_TIMEOUT=");
     if (options.recreate) args.push("--recreate");
 
     const env = network

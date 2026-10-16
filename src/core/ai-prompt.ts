@@ -171,6 +171,15 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Delete exact workspace runtime/routes and remove only a clean, unlocked worktree and its owner record; --keep-worktree preserves checkout and record.",
   },
   {
+    command: "devrouter workspace idle [--repo <path>] [--idle-for 30m] [--stop] [--json]",
+    purpose:
+      "Read-only active/idle/unknown/protected report for running managed environments; --stop stops only fully evidenced idle environments through the normal stop path.",
+  },
+  {
+    command: "devrouter workspace pin [path] [--off] [--json]",
+    purpose: "Keep one managed environment from idle stop, or remove that pin.",
+  },
+  {
     command: "devrouter workspace gc [--json] [--yes]",
     purpose:
       "Report missing owners without mutation by default; --yes deletes only exact eligible ledger-owned resources and records, never Git worktrees.",
