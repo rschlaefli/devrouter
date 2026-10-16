@@ -11,6 +11,7 @@ import {
 } from "../core/docker-leftovers";
 import { withFileLock } from "../core/file-lock";
 import { idleSweepPaths, summarizeSweep, writeLastSweep } from "../core/idle-sweep";
+import { muteLifecycleProgressHeartbeat } from "../core/lifecycle-progress";
 import { printJSON, printReclaimReport, printWorkspaceCleanupReport } from "../core/output";
 import { superviseLifecycle } from "../core/reliability-lifecycle";
 import { loadRepoConfig, resolveRepoPath } from "../core/repo-config";
@@ -184,6 +185,8 @@ export async function runWorkspaceIdleCommand(
   let stops: IdleStopOutcome[] = [];
   if (options.stop) {
     const paths = idleSweepPaths();
+    // The launchd agent appends stderr to the sweep log, which records only stop outcomes.
+    if (!process.stderr.isTTY) muteLifecycleProgressHeartbeat();
     fs.mkdirSync(paths.directory, { recursive: true, mode: 0o700 });
     // Several stops can outlast the agent interval; one sweep runs at a time.
     const result = await withFileLock(paths.lock, { activity: "idle sweep" }, async () => {

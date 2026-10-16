@@ -881,9 +881,11 @@ it("signals a live watch gap when events expire between deliveries", async () =>
       },
     );
     const results: any[] = [];
+    // The watch outlives several 100 ms delivery ticks, because under load the
+    // first tick can run before this client handles the initial snapshot.
     await controllerRequest(
       directory,
-      { method: "watch", ...binding, timeout: 0 },
+      { method: "watch", ...binding, timeout: 1 },
       (value: any) => {
         results.push(value.result);
         if (results.length === 1) {

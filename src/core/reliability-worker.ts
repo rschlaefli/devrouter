@@ -7,6 +7,7 @@ import { processBirthIdentity } from "./file-lock";
 import {
   isLifecycleProgressPhase,
   type LifecycleProgressPhase,
+  lifecycleProgressHeartbeatMuted,
   lifecycleProgressSnapshot,
 } from "./lifecycle-progress";
 import {
@@ -275,7 +276,7 @@ export async function runLifecycleWorker(
   let progressReceivedAt: number | undefined;
   let progressTimer: ReturnType<typeof setInterval> | undefined;
   const emitProgress = () => {
-    if (closed || cancelled || request.kind === "exec") return;
+    if (closed || cancelled || request.kind === "exec" || lifecycleProgressHeartbeatMuted()) return;
     const data = `${JSON.stringify(lifecycleProgressSnapshot(progressPhase, progressReceivedAt, performance.now()))}\n`;
     try {
       if (supervision) supervision.output.append("stderr", Buffer.from(data));
