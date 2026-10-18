@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-18
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.5.3.md
+
+### Fixed
+
+- Devsy setup now selects the official verified Linux agent on Linux arm64 and
+  x64 hosts, in addition to macOS.
+- Exact Compose identity checks accept provider-generated container-feature
+  overlays beneath custom `DEVPOD_HOME` and `DEVSY_HOME` directories while
+  continuing to reject unrelated overlays and neighboring paths.
+- Linux lifecycle process groups containing only proven unreaped zombies can
+  drain. Live members and incomplete or unreadable evidence remain fenced.
+
+### Compatibility
+
+- Use Devsy 1.16.2 when warm managed-profile changes are required. Devsy 1.23.2
+  treats changed `runServices` as structural and refuses these transitions;
+  devrouter does not recreate retained environments automatically.
+- A lifecycle worker that itself remains a zombie with its recorded birth
+  identity still blocks recovery; the process-group fix does not relax that
+  separate ownership check.
+
 ## [0.5.2] - 2026-10-16
 
 ### Agent Adaptation Prompt
