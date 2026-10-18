@@ -77,12 +77,14 @@ describe("Devsy agent manifest", () => {
   });
 
   it.each([
-    ["arm64", "devsy-linux-arm64"],
-    ["x64", "devsy-linux-amd64"],
-  ])("maps darwin/%s to %s", (arch, expectedName) => {
+    ["darwin", "arm64", "devsy-linux-arm64"],
+    ["darwin", "x64", "devsy-linux-amd64"],
+    ["linux", "arm64", "devsy-linux-arm64"],
+    ["linux", "x64", "devsy-linux-amd64"],
+  ] as const)("maps %s/%s to %s", (platform, arch, expectedName) => {
     const inspection = inspectDevsyAgent({
       versionOutput: "v1.16.2",
-      platform: "darwin",
+      platform,
       arch,
       cacheRoot: tmpDir,
       env: {},
@@ -131,7 +133,7 @@ describe("Devsy agent manifest", () => {
     expect(
       inspectDevsyAgent({
         versionOutput: "v1.16.2",
-        platform: "linux",
+        platform: "win32",
         arch: "arm64",
         env: {},
         cacheRoot: tmpDir,

@@ -16,7 +16,7 @@ Clean split of responsibilities:
 This works with any devcontainer-spec runner (DevPod, VS Code Dev Containers,
 `@devcontainers/cli`, Codespaces) — the container just needs to join `devnet`.
 
-We recommend **DevPod** or **Devsy** for orchestrating the devcontainer lifecycle locally; both are client-only, open-source tools that execute entirely locally on Docker, mount and sync workspace files in the background, and do not force a specific IDE. Runtime selection is path-aware: `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy` forces one runtime, an exact-path registry owner wins next (mixed fleets keep their checkouts separated), then the machine preference from `devrouter setup --yes --workspace-runtime <runtime>`, then installed-CLI auto-detection. For Devsy workspaces, `devrouter setup --yes --devsy-inactivity-timeout <duration>` (for example `30m`) configures idle shutdown.
+We recommend **DevPod** or **Devsy** for orchestrating the devcontainer lifecycle locally; both are client-only, open-source tools that execute entirely locally on Docker, mount and sync workspace files in the background, and do not force a specific IDE. Runtime selection is path-aware: `DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy` forces one runtime, an exact-path registry owner wins next (mixed fleets keep their checkouts separated), then the machine preference from `devrouter setup --yes --workspace-runtime <runtime>`, then installed-CLI auto-detection. Devrouter owns idle shutdown for both runtimes; configure it with `devrouter setup --yes --idle-stop 30m`. The deprecated `--devsy-inactivity-timeout` option has no effect.
 
 Devsy's desktop app and CLI are complementary: the app manages and displays
 workspaces, while devrouter uses the CLI for deterministic automation. They
@@ -26,7 +26,8 @@ in the app. On macOS, the app-bundled CLI lives under
 `PATH` and leave the app running when using that bundled CLI so its local
 daemon handles workspace operations.
 
-Devrouter-launched Devsy workspaces also require one verified Linux agent.
+On macOS and Linux hosts (arm64 or x64), Devrouter selects the matching Linux
+agent for Devsy workspaces.
 Prepare it once with `devrouter setup --yes --workspace-runtime devsy`, and
 rerun it after a Devsy update. Devrouter supports Devsy releases in the range
 `>=1.16.2 <2.0.0`. For the release reviewed in this repository it uses the
@@ -98,7 +99,11 @@ record under `~/.config/devrouter/reliability`. Each invocation owns a packaged
 worker that retains the workspace lock through provider work. Explicit `stop`
 records stopped intent before waiting and prevents earlier workers from claiming
 new mutations or restoring routes. Completion requires positive workload and
-route cessation evidence as well as drainage of earlier workers.
+route cessation evidence as well as drainage of earlier workers. On Linux,
+a process group containing only unreaped zombies is drained: those processes
+cannot execute more work. Devrouter requires readable procfs evidence for the
+whole observation and keeps the group fenced if any member is live or the
+evidence is unavailable. Other platforms retain the process-group signal proof.
 
 When another positively identified lifecycle worker is active on the same checkout,
 `ensure` and `exec` wait asynchronously for up to thirty minutes and report progress on stderr.
@@ -492,7 +497,19 @@ the source configuration's relative paths and changes only the selected
 `runServices`; never commit or hand-edit it. The primary service and every
 declared base service remain selected. DevPod may append its own generated
 container-features Compose file to the runtime labels; devrouter accepts that
-specific provider-owned file while rejecting unrelated Compose overlays.
+specific provider-owned file while rejecting unrelated Compose overlays. With
+`DEVPOD_HOME` configured, the generated file must match DevPod's exact
+`agent/contexts/<context>/workspaces/<id>/.docker-compose/` feature-file layout
+under that directory. With `DEVSY_HOME`, the corresponding Devsy layout is
+`contexts/<context>/workspaces/<id>/agent/.docker-compose/`.
+Neighboring directories and arbitrary overlays are not
+accepted as provider-generated files.
+
+Devsy 1.23.2 classifies a changed `runServices` list as structural and refuses
+a warm profile change with a `--recreate` suggestion. Devrouter does not follow
+that suggestion automatically. Use the verified Devsy 1.16.2 release when warm
+profile changes are required; agent checksum readiness alone does not qualify
+a newer provider release for this workflow.
 
 Switching profiles in an existing workspace is warm and non-destructive. The
 same DevPod and volumes are retained, newly selected services start without

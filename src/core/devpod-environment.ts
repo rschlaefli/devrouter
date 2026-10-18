@@ -426,6 +426,28 @@ export function hasExactComposeIdentity(
     .filter(Boolean);
   const providerGeneratedFiles = actualFiles.filter((file) => {
     const normalized = file.replaceAll("\\", "/");
+    if (process.env.DEVPOD_HOME) {
+      const relative = path
+        .relative(path.resolve(process.env.DEVPOD_HOME), file)
+        .replaceAll("\\", "/");
+      if (
+        /^agent\/contexts\/[^/]+\/workspaces\/[^/]+\/\.docker-compose\/docker-compose\.devcontainer\.containerFeatures-[^/]+\.yml$/.test(
+          relative,
+        )
+      )
+        return true;
+    }
+    if (process.env.DEVSY_HOME) {
+      const relative = path
+        .relative(path.resolve(process.env.DEVSY_HOME), file)
+        .replaceAll("\\", "/");
+      if (
+        /^contexts\/[^/]+\/workspaces\/[^/]+\/agent\/\.docker-compose\/docker-compose\.devcontainer\.containerFeatures-[^/]+\.yml$/.test(
+          relative,
+        )
+      )
+        return true;
+    }
     return /\/(?:\.devpod\/agent\/contexts\/[^/]+\/workspaces\/[^/]+|\.devsy\/contexts\/[^/]+\/workspaces\/[^/]+\/agent)\/\.docker-compose\/docker-compose\.devcontainer\.containerFeatures-[^/]+\.yml$/.test(
       normalized,
     );

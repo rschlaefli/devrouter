@@ -12,7 +12,7 @@ before each install or setup command. Sandboxed agents need the global pnpm
 store and the repository `.git` folder writable; the skill states the Claude
 Code and Codex settings to change.
 
-- macOS
+- macOS or Linux (arm64 or x64 for managed Devsy workspaces)
 - Docker daemon and Docker Compose v2
 - Node.js 24 or newer
 - `mkcert` for trusted HTTPS and TCP hostname routing
