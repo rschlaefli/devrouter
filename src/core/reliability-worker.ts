@@ -227,10 +227,39 @@ export function hasDuplicateOperation(
 export function workerGroupAbsent(pid: number): boolean {
   try {
     process.kill(-pid, 0);
-    return false;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "ESRCH";
   }
+  // Linux retains process groups containing unreaped zombies. Those processes
+  // cannot execute effects or fork, even though kill(0) still finds the group.
+  // Require a complete procfs observation; unknown or live members block reuse.
+  if (process.platform !== "linux") return false;
+  let observedZombie = false;
+  try {
+    for (const entry of fs.readdirSync("/proc")) {
+      if (!/^\d+$/.test(entry)) continue;
+      let stat: string;
+      try {
+        stat = fs.readFileSync(`/proc/${entry}/stat`, "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        return false;
+      }
+      const end = stat.lastIndexOf(")");
+      if (end < 0) return false;
+      const fields = stat
+        .slice(end + 1)
+        .trim()
+        .split(/\s+/);
+      if (!/^\d+$/.test(fields[2] ?? "") || !/^[A-Za-z]$/.test(fields[0] ?? "")) return false;
+      if (Number(fields[2]) !== pid) continue;
+      if (fields[0] !== "Z") return false;
+      observedZombie = true;
+    }
+  } catch {
+    return false;
+  }
+  return observedZombie;
 }
 
 function signalOwnedGroup(child: ChildProcess, signal: NodeJS.Signals): void {

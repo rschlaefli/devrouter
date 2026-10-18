@@ -274,6 +274,12 @@ Each managed workspace keeps one durable reliability record under
   against concurrent intent: effects claim the current revision, and a stale
   fence refuses to mutate.
 
+Worker drainage concerns the ability to execute effects, not whether an orphan
+PID has been reaped. Linux groups proven to contain only zombies can drain;
+live members, denied inspection, and unknown evidence remain fenced. See
+[interrupted lifecycle commands](../DEVCONTAINER.md#interrupted-lifecycle-commands)
+for the process-group proof and recovery procedure.
+
 The journal is capped at `RELIABILITY_MAX_ITEMS` (128) entries. The cap bounds
 the record (it must stay a small, atomically written, private file) and keeps
 deduplication scans bounded; history beyond that horizon has no recovery value

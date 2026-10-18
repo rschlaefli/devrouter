@@ -98,7 +98,11 @@ record under `~/.config/devrouter/reliability`. Each invocation owns a packaged
 worker that retains the workspace lock through provider work. Explicit `stop`
 records stopped intent before waiting and prevents earlier workers from claiming
 new mutations or restoring routes. Completion requires positive workload and
-route cessation evidence as well as drainage of earlier workers.
+route cessation evidence as well as drainage of earlier workers. On Linux,
+a process group containing only unreaped zombies is drained: those processes
+cannot execute more work. Devrouter requires readable procfs evidence for the
+whole observation and keeps the group fenced if any member is live or the
+evidence is unavailable. Other platforms retain the process-group signal proof.
 
 When another positively identified lifecycle worker is active on the same checkout,
 `ensure` and `exec` wait asynchronously for up to thirty minutes and report progress on stderr.
@@ -492,7 +496,11 @@ the source configuration's relative paths and changes only the selected
 `runServices`; never commit or hand-edit it. The primary service and every
 declared base service remain selected. DevPod may append its own generated
 container-features Compose file to the runtime labels; devrouter accepts that
-specific provider-owned file while rejecting unrelated Compose overlays.
+specific provider-owned file while rejecting unrelated Compose overlays. With
+`DEVPOD_HOME` configured, the generated file must match DevPod's exact
+`agent/contexts/<context>/workspaces/<id>/.docker-compose/` feature-file layout
+under that directory. Neighboring directories and arbitrary overlays are not
+accepted as provider-generated files.
 
 Switching profiles in an existing workspace is warm and non-destructive. The
 same DevPod and volumes are retained, newly selected services start without
