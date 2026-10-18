@@ -494,3 +494,11 @@ Success preserves `runtimeAbsent: true`. Live workers, unknown ownership,
 surviving containers or routes keep stop pending. Do not edit journals or
 provider state to bypass a refusal. Revalidate the original startup blocker
 before retrying ensure; retained-container identity drift needs separate proof.
+
+## Linux cloud compatibility
+
+Devrouter selects verified Devsy agents on macOS and Linux arm64/x64. Keep
+Devsy 1.16.2 for warm managed-profile changes: 1.23.2 rejects changed runServices
+as structural. Do not recreate a retained environment to bypass that refusal.
+Exact generated feature overlays under DEVPOD_HOME and DEVSY_HOME are accepted;
+other paths remain subject to the normal Compose identity checks.
