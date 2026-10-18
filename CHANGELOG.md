@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-18
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.5.4.md
+
 ### Fixed
 
 - Managed Compose identity checks undo the dollar escaping in `compose config`
