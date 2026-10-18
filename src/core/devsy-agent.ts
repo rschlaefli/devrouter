@@ -371,7 +371,7 @@ function installedVersionOutput(): string | undefined {
 }
 
 function nativeAssetName(platform: NodeJS.Platform, arch: string): string | undefined {
-  if (platform !== "darwin") return undefined;
+  if (platform !== "darwin" && platform !== "linux") return undefined;
   if (arch === "arm64") return "devsy-linux-arm64";
   if (arch === "x64") return "devsy-linux-amd64";
   return undefined;

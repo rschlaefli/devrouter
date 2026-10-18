@@ -437,6 +437,17 @@ export function hasExactComposeIdentity(
       )
         return true;
     }
+    if (process.env.DEVSY_HOME) {
+      const relative = path
+        .relative(path.resolve(process.env.DEVSY_HOME), file)
+        .replaceAll("\\", "/");
+      if (
+        /^contexts\/[^/]+\/workspaces\/[^/]+\/agent\/\.docker-compose\/docker-compose\.devcontainer\.containerFeatures-[^/]+\.yml$/.test(
+          relative,
+        )
+      )
+        return true;
+    }
     return /\/(?:\.devpod\/agent\/contexts\/[^/]+\/workspaces\/[^/]+|\.devsy\/contexts\/[^/]+\/workspaces\/[^/]+\/agent)\/\.docker-compose\/docker-compose\.devcontainer\.containerFeatures-[^/]+\.yml$/.test(
       normalized,
     );
