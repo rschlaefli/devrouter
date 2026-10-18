@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Managed Compose identity checks undo the dollar escaping in `compose config`
+  output before hashing. Literal shell variables in DevPod entrypoints and dollar
+  signs in configuration values no longer cause false drift failures on resume;
+  resolved values are still hashed without another interpolation pass.
+
 ## [0.5.3] - 2026-10-18
 
 ### Agent Adaptation Prompt

@@ -428,6 +428,8 @@ export function assertManagedContainerConfigUnchanged(options: {
         const env = managedComposeEnvironment(options.workspace);
         // Some Compose versions skip env_file resolution in config --hash.
         // Render first, then hash via stdin without interpolating values again.
+        // Compose escapes every dollar in this serialized output. Undo that
+        // escaping once so literal shell/secret dollars keep their original value.
         // The resolved model may contain secrets: never persist or report it.
         const rendered = spawnSync(
           "docker",
@@ -451,7 +453,7 @@ export function assertManagedContainerConfigUnchanged(options: {
             cwd: workingDirectory,
             encoding: "utf-8",
             env,
-            input: rendered.stdout,
+            input: rendered.stdout.replaceAll("$$", "$"),
             stdio: ["pipe", "pipe", "ignore"],
             timeout: COMPOSE_HASH_TIMEOUT_MS,
             maxBuffer: 1024 * 1024,
