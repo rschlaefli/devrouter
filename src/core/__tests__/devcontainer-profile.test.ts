@@ -107,6 +107,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
 
@@ -378,6 +379,44 @@ describe("managed Dev Container config", () => {
         maxBuffer: 1024 * 1024,
       }),
     );
+    expect(fs.existsSync(plan.generatedPath)).toBe(false);
+  });
+
+  it("undoes Compose dollar escaping before hashing without expanding literal variables", () => {
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath: tmpDir,
+      config: managedConfig,
+      profile: { apps: [], devcontainerServices: ["litellm"] },
+      linked: false,
+    });
+    const hash = "a".repeat(64);
+    const model = {
+      services: {
+        app: {
+          entrypoint: ["sh", "-c", 'exec "$@"; echo $$'],
+          command: ["echo", "$VALUE", "${VALUE}"],
+          environment: { EXAMPLE: "literal-$$-${VALUE}" },
+          labels: { literal$key: "literal$value" },
+        },
+      },
+    };
+    const resolved = JSON.stringify(model);
+    // Compose config escapes every dollar in the serialized document, including keys.
+    const rendered = resolved.split("$").join("$$");
+    vi.stubEnv("VALUE", "must-not-be-expanded");
+    vi.mocked(spawnSync).mockClear();
+    vi.mocked(spawnSync).mockReturnValueOnce({ status: 0, stdout: rendered } as never);
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: `app ${hash}\n` } as never);
+
+    assertManagedContainerConfigUnchanged({
+      plan,
+      containers: [retainedContainer(plan, hash)],
+    });
+
+    const [, args, options] = vi.mocked(spawnSync).mock.calls[1];
+    expect(args).toContain("--no-interpolate");
+    expect(options).toEqual(expect.objectContaining({ input: resolved }));
+    expect(options?.input).not.toContain("must-not-be-expanded");
     expect(fs.existsSync(plan.generatedPath)).toBe(false);
   });
 
