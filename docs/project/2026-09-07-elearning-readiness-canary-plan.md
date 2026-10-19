@@ -257,6 +257,29 @@ metadata proved issuance, and direct authenticated navigation succeeded. The
 initial redirect journey therefore remains a failed/ambiguous first attempt.
 Do not claim a clean first-attempt browser launch flow.
 
+Diagnosed 2026-09-11: the 401 is expected development-mode behavior, not a
+devrouter or consumer defect. The canary app runs under `NODE_ENV=development`
+(its container script is `next dev`), and eLearning gates the launch/session
+cookie contract on `NODE_ENV === 'production'`
+(`apps/elearning/src/lib/requestAccess.ts`): development uses `SameSite=Lax`,
+`Secure:false` and no `Partitioned`, while production uses `SameSite=None`,
+`Secure:true` and `Partitioned`. The access gate that issues the bootstrap
+redirect is likewise enabled only when `NODE_ENV === 'production'` or
+`ELEARNING_ACCESS_GATE_ENABLED='true'` (`apps/elearning/src/proxy.ts`). Under
+the development contract the followed `/api/student/session` request need not
+present the launch cookie, and the route returns `401 Unauthorized` whenever
+that cookie is absent or the launch-JWT exchange throws
+(`apps/elearning/src/app/api/student/session/route.ts`). The production path is
+the supported one and is covered by `route.test.ts` (pinned to
+`NODE_ENV='production'`) and `requestAccess.test.ts`, which asserts the exact
+development and production option objects. Scope and confidence: an
+environment-gated artifact of the dev-mode cookie contract, not a diagnosed
+product regression. The authenticated cookie journey must be exercised under a
+production-like server (`NODE_ENV=production`, or the access gate plus
+`ELEARNING_ACCESS_GATE_ENABLED`) and is not proven by this canary. Session
+issuance itself works: the same session completed direct authenticated
+navigation.
+
 The browser completed the synthetic block through its normal completion control.
 The scoped learner progress query then proved one completed record. After exact
 non-destructive stop/full resume, the record identity, creation time, modification
