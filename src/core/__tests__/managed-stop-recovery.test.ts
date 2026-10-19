@@ -2,7 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ManagedDevcontainerPlan } from "../devcontainer-profile";
+import {
+  assertManagedContainerConfigUnchanged,
+  type ManagedDevcontainerPlan,
+} from "../devcontainer-profile";
 import * as docker from "../devpod-environment";
 import { listDevpodWorkspacesRaw } from "../devpod-registry";
 import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
@@ -16,6 +19,7 @@ import {
   captureManagedStopBaseline,
   proveManagedStop,
   proveRetainedManagedStop,
+  recoverManagedStopBaseline,
   stopFromManagedBaseline,
 } from "../managed-stop-recovery";
 
@@ -42,6 +46,9 @@ vi.mock("../router", () => ({
   get DEVROUTER_HOME() {
     return fixture.home;
   },
+}));
+vi.mock("../devcontainer-profile", () => ({
+  assertManagedContainerConfigUnchanged: vi.fn(),
 }));
 vi.mock("../devpod-environment", () => ({
   assertManagedStopContainersAbsent: vi.fn(),
@@ -735,6 +742,95 @@ describe("baseline-backed absent population", () => {
         writeManagedRuntimeState({ ...state, updatedAt: "2026-09-09T02:00:00Z" });
       });
     expect(() => proveManagedStop(state)).toThrow(Error);
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+});
+
+describe("explicit replacement population stop recovery", () => {
+  function replaced() {
+    fixture.linked = true;
+    fixture.owner.providerName = "docker";
+    state.workspace = "feature";
+    persist();
+    containers.forEach((container, index) => {
+      container.id = (index ? "f" : "e").repeat(64);
+    });
+    vi.mocked(docker.inspectProviderRunnerContainers).mockImplementation(() => [containers[0].id]);
+    return structuredClone(state);
+  }
+
+  it("requires explicit recovery, persists a proven baseline and stops only its replacements", () => {
+    const previous = replaced();
+    expect(() => stopFromManagedBaseline(state)).toThrow();
+    expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(previous);
+    const candidate = recoverManagedStopBaseline(state, () => plan, vi.fn());
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+    expect(candidate.status).toBe("degraded");
+    expect(candidate.stopBaseline?.containers.map((container) => container.id)).toEqual(
+      containers.map((container) => container.id),
+    );
+    expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(candidate);
+    expect(stopFromManagedBaseline(candidate)).toBe("retained");
+    expect(docker.stopPinnedManagedContainer).toHaveBeenCalledTimes(2);
+    expect(containers.every((container) => !container.state.Running)).toBe(true);
+  });
+
+  it.each([
+    "old-container",
+    "daemon",
+    "endpoint",
+    "uid",
+    "config",
+    "missing-service",
+    "foreign-service",
+    "duplicate-service",
+    "mount",
+    "extra-project",
+    "runner",
+    "competitor",
+    "generation",
+    "superseded",
+  ])("refuses %s before persistence or cessation", (failure) => {
+    const previous = replaced();
+    if (failure === "old-container")
+      vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+        throw new Error("old remains");
+      });
+    if (failure === "daemon") vi.mocked(docker.inspectManagedStopDaemon).mockReturnValue("other");
+    if (failure === "endpoint")
+      vi.mocked(docker.resolveManagedStopEndpoint).mockReturnValue("unix:///other.sock");
+    if (failure === "uid") fixture.owner.uid = "abcdefghijklmnop";
+    if (failure === "config")
+      vi.mocked(assertManagedContainerConfigUnchanged).mockImplementation(() => {
+        throw new Error("config changed");
+      });
+    if (failure === "missing-service") containers.pop();
+    if (failure === "foreign-service")
+      containers[1].labels["com.docker.compose.service"] = "foreign";
+    if (failure === "duplicate-service") containers[1].labels["com.docker.compose.service"] = "app";
+    if (failure === "mount") containers[0].mounts[0].Source = "/foreign";
+    if (failure === "extra-project")
+      vi.mocked(docker.inspectManagedStopWorkspaceIds).mockReturnValue([
+        ...containers.map((container) => container.id),
+        "a".repeat(64),
+      ]);
+    if (failure === "runner")
+      vi.mocked(docker.inspectProviderRunnerContainers).mockReturnValue([
+        containers[0].id,
+        "a".repeat(64),
+      ]);
+    if (failure === "competitor")
+      fixture.competitors = [{ id: "other", source: { localFolder: state.repoPath } }];
+    if (failure === "generation")
+      vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementationOnce(() => {
+        fixture.owner.uid = "abcdefghijklmnop";
+      });
+    if (failure === "superseded")
+      fixture.claim.mockImplementation(() => {
+        throw new Error("fence changed");
+      });
+    expect(() => recoverManagedStopBaseline(state, () => plan, vi.fn())).toThrow();
+    expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(previous);
     expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
   });
 });
