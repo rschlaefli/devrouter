@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- TCP-only and empty host-route generations omit empty HTTP maps so Traefik can
+  load the file provider. Existing v1 route metadata remains readable and is
+  rendered without the empty maps on the next route write or refresh.
+
 ## [0.5.4] - 2026-10-18
 
 ### Agent Adaptation Prompt

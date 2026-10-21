@@ -119,8 +119,8 @@ export function buildHostRouteRouterName(repoPath: string, name: string): string
  * routes become `http` Host() routers; TCP proxy routes become `tcp` HostSNI()
  * routers on their shared protocol entrypoint (TLS mandatory — SNI is read from
  * the TLS ClientHello — and Traefik terminates TLS, forwarding plaintext to the
- * upstream address). The `tcp` section is omitted entirely when there are no TCP
- * routes (an empty `tcp` map is a standalone element that breaks the provider).
+ * upstream address). Empty protocol sections are omitted entirely: Traefik
+ * rejects empty router/service maps as standalone elements.
  */
 // Some TCP protocols require the TLS terminator to negotiate a specific ALPN
 // protocol. libpq 17+ direct-SSL (sslnegotiation=direct, the only Postgres mode
@@ -192,12 +192,10 @@ export function buildHostRoutesDocument(
     };
   }
 
-  const document: Record<string, unknown> = {
-    http: {
-      routers,
-      services,
-    },
-  };
+  const document: Record<string, unknown> = {};
+  if (Object.keys(routers).length > 0) {
+    document.http = { routers, services };
+  }
   if (Object.keys(tcpRouters).length > 0) {
     document.tcp = { routers: tcpRouters, services: tcpServices };
   }
@@ -358,7 +356,16 @@ function parseCanonicalState(
     throw new Error(`Canonical host-route document is invalid: ${(error as Error).message}`);
   }
   const expectedDocument = buildHostRoutesDocument(routes, metadata.tlsEnabled);
-  if (!isDeepStrictEqual(document, expectedDocument)) {
+  // Older v1 writers always emitted an HTTP section, including for TCP-only or
+  // empty generations. Accept exactly that former rendering so existing state
+  // remains readable until the next route write removes the invalid empty maps.
+  const matchesLegacyEmptyHttp =
+    expectedDocument.http === undefined &&
+    isDeepStrictEqual(document, {
+      ...expectedDocument,
+      http: { routers: {}, services: {} },
+    });
+  if (!isDeepStrictEqual(document, expectedDocument) && !matchesLegacyEmptyHttp) {
     throw new Error("Canonical host-route document does not match its metadata.");
   }
   return { kind: "canonical", metadata };

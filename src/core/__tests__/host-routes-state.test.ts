@@ -11,6 +11,7 @@ import {
   buildHostRoutesDocument,
   listHostRouteState,
   readHostRouteStateReadOnly,
+  refreshHostRoutesDynamicFile,
   removeHostRoutesWhere,
   replaceHostRoutesForRepo,
   upsertHostRoute,
@@ -82,7 +83,67 @@ function readCanonical(filePath = routerPaths.hostRoutesFile): {
   return { raw, metadata, document: YAML.parse(documentLines.join("\n")) };
 }
 
+function writeCanonicalFixture(routes: HostRouteState[], document: unknown): string {
+  const metadata = { version: 1, tlsEnabled: true, routes };
+  const encoded = Buffer.from(JSON.stringify(metadata), "utf-8").toString("base64url");
+  const raw = `${metadataPrefix}${encoded}\n${YAML.stringify(document, { lineWidth: 0 })}`;
+  fs.mkdirSync(routerPaths.dynamicDir, { recursive: true });
+  fs.writeFileSync(routerPaths.hostRoutesFile, raw, "utf-8");
+  return raw;
+}
+
+const tcpRoute: HostRouteState = {
+  ...makeRouteState("db", "/repo", 5432),
+  protocol: "tcp",
+  tcpProtocol: "postgres",
+};
+
 describe("host route state mutation", () => {
+  it.each([
+    { name: "empty", routes: [] },
+    { name: "TCP-only", routes: [tcpRoute] },
+  ])("reads and refreshes an older $name v1 generation", ({ routes }) => {
+    const legacyDocument = {
+      ...buildHostRoutesDocument(routes, true),
+      http: { routers: {}, services: {} },
+    };
+    const legacyRaw = writeCanonicalFixture(routes, legacyDocument);
+    fs.writeFileSync(routerPaths.stateFile, "stale mirror\n", "utf-8");
+
+    expect(readHostRouteStateReadOnly()).toEqual(routes);
+    expect(fs.readFileSync(routerPaths.hostRoutesFile, "utf-8")).toBe(legacyRaw);
+    expect(fs.readFileSync(routerPaths.stateFile, "utf-8")).toBe("stale mirror\n");
+    expect(fs.existsSync(`${routerPaths.stateFile}.lock`)).toBe(false);
+
+    expect(listHostRouteState()).toEqual(routes);
+    expect(JSON.parse(fs.readFileSync(routerPaths.stateFile, "utf-8"))).toEqual(routes);
+    refreshHostRoutesDynamicFile();
+    const refreshed = readCanonical();
+    expect(refreshed.metadata.routes).toEqual(routes);
+    expect(refreshed.document).toEqual(buildHostRoutesDocument(routes, false));
+    expect(refreshed.document).not.toHaveProperty("http");
+    expect(readHostRouteStateReadOnly()).toEqual(routes);
+  });
+
+  it.each([
+    { http: { routers: { extra: {} }, services: {} } },
+    { http: { routers: {}, services: { extra: {} } } },
+    { http: { routers: {}, services: {}, middlewares: {} } },
+    { tcp: { routers: {}, services: {} } },
+    { tls: { options: {} } },
+  ])("rejects mismatched legacy v1 rendering: %j", (tampering) => {
+    const raw = writeCanonicalFixture([tcpRoute], {
+      ...buildHostRoutesDocument([tcpRoute], true),
+      http: { routers: {}, services: {} },
+      ...tampering,
+    });
+
+    expect(() => readHostRouteStateReadOnly()).toThrow("does not match its metadata");
+    expect(() => listHostRouteState()).toThrow("does not match its metadata");
+    expect(fs.readFileSync(routerPaths.hostRoutesFile, "utf-8")).toBe(raw);
+    expect(fs.existsSync(routerPaths.stateFile)).toBe(false);
+  });
+
   it("reads route state without creating storage or repairing a stale mirror", () => {
     expect(readHostRouteStateReadOnly()).toEqual([]);
     expect(fs.existsSync(routerPaths.root)).toBe(false);
