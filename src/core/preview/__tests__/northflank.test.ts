@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { createPreviewSession } from "../lifecycle";
 import { NorthflankOutcomeUncertain, NorthflankPreviewAPI } from "../providers/northflank-api";
+import { compileNorthflankGraph, type NorthflankGraphPolicy } from "../providers/northflank-graph";
+import type { PreviewPoolEntry } from "../state";
 
 const page = (rows: unknown[], next = false, cursor?: string) =>
   new Response(
@@ -141,5 +144,153 @@ describe("Northflank preview transport", () => {
       api.resetDeadline("owned", "preview", target, target - 3_570_000),
     ).rejects.toBeInstanceOf(NorthflankOutcomeUncertain);
     expect(lifetimes).toEqual([60, 59]);
+  });
+});
+
+function graphFixture(): { entry: PreviewPoolEntry; policy: NorthflankGraphPolicy } {
+  const head = "a".repeat(40);
+  return {
+    entry: {
+      session: createPreviewSession({
+        generation: "1".repeat(24),
+        now: 1_700_000_000_000,
+        revision: head,
+        aliases: ["web"],
+        commandId: "fixture",
+      }),
+      effectSequence: 0,
+      reservedCents: 1,
+      hourlyCents: 1,
+      operations: {},
+      plan: {
+        schemaVersion: 1,
+        status: "planned",
+        aliases: ["web"],
+        manifestDigest: "d".repeat(64),
+        localConfigDigest: "e".repeat(64),
+        omissions: [],
+        reasons: [],
+        source: {
+          head,
+          target: "b".repeat(40),
+          mergeBase: "c".repeat(40),
+          complete: true,
+          changes: [],
+        },
+        resources: [
+          { id: "db", kind: "postgres" },
+          {
+            id: "seed",
+            kind: "job",
+            dependsOn: ["db"],
+            image: `example/seed@sha256:${"0".repeat(64)}`,
+          },
+          {
+            id: "web",
+            kind: "service",
+            dependsOn: ["seed"],
+            image: `example/web@sha256:${"0".repeat(64)}`,
+            ports: [{ name: "http", port: 8080, public: true }],
+          },
+        ],
+      },
+    },
+    policy: {
+      namespace: "fixture",
+      baseDomain: "preview.example.org",
+      allowedNetworks: ["192.0.2.0/24"],
+      resources: {
+        db: { deploymentPlan: "nf-compute-10", addonVersion: "16", storageMiB: 1024 },
+        seed: { deploymentPlan: "nf-compute-10" },
+        web: {
+          deploymentPlan: "nf-compute-10",
+          readiness: { port: "http", path: "/health" },
+          environment: {
+            DATABASE_URL: { addon: "db", key: "POSTGRES_URI" },
+            API_KEY: { runtimeSecret: "synthetic-upstream" },
+          },
+        },
+      },
+    },
+  };
+}
+
+describe("Northflank native graph compilation", () => {
+  it("prepares private backing services and inactive compute with scoped secret channels", () => {
+    const { entry, policy } = graphFixture();
+    const graph = compileNorthflankGraph(entry, policy, "prepare");
+    const steps = graph.spec.spec.steps;
+    expect(steps.find((node) => node.kind === "Addon")?.spec).toMatchObject({
+      externalAccessEnabled: false,
+      tlsEnabled: true,
+    });
+    expect(steps.find((node) => node.kind === "DeploymentService")?.spec).toMatchObject({
+      deployment: { instances: 0 },
+      ports: [
+        {
+          public: false,
+          security: { policies: [{ action: "ALLOW", addresses: ["192.0.2.0/24"] }] },
+        },
+      ],
+    });
+    expect(steps.some((node) => node.kind === "JobRun")).toBe(false);
+    expect(steps.find((node) => node.kind === "SecretGroup")?.spec).toMatchObject({
+      restrictions: { restricted: true, nfObjects: [{ type: "service" }] },
+      addonDependencies: [
+        {
+          addonId: "${refs.r_db.id}",
+          keys: [{ keyName: "POSTGRES_URI", aliases: ["DATABASE_URL"] }],
+        },
+      ],
+      secrets: { variables: {}, files: {} },
+    });
+    expect(graph.runtimeSecrets).toEqual([
+      { groupRef: "r_env_web", variables: { API_KEY: "synthetic-upstream" } },
+    ]);
+  });
+
+  it("orders initialization before activation and protects default and custom public URLs", () => {
+    const { entry, policy } = graphFixture();
+    const graph = compileNorthflankGraph(entry, policy, "activate");
+    const steps = graph.spec.spec.steps;
+    const job = steps.findIndex((node) => node.kind === "JobRun");
+    const serving = steps.findIndex(
+      (node) =>
+        node.kind === "DeploymentService" &&
+        (node.spec.deployment as { instances: number }).instances === 1,
+    );
+    expect(job).toBeGreaterThan(-1);
+    expect(serving).toBeGreaterThan(job);
+    expect(steps[job]).toMatchObject({ runNodeOnce: "true", condition: "success" });
+    expect(steps[serving].spec).toMatchObject({
+      ports: [
+        {
+          public: true,
+          domains: [new URL(graph.urls["web:http"]).hostname],
+          security: { policies: [{ action: "ALLOW", addresses: ["192.0.2.0/24"] }] },
+        },
+      ],
+    });
+    const refs = steps.flatMap((node) => (node.ref ? [node.ref] : []));
+    expect(new Set(refs).size).toBe(refs.length);
+  });
+
+  it("pins native source builds to the admitted SHA and rejects incomplete access or recipes", () => {
+    const { entry, policy } = graphFixture();
+    const web = entry.plan.resources[2];
+    delete web.image;
+    web.build = { context: ".", dockerfile: "Dockerfile" };
+    policy.git = { url: "https://github.com/example/fixture", type: "github", branch: "main" };
+    policy.resources.web.buildPlan = "nf-compute-200";
+    const graph = compileNorthflankGraph(entry, policy, "prepare");
+    expect(graph.spec.spec.steps.find((node) => node.kind === "Build")).toMatchObject({
+      spec: { sha: entry.plan.source!.head },
+      condition: "success",
+    });
+    policy.allowedNetworks = [];
+    expect(() => compileNorthflankGraph(entry, policy, "activate")).toThrow();
+    policy.allowedNetworks = ["192.0.2.0/24"];
+    delete policy.resources.web.readiness;
+    expect(() => compileNorthflankGraph(entry, policy, "activate")).toThrow();
   });
 });
