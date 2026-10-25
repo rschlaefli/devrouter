@@ -113,9 +113,17 @@ State mutations use conditional creation or the exact read ETag; an uncertain wr
 is reconciled rather than blindly retried. Missing established state requires
 explicit installation initialization instead of silently recreating an empty pool.
 
-These building blocks are not wired to cloud resource effects. The lifecycle
-engine and live qualification remain separate from a successful offline plan.
+These building blocks are not wired to cloud resource effects. Live provider qualification remains separate from a successful offline plan.
+The pure lifecycle model handles explicit updates, fixed confirmed extensions and
+cleanup fences; provider dispatch is still a separate integration boundary.
 
 `pnpm qualify:preview-control` exercises synthetic late-allocation cleanup and
 conditional concurrent writes without a network or account. It identifies its
 transport as simulated. This is regression proof, not live provider qualification.
+
+The provider-neutral engine records operation intent and reserves capacity before
+dispatch. A lost response is observed through its recorded request identity.
+Cleanup observations bind the ownership version from the snapshot checked at the
+provider; a conflict never upgrades old absence evidence to newer ownership.
+The engine is qualified with a simulated provider; no live deployment adapter is
+connected to the CLI yet.
