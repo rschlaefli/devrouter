@@ -61,6 +61,7 @@ export type PreviewEffect = {
   resources: string[];
   ready?: boolean;
   confirmedDeadline?: number;
+  outcome?: "succeeded" | "failed" | "cancelled";
 };
 
 export type PreviewPoolEntry = {
@@ -70,13 +71,14 @@ export type PreviewPoolEntry = {
   hourlyCents: number;
   operations: Record<string, PreviewEffect>;
   readyObservedAt?: number;
+  completedAt?: number;
 };
 
 export type PreviewPool = {
   schemaVersion: 1;
   installationId: string;
   sessions: Record<string, PreviewPoolEntry>;
-  processedCommands: string[];
+  processedCommands: Array<{ id: string; admittedAt: number }>;
 };
 
 export function createPreviewPool(installationId: string): PreviewPool {
@@ -324,7 +326,16 @@ export function decodePreviewPool(value: unknown): PreviewPool {
   if (root.schemaVersion !== 1) throw new Error("Unsupported preview pool version.");
   text(root.installationId, 63);
   if (!/^[a-z0-9-]+$/.test(root.installationId)) throw new Error("Invalid preview installation.");
-  strings(root.processedCommands, 2048, 512);
+  if (!Array.isArray(root.processedCommands) || root.processedCommands.length > 2048)
+    throw new Error("Invalid preview command window.");
+  const receiptIds = new Set<string>();
+  for (const receipt of root.processedCommands) {
+    const item = object(receipt, ["id", "admittedAt"]);
+    text(item.id, 512);
+    integer(item.admittedAt);
+    if (receiptIds.has(item.id)) throw new Error("Duplicate preview command receipt.");
+    receiptIds.add(item.id);
+  }
   const sessions = root.sessions;
   if (
     !sessions ||
@@ -338,13 +349,17 @@ export function decodePreviewPool(value: unknown): PreviewPool {
     const entry = object(
       value,
       ["session", "plan", "reservedCents", "hourlyCents", "operations"],
-      ["readyObservedAt"],
+      ["readyObservedAt", "completedAt"],
     );
     const session = decodeSession(entry.session);
     const plan = decodePlan(entry.plan);
     integer(entry.reservedCents);
     integer(entry.hourlyCents, 1);
     if (entry.readyObservedAt !== undefined) integer(entry.readyObservedAt);
+    if (entry.completedAt !== undefined) {
+      integer(entry.completedAt);
+      if (session.reservationHeld) throw new Error("Active preview has a completion time.");
+    }
     if (
       session.desiredRevision !== plan.source?.head ||
       JSON.stringify(session.desiredAliases) !== JSON.stringify(plan.aliases)
@@ -371,7 +386,7 @@ export function decodePreviewPool(value: unknown): PreviewPool {
           "leaseExpiresAt",
           "resources",
         ],
-        ["target", "ready", "confirmedDeadline"],
+        ["target", "ready", "confirmedDeadline", "outcome"],
       );
       text(effect.id);
       text(effect.generation);
@@ -384,6 +399,7 @@ export function decodePreviewPool(value: unknown): PreviewPool {
       integer(effect.deadlineVersion, 1);
       integer(effect.leaseExpiresAt);
       strings(effect.resources, 1024, 1024);
+      if (effect.outcome !== undefined) oneOf(effect.outcome, ["succeeded", "failed", "cancelled"]);
       if (effect.target !== undefined) integer(effect.target);
       if (effect.confirmedDeadline !== undefined) integer(effect.confirmedDeadline);
       if (effect.ready !== undefined && typeof effect.ready !== "boolean")

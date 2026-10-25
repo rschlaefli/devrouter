@@ -91,9 +91,9 @@ function fixture() {
     localConfigDigests: [plan.localConfigDigest],
   };
   const engine = new PreviewEngine({ store, policy, provider, workerId: "one", now: () => now });
-  const admit = (commandId = "start") =>
+  const admit = (commandId = "start", previewIdentity = identity) =>
     engine.admit({
-      identity,
+      identity: previewIdentity,
       commandId,
       createdAt: now,
       actorCanWrite: true,
@@ -264,6 +264,59 @@ describe("durable preview reconciliation", () => {
     expect(extended?.session.expiresAt).toBe(before!.session.expiresAt + 3_600_000);
     expect(extended?.session.status).toBe("updating");
     expect(extended?.session.outstandingOperations.length).toBeGreaterThan(0);
+  });
+
+  it("cleans up when stop cancels a pending deadline without confirmation", async () => {
+    const f = fixture();
+    const original = f.provider.submit;
+    f.provider.submit = async (effect, entry) => {
+      if (effect.kind === "deadline") {
+        f.effects.set(effect.id, { phase: "pending", resources: [] });
+        return { phase: "pending", resources: [] };
+      }
+      if (effect.kind === "cancel") {
+        for (const id of f.effects.keys())
+          f.effects.set(id, { phase: "terminal", resources: [], outcome: "cancelled" });
+      }
+      return original(effect, entry);
+    };
+    await f.admit();
+    await f.engine.reconcile(identity);
+    await f.engine.close(identity);
+    for (let step = 0; step < 3; step += 1) await f.engine.reconcile(identity);
+    const stopped = await f.engine.status(identity);
+    expect(stopped?.session.reservationHeld).toBe(false);
+    expect(stopped?.session.status).toBe("stopped");
+    expect(f.calls).not.toContain("deploy");
+  });
+
+  it("purges verified terminal generations and receipts after the recovery window", async () => {
+    const f = fixture();
+    for (let change = 1; change <= 130; change += 1) {
+      const previewIdentity = { ...identity, change };
+      await f.admit(`start-${change}`, previewIdentity);
+      await f.engine.close(previewIdentity);
+      await f.engine.reconcile(previewIdentity);
+      expect((await f.engine.status(previewIdentity))?.session.reservationHeld).toBe(false);
+      f.time(f.policy.maxCommandAgeMs + 1);
+    }
+    expect(Object.values(f.snapshot().sessions)).toHaveLength(1);
+    expect(f.snapshot().processedCommands).toHaveLength(1);
+    expect(await f.engine.status({ ...identity, change: 1 })).toBeNull();
+    await expect(
+      f.engine.admit({
+        identity,
+        commandId: "start-1",
+        createdAt: f.now() - f.policy.maxCommandAgeMs - 1,
+        actorCanWrite: true,
+        originalHumanRoot: true,
+        open: true,
+        sameProject: true,
+        command: { kind: "start", aliases: ["chat"] },
+        plan,
+        hourlyCents: 10,
+      }),
+    ).rejects.toThrow("not eligible");
   });
 
   it("keeps immutable identity stable across object ordering and rejects corrupted stored policy state", async () => {

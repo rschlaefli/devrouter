@@ -17,6 +17,7 @@ export type PreviewEffectReceipt = {
   resources: string[];
   ready?: boolean;
   confirmedDeadline?: number;
+  outcome?: "succeeded" | "failed" | "cancelled";
 };
 
 export interface PreviewProvider {
@@ -73,6 +74,56 @@ function tracked(effect: PreviewEffect): boolean {
   return effect.kind === "deploy" || effect.kind === "deadline";
 }
 
+function confirms(target: number | undefined, confirmed: number | undefined): boolean {
+  return (
+    target !== undefined &&
+    confirmed !== undefined &&
+    Number.isSafeInteger(confirmed) &&
+    confirmed <= target &&
+    confirmed >= target - 60_000
+  );
+}
+
+function isStopping(session: PreviewPoolEntry["session"]): boolean {
+  return session.status === "stopping" || session.status === "cleanup-pending";
+}
+
+function prunePool(pool: PreviewPool, now: number, age: number): void {
+  pool.processedCommands = pool.processedCommands.filter(
+    (receipt) => now - receipt.admittedAt <= age,
+  );
+  for (const [id, entry] of Object.entries(pool.sessions)) {
+    if (
+      !entry.session.reservationHeld &&
+      entry.completedAt !== undefined &&
+      now - entry.completedAt > age
+    ) {
+      delete pool.sessions[id];
+      continue;
+    }
+    const keep = new Map<string, string>();
+    for (const [key, effect] of Object.entries(entry.operations)) {
+      if (effect.phase !== "terminal") continue;
+      const group =
+        effect.kind === "deadline"
+          ? `${effect.kind}:${effect.target}`
+          : `${effect.kind}:${effect.operationVersion}`;
+      const previous = keep.get(group);
+      if (previous) delete entry.operations[previous];
+      keep.set(group, key);
+      if (effect.operationVersion < entry.session.operationVersion && effect.kind !== "deadline")
+        delete entry.operations[key];
+      if (
+        effect.kind === "deadline" &&
+        effect.target !== entry.session.expiresAt &&
+        effect.target !== entry.session.pendingDeadline?.target &&
+        effect.target !== (entry.readyObservedAt ?? 0) + 2 * 3_600_000
+      )
+        delete entry.operations[key];
+    }
+  }
+}
+
 export class PreviewEngine {
   private readonly key: string;
   constructor(
@@ -111,7 +162,9 @@ export class PreviewEngine {
       update: (pool) => {
         if (pool.installationId !== this.options.policy.installationId)
           throw new Error("Foreign preview pool.");
-        return update(structuredClone(pool));
+        const copy = structuredClone(pool);
+        prunePool(copy, this.options.now(), this.options.policy.maxCommandAgeMs);
+        return update(copy);
       },
     });
     return result.value;
@@ -148,7 +201,7 @@ export class PreviewEngine {
     if (!input.open && input.command.kind !== "stop") throw new Error("Change request is closed.");
     const receipt = `${id}:${input.commandId}`;
     const pool = await this.update((pool) => {
-      if (pool.processedCommands.includes(receipt)) return pool;
+      if (pool.processedCommands.some((item) => item.id === receipt)) return pool;
       if (pool.processedCommands.length >= 2048 && input.command.kind !== "stop")
         throw new Error("Preview command recovery window is full.");
       const current = pool.sessions[id];
@@ -236,7 +289,13 @@ export class PreviewEngine {
         (active > policy.maxActive || costs(pool) > policy.maxReservedCents)
       )
         throw new Error("Preview installation capacity or cost allowance is exhausted.");
-      if (pool.processedCommands.length < 2048) pool.processedCommands.push(receipt);
+      if (
+        input.command.kind === "start" &&
+        Buffer.byteLength(JSON.stringify(pool)) + active * 128 * 1024 > 1024 * 1024
+      )
+        throw new Error("Preview pool metadata capacity is reserved for cleanup.");
+      if (pool.processedCommands.length < 2048)
+        pool.processedCommands.push({ id: receipt, admittedAt: now });
       return pool;
     });
     return pool.sessions[id] ?? null;
@@ -301,7 +360,7 @@ export class PreviewEngine {
       const pending = Object.values(entry.operations).filter(
         (effect) => effect.phase !== "terminal",
       );
-      const stopping = session.status === "stopping" || session.status === "cleanup-pending";
+      const stopping = isStopping(session);
       if (
         !stopping &&
         session.pendingDeadline &&
@@ -323,25 +382,31 @@ export class PreviewEngine {
         action = this.prepare(entry, "cancel", now);
         return pool;
       }
-      const candidates = stopping
-        ? [...pending].sort(
-            (left, right) => Number(right.kind === "cancel") - Number(left.kind === "cancel"),
-          )
-        : [...pending].sort(
-            (left, right) => Number(right.kind === "deadline") - Number(left.kind === "deadline"),
-          );
-      const candidate = candidates.find(
-        (effect) => effect.leaseOwner === this.options.workerId || effect.leaseExpiresAt <= now,
-      );
+      const first = stopping ? "cancel" : "deadline";
+      const candidate = pending
+        .sort((left, right) => Number(right.kind === first) - Number(left.kind === first))
+        .find(
+          (effect) => effect.leaseOwner === this.options.workerId || effect.leaseExpiresAt <= now,
+        );
       if (candidate) {
         candidate.leaseOwner = this.options.workerId;
         candidate.leaseExpiresAt = now + this.options.policy.leaseMs;
-        action = structuredClone(candidate);
+        action = candidate;
         return pool;
       }
       if (pending.length > 0) return pool;
       if (stopping) {
-        if (session.ownedResources.length > 0) action = this.prepare(entry, "destroy", now);
+        if (
+          session.ownedResources.length > 0 &&
+          !Object.values(entry.operations).some(
+            (effect) =>
+              effect.kind === "destroy" &&
+              effect.phase === "terminal" &&
+              effect.outcome === "succeeded" &&
+              session.ownedResources.every((resource) => effect.resources.includes(resource)),
+          )
+        )
+          action = this.prepare(entry, "destroy", now);
       } else if (session.pendingDeadline) {
         action = this.prepare(entry, "deadline", now, session.pendingDeadline.target);
       } else {
@@ -356,9 +421,8 @@ export class PreviewEngine {
           (effect) =>
             effect.kind === "deadline" &&
             effect.target === session.expiresAt &&
-            effect.confirmedDeadline !== undefined &&
-            effect.confirmedDeadline <= session.expiresAt &&
-            effect.confirmedDeadline >= session.expiresAt - 60_000,
+            effect.outcome === "succeeded" &&
+            confirms(session.expiresAt, effect.confirmedDeadline),
         );
         if (!deadline) action = this.prepare(entry, "deadline", now, session.expiresAt);
         else if (!deployment) action = this.prepare(entry, "deploy", now);
@@ -369,9 +433,8 @@ export class PreviewEngine {
             (effect) =>
               effect.kind === "deadline" &&
               effect.target === target &&
-              effect.confirmedDeadline !== undefined &&
-              effect.confirmedDeadline <= target &&
-              effect.confirmedDeadline >= target - 60_000,
+              effect.outcome === "succeeded" &&
+              confirms(target, effect.confirmedDeadline),
           );
           if (!tightened) action = this.prepare(entry, "deadline", now, target);
           else sessionReady(entry, entry.readyObservedAt);
@@ -383,7 +446,7 @@ export class PreviewEngine {
     if (!entry) return null;
     if (action) await this.execute(id, entry, action);
     else if (
-      (entry.session.status === "stopping" || entry.session.status === "cleanup-pending") &&
+      isStopping(entry.session) &&
       Object.values(entry.operations).every((effect) => effect.phase === "terminal")
     ) {
       const ownershipVersion = entry.session.ownershipVersion;
@@ -398,7 +461,10 @@ export class PreviewEngine {
             ownershipVersion,
             absent,
           });
-          if (!current.session.reservationHeld) current.reservedCents = 0;
+          if (!current.session.reservationHeld) {
+            current.reservedCents = 0;
+            current.completedAt ??= this.options.now();
+          }
         }
         return latest;
       });
@@ -407,9 +473,9 @@ export class PreviewEngine {
   }
 
   private async execute(id: string, entry: PreviewPoolEntry, effect: PreviewEffect): Promise<void> {
-    let submitted = effect.phase === "submitted";
-    let cancelledBeforeDispatch = false;
+    let dispatch: "submit" | "observe" | undefined;
     await this.update((pool) => {
+      dispatch = undefined;
       const current = pool.sessions[id];
       const live = current?.operations[effect.id];
       if (
@@ -428,8 +494,7 @@ export class PreviewEngine {
             : current.session.expiresAt;
         if (
           tracked(live) &&
-          (current.session.status === "stopping" ||
-            current.session.status === "cleanup-pending" ||
+          (isStopping(current.session) ||
             current.session.operationVersion !== live.operationVersion ||
             this.options.now() >= cutoff)
         ) {
@@ -441,17 +506,15 @@ export class PreviewEngine {
             operationId: effect.id,
             resources: [],
           });
-          cancelledBeforeDispatch = true;
           return pool;
         }
         live.phase = "submitted";
-      } else submitted = true;
+        dispatch = "submit";
+      } else dispatch = "observe";
       return pool;
     });
-    if (cancelledBeforeDispatch) return;
-    const receipt = submitted
-      ? await this.options.provider.observe(effect, entry)
-      : await this.options.provider.submit(effect, entry);
+    if (!dispatch) return;
+    const receipt = await this.options.provider[dispatch](effect, entry);
     if (receipt.phase !== "pending" && receipt.phase !== "terminal")
       throw new Error("Invalid provider operation status.");
     if (
@@ -461,15 +524,6 @@ export class PreviewEngine {
       )
     )
       throw new Error("Invalid provider ownership receipt.");
-    if (
-      effect.kind === "deadline" &&
-      receipt.phase === "terminal" &&
-      (receipt.confirmedDeadline === undefined ||
-        effect.target === undefined ||
-        receipt.confirmedDeadline > effect.target ||
-        receipt.confirmedDeadline < effect.target - 60_000)
-    )
-      throw new Error("Provider deadline is not confirmed.");
     await this.update((pool) => {
       const current = pool.sessions[id];
       const live = current?.operations[effect.id];
@@ -477,9 +531,17 @@ export class PreviewEngine {
         return pool;
       if (receipt.phase === "terminal") {
         live.phase = "terminal";
-        live.resources = receipt.resources;
+        live.resources =
+          live.kind === "destroy"
+            ? [...new Set([...live.resources, ...receipt.resources])]
+            : receipt.resources;
         live.ready = receipt.ready;
         live.confirmedDeadline = receipt.confirmedDeadline;
+        live.outcome =
+          receipt.outcome ??
+          (live.kind === "deadline" && !confirms(live.target, receipt.confirmedDeadline)
+            ? "failed"
+            : "succeeded");
         if (tracked(live))
           current.session = transitionPreviewSession(current.session, {
             kind: "effect-settled",
@@ -488,16 +550,11 @@ export class PreviewEngine {
             operationId: effect.id,
             resources: receipt.resources,
           });
-        if (live.kind === "destroy") {
-          current.session.ownedResources = current.session.ownedResources.filter(
-            (resource) => !effect.resources.includes(resource),
-          );
-          current.session.ownershipVersion += 1;
-        }
         if (
           live.kind === "deadline" &&
           current.session.pendingDeadline &&
-          receipt.confirmedDeadline !== undefined &&
+          confirms(live.target, receipt.confirmedDeadline) &&
+          live.outcome === "succeeded" &&
           live.deadlineVersion === current.session.deadlineVersion
         ) {
           current.session = transitionPreviewSession(current.session, {
@@ -505,7 +562,29 @@ export class PreviewEngine {
             now: this.options.now(),
             generation: effect.generation,
             deadlineVersion: live.deadlineVersion,
-            expiresAt: receipt.confirmedDeadline,
+            expiresAt: receipt.confirmedDeadline as number,
+          });
+        }
+      }
+      if (
+        receipt.phase === "terminal" &&
+        live.kind === "deadline" &&
+        live.outcome !== "succeeded"
+      ) {
+        if (
+          current.session.pendingDeadline &&
+          live.deadlineVersion === current.session.deadlineVersion
+        ) {
+          current.session = transitionPreviewSession(current.session, {
+            kind: "deadline-rejected",
+            now: this.options.now(),
+            generation: live.generation,
+            deadlineVersion: live.deadlineVersion,
+          });
+        } else if (!isStopping(current.session)) {
+          current.session = transitionPreviewSession(current.session, {
+            kind: "stop",
+            now: this.options.now(),
           });
         }
       }

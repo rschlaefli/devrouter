@@ -63,6 +63,7 @@ export type PreviewLifecycleEvent =
       startupBudgetMs: number;
     } & Timed)
   | ({ kind: "push"; revision: string } & Timed)
+  | ({ kind: "deadline-rejected"; generation: string; deadlineVersion: number } & Timed)
   | ({ kind: "extend"; commandId: string } & Timed)
   | ({
       kind: "deadline-confirmed";
@@ -251,6 +252,15 @@ export function transitionPreviewSession(
       const next = clone(session);
       next.expiresAt = event.expiresAt;
       next.extensions = session.extensions + 1;
+      delete next.pendingDeadline;
+      return next;
+    }
+
+    case "deadline-rejected": {
+      assertGeneration(session, event.generation);
+      if (event.deadlineVersion !== session.deadlineVersion || !session.pendingDeadline)
+        return clone(session);
+      const next = clone(session);
       delete next.pendingDeadline;
       return next;
     }
