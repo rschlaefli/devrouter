@@ -6,6 +6,7 @@ import { parseRepoConfigSource } from "../repo-config";
 import { PreviewController } from "./controller";
 import { PreviewEngine, type PreviewProvider } from "./engine";
 import { GitHubPreviewForge } from "./forge/github";
+import { GitLabPreviewForge } from "./forge/gitlab";
 import {
   forgeObject as map,
   PreviewControlUnavailable,
@@ -125,14 +126,15 @@ export function loadPreviewInstallation(
       "botId",
       "tokenEnv",
     ]);
-    if (forgePolicy.kind !== "github")
-      throw new Error("This installation requires the GitHub adapter.");
+    if (!["github", "gitlab"].includes(String(forgePolicy.kind)))
+      throw new Error("Unknown installed forge adapter.");
     const host = text(forgePolicy.host, /^[a-z0-9.-]{1,253}$/),
       projectId = text(forgePolicy.projectId, /^[1-9][0-9]{0,19}$/);
-    const forge = new GitHubPreviewForge({
+    const Adapter = forgePolicy.kind === "github" ? GitHubPreviewForge : GitLabPreviewForge;
+    const forge = new Adapter({
       apiUrl: text(forgePolicy.apiUrl, /^https:\/\//),
       forgeHost: host,
-      repository: text(forgePolicy.repository, /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+      repository: text(forgePolicy.repository, /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+$/),
       projectId,
       botId: text(forgePolicy.botId, /^[1-9][0-9]{0,19}$/),
       token: credential(forgePolicy.tokenEnv),

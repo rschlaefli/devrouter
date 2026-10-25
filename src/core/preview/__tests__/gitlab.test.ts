@@ -1,0 +1,179 @@
+import { describe, expect, it } from "vitest";
+import { GitLabPreviewForge } from "../forge/gitlab";
+import { previewStatusBody } from "../forge/status";
+
+function fixture() {
+  const head = "a".repeat(40),
+    target = "b".repeat(40),
+    base = "c".repeat(40);
+  let branchHead = target;
+  let edited = false,
+    fork = false,
+    truncated = false,
+    moving = false,
+    permission = 30,
+    published: Record<string, unknown> | undefined;
+  const reads: string[] = [],
+    writes: string[] = [];
+  const note = () => ({
+    id: 1,
+    type: null,
+    imported: false,
+    project_id: 123,
+    noteable_iid: 9,
+    noteable_type: "MergeRequest",
+    resolvable: false,
+    system: false,
+    body: "/preview start web",
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    author: { id: 8 },
+  });
+  const merge = () => ({
+    iid: 9,
+    target_project_id: 123,
+    source_project_id: fork ? 999 : 123,
+    target_branch: "main",
+    state: "opened",
+    sha:
+      moving && reads.filter((p) => p === "/api/v4/projects/123/merge_requests/9").length > 1
+        ? "f".repeat(40)
+        : head,
+    changes_count: truncated ? "2" : "1",
+    diff_refs: { head_sha: head, start_sha: target, base_sha: base },
+  });
+  const forge = new GitLabPreviewForge({
+    apiUrl: "https://gitlab.example.org/api/v4/",
+    forgeHost: "gitlab.example.org",
+    repository: "group/app",
+    projectId: "123",
+    botId: "456",
+    token: async () => "synthetic",
+    fetch: async (input, init) => {
+      const url = new URL(String(input)),
+        route = url.pathname;
+      const reply = (value: unknown, status = 200) =>
+        new Response(JSON.stringify(value), { status, headers: { "x-next-page": "" } });
+      if (route === "/api/graphql")
+        return reply({
+          data: {
+            note: {
+              id: "gid://gitlab/Note/1",
+              body: note().body,
+              createdAt: note().created_at,
+              lastEditedAt: edited ? note().created_at : null,
+              author: { id: "gid://gitlab/User/8" },
+            },
+          },
+        });
+      if (init?.method !== "GET") {
+        writes.push(route);
+        published = {
+          id: 99,
+          author: { id: 456 },
+          project_id: 123,
+          noteable_iid: 9,
+          ...JSON.parse(String(init?.body)),
+        };
+        return reply(published);
+      }
+      reads.push(route);
+      if (route === "/api/v4/projects/123")
+        return reply({ id: 123, path_with_namespace: "group/app" });
+      if (route === "/api/v4/projects/123/merge_requests/9") return reply(merge());
+      if (route.endsWith("/resource_state_events")) return reply([]);
+      if (route.endsWith("/repository/branches/main")) return reply({ commit: { id: branchHead } });
+      if (route.endsWith("/repository/merge_base")) return reply({ id: base });
+      if (route.endsWith("/diffs"))
+        return reply([
+          {
+            old_path: "src/old.py",
+            new_path: "src/app.py",
+            a_mode: "100644",
+            b_mode: "100644",
+            renamed_file: true,
+            new_file: false,
+            deleted_file: false,
+            collapsed: false,
+            too_large: false,
+          },
+        ]);
+      if (route.endsWith("/notes/1")) return reply(note());
+      if (route.endsWith("/notes/99")) return reply(published);
+      if (route.endsWith("/notes")) return reply([note(), ...(published ? [published] : [])]);
+      if (route.endsWith("/members/all/8")) return reply({ id: 8, access_level: permission });
+      if (route.endsWith("/users/8")) return reply({ id: 8, state: "active", bot: false });
+      if (route === "/api/v4/projects/123/merge_requests") return reply([merge()]);
+      throw new Error(`unexpected fixture request ${route}`);
+    },
+  });
+  return {
+    forge,
+    reads,
+    writes,
+    edit: () => {
+      edited = true;
+    },
+    fork: () => {
+      fork = true;
+    },
+    truncate: () => {
+      truncated = true;
+    },
+    move: () => {
+      moving = true;
+    },
+    advanceTarget: () => {
+      branchHead = "d".repeat(40);
+    },
+    revoke: () => {
+      permission = 20;
+    },
+  };
+}
+
+describe("GitLab registered preview forge", () => {
+  it("binds current cumulative source and preserves both rename paths", async () => {
+    const f = fixture(),
+      snapshot = await f.forge.snapshot(9);
+    expect(snapshot.source.complete).toBe(true);
+    expect(snapshot.source.changes).toEqual([
+      { status: "R", path: "src/app.py", oldPath: "src/old.py" },
+    ]);
+    expect((await f.forge.admission(9, "1"))?.actorCanWrite).toBe(true);
+    expect((await f.forge.commands(9, 0, Date.now()))[0].id).toBe("1");
+  });
+  it("binds an advanced target when the cumulative diff still has the verified merge base", async () => {
+    const f = fixture();
+    f.advanceTarget();
+    expect((await f.forge.snapshot(9)).source.target).toBe("d".repeat(40));
+  });
+  it("refuses truncated or moved source and fork admission", async () => {
+    for (const method of ["truncate", "move", "fork"] as const) {
+      const f = fixture();
+      f[method]();
+      await expect(f.forge.snapshot(9)).rejects.toThrow();
+    }
+    const f = fixture();
+    f.fork();
+    expect((await f.forge.admission(9, "1"))?.sameProject).toBe(false);
+  });
+  it("rechecks membership and ignores edited notes", async () => {
+    const edited = fixture();
+    edited.edit();
+    expect(await edited.forge.admission(9, "1")).toBeNull();
+    const revoked = fixture();
+    revoked.revoke();
+    expect(await revoked.forge.admission(9, "1")).toBeNull();
+  });
+  it("recovers and updates one bot-owned root status", async () => {
+    const f = fixture(),
+      body = previewStatusBody(null);
+    const id = await f.forge.publish(9, body);
+    expect(await f.forge.findStatus(9, "devrouter-preview")).toBe(id);
+    expect(await f.forge.publish(9, body, id)).toBe(id);
+    await expect(f.forge.publish(9, body, "1")).rejects.toThrow();
+    expect(f.writes).toHaveLength(2);
+    expect(await f.forge.changes(0)).toEqual([9]);
+  });
+});
