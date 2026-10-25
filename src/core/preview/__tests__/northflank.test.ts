@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { PreviewWriteGate } from "../engine";
 import { createPreviewSession } from "../lifecycle";
+import { NorthflankOwnershipStore } from "../providers/northflank";
 import { NorthflankOutcomeUncertain, NorthflankPreviewAPI } from "../providers/northflank-api";
 import { compileNorthflankGraph, type NorthflankGraphPolicy } from "../providers/northflank-graph";
 import type { PreviewPoolEntry } from "../state";
+import { type PreviewEffectStep, PreviewStateConflict, type PreviewStateStore } from "../state";
 
 const page = (rows: unknown[], next = false, cursor?: string) =>
   new Response(
@@ -325,5 +328,63 @@ describe("Northflank native graph compilation", () => {
     policy.allowedNetworks = ["192.0.2.0/24"];
     delete policy.resources.web.readiness;
     expect(() => compileNorthflankGraph(entry, policy, "activate")).toThrow();
+  });
+});
+
+describe("Northflank generation ownership", () => {
+  it("preserves native identity and refuses recreated missing state or foreign metadata", async () => {
+    let value: unknown;
+    let version = 0;
+    const store: PreviewStateStore = {
+      async read<T>(_key: string, validate: (data: unknown) => T) {
+        return value === undefined ? null : { value: validate(value), version: String(version) };
+      },
+      async compareAndSwap(_key, expected, data) {
+        if (expected !== (value === undefined ? null : String(version)))
+          throw new PreviewStateConflict();
+        value = structuredClone(data);
+        version += 1;
+        return String(version);
+      },
+    };
+    const steps: PreviewEffectStep[] = [];
+    const gate: PreviewWriteGate = {
+      read: async () => structuredClone(steps),
+      begin: async (name, mode) => {
+        if (steps.some((step) => step.name === name)) return "resolve";
+        steps.push({ name, mode, state: "intent", at: 1 });
+        return "write";
+      },
+      record: async (name, state) => {
+        steps.find((step) => step.name === name)!.state = state;
+      },
+    };
+    const ownership = new NorthflankOwnershipStore({
+      store,
+      installationId: "fixture",
+      generation: "1".repeat(24),
+      policyDigest: "d".repeat(64),
+    });
+    await ownership.initialize(gate);
+    await ownership.update((current) => ({
+      ...current,
+      blueprintId: "owned-blueprint",
+      previewId: "owned-preview",
+    }));
+    await expect(
+      ownership.update((current) => ({ ...current, previewId: "foreign-preview" })),
+    ).rejects.toThrow();
+    const another = new NorthflankOwnershipStore({
+      store,
+      installationId: "fixture",
+      generation: "2".repeat(24),
+      policyDigest: "d".repeat(64),
+    });
+    await expect(another.read()).rejects.toThrow();
+    value = undefined;
+    await expect(ownership.initialize(gate)).rejects.toThrow("missing");
+    await expect(ownership.initialize({ ...gate, read: async () => [] }, true)).rejects.toThrow(
+      "missing",
+    );
   });
 });
