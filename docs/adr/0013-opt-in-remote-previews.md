@@ -1,6 +1,6 @@
 # ADR 0013: Remote previews are an opt-in Devrouter capability
 
-Status: Accepted. Offline manifest/profile planning is implemented; lifecycle, provider and forge packages remain pending.
+Status: Accepted. Offline planning, durable lifecycle, Northflank source and GitHub integration are implemented. GitLab and live qualification remain pending.
 
 Devrouter will package remote review environments, reusable forge integrations and deployment-provider adapters as one product, with Northflank as the first provider. Keeping the feature only in application repositories would duplicate lifecycle and integration work across projects; provider and forge adapters let projects retain their own build and initialization recipes while sharing control behavior.
 

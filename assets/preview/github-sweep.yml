@@ -8,7 +8,7 @@ permissions:
   id-token: write
 jobs:
   sweep:
-    if: github.ref_name == github.event.repository.default_branch
+    if: github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch
     uses: rschlaefli/devrouter/.github/workflows/preview.yml@__CONTROLLER_REF__
     with:
       controller-ref: __CONTROLLER_REF__

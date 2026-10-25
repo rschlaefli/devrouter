@@ -81,6 +81,11 @@ describe("offline preview commands", () => {
     await runPreviewInitCommand({ ...options, write: true });
     await expect(runPreviewInitCommand({ ...options, write: true })).rejects.toThrow();
     await expect(runPreviewInitCommand({ ...options, controllerRef: "main" })).rejects.toThrow();
+    output.mockClear();
+    await runPreviewInitCommand({ ...options, sweeper: true });
+    const sweep = parse(JSON.parse(String(output.mock.calls[0]?.[0])).content);
+    expect(sweep.on.schedule).toEqual([{ cron: "*/5 * * * *" }]);
+    expect(sweep.jobs.sweep.with.mode).toBe("sweep");
   });
   it("rejects source files outside the repository and symlinks", async () => {
     const repo = repository();
