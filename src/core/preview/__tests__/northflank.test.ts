@@ -84,6 +84,43 @@ describe("Northflank preview transport", () => {
     await expect(api.request("GET", ["preview-blueprints", "owned"])).rejects.toThrow("size bound");
   });
 
+  it("keeps successful but unreadable expiry changes uncertain", async () => {
+    for (const response of [
+      new Response(null, { status: 204 }),
+      new Response("{}"),
+      new Response('{"data":[]}'),
+    ]) {
+      const api = new NorthflankPreviewAPI({
+        projectId: "isolated",
+        accessToken: async () => "synthetic",
+        fetch: async () => response,
+      });
+      await expect(
+        api.resetDeadline("owned", "preview", 1_700_000_000_000, 1_699_996_326_000),
+      ).rejects.toBeInstanceOf(NorthflankOutcomeUncertain);
+    }
+  });
+
+  it("confirms the complete early expiry window reserved for rounding and delay", async () => {
+    const target = 1_700_000_000_000;
+    const now = target - 3_674_000;
+    const api = new NorthflankPreviewAPI({
+      projectId: "isolated",
+      accessToken: async () => "synthetic",
+      fetch: async (_url, init) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              expiryTime: new Date(
+                now + JSON.parse(init!.body as string).lifetime * 60_000,
+              ).toISOString(),
+            },
+          }),
+        ),
+    });
+    expect(await api.resetDeadline("owned", "preview", target, now)).toBe(target - 74_000);
+  });
+
   it("derives remaining minutes from a fixed target and refuses a later provider expiry", async () => {
     const target = 1_700_000_000_000;
     let returned = target - 10_000;

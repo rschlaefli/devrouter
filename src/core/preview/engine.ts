@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { isPreviewAlias, type PreviewCommand } from "./command";
-import { createPreviewSession, transitionPreviewSession } from "./lifecycle";
+import {
+  createPreviewSession,
+  MAX_PREVIEW_DEADLINE_EARLINESS_MS,
+  transitionPreviewSession,
+} from "./lifecycle";
 import {
   decodePreviewPool,
   type PreviewEffect,
@@ -82,7 +86,7 @@ function confirms(target: number | undefined, confirmed: number | undefined): bo
     confirmed !== undefined &&
     Number.isSafeInteger(confirmed) &&
     confirmed <= target &&
-    confirmed >= target - 60_000
+    confirmed >= target - MAX_PREVIEW_DEADLINE_EARLINESS_MS
   );
 }
 
@@ -446,7 +450,7 @@ export class PreviewEngine {
               confirms(target, effect.confirmedDeadline),
           );
           if (!tightened) action = this.prepare(entry, "deadline", now, target);
-          else sessionReady(entry, entry.readyObservedAt);
+          else sessionReady(entry, entry.readyObservedAt, tightened.confirmedDeadline);
         } else if (deployment.ready && session.status === "updating") sessionReady(entry, now);
       }
       return pool;
@@ -614,7 +618,7 @@ export class PreviewEngine {
   }
 }
 
-function sessionReady(entry: PreviewPoolEntry, now: number): void {
+function sessionReady(entry: PreviewPoolEntry, now: number, expiresAt?: number): void {
   entry.session = transitionPreviewSession(entry.session, {
     kind: "ready",
     now,
@@ -622,5 +626,6 @@ function sessionReady(entry: PreviewPoolEntry, now: number): void {
     operationVersion: entry.session.operationVersion,
     revision: entry.session.desiredRevision,
     deadlineConfirmed: true,
+    ...(expiresAt === undefined ? {} : { expiresAt }),
   });
 }

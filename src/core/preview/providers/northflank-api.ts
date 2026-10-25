@@ -1,4 +1,5 @@
 import { readPreviewResponse } from "../http";
+import { MAX_PREVIEW_DEADLINE_EARLINESS_MS } from "../lifecycle";
 
 const MAX_BYTES = 1024 * 1024;
 
@@ -25,6 +26,7 @@ export class NorthflankOutcomeUncertain extends Error {
 export class NorthflankPreviewAPI {
   private readonly base: string;
   private readonly fetch: typeof fetch;
+  private readonly deadlineMarginMs: number;
 
   constructor(
     private readonly options: {
@@ -37,8 +39,9 @@ export class NorthflankPreviewAPI {
     this.base = `https://api.northflank.com/v1/projects/${identifier(options.projectId)}/`;
     this.fetch = options.fetch ?? fetch;
     const margin = options.deadlineMarginMs ?? 15_000;
-    if (!Number.isSafeInteger(margin) || margin < 1 || margin >= 60_000)
+    if (!Number.isSafeInteger(margin) || margin < 1 || margin > 15_000)
       throw new Error("Invalid Northflank deadline delay allowance.");
+    this.deadlineMarginMs = margin;
   }
 
   async request(
@@ -145,9 +148,7 @@ export class NorthflankPreviewAPI {
       throw new Error("Invalid Northflank deadline target.");
     // This provisional allowance must be qualified with server clock/latency evidence
     // before an adapter may use native expiry as its independent backstop.
-    const lifetime = Math.floor(
-      (target - now - (this.options.deadlineMarginMs ?? 15_000)) / 60_000,
-    );
+    const lifetime = Math.floor((target - now - this.deadlineMarginMs) / 60_000);
     if (lifetime < 1 || lifetime > 260)
       throw new Error("Northflank deadline falls outside the supported request bounds.");
     const result = await this.request(
@@ -155,9 +156,17 @@ export class NorthflankPreviewAPI {
       ["preview-blueprints", blueprintId, "previews", previewId, "reset"],
       { lifetime },
     );
-    const expiryTime = record(result?.data).expiryTime;
+    const data = result?.data;
+    const expiryTime =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? (data as Record<string, unknown>).expiryTime
+        : undefined;
     const expiry = typeof expiryTime === "string" ? Date.parse(expiryTime) : Number.NaN;
-    if (!Number.isSafeInteger(expiry) || expiry > target || expiry < target - 60_000)
+    if (
+      !Number.isSafeInteger(expiry) ||
+      expiry > target ||
+      expiry < target - MAX_PREVIEW_DEADLINE_EARLINESS_MS
+    )
       throw new NorthflankOutcomeUncertain();
     return expiry;
   }

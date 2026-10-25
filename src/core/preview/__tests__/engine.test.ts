@@ -146,6 +146,21 @@ describe("durable preview reconciliation", () => {
     expect(f.calls.filter((kind) => kind === "deploy")).toHaveLength(1);
   });
 
+  it("stores the actual confirmed first-ready expiry after provider rounding", async () => {
+    const f = fixture();
+    const original = f.provider.submit;
+    f.provider.submit = async (effect, entry) => {
+      if (effect.kind === "deadline")
+        return { phase: "terminal", resources: [], confirmedDeadline: effect.target! - 74_000 };
+      return original(effect, entry);
+    };
+    await f.admit();
+    for (let step = 0; step < 4; step += 1) await f.engine.reconcile(identity);
+    const ready = await f.engine.status(identity);
+    expect(ready?.session.status).toBe("ready");
+    expect(ready?.session.expiresAt).toBe(ready!.session.firstReadyAt! + 7_200_000 - 74_000);
+  });
+
   it("retains a stopped preview until a pending create settles and its late resources disappear", async () => {
     const f = fixture();
     f.delay();

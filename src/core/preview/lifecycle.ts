@@ -1,5 +1,6 @@
 import { isPreviewAlias } from "./command";
 
+export const MAX_PREVIEW_DEADLINE_EARLINESS_MS = 75_000;
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const SETUP_LIMIT = 20 * MINUTE;
@@ -54,6 +55,7 @@ export type PreviewLifecycleEvent =
       operationVersion: number;
       revision: string;
       deadlineConfirmed: boolean;
+      expiresAt?: number;
     } & Timed)
   | ({
       kind: "start";
@@ -152,7 +154,11 @@ export function transitionPreviewSession(
         if (session.status !== "provisioning" || event.now >= session.setupDeadline) {
           throw new Error("ready arrived after setup cutoff");
         }
-        const expiresAt = add(event.now, READY_LIFETIME);
+        const target = add(event.now, READY_LIFETIME);
+        const expiresAt = event.expiresAt ?? target;
+        assertTime(expiresAt);
+        if (expiresAt > target || expiresAt < target - MAX_PREVIEW_DEADLINE_EARLINESS_MS)
+          throw new Error("ready deadline does not match its confirmed target");
         if (expiresAt >= session.expiresAt) throw new Error("ready did not tighten backstop");
         return {
           ...clone(session),
@@ -245,7 +251,7 @@ export function transitionPreviewSession(
         (session.status !== "ready" && session.status !== "updating") ||
         event.now >= session.expiresAt ||
         event.expiresAt > pending.target ||
-        event.expiresAt < pending.target - MINUTE
+        event.expiresAt < pending.target - MAX_PREVIEW_DEADLINE_EARLINESS_MS
       ) {
         throw new Error("deadline confirmation does not match target");
       }
