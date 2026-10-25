@@ -1,13 +1,14 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isPreviewAlias, type PreviewCommand } from "./command";
 import {
   type PreviewAdmission,
+  PreviewAdmissionSuperseded,
   type PreviewEngine,
   type PreviewIdentity,
   previewIdentityKey,
 } from "./engine";
 import type { ForgeComment, PreviewForge } from "./forge/status";
-import { forgeId, previewStatusBody } from "./forge/status";
+import { forgeId, PreviewForgeNotSent, previewStatusBody } from "./forge/status";
 import { object, PreviewStateConflict, type PreviewStateStore, updatePreviewState } from "./state";
 import type { PreviewPlanReport, PreviewSource } from "./types";
 
@@ -18,13 +19,20 @@ type Inbox = {
   closedThrough: number;
   processed: Array<{ id: string; at: number }>;
   selection?: PreviewPlanReport["status"];
-  status?: { intentAt: number; commentId?: string; bodyDigest?: string; publishedAt?: number };
+  needsStatus?: boolean;
+  status?: {
+    intentAt: number;
+    intentId?: string;
+    commentId?: string;
+    bodyDigest?: string;
+    publishedAt?: number;
+  };
 };
 function decodeInbox(raw: unknown): Inbox {
   const row = object(
     raw,
     ["schemaVersion", "identity", "scannedThrough", "closedThrough", "processed"],
-    ["status", "selection"],
+    ["status", "selection", "needsStatus"],
   );
   if (row.schemaVersion !== 1 || Buffer.byteLength(JSON.stringify(raw)) > 128 * 1024)
     throw new Error("Invalid preview inbox.");
@@ -54,10 +62,21 @@ function decodeInbox(raw: unknown): Inbox {
     )
   )
     throw new Error("Invalid preview selection result.");
+  if (row.needsStatus !== undefined && typeof row.needsStatus !== "boolean")
+    throw new Error("Invalid preview status request.");
   if (row.status) {
-    const status = object(row.status, ["intentAt"], ["commentId", "bodyDigest", "publishedAt"]);
+    const status = object(
+      row.status,
+      ["intentAt"],
+      ["commentId", "bodyDigest", "publishedAt", "intentId"],
+    );
     if (!Number.isSafeInteger(status.intentAt) || (status.intentAt as number) < 0)
       throw new Error("Invalid preview status intent.");
+    if (
+      status.intentId !== undefined &&
+      (typeof status.intentId !== "string" || !/^[a-f0-9-]{36}$/.test(status.intentId))
+    )
+      throw new Error("Invalid preview status intent identity.");
     if (status.commentId !== undefined) forgeId(status.commentId);
     if (
       status.bodyDigest !== undefined &&
@@ -158,9 +177,7 @@ export class PreviewController {
   }
   private async mark(change: number, command: ForgeComment): Promise<void> {
     await this.update(change, (row) => {
-      row.processed = row.processed.filter(
-        (receipt) => this.options.now() - receipt.at <= this.options.maxCommandAgeMs,
-      );
+      row.needsStatus = true;
       if (!row.processed.some((receipt) => receipt.id === command.id))
         row.processed.push({ id: command.id, at: command.createdAt });
       return row;
@@ -187,6 +204,7 @@ export class PreviewController {
     const identity = this.identity(change),
       now = this.options.now();
     let inbox = await this.inbox(change);
+    let respond = false;
     // Read complete history through a fixed upper boundary before any admission or provider effect.
     const snapshot = await this.options.forge.snapshot(change, false);
     const comments =
@@ -232,7 +250,6 @@ export class PreviewController {
           !admission.sameProject ||
           !admission.open
         ) {
-          await this.mark(change, comment);
           continue;
         }
         if (
@@ -243,15 +260,11 @@ export class PreviewController {
         )
           throw new Error("Forge command changed during recovery.");
         candidates.push({ comment, admission });
+        respond = true;
       }
-      const lastStop = candidates.reduce(
-        (last, row, index) => (row.admission.command.kind === "stop" ? index : last),
-        -1,
-      );
-      const lastStart = candidates.reduce(
-        (last, row, index) => (row.admission.command.kind === "start" ? index : last),
-        -1,
-      );
+      const kinds = candidates.map((row) => row.admission.command.kind);
+      const lastStop = kinds.lastIndexOf("stop"),
+        lastStart = kinds.lastIndexOf("start");
       for (const [index, { comment, admission }] of candidates.entries()) {
         // Newest explicit start coalesces earlier starts; a later stop dominates all older work.
         if (index < lastStop || (admission.command.kind === "start" && index !== lastStart)) {
@@ -288,11 +301,15 @@ export class PreviewController {
             continue;
           }
           await this.update(change, (row) => ({ ...row, selection: undefined }));
-          await this.options.engine.admit({
-            ...admission,
-            plan,
-            hourlyCents: this.options.hourlyCents(plan),
-          });
+          try {
+            await this.options.engine.admit({
+              ...admission,
+              plan,
+              hourlyCents: this.options.hourlyCents(plan),
+            });
+          } catch (error) {
+            if (!(error instanceof PreviewAdmissionSuperseded)) throw error;
+          }
         } else {
           if (admission.command.kind === "extend") {
             const existing = await this.options.engine.status(identity);
@@ -318,40 +335,59 @@ export class PreviewController {
       }));
     }
     await this.options.engine.reconcile(identity);
-    if (comments.length || (await this.options.engine.status(identity)) || inbox.status)
+    if (
+      respond ||
+      inbox.needsStatus ||
+      (await this.options.engine.status(identity)) ||
+      inbox.status
+    )
       await this.publish(change, inbox);
   }
   private async publish(change: number, inbox: Inbox): Promise<void> {
     const identity = this.identity(change),
       entry = await this.options.engine.status(identity);
-    const body = `${previewStatusBody(entry, entry?.session.status === "ready" ? this.options.urls(entry) : {})}${inbox.selection ? `\n\nSelection: ${inbox.selection}.` : ""}${this.options.aliases?.length ? `\n\nAvailable profiles: ${this.options.aliases.map((alias) => `\`${alias}\``).join(", ")}.` : ""}\n\n<!-- devrouter-installation:${this.options.installationId} -->`;
+    const marker = `<!-- devrouter-installation:${this.options.installationId} -->`;
+    const body = `${previewStatusBody(entry, entry?.session.status === "ready" ? this.options.urls(entry) : {})}${inbox.selection ? `\n\nSelection: ${inbox.selection}.` : ""}${this.options.aliases?.length ? `\n\nAvailable profiles: ${this.options.aliases.map((alias) => `\`${alias}\``).join(", ")}.` : ""}\n\n${marker}`;
     const fingerprint = createHash("sha256").update(body).digest("hex"),
       now = this.options.now();
-    if (
-      inbox.status?.bodyDigest === fingerprint ||
-      (inbox.status?.publishedAt !== undefined && now - inbox.status.publishedAt < 15_000)
-    )
+    if (inbox.status?.bodyDigest === fingerprint) {
+      if (inbox.needsStatus) await this.update(change, (row) => ({ ...row, needsStatus: false }));
       return;
+    }
+    if (inbox.status?.publishedAt !== undefined && now - inbox.status.publishedAt < 15_000) return;
+    const current = await this.options.engine.status(identity);
+    if (JSON.stringify(current?.session) !== JSON.stringify(entry?.session)) return;
+    let commentId = inbox.status?.commentId;
+    if (!commentId) commentId = (await this.options.forge.findStatus(change, marker)) ?? undefined;
     let create = false;
+    const intentId = randomUUID();
     if (!inbox.status)
       inbox = await this.update(change, (row) => {
         create = !row.status;
-        return { ...row, status: row.status ?? { intentAt: now } };
+        return {
+          ...row,
+          status: row.status ?? { intentAt: now, intentId, ...(commentId ? { commentId } : {}) },
+        };
       });
-    const marker = `<!-- devrouter-installation:${this.options.installationId} -->`;
-    let commentId = inbox.status?.commentId;
-    if (!commentId) {
-      const found = await this.options.forge.findStatus(change, marker);
-      if (found) commentId = found;
-      else if (!create) return; // unknown POST outcome: observe, never duplicate-create
+    commentId ??= inbox.status?.commentId;
+    if (!commentId && !create) return; // unknown POST outcome: observe, never duplicate-create
+    let id: string;
+    try {
+      id = await this.options.forge.publish(change, body, commentId);
+    } catch (error) {
+      if (error instanceof PreviewForgeNotSent && !commentId && create)
+        await this.update(change, (row) => {
+          if (row.status?.intentId === intentId && !row.status.commentId) delete row.status;
+          return row;
+        });
+      throw error;
     }
-    const current = await this.options.engine.status(identity);
-    if (JSON.stringify(current?.session) !== JSON.stringify(entry?.session)) return;
-    const id = await this.options.forge.publish(change, body, commentId);
     await this.update(change, (row) => ({
       ...row,
+      needsStatus: false,
       status: {
         intentAt: row.status?.intentAt ?? now,
+        intentId: row.status?.intentId ?? intentId,
         commentId: id,
         bodyDigest: fingerprint,
         publishedAt: now,

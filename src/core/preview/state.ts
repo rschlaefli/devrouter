@@ -92,6 +92,7 @@ export type PreviewPool = {
   schemaVersion: 1;
   installationId: string;
   sessions: Record<string, PreviewPoolEntry>;
+  stoppedThrough: Record<string, { createdAt: number; recordedAt: number; commandId: string }>;
   processedCommands: Array<{ id: string; admittedAt: number }>;
 };
 
@@ -100,6 +101,7 @@ export function createPreviewPool(installationId: string): PreviewPool {
     schemaVersion: 1,
     installationId,
     sessions: {},
+    stoppedThrough: {},
     processedCommands: [],
   });
 }
@@ -336,7 +338,13 @@ function decodePlan(value: unknown): import("./types").PreviewPlanReport {
 export function decodePreviewPool(value: unknown): PreviewPool {
   if (Buffer.byteLength(JSON.stringify(value) ?? "") > 1024 * 1024)
     throw new Error("Preview pool exceeds its bound.");
-  const root = object(value, ["schemaVersion", "installationId", "sessions", "processedCommands"]);
+  const root = object(value, [
+    "schemaVersion",
+    "installationId",
+    "sessions",
+    "processedCommands",
+    "stoppedThrough",
+  ]);
   if (root.schemaVersion !== 1) throw new Error("Unsupported preview pool version.");
   text(root.installationId, 63);
   if (!/^[a-z0-9-]+$/.test(root.installationId)) throw new Error("Invalid preview installation.");
@@ -349,6 +357,21 @@ export function decodePreviewPool(value: unknown): PreviewPool {
     integer(item.admittedAt);
     if (receiptIds.has(item.id)) throw new Error("Duplicate preview command receipt.");
     receiptIds.add(item.id);
+  }
+  const fences = root.stoppedThrough;
+  if (
+    !fences ||
+    typeof fences !== "object" ||
+    Array.isArray(fences) ||
+    Object.keys(fences).length > 1024
+  )
+    throw new Error("Invalid preview stop fence window.");
+  for (const [key, raw] of Object.entries(fences)) {
+    if (!/^[a-f0-9]{64}$/.test(key)) throw new Error("Invalid stop fence identity.");
+    const fence = object(raw, ["createdAt", "recordedAt", "commandId"]);
+    text(fence.commandId, 128);
+    integer(fence.createdAt);
+    integer(fence.recordedAt);
   }
   const sessions = root.sessions;
   if (

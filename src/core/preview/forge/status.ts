@@ -49,6 +49,12 @@ export function forgeTime(value: unknown): number {
   return time;
 }
 
+export class PreviewForgeNotSent extends Error {
+  constructor() {
+    super("Preview forge mutation was not sent.");
+  }
+}
+
 /** Both forge adapters share bounded requests; no candidate URL is ever followed. */
 export class PreviewForgeHTTP {
   readonly base: URL;
@@ -92,8 +98,13 @@ export class PreviewForgeHTTP {
     const url = new URL(path, this.base);
     if (url.origin !== this.base.origin || !url.pathname.startsWith(this.base.pathname))
       throw new Error("Forge request escaped its configured API.");
-    const token = await this.options.token();
-    if (!token || /\s/.test(token)) throw new Error("Preview forge token is unavailable.");
+    let token: string;
+    try {
+      token = await this.options.token();
+    } catch {
+      throw new PreviewForgeNotSent();
+    }
+    if (!token || /\s/.test(token)) throw new PreviewForgeNotSent();
     let response: Response;
     try {
       response = await (this.options.fetch ?? fetch)(url, {

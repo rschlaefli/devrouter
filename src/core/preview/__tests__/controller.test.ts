@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PreviewController } from "../controller";
 import { type PreviewAdmission, PreviewEngine, type PreviewProvider } from "../engine";
-import type { ForgeComment, PreviewForge } from "../forge/status";
+import { type ForgeComment, type PreviewForge, PreviewForgeNotSent } from "../forge/status";
 import { createPreviewPool, PreviewStateConflict, type PreviewStateStore } from "../state";
 import type { PreviewPlanReport } from "../types";
 
@@ -44,6 +44,10 @@ function fixture() {
     },
   };
   let commandAfter = 0;
+  let failFind = false,
+    failBeforePost = false;
+  let interleaved = false;
+  let beforePlan: (() => Promise<void>) | undefined;
   let open = true,
     canWrite = true,
     failHistory = false,
@@ -120,9 +124,17 @@ function fixture() {
       return open ? [9] : [];
     },
     async findStatus() {
+      if (failFind) {
+        failFind = false;
+        throw new Error("synthetic status lookup failed");
+      }
       return posted?.id ?? null;
     },
     async publish(_change, body, previousId) {
+      if (failBeforePost) {
+        failBeforePost = false;
+        throw new PreviewForgeNotSent();
+      }
       if (!previousId) creates++;
       posted = { id: previousId ?? "99", body };
       if (failPublish) {
@@ -141,7 +153,13 @@ function fixture() {
     engine,
     now: () => now,
     maxCommandAgeMs: 60_000,
-    plan: async (source) => ({ ...plan, source }),
+    plan: async (source) => {
+      if (beforePlan && !interleaved) {
+        interleaved = true;
+        await beforePlan();
+      }
+      return { ...plan, source };
+    },
     hourlyCents: () => 1,
     urls: () => ({ "web:http": "https://preview.example.org" }),
   });
@@ -168,6 +186,18 @@ function fixture() {
     records,
     now: () => now,
     creates: () => creates,
+    failFind: () => {
+      failFind = true;
+    },
+    failBeforePost: () => {
+      failBeforePost = true;
+    },
+    interleaveStop: () => {
+      beforePlan = async () => {
+        command({ kind: "stop" });
+        await controller.scan(9);
+      };
+    },
     reopened: () => {
       commandAfter = now;
     },
@@ -249,6 +279,7 @@ describe("durable preview command controller", () => {
     f.revoke();
     await f.scan(1);
     expect(f.effects).toEqual([]);
+    expect(f.creates()).toBe(0);
   });
   it("claims a single status creation across concurrent recovery scans", async () => {
     const f = fixture();
@@ -264,5 +295,44 @@ describe("durable preview command controller", () => {
     await f.scan(10);
     expect(await f.engine.identities()).toEqual([]);
     expect(f.effects.filter((kind) => kind === "deploy")).toHaveLength(1);
+  });
+  it("an interleaved later stop fences a first start that is still planning", async () => {
+    const f = fixture();
+    f.command({ kind: "start", aliases: ["web"] });
+    f.interleaveStop();
+    await f.scan(1);
+    expect(f.effects).toEqual([]);
+  });
+  it("recovers status failures that are proven to precede a create request", async () => {
+    for (const fail of ["failFind", "failBeforePost"] as const) {
+      const f = fixture();
+      f.command({ kind: "status" });
+      f[fail]();
+      await expect(f.scan(1)).rejects.toThrow();
+      await f.scan(1);
+      expect(f.creates()).toBe(1);
+    }
+  });
+  it("continues expired cleanup when an open change's command history is unavailable", async () => {
+    const f = fixture();
+    f.command({ kind: "start", aliases: ["web"] });
+    await f.scan();
+    f.tick(3 * 60 * 60_000);
+    f.failHistory();
+    for (let i = 0; i < 5; i++) await expect(f.scan(1)).rejects.toThrow();
+    expect(await f.engine.identities()).toEqual([]);
+    expect(f.effects).toContain("destroy");
+  });
+  it("does not retain rejected public commands in the bounded receipt window", async () => {
+    const f = fixture();
+    f.revoke();
+    for (let i = 0; i < 1100; i++) f.command({ kind: "start", aliases: ["web"] });
+    await f.scan(1);
+    const inbox = [...f.records.entries()].find(([key]) => key.includes("/inbox/"))?.[1].value as {
+      processed: unknown[];
+    };
+    expect(inbox.processed).toEqual([]);
+    expect(f.effects).toEqual([]);
+    expect(f.creates()).toBe(0);
   });
 });

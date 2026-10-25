@@ -16,6 +16,12 @@ import {
 } from "./state";
 import type { PreviewPlanReport } from "./types";
 
+export class PreviewAdmissionSuperseded extends Error {
+  constructor() {
+    super("A later stop supersedes this preview start.");
+  }
+}
+
 export type PreviewIdentity = { forgeHost: string; projectId: string; change: number };
 export type PreviewEffectReceipt = {
   phase: "pending" | "terminal";
@@ -133,6 +139,8 @@ function writeFenced(
 }
 
 function prunePool(pool: PreviewPool, now: number, age: number): void {
+  for (const [key, fence] of Object.entries(pool.stoppedThrough))
+    if (now - fence.recordedAt > age) delete pool.stoppedThrough[key];
   pool.processedCommands = pool.processedCommands.filter(
     (receipt) => now - receipt.admittedAt <= age,
   );
@@ -253,6 +261,20 @@ export class PreviewEngine {
         throw new Error("Preview command recovery window is full.");
       const current = pool.sessions[id];
       if (input.command.kind === "stop") {
+        const previous = pool.stoppedThrough[id];
+        if (
+          !previous ||
+          input.createdAt > previous.createdAt ||
+          (input.createdAt === previous.createdAt &&
+            /^[0-9]+$/.test(input.commandId) &&
+            /^[0-9]+$/.test(previous.commandId) &&
+            BigInt(input.commandId) > BigInt(previous.commandId))
+        )
+          pool.stoppedThrough[id] = {
+            createdAt: input.createdAt,
+            recordedAt: now,
+            commandId: input.commandId,
+          };
         if (current)
           current.session = transitionPreviewSession(current.session, {
             kind: "stop",
@@ -271,6 +293,16 @@ export class PreviewEngine {
         const reserve = Math.ceil((current.hourlyCents / 60) * ((pending.target - now) / 60_000));
         current.reservedCents = Math.max(current.reservedCents, reserve);
       } else if (input.command.kind === "start") {
+        const fence = pool.stoppedThrough[id];
+        if (
+          fence &&
+          (input.createdAt < fence.createdAt ||
+            (input.createdAt === fence.createdAt &&
+              (!/^[0-9]+$/.test(input.commandId) ||
+                !/^[0-9]+$/.test(fence.commandId) ||
+                BigInt(input.commandId) <= BigInt(fence.commandId))))
+        )
+          throw new PreviewAdmissionSuperseded();
         const plan = input.plan;
         if (
           plan?.status !== "planned" ||
@@ -381,6 +413,11 @@ export class PreviewEngine {
   async close(identity: PreviewIdentity): Promise<void> {
     const id = previewIdentityKey(identity);
     await this.update((pool) => {
+      pool.stoppedThrough[id] = {
+        createdAt: this.options.now(),
+        recordedAt: this.options.now(),
+        commandId: "closed",
+      };
       const entry = pool.sessions[id];
       if (entry)
         entry.session = transitionPreviewSession(entry.session, {

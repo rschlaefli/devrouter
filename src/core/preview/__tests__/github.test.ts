@@ -10,6 +10,7 @@ function fixture() {
     {
       id: 1,
       node_id: "IC_fixture",
+      author_association: "COLLABORATOR",
       body: "/preview start web",
       user: { id: 7, login: "maintainer", type: "User" },
       issue_url: "https://api.github.com/repos/example/app/issues/9",

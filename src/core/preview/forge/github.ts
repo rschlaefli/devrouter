@@ -11,12 +11,14 @@ import {
   PREVIEW_STATUS_MARKER,
   type PreviewForge,
   PreviewForgeHTTP,
+  PreviewForgeNotSent,
 } from "./status";
 
 export class GitHubPreviewForge implements PreviewForge {
   private readonly http: PreviewForgeHTTP;
   private readonly repo: string;
   private readonly graphql: PreviewForgeHTTP;
+  private readonly issues: string;
   constructor(
     private readonly options: {
       apiUrl: string;
@@ -50,6 +52,7 @@ export class GitHubPreviewForge implements PreviewForge {
       kind: "github",
     });
     this.repo = `repos/${options.repository}`;
+    this.issues = `${this.http.base.origin}${this.http.base.pathname}${this.repo}/issues/`;
   }
   private path(change: number): string {
     forgeId(change);
@@ -182,8 +185,9 @@ export class GitHubPreviewForge implements PreviewForge {
   private parse(raw: unknown, change: number): ForgeComment | null {
     const row = object(raw),
       author = object(row.user);
-    const expected = `${this.http.base.origin}${this.http.base.pathname}${this.repo}/issues/${change}`;
+    const expected = `${this.issues}${change}`;
     if (
+      !["OWNER", "MEMBER", "COLLABORATOR"].includes(row.author_association as string) ||
       author.type !== "User" ||
       row.created_at !== row.updated_at ||
       row.issue_url !== expected ||
@@ -281,11 +285,12 @@ export class GitHubPreviewForge implements PreviewForge {
       if (
         typeof row.body !== "string" ||
         !parsePreviewCommand(row.body) ||
+        !["OWNER", "MEMBER", "COLLABORATOR"].includes(row.author_association as string) ||
         object(row.user).type !== "User" ||
         typeof row.issue_url !== "string"
       )
         continue;
-      const prefix = `${this.http.base.origin}${this.http.base.pathname}${this.repo}/issues/`;
+      const prefix = this.issues;
       if (!row.issue_url.startsWith(prefix))
         throw new Error("GitHub recovered comment is outside the project.");
       if (row.created_at !== row.updated_at || forgeTime(row.created_at) < since) continue;
@@ -293,12 +298,15 @@ export class GitHubPreviewForge implements PreviewForge {
       if (!Number.isSafeInteger(number)) throw new Error("Invalid recovered GitHub change number.");
       changes.add(number);
     }
-    if (changes.size > 128) throw new Error("GitHub command recovery exceeds its change bound.");
     const pulls: number[] = [];
     for (const change of changes) {
       const issue = object((await this.http.request("GET", `${this.repo}/issues/${change}`)).data);
       if (issue.number !== change) throw new Error("GitHub issue identity changed.");
-      if (issue.pull_request) pulls.push(change);
+      if (issue.pull_request) {
+        pulls.push(change);
+        if (pulls.length > 128)
+          throw new Error("GitHub command recovery exceeds its pull request bound.");
+      }
     }
     return pulls;
   }
@@ -310,8 +318,7 @@ export class GitHubPreviewForge implements PreviewForge {
       .filter(
         (row) =>
           object(row.user).id === Number(this.options.botId) &&
-          row.issue_url ===
-            `${this.http.base.origin}${this.http.base.pathname}${this.repo}/issues/${change}` &&
+          row.issue_url === `${this.issues}${change}` &&
           typeof row.body === "string" &&
           row.body.startsWith(PREVIEW_STATUS_MARKER) &&
           row.body.includes(marker),
@@ -320,7 +327,11 @@ export class GitHubPreviewForge implements PreviewForge {
     return matches.length ? forgeId(matches[0].id) : null;
   }
   async publish(change: number, body: string, previousId?: string): Promise<string> {
-    await this.repository();
+    try {
+      await this.repository();
+    } catch {
+      throw new PreviewForgeNotSent();
+    }
     if (!body.startsWith(PREVIEW_STATUS_MARKER))
       throw new Error("Preview status has no ownership marker.");
     if (Buffer.byteLength(body) > 32 * 1024) throw new Error("Preview status exceeds its bound.");
@@ -331,8 +342,7 @@ export class GitHubPreviewForge implements PreviewForge {
         forgeId(object(comment.user).id) !== this.options.botId ||
         typeof comment.body !== "string" ||
         !comment.body.startsWith(PREVIEW_STATUS_MARKER) ||
-        comment.issue_url !==
-          `${this.http.base.origin}${this.http.base.pathname}${this.repo}/issues/${forgeId(change)}`
+        comment.issue_url !== `${this.issues}${forgeId(change)}`
       )
         throw new Error("Preview status comment ownership differs.");
       await this.http.request("PATCH", path, { body });
