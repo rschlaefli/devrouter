@@ -244,3 +244,77 @@ and reports its reason. It does not pause an already provisioning environment.
 Post a new command after the condition changes. An initial refresh needing the full
 setup budget can be refused while provisioning; the original generation continues.
 Transport failures remain retryable and cannot be mistaken for a policy refusal.
+
+
+## GitLab and other application stacks
+
+GitLab.com and registered self-managed HTTPS API hosts use the same controller,
+state pool, profile selection and provider. Admission verifies current effective
+Developer-or-higher membership, a non-bot active user and an original unedited root
+note. Thread replies, imported/system notes, edited commands and forks are ineligible.
+The adapter checks cumulative diff completeness, rename paths, current target/head
+and an independently verified merge base. API pagination and recovery are bounded;
+installations with more than 10,000 effective members are unsupported until qualified.
+
+Render a trusted controller-project caller:
+
+```sh
+devrouter preview init --repo . --integration gitlab \
+  --controller-ref <40-character-commit> \
+  --controller-image registry.example.org/controller@sha256:<64-character-digest> --json
+```
+
+The caller uses a public immutable remote include and integrity. The upstream file
+must match the shipped template; a wrong ref fails integrity. Private or older
+instances can vendor the reviewed template or use a same-instance pinned include.
+No GitLab mirror or catalog is created. The operator builds the exact CLI and private
+policy into the digest-pinned controller image at `/opt/devrouter` and
+`/opt/devrouter-policy`. That image must never contain credentials. The template
+uses no candidate checkout and permits only protected-ref trigger/schedule/manual
+pipelines. Restrict trigger use and image/variable overrides to installation operators.
+Schedule `sweep` independently; webhook delivery alone is insufficient recovery.
+
+Current GitLab documentation supports direct webhook pipeline triggers for Push/Tag.
+The package therefore exports a small Node Fetch handler at
+`@devrouter/cli/preview/gitlab-ingress`. Configure `createGitLabPreviewIngress` with
+the registered candidate/controller project IDs, API endpoint, protected controller
+ref and async hook-secret/trigger-token callbacks. Deploy it on a serverless Node
+host under a separately approved rollout. It verifies the Note Hook secret, event
+identity, same-project original command and fixed target before triggering typed
+numeric hints. It holds no deployment token. The controller re-fetches authority and
+original notes; redeliveries are deduplicated by durable command identity. The
+installation sweep recovers missed or failed deliveries. Configure edge request/time
+limits and keep raw webhook bodies and token values out of logs.
+
+Azure Blob state can use a scoped injected token or a federated assertion:
+
+```json
+{
+  "containerUrl": "https://examplestore.blob.core.windows.net/previews",
+  "federated": {
+    "tenantIdEnv": "DEVROUTER_PREVIEW_AZURE_TENANT_ID",
+    "clientIdEnv": "DEVROUTER_PREVIEW_AZURE_CLIENT_ID",
+    "assertionEnv": "DEVROUTER_PREVIEW_AZURE_ASSERTION"
+  }
+}
+```
+
+Select exactly one method. The GitLab job requests an ID token for
+`api://AzureADTokenExchange`; configure the exact issuer/audience/protected-controller
+subject in Entra and restrict its data role to the state container. The CLI exchanges
+the assertion for a short-lived storage token in memory. Self-managed GitLab OIDC
+metadata must be reachable by Entra. Native token injection remains available when
+federation is unavailable. Assertions and controller token variables cannot be mapped
+into candidate runtime secrets.
+
+The [Python/Postgres fixture](../examples/preview-http-db/README.md) uses resource
+aliases with no Node, Hatchet or local devcontainer requirement. It is source
+portability evidence. Live public/private GitHub/GitLab qualification and real expiry
+with an unavailable controller remain separate rollout cells.
+
+| Cell | Source evidence | Live support |
+| --- | --- | --- |
+| GitHub public/private | API/controller tests, pinned caller, installed package | Unqualified |
+| GitLab public/private/self-managed | API/controller and ingress tests, integrity include | Unqualified |
+| Northflank fixed expiry/deletion/network policy | Synthetic provider conformance | Unqualified |
+| Python/Postgres | Offline graph, locked fixture and health endpoint source | Unqualified |

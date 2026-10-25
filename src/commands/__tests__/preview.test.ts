@@ -87,6 +87,27 @@ describe("offline preview commands", () => {
     expect(sweep.on.schedule).toEqual([{ cron: "*/5 * * * *" }]);
     expect(sweep.jobs.sweep.with.mode).toBe("sweep");
   });
+  it("renders a GitLab integrity-pinned include with a reviewed controller image", async () => {
+    const repo = repository(),
+      output = capture();
+    const options = {
+      repo,
+      integration: "gitlab",
+      controllerRef: "a".repeat(40),
+      controllerImage: `registry.example.org/controller@sha256:${"b".repeat(64)}`,
+      json: true,
+    };
+    await runPreviewInitCommand(options);
+    const rendered = JSON.parse(String(output.mock.calls[0]?.[0]));
+    const { parseAllDocuments } = await import("yaml");
+    const caller = parseAllDocuments(rendered.content)[1].toJS();
+    expect(caller.include[0].integrity).toMatch(/^sha256-[A-Za-z0-9+/]+=*$/);
+    expect(caller.include[0].inputs.controller_image).toBe(options.controllerImage);
+    expect(new URL(caller.include[0].remote).pathname.split("/")[3]).toBe(options.controllerRef);
+    await expect(
+      runPreviewInitCommand({ ...options, controllerImage: "controller:latest" }),
+    ).rejects.toThrow();
+  });
   it("rejects source files outside the repository and symlinks", async () => {
     const repo = repository();
     capture();

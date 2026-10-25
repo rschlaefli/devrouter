@@ -28,7 +28,7 @@ import {
   type PreviewPoolEntry,
   type PreviewStateStore,
 } from "./state";
-import { AzureBlobPreviewState } from "./state/azure-blob";
+import { AzureBlobPreviewState, azureFederatedPreviewToken } from "./state/azure-blob";
 import type { PreviewPlanReport } from "./types";
 
 const MAX_COMMAND_AGE_MS = 15 * 60_000;
@@ -98,10 +98,25 @@ export function loadPreviewInstallation(
       return value;
     };
   };
-  const statePolicy = object(raw.state, ["containerUrl", "tokenEnv"]);
+  const statePolicy = object(raw.state, ["containerUrl"], ["tokenEnv", "federated"]);
+  if ((statePolicy.tokenEnv === undefined) === (statePolicy.federated === undefined))
+    throw new Error("Preview state requires exactly one installed authentication method.");
+  const federated =
+    statePolicy.federated === undefined
+      ? undefined
+      : object(statePolicy.federated, ["tenantIdEnv", "clientIdEnv", "assertionEnv"]);
+  const accessToken = federated
+    ? azureFederatedPreviewToken({
+        tenantId: credential(federated.tenantIdEnv),
+        clientId: credential(federated.clientIdEnv),
+        assertion: credential(federated.assertionEnv),
+        fetch: options.fetch,
+        now,
+      })
+    : credential(statePolicy.tokenEnv);
   const store = new AzureBlobPreviewState({
     containerUrl: text(statePolicy.containerUrl, /^https:\/\//),
-    accessToken: credential(statePolicy.tokenEnv),
+    accessToken,
     fetch: options.fetch,
   });
   if (!Array.isArray(raw.projects) || raw.projects.length < 1 || raw.projects.length > 16)
@@ -316,7 +331,7 @@ export function loadPreviewInstallation(
     return project.provider;
   };
   const controlTokens = new Set([
-    statePolicy.tokenEnv,
+    ...(federated ? Object.values(federated) : [statePolicy.tokenEnv]),
     "DEVROUTER_PREVIEW_CREDENTIALS",
     ...projects.flatMap((project) => project.tokens),
   ]);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { PreviewStateConflict, updatePreviewState } from "../state";
-import { AzureBlobPreviewState } from "../state/azure-blob";
+import { AzureBlobPreviewState, azureFederatedPreviewToken } from "../state/azure-blob";
 
 function validate(value: unknown): { count: number } {
   if (
@@ -115,5 +115,33 @@ describe("conditional preview state", () => {
     request.mockResolvedValueOnce(new Response(null, { status: 302 }));
     await expect(store.read("pool/test", validate)).rejects.toThrow();
     expect(request.mock.calls[0]?.[1]?.redirect).toBe("error");
+  });
+});
+
+describe("preview workload identity", () => {
+  it("exchanges only against the fixed tenant endpoint, caches and refreshes bounded tokens", async () => {
+    let now = 1_700_000_000_000;
+    const calls: { url: string; body: URLSearchParams }[] = [];
+    const token = azureFederatedPreviewToken({
+      tenantId: async () => "00000000-0000-4000-8000-000000000001",
+      clientId: async () => "00000000-0000-4000-8000-000000000002",
+      assertion: async () => "synthetic-assertion",
+      now: () => now,
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), body: new URLSearchParams(String(init?.body)) });
+        return new Response(
+          JSON.stringify({ token_type: "Bearer", expires_in: 60, access_token: "synthetic-token" }),
+        );
+      },
+    });
+    expect(await token()).toBe("synthetic-token");
+    expect(await token()).toBe("synthetic-token");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body.get("scope")).toBe("https://storage.azure.com/.default");
+    expect(calls[0].body.get("client_assertion")).toBe("synthetic-assertion");
+    expect(new URL(calls[0].url).hostname).toBe("login.microsoftonline.com");
+    now += 40_000;
+    await token();
+    expect(calls).toHaveLength(2);
   });
 });

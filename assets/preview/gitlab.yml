@@ -1,0 +1,22 @@
+# Install in a trusted controller project, outside candidate branch pipelines.
+spec:
+  inputs:
+    preview_mode:
+      default: sweep
+      options: [handle-event, sweep]
+    preview_project:
+      default: ''
+      regex: '^[a-z0-9-]*$'
+    preview_change:
+      default: ''
+      regex: '^[0-9]*$'
+---
+stages: [deploy]
+include:
+  - remote: https://raw.githubusercontent.com/rschlaefli/devrouter/__CONTROLLER_REF__/ci/gitlab/preview.yml
+    integrity: __TEMPLATE_INTEGRITY__
+    inputs:
+      controller_image: __CONTROLLER_IMAGE__
+      preview_mode: $[[ inputs.preview_mode ]]
+      preview_project: $[[ inputs.preview_project ]]
+      preview_change: $[[ inputs.preview_change ]]

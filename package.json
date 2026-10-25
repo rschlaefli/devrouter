@@ -20,6 +20,10 @@
   "engines": {
     "node": ">=24"
   },
+  "exports": {
+    "./preview/gitlab-ingress": "./dist/devrouter-preview-gitlab-ingress.js",
+    "./*": "./*"
+  },
   "bin": {
     "devrouter": "dist/devrouter.js",
     "devrouter-process": "bin/devrouter-process"

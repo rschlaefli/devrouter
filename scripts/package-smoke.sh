@@ -104,6 +104,9 @@ const required = new Set([
   'package/assets/preview/github.yml',
   'package/assets/preview/github-sweep.yml',
   'package/assets/preview/installation.json',
+  'package/assets/preview/gitlab.yml',
+  'package/assets/preview/gitlab-template.yml',
+  'package/dist/devrouter-preview-gitlab-ingress.js',
   ...prompts.map((prompt) => `package/upgrade-prompts/${prompt}`),
 ]);
 
@@ -446,6 +449,23 @@ node - "$PROBE_DIR/preview-github.txt" <<'NODE'
 const fs = require('node:fs');
 const rendered = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (rendered.written || rendered.qualified || !rendered.content || !rendered.installationExample) throw new Error('packaged preview integration failed');
+NODE
+run_probe preview-gitlab \
+  env HOME="$PROFILE_HOME" \
+  "$INSTALL_ROOT/node_modules/.bin/devrouter" \
+  preview init --repo "$PROFILE_REPO" --integration gitlab \
+  --controller-ref aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --controller-image registry.example.org/controller@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --json
+node - "$PROBE_DIR/preview-gitlab.txt" "$PACKAGE_DIR" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const rendered = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (rendered.written || rendered.qualified || !rendered.templateIntegrity) throw new Error('packaged GitLab integration failed');
+const search = {paths: [path.resolve(process.argv[3], '../../..')]};
+const ingress = require(require.resolve('@devrouter/cli/preview/gitlab-ingress', search));
+require.resolve('@devrouter/cli/package.json', search);
+require.resolve('@devrouter/cli/dist/devrouter.js', search);
+if (typeof ingress.createGitLabPreviewIngress !== 'function') throw new Error('packaged GitLab ingress export missing');
 NODE
 node - "$PROBE_DIR/preview-plan.txt" "$PROBE_DIR/preview-list.txt" "$PROFILE_HOME" <<'NODE'
 const fs = require('node:fs');

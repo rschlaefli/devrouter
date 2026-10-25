@@ -23,6 +23,7 @@ export type PreviewCommandOptions = {
   project?: string;
   installation?: string;
   sweeper?: boolean;
+  controllerImage?: string;
 };
 
 function readSource(repoPath: string, filename: string): PreviewSource {
@@ -73,8 +74,9 @@ export async function runPreviewPlanCommand(options: PreviewCommandOptions): Pro
 
 export async function runPreviewInitCommand(options: PreviewCommandOptions): Promise<void> {
   const repoPath = fs.realpathSync(resolveRepoPath(options.repo));
-  loadRepoConfig(repoPath);
+  if (options.integration === "gitlab") return renderGitLabPreviewIntegration(repoPath, options);
   if (options.integration) return renderPreviewIntegration(repoPath, options);
+  loadRepoConfig(repoPath);
   const manifest = {
     version: 1,
     aliases: { web: { resources: ["web"] } },
@@ -238,6 +240,45 @@ async function renderPreviewIntegration(
       written: options.write === true,
       installationExample: previewAsset("installation.json"),
       qualified: false,
+    });
+  else process.stdout.write(content);
+}
+
+async function renderGitLabPreviewIntegration(
+  repoPath: string,
+  options: PreviewCommandOptions,
+): Promise<void> {
+  if (
+    !/^[a-f0-9]{40}$/.test(options.controllerRef ?? "") ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[a-f0-9]{64}$/.test(options.controllerImage ?? "")
+  )
+    throw new Error(
+      "GitLab integration requires reviewed --controller-ref and --controller-image digest.",
+    );
+  const integrity = `sha256-${createHash("sha256").update(previewAsset("gitlab-template.yml")).digest("base64")}`;
+  const replacements: Record<string, string> = {
+    CONTROLLER_REF: String(options.controllerRef),
+    CONTROLLER_IMAGE: String(options.controllerImage),
+    TEMPLATE_INTEGRITY: integrity,
+  };
+  const content = previewAsset("gitlab.yml").replace(
+    /__([A-Z_]+)__/g,
+    (_match, key: string) => replacements[key],
+  );
+  const filename = ".gitlab-ci.yml";
+  if (options.write)
+    fs.writeFileSync(assertPathWithinRepo(filename, repoPath, "GitLab preview caller"), content, {
+      flag: "wx",
+      mode: 0o600,
+    });
+  if (options.json)
+    printJSON({
+      schemaVersion: 1,
+      path: filename,
+      content,
+      written: options.write === true,
+      qualified: false,
+      templateIntegrity: integrity,
     });
   else process.stdout.write(content);
 }

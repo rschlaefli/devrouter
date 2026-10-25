@@ -115,3 +115,74 @@ export class AzureBlobPreviewState implements PreviewStateStore {
     return requireETag(response.headers.get("etag"));
   }
 }
+
+/** Exchange a runner-issued workload assertion for a short-lived storage token. */
+export function azureFederatedPreviewToken(options: {
+  tenantId: () => Promise<string>;
+  clientId: () => Promise<string>;
+  assertion: () => Promise<string>;
+  fetch?: typeof fetch;
+  now?: () => number;
+}): () => Promise<string> {
+  let cached: { token: string; until: number } | undefined;
+  return async () => {
+    const now = options.now?.() ?? Date.now();
+    if (cached && cached.until > now + 30_000) return cached.token;
+    const tenant = await options.tenantId(),
+      client = await options.clientId(),
+      assertion = await options.assertion();
+    if (
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(tenant) ||
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(client) ||
+      !assertion ||
+      /\s/.test(assertion)
+    )
+      throw new Error("Invalid preview workload identity input.");
+    let response: Response;
+    try {
+      response = await (options.fetch ?? fetch)(
+        `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+        {
+          method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(15_000),
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: client,
+            scope: "https://storage.azure.com/.default",
+            grant_type: "client_credentials",
+            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+            client_assertion: assertion,
+          }),
+        },
+      );
+    } catch {
+      throw new Error("Preview workload identity exchange failed.");
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Preview workload identity exchange failed (HTTP ${response.status}).`);
+    }
+    let token: unknown;
+    try {
+      token = JSON.parse(await readPreviewResponse(response, "Preview identity"));
+    } catch {
+      throw new Error("Preview workload identity reply is invalid.");
+    }
+    if (
+      !token ||
+      typeof token !== "object" ||
+      !("access_token" in token) ||
+      typeof token.access_token !== "string" ||
+      !token.access_token ||
+      /\s/.test(token.access_token) ||
+      !("expires_in" in token) ||
+      !Number.isSafeInteger(token.expires_in) ||
+      (token.expires_in as number) < 60 ||
+      (token.expires_in as number) > 86400
+    )
+      throw new Error("Preview workload identity reply is invalid.");
+    cached = { token: token.access_token, until: now + (token.expires_in as number) * 1000 };
+    return cached.token;
+  };
+}

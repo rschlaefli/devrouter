@@ -7,6 +7,7 @@ export default defineConfig({
   entry: {
     devrouter: "src/cli.ts",
     "devrouter-lifecycle-worker": "src/lifecycle-worker.ts",
+    "devrouter-preview-gitlab-ingress": "src/core/preview/ingress/gitlab.ts",
   },
   format: ["cjs"],
   target: "node22",

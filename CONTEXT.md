@@ -8,9 +8,9 @@
 - **Down:** Destructive managed-workspace removal that deletes runtime resources, routes, the clean worktree unless retained explicitly, and finally the ownership record.
 - **Garbage collection:** Explicit cleanup of missing, ledger-owned workspace resources. It never removes Git worktrees, branches, or unrelated records.
 
-## Remote previews — planned capability
+## Remote previews
 
-These terms describe the remote-preview product direction; the capability is not implemented yet. Local workspace terms above retain their current meaning.
+These terms describe the opt-in remote-preview contract. Source integrations are implemented; live installation qualification is separate. Local workspace terms above retain their current meaning.
 
 **Remote preview**:
 An isolated application environment for reviewing a nominated source revision of a change request.
