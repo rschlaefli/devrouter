@@ -159,6 +159,10 @@ describe("durable preview reconciliation", () => {
     const ready = await f.engine.status(identity);
     expect(ready?.session.status).toBe("ready");
     expect(ready?.session.expiresAt).toBe(ready!.session.firstReadyAt! + 7_200_000 - 74_000);
+    const sequence = Object.values(f.snapshot().sessions)[0].effectSequence;
+    await f.engine.reconcile(identity);
+    expect(Object.values(f.snapshot().sessions)[0].effectSequence).toBe(sequence);
+    expect((await f.engine.status(identity))?.session.status).toBe("ready");
   });
 
   it("retains a stopped preview until a pending create settles and its late resources disappear", async () => {

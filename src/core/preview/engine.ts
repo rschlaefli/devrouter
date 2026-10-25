@@ -122,6 +122,7 @@ function prunePool(pool: PreviewPool, now: number, age: number): void {
       if (
         effect.kind === "deadline" &&
         effect.target !== entry.session.expiresAt &&
+        effect.confirmedDeadline !== entry.session.expiresAt &&
         effect.target !== entry.session.pendingDeadline?.target &&
         effect.target !== (entry.readyObservedAt ?? 0) + 2 * 3_600_000
       )
@@ -433,9 +434,10 @@ export class PreviewEngine {
         const deadline = terminal.find(
           (effect) =>
             effect.kind === "deadline" &&
-            effect.target === session.expiresAt &&
             effect.outcome === "succeeded" &&
-            confirms(session.expiresAt, effect.confirmedDeadline),
+            (effect.confirmedDeadline === session.expiresAt ||
+              (effect.target === session.expiresAt &&
+                confirms(session.expiresAt, effect.confirmedDeadline))),
         );
         if (!deadline) action = this.prepare(entry, "deadline", now, session.expiresAt);
         else if (!deployment) action = this.prepare(entry, "deploy", now);
