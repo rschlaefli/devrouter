@@ -93,8 +93,38 @@ describe("buildHostRoutesDocument", () => {
     // `postgresql`; the router must reference a TLSOption that offers it.
     expect(doc.tcp.routers[key].tls.options).toBe("devrouter-tcp-postgres@file");
     expect(doc.tls.options["devrouter-tcp-postgres"].alpnProtocols).toEqual(["postgresql"]);
-    // TCP routes must not leak into the http section.
-    expect(doc.http.routers[key]).toBeUndefined();
+    // Empty HTTP maps cause Traefik to reject the entire file, including TCP.
+    expect(doc.http).toBeUndefined();
+  });
+
+  it.each([true, false])("omits empty protocol sections when TLS is %s", (tlsEnabled) => {
+    expect(buildHostRoutesDocument([], tlsEnabled)).toEqual({});
+  });
+
+  it("preserves both sections for mixed HTTP and TCP routes", () => {
+    const doc = buildHostRoutesDocument(
+      [
+        makeRoute({}),
+        makeRoute({
+          id: "/repo::db",
+          name: "db",
+          host: "db.app.localhost",
+          protocol: "tcp",
+          tcpProtocol: "postgres",
+          port: 5432,
+          upstreamHost: "app-db",
+        }),
+      ],
+      true,
+    ) as any;
+    expect(Object.keys(doc.http.routers)).toEqual(["host-repo-app"]);
+    expect(Object.keys(doc.tcp.routers)).toEqual(["host-repo-db"]);
+    expect(doc.http.services["host-repo-app"].loadBalancer.servers).toEqual([
+      { url: "http://app-app:3000" },
+    ]);
+    expect(doc.tcp.services["host-repo-db"].loadBalancer.servers).toEqual([
+      { address: "app-db:5432" },
+    ]);
   });
 
   it("maps redis to its own entrypoint", () => {
