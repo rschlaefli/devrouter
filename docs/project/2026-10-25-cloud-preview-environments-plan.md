@@ -314,3 +314,6 @@ Slice9 source ready: GitHub REST client re-fetches immutable repository/change/c
 
 
 Slice9 Opus disposition: accepted copy-source oldPath, compare/page response sizing and initial status ownership fixes. Compare requests one commit; file pages have an explicit16MiB bound and discard patch content before retaining rows. State/ordinary forge responses keep their1MiB bound. Status marker is shared and required for creation/update; a no-environment create/update round trip is covered. Retained renderer for its imminent controller caller; no new abstraction was justified. Independent primary GraphQL schema evidence confirms nullable IssueComment.lastEditedAt; admission additionally requires null edit time, matching global ID/body/author/creation time, catching edits within REST timestamp resolution. Eight synthetic GitHub tests plus typecheck/knip precede correction review; no live call or workflow activation.
+
+
+Slice9 correction review confirmed all source fixes and found one test that failed too early on the new marker guard. Accepted the exact correction: pass a valid rendered body, prove the previous-comment GET occurred and assert no write; no prose assertion. Eight GitHub tests pass. No material source defect remains in that slice. Controller integration follows now.

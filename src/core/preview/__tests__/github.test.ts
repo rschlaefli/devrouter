@@ -28,10 +28,12 @@ function fixture() {
     large = false;
   let savedComment: Record<string, unknown> | undefined;
   const writes: string[] = [];
+  const reads: string[] = [];
   const fetcher: typeof fetch = async (url, init) => {
     const path = new URL(String(url)).pathname;
     expect(init?.redirect).toBe("error");
     let data: unknown;
+    if (init?.method === "GET") reads.push(path);
     if (init?.method !== "GET" && path !== "/graphql") writes.push(path);
     if (path.endsWith("/repos/example/app")) data = { id: 123, full_name: "example/app" };
     else if (path.endsWith("/pulls/9")) {
@@ -99,6 +101,7 @@ function fixture() {
     forge,
     comments,
     writes,
+    reads,
     edited: () => {
       edited = true;
     },
@@ -180,7 +183,8 @@ describe("GitHub preview source and authority", () => {
   });
   it("does not publish updates to unowned status comments", async () => {
     const f = fixture();
-    await expect(f.forge.publish(9, "status", "1")).rejects.toThrow("ownership");
+    await expect(f.forge.publish(9, previewStatusBody(null), "1")).rejects.toThrow();
+    expect(f.reads).toContain("/repos/example/app/issues/comments/1");
     expect(f.writes).toEqual([]);
   });
   it("rejects edits even when REST timestamps are equal", async () => {
