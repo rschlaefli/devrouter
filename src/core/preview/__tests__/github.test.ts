@@ -35,7 +35,8 @@ function fixture() {
     let data: unknown;
     if (init?.method === "GET") reads.push(path);
     if (init?.method !== "GET" && path !== "/graphql") writes.push(path);
-    if (path.endsWith("/repos/example/app")) data = { id: 123, full_name: "example/app" };
+    if (path.endsWith("/issues/9")) data = { number: 9, pull_request: { url: "synthetic" } };
+    else if (path.endsWith("/repos/example/app")) data = { id: 123, full_name: "example/app" };
     else if (path.endsWith("/pulls/9")) {
       sourceReads++;
       if (race && sourceReads > 1) head = "f".repeat(40);
@@ -47,7 +48,8 @@ function fixture() {
         head: { sha: head, repo: { id: fork ? 456 : 123 } },
         base: { sha: target, repo: { id: 123 } },
       };
-    } else if (path.endsWith("/files"))
+    } else if (path.endsWith("/events")) data = [];
+    else if (path.endsWith("/files"))
       data = [
         {
           filename: "src/new.ts",
@@ -207,5 +209,10 @@ describe("GitHub preview source and authority", () => {
     const id = await f.forge.publish(9, body);
     expect(await f.forge.publish(9, body, id)).toBe(id);
     expect(f.writes).toHaveLength(2);
+  });
+  it("discovers recent explicit commands without inspecting unrelated open pull requests", async () => {
+    const f = fixture();
+    expect(await f.forge.changes(0)).toEqual([9]);
+    expect(f.reads.some((path) => path.endsWith("/pulls"))).toBe(false);
   });
 });

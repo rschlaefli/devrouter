@@ -76,9 +76,30 @@ export class GitHubPreviewForge implements PreviewForge {
       open: row.state === "open" && row.merged !== true,
     };
   }
-  async snapshot(change: number): Promise<ForgeSnapshot> {
+  async snapshot(change: number, withSource = true): Promise<ForgeSnapshot> {
     await this.repository();
     const initial = await this.pull(change);
+    const events = initial.open
+      ? await this.http.pages(`${this.repo}/issues/${forgeId(change)}/events`)
+      : [];
+    const commandAfter = events
+      .map(object)
+      .filter((row) => row.event === "closed" || row.event === "reopened")
+      .reduce((time, row) => Math.max(time, forgeTime(row.created_at)), 0);
+    if (!withSource)
+      return {
+        identity: { forgeHost: this.options.forgeHost, projectId: this.options.projectId, change },
+        open: initial.open,
+        sameProject: initial.sameProject,
+        commandAfter,
+        source: {
+          head: initial.head,
+          target: initial.target,
+          mergeBase: initial.target,
+          complete: false,
+          changes: [],
+        },
+      };
     if (
       !Number.isSafeInteger(initial.row.changed_files) ||
       (initial.row.changed_files as number) < 0 ||
@@ -148,6 +169,7 @@ export class GitHubPreviewForge implements PreviewForge {
       identity: { forgeHost: this.options.forgeHost, projectId: this.options.projectId, change },
       open: current.open,
       sameProject: current.sameProject,
+      commandAfter,
       source: {
         head: initial.head,
         target: initial.target,
@@ -246,11 +268,56 @@ export class GitHubPreviewForge implements PreviewForge {
       author.login === object(row.user).login
     );
   }
-  async changes(): Promise<number[]> {
+  async changes(since: number): Promise<number[]> {
     await this.repository();
-    return (await this.http.pages(`${this.repo}/pulls?state=open&sort=created&direction=asc`)).map(
-      (raw) => Number(forgeId(object(raw).number)),
+    if (!Number.isSafeInteger(since) || since < 0)
+      throw new Error("Invalid GitHub recovery window.");
+    const rows = await this.http.pages(
+      `${this.repo}/issues/comments?since=${encodeURIComponent(new Date(since).toISOString())}&sort=created&direction=asc`,
     );
+    const changes = new Set<number>();
+    for (const raw of rows) {
+      const row = object(raw);
+      if (
+        typeof row.body !== "string" ||
+        !parsePreviewCommand(row.body) ||
+        object(row.user).type !== "User" ||
+        typeof row.issue_url !== "string"
+      )
+        continue;
+      const prefix = `${this.http.base.origin}${this.http.base.pathname}${this.repo}/issues/`;
+      if (!row.issue_url.startsWith(prefix))
+        throw new Error("GitHub recovered comment is outside the project.");
+      if (row.created_at !== row.updated_at || forgeTime(row.created_at) < since) continue;
+      const number = Number(forgeId(row.issue_url.slice(prefix.length)));
+      if (!Number.isSafeInteger(number)) throw new Error("Invalid recovered GitHub change number.");
+      changes.add(number);
+    }
+    if (changes.size > 128) throw new Error("GitHub command recovery exceeds its change bound.");
+    const pulls: number[] = [];
+    for (const change of changes) {
+      const issue = object((await this.http.request("GET", `${this.repo}/issues/${change}`)).data);
+      if (issue.number !== change) throw new Error("GitHub issue identity changed.");
+      if (issue.pull_request) pulls.push(change);
+    }
+    return pulls;
+  }
+  async findStatus(change: number, marker: string): Promise<string | null> {
+    await this.repository();
+    const comments = await this.http.pages(`${this.repo}/issues/${forgeId(change)}/comments`);
+    const matches = comments
+      .map(object)
+      .filter(
+        (row) =>
+          object(row.user).id === Number(this.options.botId) &&
+          row.issue_url ===
+            `${this.http.base.origin}${this.http.base.pathname}${this.repo}/issues/${change}` &&
+          typeof row.body === "string" &&
+          row.body.startsWith(PREVIEW_STATUS_MARKER) &&
+          row.body.includes(marker),
+      );
+    if (matches.length > 1) throw new Error("Preview status comment identity is ambiguous.");
+    return matches.length ? forgeId(matches[0].id) : null;
   }
   async publish(change: number, body: string, previousId?: string): Promise<string> {
     await this.repository();

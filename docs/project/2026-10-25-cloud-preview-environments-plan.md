@@ -317,3 +317,9 @@ Slice9 Opus disposition: accepted copy-source oldPath, compare/page response siz
 
 
 Slice9 correction review confirmed all source fixes and found one test that failed too early on the new marker guard. Accepted the exact correction: pass a valid rendered body, prove the previous-comment GET occurred and assert no write; no prose assertion. Eight GitHub tests pass. No material source defect remains in that slice. Controller integration follows now.
+
+
+Slice10 is the shared durable forge controller, source-only. Inventory extension: src/core/preview/controller.ts and __tests__/controller.test.ts have two approved callers, GitHub and GitLab. This keeps inbox/status persistence and control reconciliation out of forge clients and the provider engine. Existing commands/preview.ts owns trusted installation loading and CLI composition; no second config language or service package. Main owns the coupled admission/provider/trust integration. Acceptance includes missed events, stop-before-start effects, comment create uncertainty, source movement and stale-only push behavior.
+
+
+Slice10 source ready: shared controller reads bounded complete comment history before admission, revalidates current authority/source, coalesces starts behind stop fences and persists processed receipts before effects. Lightweight metadata permits stop/close without building a diff. A discovered close/reopen fence ends an older generation; pushes mark stale only. Active identities are recoverable from the pool, cleanup runs despite recovery failures, and sweep handles active sessions before discovery. GitHub discovery uses recent explicit comments, not every open PR. Status creation has a CAS intent and observes unknown outcomes; author/marker checks protect updates. Eight controller journeys plus nine GitHub tests pass; typecheck/knip and the combined preview suite run before commit. CLI/workflow activation remains the next slice.

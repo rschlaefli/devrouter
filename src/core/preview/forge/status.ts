@@ -13,15 +13,17 @@ export type ForgeSnapshot = {
   open: boolean;
   sameProject: boolean;
   source: PreviewSource;
+  commandAfter?: number;
 };
 export interface PreviewForge {
-  snapshot(change: number): Promise<ForgeSnapshot>;
+  snapshot(change: number, withSource?: boolean): Promise<ForgeSnapshot>;
   commands(change: number, since: number, until: number): Promise<ForgeComment[]>;
   admission(
     change: number,
     commentId: string,
   ): Promise<Omit<PreviewAdmission, "plan" | "hourlyCents"> | null>;
-  changes(): Promise<number[]>;
+  changes(since: number): Promise<number[]>;
+  findStatus(change: number, marker: string): Promise<string | null>;
   publish(change: number, body: string, previousId?: string): Promise<string>;
 }
 

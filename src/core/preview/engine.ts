@@ -317,6 +317,7 @@ export class PreviewEngine {
             throw new Error("Previous generation cleanup is incomplete.");
           const generation = createHash("sha256").update(receipt).digest("hex").slice(0, 24);
           pool.sessions[id] = {
+            identity: input.identity,
             session: createPreviewSession({
               generation,
               now: now,
@@ -350,6 +351,31 @@ export class PreviewEngine {
       return pool;
     });
     return pool.sessions[id] ?? null;
+  }
+
+  async identities(): Promise<PreviewIdentity[]> {
+    const record = await this.options.store.read(this.key, decodePreviewPool);
+    if (!record || record.value.installationId !== this.options.policy.installationId)
+      throw new Error("Preview installation state is unavailable.");
+    return Object.entries(record.value.sessions)
+      .filter(([, entry]) => entry.session.reservationHeld)
+      .map(([key, entry]) => {
+        if (!entry.identity || previewIdentityKey(entry.identity) !== key)
+          throw new Error("Preview session has no valid recoverable forge identity.");
+        return entry.identity;
+      });
+  }
+  async pushed(identity: PreviewIdentity, revision: string): Promise<void> {
+    const id = previewIdentityKey(identity);
+    await this.update((pool) => {
+      if (pool.sessions[id])
+        pool.sessions[id].session = transitionPreviewSession(pool.sessions[id].session, {
+          kind: "push",
+          revision,
+          now: this.options.now(),
+        });
+      return pool;
+    });
   }
 
   async close(identity: PreviewIdentity): Promise<void> {

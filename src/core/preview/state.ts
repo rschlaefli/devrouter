@@ -76,6 +76,7 @@ export type PreviewEffect = {
 };
 
 export type PreviewPoolEntry = {
+  identity?: import("./engine").PreviewIdentity;
   session: import("./lifecycle").PreviewSession;
   plan: import("./types").PreviewPlanReport;
   reservedCents: number;
@@ -362,8 +363,19 @@ export function decodePreviewPool(value: unknown): PreviewPool {
     const entry = object(
       value,
       ["session", "plan", "reservedCents", "hourlyCents", "operations", "effectSequence"],
-      ["readyObservedAt", "completedAt", "ownershipOverflow"],
+      ["readyObservedAt", "completedAt", "ownershipOverflow", "identity"],
     );
+    if (entry.identity !== undefined) {
+      const identity = object(entry.identity, ["forgeHost", "projectId", "change"]);
+      text(identity.forgeHost, 253);
+      text(identity.projectId, 128);
+      integer(identity.change, 1);
+      if (
+        !/^[a-z0-9.-]+$/.test(identity.forgeHost as string) ||
+        !/^[A-Za-z0-9_-]+$/.test(identity.projectId as string)
+      )
+        throw new Error("Invalid stored forge identity.");
+    }
     const session = decodeSession(entry.session);
     const plan = decodePlan(entry.plan);
     integer(entry.reservedCents);
