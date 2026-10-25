@@ -468,8 +468,18 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       return { ...this.receipt(owned, true), outcome: "cancelled" };
     // A newer source waits for every older native write; only stop can use the container deletion fence.
     const steps = await gate.read();
-    if (steps.some((step) => step.name.endsWith("-spec") && step.state !== "accepted"))
-      return this.receipt(owned);
+    for (const step of steps.filter(
+      (item) => item.name.endsWith("-spec") && item.state !== "accepted",
+    )) {
+      if (!owned.blueprintId || !step.fingerprint) return this.receipt(owned);
+      const blueprint = await this.options.api.request("GET", [
+        "preview-blueprints",
+        owned.blueprintId,
+      ]);
+      if (!blueprint || digest(data(blueprint).spec) !== step.fingerprint)
+        return this.receipt(owned);
+      await gate.record(step.name, "accepted");
+    }
     for (const step of steps.filter((item) => item.name.endsWith("-run"))) {
       if (!owned.blueprintId) return this.receipt(owned);
       let id = step.ref;

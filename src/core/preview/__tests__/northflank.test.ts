@@ -889,7 +889,6 @@ describe("Northflank provider lifecycle", () => {
     f.loseSpecReceipt();
     await f.command("start", { kind: "start", aliases: ["web"] });
     await expect(f.reconcile(2)).rejects.toThrow();
-    await f.reconcile(1);
     f.refreshSource();
     await f.command("refresh", { kind: "start", aliases: ["web"] });
     await f.reconcile(2);
