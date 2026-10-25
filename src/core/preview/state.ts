@@ -70,6 +70,7 @@ export type PreviewPoolEntry = {
   reservedCents: number;
   hourlyCents: number;
   operations: Record<string, PreviewEffect>;
+  effectSequence: number;
   readyObservedAt?: number;
   completedAt?: number;
 };
@@ -178,7 +179,7 @@ function decodeSession(value: unknown): import("./lifecycle").PreviewSession {
     throw new Error("Invalid preview alias.");
   strings(row.processedCommands);
   strings(row.outstandingOperations);
-  strings(row.ownedResources, 1024, 1024);
+  strings(row.ownedResources, 64, 128);
   if (typeof row.stale !== "boolean" || typeof row.reservationHeld !== "boolean")
     throw new Error("Invalid preview state flag.");
   if (row.stopReason !== undefined)
@@ -326,7 +327,7 @@ export function decodePreviewPool(value: unknown): PreviewPool {
   if (root.schemaVersion !== 1) throw new Error("Unsupported preview pool version.");
   text(root.installationId, 63);
   if (!/^[a-z0-9-]+$/.test(root.installationId)) throw new Error("Invalid preview installation.");
-  if (!Array.isArray(root.processedCommands) || root.processedCommands.length > 2048)
+  if (!Array.isArray(root.processedCommands) || root.processedCommands.length > 1024)
     throw new Error("Invalid preview command window.");
   const receiptIds = new Set<string>();
   for (const receipt of root.processedCommands) {
@@ -348,12 +349,13 @@ export function decodePreviewPool(value: unknown): PreviewPool {
     if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("Invalid preview identity key.");
     const entry = object(
       value,
-      ["session", "plan", "reservedCents", "hourlyCents", "operations"],
+      ["session", "plan", "reservedCents", "hourlyCents", "operations", "effectSequence"],
       ["readyObservedAt", "completedAt"],
     );
     const session = decodeSession(entry.session);
     const plan = decodePlan(entry.plan);
     integer(entry.reservedCents);
+    integer(entry.effectSequence);
     integer(entry.hourlyCents, 1);
     if (entry.readyObservedAt !== undefined) integer(entry.readyObservedAt);
     if (entry.completedAt !== undefined) {
@@ -398,7 +400,7 @@ export function decodePreviewPool(value: unknown): PreviewPool {
       integer(effect.operationVersion, 1);
       integer(effect.deadlineVersion, 1);
       integer(effect.leaseExpiresAt);
-      strings(effect.resources, 1024, 1024);
+      strings(effect.resources, 64, 128);
       if (effect.outcome !== undefined) oneOf(effect.outcome, ["succeeded", "failed", "cancelled"]);
       if (effect.target !== undefined) integer(effect.target);
       if (effect.confirmedDeadline !== undefined) integer(effect.confirmedDeadline);

@@ -127,3 +127,10 @@ Cleanup observations bind the ownership version from the snapshot checked at the
 provider; a conflict never upgrades old absence evidence to newer ownership.
 The engine is qualified with a simulated provider; no live deployment adapter is
 connected to the CLI yet.
+
+The internal conditional-state prototype currently supports at most four active
+sessions per installation. It rejects larger capacity settings explicitly.
+Plans are bounded to32KiB, provider ownership receipts to64identifiers of128characters,
+and replay receipts to1024within the configured command-age window.
+Verified terminal sessions are removed after that window; cleanup keeps its
+metadata reserve. These prototype bounds are independent of cloud quotas.

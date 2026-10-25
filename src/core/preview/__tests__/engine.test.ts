@@ -319,6 +319,36 @@ describe("durable preview reconciliation", () => {
     ).rejects.toThrow("not eligible");
   });
 
+  it("uses a new destroy attempt after a terminal failure", async () => {
+    const f = fixture();
+    await f.admit();
+    for (let step = 0; step < 4; step += 1) await f.engine.reconcile(identity);
+    const original = f.provider.submit;
+    const attempts: string[] = [];
+    f.provider.submit = async (effect, entry) => {
+      if (effect.kind === "destroy") {
+        attempts.push(effect.id);
+        if (attempts.length === 1) return { phase: "terminal", resources: [], outcome: "failed" };
+      }
+      return original(effect, entry);
+    };
+    await f.engine.close(identity);
+    for (let step = 0; step < 4; step += 1) await f.engine.reconcile(identity);
+    expect(attempts).toHaveLength(2);
+    expect(new Set(attempts).size).toBe(2);
+    expect((await f.engine.status(identity))?.session.reservationHeld).toBe(false);
+  });
+
+  it("rejects contradictory successful deadline receipts before deployment", async () => {
+    const f = fixture();
+    f.provider.submit = async () => ({ phase: "terminal", resources: [], outcome: "succeeded" });
+    await f.admit();
+    await f.engine.reconcile(identity);
+    const stopped = await f.engine.status(identity);
+    expect(stopped?.session.status).toBe("stopping");
+    expect(f.calls).not.toContain("deploy");
+  });
+
   it("keeps immutable identity stable across object ordering and rejects corrupted stored policy state", async () => {
     expect(previewIdentityKey(identity)).toBe(
       previewIdentityKey({
@@ -370,5 +400,15 @@ describe("durable preview reconciliation", () => {
     ).rejects.toThrow();
     expect(f.calls).toEqual([]);
     expect(Object.values(f.snapshot().sessions)).toHaveLength(0);
+    expect(
+      () =>
+        new PreviewEngine({
+          store: f.store,
+          provider: f.provider,
+          policy: { ...f.policy, maxActive: 5 },
+          workerId: "over-bound",
+          now: f.now,
+        }),
+    ).toThrow("at most four");
   });
 });

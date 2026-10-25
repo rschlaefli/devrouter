@@ -149,6 +149,8 @@ export class PreviewEngine {
     if (!/^[a-z0-9-]{1,63}$/.test(policy.installationId) || !workerId || workerId.length > 128) {
       throw new Error("Invalid preview installation or worker identity.");
     }
+    if (policy.maxActive > 4)
+      throw new Error("Preview pool supports at most four active sessions.");
     if (!policy.allowedAliases.every(isPreviewAlias))
       throw new Error("Invalid allowed preview aliases.");
     this.key = `installations/${policy.installationId}/pool`;
@@ -193,7 +195,7 @@ export class PreviewEngine {
       now < input.createdAt ||
       now - input.createdAt > policy.maxCommandAgeMs ||
       !input.commandId ||
-      input.commandId.length > 256
+      input.commandId.length > 128
     )
       throw new Error("Preview command is not eligible for admission.");
     if (input.command.kind === "status" || input.command.kind === "profiles")
@@ -202,7 +204,7 @@ export class PreviewEngine {
     const receipt = `${id}:${input.commandId}`;
     const pool = await this.update((pool) => {
       if (pool.processedCommands.some((item) => item.id === receipt)) return pool;
-      if (pool.processedCommands.length >= 2048 && input.command.kind !== "stop")
+      if (pool.processedCommands.length >= 1024 && input.command.kind !== "stop")
         throw new Error("Preview command recovery window is full.");
       const current = pool.sessions[id];
       if (input.command.kind === "stop") {
@@ -238,6 +240,8 @@ export class PreviewEngine {
         )
           throw new Error("A complete approved source-bound plan is required.");
         const hourly = input.hourlyCents;
+        if (Buffer.byteLength(JSON.stringify(plan)) > 32 * 1024)
+          throw new Error("Preview plan exceeds the installation metadata bound.");
         if (!Number.isSafeInteger(hourly) || hourly === undefined || hourly < 1)
           throw new Error("A bounded allocation estimate is required.");
         if (current?.session.reservationHeld) {
@@ -278,6 +282,7 @@ export class PreviewEngine {
             hourlyCents: hourly,
             reservedCents: Math.ceil((hourly * 140) / 60),
             operations: {},
+            effectSequence: 0,
           };
         }
       }
@@ -294,7 +299,7 @@ export class PreviewEngine {
         Buffer.byteLength(JSON.stringify(pool)) + active * 128 * 1024 > 1024 * 1024
       )
         throw new Error("Preview pool metadata capacity is reserved for cleanup.");
-      if (pool.processedCommands.length < 2048)
+      if (pool.processedCommands.length < 1024)
         pool.processedCommands.push({ id: receipt, admittedAt: now });
       return pool;
     });
@@ -321,7 +326,7 @@ export class PreviewEngine {
     target?: number,
   ): PreviewEffect {
     const session = entry.session;
-    const id = `${session.generation}:${kind}:${session.operationVersion}:${session.deadlineVersion}:${session.ownershipVersion}:${target ?? 0}`;
+    const id = `${session.generation}:${++entry.effectSequence}`;
     const effect: PreviewEffect = {
       id,
       kind,
@@ -519,8 +524,9 @@ export class PreviewEngine {
       throw new Error("Invalid provider operation status.");
     if (
       !Array.isArray(receipt.resources) ||
+      receipt.resources.length > 64 ||
       receipt.resources.some(
-        (resource) => typeof resource !== "string" || !resource || resource.length > 1024,
+        (resource) => typeof resource !== "string" || !resource || resource.length > 128,
       )
     )
       throw new Error("Invalid provider ownership receipt.");
@@ -538,10 +544,9 @@ export class PreviewEngine {
         live.ready = receipt.ready;
         live.confirmedDeadline = receipt.confirmedDeadline;
         live.outcome =
-          receipt.outcome ??
-          (live.kind === "deadline" && !confirms(live.target, receipt.confirmedDeadline)
+          live.kind === "deadline" && !confirms(live.target, receipt.confirmedDeadline)
             ? "failed"
-            : "succeeded");
+            : (receipt.outcome ?? "succeeded");
         if (tracked(live))
           current.session = transitionPreviewSession(current.session, {
             kind: "effect-settled",
