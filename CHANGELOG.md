@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-10-25
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.5.5.md
+
 ### Fixed
 
 - Replace Dockerode 4 with Dockerode 5 to remove its UUID 10 dependency, which is
