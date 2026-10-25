@@ -20,6 +20,8 @@ export type PreviewEffectReceipt = {
   outcome?: "succeeded" | "failed" | "cancelled";
 };
 
+// Resource IDs are bounded ownership receipts. Destroy and absent must discover
+// the complete generation independently, including allocations omitted on overflow.
 export interface PreviewProvider {
   submit(effect: PreviewEffect, entry: PreviewPoolEntry): Promise<PreviewEffectReceipt>;
   observe(effect: PreviewEffect, entry: PreviewPoolEntry): Promise<PreviewEffectReceipt>;
@@ -333,6 +335,7 @@ export class PreviewEngine {
       generation: session.generation,
       operationVersion: session.operationVersion,
       deadlineVersion: session.deadlineVersion,
+      ownershipVersion: session.ownershipVersion,
       phase: "prepared",
       leaseOwner: this.options.workerId,
       leaseExpiresAt: now + this.options.policy.leaseMs,
@@ -408,6 +411,7 @@ export class PreviewEngine {
               effect.kind === "destroy" &&
               effect.phase === "terminal" &&
               effect.outcome === "succeeded" &&
+              effect.ownershipVersion === session.ownershipVersion &&
               session.ownedResources.every((resource) => effect.resources.includes(resource)),
           )
         )
@@ -524,7 +528,7 @@ export class PreviewEngine {
       throw new Error("Invalid provider operation status.");
     if (
       !Array.isArray(receipt.resources) ||
-      receipt.resources.length > 64 ||
+      receipt.resources.length > 1024 ||
       receipt.resources.some(
         (resource) => typeof resource !== "string" || !resource || resource.length > 128,
       )
@@ -536,11 +540,17 @@ export class PreviewEngine {
       if (!live || live.phase === "terminal" || current.session.generation !== effect.generation)
         return pool;
       if (receipt.phase === "terminal") {
+        const additions = [...new Set(receipt.resources)].filter(
+          (resource) => !current.session.ownedResources.includes(resource),
+        );
+        const overflow = current.session.ownedResources.length + additions.length > 64;
+        const recorded = [...current.session.ownedResources, ...additions].slice(0, 64);
+        if (overflow) current.ownershipOverflow = true;
         live.phase = "terminal";
         live.resources =
           live.kind === "destroy"
-            ? [...new Set([...live.resources, ...receipt.resources])]
-            : receipt.resources;
+            ? [...new Set([...live.resources, ...receipt.resources])].slice(0, 64)
+            : receipt.resources.slice(0, 64);
         live.ready = receipt.ready;
         live.confirmedDeadline = receipt.confirmedDeadline;
         live.outcome =
@@ -553,7 +563,12 @@ export class PreviewEngine {
             now: this.options.now(),
             generation: effect.generation,
             operationId: effect.id,
-            resources: receipt.resources,
+            resources: recorded,
+          });
+        if (overflow && !isStopping(current.session))
+          current.session = transitionPreviewSession(current.session, {
+            kind: "stop",
+            now: this.options.now(),
           });
         if (
           live.kind === "deadline" &&

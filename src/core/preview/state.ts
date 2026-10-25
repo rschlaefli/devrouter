@@ -54,6 +54,7 @@ export type PreviewEffect = {
   generation: string;
   operationVersion: number;
   deadlineVersion: number;
+  ownershipVersion: number;
   target?: number;
   phase: "prepared" | "submitted" | "terminal";
   leaseOwner: string;
@@ -71,6 +72,7 @@ export type PreviewPoolEntry = {
   hourlyCents: number;
   operations: Record<string, PreviewEffect>;
   effectSequence: number;
+  ownershipOverflow?: boolean;
   readyObservedAt?: number;
   completedAt?: number;
 };
@@ -350,12 +352,14 @@ export function decodePreviewPool(value: unknown): PreviewPool {
     const entry = object(
       value,
       ["session", "plan", "reservedCents", "hourlyCents", "operations", "effectSequence"],
-      ["readyObservedAt", "completedAt"],
+      ["readyObservedAt", "completedAt", "ownershipOverflow"],
     );
     const session = decodeSession(entry.session);
     const plan = decodePlan(entry.plan);
     integer(entry.reservedCents);
     integer(entry.effectSequence);
+    if (entry.ownershipOverflow !== undefined && entry.ownershipOverflow !== true)
+      throw new Error("Invalid ownership overflow marker.");
     integer(entry.hourlyCents, 1);
     if (entry.readyObservedAt !== undefined) integer(entry.readyObservedAt);
     if (entry.completedAt !== undefined) {
@@ -383,6 +387,7 @@ export function decodePreviewPool(value: unknown): PreviewPool {
           "generation",
           "operationVersion",
           "deadlineVersion",
+          "ownershipVersion",
           "phase",
           "leaseOwner",
           "leaseExpiresAt",
@@ -399,6 +404,7 @@ export function decodePreviewPool(value: unknown): PreviewPool {
       oneOf(effect.phase, ["prepared", "submitted", "terminal"]);
       integer(effect.operationVersion, 1);
       integer(effect.deadlineVersion, 1);
+      integer(effect.ownershipVersion, 1);
       integer(effect.leaseExpiresAt);
       strings(effect.resources, 64, 128);
       if (effect.outcome !== undefined) oneOf(effect.outcome, ["succeeded", "failed", "cancelled"]);

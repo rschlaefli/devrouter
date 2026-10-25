@@ -134,3 +134,7 @@ Plans are bounded to32KiB, provider ownership receipts to64identifiers of128char
 and replay receipts to1024within the configured command-age window.
 Verified terminal sessions are removed after that window; cleanup keeps its
 metadata reserve. These prototype bounds are independent of cloud quotas.
+
+Ownership overflow is persisted and forces cleanup. A provider must discover and
+delete the entire generation independently of the bounded receipt list, then
+prove absence before capacity is released.

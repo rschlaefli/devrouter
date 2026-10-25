@@ -8,10 +8,10 @@ const BACKSTOP = 140 * MINUTE;
 const MAX_EXTENSIONS = 2;
 const MAX_AFTER_READY = 4 * HOUR;
 const MAX_COMMANDS = 1024;
-const MAX_ITEMS = 1024;
+const MAX_ITEMS = 64;
 const MAX_ALIASES = 64;
 const MAX_ID = 256;
-const MAX_RESOURCE_ID = 1024;
+const MAX_RESOURCE_ID = 128;
 const REVISION_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export type PreviewSessionStatus =

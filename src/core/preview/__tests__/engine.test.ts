@@ -349,6 +349,44 @@ describe("durable preview reconciliation", () => {
     expect(f.calls).not.toContain("deploy");
   });
 
+  it("retains overflow as a cleanup state and destroys the complete generation", async () => {
+    const f = fixture();
+    const original = f.provider.submit;
+    let batch = 0;
+    f.provider.submit = async (effect, entry) => {
+      if (effect.kind === "deploy") {
+        const ids = Array.from({ length: 40 }, (_, index) => `owned-${batch}-${index}`);
+        batch += 1;
+        for (const id of ids) f.resources.add(id);
+        return { phase: "terminal", resources: ids, ready: true };
+      }
+      if (effect.kind === "destroy" && entry.ownershipOverflow) f.resources.clear();
+      return original(effect, entry);
+    };
+    await f.admit();
+    for (let step = 0; step < 4; step += 1) await f.engine.reconcile(identity);
+    const changed = structuredClone(plan);
+    changed.source!.head = "f".repeat(40);
+    await f.engine.admit({
+      identity,
+      commandId: "refresh",
+      createdAt: f.now(),
+      actorCanWrite: true,
+      originalHumanRoot: true,
+      open: true,
+      sameProject: true,
+      command: { kind: "start", aliases: ["chat"] },
+      plan: changed,
+      hourlyCents: 10,
+    });
+    await f.engine.reconcile(identity);
+    expect((await f.engine.status(identity))?.ownershipOverflow).toBe(true);
+    expect((await f.engine.status(identity))?.session.status).toBe("stopping");
+    for (let step = 0; step < 3; step += 1) await f.engine.reconcile(identity);
+    expect(f.resources.size).toBe(0);
+    expect((await f.engine.status(identity))?.session.reservationHeld).toBe(false);
+  });
+
   it("keeps immutable identity stable across object ordering and rejects corrupted stored policy state", async () => {
     expect(previewIdentityKey(identity)).toBe(
       previewIdentityKey({
