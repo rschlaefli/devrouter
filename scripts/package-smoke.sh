@@ -420,6 +420,29 @@ if ((fs.statSync(filePath).mode & 0o777) !== 0o600) {
 }
 NODE
 
+run_probe preview-init \
+  env HOME="$PROFILE_HOME" PATH=/usr/bin:/bin \
+  "$NODE_BIN" "$PACKAGE_DIR/dist/devrouter.js" \
+  preview init --repo "$PROFILE_REPO" --write --json
+run_probe preview-plan \
+  env HOME="$PROFILE_HOME" PATH=/usr/bin:/bin \
+  "$NODE_BIN" "$PACKAGE_DIR/dist/devrouter.js" \
+  preview plan --repo "$PROFILE_REPO" --alias web --json
+run_probe preview-list \
+  env HOME="$PROFILE_HOME" PATH=/usr/bin:/bin \
+  "$NODE_BIN" "$PACKAGE_DIR/dist/devrouter.js" \
+  preview plan --repo "$PROFILE_REPO" --list --json
+node - "$PROBE_DIR/preview-plan.txt" "$PROBE_DIR/preview-list.txt" "$PROFILE_HOME" <<'NODE'
+const fs = require('node:fs');
+const plan = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const aliases = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+if (plan.schemaVersion !== 1 || plan.status !== 'planned' || plan.resources.length !== 1 || plan.resources[0].id !== 'web') {
+  throw new Error('packaged preview plan failed');
+}
+if (JSON.stringify(aliases.aliases) !== JSON.stringify(['web'])) throw new Error('packaged preview aliases failed');
+if (fs.readdirSync(process.argv[4]).length !== 0) throw new Error('preview planning wrote home state');
+NODE
+
 node "$ROOT_DIR/scripts/qualify-network-package.cjs" "$PACKAGE_DIR" "$WORK_ROOT"
 
 echo "Installed package verified from temporary cwd: $PROBE_CWD"

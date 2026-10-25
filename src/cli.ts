@@ -463,6 +463,36 @@ profileCommand
     ),
   );
 
+const previewCommand = program
+  .command("preview")
+  .description("Inspect opt-in remote previews without starting a local runtime");
+previewCommand
+  .command("plan")
+  .description("Resolve a preview manifest into an offline resource plan")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--alias <names>", "Preview alias or reviewed comma-separated union")
+  .option("--source <path>", "Repository-relative JSON source identity and changed paths")
+  .option("--list", "List declared preview aliases")
+  .option("--json", "Output structured JSON")
+  .action(
+    withErrorHandling(async (options) => {
+      const { runPreviewPlanCommand } = await import("./commands/preview");
+      await runPreviewPlanCommand(options);
+    }),
+  );
+previewCommand
+  .command("init")
+  .description("Print a preview manifest scaffold for review")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--write", "Create .devrouter.preview.yml only if absent")
+  .option("--json", "Output the scaffold and setup checklist as JSON")
+  .action(
+    withErrorHandling(async (options) => {
+      const { runPreviewInitCommand } = await import("./commands/preview");
+      await runPreviewInitCommand(options);
+    }),
+  );
+
 const appCommand = program
   .command("app")
   .description("Manage app entries and runtime actions from `.devrouter.yml`");
