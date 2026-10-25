@@ -368,3 +368,6 @@ Slice14 Opus disposition: accepted MR eligibility before payload-specific decodi
 
 
 Slice14 focused Opus correctness passes. Applied exact final reductions: remove unreachable duplicate event/type checks after early204returns and reuse the typed fixture request builder. No new contract/native write; main closes these verified local recommendations. Full host source suite3083pass13skip with2workers at1719a40; new issue-note regression passes focused. Typecheck/knip/check/docs/knowledge/build and installed-package smoke pass after template consolidation. The fixture driver installs/imports at locked3.3.6; no database, application runtime or cloud started. Final package source review follows.
+
+
+Finish evidence: Package5 delivered as [draft PR #155](https://github.com/rschlaefli/devrouter/pull/155), head11256d7; integrated Opus source review and exact-head CI are running. Build and installed-package smoke pass on that head. A new docs/solutions/integration/preview-command-refusals-block-reconciliation.md captures the demonstrated clock/recovery defect, rather than changing shared skills or memory. Product live qualification, release/merge and consumer activation remain separately gated. No application/local container runtime was started; only ignored fixture dependency installation was used for import proof.
