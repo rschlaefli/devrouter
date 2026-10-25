@@ -87,7 +87,7 @@ Supported routing:
 - `devrouter setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics; `--idle-stop <duration|off>` installs or removes the macOS idle-stop launchd agent)
 - `devrouter up`, `devrouter down`, `devrouter status`, `devrouter doctor` (alias: `devrouter verify`), `devrouter ls`, `devrouter open`, `devrouter logs`, `devrouter tls install`
 - `devrouter ensure` (`[path]`, `--open`, `--repair`, `--json`), `devrouter stop` (`[path]`, `--delete`, `--json`), `devrouter exec` (`[path] -- <command...>`), `devrouter env` (`[path]`, `--json`, or `[path] -- <command...>` on the host)
-- `devrouter preview init` (`--repo`, `--write`, `--json`), `devrouter preview plan` (`--repo`, `--alias`, `--source`, `--list`, `--json`); offline only.
+- `devrouter preview init` and `plan` provide offline scaffolding/planning; `doctor --installation` checks reviewed policy offline. Explicit `state-init`, `handle-event` and `sweep --installation` use installed remote credentials/state; see `docs/PREVIEWS.md`.
 - `devrouter profile resolve` (`--repo`, `--profile`, `--json`), `devrouter profile plan` (`--repo`, `--profile`, `--contract`, `--output`, `--json`)
 - `devrouter repo init`, `devrouter repo inspect` (`--json`), `devrouter repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `devrouter repo devcontainer verify` (`--live`, `--yes`, `--json`), `devrouter repo agents`
 - `devrouter harness gate` (`--repo`, `--wait-budget-ms`, `--json`; agent-harness `PreToolUse` hook)

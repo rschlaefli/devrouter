@@ -101,6 +101,9 @@ const required = new Set([
   ...binTargets.map(normalizeMember),
   'package/dist/devrouter.js',
   'package/dist/devrouter-lifecycle-worker.js',
+  'package/assets/preview/github.yml',
+  'package/assets/preview/github-sweep.yml',
+  'package/assets/preview/installation.json',
   ...prompts.map((prompt) => `package/upgrade-prompts/${prompt}`),
 ]);
 
@@ -432,6 +435,18 @@ run_probe preview-list \
   env HOME="$PROFILE_HOME" PATH=/usr/bin:/bin \
   "$NODE_BIN" "$PACKAGE_DIR/dist/devrouter.js" \
   preview plan --repo "$PROFILE_REPO" --list --json
+run_probe preview-github \
+  env HOME="$PROFILE_HOME" \
+  "$INSTALL_ROOT/node_modules/.bin/devrouter" \
+  preview init --repo "$PROFILE_REPO" --integration github \
+  --controller-ref aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --policy-ref bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+  --policy-repository example/policy --project app --json
+node - "$PROBE_DIR/preview-github.txt" <<'NODE'
+const fs = require('node:fs');
+const rendered = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (rendered.written || rendered.qualified || !rendered.content || !rendered.installationExample) throw new Error('packaged preview integration failed');
+NODE
 node - "$PROBE_DIR/preview-plan.txt" "$PROBE_DIR/preview-list.txt" "$PROFILE_HOME" <<'NODE'
 const fs = require('node:fs');
 const plan = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));

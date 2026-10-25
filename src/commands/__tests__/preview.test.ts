@@ -56,6 +56,32 @@ describe("offline preview commands", () => {
     await expect(runPreviewPlanCommand({ repo, list: true, alias: "web" })).rejects.toThrow();
   });
 
+  it("renders pinned callers and refuses replacement or mutable source refs", async () => {
+    const repo = repository(),
+      output = capture();
+    const options = {
+      repo,
+      integration: "github",
+      controllerRef: "a".repeat(40),
+      policyRef: "b".repeat(40),
+      policyRepository: "example/policy",
+      project: "app",
+      json: true,
+    };
+    await runPreviewInitCommand(options);
+    const rendered = JSON.parse(String(output.mock.calls[0]?.[0]));
+    const { parse } = await import("yaml");
+    const workflow = parse(rendered.content);
+    expect(workflow.jobs.preview.uses).toBe(
+      `rschlaefli/devrouter/.github/workflows/preview.yml@${options.controllerRef}`,
+    );
+    expect(workflow.jobs.preview.with["policy-ref"]).toBe(options.policyRef);
+    expect(workflow.jobs.preview.secrets).not.toBe("inherit");
+    expect(fs.existsSync(path.join(repo, rendered.path))).toBe(false);
+    await runPreviewInitCommand({ ...options, write: true });
+    await expect(runPreviewInitCommand({ ...options, write: true })).rejects.toThrow();
+    await expect(runPreviewInitCommand({ ...options, controllerRef: "main" })).rejects.toThrow();
+  });
   it("rejects source files outside the repository and symlinks", async () => {
     const repo = repository();
     capture();

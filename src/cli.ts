@@ -504,9 +504,16 @@ for (const action of ["doctor", "state-init", "handle-event", "sweep"] as const)
 }
 previewCommand
   .command("init")
-  .description("Print a preview manifest scaffold for review")
+  .description("Print a preview manifest or pinned CI caller for review")
   .option("--repo <path>", "Repository path (defaults to current directory)")
-  .option("--write", "Create .devrouter.preview.yml only if absent")
+  .option("--integration <forge>", "Render a GitHub caller instead of a manifest")
+  .option("--controller-ref <sha>", "Reviewed immutable Devrouter commit")
+  .option("--policy-ref <sha>", "Reviewed immutable installation repository commit")
+  .option("--policy-repository <owner/repo>", "Private installation repository")
+  .option("--installation <path>", "Policy repository installation JSON")
+  .option("--project <key>", "Registered project key")
+  .option("--sweeper", "Render the once-per-installation recovery sweep caller")
+  .option("--write", "Create only an absent scaffold or caller file")
   .option("--json", "Output the scaffold and setup checklist as JSON")
   .action(
     withErrorHandling(async (options) => {

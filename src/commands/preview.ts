@@ -16,6 +16,13 @@ export type PreviewCommandOptions = {
   list?: boolean;
   json?: boolean;
   write?: boolean;
+  integration?: string;
+  controllerRef?: string;
+  policyRef?: string;
+  policyRepository?: string;
+  project?: string;
+  installation?: string;
+  sweeper?: boolean;
 };
 
 function readSource(repoPath: string, filename: string): PreviewSource {
@@ -67,6 +74,7 @@ export async function runPreviewPlanCommand(options: PreviewCommandOptions): Pro
 export async function runPreviewInitCommand(options: PreviewCommandOptions): Promise<void> {
   const repoPath = fs.realpathSync(resolveRepoPath(options.repo));
   loadRepoConfig(repoPath);
+  if (options.integration) return renderPreviewIntegration(repoPath, options);
   const manifest = {
     version: 1,
     aliases: { web: { resources: ["web"] } },
@@ -162,4 +170,74 @@ export async function runPreviewInstallationCommand(
       );
   }
   printJSON({ schemaVersion: 1, action, status: "reconciled" });
+}
+
+function previewAsset(name: string): string {
+  const candidates = [
+    path.resolve(__dirname, "..", "assets", "preview", name),
+    path.resolve(__dirname, "..", "..", "assets", "preview", name),
+  ];
+  const file = candidates.find((file) => fs.existsSync(file));
+  if (!file) throw new Error("Installed preview integration asset is missing.");
+  return fs.readFileSync(file, "utf8");
+}
+
+async function renderPreviewIntegration(
+  repoPath: string,
+  options: PreviewCommandOptions,
+): Promise<void> {
+  if (options.integration !== "github")
+    throw new Error("Only the GitHub integration is installed.");
+  if (
+    !/^[a-f0-9]{40}$/.test(options.controllerRef ?? "") ||
+    !/^[a-f0-9]{40}$/.test(options.policyRef ?? "")
+  )
+    throw new Error(
+      "Integration output requires reviewed --controller-ref and --policy-ref commit SHAs.",
+    );
+  if (
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(options.policyRepository ?? "") ||
+    options.policyRepository?.includes("..") ||
+    !/^[a-z][a-z0-9-]{0,62}$/.test(options.project ?? "")
+  )
+    throw new Error("Integration output requires --policy-repository and a registered --project.");
+  const installation = options.installation ?? "installation.json";
+  if (
+    !/^[A-Za-z0-9_./-]+$/.test(installation) ||
+    installation.startsWith("/") ||
+    installation.split("/").includes("..")
+  )
+    throw new Error("Installation must be a relative policy-repository path.");
+  const replacements: Record<string, string> = {
+    CONTROLLER_REF: String(options.controllerRef),
+    POLICY_REF: String(options.policyRef),
+    POLICY_REPOSITORY: String(options.policyRepository),
+    INSTALLATION: installation,
+    PROJECT: String(options.project),
+  };
+  const content = previewAsset(options.sweeper ? "github-sweep.yml" : "github.yml").replace(
+    /__([A-Z_]+)__/g,
+    (_match, key: string) =>
+      replacements[key] ??
+      (() => {
+        throw new Error("Unknown preview template input.");
+      })(),
+  );
+  const filename = `.github/workflows/devrouter-preview${options.sweeper ? "-sweep" : ""}.yml`;
+  if (options.write) {
+    const file = assertPathWithinRepo(filename, repoPath, "preview workflow");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    assertPathWithinRepo(fs.realpathSync(path.dirname(file)), repoPath, "preview workflow parent");
+    fs.writeFileSync(file, content, { flag: "wx", mode: 0o600 });
+  }
+  if (options.json)
+    printJSON({
+      schemaVersion: 1,
+      path: filename,
+      content,
+      written: options.write === true,
+      installationExample: previewAsset("installation.json"),
+      qualified: false,
+    });
+  else process.stdout.write(content);
 }
