@@ -407,7 +407,7 @@ export function loadPreviewInstallation(
         }
         if (plan.status === "planned") {
           if (project.forge instanceof GitLabPreviewForge)
-            await project.forge.verifyControllerSafe();
+            await project.forge.verifyControllerSafe(environment.CI_PROJECT_ID);
           project.provider.validatePlan(plan);
         }
         return plan;
@@ -417,15 +417,17 @@ export function loadPreviewInstallation(
       urls: (entry) => compileNorthflankGraph(entry, project.graph, "prepare").urls,
     }),
   }));
-  const diagnostic = {
+  const report = (verified: ReadonlySet<number> = new Set()) => ({
     schemaVersion: 1,
     installationId,
     maxActive,
     maxReservedCents,
-    projects: projects.map((p) => {
+    projects: projects.map((p, index) => {
       const requiredProofs: string[] = [
         ...northflankQualificationKeys.filter((key) => !p.qualification[key]),
-        ...(p.forge instanceof GitLabPreviewForge ? ["gitlab-controller-settings"] : []),
+        ...(p.forge instanceof GitLabPreviewForge && !verified.has(index)
+          ? ["gitlab-controller-settings"]
+          : []),
       ];
       return {
         key: p.key,
@@ -436,29 +438,25 @@ export function loadPreviewInstallation(
         requiredProofs,
       };
     }),
-  };
+  });
   return {
     installationId,
     store,
     engine,
     controllers,
-    diagnostic,
+    diagnostic: report(),
     async inspectPlatform() {
-      const report = structuredClone(diagnostic);
+      const verified = new Set<number>();
       for (const [index, project] of projects.entries()) {
         if (!(project.forge instanceof GitLabPreviewForge)) continue;
         try {
-          await project.forge.verifyControllerSafe();
+          await project.forge.verifyControllerSafe(environment.CI_PROJECT_ID);
+          verified.add(index);
         } catch (error) {
-          if (error instanceof PreviewAdmissionRefused) continue;
-          throw error;
+          if (!(error instanceof PreviewAdmissionRefused)) throw error;
         }
-        report.projects[index].requiredProofs = report.projects[index].requiredProofs.filter(
-          (key) => key !== "gitlab-controller-settings",
-        );
-        report.projects[index].qualified = report.projects[index].requiredProofs.length === 0;
       }
-      return report;
+      return report(verified);
     },
   };
 }

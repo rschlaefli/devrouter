@@ -54,12 +54,17 @@ export class GitLabPreviewForge implements PreviewForge {
     });
   }
   /** Run externally before enabling triggers; an in-job check cannot undo variable injection. */
-  async verifyControllerSafe(): Promise<void> {
+  async verifyControllerSafe(expectedProjectId?: string): Promise<void> {
     const id = this.options.controllerProjectId;
     if (!id)
       throw new PreviewAdmissionRefused(
         "forge-unqualified",
         "GitLab controller project is not registered.",
+      );
+    if (expectedProjectId !== undefined && expectedProjectId !== id)
+      throw new PreviewAdmissionRefused(
+        "forge-unqualified",
+        "GitLab controller identity differs from installed policy.",
       );
     let raw: unknown;
     try {

@@ -275,10 +275,12 @@ uses no candidate checkout and permits only protected-ref trigger/schedule pipel
 Before creating or exposing a trigger, an installation owner must set the controller
 project's Minimum role to use pipeline variables to `no_one_allowed`. Typed inputs
 remain usable. A role-based restriction such as `maintainer` is insufficient.
-Register that controller ID as `forge.controllerProjectId` in private policy and run
+Register the actual controller project ID as `forge.controllerProjectId` in private
+policy. Set the ingress target from that same value, and run
 `preview doctor --live --installation <file>` from a trusted operator environment
 before any privileged pipeline. The forge token must be able to read that project's
-settings. Missing/unreadable/unsafe settings keep GitLab qualification incomplete and
+settings. In GitLab CI, `CI_PROJECT_ID` must also match that registered controller ID.
+Missing/unreadable/unsafe settings keep GitLab qualification incomplete and
 new starts refused. This pre-activation check is essential: an in-job check cannot
 undo variable injection before Node or the shell starts. Restrict protected refs,
 controller image changes and project/group credentials to installation owners.

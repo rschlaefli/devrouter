@@ -485,7 +485,7 @@ for (const action of ["doctor", "state-init", "handle-event", "sweep"] as const)
     .command(action)
     .description(
       action === "doctor"
-        ? "Inspect reviewed installation policy without network or writes"
+        ? "Inspect reviewed policy; --live reads platform settings"
         : "Reconcile an explicitly installed remote preview controller",
     )
     .requiredOption(

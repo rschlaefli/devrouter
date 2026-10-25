@@ -134,8 +134,9 @@ describe("reviewed preview installation", () => {
     for (const kind of ["github", "gitlab"] as const) {
       for (const mismatch of kind === "github"
         ? ([false, true, "symlink", "unqualified"] as const)
-        : [false, true, "unqualified"]) {
+        : [false, true, "unqualified", "controller"]) {
         const drift = mismatch === true || mismatch === "symlink";
+        const planned = mismatch === "unqualified" || mismatch === "controller";
         const f = fixture(),
           now = 1_700_000_000_000;
         if (kind === "gitlab") {
@@ -242,8 +243,8 @@ describe("reviewed preview installation", () => {
             if (route.endsWith("/diffs"))
               return json([
                 {
-                  old_path: mismatch === "unqualified" ? "src/app.ts" : "docs/guide.md",
-                  new_path: mismatch === "unqualified" ? "src/app.ts" : "docs/guide.md",
+                  old_path: planned ? "src/app.ts" : "docs/guide.md",
+                  new_path: planned ? "src/app.ts" : "docs/guide.md",
                   a_mode: "100644",
                   b_mode: "100644",
                   renamed_file: false,
@@ -323,7 +324,7 @@ describe("reviewed preview installation", () => {
             return json([
               {
                 status: "modified",
-                filename: mismatch === "unqualified" ? "src/app.ts" : "docs/guide.md",
+                filename: planned ? "src/app.ts" : "docs/guide.md",
               },
             ]);
           if (url.pathname.includes("/compare/"))
@@ -348,6 +349,7 @@ describe("reviewed preview installation", () => {
           env: {
             DEVROUTER_PREVIEW_STATE_TOKEN: "synthetic",
             DEVROUTER_PREVIEW_GITHUB_TOKEN: "synthetic",
+            ...(mismatch === "controller" ? { CI_PROJECT_ID: "888" } : {}),
           },
           fetch,
           now: () => now,
@@ -356,17 +358,21 @@ describe("reviewed preview installation", () => {
           expect(installed.diagnostic.projects[0].requiredProofs).toContain(
             "gitlab-controller-settings",
           );
-          expect((await installed.inspectPlatform()).projects[0].requiredProofs).not.toContain(
-            "gitlab-controller-settings",
-          );
+          expect(
+            (await installed.inspectPlatform()).projects[0].requiredProofs.includes(
+              "gitlab-controller-settings",
+            ),
+          ).toBe(mismatch === "controller");
         }
         await installed.controllers[0].controller.scan(9);
         const inbox = [...rows.entries()].find(([key]) => key.includes("/inbox/"))?.[1];
         expect(JSON.parse(inbox?.value ?? "{}").selection).toBe(
-          mismatch === "unqualified" ? undefined : drift ? "review-required" : "no-runtime",
+          planned ? undefined : drift ? "review-required" : "no-runtime",
         );
-        if (mismatch === "unqualified")
-          expect(JSON.parse(inbox?.value ?? "{}").refusal).toBe("provider-unqualified");
+        if (planned)
+          expect(JSON.parse(inbox?.value ?? "{}").refusal).toBe(
+            mismatch === "controller" ? "forge-unqualified" : "provider-unqualified",
+          );
         expect(JSON.parse(inbox?.value ?? "{}").processed).toHaveLength(1);
         expect(posted).toBeDefined();
         expect(await installed.engine.identities()).toEqual([]);
