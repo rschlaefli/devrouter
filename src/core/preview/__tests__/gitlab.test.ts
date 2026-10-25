@@ -7,6 +7,7 @@ function fixture() {
     target = "b".repeat(40),
     base = "c".repeat(40);
   let branchHead = target;
+  let controllerRole = "no_one_allowed";
   let outsiders = 0;
   let edited = false,
     fork = false,
@@ -49,6 +50,7 @@ function fixture() {
     repository: "group/app",
     projectId: "123",
     botId: "456",
+    controllerProjectId: "777",
     token: async () => "synthetic",
     fetch: async (input, init) => {
       const url = new URL(String(input)),
@@ -79,6 +81,8 @@ function fixture() {
         return reply(published);
       }
       reads.push(route);
+      if (route === "/api/v4/projects/777")
+        return reply({ id: 777, ci_pipeline_variables_minimum_override_role: controllerRole });
       if (route === "/api/v4/projects/123")
         return reply({ id: 123, path_with_namespace: "group/app" });
       if (route === "/api/v4/projects/123/merge_requests/9") return reply(merge());
@@ -139,6 +143,9 @@ function fixture() {
     move: () => {
       moving = true;
     },
+    unsafeController: () => {
+      controllerRole = "maintainer";
+    },
     outsiderBurst: () => {
       outsiders = 130;
     },
@@ -186,6 +193,14 @@ describe("GitLab registered preview forge", () => {
     const revoked = fixture();
     revoked.revoke();
     expect(await revoked.forge.admission(9, "1")).toBeNull();
+  });
+  it("requires the registered controller project to forbid all pipeline variable overrides", async () => {
+    const f = fixture();
+    await f.forge.verifyControllerSafe();
+    f.unsafeController();
+    await expect(f.forge.verifyControllerSafe()).rejects.toMatchObject({
+      reason: "forge-unqualified",
+    });
   });
   it("excludes an outsider burst before the controller authority window", async () => {
     const f = fixture();

@@ -133,8 +133,9 @@ describe("reviewed preview installation", () => {
   it("automatically selects a bare start and reports unreviewed controls without allocating", async () => {
     for (const kind of ["github", "gitlab"] as const) {
       for (const mismatch of kind === "github"
-        ? ([false, true, "symlink"] as const)
-        : [false, true]) {
+        ? ([false, true, "symlink", "unqualified"] as const)
+        : [false, true, "unqualified"]) {
+        const drift = mismatch === true || mismatch === "symlink";
         const f = fixture(),
           now = 1_700_000_000_000;
         if (kind === "gitlab") {
@@ -143,6 +144,7 @@ describe("reviewed preview installation", () => {
             host: "gitlab.example.org",
             apiUrl: "https://gitlab.example.org/api/v4/",
             repository: "group/app",
+            controllerProjectId: "777",
           });
           f.write();
         }
@@ -212,6 +214,11 @@ describe("reviewed preview installation", () => {
               updated_at: comment.updated_at,
               author: { id: 8 },
             };
+            if (route === "/api/v4/projects/777")
+              return json({
+                id: 777,
+                ci_pipeline_variables_minimum_override_role: "no_one_allowed",
+              });
             if (route === prefix) return json({ id: 123, path_with_namespace: "group/app" });
             if (route === `${prefix}/merge_requests/9`)
               return json({
@@ -235,8 +242,8 @@ describe("reviewed preview installation", () => {
             if (route.endsWith("/diffs"))
               return json([
                 {
-                  old_path: "docs/guide.md",
-                  new_path: "docs/guide.md",
+                  old_path: mismatch === "unqualified" ? "src/app.ts" : "docs/guide.md",
+                  new_path: mismatch === "unqualified" ? "src/app.ts" : "docs/guide.md",
                   a_mode: "100644",
                   b_mode: "100644",
                   renamed_file: false,
@@ -275,7 +282,7 @@ describe("reviewed preview installation", () => {
               const file = decodeURIComponent(route.split("/repository/files/")[1]),
                 name = file === ".devrouter.yml" ? "local.yml" : "preview.yml";
               const bytes = Buffer.from(
-                fs.readFileSync(path.join(f.root, name), "utf8") + (mismatch ? "\n# drift" : ""),
+                fs.readFileSync(path.join(f.root, name), "utf8") + (drift ? "\n# drift" : ""),
               );
               return json({
                 file_path: file,
@@ -313,14 +320,19 @@ describe("reviewed preview installation", () => {
               },
             });
           if (url.pathname.endsWith("/files"))
-            return json([{ status: "modified", filename: "docs/guide.md" }]);
+            return json([
+              {
+                status: "modified",
+                filename: mismatch === "unqualified" ? "src/app.ts" : "docs/guide.md",
+              },
+            ]);
           if (url.pathname.includes("/compare/"))
             return json({ merge_base_commit: { sha: "c".repeat(40) } });
           if (url.pathname.includes("/contents/")) {
             const file = url.pathname.split("/contents/")[1],
               name = file === ".devrouter.yml" ? "local.yml" : "preview.yml";
             const bytes = Buffer.from(
-              fs.readFileSync(path.join(f.root, name), "utf8") + (mismatch ? "\n# drift" : ""),
+              fs.readFileSync(path.join(f.root, name), "utf8") + (drift ? "\n# drift" : ""),
             );
             return json({
               type: mismatch === "symlink" ? "symlink" : "file",
@@ -340,11 +352,21 @@ describe("reviewed preview installation", () => {
           fetch,
           now: () => now,
         });
+        if (kind === "gitlab") {
+          expect(installed.diagnostic.projects[0].requiredProofs).toContain(
+            "gitlab-controller-settings",
+          );
+          expect((await installed.inspectPlatform()).projects[0].requiredProofs).not.toContain(
+            "gitlab-controller-settings",
+          );
+        }
         await installed.controllers[0].controller.scan(9);
         const inbox = [...rows.entries()].find(([key]) => key.includes("/inbox/"))?.[1];
         expect(JSON.parse(inbox?.value ?? "{}").selection).toBe(
-          mismatch ? "review-required" : "no-runtime",
+          mismatch === "unqualified" ? undefined : drift ? "review-required" : "no-runtime",
         );
+        if (mismatch === "unqualified")
+          expect(JSON.parse(inbox?.value ?? "{}").refusal).toBe("provider-unqualified");
         expect(JSON.parse(inbox?.value ?? "{}").processed).toHaveLength(1);
         expect(posted).toBeDefined();
         expect(await installed.engine.identities()).toEqual([]);

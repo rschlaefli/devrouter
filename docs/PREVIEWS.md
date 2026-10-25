@@ -218,9 +218,10 @@ devrouter preview handle-event --installation /trusted/installation.json \
 devrouter preview sweep --installation /trusted/installation.json --json
 ```
 
-`doctor` is offline and excludes credential input; exit 3 means qualification is
-incomplete. `state-init` is an explicit one-time write. A permanent initialization
-witness prevents an accidentally missing pool from being recreated empty. Missing
+`doctor` is offline by default and excludes credential input; exit 3 means
+qualification is incomplete. `doctor --live` uses the installed forge token for
+read-only controller settings verification. It changes no project settings.
+`state-init` is an explicit one-time write. A permanent initialization witness prevents an accidentally missing pool from being recreated empty. Missing
 established state requires operator recovery. The handler reconciles for at most
 12 minutes; the independent finite sweep recovers interrupted work. History windows
 and authority lookups are bounded; overflow refuses new effects while due cleanup
@@ -270,8 +271,17 @@ instances can vendor the reviewed template or use a same-instance pinned include
 No GitLab mirror or catalog is created. The operator builds the exact CLI and private
 policy into the digest-pinned controller image at `/opt/devrouter` and
 `/opt/devrouter-policy`. That image must never contain credentials. The template
-uses no candidate checkout and permits only protected-ref trigger/schedule/manual
-pipelines. Restrict trigger use and image/variable overrides to installation operators.
+uses no candidate checkout and permits only protected-ref trigger/schedule pipelines.
+Before creating or exposing a trigger, an installation owner must set the controller
+project's Minimum role to use pipeline variables to `no_one_allowed`. Typed inputs
+remain usable. A role-based restriction such as `maintainer` is insufficient.
+Register that controller ID as `forge.controllerProjectId` in private policy and run
+`preview doctor --live --installation <file>` from a trusted operator environment
+before any privileged pipeline. The forge token must be able to read that project's
+settings. Missing/unreadable/unsafe settings keep GitLab qualification incomplete and
+new starts refused. This pre-activation check is essential: an in-job check cannot
+undo variable injection before Node or the shell starts. Restrict protected refs,
+controller image changes and project/group credentials to installation owners.
 Schedule `sweep` independently; webhook delivery alone is insufficient recovery.
 
 Current GitLab documentation supports direct webhook pipeline triggers for Push/Tag.
@@ -281,8 +291,9 @@ the registered candidate/controller project IDs, API endpoint, protected control
 ref and async hook-secret/trigger-token callbacks. Deploy it on a serverless Node
 host under a separately approved rollout. It verifies the Note Hook secret, event
 identity, same-project original command and fixed target before triggering typed
-numeric hints. It holds no deployment token. The controller re-fetches authority and
-original notes; redeliveries are deduplicated by durable command identity. The
+numeric hints. Its trigger token can reach controller credentials while variable
+overrides are enabled; keep the receiver disabled until the mandatory project
+setting is verified. The controller re-fetches authority and original notes; redeliveries are deduplicated by durable command identity. The
 installation sweep recovers missed or failed deliveries. Configure edge request/time
 limits and keep raw webhook bodies and token values out of logs.
 
@@ -318,3 +329,7 @@ with an unavailable controller remain separate rollout cells.
 | GitLab public/private/self-managed | API/controller and ingress tests, integrity include | Unqualified |
 | Northflank fixed expiry/deletion/network policy | Synthetic provider conformance | Unqualified |
 | Python/Postgres | Offline graph, locked fixture and health endpoint source | Unqualified |
+
+[GitLab's pipeline-variable restrictions](https://docs.gitlab.com/ci/variables/#restrict-pipeline-variables)
+explain why `no_one_allowed` is required even when typed inputs are used. A source
+pipeline template cannot change or prove this server-side setting on its own.

@@ -3,7 +3,7 @@ import { parsePreviewCommand } from "../command";
 import { forgeId, forgeObject as object } from "../forge/status";
 import { readPreviewResponse } from "../http";
 
-/** Fetch-compatible serverless ingress. Holds a pipeline trigger token, never deployment credentials. */
+/** Trigger-only ingress; disable controller pipeline-variable overrides before activation. */
 export function createGitLabPreviewIngress(options: {
   hookSecret: () => Promise<string>;
   triggerToken: () => Promise<string>;

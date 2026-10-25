@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { parseRepoConfigSource } from "../repo-config";
+import { PreviewAdmissionRefused } from "./command";
 import { PreviewController } from "./controller";
 import { PreviewEngine, type PreviewProvider } from "./engine";
 import { GitHubPreviewForge } from "./forge/github";
@@ -132,15 +133,11 @@ export function loadPreviewInstallation(
       "acceptance",
     ]);
     const key = text(row.key, /^[a-z][a-z0-9-]{0,62}$/);
-    const forgePolicy = object(row.forge, [
-      "kind",
-      "host",
-      "apiUrl",
-      "repository",
-      "projectId",
-      "botId",
-      "tokenEnv",
-    ]);
+    const forgePolicy = object(
+      row.forge,
+      ["kind", "host", "apiUrl", "repository", "projectId", "botId", "tokenEnv"],
+      ["controllerProjectId"],
+    );
     if (!["github", "gitlab"].includes(String(forgePolicy.kind)))
       throw new Error("Unknown installed forge adapter.");
     const host = text(forgePolicy.host, /^[a-z0-9.-]{1,253}$/),
@@ -153,6 +150,9 @@ export function loadPreviewInstallation(
       projectId,
       botId: text(forgePolicy.botId, /^[1-9][0-9]{0,19}$/),
       token: credential(forgePolicy.tokenEnv),
+      ...(forgePolicy.kind === "gitlab" && forgePolicy.controllerProjectId !== undefined
+        ? { controllerProjectId: text(forgePolicy.controllerProjectId, /^[1-9][0-9]{0,19}$/) }
+        : {}),
       fetch: options.fetch,
     });
     const control = (input: unknown) => {
@@ -405,7 +405,11 @@ export function loadPreviewInstallation(
               reasons: [`control-file-unreviewed:${file}`],
             };
         }
-        if (plan.status === "planned") project.provider.validatePlan(plan);
+        if (plan.status === "planned") {
+          if (project.forge instanceof GitLabPreviewForge)
+            await project.forge.verifyControllerSafe();
+          project.provider.validatePlan(plan);
+        }
         return plan;
       },
       hourlyCents: (plan: PreviewPlanReport) =>
@@ -413,27 +417,48 @@ export function loadPreviewInstallation(
       urls: (entry) => compileNorthflankGraph(entry, project.graph, "prepare").urls,
     }),
   }));
+  const diagnostic = {
+    schemaVersion: 1,
+    installationId,
+    maxActive,
+    maxReservedCents,
+    projects: projects.map((p) => {
+      const requiredProofs: string[] = [
+        ...northflankQualificationKeys.filter((key) => !p.qualification[key]),
+        ...(p.forge instanceof GitLabPreviewForge ? ["gitlab-controller-settings"] : []),
+      ];
+      return {
+        key: p.key,
+        forgeHost: p.host,
+        projectId: p.projectId,
+        aliases: p.aliases,
+        qualified: requiredProofs.length === 0,
+        requiredProofs,
+      };
+    }),
+  };
   return {
     installationId,
     store,
     engine,
     controllers,
-    diagnostic: {
-      schemaVersion: 1,
-      installationId,
-      maxActive,
-      maxReservedCents,
-      projects: projects.map((p) => {
-        const requiredProofs = northflankQualificationKeys.filter((key) => !p.qualification[key]);
-        return {
-          key: p.key,
-          forgeHost: p.host,
-          projectId: p.projectId,
-          aliases: p.aliases,
-          qualified: requiredProofs.length === 0,
-          requiredProofs,
-        };
-      }),
+    diagnostic,
+    async inspectPlatform() {
+      const report = structuredClone(diagnostic);
+      for (const [index, project] of projects.entries()) {
+        if (!(project.forge instanceof GitLabPreviewForge)) continue;
+        try {
+          await project.forge.verifyControllerSafe();
+        } catch (error) {
+          if (error instanceof PreviewAdmissionRefused) continue;
+          throw error;
+        }
+        report.projects[index].requiredProofs = report.projects[index].requiredProofs.filter(
+          (key) => key !== "gitlab-controller-settings",
+        );
+        report.projects[index].qualified = report.projects[index].requiredProofs.length === 0;
+      }
+      return report;
     },
   };
 }

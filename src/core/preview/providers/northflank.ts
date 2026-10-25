@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { PreviewAdmissionRefused } from "../command";
 import type { PreviewEffectReceipt, PreviewProvider, PreviewWriteGate } from "../engine";
 import type { PreviewEffect, PreviewPoolEntry } from "../state";
 import { object, PreviewStateConflict, type PreviewStateStore, updatePreviewState } from "../state";
@@ -228,22 +229,34 @@ export class NorthflankPreviewProvider implements PreviewProvider {
   }
   validatePlan(plan: PreviewPlanReport): void {
     if (!northflankQualificationKeys.every((key) => this.options.qualification[key] === true))
-      throw new NorthflankFailure(
+      throw new PreviewAdmissionRefused(
+        "provider-unqualified",
         "Northflank preview qualification is incomplete; live admission is disabled.",
       );
-    const graph = compileNorthflankGraph(
-      {
-        plan,
-        session: { generation: "0".repeat(24), desiredRevision: plan.source?.head },
-      } as PreviewPoolEntry,
-      this.options.graph,
-      "prepare",
-    );
+    let graph: ReturnType<typeof compileNorthflankGraph>;
+    try {
+      graph = compileNorthflankGraph(
+        {
+          plan,
+          session: { generation: "0".repeat(24), desiredRevision: plan.source?.head },
+        } as PreviewPoolEntry,
+        this.options.graph,
+        "prepare",
+      );
+    } catch {
+      throw new PreviewAdmissionRefused(
+        "provider-unsupported",
+        "Northflank preview plan is unsupported by installed policy.",
+      );
+    }
     if (
       graph.spec.spec.steps.filter((node) => resourceKinds.includes(nativeKinds[node.kind]))
         .length > 200
     )
-      throw new NorthflankFailure("Northflank planned allocations exceed their ownership bound.");
+      throw new PreviewAdmissionRefused(
+        "provider-unsupported",
+        "Northflank planned allocations exceed their ownership bound.",
+      );
   }
   private ownership(entry: PreviewPoolEntry) {
     return new NorthflankOwnershipStore({

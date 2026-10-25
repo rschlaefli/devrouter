@@ -494,6 +494,7 @@ for (const action of ["doctor", "state-init", "handle-event", "sweep"] as const)
     )
     .option("--project <key>", "Registered project key for handle-event")
     .option("--change <number>", "PR or MR number, treated only as a hint")
+    .option("--live", "Doctor only: read the registered controller platform settings")
     .option("--json", "Print structured output")
     .action(
       withErrorHandling(async (options) => {

@@ -119,19 +119,27 @@ export async function runPreviewInitCommand(options: PreviewCommandOptions): Pro
 
 export async function runPreviewInstallationCommand(
   action: "doctor" | "state-init" | "handle-event" | "sweep",
-  options: { installation: string; project?: string; change?: string; json?: boolean },
+  options: {
+    installation: string;
+    project?: string;
+    change?: string;
+    json?: boolean;
+    live?: boolean;
+  },
 ): Promise<void> {
   const { loadPreviewInstallation, initializePreviewInstallation } = await import(
     "../core/preview/installation"
   );
+  if (options.live && action !== "doctor")
+    throw new Error("--live is supported only by preview doctor.");
   const installation = loadPreviewInstallation(
     options.installation,
-    action === "doctor" ? { env: {} } : {},
+    action === "doctor" && !options.live ? { env: {} } : {},
   );
   if (action === "state-init")
     await initializePreviewInstallation(installation.installationId, installation.store);
   else if (action === "doctor") {
-    const report = installation.diagnostic;
+    const report = options.live ? await installation.inspectPlatform() : installation.diagnostic;
     printJSON(report);
     if (report.projects.some((project) => !project.qualified)) process.exitCode = 3;
     return;

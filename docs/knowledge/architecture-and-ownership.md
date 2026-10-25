@@ -94,6 +94,8 @@ and source; the shared controller owns durable inbox/status, while the engine ow
 allocation/deadline/cleanup state. The Northflank adapter owns native graph semantics
 and immutable receipts. Runtime secrets are separate from controller credentials.
 The GitLab ingress only requests a protected controller pipeline with identity hints;
-it does not hold provider credentials. [Remote previews](../PREVIEWS.md) owns setup
+it stores no provider token, but its trigger capability reaches those credentials
+unless the controller project disables all pipeline-variable overrides before
+activation. [Remote previews](../PREVIEWS.md) owns setup
 and live qualification status; [ADR 0013](../adr/0013-opt-in-remote-previews.md) owns
 why remote state remains independent from local workspace identity.

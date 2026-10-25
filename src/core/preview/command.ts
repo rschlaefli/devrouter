@@ -9,6 +9,9 @@ export const previewRefusalReasons = [
   "command-window",
   "metadata",
   "selection-required",
+  "provider-unqualified",
+  "provider-unsupported",
+  "forge-unqualified",
 ] as const;
 export class PreviewAdmissionRefused extends Error {
   constructor(

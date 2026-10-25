@@ -1,4 +1,4 @@
-import { parsePreviewCommand } from "../command";
+import { PreviewAdmissionRefused, parsePreviewCommand } from "../command";
 import type { PreviewAdmission } from "../engine";
 import { assertRepoRelativePath } from "../manifest";
 import type { PreviewSource } from "../types";
@@ -29,12 +29,14 @@ export class GitLabPreviewForge implements PreviewForge {
       repository: string;
       projectId: string;
       botId: string;
+      controllerProjectId?: string;
       token: () => Promise<string>;
       fetch?: typeof fetch;
     },
   ) {
     forgeId(options.projectId);
     forgeId(options.botId);
+    if (options.controllerProjectId !== undefined) forgeId(options.controllerProjectId);
     const api = new URL(options.apiUrl);
     if (
       api.hostname !== options.forgeHost ||
@@ -50,6 +52,35 @@ export class GitLabPreviewForge implements PreviewForge {
       apiUrl: `${api.origin}/api/`,
       kind: "gitlab",
     });
+  }
+  /** Run externally before enabling triggers; an in-job check cannot undo variable injection. */
+  async verifyControllerSafe(): Promise<void> {
+    const id = this.options.controllerProjectId;
+    if (!id)
+      throw new PreviewAdmissionRefused(
+        "forge-unqualified",
+        "GitLab controller project is not registered.",
+      );
+    let raw: unknown;
+    try {
+      raw = (await this.http.request("GET", `projects/${id}`)).data;
+    } catch (error) {
+      if (error instanceof PreviewForgeRejected && [403, 404].includes(error.status))
+        throw new PreviewAdmissionRefused(
+          "forge-unqualified",
+          "GitLab controller settings cannot be verified.",
+        );
+      throw error;
+    }
+    const row = object(raw);
+    if (
+      forgeId(row.id) !== id ||
+      row.ci_pipeline_variables_minimum_override_role !== "no_one_allowed"
+    )
+      throw new PreviewAdmissionRefused(
+        "forge-unqualified",
+        "GitLab controller must disable pipeline variable overrides before activation.",
+      );
   }
   private async registered() {
     const row = object((await this.http.request("GET", this.project)).data);
