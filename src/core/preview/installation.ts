@@ -6,6 +6,7 @@ import { parseRepoConfigSource } from "../repo-config";
 import { PreviewController } from "./controller";
 import { PreviewEngine, type PreviewProvider } from "./engine";
 import { GitHubPreviewForge } from "./forge/github";
+import { forgeObject as map, PreviewForgeRejected } from "./forge/status";
 import { parsePreviewManifest } from "./manifest";
 import { buildPreviewPlan, listPreviewAliases } from "./plan";
 import {
@@ -25,6 +26,7 @@ import {
 import { AzureBlobPreviewState } from "./state/azure-blob";
 import type { PreviewPlanReport } from "./types";
 
+const MAX_COMMAND_AGE_MS = 15 * 60_000;
 const digest = (source: string) => createHash("sha256").update(source).digest("hex");
 const envName = (value: unknown): string => {
   if (typeof value !== "string" || !/^DEVROUTER_PREVIEW_[A-Z0-9_]+$/.test(value))
@@ -67,15 +69,15 @@ export function loadPreviewInstallation(
   const maxActive = integer(raw.maxActive, 1, 4),
     maxReservedCents = integer(raw.maxReservedCents, 1, 100_000);
   const supplied = options.env ?? process.env;
-  const injected = supplied.DEVROUTER_PREVIEW_CREDENTIALS
-    ? (JSON.parse(supplied.DEVROUTER_PREVIEW_CREDENTIALS) as unknown)
-    : {};
-  const names =
-    injected && typeof injected === "object" && !Array.isArray(injected)
-      ? Object.keys(injected)
-      : [];
-  const extra = object(injected, [], names);
-  if (names.length > 128) throw new Error("Preview credential map exceeds its bound.");
+  let injected: unknown = {};
+  try {
+    if (supplied.DEVROUTER_PREVIEW_CREDENTIALS)
+      injected = JSON.parse(supplied.DEVROUTER_PREVIEW_CREDENTIALS);
+  } catch {
+    throw new Error("Preview credential map is not valid JSON.");
+  }
+  const extra = map(injected);
+  if (Object.keys(extra).length > 128) throw new Error("Preview credential map exceeds its bound.");
   for (const [name, value] of Object.entries(extra)) {
     envName(name);
     if (typeof value !== "string" || value.length > 64 * 1024 || value.includes("\0"))
@@ -161,16 +163,12 @@ export function loadPreviewInstallation(
       if (typeof qualifications[key] !== "boolean")
         throw new Error("Invalid Northflank qualification evidence.");
     const qualification = qualifications as NorthflankQualification;
-    const secrets = object(
-      northflank.runtimeSecrets,
-      [],
-      Object.keys(northflank.runtimeSecrets as object),
-    );
+    const secrets = map(northflank.runtimeSecrets);
     for (const [name, value] of Object.entries(secrets)) {
       text(name, /^[A-Za-z][A-Za-z0-9_-]{0,127}$/);
       envName(value);
     }
-    const rates = object(row.hourlyCents, [], Object.keys(row.hourlyCents as object));
+    const rates = map(row.hourlyCents);
     for (const id of Object.keys(manifest.resources)) integer(rates[id], 1, 100_000);
     if (Object.keys(rates).some((id) => !manifest.resources[id]))
       throw new Error("Preview cost names an unknown resource.");
@@ -253,7 +251,7 @@ export function loadPreviewInstallation(
         manifestDigest: remote.digest,
         localConfigDigest: local.digest,
         source,
-        ...(aliases ? { aliases } : {}),
+        ...(aliases?.length ? { aliases } : {}),
       });
     const aliases = listPreviewAliases(manifest);
     for (const alias of aliases) {
@@ -309,8 +307,21 @@ export function loadPreviewInstallation(
     if (!project) throw new Error("Preview ownership project is not installed.");
     return project.provider;
   };
+  const controlTokens = new Set([
+    envName(statePolicy.tokenEnv),
+    "DEVROUTER_PREVIEW_CREDENTIALS",
+    ...raw.projects.flatMap((input) => {
+      const row = map(input);
+      return [envName(map(row.forge).tokenEnv), envName(map(row.northflank).tokenEnv)];
+    }),
+  ]);
+  for (const input of raw.projects) {
+    for (const name of Object.values(map(map(map(input).northflank).runtimeSecrets)))
+      if (controlTokens.has(String(name)))
+        throw new Error("Deployment credentials cannot be delivered as preview runtime secrets.");
+  }
   const provider: PreviewProvider = {
-    // The engine validates the selected project's provider below, before admission.
+    // The controller validates its project provider before submitting an admission.
     submit: (effect, entry, gate) => providerFor(entry).submit(effect, entry, gate),
     observe: (effect, entry, gate) => providerFor(entry).observe(effect, entry, gate),
     absent: (entry) => providerFor(entry).absent(entry),
@@ -324,7 +335,7 @@ export function loadPreviewInstallation(
       installationId,
       maxActive,
       maxReservedCents,
-      maxCommandAgeMs: 15 * 60_000,
+      maxCommandAgeMs: MAX_COMMAND_AGE_MS,
       startupBudgetMs: 20 * 60_000,
       leaseMs: 45_000,
       allowedProjects: projects.map((p) => `${p.host}/${p.projectId}`),
@@ -345,17 +356,30 @@ export function loadPreviewInstallation(
       engine,
       store,
       now,
-      maxCommandAgeMs: 15 * 60_000,
+      maxCommandAgeMs: MAX_COMMAND_AGE_MS,
       aliases: project.aliases,
       plan: async (source, command) => {
+        const plan = project.plan(source, command.aliases);
         // Candidate control bytes must still equal the reviewed installation copies.
         for (const [file, expected] of [
           [".devrouter.yml", project.local.digest],
           [".devrouter.preview.yml", project.remote.digest],
-        ] as const)
-          if (digest(await project.forge.file(source.head, file)) !== expected)
-            throw new Error("Candidate preview controls differ from reviewed installation policy.");
-        const plan = project.plan(source, command.aliases);
+        ] as const) {
+          let matches = false;
+          try {
+            matches = digest(await project.forge.file(source.head, file)) === expected;
+          } catch (error) {
+            if (!(error instanceof PreviewForgeRejected) || error.status !== 404) throw error;
+          }
+          if (!matches)
+            return {
+              ...plan,
+              status: "review-required",
+              aliases: [],
+              resources: [],
+              reasons: [`control-file-unreviewed:${file}`],
+            };
+        }
         if (plan.status === "planned") project.provider.validatePlan(plan);
         return plan;
       },
@@ -374,14 +398,17 @@ export function loadPreviewInstallation(
       installationId,
       maxActive,
       maxReservedCents,
-      projects: projects.map((p) => ({
-        key: p.key,
-        forgeHost: p.host,
-        projectId: p.projectId,
-        aliases: p.aliases,
-        qualified: northflankQualificationKeys.every((key) => p.qualification[key]),
-        requiredProofs: northflankQualificationKeys.filter((key) => !p.qualification[key]),
-      })),
+      projects: projects.map((p) => {
+        const requiredProofs = northflankQualificationKeys.filter((key) => !p.qualification[key]);
+        return {
+          key: p.key,
+          forgeHost: p.host,
+          projectId: p.projectId,
+          aliases: p.aliases,
+          qualified: requiredProofs.length === 0,
+          requiredProofs,
+        };
+      }),
     },
   };
 }

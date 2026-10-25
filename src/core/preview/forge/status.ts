@@ -49,6 +49,12 @@ export function forgeTime(value: unknown): number {
   return time;
 }
 
+export class PreviewForgeRejected extends Error {
+  constructor(readonly status: number) {
+    super(`Preview forge request failed (HTTP ${status}).`);
+  }
+}
+
 export class PreviewForgeNotSent extends Error {
   constructor() {
     super("Preview forge mutation was not sent.");
@@ -124,7 +130,7 @@ export class PreviewForgeHTTP {
     }
     if (!response.ok) {
       await response.body?.cancel();
-      throw new Error(`Preview forge request failed (HTTP ${response.status}).`);
+      throw new PreviewForgeRejected(response.status);
     }
     try {
       return {

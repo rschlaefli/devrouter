@@ -114,7 +114,10 @@ export async function runPreviewInstallationCommand(
   const { loadPreviewInstallation, initializePreviewInstallation } = await import(
     "../core/preview/installation"
   );
-  const installation = loadPreviewInstallation(options.installation);
+  const installation = loadPreviewInstallation(
+    options.installation,
+    action === "doctor" ? { env: {} } : {},
+  );
   if (action === "state-init")
     await initializePreviewInstallation(installation.installationId, installation.store);
   else if (action === "doctor") {
