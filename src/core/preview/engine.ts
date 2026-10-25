@@ -109,6 +109,22 @@ function isStopping(session: PreviewPoolEntry["session"]): boolean {
   return session.status === "stopping" || session.status === "cleanup-pending";
 }
 
+function writeFenced(
+  session: PreviewPoolEntry["session"],
+  effect: PreviewEffect,
+  now: number,
+): boolean {
+  const cutoff = session.firstReadyAt === undefined ? session.setupDeadline : session.expiresAt;
+  return (
+    tracked(effect) &&
+    (isStopping(session) ||
+      now >= cutoff ||
+      (effect.kind === "deadline"
+        ? session.deadlineVersion !== effect.deadlineVersion
+        : session.operationVersion !== effect.operationVersion))
+  );
+}
+
 function prunePool(pool: PreviewPool, now: number, age: number): void {
   pool.processedCommands = pool.processedCommands.filter(
     (receipt) => now - receipt.admittedAt <= age,
@@ -527,31 +543,14 @@ export class PreviewEngine {
     return {
       read: () => mutate((_entry, live) => structuredClone(live.steps ?? [])),
       begin: (name, mode) => {
-        if (
-          !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) ||
-          name.length > 64 ||
-          (mode !== "once" && mode !== "convergent")
-        )
-          throw new Error("Invalid preview provider step.");
         return mutate((entry, live) => {
-          const cutoff =
-            entry.session.firstReadyAt === undefined
-              ? entry.session.setupDeadline
-              : entry.session.expiresAt;
-          if (
-            tracked(live) &&
-            (isStopping(entry.session) ||
-              entry.session.operationVersion !== live.operationVersion ||
-              this.options.now() >= cutoff)
-          )
-            return "fenced";
+          if (writeFenced(entry.session, live, this.options.now())) return "fenced";
           const previous = live.steps?.find((step) => step.name === name);
           if (previous) {
             if (previous.mode !== mode) throw new Error("Preview provider step mode changed.");
             return "resolve";
           }
           live.steps ??= [];
-          if (live.steps.length >= 8) throw new Error("Preview provider step journal is full.");
           live.steps.push({ name, mode, state: "intent", at: this.options.now() });
           live.leaseExpiresAt = this.options.now() + this.options.policy.leaseMs;
           return "write";
@@ -586,16 +585,7 @@ export class PreviewEngine {
       if (current.session.generation !== effect.generation)
         throw new Error("Preview generation changed.");
       if (live.phase === "prepared") {
-        const cutoff =
-          current.session.firstReadyAt === undefined
-            ? current.session.setupDeadline
-            : current.session.expiresAt;
-        if (
-          tracked(live) &&
-          (isStopping(current.session) ||
-            current.session.operationVersion !== live.operationVersion ||
-            this.options.now() >= cutoff)
-        ) {
+        if (writeFenced(current.session, live, this.options.now())) {
           live.phase = "terminal";
           current.session = transitionPreviewSession(current.session, {
             kind: "effect-settled",
@@ -682,7 +672,8 @@ export class PreviewEngine {
       if (
         receipt.phase === "terminal" &&
         live.kind === "deadline" &&
-        live.outcome !== "succeeded"
+        live.outcome !== "succeeded" &&
+        live.deadlineVersion === current.session.deadlineVersion
       ) {
         if (
           current.session.pendingDeadline &&

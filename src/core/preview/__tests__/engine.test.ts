@@ -456,6 +456,39 @@ describe("durable preview reconciliation", () => {
     expect((await second.status(identity))?.session.ownedResources).toContain("owned-container");
   });
 
+  it("keeps deadline writes independent when a new source is admitted during setup", async () => {
+    const f = fixture();
+    const original = f.provider.submit;
+    let refreshed = false;
+    f.provider.submit = async (effect, entry, gate) => {
+      if (effect.kind === "deadline" && !refreshed) {
+        refreshed = true;
+        const changed = structuredClone(plan);
+        changed.source!.head = "f".repeat(40);
+        await f.engine.admit({
+          identity,
+          commandId: "refresh-during-deadline",
+          createdAt: f.now(),
+          actorCanWrite: true,
+          originalHumanRoot: true,
+          open: true,
+          sameProject: true,
+          command: { kind: "start", aliases: ["chat"] },
+          plan: changed,
+          hourlyCents: 10,
+        });
+        expect(await gate.begin("arm", "once")).toBe("write");
+        await gate.record("arm", "accepted", "native-deadline");
+      }
+      return original(effect, entry, gate);
+    };
+    await f.admit();
+    for (let step = 0; step < 5; step += 1) await f.engine.reconcile(identity);
+    const ready = await f.engine.status(identity);
+    expect(ready?.session.status).toBe("ready");
+    expect(ready?.session.desiredRevision).toBe("f".repeat(40));
+  });
+
   it("keeps immutable identity stable across object ordering and rejects corrupted stored policy state", async () => {
     expect(previewIdentityKey(identity)).toBe(
       previewIdentityKey({
