@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Replace Dockerode 4 with Dockerode 5 to remove its UUID 10 dependency, which is
+  affected by CVE-2026-41907. The existing Node >=24 requirement covers the updated
+  library's runtime requirement; routing and profile-plan contracts are unchanged.
 - TCP-only and empty host-route generations omit empty HTTP maps so Traefik can
   load the file provider. Existing v1 route metadata remains readable and is
   rendered without the empty maps on the next route write or refresh.
