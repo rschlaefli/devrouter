@@ -83,12 +83,7 @@ describe("conditional preview state", () => {
   });
 
   it("never treats forbidden, missing-container or invalid state as an absent store", async () => {
-    const { request } = fixture();
-    const store = new AzureBlobPreviewState({
-      containerUrl: "https://examplestore.blob.core.windows.net/previews",
-      accessToken: async () => "synthetic-token",
-      fetch: request,
-    });
+    const { store, request } = fixture();
     for (const status of [401, 403, 404, 500]) {
       request.mockResolvedValueOnce(new Response(null, { status }));
       await expect(store.read("pool/test", validate)).rejects.toThrow();

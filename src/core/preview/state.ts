@@ -40,7 +40,6 @@ export async function updatePreviewState<T>(options: {
       return { value, version };
     } catch (error) {
       if (!(error instanceof PreviewStateConflict)) throw error;
-      if (attempt === 3) throw error;
     }
   }
   throw new PreviewStateConflict();

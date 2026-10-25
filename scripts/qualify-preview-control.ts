@@ -24,6 +24,7 @@ session = transitionPreviewSession(session, {
 session = transitionPreviewSession(session, { kind: "stop", now: now + 1, commandId: "stop-1" });
 session = transitionPreviewSession(session, {
   kind: "cleanup-observed",
+  ownershipVersion: session.ownershipVersion,
   now: now + 2,
   generation: session.generation,
   absent: true,
@@ -39,6 +40,7 @@ session = transitionPreviewSession(session, {
 assert.deepEqual(session.ownedResources, ["late-db"]);
 session = transitionPreviewSession(session, {
   kind: "cleanup-observed",
+  ownershipVersion: session.ownershipVersion,
   now: now + 4,
   generation: session.generation,
   absent: false,
@@ -46,6 +48,7 @@ session = transitionPreviewSession(session, {
 assert.equal(session.reservationHeld, true);
 session = transitionPreviewSession(session, {
   kind: "cleanup-observed",
+  ownershipVersion: session.ownershipVersion,
   now: now + 5,
   generation: session.generation,
   absent: true,

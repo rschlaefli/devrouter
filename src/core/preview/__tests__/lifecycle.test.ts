@@ -215,6 +215,61 @@ describe("preview lifecycle", () => {
     ).toThrow();
   });
 
+  it("rejects stale cleanup evidence after a late operation settles", () => {
+    const initial = create();
+    const dispatch = transitionPreviewSession(initial, {
+      kind: "effect-started",
+      now: NOW,
+      generation: "gen-1",
+      operationVersion: 1,
+      operationId: "late",
+    });
+    const stopping = transitionPreviewSession(dispatch, { kind: "stop", now: NOW + 1 });
+    const stale = {
+      kind: "cleanup-observed" as const,
+      now: NOW + 3,
+      generation: "gen-1",
+      absent: true,
+      ownershipVersion: stopping.ownershipVersion,
+    };
+    const settled = transitionPreviewSession(stopping, {
+      kind: "effect-settled",
+      now: NOW + 2,
+      generation: "gen-1",
+      operationId: "late",
+      resources: ["late-db"],
+    });
+    const result = transitionPreviewSession(settled, stale);
+    expect(result.status).toBe("cleanup-pending");
+    expect(result.ownedResources).toEqual(["late-db"]);
+    expect(result.reservationHeld).toBe(true);
+  });
+
+  it("accepts an unchanged start while an extension is pending or time is short", () => {
+    const active = ready();
+    const pending = transitionPreviewSession(active, {
+      kind: "extend",
+      now: NOW + 6 * MINUTE,
+      commandId: "extend",
+    });
+    for (const [session, now] of [
+      [pending, NOW + 7 * MINUTE],
+      [active, active.expiresAt - MINUTE],
+    ] as const) {
+      const result = transitionPreviewSession(session, {
+        kind: "start",
+        now,
+        commandId: "noop",
+        revision: REV_A,
+        aliases: [],
+        startupBudgetMs: 20 * MINUTE,
+      });
+      expect(result.expiresAt).toBe(session.expiresAt);
+      expect(result.operationVersion).toBe(session.operationVersion);
+      expect(result.processedCommands).toContain("noop");
+    }
+  });
+
   it("retains late allocations and the reservation until absence is proven", () => {
     const started = transitionPreviewSession(ready(), {
       kind: "effect-started",
@@ -230,6 +285,7 @@ describe("preview lifecycle", () => {
     });
     const observed = transitionPreviewSession(stopping, {
       kind: "cleanup-observed",
+      ownershipVersion: stopping.ownershipVersion,
       now: NOW + 8 * MINUTE,
       generation: "gen-1",
       absent: true,
@@ -250,6 +306,7 @@ describe("preview lifecycle", () => {
 
     const cleaned = transitionPreviewSession(settled, {
       kind: "cleanup-observed",
+      ownershipVersion: settled.ownershipVersion,
       now: NOW + 10 * MINUTE,
       generation: "gen-1",
       absent: true,
@@ -294,6 +351,7 @@ describe("preview lifecycle", () => {
     expect(stopping.status).toBe("stopping");
     const expired = transitionPreviewSession(stopping, {
       kind: "cleanup-observed",
+      ownershipVersion: stopping.ownershipVersion,
       now: active.expiresAt + MINUTE,
       generation: "gen-1",
       absent: true,

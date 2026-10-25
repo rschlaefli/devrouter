@@ -28,16 +28,13 @@ export function parsePreviewCommand(text: string): PreviewCommand | null {
   return null;
 }
 
+export function isPreviewAlias(alias: string): boolean {
+  return typeof alias === "string" && alias.length <= MAX_ALIAS_LENGTH && ALIAS_PATTERN.test(alias);
+}
+
 function parseStart(rawAliases: string): PreviewCommand | null {
   const aliases = rawAliases.split(",");
-  if (
-    aliases.length > MAX_COMMAND_BYTES ||
-    aliases.some(
-      (alias) =>
-        alias.length === 0 || alias.length > MAX_ALIAS_LENGTH || !ALIAS_PATTERN.test(alias),
-    ) ||
-    new Set(aliases).size !== aliases.length
-  ) {
+  if (aliases.some((alias) => !isPreviewAlias(alias)) || new Set(aliases).size !== aliases.length) {
     return null;
   }
   return { kind: "start", aliases };

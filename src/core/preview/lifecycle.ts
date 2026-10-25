@@ -1,3 +1,5 @@
+import { isPreviewAlias } from "./command";
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const SETUP_LIMIT = 20 * MINUTE;
@@ -10,7 +12,6 @@ const MAX_ITEMS = 1024;
 const MAX_ALIASES = 64;
 const MAX_ID = 256;
 const MAX_RESOURCE_ID = 1024;
-const ALIAS_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const REVISION_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export type PreviewSessionStatus =
@@ -32,6 +33,7 @@ export type PreviewSession = {
   firstReadyAt?: number;
   extensions: number;
   operationVersion: number;
+  ownershipVersion: number;
   deadlineVersion: number;
   desiredRevision: string;
   desiredAliases: string[];
@@ -81,7 +83,12 @@ export type PreviewLifecycleEvent =
       operationId: string;
       resources: string[];
     } & Timed)
-  | ({ kind: "cleanup-observed"; generation: string; absent: boolean } & Timed);
+  | ({
+      kind: "cleanup-observed";
+      generation: string;
+      absent: boolean;
+      ownershipVersion: number;
+    } & Timed);
 
 export function createPreviewSession({
   generation,
@@ -108,6 +115,7 @@ export function createPreviewSession({
     expiresAt: add(now, BACKSTOP),
     extensions: 0,
     operationVersion: 1,
+    ownershipVersion: 1,
     deadlineVersion: 1,
     desiredRevision: revision,
     desiredAliases: normalizeAliases(aliases),
@@ -165,25 +173,25 @@ export function transitionPreviewSession(
       assertRevision(event.revision);
       assertTime(event.startupBudgetMs);
       const aliases = normalizeAliases(event.aliases);
-      if (!isActive(session.status) || session.pendingDeadline) {
-        throw new Error("preview cannot accept start");
-      }
       const cutoff = session.firstReadyAt === undefined ? session.setupDeadline : session.expiresAt;
-      if (event.now >= cutoff || add(event.now, event.startupBudgetMs) > cutoff) {
-        throw new Error("preview update does not fit remaining time");
-      }
+      if (!isActive(session.status) || event.now >= cutoff)
+        throw new Error("preview cannot accept start");
       const next = clone(session);
       next.processedCommands.push(event.commandId);
       if (
-        event.revision !== session.desiredRevision ||
-        !sameAliases(event.aliases, session.desiredAliases)
+        event.revision === session.desiredRevision &&
+        sameAliases(aliases, session.desiredAliases)
       ) {
-        next.desiredRevision = event.revision;
-        next.desiredAliases = aliases;
-        next.operationVersion = increment(session.operationVersion);
-        next.status = session.firstReadyAt === undefined ? "provisioning" : "updating";
-        next.stale = false;
+        return next;
       }
+      if (session.pendingDeadline || add(event.now, event.startupBudgetMs) > cutoff) {
+        throw new Error("preview update does not fit remaining time or has an unresolved deadline");
+      }
+      next.desiredRevision = event.revision;
+      next.desiredAliases = aliases;
+      next.operationVersion = increment(session.operationVersion);
+      next.status = session.firstReadyAt === undefined ? "provisioning" : "updating";
+      next.stale = false;
       return next;
     }
 
@@ -254,8 +262,8 @@ export function transitionPreviewSession(
         assertId(event.commandId, "commandId");
         if (session.processedCommands.includes(event.commandId)) return clone(session);
       }
+      if (isFenced(session.status)) return clone(session);
       if (event.kind === "tick") {
-        if (isFenced(session.status)) return clone(session);
         if (
           session.firstReadyAt === undefined &&
           session.status === "provisioning" &&
@@ -272,13 +280,12 @@ export function transitionPreviewSession(
         }
         return clone(session);
       }
-      if (isFenced(session.status)) return clone(session);
       if (!isActive(session.status) && session.status !== "failed") {
         throw new Error("preview stop is invalid");
       }
-      if (event.commandId) assertCommandCapacity(session);
       const next = stop(session, event.kind);
-      if (event.commandId) next.processedCommands.push(event.commandId);
+      if (event.commandId && next.processedCommands.length < MAX_COMMANDS)
+        next.processedCommands.push(event.commandId);
       return next;
     }
 
@@ -300,6 +307,7 @@ export function transitionPreviewSession(
       }
       return {
         ...clone(session),
+        ownershipVersion: increment(session.ownershipVersion),
         outstandingOperations: [...session.outstandingOperations, event.operationId],
       };
     }
@@ -315,6 +323,7 @@ export function transitionPreviewSession(
       }
       return {
         ...clone(session),
+        ownershipVersion: increment(session.ownershipVersion),
         outstandingOperations: session.outstandingOperations.filter(
           (id) => id !== event.operationId,
         ),
@@ -324,6 +333,7 @@ export function transitionPreviewSession(
 
     case "cleanup-observed": {
       assertGeneration(session, event.generation);
+      assertVersion(event.ownershipVersion);
       if (session.status === "stopped" || session.status === "expired") {
         if (event.absent) return clone(session);
         throw new Error("terminal preview cannot return to cleanup");
@@ -332,7 +342,11 @@ export function transitionPreviewSession(
         throw new Error("cleanup observed before stopping");
       }
       const next = clone(session);
-      if (!event.absent || session.outstandingOperations.length !== 0) {
+      if (
+        !event.absent ||
+        event.ownershipVersion !== session.ownershipVersion ||
+        session.outstandingOperations.length !== 0
+      ) {
         next.status = "cleanup-pending";
         return next;
       }
@@ -393,7 +407,7 @@ function normalizeAliases(aliases: string[]): string[] {
   if (
     !Array.isArray(aliases) ||
     aliases.length > MAX_ALIASES ||
-    aliases.some((alias) => !ALIAS_RE.test(alias) || alias.length > 63) ||
+    aliases.some((alias) => !isPreviewAlias(alias)) ||
     new Set(aliases).size !== aliases.length
   ) {
     throw new Error("invalid aliases");
