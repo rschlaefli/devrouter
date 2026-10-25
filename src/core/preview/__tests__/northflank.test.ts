@@ -220,6 +220,7 @@ describe("Northflank native graph compilation", () => {
     const { entry, policy } = graphFixture();
     const graph = compileNorthflankGraph(entry, policy, "prepare");
     const steps = graph.spec.spec.steps;
+    expect(() => compileNorthflankGraph(entry, policy, "activate")).toThrow();
     expect(steps.find((node) => node.kind === "Addon")?.spec).toMatchObject({
       externalAccessEnabled: false,
       tlsEnabled: true,
@@ -245,13 +246,17 @@ describe("Northflank native graph compilation", () => {
       secrets: { variables: {}, files: {} },
     });
     expect(graph.runtimeSecrets).toEqual([
-      { groupRef: "r_env_web", variables: { API_KEY: "synthetic-upstream" } },
+      { groupRef: "e_web", variables: { API_KEY: "synthetic-upstream" } },
     ]);
   });
 
   it("orders initialization before activation and protects default and custom public URLs", () => {
     const { entry, policy } = graphFixture();
-    const graph = compileNorthflankGraph(entry, policy, "activate");
+    const prepared = compileNorthflankGraph(entry, policy, "prepare");
+    const graph = compileNorthflankGraph(entry, policy, "activate", {
+      resources: { r_db: "owned-db", r_seed: "owned-seed", r_web: "owned-web" },
+      domains: Object.values(prepared.urls).map((url) => new URL(url).hostname),
+    });
     const steps = graph.spec.spec.steps;
     const job = steps.findIndex((node) => node.kind === "JobRun");
     const serving = steps.findIndex(
@@ -282,11 +287,39 @@ describe("Northflank native graph compilation", () => {
     web.build = { context: ".", dockerfile: "Dockerfile" };
     policy.git = { url: "https://github.com/example/fixture", type: "github", branch: "main" };
     policy.resources.web.buildPlan = "nf-compute-200";
+    for (const [id, port] of [
+      ["build-web", "http"],
+      ["env-web", "http"],
+      ["a", "b-c"],
+      ["a-b", "c"],
+    ]) {
+      entry.plan.resources.push({
+        id,
+        kind: "service",
+        image: `example/app@sha256:${"0".repeat(64)}`,
+        ports: [{ name: port, port: 8080, public: true }],
+      });
+      policy.resources[id] = {
+        deploymentPlan: "nf-compute-10",
+        readiness: { port, path: "/health" },
+      };
+    }
     const graph = compileNorthflankGraph(entry, policy, "prepare");
     expect(graph.spec.spec.steps.find((node) => node.kind === "Build")).toMatchObject({
       spec: { sha: entry.plan.source!.head },
       condition: "success",
     });
+    const refs = graph.spec.spec.steps.flatMap((node) => (node.ref ? [node.ref] : []));
+    expect(new Set(refs).size).toBe(refs.length);
+    entry.plan.resources[1].ports = [{ name: "http", port: 8080, public: true }];
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+    delete entry.plan.resources[1].ports;
+    web.build.target = "${refs.r_db.id}";
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+    delete web.build.target;
+    web.command = ["sh", "-c", "${refs.r_db.id}"];
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+    delete web.command;
     policy.allowedNetworks = [];
     expect(() => compileNorthflankGraph(entry, policy, "activate")).toThrow();
     policy.allowedNetworks = ["192.0.2.0/24"];

@@ -45,21 +45,33 @@ type Node = {
   runNodeOnce?: "true";
 };
 
-function ref(id: string, field = "id"): string {
-  return `\${refs.r_${id.replaceAll("-", "_")}.${field}}`;
+type RefNamespace = "r" | "b" | "e" | "d";
+const ALLOCATION_PLAN = /^[a-zA-Z0-9-]{3,100}$/;
+const boundedStorage = (miB?: number) => Number.isSafeInteger(miB) && (miB ?? 0) >= 1024;
+function refName(id: string, namespace: RefNamespace = "r"): string {
+  return `${namespace}_${id.replaceAll("-", "_")}`;
+}
+function ref(id: string, namespace: RefNamespace = "r"): string {
+  return `\${refs.${refName(id, namespace)}.id}`;
 }
 function node(
   kind: string,
   id: string,
   spec: Record<string, unknown>,
   updateMode: "create" | "put" = "put",
-): Node {
+  namespace: RefNamespace = "r",
+): Node & { ref: string } {
   return {
     kind,
-    ref: `r_${id.replaceAll("-", "_")}`,
+    ref: refName(id, namespace),
     spec,
     ...(kind === "Subdomain" ? {} : { updateMode }),
   };
+}
+function staticText(value: string): string {
+  if (value.includes("${") || value.includes("\0"))
+    throw new Error("Northflank literal cannot contain template expressions or NUL.");
+  return value;
 }
 function shellWord(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -69,16 +81,18 @@ export function compileNorthflankGraph(
   entry: PreviewPoolEntry,
   policy: NorthflankGraphPolicy,
   phase: "prepare" | "activate",
+  owned: { resources: Record<string, string>; domains: string[] } = { resources: {}, domains: [] },
 ) {
+  const source = entry.plan.source;
   if (
     !/^[a-z][a-z0-9-]{0,11}$/.test(policy.namespace) ||
     !/^[a-f0-9]{24}$/.test(entry.session.generation) ||
-    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(entry.plan.source?.head ?? "") ||
+    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(source?.head ?? "") ||
     !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(policy.baseDomain) ||
     policy.baseDomain.length > 190 ||
     entry.plan.status !== "planned" ||
-    !entry.plan.source?.complete ||
-    entry.plan.source.head !== entry.session.desiredRevision ||
+    !source?.complete ||
+    source.head !== entry.session.desiredRevision ||
     entry.plan.resources.length > 64
   )
     throw new Error("Invalid Northflank graph identity or bound.");
@@ -103,6 +117,19 @@ export function compileNorthflankGraph(
       throw new Error("Northflank graph requires a complete dependency-ordered resource plan.");
     seen.add(resource.id);
   }
+  for (const nativeId of Object.values(owned.resources)) {
+    if (!/^[A-Za-z0-9-]{1,128}$/.test(nativeId))
+      throw new Error("Invalid owned Northflank resource identifier.");
+  }
+  if (
+    phase === "activate" &&
+    entry.plan.resources.some((resource) => !owned.resources[refName(resource.id)])
+  )
+    throw new Error(
+      "Northflank activation requires observed ownership for every selected resource.",
+    );
+  const reference = (id: string, namespace: RefNamespace = "r") =>
+    owned.resources[refName(id, namespace)] ?? ref(id, namespace);
   const origin = (id: string, port: string) => {
     const resource = resources.get(id);
     if (!resource?.ports?.some((item) => item.name === port && item.public))
@@ -117,7 +144,7 @@ export function compileNorthflankGraph(
         binding.literal.includes("${")
       )
         throw new Error("Northflank literal binding cannot contain template expressions.");
-      return binding.literal;
+      return staticText(binding.literal);
     }
     if ("origin" in binding) return origin(binding.origin, binding.port);
     throw new Error("Northflank build bindings must be public literals or origins.");
@@ -128,22 +155,19 @@ export function compileNorthflankGraph(
   const secretNodes: Node[] = [];
   const runtimeSecrets: Array<{ groupRef: string; variables: Record<string, string> }> = [];
   const urls: Record<string, string> = {};
-  const source = entry.plan.source;
-  if (!source) throw new Error("Northflank graph requires a bound source.");
+  const nativeNames = new Set<string>();
   for (const resource of entry.plan.resources) {
     const settings = policy.resources[resource.id];
-    if (!settings || !/^[a-zA-Z0-9-]{3,100}$/.test(settings.deploymentPlan))
+    if (!settings || !ALLOCATION_PLAN.test(settings.deploymentPlan))
       throw new Error("Every selected resource requires a trusted allocation plan.");
     const name = `${policy.namespace.slice(0, 6)}-${entry.session.generation.slice(0, 12)}-${createHash("sha256").update(resource.id).digest("hex").slice(0, 10)}`;
-    if (name.length > 39 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(resource.id))
-      throw new Error("Northflank resource name exceeds its provider bound.");
+    if (nativeNames.has(name)) throw new Error("Northflank resource name collision.");
+    nativeNames.add(name);
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(resource.id))
+      throw new Error("Invalid Northflank resource identifier.");
     const billing = { deploymentPlan: settings.deploymentPlan };
     if (resource.kind === "postgres" || resource.kind === "redis") {
-      if (
-        !settings.addonVersion ||
-        !Number.isSafeInteger(settings.storageMiB) ||
-        (settings.storageMiB ?? 0) < 1024
-      )
+      if (!settings.addonVersion || !boundedStorage(settings.storageMiB))
         throw new Error("Northflank addons require explicit version and bounded storage.");
       prepare.push(
         node(
@@ -164,7 +188,10 @@ export function compileNorthflankGraph(
         kind: "Condition",
         spec: {
           kind: "Addon",
-          spec: { type: "running", data: { addonId: ref(resource.id), timeoutDuration: 600 } },
+          spec: {
+            type: "running",
+            data: { addonId: reference(resource.id), timeoutDuration: 600 },
+          },
         },
       });
       continue;
@@ -176,8 +203,7 @@ export function compileNorthflankGraph(
         resources.get(mount.service)?.kind !== "service" ||
         !mount.path.startsWith("/") ||
         mount.path.includes("..") ||
-        !Number.isSafeInteger(settings.storageMiB) ||
-        (settings.storageMiB ?? 0) < 1024
+        !boundedStorage(settings.storageMiB)
       )
         throw new Error("Northflank volume requires a selected service mount and bounded storage.");
       volumes.push(
@@ -188,7 +214,7 @@ export function compileNorthflankGraph(
             name,
             mounts: [{ containerMountPath: mount.path }],
             spec: { storageSize: settings.storageMiB },
-            attachedObjects: [{ id: ref(mount.service), type: "service" }],
+            attachedObjects: [{ id: reference(mount.service), type: "service" }],
           },
           "create",
         ),
@@ -203,12 +229,12 @@ export function compileNorthflankGraph(
         !/^https:\/\/[^/@:]+\/[A-Za-z0-9_./-]+$/.test(git.url) ||
         git.url.includes("..") ||
         !settings.buildPlan ||
-        !/^[a-zA-Z0-9-]{3,100}$/.test(settings.buildPlan)
+        !ALLOCATION_PLAN.test(settings.buildPlan)
       )
         throw new Error(
           "Northflank source builds require a trusted repository and build allocation.",
         );
-      const buildId = `build-${resource.id}`;
+      const buildId = resource.id;
       const buildArguments = Object.fromEntries(
         Object.entries(settings.publicBuildEnvironment ?? {}).map(([key, binding]) => [
           key,
@@ -216,41 +242,50 @@ export function compileNorthflankGraph(
         ]),
       );
       prepare.push(
-        node("BuildService", buildId, {
-          name: `${name}-b`,
-          disabledCI: true,
-          billing: { buildPlan: settings.buildPlan },
-          vcsData: {
-            projectUrl: git.url,
-            projectType: git.type,
-            projectBranch: git.branch,
-            ...(git.selfHostedVcsId ? { selfHostedVcsId: git.selfHostedVcsId } : {}),
-          },
-          buildSettings: {
-            dockerfile: {
-              buildEngine: "buildkit",
-              dockerFilePath: `/${resource.build.dockerfile}`,
-              dockerWorkDir: resource.build.context === "." ? "/" : `/${resource.build.context}`,
+        node(
+          "BuildService",
+          buildId,
+          {
+            name: `${name}-b`,
+            disabledCI: true,
+            billing: { buildPlan: settings.buildPlan },
+            vcsData: {
+              projectUrl: git.url,
+              projectType: git.type,
+              projectBranch: git.branch,
+              ...(git.selfHostedVcsId ? { selfHostedVcsId: git.selfHostedVcsId } : {}),
             },
+            buildSettings: {
+              dockerfile: {
+                buildEngine: "buildkit",
+                dockerFilePath: `/${staticText(resource.build.dockerfile)}`,
+                dockerWorkDir:
+                  resource.build.context === "." ? "/" : `/${staticText(resource.build.context)}`,
+              },
+            },
+            buildArguments,
           },
-          buildArguments,
-        }),
+          "put",
+          "b",
+        ),
       );
       prepare.push({
         kind: "Build",
         ref: `build_${resource.id.replaceAll("-", "_")}_${source.head.slice(0, 12)}`,
         condition: "success",
         spec: {
-          id: ref(buildId),
+          id: reference(buildId, "b"),
           type: "service",
           sha: source.head,
           reuseExistingBuilds: true,
           ...(resource.build.target
-            ? { buildOverrides: { docker: { dockerfileTarget: resource.build.target } } }
+            ? {
+                buildOverrides: { docker: { dockerfileTarget: staticText(resource.build.target) } },
+              }
             : {}),
         },
       });
-      deployment.internal = { id: ref(buildId), buildSHA: source.head };
+      deployment.internal = { id: reference(buildId, "b"), buildSHA: source.head };
     } else {
       if (!resource.image?.includes("@sha256:"))
         throw new Error("Northflank image recipes require immutable image digests.");
@@ -259,23 +294,33 @@ export function compileNorthflankGraph(
     if (resource.command)
       deployment.docker = {
         configType: "customEntrypointCustomCommand",
-        customEntrypoint: shellWord(resource.command[0]),
-        customCommand: resource.command.slice(1).map(shellWord).join(" "),
+        customEntrypoint: shellWord(staticText(resource.command[0])),
+        customCommand: resource.command
+          .slice(1)
+          .map((arg) => shellWord(staticText(arg)))
+          .join(" "),
       };
+    if (resource.kind === "job" && resource.ports?.length)
+      throw new Error("Northflank jobs cannot expose ports.");
     const ports = (resource.ports ?? []).map((port) => {
       if (port.name.length > 8)
         throw new Error("Northflank port names support at most eight characters.");
       const domains = port.public ? [new URL(origin(resource.id, port.name)).hostname] : [];
       if (port.public) {
         const hostname = domains[0];
-        prepare.push(
-          node(
-            "Subdomain",
-            `domain-${resource.id}-${port.name}`,
-            { domain: policy.baseDomain, name: hostname.slice(0, -(policy.baseDomain.length + 1)) },
-            "create",
-          ),
-        );
+        if (!owned.domains.includes(hostname))
+          prepare.push(
+            node(
+              "Subdomain",
+              `${resource.id}__${port.name}`,
+              {
+                domain: policy.baseDomain,
+                name: hostname.slice(0, -(policy.baseDomain.length + 1)),
+              },
+              "put",
+              "d",
+            ),
+          );
         urls[`${resource.id}:${port.name}`] = `https://${hostname}`;
       }
       return {
@@ -338,7 +383,10 @@ export function compileNorthflankGraph(
         kind: "Condition",
         spec: {
           kind: "Service",
-          spec: { type: "running", data: { serviceId: ref(resource.id), timeoutDuration: 600 } },
+          spec: {
+            type: "running",
+            data: { serviceId: reference(resource.id), timeoutDuration: 600 },
+          },
         },
       });
     } else
@@ -347,7 +395,7 @@ export function compileNorthflankGraph(
         ref: `init_${resource.id.replaceAll("-", "_")}${settings.runOn === "update" ? `_${source.head.slice(0, 12)}` : ""}`,
         condition: "success",
         runNodeOnce: "true",
-        spec: { jobId: ref(resource.id) },
+        spec: { jobId: reference(resource.id) },
       });
     const variables: Record<string, string> = {};
     const runtime: Record<string, string> = {};
@@ -364,7 +412,7 @@ export function compileNorthflankGraph(
         )
           throw new Error("Runtime addon binding must name a selected backing resource.");
         addonDependencies.push({
-          addonId: ref(binding.addon),
+          addonId: reference(binding.addon),
           keys: [{ keyName: binding.key, aliases: [key] }],
         });
       } else if ("runtimeSecret" in binding) {
@@ -374,32 +422,40 @@ export function compileNorthflankGraph(
       } else variables[key] = literal(binding);
     }
     if (Object.keys(settings.environment ?? {}).length) {
-      const groupId = `env-${resource.id}`;
-      secretNodes.push(
-        node(
-          "SecretGroup",
-          groupId,
-          {
-            name: `${name}-env`,
-            type: "secret",
-            secretType: "environment",
-            priority: 10,
-            restrictions: {
-              restricted: true,
-              nfObjects: [
-                { id: ref(resource.id), type: resource.kind === "service" ? "service" : "job" },
-              ],
-            },
-            secrets: { variables, files: {} },
-            addonDependencies,
+      const groupId = resource.id;
+      const group = node(
+        "SecretGroup",
+        groupId,
+        {
+          name: `${name}-env`,
+          type: "secret",
+          secretType: "environment",
+          priority: 10,
+          restrictions: {
+            restricted: true,
+            nfObjects: [
+              { id: reference(resource.id), type: resource.kind === "service" ? "service" : "job" },
+            ],
           },
-          "create",
-        ),
+          secrets: { variables, files: {} },
+          addonDependencies,
+        },
+        "create",
+        "e",
       );
+      secretNodes.push(group);
       if (Object.keys(runtime).length)
-        runtimeSecrets.push({ groupRef: `r_${groupId.replaceAll("-", "_")}`, variables: runtime });
+        runtimeSecrets.push({ groupRef: group.ref, variables: runtime });
     }
   }
+  const references = [...prepare, ...volumes, ...secretNodes, ...activate].flatMap((item) =>
+    item.ref ? [item.ref] : [],
+  );
+  if (
+    new Set(references).size !== references.length ||
+    new Set(Object.values(urls)).size !== Object.keys(urls).length
+  )
+    throw new Error("Northflank graph contains colliding references or origins.");
   const spec = {
     kind: "Workflow",
     spec: {
