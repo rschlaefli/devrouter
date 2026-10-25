@@ -30,7 +30,7 @@ export type PreviewEffectReceipt = {
 // the complete generation independently, including allocations omitted on overflow.
 export interface PreviewWriteGate {
   read(): Promise<PreviewEffectStep[]>;
-  context(): Promise<{ stopping: boolean; superseded: boolean }>;
+  fenced(): Promise<boolean>;
   begin(
     name: string,
     mode: "once" | "convergent",
@@ -550,19 +550,7 @@ export class PreviewEngine {
     };
     return {
       read: () => mutate((_entry, live) => structuredClone(live.steps ?? [])),
-      context: () =>
-        mutate((entry, live) => ({
-          stopping:
-            isStopping(entry.session) ||
-            this.options.now() >=
-              (entry.session.firstReadyAt === undefined
-                ? entry.session.setupDeadline
-                : entry.session.expiresAt),
-          superseded:
-            live.kind === "deadline"
-              ? entry.session.deadlineVersion !== live.deadlineVersion
-              : entry.session.operationVersion !== live.operationVersion,
-        })),
+      fenced: () => mutate((entry, live) => writeFenced(entry.session, live, this.options.now())),
       begin: (name, mode, fingerprint) => {
         return mutate((entry, live) => {
           if (writeFenced(entry.session, live, this.options.now())) return "fenced";
@@ -573,7 +561,11 @@ export class PreviewEngine {
               (fingerprint !== undefined && previous.fingerprint !== fingerprint)
             )
               throw new Error("Preview provider step identity changed.");
-            return "resolve";
+            if (mode === "once") return "resolve";
+            previous.state = "intent";
+            previous.at = this.options.now();
+            live.leaseExpiresAt = this.options.now() + this.options.policy.leaseMs;
+            return "write";
           }
           live.steps ??= [];
           live.steps.push({

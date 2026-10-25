@@ -3,8 +3,17 @@ import type { PreviewEffectReceipt, PreviewProvider, PreviewWriteGate } from "..
 import type { PreviewEffect, PreviewPoolEntry } from "../state";
 import { object, PreviewStateConflict, type PreviewStateStore, updatePreviewState } from "../state";
 import type { PreviewPlanReport } from "../types";
-import { NorthflankOutcomeUncertain, type NorthflankPreviewAPI } from "./northflank-api";
-import { compileNorthflankGraph, type NorthflankGraphPolicy } from "./northflank-graph";
+import {
+  NorthflankOutcomeUncertain,
+  type NorthflankPreviewAPI,
+  northflankIdentifier as nativeIdentifier,
+  northflankRecord as record,
+} from "./northflank-api";
+import {
+  compileNorthflankGraph,
+  type NorthflankGraphPolicy,
+  northflankAllocationPrefix,
+} from "./northflank-graph";
 
 const resourceKinds = ["services", "jobs", "addons", "volumes", "secrets", "domains"] as const;
 
@@ -21,6 +30,7 @@ export type NorthflankOwnership = {
   generation: string;
   policyDigest: string;
   blueprintId?: string;
+  blueprintObserved?: boolean;
   previewId?: string;
   resources: NorthflankOwnedResource[];
   absent: boolean;
@@ -37,7 +47,7 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
   const row = object(
     value,
     ["schemaVersion", "generation", "policyDigest", "resources", "absent"],
-    ["blueprintId", "previewId"],
+    ["blueprintId", "previewId", "blueprintObserved"],
   );
   if (
     row.schemaVersion !== 1 ||
@@ -48,6 +58,8 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
     typeof row.absent !== "boolean"
   )
     throw new Error("Invalid Northflank ownership identity.");
+  if (row.blueprintObserved !== undefined && typeof row.blueprintObserved !== "boolean")
+    throw new Error("Invalid Northflank creation observation.");
   for (const key of ["blueprintId", "previewId"]) if (row[key] !== undefined) identifier(row[key]);
   if (!Array.isArray(row.resources) || row.resources.length > 256)
     throw new Error("Invalid Northflank ownership resource list.");
@@ -154,6 +166,8 @@ export class NorthflankOwnershipStore {
         if (current.absent && !next.absent)
           throw new Error("Northflank ownership cannot revive after verified absence.");
         if (!next.absent) {
+          if (current.blueprintObserved && !next.blueprintObserved)
+            throw new Error("Northflank creation observation cannot be forgotten.");
           for (const key of ["blueprintId", "previewId"] as const)
             if (current[key] !== undefined && next[key] !== current[key])
               throw new Error(
@@ -178,13 +192,16 @@ export class NorthflankOwnershipStore {
   }
 }
 
-export type NorthflankQualification = {
-  fixedDeadline: boolean;
-  sameEnvironment: boolean;
-  deletionFence: boolean;
-  scopedRuntimeSecrets: boolean;
-  restrictedIngress: boolean;
-};
+export const northflankQualificationKeys = [
+  "fixedDeadline",
+  "sameEnvironment",
+  "deletionFence",
+  "scopedRuntimeSecrets",
+  "restrictedIngress",
+] as const;
+export type NorthflankQualification = Record<(typeof northflankQualificationKeys)[number], boolean>;
+class NorthflankFailure extends Error {}
+class NorthflankFenced extends Error {}
 
 /** Installation-owned policy. Qualification is false until the producing live trial proves it. */
 export class NorthflankPreviewProvider implements PreviewProvider {
@@ -203,19 +220,11 @@ export class NorthflankPreviewProvider implements PreviewProvider {
   ) {
     this.policyDigest = digest({ project: options.api.projectId, graph: options.graph });
     if (options.api.domain !== options.graph.baseDomain)
-      throw new Error("Northflank domain scope must match the trusted graph policy.");
+      throw new NorthflankFailure("Northflank domain scope must match the trusted graph policy.");
   }
   validatePlan(plan: PreviewPlanReport): void {
-    if (
-      ![
-        "fixedDeadline",
-        "sameEnvironment",
-        "deletionFence",
-        "scopedRuntimeSecrets",
-        "restrictedIngress",
-      ].every((key) => this.options.qualification[key as keyof NorthflankQualification] === true)
-    )
-      throw new Error(
+    if (!northflankQualificationKeys.every((key) => this.options.qualification[key] === true))
+      throw new NorthflankFailure(
         "Northflank preview qualification is incomplete; live admission is disabled.",
       );
     const graph = compileNorthflankGraph(
@@ -227,7 +236,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       "prepare",
     );
     if (graph.runtimeSecrets.length > 16)
-      throw new Error("Northflank runtime bindings exceed the journal bound.");
+      throw new NorthflankFailure("Northflank runtime bindings exceed the journal bound.");
   }
   private ownership(entry: PreviewPoolEntry) {
     return new NorthflankOwnershipStore({
@@ -239,6 +248,12 @@ export class NorthflankPreviewProvider implements PreviewProvider {
   }
   private name(entry: PreviewPoolEntry): string {
     return `dr-${this.options.graph.namespace}-${entry.session.generation}`;
+  }
+  private async namedBlueprints(entry: PreviewPoolEntry) {
+    const name = this.name(entry);
+    return (await this.options.api.list(["preview-blueprints"], "workflows")).filter(
+      (row) => row.name === name || row.id === name,
+    );
   }
   private receipt(owned: NorthflankOwnership, terminal = false): PreviewEffectReceipt {
     return {
@@ -258,24 +273,27 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     gate: PreviewWriteGate,
   ): Promise<PreviewEffectReceipt> {
     const store = this.ownership(entry);
-    let owned = await store.initialize(gate, entry.session.ownedResources.length > 0);
+    let owned = await store.initialize(
+      gate,
+      entry.session.ownedResources.length > 0 ||
+        Object.values(entry.operations).some((operation) =>
+          operation.steps?.some((step) => step.name === "ownership"),
+        ),
+    );
     if (owned.absent) return this.receipt(owned, true);
     if (effect.kind === "cancel" || effect.kind === "destroy")
       return this.teardown(effect, entry, gate, owned, store);
-    const context = await gate.context();
-    if (context.stopping || context.superseded)
-      return { ...this.receipt(owned, true), outcome: "cancelled" };
+    if (await gate.fenced()) return { ...this.receipt(owned, true), outcome: "cancelled" };
     try {
       if (!owned.blueprintId) {
         const name = this.name(entry);
         const previous = (await gate.read()).find((step) => step.name === "blueprint");
         if (!previous) {
-          const matches = (await this.options.api.list(["preview-blueprints"], "workflows")).filter(
-            (row) => row.name === name || row.id === name,
-          );
-          if (matches.length) throw new Error("Northflank generation name is already occupied.");
+          const matches = await this.namedBlueprints(entry);
+          if (matches.length)
+            throw new NorthflankFailure("Northflank generation name is already occupied.");
         }
-        if ((await gate.begin("blueprint", "once")) === "write") {
+        if ((await begin(gate, "blueprint", "once")) === "write") {
           try {
             owned = await store.update((current) => ({ ...current, blueprintId: name }));
             await this.options.api.request("POST", ["preview-blueprints"], {
@@ -291,36 +309,41 @@ export class NorthflankPreviewProvider implements PreviewProvider {
             await gate.record("blueprint", "uncertain");
           }
         }
-        const matches = (await this.options.api.list(["preview-blueprints"], "workflows")).filter(
-          (row) => row.name === name || row.id === name,
-        );
-        if (matches.length > 1) throw new Error("Ambiguous Northflank blueprint outcome.");
+        const matches = await this.namedBlueprints(entry);
+        if (matches.length > 1)
+          throw new NorthflankFailure("Ambiguous Northflank blueprint outcome.");
         if (!matches.length) return this.receipt(owned);
         if (matches[0].id !== name)
-          throw new Error("Northflank blueprint slug differs from its admitted identity.");
+          throw new NorthflankFailure(
+            "Northflank blueprint slug differs from its admitted identity.",
+          );
         const blueprintId = nativeIdentifier(matches[0].id);
-        owned = await store.update((current) => ({ ...current, blueprintId }));
+        owned = await store.update((current) => ({
+          ...current,
+          blueprintId,
+          blueprintObserved: true,
+        }));
+        await gate.record("blueprint", "accepted");
       }
       if (effect.kind === "deadline") {
         if (!owned.previewId) {
           const run = await this.run(entry, effect, gate, owned, "bootstrap", emptySpec);
-          if (!run) return this.receipt(owned);
-          if (!run.concluded) return this.receipt(owned);
-          if (run.status !== "success") throw new Error("Northflank bootstrap failed.");
+          if (!run?.concluded) return this.receipt(owned);
+          if (run.status !== "success") throw new NorthflankFailure("Northflank bootstrap failed.");
           const previews = await this.options.api.list(
             ["preview-blueprints", nativeIdentifier(owned.blueprintId), "previews"],
             "previewEnvironments",
           );
           if (previews.length !== 1)
-            throw new Error("Northflank requires exactly one generation environment.");
+            throw new NorthflankFailure("Northflank requires exactly one generation environment.");
           const previewId = nativeIdentifier(previews[0].id);
           owned = await store.update((current) => ({ ...current, previewId }));
         }
         const step = (await gate.read()).find((item) => item.name === "deadline");
         if (step?.state === "accepted" && step.ref)
           return { ...this.receipt(owned, true), confirmedDeadline: Number(step.ref) };
-        if (step) throw new Error("Northflank expiry confirmation was lost.");
-        if ((await gate.begin("deadline", "once")) !== "write")
+        if (step) throw new NorthflankFailure("Northflank expiry confirmation was lost.");
+        if ((await begin(gate, "deadline", "once")) !== "write")
           return { ...this.receipt(owned, true), outcome: "cancelled" };
         const confirmed = await this.options.api.resetDeadline(
           nativeIdentifier(owned.blueprintId),
@@ -331,7 +354,8 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         await gate.record("deadline", "accepted", String(confirmed));
         return { ...this.receipt(owned, true), confirmedDeadline: confirmed };
       }
-      if (!owned.previewId) throw new Error("Northflank deadline must precede paid allocations.");
+      if (!owned.previewId)
+        throw new NorthflankFailure("Northflank deadline must precede paid allocations.");
       const selected = new Set(
         entry.plan.resources.map((item) => `r_${item.id.replaceAll("-", "_")}`),
       );
@@ -342,15 +366,13 @@ export class NorthflankPreviewProvider implements PreviewProvider {
           !selected.has(item.reference),
       )) {
         const step = `pause-${digest(resource.id).slice(0, 12)}`;
-        if ((await gate.begin(step, "once")) === "write") {
-          await this.options.api.request("PATCH", ["services", resource.id], {
-            deployment: { instances: 0 },
-          });
+        if ((await begin(gate, step, "once")) === "write") {
+          await this.options.api.request("POST", ["services", resource.id, "pause"]);
           await gate.record(step, "accepted");
         } else if (
           !(await gate.read()).some((item) => item.name === step && item.state === "accepted")
         )
-          throw new Error("Northflank deselection is uncertain.");
+          throw new NorthflankFailure("Northflank deselection is uncertain.");
       }
       const prepared = compileNorthflankGraph(
         entry,
@@ -361,23 +383,31 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       const prepare = await this.run(entry, effect, gate, owned, "prepare", prepared.spec);
       if (!prepare?.concluded) return this.receipt(owned);
       owned = await this.capture(prepare, owned, store);
-      if (prepare.status !== "success") throw new Error("Northflank preparation failed.");
+      if (prepare.status !== "success")
+        throw new NorthflankFailure("Northflank preparation failed.");
       for (const [index, group] of prepared.runtimeSecrets.entries()) {
         const step = `secrets-${index}`;
         const current = (await gate.read()).find((item) => item.name === step);
         if (current?.state === "accepted") continue;
-        if (current) throw new Error("Northflank secret delivery outcome is uncertain.");
+        if (current)
+          throw new NorthflankFailure("Northflank secret delivery outcome is uncertain.");
         const target = owned.resources.find((resource) => resource.reference === group.groupRef);
-        if (target?.kind !== "secrets") throw new Error("Northflank runtime recipient is unowned.");
+        if (target?.kind !== "secrets")
+          throw new NorthflankFailure("Northflank runtime recipient is unowned.");
         const definition = prepared.spec.spec.steps.find((node) => node.ref === group.groupRef);
-        const configured = data({ data: data({ data: definition?.spec.secrets }).variables });
+        const configured = record(record(definition?.spec.secrets).variables);
         const variables: Record<string, unknown> = { ...configured };
         for (const [key, reference] of Object.entries(group.variables)) {
-          const value = await this.options.runtimeSecret(reference);
-          if (!value) throw new Error("Northflank runtime secret is unavailable.");
+          let value: string;
+          try {
+            value = await this.options.runtimeSecret(reference);
+          } catch {
+            throw new NorthflankFailure("Northflank runtime secret is unavailable.");
+          }
+          if (!value) throw new NorthflankFailure("Northflank runtime secret is unavailable.");
           variables[key] = value;
         }
-        if ((await gate.begin(step, "once")) !== "write")
+        if ((await begin(gate, step, "once")) !== "write")
           return { ...this.receipt(owned, true), outcome: "cancelled" };
         await this.options.api.request("PATCH", ["secrets", target.id], { secrets: { variables } });
         await gate.record(step, "accepted");
@@ -386,12 +416,15 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       const run = await this.run(entry, effect, gate, owned, "activate", active.spec);
       if (!run?.concluded) return this.receipt(owned);
       owned = await this.capture(run, owned, store);
-      if (run.status !== "success") throw new Error("Northflank activation failed.");
+      if (run.status !== "success") throw new NorthflankFailure("Northflank activation failed.");
       if (!(await this.options.accept(entry, active.urls))) return this.receipt(owned);
       return { ...this.receipt(owned, true), ready: true };
     } catch (error) {
       // Native details and injected values never become controller errors or status text.
-      if (!(error instanceof Error)) throw error;
+      if (error instanceof NorthflankFenced)
+        return { ...this.receipt(owned, true), outcome: "cancelled" };
+      if (!(error instanceof NorthflankFailure) && !(error instanceof NorthflankOutcomeUncertain))
+        throw error;
       return {
         ...this.receipt((await store.read()) ?? owned, true),
         outcome: "failed",
@@ -426,7 +459,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     const runName = `${stage}-${digest(effect.id).slice(0, 20)}`;
     const recorded = (await gate.read()).find((step) => step.name === `${stage}-run`);
     if (!recorded) {
-      if ((await gate.begin(`${stage}-spec`, "once", fingerprint)) === "write") {
+      if ((await begin(gate, `${stage}-spec`, "once", fingerprint)) === "write") {
         await api.request("POST", path, {
           name: this.name(entry),
           apiVersion: "v1.2",
@@ -438,12 +471,12 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       }
       const detail = data(await api.request("GET", path));
       if (digest(detail.spec) !== fingerprint)
-        throw new Error("Northflank blueprint specification drifted.");
-      if ((await gate.begin(`${stage}-run`, "once", fingerprint)) === "write") {
+        throw new NorthflankFailure("Northflank blueprint specification drifted.");
+      if ((await begin(gate, `${stage}-run`, "once", fingerprint)) === "write") {
         try {
           const run = data(await api.request("POST", [...path, "runs"], { name: runName }));
           if (owned.previewId && run.environmentId !== owned.previewId)
-            throw new Error("Northflank run created another environment.");
+            throw new NorthflankFailure("Northflank run created another environment.");
           await gate.record(`${stage}-run`, "accepted", nativeIdentifier(run.id));
         } catch (error) {
           if (!(error instanceof NorthflankOutcomeUncertain)) throw error;
@@ -451,7 +484,8 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         }
       }
     } else {
-      if (!recorded.fingerprint) throw new Error("Northflank run has no admitted specification.");
+      if (!recorded.fingerprint)
+        throw new NorthflankFailure("Northflank run has no admitted specification.");
       fingerprint = recorded.fingerprint;
     }
     const step = (await gate.read()).find((item) => item.name === `${stage}-run`);
@@ -461,14 +495,14 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       const matches = (await api.list([...path, "runs"], "runs")).filter(
         (row) => row.name === runName,
       );
-      if (matches.length > 1) throw new Error("Ambiguous Northflank run outcome.");
+      if (matches.length > 1) throw new NorthflankFailure("Ambiguous Northflank run outcome.");
       if (!matches.length) return null;
       id = nativeIdentifier(matches[0].id);
       await gate.record(`${stage}-run`, "accepted", id);
     }
     const run = data(await api.request("GET", [...path, "runs", id]));
     if (digest(run.spec) !== fingerprint)
-      throw new Error("Northflank executed an unexpected specification.");
+      throw new NorthflankFailure("Northflank executed an unexpected specification.");
     return run;
   }
   private async capture(
@@ -476,9 +510,10 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     owned: NorthflankOwnership,
     store: NorthflankOwnershipStore,
   ) {
-    const refs = data({ data: run.refs });
-    const steps = data({ data: data({ data: run.spec }).spec }).steps;
-    if (!Array.isArray(steps)) throw new Error("Northflank executed graph is unavailable.");
+    const refs = record(run.refs);
+    const steps = record(record(run.spec).spec).steps;
+    if (!Array.isArray(steps))
+      throw new NorthflankFailure("Northflank executed graph is unavailable.");
     const additions: NorthflankOwnedResource[] = [];
     const kinds: Record<string, NorthflankOwnedResource["kind"]> = {
       Addon: "addons",
@@ -490,7 +525,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       Subdomain: "domains",
     };
     for (const raw of steps) {
-      const node = data({ data: raw });
+      const node = record(raw);
       if (typeof node.ref !== "string" || typeof node.kind !== "string" || !kinds[node.kind])
         continue;
       if (!/^(r|b|e|d)_/.test(node.ref)) continue;
@@ -500,19 +535,21 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       if (!output) continue;
       const kind = kinds[node.kind];
       if (kind === "domains") {
-        const spec = data({ data: node.spec });
+        const spec = record(node.spec);
         const id = nativeIdentifier(spec.name);
         const observed = data(await this.options.api.subdomain("GET", id));
         if (observed.fullName !== `${id}.${this.options.graph.baseDomain}`)
-          throw new Error("Northflank domain identity differs.");
+          throw new NorthflankFailure("Northflank domain identity differs.");
         additions.push({ reference: node.ref, kind, id, name: observed.fullName as string });
         continue;
       }
-      const id = nativeIdentifier(data({ data: output }).id);
+      const id = nativeIdentifier(record(output).id);
       const observed = data(await this.options.api.request("GET", [kind, id]));
       const name = nativeIdentifier(observed.name);
-      if (name !== data({ data: node.spec }).name)
-        throw new Error("Northflank allocation identity differs from its executed graph.");
+      if (name !== record(node.spec).name)
+        throw new NorthflankFailure(
+          "Northflank allocation identity differs from its executed graph.",
+        );
       additions.push({
         reference: node.ref,
         kind,
@@ -534,22 +571,23 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     store: NorthflankOwnershipStore,
   ): Promise<PreviewEffectReceipt> {
     if (!owned.blueprintId) {
-      const candidates = (await this.options.api.list(["preview-blueprints"], "workflows")).filter(
-        (row) => row.name === this.name(entry) || row.id === this.name(entry),
-      );
+      const candidates = await this.namedBlueprints(entry);
       // An uncertain create is never forgotten or adopted by name alone.
-      if (candidates.length) return this.receipt(owned);
-      return this.receipt(owned, true);
+      return this.receipt(owned, candidates.length === 0);
     }
     const path = ["preview-blueprints", owned.blueprintId];
     const blueprint = await this.options.api.request("GET", path);
+    if (!blueprint && !owned.blueprintObserved) return this.receipt(owned);
     if (blueprint) {
+      if (!owned.blueprintObserved)
+        owned = await store.update((current) => ({ ...current, blueprintObserved: true }));
       const runs = await this.options.api.list([...path, "runs"], "runs");
       for (const run of runs.filter((row) => row.concluded !== true)) {
         const id = nativeIdentifier(run.id);
-        if ((await gate.begin(`abort-${digest(id).slice(0, 12)}`, "convergent")) === "write") {
+        const step = `abort-${digest(id).slice(0, 12)}`;
+        if ((await begin(gate, step, "convergent")) === "write") {
           await this.options.api.request("POST", [...path, "runs", id, "abort"]);
-          await gate.record(`abort-${digest(id).slice(0, 12)}`, "accepted", id);
+          await gate.record(step, "accepted", id);
         }
       }
       if (effect.kind === "cancel") return this.receipt(owned, true);
@@ -557,7 +595,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       for (const preview of previews) {
         const id = nativeIdentifier(preview.id);
         const step = `delete-${digest(id).slice(0, 12)}`;
-        if ((await gate.begin(step, "convergent")) === "write") {
+        if ((await begin(gate, step, "convergent")) === "write") {
           await this.options.api.request("DELETE", [...path, "previews", id]);
           await gate.record(step, "accepted", id);
         }
@@ -567,12 +605,12 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       for (const resource of owned.resources.filter((item) => item.kind === "domains")) {
         if (!(await this.options.api.subdomain("GET", resource.id))) continue;
         const step = `domain-${digest(resource.id).slice(0, 12)}`;
-        if ((await gate.begin(step, "convergent")) === "write") {
+        if ((await begin(gate, step, "convergent")) === "write") {
           await this.options.api.subdomain("DELETE", resource.id);
           await gate.record(step, "accepted");
         }
       }
-      if ((await gate.begin("delete-blueprint", "convergent")) === "write") {
+      if ((await begin(gate, "delete-blueprint", "convergent")) === "write") {
         await this.options.api.request("DELETE", path);
         await gate.record("delete-blueprint", "accepted");
       }
@@ -594,16 +632,12 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         entry.session.ownedResources.length === 0 && Object.keys(entry.operations).length === 0
       );
     if (owned.absent) return true;
+    if (owned.blueprintId && !owned.blueprintObserved) return false;
     const api = this.options.api;
     if (owned.blueprintId && (await api.request("GET", ["preview-blueprints", owned.blueprintId])))
       return false;
-    if (
-      (await api.list(["preview-blueprints"], "workflows")).some(
-        (row) => row.name === this.name(entry) || row.id === this.name(entry),
-      )
-    )
-      return false;
-    const prefix = `${this.options.graph.namespace.slice(0, 6)}-${entry.session.generation.slice(0, 12)}-`;
+    if ((await this.namedBlueprints(entry)).length > 0) return false;
+    const prefix = northflankAllocationPrefix(this.options.graph, entry.session.generation);
     for (const kind of ["services", "jobs", "addons", "volumes", "secrets"] as const) {
       const rows = await api.list([kind], kind === "volumes" ? undefined : kind);
       if (rows.some((row) => typeof row.name === "string" && row.name.startsWith(prefix)))
@@ -629,14 +663,9 @@ export class NorthflankPreviewProvider implements PreviewProvider {
 }
 
 const emptySpec = { kind: "Workflow", spec: { type: "sequential", steps: [] } };
-function nativeIdentifier(value: unknown): string {
-  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(value))
-    throw new Error("Invalid Northflank native identity.");
-  return value;
-}
 function data(value: Record<string, unknown> | null): Record<string, unknown> {
   if (!value?.data || typeof value.data !== "object" || Array.isArray(value.data))
-    throw new Error("Invalid Northflank native observation.");
+    throw new NorthflankFailure("Invalid Northflank native observation.");
   return value.data as Record<string, unknown>;
 }
 function digest(value: unknown): string {
@@ -647,4 +676,15 @@ function bindings(owned: NorthflankOwnership) {
     resources: Object.fromEntries(owned.resources.map((item) => [item.reference, item.id])),
     domains: owned.resources.filter((item) => item.kind === "domains").map((item) => item.name),
   };
+}
+
+async function begin(
+  gate: PreviewWriteGate,
+  name: string,
+  mode: "once" | "convergent",
+  fingerprint?: string,
+) {
+  const result = await gate.begin(name, mode, fingerprint);
+  if (result === "fenced") throw new NorthflankFenced();
+  return result;
 }

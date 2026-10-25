@@ -4,13 +4,13 @@ import { MAX_PREVIEW_DEADLINE_EARLINESS_MS } from "../lifecycle";
 type NorthflankMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 const MAX_BYTES = 1024 * 1024;
 
-function identifier(value: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(value))
+export function northflankIdentifier(value: unknown): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(value))
     throw new Error("Invalid Northflank resource identifier.");
   return value;
 }
 
-function record(value: unknown): Record<string, unknown> {
+export function northflankRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid Northflank response object.");
   return value as Record<string, unknown>;
@@ -40,7 +40,7 @@ export class NorthflankPreviewAPI {
       domain?: string;
     },
   ) {
-    this.projectId = identifier(options.projectId);
+    this.projectId = northflankIdentifier(options.projectId);
     if (
       options.domain &&
       (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(options.domain) ||
@@ -48,7 +48,7 @@ export class NorthflankPreviewAPI {
     )
       throw new Error("Invalid Northflank domain read scope.");
     this.domain = options.domain;
-    this.base = `https://api.northflank.com/v1/projects/${identifier(options.projectId)}/`;
+    this.base = `https://api.northflank.com/v1/projects/${this.projectId}/`;
     this.fetch = options.fetch ?? fetch;
     const margin = options.deadlineMarginMs ?? 15_000;
     if (!Number.isSafeInteger(margin) || margin < 1 || margin > 15_000)
@@ -69,7 +69,7 @@ export class NorthflankPreviewAPI {
       segments.length > 6
     )
       throw new Error("Northflank preview transport refuses an unrelated resource path.");
-    const url = new URL(this.base + segments.map(identifier).join("/"));
+    const url = new URL(this.base + segments.map(northflankIdentifier).join("/"));
     for (const [key, value] of Object.entries(query)) {
       if (!["per_page", "cursor"].includes(key) || value.length > 128)
         throw new Error("Invalid Northflank preview query.");
@@ -82,7 +82,7 @@ export class NorthflankPreviewAPI {
     if (!this.domain || name.length > 63)
       throw new Error("Northflank domain read is outside its configured scope.");
     const url = new URL(
-      `https://api.northflank.com/v1/domains/${this.domain}/subdomains/${identifier(name)}`,
+      `https://api.northflank.com/v1/domains/${this.domain}/subdomains/${northflankIdentifier(name)}`,
     );
     return this.send(method, url);
   }
@@ -131,7 +131,7 @@ export class NorthflankPreviewAPI {
       throw new Error("Northflank response is unreadable or exceeds its size bound.");
     }
     try {
-      return record(JSON.parse(contentText));
+      return northflankRecord(JSON.parse(contentText));
     } catch {
       if (method !== "GET") throw new NorthflankOutcomeUncertain();
       throw new Error("Northflank response is not a valid JSON object.");
@@ -148,13 +148,13 @@ export class NorthflankPreviewAPI {
         ...(cursor === undefined ? {} : { cursor }),
       });
       if (!result) throw new Error("Northflank collection is unavailable.");
-      const items = member === undefined ? result.data : record(result.data)[member];
+      const items = member === undefined ? result.data : northflankRecord(result.data)[member];
       if (member === undefined && !result.pagination) {
         if (!Array.isArray(items) || items.length > 4096)
           throw new Error("Invalid Northflank resource collection.");
-        return items.map(record);
+        return items.map(northflankRecord);
       }
-      const pagination = record(result.pagination);
+      const pagination = northflankRecord(result.pagination);
       if (
         !Array.isArray(items) ||
         items.length > 100 ||
@@ -162,7 +162,7 @@ export class NorthflankPreviewAPI {
         pagination.count !== items.length
       )
         throw new Error("Incomplete Northflank collection response.");
-      rows.push(...items.map(record));
+      rows.push(...items.map(northflankRecord));
       if (!pagination.hasNextPage) return rows;
       if (
         typeof pagination.cursor !== "string" ||

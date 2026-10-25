@@ -355,7 +355,7 @@ describe("Northflank generation ownership", () => {
     const steps: PreviewEffectStep[] = [];
     const gate: PreviewWriteGate = {
       read: async () => structuredClone(steps),
-      context: async () => ({ stopping: false, superseded: false }),
+      fenced: async () => false,
       begin: async (name, mode) => {
         if (steps.some((step) => step.name === name)) return "resolve";
         steps.push({ name, mode, state: "intent", at: 1 });
@@ -444,6 +444,13 @@ function providerFixture() {
   const mutations: string[] = [];
   let lostRun = false;
   let missingSecret = false;
+  let pendingBootstrap = false;
+  let delayedBlueprint: Record<string, any> | undefined;
+  let delayBlueprint = false;
+  let failRead = false;
+  let failDelete = false;
+  let refreshDuringPrepare = false;
+  let desiredPlan = entry.plan;
   const response = (data: unknown) => {
     const rows =
       data && typeof data === "object" && !Array.isArray(data)
@@ -485,7 +492,14 @@ function providerFixture() {
         return response(row);
       }
       if (tail.length === 1) {
-        if (method === "POST") blueprint = { ...body, id: body.name };
+        if (method === "POST") {
+          if (delayBlueprint) {
+            delayedBlueprint = { ...body, id: body.name };
+            delayBlueprint = false;
+            throw new Error("synthetic delayed create");
+          }
+          blueprint = { ...body, id: body.name };
+        }
         return response({ workflows: blueprint ? [blueprint] : [] });
       }
       if (!blueprint) return new Response(null, { status: 404 });
@@ -498,6 +512,10 @@ function providerFixture() {
         if (tail[4] === "reset")
           return response({ expiryTime: new Date(now + body.lifetime * 60_000).toISOString() });
         if (method === "DELETE") {
+          if (failDelete) {
+            failDelete = false;
+            throw new Error("synthetic uncertain delete");
+          }
           allocations.clear();
           domains.clear();
           runs.clear();
@@ -542,7 +560,7 @@ function providerFixture() {
             spec,
             refs,
             environmentId: "environment",
-            concluded: true,
+            concluded: !(pendingBootstrap && body.name.startsWith("bootstrap-")),
             status: "success",
           };
           runs.set(id, row);
@@ -553,7 +571,18 @@ function providerFixture() {
           return response(row);
         }
         if (tail.length === 3) return response({ runs: [...runs.values()] });
-        return response(runs.get(tail[3]));
+        if (failRead) {
+          failRead = false;
+          throw new Error("synthetic read unavailable");
+        }
+        const row = runs.get(tail[3]);
+        if (refreshDuringPrepare && row?.name.startsWith("prepare-")) {
+          refreshDuringPrepare = false;
+          desiredPlan = structuredClone(entry.plan);
+          desiredPlan.source!.head = "f".repeat(40);
+          await command("refresh", { kind: "start", aliases: ["web"] });
+        }
+        return response(row);
       }
       throw new Error("Unexpected synthetic endpoint");
     },
@@ -607,7 +636,7 @@ function providerFixture() {
       open: true,
       sameProject: true,
       command,
-      plan: entry.plan,
+      plan: desiredPlan,
       hourlyCents: 1,
     });
   const reconcile = async (count = 10) => {
@@ -626,6 +655,24 @@ function providerFixture() {
     identity,
     loseRun: () => {
       lostRun = true;
+    },
+    delayBlueprint: () => {
+      delayBlueprint = true;
+    },
+    completeBlueprint: () => {
+      blueprint = delayedBlueprint;
+    },
+    holdBootstrap: () => {
+      pendingBootstrap = true;
+    },
+    failRead: () => {
+      failRead = true;
+    },
+    failDelete: () => {
+      failDelete = true;
+    },
+    refreshDuringPrepare: () => {
+      refreshDuringPrepare = true;
     },
     failSecret: () => {
       missingSecret = true;
@@ -675,5 +722,51 @@ describe("Northflank provider lifecycle", () => {
     expect(failed?.session.reservationHeld).toBe(false);
     expect(f.allocations.size).toBe(0);
     expect([...f.runs.values()].some((run) => run.name.startsWith("activate-"))).toBe(false);
+  });
+  it("stops during pending bootstrap without wedging the ownership initializer", async () => {
+    const f = providerFixture();
+    f.holdBootstrap();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile(1))?.session.reservationHeld).toBe(true);
+    await f.command("stop", { kind: "stop" });
+    expect((await f.reconcile(20))?.session.reservationHeld).toBe(false);
+  });
+  it("preserves an in-flight generation across a transient observation failure", async () => {
+    const f = providerFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    f.failRead();
+    await expect(f.reconcile(1)).rejects.toThrow();
+    expect((await f.engine.status(f.identity))?.session.reservationHeld).toBe(true);
+    expect((await f.reconcile())?.session.status).toBe("ready");
+    expect(f.mutations.some((item) => item.startsWith("DELETE"))).toBe(false);
+  });
+  it("cancels a superseded deployment between stages and deploys the newer source", async () => {
+    const f = providerFixture();
+    f.refreshDuringPrepare();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const ready = await f.reconcile(20);
+    expect(ready?.session.status).toBe("ready");
+    expect(ready?.session.desiredRevision).toBe("f".repeat(40));
+    expect(f.mutations.some((item) => item.startsWith("DELETE"))).toBe(false);
+  });
+  it("retries a convergent delete after observing that its uncertain request left resources", async () => {
+    const f = providerFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await f.reconcile();
+    await f.command("stop", { kind: "stop" });
+    f.failDelete();
+    await expect(f.reconcile(20)).rejects.toBeInstanceOf(NorthflankOutcomeUncertain);
+    expect((await f.engine.status(f.identity))?.session.reservationHeld).toBe(true);
+    expect((await f.reconcile(20))?.session.reservationHeld).toBe(false);
+  });
+  it("holds the reservation until an uncertain late blueprint create can be fenced and deleted", async () => {
+    const f = providerFixture();
+    f.delayBlueprint();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await f.reconcile(1);
+    await f.command("stop", { kind: "stop" });
+    expect((await f.reconcile(10))?.session.reservationHeld).toBe(true);
+    f.completeBlueprint();
+    expect((await f.reconcile(20))?.session.reservationHeld).toBe(false);
   });
 });

@@ -77,6 +77,13 @@ function shellWord(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
+export function northflankAllocationPrefix(
+  policy: NorthflankGraphPolicy,
+  generation: string,
+): string {
+  return `${policy.namespace.slice(0, 6)}-${generation.slice(0, 12)}-`;
+}
+
 export function compileNorthflankGraph(
   entry: PreviewPoolEntry,
   policy: NorthflankGraphPolicy,
@@ -160,7 +167,7 @@ export function compileNorthflankGraph(
     const settings = policy.resources[resource.id];
     if (!settings || !ALLOCATION_PLAN.test(settings.deploymentPlan))
       throw new Error("Every selected resource requires a trusted allocation plan.");
-    const name = `${policy.namespace.slice(0, 6)}-${entry.session.generation.slice(0, 12)}-${createHash("sha256").update(resource.id).digest("hex").slice(0, 10)}`;
+    const name = `${northflankAllocationPrefix(policy, entry.session.generation)}${createHash("sha256").update(resource.id).digest("hex").slice(0, 10)}`;
     if (nativeNames.has(name)) throw new Error("Northflank resource name collision.");
     nativeNames.add(name);
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(resource.id))
