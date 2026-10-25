@@ -447,6 +447,8 @@ function providerFixture() {
   let pendingBootstrap = false;
   let delayedBlueprint: Record<string, any> | undefined;
   let delayBlueprint = false;
+  let rejectBlueprint = false;
+  let pendingPrepare = false;
   let failRead = false;
   let failDelete = false;
   let refreshDuringPrepare = false;
@@ -493,6 +495,7 @@ function providerFixture() {
       }
       if (tail.length === 1) {
         if (method === "POST") {
+          if (rejectBlueprint) return new Response(null, { status: 422 });
           if (delayBlueprint) {
             delayedBlueprint = { ...body, id: body.name };
             delayBlueprint = false;
@@ -560,7 +563,10 @@ function providerFixture() {
             spec,
             refs,
             environmentId: "environment",
-            concluded: !(pendingBootstrap && body.name.startsWith("bootstrap-")),
+            concluded: !(
+              (pendingBootstrap && body.name.startsWith("bootstrap-")) ||
+              (pendingPrepare && body.name.startsWith("prepare-"))
+            ),
             status: "success",
           };
           runs.set(id, row);
@@ -655,6 +661,20 @@ function providerFixture() {
     identity,
     loseRun: () => {
       lostRun = true;
+    },
+    rejectBlueprint: () => {
+      rejectBlueprint = true;
+    },
+    holdPrepare: () => {
+      pendingPrepare = true;
+    },
+    finishRuns: () => {
+      pendingPrepare = false;
+      for (const run of runs.values()) run.concluded = true;
+    },
+    refreshSource: () => {
+      desiredPlan = structuredClone(entry.plan);
+      desiredPlan.source!.head = "f".repeat(40);
     },
     delayBlueprint: () => {
       delayBlueprint = true;
@@ -768,5 +788,24 @@ describe("Northflank provider lifecycle", () => {
     expect((await f.reconcile(10))?.session.reservationHeld).toBe(true);
     f.completeBlueprint();
     expect((await f.reconcile(20))?.session.reservationHeld).toBe(false);
+  });
+  it("releases a definitively rejected blueprint creation after complete absence checks", async () => {
+    const f = providerFixture();
+    f.rejectBlueprint();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile(20))?.session.reservationHeld).toBe(false);
+  });
+  it("waits for a superseded native run before submitting the newer source", async () => {
+    const f = providerFixture();
+    f.holdPrepare();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await f.reconcile(3);
+    f.refreshSource();
+    await f.command("refresh", { kind: "start", aliases: ["web"] });
+    const before = f.mutations.length;
+    await f.reconcile(3);
+    expect(f.mutations.length).toBe(before);
+    f.finishRuns();
+    expect((await f.reconcile(20))?.session.status).toBe("ready");
   });
 });

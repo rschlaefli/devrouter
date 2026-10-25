@@ -16,6 +16,12 @@ export function northflankRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+export class NorthflankRejected extends Error {
+  constructor(readonly status: number) {
+    super(`Northflank rejected the request (HTTP ${status}).`);
+  }
+}
+
 export class NorthflankOutcomeUncertain extends Error {
   constructor() {
     super("Northflank mutation outcome is uncertain and must be reconciled.");
@@ -116,7 +122,11 @@ export class NorthflankPreviewAPI {
     }
     if (!response.ok) {
       await response.body?.cancel();
-      if (method !== "GET") throw new NorthflankOutcomeUncertain();
+      if (method !== "GET") {
+        if ([400, 401, 403, 404, 422].includes(response.status))
+          throw new NorthflankRejected(response.status);
+        throw new NorthflankOutcomeUncertain();
+      }
       throw new Error(`Northflank preview request failed (HTTP ${response.status}).`);
     }
     if (response.status === 204) {

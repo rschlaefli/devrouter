@@ -138,3 +138,30 @@ metadata reserve. These prototype bounds are independent of cloud quotas.
 Ownership overflow is persisted and forces cleanup. A provider must discover and
 delete the entire generation independently of the bounded receipt list, then
 prove absence before capacity is released.
+
+## Northflank provider source
+
+The internal Northflank adapter compiles explicit installation recipes into staged
+native preview blueprints. It creates an empty generation first, confirms its
+absolute expiry, prepares private dependencies and inactive services, injects
+runtime secrets into restricted groups, then activates and checks the application.
+The admitted SHA pins source builds; image recipes require digests. Every public
+port carries the installation's IPv4 allowlist. IPv6 is currently unsupported.
+
+A generation owns its native blueprint, environment and immutable allocation
+receipts. Lost once-only submissions are observed rather than posted again.
+A changed source cancels superseded work; updates preserve the session deadline.
+Stop and expiry abort pending runs, delete the environment and blueprint, and verify
+services, jobs, addons, volumes, secret groups and subdomains are absent before
+releasing capacity. Uncertain late creation keeps its reservation.
+
+This adapter remains disconnected from live CLI dispatch. Installation policy must
+explicitly qualify fixed expiry, same-environment updates, deletion fencing,
+restricted runtime-secret delivery and ingress enforcement before admission.
+Synthetic fixtures prove controller behavior only. They do not qualify native
+expiry timing, cascade deletion, server-side late requests or access protection.
+
+`node --import tsx scripts/qualify-preview-northflank.ts` reports the remaining live
+proofs and exits3. It deliberately cannot mark the installation qualified from
+source checks. Unknown create outcomes remain cleanup-pending until native
+completion can be established; a timeout alone does not release their reservation.

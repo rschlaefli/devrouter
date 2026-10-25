@@ -423,7 +423,7 @@ export function decodePreviewPool(value: unknown): PreviewPool {
       if (effect.ready !== undefined && typeof effect.ready !== "boolean")
         throw new Error("Invalid readiness receipt.");
       if (effect.steps !== undefined) {
-        if (!Array.isArray(effect.steps) || effect.steps.length > 32)
+        if (!Array.isArray(effect.steps) || effect.steps.length > 144)
           throw new Error("Preview provider step journal exceeds its bound.");
         const names = new Set<string>();
         for (const rawStep of effect.steps) {

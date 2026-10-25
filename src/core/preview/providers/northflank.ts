@@ -6,6 +6,7 @@ import type { PreviewPlanReport } from "../types";
 import {
   NorthflankOutcomeUncertain,
   type NorthflankPreviewAPI,
+  NorthflankRejected,
   northflankIdentifier as nativeIdentifier,
   northflankRecord as record,
 } from "./northflank-api";
@@ -31,6 +32,7 @@ export type NorthflankOwnership = {
   policyDigest: string;
   blueprintId?: string;
   blueprintObserved?: boolean;
+  blueprintRejected?: boolean;
   previewId?: string;
   resources: NorthflankOwnedResource[];
   absent: boolean;
@@ -47,7 +49,7 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
   const row = object(
     value,
     ["schemaVersion", "generation", "policyDigest", "resources", "absent"],
-    ["blueprintId", "previewId", "blueprintObserved"],
+    ["blueprintId", "previewId", "blueprintObserved", "blueprintRejected"],
   );
   if (
     row.schemaVersion !== 1 ||
@@ -58,6 +60,8 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
     typeof row.absent !== "boolean"
   )
     throw new Error("Invalid Northflank ownership identity.");
+  if (row.blueprintRejected !== undefined && typeof row.blueprintRejected !== "boolean")
+    throw new Error("Invalid Northflank rejection observation.");
   if (row.blueprintObserved !== undefined && typeof row.blueprintObserved !== "boolean")
     throw new Error("Invalid Northflank creation observation.");
   for (const key of ["blueprintId", "previewId"]) if (row[key] !== undefined) identifier(row[key]);
@@ -235,8 +239,11 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       this.options.graph,
       "prepare",
     );
-    if (graph.runtimeSecrets.length > 16)
-      throw new NorthflankFailure("Northflank runtime bindings exceed the journal bound.");
+    if (
+      graph.spec.spec.steps.filter((node) => resourceKinds.includes(nativeKinds[node.kind]))
+        .length > 200
+    )
+      throw new NorthflankFailure("Northflank planned allocations exceed their ownership bound.");
   }
   private ownership(entry: PreviewPoolEntry) {
     return new NorthflankOwnershipStore({
@@ -283,7 +290,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     if (owned.absent) return this.receipt(owned, true);
     if (effect.kind === "cancel" || effect.kind === "destroy")
       return this.teardown(effect, entry, gate, owned, store);
-    if (await gate.fenced()) return { ...this.receipt(owned, true), outcome: "cancelled" };
+    if (await gate.fenced()) return this.settleFenced(effect, entry, gate, owned, store);
     try {
       if (!owned.blueprintId) {
         const name = this.name(entry);
@@ -293,18 +300,23 @@ export class NorthflankPreviewProvider implements PreviewProvider {
           if (matches.length)
             throw new NorthflankFailure("Northflank generation name is already occupied.");
         }
+        const body = {
+          name,
+          apiVersion: "v1.2",
+          spec: emptySpec,
+          triggers: [],
+          options: this.blueprintOptions(entry, effect.target ?? entry.session.expiresAt),
+        };
         if ((await begin(gate, "blueprint", "once")) === "write") {
           try {
             owned = await store.update((current) => ({ ...current, blueprintId: name }));
-            await this.options.api.request("POST", ["preview-blueprints"], {
-              name,
-              apiVersion: "v1.2",
-              spec: emptySpec,
-              triggers: [],
-              options: this.blueprintOptions(entry, effect.target ?? entry.session.expiresAt),
-            });
+            await this.options.api.request("POST", ["preview-blueprints"], body);
             await gate.record("blueprint", "accepted");
           } catch (error) {
+            if (error instanceof NorthflankRejected) {
+              owned = await store.update((current) => ({ ...current, blueprintRejected: true }));
+              throw new NorthflankFailure("Northflank rejected generation creation.");
+            }
             if (!(error instanceof NorthflankOutcomeUncertain)) throw error;
             await gate.record("blueprint", "uncertain");
           }
@@ -422,8 +434,12 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     } catch (error) {
       // Native details and injected values never become controller errors or status text.
       if (error instanceof NorthflankFenced)
-        return { ...this.receipt(owned, true), outcome: "cancelled" };
-      if (!(error instanceof NorthflankFailure) && !(error instanceof NorthflankOutcomeUncertain))
+        return this.settleFenced(effect, entry, gate, owned, store);
+      if (
+        !(error instanceof NorthflankFailure) &&
+        !(error instanceof NorthflankOutcomeUncertain) &&
+        !(error instanceof NorthflankRejected)
+      )
         throw error;
       return {
         ...this.receipt((await store.read()) ?? owned, true),
@@ -431,6 +447,52 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         cleanupRequired: true,
       };
     }
+  }
+  private async settleFenced(
+    effect: PreviewEffect,
+    entry: PreviewPoolEntry,
+    gate: PreviewWriteGate,
+    owned: NorthflankOwnership,
+    store: NorthflankOwnershipStore,
+  ): Promise<PreviewEffectReceipt> {
+    const cutoff =
+      entry.session.firstReadyAt === undefined
+        ? entry.session.setupDeadline
+        : entry.session.expiresAt;
+    if (
+      ["stopping", "cleanup-pending"].includes(entry.session.status) ||
+      this.options.now() >= cutoff
+    )
+      return { ...this.receipt(owned, true), outcome: "cancelled" };
+    // A newer source waits for every older native write; only stop can use the container deletion fence.
+    const steps = await gate.read();
+    if (steps.some((step) => step.name.endsWith("-spec") && step.state !== "accepted"))
+      return this.receipt(owned);
+    for (const step of steps.filter((item) => item.name.endsWith("-run"))) {
+      if (!owned.blueprintId) return this.receipt(owned);
+      let id = step.ref;
+      if (!id) {
+        const name = `${step.name.slice(0, -4)}-${digest(effect.id).slice(0, 20)}`;
+        const runs = await this.options.api.list(
+          ["preview-blueprints", owned.blueprintId, "runs"],
+          "runs",
+        );
+        const matches = runs.filter((row) => row.name === name);
+        if (matches.length !== 1) return this.receipt(owned);
+        id = nativeIdentifier(matches[0].id);
+      }
+      const result = await this.options.api.request("GET", [
+        "preview-blueprints",
+        owned.blueprintId,
+        "runs",
+        id,
+      ]);
+      if (!result) return this.receipt(owned);
+      const run = data(result);
+      if (!run.concluded || digest(run.spec) !== step.fingerprint) return this.receipt(owned);
+      owned = await this.capture(run, owned, store);
+    }
+    return { ...this.receipt(owned, true), outcome: "cancelled" };
   }
   private blueprintOptions(entry: PreviewPoolEntry, target: number) {
     return {
@@ -503,6 +565,11 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     const run = data(await api.request("GET", [...path, "runs", id]));
     if (digest(run.spec) !== fingerprint)
       throw new NorthflankFailure("Northflank executed an unexpected specification.");
+    if (owned.previewId) {
+      const previews = await api.list([...path, "previews"], "previewEnvironments");
+      if (previews.length !== 1 || previews[0].id !== owned.previewId)
+        throw new NorthflankFailure("Northflank run changed the generation environment.");
+    }
     return run;
   }
   private async capture(
@@ -515,15 +582,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     if (!Array.isArray(steps))
       throw new NorthflankFailure("Northflank executed graph is unavailable.");
     const additions: NorthflankOwnedResource[] = [];
-    const kinds: Record<string, NorthflankOwnedResource["kind"]> = {
-      Addon: "addons",
-      BuildService: "services",
-      DeploymentService: "services",
-      Job: "jobs",
-      Volume: "volumes",
-      SecretGroup: "secrets",
-      Subdomain: "domains",
-    };
+    const kinds = nativeKinds;
     for (const raw of steps) {
       const node = record(raw);
       if (typeof node.ref !== "string" || typeof node.kind !== "string" || !kinds[node.kind])
@@ -577,7 +636,8 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     }
     const path = ["preview-blueprints", owned.blueprintId];
     const blueprint = await this.options.api.request("GET", path);
-    if (!blueprint && !owned.blueprintObserved) return this.receipt(owned);
+    if (!blueprint && !owned.blueprintObserved && !owned.blueprintRejected)
+      return this.receipt(owned);
     if (blueprint) {
       if (!owned.blueprintObserved)
         owned = await store.update((current) => ({ ...current, blueprintObserved: true }));
@@ -602,8 +662,10 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       }
       if ((await this.options.api.list([...path, "previews"], "previewEnvironments")).length)
         return this.receipt(owned);
+      let cleanedDomains = 0;
       for (const resource of owned.resources.filter((item) => item.kind === "domains")) {
         if (!(await this.options.api.subdomain("GET", resource.id))) continue;
+        if (++cleanedDomains > 120) return { ...this.receipt(owned, true), outcome: "failed" };
         const step = `domain-${digest(resource.id).slice(0, 12)}`;
         if ((await begin(gate, step, "convergent")) === "write") {
           await this.options.api.subdomain("DELETE", resource.id);
@@ -632,7 +694,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         entry.session.ownedResources.length === 0 && Object.keys(entry.operations).length === 0
       );
     if (owned.absent) return true;
-    if (owned.blueprintId && !owned.blueprintObserved) return false;
+    if (owned.blueprintId && !owned.blueprintObserved && !owned.blueprintRejected) return false;
     const api = this.options.api;
     if (owned.blueprintId && (await api.request("GET", ["preview-blueprints", owned.blueprintId])))
       return false;
@@ -662,6 +724,15 @@ export class NorthflankPreviewProvider implements PreviewProvider {
   }
 }
 
+const nativeKinds: Record<string, NorthflankOwnedResource["kind"]> = {
+  Addon: "addons",
+  BuildService: "services",
+  DeploymentService: "services",
+  Job: "jobs",
+  Volume: "volumes",
+  SecretGroup: "secrets",
+  Subdomain: "domains",
+};
 const emptySpec = { kind: "Workflow", spec: { type: "sequential", steps: [] } };
 function data(value: Record<string, unknown> | null): Record<string, unknown> {
   if (!value?.data || typeof value.data !== "object" || Array.isArray(value.data))
