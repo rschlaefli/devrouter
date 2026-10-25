@@ -1,0 +1,101 @@
+name: Devrouter preview controller
+on:
+  workflow_call:
+    inputs:
+      controller-ref:
+        type: string
+        required: true
+      policy-repository:
+        type: string
+        required: true
+      policy-ref:
+        type: string
+        required: true
+      installation:
+        type: string
+        required: true
+      mode:
+        type: string
+        default: handle-event
+      project:
+        type: string
+        default: ''
+      change:
+        type: string
+        default: ''
+      azure-client-id:
+        type: string
+        required: true
+      azure-tenant-id:
+        type: string
+        required: true
+    secrets:
+      policy-read-token:
+        required: true
+      credentials:
+        required: true
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Validate immutable controller and policy references
+        env:
+          CONTROLLER_REF: ${{ inputs.controller-ref }}
+          POLICY_REF: ${{ inputs.policy-ref }}
+          PREVIEW_MODE: ${{ inputs.mode }}
+          INSTALLATION: ${{ inputs.installation }}
+        run: |
+          node <<'NODE'
+          for (const key of ['CONTROLLER_REF', 'POLICY_REF']) {
+            if (!/^[a-f0-9]{40}$/.test(process.env[key] || '')) throw Error('A reviewed immutable reference is required');
+          }
+          if (!['handle-event', 'sweep'].includes(process.env.PREVIEW_MODE)) throw Error('Invalid preview mode');
+          if (!/^[A-Za-z0-9_./-]+$/.test(process.env.INSTALLATION || '') || process.env.INSTALLATION.split('/').includes('..') || process.env.INSTALLATION.startsWith('/')) throw Error('Invalid installation path');
+          NODE
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: rschlaefli/devrouter
+          ref: ${{ inputs.controller-ref }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.16.0
+      - id: controller-build
+        name: Build the reviewed controller before injecting deployment credentials
+        working-directory: controller
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile --ignore-scripts
+          corepack pnpm build
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ inputs.policy-repository }}
+          ref: ${{ inputs.policy-ref }}
+          token: ${{ secrets.policy-read-token }}
+          path: policy
+          persist-credentials: false
+      - uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2
+        with:
+          client-id: ${{ inputs.azure-client-id }}
+          tenant-id: ${{ inputs.azure-tenant-id }}
+          allow-no-subscriptions: true
+      - id: reconcile
+        name: Reconcile from reviewed policy and forge state
+        env:
+          PREVIEW_MODE: ${{ inputs.mode }}
+          PREVIEW_PROJECT: ${{ inputs.project }}
+          PREVIEW_CHANGE: ${{ inputs.change }}
+          PREVIEW_INSTALLATION: ${{ inputs.installation }}
+          DEVROUTER_PREVIEW_CREDENTIALS: ${{ secrets.credentials }}
+        run: |
+          set -euo pipefail
+          set +x
+          DEVROUTER_PREVIEW_STATE_TOKEN="$(az account get-access-token --resource https://storage.azure.com/ --query accessToken --output tsv)"
+          echo "::add-mask::$DEVROUTER_PREVIEW_STATE_TOKEN"
+          export DEVROUTER_PREVIEW_STATE_TOKEN
+          node controller/dist/devrouter.js preview "$PREVIEW_MODE" --installation "policy/$PREVIEW_INSTALLATION" --project "$PREVIEW_PROJECT" --change "$PREVIEW_CHANGE" --json

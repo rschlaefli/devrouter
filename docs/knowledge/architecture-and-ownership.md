@@ -70,7 +70,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
   policy and emits deterministic literal arrays, while the consumer owns key
   meaning and command launch. [ADR 0007](../adr/0007-keep-ci-profile-planning-repository-owned.md)
   owns this boundary.
-- The committed `.devrouter.yml` remains the only supported per-repository Devrouter configuration. Runtime namespacing is an in-memory view produced by `src/core/repo-config.ts:applyWorkspace`.
+- The committed `.devrouter.yml` owns local routing/profile configuration. Runtime namespacing is an in-memory view produced by `src/core/repo-config.ts:applyWorkspace`. Only `preview` commands read the separate `.devrouter.preview.yml` manifest; local fingerprints and profile membership remain independent of it. [ADR 0013](../adr/0013-opt-in-remote-previews.md) owns this exception.
 
 ## Relationships
 

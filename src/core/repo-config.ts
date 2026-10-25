@@ -1674,6 +1674,11 @@ export function getRepoConfigPath(repoPath?: string): string {
   return path.join(resolveRepoPath(repoPath), CONFIG_FILE_NAME);
 }
 
+/** Parse reviewed remote configuration without creating a candidate checkout. */
+export function parseRepoConfigSource(source: string, configPath: string): DevrouterConfig {
+  return parseConfig((YAML.parse(source) as DevrouterConfigWithUnknown | null) ?? {}, configPath);
+}
+
 export function loadRepoConfig(
   repoPath?: string,
   read = (file: string) => fs.readFileSync(file, "utf-8"),
@@ -1687,8 +1692,7 @@ export function loadRepoConfig(
   }
 
   const raw = read(configPath);
-  const parsed = YAML.parse(raw) as DevrouterConfigWithUnknown | null;
-  const config = parseConfig(parsed ?? {}, configPath);
+  const config = parseRepoConfigSource(raw, configPath);
 
   const requiredVersion = config.devrouter?.version;
   if (requiredVersion && !hasWarnedVersionMismatch) {

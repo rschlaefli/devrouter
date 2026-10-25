@@ -4,6 +4,7 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Remote preview environments](./2026-10-25-cloud-preview-environments-plan.md) — active implementation of generic preview planning, lifecycle and forge/provider integrations.
 - [Dockerode 5 UUID remediation](./2026-10-25-dockerode-5-uuid-remediation.md) — prepare and locally qualify the dependency fix; package publication and downstream published-version adoption remain separate.
 
 - [Idle stop for managed environments](./2026-10-15-idle-stop-plan.md) — devrouter owns idle stop: a read-only `workspace idle` report, an explicit `--stop` mode, an opt-in launchd sweep, an idle-only pin, and Devsy's own idle timeout disabled.

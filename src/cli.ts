@@ -463,6 +463,65 @@ profileCommand
     ),
   );
 
+const previewCommand = program
+  .command("preview")
+  .description("Inspect opt-in remote previews without starting a local runtime");
+previewCommand
+  .command("plan")
+  .description("Resolve a preview manifest into an offline resource plan")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--alias <names>", "Preview alias or reviewed comma-separated union")
+  .option("--source <path>", "Repository-relative JSON source identity and changed paths")
+  .option("--list", "List declared preview aliases")
+  .option("--json", "Output structured JSON")
+  .action(
+    withErrorHandling(async (options) => {
+      const { runPreviewPlanCommand } = await import("./commands/preview");
+      await runPreviewPlanCommand(options);
+    }),
+  );
+for (const action of ["doctor", "state-init", "handle-event", "sweep"] as const) {
+  previewCommand
+    .command(action)
+    .description(
+      action === "doctor"
+        ? "Inspect reviewed installation policy without network or writes"
+        : "Reconcile an explicitly installed remote preview controller",
+    )
+    .requiredOption(
+      "--installation <file>",
+      "Trusted installation JSON; never a candidate checkout",
+    )
+    .option("--project <key>", "Registered project key for handle-event")
+    .option("--change <number>", "PR or MR number, treated only as a hint")
+    .option("--json", "Print structured output")
+    .action(
+      withErrorHandling(async (options) => {
+        const { runPreviewInstallationCommand } = await import("./commands/preview");
+        await runPreviewInstallationCommand(action, options);
+      }),
+    );
+}
+previewCommand
+  .command("init")
+  .description("Print a preview manifest or pinned CI caller for review")
+  .option("--repo <path>", "Repository path (defaults to current directory)")
+  .option("--integration <forge>", "Render a GitHub caller instead of a manifest")
+  .option("--controller-ref <sha>", "Reviewed immutable Devrouter commit")
+  .option("--policy-ref <sha>", "Reviewed immutable installation repository commit")
+  .option("--policy-repository <owner/repo>", "Private installation repository")
+  .option("--installation <path>", "Policy repository installation JSON")
+  .option("--project <key>", "Registered project key")
+  .option("--sweeper", "Render the once-per-installation recovery sweep caller")
+  .option("--write", "Create only an absent scaffold or caller file")
+  .option("--json", "Output the scaffold and setup checklist as JSON")
+  .action(
+    withErrorHandling(async (options) => {
+      const { runPreviewInitCommand } = await import("./commands/preview");
+      await runPreviewInitCommand(options);
+    }),
+  );
+
 const appCommand = program
   .command("app")
   .description("Manage app entries and runtime actions from `.devrouter.yml`");
