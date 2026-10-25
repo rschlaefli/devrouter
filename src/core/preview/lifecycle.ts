@@ -1,4 +1,4 @@
-import { isPreviewAlias } from "./command";
+import { isPreviewAlias, PreviewAdmissionRefused } from "./command";
 
 export const MAX_PREVIEW_DEADLINE_EARLINESS_MS = 75_000;
 const MINUTE = 60_000;
@@ -192,7 +192,10 @@ export function transitionPreviewSession(
         return next;
       }
       if (session.pendingDeadline || add(event.now, event.startupBudgetMs) > cutoff) {
-        throw new Error("preview update does not fit remaining time or has an unresolved deadline");
+        throw new PreviewAdmissionRefused(
+          "update-unavailable",
+          "preview update does not fit remaining time or has an unresolved deadline",
+        );
       }
       next.desiredRevision = event.revision;
       next.desiredAliases = aliases;
@@ -220,11 +223,17 @@ export function transitionPreviewSession(
         session.pendingDeadline ||
         session.extensions >= MAX_EXTENSIONS
       ) {
-        throw new Error("preview extension is unavailable");
+        throw new PreviewAdmissionRefused(
+          "extension-unavailable",
+          "preview extension is unavailable",
+        );
       }
       const target = add(session.expiresAt, HOUR);
       if (target > add(session.firstReadyAt, MAX_AFTER_READY)) {
-        throw new Error("preview extension exceeds readiness ceiling");
+        throw new PreviewAdmissionRefused(
+          "extension-unavailable",
+          "preview extension exceeds readiness ceiling",
+        );
       }
       const next = clone(session);
       next.processedCommands.push(event.commandId);

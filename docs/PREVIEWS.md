@@ -237,3 +237,10 @@ The caller declares every secret; it never inherits all secrets. Pin the workflo
 and `controller-ref` to the same reviewed commit. Public/private callers must meet
 GitHub Actions access policies; self-hosted runners need the declared tool/network
 prerequisites. Source templates are unqualified until a fresh live cycle succeeds.
+
+
+A deterministic capacity, update-time or selection refusal completes the command
+and reports its reason. It does not pause an already provisioning environment.
+Post a new command after the condition changes. An initial refresh needing the full
+setup budget can be refused while provisioning; the original generation continues.
+Transport failures remain retryable and cannot be mistaken for a policy refusal.

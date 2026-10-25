@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { isPreviewAlias, type PreviewCommand } from "./command";
+import {
+  isPreviewAlias,
+  PreviewAdmissionRefused,
+  type PreviewCommand,
+  previewRefusalReasons,
+} from "./command";
 import {
   type PreviewAdmission,
   PreviewAdmissionSuperseded,
@@ -20,6 +25,7 @@ type Inbox = {
   processed: Array<{ id: string; at: number }>;
   selection?: PreviewPlanReport["status"];
   needsStatus?: boolean;
+  refusal?: (typeof previewRefusalReasons)[number];
   status?: {
     intentAt: number;
     intentId?: string;
@@ -32,7 +38,7 @@ function decodeInbox(raw: unknown): Inbox {
   const row = object(
     raw,
     ["schemaVersion", "identity", "scannedThrough", "closedThrough", "processed"],
-    ["status", "selection", "needsStatus"],
+    ["status", "selection", "needsStatus", "refusal"],
   );
   if (row.schemaVersion !== 1 || Buffer.byteLength(JSON.stringify(raw)) > 128 * 1024)
     throw new Error("Invalid preview inbox.");
@@ -64,6 +70,11 @@ function decodeInbox(raw: unknown): Inbox {
     throw new Error("Invalid preview selection result.");
   if (row.needsStatus !== undefined && typeof row.needsStatus !== "boolean")
     throw new Error("Invalid preview status request.");
+  if (
+    row.refusal !== undefined &&
+    !previewRefusalReasons.includes(row.refusal as NonNullable<Inbox["refusal"]>)
+  )
+    throw new Error("Invalid preview refusal outcome.");
   if (row.status) {
     const status = object(
       row.status,
@@ -183,6 +194,16 @@ export class PreviewController {
       return row;
     });
   }
+  private async admit(change: number, admission: PreviewAdmission): Promise<void> {
+    try {
+      await this.options.engine.admit(admission);
+      await this.update(change, (row) => ({ ...row, refusal: undefined }));
+    } catch (error) {
+      if (error instanceof PreviewAdmissionRefused)
+        await this.update(change, (row) => ({ ...row, refusal: error.reason }));
+      else if (!(error instanceof PreviewAdmissionSuperseded)) throw error;
+    }
+  }
   async scan(change: number): Promise<void> {
     try {
       await this.scanCommands(change);
@@ -284,7 +305,15 @@ export class PreviewController {
             await this.mark(change, comment);
             continue;
           }
-          const plan = await this.options.plan(source.source, admission.command);
+          let plan: PreviewPlanReport;
+          try {
+            plan = await this.options.plan(source.source, admission.command);
+          } catch (error) {
+            if (!(error instanceof PreviewAdmissionRefused)) throw error;
+            await this.update(change, (row) => ({ ...row, refusal: error.reason }));
+            await this.mark(change, comment);
+            continue;
+          }
           const current = await this.options.forge.snapshot(change, false);
           if (comment.createdAt <= (current.commandAfter ?? 0)) {
             await this.mark(change, comment);
@@ -303,15 +332,11 @@ export class PreviewController {
             continue;
           }
           await this.update(change, (row) => ({ ...row, selection: undefined }));
-          try {
-            await this.options.engine.admit({
-              ...admission,
-              plan,
-              hourlyCents: this.options.hourlyCents(plan),
-            });
-          } catch (error) {
-            if (!(error instanceof PreviewAdmissionSuperseded)) throw error;
-          }
+          await this.admit(change, {
+            ...admission,
+            plan,
+            hourlyCents: this.options.hourlyCents(plan),
+          });
         } else {
           if (admission.command.kind === "extend") {
             const existing = await this.options.engine.status(identity);
@@ -323,11 +348,12 @@ export class PreviewController {
               existing.session.extensions >= 2 ||
               now >= existing.session.expiresAt
             ) {
+              await this.update(change, (row) => ({ ...row, refusal: "extension-unavailable" }));
               await this.mark(change, comment);
               continue;
             }
           }
-          await this.options.engine.admit(admission);
+          await this.admit(change, admission);
         }
         await this.mark(change, comment);
       }
@@ -349,7 +375,7 @@ export class PreviewController {
     const identity = this.identity(change),
       entry = await this.options.engine.status(identity);
     const marker = `<!-- devrouter-installation:${this.options.installationId} -->`;
-    const body = `${previewStatusBody(entry, entry?.session.status === "ready" ? this.options.urls(entry) : {})}${inbox.selection ? `\n\nSelection: ${inbox.selection}.` : ""}${this.options.aliases?.length ? `\n\nAvailable profiles: ${this.options.aliases.map((alias) => `\`${alias}\``).join(", ")}.` : ""}\n\n${marker}`;
+    const body = `${previewStatusBody(entry, entry?.session.status === "ready" ? this.options.urls(entry) : {})}${inbox.selection ? `\n\nSelection: ${inbox.selection}.` : ""}${inbox.refusal ? `\n\nCommand refused: ${inbox.refusal}. Post a new command when the condition is resolved.` : ""}${this.options.aliases?.length ? `\n\nAvailable profiles: ${this.options.aliases.map((alias) => `\`${alias}\``).join(", ")}.` : ""}\n\n${marker}`;
     const fingerprint = createHash("sha256").update(body).digest("hex"),
       now = this.options.now();
     if (inbox.status?.bodyDigest === fingerprint) {

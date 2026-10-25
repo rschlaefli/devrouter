@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isPreviewAlias, type PreviewCommand } from "./command";
+import { isPreviewAlias, PreviewAdmissionRefused, type PreviewCommand } from "./command";
 import {
   createPreviewSession,
   MAX_PREVIEW_DEADLINE_EARLINESS_MS,
@@ -258,7 +258,10 @@ export class PreviewEngine {
     const pool = await this.update((pool) => {
       if (pool.processedCommands.some((item) => item.id === receipt)) return pool;
       if (pool.processedCommands.length >= 1024 && input.command.kind !== "stop")
-        throw new Error("Preview command recovery window is full.");
+        throw new PreviewAdmissionRefused(
+          "command-window",
+          "Preview command recovery window is full.",
+        );
       const current = pool.sessions[id];
       if (input.command.kind === "stop") {
         const previous = pool.stoppedThrough[id];
@@ -372,12 +375,18 @@ export class PreviewEngine {
         input.command.kind !== "stop" &&
         (active > policy.maxActive || costs(pool) > policy.maxReservedCents)
       )
-        throw new Error("Preview installation capacity or cost allowance is exhausted.");
+        throw new PreviewAdmissionRefused(
+          "capacity",
+          "Preview installation capacity or cost allowance is exhausted.",
+        );
       if (
         input.command.kind === "start" &&
         Buffer.byteLength(JSON.stringify(pool)) + active * 128 * 1024 > 1024 * 1024
       )
-        throw new Error("Preview pool metadata capacity is reserved for cleanup.");
+        throw new PreviewAdmissionRefused(
+          "metadata",
+          "Preview pool metadata capacity is reserved for cleanup.",
+        );
       if (pool.processedCommands.length < 1024)
         pool.processedCommands.push({ id: receipt, admittedAt: now });
       return pool;

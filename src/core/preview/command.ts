@@ -2,6 +2,23 @@ const MAX_COMMAND_BYTES = 512;
 const MAX_ALIAS_LENGTH = 63;
 const ALIAS_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+export const previewRefusalReasons = [
+  "update-unavailable",
+  "extension-unavailable",
+  "capacity",
+  "command-window",
+  "metadata",
+  "selection-required",
+] as const;
+export class PreviewAdmissionRefused extends Error {
+  constructor(
+    readonly reason: (typeof previewRefusalReasons)[number],
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export type PreviewCommand =
   | { kind: "start"; aliases: string[] }
   | { kind: "extend" }

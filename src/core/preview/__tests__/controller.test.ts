@@ -234,6 +234,24 @@ describe("durable preview command controller", () => {
     expect(f.effects.filter((kind) => kind === "deploy")).toHaveLength(1);
     expect(f.creates()).toBe(1);
   });
+  it("continues the first generation after a fresh update is refused during setup", async () => {
+    const f = fixture();
+    f.command({ kind: "start", aliases: ["web"] });
+    await f.scan(1);
+    f.push();
+    f.command({ kind: "start", aliases: ["web"] });
+    await f.scan(1);
+    const inbox = [...f.records.entries()].find(([key]) => key.includes("/inbox/"))?.[1].value as {
+      processed: unknown[];
+      refusal?: string;
+    };
+    expect(inbox.processed).toHaveLength(2);
+    expect(inbox.refusal).toBe("update-unavailable");
+    const entry = await f.scan(10);
+    expect(entry?.session.status).toBe("ready");
+    expect(entry?.session.desiredRevision).toBe("a".repeat(40));
+    expect(f.effects.filter((kind) => kind === "deploy")).toHaveLength(1);
+  });
   it("a later stop prevents an earlier unprocessed start from allocating anything", async () => {
     const f = fixture();
     f.command({ kind: "start", aliases: ["web"] });

@@ -1,5 +1,6 @@
 import type { DevrouterConfig } from "../../types";
 import { buildProfileResolutionReport } from "../profile-resolution";
+import { PreviewAdmissionRefused } from "./command";
 import { assertRepoRelativePath, requireFields, requireRecord } from "./manifest";
 import type { PreviewManifest, PreviewPlanReport, PreviewSource } from "./types";
 
@@ -167,7 +168,10 @@ function sameAliasSet(left: string[], right: string[]): boolean {
 function assertAllowedUnion(manifest: PreviewManifest, aliases: string[]): void {
   if (aliases.length < 2) return;
   if (!manifest.selection.allowedUnions.some((union) => sameAliasSet(union, aliases))) {
-    fail(`preview alias union [${uniqueSorted(aliases).join(", ")}] is not allowed.`);
+    throw new PreviewAdmissionRefused(
+      "selection-required",
+      `preview alias union [${uniqueSorted(aliases).join(", ")}] is not allowed.`,
+    );
   }
 }
 
@@ -250,7 +254,10 @@ function readAliases(
   if (selected.length !== aliases.length) fail("aliases must not contain duplicates.");
   for (const alias of selected) {
     if (typeof alias !== "string" || !Object.hasOwn(manifest.aliases, alias)) {
-      fail(`preview alias '${String(alias)}' is not defined.`);
+      throw new PreviewAdmissionRefused(
+        "selection-required",
+        `preview alias '${String(alias)}' is not defined.`,
+      );
     }
   }
   assertAllowedUnion(manifest, selected);
