@@ -103,3 +103,19 @@ The CLI currently inspects the proposed resource graph. It has no live deploymen
 forge comment handler, access-policy enforcement or expiry capability. A successful
 plan is not a running or qualified preview. The accepted lifecycle and qualification
 work are recorded in the [implementation plan](./project/2026-10-25-cloud-preview-environments-plan.md).
+
+## Durable control building blocks
+
+The source includes a conditional state-store interface and an Azure Blob transport.
+The adapter requires a public-cloud HTTPS container endpoint and a runtime-injected
+Bearer token callback. It never creates accounts, containers or credentials.
+State mutations use conditional creation or the exact read ETag; an uncertain write
+is reconciled rather than blindly retried. Missing established state requires
+explicit installation initialization instead of silently recreating an empty pool.
+
+These building blocks are not wired to cloud resource effects. The lifecycle
+engine and live qualification remain separate from a successful offline plan.
+
+`pnpm qualify:preview-control` exercises synthetic late-allocation cleanup and
+conditional concurrent writes without a network or account. It identifies its
+transport as simulated. This is regression proof, not live provider qualification.
