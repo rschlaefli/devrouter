@@ -116,11 +116,15 @@ describe("preview manifest", () => {
   it("accepts existing local names while keeping preview-owned identifiers strict", () => {
     const manifest = parsePreviewManifest(
       validSource()
-        .replace("profiles: [web]", "profiles: [Web_Profile]")
         .replace("    cache: [cache]", "    my_db: [cache]")
         .replace("    cleanup: []", "    worker.queue: []"),
     );
-    expect(manifest.aliases.web).toEqual({ profiles: ["Web_Profile"] });
+    expect(manifest.aliases.web).toEqual({ profiles: ["web"] });
+    for (const name of ["Web_Profile", "web,admin", " web "]) {
+      expect(() =>
+        parsePreviewManifest(validSource().replace("profiles: [web]", `profiles: ["${name}"]`)),
+      ).toThrow();
+    }
     expect(manifest.bindings.services.my_db).toEqual(["cache"]);
     expect(manifest.bindings.processes["worker.queue"]).toEqual([]);
     expect(() =>

@@ -279,10 +279,7 @@ function parseAliases(
     }
     if (hasProfiles) {
       requireFields(alias, ["profiles"], [], `aliases.${name}`);
-      aliases.push([
-        name,
-        { profiles: readStringArray(alias.profiles, `aliases.${name}.profiles`, readLocalName) },
-      ]);
+      aliases.push([name, { profiles: readNameArray(alias.profiles, `aliases.${name}.profiles`) }]);
       continue;
     }
     requireFields(alias, ["resources"], [], `aliases.${name}`);
