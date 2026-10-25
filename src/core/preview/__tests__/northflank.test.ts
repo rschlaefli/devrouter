@@ -420,6 +420,8 @@ describe("Northflank generation ownership", () => {
 function providerFixture() {
   const { entry, policy } = graphFixture();
   let now = entry.session.setupDeadline - 20 * 60_000;
+  let loseSpecReceipt = false;
+  let stopBeforeDispatch = false;
   const records = new Map<string, { value: unknown; version: number }>([
     ["installations/fixture/pool", { value: createPreviewPool("fixture"), version: 1 }],
   ]);
@@ -433,7 +435,32 @@ function providerFixture() {
     async compareAndSwap(key, expected, value) {
       const row = records.get(key);
       if (expected !== (row ? String(row.version) : null)) throw new PreviewStateConflict();
+      const entries = Object.values(
+        (value as { sessions?: Record<string, PreviewPoolEntry> }).sessions ?? {},
+      );
+      if (
+        loseSpecReceipt &&
+        entries.some((entry) =>
+          Object.values(entry.operations).some((operation) =>
+            operation.steps?.some(
+              (step) => step.name === "prepare-spec" && step.state === "accepted",
+            ),
+          ),
+        )
+      ) {
+        loseSpecReceipt = false;
+        throw new Error("synthetic lost spec receipt");
+      }
       records.set(key, { value: structuredClone(value), version: (row?.version ?? 0) + 1 });
+      if (
+        stopBeforeDispatch &&
+        entries.some((entry) =>
+          Object.values(entry.operations).some((operation) => operation.phase === "prepared"),
+        )
+      ) {
+        stopBeforeDispatch = false;
+        await command("stop-before-dispatch", { kind: "stop" });
+      }
       return String((row?.version ?? 0) + 1);
     },
   };
@@ -449,6 +476,7 @@ function providerFixture() {
   let delayBlueprint = false;
   let rejectBlueprint = false;
   let pendingPrepare = false;
+  let failReset = false;
   let failRead = false;
   let failDelete = false;
   let refreshDuringPrepare = false;
@@ -512,8 +540,13 @@ function providerFixture() {
         return response(blueprint);
       }
       if (tail[2] === "previews") {
-        if (tail[4] === "reset")
+        if (tail[4] === "reset") {
+          if (failReset) {
+            failReset = false;
+            throw new Error("synthetic unknown reset");
+          }
           return response({ expiryTime: new Date(now + body.lifetime * 60_000).toISOString() });
+        }
         if (method === "DELETE") {
           if (failDelete) {
             failDelete = false;
@@ -662,6 +695,15 @@ function providerFixture() {
     loseRun: () => {
       lostRun = true;
     },
+    loseSpecReceipt: () => {
+      loseSpecReceipt = true;
+    },
+    stopBeforeDispatch: () => {
+      stopBeforeDispatch = true;
+    },
+    failReset: () => {
+      failReset = true;
+    },
     rejectBlueprint: () => {
       rejectBlueprint = true;
     },
@@ -807,5 +849,58 @@ describe("Northflank provider lifecycle", () => {
     expect(f.mutations.length).toBe(before);
     f.finishRuns();
     expect((await f.reconcile(20))?.session.status).toBe("ready");
+  });
+  it("keeps the earlier confirmed deadline when an extension reset is uncertain", async () => {
+    const f = providerFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const ready = await f.reconcile();
+    f.failReset();
+    await f.command("extend", { kind: "extend" });
+    const unchanged = await f.reconcile(2);
+    expect(unchanged?.session.status).toBe("ready");
+    expect(unchanged?.session.expiresAt).toBe(ready?.session.expiresAt);
+    expect(unchanged?.session.pendingDeadline).toBeUndefined();
+    expect(f.mutations.some((item) => item.startsWith("DELETE"))).toBe(false);
+  });
+  it("compiles explicit command readiness for a worker with no routed port", () => {
+    const { entry, policy } = graphFixture();
+    entry.plan.resources.push({
+      id: "worker",
+      kind: "service",
+      image: `example/worker@sha256:${"a".repeat(64)}`,
+    });
+    policy.resources.worker = {
+      deploymentPlan: "nf-compute-10",
+      readiness: { command: ["test", "-f", "/tmp/worker-ready"] },
+    };
+    const graph = compileNorthflankGraph(entry, policy, "prepare");
+    expect(graph.spec.spec.steps.find((node) => node.ref === "r_worker")?.spec).toMatchObject({
+      ports: [],
+      healthChecks: [
+        { protocol: "CMD", type: "readinessProbe", cmd: "'test' '-f' '/tmp/worker-ready'" },
+      ],
+    });
+    policy.resources.worker.readiness = { command: ["${refs.r_db.id}"] };
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+  });
+  it("accepts a spec recovered by read-back before waiting for a superseded run", async () => {
+    const f = providerFixture();
+    f.holdPrepare();
+    f.loseSpecReceipt();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await expect(f.reconcile(2)).rejects.toThrow();
+    await f.reconcile(1);
+    f.refreshSource();
+    await f.command("refresh", { kind: "start", aliases: ["web"] });
+    await f.reconcile(2);
+    f.finishRuns();
+    expect((await f.reconcile(20))?.session.status).toBe("ready");
+  });
+  it("releases a generation stopped before its first provider call", async () => {
+    const f = providerFixture();
+    f.stopBeforeDispatch();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile(20))?.session.reservationHeld).toBe(false);
+    expect(f.mutations).toEqual([]);
   });
 });

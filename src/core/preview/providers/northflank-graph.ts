@@ -18,7 +18,7 @@ export type NorthflankResourceSettings = {
     string,
     Extract<NorthflankBinding, { literal: string } | { origin: string }>
   >;
-  readiness?: { port: string; path: string };
+  readiness?: { port: string; path: string } | { command: string[] };
   mount?: { service: string; path: string };
   runOn?: "create" | "update";
 };
@@ -343,12 +343,20 @@ export function compileNorthflankGraph(
       };
     });
     const readiness = settings.readiness;
-    const readinessPort = resource.ports?.find((port) => port.name === readiness?.port);
+    const http = readiness && "port" in readiness ? readiness : undefined;
+    const command = readiness && "command" in readiness ? readiness.command : undefined;
+    const readinessPort = resource.ports?.find((port) => port.name === http?.port);
     if (
       resource.kind === "service" &&
-      (!readiness || !readinessPort || !readiness.path.startsWith("/"))
+      (!readiness ||
+        (http
+          ? !readinessPort || !http.path.startsWith("/")
+          : !Array.isArray(command) ||
+            command.length === 0 ||
+            command.length > 32 ||
+            command.some((arg) => typeof arg !== "string" || arg.length > 4096)))
     )
-      throw new Error("Northflank services require explicit readiness on a selected port.");
+      throw new Error("Northflank services require explicit HTTP or command readiness.");
     const spec = {
       name,
       billing,
@@ -358,10 +366,13 @@ export function compileNorthflankGraph(
             ports,
             healthChecks: [
               {
-                protocol: "HTTP",
+                ...(http
+                  ? { protocol: "HTTP", port: readinessPort?.port, path: http.path }
+                  : {
+                      protocol: "CMD",
+                      cmd: command?.map((arg) => shellWord(staticText(arg))).join(" "),
+                    }),
                 type: "readinessProbe",
-                port: readinessPort?.port,
-                path: readiness?.path,
                 initialDelaySeconds: 1,
                 periodSeconds: 10,
                 timeoutSeconds: 5,

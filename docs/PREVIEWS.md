@@ -165,3 +165,8 @@ expiry timing, cascade deletion, server-side late requests or access protection.
 proofs and exits3. It deliberately cannot mark the installation qualified from
 source checks. Unknown create outcomes remain cleanup-pending until native
 completion can be established; a timeout alone does not release their reservation.
+
+Worker recipes may supply `readiness.command` as an argument array instead of an
+HTTP port/path. This becomes a native CMD readiness probe; it runs inside the
+application container, and the controller never executes it. An unsuccessful
+extension keeps the previous acknowledged deadline and does not promise extra time.

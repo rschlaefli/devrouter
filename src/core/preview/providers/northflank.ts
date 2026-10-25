@@ -444,7 +444,9 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       return {
         ...this.receipt((await store.read()) ?? owned, true),
         outcome: "failed",
-        cleanupRequired: true,
+        cleanupRequired: !(
+          effect.kind === "deadline" && entry.session.pendingDeadline !== undefined
+        ),
       };
     }
   }
@@ -534,6 +536,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       const detail = data(await api.request("GET", path));
       if (digest(detail.spec) !== fingerprint)
         throw new NorthflankFailure("Northflank blueprint specification drifted.");
+      await gate.record(`${stage}-spec`, "accepted");
       if ((await begin(gate, `${stage}-run`, "once", fingerprint)) === "write") {
         try {
           const run = data(await api.request("POST", [...path, "runs"], { name: runName }));
@@ -691,7 +694,13 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     const owned = await this.ownership(entry).read();
     if (!owned)
       return (
-        entry.session.ownedResources.length === 0 && Object.keys(entry.operations).length === 0
+        entry.session.ownedResources.length === 0 &&
+        Object.values(entry.operations).every(
+          (operation) =>
+            operation.phase === "terminal" &&
+            !operation.steps?.length &&
+            operation.resources.length === 0,
+        )
       );
     if (owned.absent) return true;
     if (owned.blueprintId && !owned.blueprintObserved && !owned.blueprintRejected) return false;
