@@ -103,11 +103,7 @@ export class GitLabPreviewForge implements PreviewForge {
   async snapshot(change: number, withSource = true): Promise<ForgeSnapshot> {
     await this.registered();
     const initial = await this.merge(change),
-      refs = object(initial.row.diff_refs);
-    const head = initial.head,
-      mergeBase = forgeSHA(refs.base_sha);
-    let target = forgeSHA(refs.start_sha);
-    if (forgeSHA(refs.head_sha) !== head) throw new Error("GitLab diff revision is not current.");
+      head = initial.head;
     const events = initial.open
       ? await this.http.pages(`${this.path(change)}/resource_state_events`)
       : [];
@@ -115,31 +111,34 @@ export class GitLabPreviewForge implements PreviewForge {
       .map(object)
       .filter((row) => ["closed", "reopened", "opened", "merged"].includes(row.state as string))
       .reduce((last, row) => Math.max(last, forgeTime(row.created_at)), 0);
-    const snapshot: ForgeSnapshot = {
-      identity: { forgeHost: this.options.forgeHost, projectId: this.options.projectId, change },
-      open: initial.open,
-      sameProject: initial.sameProject,
-      commandAfter,
-      source: { head, target, mergeBase, complete: false, changes: [] },
-    };
-    if (!withSource) return snapshot;
-    if (!snapshot.open || !snapshot.sameProject) throw new Error("GitLab source is ineligible.");
-    if (typeof initial.row.target_branch !== "string")
-      throw new Error("GitLab target branch is unavailable.");
-    const targetHead = async () =>
-      forgeSHA(
+    const targetHead = async () => {
+      if (typeof initial.row.target_branch !== "string")
+        throw new Error("GitLab target branch is unavailable.");
+      return forgeSHA(
         object(
           object(
             (
               await this.http.request(
                 "GET",
-                `${this.project}/repository/branches/${encodeURIComponent(initial.row.target_branch as string)}`,
+                `${this.project}/repository/branches/${encodeURIComponent(initial.row.target_branch)}`,
               )
             ).data,
           ).commit,
         ).id,
       );
-    target = await targetHead();
+    };
+    const target = initial.open && initial.sameProject ? await targetHead() : head;
+    const snapshot: ForgeSnapshot = {
+      identity: { forgeHost: this.options.forgeHost, projectId: this.options.projectId, change },
+      open: initial.open,
+      sameProject: initial.sameProject,
+      commandAfter,
+      source: { head, target, mergeBase: head, complete: false, changes: [] },
+    };
+    if (!withSource || !initial.open || !initial.sameProject) return snapshot;
+    const refs = object(initial.row.diff_refs),
+      mergeBase = forgeSHA(refs.base_sha);
+    if (forgeSHA(refs.head_sha) !== head) throw new Error("GitLab diff revision is not current.");
     const ancestor = object(
       (
         await this.http.request(
@@ -220,7 +219,26 @@ export class GitLabPreviewForge implements PreviewForge {
     return command ? { id: forgeId(row.id), createdAt: forgeTime(row.created_at), command } : null;
   }
   async commands(change: number, since: number, until: number): Promise<ForgeComment[]> {
-    return (await this.http.pages(`${this.path(change)}/notes?sort=asc&order_by=created_at`))
+    const [notes, members] = await Promise.all([
+      this.http.pages(`${this.path(change)}/notes?sort=asc&order_by=created_at`),
+      this.http.pages(`${this.project}/members/all`),
+    ]);
+    const writers = new Set(
+      members
+        .map(object)
+        .filter(
+          (row) =>
+            typeof row.access_level === "number" &&
+            row.access_level >= 30 &&
+            row.membership_state !== "awaiting",
+        )
+        .map((row) => forgeId(row.id)),
+    );
+    return notes
+      .filter((raw) => {
+        const id = forgeId(object(object(raw).author).id);
+        return id !== this.options.botId && writers.has(id);
+      })
       .flatMap((raw) => {
         const row = this.parse(raw, change);
         return row && row.createdAt >= since && row.createdAt <= until ? [row] : [];
@@ -264,7 +282,7 @@ export class GitLabPreviewForge implements PreviewForge {
       if (
         original.id !== `gid://gitlab/Note/${commentId}` ||
         original.body !== raw.body ||
-        forgeTime(original.createdAt) !== comment.createdAt ||
+        Math.floor(forgeTime(original.createdAt) / 1000) !== Math.floor(comment.createdAt / 1000) ||
         original.lastEditedAt !== null ||
         object(original.author).id !== `gid://gitlab/User/${actorId}`
       )

@@ -131,117 +131,222 @@ describe("reviewed preview installation", () => {
     );
   });
   it("automatically selects a bare start and reports unreviewed controls without allocating", async () => {
-    for (const mismatch of [false, true, "symlink"] as const) {
-      const f = fixture(),
-        now = 1_700_000_000_000;
-      const rows = new Map<string, { value: string; version: number }>();
-      rows.set("installations/test/pool", {
-        value: JSON.stringify(createPreviewPool("test")),
-        version: 1,
-      });
-      let posted: unknown;
-      const pull = {
-        number: 9,
-        state: "open",
-        merged: false,
-        changed_files: 1,
-        base: { sha: "b".repeat(40), repo: { id: 123 } },
-        head: { sha: "a".repeat(40), repo: { id: 123 } },
-      };
-      const comment = {
-        id: 1,
-        node_id: "synthetic-node",
-        user: { id: 8, login: "maintainer", type: "User" },
-        author_association: "MEMBER",
-        issue_url: "https://api.github.com/repos/example/app/issues/9",
-        body: "/preview start",
-        created_at: new Date(now - 1).toISOString(),
-        updated_at: new Date(now - 1).toISOString(),
-      };
-      const fetch: typeof globalThis.fetch = async (input, init) => {
-        const url = new URL(String(input));
-        const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
-          new Response(JSON.stringify(body), { status, headers });
-        if (url.hostname.endsWith(".blob.core.windows.net")) {
-          const key = url.pathname.replace("/previews/", ""),
-            row = rows.get(key);
-          if (init?.method === "GET")
-            return row
-              ? new Response(row.value, { headers: { etag: `"${row.version}"` } })
-              : new Response(null, { status: 404, headers: { "x-ms-error-code": "BlobNotFound" } });
-          const headers = new Headers(init?.headers);
-          if (
-            row
-              ? headers.get("if-match") !== `"${row.version}"`
-              : headers.get("if-none-match") !== "*"
-          )
-            return new Response(null, { status: 412 });
-          const version = (row?.version ?? 0) + 1;
-          rows.set(key, { value: String(init?.body), version });
-          return new Response(null, { status: 201, headers: { etag: `"${version}"` } });
+    for (const kind of ["github", "gitlab"] as const) {
+      for (const mismatch of [false, true, "symlink"] as const) {
+        const f = fixture(),
+          now = 1_700_000_000_000;
+        if (kind === "gitlab") {
+          Object.assign(f.policy.projects[0].forge, {
+            kind,
+            host: "gitlab.example.org",
+            apiUrl: "https://gitlab.example.org/api/v4/",
+            repository: "group/app",
+          });
+          f.write();
         }
-        if (url.pathname === "/repos/example/app")
-          return json({ id: 123, full_name: "example/app" });
-        if (url.pathname === "/repos/example/app/pulls/9") return json(pull);
-        if (url.pathname.endsWith("/events")) return json([]);
-        if (url.pathname.endsWith("/issues/comments/1")) return json(comment);
-        if (url.pathname.endsWith("/issues/9/comments")) {
-          if (init?.method === "POST") {
-            posted = JSON.parse(String(init.body));
-            return json({ id: 10, user: { id: 456 }, issue_url: comment.issue_url });
+        const rows = new Map<string, { value: string; version: number }>();
+        rows.set("installations/test/pool", {
+          value: JSON.stringify(createPreviewPool("test")),
+          version: 1,
+        });
+        let posted: unknown;
+        const pull = {
+          number: 9,
+          state: "open",
+          merged: false,
+          changed_files: 1,
+          base: { sha: "b".repeat(40), repo: { id: 123 } },
+          head: { sha: "a".repeat(40), repo: { id: 123 } },
+        };
+        const comment = {
+          id: 1,
+          node_id: "synthetic-node",
+          user: { id: 8, login: "maintainer", type: "User" },
+          author_association: "MEMBER",
+          issue_url: "https://api.github.com/repos/example/app/issues/9",
+          body: "/preview start",
+          created_at: new Date(now - 1).toISOString(),
+          updated_at: new Date(now - 1).toISOString(),
+        };
+        const fetch: typeof globalThis.fetch = async (input, init) => {
+          const url = new URL(String(input));
+          const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+            new Response(JSON.stringify(body), { status, headers });
+          if (url.hostname.endsWith(".blob.core.windows.net")) {
+            const key = url.pathname.replace("/previews/", ""),
+              row = rows.get(key);
+            if (init?.method === "GET")
+              return row
+                ? new Response(row.value, { headers: { etag: `"${row.version}"` } })
+                : new Response(null, {
+                    status: 404,
+                    headers: { "x-ms-error-code": "BlobNotFound" },
+                  });
+            const headers = new Headers(init?.headers);
+            if (
+              row
+                ? headers.get("if-match") !== `"${row.version}"`
+                : headers.get("if-none-match") !== "*"
+            )
+              return new Response(null, { status: 412 });
+            const version = (row?.version ?? 0) + 1;
+            rows.set(key, { value: String(init?.body), version });
+            return new Response(null, { status: 201, headers: { etag: `"${version}"` } });
           }
-          return json([comment]);
-        }
-        if (url.pathname.endsWith("/collaborators/maintainer/permission"))
-          return json({ permission: "write", user: { id: 8 } });
-        if (url.pathname === "/graphql")
-          return json({
-            data: {
-              node: {
-                id: comment.node_id,
-                lastEditedAt: null,
-                body: comment.body,
-                createdAt: comment.created_at,
-                author: { __typename: "User", login: "maintainer" },
+          if (kind === "gitlab") {
+            const prefix = "/api/v4/projects/123",
+              route = url.pathname;
+            const note = {
+              id: 1,
+              type: null,
+              imported: false,
+              project_id: 123,
+              noteable_iid: 9,
+              noteable_type: "MergeRequest",
+              resolvable: false,
+              system: false,
+              body: comment.body,
+              created_at: comment.created_at,
+              updated_at: comment.updated_at,
+              author: { id: 8 },
+            };
+            if (route === prefix) return json({ id: 123, path_with_namespace: "group/app" });
+            if (route === `${prefix}/merge_requests/9`)
+              return json({
+                iid: 9,
+                target_project_id: 123,
+                source_project_id: 123,
+                target_branch: "main",
+                state: "opened",
+                sha: "a".repeat(40),
+                changes_count: "1",
+                diff_refs: {
+                  head_sha: "a".repeat(40),
+                  start_sha: "b".repeat(40),
+                  base_sha: "c".repeat(40),
+                },
+              });
+            if (route.endsWith("/resource_state_events")) return json([]);
+            if (route.endsWith("/repository/branches/main"))
+              return json({ commit: { id: "d".repeat(40) } });
+            if (route.endsWith("/repository/merge_base")) return json({ id: "c".repeat(40) });
+            if (route.endsWith("/diffs"))
+              return json([
+                {
+                  old_path: "docs/guide.md",
+                  new_path: "docs/guide.md",
+                  a_mode: "100644",
+                  b_mode: "100644",
+                  renamed_file: false,
+                  new_file: false,
+                  deleted_file: false,
+                  collapsed: false,
+                  too_large: false,
+                },
+              ]);
+            if (route.endsWith("/notes/1")) return json(note);
+            if (route.endsWith("/notes")) {
+              if (init?.method === "POST") {
+                posted = JSON.parse(String(init.body));
+                return json({ id: 10, author: { id: 456 }, project_id: 123, noteable_iid: 9 });
+              }
+              return json([note]);
+            }
+            if (route.endsWith("/members/all")) return json([{ id: 8, access_level: 30 }]);
+            if (route.endsWith("/members/all/8")) return json({ id: 8, access_level: 30 });
+            if (route.endsWith("/users/8")) return json({ id: 8, bot: false, state: "active" });
+            if (route === "/api/graphql")
+              return json({
+                data: {
+                  note: {
+                    id: "gid://gitlab/Note/1",
+                    body: note.body,
+                    createdAt: new Date(
+                      Math.floor(Date.parse(note.created_at) / 1000) * 1000,
+                    ).toISOString(),
+                    lastEditedAt: null,
+                    author: { id: "gid://gitlab/User/8" },
+                  },
+                },
+              });
+            if (route.includes("/repository/files/")) {
+              const file = decodeURIComponent(route.split("/repository/files/")[1]),
+                name = file === ".devrouter.yml" ? "local.yml" : "preview.yml";
+              const bytes = Buffer.from(
+                fs.readFileSync(path.join(f.root, name), "utf8") + (mismatch ? "\n# drift" : ""),
+              );
+              return json({
+                file_path: file,
+                encoding: "base64",
+                size: bytes.length,
+                content: bytes.toString("base64"),
+              });
+            }
+            throw new Error(`unexpected GitLab synthetic route: ${route}`);
+          }
+          if (url.pathname === "/repos/example/app")
+            return json({ id: 123, full_name: "example/app" });
+          if (url.pathname === "/repos/example/app/pulls/9") return json(pull);
+          if (url.pathname.endsWith("/events")) return json([]);
+          if (url.pathname.endsWith("/issues/comments/1")) return json(comment);
+          if (url.pathname.endsWith("/issues/9/comments")) {
+            if (init?.method === "POST") {
+              posted = JSON.parse(String(init.body));
+              return json({ id: 10, user: { id: 456 }, issue_url: comment.issue_url });
+            }
+            return json([comment]);
+          }
+          if (url.pathname.endsWith("/collaborators/maintainer/permission"))
+            return json({ permission: "write", user: { id: 8 } });
+          if (url.pathname === "/graphql")
+            return json({
+              data: {
+                node: {
+                  id: comment.node_id,
+                  lastEditedAt: null,
+                  body: comment.body,
+                  createdAt: comment.created_at,
+                  author: { __typename: "User", login: "maintainer" },
+                },
               },
-            },
-          });
-        if (url.pathname.endsWith("/files"))
-          return json([{ status: "modified", filename: "docs/guide.md" }]);
-        if (url.pathname.includes("/compare/"))
-          return json({ merge_base_commit: { sha: "c".repeat(40) } });
-        if (url.pathname.includes("/contents/")) {
-          const file = url.pathname.split("/contents/")[1],
-            name = file === ".devrouter.yml" ? "local.yml" : "preview.yml";
-          const bytes = Buffer.from(
-            fs.readFileSync(path.join(f.root, name), "utf8") + (mismatch ? "\n# drift" : ""),
-          );
-          return json({
-            type: mismatch === "symlink" ? "symlink" : "file",
-            path: file,
-            encoding: "base64",
-            size: bytes.length,
-            content: bytes.toString("base64"),
-          });
-        }
-        throw new Error(`unexpected synthetic request: ${url.pathname}`);
-      };
-      const installed = loadPreviewInstallation(f.filename, {
-        env: {
-          DEVROUTER_PREVIEW_STATE_TOKEN: "synthetic",
-          DEVROUTER_PREVIEW_GITHUB_TOKEN: "synthetic",
-        },
-        fetch,
-        now: () => now,
-      });
-      await installed.controllers[0].controller.scan(9);
-      const inbox = [...rows.entries()].find(([key]) => key.includes("/inbox/"))?.[1];
-      expect(JSON.parse(inbox?.value ?? "{}").selection).toBe(
-        mismatch ? "review-required" : "no-runtime",
-      );
-      expect(JSON.parse(inbox?.value ?? "{}").processed).toHaveLength(1);
-      expect(posted).toBeDefined();
-      expect(await installed.engine.identities()).toEqual([]);
+            });
+          if (url.pathname.endsWith("/files"))
+            return json([{ status: "modified", filename: "docs/guide.md" }]);
+          if (url.pathname.includes("/compare/"))
+            return json({ merge_base_commit: { sha: "c".repeat(40) } });
+          if (url.pathname.includes("/contents/")) {
+            const file = url.pathname.split("/contents/")[1],
+              name = file === ".devrouter.yml" ? "local.yml" : "preview.yml";
+            const bytes = Buffer.from(
+              fs.readFileSync(path.join(f.root, name), "utf8") + (mismatch ? "\n# drift" : ""),
+            );
+            return json({
+              type: mismatch === "symlink" ? "symlink" : "file",
+              path: file,
+              encoding: "base64",
+              size: bytes.length,
+              content: bytes.toString("base64"),
+            });
+          }
+          throw new Error(`unexpected synthetic request: ${url.pathname}`);
+        };
+        const installed = loadPreviewInstallation(f.filename, {
+          env: {
+            DEVROUTER_PREVIEW_STATE_TOKEN: "synthetic",
+            DEVROUTER_PREVIEW_GITHUB_TOKEN: "synthetic",
+          },
+          fetch,
+          now: () => now,
+        });
+        await installed.controllers[0].controller.scan(9);
+        const inbox = [...rows.entries()].find(([key]) => key.includes("/inbox/"))?.[1];
+        expect(JSON.parse(inbox?.value ?? "{}").selection).toBe(
+          mismatch ? "review-required" : "no-runtime",
+        );
+        expect(JSON.parse(inbox?.value ?? "{}").processed).toHaveLength(1);
+        expect(posted).toBeDefined();
+        expect(await installed.engine.identities()).toEqual([]);
+      }
     }
   });
   it("never reinitializes an established or partially initialized pool", async () => {
