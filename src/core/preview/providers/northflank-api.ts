@@ -1,3 +1,5 @@
+import { readPreviewResponse } from "../http";
+
 const MAX_BYTES = 1024 * 1024;
 
 function identifier(value: string): string {
@@ -12,27 +14,10 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-async function boundedBody(response: Response): Promise<unknown> {
-  const length = response.headers.get("content-length");
-  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_BYTES)) {
-    await response.body?.cancel();
-    throw new Error("Northflank response exceeds its size bound.");
-  }
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("Northflank response is empty.");
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_BYTES) throw new Error("Northflank response exceeds its size bound.");
-      chunks.push(value);
-    }
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } finally {
-    await reader.cancel();
+export class NorthflankOutcomeUncertain extends Error {
+  constructor() {
+    super("Northflank mutation outcome is uncertain and must be reconciled.");
+    this.name = "NorthflankOutcomeUncertain";
   }
 }
 
@@ -46,10 +31,14 @@ export class NorthflankPreviewAPI {
       projectId: string;
       accessToken: () => Promise<string>;
       fetch?: typeof fetch;
+      deadlineMarginMs?: number;
     },
   ) {
     this.base = `https://api.northflank.com/v1/projects/${identifier(options.projectId)}/`;
     this.fetch = options.fetch ?? fetch;
+    const margin = options.deadlineMarginMs ?? 15_000;
+    if (!Number.isSafeInteger(margin) || margin < 1 || margin >= 60_000)
+      throw new Error("Invalid Northflank deadline delay allowance.");
   }
 
   async request(
@@ -81,7 +70,8 @@ export class NorthflankPreviewAPI {
         signal: AbortSignal.timeout(15_000),
       });
     } catch {
-      throw new Error("Northflank transport failed; mutation outcome may be uncertain.");
+      if (method !== "GET") throw new NorthflankOutcomeUncertain();
+      throw new Error("Northflank read transport failed.");
     }
     if (method === "GET" && response.status === 404) {
       await response.body?.cancel();
@@ -89,13 +79,26 @@ export class NorthflankPreviewAPI {
     }
     if (!response.ok) {
       await response.body?.cancel();
+      if (method !== "GET") throw new NorthflankOutcomeUncertain();
       throw new Error(`Northflank preview request failed (HTTP ${response.status}).`);
     }
     if (response.status === 204) {
       await response.body?.cancel();
       return {};
     }
-    return record(await boundedBody(response));
+    let contentText: string;
+    try {
+      contentText = await readPreviewResponse(response, "Northflank");
+    } catch {
+      if (method !== "GET") throw new NorthflankOutcomeUncertain();
+      throw new Error("Northflank response is unreadable or exceeds its size bound.");
+    }
+    try {
+      return record(JSON.parse(contentText));
+    } catch {
+      if (method !== "GET") throw new NorthflankOutcomeUncertain();
+      throw new Error("Northflank response is not a valid JSON object.");
+    }
   }
 
   async list(segments: string[], member: string): Promise<Record<string, unknown>[]> {
@@ -140,9 +143,13 @@ export class NorthflankPreviewAPI {
   ): Promise<number> {
     if (!Number.isSafeInteger(target) || !Number.isSafeInteger(now) || now < 0)
       throw new Error("Invalid Northflank deadline target.");
-    const lifetime = Math.floor((target - now) / 60_000);
+    // This provisional allowance must be qualified with server clock/latency evidence
+    // before an adapter may use native expiry as its independent backstop.
+    const lifetime = Math.floor(
+      (target - now - (this.options.deadlineMarginMs ?? 15_000)) / 60_000,
+    );
     if (lifetime < 1 || lifetime > 260)
-      throw new Error("Northflank deadline falls outside the qualified lifetime window.");
+      throw new Error("Northflank deadline falls outside the supported request bounds.");
     const result = await this.request(
       "POST",
       ["preview-blueprints", blueprintId, "previews", previewId, "reset"],
@@ -151,7 +158,7 @@ export class NorthflankPreviewAPI {
     const expiryTime = record(result?.data).expiryTime;
     const expiry = typeof expiryTime === "string" ? Date.parse(expiryTime) : Number.NaN;
     if (!Number.isSafeInteger(expiry) || expiry > target || expiry < target - 60_000)
-      throw new Error("Northflank deadline response does not confirm the fixed target.");
+      throw new NorthflankOutcomeUncertain();
     return expiry;
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NorthflankPreviewAPI } from "../providers/northflank-api";
+import { NorthflankOutcomeUncertain, NorthflankPreviewAPI } from "../providers/northflank-api";
 
 const page = (rows: unknown[], next = false, cursor?: string) =>
   new Response(
@@ -58,6 +58,23 @@ describe("Northflank preview transport", () => {
     expect(calls).toBe(1);
   });
 
+  it("suppresses malformed response content and marks all uncertain writes", async () => {
+    for (const status of [200, 504]) {
+      const api = new NorthflankPreviewAPI({
+        projectId: "isolated",
+        accessToken: async () => "synthetic",
+        fetch: async () => new Response("private-response-sentinel", { status }),
+      });
+      try {
+        await api.request("POST", ["preview-blueprints", "owned", "runs"], {});
+        throw new Error("Expected uncertainty");
+      } catch (error) {
+        expect(error).toBeInstanceOf(NorthflankOutcomeUncertain);
+        expect((error as Error).message).not.toContain("private-response-sentinel");
+      }
+    }
+  });
+
   it("bounds chunked responses without trusting Content-Length", async () => {
     const api = new NorthflankPreviewAPI({
       projectId: "isolated",
@@ -81,11 +98,11 @@ describe("Northflank preview transport", () => {
         );
       },
     });
-    expect(await api.resetDeadline("owned", "preview", target, target - 3_610_000)).toBe(returned);
+    expect(await api.resetDeadline("owned", "preview", target, target - 3_630_000)).toBe(returned);
     returned = target + 1;
-    await expect(api.resetDeadline("owned", "preview", target, target - 3_550_000)).rejects.toThrow(
-      "fixed target",
-    );
+    await expect(
+      api.resetDeadline("owned", "preview", target, target - 3_570_000),
+    ).rejects.toBeInstanceOf(NorthflankOutcomeUncertain);
     expect(lifetimes).toEqual([60, 59]);
   });
 });

@@ -1,3 +1,4 @@
+import { readPreviewResponse } from "../http";
 import {
   PreviewStateConflict,
   type PreviewStateStore,
@@ -12,30 +13,6 @@ function requireETag(value: string | null): string {
     throw new Error("Preview state response has no strong ETag.");
   }
   return value;
-}
-
-async function readBounded(response: Response): Promise<string> {
-  const length = response.headers.get("content-length");
-  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_STATE_BYTES)) {
-    await response.body?.cancel();
-    throw new Error("Preview state response exceeds its size bound.");
-  }
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("Preview state response is empty.");
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_STATE_BYTES) throw new Error("Preview state response exceeds its size bound.");
-      chunks.push(value);
-    }
-  } finally {
-    await reader.cancel();
-  }
-  return Buffer.concat(chunks).toString("utf8");
 }
 
 export class AzureBlobPreviewState implements PreviewStateStore {
@@ -107,7 +84,10 @@ export class AzureBlobPreviewState implements PreviewStateStore {
       throw new Error(`Preview state read failed (HTTP ${response.status}).`);
     }
     const version = requireETag(response.headers.get("etag"));
-    return { version, value: validate(JSON.parse(await readBounded(response))) };
+    return {
+      version,
+      value: validate(JSON.parse(await readPreviewResponse(response, "Preview state"))),
+    };
   }
 
   async compareAndSwap<T>(key: string, expectedVersion: string | null, value: T): Promise<string> {
