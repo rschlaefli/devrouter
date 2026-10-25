@@ -52,6 +52,7 @@ export type PreviewEffectStep = {
   name: string;
   mode: "once" | "convergent";
   state: "intent" | "accepted" | "uncertain";
+  fingerprint?: string;
   at: number;
   ref?: string;
 };
@@ -422,11 +423,11 @@ export function decodePreviewPool(value: unknown): PreviewPool {
       if (effect.ready !== undefined && typeof effect.ready !== "boolean")
         throw new Error("Invalid readiness receipt.");
       if (effect.steps !== undefined) {
-        if (!Array.isArray(effect.steps) || effect.steps.length > 8)
+        if (!Array.isArray(effect.steps) || effect.steps.length > 32)
           throw new Error("Preview provider step journal exceeds its bound.");
         const names = new Set<string>();
         for (const rawStep of effect.steps) {
-          const step = object(rawStep, ["name", "mode", "state", "at"], ["ref"]);
+          const step = object(rawStep, ["name", "mode", "state", "at"], ["ref", "fingerprint"]);
           text(step.name, 64);
           if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(step.name) || names.has(step.name))
             throw new Error("Invalid preview provider step identity.");
@@ -435,6 +436,11 @@ export function decodePreviewPool(value: unknown): PreviewPool {
           oneOf(step.state, ["intent", "accepted", "uncertain"]);
           integer(step.at);
           if (step.ref !== undefined) text(step.ref, 128);
+          if (
+            step.fingerprint !== undefined &&
+            (typeof step.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(step.fingerprint))
+          )
+            throw new Error("Invalid non-secret provider step fingerprint.");
         }
       }
       const outstanding = session.outstandingOperations.includes(operationId);

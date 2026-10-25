@@ -1,6 +1,7 @@
 import { readPreviewResponse } from "../http";
 import { MAX_PREVIEW_DEADLINE_EARLINESS_MS } from "../lifecycle";
 
+type NorthflankMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 const MAX_BYTES = 1024 * 1024;
 
 function identifier(value: string): string {
@@ -27,6 +28,8 @@ export class NorthflankPreviewAPI {
   private readonly base: string;
   private readonly fetch: typeof fetch;
   private readonly deadlineMarginMs: number;
+  readonly projectId: string;
+  readonly domain?: string;
 
   constructor(
     private readonly options: {
@@ -34,8 +37,17 @@ export class NorthflankPreviewAPI {
       accessToken: () => Promise<string>;
       fetch?: typeof fetch;
       deadlineMarginMs?: number;
+      domain?: string;
     },
   ) {
+    this.projectId = identifier(options.projectId);
+    if (
+      options.domain &&
+      (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(options.domain) ||
+        options.domain.length > 253)
+    )
+      throw new Error("Invalid Northflank domain read scope.");
+    this.domain = options.domain;
     this.base = `https://api.northflank.com/v1/projects/${identifier(options.projectId)}/`;
     this.fetch = options.fetch ?? fetch;
     const margin = options.deadlineMarginMs ?? 15_000;
@@ -45,12 +57,17 @@ export class NorthflankPreviewAPI {
   }
 
   async request(
-    method: "GET" | "POST" | "DELETE",
+    method: NorthflankMethod,
     segments: string[],
     body?: unknown,
     query: Record<string, string> = {},
   ): Promise<Record<string, unknown> | null> {
-    if (segments[0] !== "preview-blueprints" || segments.length > 6)
+    if (
+      !["preview-blueprints", "services", "jobs", "addons", "volumes", "secrets"].includes(
+        segments[0],
+      ) ||
+      segments.length > 6
+    )
       throw new Error("Northflank preview transport refuses an unrelated resource path.");
     const url = new URL(this.base + segments.map(identifier).join("/"));
     for (const [key, value] of Object.entries(query)) {
@@ -58,6 +75,23 @@ export class NorthflankPreviewAPI {
         throw new Error("Invalid Northflank preview query.");
       url.searchParams.set(key, value);
     }
+    return this.send(method, url, body);
+  }
+
+  async subdomain(method: "GET" | "DELETE", name: string): Promise<Record<string, unknown> | null> {
+    if (!this.domain || name.length > 63)
+      throw new Error("Northflank domain read is outside its configured scope.");
+    const url = new URL(
+      `https://api.northflank.com/v1/domains/${this.domain}/subdomains/${identifier(name)}`,
+    );
+    return this.send(method, url);
+  }
+
+  private async send(
+    method: NorthflankMethod,
+    url: URL,
+    body?: unknown,
+  ): Promise<Record<string, unknown> | null> {
     const content = body === undefined ? undefined : JSON.stringify(body);
     if (content !== undefined && Buffer.byteLength(content) > MAX_BYTES)
       throw new Error("Northflank request exceeds its size bound.");
@@ -104,7 +138,7 @@ export class NorthflankPreviewAPI {
     }
   }
 
-  async list(segments: string[], member: string): Promise<Record<string, unknown>[]> {
+  async list(segments: string[], member?: string): Promise<Record<string, unknown>[]> {
     const rows: Record<string, unknown>[] = [];
     const cursors = new Set<string>();
     let cursor: string | undefined;
@@ -114,8 +148,12 @@ export class NorthflankPreviewAPI {
         ...(cursor === undefined ? {} : { cursor }),
       });
       if (!result) throw new Error("Northflank collection is unavailable.");
-      const data = record(result.data);
-      const items = data[member];
+      const items = member === undefined ? result.data : record(result.data)[member];
+      if (member === undefined && !result.pagination) {
+        if (!Array.isArray(items) || items.length > 4096)
+          throw new Error("Invalid Northflank resource collection.");
+        return items.map(record);
+      }
       const pagination = record(result.pagination);
       if (
         !Array.isArray(items) ||
@@ -138,12 +176,7 @@ export class NorthflankPreviewAPI {
     throw new Error("Northflank collection exceeds its pagination bound.");
   }
 
-  async resetDeadline(
-    blueprintId: string,
-    previewId: string,
-    target: number,
-    now: number,
-  ): Promise<number> {
+  deadlineLifetime(target: number, now: number): number {
     if (!Number.isSafeInteger(target) || !Number.isSafeInteger(now) || now < 0)
       throw new Error("Invalid Northflank deadline target.");
     // This provisional allowance must be qualified with server clock/latency evidence
@@ -151,6 +184,16 @@ export class NorthflankPreviewAPI {
     const lifetime = Math.floor((target - now - this.deadlineMarginMs) / 60_000);
     if (lifetime < 1 || lifetime > 260)
       throw new Error("Northflank deadline falls outside the supported request bounds.");
+    return lifetime;
+  }
+
+  async resetDeadline(
+    blueprintId: string,
+    previewId: string,
+    target: number,
+    now: number,
+  ): Promise<number> {
+    const lifetime = this.deadlineLifetime(target, now);
     const result = await this.request(
       "POST",
       ["preview-blueprints", blueprintId, "previews", previewId, "reset"],

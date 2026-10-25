@@ -21,6 +21,7 @@ export type PreviewEffectReceipt = {
   phase: "pending" | "terminal";
   resources: string[];
   ready?: boolean;
+  cleanupRequired?: boolean;
   confirmedDeadline?: number;
   outcome?: "succeeded" | "failed" | "cancelled";
 };
@@ -29,11 +30,17 @@ export type PreviewEffectReceipt = {
 // the complete generation independently, including allocations omitted on overflow.
 export interface PreviewWriteGate {
   read(): Promise<PreviewEffectStep[]>;
-  begin(name: string, mode: "once" | "convergent"): Promise<"write" | "resolve" | "fenced">;
+  context(): Promise<{ stopping: boolean; superseded: boolean }>;
+  begin(
+    name: string,
+    mode: "once" | "convergent",
+    fingerprint?: string,
+  ): Promise<"write" | "resolve" | "fenced">;
   record(name: string, state: "accepted" | "uncertain", ref?: string): Promise<void>;
 }
 
 export interface PreviewProvider {
+  validatePlan?(plan: PreviewPlanReport): void;
   submit(
     effect: PreviewEffect,
     entry: PreviewPoolEntry,
@@ -277,6 +284,7 @@ export class PreviewEngine {
             JSON.stringify([...input.command.aliases].sort()) !== JSON.stringify(plan.aliases))
         )
           throw new Error("A complete approved source-bound plan is required.");
+        this.options.provider.validatePlan?.(plan);
         const hourly = input.hourlyCents;
         if (Buffer.byteLength(JSON.stringify(plan)) > 32 * 1024)
           throw new Error("Preview plan exceeds the installation metadata bound.");
@@ -542,16 +550,39 @@ export class PreviewEngine {
     };
     return {
       read: () => mutate((_entry, live) => structuredClone(live.steps ?? [])),
-      begin: (name, mode) => {
+      context: () =>
+        mutate((entry, live) => ({
+          stopping:
+            isStopping(entry.session) ||
+            this.options.now() >=
+              (entry.session.firstReadyAt === undefined
+                ? entry.session.setupDeadline
+                : entry.session.expiresAt),
+          superseded:
+            live.kind === "deadline"
+              ? entry.session.deadlineVersion !== live.deadlineVersion
+              : entry.session.operationVersion !== live.operationVersion,
+        })),
+      begin: (name, mode, fingerprint) => {
         return mutate((entry, live) => {
           if (writeFenced(entry.session, live, this.options.now())) return "fenced";
           const previous = live.steps?.find((step) => step.name === name);
           if (previous) {
-            if (previous.mode !== mode) throw new Error("Preview provider step mode changed.");
+            if (
+              previous.mode !== mode ||
+              (fingerprint !== undefined && previous.fingerprint !== fingerprint)
+            )
+              throw new Error("Preview provider step identity changed.");
             return "resolve";
           }
           live.steps ??= [];
-          live.steps.push({ name, mode, state: "intent", at: this.options.now() });
+          live.steps.push({
+            name,
+            mode,
+            state: "intent",
+            at: this.options.now(),
+            ...(fingerprint ? { fingerprint } : {}),
+          });
           live.leaseExpiresAt = this.options.now() + this.options.policy.leaseMs;
           return "write";
         });
@@ -620,7 +651,13 @@ export class PreviewEngine {
     await this.update((pool) => {
       const current = pool.sessions[id];
       const live = current?.operations[effect.id];
-      if (!live || live.phase === "terminal" || current.session.generation !== effect.generation)
+      if (
+        !live ||
+        live.phase === "terminal" ||
+        current.session.generation !== effect.generation ||
+        live.leaseOwner !== this.options.workerId ||
+        live.leaseExpiresAt <= this.options.now()
+      )
         return pool;
       if (receipt.phase === "terminal") {
         const additions = [...new Set(receipt.resources)].filter(
@@ -648,7 +685,7 @@ export class PreviewEngine {
             operationId: effect.id,
             resources: recorded,
           });
-        if (overflow && !isStopping(current.session))
+        if ((overflow || receipt.cleanupRequired) && !isStopping(current.session))
           current.session = transitionPreviewSession(current.session, {
             kind: "stop",
             now: this.options.now(),

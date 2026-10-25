@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { PreviewWriteGate } from "../engine";
+import { PreviewEngine, type PreviewWriteGate } from "../engine";
 import { createPreviewSession } from "../lifecycle";
-import { NorthflankOwnershipStore } from "../providers/northflank";
+import { NorthflankOwnershipStore, NorthflankPreviewProvider } from "../providers/northflank";
 import { NorthflankOutcomeUncertain, NorthflankPreviewAPI } from "../providers/northflank-api";
 import { compileNorthflankGraph, type NorthflankGraphPolicy } from "../providers/northflank-graph";
 import type { PreviewPoolEntry } from "../state";
-import { type PreviewEffectStep, PreviewStateConflict, type PreviewStateStore } from "../state";
+import {
+  createPreviewPool,
+  type PreviewEffectStep,
+  PreviewStateConflict,
+  type PreviewStateStore,
+} from "../state";
 
 const page = (rows: unknown[], next = false, cursor?: string) =>
   new Response(
@@ -33,7 +38,7 @@ describe("Northflank preview transport", () => {
     });
     expect(await api.list(["preview-blueprints", "owned", "runs"], "runs")).toEqual([]);
     await expect(api.request("GET", ["preview-blueprints", "../other"])).rejects.toThrow();
-    await expect(api.request("GET", ["services"])).rejects.toThrow();
+    await expect(api.request("GET", ["teams"])).rejects.toThrow();
     expect(calls).toBe(1);
   });
 
@@ -350,6 +355,7 @@ describe("Northflank generation ownership", () => {
     const steps: PreviewEffectStep[] = [];
     const gate: PreviewWriteGate = {
       read: async () => structuredClone(steps),
+      context: async () => ({ stopping: false, superseded: false }),
       begin: async (name, mode) => {
         if (steps.some((step) => step.name === name)) return "resolve";
         steps.push({ name, mode, state: "intent", at: 1 });
@@ -408,5 +414,266 @@ describe("Northflank generation ownership", () => {
     await expect(ownership.initialize({ ...gate, read: async () => [] }, true)).rejects.toThrow(
       "missing",
     );
+  });
+});
+
+function providerFixture() {
+  const { entry, policy } = graphFixture();
+  let now = entry.session.setupDeadline - 20 * 60_000;
+  const records = new Map<string, { value: unknown; version: number }>([
+    ["installations/fixture/pool", { value: createPreviewPool("fixture"), version: 1 }],
+  ]);
+  const store: PreviewStateStore = {
+    async read<T>(key: string, validate: (value: unknown) => T) {
+      const row = records.get(key);
+      return row
+        ? { value: validate(structuredClone(row.value)), version: String(row.version) }
+        : null;
+    },
+    async compareAndSwap(key, expected, value) {
+      const row = records.get(key);
+      if (expected !== (row ? String(row.version) : null)) throw new PreviewStateConflict();
+      records.set(key, { value: structuredClone(value), version: (row?.version ?? 0) + 1 });
+      return String((row?.version ?? 0) + 1);
+    },
+  };
+  let blueprint: Record<string, any> | undefined;
+  const runs = new Map<string, Record<string, any>>();
+  const allocations = new Map<string, Record<string, any>>();
+  const domains = new Map<string, string>();
+  const mutations: string[] = [];
+  let lostRun = false;
+  let missingSecret = false;
+  const response = (data: unknown) => {
+    const rows =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? Object.values(data).find(Array.isArray)
+        : undefined;
+    return new Response(
+      JSON.stringify({
+        data,
+        ...(rows ? { pagination: { hasNextPage: false, count: rows.length } } : {}),
+      }),
+    );
+  };
+  const api = new NorthflankPreviewAPI({
+    projectId: "fixture",
+    domain: policy.baseDomain,
+    accessToken: async () => "synthetic",
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(init.body as string) : undefined;
+      const parts = url.pathname.split("/").filter(Boolean);
+      const tail = parts.slice(3);
+      if (method !== "GET") mutations.push(`${method} ${tail.join("/")}`);
+      if (parts[1] === "domains") {
+        const name = parts.at(-1)!;
+        if (method === "DELETE") domains.delete(name);
+        return domains.has(name)
+          ? response({ fullName: domains.get(name) })
+          : new Response(null, { status: 404 });
+      }
+      if (tail[0] !== "preview-blueprints") {
+        if (tail.length === 1) {
+          const rows = [...allocations.values()].filter((row) => row.kind === tail[0]);
+          return response(tail[0] === "volumes" ? rows : { [tail[0]]: rows });
+        }
+        const row = allocations.get(tail[1]);
+        if (!row) return new Response(null, { status: 404 });
+        if (method === "PATCH") row.patch = body;
+        return response(row);
+      }
+      if (tail.length === 1) {
+        if (method === "POST") blueprint = { ...body, id: body.name };
+        return response({ workflows: blueprint ? [blueprint] : [] });
+      }
+      if (!blueprint) return new Response(null, { status: 404 });
+      if (tail.length === 2) {
+        if (method === "POST") blueprint = { ...body, id: tail[1] };
+        if (method === "DELETE") blueprint = undefined;
+        return response(blueprint);
+      }
+      if (tail[2] === "previews") {
+        if (tail[4] === "reset")
+          return response({ expiryTime: new Date(now + body.lifetime * 60_000).toISOString() });
+        if (method === "DELETE") {
+          allocations.clear();
+          domains.clear();
+          runs.clear();
+        }
+        return response({
+          previewEnvironments:
+            method === "DELETE" || runs.size === 0 ? [] : [{ id: "environment" }],
+        });
+      }
+      if (tail[2] === "runs") {
+        if (method === "POST" && tail.length === 3) {
+          const id = `run-${runs.size}`;
+          const spec = structuredClone(blueprint.spec);
+          const refs: Record<string, unknown> = {};
+          for (const node of spec.spec.steps) {
+            const kind: Record<string, string> = {
+              Addon: "addons",
+              DeploymentService: "services",
+              BuildService: "services",
+              Job: "jobs",
+              Volume: "volumes",
+              SecretGroup: "secrets",
+            };
+            if (node.kind === "Subdomain") {
+              domains.set(node.spec.name, `${node.spec.name}.${policy.baseDomain}`);
+              refs[node.ref] = { id: node.spec.name };
+            } else if (kind[node.kind]) {
+              const native = node.spec.name;
+              const row = allocations.get(native) ?? {
+                id: native,
+                name: native,
+                uid: "a".repeat(24),
+                kind: kind[node.kind],
+              };
+              allocations.set(native, row);
+              refs[node.ref] = { id: native };
+            }
+          }
+          const row = {
+            id,
+            name: body.name,
+            spec,
+            refs,
+            environmentId: "environment",
+            concluded: true,
+            status: "success",
+          };
+          runs.set(id, row);
+          if (lostRun) {
+            lostRun = false;
+            throw new Error("synthetic lost response");
+          }
+          return response(row);
+        }
+        if (tail.length === 3) return response({ runs: [...runs.values()] });
+        return response(runs.get(tail[3]));
+      }
+      throw new Error("Unexpected synthetic endpoint");
+    },
+  });
+  const qualification = {
+    fixedDeadline: true,
+    sameEnvironment: true,
+    deletionFence: true,
+    scopedRuntimeSecrets: true,
+    restrictedIngress: true,
+  };
+  const provider = new NorthflankPreviewProvider({
+    api,
+    store,
+    graph: policy,
+    installationId: "fixture",
+    qualification,
+    now: () => now,
+    runtimeSecret: async () => {
+      if (missingSecret) throw new Error("synthetic unavailable");
+      return "test-value";
+    },
+    accept: async () => true,
+  });
+  const identity = { forgeHost: "github.com", projectId: "123", change: 7 };
+  const engine = new PreviewEngine({
+    store,
+    provider,
+    now: () => now,
+    workerId: "worker",
+    policy: {
+      installationId: "fixture",
+      maxActive: 2,
+      maxReservedCents: 1000,
+      maxCommandAgeMs: 60_000,
+      startupBudgetMs: 20 * 60_000,
+      leaseMs: 30_000,
+      allowedProjects: ["github.com/123"],
+      allowedAliases: ["web"],
+      manifestDigests: [entry.plan.manifestDigest],
+      localConfigDigests: [entry.plan.localConfigDigest],
+    },
+  });
+  const command = (id: string, command: any) =>
+    engine.admit({
+      identity,
+      commandId: id,
+      createdAt: now,
+      actorCanWrite: true,
+      originalHumanRoot: true,
+      open: true,
+      sameProject: true,
+      command,
+      plan: entry.plan,
+      hourlyCents: 1,
+    });
+  const reconcile = async (count = 10) => {
+    for (let i = 0; i < count; i++) await engine.reconcile(identity);
+    return engine.status(identity);
+  };
+  return {
+    provider,
+    qualification,
+    command,
+    reconcile,
+    mutations,
+    allocations,
+    runs,
+    engine,
+    identity,
+    loseRun: () => {
+      lostRun = true;
+    },
+    failSecret: () => {
+      missingSecret = true;
+    },
+    advance: (ms: number) => {
+      now += ms;
+    },
+  };
+}
+
+describe("Northflank provider lifecycle", () => {
+  it("requires qualification before admission and keeps the source graph offline", async () => {
+    const f = providerFixture();
+    f.qualification.restrictedIngress = false;
+    await expect(f.command("start", { kind: "start", aliases: ["web"] })).rejects.toThrow(
+      "qualification",
+    );
+    expect(f.mutations).toEqual([]);
+  });
+  it("arms a deadline before compute, delivers runtime secrets, reaches ready and verifies deletion", async () => {
+    const f = providerFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const ready = await f.reconcile();
+    expect(ready?.session.status).toBe("ready");
+    expect(f.mutations.findIndex((item) => item.endsWith("/reset"))).toBeLessThan(
+      f.mutations.findIndex((item) => item.startsWith("PATCH secrets/")),
+    );
+    const group = [...f.allocations.values()].find((item) => item.kind === "secrets");
+    expect(group?.patch.secrets.variables.API_KEY).toBe("test-value");
+    await f.command("stop", { kind: "stop" });
+    const stopped = await f.reconcile();
+    expect(stopped?.session.reservationHeld).toBe(false);
+    expect(f.allocations.size).toBe(0);
+  });
+  it("recovers a lost once-only run response without posting another bootstrap run", async () => {
+    const f = providerFixture();
+    f.loseRun();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).toBe("ready");
+    expect([...f.runs.values()].filter((run) => run.name.startsWith("bootstrap-")).length).toBe(1);
+  });
+  it("stops and cleans up when runtime secret delivery fails", async () => {
+    const f = providerFixture();
+    f.failSecret();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const failed = await f.reconcile(20);
+    expect(failed?.session.reservationHeld).toBe(false);
+    expect(f.allocations.size).toBe(0);
+    expect([...f.runs.values()].some((run) => run.name.startsWith("activate-"))).toBe(false);
   });
 });
