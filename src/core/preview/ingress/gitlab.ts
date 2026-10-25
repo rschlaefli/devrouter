@@ -69,10 +69,8 @@ export function createGitLabPreviewIngress(options: {
       const merge = object(payload.merge_request),
         project = object(payload.project);
       if (
-        payload.object_kind !== "note" ||
         forgeId(project.id) !== options.candidateProjectId ||
         forgeId(note.project_id) !== options.candidateProjectId ||
-        note.noteable_type !== "MergeRequest" ||
         note.action !== "create" ||
         note.system !== false ||
         note.created_at !== note.updated_at ||
