@@ -9,7 +9,7 @@ can share their standard ports through TLS/SNI hostname routing.
 ## What devrouter owns
 
 - One strict local routing/profile configuration: `.devrouter.yml`.
-- Opt-in remote resource planning in `.devrouter.preview.yml`, isolated from local routing.
+- Opt-in remote previews in `.devrouter.preview.yml`, with reviewed GitHub/GitLab controller source and Northflank qualification gates.
 - Machine setup, the shared `devnet` network, Traefik, local TLS, and route state.
 - Host, Docker, proxy, and dependency-only application definitions.
 - Exact-checkout devcontainer workspace lifecycle (DevPod or Devsy) for primary and linked Git worktrees.
@@ -151,4 +151,4 @@ explicit `--write-agents` or `--write-skill` flags.
 
 Run `devrouter --help` for the complete current command and option reference.
 
-Remote review environments have an opt-in [offline planning command](docs/PREVIEWS.md).
+Remote review environments use opt-in [planning and reviewed installation commands](docs/PREVIEWS.md).

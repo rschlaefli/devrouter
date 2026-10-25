@@ -63,8 +63,10 @@ export function createGitLabPreviewIngress(options: {
       return new Response(null, { status: 400 });
     }
     try {
-      const note = object(payload.object_attributes),
-        merge = object(payload.merge_request),
+      if (payload.object_kind !== "note") return new Response(null, { status: 204 });
+      const note = object(payload.object_attributes);
+      if (note.noteable_type !== "MergeRequest") return new Response(null, { status: 204 });
+      const merge = object(payload.merge_request),
         project = object(payload.project);
       if (
         payload.object_kind !== "note" ||

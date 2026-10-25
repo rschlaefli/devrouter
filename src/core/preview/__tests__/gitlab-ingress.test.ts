@@ -60,6 +60,23 @@ describe("GitLab serverless note ingress", () => {
       },
     ]);
   });
+  it("ignores issue comments that carry no merge request payload", async () => {
+    const f = fixture();
+    const { merge_request: _merge, ...payload } = f.body;
+    payload.object_attributes.noteable_type = "Issue";
+    const request = new Request("https://ingress.example.org/hooks/gitlab", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-gitlab-token": "s".repeat(40),
+        "x-gitlab-event": "Note Hook",
+        "x-gitlab-event-uuid": "00000000-0000-4000-8000-000000000001",
+      },
+      body: JSON.stringify(payload),
+    });
+    expect((await f.handler(request)).status).toBe(204);
+    expect(f.calls).toEqual([]);
+  });
   it("rejects wrong secrets and ignores edits, foreign projects and noncommands", async () => {
     const f = fixture();
     expect((await f.handler(f.request(f.body, "wrong"))).status).toBe(401);

@@ -83,3 +83,17 @@ The dangerous failure is mixed identity: a Git checkout, workspace runtime ID, c
 ## Change guidance
 
 Changes that move state between owners require an ADR when the decision is hard to reverse, surprising, and trade-off driven. At minimum, run the ownership, lifecycle, managed-post-start, route-state, and provider-mutation suites named in the [verification map](./change-and-verification-map.md).
+
+
+## Remote installation boundary
+
+Preview planning reuses local profile membership without starting a local runtime.
+`src/core/preview/installation.ts` binds reviewed control bytes, project identities,
+provider recipes, credentials, costs and viewer policy. Forge adapters verify commands
+and source; the shared controller owns durable inbox/status, while the engine owns
+allocation/deadline/cleanup state. The Northflank adapter owns native graph semantics
+and immutable receipts. Runtime secrets are separate from controller credentials.
+The GitLab ingress only requests a protected controller pipeline with identity hints;
+it does not hold provider credentials. [Remote previews](../PREVIEWS.md) owns setup
+and live qualification status; [ADR 0013](../adr/0013-opt-in-remote-previews.md) owns
+why remote state remains independent from local workspace identity.

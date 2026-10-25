@@ -184,6 +184,14 @@ function previewAsset(name: string): string {
   return fs.readFileSync(file, "utf8");
 }
 
+function renderPreviewAsset(name: string, replacements: Record<string, string>): string {
+  return previewAsset(name).replace(/__([A-Z_]+)__/g, (_match, key: string) => {
+    const value = replacements[key];
+    if (value === undefined) throw new Error("Unknown preview template input.");
+    return value;
+  });
+}
+
 async function renderPreviewIntegration(
   repoPath: string,
   options: PreviewCommandOptions,
@@ -217,13 +225,9 @@ async function renderPreviewIntegration(
     INSTALLATION: installation,
     PROJECT: String(options.project),
   };
-  const content = previewAsset(options.sweeper ? "github-sweep.yml" : "github.yml").replace(
-    /__([A-Z_]+)__/g,
-    (_match, key: string) =>
-      replacements[key] ??
-      (() => {
-        throw new Error("Unknown preview template input.");
-      })(),
+  const content = renderPreviewAsset(
+    options.sweeper ? "github-sweep.yml" : "github.yml",
+    replacements,
   );
   const filename = `.github/workflows/devrouter-preview${options.sweeper ? "-sweep" : ""}.yml`;
   if (options.write) {
@@ -261,10 +265,7 @@ async function renderGitLabPreviewIntegration(
     CONTROLLER_IMAGE: String(options.controllerImage),
     TEMPLATE_INTEGRITY: integrity,
   };
-  const content = previewAsset("gitlab.yml").replace(
-    /__([A-Z_]+)__/g,
-    (_match, key: string) => replacements[key],
-  );
+  const content = renderPreviewAsset("gitlab.yml", replacements);
   const filename = ".gitlab-ci.yml";
   if (options.write)
     fs.writeFileSync(assertPathWithinRepo(filename, repoPath, "GitLab preview caller"), content, {
