@@ -480,6 +480,28 @@ previewCommand
       await runPreviewPlanCommand(options);
     }),
   );
+for (const action of ["doctor", "state-init", "handle-event", "sweep"] as const) {
+  previewCommand
+    .command(action)
+    .description(
+      action === "doctor"
+        ? "Inspect reviewed installation policy without network or writes"
+        : "Reconcile an explicitly installed remote preview controller",
+    )
+    .requiredOption(
+      "--installation <file>",
+      "Trusted installation JSON; never a candidate checkout",
+    )
+    .option("--project <key>", "Registered project key for handle-event")
+    .option("--change <number>", "PR or MR number, treated only as a hint")
+    .option("--json", "Print structured output")
+    .action(
+      withErrorHandling(async (options) => {
+        const { runPreviewInstallationCommand } = await import("./commands/preview");
+        await runPreviewInstallationCommand(action, options);
+      }),
+    );
+}
 previewCommand
   .command("init")
   .description("Print a preview manifest scaffold for review")

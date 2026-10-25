@@ -1,5 +1,6 @@
 import { parsePreviewCommand } from "../command";
 import type { PreviewAdmission } from "../engine";
+import { assertRepoRelativePath } from "../manifest";
 import type { PreviewSource } from "../types";
 import {
   type ForgeComment,
@@ -78,6 +79,33 @@ export class GitHubPreviewForge implements PreviewForge {
       sameProject: forgeId(headRepo.id) === this.options.projectId,
       open: row.state === "open" && row.merged !== true,
     };
+  }
+  async file(revision: string, filename: string): Promise<string> {
+    forgeSHA(revision);
+    assertRepoRelativePath(filename, "reviewed control file");
+    await this.repository();
+    const row = object(
+      (
+        await this.http.request(
+          "GET",
+          `${this.repo}/contents/${filename.split("/").map(encodeURIComponent).join("/")}?ref=${revision}`,
+          undefined,
+          2 * 1024 * 1024,
+        )
+      ).data,
+    );
+    if (
+      row.type !== "file" ||
+      row.path !== filename ||
+      row.encoding !== "base64" ||
+      typeof row.content !== "string" ||
+      !Number.isSafeInteger(row.size) ||
+      (row.size as number) > 1024 * 1024
+    )
+      throw new Error("Reviewed GitHub control file is unavailable.");
+    const bytes = Buffer.from(row.content, "base64");
+    if (bytes.length !== row.size) throw new Error("Incomplete GitHub control file.");
+    return bytes.toString("utf8");
   }
   async snapshot(change: number, withSource = true): Promise<ForgeSnapshot> {
     await this.repository();

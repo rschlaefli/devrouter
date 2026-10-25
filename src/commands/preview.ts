@@ -106,3 +106,57 @@ export async function runPreviewInitCommand(options: PreviewCommandOptions): Pro
     });
   } else process.stdout.write(content);
 }
+
+export async function runPreviewInstallationCommand(
+  action: "doctor" | "state-init" | "handle-event" | "sweep",
+  options: { installation: string; project?: string; change?: string; json?: boolean },
+): Promise<void> {
+  const { loadPreviewInstallation, initializePreviewInstallation } = await import(
+    "../core/preview/installation"
+  );
+  const installation = loadPreviewInstallation(options.installation);
+  if (action === "state-init")
+    await initializePreviewInstallation(installation.installationId, installation.store);
+  else if (action === "doctor") {
+    const report = installation.diagnostic;
+    printJSON(report);
+    if (report.projects.some((project) => !project.qualified)) process.exitCode = 3;
+    return;
+  } else if (action === "handle-event") {
+    const selected = installation.controllers.find((row) => row.key === options.project);
+    if (
+      !selected ||
+      !options.change ||
+      !/^[1-9][0-9]*$/.test(options.change) ||
+      !Number.isSafeInteger(Number(options.change))
+    )
+      throw new Error("A registered --project and positive --change are required.");
+    const change = Number(options.change),
+      cutoff = Date.now() + 12 * 60_000;
+    do {
+      await selected.controller.scan(change);
+      const entry = await installation.engine.status({
+        forgeHost: selected.host,
+        projectId: selected.projectId,
+        change,
+      });
+      if (!entry || ["ready", "stopped", "expired", "failed"].includes(entry.session.status)) break;
+      // One bounded handler owns synchronous reconciliation; the installation sweep recovers interruptions.
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    } while (Date.now() < cutoff);
+  } else {
+    let failures = 0;
+    for (const { controller } of installation.controllers) {
+      try {
+        await controller.sweep();
+      } catch {
+        failures++;
+      }
+    }
+    if (failures)
+      throw new Error(
+        `Preview sweep failed for ${failures} installed projects; all were attempted.`,
+      );
+  }
+  printJSON({ schemaVersion: 1, action, status: "reconciled" });
+}
