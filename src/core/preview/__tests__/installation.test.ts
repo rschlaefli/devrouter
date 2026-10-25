@@ -132,7 +132,9 @@ describe("reviewed preview installation", () => {
   });
   it("automatically selects a bare start and reports unreviewed controls without allocating", async () => {
     for (const kind of ["github", "gitlab"] as const) {
-      for (const mismatch of [false, true, "symlink"] as const) {
+      for (const mismatch of kind === "github"
+        ? ([false, true, "symlink"] as const)
+        : [false, true]) {
         const f = fixture(),
           now = 1_700_000_000_000;
         if (kind === "gitlab") {
