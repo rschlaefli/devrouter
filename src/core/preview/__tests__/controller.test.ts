@@ -296,6 +296,24 @@ describe("durable preview command controller", () => {
     expect(await f.engine.identities()).toEqual([]);
     expect(f.effects.filter((kind) => kind === "deploy")).toHaveLength(1);
   });
+  it("admits a post-reopen start after the old generation is absent", async () => {
+    const f = fixture();
+    f.command({ kind: "start", aliases: ["web"] });
+    await f.scan();
+    f.reopened();
+    f.command({ kind: "start", aliases: ["web"] });
+    // Admission must wait for whole-generation cleanup, preserving the fresh command.
+    for (let i = 0; i < 12; i++) {
+      try {
+        await f.scan(1);
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("cannot accept start"))
+          throw error;
+      }
+    }
+    expect((await f.engine.status(f.identity))?.session.status).toBe("ready");
+    expect(f.effects.filter((kind) => kind === "deploy")).toHaveLength(2);
+  });
   it("an interleaved later stop fences a first start that is still planning", async () => {
     const f = fixture();
     f.command({ kind: "start", aliases: ["web"] });
@@ -323,11 +341,11 @@ describe("durable preview command controller", () => {
     expect(await f.engine.identities()).toEqual([]);
     expect(f.effects).toContain("destroy");
   });
-  it("does not retain rejected public commands in the bounded receipt window", async () => {
+  it("bounds authority lookups before retaining or acting on a command burst", async () => {
     const f = fixture();
     f.revoke();
     for (let i = 0; i < 1100; i++) f.command({ kind: "start", aliases: ["web"] });
-    await f.scan(1);
+    await expect(f.scan(1)).rejects.toThrow("lookup window exceeds");
     const inbox = [...f.records.entries()].find(([key]) => key.includes("/inbox/"))?.[1].value as {
       processed: unknown[];
     };

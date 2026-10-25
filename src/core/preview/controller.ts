@@ -231,18 +231,20 @@ export class PreviewController {
         snapshot.commandAfter !== undefined &&
         Math.floor(snapshot.commandAfter / 1000) >= Math.floor(existing.session.createdAt / 1000)
       )
-        await this.options.engine.close(identity);
+        await this.options.engine.close(identity, snapshot.commandAfter);
       await this.options.engine.pushed(identity, snapshot.source.head);
       const candidates: Array<{
         comment: ForgeComment;
         admission: Omit<PreviewAdmission, "plan" | "hourlyCents">;
       }> = [];
-      for (const comment of comments) {
-        if (
-          inbox.processed.some((row) => row.id === comment.id) ||
-          comment.createdAt <= Math.max(inbox.closedThrough, snapshot.commandAfter ?? 0)
-        )
-          continue;
+      const pending = comments.filter(
+        (comment) =>
+          !inbox.processed.some((row) => row.id === comment.id) &&
+          comment.createdAt > Math.max(inbox.closedThrough, snapshot.commandAfter ?? 0),
+      );
+      if (pending.length > 128)
+        throw new Error("Preview authority lookup window exceeds its bound.");
+      for (const comment of pending) {
         const admission = await this.options.forge.admission(change, comment.id);
         if (
           !admission?.actorCanWrite ||

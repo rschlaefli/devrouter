@@ -410,14 +410,16 @@ export class PreviewEngine {
     });
   }
 
-  async close(identity: PreviewIdentity): Promise<void> {
+  async close(identity: PreviewIdentity, boundary = this.options.now()): Promise<void> {
+    if (!Number.isSafeInteger(boundary) || boundary < 0) throw new Error("Invalid close boundary.");
     const id = previewIdentityKey(identity);
     await this.update((pool) => {
-      pool.stoppedThrough[id] = {
-        createdAt: this.options.now(),
-        recordedAt: this.options.now(),
-        commandId: "closed",
-      };
+      if (!pool.stoppedThrough[id] || pool.stoppedThrough[id].createdAt <= boundary)
+        pool.stoppedThrough[id] = {
+          createdAt: boundary,
+          recordedAt: this.options.now(),
+          commandId: "closed",
+        };
       const entry = pool.sessions[id];
       if (entry)
         entry.session = transitionPreviewSession(entry.session, {

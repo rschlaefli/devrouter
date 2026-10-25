@@ -298,6 +298,8 @@ export class GitHubPreviewForge implements PreviewForge {
       if (!Number.isSafeInteger(number)) throw new Error("Invalid recovered GitHub change number.");
       changes.add(number);
     }
+    if (changes.size > 128)
+      throw new Error("GitHub command recovery exceeds its distinct issue bound.");
     const pulls: number[] = [];
     for (const change of changes) {
       const issue = object((await this.http.request("GET", `${this.repo}/issues/${change}`)).data);
