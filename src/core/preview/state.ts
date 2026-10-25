@@ -102,7 +102,7 @@ export function createPreviewPool(installationId: string): PreviewPool {
   });
 }
 
-function object(
+export function object(
   value: unknown,
   required: string[],
   optional: string[] = [],

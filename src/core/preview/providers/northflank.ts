@@ -1,9 +1,12 @@
 import type { PreviewWriteGate } from "../engine";
-import { PreviewStateConflict, type PreviewStateStore, updatePreviewState } from "../state";
+import { object, PreviewStateConflict, type PreviewStateStore, updatePreviewState } from "../state";
+
+const resourceKinds = ["services", "jobs", "addons", "volumes", "secrets", "domains"] as const;
 
 export type NorthflankOwnedResource = {
   reference: string;
-  kind: "services" | "jobs" | "addons" | "volumes" | "secrets" | "domains";
+  kind: (typeof resourceKinds)[number];
+  uid?: string;
   id: string;
   name: string;
 };
@@ -18,17 +21,6 @@ export type NorthflankOwnership = {
   absent: boolean;
 };
 
-function object(value: unknown, keys: string[], optional: string[] = []): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Invalid Northflank ownership record.");
-  const row = value as Record<string, unknown>;
-  if (
-    keys.some((key) => !Object.hasOwn(row, key)) ||
-    Object.keys(row).some((key) => ![...keys, ...optional].includes(key))
-  )
-    throw new Error("Invalid Northflank ownership fields.");
-  return row;
-}
 function identifier(value: unknown): asserts value is string {
   if (typeof value !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(value))
     throw new Error("Invalid Northflank ownership identifier.");
@@ -57,18 +49,23 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
   const references = new Set<string>();
   const ids = new Set<string>();
   for (const raw of row.resources) {
-    const resource = object(raw, ["reference", "kind", "id", "name"]);
+    const resource = object(raw, ["reference", "kind", "id", "name"], ["uid"]);
     identifier(resource.id);
     identifier(resource.reference);
     identifier(resource.name);
     if (
-      !["services", "jobs", "addons", "volumes", "secrets", "domains"].includes(
-        resource.kind as string,
-      ) ||
+      !resourceKinds.includes(resource.kind as NorthflankOwnedResource["kind"]) ||
       references.has(resource.reference) ||
       ids.has(`${resource.kind}:${resource.id}`)
     )
       throw new Error("Ambiguous Northflank resource ownership.");
+    if (
+      (resource.kind !== "secrets" && resource.kind !== "domains") ||
+      resource.uid !== undefined
+    ) {
+      if (typeof resource.uid !== "string" || !/^[a-f0-9]{24}$/.test(resource.uid))
+        throw new Error("Northflank allocation ownership requires its immutable UID.");
+    }
     references.add(resource.reference);
     ids.add(`${resource.kind}:${resource.id}`);
   }
@@ -83,6 +80,7 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
 /** Private metadata only. Native configuration and runtime secret values never enter this store. */
 export class NorthflankOwnershipStore {
   private readonly key: string;
+  private readonly initial: NorthflankOwnership;
   constructor(
     private readonly options: {
       store: PreviewStateStore;
@@ -93,7 +91,7 @@ export class NorthflankOwnershipStore {
   ) {
     if (!/^[a-z0-9-]{1,63}$/.test(options.installationId))
       throw new Error("Invalid Northflank installation namespace.");
-    decodeNorthflankOwnership({
+    this.initial = decodeNorthflankOwnership({
       schemaVersion: 1,
       generation: options.generation,
       policyDigest: options.policyDigest,
@@ -105,8 +103,8 @@ export class NorthflankOwnershipStore {
   private validate = (value: unknown): NorthflankOwnership => {
     const owned = decodeNorthflankOwnership(value);
     if (
-      owned.generation !== this.options.generation ||
-      owned.policyDigest !== this.options.policyDigest
+      owned.generation !== this.initial.generation ||
+      owned.policyDigest !== this.initial.policyDigest
     )
       throw new Error("Northflank ownership belongs to another generation or policy.");
     return owned;
@@ -127,13 +125,7 @@ export class NorthflankOwnershipStore {
       throw new Error("Established Northflank ownership state is missing; recovery is required.");
     if ((await gate.begin("ownership", "once")) !== "write")
       throw new Error("Northflank ownership initialization is fenced.");
-    const value = this.validate({
-      schemaVersion: 1,
-      generation: this.options.generation,
-      policyDigest: this.options.policyDigest,
-      resources: [],
-      absent: false,
-    });
+    const value = structuredClone(this.initial);
     try {
       await this.options.store.compareAndSwap(this.key, null, value);
     } catch (error) {
@@ -156,13 +148,24 @@ export class NorthflankOwnershipStore {
         const next = change(structuredClone(current));
         if (current.absent && !next.absent)
           throw new Error("Northflank ownership cannot revive after verified absence.");
-        if (
-          (current.blueprintId && next.blueprintId && current.blueprintId !== next.blueprintId) ||
-          (current.previewId && next.previewId && current.previewId !== next.previewId)
-        )
-          throw new Error(
-            "Northflank native container identity cannot change within a generation.",
-          );
+        if (!next.absent) {
+          for (const key of ["blueprintId", "previewId"] as const)
+            if (current[key] !== undefined && next[key] !== current[key])
+              throw new Error(
+                "Northflank native container identity cannot change within a generation.",
+              );
+          for (const resource of current.resources) {
+            const observed = next.resources.find((item) => item.reference === resource.reference);
+            if (
+              !observed ||
+              observed.kind !== resource.kind ||
+              observed.id !== resource.id ||
+              observed.uid !== resource.uid ||
+              observed.name !== resource.name
+            )
+              throw new Error("Northflank resource ownership cannot be dropped or rebound.");
+          }
+        }
         return next;
       },
     });

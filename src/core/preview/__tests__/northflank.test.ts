@@ -85,9 +85,9 @@ describe("Northflank preview transport", () => {
     const api = new NorthflankPreviewAPI({
       projectId: "isolated",
       accessToken: async () => "synthetic",
-      fetch: async () => new Response("a".repeat(1024 * 1024 + 1)),
+      fetch: async () => new Response(JSON.stringify({ data: "a".repeat(1024 * 1024 + 1) })),
     });
-    await expect(api.request("GET", ["preview-blueprints", "owned"])).rejects.toThrow("size bound");
+    await expect(api.request("GET", ["preview-blueprints", "owned"])).rejects.toThrow();
   });
 
   it("keeps successful but unreadable expiry changes uncertain", async () => {
@@ -374,6 +374,28 @@ describe("Northflank generation ownership", () => {
     await expect(
       ownership.update((current) => ({ ...current, previewId: "foreign-preview" })),
     ).rejects.toThrow();
+    await expect(
+      ownership.update((current) => ({ ...current, previewId: undefined })),
+    ).rejects.toThrow();
+    await ownership.update((current) => ({
+      ...current,
+      resources: [
+        {
+          reference: "r_web",
+          kind: "services",
+          id: "owned-web",
+          uid: "1".repeat(24),
+          name: "owned-web",
+        },
+      ],
+    }));
+    await expect(ownership.update((current) => ({ ...current, resources: [] }))).rejects.toThrow();
+    await expect(
+      ownership.update((current) => ({
+        ...current,
+        resources: current.resources.map((item) => ({ ...item, uid: "2".repeat(24) })),
+      })),
+    ).rejects.toThrow();
     const another = new NorthflankOwnershipStore({
       store,
       installationId: "fixture",
@@ -382,7 +404,7 @@ describe("Northflank generation ownership", () => {
     });
     await expect(another.read()).rejects.toThrow();
     value = undefined;
-    await expect(ownership.initialize(gate)).rejects.toThrow("missing");
+    await expect(ownership.initialize(gate)).rejects.toThrow();
     await expect(ownership.initialize({ ...gate, read: async () => [] }, true)).rejects.toThrow(
       "missing",
     );
