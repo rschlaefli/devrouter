@@ -81,6 +81,11 @@ Loopback proxy upstreams are rewritten by `src/core/host-routes.ts:parseUpstream
 
 `src/core/host-routes.ts:replaceHostRoutesForRepo` validates and replaces one exact repository/worktree route batch under a shared lock. `writeRouteGeneration` writes the JSON compatibility mirror first and the canonical Traefik file second; the canonical file carries encoded metadata for the same rendered generation. Reads validate metadata against YAML, migrate complete headerless legacy state, repair stale mirrors, and fail closed on corruption.
 
+Dynamic documents omit protocol sections with no routes because Traefik rejects
+empty router/service maps. Reads also accept the exact older v1 rendering with
+an empty HTTP section for TCP-only or empty generations; the next route write or
+refresh emits the current rendering. Other metadata/YAML mismatches still fail.
+
 Route-state failure injection and concurrency coverage live in `src/core/__tests__/host-routes-state.test.ts`. Config/runtime combinations live in `repo-config.test.ts`; generic application and dependency behavior lives in `app-run-exec.test.ts`; Docker-label discovery lives in `routes.test.ts`.
 
 Managed route replacement does not treat the generated file or an HTTP response
