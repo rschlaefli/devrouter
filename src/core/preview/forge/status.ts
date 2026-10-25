@@ -49,6 +49,12 @@ export function forgeTime(value: unknown): number {
   return time;
 }
 
+export class PreviewControlUnavailable extends Error {
+  constructor() {
+    super("Candidate preview control is not a bounded regular file.");
+  }
+}
+
 export class PreviewForgeRejected extends Error {
   constructor(readonly status: number) {
     super(`Preview forge request failed (HTTP ${status}).`);

@@ -10,6 +10,7 @@ import {
   forgeTime,
   forgeObject as object,
   PREVIEW_STATUS_MARKER,
+  PreviewControlUnavailable,
   type PreviewForge,
   PreviewForgeHTTP,
   PreviewForgeNotSent,
@@ -84,16 +85,17 @@ export class GitHubPreviewForge implements PreviewForge {
     forgeSHA(revision);
     assertRepoRelativePath(filename, "reviewed control file");
     await this.repository();
-    const row = object(
-      (
-        await this.http.request(
-          "GET",
-          `${this.repo}/contents/${filename.split("/").map(encodeURIComponent).join("/")}?ref=${revision}`,
-          undefined,
-          2 * 1024 * 1024,
-        )
-      ).data,
-    );
+    const data = (
+      await this.http.request(
+        "GET",
+        `${this.repo}/contents/${filename.split("/").map(encodeURIComponent).join("/")}?ref=${revision}`,
+        undefined,
+        2 * 1024 * 1024,
+      )
+    ).data;
+    if (!data || typeof data !== "object" || Array.isArray(data))
+      throw new PreviewControlUnavailable();
+    const row = object(data);
     if (
       row.type !== "file" ||
       row.path !== filename ||
@@ -102,7 +104,7 @@ export class GitHubPreviewForge implements PreviewForge {
       !Number.isSafeInteger(row.size) ||
       (row.size as number) > 1024 * 1024
     )
-      throw new Error("Reviewed GitHub control file is unavailable.");
+      throw new PreviewControlUnavailable();
     const bytes = Buffer.from(row.content, "base64");
     if (bytes.length !== row.size) throw new Error("Incomplete GitHub control file.");
     return bytes.toString("utf8");

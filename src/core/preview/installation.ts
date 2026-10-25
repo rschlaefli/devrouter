@@ -6,7 +6,11 @@ import { parseRepoConfigSource } from "../repo-config";
 import { PreviewController } from "./controller";
 import { PreviewEngine, type PreviewProvider } from "./engine";
 import { GitHubPreviewForge } from "./forge/github";
-import { forgeObject as map, PreviewForgeRejected } from "./forge/status";
+import {
+  forgeObject as map,
+  PreviewControlUnavailable,
+  PreviewForgeRejected,
+} from "./forge/status";
 import { parsePreviewManifest } from "./manifest";
 import { buildPreviewPlan, listPreviewAliases } from "./plan";
 import {
@@ -289,6 +293,8 @@ export function loadPreviewInstallation(
       remote,
       plan,
       rates,
+      tokens: [forgePolicy.tokenEnv, northflank.tokenEnv],
+      secrets,
     };
   });
   if (
@@ -308,18 +314,16 @@ export function loadPreviewInstallation(
     return project.provider;
   };
   const controlTokens = new Set([
-    envName(statePolicy.tokenEnv),
+    statePolicy.tokenEnv,
     "DEVROUTER_PREVIEW_CREDENTIALS",
-    ...raw.projects.flatMap((input) => {
-      const row = map(input);
-      return [envName(map(row.forge).tokenEnv), envName(map(row.northflank).tokenEnv)];
-    }),
+    ...projects.flatMap((project) => project.tokens),
   ]);
-  for (const input of raw.projects) {
-    for (const name of Object.values(map(map(map(input).northflank).runtimeSecrets)))
-      if (controlTokens.has(String(name)))
-        throw new Error("Deployment credentials cannot be delivered as preview runtime secrets.");
-  }
+  if (
+    projects.some((project) =>
+      Object.values(project.secrets).some((name) => controlTokens.has(name)),
+    )
+  )
+    throw new Error("Deployment credentials cannot be delivered as preview runtime secrets.");
   const provider: PreviewProvider = {
     // The controller validates its project provider before submitting an admission.
     submit: (effect, entry, gate) => providerFor(entry).submit(effect, entry, gate),
@@ -369,7 +373,11 @@ export function loadPreviewInstallation(
           try {
             matches = digest(await project.forge.file(source.head, file)) === expected;
           } catch (error) {
-            if (!(error instanceof PreviewForgeRejected) || error.status !== 404) throw error;
+            if (
+              !(error instanceof PreviewControlUnavailable) &&
+              (!(error instanceof PreviewForgeRejected) || error.status !== 404)
+            )
+              throw error;
           }
           if (!matches)
             return {

@@ -131,7 +131,7 @@ describe("reviewed preview installation", () => {
     );
   });
   it("automatically selects a bare start and reports unreviewed controls without allocating", async () => {
-    for (const mismatch of [false, true]) {
+    for (const mismatch of [false, true, "symlink"] as const) {
       const f = fixture(),
         now = 1_700_000_000_000;
       const rows = new Map<string, { value: string; version: number }>();
@@ -217,7 +217,7 @@ describe("reviewed preview installation", () => {
             fs.readFileSync(path.join(f.root, name), "utf8") + (mismatch ? "\n# drift" : ""),
           );
           return json({
-            type: "file",
+            type: mismatch === "symlink" ? "symlink" : "file",
             path: file,
             encoding: "base64",
             size: bytes.length,
