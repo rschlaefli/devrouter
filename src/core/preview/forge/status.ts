@@ -74,6 +74,7 @@ export class PreviewForgeHTTP {
     method: "GET" | "POST" | "PATCH" | "PUT",
     path: string,
     body?: unknown,
+    maxBytes?: number,
   ): Promise<{ data: unknown; headers: Headers }> {
     if (
       !path ||
@@ -114,21 +115,29 @@ export class PreviewForgeHTTP {
     }
     try {
       return {
-        data: JSON.parse(await readPreviewResponse(response, "Preview forge")),
+        data: JSON.parse(await readPreviewResponse(response, "Preview forge", maxBytes)),
         headers: response.headers,
       };
     } catch {
       throw new Error("Preview forge response is unreadable or exceeds its bound.");
     }
   }
-  async pages(path: string): Promise<unknown[]> {
+  async pages(
+    path: string,
+    options: { maxBytes?: number; project?: (row: unknown) => unknown } = {},
+  ): Promise<unknown[]> {
     const rows: unknown[] = [];
     for (let page = 1; page <= 100; page++) {
       const separator = path.includes("?") ? "&" : "?";
-      const result = await this.request("GET", `${path}${separator}per_page=100&page=${page}`);
+      const result = await this.request(
+        "GET",
+        `${path}${separator}per_page=100&page=${page}`,
+        undefined,
+        options.maxBytes,
+      );
       if (!Array.isArray(result.data) || result.data.length > 100)
         throw new Error("Incomplete forge collection.");
-      rows.push(...result.data);
+      rows.push(...result.data.map(options.project ?? ((row) => row)));
       if (rows.length > 10_000) throw new Error("Forge collection exceeds its bound.");
       const link = result.headers.get("link");
       const next =
@@ -150,15 +159,17 @@ export class PreviewForgeHTTP {
   }
 }
 
+export const PREVIEW_STATUS_MARKER = "<!-- devrouter-preview -->";
+
 export function previewStatusBody(
   entry: PreviewPoolEntry | null,
   urls: Record<string, string> = {},
 ): string {
   if (!entry)
-    return "Devrouter preview: no environment. Use `/preview start` or `/preview profiles`.";
+    return `${PREVIEW_STATUS_MARKER}\n\nDevrouter preview: no environment. Use \`/preview start\` or \`/preview profiles\`.`;
   const session = entry.session;
   const lines = [
-    "<!-- devrouter-preview -->",
+    PREVIEW_STATUS_MARKER,
     `Devrouter preview: **${session.status}**${session.stale ? " (source changed; run /preview start to refresh)" : ""}.`,
     `Revision: \`${session.desiredRevision}\`. Profiles: ${session.desiredAliases.map((alias) => `\`${alias}\``).join(", ")}.`,
     `Expires: ${new Date(session.expiresAt).toISOString()}. Setup cutoff: ${new Date(session.setupDeadline).toISOString()}.`,

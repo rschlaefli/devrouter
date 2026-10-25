@@ -8,6 +8,7 @@ import {
   forgeSHA,
   forgeTime,
   forgeObject as object,
+  PREVIEW_STATUS_MARKER,
   type PreviewForge,
   PreviewForgeHTTP,
 } from "./status";
@@ -15,6 +16,7 @@ import {
 export class GitHubPreviewForge implements PreviewForge {
   private readonly http: PreviewForgeHTTP;
   private readonly repo: string;
+  private readonly graphql: PreviewForgeHTTP;
   constructor(
     private readonly options: {
       apiUrl: string;
@@ -42,6 +44,11 @@ export class GitHubPreviewForge implements PreviewForge {
     )
       throw new Error("GitHub API must match its trusted forge host.");
     this.http = new PreviewForgeHTTP({ ...options, kind: "github" });
+    this.graphql = new PreviewForgeHTTP({
+      ...options,
+      apiUrl: options.forgeHost === "github.com" ? options.apiUrl : `${api.origin}/api/`,
+      kind: "github",
+    });
     this.repo = `repos/${options.repository}`;
   }
   private path(change: number): string {
@@ -72,7 +79,23 @@ export class GitHubPreviewForge implements PreviewForge {
   async snapshot(change: number): Promise<ForgeSnapshot> {
     await this.repository();
     const initial = await this.pull(change);
-    const files = await this.http.pages(`${this.path(change)}/files`);
+    if (
+      !Number.isSafeInteger(initial.row.changed_files) ||
+      (initial.row.changed_files as number) < 0 ||
+      (initial.row.changed_files as number) >= 3000
+    )
+      throw new Error("GitHub cumulative diff exceeds its qualified bound.");
+    const files = await this.http.pages(`${this.path(change)}/files`, {
+      maxBytes: 16 * 1024 * 1024,
+      project: (raw) => {
+        const file = object(raw);
+        return {
+          filename: file.filename,
+          previous_filename: file.previous_filename,
+          status: file.status,
+        };
+      },
+    });
     if (
       !Number.isSafeInteger(initial.row.changed_files) ||
       files.length !== initial.row.changed_files ||
@@ -80,8 +103,14 @@ export class GitHubPreviewForge implements PreviewForge {
     )
       throw new Error("GitHub cumulative diff is incomplete or exceeds its qualified bound.");
     const comparison = object(
-      (await this.http.request("GET", `${this.repo}/compare/${initial.target}...${initial.head}`))
-        .data,
+      (
+        await this.http.request(
+          "GET",
+          `${this.repo}/compare/${initial.target}...${initial.head}?per_page=1`,
+          undefined,
+          16 * 1024 * 1024,
+        )
+      ).data,
     );
     const changes: PreviewSource["changes"] = files.map((raw) => {
       const file = object(raw);
@@ -96,12 +125,15 @@ export class GitHubPreviewForge implements PreviewForge {
         unchanged: "M",
       };
       const status = typeof file.status === "string" ? statuses[file.status] : undefined;
-      if (!status || (status === "R" && typeof file.previous_filename !== "string"))
+      if (
+        !status ||
+        ((status === "R" || status === "C") && typeof file.previous_filename !== "string")
+      )
         throw new Error("Unsupported GitHub diff status.");
       return {
         status,
         path: file.filename,
-        ...(status === "R" ? { oldPath: file.previous_filename as string } : {}),
+        ...(status === "R" || status === "C" ? { oldPath: file.previous_filename as string } : {}),
       };
     });
     const current = await this.pull(change);
@@ -178,6 +210,7 @@ export class GitHubPreviewForge implements PreviewForge {
       JSON.stringify(confirmed.command) !== JSON.stringify(comment.command)
     )
       return null;
+    if (!(await this.original(raw))) return null;
     return {
       identity: { forgeHost: this.options.forgeHost, projectId: this.options.projectId, change },
       commandId: comment.id,
@@ -189,6 +222,30 @@ export class GitHubPreviewForge implements PreviewForge {
       command: comment.command,
     };
   }
+  private async original(row: Record<string, unknown>): Promise<boolean> {
+    if (typeof row.node_id !== "string" || !row.node_id || row.node_id.length > 256)
+      throw new Error("GitHub comment has no global identity.");
+    const reply = object(
+      (
+        await this.graphql.request("POST", "graphql", {
+          query:
+            "query($id:ID!){node(id:$id){...on IssueComment{id lastEditedAt body createdAt author{__typename login}}}}",
+          variables: { id: row.node_id },
+        })
+      ).data,
+    );
+    if (reply.errors !== undefined) throw new Error("GitHub comment edit proof is unavailable.");
+    const node = object(object(reply.data).node),
+      author = object(node.author);
+    return (
+      node.id === row.node_id &&
+      node.lastEditedAt === null &&
+      node.body === row.body &&
+      forgeTime(node.createdAt) === forgeTime(row.created_at) &&
+      author.__typename === "User" &&
+      author.login === object(row.user).login
+    );
+  }
   async changes(): Promise<number[]> {
     await this.repository();
     return (await this.http.pages(`${this.repo}/pulls?state=open&sort=created&direction=asc`)).map(
@@ -197,6 +254,8 @@ export class GitHubPreviewForge implements PreviewForge {
   }
   async publish(change: number, body: string, previousId?: string): Promise<string> {
     await this.repository();
+    if (!body.startsWith(PREVIEW_STATUS_MARKER))
+      throw new Error("Preview status has no ownership marker.");
     if (Buffer.byteLength(body) > 32 * 1024) throw new Error("Preview status exceeds its bound.");
     if (previousId) {
       const path = `${this.repo}/issues/comments/${forgeId(previousId)}`;
@@ -204,7 +263,7 @@ export class GitHubPreviewForge implements PreviewForge {
       if (
         forgeId(object(comment.user).id) !== this.options.botId ||
         typeof comment.body !== "string" ||
-        !comment.body.startsWith("<!-- devrouter-preview -->") ||
+        !comment.body.startsWith(PREVIEW_STATUS_MARKER) ||
         comment.issue_url !==
           `${this.http.base.origin}${this.http.base.pathname}${this.repo}/issues/${forgeId(change)}`
       )
@@ -212,14 +271,12 @@ export class GitHubPreviewForge implements PreviewForge {
       await this.http.request("PATCH", path, { body });
       return previousId;
     }
-    return forgeId(
-      object(
-        (
-          await this.http.request("POST", `${this.repo}/issues/${forgeId(change)}/comments`, {
-            body,
-          })
-        ).data,
-      ).id,
+    const created = object(
+      (await this.http.request("POST", `${this.repo}/issues/${forgeId(change)}/comments`, { body }))
+        .data,
     );
+    if (forgeId(object(created.user).id) !== this.options.botId)
+      throw new Error("Preview status author differs from the configured bot.");
+    return forgeId(created.id);
   }
 }
