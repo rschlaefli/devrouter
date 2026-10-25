@@ -48,6 +48,14 @@ export async function updatePreviewState<T>(options: {
   throw new PreviewStateConflict();
 }
 
+export type PreviewEffectStep = {
+  name: string;
+  mode: "once" | "convergent";
+  state: "intent" | "accepted" | "uncertain";
+  at: number;
+  ref?: string;
+};
+
 export type PreviewEffect = {
   id: string;
   kind: "deploy" | "deadline" | "cancel" | "destroy";
@@ -63,6 +71,7 @@ export type PreviewEffect = {
   ready?: boolean;
   confirmedDeadline?: number;
   outcome?: "succeeded" | "failed" | "cancelled";
+  steps?: PreviewEffectStep[];
 };
 
 export type PreviewPoolEntry = {
@@ -393,7 +402,7 @@ export function decodePreviewPool(value: unknown): PreviewPool {
           "leaseExpiresAt",
           "resources",
         ],
-        ["target", "ready", "confirmedDeadline", "outcome"],
+        ["target", "ready", "confirmedDeadline", "outcome", "steps"],
       );
       text(effect.id);
       text(effect.generation);
@@ -412,6 +421,22 @@ export function decodePreviewPool(value: unknown): PreviewPool {
       if (effect.confirmedDeadline !== undefined) integer(effect.confirmedDeadline);
       if (effect.ready !== undefined && typeof effect.ready !== "boolean")
         throw new Error("Invalid readiness receipt.");
+      if (effect.steps !== undefined) {
+        if (!Array.isArray(effect.steps) || effect.steps.length > 8)
+          throw new Error("Preview provider step journal exceeds its bound.");
+        const names = new Set<string>();
+        for (const rawStep of effect.steps) {
+          const step = object(rawStep, ["name", "mode", "state", "at"], ["ref"]);
+          text(step.name, 64);
+          if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(step.name) || names.has(step.name))
+            throw new Error("Invalid preview provider step identity.");
+          names.add(step.name);
+          oneOf(step.mode, ["once", "convergent"]);
+          oneOf(step.state, ["intent", "accepted", "uncertain"]);
+          integer(step.at);
+          if (step.ref !== undefined) text(step.ref, 128);
+        }
+      }
       const outstanding = session.outstandingOperations.includes(operationId);
       if (
         (effect.kind === "deploy" || effect.kind === "deadline") &&

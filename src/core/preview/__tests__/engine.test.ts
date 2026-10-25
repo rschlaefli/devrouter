@@ -149,10 +149,10 @@ describe("durable preview reconciliation", () => {
   it("stores the actual confirmed first-ready expiry after provider rounding", async () => {
     const f = fixture();
     const original = f.provider.submit;
-    f.provider.submit = async (effect, entry) => {
+    f.provider.submit = async (effect, entry, gate) => {
       if (effect.kind === "deadline")
         return { phase: "terminal", resources: [], confirmedDeadline: effect.target! - 74_000 };
-      return original(effect, entry);
+      return original(effect, entry, gate);
     };
     await f.admit();
     for (let step = 0; step < 4; step += 1) await f.engine.reconcile(identity);
@@ -194,14 +194,14 @@ describe("durable preview reconciliation", () => {
     const f = fixture();
     const original = f.provider.submit;
     let lost = true;
-    f.provider.submit = async (effect, entry) => {
+    f.provider.submit = async (effect, entry, gate) => {
       if (effect.kind === "deploy" && lost) {
         lost = false;
         f.calls.push("deploy");
         f.effects.set(effect.id, { phase: "terminal", resources: ["owned-web"], ready: true });
         throw new Error("transport-lost");
       }
-      return original(effect, entry);
+      return original(effect, entry, gate);
     };
     await f.admit();
     await f.engine.reconcile(identity);
@@ -288,7 +288,7 @@ describe("durable preview reconciliation", () => {
   it("cleans up when stop cancels a pending deadline without confirmation", async () => {
     const f = fixture();
     const original = f.provider.submit;
-    f.provider.submit = async (effect, entry) => {
+    f.provider.submit = async (effect, entry, gate) => {
       if (effect.kind === "deadline") {
         f.effects.set(effect.id, { phase: "pending", resources: [] });
         return { phase: "pending", resources: [] };
@@ -297,7 +297,7 @@ describe("durable preview reconciliation", () => {
         for (const id of f.effects.keys())
           f.effects.set(id, { phase: "terminal", resources: [], outcome: "cancelled" });
       }
-      return original(effect, entry);
+      return original(effect, entry, gate);
     };
     await f.admit();
     await f.engine.reconcile(identity);
@@ -344,12 +344,12 @@ describe("durable preview reconciliation", () => {
     for (let step = 0; step < 4; step += 1) await f.engine.reconcile(identity);
     const original = f.provider.submit;
     const attempts: string[] = [];
-    f.provider.submit = async (effect, entry) => {
+    f.provider.submit = async (effect, entry, gate) => {
       if (effect.kind === "destroy") {
         attempts.push(effect.id);
         if (attempts.length === 1) return { phase: "terminal", resources: [], outcome: "failed" };
       }
-      return original(effect, entry);
+      return original(effect, entry, gate);
     };
     await f.engine.close(identity);
     for (let step = 0; step < 4; step += 1) await f.engine.reconcile(identity);
@@ -372,7 +372,7 @@ describe("durable preview reconciliation", () => {
     const f = fixture();
     const original = f.provider.submit;
     let batch = 0;
-    f.provider.submit = async (effect, entry) => {
+    f.provider.submit = async (effect, entry, gate) => {
       if (effect.kind === "deploy") {
         const ids = Array.from({ length: 40 }, (_, index) => `owned-${batch}-${index}`);
         batch += 1;
@@ -380,7 +380,7 @@ describe("durable preview reconciliation", () => {
         return { phase: "terminal", resources: ids, ready: true };
       }
       if (effect.kind === "destroy" && entry.ownershipOverflow) f.resources.clear();
-      return original(effect, entry);
+      return original(effect, entry, gate);
     };
     await f.admit();
     for (let step = 0; step < 4; step += 1) await f.engine.reconcile(identity);
@@ -404,6 +404,56 @@ describe("durable preview reconciliation", () => {
     for (let step = 0; step < 3; step += 1) await f.engine.reconcile(identity);
     expect(f.resources.size).toBe(0);
     expect((await f.engine.status(identity))?.session.reservationHeld).toBe(false);
+  });
+
+  it("fences the next provider write when a stop arrives between stages", async () => {
+    const f = fixture();
+    const original = f.provider.submit;
+    const writes: string[] = [];
+    f.provider.submit = async (effect, entry, gate) => {
+      if (effect.kind !== "deploy") return original(effect, entry, gate);
+      expect(await gate.begin("create", "once")).toBe("write");
+      writes.push("create");
+      await gate.record("create", "accepted", "owned-container");
+      await f.engine.close(identity);
+      expect(await gate.begin("start-compute", "once")).toBe("fenced");
+      return { phase: "terminal", resources: ["owned-container"], outcome: "cancelled" };
+    };
+    await f.admit();
+    await f.engine.reconcile(identity);
+    await f.engine.reconcile(identity);
+    expect(writes).toEqual(["create"]);
+    expect((await f.engine.status(identity))?.session.status).toBe("stopping");
+  });
+
+  it("preserves a once-only intent across a lost response and lease handover", async () => {
+    const f = fixture();
+    const original = f.provider.submit;
+    f.provider.submit = async (effect, entry, gate) => {
+      if (effect.kind !== "deploy") return original(effect, entry, gate);
+      expect(await gate.begin("create", "once")).toBe("write");
+      f.time(f.policy.leaseMs + 1);
+      await expect(gate.record("create", "accepted", "owned-container")).rejects.toThrow("lease");
+      throw new Error("lost-response");
+    };
+    f.provider.observe = async (_effect, _entry, gate) => {
+      expect(await gate.begin("create", "once")).toBe("resolve");
+      expect((await gate.read())[0].state).toBe("intent");
+      await gate.record("create", "accepted", "owned-container");
+      return { phase: "terminal", resources: ["owned-container"], ready: true };
+    };
+    await f.admit();
+    await f.engine.reconcile(identity);
+    await expect(f.engine.reconcile(identity)).rejects.toThrow("lost-response");
+    const second = new PreviewEngine({
+      store: f.store,
+      provider: f.provider,
+      policy: f.policy,
+      workerId: "replacement",
+      now: f.now,
+    });
+    await second.reconcile(identity);
+    expect((await second.status(identity))?.session.ownedResources).toContain("owned-container");
   });
 
   it("keeps immutable identity stable across object ordering and rejects corrupted stored policy state", async () => {

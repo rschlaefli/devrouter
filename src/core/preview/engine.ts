@@ -8,6 +8,7 @@ import {
 import {
   decodePreviewPool,
   type PreviewEffect,
+  type PreviewEffectStep,
   type PreviewPool,
   type PreviewPoolEntry,
   type PreviewStateStore,
@@ -26,9 +27,23 @@ export type PreviewEffectReceipt = {
 
 // Resource IDs are bounded ownership receipts. Destroy and absent must discover
 // the complete generation independently, including allocations omitted on overflow.
+export interface PreviewWriteGate {
+  read(): Promise<PreviewEffectStep[]>;
+  begin(name: string, mode: "once" | "convergent"): Promise<"write" | "resolve" | "fenced">;
+  record(name: string, state: "accepted" | "uncertain", ref?: string): Promise<void>;
+}
+
 export interface PreviewProvider {
-  submit(effect: PreviewEffect, entry: PreviewPoolEntry): Promise<PreviewEffectReceipt>;
-  observe(effect: PreviewEffect, entry: PreviewPoolEntry): Promise<PreviewEffectReceipt>;
+  submit(
+    effect: PreviewEffect,
+    entry: PreviewPoolEntry,
+    gate: PreviewWriteGate,
+  ): Promise<PreviewEffectReceipt>;
+  observe(
+    effect: PreviewEffect,
+    entry: PreviewPoolEntry,
+    gate: PreviewWriteGate,
+  ): Promise<PreviewEffectReceipt>;
   absent(entry: PreviewPoolEntry): Promise<boolean>;
 }
 
@@ -487,6 +502,74 @@ export class PreviewEngine {
     return this.status(identity);
   }
 
+  private writeGate(id: string, effect: PreviewEffect): PreviewWriteGate {
+    const mutate = async <T>(
+      change: (entry: PreviewPoolEntry, live: PreviewEffect) => T,
+    ): Promise<T> => {
+      let result: T | undefined;
+      await this.update((pool) => {
+        result = undefined;
+        const entry = pool.sessions[id];
+        const live = entry?.operations[effect.id];
+        if (
+          !live ||
+          entry.session.generation !== effect.generation ||
+          live.phase !== "submitted" ||
+          live.leaseOwner !== this.options.workerId ||
+          live.leaseExpiresAt <= this.options.now()
+        )
+          throw new Error("Preview provider write lease changed.");
+        result = change(entry, live);
+        return pool;
+      });
+      return result as T;
+    };
+    return {
+      read: () => mutate((_entry, live) => structuredClone(live.steps ?? [])),
+      begin: (name, mode) => {
+        if (
+          !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) ||
+          name.length > 64 ||
+          (mode !== "once" && mode !== "convergent")
+        )
+          throw new Error("Invalid preview provider step.");
+        return mutate((entry, live) => {
+          const cutoff =
+            entry.session.firstReadyAt === undefined
+              ? entry.session.setupDeadline
+              : entry.session.expiresAt;
+          if (
+            tracked(live) &&
+            (isStopping(entry.session) ||
+              entry.session.operationVersion !== live.operationVersion ||
+              this.options.now() >= cutoff)
+          )
+            return "fenced";
+          const previous = live.steps?.find((step) => step.name === name);
+          if (previous) {
+            if (previous.mode !== mode) throw new Error("Preview provider step mode changed.");
+            return "resolve";
+          }
+          live.steps ??= [];
+          if (live.steps.length >= 8) throw new Error("Preview provider step journal is full.");
+          live.steps.push({ name, mode, state: "intent", at: this.options.now() });
+          live.leaseExpiresAt = this.options.now() + this.options.policy.leaseMs;
+          return "write";
+        });
+      },
+      record: (name, state, ref) =>
+        mutate((_entry, live) => {
+          const step = live.steps?.find((item) => item.name === name);
+          if (!step || (state !== "accepted" && state !== "uncertain"))
+            throw new Error("Preview provider step intent is missing.");
+          if (step.state === "accepted" && (step.ref !== ref || state !== "accepted"))
+            throw new Error("Preview provider receipt cannot be overwritten.");
+          step.state = state;
+          if (ref !== undefined) step.ref = ref;
+        }),
+    };
+  }
+
   private async execute(id: string, entry: PreviewPoolEntry, effect: PreviewEffect): Promise<void> {
     let dispatch: "submit" | "observe" | undefined;
     await this.update((pool) => {
@@ -529,7 +612,11 @@ export class PreviewEngine {
       return pool;
     });
     if (!dispatch) return;
-    const receipt = await this.options.provider[dispatch](effect, entry);
+    const receipt = await this.options.provider[dispatch](
+      effect,
+      entry,
+      this.writeGate(id, effect),
+    );
     if (receipt.phase !== "pending" && receipt.phase !== "terminal")
       throw new Error("Invalid provider operation status.");
     if (
