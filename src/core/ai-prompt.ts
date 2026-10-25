@@ -254,7 +254,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "How devrouter works (must respect):",
     "- Shared Traefik router owns host ports 80 (HTTP), 443 (HTTPS), and 5432 (Postgres TCP).",
     "- Local routing/profile source of truth is REPO_PATH/.devrouter.yml. Only remote preview commands read .devrouter.preview.yml.",
-    "- Remote preview planning is separate: `preview init [--write]` and `preview plan --alias <name> --json` read `.devrouter.preview.yml`; local profiles stay in `.devrouter.yml`. See docs/PREVIEWS.md. Planning does not deploy.",
+    "- Remote preview planning: `preview init [--write]` and `preview plan --alias <name> --json`; see docs/PREVIEWS.md. Planning does not deploy.",
     "- Global generated/runtime artifacts are managed under ~/.config/devrouter (do not edit these manually).",
     "- Managed workspace runtime lifecycle uses devrouter ensure/stop/workspace commands; raw DevPod/Devsy mutations bypass exact checkout ownership checks. The active runtime is DevPod or Devsy, resolved per checkout: DEVROUTER_WORKSPACE_RUNTIME=devpod|devsy forces one runtime, an exact-path registry owner wins next (mixed fleets stay separated), then the machine preference from 'devrouter setup --workspace-runtime', then installed-CLI auto-detection.",
     "",

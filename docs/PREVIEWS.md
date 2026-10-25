@@ -89,7 +89,8 @@ The report binds the source identities and config digests. Source metadata is
 input to offline planning, not proof of forge authorization or permission to deploy.
 Manual plans without source identity remain unbound and cannot authorize effects.
 
-Automatic rules collect all matching aliases. A configured `dominating` alias may
+Selection globs support only `*`, `**` and `?`; unsupported brace, bracket, negation
+or extglob syntax fails validation. Automatic rules collect all matching aliases. A configured `dominating` alias may
 collapse that union; `allowedUnions` bounds other combinations. Unmatched executable
 paths select the configured fallback or require manual selection. Documentation-only
 changes emit `no-runtime`. Incomplete changes emit `unknown`. Control-file changes

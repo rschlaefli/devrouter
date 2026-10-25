@@ -113,6 +113,32 @@ describe("preview manifest", () => {
     ).toThrow();
   });
 
+  it("accepts existing local names while keeping preview-owned identifiers strict", () => {
+    const manifest = parsePreviewManifest(
+      validSource()
+        .replace("profiles: [web]", "profiles: [Web_Profile]")
+        .replace("    cache: [cache]", "    my_db: [cache]")
+        .replace("    cleanup: []", "    worker.queue: []"),
+    );
+    expect(manifest.aliases.web).toEqual({ profiles: ["Web_Profile"] });
+    expect(manifest.bindings.services.my_db).toEqual(["cache"]);
+    expect(manifest.bindings.processes["worker.queue"]).toEqual([]);
+    expect(() =>
+      parsePreviewManifest(validSource().replace("  worker:\n", "  Bad_Id:\n")),
+    ).toThrow();
+  });
+
+  it.each([
+    "config/*.{yml,yaml}",
+    "config/[ab].yml",
+    "!private/**",
+    "config/+(name).yml",
+  ])("rejects unsupported control glob operators: %s", (pattern) => {
+    expect(() =>
+      parsePreviewManifest(validSource().replace("config/preview/**", pattern)),
+    ).toThrow();
+  });
+
   it("rejects dangling references and cycles across the full graph", () => {
     expect(() =>
       parsePreviewManifest(validSource().replace("dependsOn: [assets]", "dependsOn: [missing]")),

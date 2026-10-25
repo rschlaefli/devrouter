@@ -23,12 +23,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
+export function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (!isRecord(value)) fail(`${label} must be a mapping.`);
   return value;
 }
 
-function requireFields(
+export function requireFields(
   value: Record<string, unknown>,
   required: readonly string[],
   optional: readonly string[],
@@ -90,8 +90,13 @@ function readNameArray(
   return readStringArray(value, label, readName, options);
 }
 
-function assertRepoRelativePath(value: unknown, label: string, allowDot = false): string {
-  const repoPath = readText(value, label, MAX_REPO_PATH_LENGTH);
+export function assertRepoRelativePath(
+  value: unknown,
+  label: string,
+  allowDot = false,
+  maxLength = MAX_REPO_PATH_LENGTH,
+): string {
+  const repoPath = readText(value, label, maxLength);
   if (
     repoPath.startsWith("/") ||
     repoPath.includes("\\") ||
@@ -117,23 +122,17 @@ function assertRepoRelativePath(value: unknown, label: string, allowDot = false)
 }
 
 function readPattern(value: unknown, label: string): string {
-  const pattern = readText(value, label, MAX_REPO_PATH_LENGTH);
-  if (
-    pattern.startsWith("/") ||
-    pattern.includes("\\") ||
-    pattern.includes("//") ||
-    pattern.endsWith("/") ||
-    /^[A-Za-z]:/.test(pattern)
-  ) {
-    fail(`${label} must be a normalized repository-relative glob.`);
-  }
-  if (hasControlCharacters(pattern)) {
-    fail(`${label} must not contain control characters.`);
-  }
-  if (pattern.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
-    fail(`${label} must be a normalized repository-relative glob.`);
+  const pattern = assertRepoRelativePath(value, label);
+  if (/[{}[\]!()|]/.test(pattern)) {
+    fail(`${label} supports only *, ** and ? glob operators.`);
   }
   return pattern;
+}
+
+function readLocalName(value: unknown, label: string): string {
+  const name = readText(value, label);
+  if (hasControlCharacters(name)) fail(`${label} must not contain control characters.`);
+  return name;
 }
 
 function readImage(value: unknown, label: string): string {
@@ -280,7 +279,10 @@ function parseAliases(
     }
     if (hasProfiles) {
       requireFields(alias, ["profiles"], [], `aliases.${name}`);
-      aliases.push([name, { profiles: readNameArray(alias.profiles, `aliases.${name}.profiles`) }]);
+      aliases.push([
+        name,
+        { profiles: readStringArray(alias.profiles, `aliases.${name}.profiles`, readLocalName) },
+      ]);
       continue;
     }
     requireFields(alias, ["resources"], [], `aliases.${name}`);
@@ -309,7 +311,7 @@ function parseBindings(
     }
     const mappings: Array<[string, string[]]> = [];
     for (const [rawLogicalName, rawResources] of Object.entries(section)) {
-      const logicalName = readName(rawLogicalName, `bindings.${key}.${rawLogicalName}`);
+      const logicalName = readLocalName(rawLogicalName, `bindings.${key}.${rawLogicalName}`);
       const mapped = readNameArray(rawResources, `bindings.${key}.${logicalName}`, {
         allowEmpty: true,
       });
@@ -398,21 +400,19 @@ function parseSelection(
     }
   }
 
+  const optional: Partial<Record<"fallback" | "dominating", string>> = {};
   for (const key of ["fallback", "dominating"] as const) {
     if (input[key] !== undefined) {
-      assertKnownAlias(aliases, readName(input[key], `selection.${key}`), `selection.${key}`);
+      const name = readName(input[key], `selection.${key}`);
+      assertKnownAlias(aliases, name, `selection.${key}`);
+      optional[key] = name;
     }
   }
   return {
     rules,
     ignorePaths,
     controlPaths,
-    ...(input.fallback === undefined
-      ? {}
-      : { fallback: readName(input.fallback, "selection.fallback") }),
-    ...(input.dominating === undefined
-      ? {}
-      : { dominating: readName(input.dominating, "selection.dominating") }),
+    ...optional,
     allowedUnions,
   };
 }

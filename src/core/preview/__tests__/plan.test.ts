@@ -151,6 +151,22 @@ describe("preview plan", () => {
     expect(report.omissions).toEqual(["bindings.processes.cleanup", "bindings.services.postgres"]);
   });
 
+  it("maps existing dotted and underscored profile members through the local resolver", () => {
+    const local = config();
+    local.managedRuntime!.devcontainer.profileServices = ["my_db", "mailhog"];
+    local.managedRuntime!.processes = ["worker.queue", "cleanup"];
+    local.profiles!.chat.devcontainerServices = ["my_db"];
+    local.profiles!.chat.processes = ["worker.queue", "cleanup"];
+    const preview = parsePreviewManifest(
+      manifestSource()
+        .replace("    redis: [cache]", "    my_db: [cache]")
+        .replace("    worker: [worker]", "    worker.queue: [worker]"),
+    );
+    const result = plan(preview, { aliases: ["chat"], localConfig: local });
+    expect(result.status).toBe("planned");
+    expect(result.resources.map(({ id }) => id)).toContain("worker");
+  });
+
   it("fails when a selected profile member has no explicit binding", () => {
     const previewManifest = manifest();
     delete previewManifest.bindings.processes.worker;

@@ -1,5 +1,6 @@
 import type { DevrouterConfig } from "../../types";
 import { buildProfileResolutionReport } from "../profile-resolution";
+import { assertRepoRelativePath, requireFields, requireRecord } from "./manifest";
 import type { PreviewManifest, PreviewPlanReport, PreviewSource } from "./types";
 
 const MAX_SOURCE_CHANGES = 10_000;
@@ -29,58 +30,12 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!isRecord(value)) fail(`${label} must be an object.`);
-  return value;
-}
-
-function requireFields(
-  value: Record<string, unknown>,
-  required: readonly string[],
-  optional: readonly string[],
-  label: string,
-): void {
-  const allowed = new Set([...required, ...optional]);
-  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
-  if (unknown.length > 0) {
-    fail(`${label} has unsupported keys: ${unknown.sort().join(", ")}.`);
-  }
-  const missing = required.filter((key) => !Object.hasOwn(value, key));
-  if (missing.length > 0) fail(`${label} is missing keys: ${missing.join(", ")}.`);
-}
-
 function readDigest(value: unknown, label: string): string {
   if (typeof value !== "string" || value.length === 0 || value.length > MAX_DIGEST_LENGTH) {
     fail(`${label} must be a non-empty bounded string.`);
   }
   if (value.trim() !== value || /\s/.test(value)) fail(`${label} must not contain whitespace.`);
   return value;
-}
-
-function readRepoPath(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > MAX_SOURCE_PATH_LENGTH) {
-    fail(`${label} must be a bounded non-empty repository-relative path.`);
-  }
-  if (
-    value.startsWith("/") ||
-    value.includes("\\") ||
-    value.includes("//") ||
-    value.endsWith("/") ||
-    /^[A-Za-z]:/.test(value) ||
-    hasControlCharacters(value) ||
-    value.split("/").some((segment) => segment === "" || segment === "." || segment === "..")
-  ) {
-    fail(`${label} must be a normalized repository-relative path.`);
-  }
-  return value;
-}
-
-function hasControlCharacters(value: string): boolean {
-  return Array.from(value).some((character) => character.charCodeAt(0) < 32);
 }
 
 function validateSource(value: PreviewSource): PreviewSource {
@@ -107,10 +62,17 @@ function validateSource(value: PreviewSource): PreviewSource {
       fail(`${label}.status is unsupported.`);
     }
     const status = change.status as PreviewSource["changes"][number]["status"];
-    const currentPath = readRepoPath(change.path, `${label}.path`);
+    const currentPath = assertRepoRelativePath(
+      change.path,
+      `${label}.path`,
+      false,
+      MAX_SOURCE_PATH_LENGTH,
+    );
     totalPathBytes += Buffer.byteLength(currentPath, "utf-8");
     const oldPath =
-      change.oldPath === undefined ? undefined : readRepoPath(change.oldPath, `${label}.oldPath`);
+      change.oldPath === undefined
+        ? undefined
+        : assertRepoRelativePath(change.oldPath, `${label}.oldPath`, false, MAX_SOURCE_PATH_LENGTH);
     if (oldPath !== undefined) totalPathBytes += Buffer.byteLength(oldPath, "utf-8");
     if (status === "R" || status === "C") {
       if (oldPath === undefined) fail(`${label}.oldPath is required for ${status} changes.`);
@@ -351,7 +313,7 @@ function orderedResourceClosure(
   manifest: PreviewManifest,
   initial: Iterable<string>,
 ): Array<Resource & { id: string }> {
-  const ordered: string[] = [];
+  const ordered: Array<Resource & { id: string }> = [];
   const completed = new Set<string>();
   const visiting = new Set<string>();
   const visit = (id: string): void => {
@@ -363,14 +325,10 @@ function orderedResourceClosure(
     for (const dependency of [...(resource.dependsOn ?? [])].sort()) visit(dependency);
     visiting.delete(id);
     completed.add(id);
-    ordered.push(id);
+    ordered.push({ id, ...resource });
   };
   for (const id of uniqueSorted(initial)) visit(id);
-  return ordered.map((id) => {
-    const resource = manifest.resources[id];
-    if (!resource) fail(`selected preview resource '${id}' is not defined.`);
-    return { id, ...resource };
-  });
+  return ordered;
 }
 
 function plannedResources(
@@ -380,14 +338,13 @@ function plannedResources(
     manifest: PreviewManifest;
   },
   aliases: string[],
+  profiles: string[],
 ): {
   resources: Array<Resource & { id: string }>;
-  profiles?: string[];
   omissions: string[];
 } {
   const selectedResources = new Set<string>();
   const omissions = new Set<string>();
-  const profiles = uniqueSorted(aliases.flatMap((alias) => aliasProfiles(options.manifest, alias)));
   for (const alias of aliases) {
     for (const resource of aliasResources(options.manifest, alias)) selectedResources.add(resource);
   }
@@ -398,23 +355,22 @@ function plannedResources(
       options.repoPath,
       profiles.join(","),
     );
-    for (const app of uniqueSorted(report.apps)) {
+    for (const app of report.apps) {
       addBinding(options.manifest, "apps", app, selectedResources, omissions);
     }
-    for (const dependency of uniqueSorted(report.dependencies)) {
+    for (const dependency of report.dependencies) {
       addBinding(options.manifest, "dependencies", dependency, selectedResources, omissions);
     }
-    for (const service of uniqueSorted(report.managedRuntime.services)) {
+    for (const service of report.managedRuntime.services) {
       addBinding(options.manifest, "services", service, selectedResources, omissions);
     }
-    for (const process of uniqueSorted(report.managedRuntime.processes)) {
+    for (const process of report.managedRuntime.processes) {
       addBinding(options.manifest, "processes", process, selectedResources, omissions);
     }
   }
 
   return {
     resources: orderedResourceClosure(options.manifest, selectedResources),
-    ...(profiles.length > 0 ? { profiles } : {}),
     omissions: [...omissions].sort(),
   };
 }
@@ -452,7 +408,7 @@ export function buildPreviewPlan(options: {
   if (selection.status !== "planned") {
     return { ...common, status: selection.status, resources: [], omissions: [] };
   }
-  const planned = plannedResources(options, selection.aliases);
+  const planned = plannedResources(options, selection.aliases, selectedProfiles);
   return {
     ...common,
     status: "planned",
