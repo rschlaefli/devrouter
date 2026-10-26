@@ -532,6 +532,9 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
           managedRuntime.transitionPhase
             ? `transitionPhase=${managedRuntime.transitionPhase}`
             : undefined,
+          ...(managedRuntime.activeVariant
+            ? [`activeVariant=${managedRuntime.activeVariant}`]
+            : []),
           ...managedRuntime.drift,
         ]
           .filter((detail): detail is string => Boolean(detail))

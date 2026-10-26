@@ -403,7 +403,13 @@ named authority.
   implementation, runtime qualification, commit, push, or PR has occurred.
 - Baseline: `1df0d0a627d44ab7c31cb5de9106db050eb469a5`, task branch at 0 ahead / 0
   behind `origin/main` after fetch on 26 October 2026. Substantive delta: 0 lines.
-- Remaining slices: 1–3, approved. Active slice: 1, runtime variant lifecycle.
+- Slice 1 implemented; focused source tests: 645 pass (256 ensure/lifecycle,
+  254 config/adapter/state/status/command, 135 worker/store). Linux helper
+  reconciliation suite passed in an isolated, network-disabled existing image.
+  Typecheck, Knip, docs policy, knowledge and focused Biome pass; whole-repo
+  Biome retains pre-existing warnings. Scoped Opengrep: 0 findings/0 errors.
+  Test delta: extended existing behavior coverage, no new test files.
+- Remaining slices: 2–3, approved. Active slice: 1, committed-range review next.
   Required delivery: complete reviewed and qualified source package with a
   pushed branch, draft PR, passing required CI, and stopped synthetic runtimes.
 - Planning-stage specialist: native planner
@@ -414,4 +420,5 @@ named authority.
 - Verification: documentation policy passed; every existing referenced local
   path resolves, four named proposed files are intentionally absent, no
   whitespace errors found. No source tests or runtime qualification run.
-- Next action: commit this approved plan, then execute slice 1.
+- Next action: commit slice 1, run simplification and risk review together,
+  disposition findings, then execute slice 2.

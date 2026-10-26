@@ -9,8 +9,9 @@ Usage:
   devrouter-process status --name <name>
 
 Options:
-  --fingerprint <value>  Runtime identity. Defaults to command, workspace, adapter, and safe allowlisted environment identity.
-                        An explicit fingerprint is caller-owned, including preparation identity.
+  --fingerprint <value>  Runtime identity. Defaults to command, workspace, adapter, non-default
+                        managed variant, and safe allowlisted environment identity.
+                        An explicit fingerprint remains caller-owned for preparation identity.
   --prepare-command <shell command>
                         Ensure only: run a nonempty command with bash before a changed/new runtime.
                         Included byte-for-byte in the default fingerprint; skipped on runtime reuse.
@@ -22,6 +23,7 @@ Options:
 Environment:
   DEVROUTER_PROCESS_ADAPTER_SHA256   Exact managed-adapter SHA-256 supplied by devrouter.
   DEVROUTER_PROCESS_FINGERPRINT_ENV  Comma-separated non-secret environment names to fingerprint.
+  DEVROUTER_RUNTIME_VARIANT          Managed runtime variant; defaults to 'default'. Non-default values are part of identity.
 EOF
 }
 
@@ -141,6 +143,14 @@ if [[ -v DEVROUTER_PROCESS_ADAPTER_SHA256 ]] &&
   die "DEVROUTER_PROCESS_ADAPTER_SHA256 must be a SHA-256 digest."
 fi
 
+runtime_variant="${DEVROUTER_RUNTIME_VARIANT-default}"
+if [ "${#runtime_variant}" -gt 64 ] ||
+  ! [[ "$runtime_variant" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+  die "DEVROUTER_RUNTIME_VARIANT must use lowercase alphanumeric segments separated by hyphens and be at most 64 characters."
+fi
+managed_variant_identity=0
+[ "$runtime_variant" = "default" ] || managed_variant_identity=1
+
 if [ "$action" != "ensure" ] && [ "$#" -gt 0 ]; then
   die "Unexpected arguments for $action."
 fi
@@ -163,6 +173,9 @@ if [ -z "$fingerprint" ]; then
     emit_environment_field workspace WORKSPACE
     emit_environment_field devrouter-workspace DEVROUTER_WORKSPACE
     emit_environment_field adapter-sha256 DEVROUTER_PROCESS_ADAPTER_SHA256
+    if [ "$managed_variant_identity" -eq 1 ]; then
+      printf 'runtime-variant\0%s\0' "$runtime_variant"
+    fi
     for argument in "$@"; do
       printf 'argv\0%s\0' "$argument"
     done
@@ -173,6 +186,12 @@ if [ -z "$fingerprint" ]; then
       printf 'environment-name\0%s\0' "$env_name"
       emit_environment_field environment-value "$env_name"
     done
+  } | LC_ALL=C sha256sum | awk '{print $1}')"
+elif [ "$managed_variant_identity" -eq 1 ]; then
+  fingerprint="$({
+    printf 'format\0devrouter-process-managed-variant-v1\0'
+    printf 'explicit-fingerprint\0%s\0' "$fingerprint"
+    printf 'runtime-variant\0%s\0' "$runtime_variant"
   } | LC_ALL=C sha256sum | awk '{print $1}')"
 fi
 [[ "$fingerprint" =~ ^[a-zA-Z0-9][a-zA-Z0-9._:-]*$ ]] || die "--fingerprint must be a safe identifier."

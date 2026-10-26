@@ -84,6 +84,7 @@ export type ManagedRuntimeStatus = {
   status: "legacy" | "ready" | "starting" | "stopped" | "drifted" | "failed-transition";
   profile: string;
   activeProfile?: string;
+  activeVariant?: string;
   workspace?: string;
   devpodId?: string;
   composeProject?: string;
@@ -278,6 +279,9 @@ export type DevrouterManagedRuntime = {
     prefixLength?: 24 | 25 | 26;
     endpointUpperBound?: number;
   };
+  // Additional variants accepted by `ensure --variant`. `default` is implicit
+  // and reserved, so an omitted or empty list still leaves the default usable.
+  variants?: string[];
   devcontainer: {
     // Services that remain active for every managed profile.
     baseServices: string[];

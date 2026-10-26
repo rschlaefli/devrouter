@@ -1472,6 +1472,60 @@ afterAll(() => {
   for (const checkout of fixture.checkouts) fs.rmSync(checkout, { recursive: true, force: true });
 });
 
+describe("runtime variant preflight", () => {
+  function variantCheckout() {
+    const checkout = newCheckout();
+    fs.writeFileSync(
+      path.join(checkout, ".devrouter.yml"),
+      `version: 1
+managedRuntime:
+  variants: [ci]
+  devcontainer:
+    baseServices: []
+    profileServices: []
+  processes: [app]
+apps: []
+`,
+    );
+    fs.mkdirSync(path.join(checkout, ".devcontainer"));
+    fs.writeFileSync(path.join(checkout, ".devcontainer/devcontainer.json"), "{}");
+    fs.writeFileSync(
+      path.join(checkout, ".devcontainer/post-start.sh"),
+      "# devrouter:managed devcontainer\nDEVROUTER_PROCESS_HELPER=x\n",
+    );
+    return checkout;
+  }
+
+  it("refuses a capacity-targeted variant without journal, controller or worker effects", async () => {
+    const { lifecycle, store } = await loadLifecycleModules();
+    const repoPath = variantCheckout();
+    fixture.readCapacityPolicy.mockReturnValue({
+      admissions: "enabled",
+      enrollments: [{ repoPath }],
+    });
+    const identity = { repoPath, workspace: null, provider: "devsy" as const };
+    await expect(
+      lifecycle.superviseLifecycle("ensure", repoPath, { variant: "ci" }),
+    ).rejects.toThrow("manual lifecycle");
+    expect(store.readReliabilityOperation(identity)).toBeUndefined();
+    expect(fixture.observe).not.toHaveBeenCalled();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(fixture.resolveLinkedTarget).not.toHaveBeenCalled();
+  });
+
+  it("refuses undeclared selection before journal creation", async () => {
+    const { lifecycle, store } = await loadLifecycleModules();
+    const repoPath = variantCheckout();
+    await expect(
+      lifecycle.superviseLifecycle("ensure", repoPath, { variant: "unknown" }),
+    ).rejects.toThrow();
+    expect(
+      store.readReliabilityOperation({ repoPath, workspace: null, provider: "devsy" }),
+    ).toBeUndefined();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+});
+
 describe("reliability lifecycle supervision", () => {
   it("reports an empty stop without allocating identity or dispatching for a never-started linked checkout", async () => {
     fixture.isLinkedWorktree.mockReturnValue(true);

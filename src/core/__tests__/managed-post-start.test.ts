@@ -227,6 +227,8 @@ describe("managed post-start", () => {
         "DEVROUTER_PROCESS_HELPER=/tmp/devrouter/bin/devrouter-process",
         "--env",
         `DEVROUTER_PROCESS_ADAPTER_SHA256=${runtimePlan.adapterSha256}`,
+        "--env",
+        "DEVROUTER_RUNTIME_VARIANT=default",
         "app-id",
         "bash",
         "-c",
@@ -240,7 +242,7 @@ describe("managed post-start", () => {
 
   it("preserves the direct Bash adapter argument and unset-variable contract", async () => {
     runManagedPostStart({ plan: runtimePlan, container });
-    const wrapper = vi.mocked(spawnSync).mock.calls[2]?.[1]?.[10];
+    const wrapper = vi.mocked(spawnSync).mock.calls[2]?.[1]?.[12];
     expect(wrapper).toContain('adapter_snapshot="$1"');
     expect(wrapper).toContain("shift");
     expect(wrapper).not.toContain("set -eu");
@@ -331,6 +333,31 @@ describe("managed post-start", () => {
       ]),
       expect.objectContaining({ stdio: "inherit" }),
     );
+  });
+
+  it("injects the selected runtime variant as an argv-safe environment assignment", () => {
+    runManagedPostStart({ plan: runtimePlan, container, variant: "ci-preview" });
+
+    const dockerArgs = vi.mocked(spawnSync).mock.calls[2]?.[1];
+    expect(dockerArgs).toContainEqual("DEVROUTER_RUNTIME_VARIANT=ci-preview");
+    expect(
+      dockerArgs?.filter((argument) => String(argument).startsWith("DEVROUTER_RUNTIME_VARIANT=")),
+    ).toEqual(["DEVROUTER_RUNTIME_VARIANT=ci-preview"]);
+  });
+
+  it.each([
+    "CI",
+    "ci_preview",
+    "-ci-preview",
+    "ci-preview-",
+    "ci--preview",
+    "ci; command",
+    "a".repeat(65),
+  ])("rejects unsafe runtime variant %j before effects", (variant) => {
+    expect(() => runManagedPostStart({ plan: runtimePlan, container, variant })).toThrow(
+      "Managed runtime variant must use lowercase alphanumeric segments",
+    );
+    expect(spawnSync).not.toHaveBeenCalled();
   });
 
   it("reports and stops only the named managed process", () => {

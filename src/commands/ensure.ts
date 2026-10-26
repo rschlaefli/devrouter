@@ -5,17 +5,24 @@ import { resolveGitCheckoutPath } from "./environment-path";
 export async function runEnsureCommand(options: {
   path?: string;
   profile?: string;
+  variant?: string;
   repair?: boolean;
   open?: boolean;
   json?: boolean;
 }): Promise<void> {
   const repoPath = resolveGitCheckoutPath(options.path);
-  const result = (await superviseLifecycle("ensure", repoPath, {
+  const lifecycleOptions = {
     open: options.open,
     quiet: Boolean(options.json),
     profile: options.profile,
     ...(options.repair ? { repair: true } : {}),
-  })) as WorkspaceEnsureResult;
+    ...(options.variant !== undefined ? { variant: options.variant } : {}),
+  };
+  const result = (await superviseLifecycle(
+    "ensure",
+    repoPath,
+    lifecycleOptions,
+  )) as WorkspaceEnsureResult;
   const conflicts = result.hostPortConflicts ?? [];
   const applicationFailed = result.applicationReadiness?.status === "application-error";
   if (applicationFailed || conflicts.length > 0) process.exitCode = 1;

@@ -62,6 +62,18 @@ describe("managed runtime state", () => {
     ]);
   });
 
+  it("retains a selected variant while accepting legacy state without it", () => {
+    const original = state(repoPath, "feature");
+    writeManagedRuntimeState({ ...original, variant: "ci" });
+    expect(readManagedRuntimeState(repoPath, "feature")?.variant).toBe("ci");
+    writeManagedRuntimeState(original);
+    expect(readManagedRuntimeState(repoPath, "feature")?.variant ?? "default").toBe("default");
+  });
+
+  it.each(["", "CI", "bad_name", "-ci", "a".repeat(65)])("rejects unsafe variant %s", (variant) => {
+    expect(() => writeManagedRuntimeState({ ...state(repoPath), variant })).toThrow();
+  });
+
   it("keeps primary and linked state in separate exact records", () => {
     writeManagedRuntimeState(state(repoPath));
     writeManagedRuntimeState(state(repoPath, "feature"));

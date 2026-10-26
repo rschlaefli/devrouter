@@ -517,6 +517,7 @@ export function collectManagedRuntimeStatus(options: {
   workspace?: string;
   config: DevrouterConfig;
   profile: string;
+  variant?: string;
   resolvedProfile?: DevrouterProfile;
   /** Inspect a candidate before publishing it to persistent runtime state. */
   candidateState?: ManagedRuntimeState;
@@ -568,6 +569,14 @@ export function collectManagedRuntimeStatus(options: {
 
   const drift: string[] = [];
   if (stateReadFailed) drift.push("managed runtime state could not be read");
+  if (state && options.variant !== undefined && (state.variant ?? "default") !== options.variant)
+    drift.push("active runtime variant differs from the selected variant");
+  if (
+    state?.variant &&
+    state.variant !== "default" &&
+    !managedRuntime.variants?.includes(state.variant)
+  )
+    drift.push("active runtime variant is no longer declared");
   if (state?.status === "degraded") drift.push("the last managed transition is degraded");
   if (state) {
     const desiredState = {
@@ -700,7 +709,9 @@ export function collectManagedRuntimeStatus(options: {
     status,
     profile: options.profile,
     ...(reliability ? { reliability } : {}),
-    ...(state?.profile ? { activeProfile: state.profile } : {}),
+    ...(state?.profile
+      ? { activeProfile: state.profile, activeVariant: state.variant ?? "default" }
+      : {}),
     ...(options.workspace !== undefined ? { workspace: options.workspace } : {}),
     ...(state?.devpodId ? { devpodId: state.devpodId } : {}),
     ...(inspection.composeProject ? { composeProject: inspection.composeProject } : {}),

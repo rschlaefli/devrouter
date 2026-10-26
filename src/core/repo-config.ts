@@ -59,6 +59,9 @@ const MAX_CAPACITY_PROFILES = 256;
 const MAX_CAPACITY_OPERATIONS = 64;
 const MAX_CAPACITY_TRANSITIONS = 1024;
 const MAX_CAPACITY_NAME_LENGTH = 64;
+const MAX_RUNTIME_VARIANTS = 32;
+const MAX_RUNTIME_VARIANT_NAME_LENGTH = 64;
+const RUNTIME_VARIANT_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // Workspace templating. `upstream` may embed the literal `${WORKSPACE}` token,
 // which is substituted with the resolved workspace at runtime (see applyWorkspace).
@@ -649,6 +652,66 @@ function parsePrepareCommand(value: unknown, pathLabel: string): string[] | unde
   });
 }
 
+function assertRuntimeVariantName(value: string, pathLabel: string): void {
+  if (
+    value.length === 0 ||
+    value.length > MAX_RUNTIME_VARIANT_NAME_LENGTH ||
+    !RUNTIME_VARIANT_NAME_RE.test(value)
+  ) {
+    throw new Error(
+      `${pathLabel} must use lowercase letters or digits separated by single hyphens, at most ${MAX_RUNTIME_VARIANT_NAME_LENGTH} characters.`,
+    );
+  }
+  if (value === "default") {
+    throw new Error(`${pathLabel} 'default' is implicit and reserved.`);
+  }
+}
+
+function parseRuntimeVariants(value: unknown, pathLabel: string): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${pathLabel} must be an array of strings.`);
+  }
+  if (value.length > MAX_RUNTIME_VARIANTS) {
+    throw new Error(`${pathLabel} accepts at most ${MAX_RUNTIME_VARIANTS} additional names.`);
+  }
+
+  const seen = new Set<string>();
+  return value.map((item, index) => {
+    const itemPath = `${pathLabel}[${index}]`;
+    if (typeof item !== "string") {
+      throw new Error(`${itemPath} must be a string.`);
+    }
+    assertRuntimeVariantName(item, itemPath);
+    if (seen.has(item)) {
+      throw new Error(`${pathLabel} contains duplicate '${item}'.`);
+    }
+    seen.add(item);
+    return item;
+  });
+}
+
+/**
+ * Resolve a managed runtime selector without treating it as a command or task.
+ * Omission selects the implicit default; non-default names must be declared by
+ * the repository's managed runtime configuration.
+ */
+export function resolveRuntimeVariant(config: DevrouterConfig, requested?: string): string {
+  if (requested === undefined) {
+    return "default";
+  }
+  if (requested === "default") {
+    return requested;
+  }
+  assertRuntimeVariantName(requested, "Runtime variant");
+  if (!config.managedRuntime?.variants?.includes(requested)) {
+    throw new Error(`Runtime variant '${requested}' is not declared in managedRuntime.variants.`);
+  }
+  return requested;
+}
+
 function parseManagedRuntime(
   value: unknown,
   configPath: string,
@@ -660,8 +723,12 @@ function parseManagedRuntime(
   const managedRuntime = ensureObject(value, `${configPath}.managedRuntime`);
   ensureAllowedKeys(
     managedRuntime,
-    ["devcontainer", "processes", "network"],
+    ["devcontainer", "processes", "network", "variants"],
     `${configPath}.managedRuntime`,
+  );
+  const variants = parseRuntimeVariants(
+    managedRuntime.variants,
+    `${configPath}.managedRuntime.variants`,
   );
   let network: DevrouterManagedRuntime["network"];
   if (managedRuntime.network !== undefined) {
@@ -736,6 +803,7 @@ function parseManagedRuntime(
 
   return {
     ...(network ? { network } : {}),
+    ...(variants !== undefined ? { variants } : {}),
     devcontainer: {
       baseServices,
       profileServices,

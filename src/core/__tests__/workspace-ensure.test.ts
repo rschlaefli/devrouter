@@ -55,6 +55,10 @@ import { writeWorkspaceOwnership } from "../workspace-ownership";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 vi.mock("../network-diagnostics", () => ({ inspectLegacyNetworkCapacity: vi.fn() }));
+vi.mock("../capacity-policy", async (original) => ({
+  ...(await original<typeof import("../capacity-policy")>()),
+  readCapacityPolicy: vi.fn(() => undefined),
+}));
 vi.mock("../host-port-claims", () => ({ detectHostPortClaimConflicts: vi.fn(() => []) }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../devsy-agent", async (importOriginal) => ({
@@ -115,7 +119,8 @@ vi.mock("../managed-runtime-status", () => ({
   collectManagedRuntimeStatus: vi.fn(() => undefined),
 }));
 vi.mock("../docker", () => ({ ensureNetwork: vi.fn(async () => undefined) }));
-vi.mock("../repo-config", () => ({
+vi.mock("../repo-config", async (original) => ({
+  ...(await original<typeof import("../repo-config")>()),
   loadRepoConfig: vi.fn(() => ({ version: 1, apps: [] })),
   loadRuntimeConfig: vi.fn(),
   resolveRepoPath: vi.fn((repo?: string) => repo ?? process.cwd()),
@@ -1644,6 +1649,87 @@ describe("workspaceEnsure", () => {
     expect(events.indexOf("candidate-proof")).toBeLessThan(events.indexOf("state-write"));
   });
 
+  it.each([
+    { retained: "ci", requested: undefined, expected: "default" },
+    { retained: "default", requested: "ci", expected: "ci" },
+  ])("repairs retained $retained before a same-profile $expected transition", async ({
+    retained,
+    requested,
+    expected,
+  }) => {
+    const { state } = mockRepair();
+    state.variant = retained;
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.variants = ["ci"];
+    vi.mocked(loadRepoConfig).mockReturnValue(config);
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config,
+      workspace: "feature",
+      profile: "old",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["redis"],
+        processes: ["app", "local-mcp"],
+      },
+    });
+    const result = await workspaceEnsure(tmpDir, {
+      variant: requested,
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+    expect(result.variant).toBe(expected);
+    expect(runManagedPostStart).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ variant: retained }),
+    );
+    expect(runManagedPostStart).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ variant: expected }),
+    );
+    expect(writeManagedRuntimeState).toHaveBeenLastCalledWith(
+      expect.objectContaining({ variant: expected }),
+    );
+  });
+
+  it("does not switch variants after retained repair fails", async () => {
+    const { state } = mockRepair();
+    state.variant = "ci";
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.variants = ["ci"];
+    vi.mocked(loadRepoConfig).mockReturnValue(config);
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config,
+      workspace: "feature",
+      profile: "old",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["redis"],
+        processes: ["app", "local-mcp"],
+      },
+    });
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      throw new Error("repair failed");
+    });
+    await expect(workspaceEnsure(tmpDir)).rejects.toThrow("repair failed");
+    expect(runManagedPostStart).toHaveBeenCalledOnce();
+    expect(runManagedPostStart).toHaveBeenCalledWith(expect.objectContaining({ variant: "ci" }));
+    expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+  });
+
+  it("refuses explicit repair variant changes before host preparation", async () => {
+    const { state } = mockRepair();
+    state.variant = "ci";
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.variants = ["ci"];
+    vi.mocked(loadRepoConfig).mockReturnValue(config);
+    await expect(workspaceEnsure(tmpDir, { repair: true, variant: "default" })).rejects.toThrow(
+      "retained runtime variant",
+    );
+    expect(runManagedHostPreparation).not.toHaveBeenCalled();
+    expect(runManagedPostStart).not.toHaveBeenCalled();
+    expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+  });
+
   it("ordinary ensure repairs once when the recorded profile is explicitly requested", async () => {
     const events: string[] = [];
     mockRepair(events);
@@ -2725,6 +2811,7 @@ describe("workspaceEnsure", () => {
       container: { id: "app-id", workspacePath: "/workspaces/repo" },
       quiet: undefined,
       profile: "full",
+      variant: "default",
     });
   });
 

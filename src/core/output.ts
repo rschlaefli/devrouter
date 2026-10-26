@@ -290,6 +290,7 @@ function appendManagedRuntimeRows(rows: string[][], managedRuntime: ManagedRunti
   rows.push(["Runtime status", managedRuntime.status]);
   rows.push(["Runtime profile", managedRuntime.profile]);
   rows.push(["Active profile", managedRuntime.activeProfile ?? "-"]);
+  rows.push(["Active variant", managedRuntime.activeVariant ?? "-"]);
   rows.push(["Runtime workspace", managedRuntime.workspace ?? "-"]);
   rows.push(["Runtime DevPod", managedRuntime.devpodId ?? "-"]);
   rows.push(["Runtime Compose project", managedRuntime.composeProject ?? "-"]);
