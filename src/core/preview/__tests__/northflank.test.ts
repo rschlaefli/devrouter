@@ -654,6 +654,29 @@ describe("Northflank native graph compilation", () => {
     ]);
   });
 
+  it("keeps prepared domains unassigned and emits the required persistent volume access mode", () => {
+    const { entry, policy } = graphFixture();
+    entry.plan.resources.push({ id: "data", kind: "volume", dependsOn: ["web"] });
+    policy.resources.data = {
+      deploymentPlan: "nf-compute-10",
+      storageMiB: 1024,
+      mount: { service: "web", path: "/data" },
+    };
+    const prepared = compileNorthflankGraph(entry, policy, "prepare");
+    expect(
+      prepared.spec.spec.steps.find((node) => node.kind === "DeploymentService")!.spec.ports,
+    ).toMatchObject([{ public: false, domains: [] }]);
+    expect(prepared.spec.spec.steps.find((node) => node.kind === "Subdomain")).toBeDefined();
+    expect(prepared.spec.spec.steps.find((node) => node.kind === "Volume")!.spec).toMatchObject({
+      spec: { accessMode: "ReadWriteOnce", storageSize: 1024 },
+      mounts: [{ containerMountPath: "/data" }],
+    });
+    const active = compileNorthflankGraph(entry, policy, "activate", ownedGraph(entry));
+    expect(
+      active.spec.spec.steps.find((node) => node.ref === "activate_web")!.spec.ports,
+    ).toMatchObject([{ public: true, domains: [new URL(active.urls["web:http"]).hostname] }]);
+  });
+
   it("orders initialization before activation and protects default and custom public URLs", () => {
     const { entry, policy } = graphFixture();
     const prepared = compileNorthflankGraph(entry, policy, "prepare");

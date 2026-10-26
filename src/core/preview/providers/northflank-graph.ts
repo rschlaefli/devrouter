@@ -537,7 +537,7 @@ export function compileNorthflankGraph(
           {
             name,
             mounts: [{ containerMountPath: mount.path }],
-            spec: { storageSize: settings.storageMiB },
+            spec: { accessMode: "ReadWriteOnce", storageSize: settings.storageMiB },
             attachedObjects: [{ id: reference(mount.service), type: "service" }],
           },
           "create",
@@ -665,7 +665,7 @@ export function compileNorthflankGraph(
         internalPort: port.port,
         protocol,
         public: false,
-        domains,
+        domains: [],
         security: {
           policies: [{ action: "ALLOW", addresses: [...policy.allowedNetworks] }],
           verificationMode: "and",
@@ -728,6 +728,10 @@ export function compileNorthflankGraph(
           ports: ports.map((port, index) => ({
             ...port,
             public: resource.ports?.[index].public === true,
+            domains:
+              resource.ports?.[index].public === true
+                ? [new URL(origin(resource.id, resource.ports[index].name)).hostname]
+                : [],
           })),
         }),
         ref: `activate_${resource.id.replaceAll("-", "_")}`,
