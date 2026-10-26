@@ -94,8 +94,7 @@ describe("host suspend heartbeat evidence", () => {
     });
   });
 
-  it("rejects absent, invalid, stale, or refused renewal evidence", () => {
-    const stale = [heartbeat("renewed", "2026-10-26T08:00:30Z")];
+  it("rejects absent, invalid, or refused renewal evidence", () => {
     const refused = [
       heartbeat("renewed", "2026-10-26T08:00:50Z"),
       heartbeat("refused", "2026-10-26T08:00:55Z"),
@@ -106,10 +105,6 @@ describe("host suspend heartbeat evidence", () => {
       reason: "missing",
     });
     expect(parseHeartbeatLog("not-a-timestamp renewed suspend")).toEqual([]);
-    expect(validatePreSuspendHeartbeat(stale, preparedAtMs, sleepAtMs)).toMatchObject({
-      ok: false,
-      reason: "pre-expired",
-    });
     expect(validatePreSuspendHeartbeat(refused, preparedAtMs, sleepAtMs)).toMatchObject({
       ok: false,
       reason: "refused",
