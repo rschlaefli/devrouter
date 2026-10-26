@@ -570,6 +570,50 @@ function buildGraphFixture() {
   return { entry, policy, web };
 }
 
+function secretGraphFixture() {
+  const { entry, policy } = graphFixture();
+  entry.plan.resources.push({
+    id: "worker",
+    kind: "service",
+    dependsOn: ["web"],
+    image: `example/worker@sha256:${"0".repeat(64)}`,
+  });
+  policy.resources.worker = {
+    deploymentPlan: "nf-compute-10",
+    readiness: { command: ["node", "--version"] },
+    environment: {
+      HATCHET_TOKEN: { output: "hatchet-token" },
+      DATABASE_PASSWORD: { generated: "database-password" },
+    },
+  };
+  policy.generated = {
+    "database-password": { bytes: 32, encoding: "base64url" },
+  };
+  policy.outputs = {
+    "hatchet-token": {
+      service: "web",
+      command: ["node", "-e", "process.stdout.write('synthetic-token')"],
+      pattern: "^[A-Za-z0-9._-]{16,8000}$",
+      maxBytes: 8000,
+    },
+  };
+  const web = entry.plan.resources[2]!;
+  const worker = entry.plan.resources[3]!;
+  return { entry, policy, web, worker };
+}
+
+function ownedGraph(entry: PreviewPoolEntry) {
+  return {
+    resources: Object.fromEntries(
+      entry.plan.resources.map((resource) => [
+        `r_${resource.id.replaceAll("-", "_")}`,
+        `owned-${resource.id}`,
+      ]),
+    ),
+    domains: [],
+  };
+}
+
 describe("Northflank native graph compilation", () => {
   it("prepares private backing services and inactive compute with scoped secret channels", () => {
     const { entry, policy } = graphFixture();
@@ -594,6 +638,7 @@ describe("Northflank native graph compilation", () => {
       settings: { runOnSourceChange: "never", backoffLimit: 0, activeDeadlineSeconds: 600 },
     });
     expect(steps.some((node) => node.kind === "JobRun")).toBe(false);
+    expect(graph.sourceResources).toEqual([]);
     expect(steps.find((node) => node.kind === "SecretGroup")?.spec).toMatchObject({
       restrictions: { restricted: true, nfObjects: [{ type: "service" }] },
       addonDependencies: [
@@ -773,6 +818,274 @@ describe("Northflank native graph compilation", () => {
     policy.allowedNetworks = ["192.0.2.0/24"];
     delete policy.resources.web.readiness;
     expect(() => compileNorthflankGraph(entry, policy, "activate")).toThrow();
+  });
+
+  it("binds generated and output names and activates only the source dependency closure", () => {
+    const { entry, policy } = secretGraphFixture();
+    const owned = ownedGraph(entry);
+    expect(() => compileNorthflankGraph(entry, policy, "source")).toThrow();
+    const prepared = compileNorthflankGraph(entry, policy, "prepare");
+    const source = compileNorthflankGraph(entry, policy, "source", owned);
+    const activated = compileNorthflankGraph(entry, policy, "activate", owned);
+    const sourceJob = source.spec.spec.steps.find((node) => node.kind === "JobRun");
+    const activeJob = activated.spec.spec.steps.find((node) => node.kind === "JobRun");
+
+    expect(prepared.sourceResources).toEqual(["db", "seed", "web"]);
+    expect(source.sourceResources).toEqual(["db", "seed", "web"]);
+    expect(sourceJob).toEqual(activeJob);
+    expect(sourceJob).toMatchObject({
+      ref: "init_seed",
+      runNodeOnce: "true",
+      condition: "success",
+    });
+    expect(source.spec.spec.steps.filter((node) => node.kind === "JobRun")).toHaveLength(1);
+    expect(source.spec.spec.steps.some((node) => node.ref === "activate_web")).toBe(true);
+    expect(source.spec.spec.steps.some((node) => node.ref === "activate_worker")).toBe(false);
+    expect(activated.spec.spec.steps.some((node) => node.ref === "activate_worker")).toBe(true);
+    expect(prepared.secretBindings).toEqual([
+      {
+        groupRef: "e_web",
+        variables: { API_KEY: { runtimeSecret: "synthetic-upstream" } },
+      },
+      {
+        groupRef: "e_worker",
+        variables: {
+          HATCHET_TOKEN: { output: "hatchet-token" },
+          DATABASE_PASSWORD: { generated: "database-password" },
+        },
+      },
+    ]);
+    expect(prepared.runtimeSecrets).toEqual([
+      { groupRef: "e_web", variables: { API_KEY: "synthetic-upstream" } },
+    ]);
+    const workerGroup = prepared.spec.spec.steps.find((node) => node.ref === "e_worker");
+    expect(workerGroup?.spec).toMatchObject({
+      restrictions: { restricted: true, nfObjects: [{ type: "service" }] },
+      secrets: { variables: {} },
+    });
+  });
+
+  it("refuses undeclared, unselected, cyclic and externally bound sensitive sources", () => {
+    let fixture = secretGraphFixture();
+    fixture.policy.outputs!["hatchet-token"]!.service = "missing";
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    delete fixture.policy.resources.web;
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    fixture.policy.resources.worker.environment!.MISSING = { generated: "not-declared" };
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    fixture.policy.resources.worker.environment!.MISSING = { output: "not-declared" };
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    fixture.policy.outputs!["hatchet-token"]!.service = "seed";
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    const worker = fixture.entry.plan.resources.pop()!;
+    worker.dependsOn = [];
+    fixture.entry.plan.resources.splice(2, 0, worker);
+    const sourceService = fixture.entry.plan.resources[3]!;
+    sourceService.dependsOn = ["seed", "worker"];
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    fixture.entry.plan.resources.push({
+      id: "external",
+      kind: "service",
+      image: `example/external@sha256:${"0".repeat(64)}`,
+      ports: [{ name: "http", port: 8080, public: false }],
+    });
+    fixture.policy.resources.external = {
+      deploymentPlan: "nf-compute-10",
+      readiness: { port: "http", path: "/health" },
+    };
+    fixture.policy.resources.web.environment!.EXTERNAL = {
+      service: "external",
+      port: "http",
+      format: "http-url",
+    };
+    expect(() =>
+      compileNorthflankGraph(fixture.entry, fixture.policy, "source", ownedGraph(fixture.entry)),
+    ).toThrow();
+    delete fixture.policy.resources.web.environment!.EXTERNAL;
+    fixture.policy.resources.web.publicBuildEnvironment = {
+      CONFIG: {
+        json: {
+          EXTERNAL: { service: "external", port: "http", format: "http-url" },
+        },
+      },
+    };
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+  });
+
+  it("resolves output sources only for selected consumers and accepts source-built services", () => {
+    const { entry, policy } = secretGraphFixture();
+    policy.outputs!.unused = {
+      service: "unselected",
+      command: ["token"],
+      pattern: "^[a-f0-9]{32}$",
+      maxBytes: 32,
+    };
+    const web = entry.plan.resources.find((resource) => resource.id === "web")!;
+    delete web.image;
+    web.build = { context: ".", dockerfile: "Dockerfile" };
+    policy.git = { url: "https://github.com/example/fixture", type: "github", branch: "main" };
+    policy.resources.web.buildPlan = "nf-compute-200";
+    const source = compileNorthflankGraph(entry, policy, "source", ownedGraph(entry));
+    expect(source.sourceResources).toEqual(["db", "seed", "web"]);
+    expect(source.spec.spec.steps.some((node) => node.kind === "Build")).toBe(true);
+  });
+
+  it("bounds generated and output declarations, commands and secret recipients", () => {
+    let fixture = secretGraphFixture();
+    fixture.policy.generated!["database-password"]!.encoding = "hex";
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).not.toThrow();
+
+    fixture = secretGraphFixture();
+    fixture.policy.generated!["database-password"]!.bytes = 15;
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    fixture.policy.generated!["database-password"]!.bytes = 65;
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    fixture.policy.generated!["database-password"]!.encoding = "raw" as never;
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    (fixture.policy.generated!["database-password"] as never as Record<string, unknown>).extra =
+      true;
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    for (const name of ["Database-Password", "bad_name", "a".repeat(49)]) {
+      fixture = secretGraphFixture();
+      fixture.policy.generated = {
+        [name]: { bytes: 32, encoding: "hex" },
+      };
+      fixture.policy.resources.worker.environment!.DATABASE_PASSWORD = { generated: name };
+      expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+    }
+
+    fixture = secretGraphFixture();
+    fixture.policy.generated = Object.fromEntries(
+      Array.from({ length: 32 }, (_, index) => [
+        `generated-${index}`,
+        { bytes: 16, encoding: "hex" },
+      ]),
+    );
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    fixture.policy.outputs = Object.fromEntries(
+      Array.from({ length: 17 }, (_, index) => [
+        `output-${index}`,
+        {
+          service: "web",
+          command: ["token"],
+          pattern: "^[A-Fa-f0-9]{32}$",
+          maxBytes: 32,
+        },
+      ]),
+    );
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    for (const command of [
+      [],
+      Array(33).fill("argument"),
+      [""],
+      ["a".repeat(4097)],
+      Array(5).fill("a".repeat(4096)),
+    ]) {
+      fixture = secretGraphFixture();
+      fixture.policy.outputs!["hatchet-token"]!.command = command;
+      expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+    }
+    for (const maxBytes of [0, 8001]) {
+      fixture = secretGraphFixture();
+      fixture.policy.outputs!["hatchet-token"]!.maxBytes = maxBytes;
+      expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+    }
+    fixture = secretGraphFixture();
+    (fixture.policy.outputs!["hatchet-token"] as never as Record<string, unknown>).timeoutMs =
+      20_000;
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    const { entry, policy } = graphFixture();
+    for (let index = 0; index < 31; index += 1) {
+      const id = `worker-${index}`;
+      entry.plan.resources.push({
+        id,
+        kind: "service",
+        image: `example/worker@sha256:${"0".repeat(64)}`,
+      });
+      policy.resources[id] = {
+        deploymentPlan: "nf-compute-10",
+        readiness: { command: ["node", "--version"] },
+        environment: { TOKEN: { runtimeSecret: "synthetic-upstream" } },
+      };
+    }
+    policy.resources.seed.environment = { TOKEN: { runtimeSecret: "synthetic-upstream" } };
+    policy.resources.web.environment!.TOKEN = { runtimeSecret: "synthetic-upstream" };
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+  });
+
+  it("requires exact discriminants, safe output patterns and non-public sensitive bindings", () => {
+    for (const pattern of [
+      "^[A-Za-z0-9._-]{16,8000}$",
+      "^[A-Za-z0-9+/=_-]{16,8000}$",
+      "^[A-Fa-f0-9]{32}$",
+    ]) {
+      const { entry, policy } = secretGraphFixture();
+      policy.outputs!["hatchet-token"]!.pattern = pattern;
+      expect(() => compileNorthflankGraph(entry, policy, "prepare")).not.toThrow();
+    }
+    for (const pattern of [
+      "[A-Za-z0-9._-]{16,8000}",
+      "^[^A-Za-z0-9._-]{16,8000}$",
+      "^.*$",
+      "^([A-Za-z0-9._-]){16,8000}$",
+      "^[A-Za-z0-9._-]+$",
+      "^[A-Za-z0-9._-]{16,8000}$/g",
+      "^[A-Za-z0-9._-]{0,16}$",
+      "^[A-Za-z0-9._-]{16,15}$",
+      "^[A-Za-z0-9._-]{8000,8001}$",
+      "^[A-Za-z0-9._-]{16,8000}$".padEnd(129, " "),
+    ]) {
+      const { entry, policy } = secretGraphFixture();
+      policy.outputs!["hatchet-token"]!.pattern = pattern;
+      expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+    }
+
+    for (const binding of [
+      { generated: "database-password", extra: true },
+      { generated: "database-password", output: "hatchet-token" },
+      { output: "hatchet-token", literal: "x" },
+      { runtimeSecret: "synthetic-upstream", extra: true },
+      { literal: "x", generated: "database-password" },
+    ]) {
+      const { entry, policy } = secretGraphFixture();
+      policy.resources.worker.environment!.MALFORMED = binding as never;
+      expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+    }
+
+    let fixture = secretGraphFixture();
+    fixture.policy.resources.web.publicBuildEnvironment = {
+      TOKEN: { generated: "database-password" },
+    } as never;
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
+
+    fixture = secretGraphFixture();
+    fixture.policy.resources.web.publicBuildEnvironment = {
+      CONFIG: { json: { TOKEN: { output: "hatchet-token" } } },
+    } as never;
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
   });
 });
 

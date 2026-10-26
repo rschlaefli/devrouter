@@ -11,7 +11,9 @@ type NorthflankValueBinding =
 export type NorthflankBinding =
   | NorthflankValueBinding
   | { addon: string; key: string }
-  | { runtimeSecret: string };
+  | { runtimeSecret: string }
+  | { generated: string }
+  | { output: string };
 
 export type NorthflankResourceSettings = {
   deploymentPlan: string;
@@ -40,7 +42,19 @@ export type NorthflankGraphPolicy = {
     selfHostedVcsId?: string;
   };
   resources: Record<string, NorthflankResourceSettings>;
+  generated?: Record<string, { bytes: number; encoding: "hex" | "base64url" }>;
+  outputs?: Record<
+    string,
+    {
+      service: string;
+      command: string[];
+      pattern: string;
+      maxBytes: number;
+    }
+  >;
 };
+
+type SensitiveBinding = { runtimeSecret: string } | { generated: string } | { output: string };
 
 type Node = {
   kind: string;
@@ -53,7 +67,116 @@ type Node = {
 
 type RefNamespace = "r" | "b" | "e" | "d";
 const ALLOCATION_PLAN = /^[a-zA-Z0-9-]{3,100}$/;
+const SOURCE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_SOURCE_NAMES = 32;
+const MAX_OUTPUTS = 16;
+const MAX_SECRET_GROUPS = 32;
+const MAX_OUTPUT_ARGUMENTS = 32;
+const MAX_OUTPUT_ARGUMENT_BYTES = 4096;
+const MAX_OUTPUT_COMMAND_BYTES = 16 * 1024;
+const MAX_OUTPUT_BYTES = 8000;
+const MAX_PATTERN_BYTES = 128;
 const boundedStorage = (miB?: number) => Number.isSafeInteger(miB) && (miB ?? 0) >= 1024;
+function record(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Invalid Northflank policy object.");
+  return value as Record<string, unknown>;
+}
+function hasFields(
+  value: unknown,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const fields = Object.keys(value);
+  return (
+    required.every((field) => Object.hasOwn(value, field)) &&
+    fields.every((field) => required.includes(field) || optional.includes(field))
+  );
+}
+type BindingKind =
+  | "literal"
+  | "generation"
+  | "origin"
+  | "service"
+  | "addon"
+  | "runtimeSecret"
+  | "generated"
+  | "output";
+function bindingKind(value: unknown): BindingKind {
+  if (hasFields(value, ["literal"])) return "literal";
+  if (hasFields(value, ["generation"])) return "generation";
+  if (hasFields(value, ["origin", "port"], ["path", "format"])) return "origin";
+  if (hasFields(value, ["service", "port", "format"], ["path"])) return "service";
+  if (hasFields(value, ["addon", "key"])) return "addon";
+  if (hasFields(value, ["runtimeSecret"])) return "runtimeSecret";
+  if (hasFields(value, ["generated"])) return "generated";
+  if (hasFields(value, ["output"])) return "output";
+  throw new Error("Invalid Northflank binding discriminant.");
+}
+function validateSourceName(name: unknown): asserts name is string {
+  if (typeof name !== "string" || name.length > 48 || !SOURCE_NAME.test(name))
+    throw new Error("Invalid Northflank generated or output name.");
+}
+function validateRuntimeSecret(name: unknown): asserts name is string {
+  if (typeof name !== "string" || !SOURCE_NAME.test(name))
+    throw new Error("Invalid runtime secret reference.");
+}
+function validateCommand(argv: unknown): asserts argv is string[] {
+  if (!Array.isArray(argv) || argv.length < 1 || argv.length > MAX_OUTPUT_ARGUMENTS)
+    throw new Error("Invalid Northflank output command.");
+  let total = 0;
+  for (const [index, argument] of argv.entries()) {
+    if (
+      typeof argument !== "string" ||
+      (index === 0 && argument.length === 0) ||
+      argument.includes("\0")
+    )
+      throw new Error("Invalid Northflank output command.");
+    const bytes = Buffer.byteLength(argument, "utf8");
+    if (bytes > MAX_OUTPUT_ARGUMENT_BYTES) throw new Error("Invalid Northflank output command.");
+    total += bytes;
+  }
+  if (total > MAX_OUTPUT_COMMAND_BYTES) throw new Error("Invalid Northflank output command.");
+}
+function safeCharacterClass(value: string): boolean {
+  const ranges = new Set(["A-Z", "a-z", "0-9", "A-F", "a-f"]);
+  for (let index = 0; index < value.length; ) {
+    if (ranges.has(value.slice(index, index + 3))) {
+      index += 3;
+      continue;
+    }
+    const character = value.charAt(index);
+    if (/[A-Za-z0-9._+/=]/.test(character)) {
+      index += 1;
+      continue;
+    }
+    if (character === "-" && index === value.length - 1) {
+      index += 1;
+      continue;
+    }
+    return false;
+  }
+  return value.length > 0;
+}
+function validatePattern(pattern: unknown, maxBytes: number): asserts pattern is string {
+  if (typeof pattern !== "string" || pattern.length > MAX_PATTERN_BYTES)
+    throw new Error("Invalid Northflank output pattern.");
+  const match = /^\^\[([A-Za-z0-9._+\-/=]+)\]\{([0-9]{1,4})(?:,([0-9]{1,4}))?\}\$$/.exec(pattern);
+  if (!match || !safeCharacterClass(match[1]))
+    throw new Error("Invalid Northflank output pattern.");
+  const minimum = Number(match[2]);
+  const maximum = Number(match[3] ?? match[2]);
+  if (
+    !Number.isSafeInteger(minimum) ||
+    !Number.isSafeInteger(maximum) ||
+    minimum < 1 ||
+    maximum < minimum ||
+    maximum > maxBytes
+  )
+    throw new Error("Invalid Northflank output pattern.");
+  new RegExp(pattern);
+}
 function refName(id: string, namespace: RefNamespace = "r"): string {
   return `${namespace}_${id.replaceAll("-", "_")}`;
 }
@@ -93,7 +216,7 @@ export function northflankAllocationPrefix(
 export function compileNorthflankGraph(
   entry: PreviewPoolEntry,
   policy: NorthflankGraphPolicy,
-  phase: "prepare" | "activate",
+  phase: "prepare" | "source" | "activate",
   owned: { resources: Record<string, string>; domains: string[] } = { resources: {}, domains: [] },
 ) {
   const source = entry.plan.source;
@@ -130,12 +253,148 @@ export function compileNorthflankGraph(
       throw new Error("Northflank graph requires a complete dependency-ordered resource plan.");
     seen.add(resource.id);
   }
+  const generated = record(policy.generated ?? {});
+  const outputs = record(policy.outputs ?? {});
+  if (
+    Object.keys(generated).length + Object.keys(outputs).length > MAX_SOURCE_NAMES ||
+    Object.keys(outputs).length > MAX_OUTPUTS
+  )
+    throw new Error("Northflank generated and output policy exceeds its bound.");
+  const generatedNames = new Set<string>();
+  for (const [name, definition] of Object.entries(generated)) {
+    validateSourceName(name);
+    if (!hasFields(definition, ["bytes", "encoding"]))
+      throw new Error("Invalid Northflank generated secret definition.");
+    if (
+      !Number.isSafeInteger(definition.bytes) ||
+      (definition.bytes as number) < 16 ||
+      (definition.bytes as number) > 64 ||
+      !["hex", "base64url"].includes(definition.encoding as string)
+    )
+      throw new Error("Invalid Northflank generated secret definition.");
+    generatedNames.add(name);
+  }
+  const outputNames = new Set<string>();
+  const outputDeclarations = new Map<
+    string,
+    { service: string; command: string[]; pattern: string; maxBytes: number }
+  >();
+  for (const [name, definition] of Object.entries(outputs)) {
+    validateSourceName(name);
+    if (!hasFields(definition, ["service", "command", "pattern", "maxBytes"]))
+      throw new Error("Invalid Northflank output definition.");
+    if (
+      typeof definition.service !== "string" ||
+      !SOURCE_NAME.test(definition.service) ||
+      definition.service.length > 63 ||
+      !Number.isSafeInteger(definition.maxBytes) ||
+      (definition.maxBytes as number) < 1 ||
+      (definition.maxBytes as number) > MAX_OUTPUT_BYTES
+    )
+      throw new Error("Invalid Northflank output definition.");
+    validateCommand(definition.command);
+    validatePattern(definition.pattern, definition.maxBytes as number);
+    outputDeclarations.set(
+      name,
+      definition as {
+        service: string;
+        command: string[];
+        pattern: string;
+        maxBytes: number;
+      },
+    );
+    outputNames.add(name);
+  }
+  const usedOutputNames = new Set<string>();
+  let secretGroups = 0;
+  for (const resource of entry.plan.resources) {
+    const settings = policy.resources[resource.id];
+    if (!settings) continue;
+    if (settings.environment !== undefined) {
+      const environment = record(settings.environment);
+      if (
+        ["service", "job"].includes(resource.kind) &&
+        Object.keys(environment).length &&
+        ++secretGroups > MAX_SECRET_GROUPS
+      )
+        throw new Error("Northflank graph exceeds its secret-group bound.");
+      for (const [key, binding] of Object.entries(environment)) {
+        if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key)) throw new Error("Invalid runtime binding key.");
+        const kind = bindingKind(binding);
+        if (kind === "generated") {
+          validateSourceName((binding as { generated: string }).generated);
+          if (!generatedNames.has((binding as { generated: string }).generated))
+            throw new Error("Northflank generated binding is undeclared.");
+        } else if (kind === "output") {
+          validateSourceName((binding as { output: string }).output);
+          if (!outputNames.has((binding as { output: string }).output))
+            throw new Error("Northflank output binding is undeclared.");
+          usedOutputNames.add((binding as { output: string }).output);
+        } else if (kind === "runtimeSecret")
+          validateRuntimeSecret((binding as { runtimeSecret: unknown }).runtimeSecret);
+      }
+    }
+    if (settings.publicBuildEnvironment !== undefined) {
+      const publicBuild = record(settings.publicBuildEnvironment);
+      for (const binding of Object.values(publicBuild)) {
+        const values = hasFields(binding, ["json"])
+          ? Object.values(record(binding.json))
+          : [binding];
+        for (const value of values) {
+          const kind = bindingKind(value);
+          if (!["literal", "generation", "origin", "service"].includes(kind))
+            throw new Error("Northflank build bindings must contain public values only.");
+        }
+      }
+    }
+  }
+  const outputServices = new Set<string>();
+  for (const name of usedOutputNames) {
+    const definition = outputDeclarations.get(name);
+    if (!definition) throw new Error("Northflank output binding is undeclared.");
+    const source = resources.get(definition.service);
+    if (source?.kind !== "service" || !policy.resources[definition.service])
+      throw new Error("Northflank output sources require selected services.");
+    outputServices.add(definition.service);
+  }
+  const sourceClosure = new Set<string>();
+  const visitSource = (id: string) => {
+    if (sourceClosure.has(id)) return;
+    const resource = resources.get(id);
+    if (!resource) throw new Error("Northflank output source closure is incomplete.");
+    for (const dependency of resource.dependsOn ?? []) visitSource(dependency);
+    sourceClosure.add(id);
+  };
+  for (const service of outputServices) visitSource(service);
+  const sourceResources = entry.plan.resources
+    .filter((resource) => sourceClosure.has(resource.id))
+    .map((resource) => resource.id);
+  for (const id of sourceResources) {
+    const settings = policy.resources[id];
+    if (!settings) throw new Error("Northflank source recipe is missing.");
+    for (const binding of Object.values(record(settings.environment ?? {}))) {
+      const kind = bindingKind(binding);
+      if (kind === "output") throw new Error("Northflank output binding is not source-safe.");
+      if (kind === "service" && !sourceClosure.has((binding as { service: string }).service))
+        throw new Error("Northflank source closure has an external private binding.");
+    }
+    for (const binding of Object.values(record(settings.publicBuildEnvironment ?? {}))) {
+      const values = hasFields(binding, ["json"]) ? Object.values(record(binding.json)) : [binding];
+      for (const value of values) {
+        if (
+          bindingKind(value) === "service" &&
+          !sourceClosure.has((value as { service: string }).service)
+        )
+          throw new Error("Northflank source closure has an external private binding.");
+      }
+    }
+  }
   for (const nativeId of Object.values(owned.resources)) {
     if (!/^[A-Za-z0-9-]{1,128}$/.test(nativeId))
       throw new Error("Invalid owned Northflank resource identifier.");
   }
   if (
-    phase === "activate" &&
+    (phase === "source" || phase === "activate") &&
     entry.plan.resources.some((resource) => !owned.resources[refName(resource.id)])
   )
     throw new Error(
@@ -242,9 +501,18 @@ export function compileNorthflankGraph(
   const activate: Node[] = [];
   const volumes: Node[] = [];
   const secretNodes: Node[] = [];
+  const activations = new Map<string, Node[]>();
   const runtimeSecrets: Array<{ groupRef: string; variables: Record<string, string> }> = [];
+  const secretBindings: Array<{
+    groupRef: string;
+    variables: Record<string, SensitiveBinding>;
+  }> = [];
   const urls: Record<string, string> = {};
   const nativeNames = new Set<string>();
+  const addActivation = (id: string, nodes: Node[]) => {
+    activations.set(id, nodes);
+    activate.push(...nodes);
+  };
   for (const resource of entry.plan.resources) {
     const settings = policy.resources[resource.id];
     if (!settings || !ALLOCATION_PLAN.test(settings.deploymentPlan))
@@ -486,7 +754,7 @@ export function compileNorthflankGraph(
       node(resource.kind === "service" ? "DeploymentService" : "Job", resource.id, spec),
     );
     if (resource.kind === "service") {
-      activate.push({
+      const serviceActivation = {
         ...node("DeploymentService", resource.id, {
           ...spec,
           deployment: { ...deployment, instances: 1 },
@@ -496,8 +764,8 @@ export function compileNorthflankGraph(
           })),
         }),
         ref: `activate_${resource.id.replaceAll("-", "_")}`,
-      });
-      activate.push({
+      };
+      const runningCondition: Node = {
         kind: "Condition",
         spec: {
           kind: "Service",
@@ -506,17 +774,21 @@ export function compileNorthflankGraph(
             data: { serviceId: reference(resource.id), timeoutDuration: 600 },
           },
         },
-      });
+      };
+      addActivation(resource.id, [serviceActivation, runningCondition]);
     } else
-      activate.push({
-        kind: "JobRun",
-        ref: `init_${resource.id.replaceAll("-", "_")}${settings.runOn === "update" ? `_${source.head.slice(0, 12)}` : ""}`,
-        condition: "success",
-        runNodeOnce: "true",
-        spec: { jobId: reference(resource.id) },
-      });
+      addActivation(resource.id, [
+        {
+          kind: "JobRun",
+          ref: `init_${resource.id.replaceAll("-", "_")}${settings.runOn === "update" ? `_${source.head.slice(0, 12)}` : ""}`,
+          condition: "success",
+          runNodeOnce: "true",
+          spec: { jobId: reference(resource.id) },
+        },
+      ]);
     const variables: Record<string, string> = {};
     const runtime: Record<string, string> = {};
+    const sensitive: Record<string, SensitiveBinding> = {};
     const addonDependencies: Array<{
       addonId: string;
       keys: Array<{ keyName: string; aliases: string[] }>;
@@ -537,8 +809,27 @@ export function compileNorthflankGraph(
         if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(binding.runtimeSecret))
           throw new Error("Invalid runtime secret reference.");
         runtime[key] = binding.runtimeSecret;
+        sensitive[key] = { runtimeSecret: binding.runtimeSecret };
+      } else if ("generated" in binding) {
+        sensitive[key] = { generated: binding.generated };
+      } else if ("output" in binding) {
+        sensitive[key] = { output: binding.output };
       } else variables[key] = literal(binding);
     }
+    const addonAliases = addonDependencies.flatMap((dependency) =>
+      dependency.keys.flatMap((entry) => entry.aliases),
+    );
+    const environmentKeys = new Set(Object.keys(settings.environment ?? {}));
+    if (
+      new Set(addonAliases).size !== addonAliases.length ||
+      addonAliases.some(
+        (alias) =>
+          !environmentKeys.has(alias) ||
+          Object.hasOwn(variables, alias) ||
+          Object.hasOwn(sensitive, alias),
+      )
+    )
+      throw new Error("Northflank addon aliases collide with runtime bindings.");
     if (Object.keys(settings.environment ?? {}).length) {
       const groupId = resource.id;
       const group = node(
@@ -564,6 +855,8 @@ export function compileNorthflankGraph(
       secretNodes.push(group);
       if (Object.keys(runtime).length)
         runtimeSecrets.push({ groupRef: group.ref, variables: runtime });
+      if (Object.keys(sensitive).length)
+        secretBindings.push({ groupRef: group.ref, variables: sensitive });
     }
   }
   const references = [...prepare, ...volumes, ...secretNodes, ...activate].flatMap((item) =>
@@ -578,11 +871,20 @@ export function compileNorthflankGraph(
     kind: "Workflow",
     spec: {
       type: "sequential",
-      steps: [...prepare, ...volumes, ...secretNodes, ...(phase === "activate" ? activate : [])],
+      steps: [
+        ...prepare,
+        ...volumes,
+        ...secretNodes,
+        ...(phase === "activate"
+          ? activate
+          : phase === "source"
+            ? sourceResources.flatMap((id) => activations.get(id) ?? [])
+            : []),
+      ],
     },
   };
   const digest = createHash("sha256")
     .update(JSON.stringify({ spec, runtimeSecrets }))
     .digest("hex");
-  return { spec, digest, runtimeSecrets, urls };
+  return { spec, digest, runtimeSecrets, secretBindings, urls, sourceResources };
 }
