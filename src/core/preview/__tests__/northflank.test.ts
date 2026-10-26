@@ -657,6 +657,26 @@ describe("Northflank native graph compilation", () => {
     ]);
   });
 
+  it("groups selected addon keys and aliases into one native dependency", () => {
+    const { entry, policy } = graphFixture();
+    Object.assign(policy.resources.web.environment!, {
+      DATABASE_HOST: { addon: "db", key: "HOST" },
+      SECOND_URI: { addon: "db", key: "POSTGRES_URI" },
+    });
+    const group = compileNorthflankGraph(entry, policy, "prepare").spec.spec.steps.find(
+      (node) => node.ref === "e_web",
+    );
+    expect(group?.spec.addonDependencies).toEqual([
+      {
+        addonId: "${refs.r_db.id}",
+        keys: [
+          { keyName: "POSTGRES_URI", aliases: ["DATABASE_URL", "SECOND_URI"] },
+          { keyName: "HOST", aliases: ["DATABASE_HOST"] },
+        ],
+      },
+    ]);
+  });
+
   it("emits an explicitly configured Postgres database name", () => {
     const { entry, policy } = graphFixture();
     policy.resources.db.databaseName = "bootstrap_db";
@@ -1414,11 +1434,23 @@ function providerFixture(
             }
           }
         }
-        if (tail[0] === "secrets" && tail[2] === "details")
+        if (tail[0] === "secrets" && tail[2] === "addons") {
+          const dependency = row.addonDependencies.find((item: any) => item.addonId === tail[3]);
           return response({
-            ...row,
+            secretId: row.id,
+            addonId: tail[3],
+            linked: dependency !== undefined,
+            linkedKeys: dependency?.keys.map((key: any) => ({ ...key, defaultKey: "NF_DEFAULT" })),
+          });
+        }
+        if (tail[0] === "secrets" && tail[2] === "details") {
+          const { addonDependencies, ...detail } = row;
+          return response({
+            ...detail,
+            addonSecrets: addonDependencies.map((item: any) => ({ id: item.addonId })),
             restrictions: { tagMatchCondition: "or", ...row.restrictions },
           });
+        }
         return response(row);
       }
       if (tail.length === 1) {
@@ -1959,6 +1991,26 @@ describe("Northflank generation credential delivery", () => {
     f.refreshSource();
     await f.command("refresh", { kind: "start", aliases: ["web"] });
     expect((await f.reconcile())?.session.status === "ready").toBe(ready);
+  });
+
+  it.each([
+    "foreign-addon",
+    "missing-key",
+    "extra-alias",
+  ])("refuses native addon link drift: %s", async (change) => {
+    const f = credentialProviderFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).toBe("ready");
+    const group = [...f.allocations.values()].find(
+      (item) => item.kind === "secrets" && item.addonDependencies.length,
+    )!;
+    const dependency = group.addonDependencies[0];
+    if (change === "foreign-addon") dependency.addonId = "unowned-addon";
+    if (change === "missing-key") dependency.keys = [];
+    if (change === "extra-alias") dependency.keys[0].aliases.push("UNREVIEWED_URL");
+    f.refreshSource();
+    await f.command("refresh", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).not.toBe("ready");
   });
 
   it("does not replay a secret write whose response was lost", async () => {

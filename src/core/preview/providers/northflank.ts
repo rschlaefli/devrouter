@@ -752,6 +752,57 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       throw new NorthflankFailure("Northflank secret delivery readback differs.");
     await gate.record(step, "accepted");
   }
+  private async verifyAddonBindings(
+    peer: Awaited<ReturnType<NorthflankPreviewProvider["secretPeers"]>>[number],
+    configured: unknown,
+  ) {
+    const expected = configured as Array<{
+      addonId: string;
+      keys: Array<{ keyName: string; aliases: string[] }>;
+    }>;
+    const observed = peer.details.addonSecrets;
+    if (
+      !Array.isArray(expected) ||
+      !Array.isArray(observed) ||
+      observed.length !== expected.length ||
+      new Set(observed.map((item) => record(item).id)).size !== observed.length ||
+      observed.some((item) => !expected.some((addon) => addon.addonId === record(item).id))
+    )
+      throw new NorthflankFailure("Northflank addon bindings differ from reviewed policy.");
+    const keys = (items: unknown) => {
+      if (!Array.isArray(items))
+        throw new NorthflankFailure("Northflank addon keys are unavailable.");
+      return items
+        .map((item) => {
+          const key = record(item);
+          if (
+            typeof key.keyName !== "string" ||
+            !Array.isArray(key.aliases) ||
+            key.aliases.some((alias) => typeof alias !== "string")
+          )
+            throw new NorthflankFailure("Northflank addon keys are invalid.");
+          return JSON.stringify([key.keyName, [...key.aliases].sort()]);
+        })
+        .sort();
+    };
+    for (const addon of expected) {
+      const link = data(
+        await this.options.api.request("GET", [
+          "secrets",
+          peer.resource.id,
+          "addons",
+          nativeIdentifier(addon.addonId),
+        ]),
+      );
+      if (
+        link.secretId !== peer.resource.id ||
+        link.addonId !== addon.addonId ||
+        link.linked !== true ||
+        JSON.stringify(keys(link.linkedKeys)) !== JSON.stringify(keys(addon.keys))
+      )
+        throw new NorthflankFailure("Northflank addon link differs from reviewed policy.");
+    }
+  }
   private async deliver(
     gate: PreviewWriteGate,
     owned: NorthflankOwnership,
@@ -768,11 +819,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       const variables = { ...peer.variables };
       const definition = graph.spec.spec.steps.find((node) => node.ref === group.groupRef);
       if (!definition) throw new NorthflankFailure("Northflank group definition is missing.");
-      if (
-        JSON.stringify(peer.details.addonDependencies ?? []) !==
-        JSON.stringify(definition.spec.addonDependencies ?? [])
-      )
-        throw new NorthflankFailure("Northflank addon bindings differ from reviewed policy.");
+      await this.verifyAddonBindings(peer, definition.spec.addonDependencies);
       Object.assign(variables, record(record(definition.spec.secrets).variables));
       for (const [key, binding] of Object.entries(group.variables)) {
         const kind =
@@ -843,10 +890,10 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     for (const group of graph.secretBindings) {
       const peer = peers.find((peer) => peer.resource.reference === group.groupRef);
       if (!peer) throw new NorthflankFailure("Northflank selected recipient is missing.");
-      const plain = record(
-        record(graph.spec.spec.steps.find((node) => node.ref === group.groupRef)?.spec.secrets)
-          .variables,
-      );
+      const definition = graph.spec.spec.steps.find((node) => node.ref === group.groupRef);
+      if (!definition) throw new NorthflankFailure("Northflank group definition is missing.");
+      await this.verifyAddonBindings(peer, definition.spec.addonDependencies);
+      const plain = record(record(definition.spec.secrets).variables);
       if (Object.entries(plain).some(([key, value]) => peer.variables[key] !== value))
         throw new NorthflankFailure("Northflank configured variables were lost.");
       for (const [key, binding] of Object.entries(group.variables)) {

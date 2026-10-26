@@ -799,10 +799,15 @@ export function compileNorthflankGraph(
           !/^[A-Z][A-Z0-9_]*$/.test(binding.key)
         )
           throw new Error("Runtime addon binding must name a selected backing resource.");
-        addonDependencies.push({
-          addonId: reference(binding.addon),
-          keys: [{ keyName: binding.key, aliases: [key] }],
-        });
+        const addonId = reference(binding.addon);
+        let dependency = addonDependencies.find((item) => item.addonId === addonId);
+        if (!dependency) {
+          dependency = { addonId, keys: [] };
+          addonDependencies.push(dependency);
+        }
+        const existing = dependency.keys.find((item) => item.keyName === binding.key);
+        if (existing) existing.aliases.push(key);
+        else dependency.keys.push({ keyName: binding.key, aliases: [key] });
       } else if ("runtimeSecret" in binding) {
         runtime[key] = binding.runtimeSecret;
         sensitive[key] = { runtimeSecret: binding.runtimeSecret };
