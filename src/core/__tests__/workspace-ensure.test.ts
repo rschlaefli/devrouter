@@ -1355,6 +1355,10 @@ describe("workspaceEnsure", () => {
       const persisted = readManagedRuntimeState(tmpDir, "feature");
       expect(persisted).toMatchObject({ status: "ready" });
       actual.markManagedRuntimeDegraded(persisted as ManagedRuntimeState, "interrupted");
+      expect(readManagedRuntimeState(tmpDir, "feature")).toMatchObject({
+        status: "degraded",
+        transitionPhase: "interrupted",
+      });
       fs.writeFileSync(path.join(gitDir, "devrouter-workspace"), "feature\n");
       writeWorkspaceOwnership(tmpDir, {
         workspace: "feature",
