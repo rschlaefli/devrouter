@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { PreviewEngine, type PreviewWriteGate } from "../engine";
 import { createPreviewSession } from "../lifecycle";
@@ -246,6 +247,7 @@ describe("Northflank native graph compilation", () => {
     });
     expect(steps.find((node) => node.kind === "DeploymentService")?.spec).toMatchObject({
       deployment: { instances: 0 },
+      healthChecks: [{ protocol: "HTTP", successThreshold: 1 }],
       ports: [
         {
           public: false,
@@ -373,6 +375,10 @@ describe("Northflank native graph compilation", () => {
 
   it("pins native source builds to the admitted SHA and rejects incomplete access or recipes", () => {
     const { entry, policy, web } = buildGraphFixture();
+    const job = entry.plan.resources[1];
+    job.build = { context: ".", dockerfile: "Dockerfile" };
+    delete job.image;
+    policy.resources.seed.buildPlan = "nf-compute-200";
     for (const [id, port] of [
       ["build-web", "http"],
       ["env-web", "http"],
@@ -391,10 +397,28 @@ describe("Northflank native graph compilation", () => {
       };
     }
     const graph = compileNorthflankGraph(entry, policy, "prepare");
-    expect(graph.spec.spec.steps.find((node) => node.kind === "Build")).toMatchObject({
-      spec: { sha: entry.plan.source!.head },
-      condition: "success",
-    });
+    const builds = graph.spec.spec.steps.filter((node) => node.kind === "Build");
+    expect(builds).toHaveLength(2);
+    for (const build of builds)
+      expect(build).toMatchObject({
+        spec: { branch: "main", sha: entry.plan.source!.head },
+        condition: "success",
+      });
+    for (const source of graph.spec.spec.steps.filter((node) => node.kind === "BuildService")) {
+      const vcsData = (source.spec as Record<string, any>).vcsData;
+      expect(vcsData).toMatchObject({
+        projectUrl: "https://github.com/example/fixture",
+        projectType: "github",
+      });
+      expect(vcsData).not.toHaveProperty("projectBranch");
+    }
+    for (const ref of ["r_seed", "r_web"]) {
+      expect(graph.spec.spec.steps.find((node) => node.ref === ref)?.spec).toMatchObject({
+        deployment: {
+          internal: { branch: "main", buildSHA: entry.plan.source!.head },
+        },
+      });
+    }
     const refs = graph.spec.spec.steps.flatMap((node) => (node.ref ? [node.ref] : []));
     expect(new Set(refs).size).toBe(refs.length);
     entry.plan.resources[1].ports = [{ name: "http", port: 8080, public: true }];
@@ -497,6 +521,9 @@ describe("Northflank generation ownership", () => {
 
 function providerFixture() {
   const { entry, policy } = graphFixture();
+  const policyDigest = createHash("sha256")
+    .update(JSON.stringify({ project: "fixture", graph: policy }))
+    .digest("hex");
   let now = entry.session.setupDeadline - 20 * 60_000;
   let loseSpecReceipt = false;
   let stopBeforeDispatch = false;
@@ -548,6 +575,7 @@ function providerFixture() {
   const domains = new Map<string, string>();
   const mutations: string[] = [];
   let lostRun = false;
+  let partialPrepareFailure = false;
   let unavailableRunReadback = false;
   let missingSecret = false;
   let pendingBootstrap = false;
@@ -649,6 +677,9 @@ function providerFixture() {
           const id = `run-${runs.size}`;
           const spec = structuredClone(blueprint.spec);
           const refs: Record<string, unknown> = {};
+          const operation = body.arguments?.devrouterOperation ?? "";
+          const partialPrepare = partialPrepareFailure && String(operation).startsWith("prepare-");
+          let refCount = 0;
           for (const node of spec.spec.steps) {
             const kind: Record<string, string> = {
               Addon: "addons",
@@ -660,7 +691,14 @@ function providerFixture() {
             };
             if (node.kind === "Subdomain") {
               domains.set(node.spec.name, `${node.spec.name}.${policy.baseDomain}`);
-              refs[node.ref] = { id: node.spec.name };
+              if (!partialPrepare || refCount === 0) {
+                refs[node.ref] = { status: "success", data: { id: node.spec.name } };
+              } else if (refCount === 1) {
+                refs[node.ref] = { status: "failed", data: { id: node.spec.name } };
+              } else {
+                refs[node.ref] = { status: "success" };
+              }
+              refCount += 1;
             } else if (kind[node.kind]) {
               const native = node.spec.name;
               const row = allocations.get(native) ?? {
@@ -670,7 +708,14 @@ function providerFixture() {
                 kind: kind[node.kind],
               };
               allocations.set(native, row);
-              refs[node.ref] = { id: native };
+              if (!partialPrepare || refCount === 0) {
+                refs[node.ref] = { status: "success", data: { id: native } };
+              } else if (refCount === 1) {
+                refs[node.ref] = { status: "failed", data: { id: native } };
+              } else {
+                refs[node.ref] = { status: "success" };
+              }
+              refCount += 1;
             }
           }
           const row = {
@@ -685,9 +730,10 @@ function providerFixture() {
                 (body.arguments?.devrouterOperation ?? "").startsWith("bootstrap-")) ||
               (pendingPrepare && (body.arguments?.devrouterOperation ?? "").startsWith("prepare-"))
             ),
-            status: "success",
+            status: partialPrepare ? "failed" : "success",
           };
           runs.set(id, row);
+          if (partialPrepare) partialPrepareFailure = false;
           if (lostRun) {
             lostRun = false;
             if (unavailableRunReadback) {
@@ -781,6 +827,8 @@ function providerFixture() {
   };
   return {
     provider,
+    store,
+    policyDigest,
     qualification,
     command,
     reconcile,
@@ -792,6 +840,9 @@ function providerFixture() {
     loseRun: (unavailableReadback = false) => {
       lostRun = true;
       unavailableRunReadback = unavailableReadback;
+    },
+    partialPrepare: () => {
+      partialPrepareFailure = true;
     },
     loseSpecReceipt: () => {
       loseSpecReceipt = true;
@@ -889,6 +940,34 @@ describe("Northflank provider lifecycle", () => {
         run.arguments.devrouterOperation?.startsWith("bootstrap-"),
       ).length,
     ).toBe(1);
+  });
+  it("captures only successful resources from a partially failed prepare run", async () => {
+    const f = providerFixture();
+    f.partialPrepare();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    let prepared: Record<string, any> | undefined;
+    for (let attempt = 0; attempt < 10 && !prepared; attempt += 1) {
+      await f.reconcile(1);
+      prepared = [...f.runs.values()].find((run) =>
+        run.arguments.devrouterOperation?.startsWith("prepare-"),
+      );
+    }
+    expect(prepared?.status).toBe("failed");
+    const refs = Object.values(prepared!.refs) as Record<string, unknown>[];
+    const successful = refs.filter((ref) => ref.status === "success" && ref.data);
+    expect(successful).toHaveLength(1);
+    expect(refs.slice(1).some((ref) => ref.status === "failed" && ref.data)).toBe(true);
+    expect(refs.slice(1).some((ref) => ref.status === "success" && !("data" in ref))).toBe(true);
+    const generation = (await f.engine.status(f.identity))!.session.generation;
+    const ownership = new NorthflankOwnershipStore({
+      store: f.store,
+      installationId: "fixture",
+      generation,
+      policyDigest: f.policyDigest,
+    });
+    expect((await ownership.read())?.resources.map((resource) => resource.id)).toEqual([
+      (successful[0].data as Record<string, unknown>).id,
+    ]);
   });
   it("stops and cleans up when runtime secret delivery fails", async () => {
     const f = providerFixture();
@@ -1015,7 +1094,12 @@ describe("Northflank provider lifecycle", () => {
     expect(graph.spec.spec.steps.find((node) => node.ref === "r_worker")?.spec).toMatchObject({
       ports: [],
       healthChecks: [
-        { protocol: "CMD", type: "readinessProbe", cmd: "'test' '-f' '/tmp/worker-ready'" },
+        {
+          protocol: "CMD",
+          type: "readinessProbe",
+          cmd: "'test' '-f' '/tmp/worker-ready'",
+          successThreshold: 1,
+        },
       ],
     });
     policy.resources.worker.readiness = { command: ["${refs.r_db.id}"] };

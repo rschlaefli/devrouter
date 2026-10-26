@@ -341,7 +341,6 @@ export function compileNorthflankGraph(
             vcsData: {
               projectUrl: git.url,
               projectType: git.type,
-              projectBranch: git.branch,
               ...(git.selfHostedVcsId ? { selfHostedVcsId: git.selfHostedVcsId } : {}),
             },
             buildSettings: {
@@ -366,6 +365,7 @@ export function compileNorthflankGraph(
           id: reference(buildId, "b"),
           type: "service",
           sha: source.head,
+          branch: git.branch,
           reuseExistingBuilds: true,
           ...(resource.build.target
             ? {
@@ -374,7 +374,11 @@ export function compileNorthflankGraph(
             : {}),
         },
       });
-      deployment.internal = { id: reference(buildId, "b"), buildSHA: source.head };
+      deployment.internal = {
+        id: reference(buildId, "b"),
+        buildSHA: source.head,
+        branch: git.branch,
+      };
     } else {
       if (!resource.image?.includes("@sha256:"))
         throw new Error("Northflank image recipes require immutable image digests.");
@@ -469,6 +473,7 @@ export function compileNorthflankGraph(
                 initialDelaySeconds: 1,
                 periodSeconds: 10,
                 timeoutSeconds: 5,
+                successThreshold: 1,
                 failureThreshold: 6,
               },
             ],

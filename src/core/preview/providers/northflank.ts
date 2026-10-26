@@ -627,6 +627,15 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       if (previous) continue;
       const output = refs[node.ref];
       if (!output) continue;
+      const response = record(output);
+      if (
+        response.status !== "success" ||
+        !response.data ||
+        typeof response.data !== "object" ||
+        Array.isArray(response.data)
+      )
+        continue;
+      const captured = response.data as Record<string, unknown>;
       const kind = kinds[node.kind];
       if (kind === "domains") {
         const spec = record(node.spec);
@@ -637,7 +646,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         additions.push({ reference: node.ref, kind, id, name: observed.fullName as string });
         continue;
       }
-      const id = nativeIdentifier(record(output).id);
+      const id = nativeIdentifier(captured.id);
       const observed = data(await this.options.api.request("GET", [kind, id]));
       const name = nativeIdentifier(observed.name);
       if (name !== record(node.spec).name)
