@@ -115,3 +115,20 @@ concerns this task branch and excludes consumer-runtime verification.
 - No merge, release, global install or other task's source/runtime changed.
 - Live Q20 and consumer acceptance remain unqualified until new exact-target
   evidence exists. No fixture is started as part of source verification.
+
+### Delivery evidence
+
+- Draft [PR #156](https://github.com/rschlaefli/devrouter/pull/156) owns this
+  package. [PR #130](https://github.com/rschlaefli/devrouter/pull/130) remains unchanged; no other task branch was updated.
+- Installed synthetic controller, capacity and lifecycle qualification passed
+  using the same product bundle as `e7ef8234`; later changes affect only the
+  sleep qualification script/tests. Synthetic providers reported no unexpected
+  calls, and the controller qualifier confirmed its controller stopped.
+- Simplifier: removed one duplicated expiry-boundary assertion; focused tests
+  retain both boundary outcomes. No further abstraction/reduction justified.
+- Final reviewer: one preparation-window heartbeat finding accepted and fixed
+  in `b664cfe2`; focused regressions and typecheck pass. Same-reviewer correction
+  verification passed with no remaining findings. Final hosted CI is pending.
+- Local real-provider setup, routing and devcontainer smoke were not run: this
+  package did not start or mutate application runtimes. Live Q20 and consumer
+  recovery remain separate acceptance work.
