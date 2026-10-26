@@ -24,8 +24,9 @@ the missing precondition. The receipt must be treated as insufficient evidence.
 
 `scripts/qualify-host-suspend.ts` now parses the exact event column, selects the
 first completed cycle after preparation, checks successful renewal inside the
-30-second lease with no prior refusal, and compares bundle hashes before external
-commands. The script is import-safe so synthetic logs can test those boundaries.
+30-second lease with no prior refusal, and captures the bundle digest before
+startup. Preparation, heartbeat renewal and verification check that digest
+around CLI calls; the checkpoint retains the original producer identity. The script is import-safe so synthetic logs can test those boundaries.
 `src/core/__tests__/host-suspend-qualification.test.ts` covers false wake events,
 stale/refused renewal and executable drift; a subprocess case verifies that
 bundle mismatch refuses before external calls.

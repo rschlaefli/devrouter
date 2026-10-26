@@ -128,7 +128,13 @@ concerns this task branch and excludes consumer-runtime verification.
   retain both boundary outcomes. No further abstraction/reduction justified.
 - Final reviewer: one preparation-window heartbeat finding accepted and fixed
   in `b664cfe2`; focused regressions and typecheck pass. Same-reviewer correction
-  verification passed with no remaining findings. Final hosted CI is pending.
+  verification passed with no remaining findings in that range. The risk reviewer
+  then identified a distinct setup-time bundle drift window: the checkpoint
+  hashed bytes after startup. The digest is now captured before startup, checked
+  around every CLI invocation and heartbeat renewal, and retained in the
+  checkpoint; drift cannot silently relabel the producer. Same-risk-reviewer
+  correction passed with no further findings and 10 focused tests, including
+  both heartbeat subprocess cases. Final hosted CI is pending.
 - Local real-provider setup, routing and devcontainer smoke were not run: this
   package did not start or mutate application runtimes. Live Q20 and consumer
   recovery remain separate acceptance work.

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   bundleDigestMatches,
   firstSuspendAfter,
+  HEARTBEAT_SOURCE,
   type HeartbeatEvent,
   type PowerEvent,
   parseHeartbeatLog,
@@ -145,6 +146,73 @@ describe("host suspend heartbeat evidence", () => {
     expect(validatePreSuspendHeartbeat(events, preparedAtMs, sleepAtMs)).toMatchObject({
       ok: true,
     });
+  });
+
+  it("stops heartbeat renewal when the CLI bundle changes across invocation", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-heartbeat-"));
+
+    try {
+      const runHeartbeat = (name: string, expectedDigest: (actual: string) => string) => {
+        const cli = path.join(tempRoot, `${name}.cjs`);
+        const marker = path.join(tempRoot, `${name}.marker`);
+        const cliSource = [
+          'const fs = require("node:fs");',
+          `fs.appendFileSync(${JSON.stringify(marker)}, "invoked\\n");`,
+          'fs.appendFileSync(__filename, "\\n// changed after invocation\\n");',
+          "",
+        ].join("\n");
+        fs.writeFileSync(cli, cliSource);
+        const actualDigest = createHash("sha256").update(cliSource).digest("hex");
+        const result = spawnSync(
+          process.execPath,
+          ["-e", HEARTBEAT_SOURCE, "devrouter-host-suspend-heartbeat", cli],
+          {
+            cwd: tempRoot,
+            env: {
+              ...process.env,
+              DR_HS_RENEW: JSON.stringify({
+                node: process.execPath,
+                dist: cli,
+                distSha256: expectedDigest(actualDigest),
+                home: tempRoot,
+                path: "",
+                dockerHost: `unix://${path.join(tempRoot, "absent.sock")}`,
+                session: "suspend",
+                store: "store",
+                epoch: 1,
+                generation: "generation",
+                intervalMs: 5,
+              }),
+              NODE_OPTIONS: "",
+            },
+            encoding: "utf8",
+            timeout: 5_000,
+          },
+        );
+        return { marker, result };
+      };
+
+      const changed = runHeartbeat("changed", (actual) => actual);
+      expect(changed.result.error).toBeUndefined();
+      expect(changed.result.status).toBe(0);
+      expect(fs.readFileSync(changed.marker, "utf8")).toBe("invoked\n");
+      const changedEvents = parseHeartbeatLog(changed.result.stdout);
+      expect(changedEvents.filter((event) => event.kind === "refused")).toHaveLength(1);
+      expect(changedEvents.filter((event) => event.kind === "renewed")).toHaveLength(0);
+
+      const initiallyDifferent = runHeartbeat(
+        "initially-different",
+        (actual) => `${actual.slice(0, -1)}${actual.endsWith("0") ? "1" : "0"}`,
+      );
+      expect(initiallyDifferent.result.error).toBeUndefined();
+      expect(initiallyDifferent.result.status).toBe(0);
+      expect(fs.existsSync(initiallyDifferent.marker)).toBe(false);
+      const initialEvents = parseHeartbeatLog(initiallyDifferent.result.stdout);
+      expect(initialEvents.filter((event) => event.kind === "refused")).toHaveLength(1);
+      expect(initialEvents.filter((event) => event.kind === "renewed")).toHaveLength(0);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });
 

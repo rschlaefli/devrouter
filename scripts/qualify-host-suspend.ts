@@ -60,6 +60,7 @@ const LIVE_APP = "web";
 // own router id instead of colliding with another checkout's "web" app.
 const LIVE_ROUTER = "hostsuspend-fixture";
 const SESSION = "suspend";
+let expectedBundleDigest: string | undefined;
 
 export type PowerEvent = {
   kind: "sleep" | "wake" | "dark-wake";
@@ -158,7 +159,12 @@ function command(
 }
 
 function cli(args: string[], options: { env?: NodeJS.ProcessEnv; allowFailure?: boolean } = {}) {
-  return command(NODE, [DIST, ...args], options);
+  if (expectedBundleDigest && !bundleDigestMatches(expectedBundleDigest, fileSha256(DIST)))
+    throw new Error("CLI bundle changed during qualification.");
+  const result = command(NODE, [DIST, ...args], options);
+  if (expectedBundleDigest && !bundleDigestMatches(expectedBundleDigest, fileSha256(DIST)))
+    throw new Error("CLI bundle changed during qualification.");
+  return result;
 }
 
 function cliJson(args: string[], env?: NodeJS.ProcessEnv): Record<string, unknown> {
@@ -414,9 +420,10 @@ const HEARTBEAT_MS = 10_000;
  * the sleep and the wake would prove nothing about continuity. The renewer
  * stops on the first refused renewal, which is what a client sees after a wake.
  */
-const HEARTBEAT_SOURCE = [
+export const HEARTBEAT_SOURCE = [
   "const { execFileSync } = require('node:child_process');",
   "const spec = JSON.parse(process.env.DR_HS_RENEW);",
+  "const digest = () => require('node:crypto').createHash('sha256').update(require('node:fs').readFileSync(spec.dist)).digest('hex');",
   "const args = [",
   "  spec.dist, 'controller', 'renew',",
   "  '--session', spec.session, '--store', spec.store,",
@@ -428,7 +435,9 @@ const HEARTBEAT_SOURCE = [
   "(async () => {",
   "  for (;;) {",
   "    try {",
+  "      if (digest() !== spec.distSha256) throw new Error('CLI bundle changed');",
   "      execFileSync(spec.node, args, { env, encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] });",
+  "      if (digest() !== spec.distSha256) throw new Error('CLI bundle changed');",
   "      process.stdout.write(new Date().toISOString() + ' renewed ' + spec.session + '\\n');",
   "    } catch (error) {",
   "      const cause = String((error && error.message) || error).split('\\n')[0];",
@@ -440,7 +449,7 @@ const HEARTBEAT_SOURCE = [
   "})();",
 ].join("\n");
 
-function startHeartbeat(binding: Binding, home: string, bin: string): void {
+function startHeartbeat(binding: Binding, home: string, bin: string, distSha256: string): void {
   const log = fs.openSync(path.join(WORK, "heartbeat.log"), "a");
   const child = spawn(NODE, ["-e", HEARTBEAT_SOURCE, "devrouter-host-suspend-heartbeat", DIST], {
     env: {
@@ -448,6 +457,7 @@ function startHeartbeat(binding: Binding, home: string, bin: string): void {
       DR_HS_RENEW: JSON.stringify({
         node: NODE,
         dist: DIST,
+        distSha256,
         home,
         path: `${bin}:/usr/bin:/bin`,
         dockerHost: `unix://${WORK}/absent.sock`,
@@ -656,6 +666,7 @@ async function prepare() {
   const ca = `${command("mkcert", ["-CAROOT"], { allowFailure: true }).stdout.trim()}/rootCA.pem`;
   if (!fs.existsSync(ca)) skip("the mkcert root CA is unavailable (run devrouter tls install).");
 
+  expectedBundleDigest = fileSha256(DIST);
   await resetWorkRoot();
   fs.mkdirSync(WORK, { recursive: true });
   const home = path.join(WORK, "home");
@@ -768,6 +779,8 @@ async function prepare() {
   } satisfies NodeJS.ProcessEnv;
   const socket = path.join(home, ".config", "devrouter", "controller", "control.sock");
   const log = fs.openSync(path.join(WORK, "controller.log"), "a");
+  if (!bundleDigestMatches(expectedBundleDigest, fileSha256(DIST)))
+    fail("CLI bundle changed before controller startup.");
   const controller = spawn(NODE, [DIST, "controller", "run"], {
     env: controllerEnv,
     detached: true,
@@ -845,17 +858,19 @@ async function prepare() {
   // The operator suspends minutes later, so the session needs the same live
   // heartbeat a watching consumer would send. One full interval proves the
   // heartbeat, not the just-issued lease, is what keeps it alive.
-  startHeartbeat(binding, home, bin);
+  startHeartbeat(binding, home, bin, expectedBundleDigest);
   await delay(HEARTBEAT_MS + 2_000);
   const heartbeatLog = fs.readFileSync(path.join(WORK, "heartbeat.log"), "utf8");
-  if (!heartbeatLog.includes("renewed"))
+  if (!heartbeatLog.includes("renewed") || heartbeatLog.includes("renew refused:"))
     fail(`the fixture heartbeat produced no renewal: ${heartbeatLog.trim().slice(-200)}`);
+  if (!bundleDigestMatches(expectedBundleDigest, fileSha256(DIST)))
+    fail("CLI bundle changed during preparation; no checkpoint can be accepted.");
   const checkpoint: Checkpoint = {
     schema: "devrouter.host-suspend.checkpoint.v1",
     preparedAtMs: Date.now(),
     preparedAt: new Date().toISOString(),
     revision: command("git", ["rev-parse", "HEAD"]).stdout.trim(),
-    distSha256: fileSha256(DIST),
+    distSha256: expectedBundleDigest,
     home,
     controller: {
       pid,
@@ -913,6 +928,7 @@ async function verify() {
     fail(
       `the prepared bundle changed (prepared ${checkpoint.distSha256}, current ${currentDistSha256}); prepare a fresh run.`,
     );
+  expectedBundleDigest = checkpoint.distSha256;
 
   const selection = firstSuspendAfter(powerEvents(), checkpoint.preparedAtMs);
   if (selection.state === "invalid") fail(`cannot select a suspend: ${selection.reason}.`);
