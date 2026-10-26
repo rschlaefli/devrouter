@@ -70,7 +70,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
   policy and emits deterministic literal arrays, while the consumer owns key
   meaning and command launch. [ADR 0007](../adr/0007-keep-ci-profile-planning-repository-owned.md)
   owns this boundary.
-- The committed `.devrouter.yml` remains the only supported per-repository Devrouter configuration. Runtime namespacing is an in-memory view produced by `src/core/repo-config.ts:applyWorkspace`.
+- The committed `.devrouter.yml` owns local routing/profile configuration. Runtime namespacing is an in-memory view produced by `src/core/repo-config.ts:applyWorkspace`. Only `preview` commands read the separate `.devrouter.preview.yml` manifest; local fingerprints and profile membership remain independent of it. [ADR 0014](../adr/0014-opt-in-remote-previews.md) owns this exception.
 
 ## Relationships
 
@@ -83,3 +83,19 @@ The dangerous failure is mixed identity: a Git checkout, workspace runtime ID, c
 ## Change guidance
 
 Changes that move state between owners require an ADR when the decision is hard to reverse, surprising, and trade-off driven. At minimum, run the ownership, lifecycle, managed-post-start, route-state, and provider-mutation suites named in the [verification map](./change-and-verification-map.md).
+
+
+## Remote installation boundary
+
+Preview planning reuses local profile membership without starting a local runtime.
+`src/core/preview/installation.ts` binds reviewed control bytes, project identities,
+provider recipes, credentials, costs and viewer policy. Forge adapters verify commands
+and source; the shared controller owns durable inbox/status, while the engine owns
+allocation/deadline/cleanup state. The Northflank adapter owns native graph semantics
+and immutable receipts. Runtime secrets are separate from controller credentials.
+The GitLab ingress only requests a protected controller pipeline with identity hints;
+it stores no provider token, but its trigger capability reaches those credentials
+unless the controller project disables all pipeline-variable overrides before
+activation. [Remote previews](../PREVIEWS.md) owns setup
+and live qualification status; [ADR 0014](../adr/0014-opt-in-remote-previews.md) owns
+why remote state remains independent from local workspace identity.

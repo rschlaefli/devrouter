@@ -7,7 +7,7 @@ this guide.
 ## Scope
 
 Devrouter has no central repository registry and does not manage Kubernetes.
-`.devrouter.yml` is the only supported per-repository configuration.
+`.devrouter.yml` owns local routing and profiles. Remote preview commands read a separate opt-in `.devrouter.preview.yml`; see the optional preview section below.
 
 ## Inspect before editing
 
@@ -546,3 +546,12 @@ use the [first-route troubleshooting guide](./GETTING_STARTED.md#if-the-first-ro
 Onboarding is complete when another engineer can reproduce setup, start the
 intended lifecycle owner, reach every routed endpoint, run required one-shot
 commands, and obtain clean diagnostics from the committed repository state.
+
+
+## Optional remote previews
+
+Local onboarding does not configure cloud resources. The separate
+[Remote previews](PREVIEWS.md) guide covers profile-backed aliases, reviewed installation
+policy, pinned GitHub/GitLab callers, state, network access and live qualification.
+`devrouter preview init --integration github` or `--integration gitlab` renders caller
+source for review; activation remains an explicit operator step.

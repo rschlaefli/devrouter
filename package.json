@@ -12,12 +12,17 @@
   "files": [
     "bin",
     "dist",
-    "upgrade-prompts"
+    "upgrade-prompts",
+    "assets/preview"
   ],
   "type": "commonjs",
   "packageManager": "pnpm@11.6.0",
   "engines": {
     "node": ">=24"
+  },
+  "exports": {
+    "./preview/gitlab-ingress": "./dist/devrouter-preview-gitlab-ingress.js",
+    "./*": "./*"
   },
   "bin": {
     "devrouter": "dist/devrouter.js",
@@ -28,6 +33,9 @@
     "dev": "tsx src/cli.ts",
     "test": "vitest run && pnpm test:process",
     "test:package": "./scripts/package-smoke.sh",
+    "qualify:preview-northflank": "node --import tsx scripts/qualify-preview-northflank.ts",
+    "qualify:preview-forge": "node --import tsx scripts/qualify-preview-forge.ts",
+    "qualify:preview-control": "node --import tsx scripts/qualify-preview-control.ts",
     "qualify:lifecycle": "node --import tsx scripts/qualify-lifecycle.ts",
     "qualify:capacity": "node --import tsx scripts/qualify-capacity.ts",
     "qualify:controller": "node --import tsx scripts/qualify-controller.ts",

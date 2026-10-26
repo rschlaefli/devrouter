@@ -1,0 +1,30 @@
+version: 1
+aliases:
+  web:
+    resources: [web]
+bindings:
+  apps: {}
+  dependencies: {}
+  services: {}
+  processes: {}
+resources:
+  db:
+    kind: postgres
+  web:
+    kind: service
+    dependsOn: [db]
+    build:
+      context: examples/preview-http-db
+      dockerfile: examples/preview-http-db/Dockerfile
+    ports:
+      - name: http
+        port: 8080
+        public: true
+selection:
+  rules:
+    - paths: ['examples/preview-http-db/**']
+      aliases: [web]
+  ignorePaths: ['docs/**', '**/*.md']
+  controlPaths: []
+  fallback: web
+  allowedUnions: []

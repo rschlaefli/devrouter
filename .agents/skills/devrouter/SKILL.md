@@ -11,7 +11,8 @@ Local dev routing via a shared Traefik reverse proxy. Provides stable `*.localho
 ## How it works
 
 - Shared Traefik router owns host ports 80 (HTTP), 443 (HTTPS), 5432 (Postgres TCP).
-- Per-repo config: `.devrouter.yml` (single source of truth).
+- Local routing/profile config: `.devrouter.yml`. Only `devrouter preview` reads the opt-in `.devrouter.preview.yml`; local profiles retain membership authority.
+- Remote previews: `preview init [--write]` prints/creates a scaffold; `preview plan --alias <name> --json` inspects it offline. Installed `doctor`, `state-init`, `handle-event` and `sweep` use separate reviewed installation policy; see `docs/PREVIEWS.md` before remote operations. Planning does not deploy.
 - Global runtime artifacts: `~/.config/devrouter` (never edit manually).
 - Hostnames must end with `.localhost` (lowercase alphanumeric + hyphens only).
 

@@ -37,7 +37,7 @@ decision, or incident context in product manuals.
 
 ## Documentation policy
 
-1. Product manuals (`README.md`, `docs/GETTING_STARTED.md`, `docs/REPO_ONBOARDING.md`, `docs/DEVCONTAINER.md`, `docs/WORKTREE_CLEANUP.md`, and `examples/*/README.md`) and active knowledge must describe current state only.
+1. Product manuals (`README.md`, `docs/GETTING_STARTED.md`, `docs/REPO_ONBOARDING.md`, `docs/DEVCONTAINER.md`, `docs/WORKTREE_CLEANUP.md`, `docs/PREVIEWS.md`, and `examples/*/README.md`) and active knowledge must describe current state only.
 2. `docs/project/**`, `docs/adr/**`, and `docs/solutions/**` are status-labelled records and may retain historical context.
 3. Upgrade/migration/adaptation instructions belong only in `CHANGELOG.md` and `upgrade-prompts/*.md`.
 4. Each release section in `CHANGELOG.md` must reference exactly one prompt file under `upgrade-prompts/<version>.md`.
@@ -48,9 +48,10 @@ Use `docs/knowledge/index.md` for orientation, cross-cutting invariants, and lin
 
 ## Current product model
 
-`devrouter` now uses one per-repo config file:
+`devrouter` uses one local routing/profile config and a separate opt-in remote preview manifest:
 
-- `.devrouter.yml`
+- `.devrouter.yml` owns local routing and profile membership.
+- `.devrouter.preview.yml` is read only by `preview` commands; see [Remote preview planning](docs/PREVIEWS.md).
 
 Upgrade metadata for agent workflows is stored per repo in:
 
@@ -86,6 +87,7 @@ Supported routing:
 - `devrouter setup` (`--yes`, `--json`, `--repo <path>` optional; first-run machine setup plus structured diagnostics; `--idle-stop <duration|off>` installs or removes the macOS idle-stop launchd agent)
 - `devrouter up`, `devrouter down`, `devrouter status`, `devrouter doctor` (alias: `devrouter verify`), `devrouter ls`, `devrouter open`, `devrouter logs`, `devrouter tls install`
 - `devrouter ensure` (`[path]`, `--open`, `--repair`, `--json`), `devrouter stop` (`[path]`, `--delete`, `--json`), `devrouter exec` (`[path] -- <command...>`), `devrouter env` (`[path]`, `--json`, or `[path] -- <command...>` on the host)
+- `devrouter preview init` and `plan` provide offline scaffolding/planning; `doctor --installation` checks reviewed policy offline. Explicit `state-init`, `handle-event` and `sweep --installation` use installed remote credentials/state; see `docs/PREVIEWS.md`.
 - `devrouter profile resolve` (`--repo`, `--profile`, `--json`), `devrouter profile plan` (`--repo`, `--profile`, `--contract`, `--output`, `--json`)
 - `devrouter repo init`, `devrouter repo inspect` (`--json`), `devrouter repo devcontainer write` (`--dry-run`, `--yes`, `--json`), `devrouter repo devcontainer verify` (`--live`, `--yes`, `--json`), `devrouter repo agents`
 - `devrouter harness gate` (`--repo`, `--wait-budget-ms`, `--json`; agent-harness `PreToolUse` hook)
@@ -238,7 +240,7 @@ Supported routing:
 ## Non-negotiable constraints
 
 1. Router/global artifacts must remain under `~/.config/devrouter`.
-2. `.devrouter.yml` is the only supported repo config for new flows.
+2. `.devrouter.yml` owns local routing/profile configuration; only remote `preview` commands read `.devrouter.preview.yml` (ADR 0014).
 3. No global repo registry.
 4. Keep `.localhost` as hostname convention.
 5. Keep Traefik ownership of `80/443/5432`.

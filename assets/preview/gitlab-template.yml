@@ -1,0 +1,34 @@
+# Before activation, set controller project pipeline-variable overrides to no_one_allowed.
+# A trusted controller project vendors or immutably includes this template.
+spec:
+  inputs:
+    controller_image:
+      regex: '^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[a-f0-9]{64}$'
+    preview_mode:
+      default: sweep
+      options: [handle-event, sweep]
+    preview_project:
+      default: ''
+      regex: '^[a-z0-9-]*$'
+    preview_change:
+      default: ''
+      regex: '^[0-9]*$'
+---
+devrouter:preview:
+  image: $[[ inputs.controller_image ]]
+  stage: deploy
+  timeout: 18m
+  variables:
+    GIT_STRATEGY: none
+  id_tokens:
+    DEVROUTER_PREVIEW_AZURE_ASSERTION:
+      aud: api://AzureADTokenExchange
+  rules:
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && ($CI_PIPELINE_SOURCE == "trigger" || $CI_PIPELINE_SOURCE == "schedule")'
+    - when: never
+  script:
+    - >-
+      node /opt/devrouter/dist/devrouter.js preview '$[[ inputs.preview_mode ]]'
+      --installation /opt/devrouter-policy/installation.json
+      --project '$[[ inputs.preview_project ]]'
+      --change '$[[ inputs.preview_change ]]' --json

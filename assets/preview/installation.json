@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "installationId": "example",
+  "state": {
+    "containerUrl": "https://examplestore.blob.core.windows.net/previews",
+    "tokenEnv": "DEVROUTER_PREVIEW_STATE_TOKEN"
+  },
+  "maxActive": 2,
+  "maxReservedCents": 500,
+  "projects": [
+    {
+      "key": "web",
+      "forge": {
+        "kind": "github",
+        "host": "github.com",
+        "apiUrl": "https://api.github.com/",
+        "repository": "example/app",
+        "projectId": "1",
+        "botId": "2",
+        "tokenEnv": "DEVROUTER_PREVIEW_GITHUB_TOKEN"
+      },
+      "config": { "file": "app/.devrouter.yml", "sha256": "REPLACE_WITH_REVIEWED_FILE_SHA256" },
+      "manifest": {
+        "file": "app/.devrouter.preview.yml",
+        "sha256": "REPLACE_WITH_REVIEWED_FILE_SHA256"
+      },
+      "northflank": {
+        "projectId": "example-previews",
+        "tokenEnv": "DEVROUTER_PREVIEW_NORTHFLANK_TOKEN",
+        "graph": {
+          "namespace": "example",
+          "baseDomain": "preview.example.org",
+          "allowedNetworks": ["192.0.2.0/24"],
+          "resources": {
+            "web": {
+              "deploymentPlan": "nf-compute-10",
+              "readiness": { "port": "http", "path": "/health" }
+            }
+          }
+        },
+        "qualification": {
+          "fixedDeadline": false,
+          "sameEnvironment": false,
+          "deletionFence": false,
+          "scopedRuntimeSecrets": false,
+          "restrictedIngress": false
+        },
+        "runtimeSecrets": {}
+      },
+      "hourlyCents": { "web": 1 },
+      "acceptance": { "command": ["/bin/false"], "environment": [] }
+    }
+  ]
+}
