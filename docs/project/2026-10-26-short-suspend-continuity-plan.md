@@ -39,6 +39,12 @@ Reuse session generation, retained consumer, protection grace and capacity
 evidence generation. Host wake identity is ephemeral clock evidence, never the
 wire's controller-incarnation epoch and never authority to stop an environment.
 
+| Product primitive | Disposition | Preserved contract |
+| --- | --- | --- |
+| Consumer session | Extend existing discontinuity evidence | Invalidate only its generation; retain unresolved consumers and require fresh observation |
+| Capacity evidence | Extend existing clock generation | Drop stale duration/admission evidence; preserve charged resources and ownership |
+| Desired lifecycle intent | Reuse | Wake cannot grant parking, clear explicit stop, or prevent an already-committed exact stop |
+
 Add `src/core/host-wake.ts` and its focused test because session authority and
 capacity collection are two concrete callers. On macOS, read the absolute
 `/usr/sbin/sysctl -n kern.wake_abs_time` with bounded output and timeout, strict
@@ -129,8 +135,12 @@ Documentation paths: `docs/knowledge/managed-environment-lifecycle.md`,
   unused import warning), Knip, build, package smoke and installed synthetic
   controller/capacity qualification. The focused installed Opengrep scan reports
   no findings in the six changed executable source files.
-- Simplification, risk review, lifecycle qualification and integrated final
-  review remain pending. No merge, release, installation or consumer mutation.
+- Simplification removed duplicated capacity wake-state branches; the unchanged
+  85 capacity regressions and typecheck pass. Installed lifecycle qualification
+  and shipped-skill tests pass. The rebuilt capacity qualifier passed on retry;
+  one initial-observe refusal is preserved privately and not counted as a pass.
+- Risk review and integrated final review remain pending. No merge, release,
+  installation or consumer mutation.
 - Source mapping completed independently; production grant paths and both clock
   consumers identified. Read-only kernel probe succeeds; both implementations
   are integrated with no dependency or protocol change.
