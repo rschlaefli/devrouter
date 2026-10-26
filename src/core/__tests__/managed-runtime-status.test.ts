@@ -268,6 +268,30 @@ describe("collectManagedRuntimeStatus", () => {
     expect(runManagedProcessAction).not.toHaveBeenCalled();
   });
 
+  it("reports the retained variant without treating an omitted selector as drift", () => {
+    setupManagedRuntime({
+      containers: [
+        container("app", { mountRepo: true }),
+        container("postgres"),
+        container("litellm"),
+      ],
+      routes: [{ name: "chat", repoPath, workspace }],
+      runtimeState: state({ variant: "ci" }),
+      processStatuses: { chat: "running", "local-mcp": "stopped" },
+    });
+    const config = managedConfig();
+    config.managedRuntime!.variants = ["ci"];
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config,
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["chat"] },
+    });
+    expect(result.activeVariant).toBe("ci");
+    expect(result.status).toBe("ready");
+  });
+
   it("reports a healthy app and selected capability service as ready", () => {
     setupManagedRuntime({
       containers: [

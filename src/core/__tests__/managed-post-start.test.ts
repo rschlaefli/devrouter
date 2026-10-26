@@ -227,6 +227,10 @@ describe("managed post-start", () => {
         "DEVROUTER_PROCESS_HELPER=/tmp/devrouter/bin/devrouter-process",
         "--env",
         `DEVROUTER_PROCESS_ADAPTER_SHA256=${runtimePlan.adapterSha256}`,
+        "--env",
+        "DEVROUTER_PROCESS_HOST_PORTS_SHA256=",
+        "--env",
+        "DEVROUTER_RUNTIME_VARIANT=default",
         "app-id",
         "bash",
         "-c",
@@ -240,7 +244,8 @@ describe("managed post-start", () => {
 
   it("preserves the direct Bash adapter argument and unset-variable contract", async () => {
     runManagedPostStart({ plan: runtimePlan, container });
-    const wrapper = vi.mocked(spawnSync).mock.calls[2]?.[1]?.[10];
+    const argv = vi.mocked(spawnSync).mock.calls[2]?.[1] as string[];
+    const wrapper = argv[argv.indexOf("-c") + 1];
     expect(wrapper).toContain('adapter_snapshot="$1"');
     expect(wrapper).toContain("shift");
     expect(wrapper).not.toContain("set -eu");
@@ -265,6 +270,41 @@ describe("managed post-start", () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toBe(".devcontainer/post-start.sh|0|unset\n");
+  });
+
+  it("injects current selected ports and clears inactive port values", () => {
+    runManagedPostStart({
+      plan: runtimePlan,
+      container,
+      hostPorts: {
+        blob: {
+          service: "blob",
+          target: 10000,
+          status: "available",
+          endpoint: { host: "127.0.0.1", port: 49153 },
+        },
+        mail: { service: "mail", target: 8025, status: "inactive" },
+      },
+    });
+    const args = vi.mocked(spawnSync).mock.calls.at(-1)?.[1] as string[];
+    expect(args).toContain("DEVROUTER_HOST_PORT_BLOB=49153");
+    expect(args).toContain("DEVROUTER_HOST_PORT_MAIL=");
+    expect(args).toContainEqual(
+      expect.stringMatching(/^DEVROUTER_PROCESS_HOST_PORTS_SHA256=[a-f0-9]{64}$/),
+    );
+  });
+
+  it("refuses unresolved selected ports before helper delivery", () => {
+    expect(() =>
+      runManagedPostStart({
+        plan: runtimePlan,
+        container,
+        hostPorts: {
+          blob: { service: "blob", target: 10000, status: "unavailable", reason: "not-running" },
+        },
+      }),
+    ).toThrow("Selected managed host ports are unavailable");
+    expect(spawnSync).not.toHaveBeenCalled();
   });
 
   it("does nothing for unmanaged and fully legacy contracts", () => {
@@ -331,6 +371,31 @@ describe("managed post-start", () => {
       ]),
       expect.objectContaining({ stdio: "inherit" }),
     );
+  });
+
+  it("injects the selected runtime variant as an argv-safe environment assignment", () => {
+    runManagedPostStart({ plan: runtimePlan, container, variant: "ci-preview" });
+
+    const dockerArgs = vi.mocked(spawnSync).mock.calls[2]?.[1];
+    expect(dockerArgs).toContainEqual("DEVROUTER_RUNTIME_VARIANT=ci-preview");
+    expect(
+      dockerArgs?.filter((argument) => String(argument).startsWith("DEVROUTER_RUNTIME_VARIANT=")),
+    ).toEqual(["DEVROUTER_RUNTIME_VARIANT=ci-preview"]);
+  });
+
+  it.each([
+    "CI",
+    "ci_preview",
+    "-ci-preview",
+    "ci-preview-",
+    "ci--preview",
+    "ci; command",
+    "a".repeat(65),
+  ])("rejects unsafe runtime variant %j before effects", (variant) => {
+    expect(() => runManagedPostStart({ plan: runtimePlan, container, variant })).toThrow(
+      "Managed runtime variant must use lowercase alphanumeric segments",
+    );
+    expect(spawnSync).not.toHaveBeenCalled();
   });
 
   it("reports and stops only the named managed process", () => {

@@ -579,6 +579,21 @@ profiles:
     });
   });
 
+  it("preserves a non-default variant in ensure recovery commands", async () => {
+    writeRepoFiles({ composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust" });
+    vi.mocked(collectRouterStatus).mockResolvedValue({
+      ...makeStatus(tmpDir, true),
+      repo: {
+        ...makeStatus(tmpDir, true).repo!,
+        managedRuntime: makeManagedRuntimeStatus({ status: "stopped", activeVariant: "ci" }),
+      },
+    });
+    const report = await buildDoctorReport({ repo: tmpDir });
+    expect(
+      report.checks.find((entry) => entry.id === "repo.managed-runtime")?.suggestion,
+    ).toContain("--variant ci");
+  });
+
   it("reports failed transitions without suggesting an unsafe retry", async () => {
     writeRepoFiles({
       composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust",

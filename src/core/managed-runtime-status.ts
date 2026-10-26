@@ -44,8 +44,13 @@ function recoveryPath(repoPath: string): string {
  * positionally; a recovery line that mixes the two diagnoses the wrong
  * checkout whenever the agent is not already standing in the target.
  */
-function reliabilityRecovery(reason: ManagedReliabilityReason, repoPath: string): string[] {
+function reliabilityRecovery(
+  reason: ManagedReliabilityReason,
+  repoPath: string,
+  variant?: string,
+): string[] {
   const checkout = recoveryPath(repoPath);
+  const variantOption = variant && variant !== "default" ? ` --variant ${variant}` : "";
   switch (reason) {
     case "stop-incomplete":
     case "operation-unknown":
@@ -53,12 +58,12 @@ function reliabilityRecovery(reason: ManagedReliabilityReason, repoPath: string)
     case "start-refused":
       return [
         `Run: devrouter doctor --repo ${checkout} to read the refused fixed host-port claim and its holder`,
-        `Stop the holding workspace or change this repository's own published binding, then run: devrouter ensure ${checkout}`,
+        `Stop the holding workspace or change this repository's own published binding, then run: devrouter ensure ${checkout}${variantOption}`,
       ];
     case "unadmittable":
       return [
         `Run: devrouter stop ${checkout}`,
-        `Lower the requested capacity in .devrouter.yml, then run: devrouter ensure ${checkout}`,
+        `Lower the requested capacity in .devrouter.yml, then run: devrouter ensure ${checkout}${variantOption}`,
       ];
     case "capacity-parked":
       return [
@@ -67,7 +72,9 @@ function reliabilityRecovery(reason: ManagedReliabilityReason, repoPath: string)
         `'devrouter ensure' refuses while the journal stays parked; release the intent instead with: devrouter stop ${checkout}`,
       ];
     case "capacity-waiting":
-      return [`Run: devrouter ensure ${checkout} (still queued until capacity frees up)`];
+      return [
+        `Run: devrouter ensure ${checkout}${variantOption} (still queued until capacity frees up)`,
+      ];
     default:
       return [];
   }
@@ -96,6 +103,7 @@ function refusedManagedStart(
 function readReliabilityStatus(options: {
   repoPath: string;
   workspace?: string;
+  variant?: string;
 }): ManagedReliabilityStatus | undefined {
   let provider: ReturnType<typeof resolveWorkspaceRuntimeForReport>;
   try {
@@ -132,7 +140,12 @@ function readReliabilityStatus(options: {
         }
       : null,
     ...(reason
-      ? { attention: { reason, recovery: reliabilityRecovery(reason, options.repoPath) } }
+      ? {
+          attention: {
+            reason,
+            recovery: reliabilityRecovery(reason, options.repoPath, options.variant),
+          },
+        }
       : {}),
   };
 }
@@ -517,6 +530,7 @@ export function collectManagedRuntimeStatus(options: {
   workspace?: string;
   config: DevrouterConfig;
   profile: string;
+  variant?: string;
   resolvedProfile?: DevrouterProfile;
   /** Inspect a candidate before publishing it to persistent runtime state. */
   candidateState?: ManagedRuntimeState;
@@ -568,6 +582,14 @@ export function collectManagedRuntimeStatus(options: {
 
   const drift: string[] = [];
   if (stateReadFailed) drift.push("managed runtime state could not be read");
+  if (state && options.variant !== undefined && (state.variant ?? "default") !== options.variant)
+    drift.push("active runtime variant differs from the selected variant");
+  if (
+    state?.variant &&
+    state.variant !== "default" &&
+    !managedRuntime.variants?.includes(state.variant)
+  )
+    drift.push("active runtime variant is no longer declared");
   if (state?.status === "degraded") drift.push("the last managed transition is degraded");
   if (state) {
     const desiredState = {
@@ -692,6 +714,7 @@ export function collectManagedRuntimeStatus(options: {
 
   const reliability = readReliabilityStatus({
     repoPath: options.repoPath,
+    variant: state?.variant,
     ...(options.workspace !== undefined ? { workspace: options.workspace } : {}),
   });
 
@@ -700,7 +723,9 @@ export function collectManagedRuntimeStatus(options: {
     status,
     profile: options.profile,
     ...(reliability ? { reliability } : {}),
-    ...(state?.profile ? { activeProfile: state.profile } : {}),
+    ...(state?.profile
+      ? { activeProfile: state.profile, activeVariant: state.variant ?? "default" }
+      : {}),
     ...(options.workspace !== undefined ? { workspace: options.workspace } : {}),
     ...(state?.devpodId ? { devpodId: state.devpodId } : {}),
     ...(inspection.composeProject ? { composeProject: inspection.composeProject } : {}),

@@ -12,7 +12,7 @@ Guidance for agentic coders working in this repository.
 - [`examples/routing/README.md`](./examples/routing/README.md)
 - [`examples/devcontainer/README.md`](./examples/devcontainer/README.md)
 - [`examples/workspace/README.md`](./examples/workspace/README.md)
-- [`docs/project/index.md`](./docs/project/index.md) (dated active and delivered project records)
+- [`docs/project/`](./docs/project/) (dated active and delivered project records)
 - [`docs/solutions/`](./docs/solutions/) (incident-derived lessons and prevention guidance)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 

@@ -77,7 +77,7 @@ concerns this task branch and excludes consumer-runtime verification.
 4. Update `docs/project/2026-09-13-reliability-release-plan.md` current status,
    retract Q20 closure, distinguish
    shipped source from unfinished integrated-canary/consumer evidence, and
-   reconcile delivered work in the project index. Keep the quarantine decision
+   reconcile delivered work in the dated project records. Keep the quarantine decision
    open; do not close other PRs or infer consumer recovery.
 5. Simplify and review the committed package, resolve substantive findings, push
    the ordinary task branch, create a draft PR and verify hosted CI.

@@ -1,7 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostEnvReport } from "../../core/host-env";
 import { hostEnvVariables } from "../../core/host-env";
-import { parseEnvInvocation, runHostCommand } from "../env";
+import { parseEnvInvocation, runEnvCommand, runHostCommand } from "../env";
+
+const command = vi.hoisted(() => ({
+  collectHostEnvReport: vi.fn(),
+  spawn: vi.fn(),
+  actualSpawn: undefined as typeof import("node:child_process").spawn | undefined,
+}));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  command.actualSpawn = actual.spawn;
+  return { ...actual, spawn: command.spawn };
+});
+vi.mock("../../core/host-env", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../core/host-env")>()),
+  collectHostEnvReport: command.collectHostEnvReport,
+}));
+vi.mock("../environment-path", () => ({
+  resolveGitCheckoutPath: () => "/synthetic/checkout",
+}));
 
 const REPORT: HostEnvReport = {
   version: 1,
@@ -27,7 +47,28 @@ const REPORT: HostEnvReport = {
       loopback: { host: "127.0.0.1", port: 49153 },
     },
   ],
+  hostPorts: {
+    blob: {
+      service: "blob",
+      target: 10000,
+      status: "available",
+      endpoint: { host: "127.0.0.1", port: 49154 },
+    },
+    mail: { service: "mail", target: 1025, status: "inactive" },
+  },
 };
+
+beforeEach(() => {
+  command.collectHostEnvReport.mockReset().mockResolvedValue(REPORT);
+  command.spawn.mockReset();
+  if (command.actualSpawn) command.spawn.mockImplementation(command.actualSpawn);
+  process.exitCode = undefined;
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  process.exitCode = undefined;
+});
 
 describe("parseEnvInvocation", () => {
   it("separates the checkout path from the host command", () => {
@@ -58,6 +99,7 @@ describe("hostEnvVariables", () => {
       DEVROUTER_DB_ROUTED_PORT: "5432",
       DEVROUTER_DB_HOST: "127.0.0.1",
       DEVROUTER_DB_PORT: "49153",
+      DEVROUTER_HOST_PORT_BLOB: "49154",
     });
     expect(hostEnvVariables(REPORT, { NODE_EXTRA_CA_CERTS: "/own.pem" })).not.toHaveProperty(
       "NODE_EXTRA_CA_CERTS",
@@ -78,5 +120,56 @@ describe("runHostCommand", () => {
 
   it("reports a missing executable as exit code 127", async () => {
     expect(await runHostCommand(["devrouter-env-missing-binary"], process.env)).toBe(127);
+  });
+});
+
+describe("runEnvCommand", () => {
+  it("refuses to launch when a selected managed host port is unavailable", async () => {
+    command.collectHostEnvReport.mockResolvedValue({
+      ...REPORT,
+      hostPorts: {
+        blob: {
+          service: "blob",
+          target: 10000,
+          status: "unavailable",
+          reason: "not-found",
+        },
+      },
+    });
+
+    await expect(
+      runEnvCommand({ json: false, command: ["devrouter-test-must-not-spawn"] }),
+    ).rejects.toThrow("Selected managed host ports are unavailable: blob.");
+    expect(command.spawn).not.toHaveBeenCalled();
+  });
+
+  it("removes stale inherited port variables before exporting current proof", async () => {
+    vi.stubEnv("DEVROUTER_HOST_PORT_BLOB", "4444");
+    vi.stubEnv("DEVROUTER_HOST_PORT_REMOVED", "5555");
+    vi.stubEnv("DEVROUTER_UNRELATED", "keep");
+    vi.stubEnv("NODE_EXTRA_CA_CERTS", "/caller/rootCA.pem");
+    let childEnv: NodeJS.ProcessEnv | undefined;
+    command.spawn.mockImplementationOnce(((
+      _file: string,
+      _args: string[],
+      options: { env?: NodeJS.ProcessEnv },
+    ) => {
+      childEnv = options.env;
+      const child = new EventEmitter() as EventEmitter & { kill: () => boolean };
+      child.kill = () => true;
+      queueMicrotask(() => child.emit("exit", 9, null));
+      return child;
+    }) as never);
+
+    await runEnvCommand({ json: false, command: ["synthetic-host-command"] });
+
+    expect(process.exitCode).toBe(9);
+    expect(childEnv).toMatchObject({
+      DEVROUTER_HOST_PORT_BLOB: "49154",
+      DEVROUTER_UNRELATED: "keep",
+      NODE_EXTRA_CA_CERTS: "/caller/rootCA.pem",
+    });
+    expect(childEnv).not.toHaveProperty("DEVROUTER_HOST_PORT_REMOVED");
+    expect(childEnv).not.toHaveProperty("DEVROUTER_HOST_PORT_MAIL");
   });
 });

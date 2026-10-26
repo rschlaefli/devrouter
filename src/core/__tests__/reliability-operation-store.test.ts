@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileAtomically } from "../atomic-file";
 import { CapacityHistoryError, CapacityStore } from "../capacity-store";
+import { type ManagedRuntimeState, writeManagedRuntimeState } from "../managed-runtime-state";
 import { reliabilityFence } from "../reliability-contract";
 import { stepReliability } from "../reliability-model";
 import {
@@ -119,6 +120,26 @@ describe("durable reliability records", () => {
       ).state;
     });
     return readReliabilityOperation(target)!;
+  }
+
+  function retainedState(
+    target: ReliabilityIdentity = identity,
+    variant?: ManagedRuntimeState["variant"],
+  ): ManagedRuntimeState {
+    return {
+      version: 1,
+      repoPath: target.repoPath,
+      ...(target.workspace !== null ? { workspace: target.workspace } : {}),
+      devpodId: "synthetic-devpod",
+      composeProject: "synthetic-project",
+      profile: "full",
+      ...(variant !== undefined ? { variant } : {}),
+      desired: { apps: ["app"], services: [], processes: ["dev"] },
+      sourceConfigSha256: "a".repeat(64),
+      effectiveConfigSha256: "b".repeat(64),
+      status: "ready",
+      updatedAt: "2026-10-26T00:00:00.000Z",
+    };
   }
 
   function preparationReceipt(
@@ -459,6 +480,69 @@ describe("durable reliability records", () => {
         daemonId: "replacement",
       }),
     ).toThrow("different capacity enrollment");
+  });
+
+  it("refuses enrollment with a retained non-default variant without changing journal bytes", () => {
+    const before = stoppedRecord();
+    writeManagedRuntimeState({ ...retainedState(identity), variant: "ci" });
+    const file = reliabilityOperationPath(identity);
+    const bytes = fs.readFileSync(file, "utf8");
+    expect(() => enrollStoppedLifecycle(identity, before.revision, enrollment)).toThrow(
+      "retained non-default runtime variant",
+    );
+    expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+    expect(readReliabilityOperation(identity)).toEqual(before);
+  });
+
+  it.each([
+    ["legacy", undefined],
+    ["explicit default", "default"],
+  ] as const)("allows enrollment with %s retained runtime state", (_label, variant) => {
+    const before = stoppedRecord();
+    writeManagedRuntimeState(retainedState(identity, variant));
+    enrollStoppedLifecycle(identity, before.revision, enrollment);
+    expect(readReliabilityOperation(identity)).toMatchObject({
+      version: 2,
+      enrollment,
+      state: { executionPolicy: "capacity-managed" },
+    });
+  });
+
+  it("keeps the original revision stale after a non-default variant operation starts", () => {
+    const stopped = stoppedRecord();
+    writeManagedRuntimeState({ ...retainedState(identity), variant: "ci" });
+    const events = [
+      {
+        type: "operation-request",
+        kind: "ensure",
+        key: "variant-operation",
+        operationId: "variant-operation",
+        profile: "full",
+        runtimeRunning: true,
+        consumer: { id: "manual", requiredCapabilities: [] as string[], pinned: false },
+      },
+      { type: "dispatch" },
+      { type: "dispatch-persisted", operationId: "variant-operation" },
+      { type: "launched", operationId: "variant-operation" },
+    ] as const;
+    for (const event of events) {
+      updateReliabilityOperation(identity, (record) => {
+        const transition = stepReliability(
+          record.state,
+          { ...reliabilityFence(record.state), ...event },
+          100,
+        );
+        expect(transition.outcome).toBe("accepted");
+        record.state = transition.state;
+      });
+    }
+    const file = reliabilityOperationPath(identity);
+    const bytes = fs.readFileSync(file, "utf8");
+    expect(() => enrollStoppedLifecycle(identity, stopped.revision, enrollment)).toThrow(
+      "Enrollment journal revision changed.",
+    );
+    expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+    expect(readReliabilityOperation(identity)?.state.operation?.status).toBe("RUNNING");
   });
 
   it("rejects an atomic enrollment downgrade without changing durable bytes", () => {

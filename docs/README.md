@@ -29,7 +29,7 @@ The knowledge bundle is an orientation layer. Its concept frontmatter declares s
 
 ## Project records
 
-- [Project record index](./project/index.md): active roadmaps plus delivered implementation plans.
+- [Project records](./project/): dated roadmaps and implementation plans.
 
 Project records retain dated execution context. They are not current product manuals and should link to current guidance when later behavior supersedes them.
 

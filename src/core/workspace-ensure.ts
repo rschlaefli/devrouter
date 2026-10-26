@@ -38,6 +38,7 @@ import {
 } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
 import { reportLifecycleProgress } from "./lifecycle-progress";
+import { managedHostPortDeclarationsIdentity, resolveManagedHostPorts } from "./managed-host-ports";
 import { runManagedHostPreparation } from "./managed-host-preparation";
 import {
   type ManagedPostStartPlan,
@@ -64,9 +65,15 @@ import { recoverUnattachedNetworkReservation } from "./network-recovery";
 import {
   claimLifecycleEffect,
   clearActiveLifecycleStartupWitness,
+  preflightRuntimeVariant,
   withLifecycleOperationLock,
 } from "./reliability-lifecycle";
-import { loadRepoConfig, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
+import {
+  loadRepoConfig,
+  loadRuntimeConfig,
+  resolveRepoPath,
+  resolveRuntimeVariant,
+} from "./repo-config";
 import { proxyAppsFromConfig, replacePublishedProxyRoutes } from "./route-publication";
 import { DEVNET_NAME, DEVROUTER_HOME, TCP_PROTOCOL_REGISTRY } from "./router";
 import { ensureTLSHostsCovered } from "./tls";
@@ -104,6 +111,7 @@ export type WorkspaceEnsureResult = {
   repoPath: string;
   workspace?: string;
   profile: string;
+  variant?: string;
   devpodId: string;
   urls: string[];
   recreated: boolean;
@@ -149,6 +157,7 @@ type WorkspaceEnsureOptions = {
   open?: boolean;
   quiet?: boolean;
   profile?: string;
+  variant?: string;
   repair?: boolean;
   containerTimeoutMs?: number;
   httpTimeoutMs?: number;
@@ -805,9 +814,11 @@ function resolveRepairTarget(repoPath: string, linked: boolean): EnvironmentTarg
 
 type RepairBaselineReason =
   | "profile"
+  | "variant"
   | "apps"
   | "services"
   | "processes"
+  | "host-ports"
   | "source-config"
   | "effective-config"
   | "generated-missing"
@@ -832,6 +843,7 @@ function assertRepairBaseline(options: {
   plan: ManagedDevcontainerPlan;
   config: DevrouterConfig;
   profile: string;
+  variant?: string;
   processes: string[];
   routes: HostRouteState[];
   verifyRetainedProcesses?: boolean;
@@ -845,6 +857,12 @@ function assertRepairBaseline(options: {
   };
   const reasons: RepairBaselineReason[] = [];
   if (state.profile !== profile) reasons.push("profile");
+  if ((state.variant ?? "default") !== (options.variant ?? "default")) reasons.push("variant");
+  if (
+    state.hostPortDeclarationsSha256 !==
+    managedHostPortDeclarationsIdentity(config.managedRuntime?.devcontainer.hostPorts ?? {})
+  )
+    reasons.push("host-ports");
   if (state.sourceConfigSha256 !== plan.sourceConfigSha256) reasons.push("source-config");
   if (state.effectiveConfigSha256 !== plan.effectiveConfigSha256) reasons.push("effective-config");
   for (const resource of ["apps", "services", "processes"] as const) {
@@ -1066,6 +1084,12 @@ export async function workspaceEnsure(
         target.kind === "primary" ? "" : target.workspace,
         options.profile ?? (options.repair ? previousManagedState?.profile : undefined),
       );
+      const variant = resolveRuntimeVariant(
+        runtime.config,
+        options.variant ?? (options.repair ? previousManagedState?.variant : undefined),
+      );
+      if (variant !== "default" && managedPostStart.kind !== "runtime")
+        throw new Error("Runtime variants require a managed runtime post-start adapter.");
       const managedRuntime = runtime.config.managedRuntime;
       if (options.repair && !managedRuntime)
         throw new Error("Repair requires managedRuntime configuration.");
@@ -1163,6 +1187,7 @@ export async function workspaceEnsure(
             repoPath,
             ...(target.kind === "linked" ? { workspace: target.workspace } : {}),
             profile: runtime.profile,
+            variant,
             // A refusal precedes the provider start, so the exact id may not
             // be known yet on a primary checkout.
             devpodId: devpodId ?? "(absent)",
@@ -1195,6 +1220,7 @@ export async function workspaceEnsure(
           plan: managedPlan,
           config: runtime.config,
           profile: runtime.profile,
+          variant,
           processes: desiredProcesses,
           routes: previousRoutes,
           workspace: managedWorkspaceEnv,
@@ -1429,6 +1455,10 @@ export async function workspaceEnsure(
                 devpodId: captureId,
                 composeProject: captureProject,
                 profile: runtime.profile,
+                variant,
+                hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+                  managedRuntime?.devcontainer.hostPorts ?? {},
+                ),
                 desired: {
                   apps: apps.map((app) => app.name).sort(),
                   services: [...capturePlan.desiredProfileServices].sort(),
@@ -1476,6 +1506,10 @@ export async function workspaceEnsure(
             devpodId,
             composeProject: managedComposeProject,
             profile: runtime.profile,
+            variant,
+            hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+              managedRuntime?.devcontainer.hostPorts ?? {},
+            ),
             desired: {
               apps: apps.map((app) => app.name).sort(),
               services: [...managedPlan.desiredProfileServices].sort(),
@@ -1502,7 +1536,19 @@ export async function workspaceEnsure(
         container,
         quiet: options.quiet,
         profile: runtime.profile,
-        ...(managedPlan ? { processes: desiredProcesses } : {}),
+        variant,
+        ...(managedPlan
+          ? {
+              processes: desiredProcesses,
+              hostPorts: resolveManagedHostPorts({
+                repoPath,
+                declarations: managedRuntime?.devcontainer.hostPorts ?? {},
+                selectedServices: managedPlan.desiredServices,
+                composeProject: managedComposeProject,
+                composeFiles: managedPlan.composeFiles,
+              }),
+            }
+          : {}),
       });
 
       if (managedPlan && managedComposeProject) {
@@ -1601,6 +1647,7 @@ export async function workspaceEnsure(
           container: recoveredContainer,
           quiet: options.quiet,
           profile: runtime.profile,
+          variant,
         });
         recreated = true;
         claimLifecycleEffect();
@@ -1635,6 +1682,10 @@ export async function workspaceEnsure(
           devpodId,
           composeProject: managedComposeProject,
           profile: runtime.profile,
+          variant,
+          hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+            managedRuntime?.devcontainer.hostPorts ?? {},
+          ),
           desired: {
             apps: apps.map((app) => app.name).sort(),
             services: [...managedPlan.desiredProfileServices].sort(),
@@ -1667,6 +1718,7 @@ export async function workspaceEnsure(
             workspace: target.workspace,
             config: runtime.config,
             profile: runtime.profile,
+            variant,
             resolvedProfile: runtime.resolvedProfile,
             ...(options.repair ? { candidateState } : {}),
           })
@@ -1685,6 +1737,7 @@ export async function workspaceEnsure(
         repoPath,
         workspace: target.workspace,
         profile: runtime.profile,
+        variant,
         devpodId,
         urls,
         recreated,
@@ -1891,13 +1944,35 @@ export async function workspaceEnsure(
             throw new Error("Managed post-start plan disappeared during rollback.");
           }
           if (previousProcesses.length > 0 && previousManagedState?.status !== "degraded") {
+            if (
+              previousManagedState?.hostPortDeclarationsSha256 !==
+              managedHostPortDeclarationsIdentity(
+                managedRuntimeConfig?.managedRuntime?.devcontainer.hostPorts ?? {},
+              )
+            ) {
+              throw new Error(
+                "Host-port declarations changed; restore the retained declarations before repair.",
+              );
+            }
             claimLifecycleEffect();
             runManagedPostStart({
               plan: managedPostStartPlan,
               container: managedContainer,
               quiet: options.quiet,
               profile: previousManagedState?.profile ?? "full",
+              variant: previousManagedState?.variant ?? "default",
               processes: previousProcesses,
+              hostPorts: resolveManagedHostPorts({
+                repoPath,
+                declarations: managedRuntimeConfig?.managedRuntime?.devcontainer.hostPorts ?? {},
+                selectedServices: [
+                  managedPlan.primaryService,
+                  ...managedPlan.baseServices,
+                  ...previousServices,
+                ],
+                composeProject: managedComposeProject,
+                composeFiles: managedPlan.composeFiles,
+              }),
             });
           }
           for (const process of managedProcessRegistry) {
@@ -2059,7 +2134,9 @@ export async function workspaceEnsure(
       ensureNetworkLocked,
       () => network?.endpoint,
     );
+  preflightRuntimeVariant(repoPath, options);
   return withLifecycleOperationLock(repoPath, async () => {
+    preflightRuntimeVariant(repoPath, options);
     const preparationConfig = loadRepoConfig(repoPath);
     if (!options.repair)
       recoverUnattachedNetworkReservation(repoPath, Boolean(preparationConfig.managedRuntime));
@@ -2101,7 +2178,8 @@ export async function workspaceEnsure(
       linked ? workspace : "",
       requestedOptions.profile,
     ).profile;
-    if (desiredProfile !== retained.profile) {
+    const desiredVariant = resolveRuntimeVariant(preparationConfig, requestedOptions.variant);
+    if (desiredProfile !== retained.profile && desiredVariant === (retained.variant ?? "default")) {
       const target = resolveRepairTarget(repoPath, linked);
       const baseline = loadRuntimeConfig(repoPath, linked ? workspace : "", retained.profile);
       const plan = inspectManagedDevcontainerConfig({
@@ -2119,6 +2197,7 @@ export async function workspaceEnsure(
         plan,
         config: baseline.config,
         profile: baseline.profile,
+        variant: retained.variant ?? "default",
         processes: desiredManagedProcesses(
           baseline.config.managedRuntime,
           baseline.resolvedProfile,
@@ -2133,7 +2212,13 @@ export async function workspaceEnsure(
       claimLifecycleEffect();
       return ensureLocked();
     }
-    options = { ...requestedOptions, repair: true, profile: retained.profile, open: false };
+    options = {
+      ...requestedOptions,
+      repair: true,
+      profile: retained.profile,
+      variant: retained.variant ?? "default",
+      open: false,
+    };
     let repaired: WorkspaceEnsureResult;
     try {
       repaired = await repairLocked();
@@ -2141,7 +2226,8 @@ export async function workspaceEnsure(
       options = requestedOptions;
     }
     claimLifecycleEffect();
-    if (desiredProfile !== repaired.profile) return ensureLocked();
+    if (desiredProfile !== repaired.profile || desiredVariant !== (repaired.variant ?? "default"))
+      return ensureLocked();
     if (options.open) openUrls(repaired.urls);
     return repaired;
   });

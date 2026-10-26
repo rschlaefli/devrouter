@@ -24,6 +24,8 @@ source_paths:
   - src/core/devsy-workspaces.ts
   - src/core/devsy-exec.ts
   - src/core/managed-runtime*.ts
+  - src/core/managed-host-ports.ts
+  - src/core/reliability-lifecycle.ts
   - src/core/status.ts
   - src/core/doctor.ts
   - src/core/controller-monitor.ts
@@ -92,6 +94,28 @@ generated managed Dev Container configuration so canonical stop can still
 parse the workspace. Only a successfully read registry with no exact owner
 permits first-transition cleanup.
 
+Runtime variants are an independent managed startup input. Omission selects the
+implicit `default` without making the choice sticky. Non-default variants require
+a declared `managedRuntime.variants` entry and the runtime post-start adapter.
+They support the manual lifecycle only: capacity-targeted, enrolled, or retained
+capacity-managed checkouts refuse them before journal intent, controller
+admission, preparation, provider mutation, or route effects. Controller
+enrollment and resume must also refuse retained non-default state. Profile
+resource selection does not change with the variant.
+
+After selected services are ready, and before the managed post-start adapter runs,
+`ensure` resolves declarations from
+`managedRuntime.devcontainer.hostPorts`. An inactive declaration receives an
+empty `DEVROUTER_HOST_PORT_<KEY>` value. A selected binding that is missing,
+stopped, ambiguous, public, or unproved blocks adapter launch. Current mapping
+status and available ports enter process identity, so a changed mapping replaces
+the owned process. An ephemeral Docker binding is not a stable port lease. See
+the [declared host-port contract](../DEVCONTAINER.md#declared-loopback-host-ports).
+Managed state retains a declaration digest, not allocated numbers. If a failed
+transition changed declarations, rollback does not relaunch the prior process;
+restore the retained declarations before repair. Port export remains unavailable
+after declaration drift until a successful ensure.
+
 `src/core/workspace-lifecycle.ts:workspaceUp` creates or reuses a Git worktree,
 choosing a deterministic non-conflicting default path when two long branch
 names truncate to the same readable token or an unregistered directory already
@@ -143,10 +167,13 @@ unloaded before persisting ready state. It does not recreate the DevPod, remove
 containers, remove volumes, run `postCreateCommand` again, or use a broad
 Compose project command. A failed transition retains the previous routes and
 successful state when possible. A degraded transition is persisted; ordinary ensure
-validates its retained ownership before transitioning directly to a differing desired
-profile. Dropped processes need not start first; failed transitions preserve degraded
-state without replaying the broken baseline adapter. Same-profile recovery repairs
-the retained profile. Persisted state remains
+validates its retained ownership before transitioning directly to a differing
+desired profile when the variant is unchanged. That same-variant transition can
+drop a failed process without starting it first. A retained degraded profile and
+variant are repaired before a requested variant change; failed repair prevents
+that change. Failed transitions preserve degraded state without replaying the
+broken baseline adapter. Same-profile recovery repairs the retained profile.
+Persisted state remains
 authoritative while any container from its exact Compose project still exists.
 When that exact project has disappeared, Devrouter treats the state as detached
 and rebaselines from the currently observed exact workspace before proceeding.

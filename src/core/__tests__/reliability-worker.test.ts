@@ -508,6 +508,44 @@ describe("worker dispatch acknowledgement", () => {
     expect(process.kill).toHaveBeenCalledWith(-123, "SIGTERM");
   });
 
+  it("refuses an enrollment-first non-default ensure without changing intent or launching", async () => {
+    const setup = prepared();
+    setup.request.kind = "ensure";
+    setup.request.options = { variant: "ci" };
+    setup.record().state.executionPolicy = "capacity-managed";
+    setup.record().state.admission = "unknown";
+    const before = structuredClone(setup.record());
+    const pending = runLifecycleWorker(setup.request);
+    const rejection = expect(pending).rejects.toThrow(
+      "Non-default runtime variants require manual lifecycle admission.",
+    );
+    await ready(setup.child);
+    expect(fixture.update).toHaveBeenCalledTimes(1);
+    expect(fixture.capacity).not.toHaveBeenCalled();
+    expect(setup.child.send).not.toHaveBeenCalled();
+    setup.close();
+    await rejection;
+    expect(setup.record()).toEqual(before);
+    expect(setup.record().state.intentRevision).toBe(before.state.intentRevision);
+    expect(setup.record().state.operation).toBeNull();
+  });
+
+  it.each([
+    undefined,
+    "default",
+  ] as const)("keeps manual ensure admission for variant %s", async (variant) => {
+    const setup = prepared();
+    setup.request.kind = "ensure";
+    setup.request.options = variant === undefined ? {} : { variant };
+    const pending = runLifecycleWorker(setup.request);
+    await ready(setup.child);
+    expect(fixture.update).toHaveBeenCalledTimes(2);
+    expect(setup.child.send).toHaveBeenCalledOnce();
+    setup.child.emit("message", { ok: true, value: 0 });
+    setup.close();
+    await expect(pending).resolves.toBe(0);
+  });
+
   it("delivers pending cancellation before admitting a ready helper", async () => {
     const setup = prepared();
     const before = structuredClone(setup.record());

@@ -276,6 +276,101 @@ stop_managed_for_test "$managed_pid"
 managed_pid=""
 rm -f "$state_file"
 
+# Host-port identity is managed even with an explicit caller fingerprint.
+export DEVROUTER_PROCESS_HOST_PORTS_SHA256="$(printf 'a%.0s' {1..64})"
+run_helper port-mapping "${command[@]}"
+read -r ports_first_pid _ ports_first_fingerprint <"$state_file"
+managed_pid="$ports_first_pid"
+run_helper port-mapping "${command[@]}"
+read -r ports_reuse_pid _ ports_reuse_fingerprint <"$state_file"
+[ "$ports_reuse_pid" = "$ports_first_pid" ]
+export DEVROUTER_PROCESS_HOST_PORTS_SHA256="$(printf 'b%.0s' {1..64})"
+run_helper port-mapping "${command[@]}"
+read -r ports_changed_pid _ ports_changed_fingerprint <"$state_file"
+[ "$ports_changed_pid" != "$ports_first_pid" ]
+[ "$ports_changed_fingerprint" != "$ports_first_fingerprint" ]
+managed_pid="$ports_changed_pid"
+unset DEVROUTER_PROCESS_HOST_PORTS_SHA256
+
+# Runtime variants are built into identity rather than delegated to a caller
+# environment allowlist. Default and unset variants remain equivalent.
+export DEVROUTER_PROCESS_FINGERPRINT_ENV=UNRELATED_VARIANT_VALUE
+unset UNRELATED_VARIANT_VALUE
+unset DEVROUTER_RUNTIME_VARIANT
+run_default_helper "${command[@]}"
+read -r variant_default_pid _ variant_default_fingerprint <"$state_file"
+managed_pid="$variant_default_pid"
+export DEVROUTER_RUNTIME_VARIANT=default
+run_default_helper "${command[@]}"
+read -r explicit_default_variant_pid _ explicit_default_variant_fingerprint <"$state_file"
+[ "$explicit_default_variant_pid" = "$variant_default_pid" ]
+[ "$explicit_default_variant_fingerprint" = "$variant_default_fingerprint" ]
+export DEVROUTER_RUNTIME_VARIANT=ci
+run_default_helper "${command[@]}"
+read -r variant_ci_pid _ variant_ci_fingerprint <"$state_file"
+[ "$variant_ci_pid" != "$variant_default_pid" ]
+[ "$variant_ci_fingerprint" != "$variant_default_fingerprint" ]
+managed_pid="$variant_ci_pid"
+run_default_helper "${command[@]}"
+read -r matching_variant_ci_pid _ matching_variant_ci_fingerprint <"$state_file"
+[ "$matching_variant_ci_pid" = "$variant_ci_pid" ]
+[ "$matching_variant_ci_fingerprint" = "$variant_ci_fingerprint" ]
+
+# A caller can replace the allowlist, but a non-default variant still changes
+# identity. Returning to default restores an unchanged process identity.
+export DEVROUTER_PROCESS_FINGERPRINT_ENV=RESET_UNRELATED_VARIANT_VALUE
+unset RESET_UNRELATED_VARIANT_VALUE
+export DEVROUTER_RUNTIME_VARIANT=default
+run_default_helper "${command[@]}"
+read -r reset_default_pid _ reset_default_fingerprint <"$state_file"
+[ "$reset_default_pid" != "$variant_ci_pid" ]
+[ "$reset_default_fingerprint" != "$variant_ci_fingerprint" ]
+managed_pid="$reset_default_pid"
+unset DEVROUTER_RUNTIME_VARIANT
+run_default_helper "${command[@]}"
+read -r reset_unset_pid _ reset_unset_fingerprint <"$state_file"
+[ "$reset_unset_pid" = "$reset_default_pid" ]
+[ "$reset_unset_fingerprint" = "$reset_default_fingerprint" ]
+export DEVROUTER_RUNTIME_VARIANT=preview
+run_default_helper "${command[@]}"
+read -r reset_preview_pid _ reset_preview_fingerprint <"$state_file"
+[ "$reset_preview_pid" != "$reset_default_pid" ]
+[ "$reset_preview_fingerprint" != "$reset_default_fingerprint" ]
+managed_pid="$reset_preview_pid"
+
+# Explicit fingerprints keep their legacy exact value for default, then compose
+# with a non-default managed variant without folding in command or preparation.
+export DEVROUTER_RUNTIME_VARIANT=default
+run_helper "caller-owned" "${command[@]}"
+read -r explicit_default_pid _ explicit_default_fingerprint <"$state_file"
+[ "$explicit_default_fingerprint" = "caller-owned" ]
+managed_pid="$explicit_default_pid"
+export DEVROUTER_RUNTIME_VARIANT=preview
+run_helper "caller-owned" "${command[@]}"
+read -r explicit_variant_pid _ explicit_variant_fingerprint <"$state_file"
+[ "$explicit_variant_pid" != "$explicit_default_pid" ]
+[ "$explicit_variant_fingerprint" != "caller-owned" ]
+managed_pid="$explicit_variant_pid"
+run_helper "caller-owned" "${command[@]}"
+read -r matching_explicit_variant_pid _ matching_explicit_variant_fingerprint <"$state_file"
+[ "$matching_explicit_variant_pid" = "$explicit_variant_pid" ]
+[ "$matching_explicit_variant_fingerprint" = "$explicit_variant_fingerprint" ]
+
+for invalid_variant in "" "CI" "ci_preview" "-ci" "ci-" "ci--preview" "$(printf 'a%.0s' {1..65})"; do
+  if env DEVROUTER_RUNTIME_VARIANT="$invalid_variant" "$HELPER" ensure \
+    --name "$name" --match "$pattern" --log "$log_file" -- "${command[@]}"; then
+    echo "unsafe runtime variant was incorrectly accepted: '$invalid_variant'" >&2
+    exit 1
+  fi
+done
+kill -0 "$managed_pid"
+
+unset DEVROUTER_RUNTIME_VARIANT DEVROUTER_PROCESS_FINGERPRINT_ENV
+unset UNRELATED_VARIANT_VALUE RESET_UNRELATED_VARIANT_VALUE
+stop_managed_for_test "$managed_pid"
+managed_pid=""
+rm -f "$state_file"
+
 setsid bash -c "exec -a '$pattern' sleep 300" >/dev/null 2>&1 </dev/null &
 foreign_pid=$!
 if run_helper "400-1" "${command[@]}"; then
@@ -354,6 +449,20 @@ run_prepared --fingerprint caller-owned
 read -r managed_pid _ _ <"$state_file"
 [ "$managed_pid" = "$explicit_pid" ]
 [ "$(wc -l < "$test_dir/prepared")" -eq 3 ]
+
+prepare="printf 'prepared\\n' >> \"\$PREP_TEST_DIR/prepared\""
+export DEVROUTER_RUNTIME_VARIANT=preview
+run_prepared --fingerprint caller-owned
+read -r managed_pid _ variant_explicit_fingerprint <"$state_file"
+variant_explicit_pid="$managed_pid"
+[ "$(wc -l < "$test_dir/prepared")" -eq 4 ]
+prepare='exit 47'
+run_prepared --fingerprint caller-owned
+read -r managed_pid _ matching_variant_explicit_fingerprint <"$state_file"
+[ "$managed_pid" = "$variant_explicit_pid" ]
+[ "$matching_variant_explicit_fingerprint" = "$variant_explicit_fingerprint" ]
+[ "$(wc -l < "$test_dir/prepared")" -eq 4 ]
+unset DEVROUTER_RUNTIME_VARIANT
 
 # Replacing an owned group must stop even its TERM-ignoring child before preparing.
 run_helper before-preparation "${term_ignoring_command[@]}"
