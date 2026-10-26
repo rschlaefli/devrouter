@@ -5,7 +5,7 @@
 Status: Approved executable batch on 26 October 2026. User instruction:
 "approved, go on" after presentation of both choices. Target: `main`, inspected at
 `1df0d0a627d44ab7c31cb5de9106db050eb469a5`. Branch:
-`rs/runtime-variants-and-ports`. No PR exists for this package.
+`rs/runtime-variants-and-ports`. No PR exists yet for this package.
 
 Let a repository choose how its managed processes run without changing which
 resources its profile selects. Add `devrouter ensure --variant <name>` and the
@@ -245,7 +245,10 @@ state and live container proof, not only an alias. For `env -- <command>`, remov
 all reserved declared-port variables from inherited environment before adding
 proven values. Refuse launch for unavailable selected declarations; omit inactive
 ones. Keep reports read-only. Resolve fresh after service recreation and during
-rollback; never replay a stale numeric binding from persisted state.
+rollback; never replay a stale numeric binding from persisted state. Retain a
+non-secret canonical declaration digest. If declarations changed, env withholds
+exports until successful ensure; a failed transition refuses prior-process
+relaunch and stays degraded. Restore the retained declarations before repair.
 
 Include the sorted resolved key/port mapping in a non-secret managed identity
 digest injected into the helper. It must survive a replaced caller environment
@@ -402,33 +405,40 @@ named authority.
 
 ## Progress
 
-- Planning investigation and independent critique complete; no source
-  implementation, runtime qualification, commit, push, or PR has occurred.
-- Baseline: `1df0d0a627d44ab7c31cb5de9106db050eb469a5`, task branch at 0 ahead / 0
-  behind `origin/main` after fetch on 26 October 2026. Substantive delta: 0 lines.
-- Slice 1 implemented; focused source tests: 645 pass (256 ensure/lifecycle,
-  254 config/adapter/state/status/command, 135 worker/store). Linux helper
-  reconciliation suite passed in an isolated, network-disabled existing image.
-  Typecheck, Knip, docs policy, knowledge and focused Biome pass; whole-repo
-  Biome retains pre-existing warnings. Scoped Opengrep: 0 findings/0 errors.
-  Test delta: extended existing behavior coverage, no new test files.
-- Slice 1 risk review passed after one focused correction (`d9c8125`);
-  simplifier found no justified reduction. Reports in `_local/reviews/`.
-- Slice 2 implemented: 450 focused source tests pass (435 resolver/config/
-  diagnostics/ensure/adapter, 15 host-env/command); Linux helper suite passed
-  with port identity and explicit fingerprints. Typecheck, Knip, changed-file
-  Biome and whitespace checks passed. Scoped Opengrep: 0 findings/0 errors.
-  Added one resolver test file; extended existing behavioral suites.
-- Remaining slice: 3. Active slice: 2, committed-range review next.
-  Required delivery: complete reviewed and qualified source package with a
-  pushed branch, draft PR, passing required CI, and stopped synthetic runtimes.
-- Planning-stage specialist: native planner
-  `01a1779f-5b5c-7a72-b8ea-978ca48ebf9e`, round 1 REVISE; all five findings
-  accepted and verified; round 2 APPROVED. Report:
-  `_local/reviews/2026-10-26-runtime-inputs-plan-hardening.md`. Source-map
-  explorer `01a17793-9af4-7540-aafd-3788afd4977e` completed and closed.
-- Verification: documentation policy passed; every existing referenced local
-  path resolves, four named proposed files are intentionally absent, no
-  whitespace errors found. No source tests or runtime qualification run.
-- Next action: commit slice 2, complete its simplification/risk review, then
-  integrate prepared qualifier and docs, run real two-checkout proof and finish.
+- Approved batch is implemented through source slices 1 and 2. Baseline remains
+  `1df0d0a627d44ab7c31cb5de9106db050eb469a5`; fresh fetch found no target drift.
+  Primary checkout and other owners' worktrees remain untouched.
+- Slice 1 risk review passed after focused correction `d9c8125`; simplifier
+  found no justified reduction. Variant lifecycle, admission and Linux helper
+  behavior passed focused source checks.
+- Slice 2 source is committed through `cf9457b`. Risk findings verified and
+  corrected: reconstruct attached network identity during read-only port export,
+  and retain declaration identity so rollback cannot apply candidate declarations.
+  Same reviewer correction check is pending. Simplifier's one accepted reduction
+  removed unreachable collision bookkeeping; key normalization is injective.
+- Slice 3 source and documentation are complete. The installed package smoke,
+  docs policy, knowledge validation, typecheck, Knip, Biome and focused 390-test
+  correction suite pass. Biome retains existing warnings. Scoped Opengrep found
+  no findings or errors; staged Gitleaks scans pass. Linux helper suite passed
+  in the existing isolated image; no changed helper bytes invalidate that proof.
+- Two synthetic primary checkouts passed distinct responsive port discovery,
+  HTTPS endpoint checks, default/CI/default replacement, repeat-CI reuse,
+  container stability and neighbor isolation. Both exact runtimes ended stopped
+  with stopped containers and no routes. An earlier fixture mount ambiguity
+  failed before application startup; exact stop and route removal succeeded.
+  All fixture files, containers and data are retained; nothing was deleted.
+- Full source suite's sandbox attempt could not inspect process ownership.
+  The permitted host attempt passed 3,093 tests with one existing controller
+  watch deadline failure; isolated evidence passed earlier. A bounded-concurrency
+  full run passed 3,094 tests with 13 platform skips. No timeout workaround was added to application code.
+- Active slice: 3. Next: close source review corrections, commit the complete
+  qualification/guidance slice, complete its simplification/risk review, then
+  push the candidate, run integrated final review and verify hosted CI on one
+  draft PR. Delivery remains verification-pending until those steps complete.
+- Planning critique: native planner `01a1779f-5b5c-7a72-b8ea-978ca48ebf9e`
+  returned REVISE then APPROVED after five accepted findings. Scoped review
+  reports and detailed local receipts live in ignored `docs/project/_local/`.
+- Packaging: one coherent approved source package on one task branch. Runtime
+  variants and discovered port metadata share managed-process identity and the
+  adapter/recovery seam. Keep one draft PR as approved; no stack, release,
+  consumer adoption, ready status or merge is included.

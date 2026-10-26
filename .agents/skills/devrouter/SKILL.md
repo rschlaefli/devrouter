@@ -103,7 +103,7 @@ Validation rules:
 ## Docker compose requirements
 
 - **Healthcheck required**: every dependency service must define a `healthcheck`. `docker compose up --wait` blocks until healthy; without one, wait returns immediately.
-- **No published ports**: services must not publish host ports for devrouter-owned ports (80, 443, 5432). Avoid publishing ports at all -- devrouter handles routing via Traefik.
+- **No published ports**: services must not publish host ports for devrouter-owned ports (80, 443, 5432). Avoid publishing ports at all -- devrouter handles routing via Traefik. The narrow managed exception is loopback ephemeral TCP publication, including declared `hostPorts`, with `host_ip: 127.0.0.1` and no published host port; fixed or public publication remains rejected.
 - **Postgres credentials**: use `POSTGRES_USER=prisma`, `POSTGRES_PASSWORD=prisma`, `POSTGRES_DB=prisma` and create a `shadow` database. devrouter injects per-dep `{PREFIX}_URL` / `{PREFIX}_SHADOW_URL` with these credentials.
 - **Persistent volume warning**: if postgres defaults changed on an existing volume, reconcile credentials/data or recreate volumes when safe (for example `docker compose down -v`).
 
@@ -160,9 +160,14 @@ markers. Profiles select those dimensions independently:
 
 ```yaml
 managedRuntime:
+  variants: [ci]
   devcontainer:
     baseServices: [postgres]
     profileServices: [litellm, mcp-server]
+    hostPorts:
+      database:
+        service: postgres
+        target: 5432
   processes: [web, local-mcp]
 
 profiles:
@@ -182,6 +187,31 @@ profiles:
 
 - `baseServices` remain selected with the primary Dev Container service for
   every managed profile; `profileServices` and `processes` are registries.
+- `variants` is optional startup metadata: at most 32 additional names, each at
+  most 64 lowercase alphanumeric/hyphen-separated characters. `default` is
+  implicit and reserved. Variants do not change profile resources; non-default
+  variants require the managed post-start adapter and the manual lifecycle.
+- `hostPorts` is optional discovery metadata: at most 32 lowercase kebab-case
+  keys of at most 64 characters, each with only a registered base/profile
+  `service` and integer `target` from 1 through 65535. Duplicate service/target
+  pairs are rejected. Non-routed services are supported; declarations outside
+  selected services are inactive.
+- Host ports are not allocated, published, or routed by Devrouter. Consumer
+  Compose owns the loopback ephemeral binding. Ensure proves the current
+  `127.0.0.1` mapping and passes `DEVROUTER_HOST_PORT_<KEY>` to the adapter;
+  inactive values are empty, and a selected unavailable binding blocks launch.
+- Managed state stores a declaration digest, never allocated port numbers. If a
+  failed transition changed declarations, rollback stays degraded rather than
+  launching the prior process. Restore the retained declarations before repair.
+  `devrouter env` withholds exports after declaration drift until ensure succeeds.
+- An ordinary ensure selects `default` without making it sticky. `--repair`
+  retains the recorded variant and rejects another explicit one. A retained
+  degraded profile and variant are repaired before a requested variant change;
+  a same-variant transition may drop a failed process without starting it.
+- Capacity-targeted, enrolled, and retained capacity-managed checkouts refuse
+  non-default variants before journal intent, controller admission, preparation,
+  provider mutation, or route effects. Controller enrollment/resume must not
+  reinterpret retained non-default state as `default`.
 - `devcontainerServices` selects registered optional Compose services, and
   `processes` selects registered managed process markers.
 - With `managedRuntime`, `apps` may be omitted for a route-free capability
@@ -320,14 +350,14 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter -V [--repo .]`: show installed CLI version, local repo version, and next upgrade target
 - `devrouter upgrade [version] [--repo .]`: list upgrade targets or print target Agent Adaptation Prompt
 - `devrouter setup --yes [--repo .] [--json] [--workspace-runtime <devpod|devsy>]`: first-run machine setup plus structured diagnostics; explicit Devsy selection acquires its verified agent
-- `devrouter ensure [path] [--profile <name>] [--repair] [--open] [--json]`: canonical startup/reconciliation for primary and linked checkouts; automatically recovers retained degraded state into the requested profile after ownership proof, without starting dropped processes first; explicit repair uses the recorded profile only
+- `devrouter ensure [path] [--profile <name>] [--variant <name>] [--repair] [--open] [--json]`: canonical startup/reconciliation for primary and linked checkouts; a same-variant transition can recover retained degraded state into the requested profile after ownership proof without starting dropped processes first; explicit repair and a variant change repair the recorded profile and variant first
 
 - `devrouter profile resolve --repo <path> [--profile <selection>] [--json]`: resolve exact profile resources for automation without starting or inspecting a runtime
 - `devrouter profile plan --repo <path> [--profile <selection>] --contract <repo-relative-yaml> [--output <path>] [--json]`: validate repository-owned resource policy and emit literal bindings without runtime access
 - `devrouter stop [path] [--delete | --repair] [--json]`: stop the exact workspace runtime and remove exact routes; `--repair` re-proves an externally replaced Devsy population while preserving data and refuses unknown ownership; `--delete` explicitly deletes its ownership-proven data without removing the checkout and cannot combine with repair
 - `devrouter exec [path] -- <command...>`: literal one-shot command inside the exact running workspace runtime
-- `devrouter env [path] [--json]`: read-only report of the checkout's HTTPS URLs, routed TLS/SNI and loopback TCP endpoints, workspace token and mkcert CA path; never starts or reconciles the runtime and prints no credentials
-- `devrouter env [path] -- <command...>`: run a host command (Playwright, psql, k6) with `DEVROUTER_WORKSPACE`, `DEVROUTER_<APP>_URL`, `DEVROUTER_<APP>_HOST`/`_PORT` (loopback), `DEVROUTER_<APP>_ROUTED_HOST`/`_ROUTED_PORT` and, when unset, `NODE_EXTRA_CA_CERTS`; returns the command's exit code
+- `devrouter env [path] [--json]`: read-only report of the checkout's HTTPS URLs, routed TLS/SNI and loopback TCP endpoints, declared managed host ports, workspace token and mkcert CA path; never starts or reconciles the runtime and prints no credentials
+- `devrouter env [path] -- <command...>`: run a host command (Playwright, psql, k6) with `DEVROUTER_WORKSPACE`, `DEVROUTER_<APP>_URL`, `DEVROUTER_<APP>_HOST`/`_PORT` (loopback), `DEVROUTER_<APP>_ROUTED_HOST`/`_ROUTED_PORT`, current `DEVROUTER_HOST_PORT_<KEY>` values and, when unset, `NODE_EXTRA_CA_CERTS`; clears inherited host-port variables, omits inactive declarations, refuses selected unavailable ports, and returns the command's exit code
 - `devrouter harness gate [--repo <path>] [--wait-budget-ms <ms>] [--json]`: defer one harness tool call until this checkout's lifecycle phase settles; prints the harness permission decision
 - `devrouter capacity reconcile --yes [--json]`: replace a provably absent capacity ledger with a fresh empty baseline once no journal-visible charge remains
 - `devrouter up` / `devrouter down`: start/stop shared Traefik router
@@ -350,7 +380,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter app exec <name> [--shell] [--env <env>] [--workspace <slug>] -- <cmd>`: one-shot command with resolved dep env
 - `devrouter app rm <name> [--keep-config]`: remove app entry (`--keep-config` frees only the live route/hostname, leaves `.devrouter.yml` untouched)
 - `devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]`: create a worktree and start/prove it unless create-only mode is requested
-- `devrouter workspace ensure [path] [--profile <name>] [--repair] [--open] [--json]`: compatibility alias of `devrouter ensure`
+- `devrouter workspace ensure [path] [--profile <name>] [--variant <name>] [--repair] [--open] [--json]`: compatibility alias of `devrouter ensure`
 - `devrouter workspace ls [--json]`: list ownership, Git, workspace runtime, route, path, and branch evidence
 - `devrouter workspace cleanup [--repo .] [--inactive-for 30d] [--check-merged] [--measure-size] [--all-worktrees] [--manifest [--action reclaim|trim|leftover] [--output <file>]] [--json]`: report-only cleanup evidence and exact guarded suggestions; `--all-worktrees` also lists Docker leftovers of deleted checkouts; `--manifest` emits an approval manifest instead of the report
 - `devrouter workspace stop <workspace|branch>`: stop DevPod and routes; preserve checkout, owner record, and data
@@ -458,7 +488,7 @@ When Devsy owns the workspace, first run
 4. `devrouter repo devcontainer write --repo . --dry-run --json`
 5. `devrouter repo devcontainer write --repo . --yes`
 6. `devrouter repo devcontainer verify --repo . --json`
-7. Start and prove either checkout kind with `devrouter ensure . --json`; for managed selective work, use `--profile <name>` and inspect desired/active/drift state
+7. Start and prove either checkout kind with `devrouter ensure . --json`; for managed selective work, use `--profile <name> [--variant <name>]` and inspect desired/active/drift state
 8. Run seeds or migrations with `devrouter exec . -- <command...>`
 
 For host/docker runtime apps only:
@@ -474,6 +504,7 @@ For host/docker runtime apps only:
 ## Runtime behavior notes
 
 - Managed devcontainer images contain no devrouter package or helper. `devrouter ensure` delivers its matching process helper to the exact running container and invokes the repository-owned `.devcontainer/post-start.sh`; keep `.devrouter.yml` as the only consumer-side devrouter version pin.
+- Managed variant and current host-port identity always compose into process identity, including with an explicit `--fingerprint` or replacement environment allowlist. A changed variant or port mapping replaces only the owned process group. Docker may change an ephemeral number after recreation; it is not a stable lease, and the number cannot be interpolated before Compose starts.
 - `devrouter app run` auto-starts Docker dependencies and waits for health. Host app runs stop auto-started docker deps on exit; docker app runs leave target services running until explicit cleanup.
 - Host-runtime dependencies are NOT auto-started (v1).
 - `kind=dependency` entries do not create routes and cannot be direct targets for `devrouter app run`, `devrouter app exec`, or `devrouter open`.
