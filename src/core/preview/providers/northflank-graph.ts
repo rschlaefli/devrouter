@@ -536,7 +536,7 @@ export function compileNorthflankGraph(
           resource.id,
           {
             name,
-            mounts: [{ containerMountPath: mount.path }],
+            mounts: [{ containerMountPath: mount.path, volumeMountPath: "" }],
             spec: { accessMode: "ReadWriteOnce", storageSize: settings.storageMiB },
             attachedObjects: [{ id: reference(mount.service), type: "service" }],
           },
@@ -545,7 +545,15 @@ export function compileNorthflankGraph(
       );
       continue;
     }
-    const deployment: Record<string, unknown> = resource.kind === "service" ? { instances: 0 } : {};
+    const deployment: Record<string, unknown> =
+      resource.kind === "service"
+        ? {
+            instances: 0,
+            containerSnapshot: {
+              capture: { onTermination: false, retention: { maxSnapshots: 10 } },
+            },
+          }
+        : {};
     if (resource.build) {
       const git = policy.git;
       if (
@@ -692,6 +700,7 @@ export function compileNorthflankGraph(
       name,
       billing,
       deployment,
+      runtimeEnvironment: {},
       ...(resource.kind === "service"
         ? {
             ports,
@@ -714,6 +723,12 @@ export function compileNorthflankGraph(
           }
         : {
             settings: { backoffLimit: 0, activeDeadlineSeconds: 600, runOnSourceChange: "never" },
+            buildConfiguration: {
+              pathIgnoreRules: [],
+              isAllowList: false,
+              ciIgnoreFlagsEnabled: false,
+            },
+            buildArguments: {},
           }),
     };
     prepare.push(
@@ -795,6 +810,8 @@ export function compileNorthflankGraph(
           priority: 10,
           restrictions: {
             restricted: true,
+            tags: [],
+            stageIds: [],
             nfObjects: [
               { id: reference(resource.id), type: resource.kind === "service" ? "service" : "job" },
             ],

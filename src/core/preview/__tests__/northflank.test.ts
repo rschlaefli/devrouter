@@ -1308,6 +1308,31 @@ function providerFixture(
       }),
     );
   };
+  const savedBlueprint = (body: Record<string, any>, id: string) => {
+    const saved: Record<string, any> = structuredClone({ ...body, id });
+    for (const node of saved.spec.spec.steps) {
+      const spec = node.spec;
+      if (node.kind === "Job") {
+        spec.buildConfiguration ??= {
+          pathIgnoreRules: [],
+          isAllowList: false,
+          ciIgnoreFlagsEnabled: false,
+        };
+        spec.buildArguments ??= {};
+      }
+      if (node.kind === "Job" || node.kind === "DeploymentService") spec.runtimeEnvironment ??= {};
+      if (node.kind === "DeploymentService")
+        spec.deployment.containerSnapshot ??= {
+          capture: { onTermination: false, retention: { maxSnapshots: 10 } },
+        };
+      if (node.kind === "Volume") for (const mount of spec.mounts) mount.volumeMountPath ??= "";
+      if (node.kind === "SecretGroup") {
+        spec.restrictions.tags ??= [];
+        spec.restrictions.stageIds ??= [];
+      }
+    }
+    return saved;
+  };
   const api = new NorthflankPreviewAPI({
     projectId: "fixture",
     domain: policy.baseDomain,
@@ -1359,17 +1384,17 @@ function providerFixture(
         if (method === "POST") {
           if (rejectBlueprint) return new Response(null, { status: 422 });
           if (delayBlueprint) {
-            delayedBlueprint = { ...body, id: body.name };
+            delayedBlueprint = savedBlueprint(body, body.name);
             delayBlueprint = false;
             throw new Error("synthetic delayed create");
           }
-          blueprint = { ...body, id: body.name };
+          blueprint = savedBlueprint(body, body.name);
         }
         return response({ workflows: blueprint ? [blueprint] : [] });
       }
       if (!blueprint) return new Response(null, { status: 404 });
       if (tail.length === 2) {
-        if (method === "POST") blueprint = { ...body, id: tail[1] };
+        if (method === "POST") blueprint = savedBlueprint(body, tail[1]);
         if (method === "DELETE") blueprint = undefined;
         return response(blueprint);
       }
