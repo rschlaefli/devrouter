@@ -110,6 +110,17 @@ describe("host suspend heartbeat evidence", () => {
       reason: "refused",
       event: { kind: "refused" },
     });
+    const refusedDuringPreparation = [
+      heartbeat("renewed", "2026-10-26T07:59:49Z"),
+      heartbeat("refused", "2026-10-26T07:59:59Z"),
+    ];
+    expect(
+      validatePreSuspendHeartbeat(
+        refusedDuringPreparation,
+        preparedAtMs,
+        at("2026-10-26T08:00:15Z"),
+      ),
+    ).toMatchObject({ ok: false, reason: "refused" });
   });
 
   it("treats the exact 30-second boundary as expired", () => {

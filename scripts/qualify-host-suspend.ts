@@ -312,9 +312,7 @@ export function validatePreSuspendHeartbeat(
     sleepAtMs < preparedAtMs
   )
     return { ok: false, reason: "invalid-window" };
-  const refusal = events.find(
-    (event) => event.kind === "refused" && event.atMs >= preparedAtMs && event.atMs <= sleepAtMs,
-  );
+  const refusal = events.find((event) => event.kind === "refused" && event.atMs <= sleepAtMs);
   if (refusal) return { ok: false, reason: "refused", event: refusal };
   const renewal = events
     .filter((event) => event.kind === "renewed" && event.atMs <= sleepAtMs)
