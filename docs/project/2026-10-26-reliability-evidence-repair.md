@@ -173,10 +173,20 @@ concerns this task branch and excludes consumer-runtime verification.
   backwards clock or wall/monotonic divergence over 2,000 ms. A short suspend
   that crosses none of these triggers has no independent wake-epoch signal.
   This remains an open continuity-coverage gap, even if a longer attempt passes.
-- A fresh retry is prepared against the same `1df0d0a6` source and unchanged
-  bundle, preserving the first failed receipt. The operator must leave the
-  machine asleep for at least one minute. The retry fixture is retained only
-  until that test and its exact cleanup; it is not a consumer environment.
+- The fresh long-suspend retry passed against the same `1df0d0a6` source and
+  unchanged bundle, preserving the first failed receipt. A successful renewal
+  preceded the actual sleep inside the lease. The same controller incarnation
+  invalidated the old generation, refused its renewal and protection requests,
+  and retained the discontinuity. Re-observation issued a fresh generation;
+  protection required revalidation, parking consent remained unsatisfied, and
+  the route still served its expected synthetic response.
+- Independent post-verification cleanup confirmed the retry's controller and
+  heartbeat stopped, the exact recorded container was absent, and no fixture
+  container or route remained. The pass and cleanup receipts remain private.
+  No further sleep fixture is retained. This qualifies the long-suspend cell
+  on the named source artifacts, without closing short-suspend coverage,
+  capacity-window clearing across a live admission, exact-release verification,
+  integrated-canary acceptance or consumer recovery.
 - Detailed task-owned fixture receipts and producing logs are retained privately;
   other task branches, checkouts and runtimes were not changed. No release or
   global installation occurred.
