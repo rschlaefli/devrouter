@@ -162,11 +162,21 @@ concerns this task branch and excludes consumer-runtime verification.
   explicit repair proved and stopped the replacement population; repeated repair
   succeeded; resume preserved the exact data marker; final stop succeeded.
   These are synthetic qualification results, not consumer recovery evidence.
-- Q20 has a fresh fixture prepared against the merged bundle, with successful
-  ongoing renewals. Verification remains pending the operator's actual sleep and
-  wake. The qualifier will refuse a stale session or changed executable and
-  perform its exact cleanup after the live verification. The fixture is retained
-  only for this pending operator-observed test; it is not a consumer environment.
+- Q20's first fresh live attempt failed the session-invalidation assertions:
+  the old generation remained renewable after a short actual suspend, while
+  the fixture route retained its expected response. The failed receipt remains
+  private and does not qualify Q20. Exact cleanup was verified: controller and
+  heartbeat stopped, with no fixture container or route remaining.
+- Source inspection and an isolated synthetic clock experiment confirm that
+  matching monotonic/wall deltas through 15,000 ms retain the generation; a
+  15,001 ms scheduling gap invalidates it. The other current triggers are a
+  backwards clock or wall/monotonic divergence over 2,000 ms. A short suspend
+  that crosses none of these triggers has no independent wake-epoch signal.
+  This remains an open continuity-coverage gap, even if a longer attempt passes.
+- A fresh retry is prepared against the same `1df0d0a6` source and unchanged
+  bundle, preserving the first failed receipt. The operator must leave the
+  machine asleep for at least one minute. The retry fixture is retained only
+  until that test and its exact cleanup; it is not a consumer environment.
 - Detailed task-owned fixture receipts and producing logs are retained privately;
   other task branches, checkouts and runtimes were not changed. No release or
   global installation occurred.
