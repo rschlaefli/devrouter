@@ -21,6 +21,320 @@ const page = (rows: unknown[], next = false, cursor?: string) =>
     }),
   );
 
+const COMMAND_FAILED = "Northflank service command failed.";
+
+class SyntheticSocket {
+  binaryType = "blob";
+  readyState = 0;
+  readonly sent: string[] = [];
+  closeCalls = 0;
+  private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
+
+  addEventListener(type: string, listener: (event: unknown) => void) {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: (event: unknown) => void) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  send(value: string) {
+    if (this.readyState !== 1) throw new Error("socket is not open");
+    this.sent.push(value);
+  }
+
+  close() {
+    this.closeCalls += 1;
+    this.readyState = 3;
+  }
+
+  open() {
+    this.readyState = 1;
+    this.emit("open", {});
+  }
+
+  message(data: string | ArrayBuffer) {
+    this.emit("message", { data });
+  }
+
+  closeEvent(code: number) {
+    this.readyState = 3;
+    this.emit("close", { code });
+  }
+
+  private emit(type: string, event: unknown) {
+    for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event);
+  }
+}
+
+function commandHarness(token = "synthetic-token") {
+  let tokenCalls = 0;
+  const sockets: SyntheticSocket[] = [];
+  const urls: string[] = [];
+  const api = new NorthflankPreviewAPI({
+    projectId: "isolated",
+    accessToken: async () => {
+      tokenCalls += 1;
+      return token;
+    },
+    websocketFactory: (url) => {
+      urls.push(url);
+      const socket = new SyntheticSocket();
+      sockets.push(socket);
+      return socket as unknown as WebSocket;
+    },
+  });
+  return { api, sockets, urls, tokenCalls: () => tokenCalls };
+}
+
+async function startCommand(
+  harness: ReturnType<typeof commandHarness>,
+  bounds = { maxBytes: 64, timeoutMs: 1000 },
+  argv = ["node", "-e", "console.log('ok')"],
+) {
+  const pending = harness.api.execServiceCommand("worker", argv, bounds);
+  for (let attempt = 0; attempt < 4 && !harness.sockets[0]; attempt += 1) await Promise.resolve();
+  const socket = harness.sockets[0];
+  if (!socket) throw new Error("socket was not created");
+  return { pending, socket };
+}
+
+function authenticate(socket: SyntheticSocket) {
+  socket.open();
+  socket.message(JSON.stringify({ type: "init", data: { auth: "successful" } }));
+}
+
+async function expectFixedFailure(pending: Promise<string>) {
+  await expect(pending).rejects.toMatchObject({ message: COMMAND_FAILED });
+}
+
+describe("Northflank native command execution", () => {
+  it("uses the exact service URL, waits for close, and returns only bounded stdout", async () => {
+    const harness = commandHarness();
+    const { pending, socket } = await startCommand(harness, { maxBytes: 64, timeoutMs: 1000 }, [
+      "node",
+      "-e",
+      "console.log('ok')",
+      "",
+    ]);
+    expect(harness.urls).toEqual([
+      "wss://api.northflank.com/v1/command-exec/projects/isolated/services/worker",
+    ]);
+    expect(harness.tokenCalls()).toBe(1);
+
+    socket.open();
+    expect(JSON.parse(socket.sent[0]!)).toEqual({
+      type: "init",
+      data: {
+        auth: { type: "apiToken", apiToken: "synthetic-token" },
+        context: {
+          command: ["node", "-e", "console.log('ok')", ""],
+          shell: "none",
+          tty: false,
+        },
+      },
+    });
+    socket.message(JSON.stringify({ type: "init", data: { auth: "successful" } }));
+    socket.message(JSON.stringify({ type: "stdOut", data: "hel" }));
+    socket.message(JSON.stringify({ type: "stdErr", data: "diagnostic" }));
+    socket.message(
+      JSON.stringify({
+        type: "completion",
+        data: { exitCode: 0, status: "Success" },
+      }),
+    );
+    const bytes = new TextEncoder().encode(JSON.stringify({ type: "stdOut", data: "lo" }));
+    socket.message(bytes.buffer as ArrayBuffer);
+
+    let settled = false;
+    void pending.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(socket.closeCalls).toBe(0);
+
+    socket.closeEvent(1000);
+    await expect(pending).resolves.toBe("hello");
+    expect(harness.urls).toHaveLength(1);
+  });
+
+  it("rejects invalid command requests before retrieving a token or opening a socket", async () => {
+    const harness = commandHarness();
+    const bounds = { maxBytes: 64, timeoutMs: 1000 };
+    await expect(
+      harness.api.execServiceCommand("../foreign", ["ok"], bounds),
+    ).rejects.toMatchObject({ message: "Invalid Northflank service command request." });
+    await expect(harness.api.execServiceCommand("worker", [], bounds)).rejects.toMatchObject({
+      message: "Invalid Northflank service command request.",
+    });
+    await expect(
+      harness.api.execServiceCommand("worker", ["", "arg"], bounds),
+    ).rejects.toMatchObject({ message: "Invalid Northflank service command request." });
+    await expect(
+      harness.api.execServiceCommand("worker", Array(33).fill("arg"), bounds),
+    ).rejects.toMatchObject({ message: "Invalid Northflank service command request." });
+    await expect(
+      harness.api.execServiceCommand("worker", ["a".repeat(4097)], bounds),
+    ).rejects.toMatchObject({ message: "Invalid Northflank service command request." });
+    await expect(harness.api.execServiceCommand("worker", ["a\0b"], bounds)).rejects.toMatchObject({
+      message: "Invalid Northflank service command request.",
+    });
+    await expect(
+      harness.api.execServiceCommand("worker", Array(5).fill("a".repeat(4096)), bounds),
+    ).rejects.toMatchObject({ message: "Invalid Northflank service command request." });
+    await expect(
+      harness.api.execServiceCommand("worker", ["ok"], {
+        maxBytes: 8193,
+        timeoutMs: 1000,
+      }),
+    ).rejects.toMatchObject({ message: "Invalid Northflank service command request." });
+    await expect(
+      harness.api.execServiceCommand("worker", ["ok"], {
+        maxBytes: 64,
+        timeoutMs: 20_001,
+      }),
+    ).rejects.toMatchObject({ message: "Invalid Northflank service command request." });
+    expect(harness.tokenCalls()).toBe(0);
+    expect(harness.sockets).toHaveLength(0);
+    expect(harness.urls).toHaveLength(0);
+  });
+
+  it("keeps token retrieval failures generic without opening a socket", async () => {
+    let socketCalls = 0;
+    const api = new NorthflankPreviewAPI({
+      projectId: "isolated",
+      accessToken: async () => {
+        throw new Error("token-sentinel");
+      },
+      websocketFactory: () => {
+        socketCalls += 1;
+        return new SyntheticSocket() as unknown as WebSocket;
+      },
+    });
+    await expectFixedFailure(
+      api.execServiceCommand("worker", ["ok"], {
+        maxBytes: 64,
+        timeoutMs: 1000,
+      }),
+    );
+    expect(socketCalls).toBe(0);
+  });
+
+  it.each([
+    [
+      "authentication failure",
+      (socket: SyntheticSocket) => {
+        socket.open();
+        socket.message(JSON.stringify({ type: "init", data: { auth: "rejected" } }));
+      },
+    ],
+    [
+      "malformed frame",
+      (socket: SyntheticSocket) => {
+        authenticate(socket);
+        socket.message("{");
+      },
+    ],
+    [
+      "oversized raw frame",
+      (socket: SyntheticSocket) => {
+        authenticate(socket);
+        socket.message("a".repeat(16 * 1024 + 1));
+      },
+    ],
+    [
+      "provider error",
+      (socket: SyntheticSocket) => {
+        authenticate(socket);
+        socket.message(JSON.stringify({ type: "error", data: "remote-sentinel" }));
+      },
+    ],
+    [
+      "nonzero completion",
+      (socket: SyntheticSocket) => {
+        authenticate(socket);
+        socket.message(
+          JSON.stringify({
+            type: "completion",
+            data: { exitCode: 2, status: "Failure" },
+          }),
+        );
+      },
+    ],
+    [
+      "unknown completion",
+      (socket: SyntheticSocket) => {
+        authenticate(socket);
+        socket.message(
+          JSON.stringify({
+            type: "completion",
+            data: { exitCode: 0, status: "Unknown" },
+          }),
+        );
+      },
+    ],
+    [
+      "missing completion",
+      (socket: SyntheticSocket) => {
+        authenticate(socket);
+        socket.closeEvent(1000);
+      },
+    ],
+    [
+      "abnormal close",
+      (socket: SyntheticSocket) => {
+        authenticate(socket);
+        socket.message(
+          JSON.stringify({
+            type: "completion",
+            data: { exitCode: 0, status: "Success" },
+          }),
+        );
+        socket.closeEvent(1006);
+      },
+    ],
+  ])("fails generically for %s without retrying", async (_name, act) => {
+    const harness = commandHarness();
+    const { pending, socket } = await startCommand(harness);
+    act(socket);
+    await expectFixedFailure(pending);
+    expect(harness.urls).toHaveLength(1);
+  });
+
+  it("counts discarded stderr against the output budget", async () => {
+    const harness = commandHarness();
+    const { pending, socket } = await startCommand(harness, {
+      maxBytes: 5,
+      timeoutMs: 1000,
+    });
+    authenticate(socket);
+    socket.message(JSON.stringify({ type: "stdOut", data: "ok" }));
+    socket.message(JSON.stringify({ type: "stdErr", data: "no" }));
+    socket.message(JSON.stringify({ type: "stdOut", data: "!" }));
+    socket.message(JSON.stringify({ type: "stdErr", data: "x" }));
+    await expectFixedFailure(pending);
+    expect(socket.closeCalls).toBe(1);
+    expect(harness.urls).toHaveLength(1);
+  });
+
+  it("times out once and closes without retrying", async () => {
+    const harness = commandHarness();
+    const { pending, socket } = await startCommand(harness, {
+      maxBytes: 64,
+      timeoutMs: 5,
+    });
+    authenticate(socket);
+    socket.message(JSON.stringify({ type: "stdOut", data: "partial" }));
+    await expectFixedFailure(pending);
+    expect(socket.closeCalls).toBe(1);
+    expect(harness.urls).toHaveLength(1);
+  });
+});
+
 describe("Northflank preview transport", () => {
   it("scopes credentials to the configured project and refuses redirects/path traversal", async () => {
     let calls = 0;
