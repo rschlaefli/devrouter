@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { isDeepStrictEqual } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DevrouterConfig, HostRouteState, ManagedRuntimeStatus } from "../../types";
 import {
@@ -1308,6 +1309,49 @@ describe("workspaceEnsure", () => {
     expect(writeManagedRuntimeState).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: "ready", stopBaseline: captured.stopBaseline }),
     );
+  });
+
+  it("accepts a JSON-round-tripped generation for ordinary ensure and repair without host ports", async () => {
+    mockDevsyCapture([]);
+    let persisted: ManagedRuntimeState | undefined;
+    vi.mocked(readManagedRuntimeState).mockImplementation(() => persisted);
+    vi.mocked(writeManagedRuntimeState).mockImplementation((state) => {
+      persisted = JSON.parse(JSON.stringify(state)) as ManagedRuntimeState;
+    });
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
+      mode: "managed",
+      status: "ready",
+    } as ManagedRuntimeStatus);
+    vi.mocked(proveRetainedManagedStop).mockImplementation((captured) => {
+      if (
+        !isDeepStrictEqual(readManagedRuntimeState(captured.repoPath, captured.workspace), captured)
+      ) {
+        throw new Error("Retained stop generation changed.");
+      }
+      return [];
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).resolves.toMatchObject({ managedRuntime: { status: "ready" } });
+    expect(proveRetainedManagedStop).toHaveBeenCalledOnce();
+
+    persisted = {
+      ...(persisted as ManagedRuntimeState),
+      status: "degraded",
+      transitionPhase: "interrupted",
+    };
+    fs.writeFileSync(path.join(gitDir, "devrouter-workspace"), "feature\n");
+    writeWorkspaceOwnership(tmpDir, {
+      workspace: "feature",
+      devpodId: "feature",
+      worktreePath: tmpDir,
+    });
+
+    await expect(
+      workspaceEnsure(tmpDir, { repair: true, containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).resolves.toMatchObject({ managedRuntime: { status: "ready" } });
+    expect(proveRetainedManagedStop).toHaveBeenCalledTimes(2);
   });
 
   it("reconciles selected services and processes without recreating the primary container", async () => {

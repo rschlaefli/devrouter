@@ -1091,6 +1091,9 @@ export async function workspaceEnsure(
       if (variant !== "default" && managedPostStart.kind !== "runtime")
         throw new Error("Runtime variants require a managed runtime post-start adapter.");
       const managedRuntime = runtime.config.managedRuntime;
+      const hostPortDeclarationsSha256 = managedHostPortDeclarationsIdentity(
+        managedRuntime?.devcontainer.hostPorts ?? {},
+      );
       if (options.repair && !managedRuntime)
         throw new Error("Repair requires managedRuntime configuration.");
       previousRoutes = listHostRouteState().filter((route) =>
@@ -1456,9 +1459,7 @@ export async function workspaceEnsure(
                 composeProject: captureProject,
                 profile: runtime.profile,
                 variant,
-                hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
-                  managedRuntime?.devcontainer.hostPorts ?? {},
-                ),
+                ...(hostPortDeclarationsSha256 !== undefined ? { hostPortDeclarationsSha256 } : {}),
                 desired: {
                   apps: apps.map((app) => app.name).sort(),
                   services: [...capturePlan.desiredProfileServices].sort(),
@@ -1683,9 +1684,7 @@ export async function workspaceEnsure(
           composeProject: managedComposeProject,
           profile: runtime.profile,
           variant,
-          hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
-            managedRuntime?.devcontainer.hostPorts ?? {},
-          ),
+          ...(hostPortDeclarationsSha256 !== undefined ? { hostPortDeclarationsSha256 } : {}),
           desired: {
             apps: apps.map((app) => app.name).sort(),
             services: [...managedPlan.desiredProfileServices].sort(),
