@@ -3,14 +3,21 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { assertManagedDevcontainerLifecycle } from "./devcontainer-config";
+import {
+  assertManagedHostPortsAvailable,
+  type ManagedHostPorts,
+  managedHostPortIdentity,
+  managedHostPortVariables,
+} from "./managed-host-ports";
 import { networkDockerOptions } from "./network-effect-scope";
 
 const MANAGED_MARKER = "devrouter:managed devcontainer";
 const MANAGED_ADAPTER_PATH = ".devcontainer/post-start.sh";
 const RUNTIME_HELPER_PATH = "/tmp/devrouter/bin/devrouter-process";
+const RUNTIME_VARIANT_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ADAPTER_WRAPPER = `adapter_snapshot="$1"
 shift
-readonly DEVROUTER_PROCESS_HELPER DEVROUTER_PROCESS_ADAPTER_SHA256
+readonly DEVROUTER_PROCESS_HELPER DEVROUTER_PROCESS_ADAPTER_SHA256 DEVROUTER_RUNTIME_VARIANT DEVROUTER_PROCESS_HOST_PORTS_SHA256
 source "$adapter_snapshot"
 `;
 function renderDeliveryScript(targetPath: string): string {
@@ -160,9 +167,22 @@ export function runManagedPostStart(options: {
   quiet?: boolean;
   profile?: string;
   processes?: string[];
+  variant?: string;
+  hostPorts?: ManagedHostPorts;
 }): void {
   if (options.plan.kind !== "runtime") return;
 
+  const runtimeVariant = options.variant ?? "default";
+  if (runtimeVariant.length > 64 || !RUNTIME_VARIANT_PATTERN.test(runtimeVariant)) {
+    throw new Error(
+      "Managed runtime variant must use lowercase alphanumeric segments separated by hyphens and be at most 64 characters.",
+    );
+  }
+
+  const hostPorts = options.hostPorts ?? {};
+  assertManagedHostPortsAvailable(hostPorts);
+  const portEnvironment = managedHostPortVariables(hostPorts);
+  const portIdentity = managedHostPortIdentity(hostPorts) ?? "";
   const helper = fs.readFileSync(resolveProcessHelperPath());
   deliverRuntimeFile(
     options.container.id,
@@ -189,6 +209,11 @@ export function runManagedPostStart(options: {
       `DEVROUTER_PROCESS_HELPER=${RUNTIME_HELPER_PATH}`,
       "--env",
       `DEVROUTER_PROCESS_ADAPTER_SHA256=${options.plan.adapterSha256}`,
+      "--env",
+      `DEVROUTER_PROCESS_HOST_PORTS_SHA256=${portIdentity}`,
+      ...Object.entries(portEnvironment).flatMap(([name, value]) => ["--env", `${name}=${value}`]),
+      "--env",
+      `DEVROUTER_RUNTIME_VARIANT=${runtimeVariant}`,
       ...(options.profile ? ["--env", `DEVROUTER_PROFILE=${options.profile}`] : []),
       ...(options.processes
         ? [

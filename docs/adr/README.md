@@ -16,4 +16,5 @@ bundle; this index only lists the accepted decisions.
 - [ADR 0010: Support verified Devsy releases across a 1.x range](./0010-supported-devsy-version-range.md)
 - [ADR 0011: Reclaim worktrees outside the ownership ledger through approved manifests](./0011-worktree-reclaim-outside-the-ledger.md)
 - [ADR 0012: Devrouter owns idle stop for managed environments](./0012-devrouter-owns-idle-stop.md)
-- [ADR 0013: Remote previews are an opt-in Devrouter capability](./0013-opt-in-remote-previews.md)
+- [ADR 0013: Keep runtime variants independent of profile resource selection](./0013-runtime-variants-independent-of-profiles.md)
+- [ADR 0014: Remote previews are an opt-in Devrouter capability](./0014-opt-in-remote-previews.md)

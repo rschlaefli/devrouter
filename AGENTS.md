@@ -12,7 +12,7 @@ Guidance for agentic coders working in this repository.
 - [`examples/routing/README.md`](./examples/routing/README.md)
 - [`examples/devcontainer/README.md`](./examples/devcontainer/README.md)
 - [`examples/workspace/README.md`](./examples/workspace/README.md)
-- [`docs/project/index.md`](./docs/project/index.md) (dated active and delivered project records)
+- [`docs/project/`](./docs/project/) (dated active and delivered project records)
 - [`docs/solutions/`](./docs/solutions/) (incident-derived lessons and prevention guidance)
 - [`CHANGELOG.md`](./CHANGELOG.md)
 
@@ -240,7 +240,7 @@ Supported routing:
 ## Non-negotiable constraints
 
 1. Router/global artifacts must remain under `~/.config/devrouter`.
-2. `.devrouter.yml` owns local routing/profile configuration; only remote `preview` commands read `.devrouter.preview.yml` (ADR 0013).
+2. `.devrouter.yml` owns local routing/profile configuration; only remote `preview` commands read `.devrouter.preview.yml` (ADR 0014).
 3. No global repo registry.
 4. Keep `.localhost` as hostname convention.
 5. Keep Traefik ownership of `80/443/5432`.

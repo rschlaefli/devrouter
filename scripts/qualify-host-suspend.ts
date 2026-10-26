@@ -60,8 +60,32 @@ const LIVE_APP = "web";
 // own router id instead of colliding with another checkout's "web" app.
 const LIVE_ROUTER = "hostsuspend-fixture";
 const SESSION = "suspend";
+let expectedBundleDigest: string | undefined;
 
-type PowerEvent = { kind: "sleep" | "wake"; atMs: number; line: string };
+export type PowerEvent = {
+  kind: "sleep" | "wake" | "dark-wake";
+  atMs: number;
+  line: string;
+};
+
+export type HeartbeatEvent = {
+  kind: "renewed" | "refused";
+  atMs: number;
+  line: string;
+};
+
+export type SuspendSelection =
+  | { state: "ready"; pair: { sleep: PowerEvent; wake: PowerEvent } }
+  | { state: "not-run"; reason: "no-suspend" | "incomplete-suspend" }
+  | { state: "invalid"; reason: "invalid-prepare-time" };
+
+export type HeartbeatEvidence =
+  | { ok: true; renewal: HeartbeatEvent }
+  | {
+      ok: false;
+      reason: "invalid-window" | "refused" | "missing" | "pre-expired";
+      event?: HeartbeatEvent;
+    };
 
 type Checkpoint = {
   schema: "devrouter.host-suspend.checkpoint.v1";
@@ -135,7 +159,12 @@ function command(
 }
 
 function cli(args: string[], options: { env?: NodeJS.ProcessEnv; allowFailure?: boolean } = {}) {
-  return command(NODE, [DIST, ...args], options);
+  if (expectedBundleDigest && !bundleDigestMatches(expectedBundleDigest, fileSha256(DIST)))
+    throw new Error("CLI bundle changed during qualification.");
+  const result = command(NODE, [DIST, ...args], options);
+  if (expectedBundleDigest && !bundleDigestMatches(expectedBundleDigest, fileSha256(DIST)))
+    throw new Error("CLI bundle changed during qualification.");
+  return result;
 }
 
 function cliJson(args: string[], env?: NodeJS.ProcessEnv): Record<string, unknown> {
@@ -219,21 +248,24 @@ function writeFixtureJournal(home: string, checkout: string) {
   fs.writeFileSync(file, `${JSON.stringify(record)}\n`, { mode: 0o600 });
 }
 
-/** The machine's own power log is the only accepted suspend evidence. */
-function powerEvents(): PowerEvent[] {
-  const result = command("/usr/bin/pmset", ["-g", "log"], { allowFailure: true });
+/**
+ * `pmset -g log` pads the event label into its own tab-delimited column. Parse
+ * that label exactly so `Wake Requests` cannot masquerade as a real `Wake`.
+ */
+export function parsePowerLog(output: string): PowerEvent[] {
   const events: PowerEvent[] = [];
-  for (const line of `${result.stdout ?? ""}`.split("\n")) {
+  for (const line of output.split("\n")) {
     const match =
-      /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{4})\s+(Sleep|Wake|DarkWake)\b/.exec(line);
+      /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{4})[^\S\r\n]+([^\t\r\n]*?)\t/.exec(line);
     if (!match) continue;
-    const [, day, time, zone, kind] = match;
-    if (kind === "DarkWake") continue;
+    const [, day, time, zone, rawKind] = match;
+    const kind = rawKind.trim();
+    if (kind !== "Sleep" && kind !== "Wake" && kind !== "DarkWake") continue;
     const iso = `${day}T${time}${zone.slice(0, 3)}:${zone.slice(3)}`;
     const atMs = Date.parse(iso);
     if (!Number.isFinite(atMs)) continue;
     events.push({
-      kind: kind === "Sleep" ? "sleep" : "wake",
+      kind: kind === "Sleep" ? "sleep" : kind === "Wake" ? "wake" : "dark-wake",
       atMs,
       line: line.trim().slice(0, 200),
     });
@@ -241,18 +273,71 @@ function powerEvents(): PowerEvent[] {
   return events;
 }
 
-function lastSuspend(events: PowerEvent[], afterMs: number) {
-  let open: PowerEvent | undefined;
-  let pair: { sleep: PowerEvent; wake: PowerEvent } | undefined;
-  for (const event of events) {
+/** Select only the first suspend after preparation; later cycles cannot replace it. */
+export function firstSuspendAfter(events: PowerEvent[], afterMs: number): SuspendSelection {
+  if (!Number.isSafeInteger(afterMs)) return { state: "invalid", reason: "invalid-prepare-time" };
+  const ordered = [...events].sort((left, right) => left.atMs - right.atMs);
+  let sleep: PowerEvent | undefined;
+  for (const event of ordered) {
     if (event.atMs < afterMs) continue;
-    if (event.kind === "sleep") open = event;
-    else if (open) {
-      pair = { sleep: open, wake: event };
-      open = undefined;
+    if (!sleep) {
+      if (event.kind === "sleep") sleep = event;
+      continue;
     }
+    // DarkWake is a partial wake during the suspend. Keep the original Sleep
+    // open and require a real Wake so the first completed cycle remains fixed.
+    if (event.kind === "wake") return { state: "ready", pair: { sleep, wake: event } };
   }
-  return pair;
+  return { state: "not-run", reason: sleep ? "incomplete-suspend" : "no-suspend" };
+}
+
+export function parseHeartbeatLog(output: string): HeartbeatEvent[] {
+  const events: HeartbeatEvent[] = [];
+  for (const line of output.split("\n")) {
+    const match = /^(\S+Z) (renewed(?:\s.*)?|renew refused:.*)$/.exec(line.trim());
+    if (!match) continue;
+    const atMs = Date.parse(match[1]);
+    if (!Number.isFinite(atMs)) continue;
+    events.push({
+      kind: match[2].startsWith("renewed") ? "renewed" : "refused",
+      atMs,
+      line: line.trim().slice(0, 200),
+    });
+  }
+  return events;
+}
+
+export function validatePreSuspendHeartbeat(
+  events: HeartbeatEvent[],
+  preparedAtMs: number,
+  sleepAtMs: number,
+): HeartbeatEvidence {
+  if (
+    !Number.isSafeInteger(preparedAtMs) ||
+    !Number.isSafeInteger(sleepAtMs) ||
+    sleepAtMs < preparedAtMs
+  )
+    return { ok: false, reason: "invalid-window" };
+  const refusal = events.find((event) => event.kind === "refused" && event.atMs <= sleepAtMs);
+  if (refusal) return { ok: false, reason: "refused", event: refusal };
+  const renewal = events
+    .filter((event) => event.kind === "renewed" && event.atMs <= sleepAtMs)
+    .sort((left, right) => left.atMs - right.atMs)
+    .at(-1);
+  if (!renewal) return { ok: false, reason: "missing" };
+  const ageMs = sleepAtMs - renewal.atMs;
+  if (ageMs >= 30_000) return { ok: false, reason: "pre-expired", event: renewal };
+  return { ok: true, renewal };
+}
+
+export function bundleDigestMatches(prepared: string, current: string): boolean {
+  return /^[a-f0-9]{64}$/i.test(prepared) && prepared.toLowerCase() === current.toLowerCase();
+}
+
+/** The machine's own power log is the only accepted suspend evidence. */
+function powerEvents(): PowerEvent[] {
+  const result = command("/usr/bin/pmset", ["-g", "log"], { allowFailure: true });
+  return parsePowerLog(`${result.stdout ?? ""}`);
 }
 
 function liveRouteUrl(): string {
@@ -335,9 +420,10 @@ const HEARTBEAT_MS = 10_000;
  * the sleep and the wake would prove nothing about continuity. The renewer
  * stops on the first refused renewal, which is what a client sees after a wake.
  */
-const HEARTBEAT_SOURCE = [
+export const HEARTBEAT_SOURCE = [
   "const { execFileSync } = require('node:child_process');",
   "const spec = JSON.parse(process.env.DR_HS_RENEW);",
+  "const digest = () => require('node:crypto').createHash('sha256').update(require('node:fs').readFileSync(spec.dist)).digest('hex');",
   "const args = [",
   "  spec.dist, 'controller', 'renew',",
   "  '--session', spec.session, '--store', spec.store,",
@@ -349,7 +435,9 @@ const HEARTBEAT_SOURCE = [
   "(async () => {",
   "  for (;;) {",
   "    try {",
+  "      if (digest() !== spec.distSha256) throw new Error('CLI bundle changed');",
   "      execFileSync(spec.node, args, { env, encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] });",
+  "      if (digest() !== spec.distSha256) throw new Error('CLI bundle changed');",
   "      process.stdout.write(new Date().toISOString() + ' renewed ' + spec.session + '\\n');",
   "    } catch (error) {",
   "      const cause = String((error && error.message) || error).split('\\n')[0];",
@@ -361,7 +449,7 @@ const HEARTBEAT_SOURCE = [
   "})();",
 ].join("\n");
 
-function startHeartbeat(binding: Binding, home: string, bin: string): void {
+function startHeartbeat(binding: Binding, home: string, bin: string, distSha256: string): void {
   const log = fs.openSync(path.join(WORK, "heartbeat.log"), "a");
   const child = spawn(NODE, ["-e", HEARTBEAT_SOURCE, "devrouter-host-suspend-heartbeat", DIST], {
     env: {
@@ -369,6 +457,7 @@ function startHeartbeat(binding: Binding, home: string, bin: string): void {
       DR_HS_RENEW: JSON.stringify({
         node: NODE,
         dist: DIST,
+        distSha256,
         home,
         path: `${bin}:/usr/bin:/bin`,
         dockerHost: `unix://${WORK}/absent.sock`,
@@ -577,6 +666,7 @@ async function prepare() {
   const ca = `${command("mkcert", ["-CAROOT"], { allowFailure: true }).stdout.trim()}/rootCA.pem`;
   if (!fs.existsSync(ca)) skip("the mkcert root CA is unavailable (run devrouter tls install).");
 
+  expectedBundleDigest = fileSha256(DIST);
   await resetWorkRoot();
   fs.mkdirSync(WORK, { recursive: true });
   const home = path.join(WORK, "home");
@@ -689,6 +779,8 @@ async function prepare() {
   } satisfies NodeJS.ProcessEnv;
   const socket = path.join(home, ".config", "devrouter", "controller", "control.sock");
   const log = fs.openSync(path.join(WORK, "controller.log"), "a");
+  if (!bundleDigestMatches(expectedBundleDigest, fileSha256(DIST)))
+    fail("CLI bundle changed before controller startup.");
   const controller = spawn(NODE, [DIST, "controller", "run"], {
     env: controllerEnv,
     detached: true,
@@ -766,17 +858,19 @@ async function prepare() {
   // The operator suspends minutes later, so the session needs the same live
   // heartbeat a watching consumer would send. One full interval proves the
   // heartbeat, not the just-issued lease, is what keeps it alive.
-  startHeartbeat(binding, home, bin);
+  startHeartbeat(binding, home, bin, expectedBundleDigest);
   await delay(HEARTBEAT_MS + 2_000);
   const heartbeatLog = fs.readFileSync(path.join(WORK, "heartbeat.log"), "utf8");
-  if (!heartbeatLog.includes("renewed"))
+  if (!heartbeatLog.includes("renewed") || heartbeatLog.includes("renew refused:"))
     fail(`the fixture heartbeat produced no renewal: ${heartbeatLog.trim().slice(-200)}`);
+  if (!bundleDigestMatches(expectedBundleDigest, fileSha256(DIST)))
+    fail("CLI bundle changed during preparation; no checkpoint can be accepted.");
   const checkpoint: Checkpoint = {
     schema: "devrouter.host-suspend.checkpoint.v1",
     preparedAtMs: Date.now(),
     preparedAt: new Date().toISOString(),
     revision: command("git", ["rev-parse", "HEAD"]).stdout.trim(),
-    distSha256: fileSha256(DIST),
+    distSha256: expectedBundleDigest,
     home,
     controller: {
       pid,
@@ -818,10 +912,59 @@ async function verify() {
   if (!fs.existsSync(CHECKPOINT))
     skip("no prepared run exists; run pnpm qualify:host-suspend first.");
   const checkpoint = JSON.parse(fs.readFileSync(CHECKPOINT, "utf8")) as Checkpoint;
+  if (
+    checkpoint.schema !== "devrouter.host-suspend.checkpoint.v1" ||
+    !Number.isSafeInteger(checkpoint.preparedAtMs) ||
+    typeof checkpoint.distSha256 !== "string" ||
+    !checkpoint.distSha256.match(/^[a-f0-9]{64}$/i)
+  )
+    fail("the prepared evidence record is invalid; prepare a fresh run.");
+
+  // The receipt must name the exact executable that produced the observation.
+  // Keep this gate ahead of every external command, including the Devrouter CLI.
+  if (!fs.existsSync(DIST)) skip("the prepared bundle is unavailable; rebuild it before verify.");
+  const currentDistSha256 = fileSha256(DIST);
+  if (!bundleDigestMatches(checkpoint.distSha256, currentDistSha256))
+    fail(
+      `the prepared bundle changed (prepared ${checkpoint.distSha256}, current ${currentDistSha256}); prepare a fresh run.`,
+    );
+  expectedBundleDigest = checkpoint.distSha256;
+
+  const selection = firstSuspendAfter(powerEvents(), checkpoint.preparedAtMs);
+  if (selection.state === "invalid") fail(`cannot select a suspend: ${selection.reason}.`);
+  if (selection.state === "not-run")
+    skip(
+      selection.reason === "no-suspend"
+        ? "the machine's power log records no Sleep after this run was prepared."
+        : "the machine's power log records no completed Wake for the first Sleep after this run was prepared.",
+    );
+  const pair = selection.pair;
+  const heartbeatLogPath = path.join(WORK, "heartbeat.log");
+  if (!fs.existsSync(heartbeatLogPath))
+    skip("the prepared run has no heartbeat log; prepare a fresh run before suspend.");
+  const heartbeat = validatePreSuspendHeartbeat(
+    parseHeartbeatLog(fs.readFileSync(heartbeatLogPath, "utf8")),
+    checkpoint.preparedAtMs,
+    pair.sleep.atMs,
+  );
+  if (!heartbeat.ok) {
+    if (heartbeat.reason === "refused")
+      fail(
+        `the heartbeat was refused before the first sleep: ${heartbeat.event?.line ?? "unknown"}`,
+      );
+    if (heartbeat.reason === "pre-expired")
+      fail(
+        `the last successful heartbeat was ${Math.round((pair.sleep.atMs - (heartbeat.event?.atMs ?? pair.sleep.atMs)) / 1000)}s before sleep; the 30s lease had expired.`,
+      );
+    if (heartbeat.reason === "invalid-window")
+      fail("the checkpoint and power-log timestamps do not form a valid suspend window.");
+    fail("no successful heartbeat renewal was logged before the first sleep.");
+  }
+  facts.push(
+    `the last successful heartbeat was ${Math.round((pair.sleep.atMs - heartbeat.renewal.atMs) / 1000)}s before the first sleep, inside the 30s lease`,
+  );
+
   const ca = `${command("mkcert", ["-CAROOT"], { allowFailure: true }).stdout.trim()}/rootCA.pem`;
-  const pair = lastSuspend(powerEvents(), checkpoint.preparedAtMs);
-  if (!pair)
-    skip("the machine's power log records no Sleep/Wake pair after this run was prepared.");
   const sleptSeconds = Math.round((pair.wake.atMs - pair.sleep.atMs) / 1000);
   facts.push(`the machine slept ${sleptSeconds}s between the recorded Sleep and Wake`);
 
@@ -1007,8 +1150,10 @@ async function main() {
   else fail(`unknown phase ${JSON.stringify(phase)}; expected prepare or verify.`);
 }
 
-void main().catch((error) => {
-  // The failing frame is the whole diagnostic for an unexpected fixture error.
-  if (error instanceof Error && error.stack) process.stderr.write(`${error.stack}\n`);
-  fail(error instanceof Error ? error.message : String(error));
-});
+if (require.main === module) {
+  void main().catch((error) => {
+    // The failing frame is the whole diagnostic for an unexpected fixture error.
+    if (error instanceof Error && error.stack) process.stderr.write(`${error.stack}\n`);
+    fail(error instanceof Error ? error.message : String(error));
+  });
+}

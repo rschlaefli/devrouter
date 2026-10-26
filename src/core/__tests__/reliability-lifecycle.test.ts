@@ -29,6 +29,7 @@ const fixture = vi.hoisted(() => ({
   listDevpodWorkspaces: vi.fn(),
   readManagedRuntimeState: vi.fn(),
   proveRetainedManagedStop: vi.fn(),
+  recoverManagedStopBaseline: vi.fn(),
   absent: false,
   assertRoutesRemoved: vi.fn(),
   withWorkspaceLifecycleLock: vi.fn(),
@@ -97,6 +98,7 @@ vi.mock("../traefik-route-health", () => ({
   assertTraefikRoutesRemoved: fixture.assertRoutesRemoved,
 }));
 vi.mock("../managed-stop-recovery", () => ({
+  recoverManagedStopBaseline: fixture.recoverManagedStopBaseline,
   managedStopRouteReferences: () => [],
   proveManagedStop: (...args: unknown[]) => ({
     status: fixture.absent ? "proven-absent" : "retained",
@@ -439,6 +441,8 @@ beforeEach(() => {
     fs.rmSync(path.join(root, "reliability"), { recursive: true, force: true });
   }
   fixture.initialAbsence.mockReset();
+  fixture.recoverManagedStopBaseline.mockReset();
+  fixture.proveRetainedManagedStop.mockReset();
   fixture.absent = false;
   fixture.assertRoutesRemoved.mockReset();
   vi.resetModules();
@@ -1468,6 +1472,81 @@ afterAll(() => {
   for (const checkout of fixture.checkouts) fs.rmSync(checkout, { recursive: true, force: true });
 });
 
+describe("runtime variant preflight", () => {
+  function variantCheckout() {
+    const checkout = newCheckout();
+    fs.writeFileSync(
+      path.join(checkout, ".devrouter.yml"),
+      `version: 1
+managedRuntime:
+  variants: [ci]
+  devcontainer:
+    baseServices: []
+    profileServices: []
+  processes: [app]
+apps: []
+`,
+    );
+    fs.mkdirSync(path.join(checkout, ".devcontainer"));
+    fs.writeFileSync(path.join(checkout, ".devcontainer/devcontainer.json"), "{}");
+    fs.writeFileSync(
+      path.join(checkout, ".devcontainer/post-start.sh"),
+      "# devrouter:managed devcontainer\nDEVROUTER_PROCESS_HELPER=x\n",
+    );
+    return checkout;
+  }
+
+  it("refuses a capacity-targeted variant without journal, controller or worker effects", async () => {
+    const { lifecycle, store } = await loadLifecycleModules();
+    const repoPath = variantCheckout();
+    fixture.readCapacityPolicy.mockReturnValue({
+      admissions: "enabled",
+      enrollments: [{ repoPath }],
+    });
+    const identity = { repoPath, workspace: null, provider: "devsy" as const };
+    await expect(
+      lifecycle.superviseLifecycle("ensure", repoPath, { variant: "ci" }),
+    ).rejects.toThrow("manual lifecycle");
+    expect(store.readReliabilityOperation(identity)).toBeUndefined();
+    expect(fixture.observe).not.toHaveBeenCalled();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+    expect(fixture.resolveLinkedTarget).not.toHaveBeenCalled();
+  });
+
+  it("rechecks a newly targeted capacity policy before manual admission", async () => {
+    const { lifecycle, store } = await loadLifecycleModules();
+    const repoPath = variantCheckout();
+    fixture.runLifecycleWorker.mockImplementation(
+      async (_request, _supervision, beforeAdmission) => {
+        fixture.readCapacityPolicy.mockReturnValue({
+          admissions: "enabled",
+          enrollments: [{ repoPath }],
+        });
+        beforeAdmission();
+      },
+    );
+    await expect(
+      lifecycle.superviseLifecycle("ensure", repoPath, { variant: "ci" }),
+    ).rejects.toThrow("manual lifecycle");
+    const record = store.readReliabilityOperation({ repoPath, workspace: null, provider: "devsy" });
+    expect(record?.state.intentRevision).toBe(0);
+    expect(record?.state.operation).toBeNull();
+    expect(fixture.observe).not.toHaveBeenCalled();
+  });
+
+  it("refuses undeclared selection before journal creation", async () => {
+    const { lifecycle, store } = await loadLifecycleModules();
+    const repoPath = variantCheckout();
+    await expect(
+      lifecycle.superviseLifecycle("ensure", repoPath, { variant: "unknown" }),
+    ).rejects.toThrow();
+    expect(
+      store.readReliabilityOperation({ repoPath, workspace: null, provider: "devsy" }),
+    ).toBeUndefined();
+    expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  });
+});
+
 describe("reliability lifecycle supervision", () => {
   it("reports an empty stop without allocating identity or dispatching for a never-started linked checkout", async () => {
     fixture.isLinkedWorktree.mockReturnValue(true);
@@ -1818,6 +1897,48 @@ describe("reliability lifecycle supervision", () => {
     );
 
     expect(store.readReliabilityOperation(identity)?.state).toEqual(stopping?.state);
+  });
+
+  it("retries explicit repair through an already proven replacement baseline", async () => {
+    setProcessConnected(true);
+    const { identity, lifecycle, request } = await seedStopRequest();
+    const retained = { repoPath: identity.repoPath, stopBaseline: { version: 1 } };
+    fixture.readManagedRuntimeState.mockReturnValue(retained);
+    fixture.proveRetainedManagedStop.mockReturnValue([]);
+    request.options.repair = true;
+    await expect(lifecycle.executeLifecycleWorker(request, async () => "stopped")).resolves.toBe(
+      "stopped",
+    );
+    expect(fixture.recoverManagedStopBaseline).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    false,
+    true,
+  ])("preserves the recovery boundary after failure (persisted: %s)", async (persisted) => {
+    setProcessConnected(true);
+    const { identity, lifecycle, request, store } = await seedStopRequest();
+    const retained = { repoPath: identity.repoPath, stopBaseline: { version: 1 } };
+    const candidate = { ...retained, transitionPhase: "stop-recovery" };
+    let saved = retained;
+    fixture.readManagedRuntimeState.mockImplementation(() => saved);
+    fixture.proveRetainedManagedStop.mockImplementation(() => {
+      throw new Error("population changed");
+    });
+    fixture.recoverManagedStopBaseline.mockImplementation((_state, _readPlan, beforePersist) => {
+      if (!persisted) throw new Error("unproven replacement");
+      beforePersist();
+      expect(store.readReliabilityOperation(identity)?.stopWorkStarted).toBe(true);
+      saved = candidate;
+      return candidate;
+    });
+    request.options.repair = true;
+    const cessation = vi.fn();
+    await expect(lifecycle.executeLifecycleWorker(request, cessation)).rejects.toThrow();
+    expect(cessation).not.toHaveBeenCalled();
+    expect(saved).toBe(persisted ? candidate : retained);
+    expect(store.readReliabilityOperation(identity)?.stopWorkStarted === true).toBe(persisted);
+    expect(store.readReliabilityOperation(identity)?.state.desired).toBe("stopped-by-user");
   });
 
   it("records the pre-mutation stop boundary before the stop may change anything", async () => {

@@ -75,9 +75,14 @@ the task:
 
 ```yaml
 managedRuntime:
+  variants: [ci]
   devcontainer:
     baseServices: [postgres]
     profileServices: [litellm, mcp-server]
+    hostPorts:
+      database:
+        service: postgres
+        target: 5432
   processes: [web, local-mcp]
 
 profiles:
@@ -98,6 +103,16 @@ dimension or a `full` profile to select every registered resource. Warm profile
 changes keep the same DevPod and volumes, do not rerun post-create, and stop
 dropped resources only after exact ownership proof. See the full lifecycle
 contract in `docs/DEVCONTAINER.md`.
+
+`variants` selects managed process startup inputs independently of profile
+resources. `default` is implicit and reserved; up to 32 additional names of at
+most 64 characters may be declared, and non-default variants require the managed
+adapter. Capacity-targeted or retained capacity-managed checkouts use the manual
+lifecycle only. `hostPorts` is a discovery registry of at most 32 registered
+services and target ports. Compose owns the IPv4 loopback ephemeral binding;
+Devrouter proves the current mapping but never allocates or publishes it. See
+`docs/DEVCONTAINER.md#declared-loopback-host-ports` for limits, inactive values,
+and unavailable-binding behavior.
 
 When `devcontainer.json` declares `postCreateCommand` and the managed
 post-start adapter is present, `waitFor` must be exactly `postCreateCommand` or

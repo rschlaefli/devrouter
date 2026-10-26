@@ -3,8 +3,9 @@
 The preferred Devrouter model. The **devcontainer owns the
 environment**; devrouter is a thin **routing layer** that gives it stable,
 TLS-terminated `*.localhost` hosts on the shared `:443` / `:5432` / `:6379` —
-with **no published host ports**, so many devcontainers run at once with zero
-collisions.
+without public host-port publication. An optional loopback-only ephemeral
+binding can expose a declared TCP service to host tools, so many devcontainers
+still run at once without public port collisions.
 
 Clean split of responsibilities:
 
@@ -408,7 +409,45 @@ image includes them. Set `DEVROUTER_PROCESS_FINGERPRINT_ENV` to a comma-separate
 list only when non-secret environment values such as a public application origin
 affect reuse. Secret-like names are rejected and raw values are never written to
 state. Use `--fingerprint <value>` only for a complete caller-owned identity that
-should replace the default fingerprint.
+should replace the default fingerprint. Managed runtime variant and host-port
+identity always composes with that value.
+
+### Runtime variants
+
+Runtime variants let a repository choose a managed process startup input without
+changing the profile's resource selection. Declare up to 32 additional names in
+`managedRuntime.variants`. Each name uses lowercase letters or digits separated
+by single hyphens and is at most 64 characters. `default` is implicit,
+reserved, and usable when `variants` is absent. A non-default variant requires a
+managed runtime adapter.
+
+Select a variant with either lifecycle entry point:
+
+```bash
+devrouter ensure . --profile ai --variant ci --json
+devrouter workspace ensure . --variant ci --json
+```
+
+An ordinary ensure without `--variant` selects `default`; the selection is not
+sticky. `--repair` uses the retained variant, and an explicit repair with a
+different variant is rejected. Each ensure result includes `variant`; status and
+doctor report the active variant. A profile change and a variant change remain
+independent. A same-variant transition to a profile that drops a failed process
+can proceed directly, while retained degraded state is repaired with its recorded
+profile and variant before a requested variant change. A failed repair prevents
+that change.
+
+Non-default variants currently support the manual managed lifecycle. Devrouter
+rejects them before journal intent, controller admission, preparation, provider
+mutation, or route effects when capacity policy targets the checkout, its
+lifecycle is enrolled, or its retained journal is capacity-managed. Capacity
+enrollment and controller resume also refuse a retained non-default variant.
+Capacity support for variants requires a later policy contract.
+
+The runtime helper includes a non-default variant in process identity even when
+the adapter replaces the environment allowlist or supplies an explicit
+`--fingerprint`. Repeating the same variant and other identity inputs reuses the
+owned process; changing the variant replaces only that owned process group.
 
 For synchronous dependency preparation, pass `--prepare-command 'command'` to
 the helper's `ensure` action. An unchanged owned runtime skips preparation.
@@ -483,7 +522,7 @@ resource explicitly.
 Select a profile with the managed lifecycle command:
 
 ```bash
-devrouter ensure . --profile ai --json
+devrouter ensure . --profile ai [--variant <name>] --json
 devrouter ensure . --profile mcp --json
 devrouter status --repo . --json
 devrouter doctor --repo . --json
@@ -693,6 +732,85 @@ project carries the upstream alias on `devnet` and publishes the port on
 `127.0.0.1` or `::1`. Otherwise the report gives the reason
 (`not-found`, `ambiguous`, `not-running`, `not-published`, `unavailable`).
 
+### Declared loopback host ports
+
+Use `managedRuntime.devcontainer.hostPorts` when a host tool needs a TCP endpoint
+that cannot use TLS/SNI. This map is a discovery registry for service ports that
+Compose already publishes. It does not start a service, create a route, allocate a
+host port, or rewrite Compose. The service can be non-routed, and a declaration
+whose service is not selected by the current profile is inactive.
+
+```yaml
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [mailpit]
+    hostPorts:
+      database:
+        service: postgres
+        target: 5432
+```
+
+The map accepts at most 32 declarations. Keys use the same lowercase kebab-case
+form as variants, with a 64-character maximum. Each value has only `service` and
+`target`; the service must occur in `baseServices` or `profileServices`, and
+`target` is an integer from 1 through 65535. Service/target pairs and normalized
+environment-variable names must be unique. The source registry is separate from
+the running-service selection.
+
+Compose owns allocation. For TCP discovery, publish the target on IPv4 loopback
+and omit the host port:
+
+```yaml
+services:
+  postgres:
+    ports:
+      - target: 5432
+        host_ip: 127.0.0.1
+        protocol: tcp
+```
+
+The short form `127.0.0.1::5432` is equivalent. Docker chooses an ephemeral
+port after the service starts. `devrouter repo devcontainer verify` accepts this
+loopback ephemeral form. A fixed published port or a non-loopback host binding
+remains a static-diagnostic error. Managed startup still applies the existing
+fixed-port conflict checks.
+
+After service readiness, `ensure` resolves every selected declaration against
+exactly one running container with the checkout's Compose project, service, and
+configuration identity. It requires one actual `127.0.0.1` mapping for the
+declared TCP target. Missing, stopped, ambiguous, public, or otherwise unprovable
+bindings cannot be exported, and a selected unavailable declaration prevents the
+managed adapter from launching. Unselected declarations are inactive and do not
+block ensure.
+
+The adapter receives `DEVROUTER_HOST_PORT_<KEY>`, with hyphens in the key
+normalized to underscores. Its value is the current numeric host port for an
+available declaration and an empty string for an inactive one. Selected
+unavailable declarations prevent adapter launch. A container must connect to
+the service by its Compose service name or network alias and target port; the
+allocated host port is external metadata and cannot be interpolated into the same
+Compose model before startup.
+
+`devrouter env . --json` includes an additive `hostPorts` section with the
+service, target, availability status, endpoint, or a bounded reason. The plain
+report displays the same rows. `devrouter env . -- <command>` first removes all
+inherited `DEVROUTER_HOST_PORT_*` variables, then exports only current available
+values, omits inactive declarations, and refuses to launch while a selected
+declaration is unavailable.
+
+The helper includes the sorted available mapping in its own non-secret identity
+digest. A Docker container replacement that changes a mapping replaces the owned
+process before route publication; an unchanged mapping permits reuse. The number
+is not a lease: stop and recreation can change it, always read the current value
+again.
+
+Managed state retains only a non-secret digest of the declarations, never
+allocated host numbers. If a failed transition changed those declarations,
+rollback refuses to relaunch the prior process and remains degraded; restore the
+retained declarations before repair. `devrouter env` withholds exports after
+declaration drift until a successful ensure adopts the new declarations.
+
 ## 7. Verify / tear down
 
 ```bash
@@ -748,3 +866,18 @@ own idle daemon never stops one container of a running stack.
   host gateway (`extra_hosts: ['oidc.myapp.localhost:host-gateway']`) and trust
   the mkcert CA in-container (`NODE_EXTRA_CA_CERTS`) — never disable TLS
   verification.
+
+### Recovering a replaced managed population
+
+If a retained stop baseline points to containers replaced outside the current
+lifecycle, ordinary stop refuses the changed population. Use
+`devrouter stop <checkout-path> --repair` for an explicit, non-destructive
+recovery. Recovery requires the unchanged exact provider registration and
+local Docker daemon, positive absence of every old container, no competing
+provider registration, and a complete replacement population matching the
+current selected Compose configuration and provider runner binding. Changing
+or incomplete evidence refuses before adopting a baseline or stopping anything.
+The new baseline is marked degraded, not ready, and its work boundary is
+recorded before persistence. Stop then uses the normal pinned-container proof.
+Volumes remain intact. `--repair` cannot be combined with `--delete`; after a
+successful recovery, an explicitly authorized ordinary deletion can follow.

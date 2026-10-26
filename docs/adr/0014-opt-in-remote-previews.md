@@ -1,4 +1,4 @@
-# ADR 0013: Remote previews are an opt-in Devrouter capability
+# ADR 0014: Remote previews are an opt-in Devrouter capability
 
 Status: Accepted. Offline planning, durable lifecycle, Northflank source and GitHub integration are implemented. GitLab source is implemented; live qualification remains pending.
 

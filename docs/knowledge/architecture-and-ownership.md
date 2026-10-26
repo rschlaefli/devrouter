@@ -70,7 +70,7 @@ Devrouter connects repository intent to local runtime and routing systems. It do
   policy and emits deterministic literal arrays, while the consumer owns key
   meaning and command launch. [ADR 0007](../adr/0007-keep-ci-profile-planning-repository-owned.md)
   owns this boundary.
-- The committed `.devrouter.yml` owns local routing/profile configuration. Runtime namespacing is an in-memory view produced by `src/core/repo-config.ts:applyWorkspace`. Only `preview` commands read the separate `.devrouter.preview.yml` manifest; local fingerprints and profile membership remain independent of it. [ADR 0013](../adr/0013-opt-in-remote-previews.md) owns this exception.
+- The committed `.devrouter.yml` owns local routing/profile configuration. Runtime namespacing is an in-memory view produced by `src/core/repo-config.ts:applyWorkspace`. Only `preview` commands read the separate `.devrouter.preview.yml` manifest; local fingerprints and profile membership remain independent of it. [ADR 0014](../adr/0014-opt-in-remote-previews.md) owns this exception.
 
 ## Relationships
 
@@ -97,5 +97,5 @@ The GitLab ingress only requests a protected controller pipeline with identity h
 it stores no provider token, but its trigger capability reaches those credentials
 unless the controller project disables all pipeline-variable overrides before
 activation. [Remote previews](../PREVIEWS.md) owns setup
-and live qualification status; [ADR 0013](../adr/0013-opt-in-remote-previews.md) owns
+and live qualification status; [ADR 0014](../adr/0014-opt-in-remote-previews.md) owns
 why remote state remains independent from local workspace identity.

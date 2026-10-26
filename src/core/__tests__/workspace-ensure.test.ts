@@ -26,6 +26,10 @@ import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspace
 import { detectHostPortClaimConflicts } from "../host-port-claims";
 import { listHostRouteState, replaceHostRoutesForRepo } from "../host-routes";
 import { reportLifecycleProgress } from "../lifecycle-progress";
+import {
+  managedHostPortDeclarationsIdentity,
+  resolveManagedHostPorts,
+} from "../managed-host-ports";
 import { runManagedHostPreparation } from "../managed-host-preparation";
 import {
   resolveManagedPostStartPlan,
@@ -55,7 +59,15 @@ import { writeWorkspaceOwnership } from "../workspace-ownership";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 vi.mock("../network-diagnostics", () => ({ inspectLegacyNetworkCapacity: vi.fn() }));
+vi.mock("../capacity-policy", async (original) => ({
+  ...(await original<typeof import("../capacity-policy")>()),
+  readCapacityPolicy: vi.fn(() => undefined),
+}));
 vi.mock("../host-port-claims", () => ({ detectHostPortClaimConflicts: vi.fn(() => []) }));
+vi.mock("../managed-host-ports", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../managed-host-ports")>()),
+  resolveManagedHostPorts: vi.fn(() => ({})),
+}));
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../devsy-agent", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -115,7 +127,8 @@ vi.mock("../managed-runtime-status", () => ({
   collectManagedRuntimeStatus: vi.fn(() => undefined),
 }));
 vi.mock("../docker", () => ({ ensureNetwork: vi.fn(async () => undefined) }));
-vi.mock("../repo-config", () => ({
+vi.mock("../repo-config", async (original) => ({
+  ...(await original<typeof import("../repo-config")>()),
   loadRepoConfig: vi.fn(() => ({ version: 1, apps: [] })),
   loadRuntimeConfig: vi.fn(),
   resolveRepoPath: vi.fn((repo?: string) => repo ?? process.cwd()),
@@ -1163,9 +1176,17 @@ describe("workspaceEnsure", () => {
   it("persists degraded stop ownership before an application adapter failure", async () => {
     const events: string[] = [];
     mockDevsyCapture(events);
+    const config = loadRuntimeConfig(tmpDir).config;
+    config.managedRuntime!.devcontainer.hostPorts = { db: { service: "postgres", target: 5432 } };
     vi.mocked(runManagedPostStart).mockImplementation(() => {
       expect(writeManagedRuntimeState).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "degraded", stopBaseline: expect.any(Object) }),
+        expect.objectContaining({
+          status: "degraded",
+          stopBaseline: expect.any(Object),
+          hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+            config.managedRuntime!.devcontainer.hostPorts!,
+          ),
+        }),
       );
       throw new Error("Synthetic adapter failure");
     });
@@ -1492,6 +1513,20 @@ describe("workspaceEnsure", () => {
       },
     });
     const runtime = mockManagedLifecycle({ events, curlStatus: 22 });
+    const candidatePorts = {
+      db: {
+        service: "postgres",
+        target: 5432,
+        status: "available" as const,
+        endpoint: { host: "127.0.0.1" as const, port: 49153 },
+      },
+    };
+    const restoredPorts = {
+      db: { ...candidatePorts.db, endpoint: { host: "127.0.0.1" as const, port: 49154 } },
+    };
+    vi.mocked(resolveManagedHostPorts)
+      .mockReturnValueOnce(candidatePorts)
+      .mockReturnValueOnce(restoredPorts);
 
     await expect(
       workspaceEnsure(tmpDir, {
@@ -1517,7 +1552,11 @@ describe("workspaceEnsure", () => {
     expect(stopExactManagedService).toHaveBeenNthCalledWith(1, "redis-id", "redis");
     expect(stopExactManagedService).toHaveBeenNthCalledWith(2, "litellm-id", "litellm");
     expect(runManagedPostStart).toHaveBeenLastCalledWith(
-      expect.objectContaining({ profile: "old", processes: ["app", "local-mcp"] }),
+      expect.objectContaining({
+        profile: "old",
+        processes: ["app", "local-mcp"],
+        hostPorts: restoredPorts,
+      }),
     );
     expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, [
       expect.objectContaining({
@@ -1526,8 +1565,27 @@ describe("workspaceEnsure", () => {
         upstreamHost: "feature-app",
       }),
     ]);
+    expect(resolveManagedHostPorts).toHaveBeenCalledTimes(2);
     expect(writeManagedRuntimeState).not.toHaveBeenCalled();
     expect(events.filter((event) => event === "routes:1")).toHaveLength(2);
+  });
+
+  it("keeps rollback degraded instead of launching prior processes with changed port declarations", async () => {
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.devcontainer.hostPorts = { db: { service: "postgres", target: 5432 } };
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config,
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["app"] },
+    });
+    mockManagedLifecycle({ curlStatus: 22 });
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Host-port declarations changed");
+    expect(runManagedPostStart).toHaveBeenCalledTimes(1);
+    expect(markManagedRuntimeDegraded).toHaveBeenCalled();
+    expect(writeManagedRuntimeState).not.toHaveBeenCalled();
   });
 
   function mockRepair(events: string[] = []) {
@@ -1642,6 +1700,128 @@ describe("workspaceEnsure", () => {
     expect(startRouterStack).not.toHaveBeenCalled();
     expect(writeManagedDevcontainerConfig).not.toHaveBeenCalled();
     expect(events.indexOf("candidate-proof")).toBeLessThan(events.indexOf("state-write"));
+  });
+
+  it.each([
+    { retained: "ci", requested: undefined, expected: "default" },
+    { retained: "default", requested: "ci", expected: "ci" },
+  ])("repairs retained $retained before a same-profile $expected transition", async ({
+    retained,
+    requested,
+    expected,
+  }) => {
+    const { state } = mockRepair();
+    state.variant = retained;
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.variants = ["ci"];
+    vi.mocked(loadRepoConfig).mockReturnValue(config);
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config,
+      workspace: "feature",
+      profile: "old",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["redis"],
+        processes: ["app", "local-mcp"],
+      },
+    });
+    const result = await workspaceEnsure(tmpDir, {
+      variant: requested,
+      containerTimeoutMs: 0,
+      httpTimeoutMs: 0,
+    });
+    expect(result.variant).toBe(expected);
+    expect(runManagedPostStart).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ variant: retained }),
+    );
+    expect(runManagedPostStart).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ variant: expected }),
+    );
+    expect(writeManagedRuntimeState).toHaveBeenLastCalledWith(
+      expect.objectContaining({ variant: expected }),
+    );
+  });
+
+  it("does not switch variants after retained repair fails", async () => {
+    const { state } = mockRepair();
+    state.variant = "ci";
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.variants = ["ci"];
+    vi.mocked(loadRepoConfig).mockReturnValue(config);
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config,
+      workspace: "feature",
+      profile: "old",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["redis"],
+        processes: ["app", "local-mcp"],
+      },
+    });
+    vi.mocked(runManagedPostStart).mockImplementation(() => {
+      throw new Error("repair failed");
+    });
+    await expect(workspaceEnsure(tmpDir)).rejects.toThrow("repair failed");
+    expect(runManagedPostStart).toHaveBeenCalledOnce();
+    expect(runManagedPostStart).toHaveBeenCalledWith(expect.objectContaining({ variant: "ci" }));
+    expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+  });
+
+  it("refuses explicit repair variant changes before host preparation", async () => {
+    const { state } = mockRepair();
+    state.variant = "ci";
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.variants = ["ci"];
+    vi.mocked(loadRepoConfig).mockReturnValue(config);
+    await expect(workspaceEnsure(tmpDir, { repair: true, variant: "default" })).rejects.toThrow(
+      "retained runtime variant",
+    );
+    expect(runManagedHostPreparation).not.toHaveBeenCalled();
+    expect(runManagedPostStart).not.toHaveBeenCalled();
+    expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+  });
+
+  it("resolves current selected-service host ports before post-start", async () => {
+    mockRepair();
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.devcontainer.hostPorts = { db: { service: "postgres", target: 5432 } };
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config,
+      workspace: "feature",
+      profile: "old",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["redis"],
+        processes: ["app", "local-mcp"],
+      },
+    });
+    const ports = {
+      db: {
+        service: "postgres",
+        target: 5432,
+        status: "available" as const,
+        endpoint: { host: "127.0.0.1" as const, port: 49153 },
+      },
+    };
+    vi.mocked(resolveManagedHostPorts).mockReturnValueOnce(ports);
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      ...managedPreviousState(),
+      hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+        config.managedRuntime!.devcontainer.hostPorts!,
+      ),
+    });
+    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+    expect(resolveManagedHostPorts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: tmpDir,
+        declarations: config.managedRuntime!.devcontainer.hostPorts,
+        composeProject: "workspace-project",
+        selectedServices: ["app", "postgres", "redis"],
+      }),
+    );
+    expect(runManagedPostStart).toHaveBeenCalledWith(expect.objectContaining({ hostPorts: ports }));
   });
 
   it("ordinary ensure repairs once when the recorded profile is explicitly requested", async () => {
@@ -2293,8 +2473,10 @@ describe("workspaceEnsure", () => {
     "population",
     "generated",
   ] as const)("retains honest reset recovery after %s failure", async (failure) => {
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.devcontainer.hostPorts = { db: { service: "postgres", target: 5432 } };
     vi.mocked(loadRuntimeConfig).mockReturnValue({
-      config: managedRuntimeConfig(),
+      config,
       workspace: "feature",
       profile: "ai",
       resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["app"] },
@@ -2354,6 +2536,9 @@ describe("workspaceEnsure", () => {
       composeProject: "workspace-project",
       desired: { apps: ["chat"], services: ["litellm"], processes: ["app"] },
       effectiveConfigSha256: managedPlanFor(["litellm"]).effectiveConfigSha256,
+      hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+        config.managedRuntime!.devcontainer.hostPorts!,
+      ),
     });
     expect(writeManagedDevcontainerConfig).toHaveBeenCalledTimes(1);
     expect(runManagedPostStart).toHaveBeenCalledTimes(1);
@@ -2725,6 +2910,7 @@ describe("workspaceEnsure", () => {
       container: { id: "app-id", workspacePath: "/workspaces/repo" },
       quiet: undefined,
       profile: "full",
+      variant: "default",
     });
   });
 

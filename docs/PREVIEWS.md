@@ -21,7 +21,7 @@ Installation commands use explicitly injected credentials and reviewed operator 
 
 `.devrouter.yml` owns local routing and profile membership. The separate
 `.devrouter.preview.yml` describes remote bindings and resources; local commands
-never load it. [ADR 0013](./adr/0013-opt-in-remote-previews.md) records this boundary.
+never load it. [ADR 0014](./adr/0014-opt-in-remote-previews.md) records this boundary.
 
 A profile-backed alias references existing profile names. Bind each selected app,
 dependency, managed service and process to resource IDs. An empty binding records

@@ -131,6 +131,92 @@ managed process markers, plus any fixed-code notices. Treat an invalid profile o
 unknown report schema as a hard error; do not silently widen automation to the
 full profile.
 
+### Runtime variants and loopback host-port discovery
+
+Profiles select repository resources. Runtime variants select a managed process
+startup input. Keep them separate when one checkout needs the same resources with
+a different application startup mode:
+
+```yaml
+managedRuntime:
+  variants: [ci]
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: [mailpit]
+    hostPorts:
+      database:
+        service: postgres
+        target: 5432
+```
+
+These fields extend the existing managed runtime registry. `default` is implicit
+and reserved; list only additional variant names. The list accepts at most 32
+names, each using lowercase letters or digits separated by single hyphens and at
+most 64 characters. A non-default variant requires a managed runtime adapter.
+Omission selects `default`; the selector is not sticky. Select it with
+`devrouter ensure <checkout> --variant <name>` or
+`devrouter workspace ensure <checkout> --variant <name>`. `ensure --json` reports
+`variant`, and status or doctor report the active value.
+
+Profile selection remains independent. Changing from retained profile A to
+profile B with the same variant can drop a failed process from A without starting
+it first. Retained degraded state is repaired with its recorded profile and
+variant before applying a requested variant change, and a failed repair prevents the
+change. `--repair` keeps the retained variant; combining it with a different
+variant is rejected.
+
+Non-default variants support manual managed lifecycles. A capacity-targeted,
+enrolled, or retained capacity-managed checkout refuses one before journal
+intent, controller admission, preparation, provider mutation, or route effects.
+Capacity estimates cover profiles; variant support is a later contract.
+
+The process helper includes a non-default variant in identity even when an
+adapter supplies an explicit fingerprint or replaces the environment allowlist.
+The same variant permits reuse; a changed variant replaces the owned process.
+
+`hostPorts` is a discovery registry, not an allocator or route declaration. It
+accepts at most 32 keys, each using lowercase kebab-case and at most 64
+characters. Every value has only a registered base or profile `service` and an
+integer `target` from 1 through 65535. Service/target pairs and normalized
+environment-variable names must be unique. A service does not need a routed app,
+and a declaration for a service outside the current profile is inactive.
+
+The consumer Compose file owns the binding. For IPv4 loopback discovery, specify
+the target and host address while omitting the published host port:
+
+```yaml
+services:
+  postgres:
+    ports:
+      - target: 5432
+        host_ip: 127.0.0.1
+        protocol: tcp
+```
+
+Docker allocates the host port. Static verification accepts this narrow
+loopback ephemeral exception; fixed or public publication remains an error.
+Devrouter never rewrites these bindings or allocates a replacement.
+
+For a selected running service, ensure requires exactly one checkout-owned
+`127.0.0.1` mapping for the declared target and passes its current value to the
+managed adapter as `DEVROUTER_HOST_PORT_<KEY>`. Inactive declarations receive
+an empty value; selected declarations without reliable proof prevent adapter
+launch. `devrouter env <checkout> --json` includes the additive `hostPorts`
+report. The command form clears inherited `DEVROUTER_HOST_PORT_*`, exports only
+current available values, omits inactive entries, and refuses to launch when a
+selected declaration is unavailable.
+
+Container-to-container clients still use the Compose service name and target;
+the host number is external metadata and is unavailable for interpolation
+before Compose starts. The mapping participates in process identity, so a
+container recreation with a changed number replaces the owned process. It is not
+a stable port lease. State records only a declaration digest, not allocated
+numbers. After declaration drift, a failed-transition rollback stays degraded
+instead of launching a prior process; restore the retained declarations before
+repair. `devrouter env` withholds exports until a successful ensure adopts them.
+See the [managed devcontainer TCP and discovery
+contract](./DEVCONTAINER.md#declared-loopback-host-ports).
+
 ### Bind profiles to repository automation
 
 Keep build-tool and test-runner details outside `.devrouter.yml`. Add a separate
@@ -441,6 +527,7 @@ explicit artifact-write flags are supplied.
 - Each HTTP route is exercised through its real `https://*.localhost` URL.
 - Each TCP route is exercised with a direct-TLS/SNI-capable client.
 - Managed devcontainers include static verify, `ensure --json`, route evidence, and exact-container `exec` evidence.
+- A selected runtime variant appears in `ensure --json`; declared host ports are checked through the current `hostPorts` report and a real host-client connection.
 - Enrolled checkouts under an enabled capacity policy report controller admission for `ensure` and `exec`; unenrolled repositories are unaffected.
 - Skipped live checks name the missing prerequisite and residual risk.
 

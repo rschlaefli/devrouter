@@ -265,10 +265,12 @@ grep -Fq 'workspace' "$PROBE_DIR/help.txt" || fail "help probe omitted workspace
 
 run_probe ensure-help "$DEVROUTER_BIN" ensure --help
 grep -Fq -- '--repair' "$PROBE_DIR/ensure-help.txt" || fail "ensure omitted repair option"
+grep -Fq -- '--variant <name>' "$PROBE_DIR/ensure-help.txt" || fail "ensure omitted runtime variant option"
 run_probe process-ensure-help "$INSTALL_ROOT/node_modules/.bin/devrouter-process" ensure --help
 grep -Fq -- '--prepare-command' "$PROBE_DIR/process-ensure-help.txt" || fail "packaged process helper omitted preparation option"
 run_probe workspace-ensure-help "$DEVROUTER_BIN" workspace ensure --help
 grep -Fq -- '--repair' "$PROBE_DIR/workspace-ensure-help.txt" || fail "workspace ensure omitted repair option"
+grep -Fq -- '--variant <name>' "$PROBE_DIR/workspace-ensure-help.txt" || fail "workspace ensure omitted runtime variant option"
 
 run_probe version "$DEVROUTER_BIN" -V --repo "$EXAMPLE_REPO"
 grep -Fq "Installed CLI version: $PACKAGE_VERSION" "$PROBE_DIR/version.txt" || fail "version probe used the wrong package version"

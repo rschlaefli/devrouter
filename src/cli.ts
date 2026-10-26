@@ -188,6 +188,7 @@ program
   .description("Start and prove a primary or linked checkout's environment and routes")
   .argument("[path]", "Git checkout path (defaults to current directory)")
   .option("--profile <name>", "Start only this profile's apps/dependencies from .devrouter.yml")
+  .option("--variant <name>", "Select a declared managed runtime variant")
   .option("--repair", "Repair a degraded managed runtime from its recorded profile")
   .option("--open", "Open HTTP routes after readiness succeeds")
   .option("--json", "Output JSON")
@@ -195,6 +196,7 @@ program
     withErrorHandling(async (repoPath: string | undefined, _options: unknown, command: Command) => {
       const options = command.opts<{
         profile?: string;
+        variant?: string;
         repair?: boolean;
         open?: boolean;
         json?: boolean;
@@ -203,6 +205,7 @@ program
       await runEnsureCommand({
         path: repoPath,
         profile: options.profile,
+        variant: options.variant,
         repair: options.repair,
         open: Boolean(options.open),
         json: Boolean(options.json),
@@ -216,13 +219,15 @@ program
   .argument("[path]", "Git checkout path (defaults to current directory)")
   .option("--json", "Output JSON")
   .option("--delete", "Delete the exact workspace runtime instead of preserving its data")
+  .option("--repair", "Recover a replaced managed population before stopping; preserves volumes")
   .action(
     withErrorHandling(async (repoPath: string | undefined, _options: unknown, command: Command) => {
-      const options = command.opts<{ delete?: boolean; json?: boolean }>();
+      const options = command.opts<{ delete?: boolean; repair?: boolean; json?: boolean }>();
       const { runStopCommand } = await import("./commands/stop");
       await runStopCommand({
         path: repoPath,
         delete: Boolean(options.delete),
+        repair: Boolean(options.repair),
         json: Boolean(options.json),
       });
     }),
@@ -740,6 +745,7 @@ workspaceCommand
   )
   .argument("[path]", "Git checkout path (defaults to current directory)")
   .option("--profile <name>", "Start only this profile's apps/dependencies from .devrouter.yml")
+  .option("--variant <name>", "Select a declared managed runtime variant")
   .option("--repair", "Repair a degraded managed runtime from its recorded profile")
   .option("--open", "Open HTTP routes after readiness succeeds")
   .option("--json", "Output JSON")
@@ -748,6 +754,7 @@ workspaceCommand
       async (worktreePath: string | undefined, _options: unknown, command: Command) => {
         const options = command.opts<{
           profile?: string;
+          variant?: string;
           repair?: boolean;
           open?: boolean;
           json?: boolean;
@@ -756,6 +763,7 @@ workspaceCommand
         await runEnsureCommand({
           path: worktreePath,
           profile: options.profile,
+          variant: options.variant,
           repair: options.repair,
           open: Boolean(options.open),
           json: Boolean(options.json),

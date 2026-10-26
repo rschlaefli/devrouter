@@ -15,6 +15,7 @@ import {
   resolveAppByName,
   resolveAppDependencies,
   resolveProfile,
+  resolveRuntimeVariant,
   upsertRepoApp,
 } from "../repo-config";
 
@@ -104,6 +105,139 @@ describe("managed network requests", () => {
   ])("rejects invalid requests or repository pool authority %#", (network) => {
     write(network);
     expect(() => loadRepoConfig(directory)).toThrow();
+  });
+});
+
+describe("managed runtime variants", () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = makeTmpDir();
+  });
+  afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  function write(variants?: unknown) {
+    writeConfig(
+      directory,
+      JSON.stringify({
+        version: 1,
+        apps: [],
+        managedRuntime: {
+          devcontainer: { baseServices: [], profileServices: [] },
+          processes: [],
+          ...(variants !== undefined ? { variants } : {}),
+        },
+      }),
+    );
+  }
+
+  it("accepts 32 unique names and a 64-character name", () => {
+    const variants = [
+      ...Array.from({ length: 31 }, (_, index) => `variant-${index + 1}`),
+      "x".repeat(64),
+    ];
+    write(variants);
+
+    expect(loadRepoConfig(directory).managedRuntime?.variants).toEqual(variants);
+  });
+
+  it("leaves the extra-name list absent when it is not configured", () => {
+    write();
+
+    expect(loadRepoConfig(directory).managedRuntime?.variants).toBeUndefined();
+  });
+
+  it.each([
+    ["a non-array", "ci"],
+    ["duplicates", ["ci", "ci"]],
+    ["the reserved default", ["default"]],
+    ["more than 32 names", Array.from({ length: 33 }, (_, index) => `variant-${index + 1}`)],
+    ["uppercase letters", ["CI"]],
+    ["underscores", ["ci_local"]],
+    ["a leading hyphen", ["-ci"]],
+    ["a trailing hyphen", ["ci-"]],
+    ["consecutive hyphens", ["ci--local"]],
+    ["surrounding whitespace", [" ci "]],
+    ["an empty name", [""]],
+    ["a name longer than 64 characters", ["x".repeat(65)]],
+    ["a non-string entry", [1]],
+  ])("rejects %s", (_label, variants) => {
+    write(variants);
+    expect(() => loadRepoConfig(directory)).toThrow();
+  });
+
+  const managedConfig: DevrouterConfig = {
+    version: 1,
+    apps: [],
+    managedRuntime: {
+      variants: ["ci", "local-2"],
+      devcontainer: { baseServices: [], profileServices: [] },
+      processes: [],
+    },
+  };
+
+  it("selects default when the request is omitted or explicitly default", () => {
+    expect(resolveRuntimeVariant({ version: 1, apps: [] })).toBe("default");
+    expect(resolveRuntimeVariant({ version: 1, apps: [] }, "default")).toBe("default");
+  });
+
+  it("accepts a declared non-default variant", () => {
+    expect(resolveRuntimeVariant(managedConfig, "ci")).toBe("ci");
+    expect(resolveRuntimeVariant(managedConfig, "local-2")).toBe("local-2");
+  });
+
+  it("rejects a non-default variant that the repository has not declared", () => {
+    expect(() => resolveRuntimeVariant(managedConfig, "review")).toThrow();
+    expect(() => resolveRuntimeVariant({ version: 1, apps: [] }, "ci")).toThrow();
+  });
+
+  it.each([
+    "CI",
+    "",
+    "-ci",
+    "ci-",
+    "ci--local",
+    "ci_local",
+    " ci ",
+    "x".repeat(65),
+    "ci; touch /tmp/devrouter-variant-command",
+  ])("rejects an invalid requested variant %j", (requested) => {
+    expect(() => resolveRuntimeVariant(managedConfig, requested)).toThrow();
+  });
+});
+
+describe("managed host-port declarations", () => {
+  function portConfig(hostPorts: unknown) {
+    return {
+      version: 1,
+      apps: [],
+      managedRuntime: {
+        devcontainer: { baseServices: ["blob"], profileServices: ["mail"], hostPorts },
+        processes: [],
+      },
+    };
+  }
+  it("loads named targets independently of routed apps", () => {
+    writeConfig(tmpDir, JSON.stringify(portConfig({ blob: { service: "blob", target: 10000 } })));
+    expect(loadRepoConfig(tmpDir).managedRuntime?.devcontainer.hostPorts).toEqual({
+      blob: { service: "blob", target: 10000 },
+    });
+  });
+  it.each([
+    { blob: { service: "foreign", target: 10000 } },
+    { blob: { service: "blob", target: 0 } },
+    { blob: { service: "blob", target: 65536 } },
+    { blob: { service: "blob", target: 10.5 } },
+    { blob: { service: "blob", target: "10000" } },
+    { blob: { service: "blob", target: 10000, published: 10003 } },
+    { blob: { service: "blob", target: 10000 }, other: { service: "blob", target: 10000 } },
+    { blob_port: { service: "blob", target: 10000 } },
+    { ["b".repeat(65)]: { service: "blob", target: 10000 } },
+    Object.fromEntries(
+      Array.from({ length: 33 }, (_, i) => [`port-${i}`, { service: "blob", target: i + 1 }]),
+    ),
+  ])("rejects an invalid host-port declaration %#", (ports) => {
+    writeConfig(tmpDir, JSON.stringify(portConfig(ports)));
+    expect(() => loadRepoConfig(tmpDir)).toThrow();
   });
 });
 

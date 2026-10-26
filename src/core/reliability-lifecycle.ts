@@ -25,6 +25,7 @@ import {
 } from "./controller-client";
 import { controllerCapability } from "./controller-monitor";
 import { ControllerStore } from "./controller-store";
+import { inspectManagedDevcontainerConfig } from "./devcontainer-profile";
 import {
   inspectManagedStopContainers,
   inspectWorkspaceContainers,
@@ -38,8 +39,13 @@ import type { ExecutionOutcome } from "./execution-outcome";
 import { processBirthIdentity } from "./file-lock";
 import { listHostRouteState } from "./host-routes";
 import { proveInitialManagedDevsyAbsence } from "./managed-devsy-stop";
+import { resolveManagedPostStartPlan } from "./managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
-import { managedStopRouteReferences, proveManagedStop } from "./managed-stop-recovery";
+import {
+  managedStopRouteReferences,
+  proveManagedStop,
+  recoverManagedStopBaseline,
+} from "./managed-stop-recovery";
 import { deriveRecoveryUnit } from "./recovery-budget";
 import { claimLifecycleEffect, installLifecycleEffectClaim } from "./reliability-context";
 import {
@@ -75,6 +81,7 @@ import {
   runLifecycleWorker,
   workerGroupAbsent,
 } from "./reliability-worker";
+import { loadRepoConfig, loadRuntimeConfig, resolveRuntimeVariant } from "./repo-config";
 import { DEVROUTER_HOME } from "./router";
 import { assertTraefikRoutesRemoved } from "./traefik-route-health";
 import {
@@ -185,6 +192,33 @@ export function reconcileDrained(record: ReliabilityOperationRecord): void {
   }
 }
 
+export function preflightRuntimeVariant(
+  repoPath: string,
+  options: { variant?: string; repair?: boolean },
+): string {
+  if (options.variant === undefined && !options.repair) return "default";
+  const workspace = isLinkedWorktree(repoPath) ? readPersistedWorkspace(repoPath) : undefined;
+  const retained = options.repair ? readManagedRuntimeState(repoPath, workspace) : undefined;
+  const variant = resolveRuntimeVariant(
+    loadRepoConfig(repoPath),
+    options.variant ?? retained?.variant,
+  );
+  if (options.repair && variant !== (retained?.variant ?? "default"))
+    throw new Error("Repair requires the retained runtime variant.");
+  if (variant !== "default") {
+    if (resolveManagedPostStartPlan(repoPath).kind !== "runtime")
+      throw new Error("Runtime variants require a managed runtime post-start adapter.");
+    const previous = readReliabilityOperation({
+      repoPath,
+      workspace: workspace ?? null,
+      provider: resolveWorkspaceRuntimeOrDefault(repoPath),
+    });
+    if (capacityPolicyTargets(repoPath) || previous?.state.executionPolicy === "capacity-managed")
+      throw new Error("Non-default runtime variants require manual lifecycle admission.");
+  }
+  return variant;
+}
+
 /** Persist intent before the controller waits for admission; no worker is launched. */
 export function prepareLifecycleOperation(
   kind: LifecycleWorkerRequest["kind"],
@@ -193,6 +227,10 @@ export function prepareLifecycleOperation(
   command?: string[],
 ): LifecycleWorkerRequest {
   repoPath = comparableWorkspacePath(repoPath);
+  if (kind === "ensure") {
+    const variant = preflightRuntimeVariant(repoPath, options);
+    if (variant !== "default") options = { ...options, variant };
+  }
   if (isLinkedWorktree(repoPath) && !readPersistedWorkspace(repoPath)) {
     if (kind === "stop") throw new Error("Stop requires the existing linked workspace identity.");
     resolveLinkedTarget(repoPath);
@@ -279,6 +317,14 @@ export function prepareManagedLifecycleOperation(input: {
     throw new Error("Managed operation input exceeds its byte limit.");
   const ids = newLifecycleIds();
   return updateReliabilityOperation(input.identity, (record) => {
+    const retained = readManagedRuntimeState(
+      input.identity.repoPath,
+      input.identity.workspace ?? undefined,
+    );
+    if (retained?.variant && retained.variant !== "default")
+      throw new Error(
+        "Capacity-managed lifecycle does not support a retained non-default runtime variant.",
+      );
     assertCurrentCapacityController(input.controller);
     if (
       record.version !== 2 ||
@@ -365,6 +411,14 @@ export function prepareRecoveryLifecycleOperation(input: {
 }): { operationId: string; request: LifecycleWorkerRequest } | undefined {
   const ids = newLifecycleIds();
   return updateReliabilityOperation(input.identity, (record) => {
+    const retained = readManagedRuntimeState(
+      input.identity.repoPath,
+      input.identity.workspace ?? undefined,
+    );
+    if (retained?.variant && retained.variant !== "default")
+      throw new Error(
+        "Capacity-managed lifecycle does not support a retained non-default runtime variant.",
+      );
     // Refuse before reconciliation or mutation. The transaction still advances
     // the revision and persists on a no-op return, so a superseded observation
     // must throw instead of resetting the evidence it was resolved against.
@@ -667,6 +721,14 @@ export function prepareResumeLifecycleOperation(input: {
 }): { operationId: string; request: LifecycleWorkerRequest } | undefined {
   const ids = newLifecycleIds();
   return updateReliabilityOperation(input.identity, (record) => {
+    const retained = readManagedRuntimeState(
+      input.identity.repoPath,
+      input.identity.workspace ?? undefined,
+    );
+    if (retained?.variant && retained.variant !== "default")
+      throw new Error(
+        "Capacity-managed lifecycle does not support a retained non-default runtime variant.",
+      );
     if (record.revision !== input.journalRevision)
       throw new Error("Resume observation journal revision changed.");
     assertCurrentCapacityController(input.controller);
@@ -892,6 +954,10 @@ export async function superviseLifecycle(
   } = {},
 ): Promise<unknown> {
   repoPath = comparableWorkspacePath(repoPath);
+  if (kind === "ensure") {
+    const variant = preflightRuntimeVariant(repoPath, options);
+    if (variant !== "default") options = { ...options, variant };
+  }
   if (isLinkedWorktree(repoPath) && !readPersistedWorkspace(repoPath)) {
     if (kind === "stop") return stopUnclaimedLinkedCheckout(repoPath);
     resolveLinkedTarget(repoPath);
@@ -1052,7 +1118,11 @@ export async function superviseLifecycle(
             },
           },
           undefined,
-          assertWaiting,
+          () => {
+            assertWaiting();
+            if (kind === "ensure" && copiedOptions.variant && copiedOptions.variant !== "default")
+              preflightRuntimeVariant(repoPath, copiedOptions);
+          },
         );
       } catch (error) {
         if (!(error instanceof LifecycleWorkerAdmissionBusyError)) throw error;
@@ -1615,10 +1685,54 @@ export async function executeLifecycleWorker<T>(
           initialStopAbsence = withDevsyMutationLock("Verify initial stop", request.repoPath, () =>
             proveInitialManagedDevsyAbsence(request.repoPath),
           );
+        const markStopWorkStarted = () =>
+          updateReliabilityOperation(request.identity, (record) => {
+            if (!matchesFence(record, request.fence))
+              throw new Error("Lifecycle intent changed before stop work began.");
+            record.stopWorkStarted = true;
+          });
+        if (
+          request.options.repair &&
+          (!retained?.stopBaseline ||
+            request.options.delete ||
+            request.identity.provider !== "devsy")
+        )
+          throw new Error("Stop recovery requires a retained Devsy baseline and preserves data.");
         if (retained?.stopBaseline) {
-          stopBaselineState = retained;
-          withDevsyMutationLock("Verify retained stop", request.repoPath, () =>
-            proveManagedStop(retained),
+          stopBaselineState = withDevsyMutationLock(
+            "Verify retained stop",
+            request.repoPath,
+            () => {
+              let needsRecovery = false;
+              if (request.options.repair) {
+                try {
+                  proveManagedStop(retained);
+                } catch {
+                  needsRecovery = true;
+                }
+              }
+              const candidate = needsRecovery
+                ? recoverManagedStopBaseline(
+                    retained,
+                    () => {
+                      const runtime = loadRuntimeConfig(
+                        request.repoPath,
+                        request.identity.workspace ?? "",
+                        retained.profile,
+                      );
+                      return inspectManagedDevcontainerConfig({
+                        repoPath: request.repoPath,
+                        config: runtime.config,
+                        profile: runtime.resolvedProfile,
+                        linked: isLinkedWorktree(request.repoPath),
+                      });
+                    },
+                    markStopWorkStarted,
+                  )
+                : retained;
+              proveManagedStop(candidate);
+              return candidate;
+            },
           );
         } else {
           const containers = inspectWorkspaceContainers();
@@ -1636,14 +1750,10 @@ export async function executeLifecycleWorker<T>(
           ] as string[];
           for (const project of stopProjects) inspectManagedStopContainers(project);
         }
-        // Every proof above is read-only. Record the boundary durably before the
-        // stop may change anything, so a later refusal, crash or withdrawal can
-        // tell "no work began" from "work may have begun".
-        updateReliabilityOperation(request.identity, (record) => {
-          if (!matchesFence(record, request.fence))
-            throw new Error("Lifecycle intent changed before stop work began.");
-          record.stopWorkStarted = true;
-        });
+        // Ordinary proofs are read-only; explicit recovery records this boundary
+        // before persisting its replacement baseline. Both preserve stop intent
+        // after work begins, including a later refusal or worker interruption.
+        markStopWorkStarted();
       } else {
         updateReliabilityOperation(request.identity, (record) => {
           stepRecord(record, {

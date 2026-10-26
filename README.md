@@ -83,6 +83,14 @@ Dev Container clients still see the full source configuration. Check
 `devrouter status` or `devrouter doctor` when you need the desired, active, and
 drift state.
 
+Managed repositories can also declare a separate runtime variant in
+`managedRuntime.variants` and select it with
+`devrouter ensure . --variant <name>`. A profile continues to select resources;
+the variant changes the managed process startup input. Declared
+loopback-only service ports are available through `devrouter env . --json`. See
+the [managed devcontainer contract](./docs/DEVCONTAINER.md) for ownership,
+Compose, recovery, and capacity rules.
+
 Automation can inspect the same profile contract without touching a workspace,
 Docker, DevPod, Devsy, Traefik, Git, or global state:
 
@@ -146,7 +154,7 @@ explicit `--write-agents` or `--write-skill` flags.
 - [Domain context](./CONTEXT.md) — shared vocabulary consumed by Matt Pocock planning skills.
 - [Contributor guide](./AGENTS.md) — source map, invariants, validation, and release checklist.
 - [Examples](./examples/routing/README.md) — routing without a devcontainer; see also the [managed DevPod example](./examples/devcontainer/README.md) and [parallel workspace example](./examples/workspace/README.md).
-- [Project records](./docs/project/index.md) — dated plans and roadmap state.
+- [Project records](./docs/project/) — dated plans and roadmap state.
 - [Release history](./CHANGELOG.md) and [adaptation prompts](./upgrade-prompts/) — versioned change guidance.
 
 Run `devrouter --help` for the complete current command and option reference.

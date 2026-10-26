@@ -110,7 +110,8 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Write/update devrouter section in the repo's AGENTS.md and install the devrouter skill.",
   },
   {
-    command: "devrouter ensure [path] [--profile <name>] [--repair] [--open] [--json]",
+    command:
+      "devrouter ensure [path] [--profile <name>] [--variant <name>] [--repair] [--open] [--json]",
     purpose:
       "Canonical startup and proof for an exact primary or linked checkout; atomically publishes routes after readiness.",
   },
@@ -126,9 +127,9 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Validate exact profile resources against a repository-owned contract and emit named literal arrays without interpreting them or touching a runtime.",
   },
   {
-    command: "devrouter stop [path] [--delete] [--json]",
+    command: "devrouter stop [path] [--delete | --repair] [--json]",
     purpose:
-      "Stop the exact checkout workspace runtime and routes, or prove absence after pre-registration failure; --delete explicitly deletes the ownership-proven runtime without removing the checkout.",
+      "Stop the exact checkout workspace runtime and routes, or prove absence after pre-registration failure; --repair re-proves a replaced Devsy population while preserving data; --delete explicitly deletes the ownership-proven runtime and cannot combine with repair.",
   },
   {
     command: "devrouter exec [path] -- <command...>",
@@ -138,7 +139,7 @@ export const COMMAND_INTENTS: CommandIntent[] = [
   {
     command: "devrouter env [path] [--json] | devrouter env [path] -- <command...>",
     purpose:
-      "Report the checkout's host-reachable URLs, routed and loopback TCP endpoints and CA path without touching the runtime, or run a host command with them exported as DEVROUTER_* variables.",
+      "Report the checkout's host-reachable URLs, routed and loopback TCP endpoints, declared managed host ports, and CA path without touching the runtime, or run a host command with them exported as DEVROUTER_* variables.",
   },
   {
     command: "devrouter workspace up <branch> [--path <dir>] [--no-devpod] [--open]",
@@ -146,7 +147,7 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Create a git worktree for <branch>, then run the proven workspace startup unless --no-devpod is set.",
   },
   {
-    command: "devrouter workspace ensure [path] [--open] [--json]",
+    command: "devrouter workspace ensure [path] [--variant <name>] [--open] [--json]",
     purpose: "Compatibility alias of the canonical devrouter ensure command.",
   },
   {
@@ -324,6 +325,9 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- validation: unknown profile keys are rejected; apps must reference routed apps (kind=app); dependencies must reference kind=dependency apps; readiness entries must be in the profile's apps; at most one default",
     "- selection: `devrouter ensure <path> --profile <name>` scopes routes/readiness to the profile; comma-separated selections (e.g. --profile a,b) merge with deduplication and a canonical sorted name; managed adapters receive DEVROUTER_PROFILE in the post-start env",
     "- managedRuntime (optional) registers devcontainer baseServices, profileServices, and managed process markers",
+    "- managedRuntime.variants is optional: up to 32 additional lowercase alphanumeric or hyphen-separated names of at most 64 characters; default is implicit and reserved",
+    "- managedRuntime.devcontainer.hostPorts is optional discovery metadata: up to 32 lowercase kebab-case keys of at most 64 characters, each with only a registered base/profile service and integer target 1-65535; service/target pairs are unique",
+    "- hostPorts never starts, publishes, or allocates; consumer Compose owns a loopback ephemeral binding, non-routed services are supported, and declarations outside the selected services are inactive",
     "- managed profiles may add devcontainerServices and processes independently; with managedRuntime, apps may be omitted for a route-free capability profile",
     "- an omitted optional managed dimension selects nothing; use `*` or a full profile to select every registered service/process; baseServices and the primary service are always retained",
     "- automation may use a separate strict version-1 contract with `devrouter profile plan`; the contract maps apps to named literal arrays, constrains dependencies and services to allowed registries, requires an exact managed-process set, and remains repository-owned",
@@ -341,7 +345,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "Docker compose file requirements:",
     "- Every service that acts as a dependency MUST define a healthcheck — devrouter uses `docker compose up --wait` which blocks until healthy; without a healthcheck the wait returns immediately and the dependent app may start before the service is ready.",
     "- Services MUST NOT publish host ports (`ports:` mapping) for any port owned by devrouter (80, 443, 5432) — Traefik owns these; conflicts cause bind failures.",
-    "- Services SHOULD NOT publish host ports at all — devrouter handles external routing via Traefik labels; publishing ports creates conflicts when running multiple repos.",
+    "- Services SHOULD NOT publish host ports at all — devrouter handles external routing via Traefik labels; publishing ports creates conflicts when running multiple repos. The narrow managed exception is loopback ephemeral TCP publication (including declared hostPorts), with host_ip 127.0.0.1 and omitted published host port; fixed or public publication remains rejected.",
     `- For TCP dependencies of host apps, devrouter automatically publishes a random host port and injects per-dep deterministic env vars: ${formatDepEnvNames()}. \`{PREFIX}_URL\` is protocol-specific, \`{PREFIX}_SHADOW_URL\` is postgres only. \`{PREFIX} = dep.name.toUpperCase().replace(/-/g, "_")\`.`,
     `- For postgres deps, \`{PREFIX}_URL=${POSTGRES_DEPENDENCY_URL_TEMPLATE}\` and \`{PREFIX}_SHADOW_URL=${POSTGRES_DEPENDENCY_SHADOW_URL_TEMPLATE}\`. Use config-level \`envMap\` on the dependency reference to alias these to app-expected names (e.g. \`DATABASE_URL: DB_URL\`).`,
     "- The Postgres service in docker-compose must use matching credentials (`POSTGRES_USER=prisma`, `POSTGRES_PASSWORD=prisma`, `POSTGRES_DB=prisma`) and create the shadow database (e.g. via an init script or the app's migration tool). If existing credentials differ, either update them to match or override via `envMap` aliasing.",
@@ -366,6 +370,8 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- `devrouter app exec <name> -- <command>` starts dependencies as needed, resolves env vars, and runs a one-shot command with the resolved env. Exec stops only dependencies started by that invocation (already-running dependencies stay running). If ownership detection fails, exec leaves selected dependencies running to avoid non-owned teardown. Exec preserves argv semantics by default (`shell: false`) and supports explicit shell mode via `--shell` when needed.",
     "- `envMap` on dependency references (config-level) aliases per-dep vars after dependency env resolution. `envMap` fails fast when source var is missing.",
     "- Managed devcontainer profiles reconcile apps, optional Compose services, and repository-owned processes independently. Warm profile changes retain the exact DevPod and volumes, do not rerun postCreateCommand or use --recreate/down, and publish routes last after exact health/readiness proof.",
+    "- Managed runtime variants are independent startup selectors. Omission selects implicit default; later ordinary ensures are not sticky. Non-default variants require a declared name and managed post-start adapter, and capacity-targeted, enrolled, or retained capacity-managed checkouts refuse them before journal intent, controller admission, preparation, provider mutation, or route effects. --repair retains the recorded variant and rejects a different explicit variant. A retained degraded profile and variant are repaired before a requested variant change; a same-variant transition may drop a failed process without starting it.",
+    "- After service readiness ensure resolves selected managedRuntime.devcontainer.hostPorts against the exact checkout-owned 127.0.0.1 binding. Adapters receive the current numeric value as DEVROUTER_HOST_PORT_<KEY>, or an empty value when inactive. A selected unavailable binding prevents adapter launch. Current mapping and ports compose into process identity, so a changed mapping replaces the owned process. Container clients use service DNS and target; the host number is external metadata, cannot be interpolated before Docker starts, and is not a stable lease. State stores only a declaration digest, not allocated numbers. If a failed transition changed declarations, rollback stays degraded instead of launching the prior process; restore the retained declarations before repair, and `devrouter env` withholds exports until successful ensure.",
     "- Use `devrouter status --repo <REPO_PATH> --json` and `devrouter doctor --repo <REPO_PATH> --json` to inspect managed desired/active resources, fingerprints, transition state, and values-free drift.",
     "",
     "Workspace isolation (parallel git worktrees / agents):",
@@ -383,7 +389,7 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- A lock that cannot prove its owner fails closed with the failing inspection stage, the exact lock path, and a portable reproduction command; run the canonical command in a permitted host context. No identity fallback is attempted, and `devrouter controller` prints the underlying cause on stderr while keeping the stable `controller-unavailable` JSON on stdout.",
     "- Devsy agent readiness: run `devrouter setup --yes --workspace-runtime devsy` once per installed Devsy release, rerunning it after a Devsy update, so Devrouter acquires and verifies the official Linux agent in its own machine cache. Devrouter selects agents on macOS and Linux arm64/x64 hosts. Use Devsy 1.16.2 for warm profile changes; 1.23.2 refuses changed runServices without recreation, which devrouter never applies automatically. Devrouter supports agent releases in the range >=1.16.2 <2.0.0, verifies a release's published asset against the SHA-256 digest GitHub reports, and never injects a release without one. `doctor` reports `ready`, `missing`, `stale`, or `invalid` without network access; a supported release with no recorded manifest is `ready` with a drift warning and no injected agent until `setup` records one, while a version outside the supported range or unparseable stays `stale`. `ensure` fails before the provider queue when readiness is not `ready`. An explicit `DEVSY_AGENT_BINARY` remains authoritative and must match the official asset for the installed supported release. `ensure` and `stop` stream bounded phase progress on stderr, so parse command JSON from stdout only.",
     "- A managed adapter plus `postCreateCommand` requires `waitFor` exactly `postCreateCommand` or `postStartCommand`; managed selective config preserves lifecycle fields and changes only `runServices`.",
-    "- Managed process reuse fingerprints command argv, workspace identity, and the exact adapter snapshot. If a non-secret runtime value also affects reuse, set `DEVROUTER_PROCESS_FINGERPRINT_ENV` to its comma-separated environment names; secret-like names are rejected and raw values are never persisted.",
+    "- Managed process reuse fingerprints command argv, workspace identity, and the exact adapter snapshot. Variant and current host-port identity always compose with an explicit --fingerprint. If a non-secret runtime value also affects reuse, set `DEVROUTER_PROCESS_FINGERPRINT_ENV` to its comma-separated environment names; secret-like names are rejected and raw values are never persisted.",
     "- Managed adapters may use devrouter-process ensure --prepare-command <command> for synchronous dependency preparation under the process lock before app launch. Unchanged owned processes skip preparation; it participates in default fingerprints and must not daemonize or detach.",
     "- Host-generated Compose inputs may use managedRuntime.devcontainer.prepareCommand as literal argv. Ensure runs it once from the checkout root before Compose inspection, with a 60-second bound and no implicit shell. Keep .devrouter.yml unchanged. Diagnostics never run it; changed warm mounts require separate verification.",
     "- Managed Devsy startup on supported local Unix Docker endpoints captures exact stop ownership before application readiness. With that baseline, canonical stop tolerates changed or missing repository configuration and preserves containers and volumes. Older records without a baseline retain configuration-dependent stop; installing a new CLI does not establish historical ownership. Invalid or changed ownership never falls back. Do not replay destructive bootstrap hooks to obtain a baseline.",
@@ -435,8 +441,9 @@ export function buildOnboardingPrompt(options: InitPromptOptions = {}): string {
     "- devrouter repo devcontainer write --repo <REPO_PATH> --yes",
     "- devrouter repo devcontainer verify --repo <REPO_PATH> --json",
     "- Normal primary or linked startup: devrouter ensure <REPO_PATH> --json",
-    "- Degraded recovery: ordinary ensure validates retained ownership, then reconciles the requested profile without starting dropped processes first. Same-profile repair and --repair retain the recorded-profile path and start only retained IDs without provider bootstrap/recreation. Stopped primary requires all project containers stopped and zero checkout routes. Failed transitions preserve degraded state without replaying its broken adapter.",
-    "- Managed selective startup: devrouter ensure <REPO_PATH> --profile <name> --json",
+    "- Degraded recovery: a same-variant ordinary ensure validates retained ownership, then can reconcile a requested profile without starting dropped processes first. A retained profile and variant are repaired before a requested variant change; failed repair prevents it. --repair retains both recorded values and starts only retained IDs without provider bootstrap/recreation. Stopped primary requires all project containers stopped and zero checkout routes. Failed transitions preserve degraded state without replaying its broken adapter.",
+    "- Managed selective startup: devrouter ensure <REPO_PATH> --profile <name> [--variant <name>] --json",
+    "- Declared host ports: inspect `devrouter env <REPO_PATH> --json` hostPorts and connect a host client to each current available endpoint; verify the container-side client separately through service DNS and target",
     "- Container seed/migration: devrouter exec <REPO_PATH> -- <command...>",
     "- Compatibility verification only after ensure: devrouter repo devcontainer verify --repo <REPO_PATH> --live --yes --json",
     "",

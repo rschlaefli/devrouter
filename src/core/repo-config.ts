@@ -59,6 +59,9 @@ const MAX_CAPACITY_PROFILES = 256;
 const MAX_CAPACITY_OPERATIONS = 64;
 const MAX_CAPACITY_TRANSITIONS = 1024;
 const MAX_CAPACITY_NAME_LENGTH = 64;
+const MAX_RUNTIME_VARIANTS = 32;
+const MAX_RUNTIME_VARIANT_NAME_LENGTH = 64;
+const RUNTIME_VARIANT_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // Workspace templating. `upstream` may embed the literal `${WORKSPACE}` token,
 // which is substituted with the resolved workspace at runtime (see applyWorkspace).
@@ -649,6 +652,66 @@ function parsePrepareCommand(value: unknown, pathLabel: string): string[] | unde
   });
 }
 
+function assertRuntimeVariantName(value: string, pathLabel: string): void {
+  if (
+    value.length === 0 ||
+    value.length > MAX_RUNTIME_VARIANT_NAME_LENGTH ||
+    !RUNTIME_VARIANT_NAME_RE.test(value)
+  ) {
+    throw new Error(
+      `${pathLabel} must use lowercase letters or digits separated by single hyphens, at most ${MAX_RUNTIME_VARIANT_NAME_LENGTH} characters.`,
+    );
+  }
+  if (value === "default") {
+    throw new Error(`${pathLabel} 'default' is implicit and reserved.`);
+  }
+}
+
+function parseRuntimeVariants(value: unknown, pathLabel: string): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${pathLabel} must be an array of strings.`);
+  }
+  if (value.length > MAX_RUNTIME_VARIANTS) {
+    throw new Error(`${pathLabel} accepts at most ${MAX_RUNTIME_VARIANTS} additional names.`);
+  }
+
+  const seen = new Set<string>();
+  return value.map((item, index) => {
+    const itemPath = `${pathLabel}[${index}]`;
+    if (typeof item !== "string") {
+      throw new Error(`${itemPath} must be a string.`);
+    }
+    assertRuntimeVariantName(item, itemPath);
+    if (seen.has(item)) {
+      throw new Error(`${pathLabel} contains duplicate '${item}'.`);
+    }
+    seen.add(item);
+    return item;
+  });
+}
+
+/**
+ * Resolve a managed runtime selector without treating it as a command or task.
+ * Omission selects the implicit default; non-default names must be declared by
+ * the repository's managed runtime configuration.
+ */
+export function resolveRuntimeVariant(config: DevrouterConfig, requested?: string): string {
+  if (requested === undefined) {
+    return "default";
+  }
+  if (requested === "default") {
+    return requested;
+  }
+  assertRuntimeVariantName(requested, "Runtime variant");
+  if (!config.managedRuntime?.variants?.includes(requested)) {
+    throw new Error(`Runtime variant '${requested}' is not declared in managedRuntime.variants.`);
+  }
+  return requested;
+}
+
 function parseManagedRuntime(
   value: unknown,
   configPath: string,
@@ -660,8 +723,12 @@ function parseManagedRuntime(
   const managedRuntime = ensureObject(value, `${configPath}.managedRuntime`);
   ensureAllowedKeys(
     managedRuntime,
-    ["devcontainer", "processes", "network"],
+    ["devcontainer", "processes", "network", "variants"],
     `${configPath}.managedRuntime`,
+  );
+  const variants = parseRuntimeVariants(
+    managedRuntime.variants,
+    `${configPath}.managedRuntime.variants`,
   );
   let network: DevrouterManagedRuntime["network"];
   if (managedRuntime.network !== undefined) {
@@ -698,7 +765,7 @@ function parseManagedRuntime(
   );
   ensureAllowedKeys(
     devcontainer,
-    ["baseServices", "profileServices", "prepareCommand"],
+    ["baseServices", "profileServices", "prepareCommand", "hostPorts"],
     `${configPath}.managedRuntime.devcontainer`,
   );
   const baseServices = parseRequiredUniqueStringArray(
@@ -721,6 +788,46 @@ function parseManagedRuntime(
     );
   }
 
+  let hostPorts: Record<string, { service: string; target: number }> | undefined;
+  if (devcontainer.hostPorts !== undefined) {
+    const ports = ensureObject(
+      devcontainer.hostPorts,
+      `${configPath}.managedRuntime.devcontainer.hostPorts`,
+    );
+    if (Object.keys(ports).length > 32)
+      throw new Error("managedRuntime.devcontainer.hostPorts accepts at most 32 declarations.");
+    hostPorts = {};
+    const pairs = new Set<string>();
+    const registered = new Set([...baseServices, ...profileServices]);
+    for (const [name, rawPort] of Object.entries(ports)) {
+      if (name.length > 64 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name))
+        throw new Error(
+          "Host-port names must be lowercase kebab-case identifiers of at most 64 characters.",
+        );
+      const port = ensureObject(rawPort, `managedRuntime.devcontainer.hostPorts.${name}`);
+      ensureAllowedKeys(
+        port,
+        ["service", "target"],
+        `managedRuntime.devcontainer.hostPorts.${name}`,
+      );
+      if (typeof port.service !== "string" || !registered.has(port.service))
+        throw new Error(`Host port '${name}' must reference a registered base or profile service.`);
+      if (
+        !Number.isInteger(port.target) ||
+        (port.target as number) < 1 ||
+        (port.target as number) > 65535
+      )
+        throw new Error(`Host port '${name}' target must be an integer from 1 to 65535.`);
+      const pair = `${port.service}:${port.target}`;
+      if (pairs.has(pair)) throw new Error(`Host port '${name}' duplicates a service and target.`);
+      pairs.add(pair);
+      Object.defineProperty(hostPorts, name, {
+        value: { service: port.service, target: port.target as number },
+        enumerable: true,
+      });
+    }
+  }
+
   const processes = parseRequiredUniqueStringArray(
     managedRuntime.processes,
     `${configPath}.managedRuntime.processes`,
@@ -736,10 +843,12 @@ function parseManagedRuntime(
 
   return {
     ...(network ? { network } : {}),
+    ...(variants !== undefined ? { variants } : {}),
     devcontainer: {
       baseServices,
       profileServices,
       ...(prepareCommand ? { prepareCommand } : {}),
+      ...(hostPorts !== undefined ? { hostPorts } : {}),
     },
     processes,
   };
