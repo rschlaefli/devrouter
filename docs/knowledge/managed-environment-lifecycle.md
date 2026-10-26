@@ -556,7 +556,6 @@ nonzero and routes remain intact. This does not change legacy or delete paths.
 
 The primary behavior gates are `src/core/__tests__/workspace-ensure.test.ts`, `workspace-lifecycle.test.ts`, `workspace-ownership.test.ts`, `workspace-gc.test.ts`, `worktree-reclaim.test.ts`, `worktree-trim.test.ts`, and `devpod-mutation.test.ts`. Preserve their exact-path, ordering, race, and no-side-effect assertions when changing this workflow. See [architecture and ownership](./architecture-and-ownership.md) for the owner boundaries and [identity drift](../solutions/integration/devpod-worktree-identity-drift.md) for incident rationale.
 
-
 ## Explicit stop recovery for replaced containers
 
 `stop --repair` is a separate opt-in to re-prove an externally replaced

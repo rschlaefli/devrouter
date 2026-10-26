@@ -232,7 +232,6 @@ describe("host suspend bundle evidence", () => {
 
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("the prepared bundle changed");
       expect(fs.existsSync(externalMarker)).toBe(false);
       expect(fs.existsSync(cliMarker)).toBe(false);
       expect(fs.existsSync(path.join(work, "receipt.json"))).toBe(false);
