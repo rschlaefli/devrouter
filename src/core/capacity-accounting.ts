@@ -151,11 +151,6 @@ type DomainState = {
   window: PressureWindow | null;
 };
 
-type WakeEpochState =
-  | { kind: "unsupported" }
-  | { kind: "available"; epoch: string }
-  | { kind: "unavailable" };
-
 function nonNegativeSafeInteger(value: unknown): boolean {
   return typeof value === "number" && bytes(value);
 }
@@ -229,7 +224,7 @@ export class CapacityPressureTracker {
   private readonly maxSampleAgeMs: number;
   private readonly states = new Map<string, DomainState>();
   private lastClock: CapacityEvidenceClock | null = null;
-  private wakeEpochState: WakeEpochState = { kind: "unsupported" };
+  private wakeEpoch: string | null | undefined;
   private wakeFence = 0;
   private generation = 0;
 
@@ -266,7 +261,7 @@ export class CapacityPressureTracker {
 
   /** Returns whether the latest checkpoint can supply admission evidence. */
   evidenceAvailable(): boolean {
-    return this.lastClock !== null && this.wakeEpochState.kind !== "unavailable";
+    return this.lastClock !== null && this.wakeEpoch !== null;
   }
 
   /**
@@ -454,25 +449,12 @@ export class CapacityPressureTracker {
     available: boolean;
     invalidated: boolean;
   } {
-    const previous = this.wakeEpochState;
-    if (wakeEpoch === undefined) {
-      if (previous.kind === "unsupported") return { available: true, invalidated: false };
-      if (previous.kind === "unavailable") return { available: false, invalidated: false };
-      this.wakeEpochState = { kind: "unavailable" };
-      this.wakeFence++;
-      return { available: false, invalidated: true };
-    }
-    if (wakeEpoch === null) {
-      if (previous.kind === "unavailable") return { available: false, invalidated: false };
-      this.wakeEpochState = { kind: "unavailable" };
-      this.wakeFence++;
-      return { available: false, invalidated: true };
-    }
-    if (previous.kind === "available" && previous.epoch === wakeEpoch)
-      return { available: true, invalidated: false };
-    this.wakeEpochState = { kind: "available", epoch: wakeEpoch };
-    if (previous.kind !== "unsupported") this.wakeFence++;
-    return { available: true, invalidated: previous.kind !== "unsupported" };
+    const previous = this.wakeEpoch;
+    const current = wakeEpoch === undefined && previous !== undefined ? null : wakeEpoch;
+    const invalidated = current !== previous && (previous !== undefined || current === null);
+    this.wakeEpoch = current;
+    if (invalidated) this.wakeFence++;
+    return { available: current !== null, invalidated };
   }
 
   private invalidateAll(): void {

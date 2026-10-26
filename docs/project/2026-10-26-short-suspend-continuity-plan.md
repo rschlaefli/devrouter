@@ -109,9 +109,10 @@ Documentation paths: `docs/knowledge/managed-environment-lifecycle.md`,
 3. Run focused tests, docs/knowledge checks, Biome, Knip, typecheck, full tests,
    build and package smoke. Synthetic controller/capacity qualification checks
    the installed wiring; no real consumer runtime is needed for source proof.
-4. Update current knowledge and the existing reliability status with source
-   evidence and the outstanding exact-artifact short-sleep verification. Keep
-   detailed host receipts private and do not recreate the shared project index.
+4. Update current knowledge and this derived plan with source evidence and the
+   outstanding exact-artifact short-sleep verification. The existing evidence
+   PR owns its dated receipt updates, avoiding parallel edits to its status row.
+   Keep detailed host receipts private and do not recreate the shared index.
 5. Commit the coherent package, simplify and review the immutable range,
    correct verified findings, push and deliver a draft PR with CI evidence.
 
@@ -123,8 +124,13 @@ Documentation paths: `docs/knowledge/managed-environment-lifecycle.md`,
   passes 146 focused host/session/server/monitor tests and 85 capacity tests.
   Typecheck passes. Added coverage includes old-epoch sample replay, cancelled
   and drained collections, exact release and committed-stop liveness.
-- Source implementation is complete; full tests, packed/synthetic qualification,
-  simplification, risk review and integrated final review remain pending.
+- Source implementation is complete. Full verification passes: 3,118 tests,
+  13 Linux-only skips on macOS, typecheck, docs/knowledge, Biome (one pre-existing
+  unused import warning), Knip, build, package smoke and installed synthetic
+  controller/capacity qualification. The focused installed Opengrep scan reports
+  no findings in the six changed executable source files.
+- Simplification, risk review, lifecycle qualification and integrated final
+  review remain pending. No merge, release, installation or consumer mutation.
 - Source mapping completed independently; production grant paths and both clock
   consumers identified. Read-only kernel probe succeeds; both implementations
   are integrated with no dependency or protocol change.
