@@ -227,7 +227,10 @@ export function prepareLifecycleOperation(
   command?: string[],
 ): LifecycleWorkerRequest {
   repoPath = comparableWorkspacePath(repoPath);
-  if (kind === "ensure") preflightRuntimeVariant(repoPath, options);
+  if (kind === "ensure") {
+    const variant = preflightRuntimeVariant(repoPath, options);
+    if (variant !== "default") options = { ...options, variant };
+  }
   if (isLinkedWorktree(repoPath) && !readPersistedWorkspace(repoPath)) {
     if (kind === "stop") throw new Error("Stop requires the existing linked workspace identity.");
     resolveLinkedTarget(repoPath);
@@ -1115,7 +1118,11 @@ export async function superviseLifecycle(
             },
           },
           undefined,
-          assertWaiting,
+          () => {
+            assertWaiting();
+            if (kind === "ensure" && copiedOptions.variant && copiedOptions.variant !== "default")
+              preflightRuntimeVariant(repoPath, copiedOptions);
+          },
         );
       } catch (error) {
         if (!(error instanceof LifecycleWorkerAdmissionBusyError)) throw error;

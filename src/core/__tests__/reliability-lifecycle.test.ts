@@ -1513,6 +1513,27 @@ apps: []
     expect(fixture.resolveLinkedTarget).not.toHaveBeenCalled();
   });
 
+  it("rechecks a newly targeted capacity policy before manual admission", async () => {
+    const { lifecycle, store } = await loadLifecycleModules();
+    const repoPath = variantCheckout();
+    fixture.runLifecycleWorker.mockImplementation(
+      async (_request, _supervision, beforeAdmission) => {
+        fixture.readCapacityPolicy.mockReturnValue({
+          admissions: "enabled",
+          enrollments: [{ repoPath }],
+        });
+        beforeAdmission();
+      },
+    );
+    await expect(
+      lifecycle.superviseLifecycle("ensure", repoPath, { variant: "ci" }),
+    ).rejects.toThrow("manual lifecycle");
+    const record = store.readReliabilityOperation({ repoPath, workspace: null, provider: "devsy" });
+    expect(record?.state.intentRevision).toBe(0);
+    expect(record?.state.operation).toBeNull();
+    expect(fixture.observe).not.toHaveBeenCalled();
+  });
+
   it("refuses undeclared selection before journal creation", async () => {
     const { lifecycle, store } = await loadLifecycleModules();
     const repoPath = variantCheckout();

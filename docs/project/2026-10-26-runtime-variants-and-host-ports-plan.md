@@ -171,7 +171,10 @@ managed state. A failed transition replays the prior variant, ports, and process
 set only after current exact-owner proof; uncertain restoration stays degraded.
 An unsupported retained variant never silently becomes `default` during repair.
 Ordinary ensure encountering degraded state repairs with the retained profile
-and variant first, then performs the requested transition when either differs.
+and variant before a variant change, then performs the requested transition.
+Preserve the existing ownership-proven direct transition for a changed profile
+when the variant stays the same: it avoids restarting a failed process that the
+requested profile drops. The existing regression protects this recovery behavior.
 A same-profile request can therefore transition from retained CI to omitted
 `default`, or from retained `default` to explicit CI. Failed repair prevents the
 requested transition. Do not return early based on profile equality alone.
