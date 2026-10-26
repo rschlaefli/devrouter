@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-10-26
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.5.6.md
+
+### Enhanced
+
+- Managed checkouts can declare runtime variants and select them with
+  `ensure --variant <name>`. Variants remain independent of resource profiles,
+  participate in process identity and survive repair and rollback. Non-default
+  variants currently support manual lifecycles; capacity-managed requests refuse
+  them before accepting intent.
+- Managed repositories can declare service targets under
+  `managedRuntime.devcontainer.hostPorts`. Docker owns loopback ephemeral
+  allocation; Devrouter proves exact container ownership and exposes current
+  ports to adapters and `devrouter env`. Changed mappings replace the owned
+  process, unavailable selected bindings block launch, and declaration drift
+  fails closed during export and recovery. No allocated port lease is persisted.
+
+### Fixed
+
+- Host-suspend qualification requires exact power-event evidence, a live
+  pre-suspend renewal and unchanged CLI bytes. A scheduled wake request alone
+  cannot establish successful suspend/resume qualification.
+- Explicit `stop --repair` can re-prove an externally replaced Devsy container
+  population under the checkout/provider locks. It requires unchanged provider,
+  daemon and configuration identity with stable exact ownership evidence,
+  preserves volumes, and cannot combine with deletion. Ordinary stop remains
+  fail-closed.
+
 ## [0.5.5] - 2026-10-25
 
 ### Agent Adaptation Prompt

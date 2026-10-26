@@ -43,6 +43,7 @@ export type LifecycleWorkerRequest = {
   };
   options: {
     profile?: string;
+    variant?: string;
     repair?: boolean;
     open?: boolean;
     quiet?: boolean;
@@ -394,6 +395,16 @@ export async function runLifecycleWorker(
                     throw new Error("Lifecycle intent changed before dispatch.");
                   if (record.worker || record.revision !== request.admission.expectedRevision) {
                     throw new LifecycleWorkerAdmissionBusyError();
+                  }
+                  if (
+                    request.kind === "ensure" &&
+                    request.options.variant !== undefined &&
+                    request.options.variant !== "default" &&
+                    record.state.executionPolicy !== "manual"
+                  ) {
+                    throw new Error(
+                      "Non-default runtime variants require manual lifecycle admission.",
+                    );
                   }
                   const admitted = stepReliability(
                     record.state,

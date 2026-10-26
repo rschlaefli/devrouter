@@ -82,6 +82,14 @@ Dev Container clients still see the full source configuration. Check
 `devrouter status` or `devrouter doctor` when you need the desired, active, and
 drift state.
 
+Managed repositories can also declare a separate runtime variant in
+`managedRuntime.variants` and select it with
+`devrouter ensure . --variant <name>`. A profile continues to select resources;
+the variant changes the managed process startup input. Declared
+loopback-only service ports are available through `devrouter env . --json`. See
+the [managed devcontainer contract](./docs/DEVCONTAINER.md) for ownership,
+Compose, recovery, and capacity rules.
+
 Automation can inspect the same profile contract without touching a workspace,
 Docker, DevPod, Devsy, Traefik, Git, or global state:
 

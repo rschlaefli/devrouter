@@ -133,6 +133,42 @@ describe("buildDevcontainerChecks", () => {
     expect(checkLevel(checks, "repo.devcontainer.aliases")).toBe("warn");
   });
 
+  it.each([
+    "'127.0.0.1::5432'",
+    "'127.0.0.1:0:10000/tcp'",
+    '{ target: 10000, host_ip: "127.0.0.1", protocol: tcp }',
+    '{ target: 10000, published: "0", host_ip: "127.0.0.1" }',
+  ])("accepts an explicit ephemeral IPv4 loopback binding %s", (ports) => {
+    writeCompose({ ports });
+    expect(
+      checkLevel(
+        buildDevcontainerChecks(tmpDir, config("sample-app:3000")),
+        "repo.devcontainer.no-published-ports",
+      ),
+    ).toBe("ok");
+  });
+
+  it.each([
+    "5432",
+    "'10000'",
+    "'0.0.0.0::10000'",
+    "'127.0.0.1:10003:10000'",
+    "'127.0.0.1::10000/udp'",
+    "'127.0.0.1::65536'",
+    "'127.0.0.1::0'",
+    '{ target: 10000, published: "10003", host_ip: "127.0.0.1" }',
+    '{ target: 10000, host_ip: "${BIND_IP}" }',
+    "{ target: 10000 }",
+  ])("retains refusal for fixed, public or ambiguous publication %s", (ports) => {
+    writeCompose({ ports });
+    expect(
+      checkLevel(
+        buildDevcontainerChecks(tmpDir, config("sample-app:3000")),
+        "repo.devcontainer.no-published-ports",
+      ),
+    ).toBe("error");
+  });
+
   it("errors on published host ports including long syntax", () => {
     writeCompose({ ports: "{ target: 3000, published: 3000 }" });
 

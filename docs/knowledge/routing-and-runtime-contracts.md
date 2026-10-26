@@ -9,6 +9,9 @@ source_paths:
   - src/core/managed-runtime*.ts
   - src/core/devcontainer-profile.ts
   - src/core/workspace-ensure.ts
+  - src/core/managed-host-ports.ts
+  - src/core/host-env.ts
+  - src/commands/env.ts
   - src/core/app-run.ts
   - src/core/docker-run.ts
   - src/core/routes.ts
@@ -67,6 +70,33 @@ volumes, use no recreate or broad Compose down, and publish routes only after
 the selected service, process, and readiness proofs pass. Status and doctor
 expose desired, active, and drift state without environment values.
 
+`managedRuntime.variants` is an independent startup selector. It accepts at most
+32 non-default names, each at most 64 lowercase alphanumeric or hyphen-separated
+characters; `default` is implicit and reserved. `ensure` and `workspace ensure`
+accept `--variant`, while an ordinary ensure returns to `default`. `--repair`
+retains the recorded variant and refuses a different explicit one. Non-default
+variants require the managed post-start adapter and the manual lifecycle;
+capacity-targeted, enrolled, or retained capacity-managed checkouts refuse them
+before journal intent, controller admission, preparation, provider mutation, or
+route effects. A same-variant profile transition may proceed directly even when
+it drops a failed process. A retained degraded profile and variant are repaired
+before a requested variant change.
+
+`managedRuntime.devcontainer.hostPorts` is a discovery registry for up to 32
+declared TCP targets on registered base or profile services, with kebab-case key
+names of at most 64 characters. It does not start a service, allocate a port,
+publish a binding, or create a route. Consumer Compose owns the loopback
+ephemeral binding. After readiness, ensure proves one exact
+`127.0.0.1` mapping per selected declaration and exports the current number as
+`DEVROUTER_HOST_PORT_<KEY>`; inactive declarations receive an empty value and a
+selected unavailable binding blocks the adapter. The mapping enters process
+identity, so a changed number replaces the owned process. Container clients use
+the service name and target because the host number is external metadata and is
+not a stable lease. Managed state stores a declaration digest, never allocated
+numbers. A failed transition after declaration drift stays degraded instead of
+relaunching the prior process; restore the retained declarations before repair,
+and environment export stays unavailable until successful ensure.
+
 ## HTTP, TCP, and TLS
 
 HTTP routes use `*.localhost` hosts. TCP routes require a supported `tcpProtocol` and TLS/SNI so shared protocol ports can select the hostname-specific upstream. `src/core/route-publication.ts:ensureRouteInfrastructure` enables required entrypoints, refreshes certificate host coverage, and refuses TCP publication while TLS is disabled.
@@ -76,6 +106,11 @@ Loopback proxy upstreams are rewritten by `src/core/host-routes.ts:parseUpstream
 ## Dependencies and environment
 
 `src/core/repo-config.ts:resolveAppDependencies` resolves the dependency graph. `src/core/app-run.ts:startAppDependencies` starts needed Docker dependencies, derives protocol-specific environment variables, applies configured `envMap` aliases, and returns ownership-aware cleanup. Secret-manager wrapping receives only named runtime environment values; secret material remains native environment state and must not be written to config or documentation.
+
+`devrouter env --json` adds the managed host-port report without changing the
+existing fields. The command form clears inherited `DEVROUTER_HOST_PORT_*`, then
+exports only current available values and omits inactive declarations. It refuses
+to launch when a selected declaration is unavailable.
 
 ## Route publication and recovery
 

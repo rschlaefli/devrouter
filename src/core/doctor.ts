@@ -510,6 +510,10 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
 
       if (repo.managedRuntime) {
         const managedRuntime = repo.managedRuntime;
+        const variantOption =
+          managedRuntime.activeVariant && managedRuntime.activeVariant !== "default"
+            ? ` --variant ${managedRuntime.activeVariant}`
+            : "";
         const level =
           managedRuntime.mode === "legacy" || managedRuntime.status === "ready"
             ? "ok"
@@ -532,6 +536,9 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
           managedRuntime.transitionPhase
             ? `transitionPhase=${managedRuntime.transitionPhase}`
             : undefined,
+          ...(managedRuntime.activeVariant
+            ? [`activeVariant=${managedRuntime.activeVariant}`]
+            : []),
           ...managedRuntime.drift,
         ]
           .filter((detail): detail is string => Boolean(detail))
@@ -548,7 +555,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
                 ? `Inspect: dev status --repo ${repo.path}; resolve the reported drift before retrying ensure.`
                 : managedRuntime.status === "ready"
                   ? undefined
-                  : `Run: dev ensure ${repo.path}`,
+                  : `Run: dev ensure ${repo.path}${variantOption}`,
         });
 
         const mountNesting = managedRuntime.mountNesting;
@@ -568,7 +575,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
                     `unwound=${entry.destination} (source ${entry.source} inside ${entry.nestedWithin})`,
                 ),
               ].join("; "),
-              suggestion: `Run: devrouter stop ${repo.path} and then devrouter ensure ${repo.path} to restart the exact container, which re-applies the nested mount.`,
+              suggestion: `Run: devrouter stop ${repo.path} and then devrouter ensure ${repo.path}${variantOption} to restart the exact container, which re-applies the nested mount.`,
             });
           } else if (mountNesting.status === "unverified") {
             addCheck(checks, {

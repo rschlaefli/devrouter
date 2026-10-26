@@ -1,10 +1,13 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:os";
 import { collectHostEnvReport, type HostEnvReport, hostEnvVariables } from "../core/host-env";
+import { assertManagedHostPortsAvailable } from "../core/managed-host-ports";
 import { printJSON } from "../core/output";
 import { resolveGitCheckoutPath } from "./environment-path";
 
 export type EnvInvocation = { path?: string; json: boolean; command?: string[] };
+
+const HOST_PORT_ENV_PREFIX = "DEVROUTER_HOST_PORT_";
 
 export function parseEnvInvocation(args: string[]): EnvInvocation {
   const separator = args.indexOf("--");
@@ -51,7 +54,32 @@ function formatEnvReport(report: HostEnvReport): string {
       `${app.name}  ${app.tcpProtocol} routed ${app.routed.host}:${app.routed.port}${params ? ` ?${params}` : ""}; ${loopback}  (${state})`,
     );
   }
+  if (report.hostPorts) {
+    lines.push("", "Host ports:");
+    for (const [name, port] of Object.entries(report.hostPorts)) {
+      const target = `${port.service}:${port.target}`;
+      if (port.status === "available" && port.endpoint) {
+        lines.push(
+          `  ${name}  ${target} -> ${port.endpoint.host}:${port.endpoint.port}  (available)`,
+        );
+        continue;
+      }
+      const detail = port.reason ? `${port.status}: ${port.reason}` : port.status;
+      lines.push(`  ${name}  ${target}  (${detail})`);
+    }
+  }
   return `${lines.join("\n")}\n`;
+}
+
+function hostCommandEnvironment(
+  report: HostEnvReport,
+  processEnv: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const env = { ...processEnv };
+  for (const name of Object.keys(env)) {
+    if (name.startsWith(HOST_PORT_ENV_PREFIX)) delete env[name];
+  }
+  return Object.assign(env, hostEnvVariables(report, processEnv));
 }
 
 /** Runs argv without a shell and resolves to the child's exit code. */
@@ -84,8 +112,11 @@ export function runHostCommand(command: string[], env: NodeJS.ProcessEnv): Promi
 export async function runEnvCommand(invocation: EnvInvocation): Promise<void> {
   const report = await collectHostEnvReport(resolveGitCheckoutPath(invocation.path));
   if (invocation.command) {
-    const env = { ...process.env, ...hostEnvVariables(report, process.env) };
-    process.exitCode = await runHostCommand(invocation.command, env);
+    assertManagedHostPortsAvailable(report.hostPorts ?? {});
+    process.exitCode = await runHostCommand(
+      invocation.command,
+      hostCommandEnvironment(report, process.env),
+    );
     return;
   }
   if (invocation.json) {

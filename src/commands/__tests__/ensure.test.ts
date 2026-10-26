@@ -91,3 +91,37 @@ describe("runEnsureCommand host-port refusal output", () => {
     expect(stdoutLines().join("")).toContain("is ready");
   });
 });
+
+describe("runEnsureCommand runtime variant forwarding", () => {
+  function readyResult(): WorkspaceEnsureResult {
+    return {
+      kind: "primary",
+      repoPath: "/repo",
+      profile: "full",
+      devpodId: "repo",
+      urls: [],
+      recreated: false,
+      tlsRefreshed: false,
+    };
+  }
+
+  it("forwards an explicit variant to lifecycle ensure", async () => {
+    vi.mocked(superviseLifecycle).mockResolvedValue(readyResult());
+
+    await runEnsureCommand({ variant: "ci" });
+
+    expect(superviseLifecycle).toHaveBeenCalledWith(
+      "ensure",
+      "/repo",
+      expect.objectContaining({ variant: "ci" }),
+    );
+  });
+
+  it("leaves the variant absent when the flag is omitted", async () => {
+    vi.mocked(superviseLifecycle).mockResolvedValue(readyResult());
+
+    await runEnsureCommand({});
+
+    expect(vi.mocked(superviseLifecycle).mock.calls.at(-1)?.[2]).not.toHaveProperty("variant");
+  });
+});

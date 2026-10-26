@@ -4,6 +4,8 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
+- [Runtime variants and workspace host-port discovery](./2026-10-26-runtime-variants-and-host-ports-plan.md) — separate managed runtime selection from profile resources and discover declared loopback service ports.
+
 - [Reliability evidence and stop recovery](./2026-10-26-reliability-evidence-repair.md) — correct Q20 acceptance, finish explicit stop-repair source and reconcile the original roadmap; consumer runtimes and preview work retain their owners.
 
 - [Dockerode 5 UUID remediation](./2026-10-25-dockerode-5-uuid-remediation.md) — source merged in [PR #149](https://github.com/rschlaefli/devrouter/pull/149) and published in 0.5.5; downstream adoption and the remaining source-lock audit findings are separate follow-ups.

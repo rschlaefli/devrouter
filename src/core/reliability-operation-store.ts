@@ -12,6 +12,7 @@ import {
 import { ControllerStore } from "./controller-store";
 import type { ExecutionOutcome } from "./execution-outcome";
 import { withFileLockSync } from "./file-lock";
+import { readManagedRuntimeState } from "./managed-runtime-state";
 import {
   assertReliabilityState,
   createReliabilityState,
@@ -1161,6 +1162,11 @@ export function enrollStoppedLifecycle(
   updateReliabilityOperation(identity, (record) => {
     if (record.revision !== expectedRevision)
       throw new Error("Enrollment journal revision changed.");
+    const retained = readManagedRuntimeState(identity.repoPath, identity.workspace ?? undefined);
+    if (retained?.variant && retained.variant !== "default")
+      throw new Error(
+        "Capacity enrollment does not support a retained non-default runtime variant.",
+      );
     if (record.enrollment) {
       if (
         Object.entries(record.enrollment).some(
