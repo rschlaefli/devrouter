@@ -885,7 +885,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         "preview-blueprints",
         owned.blueprintId,
       ]);
-      if (!blueprint || digest(data(blueprint).spec) !== step.fingerprint)
+      if (!blueprint || specDigest(data(blueprint).spec) !== step.fingerprint)
         return this.receipt(owned);
       await gate.record(step.name, "accepted");
     }
@@ -900,7 +900,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       const run = data(result);
       if (
         !run.concluded ||
-        digest(run.spec) !== step.fingerprint ||
+        specDigest(run.spec) !== step.fingerprint ||
         record(run.arguments).devrouterOperation !== operation ||
         run.environmentId !== (owned.previewId ?? `preview-${entry.session.generation}`)
       )
@@ -944,7 +944,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
   ): Promise<Record<string, unknown> | null> {
     const api = this.options.api;
     const path = ["preview-blueprints", nativeIdentifier(owned.blueprintId)];
-    let fingerprint = digest(spec);
+    let fingerprint = specDigest(spec);
     const operation = `${stage}-${digest(effect.id).slice(0, 20)}`;
     const recorded = (await gate.read()).find((step) => step.name === `${stage}-run`);
     if (!recorded) {
@@ -959,7 +959,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         await gate.record(`${stage}-spec`, "accepted");
       }
       const detail = data(await api.request("GET", path));
-      if (digest(detail.spec) !== fingerprint)
+      if (specDigest(detail.spec) !== fingerprint)
         throw new NorthflankFailure("Northflank blueprint specification drifted.");
       await gate.record(`${stage}-spec`, "accepted");
       if ((await begin(gate, `${stage}-run`, "once", fingerprint)) === "write") {
@@ -991,7 +991,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     }
     const run = data(await api.request("GET", [...path, "runs", id]));
     if (
-      digest(run.spec) !== fingerprint ||
+      specDigest(run.spec) !== fingerprint ||
       record(run.arguments).devrouterOperation !== operation ||
       run.environmentId !== (owned.previewId ?? `preview-${entry.session.generation}`)
     )
@@ -1187,6 +1187,19 @@ function data(value: Record<string, unknown> | null): Record<string, unknown> {
   if (!value?.data || typeof value.data !== "object" || Array.isArray(value.data))
     throw new NorthflankFailure("Invalid Northflank native observation.");
   return value.data as Record<string, unknown>;
+}
+function specDigest(value: unknown): string {
+  const definition = (node: unknown): Record<string, unknown> => {
+    const { response: _response, ...fields } = record(node);
+    if (fields.kind === "Workflow") {
+      const workflow = record(fields.spec);
+      if (!Array.isArray(workflow.steps))
+        throw new NorthflankFailure("Northflank workflow steps are unavailable.");
+      fields.spec = { ...workflow, steps: workflow.steps.map(definition) };
+    }
+    return fields;
+  };
+  return digest(definition(value));
 }
 function digest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");

@@ -1283,6 +1283,7 @@ function providerFixture(
   let sourceWithoutGeneratedMarker = false;
   let forgeOutputSource = false;
   let refreshDuringOutput = false;
+  let alterRunConfiguration = false;
   let outputValue = "abcdef0123456789".repeat(2);
   const outputCalls: Array<{ id: string; argv: string[] }> = [];
   let pendingBootstrap = false;
@@ -1473,6 +1474,9 @@ function providerFixture(
               refCount += 1;
             }
           }
+          for (const node of spec.spec.steps)
+            node.response = { status: "success", startTime: 1, endTime: 2 };
+          spec.response = { status: "success", startTime: 1, endTime: 2 };
           const row = {
             id,
             name: body.name,
@@ -1512,6 +1516,12 @@ function providerFixture(
           throw new Error("synthetic read unavailable");
         }
         const row = runs.get(tail[3]);
+        if (alterRunConfiguration && row?.arguments.devrouterOperation?.startsWith("prepare-")) {
+          alterRunConfiguration = false;
+          const changed = structuredClone(row);
+          changed.spec.spec.steps[0].spec.billing.deploymentPlan = "unapproved-plan";
+          return response(changed);
+        }
         if (refreshDuringPrepare && row?.arguments.devrouterOperation?.startsWith("prepare-")) {
           refreshDuringPrepare = false;
           desiredPlan = structuredClone(entry.plan);
@@ -1677,6 +1687,9 @@ function providerFixture(
     },
     failSecret: () => {
       missingSecret = true;
+    },
+    alterRunConfiguration: () => {
+      alterRunConfiguration = true;
     },
     advance: (ms: number) => {
       now += ms;
@@ -1943,6 +1956,14 @@ describe("Northflank provider lifecycle", () => {
     expect(stopped?.session.reservationHeld).toBe(false);
     expect(f.allocations.size).toBe(0);
   });
+  it("rejects changed deployment configuration despite valid native execution metadata", async () => {
+    const f = providerFixture();
+    f.alterRunConfiguration();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).not.toBe("ready");
+    expect(f.allocations.size).toBe(0);
+  });
+
   it("keeps bootstrap, activation and explicit refresh in the same native environment", async () => {
     const f = providerFixture();
     await f.command("start", { kind: "start", aliases: ["web"] });
