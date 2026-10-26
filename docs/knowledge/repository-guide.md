@@ -29,7 +29,7 @@ Use this concept to find the first trustworthy artifact for a change. It explain
 | Why is a durable boundary designed this way? | [ADRs](../adr/) | ADRs own accepted rationale, not current implementation detail. |
 | How should a user perform a supported task? | [Product manuals](../README.md) and generated CLI help | Manuals own current operating guidance. |
 | Why did a failure recur and how is it prevented? | [Integration solutions](../solutions/integration/) | Solution records preserve incident-derived lessons. |
-| What was one branch meant to deliver? | [Project records](../project/index.md) | Plans are dated execution history, not current reference truth. |
+| What was one branch meant to deliver? | [Project records](../project/) | Plans are dated execution history, not current reference truth. |
 
 ## Repository shape
 

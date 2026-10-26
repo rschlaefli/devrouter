@@ -1,9 +1,10 @@
 # Reliable managed sessions through Devrouter 0.1.0
 
 **Current status (2026-10-26): released through 0.5.5; reliability acceptance
-remains active.** The [current repair package](./2026-10-26-reliability-evidence-repair.md)
-owns the sleep-verifier correction and explicit replacement-population stop
-recovery. Release/source completion does not establish complete M1–M3 acceptance.
+remains active.** The [current repair and verification package](./2026-10-26-reliability-evidence-repair.md)
+records the merged sleep-verifier correction and explicit replacement-population
+stop recovery, including scoped live qualification. Release/source completion
+does not establish complete M1–M3 acceptance.
 
 ### Current acceptance and ownership
 
@@ -11,8 +12,8 @@ recovery. Release/source completion does not establish complete M1–M3 acceptan
 | --- | --- |
 | Released lifecycle foundation | Releases through [0.5.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.5.5) carry prior recovery, idle-stop, Linux and routing fixes. Release CI passed at `e0111372`; installation and downstream adoption are separate evidence. |
 | RF08 integrated canary | Open: requires an authorized consumer/profile and two environments, semantic readiness, fault/pressure/parking/resume proof and neighbour functionality. Isolated fixtures do not close this contract. |
-| RF09 / Q20 host suspend | Open: the September pass is invalid acceptance evidence. Its parser accepted a scheduled wake request as a wake, its heartbeat had already stopped, and preparation/verification used differing bundle evidence. Correct the verifier, then obtain a fresh operator-observed run on one unchanged artifact. |
-| Explicit stop repair | [PR #130](https://github.com/rschlaefli/devrouter/pull/130) is unmerged source. The current repair package integrates its bounded proof with current main and adds retry/failure-boundary coverage; no consumer recovery is claimed. |
+| RF09 / Q20 host suspend | Open: the September pass is invalid acceptance evidence. Its parser accepted a scheduled wake request as a wake, its heartbeat had already stopped, and preparation/verification used differing bundle evidence. Verifier correction merged in [PR #156](https://github.com/rschlaefli/devrouter/pull/156); fresh fixture armed, operator-observed sleep/wake still pending. |
+| Explicit stop repair | [PR #156](https://github.com/rschlaefli/devrouter/pull/156) merged the bounded repair from [PR #130](https://github.com/rschlaefli/devrouter/pull/130), with retry/failure-boundary coverage. Scoped live replacement/refusal/repair/retry/data-retention verification passed; consumer recovery remains separately owned. |
 | RF11 consumer adoption | Open with the consumer owner. Its later task response did not require runtime recovery for its current work; that response is not the original checkout's ensure/smoke/stop receipt. |
 | Q26 quarantine | Symlink protections are source-qualified. The absent quarantine capability still requires an explicit unsupported disposition or separately scoped implementation. |
 

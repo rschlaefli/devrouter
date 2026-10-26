@@ -4,7 +4,10 @@
 
 The user approved fixing the unowned sleep-qualification and replaced-population
 stop gaps, and reconciling the roadmap on 26 October 2026. This is an executable
-batch under the existing reliability roadmap, ending in a reviewed draft PR.
+batch under the existing reliability roadmap. The later instruction to merge
+and proceed with verification authorizes merging
+[PR #156](https://github.com/rschlaefli/devrouter/pull/156) and scoped live
+qualification on disposable fixtures.
 
 The sleep verifier must distinguish actual wake events from scheduled wake
 requests, require a live session immediately before the observed suspend, and
@@ -22,9 +25,9 @@ must retain its refusals; repair cannot delete data or bypass uncertain ownershi
 The existing student-docs task remains the consumer owner. Its current work is
 application finishing; this package changes neither its branch nor its runtime.
 Cloud-preview tasks, their branches and their plans remain independently owned.
-No release, merge, global installation, consumer mutation or real-machine sleep
-is authorized by this package. Local commits, task-branch push and draft delivery
-are authorized. Roadmap reconciliation describes verified source and evidence
+Release, global installation and consumer mutation remain separate. The
+operator performs the actual machine sleep after fixture preparation. Local
+commits, task-branch push and draft delivery are authorized. Roadmap reconciliation describes verified source and evidence
 boundaries without publishing private environment data.
 
 ## Execution details
@@ -74,7 +77,7 @@ concerns this task branch and excludes consumer-runtime verification.
 4. Update `docs/project/2026-09-13-reliability-release-plan.md` current status,
    retract Q20 closure, distinguish
    shipped source from unfinished integrated-canary/consumer evidence, and
-   reconcile delivered work in the project index. Keep the quarantine decision
+   reconcile delivered work in the dated project records. Keep the quarantine decision
    open; do not close other PRs or infer consumer recovery.
 5. Simplify and review the committed package, resolve substantive findings, push
    the ordinary task branch, create a draft PR and verify hosted CI.
@@ -134,7 +137,36 @@ concerns this task branch and excludes consumer-runtime verification.
   around every CLI invocation and heartbeat renewal, and retained in the
   checkpoint; drift cannot silently relabel the producer. Same-risk-reviewer
   correction passed with no further findings and 10 focused tests, including
-  both heartbeat subprocess cases. Final hosted CI is pending.
-- Local real-provider setup, routing and devcontainer smoke were not run: this
-  package did not start or mutate application runtimes. Live Q20 and consumer
-  recovery remain separate acceptance work.
+  both heartbeat subprocess cases. Final hosted CI passed on `5464b382`
+  ([run 40287258714](https://github.com/rschlaefli/devrouter/actions/runs/40287258714)).
+- At pre-merge source delivery, real-provider setup, routing and devcontainer
+  smoke were not run. The separately authorized post-merge qualification follows
+  below; consumer recovery remains separately owned.
+
+### Authorized merge and live verification (2026-10-26)
+
+- [PR #156](https://github.com/rschlaefli/devrouter/pull/156) merged as
+  `1df0d0a627d44ab7c31cb5de9106db050eb469a5`. Its tree equals the reviewed and
+  tested candidate `5464b382`; natural post-merge
+  [CI 40297747596](https://github.com/rschlaefli/devrouter/actions/runs/40297747596)
+  passed all ordinary checks and installed synthetic qualifications.
+- A build of the merged tree reproduces CLI SHA-256
+  `86fa8d2eb56533f828399bf010ad1d8788050875f3b39d762736664a24395198`
+  and lifecycle worker SHA-256
+  `dd7e169db492a69ec0522d3a3f8b17854a025827ba9ae25bf90184f1f27c6dde`.
+- Real-provider disposable-fixture qualification passed configuration-drift stop,
+  retained-data resume and final non-destructive stop. The exact provider reports
+  stopped and the fixture routes are absent. Its volumes remain retained.
+- The same disposable fixture then exercised external container replacement with
+  volumes preserved: ordinary stop refused and preserved its prior baseline;
+  explicit repair proved and stopped the replacement population; repeated repair
+  succeeded; resume preserved the exact data marker; final stop succeeded.
+  These are synthetic qualification results, not consumer recovery evidence.
+- Q20 has a fresh fixture prepared against the merged bundle, with successful
+  ongoing renewals. Verification remains pending the operator's actual sleep and
+  wake. The qualifier will refuse a stale session or changed executable and
+  perform its exact cleanup after the live verification. The fixture is retained
+  only for this pending operator-observed test; it is not a consumer environment.
+- Detailed task-owned fixture receipts and producing logs are retained privately;
+  other task branches, checkouts and runtimes were not changed. No release or
+  global installation occurred.

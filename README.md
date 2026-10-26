@@ -153,7 +153,7 @@ explicit `--write-agents` or `--write-skill` flags.
 - [Domain context](./CONTEXT.md) — shared vocabulary consumed by Matt Pocock planning skills.
 - [Contributor guide](./AGENTS.md) — source map, invariants, validation, and release checklist.
 - [Examples](./examples/routing/README.md) — routing without a devcontainer; see also the [managed DevPod example](./examples/devcontainer/README.md) and [parallel workspace example](./examples/workspace/README.md).
-- [Project records](./docs/project/index.md) — dated plans and roadmap state.
+- [Project records](./docs/project/) — dated plans and roadmap state.
 - [Release history](./CHANGELOG.md) and [adaptation prompts](./upgrade-prompts/) — versioned change guidance.
 
 Run `devrouter --help` for the complete current command and option reference.
