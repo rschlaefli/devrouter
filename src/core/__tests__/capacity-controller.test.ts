@@ -36,6 +36,7 @@ const fixture = vi.hoisted(() => ({
   reconcileStop: vi.fn(),
   restoreParked: vi.fn(),
   worker: vi.fn(),
+  hostWake: vi.fn(),
 }));
 vi.mock("../capacity-startup-witness", () => ({
   publishQueuedStartupWitness: fixture.witness,
@@ -83,6 +84,7 @@ vi.mock("../capacity-enrollment", () => ({
   resolveCapacityEnrollment: fixture.resolve,
 }));
 vi.mock("../lifecycle-operation-status", () => ({ readLifecycleOperationStatus: fixture.status }));
+vi.mock("../host-wake", () => ({ readHostWakeEpoch: fixture.hostWake }));
 vi.mock("../capacity-queue", () => ({
   CapacityQueue: class {
     constructor(options: { collect: () => Promise<unknown> }) {
@@ -112,6 +114,7 @@ beforeEach(() => {
   fixture.snapshot.mockReturnValue({ revision: 7, reservations: [], pools: [] });
   fixture.merge.mockReturnValue({ changed: true, revision: 8 });
   fixture.info.mockResolvedValue({ ID: "synthetic.daemon", MemTotal: 100 });
+  fixture.hostWake.mockReturnValue("wake-1");
 });
 afterEach(() => vi.useRealTimers());
 const submissionEnrollment = { hostDomain: "host", runtimeDomain: "runtime" };
@@ -1265,6 +1268,7 @@ function pressureFixture() {
   policy.recovery.observationSeconds = 2;
   policy.recovery.resumeDwellSeconds = 3;
   let now = { wallMs: 10_000, monotonicMs: 10_000 };
+  let wakeEpoch: string | null | undefined = "wake-a";
   fixture.info.mockResolvedValue({ ID: "daemon-0", MemTotal: 100 });
   const sample = (pressure: "normal" | "pressured" | "unknown" = "normal") => ({
     ...collectedSample,
@@ -1272,12 +1276,15 @@ function pressureFixture() {
     pressure,
   });
   const collect = vi.fn(async () => ({ host: sample(), "runtime-0": sample() }));
-  const active = controller(collect, () => ({ ...now }));
+  const active = controller(collect, () => ({ ...now, wakeEpoch }));
   return {
     policy,
     active,
     collect,
     sample,
+    setWakeEpoch: (value: string | null | undefined) => {
+      wakeEpoch = value;
+    },
     advance: (ms: number) => {
       now = { wallMs: now.wallMs + ms, monotonicMs: now.monotonicMs + ms };
     },
@@ -1287,6 +1294,87 @@ function pressureFixture() {
     evidence: () => active.pressureEvidence({ hostDomain: "host", runtimeDomain: "runtime-0" }),
   };
 }
+
+it("refuses capacity collection while wake evidence is unavailable and recovers fresh", async () => {
+  const context = pressureFixture();
+  context.setWakeEpoch(null);
+  await expect(fixture.collection()).rejects.toThrow("Capacity wake evidence unavailable.");
+  await expect(fixture.collection()).rejects.toThrow("Capacity wake evidence unavailable.");
+  expect(context.collect).not.toHaveBeenCalled();
+
+  context.setWakeEpoch("wake-b");
+  await fixture.collection();
+  expect(context.collect).toHaveBeenCalledTimes(1);
+  expect(context.evidence().domains.host.observedDurationMs).toBe(0);
+  context.active.close();
+});
+
+it("cancels, drains, and does not publish a collection crossing a wake epoch", async () => {
+  const context = pressureFixture();
+  await fixture.collection();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  fixture.merge.mockClear();
+
+  let signal!: AbortSignal;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const held = deferred<Awaited<ReturnType<typeof context.collect>>>();
+  context.collect.mockImplementationOnce((input?: AbortSignal) => {
+    if (!input) throw new Error("Synthetic collection signal is unavailable.");
+    signal = input;
+    entered();
+    return held.promise;
+  });
+  context.advance(9000);
+  const pending = fixture.collection();
+  const settled = pending.then(
+    () => null,
+    (error: unknown) => error,
+  );
+  await started;
+
+  context.setWakeEpoch("wake-b");
+  expect(context.evidence().normalDwellSatisfied).toBe(false);
+  expect(signal.aborted).toBe(true);
+  expect(await settled).toBeInstanceOf(Error);
+  held.resolve({ host: context.sample(), "runtime-0": context.sample() });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(fixture.merge).not.toHaveBeenCalled();
+
+  await expect(fixture.collection()).rejects.toThrow("within cadence");
+  expect(context.collect).toHaveBeenCalledTimes(2);
+  context.advance(1000);
+  await fixture.collection();
+  expect(context.collect).toHaveBeenCalledTimes(3);
+  expect(context.evidence().domains.host.observedDurationMs).toBe(0);
+  context.active.close();
+});
+
+it("does not return an accepted sample replayed under a new wake epoch", async () => {
+  const context = pressureFixture();
+  await fixture.collection();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  context.advance(9000);
+  context.setWakeEpoch("wake-b");
+  expect(context.evidence().normalDwellSatisfied).toBe(false);
+  context.collect.mockResolvedValueOnce({
+    host: { ...context.sample(), sampledAtMs: 10_000 },
+    "runtime-0": { ...context.sample(), sampledAtMs: 10_000 },
+  });
+  await expect(fixture.collection()).resolves.toEqual({});
+  expect(context.evidence().domains.host.pressure).toBe("unknown");
+
+  context.advance(1000);
+  await expect(fixture.collection()).resolves.toEqual({
+    host: context.sample(),
+    "runtime-0": context.sample(),
+  });
+  expect(context.evidence().domains.host.observedDurationMs).toBe(0);
+  context.active.close();
+});
 
 it("shares collection and cached cadence without extending observed dwell", async () => {
   const context = pressureFixture();
@@ -1533,6 +1621,19 @@ it("refuses a parked stop once the operator policy changed", async () => {
   await expect(
     context.capacity.parkedStop(environmentIdentity(environment), capacitySignal()),
   ).resolves.toBe(false);
+  context.active.close();
+});
+
+it("keeps a committed parked stop live while wake evidence is unavailable", async () => {
+  const context = capacityPolicyFixture({
+    clock: () => ({ wallMs: 10_000, monotonicMs: 10_000, wakeEpoch: null }),
+  });
+  fixture.reconcileStop.mockReturnValue({ intent: "stop" });
+  await expect(
+    context.capacity.parkedStop(environmentIdentity(environment), capacitySignal()),
+  ).resolves.toBe(true);
+  expect(fixture.reconcileStop).toHaveBeenCalledTimes(1);
+  expect(fixture.worker).toHaveBeenCalledWith({ intent: "stop" });
   context.active.close();
 });
 

@@ -186,6 +186,12 @@ const clock = (wallMs: number, monotonicMs: number = wallMs): CapacityEvidenceCl
   monotonicMs,
 });
 
+const wakeClock = (
+  wallMs: number,
+  wakeEpoch: string | null | undefined,
+  monotonicMs: number = wallMs,
+): CapacityEvidenceClock => ({ ...clock(wallMs, monotonicMs), wakeEpoch });
+
 const unknownEvidence = { pressure: "unknown", observedDurationMs: 0, sampledAtMs: null };
 
 it("declares at least one nonempty unique domain within the policy bound", () => {
@@ -366,6 +372,85 @@ it("retains watermarks across global invalidation while advancing the generation
   expect(tracker.read(["host"], clock(6000))).toEqual({
     host: { pressure: "normal", observedDurationMs: 0, sampledAtMs: 6000 },
   });
+});
+
+it("accrues ordinary dwell across a nine-second gap in the same wake epoch", () => {
+  const tracker = tracked(["host"]);
+  tracker.observe({ host: sampleAt(1000) }, wakeClock(1000, "100"));
+  tracker.observe({ host: sampleAt(4000) }, wakeClock(4000, "100"));
+  expect(tracker.checkpoint(wakeClock(13_000, "100"))).toBe(0);
+  expect(tracker.observe({ host: sampleAt(13_000) }, wakeClock(13_000, "100"))).toEqual({
+    host: sampleAt(13_000),
+  });
+  expect(tracker.read(["host"], wakeClock(13_000, "100"))).toEqual({
+    host: { pressure: "normal", observedDurationMs: 12_000, sampledAtMs: 13_000 },
+  });
+});
+
+it("invalidates a nine-second continuous-clock gap when the wake epoch changes", () => {
+  const tracker = tracked(["host"]);
+  tracker.observe({ host: sampleAt(1000) }, wakeClock(1000, "100"));
+  tracker.observe({ host: sampleAt(4000) }, wakeClock(4000, "100"));
+
+  expect(tracker.checkpoint(wakeClock(13_000, "101"))).toBe(1);
+  expect(tracker.read(["host"], wakeClock(13_000, "101"))).toEqual({
+    host: unknownEvidence,
+  });
+  expect(tracker.checkpoint(wakeClock(13_000, "101"))).toBe(1);
+  expect(tracker.observe({ host: sampleAt(13_000) }, wakeClock(13_000, "101"))).toEqual({
+    host: sampleAt(13_000),
+  });
+  expect(tracker.read(["host"], wakeClock(13_000, "101"))).toEqual({
+    host: { pressure: "normal", observedDurationMs: 0, sampledAtMs: 13_000 },
+  });
+});
+
+it("rejects accepted pre-wake evidence replay in a different wake epoch", () => {
+  const tracker = tracked(["host"]);
+  const accepted = sampleAt(4000, "normal", { one: 10 });
+  tracker.observe({ host: accepted }, wakeClock(4000, "200"));
+  expect(tracker.observe({ host: accepted }, wakeClock(4000, "200"))).toEqual({
+    host: accepted,
+  });
+  expect(tracker.checkpoint(wakeClock(9000, "201"))).toBe(1);
+  expect(tracker.observe({ host: accepted }, wakeClock(9000, "201"))).toEqual({});
+  expect(tracker.read(["host"], wakeClock(9000, "201"))).toEqual({ host: unknownEvidence });
+  expect(tracker.observe({ host: sampleAt(10_000) }, wakeClock(10_000, "201"))).toEqual({
+    host: sampleAt(10_000),
+  });
+});
+
+it("keeps unavailable wake evidence closed until a recovered epoch supplies fresh samples", () => {
+  const tracker = tracked(["host"]);
+  tracker.observe({ host: sampleAt(1000) }, wakeClock(1000, "300"));
+  tracker.observe({ host: sampleAt(4000) }, wakeClock(4000, "300"));
+
+  expect(tracker.checkpoint(wakeClock(5000, null))).toBe(1);
+  expect(tracker.evidenceAvailable()).toBe(false);
+  expect(tracker.observe({ host: sampleAt(5000) }, wakeClock(5000, null))).toEqual({});
+  expect(tracker.read(["host"], wakeClock(5000, null))).toEqual({ host: unknownEvidence });
+  expect(tracker.checkpoint(wakeClock(5000, null))).toBe(1);
+  expect(tracker.checkpoint(wakeClock(6000, undefined))).toBe(1);
+  expect(tracker.evidenceAvailable()).toBe(false);
+
+  expect(tracker.checkpoint(wakeClock(7000, "300"))).toBe(2);
+  expect(tracker.evidenceAvailable()).toBe(true);
+  expect(tracker.observe({ host: sampleAt(4000) }, wakeClock(7000, "300"))).toEqual({});
+  expect(tracker.observe({ host: sampleAt(7000) }, wakeClock(7000, "300"))).toEqual({
+    host: sampleAt(7000),
+  });
+  expect(tracker.read(["host"], wakeClock(7000, "300"))).toEqual({
+    host: { pressure: "normal", observedDurationMs: 0, sampledAtMs: 7000 },
+  });
+});
+
+it("keeps initial and repeated null wake evidence unavailable", () => {
+  const tracker = tracked(["host"]);
+  expect(tracker.checkpoint(wakeClock(1000, null))).toBe(1);
+  expect(tracker.evidenceAvailable()).toBe(false);
+  expect(tracker.checkpoint(wakeClock(1000, null))).toBe(1);
+  expect(tracker.observe({ host: sampleAt(1000) }, wakeClock(1000, null))).toEqual({});
+  expect(tracker.read(["host"], wakeClock(1000, null))).toEqual({ host: unknownEvidence });
 });
 
 it("clears every window on a clock discontinuity and tolerates the boundary readings", () => {

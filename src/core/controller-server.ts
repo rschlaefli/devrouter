@@ -19,6 +19,7 @@ import {
   ControllerStore,
 } from "./controller-store";
 import { withFileLock } from "./file-lock";
+import { type HostWakeEpoch, readHostWakeEpoch } from "./host-wake";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
 import type { ReliabilityConsumer } from "./reliability-contract";
 import {
@@ -128,6 +129,7 @@ export async function runController(options: {
     collect: ControllerObservationCollector;
   };
   onListening?: () => void;
+  wakeEpoch?: () => HostWakeEpoch;
   operations?: ControllerOperations;
   createOperations?: (
     controller: ControllerStartup,
@@ -153,7 +155,7 @@ export async function runController(options: {
   store.assertStartup();
   await withFileLock(lockPath, { activity: "controller ownership", waitMs: 0 }, async () => {
     const staleSocket = validateOwnedFile(socketPath, true);
-    const sessions = new ControllerSessions(store);
+    const sessions = new ControllerSessions(store, options.wakeEpoch ?? readHostWakeEpoch);
     if (staleSocket) fs.unlinkSync(socketPath);
     const incarnation = sessions.read();
     const { resolve, collect } = options.createBindings?.(store.bindingFingerprint()) ?? {

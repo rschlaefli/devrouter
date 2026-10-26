@@ -31,6 +31,7 @@ source_paths:
   - src/core/controller-monitor.ts
   - src/core/controller-observation.ts
   - src/core/controller-sessions.ts
+  - src/core/host-wake.ts
   - src/core/network-*.ts
 ---
 
@@ -254,6 +255,15 @@ retries refuse when the tuple is already absent. Expiry, binding drift,
 clock discontinuity and controller restart instead retain unresolved protection.
 Those records are bounded and never evicted to make room. Ordinary observation of
 changed configuration can continue while the older consumer remains unresolved.
+
+On macOS, session and capacity checks also sample the kernel's read-only wake
+identity. A changed identity invalidates pre-sleep generations and capacity
+evidence even when the sleep is shorter than the timer discontinuity threshold.
+Unavailable wake evidence refuses fresh session grants and capacity decisions;
+exact consumer withdrawal and completion of an already-committed stop remain
+available. No cached pre-wake sample authorizes a new admission. Other platforms
+retain the wall/monotonic clock checks. A wake never authorizes parking or stops
+an environment by itself.
 
 An optional exact previous binding on `observe` can reconcile only that retained
 consumer, after fresh persisted ownership and identical environment and requirement

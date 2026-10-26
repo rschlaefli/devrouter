@@ -8,6 +8,7 @@ import type {
   ControllerSnapshot,
   ControllerStore,
 } from "./controller-store";
+import type { HostWakeEpoch } from "./host-wake";
 
 export type ControllerBinding = {
   session: string;
@@ -19,11 +20,17 @@ export class ControllerSessions {
   private snapshot: ControllerSnapshot;
   private leases = new Map<string, number>();
   private previousTime: { monotonic: number; wall: number } | undefined;
+  private wakeEpoch: HostWakeEpoch;
+  private wakeSourceSupported = false;
+  private wakeAvailable = true;
   private failed = false;
   private uncertainty:
     | { since: number; reason: "continuity-unknown" | "orphan-suspected" }
     | undefined;
-  constructor(private readonly store: ControllerStore) {
+  constructor(
+    private readonly store: ControllerStore,
+    private readonly readWakeEpoch: () => HostWakeEpoch = () => undefined,
+  ) {
     this.snapshot = store.startIncarnation();
   }
   read(): ControllerSnapshot {
@@ -32,6 +39,12 @@ export class ControllerSessions {
   }
   private assertHealthy() {
     if (this.failed) throw new Error("Controller durability is unknown; restart required.");
+  }
+  private assertWakeAvailable() {
+    if (!this.wakeAvailable)
+      throw new Error(
+        "Host wake evidence is unavailable. Check /usr/sbin/sysctl -n kern.wake_abs_time, then retry.",
+      );
   }
   private commit(next: ControllerSnapshot) {
     this.assertHealthy();
@@ -121,15 +134,29 @@ export class ControllerSessions {
       wall < 0
     )
       throw new Error("Invalid controller clock.");
+    let wake: HostWakeEpoch;
+    try {
+      wake = this.readWakeEpoch();
+    } catch {
+      wake = null;
+    }
+    if (wake !== undefined) this.wakeSourceSupported = true;
+    if (wake === undefined && this.wakeSourceSupported) wake = null;
+    const wakeChanged =
+      (wake === null && this.wakeAvailable) ||
+      (this.previousTime !== undefined && wake !== this.wakeEpoch);
+    this.wakeEpoch = wake;
+    this.wakeAvailable = wake !== null;
     const previous = this.previousTime;
     const elapsed = previous ? monotonic - previous.monotonic : 0;
     const wallElapsed = previous ? wall - previous.wall : 0;
     const discontinuity =
-      !!previous &&
-      (elapsed < 0 ||
-        elapsed > 15_000 ||
-        wallElapsed < 0 ||
-        Math.abs(wallElapsed - elapsed) > 2_000);
+      wakeChanged ||
+      (!!previous &&
+        (elapsed < 0 ||
+          elapsed > 15_000 ||
+          wallElapsed < 0 ||
+          Math.abs(wallElapsed - elapsed) > 2_000));
     if (!this.uncertainty || discontinuity)
       this.uncertainty = { since: monotonic, reason: "continuity-unknown" };
     const next = this.read();
@@ -189,6 +216,7 @@ export class ControllerSessions {
       history: snapshot.history,
       // Consent is only one input to parking; it is not an execution permission.
       consentSatisfied:
+        this.wakeAvailable &&
         snapshot.history === "complete" &&
         unresolvedConsumers === 0 &&
         liveConsumers > 0 &&
@@ -205,6 +233,7 @@ export class ControllerSessions {
     wall: number,
   ): ControllerBinding {
     this.tick(monotonic, wall);
+    this.assertWakeAvailable();
     const next = this.read();
     const required = [...requirements].sort();
     const existing = next.sessions.find((s) => s.id === id);
@@ -245,6 +274,7 @@ export class ControllerSessions {
     wall: number,
   ): ControllerBinding {
     this.tick(monotonic, wall);
+    this.assertWakeAvailable();
     const next = this.read();
     const required = [...requirements].sort();
     const retained = next.retainedSessions.find(
@@ -330,6 +360,7 @@ export class ControllerSessions {
     wall: number,
   ): void {
     this.tick(monotonic, wall);
+    if (!this.wakeAvailable) return;
     const next = this.read();
     let changed = false;
     for (const binding of bindings) {
@@ -400,6 +431,7 @@ export class ControllerSessions {
   ): ControllerSession & { status: string; validForMs: number } {
     const observation = session.observation;
     if (
+      !this.wakeAvailable ||
       !observation ||
       observation.sampledAtMs > monotonic ||
       observation.validUntilMs <= monotonic
@@ -423,6 +455,7 @@ export class ControllerSessions {
   }
   validate(binding: ControllerBinding): ControllerSession {
     this.assertHealthy();
+    this.assertWakeAvailable();
     const session = this.snapshot.sessions.find((s) => s.id === binding.session);
     if (
       binding.store !== this.snapshot.store ||

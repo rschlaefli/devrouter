@@ -30,7 +30,8 @@ will be induced and no other owner's runtime will be changed.
 Base: `0638021761325ee3cffaf3d8099fe43a56db8085`, target `main`.
 Branch and worktree: `rs/short-suspend-continuity`, `trees/rs/short-suspend-continuity`.
 Execution mode: standard. Boundary owner: this Devrouter maintenance task.
-The existing evidence PR #159 retains its branch and failed/pass receipts.
+The existing [evidence PR #159](https://github.com/rschlaefli/devrouter/pull/159)
+retains its branch and failed/pass receipts.
 
 ### Model and implementation
 
@@ -77,7 +78,7 @@ Do not block completion of a previously committed exact stop operation.
 ### Ownership, checks and sequence
 
 Main owns wake-source verification, cross-system design, integration and final
-proof. One executor may own the settled capacity implementation and its tests;
+proof. One executor owns the settled capacity implementation and its tests;
 main owns session/server changes and host-wake helper. Disjoint writes only.
 One planner critiques this frozen draft before implementation. Committed risk
 review covers authority, unavailable evidence, async publication and capacity
@@ -116,8 +117,16 @@ Documentation paths: `docs/knowledge/managed-environment-lifecycle.md`,
 
 ## Progress
 
-- Next action: independent plan critique, then the first failing short-gap test.
+- Independent planner: APPROVED after correcting unavailable-evidence liveness,
+  synchronous reader transitions and explicit ownership/test boundaries.
+- Three new session regressions failed against the baseline; the correction now
+  passes 146 focused host/session/server/monitor tests and 85 capacity tests.
+  Typecheck passes. Added coverage includes old-epoch sample replay, cancelled
+  and drained collections, exact release and committed-stop liveness.
+- Source implementation is complete; full tests, packed/synthetic qualification,
+  simplification, risk review and integrated final review remain pending.
 - Source mapping completed independently; production grant paths and both clock
-  consumers identified. Read-only kernel probe succeeds; implementation absent.
+  consumers identified. Read-only kernel probe succeeds; both implementations
+  are integrated with no dependency or protocol change.
 - Live proof: long-suspend evidence belongs to the previous unchanged artifact;
   short-suspend acceptance remains open. No runtime is retained by this package.

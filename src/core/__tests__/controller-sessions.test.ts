@@ -7,11 +7,11 @@ import { ControllerSessions } from "../controller-sessions";
 import { ControllerStore } from "../controller-store";
 
 const directories: string[] = [];
-function fixture() {
+function fixture(wakeEpoch?: () => string | null | undefined) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "controller-session-test-"));
   directories.push(directory);
   const store = new ControllerStore(directory);
-  return { store, sessions: new ControllerSessions(store) };
+  return { store, sessions: new ControllerSessions(store, wakeEpoch) };
 }
 const env = {
   id: "env",
@@ -78,6 +78,58 @@ it("invalidates sessions on scheduling and wall-clock discontinuities", () => {
     expect(sessions.tick(mono, wall)).toBe(true);
     expect(() => sessions.validate(first)).toThrow();
   }
+});
+it("invalidates a short wake without discarding unresolved consumer protection", () => {
+  let wake = "1";
+  const { sessions } = fixture(() => wake);
+  const first = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  expect(sessions.renew(first, 9000, 10_000)).toEqual(first);
+  wake = "2";
+  expect(sessions.tick(9001, 10_001)).toBe(true);
+  expect(() => sessions.renew(first, 9002, 10_002)).toThrow();
+  expect(() => sessions.setParkingConsent(first, 0, "allow-unusable", 9002, 10_002)).toThrow();
+  expect(sessions.read().retainedSessions).toMatchObject([
+    { generation: first.generation, reason: "discontinuity" },
+  ]);
+  const replacement = sessions.acquire("one", env, ["runtime"], 9003, 10_003);
+  expect(replacement.generation).not.toBe(first.generation);
+  expect(sessions.protection(env, 9003, 10_003)).toMatchObject({
+    liveConsumers: 1,
+    unresolvedConsumers: 1,
+    consentSatisfied: false,
+    continuity: "continuity-unknown",
+  });
+});
+it("keeps exact withdrawal available while unavailable wake evidence refuses grants", () => {
+  let wake: string | null | undefined = "1";
+  const { sessions } = fixture(() => wake);
+  const first = sessions.acquire("one", env, ["runtime"], 0, 1000);
+  wake = null;
+  expect(() => sessions.tick(100, 1100)).not.toThrow();
+  const invalidated = sessions.read();
+  sessions.tick(101, 1101);
+  expect(sessions.read().revision).toBe(invalidated.revision);
+  expect(() => sessions.acquire("two", env, ["runtime"], 101, 1101)).toThrow();
+  expect(() => sessions.protection(env, 101, 1101)).toThrow();
+  expect(() => sessions.release(first, 102, 1102)).not.toThrow();
+  expect(sessions.read().retainedSessions).toHaveLength(0);
+  wake = undefined;
+  expect(() => sessions.acquire("two", env, ["runtime"], 103, 1103)).toThrow();
+  wake = "2";
+  expect(sessions.acquire("one", env, ["runtime"], 104, 1104).generation).not.toBe(
+    first.generation,
+  );
+});
+it("refuses an initially unavailable wake source and recovers without a timer-only fallback", () => {
+  let wake: string | null | undefined = null;
+  const { sessions } = fixture(() => wake);
+  sessions.tick(0, 1000);
+  expect(() => sessions.acquire("one", env, ["runtime"], 1, 1001)).toThrow();
+  wake = undefined;
+  expect(() => sessions.acquire("one", env, ["runtime"], 2, 1002)).toThrow();
+  wake = "1";
+  const first = sessions.acquire("one", env, ["runtime"], 3, 1003);
+  expect(sessions.renew(first, 9003, 10_003)).toEqual(first);
 });
 it("fences the old epoch from a replacement session after restart", () => {
   const { sessions, store } = fixture();
