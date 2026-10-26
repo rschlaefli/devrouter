@@ -34,10 +34,10 @@ const environment = {
   profile: "web",
   fingerprint: "a".repeat(64),
 };
-function fixture() {
+function fixture(wakeEpoch?: () => string | null | undefined) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-monitor-"));
   directories.push(directory);
-  const sessions = new ControllerSessions(new ControllerStore(directory));
+  const sessions = new ControllerSessions(new ControllerStore(directory), wakeEpoch);
   const first = sessions.acquire("one", environment, ["runtime"], 100, Date.now());
   const state = createReliabilityState("environment", 0, "manual");
   state.desired = "running";
@@ -132,6 +132,33 @@ it("does not publish an old batch to a reacquired session generation", async () 
   await flush();
   expect(sessions.read().sessions[0].observation).toBeUndefined();
 });
+it("discards an observation collected across a short wake", async () => {
+  let wake = "1";
+  let now = 100;
+  const { sessions, first, batch } = fixture(() => wake);
+  let finish!: (value: ControllerObservationBatch) => void;
+  const monitor = new ControllerMonitor(
+    sessions,
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    async (operation) => operation(),
+    () => now,
+    (_identity, _revision, publish) => publish(batch.journal),
+  );
+  monitors.push(monitor);
+  monitor.tick();
+  wake = "2";
+  now += 9000;
+  finish(batch);
+  await flush();
+  expect(sessions.read().sessions).toHaveLength(0);
+  expect(sessions.read().retainedSessions).toMatchObject([
+    { generation: first.generation, reason: "discontinuity" },
+  ]);
+});
+
 it("discards readiness when the publication journal fence changed", async () => {
   const { sessions, batch } = fixture();
   const monitor = new ControllerMonitor(
@@ -987,9 +1014,11 @@ it("resumes a settled park with exact live demand and reconciles an unsettled on
 });
 
 it("re-drives a committed park from the durable journal after the last session is gone", async () => {
-  const f = fixture();
+  let wake: string | null = "1";
+  const f = fixture(() => wake);
   const time = { now: 100 };
   f.sessions.release(f.first, time.now, Date.now());
+  wake = null;
   const record = {
     version: 2,
     identity: environmentIdentity(environment),

@@ -27,6 +27,7 @@ import type {
 import { type ControllerEnvironment, ControllerStore } from "./controller-store";
 import { resolveRunningWorkspaceContainer } from "./devpod-environment";
 import { parseUpstream } from "./host-routes";
+import { readHostWakeEpoch } from "./host-wake";
 import { readLifecycleOperationStatus } from "./lifecycle-operation-status";
 import { recoverySelectors } from "./recovery-budget";
 import { reliabilityFence } from "./reliability-contract";
@@ -128,7 +129,12 @@ export function createCapacityController(options: {
   const controller = { store: options.controller.store, epoch: options.controller.epoch };
   const lifetime = new AbortController();
   const clock =
-    options.clock ?? (() => ({ wallMs: Date.now(), monotonicMs: Math.floor(performance.now()) }));
+    options.clock ??
+    (() => ({
+      wallMs: Date.now(),
+      monotonicMs: Math.floor(performance.now()),
+      wakeEpoch: readHostWakeEpoch(),
+    }));
   const maxSampleAgeMs = policy.scheduling.maxSampleAgeSeconds * 1000;
   const intervalMs = policy.scheduling.sampleIntervalSeconds * 1000;
   const tracker = new CapacityPressureTracker(Object.keys(policy.domains), maxSampleAgeMs);
@@ -182,6 +188,11 @@ export function createCapacityController(options: {
       now.monotonicMs < 0
     )
       throw new Error("Capacity collection clock unavailable.");
+    if (!tracker.evidenceAvailable()) {
+      cached = undefined;
+      collecting?.cancel();
+      throw new Error("Capacity wake evidence unavailable.");
+    }
     return now;
   };
   const collectRaw = async (

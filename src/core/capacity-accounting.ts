@@ -116,6 +116,8 @@ export function evaluateCapacity(
 export type CapacityEvidenceClock = {
   wallMs: number;
   monotonicMs: number;
+  /** Opaque host wake identity. Omitted means unsupported; null means evidence failed. */
+  wakeEpoch?: string | null;
 };
 
 /** Bounded, ephemeral pressure evidence for a single declared domain. */
@@ -142,6 +144,10 @@ type PressureWindow = {
 type DomainState = {
   /** Latest accepted evidence and timestamp, retained through every invalidation. */
   accepted: CapacityDomainSample | null;
+  /** Wake identity that fenced the accepted evidence, retained with its watermark. */
+  acceptedWakeEpoch: string | null | undefined;
+  /** Wake continuity fence paired with the accepted epoch. */
+  acceptedWakeFence: number;
   window: PressureWindow | null;
 };
 
@@ -152,7 +158,13 @@ function nonNegativeSafeInteger(value: unknown): boolean {
 function isClock(clock: unknown): clock is CapacityEvidenceClock {
   if (typeof clock !== "object" || clock === null) return false;
   const reading = clock as CapacityEvidenceClock;
-  return nonNegativeSafeInteger(reading.wallMs) && nonNegativeSafeInteger(reading.monotonicMs);
+  return (
+    nonNegativeSafeInteger(reading.wallMs) &&
+    nonNegativeSafeInteger(reading.monotonicMs) &&
+    (reading.wakeEpoch === undefined ||
+      reading.wakeEpoch === null ||
+      typeof reading.wakeEpoch === "string")
+  );
 }
 
 function isDomainSample(value: unknown): value is CapacityDomainSample {
@@ -212,6 +224,8 @@ export class CapacityPressureTracker {
   private readonly maxSampleAgeMs: number;
   private readonly states = new Map<string, DomainState>();
   private lastClock: CapacityEvidenceClock | null = null;
+  private wakeEpoch: string | null | undefined;
+  private wakeFence = 0;
   private generation = 0;
 
   constructor(domainIds: string[], maxSampleAgeMs: number) {
@@ -243,6 +257,11 @@ export class CapacityPressureTracker {
   checkpoint(clock: CapacityEvidenceClock): number {
     this.acceptClock(clock);
     return this.generation;
+  }
+
+  /** Returns whether the latest checkpoint can supply admission evidence. */
+  evidenceAvailable(): boolean {
+    return this.lastClock !== null && this.wakeEpoch !== null;
   }
 
   /**
@@ -288,13 +307,21 @@ export class CapacityPressureTracker {
       if (state.accepted?.sampledAtMs === sample.sampledAtMs) {
         // An equal timestamp never rebuilds or extends a window. A repeat that changes
         // any field contradicts the accepted evidence, so the window ends and the
-        // contradictory sample is not handed back for admission.
-        if (!sameDomainSample(state.accepted, sample)) {
+        // contradictory sample is not handed back for admission. An identical value
+        // from another wake epoch is a replay of pre-wake evidence, even when its
+        // timestamp remains current.
+        if (
+          !sameDomainSample(state.accepted, sample) ||
+          state.acceptedWakeEpoch !== clock.wakeEpoch ||
+          state.acceptedWakeFence !== this.wakeFence
+        ) {
           state.window = null;
           continue;
         }
       } else {
         state.accepted = cloneDomainSample(sample);
+        state.acceptedWakeEpoch = clock.wakeEpoch;
+        state.acceptedWakeFence = this.wakeFence;
         this.recordSample(state, sample, clock);
       }
       observed[domainId] = cloneDomainSample(sample);
@@ -367,7 +394,12 @@ export class CapacityPressureTracker {
   private stateFor(domainId: string): DomainState {
     const existing = this.states.get(domainId);
     if (existing) return existing;
-    const created: DomainState = { accepted: null, window: null };
+    const created: DomainState = {
+      accepted: null,
+      acceptedWakeEpoch: undefined,
+      acceptedWakeFence: 0,
+      window: null,
+    };
     this.states.set(domainId, created);
     return created;
   }
@@ -385,20 +417,44 @@ export class CapacityPressureTracker {
       return false;
     }
     const previous = this.lastClock;
-    this.lastClock = { wallMs: clock.wallMs, monotonicMs: clock.monotonicMs };
-    if (!previous) return true;
+    this.lastClock = {
+      wallMs: clock.wallMs,
+      monotonicMs: clock.monotonicMs,
+      wakeEpoch: clock.wakeEpoch,
+    };
+    const wake = this.acceptWakeEpoch(clock.wakeEpoch);
+    if (!previous) {
+      if (wake.invalidated) this.invalidateAll();
+      return wake.available;
+    }
     const wallDelta = clock.wallMs - previous.wallMs;
     const monotonicDelta = clock.monotonicMs - previous.monotonicMs;
-    if (
+    const discontinuous =
       wallDelta < 0 ||
       monotonicDelta < 0 ||
       Math.abs(wallDelta - monotonicDelta) > MAX_CLOCK_DIVERGENCE_MS ||
-      monotonicDelta > MAX_MONOTONIC_GAP_MS
-    ) {
+      monotonicDelta > MAX_MONOTONIC_GAP_MS;
+    if (discontinuous || wake.invalidated) {
       this.invalidateAll();
-      return false;
     }
-    return true;
+    return !discontinuous && wake.available;
+  }
+
+  /**
+   * Treats the first undefined reading as unsupported, then requires an explicit
+   * supported value before and after every loss or recovery. Null is supported
+   * evidence from the platform but cannot authorize collection.
+   */
+  private acceptWakeEpoch(wakeEpoch: string | null | undefined): {
+    available: boolean;
+    invalidated: boolean;
+  } {
+    const previous = this.wakeEpoch;
+    const current = wakeEpoch === undefined && previous !== undefined ? null : wakeEpoch;
+    const invalidated = current !== previous && (previous !== undefined || current === null);
+    this.wakeEpoch = current;
+    if (invalidated) this.wakeFence++;
+    return { available: current !== null, invalidated };
   }
 
   private invalidateAll(): void {

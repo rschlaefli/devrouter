@@ -16,6 +16,8 @@ import * as fileLocks from "../file-lock";
 import { createReliabilityState } from "../reliability-contract";
 import * as operationStore from "../reliability-operation-store";
 
+vi.mock("../host-wake", () => ({ readHostWakeEpoch: () => undefined }));
+
 const journalFixture = vi.hoisted(() => ({ root: "" }));
 vi.mock("../router", async (original) => {
   const actual = await original<typeof import("../router")>();
@@ -38,6 +40,7 @@ async function fixture(
   collect?: ControllerObservationCollector,
   operations?: ControllerOperations,
   createOperations?: (controller: ControllerStartup) => ControllerOperations,
+  wakeEpoch?: () => string | null | undefined,
 ) {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ctrl-")));
   directories.push(directory);
@@ -53,6 +56,7 @@ async function fixture(
     collect,
     operations,
     createOperations,
+    wakeEpoch: wakeEpoch ?? (() => undefined),
     resolve: async () => ({
       id: "env",
       repoPath: "/fixture/checkout",
@@ -102,6 +106,47 @@ function connect(directory: string) {
       }),
   };
 }
+
+it("keeps IPC and committed operation ticks available when wake evidence is lost", async () => {
+  let wake: string | null | undefined = "1";
+  let observedTick!: () => void;
+  const ticked = new Promise<void>((resolve) => {
+    observedTick = resolve;
+  });
+  const operations = { submit: vi.fn(), watch: vi.fn(), tick: vi.fn(async () => observedTick()) };
+  const { directory } = await fixture(undefined, operations, undefined, () => wake);
+  const client = connect(directory);
+  try {
+    await client.request({ method: "handshake" });
+    const observe = () =>
+      client.request({
+        method: "observe",
+        path: "/fixture/checkout",
+        session: "one",
+        profile: "web",
+        require: ["runtime"],
+      });
+    const first = (await observe()).result;
+    wake = "2";
+    expect(await client.request({ method: "renew", ...first })).toMatchObject({ ok: false });
+    const second = (await observe()).result;
+    expect(second.generation).not.toBe(first.generation);
+    wake = null;
+    expect(await client.request({ method: "renew", ...second })).toMatchObject({ ok: false });
+    expect(await observe()).toMatchObject({ ok: false });
+    await ticked;
+    expect(operations.tick).toHaveBeenCalled();
+    expect(await client.request({ method: "status" })).toMatchObject({ ok: true });
+    expect(await client.request({ method: "release", ...first })).toMatchObject({ ok: true });
+    expect(await client.request({ method: "release", ...second })).toMatchObject({ ok: true });
+    wake = undefined;
+    expect(await observe()).toMatchObject({ ok: false });
+    wake = "3";
+    expect(await observe()).toMatchObject({ ok: true });
+  } finally {
+    client.socket.destroy();
+  }
+});
 
 it("binds observations through the canonical client contract", async () => {
   const { directory } = await fixture();

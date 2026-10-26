@@ -296,6 +296,7 @@ export class ControllerMonitor {
    * demand must stay parked.
    */
   private liveConsumerIds(environment: ControllerEnvironment): string[] {
+    this.sessions.tick(this.clock(), Date.now());
     const evidence = this.parkingObservations.get(environment.id);
     const snapshot = this.sessions.read();
     if (!evidence || evidence.store !== snapshot.store || evidence.epoch !== snapshot.epoch)
@@ -423,6 +424,7 @@ export class ControllerMonitor {
   }
   tick(): void {
     if (this.stopped) return;
+    this.sessions.tick(this.clock(), Date.now());
     void this.capacityPass();
     const snapshot = this.sessions.read();
     const current = new Set(snapshot.environments.map((env) => env.id));
