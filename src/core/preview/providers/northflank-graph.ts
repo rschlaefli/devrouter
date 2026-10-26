@@ -478,7 +478,9 @@ export function compileNorthflankGraph(
               },
             ],
           }
-        : { settings: { backoffLimit: 0, activeDeadlineSeconds: 600, runOnSourceChange: false } }),
+        : {
+            settings: { backoffLimit: 0, activeDeadlineSeconds: 600, runOnSourceChange: "never" },
+          }),
     };
     prepare.push(
       node(resource.kind === "service" ? "DeploymentService" : "Job", resource.id, spec),

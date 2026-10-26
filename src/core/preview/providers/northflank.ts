@@ -408,7 +408,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       const prepare = await this.run(entry, effect, gate, owned, "prepare", prepared.spec);
       if (!prepare?.concluded) return this.receipt(owned);
       owned = await this.capture(prepare, owned, store);
-      if (prepare.status !== "success")
+      if (!["success", "skipped"].includes(String(prepare.status)))
         throw new NorthflankFailure("Northflank preparation failed.");
       for (const [index, group] of prepared.runtimeSecrets.entries()) {
         const step = `secrets-${index}`;
@@ -441,7 +441,8 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       const run = await this.run(entry, effect, gate, owned, "activate", active.spec);
       if (!run?.concluded) return this.receipt(owned);
       owned = await this.capture(run, owned, store);
-      if (run.status !== "success") throw new NorthflankFailure("Northflank activation failed.");
+      if (!["success", "skipped"].includes(String(run.status)))
+        throw new NorthflankFailure("Northflank activation failed.");
       if (!(await this.options.accept(entry, active.urls))) return this.receipt(owned);
       return { ...this.receipt(owned, true), ready: true };
     } catch (error) {

@@ -255,6 +255,9 @@ describe("Northflank native graph compilation", () => {
         },
       ],
     });
+    expect(steps.find((node) => node.kind === "Job")?.spec).toMatchObject({
+      settings: { runOnSourceChange: "never", backoffLimit: 0, activeDeadlineSeconds: 600 },
+    });
     expect(steps.some((node) => node.kind === "JobRun")).toBe(false);
     expect(steps.find((node) => node.kind === "SecretGroup")?.spec).toMatchObject({
       restrictions: { restricted: true, nfObjects: [{ type: "service" }] },
@@ -576,6 +579,7 @@ function providerFixture() {
   const mutations: string[] = [];
   let lostRun = false;
   let partialPrepareFailure = false;
+  let skipPrepare = false;
   let unavailableRunReadback = false;
   let missingSecret = false;
   let pendingBootstrap = false;
@@ -726,7 +730,11 @@ function providerFixture() {
               (pendingBootstrap && String(operation).startsWith("bootstrap-")) ||
               (pendingPrepare && String(operation).startsWith("prepare-"))
             ),
-            status: partialPrepare ? "failed" : "success",
+            status: partialPrepare
+              ? "failed"
+              : skipPrepare && String(operation).startsWith("prepare-")
+                ? "skipped"
+                : "success",
           };
           runs.set(id, row);
           if (partialPrepare) partialPrepareFailure = false;
@@ -840,6 +848,9 @@ function providerFixture() {
     partialPrepare: () => {
       partialPrepareFailure = true;
     },
+    skipPrepare: () => {
+      skipPrepare = true;
+    },
     loseSpecReceipt: () => {
       loseSpecReceipt = true;
     },
@@ -925,6 +936,16 @@ describe("Northflank provider lifecycle", () => {
     expect(runs.length).toBeGreaterThan(3);
     expect(new Set(runs.map((run) => run.environmentId)).size).toBe(1);
     expect(new Set(runs.map((run) => run.arguments.devrouterOperation)).size).toBe(runs.length);
+  });
+  it("accepts an unchanged native preparation when every node is skipped", async () => {
+    const f = providerFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).toBe("ready");
+    f.refreshSource();
+    f.skipPrepare();
+    await f.command("refresh", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).toBe("ready");
+    expect(f.mutations.some((item) => item.startsWith("DELETE"))).toBe(false);
   });
   it("recovers a lost once-only run response without posting another bootstrap run", async () => {
     const f = providerFixture();
