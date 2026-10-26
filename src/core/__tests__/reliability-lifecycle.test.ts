@@ -29,6 +29,7 @@ const fixture = vi.hoisted(() => ({
   listDevpodWorkspaces: vi.fn(),
   readManagedRuntimeState: vi.fn(),
   proveRetainedManagedStop: vi.fn(),
+  recoverManagedStopBaseline: vi.fn(),
   absent: false,
   assertRoutesRemoved: vi.fn(),
   withWorkspaceLifecycleLock: vi.fn(),
@@ -97,6 +98,7 @@ vi.mock("../traefik-route-health", () => ({
   assertTraefikRoutesRemoved: fixture.assertRoutesRemoved,
 }));
 vi.mock("../managed-stop-recovery", () => ({
+  recoverManagedStopBaseline: fixture.recoverManagedStopBaseline,
   managedStopRouteReferences: () => [],
   proveManagedStop: (...args: unknown[]) => ({
     status: fixture.absent ? "proven-absent" : "retained",
@@ -439,6 +441,8 @@ beforeEach(() => {
     fs.rmSync(path.join(root, "reliability"), { recursive: true, force: true });
   }
   fixture.initialAbsence.mockReset();
+  fixture.recoverManagedStopBaseline.mockReset();
+  fixture.proveRetainedManagedStop.mockReset();
   fixture.absent = false;
   fixture.assertRoutesRemoved.mockReset();
   vi.resetModules();
@@ -1818,6 +1822,48 @@ describe("reliability lifecycle supervision", () => {
     );
 
     expect(store.readReliabilityOperation(identity)?.state).toEqual(stopping?.state);
+  });
+
+  it("retries explicit repair through an already proven replacement baseline", async () => {
+    setProcessConnected(true);
+    const { identity, lifecycle, request } = await seedStopRequest();
+    const retained = { repoPath: identity.repoPath, stopBaseline: { version: 1 } };
+    fixture.readManagedRuntimeState.mockReturnValue(retained);
+    fixture.proveRetainedManagedStop.mockReturnValue([]);
+    request.options.repair = true;
+    await expect(lifecycle.executeLifecycleWorker(request, async () => "stopped")).resolves.toBe(
+      "stopped",
+    );
+    expect(fixture.recoverManagedStopBaseline).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    false,
+    true,
+  ])("preserves the recovery boundary after failure (persisted: %s)", async (persisted) => {
+    setProcessConnected(true);
+    const { identity, lifecycle, request, store } = await seedStopRequest();
+    const retained = { repoPath: identity.repoPath, stopBaseline: { version: 1 } };
+    const candidate = { ...retained, transitionPhase: "stop-recovery" };
+    let saved = retained;
+    fixture.readManagedRuntimeState.mockImplementation(() => saved);
+    fixture.proveRetainedManagedStop.mockImplementation(() => {
+      throw new Error("population changed");
+    });
+    fixture.recoverManagedStopBaseline.mockImplementation((_state, _readPlan, beforePersist) => {
+      if (!persisted) throw new Error("unproven replacement");
+      beforePersist();
+      expect(store.readReliabilityOperation(identity)?.stopWorkStarted).toBe(true);
+      saved = candidate;
+      return candidate;
+    });
+    request.options.repair = true;
+    const cessation = vi.fn();
+    await expect(lifecycle.executeLifecycleWorker(request, cessation)).rejects.toThrow();
+    expect(cessation).not.toHaveBeenCalled();
+    expect(saved).toBe(persisted ? candidate : retained);
+    expect(store.readReliabilityOperation(identity)?.stopWorkStarted === true).toBe(persisted);
+    expect(store.readReliabilityOperation(identity)?.state.desired).toBe("stopped-by-user");
   });
 
   it("records the pre-mutation stop boundary before the stop may change anything", async () => {

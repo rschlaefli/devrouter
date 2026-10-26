@@ -92,6 +92,26 @@ concerns this task branch and excludes consumer-runtime verification.
 
 ## Progress
 
-- Scope and ownership checked; implementation not yet started.
+- Planner: revised once for test discovery and pre/post-persistence boundaries,
+  then APPROVED. Independent Gemini 3.8 Flash planning challenge: APPROVED;
+  reports retained under ignored `docs/project/_local/reviews/`.
+- PR #130 source reused without modifying its original branch. Added retry of an
+  already-proven baseline and regressions for state/fence/population changes.
+- Sleep parser, pre-suspend heartbeat and bundle-identity gates implemented with
+  synthetic regressions. No live fixture or consumer runtime was started.
+- Current roadmap summary retracts Q20 closure and reconciles shipped source
+  with open acceptance. Resource accounting is correctly listed as delivered.
+- Baseline: 89 focused tests passed. Integrated stop suite: 216 tests passed
+  across recovery, command and orchestration suites (including later additions).
+- Full-suite first attempt hit sandbox `ps` EPERM; locks correctly refused.
+  Host-context verification on pinned Node 24 passed: 2,968 tests, 13 Linux-only
+  skips; process-helper shell tests require Linux /proc. Built CLI help and
+  isolated packed-distribution smoke passed.
+- Coupled agent guidance updated for `stop --repair`; the solution record
+  `docs/solutions/test-failure/suspend-receipt-without-live-session.md` preserves
+  the false-positive cause and prevention. No new runtime abstraction added.
+- Optional Jev check unavailable: no established profile located; claims checked
+  directly against source, release records and regression outputs.
+- No merge, release, global install or other task's source/runtime changed.
 - Live Q20 and consumer acceptance remain unqualified until new exact-target
   evidence exists. No fixture is started as part of source verification.
