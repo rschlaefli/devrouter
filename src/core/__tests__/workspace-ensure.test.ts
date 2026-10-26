@@ -1176,9 +1176,17 @@ describe("workspaceEnsure", () => {
   it("persists degraded stop ownership before an application adapter failure", async () => {
     const events: string[] = [];
     mockDevsyCapture(events);
+    const config = loadRuntimeConfig(tmpDir).config;
+    config.managedRuntime!.devcontainer.hostPorts = { db: { service: "postgres", target: 5432 } };
     vi.mocked(runManagedPostStart).mockImplementation(() => {
       expect(writeManagedRuntimeState).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "degraded", stopBaseline: expect.any(Object) }),
+        expect.objectContaining({
+          status: "degraded",
+          stopBaseline: expect.any(Object),
+          hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+            config.managedRuntime!.devcontainer.hostPorts!,
+          ),
+        }),
       );
       throw new Error("Synthetic adapter failure");
     });
@@ -2465,8 +2473,10 @@ describe("workspaceEnsure", () => {
     "population",
     "generated",
   ] as const)("retains honest reset recovery after %s failure", async (failure) => {
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.devcontainer.hostPorts = { db: { service: "postgres", target: 5432 } };
     vi.mocked(loadRuntimeConfig).mockReturnValue({
-      config: managedRuntimeConfig(),
+      config,
       workspace: "feature",
       profile: "ai",
       resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["app"] },
@@ -2526,6 +2536,9 @@ describe("workspaceEnsure", () => {
       composeProject: "workspace-project",
       desired: { apps: ["chat"], services: ["litellm"], processes: ["app"] },
       effectiveConfigSha256: managedPlanFor(["litellm"]).effectiveConfigSha256,
+      hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+        config.managedRuntime!.devcontainer.hostPorts!,
+      ),
     });
     expect(writeManagedDevcontainerConfig).toHaveBeenCalledTimes(1);
     expect(runManagedPostStart).toHaveBeenCalledTimes(1);

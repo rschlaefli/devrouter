@@ -414,7 +414,9 @@ named authority.
 - Slice 2 source is committed through `cf9457b`. Risk findings verified and
   corrected: reconstruct attached network identity during read-only port export,
   and retain declaration identity so rollback cannot apply candidate declarations.
-  Same reviewer correction check is pending. Simplifier's one accepted reduction
+  Same reviewer verified both fixes and found a missing declaration digest in
+  two degraded-state constructors. Main corrected the bounded omission; existing
+  failure/repair coverage passes (148 ensure tests). Integrated review covers it. Simplifier's one accepted reduction
   removed unreachable collision bookkeeping; key normalization is injective.
 - Slice 3 source and documentation are complete. The installed package smoke,
   docs policy, knowledge validation, typecheck, Knip, Biome and focused 390-test
@@ -431,10 +433,11 @@ named authority.
   The permitted host attempt passed 3,093 tests with one existing controller
   watch deadline failure; isolated evidence passed earlier. A bounded-concurrency
   full run passed 3,094 tests with 13 platform skips. No timeout workaround was added to application code.
-- Active slice: 3. Next: close source review corrections, commit the complete
-  qualification/guidance slice, complete its simplification/risk review, then
-  push the candidate, run integrated final review and verify hosted CI on one
-  draft PR. Delivery remains verification-pending until those steps complete.
+- Slice 3 committed as `98176a9`. Simplifier's two reductions accepted: remove
+  unused result fields/wrapper and move first-stop assertions to their scenario.
+  Its risk review is pending. All source and local qualification are complete.
+- Candidate next: push the task branch, create one draft PR with review/CI
+  explicitly pending, run integrated final review and verify hosted CI. Delivery remains verification-pending until those steps complete.
 - Planning critique: native planner `01a1779f-5b5c-7a72-b8ea-978ca48ebf9e`
   returned REVISE then APPROVED after five accepted findings. Scoped review
   reports and detailed local receipts live in ignored `docs/project/_local/`.

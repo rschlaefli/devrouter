@@ -1456,6 +1456,9 @@ export async function workspaceEnsure(
                 composeProject: captureProject,
                 profile: runtime.profile,
                 variant,
+                hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+                  managedRuntime?.devcontainer.hostPorts ?? {},
+                ),
                 desired: {
                   apps: apps.map((app) => app.name).sort(),
                   services: [...capturePlan.desiredProfileServices].sort(),
@@ -1504,6 +1507,9 @@ export async function workspaceEnsure(
             composeProject: managedComposeProject,
             profile: runtime.profile,
             variant,
+            hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+              managedRuntime?.devcontainer.hostPorts ?? {},
+            ),
             desired: {
               apps: apps.map((app) => app.name).sort(),
               services: [...managedPlan.desiredProfileServices].sort(),

@@ -34,7 +34,6 @@ type Fixture = {
 };
 
 type CommandResult = {
-  args: string[];
   exitCode: number | null;
   timedOut: boolean;
   stdout: string;
@@ -399,7 +398,7 @@ function runCandidate(candidate: string, args: string[], timeoutMs = COMMAND_TIM
       finished = true;
       clearTimeout(timeout);
       if (forceTimer) clearTimeout(forceTimer);
-      resolve({ args, exitCode: code, timedOut, stdout, stderrTail: stderr });
+      resolve({ exitCode: code, timedOut, stdout, stderrTail: stderr });
     });
   });
 }
@@ -537,7 +536,7 @@ async function ensureFixture(
   candidate: string,
   imageId: string,
   variant?: "ci",
-): Promise<{ payload: JsonObject; appContainer: string }> {
+): Promise<string> {
   if (!fixture.attempted) {
     fixture.attempted = true;
   }
@@ -571,7 +570,7 @@ async function ensureFixture(
 
   const containers = assertContainerShape(fixture, imageId);
   fixture.portContainer = containers.portloop;
-  return { payload, appContainer: containers.app };
+  return containers.app;
 }
 
 function envReport(fixture: Fixture, candidate: string): JsonObject {
@@ -587,10 +586,7 @@ function envReport(fixture: Fixture, candidate: string): JsonObject {
   return parseObjectJson(String(result.stdout || ""), "env");
 }
 
-function curlJson(
-  url: string,
-  caPath?: string,
-): { ok: boolean; body?: JsonObject; status: number } {
+function curlJson(url: string, caPath?: string): { ok: boolean; body?: JsonObject } {
   const args = [
     "--disable",
     "--globoff",
@@ -605,15 +601,15 @@ function curlJson(
     url,
   ];
   const result = runSync("curl", args, 30_000);
-  if (result.error || result.status !== 0) return { ok: false, status: result.status ?? -1 };
+  if (result.error || result.status !== 0) return { ok: false };
   let parsed: unknown;
   try {
     parsed = JSON.parse(String(result.stdout || ""));
   } catch {
-    return { ok: false, status: result.status };
+    return { ok: false };
   }
   const body = asObject(parsed);
-  return { ok: body !== undefined, body, status: result.status };
+  return { ok: body !== undefined, body };
 }
 
 function readRuntime(
@@ -660,11 +656,7 @@ function readRuntime(
 
 let prerequisitesCaPath = "";
 
-async function stopFixture(
-  fixture: Fixture,
-  candidate: string,
-  requireChanged: boolean,
-): Promise<JsonObject> {
+async function stopFixture(fixture: Fixture, candidate: string): Promise<JsonObject> {
   const result = await runCandidate(
     candidate,
     ["stop", fixture.checkout, "--json"],
@@ -676,10 +668,6 @@ async function stopFixture(
   );
   assert.equal(payload.repoPath, fixture.checkout, "stop returned another checkout");
   assert.equal(payload.kind, "primary", "stop returned another checkout kind");
-  if (requireChanged) {
-    assert.equal(payload.stopped, true, "first stop did not report a provider stop");
-    assert.ok(numberField(payload.freedRoutes, "stop.freedRoutes") >= 1, "stop freed no route");
-  }
   return payload;
 }
 
@@ -735,7 +723,7 @@ async function finalize(
   for (const fixture of attempted) {
     const record: JsonObject = { checkout: fixture.checkout };
     try {
-      record.stop = await stopFixture(fixture, candidate, false);
+      record.stop = await stopFixture(fixture, candidate);
     } catch (error) {
       record.stopError = error instanceof Error ? error.message : String(error);
       ok = false;
@@ -805,12 +793,12 @@ async function main(): Promise<void> {
     const neighbour = fixtures[1];
     attempted.push(first);
     const firstDefault = await ensureFixture(first, required.candidate, required.imageId);
-    first.appContainer = firstDefault.appContainer;
+    first.appContainer = firstDefault;
     const firstInitial = readRuntime(first, required.candidate, "default");
 
     attempted.push(neighbour);
     const neighbourDefault = await ensureFixture(neighbour, required.candidate, required.imageId);
-    neighbour.appContainer = neighbourDefault.appContainer;
+    neighbour.appContainer = neighbourDefault;
     const neighbourInitial = readRuntime(neighbour, required.candidate, "default");
     const firstStillInitial = readRuntime(first, required.candidate, "default");
     assert.notEqual(
@@ -822,11 +810,7 @@ async function main(): Promise<void> {
 
     const ci = await ensureFixture(first, required.candidate, required.imageId, "ci");
     const firstCi = readRuntime(first, required.candidate, "ci");
-    assert.equal(
-      ci.appContainer,
-      firstInitial.appContainer,
-      "CI variant replaced the app container",
-    );
+    assert.equal(ci, firstInitial.appContainer, "CI variant replaced the app container");
     assert.notEqual(firstCi.pid, firstInitial.pid, "CI variant did not replace the helper PID");
     assert.equal(
       oneContainer("app", neighbour.composeProject as string),
@@ -837,7 +821,7 @@ async function main(): Promise<void> {
 
     const ciRepeat = await ensureFixture(first, required.candidate, required.imageId, "ci");
     const firstCiRepeat = readRuntime(first, required.candidate, "ci");
-    assert.equal(ciRepeat.appContainer, firstInitial.appContainer);
+    assert.equal(ciRepeat, firstInitial.appContainer);
     assert.equal(firstCiRepeat.pid, firstCi.pid, "unchanged CI ensure replaced the helper PID");
     assert.equal(
       firstCiRepeat.probePort,
@@ -847,7 +831,7 @@ async function main(): Promise<void> {
 
     const resumedDefault = await ensureFixture(first, required.candidate, required.imageId);
     const firstResumed = readRuntime(first, required.candidate, "default");
-    assert.equal(resumedDefault.appContainer, firstInitial.appContainer);
+    assert.equal(resumedDefault, firstInitial.appContainer);
     assert.notEqual(firstResumed.pid, firstCi.pid, "omitted variant did not restore default");
     assert.equal(
       oneContainer("app", neighbour.composeProject as string),
@@ -861,7 +845,9 @@ async function main(): Promise<void> {
     observations.firstCiRepeat = firstCiRepeat;
     observations.firstResumed = firstResumed;
 
-    await stopFixture(first, required.candidate, true);
+    const stopped = await stopFixture(first, required.candidate);
+    assert.equal(stopped.stopped, true, "first stop did not report a provider stop");
+    assert.ok(numberField(stopped.freedRoutes, "stop.freedRoutes") >= 1, "stop freed no route");
     assert.equal(containerInspect(first.appContainer, "{{.State.Running}}"), "false");
     assert.equal(providerStatus(first.devpodId as string), "Stopped");
     assert.equal(routeAbsent(first, required.candidate), true);
