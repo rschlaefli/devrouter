@@ -148,6 +148,10 @@ runtime secrets into restricted groups, then activates and checks the applicatio
 The admitted SHA pins source builds; image recipes require digests. Every public
 port carries the installation's IPv4 allowlist. IPv6 is currently unsupported.
 
+Manual runs use one stable environment name for the generation. A separate
+non-secret operation argument identifies each stage and refresh. Northflank run
+lists omit arguments, so uncertain submissions are recovered from run details.
+
 A generation owns its native blueprint, environment and immutable allocation
 receipts. Lost once-only submissions are observed rather than posted again.
 An explicit refresh cancels superseded work; updates preserve the session deadline.

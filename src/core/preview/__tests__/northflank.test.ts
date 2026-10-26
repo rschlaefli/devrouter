@@ -636,7 +636,11 @@ function providerFixture() {
         }
         return response({
           previewEnvironments:
-            method === "DELETE" || runs.size === 0 ? [] : [{ id: "environment" }],
+            method === "DELETE"
+              ? []
+              : [...new Set([...runs.values()].map((run) => run.environmentId))].map((id) => ({
+                  id,
+                })),
         });
       }
       if (tail[2] === "runs") {
@@ -671,12 +675,14 @@ function providerFixture() {
           const row = {
             id,
             name: body.name,
+            arguments: body.arguments ?? {},
             spec,
             refs,
-            environmentId: "environment",
+            environmentId: body.name,
             concluded: !(
-              (pendingBootstrap && body.name.startsWith("bootstrap-")) ||
-              (pendingPrepare && body.name.startsWith("prepare-"))
+              (pendingBootstrap &&
+                (body.arguments?.devrouterOperation ?? "").startsWith("bootstrap-")) ||
+              (pendingPrepare && (body.arguments?.devrouterOperation ?? "").startsWith("prepare-"))
             ),
             status: "success",
           };
@@ -687,13 +693,21 @@ function providerFixture() {
           }
           return response(row);
         }
-        if (tail.length === 3) return response({ runs: [...runs.values()] });
+        if (tail.length === 3)
+          return response({
+            runs: [...runs.values()].map(({ id, environmentId, concluded, status }) => ({
+              id,
+              environmentId,
+              concluded,
+              status,
+            })),
+          });
         if (failRead) {
           failRead = false;
           throw new Error("synthetic read unavailable");
         }
         const row = runs.get(tail[3]);
-        if (refreshDuringPrepare && row?.name.startsWith("prepare-")) {
+        if (refreshDuringPrepare && row?.arguments.devrouterOperation?.startsWith("prepare-")) {
           refreshDuringPrepare = false;
           desiredPlan = structuredClone(entry.plan);
           desiredPlan.source!.head = "f".repeat(40);
@@ -847,12 +861,28 @@ describe("Northflank provider lifecycle", () => {
     expect(stopped?.session.reservationHeld).toBe(false);
     expect(f.allocations.size).toBe(0);
   });
+  it("keeps bootstrap, activation and explicit refresh in the same native environment", async () => {
+    const f = providerFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).toBe("ready");
+    f.refreshSource();
+    await f.command("refresh", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).toBe("ready");
+    const runs = [...f.runs.values()];
+    expect(runs.length).toBeGreaterThan(3);
+    expect(new Set(runs.map((run) => run.environmentId)).size).toBe(1);
+    expect(new Set(runs.map((run) => run.arguments.devrouterOperation)).size).toBe(runs.length);
+  });
   it("recovers a lost once-only run response without posting another bootstrap run", async () => {
     const f = providerFixture();
     f.loseRun();
     await f.command("start", { kind: "start", aliases: ["web"] });
     expect((await f.reconcile())?.session.status).toBe("ready");
-    expect([...f.runs.values()].filter((run) => run.name.startsWith("bootstrap-")).length).toBe(1);
+    expect(
+      [...f.runs.values()].filter((run) =>
+        run.arguments.devrouterOperation?.startsWith("bootstrap-"),
+      ).length,
+    ).toBe(1);
   });
   it("stops and cleans up when runtime secret delivery fails", async () => {
     const f = providerFixture();
@@ -861,7 +891,9 @@ describe("Northflank provider lifecycle", () => {
     const failed = await f.reconcile(20);
     expect(failed?.session.reservationHeld).toBe(false);
     expect(f.allocations.size).toBe(0);
-    expect([...f.runs.values()].some((run) => run.name.startsWith("activate-"))).toBe(false);
+    expect(
+      [...f.runs.values()].some((run) => run.arguments.devrouterOperation?.startsWith("activate-")),
+    ).toBe(false);
   });
   it("stops during pending bootstrap without wedging the ownership initializer", async () => {
     const f = providerFixture();

@@ -543,7 +543,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     const api = this.options.api;
     const path = ["preview-blueprints", nativeIdentifier(owned.blueprintId)];
     let fingerprint = digest(spec);
-    const runName = `${stage}-${digest(effect.id).slice(0, 20)}`;
+    const operation = `${stage}-${digest(effect.id).slice(0, 20)}`;
     const recorded = (await gate.read()).find((step) => step.name === `${stage}-run`);
     if (!recorded) {
       if ((await begin(gate, `${stage}-spec`, "once", fingerprint)) === "write") {
@@ -562,7 +562,12 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       await gate.record(`${stage}-spec`, "accepted");
       if ((await begin(gate, `${stage}-run`, "once", fingerprint)) === "write") {
         try {
-          const run = data(await api.request("POST", [...path, "runs"], { name: runName }));
+          const run = data(
+            await api.request("POST", [...path, "runs"], {
+              name: owned.previewId ?? `preview-${entry.session.generation}`,
+              arguments: { devrouterOperation: operation },
+            }),
+          );
           if (owned.previewId && run.environmentId !== owned.previewId)
             throw new NorthflankFailure("Northflank run created another environment.");
           await gate.record(`${stage}-run`, "accepted", nativeIdentifier(run.id));
@@ -580,17 +585,26 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     if (!step) return null;
     let id = step.ref;
     if (!id) {
-      const matches = (await api.list([...path, "runs"], "runs")).filter(
-        (row) => row.name === runName,
-      );
+      const matches: Record<string, unknown>[] = [];
+      for (const summary of await api.list([...path, "runs"], "runs")) {
+        const candidate = data(
+          await api.request("GET", [...path, "runs", nativeIdentifier(summary.id)]),
+        );
+        if (record(candidate.arguments ?? {}).devrouterOperation === operation)
+          matches.push(candidate);
+      }
       if (matches.length > 1) throw new NorthflankFailure("Ambiguous Northflank run outcome.");
       if (!matches.length) return null;
       id = nativeIdentifier(matches[0].id);
       await gate.record(`${stage}-run`, "accepted", id);
     }
     const run = data(await api.request("GET", [...path, "runs", id]));
-    if (digest(run.spec) !== fingerprint)
-      throw new NorthflankFailure("Northflank executed an unexpected specification.");
+    if (
+      digest(run.spec) !== fingerprint ||
+      record(run.arguments).devrouterOperation !== operation ||
+      run.environmentId !== (owned.previewId ?? `preview-${entry.session.generation}`)
+    )
+      throw new NorthflankFailure("Northflank executed an unexpected specification or operation.");
     if (owned.previewId) {
       const previews = await api.list([...path, "previews"], "previewEnvironments");
       if (previews.length !== 1 || previews[0].id !== owned.previewId)
