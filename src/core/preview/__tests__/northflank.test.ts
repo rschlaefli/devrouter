@@ -288,6 +288,86 @@ describe("Northflank native graph compilation", () => {
     expect(new Set(refs).size).toBe(refs.length);
   });
 
+  it("serializes non-secret build payloads and private addresses for the exact generation", () => {
+    const { entry, policy } = graphFixture();
+    const web = entry.plan.resources[2];
+    delete web.image;
+    web.build = { context: ".", dockerfile: "Dockerfile" };
+    policy.git = { url: "https://github.com/example/fixture", type: "github", branch: "main" };
+    policy.resources.web.buildPlan = "nf-compute-200";
+    policy.resources.web.publicBuildEnvironment = {
+      PREVIEW_CONFIG: {
+        json: {
+          PREVIEW_ID: { generation: true },
+          URL: { origin: "web", port: "http", path: "/graphql" },
+          HOST: { origin: "web", port: "http", format: "hostname" },
+          INTERNAL_URL: { service: "web", port: "http", format: "http-url", path: "/health" },
+          QUOTED: { literal: 'quote" and \n newline' },
+        },
+      },
+    };
+    policy.resources.web.environment = {
+      SELF_HOST: { service: "web", port: "http", format: "host" },
+      SELF_PORT: { service: "web", port: "http", format: "authority" },
+    };
+    const first = compileNorthflankGraph(entry, policy, "prepare");
+    const build = first.spec.spec.steps.find((node) => node.kind === "BuildService")!;
+    const config = JSON.parse((build.spec.buildArguments as Record<string, string>).PREVIEW_CONFIG);
+    const service = first.spec.spec.steps.find((node) => node.kind === "DeploymentService")!;
+    expect(config.PREVIEW_ID).toBe(entry.session.generation);
+    expect(config.URL).toBe(`${first.urls["web:http"]}/graphql`);
+    expect(config.HOST).toBe(new URL(first.urls["web:http"]).hostname);
+    expect(config.INTERNAL_URL).toBe(`http://${service.spec.name}:8080/health`);
+    expect(config.QUOTED).toBe('quote" and \n newline');
+    const group = first.spec.spec.steps.find((node) => node.ref === "e_web")!;
+    expect(group.spec.secrets).toMatchObject({
+      variables: {
+        SELF_HOST: service.spec.name,
+        SELF_PORT: `${service.spec.name}:8080`,
+      },
+    });
+    entry.session.generation = "2".repeat(24);
+    const second = compileNorthflankGraph(entry, policy, "prepare");
+    const nextBuild = second.spec.spec.steps.find((node) => node.kind === "BuildService")!;
+    expect(nextBuild.spec.name).not.toBe(build.spec.name);
+    expect(nextBuild.spec.buildArguments).not.toEqual(build.spec.buildArguments);
+    expect(second.urls["web:http"]).not.toBe(first.urls["web:http"]);
+  });
+
+  it("refuses secret JSON fields, oversized payloads, foreign addresses and public raw transports", () => {
+    const { entry, policy } = graphFixture();
+    const web = entry.plan.resources[2];
+    delete web.image;
+    web.build = { context: ".", dockerfile: "Dockerfile" };
+    policy.git = { url: "https://github.com/example/fixture", type: "github", branch: "main" };
+    policy.resources.web.buildPlan = "nf-compute-200";
+    for (const fields of [
+      { SECRET: { runtimeSecret: "upstream" } },
+      { DB: { addon: "db", key: "POSTGRES_URI" } },
+      Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`KEY_${i}`, { literal: "ok" }])),
+      Object.fromEntries(
+        Array.from({ length: 5 }, (_, i) => [`KEY_${i}`, { literal: "a".repeat(4096) }]),
+      ),
+      { URL: { origin: "web", port: "http", path: "//foreign.example.org" } },
+      { URL: { service: "foreign", port: "http", format: "http-url" } },
+    ]) {
+      policy.resources.web.publicBuildEnvironment = { CONFIG: { json: fields } } as never;
+      expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+    }
+    delete policy.resources.web.publicBuildEnvironment;
+    policy.resources.web.portProtocols = { http: "TCP" };
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+    web.ports![0].public = false;
+    const graph = compileNorthflankGraph(entry, policy, "prepare");
+    expect(
+      graph.spec.spec.steps.find((node) => node.kind === "DeploymentService")?.spec.ports,
+    ).toMatchObject([{ protocol: "TCP", public: false }]);
+    policy.resources.web.environment = {
+      URL: { service: "web", port: "http", format: "http-url" },
+    };
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+  });
+
   it("pins native source builds to the admitted SHA and rejects incomplete access or recipes", () => {
     const { entry, policy } = graphFixture();
     const web = entry.plan.resources[2];

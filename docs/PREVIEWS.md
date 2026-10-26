@@ -165,6 +165,19 @@ proofs and exits3. It deliberately cannot mark the installation qualified from
 source checks. Unknown create outcomes remain cleanup-pending until native
 completion can be established; a timeout alone does not release their reservation.
 
+Trusted Northflank recipe settings can bind a non-secret `generation` value,
+public `origin` values with an optional relative `path` or `hostname` format, and
+selected-service addresses with `service`, `port`, and `format` (`host`, `authority`,
+or `http-url`). Private addresses use the same native service names the graph creates.
+`portProtocols` overrides named ports to HTTP, TCP or UDP; raw transports stay private.
+These bindings select declared resources and ports, and accept no arbitrary expressions.
+
+A `publicBuildEnvironment` argument can use `{json: {KEY: binding}}` for a flat JSON
+payload of at most64fields and16KiB. Values resolve before JSON serialization, so
+quotes and generated origins remain intact. Addon credentials and runtime-secret
+references are rejected in build payloads. Build-service identities and arguments
+are generation-specific; live cache behavior still needs qualification.
+
 Worker recipes may supply `readiness.command` as an argument array instead of an
 HTTP port/path. This becomes a native CMD readiness probe; it runs inside the
 application container, and the controller never executes it. An unsuccessful

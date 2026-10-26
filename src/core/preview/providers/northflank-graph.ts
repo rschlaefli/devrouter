@@ -2,9 +2,14 @@ import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import type { PreviewPoolEntry } from "../state";
 
-export type NorthflankBinding =
+type NorthflankValueBinding =
   | { literal: string }
-  | { origin: string; port: string }
+  | { generation: true }
+  | { service: string; port: string; path?: string; format: "host" | "authority" | "http-url" }
+  | { origin: string; port: string; path?: string; format?: "url" | "hostname" };
+
+export type NorthflankBinding =
+  | NorthflankValueBinding
   | { addon: string; key: string }
   | { runtimeSecret: string };
 
@@ -16,8 +21,9 @@ export type NorthflankResourceSettings = {
   environment?: Record<string, NorthflankBinding>;
   publicBuildEnvironment?: Record<
     string,
-    Extract<NorthflankBinding, { literal: string } | { origin: string }>
+    NorthflankValueBinding | { json: Record<string, NorthflankValueBinding> }
   >;
+  portProtocols?: Record<string, "HTTP" | "TCP" | "UDP">;
   readiness?: { port: string; path: string } | { command: string[] };
   mount?: { service: string; path: string };
   runOn?: "create" | "update";
@@ -143,7 +149,24 @@ export function compileNorthflankGraph(
       throw new Error("Northflank origin binding requires a selected public port.");
     return `https://${prefix}--${id.slice(0, 16)}-${port}-${createHash("sha256").update(id).digest("hex").slice(0, 6)}.${policy.baseDomain}`;
   };
+  const resourceName = (id: string) =>
+    `${northflankAllocationPrefix(policy, entry.session.generation)}${createHash("sha256").update(id).digest("hex").slice(0, 10)}`;
+  const suffix = (value?: string) => {
+    if (value === undefined) return "";
+    if (
+      typeof value !== "string" ||
+      value.length > 1024 ||
+      !value.startsWith("/") ||
+      value.startsWith("//") ||
+      value.includes("\\") ||
+      /\s|\p{Cc}/u.test(value)
+    )
+      throw new Error("Northflank endpoint path must be a bounded relative URL path.");
+    return staticText(value);
+  };
   const literal = (binding: NorthflankBinding): string => {
+    if (!binding || typeof binding !== "object" || Array.isArray(binding))
+      throw new Error("Invalid Northflank binding.");
     if ("literal" in binding) {
       if (
         typeof binding.literal !== "string" ||
@@ -153,8 +176,69 @@ export function compileNorthflankGraph(
         throw new Error("Northflank literal binding cannot contain template expressions.");
       return staticText(binding.literal);
     }
-    if ("origin" in binding) return origin(binding.origin, binding.port);
-    throw new Error("Northflank build bindings must be public literals or origins.");
+    if ("generation" in binding && binding.generation === true) return entry.session.generation;
+    if ("origin" in binding) {
+      const url = origin(binding.origin, binding.port);
+      if (binding.format !== undefined && !["url", "hostname"].includes(binding.format))
+        throw new Error("Invalid Northflank origin format.");
+      if (binding.format === "hostname") {
+        if (binding.path !== undefined) throw new Error("A hostname binding cannot have a path.");
+        return new URL(url).hostname;
+      }
+      return url + suffix(binding.path);
+    }
+    if ("service" in binding) {
+      const service = resources.get(binding.service);
+      const port = service?.ports?.find((item) => item.name === binding.port);
+      if (
+        service?.kind !== "service" ||
+        !port ||
+        !["host", "authority", "http-url"].includes(binding.format)
+      )
+        throw new Error("Northflank private binding requires a selected service port.");
+      if (binding.format !== "http-url" && binding.path !== undefined)
+        throw new Error("A private host or authority cannot have a path.");
+      if (
+        binding.format === "http-url" &&
+        (policy.resources[binding.service]?.portProtocols?.[binding.port] ?? "HTTP") !== "HTTP"
+      )
+        throw new Error("A private HTTP URL requires an HTTP service port.");
+      const host = resourceName(binding.service);
+      const authority = `${host}:${port.port}`;
+      return binding.format === "host"
+        ? host
+        : binding.format === "authority"
+          ? authority
+          : `http://${authority}${suffix(binding.path)}`;
+    }
+    throw new Error("Northflank build bindings must contain public values only.");
+  };
+  const buildValue = (
+    binding: NorthflankValueBinding | { json: Record<string, NorthflankValueBinding> },
+  ) => {
+    if (!binding || typeof binding !== "object" || Array.isArray(binding))
+      throw new Error("Invalid Northflank build binding.");
+    if (!("json" in binding)) return literal(binding);
+    const fields = binding.json;
+    if (
+      !fields ||
+      typeof fields !== "object" ||
+      Array.isArray(fields) ||
+      Object.keys(fields).length > 64
+    )
+      throw new Error("Northflank JSON build binding requires a bounded flat object.");
+    const value = JSON.stringify(
+      Object.fromEntries(
+        Object.entries(fields).map(([key, item]) => {
+          if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key))
+            throw new Error("Invalid Northflank JSON build binding key.");
+          return [key, literal(item)];
+        }),
+      ),
+    );
+    if (Buffer.byteLength(value) > 16 * 1024)
+      throw new Error("Northflank JSON build binding exceeds its size bound.");
+    return value;
   };
   const prepare: Node[] = [];
   const activate: Node[] = [];
@@ -167,7 +251,7 @@ export function compileNorthflankGraph(
     const settings = policy.resources[resource.id];
     if (!settings || !ALLOCATION_PLAN.test(settings.deploymentPlan))
       throw new Error("Every selected resource requires a trusted allocation plan.");
-    const name = `${northflankAllocationPrefix(policy, entry.session.generation)}${createHash("sha256").update(resource.id).digest("hex").slice(0, 10)}`;
+    const name = resourceName(resource.id);
     if (nativeNames.has(name)) throw new Error("Northflank resource name collision.");
     nativeNames.add(name);
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(resource.id))
@@ -245,7 +329,7 @@ export function compileNorthflankGraph(
       const buildArguments = Object.fromEntries(
         Object.entries(settings.publicBuildEnvironment ?? {}).map(([key, binding]) => [
           key,
-          literal(binding),
+          buildValue(binding),
         ]),
       );
       prepare.push(
@@ -309,9 +393,18 @@ export function compileNorthflankGraph(
       };
     if (resource.kind === "job" && resource.ports?.length)
       throw new Error("Northflank jobs cannot expose ports.");
+    if (
+      Object.keys(settings.portProtocols ?? {}).some(
+        (name) => !resource.ports?.some((port) => port.name === name),
+      )
+    )
+      throw new Error("Northflank protocol overrides require a selected port.");
     const ports = (resource.ports ?? []).map((port) => {
       if (port.name.length > 8)
         throw new Error("Northflank port names support at most eight characters.");
+      const protocol = settings.portProtocols?.[port.name] ?? "HTTP";
+      if (!["HTTP", "TCP", "UDP"].includes(protocol) || (port.public && protocol !== "HTTP"))
+        throw new Error("Northflank non-HTTP service ports must remain private.");
       const domains = port.public ? [new URL(origin(resource.id, port.name)).hostname] : [];
       if (port.public) {
         const hostname = domains[0];
@@ -333,7 +426,7 @@ export function compileNorthflankGraph(
       return {
         name: port.name,
         internalPort: port.port,
-        protocol: "HTTP",
+        protocol,
         public: false,
         domains,
         security: {
