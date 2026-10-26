@@ -974,26 +974,36 @@ describe("Northflank native graph compilation", () => {
     }
 
     fixture = secretGraphFixture();
-    fixture.policy.generated = Object.fromEntries(
-      Array.from({ length: 32 }, (_, index) => [
-        `generated-${index}`,
-        { bytes: 16, encoding: "hex" },
-      ]),
+    Object.assign(
+      fixture.policy.generated!,
+      Object.fromEntries(
+        Array.from({ length: 30 }, (_, index) => [
+          `generated-${index}`,
+          { bytes: 16, encoding: "hex" },
+        ]),
+      ),
     );
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).not.toThrow();
+    fixture.policy.generated!.overflow = { bytes: 16, encoding: "hex" };
     expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
 
     fixture = secretGraphFixture();
-    fixture.policy.outputs = Object.fromEntries(
-      Array.from({ length: 17 }, (_, index) => [
-        `output-${index}`,
-        {
-          service: "web",
-          command: ["token"],
-          pattern: "^[A-Fa-f0-9]{32}$",
-          maxBytes: 32,
-        },
-      ]),
+    Object.assign(
+      fixture.policy.outputs!,
+      Object.fromEntries(
+        Array.from({ length: 15 }, (_, index) => [
+          `output-${index}`,
+          { service: "web", command: ["token"], pattern: "^[A-Fa-f0-9]{32}$", maxBytes: 32 },
+        ]),
+      ),
     );
+    expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).not.toThrow();
+    fixture.policy.outputs!.overflow = {
+      service: "web",
+      command: ["token"],
+      pattern: "^[A-Fa-f0-9]{32}$",
+      maxBytes: 32,
+    };
     expect(() => compileNorthflankGraph(fixture.entry, fixture.policy, "prepare")).toThrow();
 
     for (const command of [
@@ -1056,7 +1066,7 @@ describe("Northflank native graph compilation", () => {
       "^[A-Za-z0-9._-]{0,16}$",
       "^[A-Za-z0-9._-]{16,15}$",
       "^[A-Za-z0-9._-]{8000,8001}$",
-      "^[A-Za-z0-9._-]{16,8000}$".padEnd(129, " "),
+      `^[${"A".repeat(128)}]{1,16}$`,
     ]) {
       const { entry, policy } = secretGraphFixture();
       policy.outputs!["hatchet-token"]!.pattern = pattern;

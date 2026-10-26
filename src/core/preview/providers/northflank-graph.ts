@@ -157,7 +157,7 @@ function safeCharacterClass(value: string): boolean {
     }
     return false;
   }
-  return value.length > 0;
+  return true;
 }
 function validatePattern(pattern: unknown, maxBytes: number): asserts pattern is string {
   if (typeof pattern !== "string" || pattern.length > MAX_PATTERN_BYTES)
@@ -167,15 +167,8 @@ function validatePattern(pattern: unknown, maxBytes: number): asserts pattern is
     throw new Error("Invalid Northflank output pattern.");
   const minimum = Number(match[2]);
   const maximum = Number(match[3] ?? match[2]);
-  if (
-    !Number.isSafeInteger(minimum) ||
-    !Number.isSafeInteger(maximum) ||
-    minimum < 1 ||
-    maximum < minimum ||
-    maximum > maxBytes
-  )
+  if (minimum < 1 || maximum < minimum || maximum > maxBytes)
     throw new Error("Invalid Northflank output pattern.");
-  new RegExp(pattern);
 }
 function refName(id: string, namespace: RefNamespace = "r"): string {
   return `${namespace}_${id.replaceAll("-", "_")}`;
@@ -274,11 +267,8 @@ export function compileNorthflankGraph(
       throw new Error("Invalid Northflank generated secret definition.");
     generatedNames.add(name);
   }
-  const outputNames = new Set<string>();
-  const outputDeclarations = new Map<
-    string,
-    { service: string; command: string[]; pattern: string; maxBytes: number }
-  >();
+  const outputSources = new Map<string, string>();
+  const outputServices = new Set<string>();
   for (const [name, definition] of Object.entries(outputs)) {
     validateSourceName(name);
     if (!hasFields(definition, ["service", "command", "pattern", "maxBytes"]))
@@ -294,18 +284,8 @@ export function compileNorthflankGraph(
       throw new Error("Invalid Northflank output definition.");
     validateCommand(definition.command);
     validatePattern(definition.pattern, definition.maxBytes as number);
-    outputDeclarations.set(
-      name,
-      definition as {
-        service: string;
-        command: string[];
-        pattern: string;
-        maxBytes: number;
-      },
-    );
-    outputNames.add(name);
+    outputSources.set(name, definition.service);
   }
-  const usedOutputNames = new Set<string>();
   let secretGroups = 0;
   for (const resource of entry.plan.resources) {
     const settings = policy.resources[resource.id];
@@ -322,14 +302,12 @@ export function compileNorthflankGraph(
         if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key)) throw new Error("Invalid runtime binding key.");
         const kind = bindingKind(binding);
         if (kind === "generated") {
-          validateSourceName((binding as { generated: string }).generated);
           if (!generatedNames.has((binding as { generated: string }).generated))
             throw new Error("Northflank generated binding is undeclared.");
         } else if (kind === "output") {
-          validateSourceName((binding as { output: string }).output);
-          if (!outputNames.has((binding as { output: string }).output))
-            throw new Error("Northflank output binding is undeclared.");
-          usedOutputNames.add((binding as { output: string }).output);
+          const service = outputSources.get((binding as { output: string }).output);
+          if (!service) throw new Error("Northflank output binding is undeclared.");
+          outputServices.add(service);
         } else if (kind === "runtimeSecret")
           validateRuntimeSecret((binding as { runtimeSecret: unknown }).runtimeSecret);
       }
@@ -348,15 +326,9 @@ export function compileNorthflankGraph(
       }
     }
   }
-  const outputServices = new Set<string>();
-  for (const name of usedOutputNames) {
-    const definition = outputDeclarations.get(name);
-    if (!definition) throw new Error("Northflank output binding is undeclared.");
-    const source = resources.get(definition.service);
-    if (source?.kind !== "service" || !policy.resources[definition.service])
+  for (const service of outputServices)
+    if (resources.get(service)?.kind !== "service")
       throw new Error("Northflank output sources require selected services.");
-    outputServices.add(definition.service);
-  }
   const sourceClosure = new Set<string>();
   const visitSource = (id: string) => {
     if (sourceClosure.has(id)) return;
@@ -498,7 +470,6 @@ export function compileNorthflankGraph(
     return value;
   };
   const prepare: Node[] = [];
-  const activate: Node[] = [];
   const volumes: Node[] = [];
   const secretNodes: Node[] = [];
   const activations = new Map<string, Node[]>();
@@ -509,10 +480,6 @@ export function compileNorthflankGraph(
   }> = [];
   const urls: Record<string, string> = {};
   const nativeNames = new Set<string>();
-  const addActivation = (id: string, nodes: Node[]) => {
-    activations.set(id, nodes);
-    activate.push(...nodes);
-  };
   for (const resource of entry.plan.resources) {
     const settings = policy.resources[resource.id];
     if (!settings || !ALLOCATION_PLAN.test(settings.deploymentPlan))
@@ -775,9 +742,9 @@ export function compileNorthflankGraph(
           },
         },
       };
-      addActivation(resource.id, [serviceActivation, runningCondition]);
+      activations.set(resource.id, [serviceActivation, runningCondition]);
     } else
-      addActivation(resource.id, [
+      activations.set(resource.id, [
         {
           kind: "JobRun",
           ref: `init_${resource.id.replaceAll("-", "_")}${settings.runOn === "update" ? `_${source.head.slice(0, 12)}` : ""}`,
@@ -794,7 +761,6 @@ export function compileNorthflankGraph(
       keys: Array<{ keyName: string; aliases: string[] }>;
     }> = [];
     for (const [key, binding] of Object.entries(settings.environment ?? {})) {
-      if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key)) throw new Error("Invalid runtime binding key.");
       if ("addon" in binding) {
         if (
           !["postgres", "redis"].includes(resources.get(binding.addon)?.kind ?? "") ||
@@ -806,8 +772,6 @@ export function compileNorthflankGraph(
           keys: [{ keyName: binding.key, aliases: [key] }],
         });
       } else if ("runtimeSecret" in binding) {
-        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(binding.runtimeSecret))
-          throw new Error("Invalid runtime secret reference.");
         runtime[key] = binding.runtimeSecret;
         sensitive[key] = { runtimeSecret: binding.runtimeSecret };
       } else if ("generated" in binding) {
@@ -816,20 +780,6 @@ export function compileNorthflankGraph(
         sensitive[key] = { output: binding.output };
       } else variables[key] = literal(binding);
     }
-    const addonAliases = addonDependencies.flatMap((dependency) =>
-      dependency.keys.flatMap((entry) => entry.aliases),
-    );
-    const environmentKeys = new Set(Object.keys(settings.environment ?? {}));
-    if (
-      new Set(addonAliases).size !== addonAliases.length ||
-      addonAliases.some(
-        (alias) =>
-          !environmentKeys.has(alias) ||
-          Object.hasOwn(variables, alias) ||
-          Object.hasOwn(sensitive, alias),
-      )
-    )
-      throw new Error("Northflank addon aliases collide with runtime bindings.");
     if (Object.keys(settings.environment ?? {}).length) {
       const groupId = resource.id;
       const group = node(
@@ -859,9 +809,12 @@ export function compileNorthflankGraph(
         secretBindings.push({ groupRef: group.ref, variables: sensitive });
     }
   }
-  const references = [...prepare, ...volumes, ...secretNodes, ...activate].flatMap((item) =>
-    item.ref ? [item.ref] : [],
-  );
+  const references = [
+    ...prepare,
+    ...volumes,
+    ...secretNodes,
+    ...[...activations.values()].flat(),
+  ].flatMap((item) => (item.ref ? [item.ref] : []));
   if (
     new Set(references).size !== references.length ||
     new Set(Object.values(urls)).size !== Object.keys(urls).length
@@ -876,7 +829,7 @@ export function compileNorthflankGraph(
         ...volumes,
         ...secretNodes,
         ...(phase === "activate"
-          ? activate
+          ? [...activations.values()].flat()
           : phase === "source"
             ? sourceResources.flatMap((id) => activations.get(id) ?? [])
             : []),
