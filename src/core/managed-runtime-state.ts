@@ -13,6 +13,7 @@ export type ManagedRuntimeState = {
   composeProject: string;
   profile: string;
   variant?: string;
+  hostPortDeclarationsSha256?: string;
   desired: {
     apps: string[];
     services: string[];
@@ -70,6 +71,13 @@ function validateState(value: unknown, repoPath: string, workspace?: string): Ma
   ) {
     throw new Error("Managed runtime state has an invalid runtime variant.");
   }
+  if (
+    candidate.hostPortDeclarationsSha256 !== undefined &&
+    (typeof candidate.hostPortDeclarationsSha256 !== "string" ||
+      !/^[a-f0-9]{64}$/.test(candidate.hostPortDeclarationsSha256))
+  ) {
+    throw new Error("Managed runtime state has an invalid host-port declaration fingerprint.");
+  }
   if (!candidate.desired || typeof candidate.desired !== "object") {
     throw new Error("Managed runtime state has no desired resource set.");
   }
@@ -109,6 +117,9 @@ function validateState(value: unknown, repoPath: string, workspace?: string): Ma
     composeProject: candidate.composeProject,
     profile: candidate.profile,
     ...(candidate.variant !== undefined ? { variant: candidate.variant } : {}),
+    ...(candidate.hostPortDeclarationsSha256 !== undefined
+      ? { hostPortDeclarationsSha256: candidate.hostPortDeclarationsSha256 }
+      : {}),
     desired: {
       apps: [...desired.apps],
       services: [...desired.services],

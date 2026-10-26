@@ -38,7 +38,7 @@ import {
 } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
 import { reportLifecycleProgress } from "./lifecycle-progress";
-import { resolveManagedHostPorts } from "./managed-host-ports";
+import { managedHostPortDeclarationsIdentity, resolveManagedHostPorts } from "./managed-host-ports";
 import { runManagedHostPreparation } from "./managed-host-preparation";
 import {
   type ManagedPostStartPlan,
@@ -818,6 +818,7 @@ type RepairBaselineReason =
   | "apps"
   | "services"
   | "processes"
+  | "host-ports"
   | "source-config"
   | "effective-config"
   | "generated-missing"
@@ -857,6 +858,11 @@ function assertRepairBaseline(options: {
   const reasons: RepairBaselineReason[] = [];
   if (state.profile !== profile) reasons.push("profile");
   if ((state.variant ?? "default") !== (options.variant ?? "default")) reasons.push("variant");
+  if (
+    state.hostPortDeclarationsSha256 !==
+    managedHostPortDeclarationsIdentity(config.managedRuntime?.devcontainer.hostPorts ?? {})
+  )
+    reasons.push("host-ports");
   if (state.sourceConfigSha256 !== plan.sourceConfigSha256) reasons.push("source-config");
   if (state.effectiveConfigSha256 !== plan.effectiveConfigSha256) reasons.push("effective-config");
   for (const resource of ["apps", "services", "processes"] as const) {
@@ -1671,6 +1677,9 @@ export async function workspaceEnsure(
           composeProject: managedComposeProject,
           profile: runtime.profile,
           variant,
+          hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+            managedRuntime?.devcontainer.hostPorts ?? {},
+          ),
           desired: {
             apps: apps.map((app) => app.name).sort(),
             services: [...managedPlan.desiredProfileServices].sort(),
@@ -1929,6 +1938,16 @@ export async function workspaceEnsure(
             throw new Error("Managed post-start plan disappeared during rollback.");
           }
           if (previousProcesses.length > 0 && previousManagedState?.status !== "degraded") {
+            if (
+              previousManagedState?.hostPortDeclarationsSha256 !==
+              managedHostPortDeclarationsIdentity(
+                managedRuntimeConfig?.managedRuntime?.devcontainer.hostPorts ?? {},
+              )
+            ) {
+              throw new Error(
+                "Host-port declarations changed; restore the retained declarations before repair.",
+              );
+            }
             claimLifecycleEffect();
             runManagedPostStart({
               plan: managedPostStartPlan,

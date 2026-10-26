@@ -26,7 +26,10 @@ import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspace
 import { detectHostPortClaimConflicts } from "../host-port-claims";
 import { listHostRouteState, replaceHostRoutesForRepo } from "../host-routes";
 import { reportLifecycleProgress } from "../lifecycle-progress";
-import { resolveManagedHostPorts } from "../managed-host-ports";
+import {
+  managedHostPortDeclarationsIdentity,
+  resolveManagedHostPorts,
+} from "../managed-host-ports";
 import { runManagedHostPreparation } from "../managed-host-preparation";
 import {
   resolveManagedPostStartPlan,
@@ -61,7 +64,10 @@ vi.mock("../capacity-policy", async (original) => ({
   readCapacityPolicy: vi.fn(() => undefined),
 }));
 vi.mock("../host-port-claims", () => ({ detectHostPortClaimConflicts: vi.fn(() => []) }));
-vi.mock("../managed-host-ports", () => ({ resolveManagedHostPorts: vi.fn(() => ({})) }));
+vi.mock("../managed-host-ports", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../managed-host-ports")>()),
+  resolveManagedHostPorts: vi.fn(() => ({})),
+}));
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../devsy-agent", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -1556,6 +1562,24 @@ describe("workspaceEnsure", () => {
     expect(events.filter((event) => event === "routes:1")).toHaveLength(2);
   });
 
+  it("keeps rollback degraded instead of launching prior processes with changed port declarations", async () => {
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.devcontainer.hostPorts = { db: { service: "postgres", target: 5432 } };
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config,
+      workspace: "feature",
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["app"] },
+    });
+    mockManagedLifecycle({ curlStatus: 22 });
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("Host-port declarations changed");
+    expect(runManagedPostStart).toHaveBeenCalledTimes(1);
+    expect(markManagedRuntimeDegraded).toHaveBeenCalled();
+    expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+  });
+
   function mockRepair(events: string[] = []) {
     const lifecycle = mockManagedLifecycle({ events });
     const spawnImplementation = vi.mocked(spawnSync).getMockImplementation()!;
@@ -1774,6 +1798,12 @@ describe("workspaceEnsure", () => {
       },
     };
     vi.mocked(resolveManagedHostPorts).mockReturnValueOnce(ports);
+    vi.mocked(readManagedRuntimeState).mockReturnValue({
+      ...managedPreviousState(),
+      hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+        config.managedRuntime!.devcontainer.hostPorts!,
+      ),
+    });
     await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
     expect(resolveManagedHostPorts).toHaveBeenCalledWith(
       expect.objectContaining({

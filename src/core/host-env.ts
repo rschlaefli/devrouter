@@ -8,9 +8,12 @@ import { listHostRoutes, parseUpstream } from "./host-routes";
 import {
   type ManagedHostPortDeclaration,
   type ManagedHostPorts,
+  managedHostPortDeclarationsIdentity,
   resolveManagedHostPorts,
 } from "./managed-host-ports";
 import { readManagedRuntimeState } from "./managed-runtime-state";
+import { findOwnedNetworkClaim } from "./network-claim-lookup";
+import { prepareNetworkComposeFiles } from "./network-compose-files";
 import { networkDockerOptions } from "./network-effect-scope";
 import { applyWorkspace, loadRepoConfig } from "./repo-config";
 import { DEVNET_NAME, isTLSEnabled, TCP_PROTOCOL_REGISTRY } from "./router";
@@ -253,8 +256,12 @@ function collectManagedHostPorts(
 
   try {
     const state = readManagedRuntimeState(repoPath, workspace);
-    if (!state) return unavailable();
-    const plan = inspectManagedDevcontainerConfig({
+    if (
+      !state ||
+      state.hostPortDeclarationsSha256 !== managedHostPortDeclarationsIdentity(declarations)
+    )
+      return unavailable();
+    let plan = inspectManagedDevcontainerConfig({
       repoPath,
       config,
       profile: {
@@ -264,6 +271,11 @@ function collectManagedHostPorts(
       },
       linked: workspace !== undefined,
     });
+    const network = findOwnedNetworkClaim(repoPath);
+    if (network) {
+      if (network.state !== "attached") return unavailable();
+      plan = prepareNetworkComposeFiles(plan, network.subnet).plan;
+    }
     if (
       plan.sourceConfigSha256 !== state.sourceConfigSha256 ||
       plan.effectiveConfigSha256 !== state.effectiveConfigSha256

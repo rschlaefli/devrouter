@@ -11,6 +11,7 @@ import {
   hostEnvVariables,
   parseLoopbackBinding,
 } from "../host-env";
+import { managedHostPortDeclarationsIdentity } from "../managed-host-ports";
 import type { ManagedRuntimeState } from "../managed-runtime-state";
 import { applyWorkspace, loadRepoConfig } from "../repo-config";
 
@@ -19,6 +20,8 @@ const runtime = vi.hoisted(() => ({
   readManagedRuntimeState: vi.fn(),
   inspectManagedDevcontainerConfig: vi.fn(),
   resolveManagedHostPorts: vi.fn(),
+  findOwnedNetworkClaim: vi.fn(),
+  prepareNetworkComposeFiles: vi.fn(),
   listHostRoutes: vi.fn(),
   listContainers: vi.fn(),
   isTLSEnabled: vi.fn(),
@@ -35,7 +38,14 @@ vi.mock("../managed-runtime-state", () => ({
 vi.mock("../devcontainer-profile", () => ({
   inspectManagedDevcontainerConfig: runtime.inspectManagedDevcontainerConfig,
 }));
-vi.mock("../managed-host-ports", () => ({
+vi.mock("../network-claim-lookup", () => ({
+  findOwnedNetworkClaim: runtime.findOwnedNetworkClaim,
+}));
+vi.mock("../network-compose-files", () => ({
+  prepareNetworkComposeFiles: runtime.prepareNetworkComposeFiles,
+}));
+vi.mock("../managed-host-ports", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../managed-host-ports")>()),
   resolveManagedHostPorts: runtime.resolveManagedHostPorts,
 }));
 vi.mock("../host-routes", async (importOriginal) => ({
@@ -109,6 +119,9 @@ function portConfig(workspace: string | undefined) {
 function retainedState(): ManagedRuntimeState {
   return {
     version: 1,
+    hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
+      portConfig("feature").managedRuntime!.devcontainer.hostPorts!,
+    ),
     repoPath: PORT_REPO,
     workspace: "feature",
     devpodId: "ports-devpod",
@@ -180,6 +193,7 @@ beforeEach(() => {
   runtime.readManagedRuntimeState.mockReturnValue(retainedState());
   runtime.inspectManagedDevcontainerConfig.mockReturnValue(managedPlan());
   runtime.resolveManagedHostPorts.mockReturnValue({});
+  runtime.findOwnedNetworkClaim.mockReturnValue(undefined);
   runtime.listHostRoutes.mockReturnValue([]);
   runtime.listContainers.mockResolvedValue([]);
   runtime.isTLSEnabled.mockReturnValue(true);
@@ -333,6 +347,39 @@ describe("managed host ports", () => {
       composeProject: "shop-ports",
       composeFiles: COMPOSE_FILES,
     });
+  });
+
+  it("reconstructs the retained network plan without writing it", async () => {
+    const effective = {
+      ...managedPlan(),
+      effectiveConfigSha256: "b".repeat(64),
+      composeFiles: [
+        ...COMPOSE_FILES,
+        `${PORT_REPO}/.devcontainer/docker-compose.devrouter-network.yml`,
+      ],
+    };
+    runtime.readManagedRuntimeState.mockReturnValue({
+      ...retainedState(),
+      effectiveConfigSha256: "b".repeat(64),
+    });
+    runtime.findOwnedNetworkClaim.mockReturnValue({ state: "attached", subnet: "172.30.0.0/26" });
+    const write = vi.fn();
+    runtime.prepareNetworkComposeFiles.mockReturnValue({ plan: effective, write });
+    await collectHostEnvReport(PORT_REPO);
+    expect(runtime.resolveManagedHostPorts).toHaveBeenCalledWith(
+      expect.objectContaining({ composeFiles: effective.composeFiles }),
+    );
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("refuses host-port export after declarations change without ensure", async () => {
+    runtime.readManagedRuntimeState.mockReturnValue({
+      ...retainedState(),
+      hostPortDeclarationsSha256: undefined,
+    });
+    const report = await collectHostEnvReport(PORT_REPO);
+    expect(report.hostPorts?.blob.status).toBe("unavailable");
+    expect(runtime.resolveManagedHostPorts).not.toHaveBeenCalled();
   });
 
   it("reports selected declarations unavailable when no retained state exists", async () => {

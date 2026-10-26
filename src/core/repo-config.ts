@@ -798,17 +798,12 @@ function parseManagedRuntime(
       throw new Error("managedRuntime.devcontainer.hostPorts accepts at most 32 declarations.");
     hostPorts = {};
     const pairs = new Set<string>();
-    const variables = new Set<string>();
     const registered = new Set([...baseServices, ...profileServices]);
     for (const [name, rawPort] of Object.entries(ports)) {
       if (name.length > 64 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name))
         throw new Error(
           "Host-port names must be lowercase kebab-case identifiers of at most 64 characters.",
         );
-      const variable = name.toUpperCase().replaceAll("-", "_");
-      if (variables.has(variable))
-        throw new Error("Host-port names produce colliding environment variables.");
-      variables.add(variable);
       const port = ensureObject(rawPort, `managedRuntime.devcontainer.hostPorts.${name}`);
       ensureAllowedKeys(
         port,

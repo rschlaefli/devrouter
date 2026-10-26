@@ -223,6 +223,16 @@ export function resolveManagedHostPorts(input: ResolveManagedHostPortsInput): Ma
   return report;
 }
 
+/** Retained declaration identity excludes transient Docker-allocated port numbers. */
+export function managedHostPortDeclarationsIdentity(
+  declarations: Record<string, ManagedHostPortDeclaration>,
+): string | undefined {
+  const keys = Object.keys(declarations).sort();
+  if (keys.length === 0) return undefined;
+  const canonical = keys.map((key) => [key, declarations[key].service, declarations[key].target]);
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
 /** Values that prevent stale selected-port environment from surviving a transition. */
 export function managedHostPortVariables(report: ManagedHostPorts): Record<string, string> {
   return Object.fromEntries(
