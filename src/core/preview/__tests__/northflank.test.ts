@@ -223,6 +223,17 @@ function graphFixture(): { entry: PreviewPoolEntry; policy: NorthflankGraphPolic
   };
 }
 
+function buildGraphFixture() {
+  const { entry, policy } = graphFixture();
+  const web = Object.assign(entry.plan.resources[2], {
+    build: { context: ".", dockerfile: "Dockerfile" },
+  });
+  delete web.image;
+  policy.git = { url: "https://github.com/example/fixture", type: "github", branch: "main" };
+  policy.resources.web.buildPlan = "nf-compute-200";
+  return { entry, policy, web };
+}
+
 describe("Northflank native graph compilation", () => {
   it("prepares private backing services and inactive compute with scoped secret channels", () => {
     const { entry, policy } = graphFixture();
@@ -289,12 +300,7 @@ describe("Northflank native graph compilation", () => {
   });
 
   it("serializes non-secret build payloads and private addresses for the exact generation", () => {
-    const { entry, policy } = graphFixture();
-    const web = entry.plan.resources[2];
-    delete web.image;
-    web.build = { context: ".", dockerfile: "Dockerfile" };
-    policy.git = { url: "https://github.com/example/fixture", type: "github", branch: "main" };
-    policy.resources.web.buildPlan = "nf-compute-200";
+    const { entry, policy } = buildGraphFixture();
     policy.resources.web.publicBuildEnvironment = {
       PREVIEW_CONFIG: {
         json: {
@@ -335,12 +341,7 @@ describe("Northflank native graph compilation", () => {
   });
 
   it("refuses secret JSON fields, oversized payloads, foreign addresses and public raw transports", () => {
-    const { entry, policy } = graphFixture();
-    const web = entry.plan.resources[2];
-    delete web.image;
-    web.build = { context: ".", dockerfile: "Dockerfile" };
-    policy.git = { url: "https://github.com/example/fixture", type: "github", branch: "main" };
-    policy.resources.web.buildPlan = "nf-compute-200";
+    const { entry, policy, web } = buildGraphFixture();
     for (const fields of [
       { SECRET: { runtimeSecret: "upstream" } },
       { DB: { addon: "db", key: "POSTGRES_URI" } },
@@ -358,6 +359,8 @@ describe("Northflank native graph compilation", () => {
     policy.resources.web.portProtocols = { http: "TCP" };
     expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
     web.ports![0].public = false;
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+    policy.resources.web.readiness = { command: ["node", "--version"] };
     const graph = compileNorthflankGraph(entry, policy, "prepare");
     expect(
       graph.spec.spec.steps.find((node) => node.kind === "DeploymentService")?.spec.ports,
@@ -369,12 +372,7 @@ describe("Northflank native graph compilation", () => {
   });
 
   it("pins native source builds to the admitted SHA and rejects incomplete access or recipes", () => {
-    const { entry, policy } = graphFixture();
-    const web = entry.plan.resources[2];
-    delete web.image;
-    web.build = { context: ".", dockerfile: "Dockerfile" };
-    policy.git = { url: "https://github.com/example/fixture", type: "github", branch: "main" };
-    policy.resources.web.buildPlan = "nf-compute-200";
+    const { entry, policy, web } = buildGraphFixture();
     for (const [id, port] of [
       ["build-web", "http"],
       ["env-web", "http"],

@@ -216,9 +216,7 @@ export function compileNorthflankGraph(
   const buildValue = (
     binding: NorthflankValueBinding | { json: Record<string, NorthflankValueBinding> },
   ) => {
-    if (!binding || typeof binding !== "object" || Array.isArray(binding))
-      throw new Error("Invalid Northflank build binding.");
-    if (!("json" in binding)) return literal(binding);
+    if (!binding || typeof binding !== "object" || !("json" in binding)) return literal(binding);
     const fields = binding.json;
     if (
       !fields ||
@@ -443,7 +441,9 @@ export function compileNorthflankGraph(
       resource.kind === "service" &&
       (!readiness ||
         (http
-          ? !readinessPort || !http.path.startsWith("/")
+          ? !readinessPort ||
+            !http.path.startsWith("/") ||
+            (settings.portProtocols?.[http.port] ?? "HTTP") !== "HTTP"
           : !Array.isArray(command) ||
             command.length === 0 ||
             command.length > 32 ||
