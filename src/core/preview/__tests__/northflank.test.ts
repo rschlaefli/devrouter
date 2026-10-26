@@ -689,16 +689,10 @@ function providerFixture() {
               Volume: "volumes",
               SecretGroup: "secrets",
             };
+            let refId: string | undefined;
             if (node.kind === "Subdomain") {
               domains.set(node.spec.name, `${node.spec.name}.${policy.baseDomain}`);
-              if (!partialPrepare || refCount === 0) {
-                refs[node.ref] = { status: "success", data: { id: node.spec.name } };
-              } else if (refCount === 1) {
-                refs[node.ref] = { status: "failed", data: { id: node.spec.name } };
-              } else {
-                refs[node.ref] = { status: "success" };
-              }
-              refCount += 1;
+              refId = node.spec.name;
             } else if (kind[node.kind]) {
               const native = node.spec.name;
               const row = allocations.get(native) ?? {
@@ -708,10 +702,13 @@ function providerFixture() {
                 kind: kind[node.kind],
               };
               allocations.set(native, row);
+              refId = native;
+            }
+            if (refId) {
               if (!partialPrepare || refCount === 0) {
-                refs[node.ref] = { status: "success", data: { id: native } };
+                refs[node.ref] = { status: "success", data: { id: refId } };
               } else if (refCount === 1) {
-                refs[node.ref] = { status: "failed", data: { id: native } };
+                refs[node.ref] = { status: "failed", data: { id: refId } };
               } else {
                 refs[node.ref] = { status: "success" };
               }
@@ -726,9 +723,8 @@ function providerFixture() {
             refs,
             environmentId: body.name,
             concluded: !(
-              (pendingBootstrap &&
-                (body.arguments?.devrouterOperation ?? "").startsWith("bootstrap-")) ||
-              (pendingPrepare && (body.arguments?.devrouterOperation ?? "").startsWith("prepare-"))
+              (pendingBootstrap && String(operation).startsWith("bootstrap-")) ||
+              (pendingPrepare && String(operation).startsWith("prepare-"))
             ),
             status: partialPrepare ? "failed" : "success",
           };
@@ -965,9 +961,17 @@ describe("Northflank provider lifecycle", () => {
       generation,
       policyDigest: f.policyDigest,
     });
-    expect((await ownership.read())?.resources.map((resource) => resource.id)).toEqual([
-      (successful[0].data as Record<string, unknown>).id,
-    ]);
+    const owned = (await ownership.read())!;
+    expect(
+      owned.resources
+        .filter((resource) => resource.kind !== "domains")
+        .map((resource) => resource.id),
+    ).toEqual([(successful[0].data as Record<string, unknown>).id]);
+    expect(owned.resources.filter((resource) => resource.kind === "domains")).toHaveLength(1);
+    const failed = await f.reconcile(20);
+    expect(failed?.session.reservationHeld).toBe(false);
+    expect(f.allocations.size).toBe(0);
+    expect(await f.provider.absent(failed!)).toBe(true);
   });
   it("stops and cleans up when runtime secret delivery fails", async () => {
     const f = providerFixture();

@@ -627,6 +627,18 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       if (previous) continue;
       const output = refs[node.ref];
       if (!output) continue;
+      const kind = kinds[node.kind];
+      if (kind === "domains") {
+        const spec = record(node.spec);
+        const id = nativeIdentifier(spec.name);
+        const result = await this.options.api.subdomain("GET", id);
+        if (!result) continue;
+        const observed = data(result);
+        if (observed.fullName !== `${id}.${this.options.graph.baseDomain}`)
+          throw new NorthflankFailure("Northflank domain identity differs.");
+        additions.push({ reference: node.ref, kind, id, name: observed.fullName as string });
+        continue;
+      }
       const response = record(output);
       if (
         response.status !== "success" ||
@@ -636,16 +648,6 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       )
         continue;
       const captured = response.data as Record<string, unknown>;
-      const kind = kinds[node.kind];
-      if (kind === "domains") {
-        const spec = record(node.spec);
-        const id = nativeIdentifier(spec.name);
-        const observed = data(await this.options.api.subdomain("GET", id));
-        if (observed.fullName !== `${id}.${this.options.graph.baseDomain}`)
-          throw new NorthflankFailure("Northflank domain identity differs.");
-        additions.push({ reference: node.ref, kind, id, name: observed.fullName as string });
-        continue;
-      }
       const id = nativeIdentifier(captured.id);
       const observed = data(await this.options.api.request("GET", [kind, id]));
       const name = nativeIdentifier(observed.name);
