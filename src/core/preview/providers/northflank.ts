@@ -495,26 +495,21 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     }
     for (const step of steps.filter((item) => item.name.endsWith("-run"))) {
       if (!owned.blueprintId) return this.receipt(owned);
-      let id = step.ref;
-      if (!id) {
-        const name = `${step.name.slice(0, -4)}-${digest(effect.id).slice(0, 20)}`;
-        const runs = await this.options.api.list(
-          ["preview-blueprints", owned.blueprintId, "runs"],
-          "runs",
-        );
-        const matches = runs.filter((row) => row.name === name);
-        if (matches.length !== 1) return this.receipt(owned);
-        id = nativeIdentifier(matches[0].id);
-      }
-      const result = await this.options.api.request("GET", [
-        "preview-blueprints",
-        owned.blueprintId,
-        "runs",
-        id,
-      ]);
+      const operation = `${step.name.slice(0, -4)}-${digest(effect.id).slice(0, 20)}`;
+      const path = ["preview-blueprints", owned.blueprintId];
+      const id = step.ref ?? (await this.findRun(path, operation));
+      if (!id) return this.receipt(owned);
+      const result = await this.options.api.request("GET", [...path, "runs", id]);
       if (!result) return this.receipt(owned);
       const run = data(result);
-      if (!run.concluded || digest(run.spec) !== step.fingerprint) return this.receipt(owned);
+      if (
+        !run.concluded ||
+        digest(run.spec) !== step.fingerprint ||
+        record(run.arguments).devrouterOperation !== operation ||
+        run.environmentId !== (owned.previewId ?? `preview-${entry.session.generation}`)
+      )
+        return this.receipt(owned);
+      if (!step.ref) await gate.record(step.name, "accepted", id);
       owned = await this.capture(run, owned, store);
     }
     return { ...this.receipt(owned, true), outcome: "cancelled" };
@@ -531,6 +526,17 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         resetOnUpdate: false,
       },
     };
+  }
+  private async findRun(path: string[], operation: string): Promise<string | undefined> {
+    let match: string | undefined;
+    for (const summary of await this.options.api.list([...path, "runs"], "runs")) {
+      const id = nativeIdentifier(summary.id);
+      const candidate = data(await this.options.api.request("GET", [...path, "runs", id]));
+      if (record(candidate.arguments ?? {}).devrouterOperation !== operation) continue;
+      if (match) throw new NorthflankFailure("Ambiguous Northflank run outcome.");
+      match = id;
+    }
+    return match;
   }
   private async run(
     entry: PreviewPoolEntry,
@@ -568,8 +574,6 @@ export class NorthflankPreviewProvider implements PreviewProvider {
               arguments: { devrouterOperation: operation },
             }),
           );
-          if (owned.previewId && run.environmentId !== owned.previewId)
-            throw new NorthflankFailure("Northflank run created another environment.");
           await gate.record(`${stage}-run`, "accepted", nativeIdentifier(run.id));
         } catch (error) {
           if (!(error instanceof NorthflankOutcomeUncertain)) throw error;
@@ -585,17 +589,8 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     if (!step) return null;
     let id = step.ref;
     if (!id) {
-      const matches: Record<string, unknown>[] = [];
-      for (const summary of await api.list([...path, "runs"], "runs")) {
-        const candidate = data(
-          await api.request("GET", [...path, "runs", nativeIdentifier(summary.id)]),
-        );
-        if (record(candidate.arguments ?? {}).devrouterOperation === operation)
-          matches.push(candidate);
-      }
-      if (matches.length > 1) throw new NorthflankFailure("Ambiguous Northflank run outcome.");
-      if (!matches.length) return null;
-      id = nativeIdentifier(matches[0].id);
+      id = await this.findRun(path, operation);
+      if (!id) return null;
       await gate.record(`${stage}-run`, "accepted", id);
     }
     const run = data(await api.request("GET", [...path, "runs", id]));

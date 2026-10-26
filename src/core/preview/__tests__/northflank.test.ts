@@ -548,6 +548,7 @@ function providerFixture() {
   const domains = new Map<string, string>();
   const mutations: string[] = [];
   let lostRun = false;
+  let unavailableRunReadback = false;
   let missingSecret = false;
   let pendingBootstrap = false;
   let delayedBlueprint: Record<string, any> | undefined;
@@ -689,6 +690,10 @@ function providerFixture() {
           runs.set(id, row);
           if (lostRun) {
             lostRun = false;
+            if (unavailableRunReadback) {
+              failRead = true;
+              unavailableRunReadback = false;
+            }
             throw new Error("synthetic lost response");
           }
           return response(row);
@@ -784,8 +789,9 @@ function providerFixture() {
     runs,
     engine,
     identity,
-    loseRun: () => {
+    loseRun: (unavailableReadback = false) => {
       lostRun = true;
+      unavailableRunReadback = unavailableReadback;
     },
     loseSpecReceipt: () => {
       loseSpecReceipt = true;
@@ -959,6 +965,28 @@ describe("Northflank provider lifecycle", () => {
     expect(f.mutations.length).toBe(before);
     f.finishRuns();
     expect((await f.reconcile(20))?.session.status).toBe("ready");
+  });
+  it("settles a superseded run whose response was lost before deploying newer source", async () => {
+    const f = providerFixture();
+    f.holdPrepare();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await f.reconcile(1);
+    f.loseRun(true);
+    await expect(f.reconcile(1)).rejects.toThrow();
+    const submitted = [...f.runs.values()].find((run) =>
+      run.arguments.devrouterOperation?.startsWith("prepare-"),
+    );
+    expect(submitted).toBeDefined();
+    f.refreshSource();
+    await f.command("refresh", { kind: "start", aliases: ["web"] });
+    f.finishRuns();
+    expect((await f.reconcile(20))?.session.status).toBe("ready");
+    expect(
+      [...f.runs.values()].filter(
+        (run) => run.arguments.devrouterOperation === submitted!.arguments.devrouterOperation,
+      ),
+    ).toHaveLength(1);
+    expect(f.mutations.some((item) => item.startsWith("DELETE"))).toBe(false);
   });
   it("keeps the earlier confirmed deadline when an extension reset is uncertain", async () => {
     const f = providerFixture();
