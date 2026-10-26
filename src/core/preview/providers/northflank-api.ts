@@ -158,7 +158,6 @@ export class NorthflankPreviewAPI {
       let authenticated = false;
       let completed = false;
       let terminal = false;
-      let closeRequested = false;
       let payloadBytes = 0;
       let inboundBytes = 0;
       const stdout: string[] = [];
@@ -174,24 +173,19 @@ export class NorthflankPreviewAPI {
         }
       };
 
-      const closeSocket = (): boolean => {
-        if (closeRequested) return true;
-        closeRequested = true;
-        try {
-          if (socket.readyState !== WebSocket.CLOSING && socket.readyState !== WebSocket.CLOSED)
-            socket.close();
-          return true;
-        } catch {
-          return false;
-        }
-      };
-
       const fail = (shouldClose: boolean) => {
         if (terminal) return;
         terminal = true;
         clearTimeout(timer);
         removeListeners();
-        if (shouldClose) closeSocket();
+        if (shouldClose) {
+          try {
+            if (socket.readyState !== WebSocket.CLOSING && socket.readyState !== WebSocket.CLOSED)
+              socket.close();
+          } catch {
+            // A failed command remains failed if the socket cannot close.
+          }
+        }
         reject(commandFailure());
       };
 
@@ -292,8 +286,6 @@ export class NorthflankPreviewAPI {
             !authenticated ||
             completed ||
             !record ||
-            !Number.isSafeInteger(record.exitCode) ||
-            !["Success", "Failure", "Unknown"].includes(record.status as string) ||
             record.exitCode !== 0 ||
             record.status !== "Success"
           ) {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreviewEngine, type PreviewWriteGate } from "../engine";
 import { createPreviewSession } from "../lifecycle";
 import { NorthflankOwnershipStore, NorthflankPreviewProvider } from "../providers/northflank";
@@ -111,6 +111,7 @@ async function expectFixedFailure(pending: Promise<string>) {
 }
 
 describe("Northflank native command execution", () => {
+  afterEach(() => vi.useRealTimers());
   it("uses the exact service URL, waits for close, and returns only bounded stdout", async () => {
     const harness = commandHarness();
     const { pending, socket } = await startCommand(harness, { maxBytes: 64, timeoutMs: 1000 }, [
@@ -242,8 +243,14 @@ describe("Northflank native command execution", () => {
     [
       "oversized raw frame",
       (socket: SyntheticSocket) => {
-        authenticate(socket);
-        socket.message("a".repeat(16 * 1024 + 1));
+        socket.open();
+        socket.message(
+          JSON.stringify({
+            type: "init",
+            data: { auth: "successful" },
+            padding: "a".repeat(16 * 1024),
+          }),
+        );
       },
     ],
     [
@@ -298,6 +305,7 @@ describe("Northflank native command execution", () => {
       },
     ],
   ])("fails generically for %s without retrying", async (_name, act) => {
+    vi.useFakeTimers();
     const harness = commandHarness();
     const { pending, socket } = await startCommand(harness);
     act(socket);
@@ -306,6 +314,7 @@ describe("Northflank native command execution", () => {
   });
 
   it("counts discarded stderr against the output budget", async () => {
+    vi.useFakeTimers();
     const harness = commandHarness();
     const { pending, socket } = await startCommand(harness, {
       maxBytes: 5,
@@ -316,6 +325,18 @@ describe("Northflank native command execution", () => {
     socket.message(JSON.stringify({ type: "stdErr", data: "no" }));
     socket.message(JSON.stringify({ type: "stdOut", data: "!" }));
     socket.message(JSON.stringify({ type: "stdErr", data: "x" }));
+    await expectFixedFailure(pending);
+    expect(socket.closeCalls).toBe(1);
+    expect(harness.urls).toHaveLength(1);
+  });
+
+  it("bounds total protocol bytes even when each valid frame is small", async () => {
+    vi.useFakeTimers();
+    const harness = commandHarness();
+    const { pending, socket } = await startCommand(harness);
+    authenticate(socket);
+    const frame = JSON.stringify({ type: "stdOut", data: "", padding: "a".repeat(1024) });
+    for (let count = 0; count < 65; count += 1) socket.message(frame);
     await expectFixedFailure(pending);
     expect(socket.closeCalls).toBe(1);
     expect(harness.urls).toHaveLength(1);
