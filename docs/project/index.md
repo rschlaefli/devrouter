@@ -4,14 +4,16 @@ Plans live here as dated execution records. Active records may change; delivered
 
 ## Active
 
-- [Dockerode 5 UUID remediation](./2026-10-25-dockerode-5-uuid-remediation.md) — prepare and locally qualify the dependency fix; package publication and downstream published-version adoption remain separate.
+- [Reliability evidence and stop recovery](./2026-10-26-reliability-evidence-repair.md) — correct Q20 acceptance, finish explicit stop-repair source and reconcile the original roadmap; consumer runtimes and preview work retain their owners.
+
+- [Dockerode 5 UUID remediation](./2026-10-25-dockerode-5-uuid-remediation.md) — source merged in [PR #149](https://github.com/rschlaefli/devrouter/pull/149) and published in 0.5.5; downstream adoption and the remaining source-lock audit findings are separate follow-ups.
 
 - [Idle stop for managed environments](./2026-10-15-idle-stop-plan.md) — devrouter owns idle stop: a read-only `workspace idle` report, an explicit `--stop` mode, an opt-in launchd sweep, an idle-only pin, and Devsy's own idle timeout disabled.
 - [Host environment for checkout-scoped host tools](./2026-10-14-host-env-plan.md) — `devrouter env [path] [--json]` reports a checkout's routed URLs, routed and loopback TCP endpoints and CA path, and `devrouter env [path] -- <command>` runs a host command with that environment.
 - [Worktree cleanup reliability and team documentation](./2026-10-12-cleanup-reliability-and-team-docs-plan.md) — `gc` for deleted checkouts, approved removal of Docker leftovers, the team cleanup guide, release 0.3.0 and Klicker adoption.
 - [Worktree lifecycle](./2026-10-03-worktree-lifecycle-plan.md) — safe `workspace down`, installable `worktree-reclaim` and `devrouter-setup` skills, and devrouter `cleanup --all-worktrees`, `reclaim` and `trim` bound to approved manifests.
 
-- [Reliability roadmap follow-up after 0.1.1](./2026-09-13-reliability-release-plan.md#post-release-reliability-review-and-follow-up-2026-09-20) — reproduced gate and recovery-guidance defects, deterministic verification, open M1–M3 qualification, machine diagnostics and consumer adoption. Releases 0.1.0/0.1.1 are delivered; complete reliability acceptance remains active.
+- [Reliability roadmap follow-up after 0.1.1](./2026-09-13-reliability-release-plan.md#post-release-reliability-review-and-follow-up-2026-09-20) — reproduced gate and recovery-guidance defects, deterministic verification, open M1–M3 qualification, machine diagnostics and consumer adoption. Releases through 0.5.5 are delivered; Q20 closure is withdrawn and complete reliability acceptance remains active.
 
 - [Devsy release range compatibility](./2026-09-19-devsy-version-range-plan.md) — replace the exact Devsy version pin with a verified `>=1.16.2 <2.0.0` range and resolve the official Linux agent for the installed release. Merged in [PR #106](https://github.com/rschlaefli/devrouter/pull/106) and released in 0.0.80, carried into 0.1.0; verified against a real Devsy 1.19.0 consumer, with verified-agent injection still a user-run setup step.
 
@@ -31,8 +33,6 @@ Plans live here as dated execution records. Active records may change; delivered
 - [Dependency-aware devcontainer profiles](./2026-08-26-devcontainer-dependency-profiles-plan.md) — managed app/service/process profile dimensions for devcontainer 0.0.39.
 - [HTTP readiness leaf pin](./2026-08-21-http-readiness-leaf-pin-plan.md) — repair the macOS TLS readiness probe without changing lifecycle contracts.
 - [Devrouter roadmap](./2026-02-07-devrouter-roadmap.md) — current product and quality backlog.
-- [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md) — W2 specification for per-workspace storage consumption in the cleanup report.
-- [Workspace resource accounting plan](./2026-08-16-workspace-resource-accounting-plan.md) — W2 execution plan on `rs/workspace-resource-accounting`.
 - [Packaged CLI command and release proof](./2026-08-15-packaged-cli-command-release-proof-roadmap.md) — W1 specification for installed-package and CI verification.
 - [Open-source release plan](./2026-02-08-open-source-release-plan.md) — remaining portability, CI, and release-verification work.
 - [Workspace safety hardening](./2026-07-18-pr-25-workspace-safety-hardening-plan.md) — reviewed `0.0.35` safety candidate in [PR #25](https://github.com/rschlaefli/devrouter/pull/25).
@@ -40,6 +40,10 @@ Plans live here as dated execution records. Active records may change; delivered
 - [Documentation and OKF rework](./2026-07-18-docs-okf-rework-plan.md) — current documentation architecture change.
 
 ## Delivered history
+
+- [Workspace resource accounting plan](./2026-08-16-workspace-resource-accounting-plan.md) — delivered in [PR #30](https://github.com/rschlaefli/devrouter/pull/30), released in 0.0.36; historical evidence retained.
+
+- [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md) — delivered in [PR #30](https://github.com/rschlaefli/devrouter/pull/30), released in 0.0.36; historical evidence retained.
 
 - [Reliability release publication and installation](./2026-09-13-reliability-release-plan.md#release-010-publication-artifact-and-installation-slice-7) — 0.1.0 and the subsequent 0.1.1 refused-start patch are published and installed. The active follow-up above owns the remaining defects and acceptance evidence.
 - [Runtime-only proxy mode](./2026-06-13-proxy-runtime-plan.md) — introduced routing to externally managed upstreams.

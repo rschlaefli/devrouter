@@ -14,6 +14,20 @@ afterEach(() => {
 });
 
 describe("canonical environment commands", () => {
+  it("forwards explicit stop repair without authorizing deletion", async () => {
+    vi.mocked(superviseLifecycle).mockResolvedValue({ stopped: true, freedRoutes: 0 });
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await runStopCommand({ path: "/repo", repair: true, json: true });
+    expect(superviseLifecycle).toHaveBeenCalledWith("stop", "/repo", {
+      delete: undefined,
+      repair: true,
+    });
+  });
+  it("refuses combining stop recovery with deletion before supervision", async () => {
+    await expect(runStopCommand({ path: "/repo", repair: true, delete: true })).rejects.toThrow();
+    expect(superviseLifecycle).not.toHaveBeenCalled();
+  });
+
   it("preserves proven absence in stop JSON", async () => {
     const result = {
       kind: "linked",

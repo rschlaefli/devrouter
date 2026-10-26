@@ -1,11 +1,29 @@
 # Reliable managed sessions through Devrouter 0.1.0
 
-**Current status (2026-09-21): release delivered; reliability acceptance remains
-active.** Versions 0.1.0 through 0.1.3 are published and installed. The
-[post-release review and follow-up backlog](#post-release-reliability-review-and-follow-up-2026-09-20)
-records reproduced defects, qualification gaps and the evidence required to close
-the original roadmap. Earlier delivered headings describe their bounded source
-or release outcomes; they do not establish complete M1–M3 acceptance.
+**Current status (2026-10-26): released through 0.5.5; reliability acceptance
+remains active.** The [current repair package](./2026-10-26-reliability-evidence-repair.md)
+owns the sleep-verifier correction and explicit replacement-population stop
+recovery. Release/source completion does not establish complete M1–M3 acceptance.
+
+### Current acceptance and ownership
+
+| Work | Current evidence and next boundary |
+| --- | --- |
+| Released lifecycle foundation | Releases through [0.5.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.5.5) carry prior recovery, idle-stop, Linux and routing fixes. Release CI passed at `e0111372`; installation and downstream adoption are separate evidence. |
+| RF08 integrated canary | Open: requires an authorized consumer/profile and two environments, semantic readiness, fault/pressure/parking/resume proof and neighbour functionality. Isolated fixtures do not close this contract. |
+| RF09 / Q20 host suspend | Open: the September pass is invalid acceptance evidence. Its parser accepted a scheduled wake request as a wake, its heartbeat had already stopped, and preparation/verification used differing bundle evidence. Correct the verifier, then obtain a fresh operator-observed run on one unchanged artifact. |
+| Explicit stop repair | [PR #130](https://github.com/rschlaefli/devrouter/pull/130) is unmerged source. The current repair package integrates its bounded proof with current main and adds retry/failure-boundary coverage; no consumer recovery is claimed. |
+| RF11 consumer adoption | Open with the consumer owner. Its later task response did not require runtime recovery for its current work; that response is not the original checkout's ensure/smoke/stop receipt. |
+| Q26 quarantine | Symlink protections are source-qualified. The absent quarantine capability still requires an explicit unsupported disposition or separately scoped implementation. |
+
+RF12 cohort receipts and RF13 durable evidence remain useful historical proof,
+not blanket qualification of every newer release. Cloud-preview development and
+consumer application work retain their existing owners and are outside this
+repair package. Release installation, trusted CI adoption and broader dependency
+refresh are separate follow-ups; they are not implied by this roadmap update.
+
+The sections below preserve dated evidence. This status table supersedes their
+older open/closed labels, particularly the withdrawn Q20 closure.
 
 ## Approval summary
 
@@ -4872,9 +4890,9 @@ Dispositions: the five `stopping` transitional records audited above are now
 settleable by their own tasks on the installed CLI, because 0.1.3 carries
 `a906070`, `2f1f9ec` and `618fc5f`, while the four `recovering` rows still need
 only their owners' next `ensure`. RF08 waits on a named installed platform,
-consumer, profile and two environments. RF09's Q20 host suspend passed on
-2026-09-21 and is recorded under *Host suspend qualified for Q20* below, where a
-repeat against the released bundle stays open. RF11 stays with the Klicker
+consumer, profile and two environments. RF09's Q20 host-suspend verifier reported a pass on
+2026-09-21, but that acceptance claim is withdrawn below; a fresh valid run
+remains required. RF11 stays with the Klicker
 task `01a06930-fdea-70f1-bebf-9514b07e23a0`: its affected checkout
 `trees/rs/citation-stg-integration` was not touched, its staged merge belongs to
 that task, and no live recovery receipt exists yet. Q26's quarantine half still
@@ -4882,12 +4900,16 @@ needs its recorded decision. Merge, release and installation ran under the
 approved 0.1.3 batch, and no consumer workspace, PRD, ingestion or Klicker
 rollout was touched.
 
-## Host suspend qualified for Q20 (RF09, 2026-09-21)
+## Host-suspend receipt rejected as Q20 acceptance (RF09, 2026-09-21; corrected 2026-10-26)
 
-The last live-open RF09 cell passed on a real suspend of this machine. The
+The historical verifier reported a pass, but the run does not qualify Q20. The
+parser matched `Wake Requests` as `Wake`, the renewal stopped before the selected
+sleep, and the bundle was not held immutable. A real sleep occurred, but these
+checks do not establish that it invalidated a live generation. The
 fixture was prepared at 2026-09-20T23:54:41Z and verified at
 2026-09-21T09:34:58Z with `pnpm qualify:host-suspend verify` (exit 0) against the
-machine's own power log, and every assertion held:
+machine's own power log. The following historical assertions are retained for
+diagnosis, not acceptance:
 
 - the machine slept between a recorded Sleep and the following Wake
   (`2026-09-21 10:40:09 +0200`, 'Maintenance Sleep', one second to the wake
@@ -4922,9 +4944,9 @@ those provider-registration files, but an exact-artifact receipt still needs a
 fresh arm against the released bundle and a second real suspend. Second, the
 fixture's renewal heartbeat stopped being accepted at 06:44:56Z, about two hours
 before the sleep pair the receipt pins, and the power log records no sleep event
-in that window, so this run proves the post-wake continuity contract on a real
-suspend rather than a suspend interrupting a renewal that was still flowing.
+in that window, so this run cannot prove that suspend caused the observed invalidation.
+Passing post-wake assertions do not repair the missing pre-suspend evidence.
 
-With this cell, RF09 has no live-open qualification left apart from that
-exact-artifact repeat; Q26's quarantine half remains the only undecided
-disposition.
+Q20 remains live-open. A corrected verifier and a fresh run with a healthy
+pre-suspend session and unchanged executable are required. Q26 remains a
+separate disposition decision.

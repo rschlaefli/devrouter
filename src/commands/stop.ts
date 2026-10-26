@@ -6,10 +6,16 @@ export async function runStopCommand(options: {
   path?: string;
   json?: boolean;
   delete?: boolean;
+  repair?: boolean;
 }): Promise<void> {
+  if (options.repair && options.delete)
+    throw new Error(
+      "Stop recovery preserves data; use stop --repair, then stop --delete separately.",
+    );
   const repoPath = resolveGitCheckoutPath(options.path);
   const result = (await superviseLifecycle("stop", repoPath, {
     delete: options.delete,
+    repair: options.repair,
   })) as EnvironmentStopResult;
   if (options.json) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

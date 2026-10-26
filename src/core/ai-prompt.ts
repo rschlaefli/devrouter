@@ -126,9 +126,9 @@ export const COMMAND_INTENTS: CommandIntent[] = [
       "Validate exact profile resources against a repository-owned contract and emit named literal arrays without interpreting them or touching a runtime.",
   },
   {
-    command: "devrouter stop [path] [--delete] [--json]",
+    command: "devrouter stop [path] [--delete | --repair] [--json]",
     purpose:
-      "Stop the exact checkout workspace runtime and routes, or prove absence after pre-registration failure; --delete explicitly deletes the ownership-proven runtime without removing the checkout.",
+      "Stop the exact checkout workspace runtime and routes, or prove absence after pre-registration failure; --repair re-proves a replaced Devsy population while preserving data; --delete explicitly deletes the ownership-proven runtime and cannot combine with repair.",
   },
   {
     command: "devrouter exec [path] -- <command...>",

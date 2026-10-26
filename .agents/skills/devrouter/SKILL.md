@@ -324,7 +324,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 
 - `devrouter profile resolve --repo <path> [--profile <selection>] [--json]`: resolve exact profile resources for automation without starting or inspecting a runtime
 - `devrouter profile plan --repo <path> [--profile <selection>] --contract <repo-relative-yaml> [--output <path>] [--json]`: validate repository-owned resource policy and emit literal bindings without runtime access
-- `devrouter stop [path] [--delete] [--json]`: stop the exact workspace runtime and remove exact routes; `--delete` explicitly deletes its ownership-proven data without removing the checkout
+- `devrouter stop [path] [--delete | --repair] [--json]`: stop the exact workspace runtime and remove exact routes; `--repair` re-proves an externally replaced Devsy population while preserving data and refuses unknown ownership; `--delete` explicitly deletes its ownership-proven data without removing the checkout and cannot combine with repair
 - `devrouter exec [path] -- <command...>`: literal one-shot command inside the exact running workspace runtime
 - `devrouter env [path] [--json]`: read-only report of the checkout's HTTPS URLs, routed TLS/SNI and loopback TCP endpoints, workspace token and mkcert CA path; never starts or reconciles the runtime and prints no credentials
 - `devrouter env [path] -- <command...>`: run a host command (Playwright, psql, k6) with `DEVROUTER_WORKSPACE`, `DEVROUTER_<APP>_URL`, `DEVROUTER_<APP>_HOST`/`_PORT` (loopback), `DEVROUTER_<APP>_ROUTED_HOST`/`_ROUTED_PORT` and, when unset, `NODE_EXTRA_CA_CERTS`; returns the command's exit code
