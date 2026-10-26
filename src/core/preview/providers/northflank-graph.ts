@@ -248,18 +248,6 @@ export function compileNorthflankGraph(
       throw new Error("Northflank graph requires a complete dependency-ordered resource plan.");
     seen.add(resource.id);
   }
-  for (const resource of entry.plan.resources) {
-    const databaseName = policy.resources[resource.id]?.databaseName;
-    if (databaseName === undefined) continue;
-    if (
-      resource.kind !== "postgres" ||
-      typeof databaseName !== "string" ||
-      !DATABASE_NAME.test(databaseName)
-    )
-      throw new Error(
-        "Northflank database name requires a selected Postgres resource and a lowercase identifier.",
-      );
-  }
   const generated = record(policy.generated ?? {});
   const outputs = record(policy.outputs ?? {});
   if (
@@ -304,6 +292,15 @@ export function compileNorthflankGraph(
   for (const resource of entry.plan.resources) {
     const settings = policy.resources[resource.id];
     if (!settings) continue;
+    if (
+      settings.databaseName !== undefined &&
+      (resource.kind !== "postgres" ||
+        typeof settings.databaseName !== "string" ||
+        !DATABASE_NAME.test(settings.databaseName))
+    )
+      throw new Error(
+        "Northflank database name requires a selected Postgres resource and a lowercase identifier.",
+      );
     if (settings.environment !== undefined) {
       const environment = record(settings.environment);
       if (
@@ -518,7 +515,7 @@ export function compileNorthflankGraph(
             externalAccessEnabled: false,
             tlsEnabled: true,
             billing: { ...billing, storage: settings.storageMiB, replicas: 1 },
-            ...(resource.kind === "postgres" && settings.databaseName !== undefined
+            ...(settings.databaseName !== undefined
               ? { customCredentials: { dbName: settings.databaseName } }
               : {}),
           },
