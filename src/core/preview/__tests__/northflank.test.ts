@@ -1334,6 +1334,7 @@ function providerFixture(
   let missingSecret = false;
   let secretReads = 0;
   let loseSecretPatch = false;
+  let relinkOnSecretPatch = false;
   let wipeAtActivate = false;
   let wipeAtSource = false;
   let sourceWithoutGeneratedMarker = false;
@@ -1428,6 +1429,10 @@ function providerFixture(
           row.patch = body;
           if (tail[0] === "secrets") {
             row.secrets.variables = body.secrets.variables;
+            if (relinkOnSecretPatch && row.addonDependencies.length) {
+              relinkOnSecretPatch = false;
+              row.addonDependencies[0].addonId = "unowned-addon";
+            }
             if (loseSecretPatch) {
               loseSecretPatch = false;
               throw new Error("synthetic lost secret receipt");
@@ -1783,6 +1788,9 @@ function providerFixture(
     refreshDuringPrepare: () => {
       refreshDuringPrepare = true;
     },
+    relinkOnSecretPatch: () => {
+      relinkOnSecretPatch = true;
+    },
     failSecret: () => {
       missingSecret = true;
     },
@@ -2011,6 +2019,14 @@ describe("Northflank generation credential delivery", () => {
     f.refreshSource();
     await f.command("refresh", { kind: "start", aliases: ["web"] });
     expect((await f.reconcile())?.session.status).not.toBe("ready");
+  });
+
+  it("refuses addon relinking observed immediately after credential delivery", async () => {
+    const f = credentialProviderFixture();
+    f.relinkOnSecretPatch();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).toBe("stopped");
+    expect(f.outputCalls).toHaveLength(0);
   });
 
   it("does not replay a secret write whose response was lost", async () => {

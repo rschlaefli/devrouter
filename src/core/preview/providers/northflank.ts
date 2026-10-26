@@ -747,43 +747,43 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       observed.secretType !== peer.details.secretType ||
       JSON.stringify(record(observed.secrets).files) !==
         JSON.stringify(record(peer.details.secrets).files) ||
-      JSON.stringify(observed.addonDependencies) !== JSON.stringify(peer.details.addonDependencies)
+      addonIds(observed) !== addonIds(peer.details)
     )
       throw new NorthflankFailure("Northflank secret delivery readback differs.");
     await gate.record(step, "accepted");
   }
   private async verifyAddonBindings(
     peer: Awaited<ReturnType<NorthflankPreviewProvider["secretPeers"]>>[number],
-    configured: unknown,
+    graph: ReturnType<typeof compileNorthflankGraph>,
   ) {
-    const expected = configured as Array<{
+    const definition = graph.spec.spec.steps.find((node) => node.ref === peer.resource.reference);
+    if (!definition) throw new NorthflankFailure("Northflank group definition is missing.");
+    const expected = definition.spec.addonDependencies as Array<{
       addonId: string;
       keys: Array<{ keyName: string; aliases: string[] }>;
     }>;
-    const observed = peer.details.addonSecrets;
     if (
       !Array.isArray(expected) ||
-      !Array.isArray(observed) ||
-      observed.length !== expected.length ||
-      new Set(observed.map((item) => record(item).id)).size !== observed.length ||
-      observed.some((item) => !expected.some((addon) => addon.addonId === record(item).id))
+      addonIds(peer.details) !== JSON.stringify(expected.map((addon) => addon.addonId).sort())
     )
       throw new NorthflankFailure("Northflank addon bindings differ from reviewed policy.");
     const keys = (items: unknown) => {
       if (!Array.isArray(items))
         throw new NorthflankFailure("Northflank addon keys are unavailable.");
-      return items
-        .map((item) => {
-          const key = record(item);
-          if (
-            typeof key.keyName !== "string" ||
-            !Array.isArray(key.aliases) ||
-            key.aliases.some((alias) => typeof alias !== "string")
-          )
-            throw new NorthflankFailure("Northflank addon keys are invalid.");
-          return JSON.stringify([key.keyName, [...key.aliases].sort()]);
-        })
-        .sort();
+      return JSON.stringify(
+        items
+          .map((item) => {
+            const key = record(item);
+            if (
+              typeof key.keyName !== "string" ||
+              !Array.isArray(key.aliases) ||
+              key.aliases.some((alias) => typeof alias !== "string")
+            )
+              throw new NorthflankFailure("Northflank addon keys are invalid.");
+            return JSON.stringify([key.keyName, [...key.aliases].sort()]);
+          })
+          .sort(),
+      );
     };
     for (const addon of expected) {
       const link = data(
@@ -798,10 +798,11 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         link.secretId !== peer.resource.id ||
         link.addonId !== addon.addonId ||
         link.linked !== true ||
-        JSON.stringify(keys(link.linkedKeys)) !== JSON.stringify(keys(addon.keys))
+        keys(link.linkedKeys) !== keys(addon.keys)
       )
         throw new NorthflankFailure("Northflank addon link differs from reviewed policy.");
     }
+    return definition;
   }
   private async deliver(
     gate: PreviewWriteGate,
@@ -817,9 +818,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       const peer = peers.find((peer) => peer.resource.reference === group.groupRef);
       if (!peer) throw new NorthflankFailure("Northflank selected secret group is unowned.");
       const variables = { ...peer.variables };
-      const definition = graph.spec.spec.steps.find((node) => node.ref === group.groupRef);
-      if (!definition) throw new NorthflankFailure("Northflank group definition is missing.");
-      await this.verifyAddonBindings(peer, definition.spec.addonDependencies);
+      const definition = await this.verifyAddonBindings(peer, graph);
       Object.assign(variables, record(record(definition.spec.secrets).variables));
       for (const [key, binding] of Object.entries(group.variables)) {
         const kind =
@@ -890,9 +889,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     for (const group of graph.secretBindings) {
       const peer = peers.find((peer) => peer.resource.reference === group.groupRef);
       if (!peer) throw new NorthflankFailure("Northflank selected recipient is missing.");
-      const definition = graph.spec.spec.steps.find((node) => node.ref === group.groupRef);
-      if (!definition) throw new NorthflankFailure("Northflank group definition is missing.");
-      await this.verifyAddonBindings(peer, definition.spec.addonDependencies);
+      const definition = await this.verifyAddonBindings(peer, graph);
       const plain = record(record(definition.spec.secrets).variables);
       if (Object.entries(plain).some(([key, value]) => peer.variables[key] !== value))
         throw new NorthflankFailure("Northflank configured variables were lost.");
@@ -1238,6 +1235,11 @@ function data(value: Record<string, unknown> | null): Record<string, unknown> {
   if (!value?.data || typeof value.data !== "object" || Array.isArray(value.data))
     throw new NorthflankFailure("Invalid Northflank native observation.");
   return value.data as Record<string, unknown>;
+}
+function addonIds(details: Record<string, unknown>): string {
+  if (!Array.isArray(details.addonSecrets))
+    throw new NorthflankFailure("Northflank addon bindings are unavailable.");
+  return JSON.stringify(details.addonSecrets.map((item) => record(item).id).sort());
 }
 function specDigest(value: unknown): string {
   const definition = (node: unknown): Record<string, unknown> => {
