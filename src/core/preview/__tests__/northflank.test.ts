@@ -1126,15 +1126,20 @@ describe("Northflank native graph compilation", () => {
   });
 
   it("requires exact discriminants, safe output patterns and non-public sensitive bindings", () => {
+    const postgresPattern = "^[A-Za-z0-9_.+/@=?%&:-]{32,8000}$";
+    const postgresUri =
+      "postgresql://synthetic_user:synthetic_password@db.example.org:5432/synthetic_db?sslmode=require&application_name=preview%20app";
     for (const pattern of [
       "^[A-Za-z0-9._-]{16,8000}$",
       "^[A-Za-z0-9+/=_-]{16,8000}$",
       "^[A-Fa-f0-9]{32}$",
+      postgresPattern,
     ]) {
       const { entry, policy } = secretGraphFixture();
       policy.outputs!["hatchet-token"]!.pattern = pattern;
       expect(() => compileNorthflankGraph(entry, policy, "prepare")).not.toThrow();
     }
+    expect(new RegExp(postgresPattern).test(postgresUri)).toBe(true);
     for (const pattern of [
       "[A-Za-z0-9._-]{16,8000}",
       "^[^A-Za-z0-9._-]{16,8000}$",
@@ -1146,6 +1151,13 @@ describe("Northflank native graph compilation", () => {
       "^[A-Za-z0-9._-]{16,15}$",
       "^[A-Za-z0-9._-]{8000,8001}$",
       `^[${"A".repeat(128)}]{1,16}$`,
+      `${postgresPattern}|^[a]{1}$`,
+      `^([A-Za-z0-9_.+/@=?%&:-]{32,8000}){1,2}$`,
+      "^[A-Za-z0-9_.+/@=?%&:-]{32,8000}+$",
+      "^[A-Za-z0-9_.+/@=?%&:-*]{32,8000}$",
+      "^[[A-Za-z0-9_.+/@=?%&:-]]{32,8000}$",
+      "^[A-Za-z0-9_.+/@=?%&:\\-]{32,8000}$",
+      "^[A-Za-z0-9_.+/@=?%&:A-C]{32,8000}$",
     ]) {
       const { entry, policy } = secretGraphFixture();
       policy.outputs!["hatchet-token"]!.pattern = pattern;

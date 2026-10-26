@@ -191,9 +191,12 @@ are generation-specific; live cache behavior still needs qualification.
 Trusted policy can declare `generated` values with `bytes` (16–64) and `encoding`
 (`hex` or `base64url`). Runtime bindings use `{generated: name}`. `outputs` declares
 an owned source service, fixed `command` argv, `maxBytes` (at most8000), and a bounded
-anchored character-class `pattern`; consumers bind `{output: name}`. These bindings
-are excluded from public build inputs. Declarations allow at most32 sensitive names,
-16 outputs and32 selected secret groups.
+anchored character-class `pattern` with fixed `{min,max}` bounds. The class allows
+letter/digit ranges and literals `._+/=@?%&:`, with `-` only in the final position.
+This admits PostgreSQL URI characters while refusing groups, alternation, repetition,
+escapes and unlisted ranges. Consumers bind `{output: name}`. These bindings are excluded
+from public build inputs. Declarations allow at most32 sensitive names, 16 outputs and
+32 selected secret groups.
 
 Generation values persist in restricted native runtime groups. The ownership journal
 records only delivered names. Refresh adopts matching persisted copies, compares

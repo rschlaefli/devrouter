@@ -149,7 +149,7 @@ function safeCharacterClass(value: string): boolean {
       continue;
     }
     const character = value.charAt(index);
-    if (/[A-Za-z0-9._+/=]/.test(character)) {
+    if (/[A-Za-z0-9._+/=:@?%&]/.test(character)) {
       index += 1;
       continue;
     }
@@ -164,7 +164,9 @@ function safeCharacterClass(value: string): boolean {
 function validatePattern(pattern: unknown, maxBytes: number): asserts pattern is string {
   if (typeof pattern !== "string" || pattern.length > MAX_PATTERN_BYTES)
     throw new Error("Invalid Northflank output pattern.");
-  const match = /^\^\[([A-Za-z0-9._+\-/=]+)\]\{([0-9]{1,4})(?:,([0-9]{1,4}))?\}\$$/.exec(pattern);
+  const match = /^\^\[([A-Za-z0-9._+/=@?%&:-]+)\]\{([0-9]{1,4})(?:,([0-9]{1,4}))?\}\$$/.exec(
+    pattern,
+  );
   if (!match || !safeCharacterClass(match[1]))
     throw new Error("Invalid Northflank output pattern.");
   const minimum = Number(match[2]);
