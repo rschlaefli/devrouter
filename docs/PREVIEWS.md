@@ -176,6 +176,12 @@ or `http-url`). Private addresses use the same native service names the graph cr
 `portProtocols` overrides named ports to HTTP, TCP or UDP; raw transports stay private.
 These bindings select declared resources and ports, and accept no arbitrary expressions.
 
+Postgres addon settings may set an optional `databaseName` using a lowercase
+identifier such as `bootstrap_db`. The graph emits it as `customCredentials.dbName`
+for a selected Postgres addon; other selected kinds and invalid names are refused.
+Omitting it preserves Northflank's generated database name. Live addon qualification
+remains pending.
+
 A `publicBuildEnvironment` argument can use `{json: {KEY: binding}}` for a flat JSON
 payload of at most64fields and16KiB. Values resolve before JSON serialization, so
 quotes and generated origins remain intact. Addon credentials and runtime-secret

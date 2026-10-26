@@ -19,6 +19,7 @@ export type NorthflankResourceSettings = {
   deploymentPlan: string;
   buildPlan?: string;
   addonVersion?: string;
+  databaseName?: string;
   storageMiB?: number;
   environment?: Record<string, NorthflankBinding>;
   publicBuildEnvironment?: Record<
@@ -67,6 +68,7 @@ type Node = {
 
 type RefNamespace = "r" | "b" | "e" | "d";
 const ALLOCATION_PLAN = /^[a-zA-Z0-9-]{3,100}$/;
+const DATABASE_NAME = /^[a-z][a-z0-9_]{0,62}$/;
 const SOURCE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_SOURCE_NAMES = 32;
 const MAX_OUTPUTS = 16;
@@ -245,6 +247,18 @@ export function compileNorthflankGraph(
     if (seen.has(resource.id) || resource.dependsOn?.some((id) => !seen.has(id)))
       throw new Error("Northflank graph requires a complete dependency-ordered resource plan.");
     seen.add(resource.id);
+  }
+  for (const resource of entry.plan.resources) {
+    const databaseName = policy.resources[resource.id]?.databaseName;
+    if (databaseName === undefined) continue;
+    if (
+      resource.kind !== "postgres" ||
+      typeof databaseName !== "string" ||
+      !DATABASE_NAME.test(databaseName)
+    )
+      throw new Error(
+        "Northflank database name requires a selected Postgres resource and a lowercase identifier.",
+      );
   }
   const generated = record(policy.generated ?? {});
   const outputs = record(policy.outputs ?? {});
@@ -504,6 +518,9 @@ export function compileNorthflankGraph(
             externalAccessEnabled: false,
             tlsEnabled: true,
             billing: { ...billing, storage: settings.storageMiB, replicas: 1 },
+            ...(resource.kind === "postgres" && settings.databaseName !== undefined
+              ? { customCredentials: { dbName: settings.databaseName } }
+              : {}),
           },
           "create",
         ),

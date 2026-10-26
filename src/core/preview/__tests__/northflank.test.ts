@@ -624,6 +624,9 @@ describe("Northflank native graph compilation", () => {
       externalAccessEnabled: false,
       tlsEnabled: true,
     });
+    expect(steps.find((node) => node.kind === "Addon")?.spec).not.toHaveProperty(
+      "customCredentials",
+    );
     expect(steps.find((node) => node.kind === "DeploymentService")?.spec).toMatchObject({
       deployment: { instances: 0 },
       healthChecks: [{ protocol: "HTTP", successThreshold: 1 }],
@@ -652,6 +655,39 @@ describe("Northflank native graph compilation", () => {
     expect(graph.runtimeSecrets).toEqual([
       { groupRef: "e_web", variables: { API_KEY: "synthetic-upstream" } },
     ]);
+  });
+
+  it("emits an explicitly configured Postgres database name", () => {
+    const { entry, policy } = graphFixture();
+    policy.resources.db.databaseName = "bootstrap_db";
+    const addon = compileNorthflankGraph(entry, policy, "prepare").spec.spec.steps.find(
+      (node) => node.kind === "Addon",
+    );
+
+    expect(addon?.spec).toMatchObject({
+      customCredentials: { dbName: "bootstrap_db" },
+    });
+  });
+
+  it("refuses invalid database names and names on non-Postgres resources", () => {
+    for (const databaseName of [
+      "Upper",
+      "1database",
+      "database-name",
+      "database.name",
+      "database\0name",
+      "${DATABASE_NAME}",
+      `a${"a".repeat(63)}`,
+    ]) {
+      const { entry, policy } = graphFixture();
+      policy.resources.db.databaseName = databaseName;
+      expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+    }
+
+    const { entry, policy } = graphFixture();
+    entry.plan.resources[0]!.kind = "redis";
+    policy.resources.db.databaseName = "bootstrap_db";
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
   });
 
   it("keeps prepared domains unassigned and emits the required persistent volume access mode", () => {
