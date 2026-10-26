@@ -179,15 +179,30 @@ global installation or other task's source/runtime mutation followed this test.
 The deterministic tests still prove the fences when their injected epoch changes;
 the live failure disproves the assumption that this kernel counter changes on
 every relevant short suspend. Apple's
-[root-domain implementation](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IOPMrootDomain.cpp)
+[root-domain implementation](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/iokit/Kernel/IOPMrootDomain.cpp)
 updates the counter after `sleepKernel()` returns. Its sleep/wake UUID is
 published earlier, during full-to-dark transition, and can later be cleared.
 That UUID is a candidate signal, not qualified replacement evidence: this run
 did not capture its pre-suspend baseline.
 
+The [event-count probe](https://github.com/apple-oss-distributions/PowerManagement/blob/d415e45501842834a280930c3eed9186544a67f0/pmset/pmset.m)
+behind `pmset -g stats` is another candidate. A bounded read-only measurement
+found stable readings and acceptable individual-call latency. An independent
+plan critique identified limits that block treating it as a complete replacement:
+the root domain can send `kIOMessageSystemHasPoweredOn` before incrementing the
+full-wake count, and the command samples its three channels separately. The
+count also covers some cancelled or broader capability transitions. A simple
+probe substitution is deferred; no replacement implementation or live pass is
+claimed.
+
 Next source work must establish a bounded signal for this transition, preserve
 unavailable-evidence refusals and exact release/committed-stop liveness, and add
 unchanged-counter regression coverage. Any replacement must handle pre-sleep
 publication and UUID clearing. A new unchanged-artifact real short-suspend test
-and cleanup remain necessary before closing RF09 / Q20. This failed attempt does
+must check the earliest resumed old-generation renewal, rather than only a
+request after the transition settles. Event-count evaluation must also reject
+partial/error output despite a successful command exit, bound cumulative request
+latency, and detect unexplained repeated invalidation during ordinary use. A
+passing synthetic epoch change cannot establish immediate wake fencing. The
+test and cleanup remain necessary before closing RF09 / Q20. This failed attempt does
 not authorize another merge, release, installation or consumer mutation.
