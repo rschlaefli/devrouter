@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-26
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.0.md
+
+### Added
+
+- Experimental, opt-in remote previews with offline resource planning, existing
+  local profile membership, explicit PR commands and bounded lifetimes. Shipped
+  GitHub and GitLab integration assets compose a private installed controller
+  with the Northflank provider. Installation-specific qualification keeps cloud
+  admission disabled until native lifecycle, credential and access proofs pass.
+- Trusted Northflank recipes support exact-source builds, private dependencies,
+  restricted runtime credentials and bounded service outputs. Shared wildcard
+  routes and installation-owned IPv4 allowlists apply to exposed endpoints.
+
+### Fixed
+
+- Controller authority is invalidated across short host sleeps. Affected sessions
+  require fresh authority before resuming effects, preserving ownership and
+  accounting boundaries through wake recovery.
+
 ## [0.5.6] - 2026-10-26
 
 ### Agent Adaptation Prompt
