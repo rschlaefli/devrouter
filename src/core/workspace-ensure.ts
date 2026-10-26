@@ -38,6 +38,7 @@ import {
 } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
 import { reportLifecycleProgress } from "./lifecycle-progress";
+import { resolveManagedHostPorts } from "./managed-host-ports";
 import { runManagedHostPreparation } from "./managed-host-preparation";
 import {
   type ManagedPostStartPlan,
@@ -1524,7 +1525,18 @@ export async function workspaceEnsure(
         quiet: options.quiet,
         profile: runtime.profile,
         variant,
-        ...(managedPlan ? { processes: desiredProcesses } : {}),
+        ...(managedPlan
+          ? {
+              processes: desiredProcesses,
+              hostPorts: resolveManagedHostPorts({
+                repoPath,
+                declarations: managedRuntime?.devcontainer.hostPorts ?? {},
+                selectedServices: managedPlan.desiredServices,
+                composeProject: managedComposeProject,
+                composeFiles: managedPlan.composeFiles,
+              }),
+            }
+          : {}),
       });
 
       if (managedPlan && managedComposeProject) {
@@ -1925,6 +1937,17 @@ export async function workspaceEnsure(
               profile: previousManagedState?.profile ?? "full",
               variant: previousManagedState?.variant ?? "default",
               processes: previousProcesses,
+              hostPorts: resolveManagedHostPorts({
+                repoPath,
+                declarations: managedRuntimeConfig?.managedRuntime?.devcontainer.hostPorts ?? {},
+                selectedServices: [
+                  managedPlan.primaryService,
+                  ...managedPlan.baseServices,
+                  ...previousServices,
+                ],
+                composeProject: managedComposeProject,
+                composeFiles: managedPlan.composeFiles,
+              }),
             });
           }
           for (const process of managedProcessRegistry) {

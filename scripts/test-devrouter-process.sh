@@ -276,6 +276,22 @@ stop_managed_for_test "$managed_pid"
 managed_pid=""
 rm -f "$state_file"
 
+# Host-port identity is managed even with an explicit caller fingerprint.
+export DEVROUTER_PROCESS_HOST_PORTS_SHA256="$(printf 'a%.0s' {1..64})"
+run_helper port-mapping "${command[@]}"
+read -r ports_first_pid _ ports_first_fingerprint <"$state_file"
+managed_pid="$ports_first_pid"
+run_helper port-mapping "${command[@]}"
+read -r ports_reuse_pid _ ports_reuse_fingerprint <"$state_file"
+[ "$ports_reuse_pid" = "$ports_first_pid" ]
+export DEVROUTER_PROCESS_HOST_PORTS_SHA256="$(printf 'b%.0s' {1..64})"
+run_helper port-mapping "${command[@]}"
+read -r ports_changed_pid _ ports_changed_fingerprint <"$state_file"
+[ "$ports_changed_pid" != "$ports_first_pid" ]
+[ "$ports_changed_fingerprint" != "$ports_first_fingerprint" ]
+managed_pid="$ports_changed_pid"
+unset DEVROUTER_PROCESS_HOST_PORTS_SHA256
+
 # Runtime variants are built into identity rather than delegated to a caller
 # environment allowlist. Default and unset variants remain equivalent.
 export DEVROUTER_PROCESS_FINGERPRINT_ENV=UNRELATED_VARIANT_VALUE

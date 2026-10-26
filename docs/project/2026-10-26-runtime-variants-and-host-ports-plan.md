@@ -412,7 +412,14 @@ named authority.
   Typecheck, Knip, docs policy, knowledge and focused Biome pass; whole-repo
   Biome retains pre-existing warnings. Scoped Opengrep: 0 findings/0 errors.
   Test delta: extended existing behavior coverage, no new test files.
-- Remaining slices: 2–3, approved. Active slice: 1, committed-range review next.
+- Slice 1 risk review passed after one focused correction (`d9c8125`);
+  simplifier found no justified reduction. Reports in `_local/reviews/`.
+- Slice 2 implemented: 450 focused source tests pass (435 resolver/config/
+  diagnostics/ensure/adapter, 15 host-env/command); Linux helper suite passed
+  with port identity and explicit fingerprints. Typecheck, Knip, changed-file
+  Biome and whitespace checks passed. Scoped Opengrep: 0 findings/0 errors.
+  Added one resolver test file; extended existing behavioral suites.
+- Remaining slice: 3. Active slice: 2, committed-range review next.
   Required delivery: complete reviewed and qualified source package with a
   pushed branch, draft PR, passing required CI, and stopped synthetic runtimes.
 - Planning-stage specialist: native planner
@@ -423,5 +430,5 @@ named authority.
 - Verification: documentation policy passed; every existing referenced local
   path resolves, four named proposed files are intentionally absent, no
   whitespace errors found. No source tests or runtime qualification run.
-- Next action: commit slice 1, run simplification and risk review together,
-  disposition findings, then execute slice 2.
+- Next action: commit slice 2, complete its simplification/risk review, then
+  integrate prepared qualifier and docs, run real two-checkout proof and finish.

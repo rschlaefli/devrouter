@@ -50,8 +50,28 @@ function expandAliasCandidates(value: string, workspace?: string): string[] {
   return Array.from(candidates.values());
 }
 
-function formatPublishedPort(serviceName: string, value: unknown): string | undefined {
+function isEphemeralLoopbackPort(value: unknown): boolean {
   if (typeof value === "string") {
+    const match = /^127\.0\.0\.1:(?:0)?:([0-9]+)(?:\/tcp)?$/.exec(value);
+    return Boolean(match && Number(match[1]) >= 1 && Number(match[1]) <= 65535);
+  }
+  const port = asRecord(value);
+  return Boolean(
+    port &&
+      port.host_ip === "127.0.0.1" &&
+      Number.isInteger(port.target) &&
+      (port.target as number) >= 1 &&
+      (port.target as number) <= 65535 &&
+      (port.protocol === undefined || port.protocol === "tcp") &&
+      (port.published === undefined ||
+        port.published === "" ||
+        port.published === 0 ||
+        port.published === "0"),
+  );
+}
+
+function formatPublishedPort(serviceName: string, value: unknown): string | undefined {
+  if (typeof value === "string" || typeof value === "number") {
     return `${serviceName}: ${value}`;
   }
 
@@ -110,6 +130,7 @@ function inspectCompose(composeFile: string, _workspace?: string): ComposeInspec
 
       if (Array.isArray(service.ports)) {
         for (const port of service.ports) {
+          if (isEphemeralLoopbackPort(port)) continue;
           const formatted = formatPublishedPort(serviceName, port);
           if (formatted) {
             publishedPorts.push(formatted);

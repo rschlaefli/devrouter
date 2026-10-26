@@ -150,6 +150,10 @@ if [ "${#runtime_variant}" -gt 64 ] ||
 fi
 managed_variant_identity=0
 [ "$runtime_variant" = "default" ] || managed_variant_identity=1
+host_ports_identity="${DEVROUTER_PROCESS_HOST_PORTS_SHA256:-}"
+if [ -n "$host_ports_identity" ] && ! [[ "$host_ports_identity" =~ ^[a-f0-9]{64}$ ]]; then
+  die "DEVROUTER_PROCESS_HOST_PORTS_SHA256 must be a SHA-256 digest."
+fi
 
 if [ "$action" != "ensure" ] && [ "$#" -gt 0 ]; then
   die "Unexpected arguments for $action."
@@ -176,6 +180,9 @@ if [ -z "$fingerprint" ]; then
     if [ "$managed_variant_identity" -eq 1 ]; then
       printf 'runtime-variant\0%s\0' "$runtime_variant"
     fi
+    if [ -n "$host_ports_identity" ]; then
+      printf 'host-ports\0%s\0' "$host_ports_identity"
+    fi
     for argument in "$@"; do
       printf 'argv\0%s\0' "$argument"
     done
@@ -187,11 +194,12 @@ if [ -z "$fingerprint" ]; then
       emit_environment_field environment-value "$env_name"
     done
   } | LC_ALL=C sha256sum | awk '{print $1}')"
-elif [ "$managed_variant_identity" -eq 1 ]; then
+elif [ "$managed_variant_identity" -eq 1 ] || [ -n "$host_ports_identity" ]; then
   fingerprint="$({
     printf 'format\0devrouter-process-managed-variant-v1\0'
     printf 'explicit-fingerprint\0%s\0' "$fingerprint"
     printf 'runtime-variant\0%s\0' "$runtime_variant"
+    printf 'host-ports\0%s\0' "$host_ports_identity"
   } | LC_ALL=C sha256sum | awk '{print $1}')"
 fi
 [[ "$fingerprint" =~ ^[a-zA-Z0-9][a-zA-Z0-9._:-]*$ ]] || die "--fingerprint must be a safe identifier."

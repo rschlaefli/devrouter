@@ -205,6 +205,42 @@ describe("managed runtime variants", () => {
   });
 });
 
+describe("managed host-port declarations", () => {
+  function portConfig(hostPorts: unknown) {
+    return {
+      version: 1,
+      apps: [],
+      managedRuntime: {
+        devcontainer: { baseServices: ["blob"], profileServices: ["mail"], hostPorts },
+        processes: [],
+      },
+    };
+  }
+  it("loads named targets independently of routed apps", () => {
+    writeConfig(tmpDir, JSON.stringify(portConfig({ blob: { service: "blob", target: 10000 } })));
+    expect(loadRepoConfig(tmpDir).managedRuntime?.devcontainer.hostPorts).toEqual({
+      blob: { service: "blob", target: 10000 },
+    });
+  });
+  it.each([
+    { blob: { service: "foreign", target: 10000 } },
+    { blob: { service: "blob", target: 0 } },
+    { blob: { service: "blob", target: 65536 } },
+    { blob: { service: "blob", target: 10.5 } },
+    { blob: { service: "blob", target: "10000" } },
+    { blob: { service: "blob", target: 10000, published: 10003 } },
+    { blob: { service: "blob", target: 10000 }, other: { service: "blob", target: 10000 } },
+    { blob_port: { service: "blob", target: 10000 } },
+    { ["b".repeat(65)]: { service: "blob", target: 10000 } },
+    Object.fromEntries(
+      Array.from({ length: 33 }, (_, i) => [`port-${i}`, { service: "blob", target: i + 1 }]),
+    ),
+  ])("rejects an invalid host-port declaration %#", (ports) => {
+    writeConfig(tmpDir, JSON.stringify(portConfig(ports)));
+    expect(() => loadRepoConfig(tmpDir)).toThrow();
+  });
+});
+
 function writeManagedProfileConfig(dir: string, profilesYaml: string): void {
   writeConfig(
     dir,

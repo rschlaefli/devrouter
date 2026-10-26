@@ -765,7 +765,7 @@ function parseManagedRuntime(
   );
   ensureAllowedKeys(
     devcontainer,
-    ["baseServices", "profileServices", "prepareCommand"],
+    ["baseServices", "profileServices", "prepareCommand", "hostPorts"],
     `${configPath}.managedRuntime.devcontainer`,
   );
   const baseServices = parseRequiredUniqueStringArray(
@@ -788,6 +788,51 @@ function parseManagedRuntime(
     );
   }
 
+  let hostPorts: Record<string, { service: string; target: number }> | undefined;
+  if (devcontainer.hostPorts !== undefined) {
+    const ports = ensureObject(
+      devcontainer.hostPorts,
+      `${configPath}.managedRuntime.devcontainer.hostPorts`,
+    );
+    if (Object.keys(ports).length > 32)
+      throw new Error("managedRuntime.devcontainer.hostPorts accepts at most 32 declarations.");
+    hostPorts = {};
+    const pairs = new Set<string>();
+    const variables = new Set<string>();
+    const registered = new Set([...baseServices, ...profileServices]);
+    for (const [name, rawPort] of Object.entries(ports)) {
+      if (name.length > 64 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name))
+        throw new Error(
+          "Host-port names must be lowercase kebab-case identifiers of at most 64 characters.",
+        );
+      const variable = name.toUpperCase().replaceAll("-", "_");
+      if (variables.has(variable))
+        throw new Error("Host-port names produce colliding environment variables.");
+      variables.add(variable);
+      const port = ensureObject(rawPort, `managedRuntime.devcontainer.hostPorts.${name}`);
+      ensureAllowedKeys(
+        port,
+        ["service", "target"],
+        `managedRuntime.devcontainer.hostPorts.${name}`,
+      );
+      if (typeof port.service !== "string" || !registered.has(port.service))
+        throw new Error(`Host port '${name}' must reference a registered base or profile service.`);
+      if (
+        !Number.isInteger(port.target) ||
+        (port.target as number) < 1 ||
+        (port.target as number) > 65535
+      )
+        throw new Error(`Host port '${name}' target must be an integer from 1 to 65535.`);
+      const pair = `${port.service}:${port.target}`;
+      if (pairs.has(pair)) throw new Error(`Host port '${name}' duplicates a service and target.`);
+      pairs.add(pair);
+      Object.defineProperty(hostPorts, name, {
+        value: { service: port.service, target: port.target as number },
+        enumerable: true,
+      });
+    }
+  }
+
   const processes = parseRequiredUniqueStringArray(
     managedRuntime.processes,
     `${configPath}.managedRuntime.processes`,
@@ -808,6 +853,7 @@ function parseManagedRuntime(
       baseServices,
       profileServices,
       ...(prepareCommand ? { prepareCommand } : {}),
+      ...(hostPorts !== undefined ? { hostPorts } : {}),
     },
     processes,
   };

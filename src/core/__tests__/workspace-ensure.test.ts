@@ -26,6 +26,7 @@ import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspace
 import { detectHostPortClaimConflicts } from "../host-port-claims";
 import { listHostRouteState, replaceHostRoutesForRepo } from "../host-routes";
 import { reportLifecycleProgress } from "../lifecycle-progress";
+import { resolveManagedHostPorts } from "../managed-host-ports";
 import { runManagedHostPreparation } from "../managed-host-preparation";
 import {
   resolveManagedPostStartPlan,
@@ -60,6 +61,7 @@ vi.mock("../capacity-policy", async (original) => ({
   readCapacityPolicy: vi.fn(() => undefined),
 }));
 vi.mock("../host-port-claims", () => ({ detectHostPortClaimConflicts: vi.fn(() => []) }));
+vi.mock("../managed-host-ports", () => ({ resolveManagedHostPorts: vi.fn(() => ({})) }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../devsy-agent", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -1497,6 +1499,20 @@ describe("workspaceEnsure", () => {
       },
     });
     const runtime = mockManagedLifecycle({ events, curlStatus: 22 });
+    const candidatePorts = {
+      db: {
+        service: "postgres",
+        target: 5432,
+        status: "available" as const,
+        endpoint: { host: "127.0.0.1" as const, port: 49153 },
+      },
+    };
+    const restoredPorts = {
+      db: { ...candidatePorts.db, endpoint: { host: "127.0.0.1" as const, port: 49154 } },
+    };
+    vi.mocked(resolveManagedHostPorts)
+      .mockReturnValueOnce(candidatePorts)
+      .mockReturnValueOnce(restoredPorts);
 
     await expect(
       workspaceEnsure(tmpDir, {
@@ -1522,7 +1538,11 @@ describe("workspaceEnsure", () => {
     expect(stopExactManagedService).toHaveBeenNthCalledWith(1, "redis-id", "redis");
     expect(stopExactManagedService).toHaveBeenNthCalledWith(2, "litellm-id", "litellm");
     expect(runManagedPostStart).toHaveBeenLastCalledWith(
-      expect.objectContaining({ profile: "old", processes: ["app", "local-mcp"] }),
+      expect.objectContaining({
+        profile: "old",
+        processes: ["app", "local-mcp"],
+        hostPorts: restoredPorts,
+      }),
     );
     expect(replaceHostRoutesForRepo).toHaveBeenLastCalledWith(tmpDir, [
       expect.objectContaining({
@@ -1531,6 +1551,7 @@ describe("workspaceEnsure", () => {
         upstreamHost: "feature-app",
       }),
     ]);
+    expect(resolveManagedHostPorts).toHaveBeenCalledTimes(2);
     expect(writeManagedRuntimeState).not.toHaveBeenCalled();
     expect(events.filter((event) => event === "routes:1")).toHaveLength(2);
   });
@@ -1728,6 +1749,41 @@ describe("workspaceEnsure", () => {
     expect(runManagedHostPreparation).not.toHaveBeenCalled();
     expect(runManagedPostStart).not.toHaveBeenCalled();
     expect(writeManagedRuntimeState).not.toHaveBeenCalled();
+  });
+
+  it("resolves current selected-service host ports before post-start", async () => {
+    mockRepair();
+    const config = managedRuntimeConfig();
+    config.managedRuntime!.devcontainer.hostPorts = { db: { service: "postgres", target: 5432 } };
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config,
+      workspace: "feature",
+      profile: "old",
+      resolvedProfile: {
+        apps: ["chat"],
+        devcontainerServices: ["redis"],
+        processes: ["app", "local-mcp"],
+      },
+    });
+    const ports = {
+      db: {
+        service: "postgres",
+        target: 5432,
+        status: "available" as const,
+        endpoint: { host: "127.0.0.1" as const, port: 49153 },
+      },
+    };
+    vi.mocked(resolveManagedHostPorts).mockReturnValueOnce(ports);
+    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+    expect(resolveManagedHostPorts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: tmpDir,
+        declarations: config.managedRuntime!.devcontainer.hostPorts,
+        composeProject: "workspace-project",
+        selectedServices: ["app", "postgres", "redis"],
+      }),
+    );
+    expect(runManagedPostStart).toHaveBeenCalledWith(expect.objectContaining({ hostPorts: ports }));
   });
 
   it("ordinary ensure repairs once when the recorded profile is explicitly requested", async () => {

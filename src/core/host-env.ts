@@ -1,9 +1,16 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import type { DevrouterConfig, DevrouterRoutedApp } from "../types";
+import { inspectManagedDevcontainerConfig } from "./devcontainer-profile";
 import { inspectWorkspaceContainers, type WorkspaceContainerSnapshot } from "./devpod-environment";
 import { listContainers } from "./docker";
 import { listHostRoutes, parseUpstream } from "./host-routes";
+import {
+  type ManagedHostPortDeclaration,
+  type ManagedHostPorts,
+  resolveManagedHostPorts,
+} from "./managed-host-ports";
+import { readManagedRuntimeState } from "./managed-runtime-state";
 import { networkDockerOptions } from "./network-effect-scope";
 import { applyWorkspace, loadRepoConfig } from "./repo-config";
 import { DEVNET_NAME, isTLSEnabled, TCP_PROTOCOL_REGISTRY } from "./router";
@@ -42,6 +49,7 @@ export type HostEnvReport = {
   caPath: string | null;
   caReason?: string;
   apps: HostEnvApp[];
+  hostPorts?: ManagedHostPorts;
 };
 
 /** Live evidence the report is assembled from; `undefined` means unavailable. */
@@ -51,6 +59,7 @@ export type HostEnvEvidence = {
   caPath: string | { error: string };
   containers: WorkspaceContainerSnapshot[] | undefined;
   publishedBindings: (containerId: string, port: number) => string | undefined;
+  hostPorts?: ManagedHostPorts;
 };
 
 const LOOPBACK_UPSTREAM_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
@@ -60,6 +69,24 @@ const LOOPBACK_UPSTREAM_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", ":
 const ROUTED_TCP_PARAMS: Record<string, Record<string, string>> = {
   postgres: { sslmode: "require", sslnegotiation: "direct" },
 };
+
+function declarationsFor(
+  config: DevrouterConfig,
+): Record<string, ManagedHostPortDeclaration> | undefined {
+  const declarations = config.managedRuntime?.devcontainer.hostPorts;
+  return declarations && Object.keys(declarations).length > 0 ? declarations : undefined;
+}
+
+function unavailableHostPorts(
+  declarations: Record<string, ManagedHostPortDeclaration>,
+): ManagedHostPorts {
+  return Object.fromEntries(
+    Object.entries(declarations).map(([name, declaration]) => [
+      name,
+      { ...declaration, status: "unavailable" as const, reason: "unavailable" as const },
+    ]),
+  );
+}
 
 /**
  * Pick the loopback endpoint from `docker port` output. Only loopback bindings
@@ -150,6 +177,7 @@ export function buildHostEnvReport(input: {
   }
 
   const ca = evidence.caPath;
+  const declarations = declarationsFor(config);
   return {
     version: 1,
     repoPath,
@@ -157,6 +185,9 @@ export function buildHostEnvReport(input: {
     tls: evidence.tlsEnabled,
     ...(typeof ca === "string" ? { caPath: ca } : { caPath: null, caReason: ca.error }),
     apps,
+    ...(declarations
+      ? { hostPorts: evidence.hostPorts ?? unavailableHostPorts(declarations) }
+      : {}),
   };
 }
 
@@ -211,6 +242,46 @@ async function collectActiveHosts(tlsEnabled: boolean): Promise<Set<string>> {
   return hosts;
 }
 
+function collectManagedHostPorts(
+  repoPath: string,
+  config: DevrouterConfig,
+  workspace: string | undefined,
+): ManagedHostPorts | undefined {
+  const declarations = declarationsFor(config);
+  if (!declarations) return undefined;
+  const unavailable = () => unavailableHostPorts(declarations);
+
+  try {
+    const state = readManagedRuntimeState(repoPath, workspace);
+    if (!state) return unavailable();
+    const plan = inspectManagedDevcontainerConfig({
+      repoPath,
+      config,
+      profile: {
+        apps: [...state.desired.apps],
+        devcontainerServices: [...state.desired.services],
+        processes: [...state.desired.processes],
+      },
+      linked: workspace !== undefined,
+    });
+    if (
+      plan.sourceConfigSha256 !== state.sourceConfigSha256 ||
+      plan.effectiveConfigSha256 !== state.effectiveConfigSha256
+    ) {
+      return unavailable();
+    }
+    return resolveManagedHostPorts({
+      repoPath,
+      declarations,
+      selectedServices: [...new Set([...plan.baseServices, ...state.desired.services])],
+      composeProject: state.composeProject,
+      composeFiles: plan.composeFiles,
+    });
+  } catch {
+    return unavailable();
+  }
+}
+
 /** Read-only: never starts, stops, or reconciles a runtime. */
 export async function collectHostEnvReport(repoPath: string): Promise<HostEnvReport> {
   const workspace = resolveWorkspace(repoPath);
@@ -236,6 +307,7 @@ export async function collectHostEnvReport(repoPath: string): Promise<HostEnvRep
       caPath,
       containers: needsContainers ? listDevcontainerContainers(repoPath) : [],
       publishedBindings: dockerPortBindings,
+      hostPorts: collectManagedHostPorts(repoPath, config, workspace),
     },
   });
 }
@@ -270,6 +342,12 @@ export function hostEnvVariables(
       variables[`${prefix}_HOST`] = app.loopback.host;
       variables[`${prefix}_PORT`] = String(app.loopback.port);
     }
+  }
+  for (const [name, port] of Object.entries(report.hostPorts ?? {})) {
+    if (port.status !== "available" || !port.endpoint) continue;
+    variables[`DEVROUTER_HOST_PORT_${name.toUpperCase().replaceAll("-", "_")}`] = String(
+      port.endpoint.port,
+    );
   }
   return variables;
 }
