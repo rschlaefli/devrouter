@@ -137,6 +137,15 @@ validated container, and include their SHA-256 in managed-process identity
 explicitly allowlisted non-secret environment values; adapter or origin drift restarts only the
 owned group instead of reusing stale runtime state.
 
+Read-only endpoint discovery must reconstruct the same effective configuration used by ensure.
+A managed network claim adds a Compose overlay and changes the effective configuration digest;
+comparing retained state against the source-only plan falsely rejects healthy ownership. Reuse
+`prepareNetworkComposeFiles(...).plan` for an attached exact claim without invoking its writer.
+The regression in `src/core/__tests__/host-env.test.ts` verifies overlay-aware discovery and no write.
+Keep declaration identity separate from Docker-allocated values: rollback can rediscover current
+ports only when its declarations still match the retained baseline. Changed declarations must
+leave recovery degraded rather than launch the previous process with candidate metadata.
+
 Make the Traefik dynamic file the canonical route artifact. Its versioned metadata header and YAML
 are generated together; JSON is a compatibility mirror written first, then the canonical file is
 replaced through the shared file-and-parent-directory `fsync` helper
