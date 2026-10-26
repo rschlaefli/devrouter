@@ -613,8 +613,12 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         details.priority !== 10 ||
         restrictions.restricted !== true ||
         Object.keys(restrictions).some(
-          (key) => !["restricted", "nfObjects", "tags", "stageIds"].includes(key),
+          (key) =>
+            !["restricted", "nfObjects", "tags", "tagMatchCondition", "stageIds"].includes(key),
         ) ||
+        (restrictions.tagMatchCondition !== undefined &&
+          (typeof restrictions.tagMatchCondition !== "string" ||
+            !["and", "or"].includes(restrictions.tagMatchCondition))) ||
         !Array.isArray(objects) ||
         objects.length !== 1 ||
         record(objects[0]).id !== target.id ||

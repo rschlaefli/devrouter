@@ -1378,6 +1378,11 @@ function providerFixture(
             }
           }
         }
+        if (tail[0] === "secrets" && tail[2] === "details")
+          return response({
+            ...row,
+            restrictions: { tagMatchCondition: "or", ...row.restrictions },
+          });
         return response(row);
       }
       if (tail.length === 1) {
@@ -1895,6 +1900,29 @@ describe("Northflank generation credential delivery", () => {
     f.qualification.outputExec = false;
     await expect(f.command("start", { kind: "start", aliases: ["web"] })).rejects.toThrow();
     expect(f.mutations).toEqual([]);
+  });
+
+  it.each([
+    { condition: "and", tags: [], ready: true },
+    { condition: "or", tags: ["other-recipient"], ready: false },
+    { condition: "unknown", tags: [], ready: false },
+    { condition: ["and"], tags: [], ready: false },
+  ])("keeps native tag matching restricted: $condition / $ready", async ({
+    condition,
+    tags,
+    ready,
+  }) => {
+    const f = credentialProviderFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).toBe("ready");
+    for (const group of f.allocations.values())
+      if (group.kind === "secrets") {
+        group.restrictions.tagMatchCondition = condition;
+        group.restrictions.tags = tags;
+      }
+    f.refreshSource();
+    await f.command("refresh", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status === "ready").toBe(ready);
   });
 
   it("does not replay a secret write whose response was lost", async () => {
