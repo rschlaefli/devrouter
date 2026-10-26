@@ -257,12 +257,15 @@ Those records are bounded and never evicted to make room. Ordinary observation o
 changed configuration can continue while the older consumer remains unresolved.
 
 On macOS, session and capacity checks also sample the kernel's read-only wake
-identity. A changed identity invalidates pre-sleep generations and capacity
+counter. A changed counter invalidates pre-sleep generations and capacity
 evidence even when the sleep is shorter than the timer discontinuity threshold.
+The counter can remain unchanged across a short sleep and dark-to-full wake;
+these checks do not guarantee detection of every such transition.
 Unavailable wake evidence refuses fresh session grants and capacity decisions;
 exact consumer withdrawal and completion of an already-committed stop remain
-available. No cached pre-wake sample authorizes a new admission. Other platforms
-retain the wall/monotonic clock checks. A wake never authorizes parking or stops
+available. Once a discontinuity is detected, cached samples cannot authorize a
+new admission. Other platforms retain the wall/monotonic clock checks. A wake
+never authorizes parking or stops
 an environment by itself.
 
 An optional exact previous binding on `observe` can reconcile only that retained

@@ -146,3 +146,48 @@ Documentation paths: `docs/knowledge/managed-environment-lifecycle.md`,
   are integrated with no dependency or protocol change.
 - Live proof: long-suspend evidence belongs to the previous unchanged artifact;
   short-suspend acceptance remains open. No runtime is retained by this package.
+
+### Merged-artifact live result
+
+[PR #159](https://github.com/rschlaefli/devrouter/pull/159) and
+[PR #160](https://github.com/rschlaefli/devrouter/pull/160) were merged after the
+user approved that exact sequence. The merged source revision is
+`4de6ddea661c69780af4cc9b9047f42158a0e994`; its executable source matches the
+reviewed candidate. [Post-merge CI](https://github.com/rschlaefli/devrouter/actions/runs/40354315637)
+passed. Risk and final source reviews passed; their earlier pending entries
+above describe the pre-delivery stage.
+
+The operator-controlled short-suspend test **failed** against unchanged merged
+artifacts. The CLI SHA-256 was
+`7d65df9a1766e73479a3a5c80b53883d5a7f44e0e719a38ffca7f7feabc49b18`;
+the lifecycle worker SHA-256 was
+`5f4f68e9d7bb14b9890c06c768a8c8d78d6ac86f004ec0123e7b4eda61d833b5`.
+The fixture had a successful renewal within its lease before the recorded
+two-second Sleep / DarkWake-to-FullWake cycle. The kernel counter stayed equal
+to its pre-suspend value. The old generation remained renewable and could obtain
+protection evidence; no discontinuity invalidation or retained-consumer record
+was produced. Re-observation did not issue a new generation. The route continued
+to serve the expected synthetic response, which does not establish session
+invalidation. Capacity admission across this suspend was not exercised.
+
+The failed receipt, checkpoint, heartbeat, baseline and wake diagnosis are
+retained privately. Exact cleanup and a subsequent recheck confirmed the
+controller and heartbeat stopped, the recorded container was absent, and no
+fixture container or route remained. No fixture runtime is retained. No release,
+global installation or other task's source/runtime mutation followed this test.
+
+The deterministic tests still prove the fences when their injected epoch changes;
+the live failure disproves the assumption that this kernel counter changes on
+every relevant short suspend. Apple's
+[root-domain implementation](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IOPMrootDomain.cpp)
+updates the counter after `sleepKernel()` returns. Its sleep/wake UUID is
+published earlier, during full-to-dark transition, and can later be cleared.
+That UUID is a candidate signal, not qualified replacement evidence: this run
+did not capture its pre-suspend baseline.
+
+Next source work must establish a bounded signal for this transition, preserve
+unavailable-evidence refusals and exact release/committed-stop liveness, and add
+unchanged-counter regression coverage. Any replacement must handle pre-sleep
+publication and UUID clearing. A new unchanged-artifact real short-suspend test
+and cleanup remain necessary before closing RF09 / Q20. This failed attempt does
+not authorize another merge, release, installation or consumer mutation.
