@@ -579,7 +579,7 @@ function providerFixture() {
   const mutations: string[] = [];
   let lostRun = false;
   let partialPrepareFailure = false;
-  let skipPrepare = false;
+  let skipUnchanged = false;
   let unavailableRunReadback = false;
   let missingSecret = false;
   let pendingBootstrap = false;
@@ -683,6 +683,7 @@ function providerFixture() {
           const refs: Record<string, unknown> = {};
           const operation = body.arguments?.devrouterOperation ?? "";
           const partialPrepare = partialPrepareFailure && String(operation).startsWith("prepare-");
+          const skipped = skipUnchanged && /^(prepare|activate)-/.test(String(operation));
           let refCount = 0;
           for (const node of spec.spec.steps) {
             const kind: Record<string, string> = {
@@ -709,7 +710,9 @@ function providerFixture() {
               refId = native;
             }
             if (refId) {
-              if (!partialPrepare || refCount === 0) {
+              if (skipped) {
+                refs[node.ref] = { status: "skipped" };
+              } else if (!partialPrepare || refCount === 0) {
                 refs[node.ref] = { status: "success", data: { id: refId } };
               } else if (refCount === 1) {
                 refs[node.ref] = { status: "failed", data: { id: refId } };
@@ -730,11 +733,7 @@ function providerFixture() {
               (pendingBootstrap && String(operation).startsWith("bootstrap-")) ||
               (pendingPrepare && String(operation).startsWith("prepare-"))
             ),
-            status: partialPrepare
-              ? "failed"
-              : skipPrepare && String(operation).startsWith("prepare-")
-                ? "skipped"
-                : "success",
+            status: partialPrepare ? "failed" : skipped ? "skipped" : "success",
           };
           runs.set(id, row);
           if (partialPrepare) partialPrepareFailure = false;
@@ -848,8 +847,8 @@ function providerFixture() {
     partialPrepare: () => {
       partialPrepareFailure = true;
     },
-    skipPrepare: () => {
-      skipPrepare = true;
+    skipUnchanged: () => {
+      skipUnchanged = true;
     },
     loseSpecReceipt: () => {
       loseSpecReceipt = true;
@@ -937,14 +936,18 @@ describe("Northflank provider lifecycle", () => {
     expect(new Set(runs.map((run) => run.environmentId)).size).toBe(1);
     expect(new Set(runs.map((run) => run.arguments.devrouterOperation)).size).toBe(runs.length);
   });
-  it("accepts an unchanged native preparation when every node is skipped", async () => {
+  it("retains its generation when preparation and activation nodes are all skipped", async () => {
     const f = providerFixture();
     await f.command("start", { kind: "start", aliases: ["web"] });
-    expect((await f.reconcile())?.session.status).toBe("ready");
+    const initial = await f.reconcile();
+    expect(initial?.session.status).toBe("ready");
     f.refreshSource();
-    f.skipPrepare();
+    f.skipUnchanged();
     await f.command("refresh", { kind: "start", aliases: ["web"] });
-    expect((await f.reconcile())?.session.status).toBe("ready");
+    const refreshed = await f.reconcile();
+    expect(refreshed?.session.status).toBe("ready");
+    expect(refreshed?.session.generation).toBe(initial?.session.generation);
+    expect([...f.runs.values()].filter((run) => run.status === "skipped")).toHaveLength(2);
     expect(f.mutations.some((item) => item.startsWith("DELETE"))).toBe(false);
   });
   it("recovers a lost once-only run response without posting another bootstrap run", async () => {
