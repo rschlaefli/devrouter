@@ -182,6 +182,28 @@ quotes and generated origins remain intact. Addon credentials and runtime-secret
 references are rejected in build payloads. Build-service identities and arguments
 are generation-specific; live cache behavior still needs qualification.
 
+Trusted policy can declare `generated` values with `bytes` (16–64) and `encoding`
+(`hex` or `base64url`). Runtime bindings use `{generated: name}`. `outputs` declares
+an owned source service, fixed `command` argv, `maxBytes` (at most8000), and a bounded
+anchored character-class `pattern`; consumers bind `{output: name}`. These bindings
+are excluded from public build inputs. Declarations allow at most32 sensitive names,
+16 outputs and32 selected secret groups.
+
+Generation values persist in restricted native runtime groups. The ownership journal
+records only delivered names. Refresh adopts matching persisted copies, compares
+source outputs, and fails closed if delivered values disappear or disagree. Generated
+names are recorded before source startup. Source startup includes only output-source
+dependencies; consumers start after output delivery and recipient readback. One output
+is persisted per observation. Unknown secret-write outcomes require cleanup, retaining
+the reservation; they are never replayed blindly. The operation bound includes retained
+resources that a later selection pauses.
+
+Output use additionally requires `qualification.outputExec: true`, supplied only after
+native qualification of the reviewed command. The transport limits client waiting and
+output; disconnecting does not terminate the remote process. Commands must therefore
+be read-only, bounded and idempotent under the reviewed source recipe. Client timeout
+is not evidence of remote cancellation. Extension and status execute no output commands.
+
 Worker recipes may supply `readiness.command` as an argument array instead of an
 HTTP port/path. This becomes a native CMD readiness probe; it runs inside the
 application container, and the controller never executes it. An unsuccessful

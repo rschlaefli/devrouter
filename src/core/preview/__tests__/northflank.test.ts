@@ -1165,6 +1165,16 @@ describe("Northflank generation ownership", () => {
         resources: current.resources.map((item) => ({ ...item, uid: "2".repeat(24) })),
       })),
     ).rejects.toThrow();
+    await ownership.update((current) => ({ ...current, delivered: ["g:password", "o:token"] }));
+    await expect(
+      ownership.update((current) => ({ ...current, delivered: ["o:token"] })),
+    ).rejects.toThrow();
+    await expect(
+      ownership.update((current) => ({ ...current, delivered: ["o:token", "g:password"] })),
+    ).rejects.toThrow();
+    await expect(
+      ownership.update((current) => ({ ...current, delivered: ["g:password", "g:password"] })),
+    ).rejects.toThrow();
     const another = new NorthflankOwnershipStore({
       store,
       installationId: "fixture",
@@ -1180,8 +1190,11 @@ describe("Northflank generation ownership", () => {
   });
 });
 
-function providerFixture() {
+function providerFixture(
+  configure?: (entry: PreviewPoolEntry, policy: NorthflankGraphPolicy) => void,
+) {
   const { entry, policy } = graphFixture();
+  configure?.(entry, policy);
   const policyDigest = createHash("sha256")
     .update(JSON.stringify({ project: "fixture", graph: policy }))
     .digest("hex");
@@ -1240,6 +1253,14 @@ function providerFixture() {
   let skipUnchanged = false;
   let unavailableRunReadback = false;
   let missingSecret = false;
+  let secretReads = 0;
+  let loseSecretPatch = false;
+  let wipeAtActivate = false;
+  let wipeAtSource = false;
+  let sourceWithoutGeneratedMarker = false;
+  let forgeOutputSource = false;
+  let outputValue = "abcdef0123456789".repeat(2);
+  const outputCalls: Array<{ id: string; argv: string[] }> = [];
   let pendingBootstrap = false;
   let delayedBlueprint: Record<string, any> | undefined;
   let delayBlueprint = false;
@@ -1286,8 +1307,27 @@ function providerFixture() {
           return response(tail[0] === "volumes" ? rows : { [tail[0]]: rows });
         }
         const row = allocations.get(tail[1]);
+        if (tail[0] === "secrets" && method === "GET") secretReads += 1;
         if (!row) return new Response(null, { status: 404 });
-        if (method === "PATCH") row.patch = body;
+        if (
+          forgeOutputSource &&
+          tail[0] === "services" &&
+          row.name ===
+            [...allocations.values()].find(
+              (item) => item.kind === "secrets" && item.secrets.variables.API_KEY,
+            )?.restrictions.nfObjects[0].id
+        )
+          return response({ ...row, uid: "f".repeat(24) });
+        if (method === "PATCH") {
+          row.patch = body;
+          if (tail[0] === "secrets") {
+            row.secrets.variables = body.secrets.variables;
+            if (loseSecretPatch) {
+              loseSecretPatch = false;
+              throw new Error("synthetic lost secret receipt");
+            }
+          }
+        }
         return response(row);
       }
       if (tail.length === 1) {
@@ -1340,6 +1380,21 @@ function providerFixture() {
           const spec = structuredClone(blueprint.spec);
           const refs: Record<string, unknown> = {};
           const operation = body.arguments?.devrouterOperation ?? "";
+          if (wipeAtActivate && String(operation).startsWith("activate-")) {
+            wipeAtActivate = false;
+            for (const group of allocations.values())
+              if (group.kind === "secrets") group.secrets.variables = {};
+          }
+          if (String(operation).startsWith("source-")) {
+            const owned = records.get(`installations/fixture/northflank/${body.name.slice(8)}`)
+              ?.value as { delivered?: string[] } | undefined;
+            sourceWithoutGeneratedMarker ||= !owned?.delivered?.includes("g:password");
+            if (wipeAtSource) {
+              wipeAtSource = false;
+              for (const group of allocations.values())
+                if (group.kind === "secrets") group.secrets.variables = {};
+            }
+          }
           const partialPrepare = partialPrepareFailure && String(operation).startsWith("prepare-");
           const skipped = skipUnchanged && /^(prepare|activate)-/.test(String(operation));
           let refCount = 0;
@@ -1364,6 +1419,20 @@ function providerFixture() {
                 uid: "a".repeat(24),
                 kind: kind[node.kind],
               };
+              if (!allocations.has(native) || node.updateMode !== "create") {
+                const nativeSpec = JSON.parse(
+                  JSON.stringify(node.spec).replace(
+                    /\$\{refs\.([a-z0-9_]+)\.id\}/g,
+                    (_match, reference) => {
+                      const sourceNode = spec.spec.steps.find(
+                        (item: any) => item.ref === reference,
+                      );
+                      return sourceNode?.spec.name ?? "unresolved";
+                    },
+                  ),
+                );
+                Object.assign(row, nativeSpec);
+              }
               allocations.set(native, row);
               refId = native;
             }
@@ -1430,7 +1499,12 @@ function providerFixture() {
       throw new Error("Unexpected synthetic endpoint");
     },
   });
+  api.execServiceCommand = async (id, argv) => {
+    outputCalls.push({ id, argv });
+    return `${outputValue}\n`;
+  };
   const qualification = {
+    outputExec: true,
     fixedDeadline: true,
     sameEnvironment: true,
     deletionFence: true,
@@ -1489,6 +1563,25 @@ function providerFixture() {
   return {
     provider,
     store,
+    records,
+    outputCalls,
+    secretReads: () => secretReads,
+    outputValue: (value: string) => {
+      outputValue = value;
+    },
+    loseSecretPatch: () => {
+      loseSecretPatch = true;
+    },
+    wipeAtActivate: () => {
+      wipeAtActivate = true;
+    },
+    wipeAtSource: () => {
+      wipeAtSource = true;
+    },
+    sourceWithoutGeneratedMarker: () => sourceWithoutGeneratedMarker,
+    forgeOutputSource: () => {
+      forgeOutputSource = true;
+    },
     policyDigest,
     qualification,
     command,
@@ -1557,6 +1650,191 @@ function providerFixture() {
     },
   };
 }
+
+function credentialProviderFixture(outputs = true) {
+  return providerFixture((entry, policy) => {
+    policy.generated = { password: { bytes: 32, encoding: "hex" } };
+    policy.resources.seed.environment = { PASSWORD: { generated: "password" } };
+    policy.resources.web.environment!.PASSWORD = { generated: "password" };
+    if (outputs) {
+      entry.plan.resources.push({
+        id: "consumer",
+        kind: "service",
+        dependsOn: ["web"],
+        image: `example/consumer@sha256:${"0".repeat(64)}`,
+      });
+      policy.outputs = {
+        token: {
+          service: "web",
+          command: ["cat", "/config/token"],
+          pattern: "^[a-f0-9]{32}$",
+          maxBytes: 32,
+        },
+      };
+      policy.resources.consumer = {
+        deploymentPlan: "nf-compute-10",
+        readiness: { command: ["test", "-s", "/ready"] },
+        environment: { PASSWORD: { generated: "password" }, TOKEN: { output: "token" } },
+      };
+    }
+  });
+}
+
+describe("Northflank generation credential delivery", () => {
+  it("persists one generation value, reuses it on refresh, and keeps values outside controller state", async () => {
+    const f = credentialProviderFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const ready = await f.reconcile(12);
+    expect(ready?.session.status).toBe("ready");
+    const groups = [...f.allocations.values()].filter((item) => item.kind === "secrets");
+    const password = groups[0].secrets.variables.PASSWORD;
+    expect(password).toMatch(/^[a-f0-9]{64}$/);
+    expect(groups.every((group) => group.secrets.variables.PASSWORD === password)).toBe(true);
+    expect(f.outputCalls).toHaveLength(1);
+    expect(f.sourceWithoutGeneratedMarker()).toBe(false);
+    expect(f.outputCalls[0].argv).toEqual(["cat", "/config/token"]);
+    const consumer = groups.find((group) => group.secrets.variables.TOKEN)!;
+    expect(consumer.secrets.variables.TOKEN).toBe("abcdef0123456789".repeat(2));
+    const saved = JSON.stringify([...f.records.values()]);
+    expect(saved).not.toContain(password);
+    expect(saved).not.toContain(consumer.secrets.variables.TOKEN);
+    expect(saved).not.toContain("test-value");
+    const patches = f.mutations.filter((item) => item.startsWith("PATCH secrets/")).length;
+    f.refreshSource();
+    await f.command("refresh", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile(12))?.session.status).toBe("ready");
+    expect(f.outputCalls).toHaveLength(2);
+    expect(f.mutations.filter((item) => item.startsWith("PATCH secrets/"))).toHaveLength(patches);
+    expect(
+      [...f.allocations.values()]
+        .filter((item) => item.kind === "secrets")
+        .every((group) => group.secrets.variables.PASSWORD === password),
+    ).toBe(true);
+    const reads = f.secretReads();
+    await f.command("extend", { kind: "extend", hours: 1 });
+    await f.reconcile();
+    expect(f.secretReads()).toBe(reads);
+    expect(f.outputCalls).toHaveLength(2);
+    await f.command("stop", { kind: "stop" });
+    await f.reconcile();
+    f.advance(1);
+    await f.command("restart", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile(12))?.session.status).toBe("ready");
+    const next = [...f.allocations.values()].find((item) => item.kind === "secrets")!.secrets
+      .variables.PASSWORD;
+    expect(next).not.toBe(password);
+  });
+
+  it("bounds repeated output progress and verifies partial recipient adoption", async () => {
+    const f = providerFixture((entry, policy) => {
+      policy.generated = { password: { bytes: 32, encoding: "base64url" } };
+      policy.resources.web.environment!.PASSWORD = { generated: "password" };
+      entry.plan.resources.push({
+        id: "consumer",
+        kind: "service",
+        dependsOn: ["web"],
+        image: `example/consumer@sha256:${"0".repeat(64)}`,
+      });
+      policy.outputs = Object.fromEntries(
+        ["token-one", "token-two"].map((name) => [
+          name,
+          {
+            service: "web",
+            command: ["cat", `/config/${name}`],
+            pattern: "^[a-f0-9]{32}$",
+            maxBytes: 32,
+          },
+        ]),
+      );
+      policy.resources.consumer = {
+        deploymentPlan: "nf-compute-10",
+        readiness: { command: ["true"] },
+        environment: {
+          PASSWORD: { generated: "password" },
+          FIRST: { output: "token-one" },
+          SECOND: { output: "token-two" },
+        },
+      };
+    });
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile(15))?.session.status).toBe("ready");
+    expect(f.outputCalls).toHaveLength(2);
+    const groups = [...f.allocations.values()].filter((item) => item.kind === "secrets");
+    expect(
+      groups.every(
+        (group) => group.secrets.variables.PASSWORD === groups[0].secrets.variables.PASSWORD,
+      ),
+    ).toBe(true);
+    const consumer = groups.find((group) => group.secrets.variables.FIRST)!;
+    expect(consumer.secrets.variables.SECOND).toBe(consumer.secrets.variables.FIRST);
+  });
+
+  it("refuses outputs unless the installed command has separate native qualification", async () => {
+    const f = credentialProviderFixture();
+    f.qualification.outputExec = false;
+    await expect(f.command("start", { kind: "start", aliases: ["web"] })).rejects.toThrow();
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("does not replay a secret write whose response was lost", async () => {
+    const f = credentialProviderFixture(false);
+    f.loseSecretPatch();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const state = await f.reconcile(3);
+    expect(state?.session.status).not.toBe("ready");
+    expect(f.mutations.filter((item) => item.startsWith("PATCH secrets/"))).toHaveLength(1);
+    await f.reconcile(12);
+    expect(f.allocations.size).toBe(0);
+  });
+
+  it("detects missing or disagreeing delivered values before refresh can rotate them", async () => {
+    for (const mode of ["missing", "disagree"]) {
+      const f = credentialProviderFixture(false);
+      await f.command("start", { kind: "start", aliases: ["web"] });
+      expect((await f.reconcile())?.session.status).toBe("ready");
+      const groups = [...f.allocations.values()].filter((item) => item.kind === "secrets");
+      if (mode === "missing") for (const group of groups) delete group.secrets.variables.PASSWORD;
+      else groups[0].secrets.variables.PASSWORD = "a".repeat(64);
+      const patches = f.mutations.filter((item) => item.startsWith("PATCH secrets/")).length;
+      f.refreshSource();
+      await f.command("refresh", { kind: "start", aliases: ["web"] });
+      const state = await f.reconcile();
+      expect(state?.session.status).not.toBe("ready");
+      expect(f.mutations.filter((item) => item.startsWith("PATCH secrets/"))).toHaveLength(patches);
+    }
+  });
+
+  it("fails closed after a source-stage credential wipe or source identity change", async () => {
+    for (const scenario of ["wipe", "source-identity"]) {
+      const f = credentialProviderFixture();
+      if (scenario === "wipe") f.wipeAtSource();
+      else f.forgeOutputSource();
+      await f.command("start", { kind: "start", aliases: ["web"] });
+      expect((await f.reconcile(12))?.session.status).not.toBe("ready");
+      expect(f.sourceWithoutGeneratedMarker()).toBe(false);
+      if (scenario === "source-identity") expect(f.outputCalls).toHaveLength(0);
+    }
+  });
+
+  it("rejects changed or malformed output before delivering it and detects a final group wipe", async () => {
+    for (const value of ["bad value", "fedcba9876543210".repeat(2)]) {
+      const f = credentialProviderFixture();
+      await f.command("start", { kind: "start", aliases: ["web"] });
+      expect((await f.reconcile(12))?.session.status).toBe("ready");
+      const patches = f.mutations.filter((item) => item.startsWith("PATCH secrets/")).length;
+      f.outputValue(value);
+      f.refreshSource();
+      await f.command("refresh", { kind: "start", aliases: ["web"] });
+      expect((await f.reconcile(12))?.session.status).not.toBe("ready");
+      expect(f.mutations.filter((item) => item.startsWith("PATCH secrets/"))).toHaveLength(patches);
+      expect(JSON.stringify([...f.records.values()])).not.toContain(value);
+    }
+    const f = credentialProviderFixture(false);
+    f.wipeAtActivate();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile())?.session.status).not.toBe("ready");
+  });
+});
 
 describe("Northflank provider lifecycle", () => {
   it("requires qualification before admission and keeps the source graph offline", async () => {

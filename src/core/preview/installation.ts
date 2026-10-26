@@ -179,10 +179,16 @@ export function loadPreviewInstallation(
       "runtimeSecrets",
     ]);
     const graph = northflank.graph as NorthflankGraphPolicy;
-    const qualifications = object(northflank.qualification, [...northflankQualificationKeys]);
+    const qualifications = object(
+      northflank.qualification,
+      [...northflankQualificationKeys],
+      ["outputExec"],
+    );
     for (const key of northflankQualificationKeys)
       if (typeof qualifications[key] !== "boolean")
         throw new Error("Invalid Northflank qualification evidence.");
+    if (qualifications.outputExec !== undefined && typeof qualifications.outputExec !== "boolean")
+      throw new Error("Invalid Northflank output execution qualification.");
     const qualification = qualifications as NorthflankQualification;
     const secrets = map(northflank.runtimeSecrets);
     for (const [name, value] of Object.entries(secrets)) {
@@ -425,6 +431,11 @@ export function loadPreviewInstallation(
     projects: projects.map((p, index) => {
       const requiredProofs: string[] = [
         ...northflankQualificationKeys.filter((key) => !p.qualification[key]),
+        ...(Object.values(p.graph.resources).some((resource) =>
+          Object.values(resource.environment ?? {}).some((binding) => "output" in binding),
+        ) && p.qualification.outputExec !== true
+          ? ["outputExec"]
+          : []),
         ...(p.forge instanceof GitLabPreviewForge && !verified.has(index)
           ? ["gitlab-controller-settings"]
           : []),

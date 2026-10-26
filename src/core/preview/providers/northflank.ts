@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { PreviewAdmissionRefused } from "../command";
 import type { PreviewEffectReceipt, PreviewProvider, PreviewWriteGate } from "../engine";
 import type { PreviewEffect, PreviewPoolEntry } from "../state";
@@ -36,6 +36,7 @@ export type NorthflankOwnership = {
   blueprintRejected?: boolean;
   previewId?: string;
   resources: NorthflankOwnedResource[];
+  delivered?: string[];
   absent: boolean;
 };
 
@@ -50,7 +51,7 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
   const row = object(
     value,
     ["schemaVersion", "generation", "policyDigest", "resources", "absent"],
-    ["blueprintId", "previewId", "blueprintObserved", "blueprintRejected"],
+    ["blueprintId", "previewId", "blueprintObserved", "blueprintRejected", "delivered"],
   );
   if (
     row.schemaVersion !== 1 ||
@@ -66,6 +67,19 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
   if (row.blueprintObserved !== undefined && typeof row.blueprintObserved !== "boolean")
     throw new Error("Invalid Northflank creation observation.");
   for (const key of ["blueprintId", "previewId"]) if (row[key] !== undefined) identifier(row[key]);
+  if (
+    row.delivered !== undefined &&
+    (!Array.isArray(row.delivered) ||
+      row.delivered.length > 128 ||
+      row.delivered.some(
+        (name, index, names) =>
+          typeof name !== "string" ||
+          !/^[go]:[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) ||
+          name.length > 50 ||
+          (index > 0 && names[index - 1] >= name),
+      ))
+  )
+    throw new Error("Invalid Northflank delivered-name metadata.");
   if (!Array.isArray(row.resources) || row.resources.length > 256)
     throw new Error("Invalid Northflank ownership resource list.");
   const references = new Set<string>();
@@ -93,7 +107,10 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
   }
   if (
     row.absent &&
-    (row.resources.length || row.blueprintId !== undefined || row.previewId !== undefined)
+    (row.resources.length ||
+      row.delivered?.length ||
+      row.blueprintId !== undefined ||
+      row.previewId !== undefined)
   )
     throw new Error("Absent Northflank generation still owns resources.");
   return structuredClone(row) as unknown as NorthflankOwnership;
@@ -171,6 +188,8 @@ export class NorthflankOwnershipStore {
         if (current.absent && !next.absent)
           throw new Error("Northflank ownership cannot revive after verified absence.");
         if (!next.absent) {
+          if (current.delivered?.some((name) => !next.delivered?.includes(name)))
+            throw new Error("Northflank delivered names cannot be forgotten.");
           if (current.blueprintObserved && !next.blueprintObserved)
             throw new Error("Northflank creation observation cannot be forgotten.");
           for (const key of ["blueprintId", "previewId"] as const)
@@ -204,7 +223,10 @@ export const northflankQualificationKeys = [
   "scopedRuntimeSecrets",
   "restrictedIngress",
 ] as const;
-export type NorthflankQualification = Record<(typeof northflankQualificationKeys)[number], boolean>;
+export type NorthflankQualification = Record<
+  (typeof northflankQualificationKeys)[number],
+  boolean
+> & { outputExec?: boolean };
 class NorthflankFailure extends Error {}
 class NorthflankFenced extends Error {}
 
@@ -250,6 +272,16 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       );
     }
     if (
+      graph.secretBindings.some((group) =>
+        Object.values(group.variables).some((binding) => "output" in binding),
+      ) &&
+      this.options.qualification.outputExec !== true
+    )
+      throw new PreviewAdmissionRefused(
+        "provider-unqualified",
+        "Northflank output command qualification is incomplete.",
+      );
+    if (
       graph.spec.spec.steps.filter((node) => resourceKinds.includes(nativeKinds[node.kind]))
         .length > 200
     )
@@ -293,6 +325,40 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     gate: PreviewWriteGate,
   ): Promise<PreviewEffectReceipt> {
     const store = this.ownership(entry);
+    const previousOwnership = await store.read();
+    if (!["deadline", "cancel", "destroy"].includes(effect.kind)) {
+      const graph = compileNorthflankGraph(
+        entry,
+        this.options.graph,
+        "prepare",
+        previousOwnership ? bindings(previousOwnership) : undefined,
+      );
+      const selected = new Set(
+        entry.plan.resources.map((resource) => `r_${resource.id.replaceAll("-", "_")}`),
+      );
+      const deselected =
+        previousOwnership?.resources.filter(
+          (resource) =>
+            resource.kind === "services" &&
+            resource.reference.startsWith("r_") &&
+            !selected.has(resource.reference),
+        ).length ?? 0;
+      const outputs = new Set(
+        graph.secretBindings.flatMap((group) =>
+          Object.values(group.variables).flatMap((binding) =>
+            "output" in binding ? [binding.output] : [],
+          ),
+        ),
+      );
+      if (8 + graph.secretBindings.length * 2 + outputs.size + deselected > 144)
+        return {
+          ...(previousOwnership
+            ? this.receipt(previousOwnership, true)
+            : { phase: "terminal" as const, resources: [] }),
+          outcome: "failed",
+          cleanupRequired: true,
+        };
+    }
     let owned = await store.initialize(
       gate,
       entry.session.ownedResources.length > 0 ||
@@ -410,32 +476,96 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       owned = await this.capture(prepare, owned, store);
       if (!["success", "skipped"].includes(String(prepare.status)))
         throw new NorthflankFailure("Northflank preparation failed.");
-      for (const [index, group] of prepared.runtimeSecrets.entries()) {
-        const step = `secrets-${index}`;
-        const current = (await gate.read()).find((item) => item.name === step);
-        if (current?.state === "accepted") continue;
-        if (current)
-          throw new NorthflankFailure("Northflank secret delivery outcome is uncertain.");
-        const target = owned.resources.find((resource) => resource.reference === group.groupRef);
-        if (target?.kind !== "secrets")
-          throw new NorthflankFailure("Northflank runtime recipient is unowned.");
-        const definition = prepared.spec.spec.steps.find((node) => node.ref === group.groupRef);
-        const configured = record(record(definition?.spec.secrets).variables);
-        const variables: Record<string, unknown> = { ...configured };
-        for (const [key, reference] of Object.entries(group.variables)) {
+      const configured = compileNorthflankGraph(
+        entry,
+        this.options.graph,
+        "prepare",
+        bindings(owned),
+      );
+      owned = await this.deliver(gate, owned, store, configured, "pre");
+      const outputs = [
+        ...new Set(
+          configured.secretBindings.flatMap((group) =>
+            Object.values(group.variables).flatMap((binding) =>
+              "output" in binding ? [binding.output] : [],
+            ),
+          ),
+        ),
+      ].sort();
+      if (outputs.length) {
+        if (this.options.qualification.outputExec !== true)
+          throw new NorthflankFailure("Northflank output command qualification is incomplete.");
+        const source = compileNorthflankGraph(entry, this.options.graph, "source", bindings(owned));
+        const started = await this.run(entry, effect, gate, owned, "source", source.spec);
+        if (!started?.concluded) return this.receipt(owned);
+        owned = await this.capture(started, owned, store);
+        if (!["success", "skipped"].includes(String(started.status)))
+          throw new NorthflankFailure("Northflank source startup failed.");
+        for (const name of outputs) {
+          const step = `secrets-output-${digest(name).slice(0, 20)}`;
+          const previous = (await gate.read()).find((item) => item.name === step);
+          if (previous?.state === "accepted") continue;
+          if (previous) throw new NorthflankFailure("Northflank output delivery is uncertain.");
+          const peers = await this.secretPeers(owned);
+          const output = this.options.graph.outputs?.[name];
+          if (!output) throw new NorthflankFailure("Northflank output is undeclared.");
+          const target = owned.resources.find(
+            (resource) => resource.reference === `r_${output.service.replaceAll("-", "_")}`,
+          );
+          if (target?.kind !== "services" || !source.sourceResources.includes(output.service))
+            throw new NorthflankFailure("Northflank output source is unowned.");
+          const observed = data(await this.options.api.request("GET", ["services", target.id]));
+          const recipe = entry.plan.resources.find((resource) => resource.id === output.service);
+          if (!recipe) throw new NorthflankFailure("Northflank output recipe is unselected.");
+          const deployment = record(observed.deployment);
+          if (
+            observed.uid !== target.uid ||
+            observed.name !== target.name ||
+            (recipe.build
+              ? record(deployment.internal).buildSHA !== entry.session.desiredRevision
+              : record(deployment.external).imagePath !== recipe.image)
+          )
+            throw new NorthflankFailure("Northflank output source revision differs.");
+          if (
+            (await begin(
+              gate,
+              step,
+              "convergent",
+              digest({ output: name, group: recipientReference(configured, name) }),
+            )) !== "write"
+          )
+            throw new NorthflankFenced();
           let value: string;
           try {
-            value = await this.options.runtimeSecret(reference);
+            value = await this.options.api.execServiceCommand(target.id, output.command, {
+              maxBytes: output.maxBytes + 1,
+              timeoutMs: 10_000,
+            });
           } catch {
-            throw new NorthflankFailure("Northflank runtime secret is unavailable.");
+            throw new NorthflankFailure("Northflank output command failed.");
           }
-          if (!value) throw new NorthflankFailure("Northflank runtime secret is unavailable.");
-          variables[key] = value;
+          if (await gate.fenced()) throw new NorthflankFenced();
+          if (value.endsWith("\n")) value = value.slice(0, -1);
+          if (Buffer.byteLength(value) > output.maxBytes || !new RegExp(output.pattern).test(value))
+            throw new NorthflankFailure("Northflank output command returned an invalid value.");
+          const previousValue = this.peerValue(peers, "output", name, owned);
+          if (previousValue !== undefined && previousValue !== value)
+            throw new NorthflankFailure("Northflank output differs from persisted recipients.");
+          const recipient = configured.secretBindings.find((group) =>
+            Object.values(group.variables).some(
+              (binding) => "output" in binding && binding.output === name,
+            ),
+          );
+          if (!recipient) throw new NorthflankFailure("Northflank output recipient is missing.");
+          const peer = peers.find((peer) => peer.resource.reference === recipient.groupRef);
+          if (!peer) throw new NorthflankFailure("Northflank output recipient is unowned.");
+          const variables = { ...peer.variables };
+          for (const [key, binding] of Object.entries(recipient.variables))
+            if ("output" in binding && binding.output === name) variables[key] = value;
+          await this.patchSecrets(gate, step, peer, variables, true);
+          return this.receipt(owned);
         }
-        if ((await begin(gate, step, "once")) !== "write")
-          return { ...this.receipt(owned, true), outcome: "cancelled" };
-        await this.options.api.request("PATCH", ["secrets", target.id], { secrets: { variables } });
-        await gate.record(step, "accepted");
+        owned = await this.deliver(gate, owned, store, configured, "post");
       }
       const active = compileNorthflankGraph(entry, this.options.graph, "activate", bindings(owned));
       const run = await this.run(entry, effect, gate, owned, "activate", active.spec);
@@ -443,6 +573,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       owned = await this.capture(run, owned, store);
       if (!["success", "skipped"].includes(String(run.status)))
         throw new NorthflankFailure("Northflank activation failed.");
+      await this.verifySecrets(owned, active);
       if (!(await this.options.accept(entry, active.urls))) return this.receipt(owned);
       return { ...this.receipt(owned, true), ready: true };
     } catch (error) {
@@ -464,6 +595,283 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       };
     }
   }
+  private async secretPeers(owned: NorthflankOwnership) {
+    const peers: Array<{
+      resource: NorthflankOwnedResource;
+      variables: Record<string, string>;
+      details: Record<string, unknown>;
+    }> = [];
+    for (const resource of owned.resources.filter(
+      (item) => item.kind === "secrets" && item.reference.startsWith("e_"),
+    )) {
+      const policy = Object.entries(this.options.graph.resources).find(
+        ([id]) => `e_${id.replaceAll("-", "_")}` === resource.reference,
+      );
+      const target = owned.resources.find(
+        (item) => item.reference === resource.reference.replace(/^e_/, "r_"),
+      );
+      if (!policy || !target || !["services", "jobs"].includes(target.kind))
+        throw new NorthflankFailure("Northflank secret recipient is unowned.");
+      const details = data(
+        await this.options.api.request("GET", ["secrets", resource.id, "details"]),
+      );
+      const restrictions = record(details.restrictions);
+      const objects = restrictions.nfObjects;
+      if (
+        details.name !== resource.name ||
+        (resource.uid !== undefined && details.uid !== resource.uid) ||
+        details.secretType !== "environment" ||
+        details.priority !== 10 ||
+        restrictions.restricted !== true ||
+        Object.keys(restrictions).some(
+          (key) => !["restricted", "nfObjects", "tags", "stageIds"].includes(key),
+        ) ||
+        !Array.isArray(objects) ||
+        objects.length !== 1 ||
+        record(objects[0]).id !== target.id ||
+        record(objects[0]).type !== (target.kind === "services" ? "service" : "job") ||
+        (restrictions.tags !== undefined &&
+          (!Array.isArray(restrictions.tags) || restrictions.tags.length > 0)) ||
+        (restrictions.stageIds !== undefined &&
+          (!Array.isArray(restrictions.stageIds) || restrictions.stageIds.length > 0))
+      )
+        throw new NorthflankFailure("Northflank secret recipient restrictions differ.");
+      const variables = record(record(details.secrets).variables) as Record<string, string>;
+      const configured = policy[1].environment ?? {};
+      if (
+        Object.entries(variables).some(
+          ([key, value]) =>
+            typeof value !== "string" ||
+            !Object.hasOwn(configured, key) ||
+            "addon" in configured[key],
+        )
+      )
+        throw new NorthflankFailure("Northflank secret group contains undeclared variables.");
+      peers.push({ resource, variables, details });
+    }
+    return peers;
+  }
+  private peerValue(
+    peers: Awaited<ReturnType<NorthflankPreviewProvider["secretPeers"]>>,
+    kind: "generated" | "output",
+    name: string,
+    owned: NorthflankOwnership,
+  ): string | undefined {
+    const values = new Set<string>();
+    for (const peer of peers) {
+      const settings = Object.entries(this.options.graph.resources).find(
+        ([id]) => `e_${id.replaceAll("-", "_")}` === peer.resource.reference,
+      )?.[1];
+      if (!settings) throw new NorthflankFailure("Northflank peer policy is missing.");
+      for (const [key, binding] of Object.entries(settings.environment ?? {}))
+        if (
+          (kind === "generated" && "generated" in binding && binding.generated === name) ||
+          (kind === "output" && "output" in binding && binding.output === name)
+        ) {
+          const value = peer.variables[key];
+          if (value !== undefined) {
+            const generated = this.options.graph.generated?.[name];
+            const output = this.options.graph.outputs?.[name];
+            if (
+              !value ||
+              Buffer.byteLength(value) > 8192 ||
+              (kind === "generated" &&
+                (!generated ||
+                  (generated.encoding === "hex"
+                    ? !new RegExp(`^[a-f0-9]{${generated.bytes * 2}}$`).test(value)
+                    : !/^[A-Za-z0-9_-]+$/.test(value) ||
+                      Buffer.from(value, "base64url").length !== generated.bytes))) ||
+              (kind === "output" &&
+                (!output ||
+                  Buffer.byteLength(value) > output.maxBytes ||
+                  !new RegExp(output.pattern).test(value)))
+            )
+              throw new NorthflankFailure("Northflank persisted value is invalid.");
+            values.add(value);
+          }
+        }
+    }
+    if (
+      values.size > 1 ||
+      (!values.size && owned.delivered?.includes(`${kind === "generated" ? "g" : "o"}:${name}`))
+    )
+      throw new NorthflankFailure("Northflank delivered value is missing or disagrees.");
+    return values.values().next().value;
+  }
+  private async patchSecrets(
+    gate: PreviewWriteGate,
+    step: string,
+    peer: Awaited<ReturnType<NorthflankPreviewProvider["secretPeers"]>>[number],
+    variables: Record<string, string>,
+    started = false,
+    preservedOutputKeys: string[] = [],
+  ) {
+    const previous = (await gate.read()).find((item) => item.name === step);
+    if (previous && previous.state !== "accepted" && !started)
+      throw new NorthflankFailure("Northflank secret delivery outcome is uncertain.");
+    const equal = (actual: Record<string, unknown>) =>
+      Object.keys(actual).length === Object.keys(variables).length &&
+      Object.entries(variables).every(([key, value]) => actual[key] === value);
+    if (previous?.state === "accepted") {
+      const expectedKeys = Object.keys(variables).filter(
+        (key) => !preservedOutputKeys.includes(key),
+      );
+      const actualKeys = Object.keys(peer.variables).filter(
+        (key) => !preservedOutputKeys.includes(key),
+      );
+      if (
+        expectedKeys.length !== actualKeys.length ||
+        expectedKeys.some((key) => peer.variables[key] !== variables[key])
+      )
+        throw new NorthflankFailure("Northflank accepted secret delivery was lost.");
+      return;
+    }
+    if (
+      !started &&
+      (await begin(
+        gate,
+        step,
+        "once",
+        digest({ group: peer.resource.reference, keys: Object.keys(variables).sort() }),
+      )) !== "write"
+    )
+      throw new NorthflankFenced();
+    if (started && (await begin(gate, step, "convergent", previous?.fingerprint)) !== "write")
+      throw new NorthflankFenced();
+    if (!equal(peer.variables)) {
+      try {
+        await this.options.api.request("PATCH", ["secrets", peer.resource.id], {
+          secrets: { variables },
+        });
+      } catch {
+        await gate.record(step, "uncertain");
+        throw new NorthflankFailure("Northflank secret write is uncertain.");
+      }
+    }
+    const observed = data(
+      await this.options.api.request("GET", ["secrets", peer.resource.id, "details"]),
+    );
+    if (
+      !equal(record(record(observed.secrets).variables)) ||
+      JSON.stringify(observed.restrictions) !== JSON.stringify(peer.details.restrictions) ||
+      observed.priority !== peer.details.priority ||
+      observed.secretType !== peer.details.secretType ||
+      JSON.stringify(record(observed.secrets).files) !==
+        JSON.stringify(record(peer.details.secrets).files) ||
+      JSON.stringify(observed.addonDependencies) !== JSON.stringify(peer.details.addonDependencies)
+    )
+      throw new NorthflankFailure("Northflank secret delivery readback differs.");
+    await gate.record(step, "accepted");
+  }
+  private async deliver(
+    gate: PreviewWriteGate,
+    owned: NorthflankOwnership,
+    store: NorthflankOwnershipStore,
+    graph: ReturnType<typeof compileNorthflankGraph>,
+    phase: "pre" | "post",
+  ) {
+    const peers = await this.secretPeers(owned);
+    const values = new Map<string, string>();
+    const markers = new Set<string>();
+    for (const group of graph.secretBindings) {
+      const peer = peers.find((peer) => peer.resource.reference === group.groupRef);
+      if (!peer) throw new NorthflankFailure("Northflank selected secret group is unowned.");
+      const variables = { ...peer.variables };
+      const definition = graph.spec.spec.steps.find((node) => node.ref === group.groupRef);
+      if (!definition) throw new NorthflankFailure("Northflank group definition is missing.");
+      if (
+        JSON.stringify(peer.details.addonDependencies ?? []) !==
+        JSON.stringify(definition.spec.addonDependencies ?? [])
+      )
+        throw new NorthflankFailure("Northflank addon bindings differ from reviewed policy.");
+      Object.assign(variables, record(record(definition.spec.secrets).variables));
+      for (const [key, binding] of Object.entries(group.variables)) {
+        const kind =
+          "runtimeSecret" in binding
+            ? "runtimeSecret"
+            : "generated" in binding
+              ? "generated"
+              : "output";
+        if ((phase === "pre" && kind === "output") || (phase === "post" && kind !== "output"))
+          continue;
+        const name =
+          "runtimeSecret" in binding
+            ? binding.runtimeSecret
+            : "generated" in binding
+              ? binding.generated
+              : binding.output;
+        const identity = `${kind}:${name}`;
+        let value = values.get(identity);
+        if (value === undefined) {
+          if (kind === "runtimeSecret") {
+            try {
+              value = await this.options.runtimeSecret(name);
+            } catch {
+              throw new NorthflankFailure("Northflank runtime secret is unavailable.");
+            }
+          } else {
+            value = this.peerValue(peers, kind, name, owned);
+            if (value === undefined && kind === "generated") {
+              const settings = this.options.graph.generated?.[name];
+              if (!settings)
+                throw new NorthflankFailure("Northflank generated value is undeclared.");
+              value = randomBytes(settings.bytes).toString(settings.encoding);
+            }
+            if (kind === "output" && value === undefined)
+              throw new NorthflankFailure("Northflank output has no verified recipient.");
+            markers.add(`${kind === "generated" ? "g" : "o"}:${name}`);
+          }
+          if (!value || Buffer.byteLength(value) > 64 * 1024)
+            throw new NorthflankFailure("Northflank runtime value is unavailable or oversized.");
+          values.set(identity, value);
+        }
+        variables[key] = value;
+      }
+      await this.patchSecrets(
+        gate,
+        `secrets-${phase}-${digest(group.groupRef).slice(0, 20)}`,
+        peer,
+        variables,
+        false,
+        phase === "pre"
+          ? Object.entries(group.variables)
+              .filter(([, binding]) => "output" in binding)
+              .map(([key]) => key)
+          : [],
+      );
+    }
+    if (await gate.fenced()) throw new NorthflankFenced();
+    return store.update((current) => ({
+      ...current,
+      delivered: [...new Set([...(current.delivered ?? []), ...markers])].sort(),
+    }));
+  }
+  private async verifySecrets(
+    owned: NorthflankOwnership,
+    graph: ReturnType<typeof compileNorthflankGraph>,
+  ) {
+    const peers = await this.secretPeers(owned);
+    for (const group of graph.secretBindings) {
+      const peer = peers.find((peer) => peer.resource.reference === group.groupRef);
+      if (!peer) throw new NorthflankFailure("Northflank selected recipient is missing.");
+      const plain = record(
+        record(graph.spec.spec.steps.find((node) => node.ref === group.groupRef)?.spec.secrets)
+          .variables,
+      );
+      if (Object.entries(plain).some(([key, value]) => peer.variables[key] !== value))
+        throw new NorthflankFailure("Northflank configured variables were lost.");
+      for (const [key, binding] of Object.entries(group.variables)) {
+        const value =
+          "generated" in binding
+            ? this.peerValue(peers, "generated", binding.generated, owned)
+            : "output" in binding
+              ? this.peerValue(peers, "output", binding.output, owned)
+              : undefined;
+        if (!peer.variables[key] || (value !== undefined && peer.variables[key] !== value))
+          throw new NorthflankFailure("Northflank delivered variables were lost.");
+      }
+    }
+  }
   private async settleFenced(
     effect: PreviewEffect,
     entry: PreviewPoolEntry,
@@ -471,6 +879,9 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     owned: NorthflankOwnership,
     store: NorthflankOwnershipStore,
   ): Promise<PreviewEffectReceipt> {
+    const steps = await gate.read();
+    if (steps.some((step) => step.name.startsWith("secrets-") && step.state !== "accepted"))
+      return { ...this.receipt(owned, true), outcome: "failed", cleanupRequired: true };
     const cutoff =
       entry.session.firstReadyAt === undefined
         ? entry.session.setupDeadline
@@ -481,7 +892,6 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     )
       return { ...this.receipt(owned, true), outcome: "cancelled" };
     // A newer source waits for every older native write; only stop can use the container deletion fence.
-    const steps = await gate.read();
     for (const step of steps.filter(
       (item) => item.name.endsWith("-spec") && item.state !== "accepted",
     )) {
@@ -730,6 +1140,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       blueprintId: undefined,
       previewId: undefined,
       resources: [],
+      delivered: [],
       absent: true,
     }));
     return this.receipt(owned, true);
@@ -811,4 +1222,17 @@ async function begin(
   const result = await gate.begin(name, mode, fingerprint);
   if (result === "fenced") throw new NorthflankFenced();
   return result;
+}
+
+function recipientReference(
+  graph: ReturnType<typeof compileNorthflankGraph>,
+  name: string,
+): string {
+  const group = graph.secretBindings.find((group) =>
+    Object.values(group.variables).some(
+      (binding) => "output" in binding && binding.output === name,
+    ),
+  );
+  if (!group) throw new NorthflankFailure("Northflank output recipient is missing.");
+  return group.groupRef;
 }
