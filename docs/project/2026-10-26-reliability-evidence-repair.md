@@ -162,11 +162,31 @@ concerns this task branch and excludes consumer-runtime verification.
   explicit repair proved and stopped the replacement population; repeated repair
   succeeded; resume preserved the exact data marker; final stop succeeded.
   These are synthetic qualification results, not consumer recovery evidence.
-- Q20 has a fresh fixture prepared against the merged bundle, with successful
-  ongoing renewals. Verification remains pending the operator's actual sleep and
-  wake. The qualifier will refuse a stale session or changed executable and
-  perform its exact cleanup after the live verification. The fixture is retained
-  only for this pending operator-observed test; it is not a consumer environment.
+- Q20's first fresh live attempt failed the session-invalidation assertions:
+  the old generation remained renewable after a short actual suspend, while
+  the fixture route retained its expected response. The failed receipt remains
+  private and does not qualify Q20. Exact cleanup was verified: controller and
+  heartbeat stopped, with no fixture container or route remaining.
+- Source inspection and an isolated synthetic clock experiment confirm that
+  matching monotonic/wall deltas through 15,000 ms retain the generation; a
+  15,001 ms scheduling gap invalidates it. The other current triggers are a
+  backwards clock or wall/monotonic divergence over 2,000 ms. A short suspend
+  that crosses none of these triggers has no independent wake-epoch signal.
+  This remains an open continuity-coverage gap, even if a longer attempt passes.
+- The fresh long-suspend retry passed against the same `1df0d0a6` source and
+  unchanged bundle, preserving the first failed receipt. A successful renewal
+  preceded the actual sleep inside the lease. The same controller incarnation
+  invalidated the old generation, refused its renewal and protection requests,
+  and retained the discontinuity. Re-observation issued a fresh generation;
+  protection required revalidation, parking consent remained unsatisfied, and
+  the route still served its expected synthetic response.
+- Independent post-verification cleanup confirmed the retry's controller and
+  heartbeat stopped, the exact recorded container was absent, and no fixture
+  container or route remained. The pass and cleanup receipts remain private.
+  No further sleep fixture is retained. This qualifies the long-suspend cell
+  on the named source artifacts, without closing short-suspend coverage,
+  capacity-window clearing across a live admission, exact-release verification,
+  integrated-canary acceptance or consumer recovery.
 - Detailed task-owned fixture receipts and producing logs are retained privately;
   other task branches, checkouts and runtimes were not changed. No release or
   global installation occurred.
